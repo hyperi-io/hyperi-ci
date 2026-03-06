@@ -14,6 +14,37 @@ from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
 
 
+def _find_npm_script(
+    candidates: list[str],
+    pm: str,
+) -> str | None:
+    """Find the first matching npm script from candidates.
+
+    Args:
+        candidates: Script names to try in order.
+        pm: Package manager command.
+
+    Returns:
+        First matching script name, or None.
+    """
+    import json
+    from pathlib import Path
+
+    pkg = Path("package.json")
+    if not pkg.exists():
+        return None
+
+    try:
+        data = json.loads(pkg.read_text())
+        scripts = data.get("scripts", {})
+        for name in candidates:
+            if name in scripts:
+                return name
+    except (json.JSONDecodeError, KeyError):
+        pass
+    return None
+
+
 def _detect_package_manager() -> str:
     """Detect which package manager the project uses."""
     from pathlib import Path
@@ -68,7 +99,15 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         had_failure = True
 
     mode = _get_tool_mode("tsc", config)
-    if not _run_tool("tsc", [pm, "run", "typecheck"], mode):
+    tsc_script = _find_npm_script(
+        ["typecheck", "check-types"],
+        pm,
+    )
+    if tsc_script:
+        tsc_cmd = [pm, "run", tsc_script]
+    else:
+        tsc_cmd = ["npx", "tsc", "--noEmit"]
+    if not _run_tool("tsc", tsc_cmd, mode):
         had_failure = True
 
     mode = _get_tool_mode("audit", config)
