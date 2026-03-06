@@ -160,9 +160,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 ```
 src/hyperi_ci/languages/
 ├── python/
-│   ├── quality.py    ruff check, ruff format, pyright, bandit, pip-audit
+│   ├── quality.py    ruff check, ruff format, ty, bandit, pip-audit
 │   ├── test.py       pytest with coverage
-│   ├── build.py      uv build (wheel + sdist)
+│   ├── build.py      uv build (wheel + sdist), Nuitka (native binary)
 │   └── publish.py    uv publish → PyPI or JFrog
 ├── rust/
 │   ├── quality.py    cargo fmt, clippy, cargo audit, cargo deny
@@ -171,7 +171,7 @@ src/hyperi_ci/languages/
 │   └── publish.py    cargo publish → crates.io or JFrog
 ├── typescript/
 │   ├── quality.py    eslint, prettier, tsc, npm audit
-│   ├── test.py       vitest / jest (auto-detected from package.json)
+│   ├── test.py       vitest / jest (auto-detected), Playwright E2E
 │   ├── build.py      npm run build / pnpm build
 │   └── publish.py    npm publish → npmjs or JFrog
 └── golang/
@@ -328,20 +328,208 @@ how to invoke them, what flags to pass). This separation means:
 - Adding a new quality check = Python code change, not workflow YAML
 - Same behaviour everywhere — no "works locally but fails in CI"
 
+## Runner Modes
+
+CI supports two execution modes: **self-hosted** (ARC runners on the
+DevEx cluster) and **free** (GitHub-hosted `ubuntu-latest`).
+
+| Mode | Runners | Cache | Toolchain |
+|------|---------|-------|-----------|
+| `self-hosted` | ARC runners (DevEx cluster) | Persistent NFS sccache/ccache | Pre-installed in runner image |
+| `free` | GitHub-hosted `ubuntu-latest` (4 vCPU, 16 GB) | None between runs | Installed per-job via setup actions |
+
+When `mode` is `free`, `GH_RUNNER_*` org variables are ignored and
+all jobs run on `ubuntu-latest`. This means any GitHub organisation
+can use hyperi-ci's reusable workflows without self-hosted
+infrastructure — builds just take longer without the persistent cache
+and pre-installed toolchain.
+
+### How Runner Mode Is Resolved
+
+Mode is controlled at three levels (highest wins):
+
+1. **Workflow input `runner-mode`** — consumer repo passes it explicitly
+   in their `ci.yml` (per-repo control)
+2. **GitHub variable `GH_RUNNER_MODE`** — set at org or repo level
+   (org-wide default)
+3. **Fallback** — if neither is set, `GH_RUNNER_*` vars are checked,
+   ultimately falling back to `ubuntu-latest`
+
+Every `runs-on` expression in the reusable workflows evaluates:
+
+```
+(inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free'
+  → 'ubuntu-latest'
+  → inputs.runner-<job> || vars.GH_RUNNER_<LANG> || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest'
+```
+
+Consumer project examples:
+
+```yaml
+# Free mode (explicit)
+jobs:
+  ci:
+    uses: hyperi-io/hyperi-ci/.github/workflows/rust-ci.yml@main
+    with:
+      runner-mode: free
+    secrets: inherit
+
+# Self-hosted mode (default — uses GH_RUNNER_* org vars)
+jobs:
+  ci:
+    uses: hyperi-io/hyperi-ci/.github/workflows/rust-ci.yml@main
+    secrets: inherit
+```
+
+The `config/defaults.yaml` documents the intended org-wide default
+(`runners.mode: self-hosted`) but actual enforcement is at the
+workflow expression level via `GH_RUNNER_MODE` and `runner-mode`.
+
+### uv Caching
+
+The `setup-uv` action's `enable-cache` is only enabled in `python-ci.yml`
+where there are actual Python dependencies to cache (`uv.lock`,
+`pyproject.toml`). In non-Python workflows (Rust, TypeScript, Go), uv
+is used solely as a delivery mechanism for `uvx hyperi-ci` — there is
+no Python project to cache, so caching is disabled to avoid spurious
+"no cache files found" warnings.
+
+### Cross-Compilation and ARM Runners
+
+Most languages can cross-compile from x64 to arm64 on a single runner:
+
+| Language | Cross-compile x64 → arm64 | ARM runner needed? |
+|----------|--------------------------|-------------------|
+| Rust | Yes — `cargo build --target aarch64-unknown-linux-gnu` | No |
+| Go | Yes — `GOARCH=arm64 go build` | No |
+| TypeScript | N/A — produces platform-agnostic JS | No |
+| Python (wheel) | N/A — pure Python or manylinux wheels | No |
+| Python (Nuitka) | **No** — compiles to native C binary | **Yes** |
+
+Nuitka compiles Python to native machine code via C and cannot
+cross-compile. Projects using Nuitka to produce binaries for both
+x64 and arm64 require two build runners — one per architecture.
+In free mode this means `ubuntu-latest` (x64) and
+`ubuntu-latest-arm` (arm64, free for public repos). In self-hosted
+mode, separate ARC runner tiers for each architecture.
+
+The Nuitka build uses the OSS version from PyPI (`pip install nuitka`),
+not the commercial Nuitka licence. The compilation is for performance
+only — all HyperI Python projects also publish standard wheels.
+
+### Self-Hosted Mode (ARC Runners)
+
+When `GH_RUNNER_*` variables point to ARC runner labels, CI runs on
+self-hosted runners deployed to the DevEx Kubernetes cluster. Four
+runner tiers are available:
+
+| Tier | CPUs | RAM | maxRunners | Typical Use |
+|------|------|-----|------------|-------------|
+| 2cpu | 2 | 4Gi | 20 | Lint, test, publish, semantic-release |
+| 4cpu | 4 | 8Gi | 10 | Python, Node.js builds, small Rust crates |
+| 8cpu | 8 | 16Gi | 5 | Medium Rust/C++ builds, integration tests |
+| 16cpu | 16 | 28Gi | 3 | Large Rust/C++ release builds, ClickHouse |
+
+Runners are **ephemeral** — each pod is destroyed after one job and the
+scale sets idle at zero. The runner image (built from
+`hyperi-infra/containers/arc-runner/Dockerfile`) includes the full
+toolchain: LLVM/Clang 19+20, GCC, Rust stable+nightly, Python 3.12+uv,
+Node.js 22, Go, mold linker, and security scanners.
+
+### Persistent Build Cache (Rust, C/C++)
+
+Compilation caches persist across ephemeral runner pods via a shared
+NFS-backed PersistentVolume. This is the primary mechanism for keeping
+Rust and C++ builds fast — without it, every job would start from a
+cold compile.
+
+**Infrastructure** (defined in `hyperi-infra`):
+
+- **250Gi NFS PV** on NVMe SSD (`storage.devex.hyperi.io:/nas/ssd/runner-cache`)
+- **PVC** `runner-cache-pvc` in `arc-runners` namespace, mounted at `/mnt/cache`
+- **NFS tuned for cache workloads**: `async` (speed over durability for
+  disposable data), `soft` + `timeo=30` (fail-fast, no D-state hangs),
+  `nolock`, 1MB I/O blocks, 60s attribute cache
+
+**Cache environment variables** (set on all runner tiers):
+
+| Variable | Value | Purpose |
+|----------|-------|---------|
+| `SCCACHE_DIR` | `/mnt/cache/sccache` | sccache compilation cache (NFS) |
+| `SCCACHE_CACHE_SIZE` | `100G` | Max cache size (LRU eviction) |
+| `SCCACHE_IDLE_TIMEOUT` | `0` | Keep sccache daemon alive for job duration |
+| `CCACHE_DIR` | `/mnt/cache/ccache` | ccache C/C++ compilation cache (NFS) |
+| `CCACHE_MAXSIZE` | `100G` | Max cache size |
+| `RUSTC_WRAPPER` | `sccache` | Route all rustc invocations through sccache |
+| `CARGO_INCREMENTAL` | `0` | Disabled — incompatible with sccache |
+| `CARGO_REGISTRIES_CRATES_IO_PROTOCOL` | `sparse` | Faster registry metadata |
+| `LDFLAGS` | `-fuse-ld=mold` | mold linker (replaces slow ld.bfd) |
+
+**Package manager caches** (Cargo registry, uv, pip, npm) use local
+`emptyDir` volumes — their metadata-heavy I/O patterns perform poorly
+over NFS and they re-populate quickly.
+
+### Why This Matters
+
+Without the persistent cache, a clean Rust build of a project with C
+dependencies (e.g. librdkafka via `rdkafka-sys`) takes 15–20 minutes.
+With a warm sccache, the same build completes in 1–3 minutes. C++
+projects (e.g. ClickHouse contributor builds) see similar improvements
+with ccache.
+
+The cache is disposable — if the NFS volume is lost or corrupted, the
+only impact is slower first builds while caches repopulate. No data
+integrity requirements, which is why NFS `async` mode is used.
+
+### Configuration Files (in `hyperi-infra`)
+
+| File | Purpose |
+|------|---------|
+| `k8s/runner-cache-pv.yaml` | PV/PVC definition (NFS mount options) |
+| `k8s/arc-runner-set-values.yaml` | Base Helm values (volumes, env, auth) |
+| `k8s/arc-runner-{2,4,8,16}cpu.yaml` | Per-tier resource limits and scaling |
+| `containers/arc-runner/Dockerfile` | Runner image with full toolchain |
+| `ansible/playbooks/k8s-arc-runners.yml` | Helm deployment playbook |
+| `ansible/roles/storage_server/` | NFS server config and SSD cache dirs |
+
 ## Cross-Compilation (Rust + C/C++)
 
 For projects with C/C++ dependencies (e.g. librdkafka via `rdkafka`
-crate with `cmake-build` feature), the build handler automatically:
+crate with `cmake-build` feature), the build handler uses a **private
+sysroot approach** ported from the old CI. This avoids installing
+cross-arch `-dev` packages system-wide (many are NOT Multi-Arch safe
+and would replace the native versions, breaking the native build).
 
-1. Detects cross-compilation targets from `.hyperi-ci.yaml`
-2. Sets `CC_<TARGET>`, `CXX_<TARGET>`, `AR_<TARGET>` env vars for the
-   cross-compiler toolchain
-3. Sets `CARGO_TARGET_<TARGET>_LINKER` for cargo
-4. Sets `PKG_CONFIG_ALLOW_CROSS` and `PKG_CONFIG_SYSROOT_DIR`
+### How it works
 
-The Dockerfile uses `TARGETARCH` build arg to select the right target
-triple, so `docker buildx build --platform linux/amd64,linux/arm64`
-produces both architectures with C/C++ deps compiled for each.
+1. **Target ordering** — builds native target first, then cross targets,
+   to avoid Multi-Arch package conflicts.
+
+2. **Cross-compiler installation** — installs only the cross-compiler
+   toolchain system-wide (`gcc-aarch64-linux-gnu`, `g++-aarch64-linux-gnu`,
+   `libc6-dev:arm64`) as these ARE Multi-Arch safe.
+
+3. **Private sysroot** — auto-detects native `-dev` packages with
+   pkg-config files, resolves their cross-arch equivalents + transitive
+   library dependencies (breadth-first, up to 20 levels deep), downloads
+   `.deb` files, and extracts to `/tmp/cross-sysroot/<arch>/`. No sudo
+   needed for this step. Handles usrmerge and GNU LD script path patching.
+
+4. **Linker wrapper** — creates a wrapper script at
+   `<sysroot>/bin/<triple>-gcc` that:
+   - Forces `-fuse-ld=bfd` (mold can't cross-compile)
+   - Adds `-L` flags for sysroot library directories
+   - Adds `-Wl,-rpath-link` for transitive `.so` dependency resolution
+
+5. **Environment variables** set per cross target:
+   - `CC_<TARGET>`, `CXX_<TARGET>`, `AR_<TARGET>` — cross-compiler
+   - `CARGO_TARGET_<TARGET>_LINKER` — linker wrapper path
+   - `CFLAGS_<target>`, `CXXFLAGS_<target>` — `-fuse-ld=bfd` + sysroot includes
+   - `PKG_CONFIG_PATH`, `PKG_CONFIG_SYSROOT_DIR`, `PKG_CONFIG_ALLOW_CROSS`
+   - `CMAKE_PREFIX_PATH` — for cmake-based `-sys` crates
+   - `LDFLAGS`, `CFLAGS`, `CXXFLAGS` cleared to prevent host flag leakage
+
+See `docs/CI-LESSONS.md` for the full rationale and known gotchas.
 
 ## Developer Commands
 
