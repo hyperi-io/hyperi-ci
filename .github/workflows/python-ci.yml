@@ -37,6 +37,8 @@ on:
     secrets:
       JFROG_TOKEN:
         required: false
+      PYPI_TOKEN:
+        required: false
       GITLEAKS_GH_ACTIONS_KEY:
         required: false
 
@@ -158,3 +160,47 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx semantic-release
+
+  publish:
+    name: Publish
+    needs: [release]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Check for VERSION
+        id: check
+        run: |
+          if [ -f VERSION ]; then
+            echo "has_version=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_version=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install uv
+        if: steps.check.outputs.has_version == 'true'
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        if: steps.check.outputs.has_version == 'true'
+        run: uv python install ${{ inputs.python-version }}
+
+      - name: Install dependencies
+        if: steps.check.outputs.has_version == 'true'
+        run: uv sync --frozen
+
+      - name: Build package
+        if: steps.check.outputs.has_version == 'true'
+        run: uv build
+
+      - name: Publish
+        if: steps.check.outputs.has_version == 'true'
+        env:
+          JFROG_TOKEN: ${{ secrets.JFROG_TOKEN }}
+          PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+        run: ${{ env.HYPERCI_INSTALL }} run publish

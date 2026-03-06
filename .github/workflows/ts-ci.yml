@@ -183,3 +183,53 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx semantic-release
+
+  publish:
+    name: Publish
+    needs: [release]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Check for VERSION
+        id: check
+        run: |
+          if [ -f VERSION ]; then
+            echo "has_version=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_version=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Node.js
+        if: steps.check.outputs.has_version == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Install pnpm
+        if: steps.check.outputs.has_version == 'true'
+        run: corepack enable pnpm
+
+      - name: Install dependencies
+        if: steps.check.outputs.has_version == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Install uv
+        if: steps.check.outputs.has_version == 'true'
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        if: steps.check.outputs.has_version == 'true'
+        run: uv python install 3.12
+
+      - name: Publish
+        if: steps.check.outputs.has_version == 'true'
+        env:
+          JFROG_TOKEN: ${{ secrets.JFROG_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: ${{ env.HYPERCI_INSTALL }} run publish
