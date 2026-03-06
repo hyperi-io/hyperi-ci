@@ -6,8 +6,7 @@ This is the **single source of truth** for all tasks and progress.
 
 ## Active Tasks
 
-- [ ] Make `init` existing-project-smart per language `[PENDING]`
-- [ ] Evaluate hyperi-pylib usage vs bespoke code in hyperi-ci `[PENDING]`
+_(none active)_
 
 ---
 
@@ -15,7 +14,6 @@ This is the **single source of truth** for all tasks and progress.
 
 ### High Priority
 
-- [ ] Publish handlers — wire `src/hyperi_ci/publish/` with JFrog + OSS routing per `PUBLISH_TARGET`
 - [ ] Validate with test projects — create GitHub repos, push, verify CI end-to-end
 - [ ] Reliable migration automation and documentation for existing `ci/` submodule attached projects
   - 14+ consumer projects need to cut over from old `ci/` submodule to `hyperi-ci init`
@@ -44,13 +42,20 @@ This is the **single source of truth** for all tasks and progress.
 
 ---
 
-## Completed (This Session)
+## Completed
 
 - [x] Add hyperi-ai standards submodule
 - [x] Create reusable workflow templates (python-ci, rust-ci, ts-ci, go-ci)
 - [x] Add `init` command (generates .hyperi-ci.yaml, Makefile, workflow)
 - [x] Add `trigger`, `watch`, `logs` commands (ported from old CI)
-- [x] 51 tests passing, lint clean
+- [x] Make `init` existing-project-smart per language
+- [x] Publish handlers — Python, Rust, TypeScript, Go (JFrog + OSS)
+- [x] Validate language handlers against test projects (quality, test, build)
+- [x] Add C/C++ deps (librdkafka) to Rust test project with cross-compile support
+- [x] Update Rust build handler for C/C++ cross-compilation env vars (CC/CXX/AR/PKG_CONFIG)
+- [x] Create docs/DESIGN.md (architecture: GH Actions side + CLI side)
+- [x] Update README.md (init, trigger/watch/logs, cross-compilation, languages table)
+- [x] 82 tests passing, lint clean
 
 ---
 
