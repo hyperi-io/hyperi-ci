@@ -67,6 +67,11 @@ def _cross_env(target: str) -> dict[str, str]:
         env[f"CARGO_TARGET_{target_upper}_LINKER"] = toolchain["linker"]
         env["PKG_CONFIG_ALLOW_CROSS"] = "1"
         env["PKG_CONFIG_SYSROOT_DIR"] = toolchain["pkg_config_sysroot"]
+        # Clear host compiler/linker flags to prevent e.g. -fuse-ld=mold
+        # from breaking CMake cross-compilation test builds
+        env["LDFLAGS"] = ""
+        env["CFLAGS"] = ""
+        env["CXXFLAGS"] = ""
         info(f"  Cross-compilation toolchain: {cc}")
     else:
         warn(f"  Cross-compiler {cc} not found — build may fail")
