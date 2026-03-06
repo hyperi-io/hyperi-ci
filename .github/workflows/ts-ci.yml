@@ -50,7 +50,7 @@ env:
     uvx
     --index-strategy unsafe-best-match
     --index https://hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple
-    --from 'hyperi-ci @ git+https://github.com/hyperi-io/hyperi-ci.git'
+    --from 'hyperi-ci @ https://github.com/hyperi-io/hyperi-ci/archive/main.tar.gz'
     hyperi-ci
 
 jobs:
