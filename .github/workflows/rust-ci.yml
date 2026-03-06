@@ -58,9 +58,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Configure git credentials
-        run: git config --global url."https://x-access-token:${{ secrets.GIT_TOKEN }}@github.com/".insteadOf "https://github.com/"
-
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
@@ -98,9 +95,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Configure git credentials
-        run: git config --global url."https://x-access-token:${{ secrets.GIT_TOKEN }}@github.com/".insteadOf "https://github.com/"
-
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
@@ -135,9 +129,6 @@ jobs:
     runs-on: ${{ inputs.runner-build || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
-
-      - name: Configure git credentials
-        run: git config --global url."https://x-access-token:${{ secrets.GIT_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
