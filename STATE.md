@@ -19,6 +19,11 @@ have cut over. **Reference the old CI** at `/projects/ci` for proven patterns
 before reinventing — it has working solutions for system deps, cross-compilation
 sysroots, cargo registry config, and binary verification.
 
+**MANDATORY: Read `docs/CI-LESSONS.md` before implementing or debugging any CI
+handler.** It contains extracted patterns, gotchas, and solutions from the old
+CI. Ignoring it wastes time rediscovering known problems (e.g. mold linker,
+multi-arch package conflicts, sysroot approach, integration test threading).
+
 ## Hard Design Principles
 
 1. **NO BASH** — all CI logic is Python. `subprocess.run()` with list args.
@@ -86,6 +91,7 @@ CLI flags → ENV vars (HYPERCI_*) → .hyperi-ci.yaml → config/defaults.yaml 
 | `scripts/update-versions.py` | Version sync/update script |
 | `scripts/sync-secrets-access.py` | Secret repo access sync script |
 | `docs/DESIGN.md` | Full architecture documentation |
+| `docs/CI-LESSONS.md` | Lessons from old CI — MUST READ before handler work |
 
 ## Commands
 
