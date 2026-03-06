@@ -56,10 +56,10 @@ jobs:
     name: Quality
     runs-on: ${{ inputs.runner-quality || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Configure git credentials
-        run: git config --global url."https://x-access-token:${{ github.token }}@github.com/".insteadOf "https://github.com/"
+        run: git config --global url."https://x-access-token:${{ secrets.GIT_TOKEN_WORKFLOW_ACCESS }}@github.com/".insteadOf "https://github.com/"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
@@ -68,7 +68,7 @@ jobs:
           components: clippy, rustfmt
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/bin/
@@ -79,7 +79,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
@@ -96,10 +96,10 @@ jobs:
       matrix:
         os: ${{ fromJson(inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Configure git credentials
-        run: git config --global url."https://x-access-token:${{ github.token }}@github.com/".insteadOf "https://github.com/"
+        run: git config --global url."https://x-access-token:${{ secrets.GIT_TOKEN_WORKFLOW_ACCESS }}@github.com/".insteadOf "https://github.com/"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
@@ -107,7 +107,7 @@ jobs:
           toolchain: ${{ inputs.rust-toolchain }}
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/bin/
@@ -118,7 +118,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
@@ -134,10 +134,10 @@ jobs:
     if: github.event.pull_request.head.repo.fork != true
     runs-on: ${{ inputs.runner-build || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Configure git credentials
-        run: git config --global url."https://x-access-token:${{ github.token }}@github.com/".insteadOf "https://github.com/"
+        run: git config --global url."https://x-access-token:${{ secrets.GIT_TOKEN_WORKFLOW_ACCESS }}@github.com/".insteadOf "https://github.com/"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
@@ -145,7 +145,7 @@ jobs:
           toolchain: ${{ inputs.rust-toolchain }}
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/bin/
@@ -156,7 +156,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
@@ -176,13 +176,13 @@ jobs:
       issues: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
 
