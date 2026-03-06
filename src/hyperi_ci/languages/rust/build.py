@@ -7,12 +7,14 @@
 """Rust build handler.
 
 Builds Rust projects in release mode with optional cross-compilation.
-Cross-compilation uses sysroot approach: downloads cross-arch .deb packages
-and extracts to a private sysroot directory.
+Sets CC/CXX/PKG_CONFIG environment variables for cross-targets so that
+C/C++ dependencies (e.g. librdkafka via cmake-build) compile correctly.
 """
 
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
 import sys
 
@@ -27,6 +29,16 @@ _TARGET_MAP = {
     "x86_64-pc-windows-msvc": ("windows", "amd64"),
 }
 
+_CROSS_TOOLCHAIN = {
+    "aarch64-unknown-linux-gnu": {
+        "cc": "aarch64-linux-gnu-gcc",
+        "cxx": "aarch64-linux-gnu-g++",
+        "ar": "aarch64-linux-gnu-ar",
+        "linker": "aarch64-linux-gnu-gcc",
+        "pkg_config_sysroot": "/usr/aarch64-linux-gnu",
+    },
+}
+
 
 def _get_native_target() -> str:
     """Get the native Rust target triple for this platform."""
@@ -38,7 +50,36 @@ def _get_native_target() -> str:
     return "x86_64-unknown-linux-gnu"
 
 
-def _build_for_target(target: str, features: str, all_features: bool) -> int:
+def _cross_env(target: str) -> dict[str, str]:
+    """Build environment variables for cross-compiling C/C++ deps."""
+    toolchain = _CROSS_TOOLCHAIN.get(target)
+    if not toolchain:
+        return {}
+
+    target_upper = target.replace("-", "_").upper()
+    env: dict[str, str] = {}
+
+    cc = toolchain["cc"]
+    if shutil.which(cc):
+        env[f"CC_{target_upper}"] = cc
+        env[f"CXX_{target_upper}"] = toolchain["cxx"]
+        env[f"AR_{target_upper}"] = toolchain["ar"]
+        env[f"CARGO_TARGET_{target_upper}_LINKER"] = toolchain["linker"]
+        env["PKG_CONFIG_ALLOW_CROSS"] = "1"
+        env["PKG_CONFIG_SYSROOT_DIR"] = toolchain["pkg_config_sysroot"]
+        info(f"  Cross-compilation toolchain: {cc}")
+    else:
+        warn(f"  Cross-compiler {cc} not found — build may fail")
+
+    return env
+
+
+def _build_for_target(
+    target: str,
+    features: str,
+    all_features: bool,
+    extra_env: dict[str, str] | None = None,
+) -> int:
     """Build for a specific target triple."""
     cmd = ["cargo", "build", "--release", "--target", target]
 
@@ -47,8 +88,17 @@ def _build_for_target(target: str, features: str, all_features: bool) -> int:
     elif features and features not in ("all", "default"):
         cmd.extend(["--features", features])
 
+    env = dict(os.environ)
+    if extra_env:
+        env.update(extra_env)
+
+    # Set cross-compilation env vars for C/C++ dependencies
+    native = _get_native_target()
+    if target != native:
+        env.update(_cross_env(target))
+
     info(f"  Building for {target}...")
-    result = subprocess.run(cmd)
+    result = subprocess.run(cmd, env=env)
     return result.returncode
 
 
@@ -84,7 +134,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     for target in targets:
         with group(f"Build: {target}"):
-            rc = _build_for_target(target, features, all_features)
+            rc = _build_for_target(target, features, all_features, extra)
             if rc != 0:
                 error(f"Build failed for target: {target}")
                 return rc
