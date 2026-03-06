@@ -133,6 +133,29 @@ def config(
 
 
 @app.command()
+def migrate(
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+    language: Annotated[
+        str | None,
+        typer.Option("--language", "-l", help="Override detected language"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", "-n", help="Show what would be done"),
+    ] = False,
+) -> None:
+    """Migrate a project from old ci/ submodule to hyperi-ci."""
+    from hyperi_ci.migrate import migrate_project
+
+    dir_path = Path(project_dir) if project_dir else Path.cwd()
+    rc = migrate_project(dir_path, language=language, dry_run=dry_run)
+    raise typer.Exit(rc)
+
+
+@app.command()
 def trigger(
     workflow: Annotated[
         str,

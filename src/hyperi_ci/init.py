@@ -231,10 +231,7 @@ def _render_releaserc(project_name: str) -> str:
                 "@semantic-release/git",
                 {
                     "assets": ["CHANGELOG.md", "VERSION"],
-                    "message": (
-                        "chore: version ${nextRelease.version}"
-                        " [skip ci]"
-                    ),
+                    "message": ("chore: version ${nextRelease.version} [skip ci]"),
                 },
             ],
             "@semantic-release/github",
@@ -269,10 +266,7 @@ def _write_file(path: Path, content: str, *, force: bool) -> bool:
         True if the file was written.
     """
     if path.exists() and not force:
-        warn(
-            f"  Skipped {path.name}"
-            " (exists, use --force to overwrite)"
-        )
+        warn(f"  Skipped {path.name} (exists, use --force to overwrite)")
         return False
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -362,7 +356,9 @@ def init_project(
     files_written = 0
 
     config_content = _render_hyperi_ci_yaml(
-        detected, project_name, project_dir,
+        detected,
+        project_name,
+        project_dir,
     )
     config_path = project_dir / ".hyperi-ci.yaml"
     if _write_file(config_path, config_content, force=force):
@@ -374,19 +370,22 @@ def init_project(
         makefile_content = _render_makefile(project_name)
         makefile_path = project_dir / "Makefile"
         if _write_file(
-            makefile_path, makefile_content, force=force,
+            makefile_path,
+            makefile_content,
+            force=force,
         ):
             files_written += 1
 
     if workflow_file:
         workflow_content = _render_workflow(
-            project_name, workflow_file,
+            project_name,
+            workflow_file,
         )
-        workflow_path = (
-            project_dir / ".github" / "workflows" / "ci.yml"
-        )
+        workflow_path = project_dir / ".github" / "workflows" / "ci.yml"
         if _write_file(
-            workflow_path, workflow_content, force=force,
+            workflow_path,
+            workflow_content,
+            force=force,
         ):
             files_written += 1
 
@@ -394,7 +393,9 @@ def init_project(
         releaserc_content = _render_releaserc(project_name)
         releaserc_path = project_dir / ".releaserc.yaml"
         if _write_file(
-            releaserc_path, releaserc_content, force=force,
+            releaserc_path,
+            releaserc_content,
+            force=force,
         ):
             files_written += 1
     else:
