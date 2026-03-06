@@ -42,13 +42,13 @@ All versioning and publishing flows through semantic-release:
 - Push to main → semantic-release analyses conventional commits → creates tag → publishes
 - Reusable workflows call `hyperi-ci run publish` only on release events
 - No manual version bumps, no manual publishing
+- Config: `.releaserc.yaml` with conventional commits preset
 
 ### 3. CI Skip — Simple and Obvious
 
 To skip CI on a push, use the standard Git convention:
 - **`[skip ci]`** or **`[ci skip]`** anywhere in the commit message
 - GitHub Actions natively respects this — no custom logic needed
-- Document prominently in consumer project templates
 
 ### 4. hyperi-pylib as Direct Dependency
 
@@ -67,14 +67,29 @@ To skip CI on a push, use the standard Git convention:
 
 ### 6. Self-Hosting CI
 
-hyperi-ci uses itself for CI. The repo has its own slimmed-down CI workflow
-that runs `hyperi-ci run quality`, `hyperi-ci run test`, etc.
+hyperi-ci uses itself for CI. The repo has its own CI workflow at
+`.github/workflows/ci.yml` that runs quality, test (Linux + macOS matrix),
+and semantic release on main.
 
 ### 7. Cross-Platform (Linux + macOS)
 
 - All code runs identically on Linux (CI runners) and macOS (dev laptops)
 - Use `pathlib` not string paths, `shutil.which()` not hardcoded paths
 - Platform detection via `sys.platform`, skip cross-compile on macOS
+
+### 8. Publish Target Routing
+
+A single GitHub variable `PUBLISH_TARGET` (org-level, repo-level override)
+controls where artifacts go:
+- `internal` — JFrog Artifactory only (default)
+- `oss` — Public registries (PyPI, npm, crates.io, GHCR)
+- `both` — Publish to both
+
+Maps to `HYPERCI_PUBLISH_TARGET` env var. Config API:
+```python
+config.publish_target           # "internal", "oss", or "both"
+config.destination_for("python")  # ["jfrog-pypi"] or ["pypi"] or both
+```
 
 ## Architecture
 
@@ -86,11 +101,22 @@ src/hyperi_ci/
 ├── common.py            # Shared utilities (logger, subprocess, GH Actions helpers)
 ├── detect.py            # Language detection from file markers
 ├── dispatch.py          # Stage dispatcher → language handlers
+├── publish/             # Publish handlers (not yet wired)
 └── languages/
     ├── python/          # quality.py, test.py, build.py
     ├── rust/            # quality.py, test.py, build.py
     ├── typescript/      # quality.py, test.py, build.py
     └── golang/          # quality.py, test.py, build.py
+
+config/
+├── org.yaml             # Organisation config (JFrog, GitHub, GHCR URLs)
+└── defaults.yaml        # Default CI settings for all languages
+
+test-projects/
+├── ci-test-rust-minimal/      # Zero-dep Rust binary
+├── ci-test-python-minimal/    # Zero-dep Python package
+├── ci-test-ts-minimal/        # Zero-dep TypeScript package
+└── ci-test-go-minimal/        # Zero-dep Go binary
 ```
 
 ## Config Cascade
@@ -104,11 +130,12 @@ CLI flags → ENV vars (HYPERCI_*) → .hyperi-ci.yaml → config/defaults.yaml 
 
 ```bash
 uv sync                              # Install deps
-uv run pytest tests/ -v              # Run tests
+uv run pytest tests/ -v              # Run tests (34 tests)
 uv run ruff check src/ tests/        # Lint
 uv run ruff format src/ tests/       # Format
 uv run hyperi-ci --version           # Verify CLI
 uv run hyperi-ci detect              # Test language detection
+uv run hyperi-ci config              # Show merged config as JSON
 ```
 
 ## Handler Interface
@@ -126,12 +153,38 @@ Dispatch finds handlers via `hyperi_ci.languages.<lang>.<stage>` module path.
 
 | File | Purpose |
 |------|---------|
-| `VERSION` | Source of truth for version |
+| `VERSION` | Source of truth for version (currently 0.0.0) |
 | `config/org.yaml` | Organisation-specific config (JFrog, GitHub, GHCR) |
 | `config/defaults.yaml` | Default values for all CI settings |
 | `pyproject.toml` | Package config, deps, tool config |
 | `uv.lock` | Locked dependencies (committed) |
+| `.releaserc.yaml` | Semantic release config |
+| `.github/workflows/ci.yml` | Self-hosting CI workflow |
+
+## What's Done
+
+- Core Python package: cli, config, detect, dispatch, common
+- Language handlers: Python, Rust, TypeScript, Go (quality, test, build)
+- Config system with defaults, org config, env override, publish target routing
+- 34 unit tests — all passing
+- 4 test projects (Rust, Python, TypeScript, Go)
+- Self-hosting CI workflow (quality + test matrix + semantic release)
+- Semantic release config
+- README.md with background and usage
+- Initial commit pushed to `hyperi-io/hyperi-ci`
+
+## What's Next
+
+| Priority | Task | Notes |
+|----------|------|-------|
+| 1 | Attach `ai` submodule | Standards, rules, CLAUDE.md context |
+| 2 | Reusable workflow templates | `rust-ci.yml`, `python-ci.yml`, `ts-ci.yml`, `go-ci.yml` in `.github/workflows/` |
+| 3 | `hyperi-ci init` command | Replaces 1020-line `attach.sh` — generates `.hyperi-ci.yaml`, Makefile, workflow |
+| 4 | Publish handlers | Wire `src/hyperi_ci/publish/` — JFrog + OSS routing per `PUBLISH_TARGET` |
+| 5 | Validate with test projects | Create GitHub repos, push, verify CI end-to-end |
+| 6 | Consumer project cutover | Remove `ci/` submodule, run `hyperi-ci init`, verify |
+| 7 | Archive old repo | `hyperi-io/ci` → read-only |
 
 ## Licensing
 
-Proprietary — HYPERI PTY LIMITED. Same licence as `/projects/ai`.
+Proprietary — HYPERI PTY LIMITED.
