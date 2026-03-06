@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 import subprocess
 
-from hyperi_ci.common import error, group, info, success
+from hyperi_ci.common import error, group, info, success, warn
 from hyperi_ci.config import CIConfig, load_org_config
 
 
@@ -35,9 +35,16 @@ def _publish_npm() -> int:
     result = subprocess.run(
         ["npm", "publish", "--access", "public"],
         env={**os.environ, "NPM_TOKEN": token},
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
+        if "already exists" in (result.stderr + result.stdout):
+            warn("  Package version already exists on npm (skipping)")
+            return 0
         error("npm publish failed")
+        if result.stderr:
+            error(result.stderr)
         return result.returncode
 
     success("Published to npm")
@@ -76,9 +83,14 @@ def _publish_jfrog() -> int:
         check=False,
     )
 
-    result = subprocess.run(["npm", "publish"])
+    result = subprocess.run(["npm", "publish"], capture_output=True, text=True)
     if result.returncode != 0:
+        if "already exists" in (result.stderr + result.stdout):
+            warn("  Package version already exists on JFrog npm (skipping)")
+            return 0
         error("JFrog npm publish failed")
+        if result.stderr:
+            error(result.stderr)
         return result.returncode
 
     success("Published to JFrog npm")

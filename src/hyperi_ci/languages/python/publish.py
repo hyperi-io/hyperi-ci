@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 import subprocess
 
-from hyperi_ci.common import error, group, info, success
+from hyperi_ci.common import error, group, info, success, warn
 from hyperi_ci.config import CIConfig, load_org_config
 
 
@@ -33,9 +33,14 @@ def _publish_pypi() -> int:
     if token:
         cmd.extend(["--token", token])
 
-    result = subprocess.run(cmd)
+    result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
+        if "already exists" in (result.stderr + result.stdout):
+            warn("  Package version already exists on PyPI (skipping)")
+            return 0
         error("PyPI publish failed")
+        if result.stderr:
+            error(result.stderr)
         return result.returncode
 
     success("Published to PyPI")
@@ -66,9 +71,14 @@ def _publish_jfrog() -> int:
         token,
     ]
 
-    result = subprocess.run(cmd)
+    result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
+        if "already exists" in (result.stderr + result.stdout):
+            warn("  Package version already exists on JFrog PyPI (skipping)")
+            return 0
         error("JFrog PyPI publish failed")
+        if result.stderr:
+            error(result.stderr)
         return result.returncode
 
     success("Published to JFrog PyPI")
