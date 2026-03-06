@@ -14,12 +14,11 @@ hierarchy reached six layers deep (workflow → action → bash → Python →
 bash → tools), with config settable in four different places and
 significant dead code accumulated along the way.
 
-We now have a defined, mature pattern for what CI actually needs to do
-across our polyglot stack. This repo rationalises everything back into a
-single Python CLI tool, distributed as a standard package via
-`uv tool install`. Consumer projects get a five-line reusable workflow
-and a Makefile — no submodules, no composite actions, no bash dispatch
-chains. The same tool runs locally and in GitHub Actions.
+This repo rationalises everything back into a single Python CLI tool,
+distributed as a standard package via `uv tool install`. Consumer
+projects get a five-line reusable workflow and a Makefile — no
+submodules, no composite actions, no bash dispatch chains. The same tool
+runs locally and in GitHub Actions.
 
 The old repo will be archived read-only once all consumer projects have
 cut over.
@@ -30,21 +29,53 @@ cut over.
 uv tool install hyperi-ci
 ```
 
-## Usage
+## Quick Start
+
+Initialise an existing project:
 
 ```bash
-# Run CI stages
-hyperi-ci run quality
-hyperi-ci run test
-hyperi-ci run build
+cd my-project
+hyperi-ci init                          # Auto-detects language
+hyperi-ci init --language rust          # Override language
+hyperi-ci init --force                  # Overwrite existing files
+```
 
-# Detect project language
-hyperi-ci detect
+This generates `.hyperi-ci.yaml`, `Makefile`, `.github/workflows/ci.yml`,
+and `.releaserc.yaml`. Commit and push — CI runs automatically.
 
-# Show merged config
-hyperi-ci config
+## Usage
 
-# Via Makefile (consumer projects)
+### CI Stages
+
+```bash
+hyperi-ci run quality                   # Lint, format, type check, audit
+hyperi-ci run test                      # Run test suite
+hyperi-ci run build                     # Build artifacts
+hyperi-ci run publish                   # Publish (CI only)
+```
+
+### Project Info
+
+```bash
+hyperi-ci detect                        # Show detected language
+hyperi-ci config                        # Show merged config as JSON
+```
+
+### GitHub Actions Commands
+
+```bash
+hyperi-ci trigger                       # Trigger workflow run
+hyperi-ci trigger --watch               # Trigger and watch to completion
+hyperi-ci watch                         # Watch latest run
+hyperi-ci watch <RUN_ID>                # Watch specific run
+hyperi-ci logs                          # Show latest run logs
+hyperi-ci logs --failed                 # Show only failed job logs
+hyperi-ci logs --job build --grep error # Filter by job and pattern
+```
+
+### Via Makefile (Consumer Projects)
+
+```bash
 make quality
 make test
 make build
@@ -52,27 +83,39 @@ make build
 
 ## How It Works
 
+GitHub Actions handles orchestration (job ordering, matrix, caching,
+secrets). The CLI handles execution (what tools to run, how to invoke
+them). Workflow files stay small, and the same code path runs locally
+and in CI.
+
 ```
 Consumer Project                     hyperi-ci (this repo)
 ├── .github/workflows/               ├── .github/workflows/
-│   └── ci.yml (5 lines)            │   ├── rust-ci.yml     (reusable)
-│       uses: hyperi-io/hyperi-ci/   │   ├── python-ci.yml   (reusable)
+│   └── ci.yml (5 lines)            │   ├── python-ci.yml   (reusable)
+│       uses: hyperi-io/hyperi-ci/   │   ├── rust-ci.yml     (reusable)
 │         .github/workflows/         │   ├── ts-ci.yml       (reusable)
 │         python-ci.yml@v1.0         │   └── go-ci.yml       (reusable)
-├── .hyperi-ci.yaml                  ├── src/hyperi_ci/
-├── Makefile                         │   ├── cli.py          (Typer entry point)
-│   quality: hyperi-ci run quality   │   ├── config.py       (typed config + loader)
-│   test:    hyperi-ci run test      │   ├── dispatch.py     (stage dispatcher)
-│   build:   hyperi-ci run build     │   ├── detect.py       (language detection)
-└── (no ci/ submodule)               │   └── languages/
-                                     │       ├── python/
-                                     │       ├── rust/
-                                     │       ├── typescript/
-                                     │       └── golang/
+├── .hyperi-ci.yaml                  │           │
+├── Makefile                         │           ▼
+│   quality: hyperi-ci run quality   │   uvx hyperi-ci run <stage>
+│   test:    hyperi-ci run test      │           │
+│   build:   hyperi-ci run build     │           ▼
+└── .releaserc.yaml                  ├── src/hyperi_ci/
+                                     │   ├── cli.py          (entry point)
+                                     │   ├── config.py       (config cascade)
+                                     │   ├── dispatch.py     (stage dispatcher)
+                                     │   ├── detect.py       (language detection)
+                                     │   └── languages/
+                                     │       ├── python/     quality, test, build, publish
+                                     │       ├── rust/       quality, test, build, publish
+                                     │       ├── typescript/ quality, test, build, publish
+                                     │       └── golang/     quality, test, build, publish
                                      └── config/
-                                         ├── org.yaml
-                                         └── defaults.yaml
+                                         ├── org.yaml        (JFrog, GHCR URLs)
+                                         └── defaults.yaml   (default settings)
 ```
+
+See [docs/DESIGN.md](docs/DESIGN.md) for full architecture documentation.
 
 ## Config
 
@@ -94,6 +137,30 @@ Set via GitHub org variable `PUBLISH_TARGET` — repo-level variable overrides o
 | `oss` | PyPI, npm, crates.io, GHCR, GitHub Releases |
 | `both` | Publish to both |
 
+## Languages
+
+| Language | Quality | Test | Build | Publish |
+|----------|---------|------|-------|---------|
+| Python | ruff, pyright, bandit, pip-audit | pytest | uv build | uv publish |
+| Rust | cargo fmt, clippy, audit, deny | cargo test/nextest | cargo build (cross-compile) | cargo publish |
+| TypeScript | eslint, prettier, tsc, npm audit | vitest/jest | npm/pnpm build | npm publish |
+| Go | gofmt, go vet, golangci-lint, gosec | go test -race | go build (cross-compile) | go proxy, gh release |
+
+## Cross-Compilation
+
+Rust projects with C/C++ dependencies (e.g. librdkafka) are supported.
+The build handler automatically sets `CC`, `CXX`, `AR`, and
+`PKG_CONFIG` environment variables for cross-compilation targets.
+Configure targets in `.hyperi-ci.yaml`:
+
+```yaml
+build:
+  rust:
+    targets:
+      - x86_64-unknown-linux-gnu
+      - aarch64-unknown-linux-gnu
+```
+
 ## Design Principles
 
 1. **NO BASH** — all CI logic is Python. 70% of old CI failures were
@@ -107,14 +174,14 @@ Set via GitHub org variable `PUBLISH_TARGET` — repo-level variable overrides o
 
 ## Test Projects
 
-Minimal, zero-dependency projects for fast CI iteration (<2 min builds):
+Minimal projects for fast CI iteration and handler validation:
 
-| Language | Path |
-|----------|------|
-| Rust | `test-projects/ci-test-rust-minimal/` |
-| Python | `test-projects/ci-test-python-minimal/` |
-| TypeScript | `test-projects/ci-test-ts-minimal/` |
-| Go | `test-projects/ci-test-go-minimal/` |
+| Language | Path | Notes |
+|----------|------|-------|
+| Rust | `test-projects/ci-test-rust-minimal/` | Binary with C/C++ deps (librdkafka) |
+| Python | `test-projects/ci-test-python-minimal/` | Zero-dep package |
+| TypeScript | `test-projects/ci-test-ts-minimal/` | Zero-dep package |
+| Go | `test-projects/ci-test-go-minimal/` | Zero-dep binary |
 
 ## Licence
 
