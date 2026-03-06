@@ -60,6 +60,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Configure git credentials
+        run: git config --global url."https://x-access-token:${{ github.token }}@github.com/".insteadOf "https://github.com/"
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -91,6 +94,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Configure git credentials
+        run: git config --global url."https://x-access-token:${{ github.token }}@github.com/".insteadOf "https://github.com/"
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -120,6 +126,9 @@ jobs:
     runs-on: ${{ inputs.runner-build || vars.GH_RUNNER_TYPESCRIPT || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Configure git credentials
+        run: git config --global url."https://x-access-token:${{ github.token }}@github.com/".insteadOf "https://github.com/"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
