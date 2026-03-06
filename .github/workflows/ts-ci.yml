@@ -50,8 +50,6 @@ env:
   HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
   HYPERCI_INSTALL: >-
     uvx
-    --index-strategy unsafe-best-match
-    --index https://hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple
     --from 'hyperi-ci @ https://github.com/hyperi-io/hyperi-ci/archive/main.tar.gz'
     hyperi-ci
 
