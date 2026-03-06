@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from pathlib import Path
 
 from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
@@ -94,9 +95,11 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if not _run_tool("cargo audit", ["cargo", "audit"], mode):
         had_failure = True
 
-    # cargo deny
+    # cargo deny (requires deny.toml — useless without project-specific config)
     mode = _get_tool_mode("deny", config)
-    if not _run_tool("cargo deny", ["cargo", "deny", "check"], mode):
+    if not Path("deny.toml").exists():
+        info("  cargo deny: skipped (no deny.toml found)")
+    elif not _run_tool("cargo deny", ["cargo", "deny", "check"], mode):
         had_failure = True
 
     return 1 if had_failure else 0

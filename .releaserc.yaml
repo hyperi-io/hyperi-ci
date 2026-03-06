@@ -53,12 +53,7 @@ plugins:
     - changelogFile: CHANGELOG.md
 
   - - "@semantic-release/exec"
-    - prepareCmd: >-
-        python3 -c "
-        from pathlib import Path;
-        Path('VERSION').write_text('${nextRelease.version}\n');
-        toml = Path('pyproject.toml');
-        "
+    - prepareCmd: "python3 -c \"from pathlib import Path; Path('VERSION').write_text('${nextRelease.version}\\n')\""
 
   - - "@semantic-release/git"
     - assets:
