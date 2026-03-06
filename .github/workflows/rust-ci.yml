@@ -58,6 +58,22 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Detect native dependencies
+        id: native-deps
+        run: |
+          if grep -qE -- '-sys[",$]' Cargo.lock 2>/dev/null; then
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux' && steps.native-deps.outputs.needed == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            librdkafka-dev libssl-dev libsasl2-dev \
+            cmake pkg-config libcurl4-openssl-dev \
+            protobuf-compiler
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
@@ -74,6 +90,11 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install cargo tools
+        run: |
+          cargo install --locked cargo-audit || true
+          cargo install --locked cargo-deny || true
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -94,6 +115,22 @@ jobs:
         os: ${{ fromJson(inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
     steps:
       - uses: actions/checkout@v6
+
+      - name: Detect native dependencies
+        id: native-deps
+        run: |
+          if grep -qE -- '-sys[",$]' Cargo.lock 2>/dev/null; then
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux' && steps.native-deps.outputs.needed == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            librdkafka-dev libssl-dev libsasl2-dev \
+            cmake pkg-config libcurl4-openssl-dev \
+            protobuf-compiler
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
@@ -129,6 +166,23 @@ jobs:
     runs-on: ${{ inputs.runner-build || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
+
+      - name: Detect native dependencies
+        id: native-deps
+        run: |
+          if grep -qE -- '-sys[",$]' Cargo.lock 2>/dev/null; then
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux' && steps.native-deps.outputs.needed == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            librdkafka-dev libssl-dev libsasl2-dev \
+            cmake pkg-config libcurl4-openssl-dev \
+            protobuf-compiler \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master

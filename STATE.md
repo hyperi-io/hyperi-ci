@@ -15,7 +15,9 @@ distributed via `uv tool install`. Consumer projects get a five-line reusable
 workflow and a Makefile. Same tool runs locally and in CI.
 
 The old repo (`hyperi-io/ci`) will be archived once all consumer projects
-have cut over.
+have cut over. **Reference the old CI** at `/projects/ci` for proven patterns
+before reinventing — it has working solutions for system deps, cross-compilation
+sysroots, cargo registry config, and binary verification.
 
 ## Hard Design Principles
 
@@ -74,10 +76,15 @@ CLI flags → ENV vars (HYPERCI_*) → .hyperi-ci.yaml → config/defaults.yaml 
 | `VERSION` | Source of truth for version |
 | `config/org.yaml` | Organisation-specific config (JFrog, GitHub, GHCR) |
 | `config/defaults.yaml` | Default values for all CI settings |
+| `config/versions.yaml` | SSOT for action/runtime/tool versions |
+| `config/secrets-access.yaml` | Group-based org secret visibility management |
 | `pyproject.toml` | Package config, deps, tool config |
 | `uv.lock` | Locked dependencies (committed) |
 | `.releaserc.yaml` | Semantic release config |
 | `.github/workflows/ci.yml` | Self-hosting CI workflow |
+| `.github/workflows/rust-ci.yml` | Reusable Rust CI workflow |
+| `scripts/update-versions.py` | Version sync/update script |
+| `scripts/sync-secrets-access.py` | Secret repo access sync script |
 | `docs/DESIGN.md` | Full architecture documentation |
 
 ## Commands
