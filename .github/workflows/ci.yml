@@ -18,6 +18,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  UV_EXTRA_INDEX_URL: https://hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple
   UV_INDEX_STRATEGY: unsafe-best-match
 
 jobs:
@@ -37,8 +38,6 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --no-sources
-        env:
-          UV_EXTRA_INDEX_URL: https://token:${{ secrets.JFROG_TOKEN }}@hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple
 
       - name: Lint
         run: uv run --no-sources ruff check src/ tests/
@@ -65,8 +64,6 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --no-sources
-        env:
-          UV_EXTRA_INDEX_URL: https://token:${{ secrets.JFROG_TOKEN }}@hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple
 
       - name: Run tests
         run: uv run --no-sources pytest tests/ -v --tb=short
