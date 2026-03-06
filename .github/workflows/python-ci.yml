@@ -58,9 +58,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Configure git credentials
-        run: git config --global url."https://x-access-token:${{ secrets.GIT_TOKEN }}@github.com/".insteadOf "https://github.com/"
-
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
@@ -84,9 +81,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Configure git credentials
-        run: git config --global url."https://x-access-token:${{ secrets.GIT_TOKEN }}@github.com/".insteadOf "https://github.com/"
-
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
@@ -108,9 +102,6 @@ jobs:
     runs-on: ${{ inputs.runner-build || vars.GH_RUNNER_PYTHON || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
-
-      - name: Configure git credentials
-        run: git config --global url."https://x-access-token:${{ secrets.GIT_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
