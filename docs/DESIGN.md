@@ -56,10 +56,10 @@ Four language-specific reusable workflows live in
 
 | Workflow | Language | Toolchain Setup |
 |----------|----------|-----------------|
-| `python-ci.yml` | Python | `astral-sh/setup-uv@v5`, `uv python install` |
-| `rust-ci.yml` | Rust | `dtolnay/rust-toolchain@stable` (clippy, rustfmt) |
-| `ts-ci.yml` | TypeScript | `actions/setup-node@v4`, detect package manager |
-| `go-ci.yml` | Go | `actions/setup-go@v5` (go-version-file) |
+| `python-ci.yml` | Python | `astral-sh/setup-uv@v7`, `uv python install` |
+| `rust-ci.yml` | Rust | `dtolnay/rust-toolchain@master` (clippy, rustfmt) |
+| `ts-ci.yml` | TypeScript | `actions/setup-node@v6`, detect package manager |
+| `go-ci.yml` | Go | `actions/setup-go@v6` (go-version-file) |
 
 ### Job Structure
 
@@ -231,6 +231,72 @@ class OrgConfig:
     npm_url: str             # Derived: "{base}/api/npm/hyperi-npm"
     # ... etc
 ```
+
+## Configuration Boundaries: org.yaml vs GitHub Vars vs Secrets
+
+Configuration lives in three places with clear, non-overlapping boundaries:
+
+### 1. `config/org.yaml` — CI Logic and Routing (version-controlled)
+
+Everything that affects CI behaviour, artifact routing, or registry URLs.
+Changes go through PRs with review. Testable in unit tests.
+
+| What | Examples |
+|------|---------|
+| Registry URLs | JFrog domain, PyPI publish URL, npm registry |
+| Destination mappings | `python: jfrog-pypi`, `python: pypi` |
+| Org identifiers | GitHub org, GHCR org, JFrog prefix |
+| Publish defaults | Default target, binary repo name |
+| Deprecated patterns | Old CI repo URLs for migration detection |
+
+### 2. GitHub Vars — Platform Infrastructure (UI-managed)
+
+Runner labels and GitHub-specific infrastructure config that varies by
+org or repo. Rarely changes. Not testable in unit tests (platform-specific).
+
+| Variable | Scope | Purpose |
+|----------|-------|---------|
+| `GH_RUNNER_DEFAULT` | org | Default self-hosted runner label |
+| `GH_RUNNER_RUST` | org | Runner for Rust jobs (may need more resources) |
+| `GH_RUNNER_PYTHON` | org | Runner for Python jobs |
+| `GH_RUNNER_TYPESCRIPT` | org | Runner for TypeScript jobs |
+| `GH_RUNNER_GOLANG` | org | Runner for Go jobs |
+| `PUBLISH_TARGET` | org/repo | Override publish target per repo |
+
+### 3. GitHub Secrets — Credentials (UI-managed, encrypted)
+
+Authentication tokens. Never in code, never in vars. Scoped to the
+minimum set of repos that need them via `selected` visibility.
+
+| Secret | Visibility | Purpose |
+|--------|-----------|---------|
+| `JFROG_TOKEN` | selected | JFrog Artifactory authentication |
+| `NPM_TOKEN` | selected | npmjs.com publish token |
+| `CRATES_TOKEN` | selected | crates.io publish token |
+| `GIT_TOKEN` | selected | Cross-repo access (workflow dispatch) |
+
+### Decision Rule
+
+> If it affects CI logic or routing → `org.yaml` (reviewable, testable).
+> If it's platform infrastructure → GitHub Vars (UI-managed).
+> If it's a credential → GitHub Secrets (encrypted, scoped).
+
+### Version Pinning: `config/versions.yaml`
+
+All tool and action versions are documented in `config/versions.yaml`
+as a single source of truth. When updating a version, change the SSOT
+file first, then grep and update the workflow files to match.
+
+Versions are pinned at major (actions) or minor (runtimes) level.
+Runtime versions (e.g. Python 3.12) are deliberate choices — don't
+auto-bump without testing. Action versions (e.g. checkout@v6) should
+track latest major.
+
+### What Does NOT Go in GitHub Vars
+
+- Registry URLs (use `org.yaml` — version-controlled, testable)
+- Destination mappings (use `config/defaults.yaml` — part of config cascade)
+- Tool versions (use `config/versions.yaml` — reviewable)
 
 ## How They Work Together
 

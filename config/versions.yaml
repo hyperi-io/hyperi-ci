@@ -1,0 +1,42 @@
+# Project:   HyperI CI
+# File:      config/versions.yaml
+# Purpose:   Single source of truth for all tool and action versions
+#
+# License:   Proprietary — HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# This file is the SSOT for all versioned dependencies used in CI
+# workflows. The workflow templates reference these values via the
+# update script (scripts/update-versions.py).
+#
+# Update script: uv run scripts/update-versions.py
+#   --check    Show current vs latest versions (dry run)
+#   --apply    Update workflow files to match this file
+#   --latest   Check for newer versions available upstream
+
+# GitHub Actions
+actions:
+  checkout: v6
+  setup-node: v6
+  setup-go: v6
+  setup-uv: v7
+  cache: v5
+  rust-toolchain: master          # dtolnay/rust-toolchain pins via @master
+
+# Language runtimes (default versions in workflow inputs)
+runtimes:
+  python: "3.12"
+  node: "22"
+  rust: stable
+
+# npm packages (semantic-release toolchain)
+semantic_release:
+  core: "25"
+  plugins:
+    - "@semantic-release/commit-analyzer"
+    - "@semantic-release/release-notes-generator"
+    - "@semantic-release/changelog"
+    - "@semantic-release/exec"
+    - "@semantic-release/git"
+    - "@semantic-release/github"
+    - "conventional-changelog-conventionalcommits"
