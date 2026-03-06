@@ -1,0 +1,145 @@
+# Project:   HyperI CI
+# File:      .github/workflows/go-ci.yml
+# Purpose:   Reusable Go CI workflow for consumer projects
+#
+# License:   Proprietary — HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+
+name: Go CI
+
+on:
+  workflow_call:
+    inputs:
+      publish-target:
+        type: string
+        default: "internal"
+        description: "Publish destination: internal, oss, or both"
+      go-version-file:
+        type: string
+        default: "go.mod"
+        description: "File to read Go version from"
+      test-matrix:
+        type: string
+        default: '["ubuntu-latest", "macos-latest"]'
+        description: "JSON array of runner OS for test matrix"
+    secrets:
+      GITHUB_TOKEN:
+        required: true
+      JFROG_TOKEN:
+        required: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
+
+jobs:
+  quality:
+    name: Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ inputs.go-version-file }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Run quality checks
+        run: uvx hyperi-ci run quality
+
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: ${{ fromJson(inputs.test-matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ inputs.go-version-file }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Run tests
+        run: uvx hyperi-ci run test
+
+  build:
+    name: Build
+    needs: [quality, test]
+    if: github.event.pull_request.head.repo.fork != true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ inputs.go-version-file }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Run build
+        run: uvx hyperi-ci run build
+
+  release:
+    name: Release
+    needs: [quality, test, build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install semantic-release
+        run: >-
+          npm install -g
+          semantic-release@25
+          @semantic-release/commit-analyzer
+          @semantic-release/release-notes-generator
+          @semantic-release/changelog
+          @semantic-release/exec
+          @semantic-release/git
+          @semantic-release/github
+          conventional-changelog-conventionalcommits
+
+      - name: Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release
