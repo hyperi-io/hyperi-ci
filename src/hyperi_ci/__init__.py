@@ -6,8 +6,6 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """HyperI CI/CD CLI tool — multi-language build, test, and publish automation."""
 
-from pathlib import Path
+from importlib.metadata import version
 
-__version__ = (
-    (Path(__file__).resolve().parent.parent.parent / "VERSION").read_text().strip()
-)
+__version__ = version("hyperi-ci")

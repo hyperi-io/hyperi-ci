@@ -18,10 +18,22 @@ on:
         type: string
         default: "22"
         description: "Node.js version"
+      runner-quality:
+        type: string
+        default: ""
+        description: "Runner for quality job"
+      runner-test:
+        type: string
+        default: ""
+        description: "Runner for test job"
+      runner-build:
+        type: string
+        default: ""
+        description: "Runner for build job"
       test-matrix:
         type: string
-        default: '["ubuntu-latest", "macos-latest"]'
-        description: "JSON array of runner OS for test matrix"
+        default: ""
+        description: "JSON array of runner OS for test matrix (overrides runner-test)"
     secrets:
       GITHUB_TOKEN:
         required: true
@@ -36,11 +48,17 @@ concurrency:
 
 env:
   HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
+  HYPERCI_INSTALL: >-
+    uvx
+    --index-strategy unsafe-best-match
+    --index https://hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple
+    --from 'hyperi-ci @ git+https://github.com/hyperi-io/hyperi-ci.git'
+    hyperi-ci
 
 jobs:
   quality:
     name: Quality
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner-quality || vars.GH_RUNNER_TYPESCRIPT || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -64,14 +82,14 @@ jobs:
         run: uv python install 3.12
 
       - name: Run quality checks
-        run: uvx hyperi-ci run quality
+        run: ${{ env.HYPERCI_INSTALL }} run quality
 
   test:
     name: Test
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: ${{ fromJson(inputs.test-matrix) }}
+        os: ${{ fromJson(inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_TYPESCRIPT || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -95,13 +113,13 @@ jobs:
         run: uv python install 3.12
 
       - name: Run tests
-        run: uvx hyperi-ci run test
+        run: ${{ env.HYPERCI_INSTALL }} run test
 
   build:
     name: Build
     needs: [quality, test]
     if: github.event.pull_request.head.repo.fork != true
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner-build || vars.GH_RUNNER_TYPESCRIPT || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -125,7 +143,7 @@ jobs:
         run: uv python install 3.12
 
       - name: Run build
-        run: uvx hyperi-ci run build
+        run: ${{ env.HYPERCI_INSTALL }} run build
 
   release:
     name: Release
