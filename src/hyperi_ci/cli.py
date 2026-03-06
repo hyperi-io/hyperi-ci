@@ -8,8 +8,12 @@
 
 Usage:
     hyperi-ci run <stage>       Run a CI stage (setup, quality, test, build, publish)
+    hyperi-ci init              Initialise project (config, Makefile, workflow)
     hyperi-ci detect            Detect project language
     hyperi-ci config            Show merged configuration
+    hyperi-ci trigger           Trigger a GitHub Actions workflow run
+    hyperi-ci watch [RUN_ID]    Watch a GitHub Actions run to completion
+    hyperi-ci logs [RUN_ID]     Fetch and filter GitHub Actions run logs
     hyperi-ci --version         Show version
 """
 
@@ -76,6 +80,29 @@ def run(
 
 
 @app.command()
+def init(
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+    language: Annotated[
+        str | None,
+        typer.Option("--language", "-l", help="Override detected language"),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help="Overwrite existing files"),
+    ] = False,
+) -> None:
+    """Initialise a project for hyperi-ci (generates config, Makefile, workflow)."""
+    from hyperi_ci.init import init_project
+
+    dir_path = Path(project_dir) if project_dir else Path.cwd()
+    rc = init_project(dir_path, language=language, force=force)
+    raise typer.Exit(rc)
+
+
+@app.command()
 def detect(
     project_dir: Annotated[
         str | None,
@@ -103,6 +130,105 @@ def config(
     dir_path = Path(project_dir) if project_dir else None
     cfg = load_config(reload=True, project_dir=dir_path)
     typer.echo(json.dumps(cfg._raw, indent=2, default=str))
+
+
+@app.command()
+def trigger(
+    workflow: Annotated[
+        str,
+        typer.Option("--workflow", "-w", help="Workflow filename"),
+    ] = "ci.yml",
+    ref: Annotated[
+        str | None,
+        typer.Option("--ref", "-r", help="Branch or tag to run on"),
+    ] = None,
+    watch_run: Annotated[
+        bool,
+        typer.Option("--watch", help="Watch run to completion after triggering"),
+    ] = False,
+    timeout: Annotated[
+        int,
+        typer.Option("--timeout", "-t", help="Timeout in seconds"),
+    ] = 1800,
+    interval: Annotated[
+        int,
+        typer.Option("--interval", "-i", help="Poll interval in seconds"),
+    ] = 30,
+) -> None:
+    """Trigger a GitHub Actions workflow run."""
+    from hyperi_ci.trigger import trigger_workflow
+
+    rc = trigger_workflow(
+        workflow=workflow,
+        ref=ref,
+        watch=watch_run,
+        timeout=timeout,
+        interval=interval,
+    )
+    raise typer.Exit(rc)
+
+
+@app.command()
+def watch(
+    run_id: Annotated[
+        str | None,
+        typer.Argument(help="Run ID (auto-detects latest if omitted)"),
+    ] = None,
+    timeout: Annotated[
+        int,
+        typer.Option("--timeout", "-t", help="Timeout in seconds"),
+    ] = 1800,
+    interval: Annotated[
+        int,
+        typer.Option("--interval", "-i", help="Initial poll interval in seconds"),
+    ] = 30,
+) -> None:
+    """Watch a GitHub Actions run to completion."""
+    from hyperi_ci.watch import watch_run
+
+    rc = watch_run(run_id=run_id, timeout=timeout, interval=interval)
+    raise typer.Exit(rc)
+
+
+@app.command()
+def logs(
+    run_id: Annotated[
+        str | None,
+        typer.Argument(help="Run ID (auto-detects latest if omitted)"),
+    ] = None,
+    job: Annotated[
+        str | None,
+        typer.Option("--job", "-j", help="Filter by job name (substring)"),
+    ] = None,
+    step: Annotated[
+        str | None,
+        typer.Option("--step", "-s", help="Filter by step name (substring)"),
+    ] = None,
+    grep: Annotated[
+        str | None,
+        typer.Option("--grep", "-g", help="Filter lines by pattern"),
+    ] = None,
+    tail: Annotated[
+        int | None,
+        typer.Option("--tail", "-n", help="Show last N lines"),
+    ] = None,
+    failed: Annotated[
+        bool,
+        typer.Option("--failed", help="Show only failed job logs"),
+    ] = False,
+) -> None:
+    """Fetch and filter GitHub Actions run logs."""
+    from hyperi_ci.logs import fetch_logs
+
+    rc = fetch_logs(
+        run_id=run_id,
+        job_filter=job,
+        step_filter=step,
+        grep_pattern=grep,
+        tail_lines=tail,
+        failed_only=failed,
+    )
+    raise typer.Exit(rc)
 
 
 def main() -> int:
