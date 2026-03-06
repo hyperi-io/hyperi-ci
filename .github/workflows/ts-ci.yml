@@ -35,8 +35,6 @@ on:
         default: ""
         description: "JSON array of runner OS for test matrix (overrides runner-test)"
     secrets:
-      GITHUB_TOKEN:
-        required: true
       JFROG_TOKEN:
         required: false
       NPM_TOKEN:
