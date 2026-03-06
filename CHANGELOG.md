@@ -1,3 +1,10 @@
+## [1.0.2](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.1...v1.0.2) (2026-03-06)
+
+
+### Bug Fixes
+
+* clear host linker flags for cross-compilation builds ([295e3af](https://github.com/hyperi-io/hyperi-ci/commit/295e3af9b031376d1b3af2b82cc270756f8a2b94))
+
 ## [1.0.1](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.0...v1.0.1) (2026-03-06)
 
 
