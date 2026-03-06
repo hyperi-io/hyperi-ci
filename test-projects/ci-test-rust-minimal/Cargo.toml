@@ -4,11 +4,13 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.82"
 license = "FSL-1.1-ALv2"
-description = "Minimal Rust binary for CI pipeline testing"
+description = "Rust binary with C/C++ deps for CI pipeline testing"
 
-# Zero external dependencies — cargo build takes ~10 seconds instead of 20+ minutes.
-# Purpose: validate CI scripts and publish pipeline without paying dfe-loader build costs.
+# Uses rdkafka (wraps librdkafka C/C++ library from github.com/confluentinc/librdkafka)
+# to validate CI handles native C/C++ dependency compilation and cross-compilation.
+# Mirrors real projects like dfe-loader that depend on librdkafka.
 [dependencies]
+rdkafka = { version = "0.39.0", features = ["cmake-build"] }
 
 [profile.release]
 lto = "thin"
