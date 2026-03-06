@@ -6,7 +6,12 @@ This is the **single source of truth** for all tasks and progress.
 
 ## Active Tasks
 
-_(none active)_
+- [ ] Get Rust CI pipeline working end-to-end `[IN PROGRESS]`
+  - Current state: All workflow and config changes done but uncommitted
+  - Changes: runner-mode support (all 4 workflows), uv cache cleanup, defaults.yaml (ty, deny:warn, e2e config), DESIGN.md runner docs
+  - Next: commit and push changes, re-trigger ci-test-rust-minimal CI, monitor and fix until quality+test+build+release+publish all pass
+  - Then: test publish to JFrog, swap to OSS (crates.io), swap back
+  - Blockers: none — previous cargo deny failure should resolve with deny:warn in new defaults.yaml
 
 ---
 
@@ -14,6 +19,7 @@ _(none active)_
 
 ### High Priority
 
+- [ ] Replicate CI pipeline testing for Python, TypeScript, Go (after Rust works)
 - [ ] Validate with test projects — create GitHub repos, push, verify CI end-to-end
 - [ ] Reliable migration automation and documentation for existing `ci/` submodule attached projects
   - 14+ consumer projects need to cut over from old `ci/` submodule to `hyperi-ci init`
@@ -56,6 +62,12 @@ _(none active)_
 - [x] Create docs/DESIGN.md (architecture: GH Actions side + CLI side)
 - [x] Update README.md (init, trigger/watch/logs, cross-compilation, languages table)
 - [x] 82 tests passing, lint clean
+- [x] Add runner-mode support to all 4 reusable workflows (free vs self-hosted)
+- [x] Remove uv cache from non-Python workflows (was causing spurious warnings)
+- [x] Add ty (Astral type checker) to Python quality defaults, disable pyright
+- [x] Add Playwright E2E config to TypeScript test defaults
+- [x] Set cargo deny to warn mode in defaults.yaml
+- [x] Document runner modes and cross-compilation in DESIGN.md
 
 ---
 
