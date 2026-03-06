@@ -37,6 +37,8 @@ on:
     secrets:
       JFROG_TOKEN:
         required: false
+      GITLEAKS_GH_ACTIONS_KEY:
+        required: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -50,6 +52,7 @@ env:
     --index https://hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple
     --from 'hyperi-ci @ https://github.com/hyperi-io/hyperi-ci/archive/main.tar.gz'
     hyperi-ci
+  UV_EXTRA_INDEX_URL: ${{ secrets.JFROG_TOKEN && format('https://token:{0}@hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple', secrets.JFROG_TOKEN) || '' }}
 
 jobs:
   quality:
@@ -70,6 +73,8 @@ jobs:
         run: uv sync --frozen
 
       - name: Run quality checks
+        env:
+          GITLEAKS_GH_ACTIONS_KEY: ${{ secrets.GITLEAKS_GH_ACTIONS_KEY }}
         run: ${{ env.HYPERCI_INSTALL }} run quality
 
   test:

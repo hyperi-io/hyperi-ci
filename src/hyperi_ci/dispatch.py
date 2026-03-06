@@ -30,6 +30,7 @@ from hyperi_ci.common import (
 )
 from hyperi_ci.config import CIConfig, load_config
 from hyperi_ci.detect import detect_language
+from hyperi_ci.quality import gitleaks
 
 VALID_STAGES = ("setup", "quality", "test", "build", "publish")
 
@@ -106,6 +107,12 @@ def stage_quality(language: str, config: CIConfig) -> int:
     if not config.get("quality.enabled", True):
         info("Quality checks disabled in configuration")
         return 0
+
+    # Cross-language checks first
+    with group("Gitleaks secret scanning"):
+        rc = gitleaks.run(config)
+        if rc != 0:
+            return rc
 
     extra_env: dict[str, str] = {}
     if language == "rust":
