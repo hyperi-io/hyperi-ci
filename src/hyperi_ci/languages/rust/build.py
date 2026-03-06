@@ -7,18 +7,20 @@
 """Rust build handler.
 
 Builds Rust projects in release mode with optional cross-compilation.
-Sets CC/CXX/PKG_CONFIG environment variables for cross-targets so that
-C/C++ dependencies (e.g. librdkafka via cmake-build) compile correctly.
+For cross-targets with C/C++ dependencies, builds a private sysroot from
+downloaded .deb packages (ported from old CI's proven sysroot approach).
 """
 
 from __future__ import annotations
 
 import os
 import shutil
+import stat
 import subprocess
 import sys
+from pathlib import Path
 
-from hyperi_ci.common import error, group, info, is_macos, success, warn
+from hyperi_ci.common import error, group, info, is_linux, is_macos, success, warn
 from hyperi_ci.config import CIConfig
 
 _TARGET_MAP = {
@@ -31,13 +33,15 @@ _TARGET_MAP = {
 
 _CROSS_TOOLCHAIN = {
     "aarch64-unknown-linux-gnu": {
+        "arch": "arm64",
+        "triple": "aarch64-linux-gnu",
         "cc": "aarch64-linux-gnu-gcc",
         "cxx": "aarch64-linux-gnu-g++",
         "ar": "aarch64-linux-gnu-ar",
-        "linker": "aarch64-linux-gnu-gcc",
-        "pkg_config_sysroot": "/usr/aarch64-linux-gnu",
     },
 }
+
+_SYSROOT_BASE = Path("/tmp/cross-sysroot")
 
 
 def _get_native_target() -> str:
@@ -50,32 +54,370 @@ def _get_native_target() -> str:
     return "x86_64-unknown-linux-gnu"
 
 
-def _cross_env(target: str) -> dict[str, str]:
-    """Build environment variables for cross-compiling C/C++ deps."""
+def _get_native_triple() -> str:
+    """Get the native GNU triple (e.g. x86_64-linux-gnu)."""
+    result = subprocess.run(
+        ["gcc", "-dumpmachine"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip()
+    return "x86_64-linux-gnu"
+
+
+def _ensure_cross_apt_metadata(arch: str) -> None:
+    """Ensure apt knows about the cross architecture (metadata only)."""
+    result = subprocess.run(
+        ["dpkg", "--print-foreign-architectures"],
+        capture_output=True,
+        text=True,
+    )
+    if arch in result.stdout:
+        return
+
+    info(f"  Adding apt architecture: {arch}")
+    subprocess.run(["sudo", "dpkg", "--add-architecture", arch], check=False)
+    subprocess.run(
+        ["sudo", "apt-get", "update", "-qq"],
+        capture_output=True,
+        check=False,
+    )
+
+
+def _detect_native_dev_packages(native_triple: str) -> list[str]:
+    """Auto-detect native -dev packages that provide pkg-config files.
+
+    Scans dpkg for packages that own .pc files under the native triple's
+    pkgconfig directory. These are the packages we need cross-arch equivalents for.
+    """
+    result = subprocess.run(
+        ["dpkg", "-S", f"/usr/lib/{native_triple}/pkgconfig/*.pc"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return []
+
+    packages: set[str] = set()
+    native_arch = subprocess.run(
+        ["dpkg", "--print-architecture"],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    for line in result.stdout.splitlines():
+        if ":" not in line:
+            continue
+        pkg_part = line.split(":")[0].strip()
+        pkg_part = pkg_part.removesuffix(f":{native_arch}")
+        if pkg_part:
+            packages.add(pkg_part)
+
+    return sorted(packages)
+
+
+def _resolve_cross_packages(
+    dev_pkgs: list[str],
+    cross_arch: str,
+) -> list[str]:
+    """Resolve cross-arch packages and their transitive lib dependencies.
+
+    Breadth-first walk of dependency tree, limited to lib* packages,
+    with max depth of 20 to handle deep chains like:
+    libsasl2-dev -> libsasl2-2 -> libssl3t64 (provides libcrypto.so.3)
+    """
+    seen: set[str] = set()
+    to_download: list[str] = []
+
+    pending: list[str] = []
+    for pkg in dev_pkgs:
+        cross_pkg = f"{pkg}:{cross_arch}"
+        result = subprocess.run(
+            ["apt-cache", "show", cross_pkg],
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            pending.append(cross_pkg)
+            seen.add(cross_pkg)
+
+    max_depth = 20
+    for depth in range(max_depth):
+        if not pending:
+            break
+        next_pending: list[str] = []
+        for pkg in pending:
+            to_download.append(pkg)
+            result = subprocess.run(
+                ["apt-cache", "depends", pkg],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if not line.startswith("Depends:"):
+                    continue
+                dep = line.split(":", 1)[1].strip()
+                if not dep.startswith("lib"):
+                    continue
+                if ":" not in dep:
+                    dep = f"{dep}:{cross_arch}"
+                if dep in seen:
+                    continue
+                seen.add(dep)
+                check = subprocess.run(
+                    ["apt-cache", "show", dep],
+                    capture_output=True,
+                    check=False,
+                )
+                if check.returncode == 0:
+                    next_pending.append(dep)
+        pending = next_pending
+
+        if depth == max_depth - 1:
+            warn(f"  Hit max dependency depth ({max_depth}) — some deps may be missing")
+
+    return sorted(set(to_download))
+
+
+def _patch_ld_scripts(sysroot: Path, cross_triple: str) -> int:
+    """Fix absolute paths in GNU LD scripts to point at sysroot.
+
+    Some .so files are ASCII linker scripts like:
+      GROUP ( /lib/aarch64-linux-gnu/libm.so.6 ... )
+    These absolute paths don't exist on the host — rewrite to sysroot paths.
+    """
+    lib_dir = sysroot / "usr" / "lib" / cross_triple
+    if not lib_dir.exists():
+        return 0
+
+    patched = 0
+    for so_file in lib_dir.glob("lib*.so"):
+        if not so_file.is_file():
+            continue
+        try:
+            content = so_file.read_text()
+        except UnicodeDecodeError:
+            continue
+
+        original = content
+        content = content.replace(
+            f" /lib/{cross_triple}/",
+            f" {sysroot}/usr/lib/{cross_triple}/",
+        )
+        content = content.replace(
+            f" /usr/lib/{cross_triple}/",
+            f" {sysroot}/usr/lib/{cross_triple}/",
+        )
+        if content != original:
+            so_file.write_text(content)
+            patched += 1
+
+    return patched
+
+
+def _apply_usrmerge(sysroot: Path) -> None:
+    """Merge /lib into /usr/lib with symlink (matches Ubuntu usrmerge)."""
+    lib_dir = sysroot / "lib"
+    usr_lib = sysroot / "usr" / "lib"
+
+    if lib_dir.is_dir() and not lib_dir.is_symlink():
+        usr_lib.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            ["cp", "-a"] + [str(p) for p in lib_dir.iterdir()] + [str(usr_lib) + "/"],
+            check=False,
+        )
+        shutil.rmtree(lib_dir)
+        lib_dir.symlink_to("usr/lib")
+        info("  Applied usrmerge: lib/ merged into usr/lib/ with symlink")
+    elif not lib_dir.exists():
+        usr_lib.mkdir(parents=True, exist_ok=True)
+        lib_dir.symlink_to("usr/lib")
+
+
+def _setup_cross_sysroot(cross_arch: str, cross_triple: str) -> Path | None:
+    """Build private sysroot with cross-arch -dev libraries from .deb packages.
+
+    Ported from old CI's setup_cross_sysroot(). Auto-detects native -dev packages
+    with pkg-config files, downloads their cross-arch equivalents + transitive
+    library dependencies, and extracts to a private directory. This avoids installing
+    cross-arch packages system-wide which can conflict with native packages.
+
+    Returns sysroot path on success, None on failure.
+    """
+    sysroot = _SYSROOT_BASE / cross_arch
+
+    # Reuse existing sysroot if already populated
+    pc_dir = sysroot / "usr" / "lib" / cross_triple / "pkgconfig"
+    if pc_dir.exists():
+        pc_count = len(list(pc_dir.glob("*.pc")))
+        if pc_count > 0:
+            info(f"  Cross sysroot already populated ({pc_count} .pc files): {sysroot}")
+            return sysroot
+
+    info(f"  Building cross-compilation sysroot ({cross_arch})...")
+    info(f"  Libraries will be extracted to {sysroot} (no system installs)")
+
+    _ensure_cross_apt_metadata(cross_arch)
+
+    native_triple = _get_native_triple()
+    dev_pkgs = _detect_native_dev_packages(native_triple)
+
+    if not dev_pkgs:
+        info("  No native -dev packages with pkg-config files found — skipping sysroot")
+        return None
+
+    info(f"  Detected {len(dev_pkgs)} native -dev packages with .pc files:")
+    for pkg in dev_pkgs:
+        info(f"    {pkg}")
+
+    cross_pkgs = _resolve_cross_packages(dev_pkgs, cross_arch)
+
+    if not cross_pkgs:
+        info("  No cross-arch packages available — skipping sysroot")
+        return None
+
+    info(f"  Downloading {len(cross_pkgs)} cross-arch packages...")
+
+    deb_dir = sysroot / "_debs"
+    deb_dir.mkdir(parents=True, exist_ok=True)
+
+    for pkg in cross_pkgs:
+        result = subprocess.run(
+            ["apt-get", "download", pkg],
+            cwd=str(deb_dir),
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            info(f"    OK: {pkg}")
+        else:
+            warn(f"    SKIP: {pkg} (not available)")
+
+    debs = list(deb_dir.glob("*.deb"))
+    if not debs:
+        warn("  No .deb packages downloaded — sysroot will be empty")
+        return None
+
+    info(f"  Extracting {len(debs)} packages to {sysroot}/")
+    for deb in debs:
+        subprocess.run(
+            ["dpkg-deb", "-x", str(deb), str(sysroot) + "/"],
+            check=False,
+        )
+
+    _apply_usrmerge(sysroot)
+
+    patched = _patch_ld_scripts(sysroot, cross_triple)
+    if patched > 0:
+        info(f"  Patched {patched} GNU LD scripts with sysroot paths")
+
+    lib_dir = sysroot / "usr" / "lib" / cross_triple
+    pc_count = len(list(pc_dir.glob("*.pc"))) if pc_dir.exists() else 0
+    so_count = len(list(lib_dir.glob("*.so*"))) if lib_dir.exists() else 0
+    info(f"  Sysroot ready: {pc_count} pkg-config files, {so_count} shared libraries")
+
+    return sysroot
+
+
+def _create_linker_wrapper(sysroot: Path, cross_triple: str) -> Path:
+    """Create a linker wrapper that injects sysroot library paths.
+
+    The cross-linker doesn't know about our private sysroot. Some -sys crate
+    build scripts emit cargo:rustc-link-lib without a search path (e.g. rdkafka-sys
+    builds librdkafka via cmake, then emits -lsasl2 without -L). The wrapper adds
+    -L flags for the sysroot. -rpath-link is needed so the linker can resolve
+    transitive .so dependencies (e.g. libsasl2.so needs libcrypto.so.3).
+    """
+    real_linker = shutil.which(f"{cross_triple}-gcc") or f"/usr/bin/{cross_triple}-gcc"
+
+    wrapper_dir = sysroot / "bin"
+    wrapper_dir.mkdir(parents=True, exist_ok=True)
+    wrapper = wrapper_dir / f"{cross_triple}-gcc"
+
+    wrapper.write_text(
+        f"""#!/bin/sh
+exec {real_linker} \\
+    -fuse-ld=bfd \\
+    -L{sysroot}/usr/lib/{cross_triple} \\
+    -L{sysroot}/lib/{cross_triple} \\
+    -Wl,-rpath-link,{sysroot}/usr/lib/{cross_triple} \\
+    "$@"
+"""
+    )
+    wrapper.chmod(
+        stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH
+    )
+
+    info(f"  Linker wrapper: {wrapper} -> {real_linker}")
+    return wrapper
+
+
+def _cross_env(target: str, sysroot: Path | None = None) -> dict[str, str]:
+    """Build environment variables for cross-compiling C/C++ deps.
+
+    When a sysroot is available, creates a linker wrapper and sets all necessary
+    env vars for the cross-compilation toolchain. Follows the old CI's proven
+    pattern (build.sh:configure_cross_sysroot_env + install_cross_toolchain).
+    """
     toolchain = _CROSS_TOOLCHAIN.get(target)
     if not toolchain:
         return {}
 
+    cross_triple = toolchain["triple"]
     target_upper = target.replace("-", "_").upper()
+    # cc crate uses lowercase with underscores for target-specific CFLAGS
+    target_lower = target.replace("-", "_")
     env: dict[str, str] = {}
 
     cc = toolchain["cc"]
-    if shutil.which(cc):
-        env[f"CC_{target_upper}"] = cc
-        env[f"CXX_{target_upper}"] = toolchain["cxx"]
-        env[f"AR_{target_upper}"] = toolchain["ar"]
-        env[f"CARGO_TARGET_{target_upper}_LINKER"] = toolchain["linker"]
-        env["PKG_CONFIG_ALLOW_CROSS"] = "1"
-        env["PKG_CONFIG_SYSROOT_DIR"] = toolchain["pkg_config_sysroot"]
-        # Clear host compiler/linker flags to prevent e.g. -fuse-ld=mold
-        # from breaking CMake cross-compilation test builds
-        env["LDFLAGS"] = ""
-        env["CFLAGS"] = ""
-        env["CXXFLAGS"] = ""
-        info(f"  Cross-compilation toolchain: {cc}")
-    else:
+    if not shutil.which(cc):
         warn(f"  Cross-compiler {cc} not found — build may fail")
+        return env
 
+    env[f"CC_{target_upper}"] = cc
+    env[f"CXX_{target_upper}"] = toolchain["cxx"]
+    env[f"AR_{target_upper}"] = toolchain["ar"]
+
+    if sysroot:
+        # Use linker wrapper that injects sysroot paths + forces BFD linker
+        wrapper = _create_linker_wrapper(sysroot, cross_triple)
+        env[f"CARGO_TARGET_{target_upper}_LINKER"] = str(wrapper)
+
+        # pkg-config paths for the sysroot
+        env["PKG_CONFIG_PATH"] = (
+            f"{sysroot}/usr/lib/{cross_triple}/pkgconfig:{sysroot}/usr/share/pkgconfig"
+        )
+        env["PKG_CONFIG_SYSROOT_DIR"] = str(sysroot)
+        env["PKG_CONFIG_ALLOW_CROSS"] = "1"
+
+        # cmake-based -sys crates (e.g. rdkafka-sys)
+        env["CMAKE_PREFIX_PATH"] = f"{sysroot}/usr"
+
+        # Target-specific CFLAGS/CXXFLAGS for the cc crate
+        # -fuse-ld=bfd: force GNU BFD linker (mold can't cross-compile)
+        # -I: arch-specific headers in sysroot (e.g. opensslconf.h)
+        sysroot_include = sysroot / "usr" / "include" / cross_triple
+        cross_cflags = "-fuse-ld=bfd"
+        if sysroot_include.exists():
+            cross_cflags += f" -I{sysroot_include}"
+        env[f"CFLAGS_{target_lower}"] = cross_cflags
+        env[f"CXXFLAGS_{target_lower}"] = cross_cflags
+    else:
+        # No sysroot — basic cross-compilation (pure Rust or simple C deps)
+        env[f"CARGO_TARGET_{target_upper}_LINKER"] = cc
+        env["PKG_CONFIG_ALLOW_CROSS"] = "1"
+        env["PKG_CONFIG_SYSROOT_DIR"] = f"/usr/{cross_triple}"
+
+    # Clear host compiler/linker flags to prevent e.g. -fuse-ld=mold
+    # from leaking into cmake's CMAKE_EXE_LINKER_FLAGS_INIT
+    env["LDFLAGS"] = ""
+    env["CFLAGS"] = ""
+    env["CXXFLAGS"] = ""
+
+    info(f"  Cross-compilation toolchain: {cc}")
     return env
 
 
@@ -95,6 +437,44 @@ def _ensure_target_installed(target: str) -> bool:
         return False
     info(f"  Installed Rust target: {target}")
     return True
+
+
+def _ensure_cross_toolchain(target: str) -> None:
+    """Install cross-compilation toolchain packages if needed.
+
+    Only installs cross-compilers system-wide (they ARE Multi-Arch safe).
+    All -dev libraries go into a private sysroot via _setup_cross_sysroot().
+    """
+    toolchain = _CROSS_TOOLCHAIN.get(target)
+    if not toolchain or not is_linux():
+        return
+
+    cross_arch = toolchain["arch"]
+    cc = toolchain["cc"]
+    cxx = toolchain["cxx"]
+
+    packages: list[str] = []
+    if not shutil.which(cc):
+        packages.append(f"gcc-{toolchain['triple']}")
+    if not shutil.which(cxx):
+        packages.append(f"g++-{toolchain['triple']}")
+
+    # libc6-dev provides dynamic linker + standard libs for cross-arch
+    result = subprocess.run(
+        ["dpkg", "-s", f"libc6-dev:{cross_arch}"],
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        _ensure_cross_apt_metadata(cross_arch)
+        packages.append(f"libc6-dev:{cross_arch}")
+
+    if packages:
+        info(f"  Installing cross-compilation packages: {' '.join(packages)}")
+        subprocess.run(
+            ["sudo", "apt-get", "install", "-y", "-qq"] + packages,
+            check=False,
+        )
 
 
 def _build_for_target(
@@ -120,8 +500,15 @@ def _build_for_target(
 
     # Set cross-compilation env vars for C/C++ dependencies
     native = _get_native_target()
-    if target != native:
-        env.update(_cross_env(target))
+    if target != native and is_linux():
+        _ensure_cross_toolchain(target)
+
+        toolchain = _CROSS_TOOLCHAIN.get(target)
+        sysroot: Path | None = None
+        if toolchain:
+            sysroot = _setup_cross_sysroot(toolchain["arch"], toolchain["triple"])
+
+        env.update(_cross_env(target, sysroot=sysroot))
 
     info(f"  Building for {target}...")
     result = subprocess.run(cmd, env=env)
@@ -157,6 +544,11 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         if non_native:
             warn(f"Skipping cross-compile targets on macOS: {', '.join(non_native)}")
         targets = [t for t in targets if t == native]
+
+    # Sort targets: native first, then cross targets
+    # Avoids Multi-Arch package conflicts (some -dev packages replace each other)
+    native = _get_native_target()
+    targets.sort(key=lambda t: (0 if t == native else 1, t))
 
     for target in targets:
         with group(f"Build: {target}"):

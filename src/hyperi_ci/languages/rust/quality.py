@@ -45,6 +45,13 @@ def _run_tool(tool_name: str, cmd: list[str], mode: str) -> bool:
         success(f"  {tool_name}: passed")
         return True
 
+    # Transient failures (e.g. cargo audit "error loading advisory database")
+    # should not block CI — treat as warning regardless of mode
+    combined = (result.stdout or "") + (result.stderr or "")
+    if "error loading advisory database" in combined.lower():
+        warn(f"  {tool_name}: advisory database unavailable (skipping)")
+        return True
+
     if mode == "warn":
         warn(f"  {tool_name}: issues found (non-blocking)")
         if result.stdout:
@@ -86,7 +93,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     elif features != "default":
         for feature_set in features.split("|"):
             clippy_cmd.extend(["--features", feature_set.strip()])
-    clippy_cmd.extend(["--", "-D", "warnings"])
+    clippy_cmd.extend(["--", "-D", "warnings", "-D", "clippy::dbg_macro"])
     if not _run_tool("cargo clippy", clippy_cmd, mode):
         had_failure = True
 
