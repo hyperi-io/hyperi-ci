@@ -1,3 +1,10 @@
+## [1.0.3](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.2...v1.0.3) (2026-03-06)
+
+
+### Bug Fixes
+
+* port cross-compilation sysroot from old CI ([770a1d2](https://github.com/hyperi-io/hyperi-ci/commit/770a1d27f5b1251ee777be715afde5d1a78b49af))
+
 ## [1.0.2](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.1...v1.0.2) (2026-03-06)
 
 
