@@ -187,9 +187,10 @@ def _render_workflow(
         "\n"
         "on:\n"
         "  push:\n"
-        "    branches: [main]\n"
+        '    branches: ["**"]\n'
         "  pull_request:\n"
         "    branches: [main]\n"
+        "  workflow_dispatch:\n"
         "\n"
         "jobs:\n"
         "  ci:\n"
