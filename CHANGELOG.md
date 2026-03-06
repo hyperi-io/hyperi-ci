@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.0...v1.0.1) (2026-03-06)
+
+
+### Bug Fixes
+
+* install rust cross-compilation targets before build ([2e083c4](https://github.com/hyperi-io/hyperi-ci/commit/2e083c47d896ab837a1a49a829a4196409b62dc7))
+
 # 1.0.0 (2026-03-06)
 
 
