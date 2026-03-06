@@ -74,6 +74,24 @@ def _cross_env(target: str) -> dict[str, str]:
     return env
 
 
+def _ensure_target_installed(target: str) -> bool:
+    """Ensure a Rust target is installed via rustup."""
+    native = _get_native_target()
+    if target == native:
+        return True
+
+    result = subprocess.run(
+        ["rustup", "target", "add", target],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        error(f"  Failed to install target {target}: {result.stderr.strip()}")
+        return False
+    info(f"  Installed Rust target: {target}")
+    return True
+
+
 def _build_for_target(
     target: str,
     features: str,
@@ -81,6 +99,9 @@ def _build_for_target(
     extra_env: dict[str, str] | None = None,
 ) -> int:
     """Build for a specific target triple."""
+    if not _ensure_target_installed(target):
+        return 1
+
     cmd = ["cargo", "build", "--release", "--target", target]
 
     if all_features:
