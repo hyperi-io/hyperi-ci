@@ -1,0 +1,18 @@
+[package]
+name = "ci-test"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "FSL-1.1-ALv2"
+description = "Minimal Rust binary for CI pipeline testing"
+
+# Zero external dependencies — cargo build takes ~10 seconds instead of 20+ minutes.
+# Purpose: validate CI scripts and publish pipeline without paying dfe-loader build costs.
+[dependencies]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"
+opt-level = 3

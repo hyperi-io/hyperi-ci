@@ -1,0 +1,62 @@
+# Project:   HyperI CI
+# File:      pyproject.toml
+# Purpose:   Package configuration for hyperi-ci CLI tool
+#
+# License:   Proprietary — HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+
+[project]
+name = "hyperi-ci"
+dynamic = ["version"]
+description = "HyperI CI/CD CLI tool — multi-language build, test, and publish automation"
+requires-python = ">=3.12"
+license = {text = "Proprietary"}
+dependencies = [
+    "hyperi-pylib>=2.24.0",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+hyperi-ci = "hyperi_ci.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "VERSION"
+pattern = "(?P<version>.+)"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hyperi_ci"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "W"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+force-single-line = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.coverage.run]
+source = ["hyperi_ci"]
+
+[tool.coverage.report]
+fail_under = 80
+
+[tool.uv.sources]
+hyperi-pylib = { path = "/projects/hyperi-pylib", editable = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.15.5",
+]

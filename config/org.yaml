@@ -1,0 +1,46 @@
+# Project:   HyperI CI
+# File:      config/org.yaml
+# Purpose:   Organisation-specific configuration (single source of truth)
+#
+# License:   Proprietary — HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# This file is the SINGLE SOURCE OF TRUTH for organisation-specific settings.
+# All values can be overridden by environment variables of the same name
+# (uppercased, with dots replaced by underscores).
+
+github:
+  org: hyperi-io
+  base_url: https://github.com/hyperi-io
+  ci_repo_url: https://github.com/hyperi-io/hyperi-ci.git
+  ai_repo_url: https://github.com/hyperi-io/ai.git
+
+jfrog:
+  domain: hypersec.jfrog.io
+  org_prefix: hyperi
+  repos:
+    pypi: hyperi-pypi
+    pypi_local: hyperi-pypi-local
+    npm: hyperi-npm
+    go: go-local
+    binaries: hyperi-binaries
+    cargo_virtual: hyperi-cargo-virtual
+    cargo_local: hyperi-cargo-local
+    docker: hyperi-docker
+    docker_local: hyperi-docker-local
+    helm: hyperi-helm
+    helm_local: hyperi-helm-local
+
+ghcr:
+  registry: ghcr.io
+  org: hyperi-io
+  charts_url: oci://ghcr.io/hyperi-io/charts
+
+# Deprecated URL patterns for auto-migration from old repo names
+deprecated_ci_urls:
+  - "*/hypersec-io/ci.git"
+  - "*/hypersec-io/ci"
+  - "*/hyperi-io/hyperci.git"
+  - "*/hyperi-io/hyperci"
+  - "*/hyperi-io/hs-ci.git"
+  - "*/hyperi-io/hs-ci"

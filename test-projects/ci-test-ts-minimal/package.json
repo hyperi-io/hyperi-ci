@@ -1,0 +1,25 @@
+{
+  "name": "ci-test-ts",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Minimal TypeScript package for CI pipeline testing",
+  "license": "Proprietary",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src/",
+    "check-types": "tsc --noEmit",
+    "check": "pnpm lint && pnpm check-types && pnpm test"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.0.18",
+    "eslint": "^10.0.2",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.56.1",
+    "vitest": "^4.0.18"
+  }
+}
