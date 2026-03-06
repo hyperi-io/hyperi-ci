@@ -7,8 +7,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from ci_test import add, greet
 
 
