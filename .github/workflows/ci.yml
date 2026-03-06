@@ -17,10 +17,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  UV_EXTRA_INDEX_URL: https://hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple
-  UV_INDEX_STRATEGY: unsafe-best-match
-
 jobs:
   quality:
     name: Quality
