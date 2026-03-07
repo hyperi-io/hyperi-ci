@@ -74,19 +74,23 @@ jobs:
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux' && steps.native-deps.outputs.needed == 'true'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            librdkafka-dev libssl-dev libsasl2-dev \
-            cmake pkg-config libcurl4-openssl-dev \
-            protobuf-compiler
+          if ! dpkg -s librdkafka-dev >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends \
+              librdkafka-dev libssl-dev libsasl2-dev \
+              cmake pkg-config libcurl4-openssl-dev \
+              protobuf-compiler
+          fi
 
       - name: Install Rust toolchain
+        if: ${{ !contains(runner.name, 'arc-runner') }}
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
           components: clippy, rustfmt
 
       - name: Cache cargo
+        if: ${{ !contains(runner.name, 'arc-runner') }}
         uses: actions/cache@v5
         with:
           path: |
@@ -103,12 +107,15 @@ jobs:
           command -v cargo-deny || cargo install --locked cargo-deny || true
 
       - name: Install uv
+        if: ${{ !contains(runner.name, 'arc-runner') }}
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: false
 
       - name: Set up Python
-        run: uv python install 3.12
+        run: |
+          command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
+          command -v python3 || uv python install 3.12
 
       - name: Run quality checks
         env:
@@ -134,18 +141,22 @@ jobs:
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux' && steps.native-deps.outputs.needed == 'true'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            librdkafka-dev libssl-dev libsasl2-dev \
-            cmake pkg-config libcurl4-openssl-dev \
-            protobuf-compiler
+          if ! dpkg -s librdkafka-dev >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends \
+              librdkafka-dev libssl-dev libsasl2-dev \
+              cmake pkg-config libcurl4-openssl-dev \
+              protobuf-compiler
+          fi
 
       - name: Install Rust toolchain
+        if: ${{ !contains(runner.name, 'arc-runner') }}
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
 
       - name: Cache cargo
+        if: ${{ !contains(runner.name, 'arc-runner') }}
         uses: actions/cache@v5
         with:
           path: |
@@ -157,12 +168,15 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install uv
+        if: ${{ !contains(runner.name, 'arc-runner') }}
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: false
 
       - name: Set up Python
-        run: uv python install 3.12
+        run: |
+          command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
+          command -v python3 || uv python install 3.12
 
       - name: Run tests
         run: ${{ env.HYPERCI_INSTALL }} run test
@@ -194,23 +208,29 @@ jobs:
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux' && steps.native-deps.outputs.needed == 'true'
         run: |
-          if ! command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then
-            sudo dpkg --add-architecture arm64
+          if ! dpkg -s librdkafka-dev >/dev/null 2>&1; then
             sudo apt-get update
             sudo apt-get install -y --no-install-recommends \
               librdkafka-dev libssl-dev libsasl2-dev \
               cmake pkg-config libcurl4-openssl-dev \
-              protobuf-compiler \
+              protobuf-compiler
+          fi
+          if ! command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then
+            sudo dpkg --add-architecture arm64
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends \
               gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-              libc6-dev:arm64
+              libc6-dev-arm64-cross
           fi
 
       - name: Install Rust toolchain
+        if: ${{ !contains(runner.name, 'arc-runner') }}
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
 
       - name: Cache cargo
+        if: ${{ !contains(runner.name, 'arc-runner') }}
         uses: actions/cache@v5
         with:
           path: |
@@ -222,12 +242,15 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install uv
+        if: ${{ !contains(runner.name, 'arc-runner') }}
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: false
 
       - name: Set up Python
-        run: uv python install 3.12
+        run: |
+          command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
+          command -v python3 || uv python install 3.12
 
       - name: Run build
         run: ${{ env.HYPERCI_INSTALL }} run build
