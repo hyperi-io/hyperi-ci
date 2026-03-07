@@ -1,3 +1,10 @@
+## [1.0.6](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.5...v1.0.6) (2026-03-07)
+
+
+### Bug Fixes
+
+* always update apt cache when cross sysroot needs packages ([c13cdfa](https://github.com/hyperi-io/hyperi-ci/commit/c13cdfa321ec7f43193ac68f094d976b32adbb65))
+
 ## [1.0.5](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.4...v1.0.5) (2026-03-07)
 
 
