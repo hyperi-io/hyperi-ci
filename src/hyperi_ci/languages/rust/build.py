@@ -381,28 +381,37 @@ def _create_linker_wrapper(sysroot: Path, cross_triple: str) -> Path:
     -L flags for the sysroot. -rpath-link is needed so the linker can resolve
     transitive .so dependencies (e.g. libsasl2.so needs libcrypto.so.3).
     """
-    real_linker = shutil.which(f"{cross_triple}-gcc") or f"/usr/bin/{cross_triple}-gcc"
-
     wrapper_dir = sysroot / "bin"
     wrapper_dir.mkdir(parents=True, exist_ok=True)
-    wrapper = wrapper_dir / f"{cross_triple}-gcc"
+    perms = stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH
 
-    wrapper.write_text(
-        f"""#!/bin/sh
-exec {real_linker} \\
+    wrapper_script = """\
+#!/bin/sh
+exec {real_bin} \\
     -fuse-ld=bfd \\
-    -L{sysroot}/usr/lib/{cross_triple} \\
-    -L{sysroot}/lib/{cross_triple} \\
-    -Wl,-rpath-link,{sysroot}/usr/lib/{cross_triple} \\
+    -L{sysroot}/usr/lib/{triple} \\
+    -L{sysroot}/lib/{triple} \\
+    -Wl,-rpath-link,{sysroot}/usr/lib/{triple} \\
     "$@"
 """
-    )
-    wrapper.chmod(
-        stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH
-    )
 
-    info(f"  Linker wrapper: {wrapper} -> {real_linker}")
-    return wrapper
+    for suffix in ("gcc", "g++"):
+        real_bin = (
+            shutil.which(f"{cross_triple}-{suffix}")
+            or f"/usr/bin/{cross_triple}-{suffix}"
+        )
+        wrapper = wrapper_dir / f"{cross_triple}-{suffix}"
+        wrapper.write_text(
+            wrapper_script.format(
+                real_bin=real_bin,
+                sysroot=sysroot,
+                triple=cross_triple,
+            )
+        )
+        wrapper.chmod(perms)
+        info(f"  Linker wrapper: {wrapper} -> {real_bin}")
+
+    return wrapper_dir / f"{cross_triple}-gcc"
 
 
 def _cross_env(target: str, sysroot: Path | None = None) -> dict[str, str]:
@@ -435,6 +444,11 @@ def _cross_env(target: str, sysroot: Path | None = None) -> dict[str, str]:
         # Use linker wrapper that injects sysroot paths + forces BFD linker
         wrapper = _create_linker_wrapper(sysroot, cross_triple)
         env[f"CARGO_TARGET_{target_upper}_LINKER"] = str(wrapper)
+
+        # Point CC/CXX to sysroot wrappers so cmake/cc-crate find both
+        sysroot_bin = sysroot / "bin"
+        env[f"CC_{target_upper}"] = str(sysroot_bin / f"{cross_triple}-gcc")
+        env[f"CXX_{target_upper}"] = str(sysroot_bin / f"{cross_triple}-g++")
 
         # pkg-config paths for the sysroot
         env["PKG_CONFIG_PATH"] = (
