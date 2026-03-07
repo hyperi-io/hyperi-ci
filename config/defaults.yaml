@@ -14,7 +14,19 @@
 language: none
 
 # Runner Settings
+#
+# mode: controls which GitHub Actions runners are used
+#   self-hosted — ARC runners on DevEx cluster (persistent build cache, pre-installed toolchain)
+#   free        — GitHub-hosted ubuntu-latest (no setup needed, no cache between runs)
+#
+# This default applies org-wide. Individual repos override in .hyperi-ci.yaml.
+# ENV override: HYPERCI_RUNNERS_MODE=free
+#
+# When mode is "free", GH_RUNNER_* org variables are ignored and all jobs
+# run on ubuntu-latest. When mode is "self-hosted", the GH_RUNNER_* variables
+# select which ARC runner tier to use per language.
 runners:
+  mode: self-hosted
   default: ""
   windows: ""
   macos: ""
@@ -22,6 +34,10 @@ runners:
 
 # Minimum Python version for CI scripts themselves
 ci_min_python_version: "3.9"
+
+# Toolchain versions (pre-installed on ARC runners, auto-installed on free runners)
+toolchain:
+  llvm_version: "19"
 
 # Rust Settings
 rust:
@@ -35,7 +51,8 @@ quality:
 
   python:
     ruff: blocking
-    pyright: warn
+    ty: warn                   # Astral's type checker (OSS, Rust-based, replaces pyright/mypy)
+    pyright: disabled          # Superseded by ty
     bandit: blocking
     bandit_exclude_tests: true
     pip_audit: blocking
@@ -95,6 +112,11 @@ test:
   typescript:
     runner: auto
     args: []
+    e2e:
+      enabled: false
+      runner: playwright       # playwright or cypress
+      browser: chromium        # chromium, firefox, webkit
+      args: []
 
   golang:
     runner: go

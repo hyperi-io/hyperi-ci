@@ -67,7 +67,13 @@ def _get_native_triple() -> str:
 
 
 def _ensure_cross_apt_metadata(arch: str) -> None:
-    """Ensure apt knows about the cross architecture (metadata only)."""
+    """Ensure apt knows about the cross architecture (metadata only).
+
+    On ARC runners the arm64 ports sources are pre-baked into the image.
+    On ubuntu-latest they are not, so we add them here if missing.
+    We also scope existing deb822 sources to amd64 to prevent apt from
+    trying to fetch arm64 from archive.ubuntu.com (which doesn't serve it).
+    """
     result = subprocess.run(
         ["dpkg", "--print-foreign-architectures"],
         capture_output=True,
@@ -78,6 +84,44 @@ def _ensure_cross_apt_metadata(arch: str) -> None:
 
     info(f"  Adding apt architecture: {arch}")
     subprocess.run(["sudo", "dpkg", "--add-architecture", arch], check=False)
+
+    ports_list = Path("/etc/apt/sources.list.d/arm64-ports.list")
+    if arch == "arm64" and not ports_list.exists():
+        info("  Adding arm64 apt sources from ports.ubuntu.com")
+        codename_result = subprocess.run(
+            ["lsb_release", "-cs"],
+            capture_output=True,
+            text=True,
+        )
+        codename = codename_result.stdout.strip() or "noble"
+        lines = [
+            f"deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports {codename} main restricted universe",
+            f"deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports {codename}-updates main restricted universe",
+            f"deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports {codename}-security main restricted universe",
+        ]
+        subprocess.run(
+            ["sudo", "tee", str(ports_list)],
+            input="\n".join(lines) + "\n",
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        deb822_sources = Path("/etc/apt/sources.list.d/ubuntu.sources")
+        if deb822_sources.exists():
+            content = deb822_sources.read_text()
+            if "Architectures:" not in content:
+                info("  Scoping deb822 sources to amd64")
+                subprocess.run(
+                    [
+                        "sudo",
+                        "sed",
+                        "-i",
+                        "/^Types:/a Architectures: amd64",
+                        str(deb822_sources),
+                    ],
+                    check=False,
+                )
+
     subprocess.run(
         ["sudo", "apt-get", "update", "-qq"],
         capture_output=True,
