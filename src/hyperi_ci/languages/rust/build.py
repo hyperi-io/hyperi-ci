@@ -439,14 +439,18 @@ def _cross_env(target: str, sysroot: Path | None = None) -> dict[str, str]:
 
         # cmake-based -sys crates (e.g. rdkafka-sys)
         env["CMAKE_PREFIX_PATH"] = f"{sysroot}/usr"
+        # CMAKE_INCLUDE_PATH ensures cmake finds headers (e.g. curl/curl.h)
+        # in the sysroot's architecture-independent include dir
+        env["CMAKE_INCLUDE_PATH"] = f"{sysroot}/usr/include"
 
         # Target-specific CFLAGS/CXXFLAGS for the cc crate
         # -fuse-ld=bfd: force GNU BFD linker (mold can't cross-compile)
-        # -I: arch-specific headers in sysroot (e.g. opensslconf.h)
-        sysroot_include = sysroot / "usr" / "include" / cross_triple
-        cross_cflags = "-fuse-ld=bfd"
-        if sysroot_include.exists():
-            cross_cflags += f" -I{sysroot_include}"
+        # -I flags: sysroot headers (both arch-independent and arch-specific)
+        sysroot_include = sysroot / "usr" / "include"
+        sysroot_arch_include = sysroot_include / cross_triple
+        cross_cflags = f"-fuse-ld=bfd -I{sysroot_include}"
+        if sysroot_arch_include.exists():
+            cross_cflags += f" -I{sysroot_arch_include}"
         env[f"CFLAGS_{target_lower}"] = cross_cflags
         env[f"CXXFLAGS_{target_lower}"] = cross_cflags
     else:
