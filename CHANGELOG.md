@@ -1,3 +1,11 @@
+## [1.0.4](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.3...v1.0.4) (2026-03-07)
+
+
+### Bug Fixes
+
+* skip pre-installed tools on ARC runners ([a702704](https://github.com/hyperi-io/hyperi-ci/commit/a7027049928c5b14dc4829b80bd99bc9ebb0c2bc))
+* wire workflows to use ARC pre-installed tools ([fb61a9f](https://github.com/hyperi-io/hyperi-ci/commit/fb61a9f018aa5a8534bbac74914c67527a50542e))
+
 ## [1.0.3](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.2...v1.0.3) (2026-03-06)
 
 
