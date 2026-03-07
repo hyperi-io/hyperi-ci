@@ -1,3 +1,10 @@
+## [1.0.5](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.4...v1.0.5) (2026-03-07)
+
+
+### Bug Fixes
+
+* add sysroot include paths for cmake cross-compilation ([e9e8413](https://github.com/hyperi-io/hyperi-ci/commit/e9e841314df7d6f5a2477cb7420fc40b35c1ea96))
+
 ## [1.0.4](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.3...v1.0.4) (2026-03-07)
 
 
