@@ -10,6 +10,10 @@ name: Python CI
 on:
   workflow_call:
     inputs:
+      runner-mode:
+        type: string
+        default: ""
+        description: "Runner mode: 'free' forces ubuntu-latest, empty uses GH_RUNNER_* vars"
       publish-target:
         type: string
         default: "internal"
@@ -57,7 +61,7 @@ env:
 jobs:
   quality:
     name: Quality
-    runs-on: ${{ inputs.runner-quality || vars.GH_RUNNER_PYTHON || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_PYTHON || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
 
@@ -82,7 +86,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: ${{ fromJson(inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_PYTHON || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
+        os: ${{ fromJson((inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_PYTHON || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
     steps:
       - uses: actions/checkout@v6
 
@@ -113,7 +117,7 @@ jobs:
     name: Build
     needs: [quality, test]
     if: github.event.pull_request.head.repo.fork != true
-    runs-on: ${{ inputs.runner-build || vars.GH_RUNNER_PYTHON || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_PYTHON || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
 
@@ -152,16 +156,18 @@ jobs:
           node-version: 22
 
       - name: Install semantic-release
-        run: >-
-          npm install -g
-          semantic-release@25
-          @semantic-release/commit-analyzer
-          @semantic-release/release-notes-generator
-          @semantic-release/changelog
-          @semantic-release/exec
-          @semantic-release/git
-          @semantic-release/github
-          conventional-changelog-conventionalcommits
+        run: |
+          if ! npx semantic-release --version >/dev/null 2>&1; then
+            npm install -g \
+              semantic-release@25 \
+              @semantic-release/commit-analyzer \
+              @semantic-release/release-notes-generator \
+              @semantic-release/changelog \
+              @semantic-release/exec \
+              @semantic-release/git \
+              @semantic-release/github \
+              conventional-changelog-conventionalcommits
+          fi
 
       - name: Release
         env:
