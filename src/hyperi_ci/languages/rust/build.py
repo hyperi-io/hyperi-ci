@@ -41,7 +41,14 @@ _CROSS_TOOLCHAIN = {
     },
 }
 
-_SYSROOT_BASE = Path("/tmp/cross-sysroot")
+
+def _sysroot_base() -> Path:
+    """Return the base directory for cross-compilation sysroots.
+
+    Uses .tmp/cross-sysroot in the workspace so it stays on the workspace
+    volume (not pod ephemeral storage) and follows the .tmp/ convention.
+    """
+    return Path.cwd() / ".tmp" / "cross-sysroot"
 
 
 def _get_native_target() -> str:
@@ -297,7 +304,7 @@ def _setup_cross_sysroot(cross_arch: str, cross_triple: str) -> Path | None:
 
     Returns sysroot path on success, None on failure.
     """
-    sysroot = _SYSROOT_BASE / cross_arch
+    sysroot = _sysroot_base() / cross_arch
 
     # Reuse existing sysroot if already populated
     pc_dir = sysroot / "usr" / "lib" / cross_triple / "pkgconfig"
