@@ -1,3 +1,10 @@
+## [1.0.7](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.6...v1.0.7) (2026-03-07)
+
+
+### Bug Fixes
+
+* create g++ wrapper for cross-compilation sysroot ([ce1b8ab](https://github.com/hyperi-io/hyperi-ci/commit/ce1b8ab80fd9a42e63cad61f9198caf7f26061d5))
+
 ## [1.0.6](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.5...v1.0.6) (2026-03-07)
 
 
