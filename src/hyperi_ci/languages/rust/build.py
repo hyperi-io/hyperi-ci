@@ -79,54 +79,60 @@ def _ensure_cross_apt_metadata(arch: str) -> None:
         capture_output=True,
         text=True,
     )
-    if arch in result.stdout:
-        return
+    arch_registered = arch in result.stdout
 
-    info(f"  Adding apt architecture: {arch}")
-    subprocess.run(["sudo", "dpkg", "--add-architecture", arch], check=False)
+    if not arch_registered:
+        info(f"  Adding apt architecture: {arch}")
+        subprocess.run(["sudo", "dpkg", "--add-architecture", arch], check=False)
 
-    ports_list = Path("/etc/apt/sources.list.d/arm64-ports.list")
-    if arch == "arm64" and not ports_list.exists():
-        info("  Adding arm64 apt sources from ports.ubuntu.com")
-        codename_result = subprocess.run(
-            ["lsb_release", "-cs"],
-            capture_output=True,
-            text=True,
-        )
-        codename = codename_result.stdout.strip() or "noble"
-        lines = [
-            f"deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports {codename} main restricted universe",
-            f"deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports {codename}-updates main restricted universe",
-            f"deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports {codename}-security main restricted universe",
-        ]
+        ports_list = Path("/etc/apt/sources.list.d/arm64-ports.list")
+        if arch == "arm64" and not ports_list.exists():
+            info("  Adding arm64 apt sources from ports.ubuntu.com")
+            codename_result = subprocess.run(
+                ["lsb_release", "-cs"],
+                capture_output=True,
+                text=True,
+            )
+            codename = codename_result.stdout.strip() or "noble"
+            lines = [
+                f"deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports {codename} main restricted universe",
+                f"deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports {codename}-updates main restricted universe",
+                f"deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports {codename}-security main restricted universe",
+            ]
+            subprocess.run(
+                ["sudo", "tee", str(ports_list)],
+                input="\n".join(lines) + "\n",
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            deb822_sources = Path("/etc/apt/sources.list.d/ubuntu.sources")
+            if deb822_sources.exists():
+                content = deb822_sources.read_text()
+                if "Architectures:" not in content:
+                    info("  Scoping deb822 sources to amd64")
+                    subprocess.run(
+                        [
+                            "sudo",
+                            "sed",
+                            "-i",
+                            "/^Types:/a Architectures: amd64",
+                            str(deb822_sources),
+                        ],
+                        check=False,
+                    )
+
+    # Always update apt cache — on ARC runners the arch may be pre-registered
+    # but apt lists were cleaned during image build
+    apt_lists = Path("/var/lib/apt/lists")
+    needs_update = not arch_registered or len(list(apt_lists.glob("*_Packages"))) < 5
+    if needs_update:
+        info("  Updating apt package cache...")
         subprocess.run(
-            ["sudo", "tee", str(ports_list)],
-            input="\n".join(lines) + "\n",
-            text=True,
+            ["sudo", "apt-get", "update", "-qq"],
             capture_output=True,
             check=False,
         )
-        deb822_sources = Path("/etc/apt/sources.list.d/ubuntu.sources")
-        if deb822_sources.exists():
-            content = deb822_sources.read_text()
-            if "Architectures:" not in content:
-                info("  Scoping deb822 sources to amd64")
-                subprocess.run(
-                    [
-                        "sudo",
-                        "sed",
-                        "-i",
-                        "/^Types:/a Architectures: amd64",
-                        str(deb822_sources),
-                    ],
-                    check=False,
-                )
-
-    subprocess.run(
-        ["sudo", "apt-get", "update", "-qq"],
-        capture_output=True,
-        check=False,
-    )
 
 
 def _detect_native_dev_packages(native_triple: str) -> list[str]:
