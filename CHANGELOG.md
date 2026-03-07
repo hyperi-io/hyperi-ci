@@ -1,3 +1,10 @@
+## [1.0.8](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.7...v1.0.8) (2026-03-07)
+
+
+### Bug Fixes
+
+* use .tmp/ for cross-sysroot instead of /tmp ([8d05365](https://github.com/hyperi-io/hyperi-ci/commit/8d053650e2b40c55986cab806e4188237840de67))
+
 ## [1.0.7](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.6...v1.0.7) (2026-03-07)
 
 
