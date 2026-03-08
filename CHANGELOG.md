@@ -1,3 +1,10 @@
+## [1.0.10](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.9...v1.0.10) (2026-03-08)
+
+
+### Bug Fixes
+
+* complete Go handlers and cross-language publish infra ([038167e](https://github.com/hyperi-io/hyperi-ci/commit/038167e3793ef2e1f08f872094adba526ff6b19e))
+
 ## [1.0.9](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.8...v1.0.9) (2026-03-08)
 
 
