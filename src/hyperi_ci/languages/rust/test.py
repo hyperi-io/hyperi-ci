@@ -28,7 +28,11 @@ def _has_nextest() -> bool:
 
 
 def _build_test_cmd(features: str, tier: str | None = None) -> list[str]:
-    """Build the cargo test command."""
+    """Build the cargo test command.
+
+    Integration and e2e tests default to single-threaded execution to avoid
+    port conflicts from parallel test processes binding the same addresses.
+    """
     use_nextest = _has_nextest()
     cmd = ["cargo"]
 
@@ -49,6 +53,13 @@ def _build_test_cmd(features: str, tier: str | None = None) -> list[str]:
         cmd.extend(["--test", "*"])
     elif tier == "e2e":
         cmd.extend(["--test", "e2e*"])
+
+    # Limit integration/e2e tests to 1 thread to avoid port conflicts
+    if tier in ("integration", "e2e"):
+        if use_nextest:
+            cmd.extend(["--jobs", "1"])
+        else:
+            cmd.extend(["--", "--test-threads=1"])
 
     return cmd
 
