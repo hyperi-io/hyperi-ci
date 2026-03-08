@@ -13,6 +13,8 @@ downloaded .deb packages (ported from old CI's proven sysroot approach).
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import shutil
 import stat
@@ -552,6 +554,284 @@ def _ensure_cross_toolchain(target: str) -> None:
         )
 
 
+_ELF_MACHINE_MAP = {
+    "x86_64": "Advanced Micro Devices X86-64",
+    "aarch64": "AArch64",
+    "i686": "Intel 80386",
+    "armv7": "ARM",
+    "riscv64": "RISC-V",
+}
+
+
+def _human_size(size: int) -> str:
+    """Convert bytes to human-readable size."""
+    for unit in ("B", "K", "M", "G"):
+        if size < 1024:
+            return f"{size}{unit}"
+        size //= 1024
+    return f"{size}T"
+
+
+def _target_to_elf_machine(target: str) -> str | None:
+    """Map Rust target to expected ELF machine string from readelf -h."""
+    for prefix, machine in _ELF_MACHINE_MAP.items():
+        if target.startswith(prefix):
+            return machine
+    return None
+
+
+def _verify_binary(binary: Path, target: str, native_target: str) -> bool:
+    """Post-build binary verification.
+
+    Checks: file exists, minimum size, correct ELF machine type, dynamic deps.
+    For native targets: runs --version smoke test.
+    """
+    errors = 0
+    info("    --- Post-build verification ---")
+
+    if not binary.exists():
+        error(f"    Binary not found: {binary}")
+        return False
+
+    size = binary.stat().st_size
+    if size < 102400:
+        error(f"    Binary too small ({size} bytes) — likely corrupt")
+        errors += 1
+    else:
+        info(f"    OK: Size {_human_size(size)}")
+
+    if shutil.which("file"):
+        result = subprocess.run(
+            ["file", str(binary)], capture_output=True, text=True, check=False
+        )
+        if "ELF" not in result.stdout:
+            error(f"    Not an ELF binary: {result.stdout.strip()}")
+            errors += 1
+        else:
+            info("    OK: ELF binary confirmed")
+
+    if shutil.which("readelf"):
+        expected = _target_to_elf_machine(target)
+        if expected:
+            result = subprocess.run(
+                ["readelf", "-h", str(binary)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            for line in result.stdout.splitlines():
+                if "Machine:" in line:
+                    actual = line.split("Machine:")[1].strip()
+                    if expected in actual:
+                        info(f"    OK: Machine type: {actual}")
+                    else:
+                        error(
+                            f"    Wrong machine type: got '{actual}', expected '{expected}'"
+                        )
+                        errors += 1
+                    break
+
+        result = subprocess.run(
+            ["readelf", "-d", str(binary)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        deps = []
+        for line in result.stdout.splitlines():
+            if "NEEDED" in line and "[" in line:
+                dep = line.split("[")[-1].rstrip("]").strip()
+                if dep:
+                    deps.append(dep)
+        if deps:
+            info(f"    OK: Dynamic deps ({len(deps)}): {' '.join(deps)}")
+        else:
+            info("    INFO: Statically linked (no dynamic deps)")
+
+    if target == native_target:
+        for flag in ("--version", "--help"):
+            try:
+                result = subprocess.run(
+                    [str(binary), flag],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=10,
+                )
+                if result.returncode == 0:
+                    first_line = result.stdout.splitlines()[0] if result.stdout else ""
+                    info(f"    OK: Smoke test ({flag}): {first_line}")
+                    break
+            except subprocess.TimeoutExpired:
+                continue
+        else:
+            info("    SKIP: Smoke test (binary needs runtime config)")
+    else:
+        info("    SKIP: Smoke test (cross-compiled, cannot execute)")
+
+    if errors:
+        error(f"    {errors} verification failure(s)")
+        return False
+
+    info("    All checks passed")
+    return True
+
+
+def _strip_binary(binary: Path, target: str) -> None:
+    """Strip debug symbols from binary."""
+    strip_cmd = None
+    if target.startswith("x86_64-unknown-linux") or target.startswith("x86_64-apple"):
+        strip_cmd = "strip"
+    elif target.startswith("aarch64-unknown-linux"):
+        strip_cmd = "aarch64-linux-gnu-strip"
+    elif target.startswith("aarch64-apple"):
+        strip_cmd = "strip"
+
+    if strip_cmd and shutil.which(strip_cmd):
+        size_before = binary.stat().st_size
+        subprocess.run([strip_cmd, str(binary)], check=False)
+        size_after = binary.stat().st_size
+        saved = _human_size(size_before - size_after)
+        info(
+            f"    Stripped: {_human_size(size_before)} -> {_human_size(size_after)} (saved {saved})"
+        )
+
+
+def _detect_binary_names() -> list[str]:
+    """Detect binary target names from Cargo metadata."""
+    result = subprocess.run(
+        ["cargo", "metadata", "--format-version", "1", "--no-deps"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return [Path.cwd().name]
+
+    try:
+        meta = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return [Path.cwd().name]
+
+    names: list[str] = []
+    for package in meta.get("packages", []):
+        for target in package.get("targets", []):
+            if "bin" in target.get("kind", []):
+                names.append(target["name"])
+
+    return names or [Path.cwd().name]
+
+
+def _detect_version() -> str:
+    """Detect project version from env vars or Cargo.toml."""
+    for var in ("RUST_VERSION", "CI_COMMIT_TAG", "GITHUB_REF_NAME"):
+        val = os.environ.get(var, "")
+        if val:
+            return val
+
+    result = subprocess.run(
+        ["cargo", "metadata", "--format-version", "1", "--no-deps"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode == 0:
+        try:
+            meta = json.loads(result.stdout)
+            for package in meta.get("packages", []):
+                version = package.get("version", "")
+                if version:
+                    return f"v{version}"
+        except json.JSONDecodeError:
+            pass
+
+    return "dev"
+
+
+def _target_to_os_arch(target: str) -> str:
+    """Map Rust target triple to os-arch naming (matches Go convention)."""
+    pair = _TARGET_MAP.get(target)
+    if pair:
+        return f"{pair[0]}-{pair[1]}"
+    return target
+
+
+def _generate_checksums(output_dir: Path) -> None:
+    """Generate SHA256 checksums file for all binaries in output directory."""
+    checksum_file = output_dir / "checksums.sha256"
+    lines: list[str] = []
+
+    for f in sorted(output_dir.iterdir()):
+        if f.is_file() and f.name != "checksums.sha256":
+            sha = hashlib.sha256(f.read_bytes()).hexdigest()
+            lines.append(f"{sha}  {f.name}")
+
+    if lines:
+        checksum_file.write_text("\n".join(lines) + "\n")
+        info(f"Checksums written to {checksum_file}")
+
+
+def _package_binaries(
+    targets: list[str],
+    binary_names: list[str],
+    version: str,
+    native_target: str,
+) -> int:
+    """Copy, strip, verify, and package built binaries into dist/.
+
+    Creates versioned binaries like: name-v1.2.3-linux-amd64
+    with SHA256 checksums.
+    """
+    output_dir = Path("dist")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    target_dir = os.environ.get("CARGO_TARGET_DIR", "target")
+    built_count = 0
+
+    info(f"Packaging binaries: {' '.join(binary_names)}")
+    info(f"Version: {version}")
+
+    for target in targets:
+        os_arch = _target_to_os_arch(target)
+        profile_dir = Path(target_dir) / target / "release"
+
+        for bin_name in binary_names:
+            src_bin = profile_dir / bin_name
+            output_name = f"{bin_name}-{version}-{os_arch}"
+
+            if "windows" in target:
+                src_bin = src_bin.with_suffix(".exe")
+                output_name += ".exe"
+
+            if not src_bin.exists():
+                error(f"Binary not found: {src_bin}")
+                return 1
+
+            output_path = output_dir / output_name
+            shutil.copy2(src_bin, output_path)
+            output_path.chmod(0o755)
+
+            _strip_binary(output_path, target)
+
+            info(
+                f"  Created: {output_path.name} ({_human_size(output_path.stat().st_size)})"
+            )
+
+            if not _verify_binary(output_path, target, native_target):
+                error(f"Post-build verification failed for {output_path}")
+                return 1
+
+            built_count += 1
+
+    info(f"Built {built_count} binary(ies) to {output_dir}/")
+    for f in sorted(output_dir.iterdir()):
+        if f.is_file() and f.name != "checksums.sha256":
+            info(f"  {f.name} ({_human_size(f.stat().st_size)})")
+
+    _generate_checksums(output_dir)
+
+    return 0
+
+
 def _build_for_target(
     target: str,
     features: str,
@@ -633,4 +913,12 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
                 return rc
             success(f"Built: {target}")
 
+    with group("Binary packaging"):
+        binary_names = _detect_binary_names()
+        version = _detect_version()
+        rc = _package_binaries(targets, binary_names, version, native)
+        if rc != 0:
+            return rc
+
+    success("Build complete")
     return 0
