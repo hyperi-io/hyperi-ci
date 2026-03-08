@@ -1,3 +1,10 @@
+## [1.0.9](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.8...v1.0.9) (2026-03-08)
+
+
+### Bug Fixes
+
+* add post-build verification, binary packaging, and test threading ([a165b4f](https://github.com/hyperi-io/hyperi-ci/commit/a165b4fcafa1e31cd4d55cd2f33fe468d0e7ad20))
+
 ## [1.0.8](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.7...v1.0.8) (2026-03-07)
 
 
