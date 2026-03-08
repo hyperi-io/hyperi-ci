@@ -157,6 +157,57 @@ def run_cmd(
     )
 
 
+def verify_publish(
+    url: str,
+    *,
+    auth: tuple[str, str] | None = None,
+    max_retries: int = 5,
+    retry_delay: int = 10,
+    label: str = "",
+) -> bool:
+    """Verify a published artifact is reachable via HTTP HEAD with retries.
+
+    JFrog Artifactory has indexing lag — a just-published artifact may return
+    404 for several seconds. This retries with delay to account for that.
+
+    Args:
+        url: Full URL to HEAD-check.
+        auth: Optional (username, password) tuple for basic auth.
+        max_retries: Maximum number of attempts.
+        retry_delay: Seconds to wait between retries.
+        label: Human-readable label for log messages.
+
+    Returns:
+        True if the artifact was found (HTTP 200), False otherwise.
+    """
+    import time
+
+    display = label or url.rsplit("/", 1)[-1]
+
+    for attempt in range(1, max_retries + 1):
+        cmd = ["curl", "-sS", "-o", "/dev/null", "-w", "%{http_code}", "--head"]
+        if auth:
+            cmd.extend(["-u", f"{auth[0]}:{auth[1]}"])
+        cmd.append(url)
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        http_code = result.stdout.strip()
+
+        if http_code == "200":
+            success(f"  Verified: {display}")
+            return True
+
+        if attempt < max_retries:
+            info(
+                f"  Attempt {attempt}/{max_retries}: {display} "
+                f"not found (HTTP {http_code}), retrying in {retry_delay}s..."
+            )
+            time.sleep(retry_delay)
+
+    error(f"  Verification failed: {display} not found after {max_retries} attempts")
+    return False
+
+
 # Common directories to exclude from quality checks
 _COMMON_EXCLUDES = [
     ".venv",

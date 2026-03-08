@@ -291,3 +291,52 @@ Three-layer:
 - CI: use all cores (`nproc`)
 - Local dev: default 2 parallel jobs (conservative)
 - Override: `LOCAL_PARALLEL_JOBS` env or `local.parallel_jobs` config
+
+---
+
+## Lessons from New CI Implementation (2026-03)
+
+### Sysroot Location (ARC Runners)
+
+- **Never use `/tmp` for sysroot** on ARC (Actions Runner Controller) runners
+- ARC runners use pod ephemeral storage for `/tmp` — the same disk that
+  causes pod evictions when it fills up
+- **Solution:** Use `Path.cwd() / ".tmp" / "cross-sysroot"` (project-scoped,
+  gitignored, survives across CI steps in the same job)
+- Also aligns with project coding standards: "never hardcode `/tmp`"
+
+### Cross-Compilation: Both gcc AND g++ Wrappers Required
+
+- CMake-based `-sys` crates (e.g. `rdkafka-sys`) need BOTH a C compiler
+  wrapper AND a C++ compiler wrapper in the sysroot `bin/` directory
+- Only creating the gcc wrapper causes CMake to fail with:
+  `CMAKE_CXX_COMPILER: .../aarch64-linux-gnu-g++ is not a full path`
+- **Solution:** Generate both `{triple}-gcc` and `{triple}-g++` wrappers
+  with identical flags (`-fuse-ld=bfd`, sysroot paths)
+- Point `CC_<TARGET>` and `CXX_<TARGET>` env vars to the sysroot wrappers
+
+### Go Publish: Binaries, Not Modules
+
+- Go modules publish automatically to proxy.golang.org on tag push
+- "JFrog Go publish" means uploading **built binaries** to JFrog generic
+  repository via `curl -T` (HTTP PUT), NOT running `go mod download`
+- Binary naming convention: `{binary}-{version}-{goos}-{goarch}[.exe]`
+- Checksums: `checksums.sha256` file alongside binaries (renamed to
+  `SHA256SUMS` on upload to avoid JFrog checksum API conflict)
+
+### npm Config Pollution
+
+- `npm config set registry=...` modifies **global** `~/.npmrc`
+- On CI runners this persists across jobs sharing the same home directory
+  (especially ARC runners with shared NFS-backed `RUNNER_HOME`)
+- **Solution:** Write a project-local `.npmrc` file with registry + auth,
+  then restore/remove it after publishing (try/finally pattern)
+- Same principle: never modify global state when project-local config works
+
+### Publish Verification Retry Pattern
+
+- JFrog has indexing lag: a just-uploaded artifact may 404 for 5-30 seconds
+- All publish handlers should verify with HTTP HEAD + retry loop
+- Default: 5 retries, 10 second delay (total ~50s worst case)
+- Shared helper in `common.py:verify_publish()` — reusable across all languages
+- The old CI had this per-language; the new CI centralises it

@@ -64,11 +64,13 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         had_failure = True
 
     mode = _get_tool_mode("golangci_lint", config)
-    if not _run_tool("golangci-lint", ["golangci-lint", "run"], mode):
+    if not _run_tool(
+        "golangci-lint", ["golangci-lint", "run", "--timeout", "5m"], mode
+    ):
         had_failure = True
 
     mode = _get_tool_mode("gosec", config)
-    if not _run_tool("gosec", ["gosec", "./..."], mode):
+    if not _run_tool("gosec", ["gosec", "-quiet", "./..."], mode):
         had_failure = True
 
     mode = _get_tool_mode("govulncheck", config)
