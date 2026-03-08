@@ -200,9 +200,36 @@ def _render_workflow(
     )
 
 
-def _render_releaserc(project_name: str) -> str:
-    """Render .releaserc.yaml for semantic-release."""
-    config = {
+def _render_releaserc(project_name: str, language: str = "") -> str:
+    """Render .releaserc.yaml for semantic-release.
+
+    Args:
+        project_name: Project name for header.
+        language: Detected language (affects prepareCmd for Rust/Python).
+    """
+    prepare_cmd = (
+        'python3 -c "from pathlib import Path; '
+        "Path('VERSION').write_text('${nextRelease.version}\\n')\""
+    )
+    if language == "rust":
+        prepare_cmd = (
+            'python3 -c "'
+            "from pathlib import Path; import re; "
+            "Path('VERSION').write_text('${nextRelease.version}\\n'); "
+            "ct = Path('Cargo.toml').read_text(); "
+            'ct = re.sub(r\'^version\\\\s*=\\\\s*\\"[^\\"]*\\"\', '
+            "'version = \\\"${nextRelease.version}\\\"', ct, count=1, flags=re.MULTILINE); "
+            "Path('Cargo.toml').write_text(ct)"
+            '"'
+        )
+
+    git_assets = ["CHANGELOG.md", "VERSION"]
+    if language == "rust":
+        git_assets.append("Cargo.toml")
+    elif language == "python":
+        git_assets.append("pyproject.toml")
+
+    config: dict = {
         "branches": ["main"],
         "tagFormat": "v${version}",
         "plugins": [
@@ -229,10 +256,14 @@ def _render_releaserc(project_name: str) -> str:
                 {"changelogFile": "CHANGELOG.md"},
             ],
             [
+                "@semantic-release/exec",
+                {"prepareCmd": prepare_cmd},
+            ],
+            [
                 "@semantic-release/git",
                 {
-                    "assets": ["CHANGELOG.md", "VERSION"],
-                    "message": ("chore: version ${nextRelease.version} [skip ci]"),
+                    "assets": git_assets,
+                    "message": "chore: version ${nextRelease.version} [skip ci]",
                 },
             ],
             "@semantic-release/github",
@@ -391,7 +422,7 @@ def init_project(
             files_written += 1
 
     if not _has_releaserc(project_dir):
-        releaserc_content = _render_releaserc(project_name)
+        releaserc_content = _render_releaserc(project_name, language=detected)
         releaserc_path = project_dir / ".releaserc.yaml"
         if _write_file(
             releaserc_path,

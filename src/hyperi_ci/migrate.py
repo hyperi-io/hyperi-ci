@@ -225,10 +225,19 @@ def _find_old_ci_env_refs(project_dir: Path) -> list[str]:
     workflows_dir = project_dir / ".github" / "workflows"
     search_globs = ["*.yml", "*.yaml", "Makefile", "Dockerfile"]
 
+    ci_dir = project_dir / "ci"
+
     for glob_pattern in search_globs:
         for f in project_dir.rglob(glob_pattern):
             if ".git" in f.parts:
                 continue
+            # Skip ci/ directory — it's being removed entirely
+            if ci_dir.is_dir():
+                try:
+                    f.relative_to(ci_dir)
+                    continue
+                except ValueError:
+                    pass
             # Skip workflow dir — those get replaced separately
             if workflows_dir.is_dir():
                 try:
