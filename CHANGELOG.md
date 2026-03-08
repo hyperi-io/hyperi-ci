@@ -1,3 +1,10 @@
+## [1.0.11](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.10...v1.0.11) (2026-03-08)
+
+
+### Bug Fixes
+
+* add @semantic-release/exec to releaserc template ([dcdbae2](https://github.com/hyperi-io/hyperi-ci/commit/dcdbae2616b03483522859a61c519bcb7fd1d71e))
+
 ## [1.0.10](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.9...v1.0.10) (2026-03-08)
 
 
