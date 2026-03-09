@@ -1,3 +1,11 @@
+## [1.0.20](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.19...v1.0.20) (2026-03-09)
+
+
+### Bug Fixes
+
+* package config in wheel, publish to PyPI ([1b536a4](https://github.com/hyperi-io/hyperi-ci/commit/1b536a47ae7a9e59c07cfcabc3830744f932b5b2))
+* simplify PyPI publish to use token ([f5ff6f9](https://github.com/hyperi-io/hyperi-ci/commit/f5ff6f96f67bfc509456e558a3d13098c906931f))
+
 ## [1.0.19](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.18...v1.0.19) (2026-03-09)
 
 
