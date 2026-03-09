@@ -1,3 +1,10 @@
+## [1.0.25](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.24...v1.0.25) (2026-03-09)
+
+
+### Bug Fixes
+
+* restore JFrog index per-step with token guard ([6a4a522](https://github.com/hyperi-io/hyperi-ci/commit/6a4a522da8216a7973ab2160f7f1e3610718b110))
+
 ## [1.0.24](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.23...v1.0.24) (2026-03-09)
 
 
