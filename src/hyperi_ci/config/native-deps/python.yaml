@@ -34,6 +34,19 @@
   apt_packages:
     - libpq-dev
 
+- name: confluent-kafka / C libraries
+  patterns:
+    - confluent-kafka
+  manifest_files:
+    - pyproject.toml
+    - requirements.txt
+    - uv.lock
+  dpkg_check: librdkafka-dev
+  apt_packages:
+    - librdkafka-dev
+    - libssl-dev
+    - libsasl2-dev
+
 - name: Pillow / image processing
   patterns:
     - Pillow
