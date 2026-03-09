@@ -1,3 +1,10 @@
+## [1.0.38](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.37...v1.0.38) (2026-03-09)
+
+
+### Bug Fixes
+
+* rename logger kwarg group to dep to avoid reserved name ([9f41643](https://github.com/hyperi-io/hyperi-ci/commit/9f41643958529e5bb564388ad347710395eca5fd))
+
 ## [1.0.37](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.36...v1.0.37) (2026-03-09)
 
 
