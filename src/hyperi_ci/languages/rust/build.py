@@ -698,7 +698,11 @@ def _strip_binary(binary: Path, target: str) -> None:
 
 
 def _detect_binary_names() -> list[str]:
-    """Detect binary target names from Cargo metadata."""
+    """Detect binary target names from Cargo metadata.
+
+    Returns empty list for library-only crates (no bin targets).
+    Only falls back to directory name when cargo metadata itself fails.
+    """
     result = subprocess.run(
         ["cargo", "metadata", "--format-version", "1", "--no-deps"],
         capture_output=True,
@@ -719,7 +723,8 @@ def _detect_binary_names() -> list[str]:
             if "bin" in target.get("kind", []):
                 names.append(target["name"])
 
-    return names or [Path.cwd().name]
+    # Return empty list for library-only crates — packaging is skipped
+    return names
 
 
 def _detect_version() -> str:
@@ -915,10 +920,13 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     with group("Binary packaging"):
         binary_names = _detect_binary_names()
-        version = _detect_version()
-        rc = _package_binaries(targets, binary_names, version, native)
-        if rc != 0:
-            return rc
+        if not binary_names:
+            info("Library-only crate — skipping binary packaging")
+        else:
+            version = _detect_version()
+            rc = _package_binaries(targets, binary_names, version, native)
+            if rc != 0:
+                return rc
 
     success("Build complete")
     return 0
