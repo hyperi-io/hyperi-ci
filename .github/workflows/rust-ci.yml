@@ -64,7 +64,8 @@ jobs:
       - name: Detect native dependencies
         id: native-deps
         run: |
-          if grep -qE -- '-sys[",$]' Cargo.lock 2>/dev/null; then
+          if grep -qE -- '-sys[",$]' Cargo.lock 2>/dev/null || \
+             grep -qE '(rdkafka|openssl|curl-sys|libssh2-sys|prost-build|tonic-prost-build)' Cargo.toml 2>/dev/null; then
             echo "needed=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -131,7 +132,8 @@ jobs:
       - name: Detect native dependencies
         id: native-deps
         run: |
-          if grep -qE -- '-sys[",$]' Cargo.lock 2>/dev/null; then
+          if grep -qE -- '-sys[",$]' Cargo.lock 2>/dev/null || \
+             grep -qE '(rdkafka|openssl|curl-sys|libssh2-sys|prost-build|tonic-prost-build)' Cargo.toml 2>/dev/null; then
             echo "needed=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -198,7 +200,8 @@ jobs:
       - name: Detect native dependencies
         id: native-deps
         run: |
-          if grep -qE -- '-sys[",$]' Cargo.lock 2>/dev/null; then
+          if grep -qE -- '-sys[",$]' Cargo.lock 2>/dev/null || \
+             grep -qE '(rdkafka|openssl|curl-sys|libssh2-sys|prost-build|tonic-prost-build)' Cargo.toml 2>/dev/null; then
             echo "needed=true" >> "$GITHUB_OUTPUT"
           fi
 
