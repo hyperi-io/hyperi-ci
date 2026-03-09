@@ -1,3 +1,10 @@
+## [1.0.36](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.35...v1.0.36) (2026-03-09)
+
+
+### Bug Fixes
+
+* check libprotobuf-dev package not just protoc binary for well-known types ([fad0328](https://github.com/hyperi-io/hyperi-ci/commit/fad0328e407f0e5d6e4248810ed989a5a0184f53))
+
 ## [1.0.35](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.34...v1.0.35) (2026-03-09)
 
 
