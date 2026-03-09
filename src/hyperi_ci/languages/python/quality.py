@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from pathlib import Path
 
 from hyperi_ci.common import error, get_exclude_dirs, info, success, warn
 from hyperi_ci.config import CIConfig
@@ -145,6 +146,8 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # Bandit security scanning
     mode = _get_tool_mode("bandit", config)
     bandit_cmd = ["bandit", "-r", "src/", "-ll"]
+    if Path("pyproject.toml").exists():
+        bandit_cmd.extend(["-c", "pyproject.toml"])
     if config.get("quality.python.bandit_exclude_tests", True):
         bandit_cmd.extend(["--exclude", "tests/"])
     bandit_cmd.extend(_build_exclude_args("bandit", excludes))
