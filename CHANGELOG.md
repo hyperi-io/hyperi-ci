@@ -1,3 +1,10 @@
+## [1.0.28](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.27...v1.0.28) (2026-03-09)
+
+
+### Bug Fixes
+
+* remove UV_EXTRA_INDEX_URL from publish install deps step ([74cd699](https://github.com/hyperi-io/hyperi-ci/commit/74cd699a4a38837eaee46826c80439b1980d4098))
+
 ## [1.0.27](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.26...v1.0.27) (2026-03-09)
 
 
