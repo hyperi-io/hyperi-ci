@@ -1,3 +1,10 @@
+## [1.0.16](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.15...v1.0.16) (2026-03-09)
+
+
+### Bug Fixes
+
+* add NODE_OPTIONS for pyright OOM in quality job ([250e7c3](https://github.com/hyperi-io/hyperi-ci/commit/250e7c368af6e18a25715bdf261a965afa1326cd))
+
 ## [1.0.15](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.14...v1.0.15) (2026-03-09)
 
 
