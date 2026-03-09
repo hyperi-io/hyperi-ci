@@ -1,3 +1,10 @@
+## [1.0.13](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.12...v1.0.13) (2026-03-09)
+
+
+### Bug Fixes
+
+* skip JFrog index for OSS projects and add publish-target to workflow ([82e046c](https://github.com/hyperi-io/hyperi-ci/commit/82e046c38f15ec57e487c9d3a56ef2e4d9edeb46))
+
 ## [1.0.12](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.11...v1.0.12) (2026-03-09)
 
 
