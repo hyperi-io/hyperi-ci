@@ -1,3 +1,10 @@
+## [1.0.37](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.36...v1.0.37) (2026-03-09)
+
+
+### Bug Fixes
+
+* replace hardcoded native dep detection with config-driven system ([e8e8a57](https://github.com/hyperi-io/hyperi-ci/commit/e8e8a5718a69eea383f4e3fd70caa6410823edbc))
+
 ## [1.0.36](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.35...v1.0.36) (2026-03-09)
 
 
