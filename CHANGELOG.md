@@ -1,3 +1,10 @@
+## [1.0.14](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.13...v1.0.14) (2026-03-09)
+
+
+### Bug Fixes
+
+* install all extras in python CI workflow ([2ce0422](https://github.com/hyperi-io/hyperi-ci/commit/2ce0422b709aa9198c87b3f84e7612013b6a6d47))
+
 ## [1.0.13](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.12...v1.0.13) (2026-03-09)
 
 
