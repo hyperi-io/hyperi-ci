@@ -1,3 +1,10 @@
+## [1.0.31](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.30...v1.0.31) (2026-03-09)
+
+
+### Bug Fixes
+
+* use _token username for JFrog PyPI publish ([3190913](https://github.com/hyperi-io/hyperi-ci/commit/3190913ecf3c8251c483f0f52dfb7d74956c91bf))
+
 ## [1.0.30](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.29...v1.0.30) (2026-03-09)
 
 
