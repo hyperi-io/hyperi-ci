@@ -249,7 +249,7 @@ def _render_workflow(
         "\n"
         "name: CI\n"
         "\n"
-        "on:\n"
+        '"on":\n'
         "  push:\n"
         '    branches: ["**"]\n'
         "  pull_request:\n"
