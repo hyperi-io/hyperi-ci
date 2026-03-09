@@ -78,7 +78,7 @@ jobs:
               librdkafka-dev libssl-dev libsasl2-dev \
               cmake pkg-config libcurl4-openssl-dev
           fi
-          if ! command -v protoc >/dev/null 2>&1; then
+          if ! dpkg -s libprotobuf-dev >/dev/null 2>&1; then
             sudo apt-get update 2>/dev/null || true
             sudo apt-get install -y --no-install-recommends \
               protobuf-compiler libprotobuf-dev
@@ -150,7 +150,7 @@ jobs:
               librdkafka-dev libssl-dev libsasl2-dev \
               cmake pkg-config libcurl4-openssl-dev
           fi
-          if ! command -v protoc >/dev/null 2>&1; then
+          if ! dpkg -s libprotobuf-dev >/dev/null 2>&1; then
             sudo apt-get update 2>/dev/null || true
             sudo apt-get install -y --no-install-recommends \
               protobuf-compiler libprotobuf-dev
@@ -222,7 +222,7 @@ jobs:
               librdkafka-dev libssl-dev libsasl2-dev \
               cmake pkg-config libcurl4-openssl-dev
           fi
-          if ! command -v protoc >/dev/null 2>&1; then
+          if ! dpkg -s libprotobuf-dev >/dev/null 2>&1; then
             sudo apt-get update 2>/dev/null || true
             sudo apt-get install -y --no-install-recommends \
               protobuf-compiler libprotobuf-dev
