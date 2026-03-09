@@ -186,12 +186,86 @@ Source: `hyperi-io/ci` (to be archived once cutover is complete).
 
 ## Python
 
+### uv Index Strategy (Critical — Do Not Change)
+
+**NEVER add `UV_EXTRA_INDEX_URL` to dep install steps in reusable workflows.**
+
+uv does NOT work like pip with mixed public + private indices. By default uv
+uses first-match-wins per package name. If JFrog returns an empty 200 for a
+package it doesn't have (e.g. `hatchling`, `setuptools`), uv stops there and
+reports "no versions found" rather than falling back to PyPI.
+
+A workaround exists (`UV_INDEX_STRATEGY=unsafe-best-match`) but is fragile
+and changes resolver semantics across all packages.
+
+**Correct approach:**
+- Leave workflow install steps as `uv sync --frozen --all-extras` with NO
+  extra index env vars
+- Projects that need private JFrog packages configure `[tool.uv.index]` with
+  `explicit=true` in their own `pyproject.toml` — explicit indices are only
+  consulted for packages that name them
+
+This comment is in-code in all four reusable workflows. Do not remove it.
+
+### JFrog PyPI Publish Auth (Critical)
+
+`uv publish` to JFrog Artifactory requires `--username` / `--password`, NOT
+`--token`. JFrog's PyPI upload API does NOT support PyPI's `__token__`
+username convention and rejects it with "Wrong username was used" (401).
+
+**Correct invocation:**
+```python
+cmd = [
+    "uv", "publish",
+    "--publish-url", org.pypi_publish_url,
+    "--username", os.environ.get("JFROG_USERNAME", "_token"),
+    "--password", os.environ["JFROG_TOKEN"],
+]
+```
+
+**Org secrets required (both at org level, `visibility: all`):**
+- `JFROG_TOKEN` — JFrog Artifactory access token (JWT format `eyJ...`)
+- `JFROG_USERNAME` — JFrog account email (`artifactory@hypersec.io`)
+
+Both must be declared in the reusable workflow's `secrets:` block and
+explicitly passed through in `env:` on the publish step.
+
+**Token maintenance:**
+- Generate via: `jf atc <username> --description "..." --grant-admin --expiry 0`
+- Set via: `printf '%s' "$TOKEN" | gh secret set JFROG_TOKEN --org hyperi-io --visibility all`
+- Use `printf '%s'` not `echo` — `echo` adds trailing newline which can corrupt the stored value
+- Verify the stored token is non-empty by triggering a run and checking logs for "JFROG_TOKEN not set"
+
 ### uv Patterns
 
 - CI uses Python 3.12 (has `tomllib` built-in)
-- JFrog: URL-encode credentials, set `UV_INDEX_URL`, `UV_INDEX`, `UV_LINK_MODE=copy`
 - Build: `uv build` (replaces `python -m build`)
-- Publish: `uv publish --publish-url` with explicit credentials
+- Publish: `uv publish --publish-url` with explicit `--username` / `--password`
+
+### sdist Exclusions (AI Agent Dirs and Org Submodules)
+
+Hatchling's sdist includes all git-tracked files by default. This causes
+problems when the repo has:
+- AI agent config dirs (`.claude/`, `.cursor/`, `.gemini/`, `.windsurf/`)
+- AI-related symlinks (`.claude/rules/user-standards.md` → outside project)
+- Org submodules (`hyperi-ai/`, `ci/`) with their own content
+
+**Solution:** The `build.py` handler uses a `_inject_sdist_excludes()` context
+manager that temporarily patches `pyproject.toml` before `uv build` to add
+standard exclusions, then restores the original file after.
+
+Standard exclusions applied automatically to every Python sdist build:
+```
+/.claude  /CLAUDE.md  /.cursor  /CURSOR.md  /.gemini  /GEMINI.md
+/.github/copilot-instructions.md  /.windsurf  /STATE.md  /hyperi-ai  /ci
+```
+
+Projects can add project-specific excludes via `[tool.hatch.build.targets.sdist]
+exclude` in their `pyproject.toml` — those are merged with the standard ones.
+
+The build step in the reusable workflow MUST go through `hyperi-ci run build`
+(not raw `uv build`) so the exclusion injection runs. The publish step re-runs
+build to ensure fresh artifacts, also via `hyperi-ci run build`.
 
 ### Quality Tool Exclusions (Critical)
 
@@ -203,18 +277,30 @@ Source: `hyperi-io/ci` (to be archived once cutover is complete).
   - pyright: config-file only (no CLI exclusions)
   - eslint: `--ignore-pattern dir`
 
+### Bandit Configuration
+
+- Skip `B104` (hardcoded_bind_all_interfaces) globally via `[tool.bandit] skips`
+  in `pyproject.toml` when the service intentionally binds `0.0.0.0` (containers)
+- Skip `B608` (hardcoded_sql) if queries use internal config templates, not user input
+- Use config-level skips (`[tool.bandit]`) rather than inline `# nosec` where possible
+- `bandit_exclude_tests: true` in `.hyperi-ci.yaml` skips `tests/` directory
+
 ### Testing
 
 - Tiered: `tests/unit/`, `tests/integration/`, `tests/e2e/`
 - Detection: directory-based > marker-based > conftest-based
 - Coverage: separate `.coverage.<tier>` files, combine at end
 - No test directory: exit 0 (graceful skip)
+- Private submodules (e.g. `dfe-schemas`): mark dependent tests with
+  `@pytest.mark.skipif(not schemas_dir.exists(), reason="submodule not checked out")`
+  rather than trying to check out private submodules in CI (GITHUB_TOKEN can't)
 
 ### Publishing
 
 - Verification: query JFrog simple API, check for version in HTML response
 - Handle both naming conventions: `package-name-version` and `package_name-version`
 - JFrog indexing takes minutes — retry loop (5 retries, 10s delay)
+- "already exists" error from JFrog or PyPI is non-fatal (idempotent re-runs)
 
 ---
 
