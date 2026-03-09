@@ -36,16 +36,23 @@ def _build_exclude_args(tool: str, excludes: list[str]) -> list[str]:
     return []
 
 
-def _resolve_tool_cmd(cmd: list[str]) -> list[str]:
+def _resolve_tool_cmd(cmd: list[str], use_uvx: bool = False) -> list[str]:
     """Resolve tool command, using uv run if tool isn't on PATH.
 
     When hyperi-ci runs via uvx, project tools (ruff, pytest, etc.)
     live in the project's .venv, not on PATH. Prefix with 'uv run'
     to execute within the project's virtual environment.
+
+    Args:
+        cmd: Command and arguments.
+        use_uvx: If True, use 'uvx' instead of 'uv run' for tools
+            that are standalone (not project deps).
     """
     if shutil.which(cmd[0]):
         return cmd
     if shutil.which("uv"):
+        if use_uvx:
+            return ["uvx", *cmd]
         return ["uv", "run", *cmd]
     return cmd
 
@@ -54,6 +61,7 @@ def _run_tool(
     tool_name: str,
     cmd: list[str],
     mode: str,
+    use_uvx: bool = False,
 ) -> bool:
     """Run a quality tool and handle its result based on mode.
 
@@ -63,7 +71,7 @@ def _run_tool(
         info(f"  {tool_name}: disabled")
         return True
 
-    resolved = _resolve_tool_cmd(cmd)
+    resolved = _resolve_tool_cmd(cmd, use_uvx=use_uvx)
     if resolved == cmd and not shutil.which(cmd[0]):
         if mode == "blocking":
             error(f"  {tool_name}: not installed (required)")
@@ -131,7 +139,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if excludes:
         for exc in excludes:
             semgrep_cmd.extend(["--exclude", exc])
-    if not _run_tool("semgrep", semgrep_cmd, mode):
+    if not _run_tool("semgrep", semgrep_cmd, mode, use_uvx=True):
         had_failure = True
 
     # Bandit security scanning

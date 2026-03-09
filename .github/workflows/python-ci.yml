@@ -53,7 +53,7 @@ concurrency:
 env:
   HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
   HYPERCI_INSTALL: >-
-    uvx
+    uvx --refresh
     --from 'hyperi-ci @ https://github.com/hyperi-io/hyperi-ci/archive/main.tar.gz'
     hyperi-ci
   UV_EXTRA_INDEX_URL: ${{ inputs.publish-target != 'oss' && secrets.JFROG_TOKEN && format('https://token:{0}@hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple', secrets.JFROG_TOKEN) || '' }}
