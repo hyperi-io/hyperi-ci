@@ -1,3 +1,10 @@
+## [1.0.15](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.14...v1.0.15) (2026-03-09)
+
+
+### Bug Fixes
+
+* resolve project tools via uv run when not on PATH ([1262da4](https://github.com/hyperi-io/hyperi-ci/commit/1262da441ade635f5adb45899d0286a574f948c0))
+
 ## [1.0.14](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.13...v1.0.14) (2026-03-09)
 
 
