@@ -74,7 +74,7 @@ jobs:
 
       - name: Install dependencies
         env:
-          UV_EXTRA_INDEX_URL: ${{ secrets.JFROG_TOKEN && format('https://token:{0}@hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple', secrets.JFROG_TOKEN) || '' }}
+          UV_EXTRA_INDEX_URL: https://hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple
         run: uv sync --frozen --all-extras
 
       - name: Run quality checks
@@ -104,7 +104,7 @@ jobs:
 
       - name: Install dependencies
         env:
-          UV_EXTRA_INDEX_URL: ${{ secrets.JFROG_TOKEN && format('https://token:{0}@hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple', secrets.JFROG_TOKEN) || '' }}
+          UV_EXTRA_INDEX_URL: https://hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple
         run: uv sync --frozen --all-extras
 
       - name: Run tests
@@ -140,7 +140,7 @@ jobs:
 
       - name: Install dependencies
         env:
-          UV_EXTRA_INDEX_URL: ${{ secrets.JFROG_TOKEN && format('https://token:{0}@hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple', secrets.JFROG_TOKEN) || '' }}
+          UV_EXTRA_INDEX_URL: https://hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple
         run: uv sync --frozen --all-extras
 
       - name: Run build
