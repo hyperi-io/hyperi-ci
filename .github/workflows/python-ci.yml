@@ -72,6 +72,14 @@ jobs:
           command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
           command -v python3 || uv python install ${{ inputs.python-version }}
 
+      # DO NOT add UV_EXTRA_INDEX_URL here.
+      # uv does NOT work like pip with mixed public+private indices. By default
+      # uv uses first-match-wins per package name — if JFrog returns an empty
+      # 200 for a package it doesn't have (e.g. hatchling), uv stops there and
+      # reports "no versions found" rather than falling back to PyPI.
+      # Workaround exists (UV_INDEX_STRATEGY=unsafe-best-match) but is fragile.
+      # Projects that need private JFrog packages configure [tool.uv.index] with
+      # explicit=true in their own pyproject.toml — not here.
       - name: Install dependencies
         run: uv sync --frozen --all-extras
 
@@ -100,6 +108,7 @@ jobs:
           command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
           command -v python3 || uv python install ${{ inputs.python-version }}
 
+      # DO NOT add UV_EXTRA_INDEX_URL here — see quality job comment.
       - name: Install dependencies
         run: uv sync --frozen --all-extras
 
@@ -134,6 +143,7 @@ jobs:
           command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
           command -v python3 || uv python install ${{ inputs.python-version }}
 
+      # DO NOT add UV_EXTRA_INDEX_URL here — see quality job comment.
       - name: Install dependencies
         run: uv sync --frozen --all-extras
 
