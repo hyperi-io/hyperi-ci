@@ -40,11 +40,7 @@ def _load_dep_groups(language: str) -> list[DepGroup]:
     """Load dep group definitions for a language from bundled config."""
     config_file = _NATIVE_DEPS_DIR / f"{language}.yaml"
     if not config_file.exists():
-        logger.warning(
-            "No native-deps config for language",
-            language=language,
-            config_file=str(config_file),
-        )
+        logger.warning(f"No native-deps config for language: {language}")
         return []
 
     raw = yaml.safe_load(config_file.read_text())
@@ -119,34 +115,29 @@ def install_native_deps(language: str, project_dir: Path | None = None) -> int:
     cwd = project_dir or Path.cwd()
 
     if platform.system() != "Linux":
-        logger.info(
-            "Skipping native deps install on non-Linux", platform=platform.system()
-        )
+        logger.info(f"Skipping native deps on {platform.system()}")
         return 0
 
     dep_groups = _load_dep_groups(language)
     if not dep_groups:
-        logger.info("No native dep groups defined", language=language)
+        logger.info(f"No native dep groups defined for {language}")
         return 0
 
     needed: list[DepGroup] = []
     for group in dep_groups:
         content = _read_manifests(cwd, group.manifest_files)
         if not content:
-            logger.debug("No manifest files found", dep=group.name)
             continue
 
         if _patterns_match(content, group.patterns):
             if _is_dpkg_installed(group.dpkg_check):
-                logger.info("Already installed", dep=group.name, check=group.dpkg_check)
+                logger.info(f"[{group.name}] already installed ({group.dpkg_check})")
             else:
-                logger.info(
-                    "Needs install", dep=group.name, packages=group.apt_packages
-                )
+                logger.info(f"[{group.name}] needs install: {group.apt_packages}")
                 needed.append(group)
 
     if not needed:
-        logger.info("All native deps satisfied", language=language)
+        logger.info(f"All native deps satisfied for {language}")
         return 0
 
     # Collect all packages across needed groups and install in one apt call.
@@ -158,13 +149,13 @@ def install_native_deps(language: str, project_dir: Path | None = None) -> int:
                 all_packages.append(pkg)
                 seen.add(pkg)
 
-    logger.info("Installing native packages", packages=all_packages)
+    logger.info(f"Installing native packages: {all_packages}")
     rc = _apt_install(all_packages)
     if rc != 0:
-        logger.error("apt-get install failed", exit_code=rc)
+        logger.error(f"apt-get install failed (exit {rc})")
         return rc
 
-    logger.info("Native deps installed", language=language)
+    logger.info(f"Native deps installed for {language}")
     return 0
 
 
