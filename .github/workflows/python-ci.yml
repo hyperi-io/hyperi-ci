@@ -56,7 +56,7 @@ env:
     uvx
     --from 'hyperi-ci @ https://github.com/hyperi-io/hyperi-ci/archive/main.tar.gz'
     hyperi-ci
-  UV_EXTRA_INDEX_URL: ${{ secrets.JFROG_TOKEN && format('https://token:{0}@hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple', secrets.JFROG_TOKEN) || '' }}
+  UV_EXTRA_INDEX_URL: ${{ inputs.publish-target != 'oss' && secrets.JFROG_TOKEN && format('https://token:{0}@hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple', secrets.JFROG_TOKEN) || '' }}
 
 jobs:
   quality:

@@ -236,9 +236,10 @@ def _render_workflow(
     project_name: str,
     workflow_file: str,
     license_id: str = _DEFAULT_LICENSE,
+    publish_target: str = "internal",
 ) -> str:
     """Render consumer .github/workflows/ci.yml content."""
-    return (
+    base = (
         f"# Project:   {project_name}\n"
         "# File:      .github/workflows/ci.yml\n"
         "# Purpose:   CI pipeline\n"
@@ -259,8 +260,13 @@ def _render_workflow(
         "  ci:\n"
         f"    uses: {_CI_REPO}/.github/workflows/"
         f"{workflow_file}@{_WORKFLOW_REF}\n"
-        "    secrets: inherit\n"
     )
+
+    if publish_target != "internal":
+        base += f"    with:\n      publish-target: {publish_target}\n"
+
+    base += "    secrets: inherit\n"
+    return base
 
 
 def _build_prepare_cmd(language: str) -> str:
