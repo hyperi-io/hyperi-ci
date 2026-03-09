@@ -1,3 +1,10 @@
+## [1.0.35](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.34...v1.0.35) (2026-03-09)
+
+
+### Bug Fixes
+
+* install protoc independently of rdkafka check on ARC runners ([7c2ac4c](https://github.com/hyperi-io/hyperi-ci/commit/7c2ac4c88f74ef5b37be513a649951cf553ace8f))
+
 ## [1.0.34](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.33...v1.0.34) (2026-03-09)
 
 
