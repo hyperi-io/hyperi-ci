@@ -1,3 +1,10 @@
+## [1.0.40](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.39...v1.0.40) (2026-03-09)
+
+
+### Bug Fixes
+
+* add confluent-kafka to python native deps config ([3f89b0b](https://github.com/hyperi-io/hyperi-ci/commit/3f89b0b4f1e522cd8dedb59a5e77f9ceaef41de1))
+
 ## [1.0.39](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.38...v1.0.39) (2026-03-09)
 
 
