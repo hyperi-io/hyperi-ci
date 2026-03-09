@@ -1,3 +1,10 @@
+## [1.0.26](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.25...v1.0.26) (2026-03-09)
+
+
+### Bug Fixes
+
+* use unauthenticated JFrog URL for dep resolution ([1f642b3](https://github.com/hyperi-io/hyperi-ci/commit/1f642b32b719a9e65c00d99659d03145364185f1))
+
 ## [1.0.25](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.24...v1.0.25) (2026-03-09)
 
 
