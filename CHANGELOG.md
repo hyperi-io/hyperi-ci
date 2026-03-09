@@ -1,3 +1,10 @@
+## [1.0.32](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.31...v1.0.32) (2026-03-09)
+
+
+### Bug Fixes
+
+* add JFROG_USERNAME secret for JFrog publish auth ([6959121](https://github.com/hyperi-io/hyperi-ci/commit/6959121544611bc78ff59faaf7a132952bd55c4d))
+
 ## [1.0.31](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.30...v1.0.31) (2026-03-09)
 
 
