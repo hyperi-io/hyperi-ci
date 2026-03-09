@@ -151,23 +151,23 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if config.get("quality.python.bandit_exclude_tests", True):
         bandit_cmd.extend(["--exclude", "tests/"])
     bandit_cmd.extend(_build_exclude_args("bandit", excludes))
-    if not _run_tool("bandit", bandit_cmd, mode):
+    if not _run_tool("bandit", bandit_cmd, mode, use_uvx=True):
         had_failure = True
 
     # pip-audit vulnerability scanning
     mode = _get_tool_mode("pip_audit", config)
-    if not _run_tool("pip-audit", ["pip-audit"], mode):
+    if not _run_tool("pip-audit", ["pip-audit"], mode, use_uvx=True):
         had_failure = True
 
     # Interrogate docstring coverage
     mode = _get_tool_mode("interrogate", config)
-    if not _run_tool("interrogate", ["interrogate", "src/"], mode):
+    if not _run_tool("interrogate", ["interrogate", "src/"], mode, use_uvx=True):
         had_failure = True
 
     # Vulture dead code detection
     mode = _get_tool_mode("vulture", config)
     vulture_cmd = ["vulture", "src/"] + _build_exclude_args("vulture", excludes)
-    if not _run_tool("vulture", vulture_cmd, mode):
+    if not _run_tool("vulture", vulture_cmd, mode, use_uvx=True):
         had_failure = True
 
     return 1 if had_failure else 0
