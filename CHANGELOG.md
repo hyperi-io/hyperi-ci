@@ -1,3 +1,10 @@
+## [1.0.21](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.20...v1.0.21) (2026-03-09)
+
+
+### Bug Fixes
+
+* always install semantic-release plugins ([c2e2e8c](https://github.com/hyperi-io/hyperi-ci/commit/c2e2e8c0f2a4f2f2ca1c03c53eff9dca434e2c49))
+
 ## [1.0.20](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.19...v1.0.20) (2026-03-09)
 
 
