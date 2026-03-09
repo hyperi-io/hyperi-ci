@@ -1,3 +1,10 @@
+## [1.0.22](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.21...v1.0.22) (2026-03-09)
+
+
+### Bug Fixes
+
+* remove UV_EXTRA_INDEX_URL from python-ci workflow ([b15f9f4](https://github.com/hyperi-io/hyperi-ci/commit/b15f9f43520f6830d2ebfe24315d178de03ebd44))
+
 ## [1.0.21](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.20...v1.0.21) (2026-03-09)
 
 
