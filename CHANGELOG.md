@@ -1,3 +1,10 @@
+## [1.0.12](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.11...v1.0.12) (2026-03-09)
+
+
+### Bug Fixes
+
+* migrate tool auto-fixes releaserc, license, and broken symlinks ([63153a0](https://github.com/hyperi-io/hyperi-ci/commit/63153a0b239346d9fe6fba9dcd3bb1a5472eb514))
+
 ## [1.0.11](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.10...v1.0.11) (2026-03-08)
 
 
