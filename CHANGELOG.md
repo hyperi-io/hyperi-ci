@@ -1,3 +1,10 @@
+## [1.0.42](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.41...v1.0.42) (2026-03-09)
+
+
+### Bug Fixes
+
+* skip binary packaging for library-only Rust crates ([9ea21e8](https://github.com/hyperi-io/hyperi-ci/commit/9ea21e877c08a0ca34ce5b67b6cb7f8473093061))
+
 ## [1.0.41](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.40...v1.0.41) (2026-03-09)
 
 
