@@ -60,8 +60,6 @@ jobs:
     runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_PYTHON || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: recursive
 
       - name: Install uv
         if: ${{ !contains(runner.name, 'arc-runner') }}
@@ -75,6 +73,8 @@ jobs:
           command -v python3 || uv python install ${{ inputs.python-version }}
 
       - name: Install dependencies
+        env:
+          UV_EXTRA_INDEX_URL: ${{ secrets.JFROG_TOKEN && format('https://token:{0}@hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple', secrets.JFROG_TOKEN) || '' }}
         run: uv sync --frozen --all-extras
 
       - name: Run quality checks
@@ -90,8 +90,6 @@ jobs:
         os: ${{ fromJson((inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_PYTHON || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: recursive
 
       - name: Install uv
         if: ${{ !contains(runner.name, 'arc-runner') }}
@@ -105,6 +103,8 @@ jobs:
           command -v python3 || uv python install ${{ inputs.python-version }}
 
       - name: Install dependencies
+        env:
+          UV_EXTRA_INDEX_URL: ${{ secrets.JFROG_TOKEN && format('https://token:{0}@hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple', secrets.JFROG_TOKEN) || '' }}
         run: uv sync --frozen --all-extras
 
       - name: Run tests
@@ -126,8 +126,6 @@ jobs:
     runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_PYTHON || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: recursive
 
       - name: Install uv
         if: ${{ !contains(runner.name, 'arc-runner') }}
@@ -141,6 +139,8 @@ jobs:
           command -v python3 || uv python install ${{ inputs.python-version }}
 
       - name: Install dependencies
+        env:
+          UV_EXTRA_INDEX_URL: ${{ secrets.JFROG_TOKEN && format('https://token:{0}@hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple', secrets.JFROG_TOKEN) || '' }}
         run: uv sync --frozen --all-extras
 
       - name: Run build
@@ -214,6 +214,8 @@ jobs:
 
       - name: Install dependencies
         if: steps.check.outputs.has_version == 'true'
+        env:
+          UV_EXTRA_INDEX_URL: ${{ secrets.JFROG_TOKEN && format('https://token:{0}@hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple', secrets.JFROG_TOKEN) || '' }}
         run: uv sync --frozen --all-extras
 
       - name: Build package
