@@ -63,20 +63,27 @@ Four language-specific reusable workflows live in
 
 ### Job Structure
 
-Every reusable workflow has the same four-job structure:
+Every reusable workflow has the same five-job structure:
 
 ```
 quality ──┐
-           ├──► build ──► release
+           ├──► build ──► release ──► publish
 test ─────┘
 ```
 
-1. **quality** (ubuntu-latest) — runs `uvx hyperi-ci run quality`
-2. **test** (matrix: ubuntu + macOS) — runs `uvx hyperi-ci run test`
+1. **quality** — runs `uvx hyperi-ci run quality`
+2. **test** (matrix) — runs `uvx hyperi-ci run test`
 3. **build** (needs quality + test) — runs `uvx hyperi-ci run build`
    - Skipped on fork PRs (`github.event.pull_request.head.repo.fork != true`)
 4. **release** (needs all three, main push only) — runs `semantic-release`
    - Only on `refs/heads/main` push events
+   - Creates git tag + GitHub release, writes `VERSION` file
+5. **publish** (needs release, main push only) — runs `uvx hyperi-ci run build`
+   then `uvx hyperi-ci run publish`
+   - Re-checks out `main` after semantic-release has pushed the version bump
+   - Skipped if `VERSION` file absent (non-publishable projects)
+   - Publish step MUST use `hyperi-ci run build` not raw `uv build` — the
+     build handler injects standard sdist exclusions (AI agent dirs, submodules)
 
 ### Consumer Project Setup
 
@@ -270,10 +277,16 @@ minimum set of repos that need them via `selected` visibility.
 
 | Secret | Visibility | Purpose |
 |--------|-----------|---------|
-| `JFROG_TOKEN` | selected | JFrog Artifactory authentication |
+| `JFROG_TOKEN` | all | JFrog Artifactory access token (JWT) |
+| `JFROG_USERNAME` | all | JFrog account email (for PyPI basic auth) |
 | `NPM_TOKEN` | selected | npmjs.com publish token |
 | `CRATES_TOKEN` | selected | crates.io publish token |
 | `GIT_TOKEN` | selected | Cross-repo access (workflow dispatch) |
+
+> **Why `JFROG_USERNAME`?** JFrog's PyPI upload API requires basic auth
+> (`--username` + `--password`), not PyPI's `__token__` convention. The
+> username must be the JFrog account email (`artifactory@hypersec.io`).
+> See `docs/CI-LESSONS.md` → Python → JFrog PyPI Publish Auth.
 
 ### Decision Rule
 

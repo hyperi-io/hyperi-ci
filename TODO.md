@@ -6,12 +6,13 @@ This is the **single source of truth** for all tasks and progress.
 
 ## Active Tasks
 
-- [ ] Get Rust CI pipeline working end-to-end `[IN PROGRESS]`
-  - Current state: All workflow and config changes done but uncommitted
-  - Changes: runner-mode support (all 4 workflows), uv cache cleanup, defaults.yaml (ty, deny:warn, e2e config), DESIGN.md runner docs
-  - Next: commit and push changes, re-trigger ci-test-rust-minimal CI, monitor and fix until quality+test+build+release+publish all pass
-  - Then: test publish to JFrog, swap to OSS (crates.io), swap back
-  - Blockers: none — previous cargo deny failure should resolve with deny:warn in new defaults.yaml
+- [ ] Get Rust CI pipeline working (hyperi-rustlib) `[NEXT]`
+  - Project: `hyperi-io/hyperi-rustlib` — first Rust project on new CI, ready for cutover
+  - Current ci.yml still uses old `ci/` submodule approach — needs replacement
+  - Next: replace ci.yml with `hyperi-io/hyperi-ci/.github/workflows/rust-ci.yml@main`
+  - Create `.hyperi-ci.yaml` in hyperi-rustlib with Rust settings
+  - Run push, monitor quality → test → build → release → publish to JFrog Cargo
+  - Publish target: internal (JFrog Cargo registry `hyperi-cargo-local`)
 
 ---
 
@@ -19,9 +20,13 @@ This is the **single source of truth** for all tasks and progress.
 
 ### High Priority
 
-- [ ] Replicate CI pipeline testing for Python, TypeScript, Go (after Rust works)
-- [ ] Validate with test projects — create GitHub repos, push, verify CI end-to-end
-- [ ] Reliable migration automation and documentation for existing `ci/` submodule attached projects
+- [ ] Validate TypeScript pipeline end-to-end (after Rust)
+  - ci-test-ts-minimal exists in test-projects — use for testing
+  - Need a real consumer TypeScript project to cut over
+
+- [ ] Validate Go pipeline end-to-end (after TypeScript)
+
+- [ ] Reliable migration automation and documentation for existing `ci/` submodule projects
   - 14+ consumer projects need to cut over from old `ci/` submodule to `hyperi-ci init`
   - Need: migration script, step-by-step docs, rollback plan
   - Must handle: removing old `ci/` submodule, cleaning `.gitmodules`, generating new files
@@ -68,6 +73,12 @@ This is the **single source of truth** for all tasks and progress.
 - [x] Add Playwright E2E config to TypeScript test defaults
 - [x] Set cargo deny to warn mode in defaults.yaml
 - [x] Document runner modes and cross-compilation in DESIGN.md
+- [x] **Python pipeline validated end-to-end with dfe-engine**
+  - Quality ✓, Test ✓, Build ✓, Release (semantic-release) ✓, Publish to JFrog ✓
+  - dfe-engine confirmed in JFrog `hyperi-pypi-local`
+  - Removed `ci/` submodule from dfe-engine (replaced by hyperi-ci)
+  - Fixed: pip_audit blocking; bandit B104 via config skip; ty/semgrep/vulture warn
+  - Key lessons captured in docs/CI-LESSONS.md (Python section)
 
 ---
 
