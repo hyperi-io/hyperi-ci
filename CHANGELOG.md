@@ -1,3 +1,10 @@
+## [1.0.23](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.22...v1.0.23) (2026-03-09)
+
+
+### Bug Fixes
+
+* pass pyproject.toml config to bandit ([d71f134](https://github.com/hyperi-io/hyperi-ci/commit/d71f1341f3428fa54440cb4d0248f98028ab931d))
+
 ## [1.0.22](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.21...v1.0.22) (2026-03-09)
 
 
