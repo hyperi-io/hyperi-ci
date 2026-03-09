@@ -1,3 +1,10 @@
+## [1.0.27](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.26...v1.0.27) (2026-03-09)
+
+
+### Bug Fixes
+
+* remove UV_EXTRA_INDEX_URL from dep resolution steps ([5e68a45](https://github.com/hyperi-io/hyperi-ci/commit/5e68a4555a33874de887480c07e94a672e6876a3))
+
 ## [1.0.26](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.25...v1.0.26) (2026-03-09)
 
 
