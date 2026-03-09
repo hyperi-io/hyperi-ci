@@ -1,3 +1,10 @@
+## [1.0.18](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.17...v1.0.18) (2026-03-09)
+
+
+### Bug Fixes
+
+* add semgrep SAST to Python quality pipeline ([3522a01](https://github.com/hyperi-io/hyperi-ci/commit/3522a01205f32551fe890dae15d22490ea440721))
+
 ## [1.0.17](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.16...v1.0.17) (2026-03-09)
 
 
