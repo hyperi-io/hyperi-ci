@@ -28,6 +28,7 @@ from hyperi_ci.detect import detect_language
 
 _CI_REPO = "hyperi-io/hyperi-ci"
 _WORKFLOW_REF = "main"
+_DEFAULT_LICENSE = "FSL-1.1-ALv2"
 
 _LANGUAGE_WORKFLOW_MAP: dict[str, str] = {
     "python": "python-ci.yml",
@@ -40,6 +41,66 @@ _DEPRECATED_CONFIG_NAMES = (
     ".hypersec-ci.yaml",
     ".hypersec-ci.yml",
 )
+
+_LICENSE_MARKERS = {
+    "FSL-1.1-ALv2": ("FSL-1.1-ALv2",),
+    "MIT": ("MIT License", "Permission is hereby granted"),
+    "Apache-2.0": ("Apache License", "Licensed under the Apache"),
+}
+
+
+def detect_license(project_dir: Path) -> str:
+    """Detect project license from LICENSE file or source file headers.
+
+    Scans LICENSE file first, then falls back to checking source file
+    headers for known license identifiers.
+
+    Args:
+        project_dir: Project root directory.
+
+    Returns:
+        License identifier string (e.g. "FSL-1.1-ALv2") or default.
+    """
+    license_file = project_dir / "LICENSE"
+    if license_file.exists():
+        try:
+            content = license_file.read_text()[:2000]
+            for license_id, markers in _LICENSE_MARKERS.items():
+                if any(m in content for m in markers):
+                    return license_id
+        except (OSError, UnicodeDecodeError):
+            pass
+
+    scan_globs = ["*.py", "*.rs", "*.go", "*.ts", "*.sh", "Makefile"]
+    for glob_pattern in scan_globs:
+        for f in project_dir.glob(glob_pattern):
+            try:
+                header = f.read_text()[:500]
+            except (OSError, UnicodeDecodeError):
+                continue
+            for license_id, markers in _LICENSE_MARKERS.items():
+                if any(m in header for m in markers):
+                    return license_id
+
+    src_dir = project_dir / "src"
+    if src_dir.is_dir():
+        for f in src_dir.rglob("*.py"):
+            try:
+                header = f.read_text()[:500]
+            except (OSError, UnicodeDecodeError):
+                continue
+            for license_id, markers in _LICENSE_MARKERS.items():
+                if any(m in header for m in markers):
+                    return license_id
+
+    return _DEFAULT_LICENSE
+
+
+def _license_header_text(license_id: str) -> str:
+    """Return the license line for file headers."""
+    if license_id == "FSL-1.1-ALv2":
+        return "FSL-1.1-ALv2"
+    return f"{license_id} — HYPERI PTY LIMITED"
 
 
 def _detect_python_build_type(project_dir: Path) -> str:
@@ -89,6 +150,7 @@ def _render_hyperi_ci_yaml(
     language: str,
     project_name: str,
     project_dir: Path,
+    license_id: str = _DEFAULT_LICENSE,
 ) -> str:
     """Render .hyperi-ci.yaml with language-specific defaults."""
     config: dict = {
@@ -133,7 +195,7 @@ def _render_hyperi_ci_yaml(
         "# File:      .hyperi-ci.yaml\n"
         "# Purpose:   HyperI CI configuration\n"
         "#\n"
-        "# License:   Proprietary — HYPERI PTY LIMITED\n"
+        f"# License:   {_license_header_text(license_id)}\n"
         "# Copyright: (c) 2026 HYPERI PTY LIMITED\n"
         "#\n"
         "# Override defaults with HYPERCI_* env vars.\n"
@@ -147,14 +209,14 @@ def _render_hyperi_ci_yaml(
     )
 
 
-def _render_makefile(project_name: str) -> str:
+def _render_makefile(project_name: str, license_id: str = _DEFAULT_LICENSE) -> str:
     """Render Makefile content with CI targets."""
     return (
         f"# Project:   {project_name}\n"
         "# File:      Makefile\n"
         "# Purpose:   CI targets wrapping hyperi-ci\n"
         "#\n"
-        "# License:   Proprietary — HYPERI PTY LIMITED\n"
+        f"# License:   {_license_header_text(license_id)}\n"
         "# Copyright: (c) 2026 HYPERI PTY LIMITED\n"
         "\n"
         ".PHONY: quality test build\n"
@@ -173,6 +235,7 @@ def _render_makefile(project_name: str) -> str:
 def _render_workflow(
     project_name: str,
     workflow_file: str,
+    license_id: str = _DEFAULT_LICENSE,
 ) -> str:
     """Render consumer .github/workflows/ci.yml content."""
     return (
@@ -180,7 +243,7 @@ def _render_workflow(
         "# File:      .github/workflows/ci.yml\n"
         "# Purpose:   CI pipeline\n"
         "#\n"
-        "# License:   Proprietary — HYPERI PTY LIMITED\n"
+        f"# License:   {_license_header_text(license_id)}\n"
         "# Copyright: (c) 2026 HYPERI PTY LIMITED\n"
         "\n"
         "name: CI\n"
@@ -200,34 +263,80 @@ def _render_workflow(
     )
 
 
-def _render_releaserc(project_name: str, language: str = "") -> str:
+def _build_prepare_cmd(language: str) -> str:
+    """Build the prepareCmd for semantic-release @semantic-release/exec.
+
+    Generates a Python one-liner that writes the VERSION file and
+    updates the language-specific manifest (pyproject.toml, Cargo.toml, etc.).
+
+    Args:
+        language: Detected project language.
+
+    Returns:
+        Shell command string for prepareCmd.
+    """
+    base = "from pathlib import Path; "
+    version_write = "Path('VERSION').write_text('${nextRelease.version}\\n')"
+
+    if language == "python":
+        return (
+            'python3 -c "'
+            f"{base}import re; "
+            f"{version_write}; "
+            "p=Path('pyproject.toml'); t=p.read_text(); "
+            't=re.sub(r\'^version\\\\s*=\\\\s*\\"[^\\"]*\\"\', '
+            "'version = \\\"${nextRelease.version}\\\"', t, count=1, flags=re.MULTILINE); "
+            'p.write_text(t)"'
+        )
+
+    if language == "rust":
+        return (
+            'python3 -c "'
+            f"{base}import re; "
+            f"{version_write}; "
+            "ct=Path('Cargo.toml').read_text(); "
+            'ct=re.sub(r\'^version\\\\s*=\\\\s*\\"[^\\"]*\\"\', '
+            "'version = \\\"${nextRelease.version}\\\"', ct, count=1, flags=re.MULTILINE); "
+            "Path('Cargo.toml').write_text(ct)\""
+        )
+
+    if language == "typescript":
+        return (
+            'python3 -c "'
+            f"{base}import json; "
+            f"{version_write}; "
+            "p=Path('package.json'); d=json.loads(p.read_text()); "
+            "d['version']='${nextRelease.version}'; "
+            "p.write_text(json.dumps(d, indent=2)+'\\n')\""
+        )
+
+    if language == "golang":
+        return f'python3 -c "{base}{version_write}"'
+
+    return f'python3 -c "{base}{version_write}"'
+
+
+def _render_releaserc(
+    project_name: str,
+    language: str = "",
+    license_id: str = _DEFAULT_LICENSE,
+) -> str:
     """Render .releaserc.yaml for semantic-release.
 
     Args:
         project_name: Project name for header.
-        language: Detected language (affects prepareCmd for Rust/Python).
+        language: Detected language (affects prepareCmd and git assets).
+        license_id: License identifier for file header.
     """
-    prepare_cmd = (
-        'python3 -c "from pathlib import Path; '
-        "Path('VERSION').write_text('${nextRelease.version}\\n')\""
-    )
-    if language == "rust":
-        prepare_cmd = (
-            'python3 -c "'
-            "from pathlib import Path; import re; "
-            "Path('VERSION').write_text('${nextRelease.version}\\n'); "
-            "ct = Path('Cargo.toml').read_text(); "
-            'ct = re.sub(r\'^version\\\\s*=\\\\s*\\"[^\\"]*\\"\', '
-            "'version = \\\"${nextRelease.version}\\\"', ct, count=1, flags=re.MULTILINE); "
-            "Path('Cargo.toml').write_text(ct)"
-            '"'
-        )
+    prepare_cmd = _build_prepare_cmd(language)
 
     git_assets = ["CHANGELOG.md", "VERSION"]
     if language == "rust":
         git_assets.append("Cargo.toml")
     elif language == "python":
         git_assets.append("pyproject.toml")
+    elif language == "typescript":
+        git_assets.append("package.json")
 
     config: dict = {
         "branches": ["main"],
@@ -275,7 +384,7 @@ def _render_releaserc(project_name: str, language: str = "") -> str:
         "# File:      .releaserc.yaml\n"
         "# Purpose:   Semantic release configuration\n"
         "#\n"
-        "# License:   Proprietary — HYPERI PTY LIMITED\n"
+        f"# License:   {_license_header_text(license_id)}\n"
         "# Copyright: (c) 2026 HYPERI PTY LIMITED\n"
         "\n"
     )
@@ -378,7 +487,8 @@ def init_project(
         info("Use --language: python, rust, typescript, golang")
         return 1
 
-    info(f"Initialising {project_name} as {detected} project")
+    license_id = detect_license(project_dir)
+    info(f"Initialising {project_name} as {detected} project (license: {license_id})")
 
     workflow_file = _LANGUAGE_WORKFLOW_MAP.get(detected)
     if not workflow_file:
@@ -391,6 +501,7 @@ def init_project(
         detected,
         project_name,
         project_dir,
+        license_id=license_id,
     )
     config_path = project_dir / ".hyperi-ci.yaml"
     if _write_file(config_path, config_content, force=force):
@@ -399,7 +510,7 @@ def init_project(
     if _makefile_has_ci_targets(project_dir) and not force:
         info("  Skipped Makefile (already has CI targets)")
     else:
-        makefile_content = _render_makefile(project_name)
+        makefile_content = _render_makefile(project_name, license_id=license_id)
         makefile_path = project_dir / "Makefile"
         if _write_file(
             makefile_path,
@@ -412,6 +523,7 @@ def init_project(
         workflow_content = _render_workflow(
             project_name,
             workflow_file,
+            license_id=license_id,
         )
         workflow_path = project_dir / ".github" / "workflows" / "ci.yml"
         if _write_file(
@@ -422,7 +534,11 @@ def init_project(
             files_written += 1
 
     if not _has_releaserc(project_dir):
-        releaserc_content = _render_releaserc(project_name, language=detected)
+        releaserc_content = _render_releaserc(
+            project_name,
+            language=detected,
+            license_id=license_id,
+        )
         releaserc_path = project_dir / ".releaserc.yaml"
         if _write_file(
             releaserc_path,

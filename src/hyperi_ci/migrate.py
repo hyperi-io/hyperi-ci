@@ -21,13 +21,15 @@ Migration steps:
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
 from pathlib import Path
 
 from hyperi_ci.common import error, info, success, warn
-from hyperi_ci.init import init_project
+from hyperi_ci.detect import detect_language
+from hyperi_ci.init import _build_prepare_cmd, detect_license, init_project
 
 _OLD_CI_PATTERNS = (
     "./ci/actions",
@@ -258,6 +260,170 @@ def _find_old_ci_env_refs(project_dir: Path) -> list[str]:
     return warnings
 
 
+_RELEASERC_CANDIDATES = (
+    ".releaserc.json",
+    ".releaserc.yaml",
+    ".releaserc.yml",
+    ".releaserc.js",
+    "release.config.js",
+    "release.config.cjs",
+)
+
+_OLD_CI_PREPARE_PATTERNS = (
+    "./ci/scripts/",
+    "ci/scripts/",
+)
+
+_LANGUAGE_GIT_ASSETS: dict[str, list[str]] = {
+    "python": ["CHANGELOG.md", "VERSION", "pyproject.toml"],
+    "rust": ["CHANGELOG.md", "VERSION", "Cargo.toml"],
+    "typescript": ["CHANGELOG.md", "VERSION", "package.json"],
+    "golang": ["CHANGELOG.md", "VERSION"],
+}
+
+_DEFAULT_GIT_ASSETS = ["CHANGELOG.md", "VERSION"]
+
+
+def _find_releaserc(project_dir: Path) -> Path | None:
+    """Find existing semantic-release config file."""
+    for name in _RELEASERC_CANDIDATES:
+        path = project_dir / name
+        if path.exists():
+            return path
+    return None
+
+
+def _fix_releaserc(
+    project_dir: Path,
+    language: str,
+) -> bool:
+    """Fix an existing .releaserc file for hyperi-ci migration.
+
+    Replaces old ci/ script references in prepareCmd with a
+    language-appropriate Python one-liner. Also cleans up git assets
+    to only include language-relevant manifest files.
+
+    Args:
+        project_dir: Project root directory.
+        language: Detected project language.
+
+    Returns:
+        True if the file was modified.
+    """
+    releaserc_path = _find_releaserc(project_dir)
+    if releaserc_path is None:
+        return False
+
+    is_json = releaserc_path.suffix == ".json"
+    if not is_json:
+        info(f"  Skipped .releaserc fix (non-JSON format: {releaserc_path.name})")
+        return False
+
+    try:
+        content = releaserc_path.read_text()
+        config = json.loads(content)
+    except (OSError, json.JSONDecodeError) as exc:
+        warn(f"  Could not parse {releaserc_path.name}: {exc}")
+        return False
+
+    modified = False
+
+    plugins = config.get("plugins", [])
+    for i, plugin in enumerate(plugins):
+        if not isinstance(plugin, list) or len(plugin) < 2:
+            continue
+
+        plugin_name = plugin[0]
+        plugin_config = plugin[1]
+
+        if plugin_name == "@semantic-release/exec" and isinstance(plugin_config, dict):
+            prepare_cmd = plugin_config.get("prepareCmd", "")
+            if any(pat in prepare_cmd for pat in _OLD_CI_PREPARE_PATTERNS):
+                new_cmd = _build_prepare_cmd(language)
+                plugin_config["prepareCmd"] = new_cmd
+                plugins[i] = [plugin_name, plugin_config]
+                modified = True
+                info("  Fixed prepareCmd (replaced old ci/ script reference)")
+
+        if plugin_name == "@semantic-release/git" and isinstance(plugin_config, dict):
+            old_assets = plugin_config.get("assets", [])
+            expected_assets = _LANGUAGE_GIT_ASSETS.get(language, _DEFAULT_GIT_ASSETS)
+            if set(old_assets) != set(expected_assets):
+                plugin_config["assets"] = expected_assets
+                plugins[i] = [plugin_name, plugin_config]
+                modified = True
+                removed = set(old_assets) - set(expected_assets)
+                if removed:
+                    info(
+                        f"  Cleaned git assets (removed: {', '.join(sorted(removed))})"
+                    )
+
+    if modified:
+        config["plugins"] = plugins
+        output = json.dumps(config, indent=2) + "\n"
+        releaserc_path.write_text(output)
+        success(f"  Updated {releaserc_path.name}")
+
+    return modified
+
+
+def _clean_broken_ci_symlinks(project_dir: Path) -> int:
+    """Remove broken symlinks that pointed to the old ci/ directory.
+
+    After removing the ci/ submodule, any symlinks pointing into ci/
+    become dangling. This finds and removes them.
+
+    Args:
+        project_dir: Project root directory.
+
+    Returns:
+        Number of broken symlinks removed.
+    """
+    count = 0
+    for path in project_dir.rglob("*"):
+        if path.is_symlink() and not path.exists():
+            target = str(path.readlink())
+            if target.startswith("ci/") or "/ci/" in target:
+                rel = path.relative_to(project_dir)
+                path.unlink()
+                info(f"  Removed broken symlink: {rel} → {target}")
+                count += 1
+    return count
+
+
+def _remove_old_non_ci_workflows(project_dir: Path) -> list[str]:
+    """Remove workflow files that are superseded by the new CI system.
+
+    The old CI used separate workflow files for different stages
+    (publish.yml, semantic-release.yml). The new system consolidates
+    into a single ci.yml that calls reusable workflows.
+
+    Args:
+        project_dir: Project root directory.
+
+    Returns:
+        List of removed workflow filenames.
+    """
+    workflows_dir = project_dir / ".github" / "workflows"
+    if not workflows_dir.is_dir():
+        return []
+
+    superseded = [
+        "publish.yml",
+        "semantic-release.yml",
+    ]
+
+    removed = []
+    for name in superseded:
+        wf = workflows_dir / name
+        if wf.exists():
+            wf.unlink()
+            removed.append(name)
+            info(f"  Removed superseded workflow: {name}")
+
+    return removed
+
+
 def migrate_project(
     project_dir: Path,
     *,
@@ -266,9 +432,12 @@ def migrate_project(
 ) -> int:
     """Migrate a project from old ci/ submodule to hyperi-ci.
 
-    Preserves the existing .hyperi-ci.yaml if present.
-    Always overwrites workflow files and Makefile since those
-    need to change for the new system.
+    Handles the full migration automatically:
+      - Removes ci/ submodule or directory
+      - Removes old workflow files (ci-referencing + superseded)
+      - Fixes existing .releaserc (replaces ci/ script refs, cleans assets)
+      - Generates new workflow, Makefile, config with correct license headers
+      - Preserves existing .hyperi-ci.yaml if present
 
     Args:
         project_dir: Project root directory.
@@ -288,15 +457,24 @@ def migrate_project(
     has_submodule = _has_ci_submodule(project_dir)
     has_dir = _has_ci_directory(project_dir)
     old_workflows = _find_old_workflows(project_dir)
+    releaserc_path = _find_releaserc(project_dir)
 
     if not has_submodule and not has_dir and not old_workflows:
         info("No old CI submodule or workflows found — nothing to migrate")
         info("Use 'hyperi-ci init' for new project setup")
         return 0
 
+    detected = language or detect_language(project_dir)
+    if not detected:
+        error("Could not detect project language")
+        info("Use --language: python, rust, typescript, golang")
+        return 1
+
     has_existing_config = (project_dir / ".hyperi-ci.yaml").exists()
+    license_id = detect_license(project_dir)
 
     info(f"Migrating {project_name} from old CI to hyperi-ci")
+    info(f"  Language: {detected}, License: {license_id}")
     if has_submodule:
         info("  Found: ci/ submodule")
     elif has_dir:
@@ -306,6 +484,8 @@ def migrate_project(
             f"  Found: {len(old_workflows)} old workflow(s): "
             f"{', '.join(w.name for w in old_workflows)}"
         )
+    if releaserc_path:
+        info(f"  Found: {releaserc_path.name} (will fix ci/ references)")
     if has_existing_config:
         info("  Found: .hyperi-ci.yaml (will preserve)")
 
@@ -320,9 +500,13 @@ def migrate_project(
         if old_workflows:
             for wf in old_workflows:
                 info(f"  - Remove old workflow: {wf.name}")
+        info("  - Remove superseded workflows (publish.yml, semantic-release.yml)")
+        if releaserc_path:
+            info(f"  - Fix {releaserc_path.name} (prepareCmd + git assets)")
         info("  - Generate new .github/workflows/ci.yml")
         info("  - Generate Makefile (if no CI targets exist)")
-        info("  - Generate .releaserc.yaml (if not present)")
+        if not releaserc_path:
+            info("  - Generate .releaserc.yaml")
         if not has_existing_config:
             info("  - Generate .hyperi-ci.yaml")
         if ref_warnings:
@@ -340,8 +524,13 @@ def migrate_project(
             return 1
 
     _remove_old_workflows(project_dir)
+    _remove_old_non_ci_workflows(project_dir)
+    _clean_broken_ci_symlinks(project_dir)
 
-    # Run init — force workflow generation but preserve existing config
+    if releaserc_path:
+        info("\nFixing semantic-release config...")
+        _fix_releaserc(project_dir, detected)
+
     info("\nGenerating new CI files...")
     rc = init_project(
         project_dir,
