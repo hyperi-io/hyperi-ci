@@ -1,3 +1,10 @@
+## [1.0.24](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.23...v1.0.24) (2026-03-09)
+
+
+### Bug Fixes
+
+* use uvx for standalone quality tools and checkout submodules ([9948535](https://github.com/hyperi-io/hyperi-ci/commit/994853566ee7755b3e77658e97e324851bb42039))
+
 ## [1.0.23](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.22...v1.0.23) (2026-03-09)
 
 
