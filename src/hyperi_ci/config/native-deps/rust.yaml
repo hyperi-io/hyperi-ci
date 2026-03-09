@@ -1,0 +1,39 @@
+# Project:   HyperI CI
+# File:      src/hyperi_ci/config/native-deps/rust.yaml
+# Purpose:   Native system dependency definitions for Rust projects
+#
+# Schema per entry:
+#   name:           Human-readable label shown in CI output
+#   patterns:       Strings to search for in manifest_files (plain substring match)
+#   manifest_files: Files to search relative to project root (later entries are fallbacks)
+#   dpkg_check:     dpkg package name — skips apt install if already present
+#   apt_packages:   Packages to install on Linux (apt-get)
+
+- name: rdkafka / C libraries
+  patterns:
+    - rdkafka
+    - rdkafka-sys
+  manifest_files:
+    - Cargo.lock
+    - Cargo.toml
+  dpkg_check: librdkafka-dev
+  apt_packages:
+    - librdkafka-dev
+    - libssl-dev
+    - libsasl2-dev
+    - cmake
+    - pkg-config
+    - libcurl4-openssl-dev
+
+- name: protobuf / gRPC
+  patterns:
+    - prost-build
+    - tonic-prost-build
+    - tonic-build
+  manifest_files:
+    - Cargo.lock
+    - Cargo.toml
+  dpkg_check: libprotobuf-dev
+  apt_packages:
+    - protobuf-compiler
+    - libprotobuf-dev

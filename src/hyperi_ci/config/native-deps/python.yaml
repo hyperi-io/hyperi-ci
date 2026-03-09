@@ -1,0 +1,49 @@
+# Project:   HyperI CI
+# File:      src/hyperi_ci/config/native-deps/python.yaml
+# Purpose:   Native system dependency definitions for Python projects
+#
+# Schema per entry:
+#   name:           Human-readable label shown in CI output
+#   patterns:       Strings to search for in manifest_files (plain substring match)
+#   manifest_files: Files to search relative to project root
+#   dpkg_check:     dpkg package name — skips apt install if already present
+#   apt_packages:   Packages to install on Linux (apt-get)
+
+- name: cryptography / OpenSSL
+  patterns:
+    - cryptography
+    - pyOpenSSL
+  manifest_files:
+    - pyproject.toml
+    - requirements.txt
+    - uv.lock
+  dpkg_check: libssl-dev
+  apt_packages:
+    - libssl-dev
+    - libffi-dev
+
+- name: psycopg / PostgreSQL
+  patterns:
+    - psycopg
+    - psycopg2
+  manifest_files:
+    - pyproject.toml
+    - requirements.txt
+    - uv.lock
+  dpkg_check: libpq-dev
+  apt_packages:
+    - libpq-dev
+
+- name: Pillow / image processing
+  patterns:
+    - Pillow
+    - pillow
+  manifest_files:
+    - pyproject.toml
+    - requirements.txt
+    - uv.lock
+  dpkg_check: libjpeg-dev
+  apt_packages:
+    - libjpeg-dev
+    - libpng-dev
+    - zlib1g-dev
