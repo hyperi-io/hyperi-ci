@@ -52,7 +52,7 @@ concurrency:
 
 env:
   HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
-  HYPERCI_INSTALL: uvx --refresh hyperi-ci
+  HYPERCI_INSTALL: uvx --no-cache hyperi-ci
 
 jobs:
   quality:
