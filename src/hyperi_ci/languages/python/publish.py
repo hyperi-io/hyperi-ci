@@ -64,14 +64,16 @@ def _publish_jfrog() -> int:
 
     # JFrog Artifactory uses --username / --password, NOT --token.
     # The PyPI __token__ username is not supported by JFrog.
-    # For JFrog access tokens, username is "_token" and password is the token.
+    # JFROG_USERNAME should be the JFrog account username/email.
+    # Falls back to "_token" which works with JFrog Platform access tokens.
+    username = os.environ.get("JFROG_USERNAME", "_token")
     cmd = [
         "uv",
         "publish",
         "--publish-url",
         org.pypi_publish_url,
         "--username",
-        "_token",
+        username,
         "--password",
         token,
     ]

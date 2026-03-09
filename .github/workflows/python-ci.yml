@@ -41,6 +41,8 @@ on:
     secrets:
       JFROG_TOKEN:
         required: false
+      JFROG_USERNAME:
+        required: false
       PYPI_TOKEN:
         required: false
       GITLEAKS_GH_ACTIONS_KEY:
@@ -229,5 +231,6 @@ jobs:
         if: steps.check.outputs.has_version == 'true'
         env:
           JFROG_TOKEN: ${{ secrets.JFROG_TOKEN }}
+          JFROG_USERNAME: ${{ secrets.JFROG_USERNAME }}
           PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
         run: ${{ env.HYPERCI_INSTALL }} run publish
