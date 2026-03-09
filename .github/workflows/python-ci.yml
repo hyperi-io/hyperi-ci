@@ -82,7 +82,6 @@ jobs:
       - name: Run quality checks
         env:
           GITLEAKS_GH_ACTIONS_KEY: ${{ secrets.GITLEAKS_GH_ACTIONS_KEY }}
-          NODE_OPTIONS: "--max-old-space-size=4096"
         run: ${{ env.HYPERCI_INSTALL }} run quality
 
   test:

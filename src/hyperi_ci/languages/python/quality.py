@@ -1,12 +1,12 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/languages/python/quality.py
-# Purpose:   Python quality checks (ruff, pyright, bandit, pip-audit)
+# Purpose:   Python quality checks (ruff, ty, bandit, pip-audit)
 #
 # License:   Proprietary — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Python quality checks handler.
 
-Orchestrates quality tools: ruff, pyright, bandit, pip-audit, interrogate,
+Orchestrates quality tools: ruff, ty, bandit, pip-audit, interrogate,
 vulture. Each tool's mode (blocking/warn/disabled) is configurable via
 .hyperi-ci.yaml quality.python section.
 """
@@ -115,10 +115,15 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     ):
         had_failure = True
 
-    # Pyright type checking
-    mode = _get_tool_mode("pyright", config)
-    if not _run_tool("pyright", ["pyright"], mode):
-        had_failure = True
+    # Type checking (ty from Astral, or pyright as fallback)
+    ty_mode = _get_tool_mode("ty", config)
+    pyright_mode = _get_tool_mode("pyright", config)
+    if ty_mode != "disabled":
+        if not _run_tool("ty", ["ty", "check"], ty_mode):
+            had_failure = True
+    elif pyright_mode != "disabled":
+        if not _run_tool("pyright", ["pyright"], pyright_mode):
+            had_failure = True
 
     # Bandit security scanning
     mode = _get_tool_mode("bandit", config)
