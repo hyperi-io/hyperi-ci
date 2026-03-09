@@ -1,3 +1,10 @@
+## [1.0.30](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.29...v1.0.30) (2026-03-09)
+
+
+### Bug Fixes
+
+* use hyperi-ci build in publish step for sdist exclusions ([51698e0](https://github.com/hyperi-io/hyperi-ci/commit/51698e0b27c18d8d8e861099463a89e965dff714))
+
 ## [1.0.29](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.28...v1.0.29) (2026-03-09)
 
 
