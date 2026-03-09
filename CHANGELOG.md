@@ -1,3 +1,10 @@
+## [1.0.17](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.16...v1.0.17) (2026-03-09)
+
+
+### Bug Fixes
+
+* replace pyright with ty for Python type checking ([100fa5d](https://github.com/hyperi-io/hyperi-ci/commit/100fa5d7d2f2a424c7e4e707182f85a3fffcd7d6))
+
 ## [1.0.16](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.15...v1.0.16) (2026-03-09)
 
 
