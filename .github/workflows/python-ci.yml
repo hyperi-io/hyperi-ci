@@ -223,7 +223,7 @@ jobs:
 
       - name: Build package
         if: steps.check.outputs.has_version == 'true'
-        run: uv build
+        run: ${{ env.HYPERCI_INSTALL }} run build
 
       - name: Publish
         if: steps.check.outputs.has_version == 'true'
