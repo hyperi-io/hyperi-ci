@@ -216,10 +216,9 @@ jobs:
         if: steps.check.outputs.has_version == 'true'
         run: uv python install ${{ inputs.python-version }}
 
+      # DO NOT add UV_EXTRA_INDEX_URL here — see quality job comment.
       - name: Install dependencies
         if: steps.check.outputs.has_version == 'true'
-        env:
-          UV_EXTRA_INDEX_URL: ${{ secrets.JFROG_TOKEN && format('https://token:{0}@hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple', secrets.JFROG_TOKEN) || '' }}
         run: uv sync --frozen --all-extras
 
       - name: Build package
