@@ -1,3 +1,10 @@
+## [1.0.34](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.33...v1.0.34) (2026-03-09)
+
+
+### Bug Fixes
+
+* add libprotobuf-dev to install system deps for protoc well-known types ([5eeaa81](https://github.com/hyperi-io/hyperi-ci/commit/5eeaa817e8a931097bb8561fd89ca2186ab8955b))
+
 ## [1.0.33](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.32...v1.0.33) (2026-03-09)
 
 
