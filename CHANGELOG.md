@@ -1,3 +1,10 @@
+## [1.0.29](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.28...v1.0.29) (2026-03-09)
+
+
+### Bug Fixes
+
+* auto-exclude AI agent dirs and org submodules from sdist ([6f7210f](https://github.com/hyperi-io/hyperi-ci/commit/6f7210f422f3ccdec0e0a1396bf3dc944194dce2))
+
 ## [1.0.28](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.27...v1.0.28) (2026-03-09)
 
 
