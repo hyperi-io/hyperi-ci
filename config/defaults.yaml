@@ -53,6 +53,7 @@ quality:
     ruff: blocking
     ty: warn                   # Astral's type checker (OSS, Rust-based, replaces pyright/mypy)
     pyright: disabled          # Superseded by ty
+    semgrep: warn              # Semgrep SAST — auto-config rules for Python
     bandit: blocking
     bandit_exclude_tests: true
     pip_audit: blocking

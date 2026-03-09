@@ -1,14 +1,14 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/languages/python/quality.py
-# Purpose:   Python quality checks (ruff, ty, bandit, pip-audit)
+# Purpose:   Python quality checks (ruff, ty, semgrep, bandit, pip-audit)
 #
 # License:   Proprietary — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Python quality checks handler.
 
-Orchestrates quality tools: ruff, ty, bandit, pip-audit, interrogate,
-vulture. Each tool's mode (blocking/warn/disabled) is configurable via
-.hyperi-ci.yaml quality.python section.
+Orchestrates quality tools: ruff, ty, semgrep, bandit, pip-audit,
+interrogate, vulture. Each tool's mode (blocking/warn/disabled) is
+configurable via .hyperi-ci.yaml quality.python section.
 """
 
 from __future__ import annotations
@@ -124,6 +124,15 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     elif pyright_mode != "disabled":
         if not _run_tool("pyright", ["pyright"], pyright_mode):
             had_failure = True
+
+    # Semgrep SAST scanning
+    mode = _get_tool_mode("semgrep", config)
+    semgrep_cmd = ["semgrep", "scan", "--config", "auto", "--error", "--quiet"]
+    if excludes:
+        for exc in excludes:
+            semgrep_cmd.extend(["--exclude", exc])
+    if not _run_tool("semgrep", semgrep_cmd, mode):
+        had_failure = True
 
     # Bandit security scanning
     mode = _get_tool_mode("bandit", config)
