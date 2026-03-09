@@ -77,7 +77,7 @@ jobs:
           command -v python3 || uv python install ${{ inputs.python-version }}
 
       - name: Install dependencies
-        run: uv sync --frozen
+        run: uv sync --frozen --all-extras
 
       - name: Run quality checks
         env:
@@ -105,7 +105,7 @@ jobs:
           command -v python3 || uv python install ${{ inputs.python-version }}
 
       - name: Install dependencies
-        run: uv sync --frozen
+        run: uv sync --frozen --all-extras
 
       - name: Run tests
         run: ${{ env.HYPERCI_INSTALL }} run test
@@ -139,7 +139,7 @@ jobs:
           command -v python3 || uv python install ${{ inputs.python-version }}
 
       - name: Install dependencies
-        run: uv sync --frozen
+        run: uv sync --frozen --all-extras
 
       - name: Run build
         run: ${{ env.HYPERCI_INSTALL }} run build
@@ -214,7 +214,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.check.outputs.has_version == 'true'
-        run: uv sync --frozen
+        run: uv sync --frozen --all-extras
 
       - name: Build package
         if: steps.check.outputs.has_version == 'true'
