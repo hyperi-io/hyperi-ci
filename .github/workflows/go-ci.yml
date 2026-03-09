@@ -50,10 +50,7 @@ concurrency:
 
 env:
   HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
-  HYPERCI_INSTALL: >-
-    uvx --refresh
-    --from 'hyperi-ci @ https://github.com/hyperi-io/hyperi-ci/archive/main.tar.gz'
-    hyperi-ci
+  HYPERCI_INSTALL: uvx --refresh hyperi-ci
 
 jobs:
   quality:

@@ -20,8 +20,7 @@ from typing import Any
 
 import yaml
 
-_PACKAGE_ROOT = Path(__file__).resolve().parent.parent.parent
-_CONFIG_DIR = _PACKAGE_ROOT / "config"
+_CONFIG_DIR = Path(__file__).resolve().parent / "config"
 
 
 @dataclass

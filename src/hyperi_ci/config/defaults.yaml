@@ -1,0 +1,256 @@
+# Project:   HyperI CI
+# File:      config/defaults.yaml
+# Purpose:   Default configuration values for HyperI CI
+#
+# License:   Proprietary — HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# Projects override these via:
+#   1. .hyperi-ci.yaml (single source of truth)
+#   2. Environment variables (HYPERCI_*)
+
+# Project language (auto-detected if not specified)
+# Values: python, typescript, golang, rust, none
+language: none
+
+# Runner Settings
+#
+# mode: controls which GitHub Actions runners are used
+#   self-hosted — ARC runners on DevEx cluster (persistent build cache, pre-installed toolchain)
+#   free        — GitHub-hosted ubuntu-latest (no setup needed, no cache between runs)
+#
+# This default applies org-wide. Individual repos override in .hyperi-ci.yaml.
+# ENV override: HYPERCI_RUNNERS_MODE=free
+#
+# When mode is "free", GH_RUNNER_* org variables are ignored and all jobs
+# run on ubuntu-latest. When mode is "self-hosted", the GH_RUNNER_* variables
+# select which ARC runner tier to use per language.
+runners:
+  mode: self-hosted
+  default: ""
+  windows: ""
+  macos: ""
+  arm64: ""
+
+# Minimum Python version for CI scripts themselves
+ci_min_python_version: "3.9"
+
+# Toolchain versions (pre-installed on ARC runners, auto-installed on free runners)
+toolchain:
+  llvm_version: "19"
+
+# Rust Settings
+rust:
+  local_jobs: 2
+
+# Quality Checks
+quality:
+  enabled: true
+  exclude_paths: []
+  gitleaks: blocking
+
+  python:
+    ruff: blocking
+    ty: warn                   # Astral's type checker (OSS, Rust-based, replaces pyright/mypy)
+    pyright: disabled          # Superseded by ty
+    semgrep: warn              # Semgrep SAST — auto-config rules for Python
+    bandit: blocking
+    bandit_exclude_tests: true
+    pip_audit: blocking
+    interrogate: warn
+    vulture: warn
+
+  typescript:
+    eslint: blocking
+    prettier: blocking
+    tsc: blocking
+    audit: blocking
+    audit_level: moderate
+    semgrep: warn              # Semgrep SAST — auto-config rules for TypeScript
+
+  golang:
+    gofmt: warn
+    govet: blocking
+    golangci_lint: blocking
+    gosec: blocking
+    govulncheck: warn
+    semgrep: warn              # Semgrep SAST — auto-config rules for Go
+
+  rust:
+    fmt: blocking
+    clippy: blocking
+    audit: warn
+    deny: warn
+    features: all
+    semgrep: warn              # Semgrep SAST — auto-config rules for Rust
+
+# Testing
+test:
+  enabled: true
+  coverage: true
+  min_coverage: 0
+  fail_on_missing: false
+  use_tiers: false
+
+  tiers:
+    unit:
+      enabled: true
+      fail_fast: true
+      timeout: 300
+    integration:
+      enabled: true
+      fail_fast: true
+      timeout: 900
+    e2e:
+      enabled: false
+      fail_fast: false
+      timeout: 1800
+
+  python:
+    runner: pytest
+    args:
+      - "-v"
+      - "--tb=short"
+    coverage_format: xml
+
+  typescript:
+    runner: auto
+    args: []
+    e2e:
+      enabled: false
+      runner: playwright       # playwright or cypress
+      browser: chromium        # chromium, firefox, webkit
+      args: []
+
+  golang:
+    runner: go
+    race: true
+    args:
+      - "-v"
+
+  rust:
+    tier: all
+    features: all
+
+# Build
+build:
+  enabled: true
+  strategies:
+    - native
+
+  python:
+    source_dir: src
+    nuitka:
+      enabled: false
+      platforms:
+        - linux-x64
+        - linux-arm64
+      build_native: true
+      protection_profile: recommended
+      allowed_profiles:
+        - none
+        - data-hiding
+        - recommended
+        - anti-debugger
+        - maximum
+      lto: false
+      extra_args: []
+      runners: {}
+
+  typescript:
+    package_manager: auto
+
+  golang:
+    targets:
+      - linux/amd64
+      - linux/arm64
+      - darwin/amd64
+      - darwin/arm64
+      - windows/amd64
+    cgo: false
+    garble: false
+    container: false
+
+# Publishing
+#
+# publish.target controls where artifacts go:
+#   internal  — JFrog Artifactory only (default)
+#   oss       — Public registries only (PyPI, npm, crates.io, GHCR)
+#   both      — Publish to both
+#
+# Set via GitHub org variable PUBLISH_TARGET (repo var overrides org var).
+# Maps to HYPERCI_PUBLISH_TARGET env var in workflows.
+publish:
+  enabled: true
+  target: internal
+  binaries: both
+  binaries_repo: hyperi-binaries
+
+  # Destination mapping per target
+  #
+  # internal: JFrog Artifactory
+  destinations_internal:
+    python: jfrog-pypi         # hyperi-pypi-local
+    npm: jfrog-npm             # hyperi-npm-local
+    cargo: jfrog-cargo         # hyperi-cargo-local
+    container: jfrog-docker    # hypersec.jfrog.io/hyperi-docker-local
+    helm: jfrog-helm           # oci://hypersec.jfrog.io/hyperi-helm-local
+    binaries: jfrog-generic    # hyperi-binaries
+    go: jfrog-go               # hyperi-go-local
+
+  # oss: Public registries
+  destinations_oss:
+    python: pypi               # pypi.org (OIDC Trusted Publishing)
+    npm: npmjs                 # npmjs.com @hyperi/* (OIDC)
+    cargo: crates-io           # crates.io (API token)
+    container: ghcr            # ghcr.io/hyperi-io/*
+    helm: ghcr-charts          # oci://ghcr.io/hyperi-io/charts
+    binaries: github-releases  # GitHub Releases
+    go: go-proxy               # proxy.golang.org (automatic)
+
+  python:
+    repository: pypi-local
+
+  typescript:
+    registry: npm
+
+  golang:
+    repository: go-local
+
+  s3:
+    enabled: false
+    bucket: ""
+    prefix: download
+    region: ap-southeast-2
+
+  container:
+    enabled: false
+    registry: ghcr
+    dockerfile: Dockerfile
+    context: .
+    platforms:
+      - linux/amd64
+      - linux/arm64
+
+  helm:
+    enabled: false
+    chart_path: ""
+    registry_url: "oci://ghcr.io/hyperi-io/charts"
+
+# Workspace Settings
+workspace:
+  enabled: auto
+  members: {}
+
+# Standards Validation
+standards:
+  branch_naming: true
+  commit_messages: true
+  conventional_commits: true
+
+# Integrations
+integrations:
+  linear:
+    enabled: false
+    prefixes:
+      - DFE
