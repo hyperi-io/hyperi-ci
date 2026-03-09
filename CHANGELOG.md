@@ -1,3 +1,10 @@
+## [1.0.33](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.32...v1.0.33) (2026-03-09)
+
+
+### Bug Fixes
+
+* detect protoc/rdkafka deps from Cargo.toml when Cargo.lock absent ([91db4d3](https://github.com/hyperi-io/hyperi-ci/commit/91db4d3800420bb3cd47ee3cf5c5a0c5ceaeb543))
+
 ## [1.0.32](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.31...v1.0.32) (2026-03-09)
 
 
