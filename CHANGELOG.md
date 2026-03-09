@@ -1,3 +1,11 @@
+## [1.0.19](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.18...v1.0.19) (2026-03-09)
+
+
+### Bug Fixes
+
+* add semgrep SAST to all language quality pipelines ([a7e9532](https://github.com/hyperi-io/hyperi-ci/commit/a7e95328a10b7ab1e246d51a1399ae71b958b7e4))
+* run semgrep via uvx, add --refresh to all workflows ([9f13069](https://github.com/hyperi-io/hyperi-ci/commit/9f13069982138771af83e8421445fb5f3bb4cf2f))
+
 ## [1.0.18](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.17...v1.0.18) (2026-03-09)
 
 
