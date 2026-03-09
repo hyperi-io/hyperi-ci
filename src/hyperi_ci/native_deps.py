@@ -133,17 +133,15 @@ def install_native_deps(language: str, project_dir: Path | None = None) -> int:
     for group in dep_groups:
         content = _read_manifests(cwd, group.manifest_files)
         if not content:
-            logger.debug("No manifest files found", group=group.name)
+            logger.debug("No manifest files found", dep=group.name)
             continue
 
         if _patterns_match(content, group.patterns):
             if _is_dpkg_installed(group.dpkg_check):
-                logger.info(
-                    "Already installed", group=group.name, check=group.dpkg_check
-                )
+                logger.info("Already installed", dep=group.name, check=group.dpkg_check)
             else:
                 logger.info(
-                    "Needs install", group=group.name, packages=group.apt_packages
+                    "Needs install", dep=group.name, packages=group.apt_packages
                 )
                 needed.append(group)
 
