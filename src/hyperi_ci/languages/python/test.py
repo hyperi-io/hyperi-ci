@@ -19,13 +19,22 @@ from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
 
 
+def _resolve_cmd(cmd: list[str]) -> list[str]:
+    """Resolve command, prefixing with 'uv run' if tool isn't on PATH."""
+    if shutil.which(cmd[0]):
+        return cmd
+    if shutil.which("uv"):
+        return ["uv", "run", *cmd]
+    return cmd
+
+
 def _run_pytest(args: list[str], tier_name: str | None = None) -> int:
     """Run pytest with given arguments.
 
     Returns exit code.
     """
     label = f" ({tier_name})" if tier_name else ""
-    cmd = ["pytest"] + args
+    cmd = _resolve_cmd(["pytest"] + args)
     info(f"  Running pytest{label}: {' '.join(cmd)}")
     result = subprocess.run(cmd)
     return result.returncode
@@ -41,7 +50,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     Returns:
         Exit code (0 = success).
     """
-    if not shutil.which("pytest"):
+    if not shutil.which("pytest") and not shutil.which("uv"):
         error("pytest not installed")
         return 1
 

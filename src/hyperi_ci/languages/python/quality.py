@@ -36,6 +36,20 @@ def _build_exclude_args(tool: str, excludes: list[str]) -> list[str]:
     return []
 
 
+def _resolve_tool_cmd(cmd: list[str]) -> list[str]:
+    """Resolve tool command, using uv run if tool isn't on PATH.
+
+    When hyperi-ci runs via uvx, project tools (ruff, pytest, etc.)
+    live in the project's .venv, not on PATH. Prefix with 'uv run'
+    to execute within the project's virtual environment.
+    """
+    if shutil.which(cmd[0]):
+        return cmd
+    if shutil.which("uv"):
+        return ["uv", "run", *cmd]
+    return cmd
+
+
 def _run_tool(
     tool_name: str,
     cmd: list[str],
@@ -49,14 +63,15 @@ def _run_tool(
         info(f"  {tool_name}: disabled")
         return True
 
-    if not shutil.which(cmd[0]):
+    resolved = _resolve_tool_cmd(cmd)
+    if resolved == cmd and not shutil.which(cmd[0]):
         if mode == "blocking":
             error(f"  {tool_name}: not installed (required)")
             return False
         warn(f"  {tool_name}: not installed (skipping)")
         return True
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(resolved, capture_output=True, text=True)
 
     if result.returncode == 0:
         success(f"  {tool_name}: passed")
