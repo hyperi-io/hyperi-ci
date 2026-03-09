@@ -66,6 +66,7 @@ quality:
     tsc: blocking
     audit: blocking
     audit_level: moderate
+    semgrep: warn              # Semgrep SAST — auto-config rules for TypeScript
 
   golang:
     gofmt: warn
@@ -73,6 +74,7 @@ quality:
     golangci_lint: blocking
     gosec: blocking
     govulncheck: warn
+    semgrep: warn              # Semgrep SAST — auto-config rules for Go
 
   rust:
     fmt: blocking
@@ -80,6 +82,7 @@ quality:
     audit: warn
     deny: warn
     features: all
+    semgrep: warn              # Semgrep SAST — auto-config rules for Rust
 
 # Testing
 test:
