@@ -1,3 +1,10 @@
+## [1.0.41](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.40...v1.0.41) (2026-03-09)
+
+
+### Bug Fixes
+
+* use --no-cache for uvx during CI stabilisation period ([a6d3a64](https://github.com/hyperi-io/hyperi-ci/commit/a6d3a64d18f616f660756e6e5d41284de13df64a))
+
 ## [1.0.40](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.39...v1.0.40) (2026-03-09)
 
 
