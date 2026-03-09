@@ -1,0 +1,46 @@
+# Project:   HyperI CI
+# File:      src/hyperi_ci/config/native-deps/golang.yaml
+# Purpose:   Native system dependency definitions for Go projects
+#
+# Schema per entry:
+#   name:           Human-readable label shown in CI output
+#   patterns:       Strings to search for in manifest_files (plain substring match)
+#   manifest_files: Files to search relative to project root
+#   dpkg_check:     dpkg package name — skips apt install if already present
+#   apt_packages:   Packages to install on Linux (apt-get)
+
+- name: CGo / C libraries (generic)
+  patterns:
+    - '"C"'
+  manifest_files:
+    - go.sum
+    - go.mod
+  dpkg_check: build-essential
+  apt_packages:
+    - build-essential
+    - pkg-config
+
+- name: SQLite (mattn/go-sqlite3)
+  patterns:
+    - go-sqlite3
+    - mattn/go-sqlite3
+  manifest_files:
+    - go.mod
+    - go.sum
+  dpkg_check: libsqlite3-dev
+  apt_packages:
+    - libsqlite3-dev
+
+- name: protobuf / gRPC
+  patterns:
+    - grpc
+    - protobuf
+    - google.golang.org/grpc
+    - google.golang.org/protobuf
+  manifest_files:
+    - go.mod
+    - go.sum
+  dpkg_check: libprotobuf-dev
+  apt_packages:
+    - protobuf-compiler
+    - libprotobuf-dev

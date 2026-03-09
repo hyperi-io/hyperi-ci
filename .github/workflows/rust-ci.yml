@@ -61,28 +61,19 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Detect native dependencies
-        id: native-deps
-        run: |
-          if grep -qE -- '-sys[",$]' Cargo.lock 2>/dev/null || \
-             grep -qE '(rdkafka|openssl|curl-sys|libssh2-sys|prost-build|tonic-prost-build)' Cargo.toml 2>/dev/null; then
-            echo "needed=true" >> "$GITHUB_OUTPUT"
-          fi
+      - name: Install uv
+        if: ${{ !contains(runner.name, 'arc-runner') }}
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
 
-      - name: Install system dependencies (Linux)
-        if: runner.os == 'Linux' && steps.native-deps.outputs.needed == 'true'
+      - name: Set up Python
         run: |
-          if ! dpkg -s librdkafka-dev >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends \
-              librdkafka-dev libssl-dev libsasl2-dev \
-              cmake pkg-config libcurl4-openssl-dev
-          fi
-          if ! dpkg -s libprotobuf-dev >/dev/null 2>&1; then
-            sudo apt-get update 2>/dev/null || true
-            sudo apt-get install -y --no-install-recommends \
-              protobuf-compiler libprotobuf-dev
-          fi
+          command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
+          command -v python3 || uv python install 3.12
+
+      - name: Install native dependencies
+        run: ${{ env.HYPERCI_INSTALL }} install-native-deps rust
 
       - name: Install Rust toolchain
         if: ${{ !contains(runner.name, 'arc-runner') }}
@@ -108,17 +99,6 @@ jobs:
           command -v cargo-audit || cargo install --locked cargo-audit || true
           command -v cargo-deny || cargo install --locked cargo-deny || true
 
-      - name: Install uv
-        if: ${{ !contains(runner.name, 'arc-runner') }}
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: false
-
-      - name: Set up Python
-        run: |
-          command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
-          command -v python3 || uv python install 3.12
-
       - name: Run quality checks
         env:
           GITLEAKS_GH_ACTIONS_KEY: ${{ secrets.GITLEAKS_GH_ACTIONS_KEY }}
@@ -133,28 +113,19 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Detect native dependencies
-        id: native-deps
-        run: |
-          if grep -qE -- '-sys[",$]' Cargo.lock 2>/dev/null || \
-             grep -qE '(rdkafka|openssl|curl-sys|libssh2-sys|prost-build|tonic-prost-build)' Cargo.toml 2>/dev/null; then
-            echo "needed=true" >> "$GITHUB_OUTPUT"
-          fi
+      - name: Install uv
+        if: ${{ !contains(runner.name, 'arc-runner') }}
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
 
-      - name: Install system dependencies (Linux)
-        if: runner.os == 'Linux' && steps.native-deps.outputs.needed == 'true'
+      - name: Set up Python
         run: |
-          if ! dpkg -s librdkafka-dev >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends \
-              librdkafka-dev libssl-dev libsasl2-dev \
-              cmake pkg-config libcurl4-openssl-dev
-          fi
-          if ! dpkg -s libprotobuf-dev >/dev/null 2>&1; then
-            sudo apt-get update 2>/dev/null || true
-            sudo apt-get install -y --no-install-recommends \
-              protobuf-compiler libprotobuf-dev
-          fi
+          command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
+          command -v python3 || uv python install 3.12
+
+      - name: Install native dependencies
+        run: ${{ env.HYPERCI_INSTALL }} install-native-deps rust
 
       - name: Install Rust toolchain
         if: ${{ !contains(runner.name, 'arc-runner') }}
@@ -173,17 +144,6 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Install uv
-        if: ${{ !contains(runner.name, 'arc-runner') }}
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: false
-
-      - name: Set up Python
-        run: |
-          command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
-          command -v python3 || uv python install 3.12
 
       - name: Run tests
         run: ${{ env.HYPERCI_INSTALL }} run test
@@ -205,28 +165,23 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Detect native dependencies
-        id: native-deps
-        run: |
-          if grep -qE -- '-sys[",$]' Cargo.lock 2>/dev/null || \
-             grep -qE '(rdkafka|openssl|curl-sys|libssh2-sys|prost-build|tonic-prost-build)' Cargo.toml 2>/dev/null; then
-            echo "needed=true" >> "$GITHUB_OUTPUT"
-          fi
+      - name: Install uv
+        if: ${{ !contains(runner.name, 'arc-runner') }}
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
 
-      - name: Install system dependencies (Linux)
-        if: runner.os == 'Linux' && steps.native-deps.outputs.needed == 'true'
+      - name: Set up Python
         run: |
-          if ! dpkg -s librdkafka-dev >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends \
-              librdkafka-dev libssl-dev libsasl2-dev \
-              cmake pkg-config libcurl4-openssl-dev
-          fi
-          if ! dpkg -s libprotobuf-dev >/dev/null 2>&1; then
-            sudo apt-get update 2>/dev/null || true
-            sudo apt-get install -y --no-install-recommends \
-              protobuf-compiler libprotobuf-dev
-          fi
+          command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
+          command -v python3 || uv python install 3.12
+
+      - name: Install native dependencies
+        run: ${{ env.HYPERCI_INSTALL }} install-native-deps rust
+
+      - name: Install cross-compilation toolchain
+        if: runner.os == 'Linux'
+        run: |
           if ! command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then
             sudo dpkg --add-architecture arm64
             sudo apt-get update
@@ -252,17 +207,6 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Install uv
-        if: ${{ !contains(runner.name, 'arc-runner') }}
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: false
-
-      - name: Set up Python
-        run: |
-          command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
-          command -v python3 || uv python install 3.12
 
       - name: Run build
         run: ${{ env.HYPERCI_INSTALL }} run build

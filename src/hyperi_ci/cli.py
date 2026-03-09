@@ -254,6 +254,35 @@ def logs(
     raise typer.Exit(rc)
 
 
+@app.command(name="install-native-deps")
+def install_native_deps(
+    language: Annotated[
+        str,
+        typer.Argument(help="Language (rust, typescript, golang, python)"),
+    ],
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run", "-n", help="Show what would be installed without installing"
+        ),
+    ] = False,
+) -> None:
+    """Detect and install native system dependencies for a language."""
+    from hyperi_ci.native_deps import install_native_deps as _install
+    from hyperi_ci.native_deps import print_needed
+
+    dir_path = Path(project_dir) if project_dir else None
+    if dry_run:
+        print_needed(language, project_dir=dir_path)
+        return
+    rc = _install(language, project_dir=dir_path)
+    raise typer.Exit(rc)
+
+
 def main() -> int:
     """CLI entry point."""
     app()

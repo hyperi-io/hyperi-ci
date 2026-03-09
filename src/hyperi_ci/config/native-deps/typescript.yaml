@@ -1,0 +1,47 @@
+# Project:   HyperI CI
+# File:      src/hyperi_ci/config/native-deps/typescript.yaml
+# Purpose:   Native system dependency definitions for TypeScript/Node.js projects
+#
+# Schema per entry:
+#   name:           Human-readable label shown in CI output
+#   patterns:       Strings to search for in manifest_files (plain substring match)
+#   manifest_files: Files to search relative to project root
+#   dpkg_check:     dpkg package name — skips apt install if already present
+#   apt_packages:   Packages to install on Linux (apt-get)
+
+- name: canvas / image processing
+  patterns:
+    - canvas
+    - node-canvas
+  manifest_files:
+    - package.json
+    - package-lock.json
+    - yarn.lock
+  dpkg_check: libcairo2-dev
+  apt_packages:
+    - libcairo2-dev
+    - libpango1.0-dev
+    - libjpeg-dev
+    - libgif-dev
+    - librsvg2-dev
+
+- name: sharp / image processing
+  patterns:
+    - sharp
+  manifest_files:
+    - package.json
+    - package-lock.json
+  dpkg_check: libvips-dev
+  apt_packages:
+    - libvips-dev
+
+- name: sqlite3 / native database
+  patterns:
+    - better-sqlite3
+    - sqlite3
+  manifest_files:
+    - package.json
+    - package-lock.json
+  dpkg_check: libsqlite3-dev
+  apt_packages:
+    - libsqlite3-dev

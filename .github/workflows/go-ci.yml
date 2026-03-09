@@ -82,6 +82,9 @@ jobs:
           command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
           command -v python3 || uv python install 3.12
 
+      - name: Install native dependencies
+        run: ${{ env.HYPERCI_INSTALL }} install-native-deps golang
+
       - name: Run quality checks
         env:
           GITLEAKS_GH_ACTIONS_KEY: ${{ secrets.GITLEAKS_GH_ACTIONS_KEY }}
@@ -112,6 +115,9 @@ jobs:
         run: |
           command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
           command -v python3 || uv python install 3.12
+
+      - name: Install native dependencies
+        run: ${{ env.HYPERCI_INSTALL }} install-native-deps golang
 
       - name: Run tests
         run: ${{ env.HYPERCI_INSTALL }} run test
@@ -149,6 +155,9 @@ jobs:
         run: |
           command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
           command -v python3 || uv python install 3.12
+
+      - name: Install native dependencies
+        run: ${{ env.HYPERCI_INSTALL }} install-native-deps golang
 
       - name: Run build
         run: ${{ env.HYPERCI_INSTALL }} run build
