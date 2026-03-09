@@ -73,8 +73,6 @@ jobs:
           command -v python3 || uv python install ${{ inputs.python-version }}
 
       - name: Install dependencies
-        env:
-          UV_EXTRA_INDEX_URL: https://hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple
         run: uv sync --frozen --all-extras
 
       - name: Run quality checks
@@ -103,8 +101,6 @@ jobs:
           command -v python3 || uv python install ${{ inputs.python-version }}
 
       - name: Install dependencies
-        env:
-          UV_EXTRA_INDEX_URL: https://hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple
         run: uv sync --frozen --all-extras
 
       - name: Run tests
@@ -139,8 +135,6 @@ jobs:
           command -v python3 || uv python install ${{ inputs.python-version }}
 
       - name: Install dependencies
-        env:
-          UV_EXTRA_INDEX_URL: https://hypersec.jfrog.io/artifactory/api/pypi/hyperi-pypi/simple
         run: uv sync --frozen --all-extras
 
       - name: Run build
