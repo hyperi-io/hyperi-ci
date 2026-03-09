@@ -1,3 +1,10 @@
+## [1.0.39](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.38...v1.0.39) (2026-03-09)
+
+
+### Bug Fixes
+
+* use plain string logger calls in native_deps (no kwargs) ([d5ba8a3](https://github.com/hyperi-io/hyperi-ci/commit/d5ba8a31d2fc5543fafd03fa8ec57e986de62586))
+
 ## [1.0.38](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.37...v1.0.38) (2026-03-09)
 
 
