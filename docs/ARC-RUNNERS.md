@@ -71,8 +71,37 @@ use `command -v <tool> || install <tool>` so they still work on
 |-----------|-------|--------|
 | sccache, ccache | NFS PVC (`/mnt/cache/`) | Compilation cache persists across ephemeral pods |
 | cargo, uv, pip, npm | Local emptyDir | Metadata-heavy I/O not suited to NFS |
+| `target/` | Local emptyDir (persists within runner pod lifetime) | Rust incremental builds — warm builds ~5x faster |
 
 The NFS PVC is backed by SSD (nvme-fast StorageClass) on the storage VM.
+
+### Rust Cross-Compilation Cache Integrity
+
+The `target/` directory persists across CI runs on the same ARC runner pod.
+This is intentional and valuable — warm builds are dramatically faster.
+However, stale cross-compiled objects from a previous broken run can cause
+linker errors (`EM:62`: x86_64 objects linked into an aarch64 binary).
+
+**hyperi-ci handles this automatically in `build.py`:**
+
+Before each cross-compilation build, `_clean_stale_sys_crates()` scans
+`target/<triple>/release/deps/lib*-sys-*.rlib` files. For each `-sys` crate
+it extracts object files with `ar p | file -` and checks the ELF machine
+type. If wrong-arch objects are found, it runs:
+
+```
+cargo clean --package <pkg> --target <triple>
+```
+
+This deletes only the affected OUT_DIR, forcing a fresh `./configure && make`
+(or cmake build) with the correct cross-compiler. All other cached objects
+are preserved.
+
+**Key insight:** configure-based `-sys` crates (e.g. `rdkafka-sys` default
+build) read `CC`/`CXX`/`AR` directly from the environment — NOT from the
+cc-crate's `CC_aarch64_unknown_linux_gnu` convention. Both must be set.
+See CI-LESSONS.md "ARC Persistent Cache + Rust Cross-Compilation" for the
+full explanation.
 
 ## Runner Environment Variables
 
