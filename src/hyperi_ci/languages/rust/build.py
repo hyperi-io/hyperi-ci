@@ -445,19 +445,21 @@ def _cross_env(target: str, sysroot: Path | None = None) -> dict[str, str]:
         warn(f"  Cross-compiler {cc} not found — build may fail")
         return env
 
-    env[f"CC_{target_upper}"] = cc
-    env[f"CXX_{target_upper}"] = toolchain["cxx"]
-    env[f"AR_{target_upper}"] = toolchain["ar"]
+    # cc crate uses lowercase target with underscores: CC_aarch64_unknown_linux_gnu
+    # Cargo uses uppercase for its own vars: CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER
+    env[f"CC_{target_lower}"] = cc
+    env[f"CXX_{target_lower}"] = toolchain["cxx"]
+    env[f"AR_{target_lower}"] = toolchain["ar"]
 
     if sysroot:
         # Use linker wrapper that injects sysroot paths + forces BFD linker
         wrapper = _create_linker_wrapper(sysroot, cross_triple)
         env[f"CARGO_TARGET_{target_upper}_LINKER"] = str(wrapper)
 
-        # Point CC/CXX to sysroot wrappers so cmake/cc-crate find both
+        # Point CC/CXX to sysroot wrappers (lowercase — cc crate convention)
         sysroot_bin = sysroot / "bin"
-        env[f"CC_{target_upper}"] = str(sysroot_bin / f"{cross_triple}-gcc")
-        env[f"CXX_{target_upper}"] = str(sysroot_bin / f"{cross_triple}-g++")
+        env[f"CC_{target_lower}"] = str(sysroot_bin / f"{cross_triple}-gcc")
+        env[f"CXX_{target_lower}"] = str(sysroot_bin / f"{cross_triple}-g++")
 
         # pkg-config paths for the sysroot
         env["PKG_CONFIG_PATH"] = (
@@ -485,6 +487,9 @@ def _cross_env(target: str, sysroot: Path | None = None) -> dict[str, str]:
     else:
         # No sysroot — basic cross-compilation (pure Rust or simple C deps)
         env[f"CARGO_TARGET_{target_upper}_LINKER"] = cc
+        # Also set lowercase CC so cc crate and cmake-rs pick up the cross-compiler
+        env[f"CC_{target_lower}"] = cc
+        env[f"CXX_{target_lower}"] = toolchain["cxx"]
         env["PKG_CONFIG_ALLOW_CROSS"] = "1"
         env["PKG_CONFIG_SYSROOT_DIR"] = f"/usr/{cross_triple}"
 
