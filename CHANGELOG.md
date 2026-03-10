@@ -1,3 +1,10 @@
+## [1.0.45](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.44...v1.0.45) (2026-03-10)
+
+
+### Bug Fixes
+
+* clear cmake caches before cross-compilation to prevent stale x86_64 artifacts ([ee93de9](https://github.com/hyperi-io/hyperi-ci/commit/ee93de95463b8dea43e746f575041d9b65d932da))
+
 ## [1.0.44](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.43...v1.0.44) (2026-03-10)
 
 
