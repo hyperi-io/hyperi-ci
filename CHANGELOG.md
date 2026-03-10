@@ -1,3 +1,10 @@
+## [1.0.44](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.43...v1.0.44) (2026-03-10)
+
+
+### Bug Fixes
+
+* use plain CC (not wrapper) and set CMAKE_C_COMPILER for cross builds ([22e1180](https://github.com/hyperi-io/hyperi-ci/commit/22e1180fe9797389ff7856c939218f5b2d7ff342))
+
 ## [1.0.43](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.42...v1.0.43) (2026-03-10)
 
 
