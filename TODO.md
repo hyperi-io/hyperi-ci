@@ -6,13 +6,11 @@ This is the **single source of truth** for all tasks and progress.
 
 ## Active Tasks
 
-- [ ] Get Rust CI pipeline working (hyperi-rustlib) `[NEXT]`
-  - Project: `hyperi-io/hyperi-rustlib` — first Rust project on new CI, ready for cutover
-  - Current ci.yml still uses old `ci/` submodule approach — needs replacement
-  - Next: replace ci.yml with `hyperi-io/hyperi-ci/.github/workflows/rust-ci.yml@main`
-  - Create `.hyperi-ci.yaml` in hyperi-rustlib with Rust settings
-  - Run push, monitor quality → test → build → release → publish to JFrog Cargo
-  - Publish target: internal (JFrog Cargo registry `hyperi-cargo-local`)
+- [ ] Address non-blocking quality warnings across all three consumer projects
+  - vulture: dead code in hyperi-pylib, dfe-engine (non-blocking)
+  - semgrep: security patterns in dfe-engine (non-blocking)
+  - ty: type errors in all three (non-blocking, replaces pyright)
+  - cargo audit: advisory DB issues in hyperi-rustlib (non-blocking)
 
 ---
 
@@ -79,6 +77,23 @@ This is the **single source of truth** for all tasks and progress.
   - Removed `ci/` submodule from dfe-engine (replaced by hyperi-ci)
   - Fixed: pip_audit blocking; bandit B104 via config skip; ty/semgrep/vulture warn
   - Key lessons captured in docs/CI-LESSONS.md (Python section)
+
+- [x] **Rust pipeline validated end-to-end with hyperi-rustlib**
+  - Quality ✓, Test ✓, Build ✓, Release ✓, Publish to crates.io ✓ (v1.13.2)
+  - Fixed: 30+ Rust 2024 edition clippy errors (collapsible_if, implicit_hasher, semicolons)
+  - Fixed: `std::env::set_var` unsafe in Rust 2024 — changed unsafe_code forbid→deny, added allow in test files
+  - Fixed: hyperi-ci build handler incorrectly packaging library-only crates (no bin targets) — now skips packaging
+  - Publish target: oss (crates.io)
+
+- [x] **hyperi-pylib v2.24.3 released and published to PyPI**
+  - Fixed ruff import sort in test file; user restructured to optional extras (http, metrics, etc.)
+  - All jobs: Quality ✓, Test ✓, Build ✓, Release ✓, Publish ✓
+
+- [x] **dfe-engine updated for pylib optional extras**
+  - Added `http` extra to hyperi-pylib dep (AsyncHttpClient/HttpClient now optional)
+  - Added WASM transform compile/test endpoints (`api/v1/transforms.py`)
+  - Updated pylib constraint to >=2.24.3
+  - All jobs: Quality ✓, Test ✓, Build ✓, Release ✓, Publish ✓
 
 ---
 
