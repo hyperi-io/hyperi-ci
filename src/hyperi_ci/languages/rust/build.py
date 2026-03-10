@@ -447,19 +447,21 @@ def _cross_env(target: str, sysroot: Path | None = None) -> dict[str, str]:
 
     # cc crate uses lowercase target with underscores: CC_aarch64_unknown_linux_gnu
     # Cargo uses uppercase for its own vars: CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER
+    #
+    # IMPORTANT: CC must be the PLAIN cross-compiler, NOT the sysroot wrapper.
+    # cmake's TryCompile uses CC to test compiler functionality. If CC is a wrapper
+    # that adds linker-specific flags (-L, -Wl,-rpath-link), TryCompile may fail
+    # and cmake silently falls back to the host compiler (compiling x86_64 objects
+    # for an aarch64 build). The wrapper is used ONLY as the Rust linker.
     env[f"CC_{target_lower}"] = cc
     env[f"CXX_{target_lower}"] = toolchain["cxx"]
     env[f"AR_{target_lower}"] = toolchain["ar"]
 
     if sysroot:
-        # Use linker wrapper that injects sysroot paths + forces BFD linker
+        # Use linker wrapper that injects sysroot paths + forces BFD linker.
+        # CARGO_TARGET_..._LINKER sets the Rust linker (not the C compiler).
         wrapper = _create_linker_wrapper(sysroot, cross_triple)
         env[f"CARGO_TARGET_{target_upper}_LINKER"] = str(wrapper)
-
-        # Point CC/CXX to sysroot wrappers (lowercase — cc crate convention)
-        sysroot_bin = sysroot / "bin"
-        env[f"CC_{target_lower}"] = str(sysroot_bin / f"{cross_triple}-gcc")
-        env[f"CXX_{target_lower}"] = str(sysroot_bin / f"{cross_triple}-g++")
 
         # pkg-config paths for the sysroot
         env["PKG_CONFIG_PATH"] = (
@@ -468,14 +470,21 @@ def _cross_env(target: str, sysroot: Path | None = None) -> dict[str, str]:
         env["PKG_CONFIG_SYSROOT_DIR"] = str(sysroot)
         env["PKG_CONFIG_ALLOW_CROSS"] = "1"
 
-        # cmake-based -sys crates (e.g. rdkafka-sys)
+        # cmake-based -sys crates (e.g. rdkafka-sys).
+        # Explicitly set CMAKE_C/CXX_COMPILER so cmake uses the cross-compiler
+        # even when cmake-rs's cc crate detection fails. This is belt-and-suspenders
+        # alongside CC_<target> — cmake checks CMAKE_C_COMPILER before CC.
+        env["CMAKE_C_COMPILER"] = cc
+        env["CMAKE_CXX_COMPILER"] = toolchain["cxx"]
         env["CMAKE_PREFIX_PATH"] = f"{sysroot}/usr"
         # CMAKE_INCLUDE_PATH ensures cmake finds headers (e.g. curl/curl.h)
         # in the sysroot's architecture-independent include dir
         env["CMAKE_INCLUDE_PATH"] = f"{sysroot}/usr/include"
 
-        # Target-specific CFLAGS/CXXFLAGS for the cc crate
-        # -fuse-ld=bfd: force GNU BFD linker (mold can't cross-compile)
+        # Target-specific CFLAGS/CXXFLAGS for the cc crate.
+        # The cc crate passes CFLAGS_<target> to cmake as CMAKE_C_FLAGS, which
+        # cmake uses for both compile and link steps (including TryCompile).
+        # -fuse-ld=bfd: force GNU BFD linker (mold can't cross-compile aarch64)
         # -I flags: sysroot headers (both arch-independent and arch-specific)
         sysroot_include = sysroot / "usr" / "include"
         sysroot_arch_include = sysroot_include / cross_triple
@@ -487,9 +496,6 @@ def _cross_env(target: str, sysroot: Path | None = None) -> dict[str, str]:
     else:
         # No sysroot — basic cross-compilation (pure Rust or simple C deps)
         env[f"CARGO_TARGET_{target_upper}_LINKER"] = cc
-        # Also set lowercase CC so cc crate and cmake-rs pick up the cross-compiler
-        env[f"CC_{target_lower}"] = cc
-        env[f"CXX_{target_lower}"] = toolchain["cxx"]
         env["PKG_CONFIG_ALLOW_CROSS"] = "1"
         env["PKG_CONFIG_SYSROOT_DIR"] = f"/usr/{cross_triple}"
 
