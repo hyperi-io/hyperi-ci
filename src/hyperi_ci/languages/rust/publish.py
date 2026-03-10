@@ -121,7 +121,9 @@ def _publish_crates_io() -> int:
         return 1
 
     result = subprocess.run(
-        ["cargo", "publish", "--allow-dirty"],
+        # --no-verify: CI build step already verified; publish runner lacks native
+        # build tools (e.g. protoc) required by build scripts during cargo package.
+        ["cargo", "publish", "--allow-dirty", "--no-verify"],
         env={**os.environ, "CARGO_REGISTRY_TOKEN": token},
         capture_output=True,
         text=True,
@@ -178,6 +180,9 @@ def _publish_jfrog() -> int:
             "--registry",
             registry_name,
             "--allow-dirty",
+            # --no-verify: CI build step already verified; publish runner lacks
+            # native build tools (e.g. protoc) needed by build scripts.
+            "--no-verify",
         ],
         capture_output=True,
         text=True,
