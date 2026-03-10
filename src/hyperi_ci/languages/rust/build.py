@@ -848,6 +848,151 @@ def _package_binaries(
     return 0
 
 
+def _expected_elf_machine(target: str) -> str | None:
+    """Return the `file` command arch substring for a Rust target triple.
+
+    Used to detect whether a cached cross-compiled .o file has the correct
+    machine architecture, or if it is stale from a native build.
+    """
+    arch_map = {
+        "x86_64": "x86-64",
+        "aarch64": "ARM aarch64",
+        "armv7": "ARM",
+        "i686": "80386",
+        "riscv64": "RISC-V",
+    }
+    for prefix, name in arch_map.items():
+        if target.startswith(prefix):
+            return name
+    return None
+
+
+def _find_cmake_sys_crates() -> list[str]:
+    """Detect cmake-based -sys crates from Cargo.lock.
+
+    Returns package names (with hyphens) that depend on the cmake crate,
+    meaning they compile C/C++ via cmake in their build script. These are
+    the candidates for stale cross-compiled rlibs on persistent runners.
+    """
+    lock_path = Path("Cargo.lock")
+    if not lock_path.exists():
+        return []
+
+    try:
+        content = lock_path.read_text()
+    except OSError:
+        return []
+
+    cmake_sys: list[str] = []
+    current_name = ""
+    in_package = False
+    for line in content.splitlines():
+        if line.startswith("[[package]]"):
+            in_package = True
+            current_name = ""
+        elif in_package and line.startswith("name = "):
+            current_name = line.split('"')[1] if '"' in line else ""
+        elif in_package and '"cmake"' in line and current_name.endswith("-sys"):
+            cmake_sys.append(current_name)
+        elif line == "" and in_package:
+            in_package = False
+
+    return cmake_sys
+
+
+def _rlib_has_wrong_arch(rlib: Path, expected_arch_substr: str) -> bool:
+    """Check if a compiled rlib contains objects with the wrong ELF architecture.
+
+    Extracts the first .o file from the rlib (ar archive) and checks its
+    ELF machine type using `file`. Returns True if the arch is wrong.
+    """
+    ar_cmd = shutil.which("ar")
+    file_cmd = shutil.which("file")
+    if not ar_cmd or not file_cmd:
+        return False
+
+    list_result = subprocess.run(
+        [ar_cmd, "t", str(rlib)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if list_result.returncode != 0:
+        return False
+
+    for obj_name in list_result.stdout.splitlines():
+        if not obj_name.endswith(".o"):
+            continue
+        extract_result = subprocess.run(
+            [ar_cmd, "p", str(rlib), obj_name],
+            capture_output=True,
+            check=False,
+        )
+        if extract_result.returncode != 0 or not extract_result.stdout:
+            continue
+        file_result = subprocess.run(
+            [file_cmd, "-"],
+            input=extract_result.stdout,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        output = file_result.stdout
+        if not output:
+            continue
+        return expected_arch_substr not in output
+
+    return False
+
+
+def _clean_stale_cmake_sys_crates(target: str) -> None:
+    """Clean cmake-based -sys crate artifacts if they have wrong-arch objects.
+
+    On persistent ARC runners, target/ is NOT cleaned between runs by
+    actions/checkout (git clean -ffd omits gitignored files by default).
+    If a previous run compiled rdkafka-sys with the x86_64 host compiler
+    (e.g., before CC_aarch64_unknown_linux_gnu was correctly set), the
+    stale rlib persists. Since rdkafka-sys's build.rs doesn't declare
+    cargo:rerun-if-env-changed for CC_<target>, cargo reuses the cached
+    x86_64 rlib — causing "Relocations in generic ELF (EM: 62)" on link.
+
+    This function detects that condition and cleans affected packages so
+    cargo is forced to recompile them with the correct cross-compiler.
+    """
+    expected = _expected_elf_machine(target)
+    if not expected:
+        return
+
+    target_dir = Path(os.environ.get("CARGO_TARGET_DIR", "target"))
+    cross_deps = target_dir / target / "release" / "deps"
+    if not cross_deps.exists():
+        return
+
+    cmake_sys = _find_cmake_sys_crates()
+    if not cmake_sys:
+        return
+
+    cmake_sys_underscored = {p.replace("-", "_") for p in cmake_sys}
+    to_clean: list[str] = []
+
+    for rlib in cross_deps.glob("lib*.rlib"):
+        stem = rlib.stem.lstrip("lib")
+        crate_under = stem.split("-")[0] if "-" in stem else stem
+        if crate_under not in cmake_sys_underscored:
+            continue
+        if _rlib_has_wrong_arch(rlib, expected):
+            pkg_name = crate_under.replace("_", "-")
+            to_clean.append(pkg_name)
+            warn(f"  Stale cross-compiled rlib detected: {rlib.name} (wrong arch)")
+
+    for pkg in set(to_clean):
+        info(f"  Cleaning stale cmake -sys package: {pkg} --target {target}")
+        subprocess.run(
+            ["cargo", "clean", "--package", pkg, "--target", target],
+            check=False,
+        )
+
+
 def _build_for_target(
     target: str,
     features: str,
@@ -879,28 +1024,14 @@ def _build_for_target(
         if toolchain:
             sysroot = _setup_cross_sysroot(toolchain["arch"], toolchain["triple"])
 
-        env.update(_cross_env(target, sysroot=sysroot))
+        # On persistent runners (ARC), target/ survives between runs.
+        # cmake-based -sys crates (rdkafka-sys) don't declare
+        # cargo:rerun-if-env-changed for CC_<target>, so cargo won't detect
+        # that a stale x86_64 rlib needs rebuilding with the cross-compiler.
+        # Detect and clean stale wrong-arch rlibs before building.
+        _clean_stale_cmake_sys_crates(target)
 
-    # For cross-compilation, clear cmake caches before building.
-    # cmake stores compiler settings in CMakeCache.txt. On persistent ARC runners,
-    # a previous failed cross-build may have cached x86_64 cmake output in the
-    # aarch64 target directory. Deleting CMakeCache.txt forces cmake to reconfigure
-    # from scratch with the correct cross-compiler set in CMAKE_C_COMPILER.
-    # We only delete the cache files, not source/object files, to minimise
-    # unnecessary recompilation.
-    if target != native:
-        target_dir_env = os.environ.get("CARGO_TARGET_DIR", "target")
-        cross_build_dir = Path(target_dir_env) / target / "release" / "build"
-        if cross_build_dir.exists():
-            cmake_caches = list(cross_build_dir.glob("*/out/**/CMakeCache.txt"))
-            if cmake_caches:
-                info(
-                    f"  Clearing {len(cmake_caches)} stale cmake cache(s)"
-                    f" in {cross_build_dir} to force reconfiguration"
-                    f" with the cross-compiler"
-                )
-                for cache_file in cmake_caches:
-                    cache_file.unlink()
+        env.update(_cross_env(target, sysroot=sysroot))
 
     info(f"  Building for {target}...")
     result = subprocess.run(cmd, env=env)
