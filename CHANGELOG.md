@@ -1,3 +1,10 @@
+## [1.0.48](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.47...v1.0.48) (2026-03-10)
+
+
+### Bug Fixes
+
+* detect all -sys crates for stale cross-compiled rlib cleanup ([6e2c406](https://github.com/hyperi-io/hyperi-ci/commit/6e2c406f0ef24f4bed34e5fbaa6f61b9a3c023bc))
+
 ## [1.0.47](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.46...v1.0.47) (2026-03-10)
 
 
