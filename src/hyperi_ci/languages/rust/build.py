@@ -881,6 +881,27 @@ def _build_for_target(
 
         env.update(_cross_env(target, sysroot=sysroot))
 
+    # For cross-compilation, clear cmake caches before building.
+    # cmake stores compiler settings in CMakeCache.txt. On persistent ARC runners,
+    # a previous failed cross-build may have cached x86_64 cmake output in the
+    # aarch64 target directory. Deleting CMakeCache.txt forces cmake to reconfigure
+    # from scratch with the correct cross-compiler set in CMAKE_C_COMPILER.
+    # We only delete the cache files, not source/object files, to minimise
+    # unnecessary recompilation.
+    if target != native:
+        target_dir_env = os.environ.get("CARGO_TARGET_DIR", "target")
+        cross_build_dir = Path(target_dir_env) / target / "release" / "build"
+        if cross_build_dir.exists():
+            cmake_caches = list(cross_build_dir.glob("*/out/**/CMakeCache.txt"))
+            if cmake_caches:
+                info(
+                    f"  Clearing {len(cmake_caches)} stale cmake cache(s)"
+                    f" in {cross_build_dir} to force reconfiguration"
+                    f" with the cross-compiler"
+                )
+                for cache_file in cmake_caches:
+                    cache_file.unlink()
+
     info(f"  Building for {target}...")
     result = subprocess.run(cmd, env=env)
     return result.returncode
