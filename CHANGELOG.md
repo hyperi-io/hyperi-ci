@@ -1,3 +1,10 @@
+## [1.0.46](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.45...v1.0.46) (2026-03-10)
+
+
+### Bug Fixes
+
+* detect and clean stale cmake -sys rlibs before cross builds ([effd85d](https://github.com/hyperi-io/hyperi-ci/commit/effd85d4633b71c9a24c45c55e0aa2abc64d0230))
+
 ## [1.0.45](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.44...v1.0.45) (2026-03-10)
 
 
