@@ -1,3 +1,10 @@
+## [1.0.47](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.46...v1.0.47) (2026-03-10)
+
+
+### Bug Fixes
+
+* set CC/CXX/AR for configure-based sys crate cross-compilation ([e3a3caa](https://github.com/hyperi-io/hyperi-ci/commit/e3a3caa2773a5b389f4f664c5248e2913fa80708))
+
 ## [1.0.46](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.45...v1.0.46) (2026-03-10)
 
 
