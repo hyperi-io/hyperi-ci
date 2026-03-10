@@ -426,3 +426,63 @@ Three-layer:
 - Default: 5 retries, 10 second delay (total ~50s worst case)
 - Shared helper in `common.py:verify_publish()` — reusable across all languages
 - The old CI had this per-language; the new CI centralises it
+
+### ARC Persistent Cache + Rust Cross-Compilation (Milestone: 2026-03)
+
+**The problem:** ARC runners keep `target/` between runs. With correct
+cross-compilation env vars, the first run compiles aarch64 objects correctly
+and everything works. But if an earlier run compiled with the wrong compiler
+(e.g. host x86_64 gcc instead of `aarch64-linux-gnu-gcc`), those stale `.o`
+files persist in the OUT_DIR. Subsequent runs see no source changes and skip
+recompilation — the linker gets x86_64 objects and fails with `EM:62`.
+
+This is the *cache pays off / cache bites you* duality. We want the cache
+(warm builds are ~5x faster) but must detect and evict corrupt entries.
+
+**Root causes (three layers, all must be fixed):**
+
+1. **Plain `CC` not set for configure-based `-sys` crates.**
+   `rdkafka-sys` default build uses `./configure && make` (mklove), NOT cmake.
+   The `./configure` script reads `CC` from the environment directly — it does
+   NOT use the cc-crate's `CC_aarch64_unknown_linux_gnu` convention.
+   Without `CC` set, `./configure` picks up the host `gcc` (x86_64) even when
+   building for aarch64, silently producing x86_64 objects.
+   **Fix:** Set BOTH `env["CC"] = cc` AND `env[f"CC_{target_lower}"] = cc`
+   in `_cross_env()`. Same for `CXX` and `AR`.
+
+2. **Stale detection only scanned cmake-based crates.**
+   The stale rlib detector checked only packages with a `cmake` dependency in
+   `Cargo.lock`. `rdkafka-sys` without the `cmake-build` feature has no cmake
+   dependency — it was invisible to the scanner.
+   **Fix:** Scan ALL packages ending in `-sys` regardless of build system.
+   Any `-sys` crate may compile C code. The regex `name = "...-sys"` in
+   `Cargo.lock` catches them all. Renamed `_find_cmake_sys_crates()` →
+   `_find_c_sys_crates()`.
+
+3. **Persistent OUT_DIR defeats `make libs` recompilation.**
+   Even with `CC` now correct, `make libs` in an existing OUT_DIR sees
+   unchanged source and reuses stale `.o` files. The Makefile has no concept
+   of "cross-compiler changed" — it only checks source timestamps.
+   **Fix:** The stale rlib detector reads each rlib with `ar p | file -`,
+   checks the ELF machine type, and runs `cargo clean --package <pkg>
+   --target <target>` when wrong-arch objects are found. This deletes the
+   OUT_DIR entirely, forcing a fresh `./configure && make` with the correct CC.
+
+**The cake-and-eating-it result:**
+
+- First run after contamination: stale rlibs detected, OUT_DIR cleaned,
+  full recompile (~19 min with rdkafka). Cache is now correct.
+- All subsequent runs: stale detector finds correct arch, skips clean,
+  warm cache used. Build time drops to ~3-5 min.
+- No unnecessary cache invalidation for native x86_64 builds.
+
+**Config gotcha:** `build.strategies` in `.hyperi-ci.yaml` only accepts
+`native` for Rust. Cross-targets are handled via `build.rust.targets`.
+The value `cross` is not a valid strategy and will error. Remove it from
+any consumer config that inherited it from an old template.
+
+**Publish gotcha:** `cargo publish` runs `cargo package --verify` which
+does a clean rebuild. The publish runner (`ubuntu-latest`) lacks native
+build tools (`protoc`, `librdkafka-dev` etc.) needed by build scripts.
+Since the CI build step already verified everything, use `--no-verify`.
+Exit code 101 from `cargo publish` = package verification failed (not auth).
