@@ -457,6 +457,15 @@ def _cross_env(target: str, sysroot: Path | None = None) -> dict[str, str]:
     env[f"CXX_{target_lower}"] = toolchain["cxx"]
     env[f"AR_{target_lower}"] = toolchain["ar"]
 
+    # Configure-based -sys crates (e.g. rdkafka-sys when cmake-build feature is
+    # absent) run `./configure && make` and read CC/CXX/AR directly from the
+    # environment — they do NOT use the cc crate's CC_<target> lookup.
+    # Without CC set, ./configure uses the host gcc (x86_64) even when building
+    # for aarch64, producing x86_64 objects that fail at link time with EM:62.
+    env["CC"] = cc
+    env["CXX"] = toolchain["cxx"]
+    env["AR"] = toolchain["ar"]
+
     if sysroot:
         # Use linker wrapper that injects sysroot paths + forces BFD linker.
         # CARGO_TARGET_..._LINKER sets the Rust linker (not the C compiler).
