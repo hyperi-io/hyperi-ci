@@ -1,3 +1,10 @@
+## [1.0.49](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.48...v1.0.49) (2026-03-10)
+
+
+### Bug Fixes
+
+* skip cargo package verify on publish runner to avoid protoc requirement ([e760d74](https://github.com/hyperi-io/hyperi-ci/commit/e760d7403342e279c906f184ee556310626961f8))
+
 ## [1.0.48](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.47...v1.0.48) (2026-03-10)
 
 
