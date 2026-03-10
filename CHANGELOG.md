@@ -1,3 +1,10 @@
+## [1.0.43](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.42...v1.0.43) (2026-03-10)
+
+
+### Bug Fixes
+
+* use lowercase CC/CXX env vars for cc crate cross-compilation ([0556b08](https://github.com/hyperi-io/hyperi-ci/commit/0556b087f5c19bb2a46b66783ec23c599a5ada0f))
+
 ## [1.0.42](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.41...v1.0.42) (2026-03-09)
 
 
