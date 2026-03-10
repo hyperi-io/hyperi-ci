@@ -876,12 +876,13 @@ def _expected_elf_machine(target: str) -> str | None:
     return None
 
 
-def _find_cmake_sys_crates() -> list[str]:
-    """Detect cmake-based -sys crates from Cargo.lock.
+def _find_c_sys_crates() -> list[str]:
+    """Find all -sys crates from Cargo.lock that may compile C code.
 
-    Returns package names (with hyphens) that depend on the cmake crate,
-    meaning they compile C/C++ via cmake in their build script. These are
-    the candidates for stale cross-compiled rlibs on persistent runners.
+    Returns all package names ending in -sys. These are candidates for
+    stale cross-compiled rlibs on persistent ARC runners. Covers both
+    cmake-build crates (rdkafka-sys with cmake feature) and configure-based
+    crates (rdkafka-sys default build, libz-sys, zstd-sys, aws-lc-sys, etc.)
     """
     lock_path = Path("Cargo.lock")
     if not lock_path.exists():
@@ -892,21 +893,14 @@ def _find_cmake_sys_crates() -> list[str]:
     except OSError:
         return []
 
-    cmake_sys: list[str] = []
-    current_name = ""
-    in_package = False
+    sys_crates: list[str] = []
     for line in content.splitlines():
-        if line.startswith("[[package]]"):
-            in_package = True
-            current_name = ""
-        elif in_package and line.startswith("name = "):
-            current_name = line.split('"')[1] if '"' in line else ""
-        elif in_package and '"cmake"' in line and current_name.endswith("-sys"):
-            cmake_sys.append(current_name)
-        elif line == "" and in_package:
-            in_package = False
+        if line.startswith("name = ") and '"' in line:
+            name = line.split('"')[1]
+            if name.endswith("-sys"):
+                sys_crates.append(name)
 
-    return cmake_sys
+    return sorted(set(sys_crates))
 
 
 def _rlib_has_wrong_arch(rlib: Path, expected_arch_substr: str) -> bool:
@@ -954,19 +948,19 @@ def _rlib_has_wrong_arch(rlib: Path, expected_arch_substr: str) -> bool:
     return False
 
 
-def _clean_stale_cmake_sys_crates(target: str) -> None:
-    """Clean cmake-based -sys crate artifacts if they have wrong-arch objects.
+def _clean_stale_sys_crates(target: str) -> None:
+    """Clean -sys crate artifacts if they have wrong-arch objects.
 
     On persistent ARC runners, target/ is NOT cleaned between runs by
     actions/checkout (git clean -ffd omits gitignored files by default).
-    If a previous run compiled rdkafka-sys with the x86_64 host compiler
-    (e.g., before CC_aarch64_unknown_linux_gnu was correctly set), the
-    stale rlib persists. Since rdkafka-sys's build.rs doesn't declare
-    cargo:rerun-if-env-changed for CC_<target>, cargo reuses the cached
-    x86_64 rlib — causing "Relocations in generic ELF (EM: 62)" on link.
+    If a previous run compiled a -sys crate's C code with the host compiler
+    (e.g. rdkafka-sys configure build using host gcc instead of cross-gcc),
+    the stale rlib persists. Since build.rs scripts don't declare
+    cargo:rerun-if-env-changed for CC, cargo reuses the cached x86_64 rlib
+    — causing "Relocations in generic ELF (EM: 62)" on link.
 
-    This function detects that condition and cleans affected packages so
-    cargo is forced to recompile them with the correct cross-compiler.
+    Covers both cmake-build crates and configure-based crates (rdkafka-sys,
+    libz-sys, zstd-sys, aws-lc-sys, etc.) — all -sys crates are scanned.
     """
     expected = _expected_elf_machine(target)
     if not expected:
@@ -977,17 +971,17 @@ def _clean_stale_cmake_sys_crates(target: str) -> None:
     if not cross_deps.exists():
         return
 
-    cmake_sys = _find_cmake_sys_crates()
-    if not cmake_sys:
+    sys_crates = _find_c_sys_crates()
+    if not sys_crates:
         return
 
-    cmake_sys_underscored = {p.replace("-", "_") for p in cmake_sys}
+    sys_crates_underscored = {p.replace("-", "_") for p in sys_crates}
     to_clean: list[str] = []
 
     for rlib in cross_deps.glob("lib*.rlib"):
         stem = rlib.stem.lstrip("lib")
         crate_under = stem.split("-")[0] if "-" in stem else stem
-        if crate_under not in cmake_sys_underscored:
+        if crate_under not in sys_crates_underscored:
             continue
         if _rlib_has_wrong_arch(rlib, expected):
             pkg_name = crate_under.replace("_", "-")
@@ -995,7 +989,7 @@ def _clean_stale_cmake_sys_crates(target: str) -> None:
             warn(f"  Stale cross-compiled rlib detected: {rlib.name} (wrong arch)")
 
     for pkg in set(to_clean):
-        info(f"  Cleaning stale cmake -sys package: {pkg} --target {target}")
+        info(f"  Cleaning stale -sys package: {pkg} --target {target}")
         subprocess.run(
             ["cargo", "clean", "--package", pkg, "--target", target],
             check=False,
@@ -1034,11 +1028,11 @@ def _build_for_target(
             sysroot = _setup_cross_sysroot(toolchain["arch"], toolchain["triple"])
 
         # On persistent runners (ARC), target/ survives between runs.
-        # cmake-based -sys crates (rdkafka-sys) don't declare
-        # cargo:rerun-if-env-changed for CC_<target>, so cargo won't detect
-        # that a stale x86_64 rlib needs rebuilding with the cross-compiler.
+        # -sys crates that compile C code don't declare
+        # cargo:rerun-if-env-changed for CC, so cargo won't detect that a
+        # stale x86_64 rlib needs rebuilding with the correct cross-compiler.
         # Detect and clean stale wrong-arch rlibs before building.
-        _clean_stale_cmake_sys_crates(target)
+        _clean_stale_sys_crates(target)
 
         env.update(_cross_env(target, sysroot=sysroot))
 
