@@ -8,7 +8,14 @@
 #   manifest_files: Files to search relative to project root (later entries are fallbacks)
 #   dpkg_check:     dpkg package name — skips apt install if already present
 #   apt_packages:   Packages to install on Linux (apt-get)
+#   apt_repos:      Optional APT repositories to add before installing (for newer versions)
+#
+# All apt_packages are arch-agnostic names — apt resolves them to the correct
+# architecture (amd64, arm64) automatically when the package exists for that arch.
 
+# --- Kafka (librdkafka) ---
+# rdkafka-sys requires >= 2.12.1 which is newer than Ubuntu's default.
+# Confluent APT repo provides the latest version.
 - name: rdkafka / C libraries
   patterns:
     - rdkafka
@@ -28,6 +35,7 @@
     - libsasl2-dev
     - pkg-config
 
+# --- Protobuf / gRPC ---
 - name: protobuf / gRPC
   patterns:
     - prost-build
@@ -40,3 +48,252 @@
   apt_packages:
     - protobuf-compiler
     - libprotobuf-dev
+
+# --- OpenSSL (libssl) ---
+# openssl-sys links dynamically by default via pkg-config.
+- name: openssl
+  patterns:
+    - openssl-sys
+    - openssl
+  manifest_files:
+    - Cargo.lock
+  dpkg_check: libssl-dev
+  apt_packages:
+    - libssl-dev
+    - pkg-config
+
+# --- libgit2 (git2 crate) ---
+# libgit2-sys uses system lib via pkg-config if available, else vendors C source.
+# Installing libgit2-dev eliminates the C compilation.
+- name: libgit2
+  patterns:
+    - libgit2-sys
+    - git2
+  manifest_files:
+    - Cargo.lock
+  dpkg_check: libgit2-dev
+  apt_packages:
+    - libgit2-dev
+    - libssh2-1-dev
+    - pkg-config
+
+# --- zlib (libz-sys) ---
+# Used by many crates for compression. System lib avoids vendored C build.
+- name: zlib
+  patterns:
+    - libz-sys
+  manifest_files:
+    - Cargo.lock
+  dpkg_check: zlib1g-dev
+  apt_packages:
+    - zlib1g-dev
+
+# --- zstd (zstd-sys) ---
+# Facebook's compression library. System lib avoids vendored C build.
+- name: zstd
+  patterns:
+    - zstd-sys
+  manifest_files:
+    - Cargo.lock
+  dpkg_check: libzstd-dev
+  apt_packages:
+    - libzstd-dev
+    - pkg-config
+
+# --- SQLite (libsqlite3-sys) ---
+# Used by rusqlite and sqlx with SQLite backend.
+- name: sqlite3
+  patterns:
+    - libsqlite3-sys
+  manifest_files:
+    - Cargo.lock
+  dpkg_check: libsqlite3-dev
+  apt_packages:
+    - libsqlite3-dev
+    - pkg-config
+
+# --- PostgreSQL (pq-sys) ---
+# Used by diesel with PostgreSQL backend. sqlx uses pure Rust by default.
+- name: postgresql client
+  patterns:
+    - pq-sys
+  manifest_files:
+    - Cargo.lock
+  dpkg_check: libpq-dev
+  apt_packages:
+    - libpq-dev
+    - pkg-config
+
+# --- MySQL / MariaDB (mysqlclient-sys) ---
+# Used by diesel with MySQL backend.
+- name: mysql client
+  patterns:
+    - mysqlclient-sys
+  manifest_files:
+    - Cargo.lock
+  dpkg_check: default-libmysqlclient-dev
+  apt_packages:
+    - default-libmysqlclient-dev
+    - pkg-config
+
+# --- curl (curl-sys) ---
+# Some crates still use libcurl for HTTP. System lib avoids vendored build.
+- name: curl
+  patterns:
+    - curl-sys
+  manifest_files:
+    - Cargo.lock
+  dpkg_check: libcurl4-openssl-dev
+  apt_packages:
+    - libcurl4-openssl-dev
+    - pkg-config
+
+# --- D-Bus (libdbus-sys) ---
+# Used by system integration crates on Linux (notifications, secrets, etc.)
+- name: dbus
+  patterns:
+    - libdbus-sys
+    - dbus
+  manifest_files:
+    - Cargo.lock
+  dpkg_check: libdbus-1-dev
+  apt_packages:
+    - libdbus-1-dev
+    - pkg-config
+
+# --- Oniguruma regex (onig_sys) ---
+# Used by syntect and other syntax highlighting crates.
+- name: oniguruma
+  patterns:
+    - onig_sys
+    - onig
+  manifest_files:
+    - Cargo.lock
+  dpkg_check: libonig-dev
+  apt_packages:
+    - libonig-dev
+    - pkg-config
+
+# --- ALSA audio (alsa-sys) ---
+# Used by audio crates on Linux.
+- name: alsa
+  patterns:
+    - alsa-sys
+  manifest_files:
+    - Cargo.lock
+  dpkg_check: libasound2-dev
+  apt_packages:
+    - libasound2-dev
+    - pkg-config
+
+# --- libudev (udev-sys / libudev-sys) ---
+# Used by serial port, USB, and device crates on Linux.
+- name: udev
+  patterns:
+    - libudev-sys
+    - udev-sys
+  manifest_files:
+    - Cargo.lock
+  dpkg_check: libudev-dev
+  apt_packages:
+    - libudev-dev
+    - pkg-config
+
+# --- Freetype (freetype-sys) ---
+# Used by font rendering crates.
+- name: freetype
+  patterns:
+    - freetype-sys
+  manifest_files:
+    - Cargo.lock
+  dpkg_check: libfreetype-dev
+  apt_packages:
+    - libfreetype-dev
+    - pkg-config
+
+# --- Fontconfig (fontconfig-sys) ---
+# Used alongside freetype for font discovery.
+- name: fontconfig
+  patterns:
+    - fontconfig-sys
+    - servo-fontconfig-sys
+  manifest_files:
+    - Cargo.lock
+  dpkg_check: libfontconfig1-dev
+  apt_packages:
+    - libfontconfig1-dev
+    - pkg-config
+
+# --- libsodium (libsodium-sys) ---
+# Used by cryptography crates.
+- name: libsodium
+  patterns:
+    - libsodium-sys
+    - sodiumoxide
+  manifest_files:
+    - Cargo.lock
+  dpkg_check: libsodium-dev
+  apt_packages:
+    - libsodium-dev
+    - pkg-config
+
+# --- lz4 (lz4-sys) ---
+# Fast compression. System lib avoids vendored C build.
+- name: lz4
+  patterns:
+    - lz4-sys
+  manifest_files:
+    - Cargo.lock
+  dpkg_check: liblz4-dev
+  apt_packages:
+    - liblz4-dev
+    - pkg-config
+
+# --- snappy (snappy-sys) ---
+# Google's compression library.
+- name: snappy
+  patterns:
+    - snappy-sys
+  manifest_files:
+    - Cargo.lock
+  dpkg_check: libsnappy-dev
+  apt_packages:
+    - libsnappy-dev
+    - pkg-config
+
+# --- bzip2 (bzip2-sys) ---
+# Used by archive handling crates.
+- name: bzip2
+  patterns:
+    - bzip2-sys
+  manifest_files:
+    - Cargo.lock
+  dpkg_check: libbz2-dev
+  apt_packages:
+    - libbz2-dev
+    - pkg-config
+
+# --- libxml2 (libxml-sys) ---
+# Used by XML parsing crates.
+- name: libxml2
+  patterns:
+    - libxml
+    - libxml2-sys
+  manifest_files:
+    - Cargo.lock
+  dpkg_check: libxml2-dev
+  apt_packages:
+    - libxml2-dev
+    - pkg-config
+
+# --- libxslt (libxslt-sys) ---
+# Used by XSLT transformation crates.
+- name: libxslt
+  patterns:
+    - libxslt
+  manifest_files:
+    - Cargo.lock
+  dpkg_check: libxslt1-dev
+  apt_packages:
+    - libxslt1-dev
+    - pkg-config
