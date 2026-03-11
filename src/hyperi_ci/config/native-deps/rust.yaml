@@ -17,13 +17,16 @@
     - Cargo.lock
     - Cargo.toml
   dpkg_check: librdkafka-dev
+  apt_repos:
+    - key_url: https://packages.confluent.io/clients/deb/archive.key
+      keyring: /usr/share/keyrings/confluent-clients.gpg
+      url: https://packages.confluent.io/clients/deb
+      codename: auto
   apt_packages:
     - librdkafka-dev
     - libssl-dev
     - libsasl2-dev
-    - cmake
     - pkg-config
-    - libcurl4-openssl-dev
 
 - name: protobuf / gRPC
   patterns:
