@@ -21,6 +21,17 @@ from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
 
 
+def _split_feature_sets(features: str) -> list[str]:
+    """Split pipe-separated feature sets into individual sets.
+
+    Each set is run as a separate invocation to properly test mutually
+    exclusive features (e.g. jemalloc vs mimalloc).
+    """
+    if features in ("all", "default"):
+        return [features]
+    return [f.strip() for f in features.split("|") if f.strip()]
+
+
 def _get_tool_mode(tool: str, config: CIConfig) -> str:
     """Get quality tool mode: blocking, warn, or disabled."""
     return str(config.get(f"quality.rust.{tool}", "blocking"))
@@ -99,18 +110,21 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if not _run_tool("cargo fmt", ["cargo", "fmt", "--check"], mode):
         had_failure = True
 
-    # cargo clippy
+    # cargo clippy — run per feature set to catch issues with mutually
+    # exclusive features (e.g. jemalloc vs mimalloc)
     mode = _get_tool_mode("clippy", config)
     features = (extra_env or {}).get("RUST_FEATURES", "all")
-    clippy_cmd = ["cargo", "clippy", "--all-targets"]
-    if features == "all":
-        clippy_cmd.append("--all-features")
-    elif features != "default":
-        for feature_set in features.split("|"):
-            clippy_cmd.extend(["--features", feature_set.strip()])
-    clippy_cmd.extend(["--", "-D", "warnings", "-D", "clippy::dbg_macro"])
-    if not _run_tool("cargo clippy", clippy_cmd, mode):
-        had_failure = True
+    feature_sets = _split_feature_sets(features)
+    for feature_set in feature_sets:
+        clippy_cmd = ["cargo", "clippy", "--all-targets"]
+        if feature_set == "all":
+            clippy_cmd.append("--all-features")
+        elif feature_set != "default":
+            clippy_cmd.extend(["--features", feature_set])
+        clippy_cmd.extend(["--", "-D", "warnings", "-D", "clippy::dbg_macro"])
+        label = f"cargo clippy ({feature_set})"
+        if not _run_tool(label, clippy_cmd, mode):
+            had_failure = True
 
     # cargo audit
     mode = _get_tool_mode("audit", config)
