@@ -1,3 +1,10 @@
+## [1.1.3](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.2...v1.1.3) (2026-03-11)
+
+
+### Bug Fixes
+
+* expand rust native deps and fix arm64 arch detection ([58e308e](https://github.com/hyperi-io/hyperi-ci/commit/58e308e3186245362b411db0f0f04163ace1587b))
+
 ## [1.1.2](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.1...v1.1.2) (2026-03-11)
 
 
