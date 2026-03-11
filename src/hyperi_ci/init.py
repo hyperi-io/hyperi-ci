@@ -219,7 +219,7 @@ def _render_makefile(project_name: str, license_id: str = _DEFAULT_LICENSE) -> s
         f"# License:   {_license_header_text(license_id)}\n"
         "# Copyright: (c) 2026 HYPERI PTY LIMITED\n"
         "\n"
-        ".PHONY: quality test build\n"
+        ".PHONY: quality test build check\n"
         "\n"
         "quality:\n"
         "\thyperi-ci run quality\n"
@@ -229,6 +229,9 @@ def _render_makefile(project_name: str, license_id: str = _DEFAULT_LICENSE) -> s
         "\n"
         "build:\n"
         "\thyperi-ci run build\n"
+        "\n"
+        "check:\n"
+        "\thyperi-ci check\n"
     )
 
 
@@ -291,7 +294,8 @@ def _build_prepare_cmd(language: str) -> str:
             f"{version_write}; "
             "p=Path('pyproject.toml'); t=p.read_text(); "
             't=re.sub(r\'^version\\\\s*=\\\\s*\\"[^\\"]*\\"\', '
-            "'version = \\\"${nextRelease.version}\\\"', t, count=1, flags=re.MULTILINE); "
+            "'version = \\\"${nextRelease.version}\\\"', "
+            "t, count=1, flags=re.MULTILINE); "
             'p.write_text(t)"'
         )
 
@@ -302,7 +306,8 @@ def _build_prepare_cmd(language: str) -> str:
             f"{version_write}; "
             "ct=Path('Cargo.toml').read_text(); "
             'ct=re.sub(r\'^version\\\\s*=\\\\s*\\"[^\\"]*\\"\', '
-            "'version = \\\"${nextRelease.version}\\\"', ct, count=1, flags=re.MULTILINE); "
+            "'version = \\\"${nextRelease.version}\\\"', "
+            "ct, count=1, flags=re.MULTILINE); "
             "Path('Cargo.toml').write_text(ct)\""
         )
 

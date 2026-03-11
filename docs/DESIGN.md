@@ -136,6 +136,9 @@ the approval gate. No custom code needed.
 
 ```
 hyperi-ci run <stage>     Run CI stage (setup, quality, test, build, publish)
+hyperi-ci check           Pre-push validation (quality + test)
+hyperi-ci check --full    Pre-push with build (native target only)
+hyperi-ci check --quick   Quality checks only
 hyperi-ci init            Generate project scaffolding
 hyperi-ci detect          Show detected language
 hyperi-ci config          Show merged configuration
@@ -315,9 +318,32 @@ track latest major.
 
 ### Local Development
 
-Developer runs `make quality` or `hyperi-ci run test` directly.
+Developer runs `hyperi-ci check` for pre-push validation, or
+individual stages via `make quality` / `hyperi-ci run test`.
 The CLI detects language, loads config, and invokes language tools
 via subprocess. No GitHub Actions involvement.
+
+#### The `check` Command
+
+`hyperi-ci check` runs a tiered subset of the CI pipeline locally,
+giving ~95% confidence before pushing:
+
+| Flag | Stages | Use Case |
+|------|--------|----------|
+| *(default)* | quality + test | Standard pre-push validation |
+| `--quick` | quality only | Fast lint check |
+| `--full` | quality + test + build | Full local validation |
+
+**Key behaviour:** When `--full` includes the build stage, it sets
+`local=True` in the dispatcher which suppresses cross-compilation
+targets. Only the native host target is built. Cross-compilation
+requires CI-specific toolchains (cross-compilers, sysroots) that
+are not expected on developer machines — those failures are caught
+in CI, not locally.
+
+The command stops on first failure and returns that stage's exit
+code. This matches CI behaviour where later stages are skipped
+if earlier ones fail.
 
 ### CI Pipeline
 

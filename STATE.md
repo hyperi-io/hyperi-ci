@@ -39,7 +39,7 @@ See `docs/DESIGN.md` for full architecture documentation.
 
 ```
 src/hyperi_ci/
-├── cli.py               # Typer CLI (run, init, detect, config, trigger, watch, logs)
+├── cli.py               # Typer CLI (run, check, init, detect, config, trigger, watch, logs)
 ├── config.py            # CIConfig, OrgConfig, config cascade loader
 ├── common.py            # Logging, subprocess helpers, GH Actions output
 ├── detect.py            # Language detection from file markers
@@ -104,6 +104,9 @@ uv run hyperi-ci --version           # Verify CLI
 uv run hyperi-ci detect              # Language detection
 uv run hyperi-ci config              # Show merged config
 uv run hyperi-ci init                # Scaffold a project
+uv run hyperi-ci check               # Pre-push: quality + test
+uv run hyperi-ci check --full        # Pre-push: quality + test + build (native only)
+uv run hyperi-ci check --quick       # Pre-push: quality only
 ```
 
 ## Licensing
