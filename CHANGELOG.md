@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.0...v1.1.1) (2026-03-11)
+
+
+### Bug Fixes
+
+* run clippy and tests per feature set, not unioned ([c25b50a](https://github.com/hyperi-io/hyperi-ci/commit/c25b50a5f186cd38e05c810f694ec8f3439717b2))
+
 # [1.1.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.0.49...v1.1.0) (2026-03-11)
 
 
