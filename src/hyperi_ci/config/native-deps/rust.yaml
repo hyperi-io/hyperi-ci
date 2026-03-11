@@ -7,6 +7,7 @@
 #   patterns:       Strings to search for in manifest_files (plain substring match)
 #   manifest_files: Files to search relative to project root (later entries are fallbacks)
 #   dpkg_check:     dpkg package name — skips apt install if already present
+#   dpkg_min_version: Optional minimum version — upgrades if installed version is too old
 #   apt_packages:   Packages to install on Linux (apt-get)
 #   apt_repos:      Optional APT repositories to add before installing (for newer versions)
 #
@@ -24,6 +25,7 @@
     - Cargo.lock
     - Cargo.toml
   dpkg_check: librdkafka-dev
+  dpkg_min_version: "2.12.1"
   apt_repos:
     - key_url: https://packages.confluent.io/clients/deb/archive.key
       keyring: /usr/share/keyrings/confluent-clients.gpg
