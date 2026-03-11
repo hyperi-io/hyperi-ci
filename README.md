@@ -45,6 +45,21 @@ and `.releaserc.yaml`. Commit and push — CI runs automatically.
 
 ## Usage
 
+### Local Validation (Pre-Push)
+
+Run local checks before pushing — same tool, same code path as CI:
+
+```bash
+hyperi-ci check                        # Quality + test (default)
+hyperi-ci check --quick                # Quality only (fast)
+hyperi-ci check --full                 # Quality + test + build (native target only)
+```
+
+`check` stops on first failure. When `--full` includes the build
+stage, cross-compilation targets are skipped — only the native host
+target is built. Cross-compilation needs CI-specific toolchains and
+is validated in CI, not locally.
+
 ### CI Stages
 
 ```bash
@@ -79,6 +94,7 @@ hyperi-ci logs --job build --grep error # Filter by job and pattern
 make quality
 make test
 make build
+make check                             # Runs hyperi-ci check
 ```
 
 ## How It Works
