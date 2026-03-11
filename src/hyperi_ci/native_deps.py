@@ -54,6 +54,7 @@ class DepGroup:
     dpkg_check: str
     apt_packages: list[str] = field(default_factory=list)
     apt_repos: list[AptRepo] = field(default_factory=list)
+    dpkg_min_version: str = ""
 
 
 def _load_dep_groups(language: str) -> list[DepGroup]:
@@ -84,6 +85,7 @@ def _load_dep_groups(language: str) -> list[DepGroup]:
                 )
                 for r in entry.get("apt_repos", [])
             ],
+            dpkg_min_version=entry.get("dpkg_min_version", ""),
         )
         for entry in raw
     ]
@@ -219,13 +221,30 @@ def _add_apt_repo(repo: AptRepo) -> int:
     return result.returncode
 
 
-def _is_dpkg_installed(package: str) -> bool:
-    """Return True if a dpkg package is installed."""
+def _is_dpkg_installed(package: str, min_version: str = "") -> bool:
+    """Return True if a dpkg package is installed (and meets min version)."""
     result = subprocess.run(
         ["dpkg", "-s", package],
         capture_output=True,
+        text=True,
     )
-    return result.returncode == 0
+    if result.returncode != 0:
+        return False
+    if not min_version:
+        return True
+
+    for line in result.stdout.splitlines():
+        if line.startswith("Version:"):
+            installed = line.split(":", 1)[1].strip()
+            cmp = subprocess.run(
+                ["dpkg", "--compare-versions", installed, "ge", min_version],
+                capture_output=True,
+            )
+            if cmp.returncode != 0:
+                logger.info(f"{package} {installed} installed but < {min_version}")
+                return False
+            return True
+    return False
 
 
 def _apt_install(packages: list[str]) -> int:
@@ -275,7 +294,7 @@ def install_native_deps(language: str, project_dir: Path | None = None) -> int:
             continue
 
         if _patterns_match(content, group.patterns):
-            if _is_dpkg_installed(group.dpkg_check):
+            if _is_dpkg_installed(group.dpkg_check, group.dpkg_min_version):
                 logger.info(f"[{group.name}] already installed ({group.dpkg_check})")
             else:
                 logger.info(f"[{group.name}] needs install: {group.apt_packages}")
