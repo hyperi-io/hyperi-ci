@@ -1,3 +1,10 @@
+## [1.1.2](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.1...v1.1.2) (2026-03-11)
+
+
+### Bug Fixes
+
+* add apt repo support for latest native deps ([8236868](https://github.com/hyperi-io/hyperi-ci/commit/8236868bbdd633f2b603b6feedd63a29afda66ed))
+
 ## [1.1.1](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.0...v1.1.1) (2026-03-11)
 
 
