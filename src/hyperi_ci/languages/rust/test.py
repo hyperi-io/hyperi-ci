@@ -22,6 +22,13 @@ from hyperi_ci.config import CIConfig
 _RESULTS_DIR = Path("test-results")
 
 
+def _split_feature_sets(features: str) -> list[str]:
+    """Split pipe-separated feature sets into individual sets."""
+    if features in ("all", "default"):
+        return [features]
+    return [f.strip() for f in features.split("|") if f.strip()]
+
+
 def _has_nextest() -> bool:
     """Check if cargo-nextest is installed."""
     return shutil.which("cargo-nextest") is not None
@@ -143,35 +150,41 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     info("Running Rust tests...")
     features = (extra_env or {}).get("RUST_FEATURES", "all")
     tier = config.get("test.rust.tier", "all")
+    feature_sets = _split_feature_sets(features)
 
-    # Try coverage first if enabled
-    if config.get("test.coverage", True) and tier == "all":
-        rc = _run_coverage(features)
-        if rc >= 0:
-            if rc == 0:
-                success("Rust tests passed (with coverage)")
-            return rc
+    for feature_set in feature_sets:
+        label = f" ({feature_set})" if len(feature_sets) > 1 else ""
 
-    # Standard test execution (no coverage tool, or tiered)
-    if tier == "all":
-        cmd = _build_test_cmd(features)
-        result = subprocess.run(cmd)
-        if result.returncode != 0:
-            error("Rust tests failed")
-            return result.returncode
-        success("Rust tests passed")
-        return 0
+        # Try coverage first if enabled (only for first feature set)
+        if config.get("test.coverage", True) and tier == "all":
+            rc = _run_coverage(feature_set)
+            if rc >= 0:
+                if rc == 0:
+                    success(f"Rust tests passed{label} (with coverage)")
+                else:
+                    return rc
+                continue
 
-    # Tiered execution
-    for t in ("unit", "integration", "e2e"):
-        if tier != "all" and tier != t:
+        # Standard test execution (no coverage tool, or tiered)
+        if tier == "all":
+            cmd = _build_test_cmd(feature_set)
+            result = subprocess.run(cmd)
+            if result.returncode != 0:
+                error(f"Rust tests failed{label}")
+                return result.returncode
+            success(f"Rust tests passed{label}")
             continue
-        cmd = _build_test_cmd(features, tier=t)
-        info(f"  Running {t} tests...")
-        result = subprocess.run(cmd)
-        if result.returncode != 0:
-            error(f"  {t} tests failed")
-            return result.returncode
-        success(f"  {t} tests passed")
+
+        # Tiered execution
+        for t in ("unit", "integration", "e2e"):
+            if tier != "all" and tier != t:
+                continue
+            cmd = _build_test_cmd(feature_set, tier=t)
+            info(f"  Running {t} tests{label}...")
+            result = subprocess.run(cmd)
+            if result.returncode != 0:
+                error(f"  {t} tests failed{label}")
+                return result.returncode
+            success(f"  {t} tests passed{label}")
 
     return 0
