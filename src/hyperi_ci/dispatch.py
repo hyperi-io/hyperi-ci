@@ -142,7 +142,7 @@ def stage_test(language: str, config: CIConfig) -> int:
     return rc
 
 
-def stage_build(language: str, config: CIConfig) -> int:
+def stage_build(language: str, config: CIConfig, *, local: bool = False) -> int:
     """Build — supports multiple strategies."""
     if not config.get("build.enabled", True):
         info("Build disabled in configuration")
@@ -159,9 +159,11 @@ def stage_build(language: str, config: CIConfig) -> int:
             if strategy == "native":
                 if language == "rust":
                     features = _normalize_rust_features(config, "build")
-                    rust_targets = config.get("build.rust.targets", [])
-                    if isinstance(rust_targets, list):
-                        extra_env["RUST_BUILD_TARGETS"] = ",".join(rust_targets)
+                    # local=True: skip cross targets, build native only
+                    if not local:
+                        rust_targets = config.get("build.rust.targets", [])
+                        if isinstance(rust_targets, list):
+                            extra_env["RUST_BUILD_TARGETS"] = ",".join(rust_targets)
                     extra_env["RUST_ALL_FEATURES"] = (
                         "true" if features == "all" else "false"
                     )
@@ -234,12 +236,14 @@ def run_stage(
     stage: str,
     *,
     project_dir: Path | None = None,
+    local: bool = False,
 ) -> int:
     """Run a CI stage.
 
     Args:
         stage: Stage name (setup, quality, test, build, publish).
         project_dir: Project root directory. Defaults to cwd.
+        local: If True, skip cross-compilation targets (native build only).
 
     Returns:
         Exit code (0 = success).
@@ -265,7 +269,10 @@ def run_stage(
     config = load_config(reload=True, project_dir=project_dir)
 
     handler = _STAGE_HANDLERS[stage]
-    rc = handler(language, config)
+    if stage == "build":
+        rc = handler(language, config, local=local)
+    else:
+        rc = handler(language, config)
 
     if rc == 0:
         success(f"{stage} complete")

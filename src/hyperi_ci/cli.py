@@ -8,6 +8,7 @@
 
 Usage:
     hyperi-ci run <stage>       Run a CI stage (setup, quality, test, build, publish)
+    hyperi-ci check             Pre-push checks (quality + test; --full adds build)
     hyperi-ci init              Initialise project (config, Makefile, workflow)
     hyperi-ci detect            Detect project language
     hyperi-ci config            Show merged configuration
@@ -77,6 +78,38 @@ def run(
     dir_path = Path(project_dir) if project_dir else None
     rc = run_stage(stage, project_dir=dir_path)
     raise typer.Exit(rc)
+
+
+@app.command()
+def check(
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+    full: Annotated[
+        bool,
+        typer.Option("--full", help="Include build stage (native target only)"),
+    ] = False,
+    quick: Annotated[
+        bool,
+        typer.Option("--quick", help="Quality checks only (skip tests)"),
+    ] = False,
+) -> None:
+    """Run local pre-push checks (quality + test by default)."""
+    dir_path = Path(project_dir) if project_dir else None
+
+    stages = ["quality"]
+    if not quick:
+        stages.append("test")
+    if full:
+        stages.append("build")
+
+    for stage in stages:
+        rc = run_stage(stage, project_dir=dir_path, local=True)
+        if rc != 0:
+            raise typer.Exit(rc)
+
+    raise typer.Exit(0)
 
 
 @app.command()
