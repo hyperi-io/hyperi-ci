@@ -1,3 +1,10 @@
+## [1.1.4](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.3...v1.1.4) (2026-03-11)
+
+
+### Bug Fixes
+
+* add dpkg min version check for native deps ([e21b6d6](https://github.com/hyperi-io/hyperi-ci/commit/e21b6d6ef460c4e2e433a9484aeafe1574e4409a))
+
 ## [1.1.3](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.2...v1.1.3) (2026-03-11)
 
 
