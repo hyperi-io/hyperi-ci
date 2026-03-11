@@ -16,13 +16,32 @@ from __future__ import annotations
 import platform
 import subprocess
 import sys
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
 from hyperi_pylib import logger
 
+# Ubuntu LTS codenames in reverse chronological order for fallback
+_LTS_CODENAMES = ["noble", "jammy", "focal"]
+
 _NATIVE_DEPS_DIR = Path(__file__).resolve().parent / "config" / "native-deps"
+
+
+@dataclass
+class AptRepo:
+    """An APT repository to add before installing packages.
+
+    If codename is "auto" (default), the current OS codename is tried first.
+    If the repo doesn't support it, LTS codenames are tried in reverse order.
+    """
+
+    key_url: str
+    keyring: str
+    url: str
+    codename: str = "auto"
+    components: str = "main"
 
 
 @dataclass
@@ -34,6 +53,7 @@ class DepGroup:
     manifest_files: list[str]
     dpkg_check: str
     apt_packages: list[str] = field(default_factory=list)
+    apt_repos: list[AptRepo] = field(default_factory=list)
 
 
 def _load_dep_groups(language: str) -> list[DepGroup]:
@@ -54,6 +74,16 @@ def _load_dep_groups(language: str) -> list[DepGroup]:
             manifest_files=entry["manifest_files"],
             dpkg_check=entry["dpkg_check"],
             apt_packages=entry.get("apt_packages", []),
+            apt_repos=[
+                AptRepo(
+                    key_url=r["key_url"],
+                    keyring=r["keyring"],
+                    url=r["url"],
+                    codename=r.get("codename", "auto"),
+                    components=r.get("components", "main"),
+                )
+                for r in entry.get("apt_repos", [])
+            ],
         )
         for entry in raw
     ]
@@ -72,6 +102,110 @@ def _read_manifests(project_dir: Path, manifest_files: list[str]) -> str:
 def _patterns_match(content: str, patterns: list[str]) -> bool:
     """Return True if any pattern appears as a substring in content."""
     return any(pattern in content for pattern in patterns)
+
+
+def _get_os_codename() -> str:
+    """Get the current OS codename via lsb_release."""
+    result = subprocess.run(
+        ["lsb_release", "-cs"],
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _repo_has_codename(repo_url: str, codename: str) -> bool:
+    """Check if the repo has a Release file for the given codename."""
+    url = f"{repo_url.rstrip('/')}/dists/{codename}/Release"
+    req = urllib.request.Request(url, method="HEAD")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status == 200
+    except (urllib.error.URLError, OSError):
+        return False
+
+
+def _resolve_codename(repo: AptRepo) -> str:
+    """Resolve the codename to use for an APT repo.
+
+    If codename is explicit, uses it directly. If "auto", tries the current
+    OS codename first, then falls back through LTS codenames.
+    """
+    if repo.codename != "auto":
+        return repo.codename
+
+    os_codename = _get_os_codename()
+    if os_codename and _repo_has_codename(repo.url, os_codename):
+        logger.info(f"Repo {repo.url} supports current codename: {os_codename}")
+        return os_codename
+
+    for lts in _LTS_CODENAMES:
+        if lts == os_codename:
+            continue
+        if _repo_has_codename(repo.url, lts):
+            logger.info(
+                f"Repo {repo.url} does not support {os_codename!r}, "
+                f"using fallback: {lts}"
+            )
+            return lts
+
+    logger.warning(f"No supported codename found for {repo.url}")
+    return os_codename or _LTS_CODENAMES[0]
+
+
+def _add_apt_repo(repo: AptRepo) -> int:
+    """Add a GPG key and APT sources entry for a repo. Returns exit code."""
+    keyring_path = Path(repo.keyring)
+    if keyring_path.exists():
+        logger.info(f"APT keyring already exists: {repo.keyring}")
+    else:
+        logger.info(f"Adding APT key from {repo.key_url}")
+        # Download key and dearmor into keyring
+        dl = subprocess.run(
+            ["curl", "-fsSL", repo.key_url],
+            capture_output=True,
+        )
+        if dl.returncode != 0:
+            logger.error(f"Failed to download APT key from {repo.key_url}")
+            return dl.returncode
+
+        dearmor = subprocess.run(
+            [
+                "sudo",
+                "gpg",
+                "--batch",
+                "--yes",
+                "--dearmor",
+                "-o",
+                repo.keyring,
+            ],
+            input=dl.stdout,
+        )
+        if dearmor.returncode != 0:
+            logger.error(f"Failed to dearmor APT key to {repo.keyring}")
+            return dearmor.returncode
+
+    codename = _resolve_codename(repo)
+    sources_line = (
+        f"deb [signed-by={repo.keyring} arch=amd64] "
+        f"{repo.url} {codename} {repo.components}"
+    )
+
+    # Derive a stable filename from the keyring name
+    sources_name = keyring_path.stem + ".list"
+    sources_path = Path("/etc/apt/sources.list.d") / sources_name
+
+    if sources_path.exists() and sources_path.read_text().strip() == sources_line:
+        logger.info(f"APT source already configured: {sources_path}")
+        return 0
+
+    logger.info(f"Adding APT source: {sources_line}")
+    result = subprocess.run(
+        ["sudo", "tee", str(sources_path)],
+        input=sources_line.encode(),
+        capture_output=True,
+    )
+    return result.returncode
 
 
 def _is_dpkg_installed(package: str) -> bool:
@@ -139,6 +273,14 @@ def install_native_deps(language: str, project_dir: Path | None = None) -> int:
     if not needed:
         logger.info(f"All native deps satisfied for {language}")
         return 0
+
+    # Add any custom APT repos before installing
+    for group in needed:
+        for repo in group.apt_repos:
+            rc = _add_apt_repo(repo)
+            if rc != 0:
+                logger.error(f"Failed to add APT repo for [{group.name}]")
+                return rc
 
     # Collect all packages across needed groups and install in one apt call.
     all_packages: list[str] = []
