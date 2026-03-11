@@ -153,6 +153,16 @@ def _resolve_codename(repo: AptRepo) -> str:
     return os_codename or _LTS_CODENAMES[0]
 
 
+def _get_dpkg_arch() -> str:
+    """Get the current dpkg architecture (amd64, arm64, etc.)."""
+    result = subprocess.run(
+        ["dpkg", "--print-architecture"],
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip() if result.returncode == 0 else "amd64"
+
+
 def _add_apt_repo(repo: AptRepo) -> int:
     """Add a GPG key and APT sources entry for a repo. Returns exit code."""
     keyring_path = Path(repo.keyring)
@@ -186,8 +196,9 @@ def _add_apt_repo(repo: AptRepo) -> int:
             return dearmor.returncode
 
     codename = _resolve_codename(repo)
+    arch = _get_dpkg_arch()
     sources_line = (
-        f"deb [signed-by={repo.keyring} arch=amd64] "
+        f"deb [signed-by={repo.keyring} arch={arch}] "
         f"{repo.url} {codename} {repo.components}"
     )
 
