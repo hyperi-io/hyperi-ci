@@ -994,10 +994,9 @@ def _rlib_has_wrong_arch(rlib: Path, expected_arch_substr: str) -> bool:
             [file_cmd, "-"],
             input=extract_result.stdout,
             capture_output=True,
-            text=True,
             check=False,
         )
-        output = file_result.stdout
+        output = file_result.stdout.decode(errors="replace")
         if not output:
             continue
         return expected_arch_substr not in output
