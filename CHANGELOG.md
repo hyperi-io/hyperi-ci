@@ -1,3 +1,10 @@
+## [1.1.9-dev.3](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.2...v1.1.9-dev.3) (2026-03-12)
+
+
+### Bug Fixes
+
+* bytes/text mismatch in _rlib_has_wrong_arch ([2985c1a](https://github.com/hyperi-io/hyperi-ci/commit/2985c1aee9719c3f6b0ad845069d4d07645a5749))
+
 ## [1.1.9-dev.2](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.1...v1.1.9-dev.2) (2026-03-12)
 
 
