@@ -7,25 +7,50 @@
 """Install TypeScript/Node project dependencies.
 
 Detects the package manager (npm, yarn, pnpm) from package.json or lock files,
-enables Corepack, and runs the appropriate install command with lockfile
-enforcement.
+enables Corepack if needed, and runs the appropriate install command with
+lockfile enforcement.
 """
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 
-from hyperi_ci.common import error, info
+from hyperi_ci.common import error, info, warn
 
 from ._common import detect_package_manager, yarn_frozen_flag
+
+
+def _enable_corepack(pm: str) -> None:
+    """Enable Corepack so that packageManager-pinned versions are respected.
+
+    Skips if the target package manager is already on PATH (e.g. pre-installed
+    on ARC runner images). Warns instead of failing if corepack enable fails —
+    the PM may still work without it (permissions issue on system Node installs).
+    """
+    if pm != "npm" and shutil.which(pm):
+        info(f"  {pm} already on PATH — skipping corepack enable")
+        return
+
+    if not shutil.which("corepack"):
+        warn("corepack not found on PATH — skipping")
+        return
+
+    cp = subprocess.run(["corepack", "enable"], capture_output=True, text=True)
+    if cp.returncode != 0:
+        stderr = cp.stderr.strip() if cp.stderr else "unknown error"
+        warn(f"corepack enable failed ({stderr}) — continuing with system PM")
+        return
+
+    info("  corepack enabled")
 
 
 def run(project_dir: Path | None = None) -> int:
     """Install TypeScript/Node dependencies using the detected package manager.
 
-    Enables Corepack so that yarn/pnpm versions declared in packageManager
-    are respected, then runs the appropriate install command.
+    Detects the package manager, enables Corepack if needed, and runs
+    the appropriate install command.
 
     Args:
         project_dir: Project root. Defaults to cwd.
@@ -35,15 +60,10 @@ def run(project_dir: Path | None = None) -> int:
     """
     root = project_dir or Path.cwd()
 
-    cp = subprocess.run(["corepack", "enable"], capture_output=True, text=True)
-    if cp.returncode != 0:
-        error("corepack enable failed")
-        if cp.stderr:
-            print(cp.stderr)
-        return cp.returncode
-
     pm = detect_package_manager(root)
     info(f"Using {pm} (detected from package.json or lock file)")
+
+    _enable_corepack(pm)
 
     if pm == "npm":
         if (root / "package-lock.json").exists():
