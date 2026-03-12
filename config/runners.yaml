@@ -1,0 +1,48 @@
+# Project:   HyperI CI
+# File:      config/runners.yaml
+# Purpose:   Single source of truth for runner selection per architecture
+#
+# License:   Proprietary — HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# This file defines which runners are used for each build architecture.
+# The workflow templates reference these values to construct build matrices.
+#
+# Consumer projects never reference runners directly — they inherit from
+# the reusable workflow which reads org variables and falls back to these
+# defaults.
+
+runners:
+  build:
+    amd64:
+      # ARC self-hosted runners (fast, cached, 16cpu)
+      # Fallback chain: input > org var > default
+      default: ubuntu-latest
+      org_var: GH_RUNNER_RUST
+      fallback_var: GH_RUNNER_DEFAULT
+
+    arm64:
+      # GitHub native arm64 runners (no cross-compile needed)
+      # Swap to ARC arm64 later via GH_RUNNER_ARM64 org variable
+      default: ubuntu-24.04-arm
+      org_var: GH_RUNNER_ARM64
+
+  # Quality and test jobs always run on x64
+  quality:
+    default: ubuntu-latest
+    org_var: GH_RUNNER_RUST
+    fallback_var: GH_RUNNER_DEFAULT
+
+  test:
+    default: ubuntu-latest
+    org_var: GH_RUNNER_RUST
+    fallback_var: GH_RUNNER_DEFAULT
+
+# Branch rules for multi-arch builds
+branch_rules:
+  # Only the release branch builds arm64
+  multi_arch_branches:
+    - release
+
+  # All other branches build x64 only
+  # This keeps dev builds fast and avoids arm64 runner costs
