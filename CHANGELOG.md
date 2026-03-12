@@ -1,3 +1,10 @@
+## [1.1.9-dev.7](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.6...v1.1.9-dev.7) (2026-03-12)
+
+
+### Bug Fixes
+
+* fallback npm install with user prefix for ARC runners ([1e06d47](https://github.com/hyperi-io/hyperi-ci/commit/1e06d47b74011f0a1b6c1feff94e48eed43d7672))
+
 ## [1.1.9-dev.6](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.5...v1.1.9-dev.6) (2026-03-12)
 
 
