@@ -1,3 +1,10 @@
+## [1.1.9-dev.6](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.5...v1.1.9-dev.6) (2026-03-12)
+
+
+### Bug Fixes
+
+* install PM via npm when corepack unavailable ([ecf852e](https://github.com/hyperi-io/hyperi-ci/commit/ecf852ec139238134ca09fc090dd4c48aba45cc6))
+
 ## [1.1.9-dev.5](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.4...v1.1.9-dev.5) (2026-03-12)
 
 
