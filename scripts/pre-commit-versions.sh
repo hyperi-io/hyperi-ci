@@ -15,7 +15,9 @@ set -euo pipefail
 #   ln -sf ../../scripts/pre-commit-versions.sh .git/hooks/pre-commit
 #   # or add to .pre-commit-config.yaml as a local hook
 
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve symlinks to find the real script location
+REAL_SCRIPT="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || realpath "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+readonly SCRIPT_DIR="$(cd "$(dirname "${REAL_SCRIPT}")" && pwd)"
 readonly ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # Only run if workflow files are staged
