@@ -1,3 +1,10 @@
+## [1.1.7](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.6...v1.1.7) (2026-03-12)
+
+
+### Bug Fixes
+
+* include zlib in cross-sysroot dependency resolution ([a3ff8c3](https://github.com/hyperi-io/hyperi-ci/commit/a3ff8c33edca3ab0e1b0fdebbac13700f7bbc748))
+
 ## [1.1.6](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.5...v1.1.6) (2026-03-12)
 
 
