@@ -12,13 +12,19 @@ import subprocess
 
 from hyperi_ci.common import error, info, success
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.typescript._common import detect_package_manager
+from hyperi_ci.languages.typescript._common import (
+    detect_package_manager,
+    ensure_pm_available,
+)
 
 
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     """Run TypeScript build."""
     info("Building TypeScript project...")
     pm = detect_package_manager()
+    if not ensure_pm_available(pm):
+        error(f"{pm} is not available and could not be installed")
+        return 1
 
     result = subprocess.run([pm, "run", "build"])
     if result.returncode != 0:
