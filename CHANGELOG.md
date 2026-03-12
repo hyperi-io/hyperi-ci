@@ -1,3 +1,10 @@
+## [1.1.9-dev.10](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.9...v1.1.9-dev.10) (2026-03-12)
+
+
+### Bug Fixes
+
+* ensure pm available in all ts handlers ([8f29ce3](https://github.com/hyperi-io/hyperi-ci/commit/8f29ce3bea021930ea8ce3abd344709d018f22fa))
+
 ## [1.1.9-dev.9](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.8...v1.1.9-dev.9) (2026-03-12)
 
 
