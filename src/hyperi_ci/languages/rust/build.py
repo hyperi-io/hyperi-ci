@@ -76,7 +76,7 @@ def _get_native_triple() -> str:
     return "x86_64-linux-gnu"
 
 
-def _widen_custom_repos_for_arch(arch: str) -> None:
+def _widen_custom_repos_for_arch(arch: str) -> bool:
     """Add cross arch to custom APT repo .list files.
 
     Custom repos (e.g., Confluent for librdkafka) are initially scoped to the
@@ -86,11 +86,14 @@ def _widen_custom_repos_for_arch(arch: str) -> None:
 
     Only touches .list files with explicit arch= constraints; skips Ubuntu
     defaults (ubuntu.sources, arm64-ports.list).
+
+    Returns True if any repos were widened (caller should apt-get update).
     """
     sources_dir = Path("/etc/apt/sources.list.d")
     if not sources_dir.exists():
-        return
+        return False
 
+    widened = False
     skip_files = {"arm64-ports.list", "ubuntu.sources"}
     for list_file in sources_dir.glob("*.list"):
         if list_file.name in skip_files:
@@ -113,6 +116,8 @@ def _widen_custom_repos_for_arch(arch: str) -> None:
             check=False,
         )
         info(f"  Widened {list_file.name} arch to include {arch}")
+        widened = True
+    return widened
 
 
 def _ensure_cross_apt_metadata(arch: str) -> None:
@@ -174,12 +179,16 @@ def _ensure_cross_apt_metadata(arch: str) -> None:
     # Widen custom APT repos (e.g., Confluent) to also serve the cross arch.
     # _add_apt_repo in native_deps.py scopes repos to arch=<native> which
     # prevents apt from finding cross-arch packages for the sysroot.
-    _widen_custom_repos_for_arch(arch)
+    repos_widened = _widen_custom_repos_for_arch(arch)
 
-    # Always update apt cache — on ARC runners the arch may be pre-registered
-    # but apt lists were cleaned during image build
+    # Update apt cache when: arch newly registered, few package lists, or
+    # custom repos were widened (need cross-arch metadata from those repos).
     apt_lists = Path("/var/lib/apt/lists")
-    needs_update = not arch_registered or len(list(apt_lists.glob("*_Packages"))) < 5
+    needs_update = (
+        not arch_registered
+        or repos_widened
+        or len(list(apt_lists.glob("*_Packages"))) < 5
+    )
     if needs_update:
         info("  Updating apt package cache...")
         subprocess.run(
