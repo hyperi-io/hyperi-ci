@@ -23,40 +23,41 @@ from hyperi_ci.common import error, info, warn
 from ._common import detect_package_manager, yarn_frozen_flag
 
 
-def _npm_global_install(pm: str) -> bool:
-    """Install a package manager globally via npm.
+def _corepack_enable() -> bool:
+    """Enable Corepack, falling back to a user-writable install directory.
 
-    Tries ``npm install -g`` first. If that fails (e.g. no write permission
-    to the system Node prefix), retries with ``--prefix ~/.npm-global`` and
-    adds the bin directory to PATH.
-
-    Args:
-        pm: Package manager name to install (yarn, pnpm).
+    Tries ``corepack enable`` first (writes symlinks to Node's bin dir).
+    If that fails (permissions on system Node installs), retries with
+    ``--install-directory ~/.corepack/bin`` and adds that to PATH.
 
     Returns:
-        True if the PM is now available on PATH.
+        True if corepack was enabled successfully.
     """
-    info(f"  Installing {pm} globally via npm")
-    result = subprocess.run(
-        ["npm", "install", "-g", pm], capture_output=True, text=True
-    )
-    if result.returncode == 0 and shutil.which(pm):
-        info(f"  {pm} installed successfully")
+    if not shutil.which("corepack"):
+        warn("corepack not found on PATH")
+        return False
+
+    cp = subprocess.run(["corepack", "enable"], capture_output=True, text=True)
+    if cp.returncode == 0:
+        info("  corepack enabled")
         return True
 
-    user_prefix = Path.home() / ".npm-global"
-    info(f"  Global install failed — retrying with --prefix {user_prefix}")
-    result = subprocess.run(
-        ["npm", "install", "-g", pm, "--prefix", str(user_prefix)],
+    stderr = cp.stderr.strip() if cp.stderr else "unknown error"
+    warn(f"corepack enable failed ({stderr}) — retrying with user directory")
+
+    user_dir = Path.home() / ".corepack" / "bin"
+    user_dir.mkdir(parents=True, exist_ok=True)
+    cp = subprocess.run(
+        ["corepack", "enable", "--install-directory", str(user_dir)],
         capture_output=True,
         text=True,
     )
-    bin_dir = str(user_prefix / "bin")
-    os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
-    if result.returncode == 0 and shutil.which(pm):
-        info(f"  {pm} installed to {bin_dir}")
+    if cp.returncode == 0:
+        os.environ["PATH"] = str(user_dir) + os.pathsep + os.environ.get("PATH", "")
+        info(f"  corepack enabled (install-directory={user_dir})")
         return True
 
+    warn("corepack enable failed with user directory too")
     return False
 
 
@@ -66,7 +67,7 @@ def _ensure_pm_available(pm: str) -> bool:
     For non-npm package managers (yarn, pnpm), tries in order:
       1. Already on PATH (e.g. pre-installed on ARC runner images) — done
       2. ``corepack enable`` to activate the PM via Node's built-in Corepack
-      3. ``npm install -g <pm>`` (system-wide, then user-prefix fallback)
+         (with user-directory fallback for permission-restricted environments)
 
     Args:
         pm: Package manager name (npm, yarn, pnpm).
@@ -79,15 +80,7 @@ def _ensure_pm_available(pm: str) -> bool:
             info(f"  {pm} already on PATH — skipping corepack enable")
         return True
 
-    if shutil.which("corepack"):
-        cp = subprocess.run(["corepack", "enable"], capture_output=True, text=True)
-        if cp.returncode == 0:
-            info("  corepack enabled")
-            return True
-        stderr = cp.stderr.strip() if cp.stderr else "unknown error"
-        warn(f"corepack enable failed ({stderr})")
-
-    return _npm_global_install(pm)
+    return _corepack_enable()
 
 
 def run(project_dir: Path | None = None) -> int:
