@@ -1,3 +1,10 @@
+## [1.1.9-dev.8](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.7...v1.1.9-dev.8) (2026-03-12)
+
+
+### Bug Fixes
+
+* add --refresh to uvx for fresh PyPI resolution ([c24f711](https://github.com/hyperi-io/hyperi-ci/commit/c24f7112440a1d4ea7f9865df31ce547736b01a1))
+
 ## [1.1.9-dev.7](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.6...v1.1.9-dev.7) (2026-03-12)
 
 
