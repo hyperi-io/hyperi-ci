@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -75,6 +76,45 @@ def _get_native_triple() -> str:
     return "x86_64-linux-gnu"
 
 
+def _widen_custom_repos_for_arch(arch: str) -> None:
+    """Add cross arch to custom APT repo .list files.
+
+    Custom repos (e.g., Confluent for librdkafka) are initially scoped to the
+    native arch (arch=amd64). When cross-compiling, the sysroot builder needs
+    to download cross-arch packages from these repos too. This widens the
+    arch constraint to include the cross arch.
+
+    Only touches .list files with explicit arch= constraints; skips Ubuntu
+    defaults (ubuntu.sources, arm64-ports.list).
+    """
+    sources_dir = Path("/etc/apt/sources.list.d")
+    if not sources_dir.exists():
+        return
+
+    skip_files = {"arm64-ports.list", "ubuntu.sources"}
+    for list_file in sources_dir.glob("*.list"):
+        if list_file.name in skip_files:
+            continue
+        content = list_file.read_text()
+        # Match arch=<archs> in deb lines, e.g. arch=amd64
+        pattern = r"(arch=)([a-z0-9,]+)"
+        match = re.search(pattern, content)
+        if not match:
+            continue
+        current_archs = match.group(2).split(",")
+        if arch in current_archs:
+            continue
+        new_archs = ",".join(current_archs + [arch])
+        new_content = re.sub(pattern, rf"\g<1>{new_archs}", content)
+        subprocess.run(
+            ["sudo", "tee", str(list_file)],
+            input=new_content.encode(),
+            capture_output=True,
+            check=False,
+        )
+        info(f"  Widened {list_file.name} arch to include {arch}")
+
+
 def _ensure_cross_apt_metadata(arch: str) -> None:
     """Ensure apt knows about the cross architecture (metadata only).
 
@@ -130,6 +170,11 @@ def _ensure_cross_apt_metadata(arch: str) -> None:
                         ],
                         check=False,
                     )
+
+    # Widen custom APT repos (e.g., Confluent) to also serve the cross arch.
+    # _add_apt_repo in native_deps.py scopes repos to arch=<native> which
+    # prevents apt from finding cross-arch packages for the sysroot.
+    _widen_custom_repos_for_arch(arch)
 
     # Always update apt cache — on ARC runners the arch may be pre-registered
     # but apt lists were cleaned during image build
