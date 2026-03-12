@@ -78,9 +78,6 @@ jobs:
           command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
           command -v python3 || uv python install 3.12
 
-      - name: Enable Corepack
-        run: corepack enable
-
       - name: Install dependencies
         run: ${{ env.HYPERCI_INSTALL }} install-deps typescript
 
@@ -117,9 +114,6 @@ jobs:
         run: |
           command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
           command -v python3 || uv python install 3.12
-
-      - name: Enable Corepack
-        run: corepack enable
 
       - name: Install dependencies
         run: ${{ env.HYPERCI_INSTALL }} install-deps typescript
@@ -165,9 +159,6 @@ jobs:
         run: |
           command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
           command -v python3 || uv python install 3.12
-
-      - name: Enable Corepack
-        run: corepack enable
 
       - name: Install dependencies
         run: ${{ env.HYPERCI_INSTALL }} install-deps typescript
@@ -249,10 +240,6 @@ jobs:
       - name: Set up Python
         if: steps.check.outputs.has_version == 'true'
         run: uv python install 3.12
-
-      - name: Enable Corepack
-        if: steps.check.outputs.has_version == 'true'
-        run: corepack enable
 
       - name: Install dependencies
         if: steps.check.outputs.has_version == 'true'
