@@ -204,8 +204,11 @@ def _publish_jfrog() -> int:
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     """Run Rust publish stage.
 
-    Reads VERSION file (from semantic-release), syncs it to Cargo.toml,
-    then publishes to configured destinations.
+    For library crates: reads VERSION file, syncs to Cargo.toml, publishes
+    to configured cargo registries (crates.io, JFrog).
+
+    For binary apps: skips crate publish entirely. Binary artifacts are
+    uploaded by the generic publish_binaries handler in dispatch.py.
 
     Args:
         config: Merged CI configuration.
@@ -214,6 +217,13 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     Returns:
         Exit code (0 = success).
     """
+    from hyperi_ci.languages.rust.build import _detect_binary_names
+
+    if _detect_binary_names():
+        info("Binary application — skipping crate registry publish")
+        info("Binary artifacts will be uploaded by the generic binary publisher")
+        return 0
+
     destinations = config.destination_for("cargo")
     if not destinations:
         info("No Rust publish destinations configured")
