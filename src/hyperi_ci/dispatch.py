@@ -212,7 +212,7 @@ def stage_build(language: str, config: CIConfig, *, local: bool = False) -> int:
 
 
 def stage_publish(language: str, config: CIConfig) -> int:
-    """Publish — CI-only, dispatch to language-specific handler."""
+    """Publish — CI-only, dispatch to language-specific handler + binary upload."""
     if not is_ci():
         error("Publishing can ONLY be done in GitHub Actions")
         info("To publish: commit, push, and let semantic-release handle it")
@@ -222,11 +222,18 @@ def stage_publish(language: str, config: CIConfig) -> int:
         info("Publish disabled in configuration")
         return 0
 
+    # Language-specific publish (crates, PyPI, npm, go proxy)
     rc = _dispatch_to_handler(language, "publish", config)
     if rc == -1:
         error(f"Publish handler not found for {language}")
         return 1
-    return rc
+    if rc != 0:
+        return rc
+
+    # Generic binary publish (any language with dist/ artifacts)
+    from hyperi_ci.publish_binaries import publish_binaries
+
+    return publish_binaries(config)
 
 
 _STAGE_HANDLERS = {
