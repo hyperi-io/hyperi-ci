@@ -13,6 +13,7 @@ lockfile enforcement.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -22,13 +23,50 @@ from hyperi_ci.common import error, info, warn
 from ._common import detect_package_manager, yarn_frozen_flag
 
 
+def _npm_global_install(pm: str) -> bool:
+    """Install a package manager globally via npm.
+
+    Tries ``npm install -g`` first. If that fails (e.g. no write permission
+    to the system Node prefix), retries with ``--prefix ~/.npm-global`` and
+    adds the bin directory to PATH.
+
+    Args:
+        pm: Package manager name to install (yarn, pnpm).
+
+    Returns:
+        True if the PM is now available on PATH.
+    """
+    info(f"  Installing {pm} globally via npm")
+    result = subprocess.run(
+        ["npm", "install", "-g", pm], capture_output=True, text=True
+    )
+    if result.returncode == 0 and shutil.which(pm):
+        info(f"  {pm} installed successfully")
+        return True
+
+    user_prefix = Path.home() / ".npm-global"
+    info(f"  Global install failed — retrying with --prefix {user_prefix}")
+    result = subprocess.run(
+        ["npm", "install", "-g", pm, "--prefix", str(user_prefix)],
+        capture_output=True,
+        text=True,
+    )
+    bin_dir = str(user_prefix / "bin")
+    os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+    if result.returncode == 0 and shutil.which(pm):
+        info(f"  {pm} installed to {bin_dir}")
+        return True
+
+    return False
+
+
 def _ensure_pm_available(pm: str) -> bool:
     """Ensure the package manager binary is available on PATH.
 
     For non-npm package managers (yarn, pnpm), tries in order:
       1. Already on PATH (e.g. pre-installed on ARC runner images) — done
       2. ``corepack enable`` to activate the PM via Node's built-in Corepack
-      3. ``npm install -g <pm>`` as a last resort
+      3. ``npm install -g <pm>`` (system-wide, then user-prefix fallback)
 
     Args:
         pm: Package manager name (npm, yarn, pnpm).
@@ -49,13 +87,7 @@ def _ensure_pm_available(pm: str) -> bool:
         stderr = cp.stderr.strip() if cp.stderr else "unknown error"
         warn(f"corepack enable failed ({stderr})")
 
-    info(f"  Installing {pm} globally via npm")
-    npm = subprocess.run(["npm", "install", "-g", pm], capture_output=True, text=True)
-    if npm.returncode == 0 and shutil.which(pm):
-        info(f"  {pm} installed successfully")
-        return True
-
-    return False
+    return _npm_global_install(pm)
 
 
 def run(project_dir: Path | None = None) -> int:
