@@ -1,3 +1,10 @@
+## [1.1.5](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.4...v1.1.5) (2026-03-12)
+
+
+### Bug Fixes
+
+* widen custom APT repos for cross-arch sysroot ([3e02629](https://github.com/hyperi-io/hyperi-ci/commit/3e02629c77c974935627ec12d894646eac5bbcfe))
+
 ## [1.1.4](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.3...v1.1.4) (2026-03-11)
 
 
