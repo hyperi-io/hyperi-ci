@@ -14,7 +14,10 @@ from pathlib import Path
 
 from hyperi_ci.common import error, info, success
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.typescript._common import detect_package_manager
+from hyperi_ci.languages.typescript._common import (
+    detect_package_manager,
+    ensure_pm_available,
+)
 
 
 def _detect_test_runner(config: CIConfig) -> str:
@@ -38,6 +41,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     """Run TypeScript tests."""
     info("Running TypeScript tests...")
     pm = detect_package_manager()
+    if not ensure_pm_available(pm):
+        error(f"{pm} is not available and could not be installed")
+        return 1
     runner = _detect_test_runner(config)
 
     # Try running test:ci script first (projects can define coverage there)
