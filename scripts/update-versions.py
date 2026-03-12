@@ -178,6 +178,41 @@ def _apply(versions: dict) -> int:
     return 0
 
 
+def _fix(versions: dict) -> int:
+    """Apply fixes and return 1 if changes were needed (pre-commit hook mode).
+
+    Unlike --apply (always returns 0), --fix returns 1 when files were
+    modified. This tells the pre-commit framework to re-stage and retry.
+    """
+    replacements = _build_replacements(versions)
+    files = _find_workflow_files()
+    total_changes = 0
+
+    for wf_file in files:
+        content = wf_file.read_text()
+        original = content
+        rel_path = wf_file.relative_to(_ROOT)
+
+        for pattern, replacement, description in replacements:
+            content = pattern.sub(replacement, content)
+
+        if content != original:
+            wf_file.write_text(content)
+            changes = sum(
+                1 for a, b in zip(original.splitlines(), content.splitlines()) if a != b
+            )
+            print(f"  Fixed {rel_path} ({changes} line(s))")
+            total_changes += changes
+
+    if total_changes == 0:
+        return 0
+
+    print(
+        f"\nFixed {total_changes} version mismatch(es) — files updated, please re-stage."
+    )
+    return 1
+
+
 def _latest(versions: dict) -> int:
     """Check for newer versions available upstream via GitHub API."""
     actions = versions.get("actions", {})
@@ -535,6 +570,11 @@ def main() -> int:
         action="store_true",
         help="Update non-runtime versions, test via CI, commit or revert",
     )
+    group.add_argument(
+        "--fix",
+        action="store_true",
+        help="Apply fixes and exit 1 if changes were made (for pre-commit hooks)",
+    )
     args = parser.parse_args()
 
     versions = _load_versions()
@@ -543,6 +583,8 @@ def main() -> int:
         return _auto_update(versions)
     if args.latest:
         return _latest(versions)
+    if args.fix:
+        return _fix(versions)
     if args.apply:
         return _apply(versions)
     return _check(versions)
