@@ -73,14 +73,20 @@ test ─────┘
 
 1. **quality** — runs `uvx hyperi-ci run quality`
 2. **test** (matrix) — runs `uvx hyperi-ci run test`
-3. **build** (needs quality + test) — runs `uvx hyperi-ci run build`
+3. **setup** (needs quality + test) — generates build matrix JSON from branch context
+   - `release` branch → x64 (ARC) + arm64 (`ubuntu-24.04-arm`)
+   - All other branches → x64 only (ARC)
+4. **build** (needs setup, matrix) — runs `uvx hyperi-ci run build`
+   - Uses `runs-on: ${{ matrix.runner }}` — each arch builds natively
    - Skipped on fork PRs (`github.event.pull_request.head.repo.fork != true`)
-4. **release** (needs all three, main push only) — runs `semantic-release`
-   - Only on `refs/heads/main` push events
+5. **release** (needs build, main or release push) — runs `semantic-release`
+   - On `main` push: creates dev pre-release (`v1.15.0-dev.1`)
+   - On `release` push: creates GA release (`v1.15.0`)
    - Creates git tag + GitHub release, writes `VERSION` file
-5. **publish** (needs release, main push only) — runs `uvx hyperi-ci run build`
+6. **publish** (needs release, release branch only) — runs `uvx hyperi-ci run build`
    then `uvx hyperi-ci run publish`
-   - Re-checks out `main` after semantic-release has pushed the version bump
+   - Only on `release` branch — dev pre-releases skip registry publishing
+   - Re-checks out `release` after semantic-release has pushed the version bump
    - Skipped if `VERSION` file absent (non-publishable projects)
    - Publish step MUST use `hyperi-ci run build` not raw `uv build` — the
      build handler injects standard sdist exclusions (AI agent dirs, submodules)
@@ -433,28 +439,70 @@ is used solely as a delivery mechanism for `uvx hyperi-ci` — there is
 no Python project to cache, so caching is disabled to avoid spurious
 "no cache files found" warnings.
 
-### Cross-Compilation and ARM Runners
+### Split-Runner Architecture (Multi-Arch Builds)
 
-Most languages can cross-compile from x64 to arm64 on a single runner:
+Multi-arch builds use **native runners per architecture** instead of
+cross-compilation. Each architecture builds on its own runner type:
 
-| Language | Cross-compile x64 → arm64 | ARM runner needed? |
-|----------|--------------------------|-------------------|
-| Rust | Yes — `cargo build --target aarch64-unknown-linux-gnu` | No |
-| Go | Yes — `GOARCH=arm64 go build` | No |
-| TypeScript | N/A — produces platform-agnostic JS | No |
-| Python (wheel) | N/A — pure Python or manylinux wheels | No |
-| Python (Nuitka) | **No** — compiles to native C binary | **Yes** |
+| Architecture | Runner | Source |
+|-------------|--------|--------|
+| x86_64 (amd64) | ARC self-hosted (16cpu) | `vars.GH_RUNNER_RUST` / `vars.GH_RUNNER_DEFAULT` |
+| aarch64 (arm64) | GitHub `ubuntu-24.04-arm` | `vars.GH_RUNNER_ARM64` / `'ubuntu-24.04-arm'` |
 
-Nuitka compiles Python to native machine code via C and cannot
-cross-compile. Projects using Nuitka to produce binaries for both
-x64 and arm64 require two build runners — one per architecture.
-In free mode this means `ubuntu-latest` (x64) and
-`ubuntu-latest-arm` (arm64, free for public repos). In self-hosted
-mode, separate ARC runner tiers for each architecture.
+Runner selection is defined in `config/runners.yaml` (SSOT).
 
-The Nuitka build uses the OSS version from PyPI (`pip install nuitka`),
-not the commercial Nuitka licence. The compilation is for performance
-only — all HyperI Python projects also publish standard wheels.
+**Why not cross-compile?** Cross-compilation with C/C++ dependencies
+(librdkafka, zlib, openssl) requires a private sysroot with transitive
+dependency resolution. This is fragile — each new native dependency
+breaks differently. Native builds on arm64 runners eliminate the entire
+problem class. The sysroot code is retained dormant in `build.py` for
+edge cases (e.g. RISC-V) but is never triggered when all builds are native.
+
+**When does arm64 build?** Only on the `release` branch (GA releases).
+All other branches (including `main`) build x64 only. This keeps
+dev-cycle builds fast and avoids arm64 runner costs for non-release work.
+
+| Branch | Architectures | Purpose |
+|--------|--------------|---------|
+| Feature branches | x64 only | Development, PR validation |
+| `main` | x64 only | Dev pre-releases (`v1.15.0-dev.1`) |
+| `release` | x64 + arm64 | GA releases (`v1.15.0`) |
+
+This applies universally across all languages, not just Rust:
+
+| Language | x64 Build | arm64 Build (release only) |
+|----------|-----------|---------------------------|
+| Rust | Native on ARC | Native on `ubuntu-24.04-arm` |
+| Go | Native on ARC | Native on `ubuntu-24.04-arm` |
+| Python (wheel) | Single runner (arch-independent) | N/A |
+| Python (Nuitka) | Native on ARC | Native on `ubuntu-24.04-arm` |
+| TypeScript | Single runner (arch-independent) | N/A |
+
+### Release Channels
+
+Two-branch semantic-release configuration:
+
+| Branch | Channel | Version Format | Publish Targets |
+|--------|---------|---------------|-----------------|
+| `main` | `dev` (prerelease) | `v1.15.0-dev.1` | GitHub Releases only (pre-release) |
+| `release` | default (GA) | `v1.15.0` | All destinations (JFrog, crates.io, PyPI, npm, GHCR) |
+
+**Workflow:**
+1. Developers push to `main` — x64 dev pre-release created automatically
+2. When ready for GA: create PR from `main` → `release`, merge
+3. Release branch triggers x64 + arm64 builds, GA semantic-release, publish to all registries
+
+The `.releaserc.yaml` configuration:
+```yaml
+branches:
+  - name: main
+    prerelease: dev
+  - release
+```
+
+**Publish gating:** The Publish job only runs on the `release` branch.
+Dev pre-releases on `main` get GitHub Releases (binary downloads) but
+skip registry publishing (JFrog, crates.io, PyPI, npm).
 
 ### Self-Hosted Mode (ARC Runners)
 
@@ -531,7 +579,12 @@ integrity requirements, which is why NFS `async` mode is used.
 | `ansible/playbooks/k8s-arc-runners.yml` | Helm deployment playbook |
 | `ansible/roles/storage_server/` | NFS server config and SSD cache dirs |
 
-## Cross-Compilation (Rust + C/C++)
+## Cross-Compilation (Legacy — Dormant)
+
+**Note:** With the split-runner architecture, cross-compilation is no
+longer used for standard multi-arch builds. The sysroot code below is
+retained in `build.py` but only activates when a build target differs
+from the host architecture — which never happens with native runners.
 
 For projects with C/C++ dependencies (e.g. librdkafka via `rdkafka`
 crate with `cmake-build` feature), the build handler uses a **private
@@ -602,8 +655,9 @@ same thing in ~300 lines each.
 1. **No bash** — all logic is Python. `subprocess.run()` with list args
    only. 70% of old CI failures were bash syntax issues.
 
-2. **Semantic release centric** — push to main, semantic-release creates
-   tags and publishes. No manual version bumps.
+2. **Two-channel semantic release** — `main` produces dev pre-releases
+   (x64 only, fast feedback). Merge PR to `release` for GA releases
+   (x64 + arm64, published to all registries). No manual version bumps.
 
 3. **uv for everything** — venv, sync, lock, tool install, build.
 
@@ -630,6 +684,7 @@ hyperi-ci/
 │   ├── dispatch.py            Stage dispatcher
 │   ├── common.py              Logging, subprocess, GH Actions helpers
 │   ├── init.py                Project scaffolding
+│   ├── init_release.py        Release branch setup (init-release command)
 │   ├── gh.py                  GitHub CLI helpers
 │   ├── trigger.py             Workflow trigger command
 │   ├── watch.py               Run watch command
@@ -641,7 +696,9 @@ hyperi-ci/
 │       └── golang/            quality, test, build, publish
 ├── config/
 │   ├── defaults.yaml          Default settings for all languages
-│   └── org.yaml               Organisation URLs (JFrog, GitHub, GHCR)
+│   ├── org.yaml               Organisation URLs (JFrog, GitHub, GHCR)
+│   ├── runners.yaml           Runner SSOT per architecture
+│   └── versions.yaml          Action/runtime version SSOT
 ├── test-projects/
 │   ├── ci-test-rust-minimal/  Rust binary with C/C++ deps (librdkafka)
 │   ├── ci-test-python-minimal/
