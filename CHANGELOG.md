@@ -1,3 +1,10 @@
+## [1.1.9-dev.9](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.8...v1.1.9-dev.9) (2026-03-12)
+
+
+### Bug Fixes
+
+* use corepack --install-directory for permission-restricted runners ([6aa37e4](https://github.com/hyperi-io/hyperi-ci/commit/6aa37e493fac5f96fffff4326667e9f63b1e0776))
+
 ## [1.1.9-dev.8](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.7...v1.1.9-dev.8) (2026-03-12)
 
 
