@@ -95,21 +95,23 @@ def _update_releaserc(path: Path, *, dry_run: bool = False) -> bool:
     content = path.read_text()
 
     if fmt == "yaml":
-        # Preserve the file header (comments before first key)
-        lines = content.splitlines(keepends=True)
-        header_lines = []
-        rest_lines = []
-        in_header = True
-        for line in lines:
-            if in_header and (line.startswith("#") or line.strip() == ""):
-                header_lines.append(line)
-            else:
-                in_header = False
-                rest_lines.append(line)
+        # Targeted replacement: only change the branches block, preserve everything else
+        new_branches = "branches:\n  - name: main\n    prerelease: dev\n  - release\n"
+        # Match various forms: "branches:\n  - main\n" or "branches:\n- main\n"
+        import re
 
-        header = "".join(header_lines)
-        new_yaml = yaml.dump(config, default_flow_style=False, sort_keys=False)
-        path.write_text(header + new_yaml)
+        pattern = re.compile(
+            r"^branches:\s*\n(?:\s+-\s+.*\n)*",
+            re.MULTILINE,
+        )
+        new_content = pattern.sub(new_branches, content, count=1)
+        if new_content == content:
+            # Fallback: couldn't find branches block to replace
+            warn(
+                f"  Could not find branches block in {path.name} — manual update needed"
+            )
+            return False
+        path.write_text(new_content)
     else:
         path.write_text(json.dumps(config, indent=2) + "\n")
 
