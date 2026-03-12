@@ -46,6 +46,8 @@ _ACTION_OWNERS: dict[str, str] = {
     "setup-uv": "astral-sh/setup-uv",
     "cache": "actions/cache",
     "rust-toolchain": "dtolnay/rust-toolchain",
+    "upload-artifact": "actions/upload-artifact",
+    "download-artifact": "actions/download-artifact",
 }
 
 

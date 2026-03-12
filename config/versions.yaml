@@ -21,6 +21,8 @@ actions:
   setup-go: v6
   setup-uv: v7
   cache: v5
+  upload-artifact: v7
+  download-artifact: v8
   rust-toolchain: master          # dtolnay/rust-toolchain pins via @master
 
 # Language runtimes (default versions in workflow inputs)
