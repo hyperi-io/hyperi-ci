@@ -1,3 +1,10 @@
+## [1.1.9-dev.4](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.3...v1.1.9-dev.4) (2026-03-12)
+
+
+### Bug Fixes
+
+* add ts package manager detection with importlib dispatcher ([8b0cc40](https://github.com/hyperi-io/hyperi-ci/commit/8b0cc400eb4ad9d32d1137b2d3f39c84b809e504))
+
 ## [1.1.9-dev.3](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.2...v1.1.9-dev.3) (2026-03-12)
 
 
