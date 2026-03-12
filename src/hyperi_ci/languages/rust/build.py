@@ -273,7 +273,10 @@ def _resolve_cross_packages(
                 if not line.startswith("Depends:"):
                     continue
                 dep = line.split(":", 1)[1].strip()
-                if not dep.startswith("lib"):
+                # Keep library packages — most start with lib*, but some
+                # (zlib1g) don't. Filter out non-library packages.
+                dep_name = dep.split(":")[0]
+                if not dep_name.startswith(("lib", "zlib")):
                     continue
                 if ":" not in dep:
                     dep = f"{dep}:{cross_arch}"
