@@ -162,6 +162,14 @@ jobs:
       - name: Run build
         run: ${{ env.HYPERCI_INSTALL }} run build
 
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-dist-default
+          path: dist/
+          if-no-files-found: ignore
+          retention-days: 1
+
   release:
     name: Release
     needs: [quality, test, build]
@@ -201,9 +209,11 @@ jobs:
 
   publish:
     name: Publish
-    needs: [release]
+    needs: [build, release]
     if: github.ref == 'refs/heads/release' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v6
         with:
@@ -217,6 +227,14 @@ jobs:
           else
             echo "has_version=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Download build artifacts
+        if: steps.check.outputs.has_version == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          pattern: build-dist-*
+          path: dist/
+          merge-multiple: true
 
       - name: Set up Go
         if: steps.check.outputs.has_version == 'true'
@@ -238,4 +256,5 @@ jobs:
         if: steps.check.outputs.has_version == 'true'
         env:
           JFROG_TOKEN: ${{ secrets.JFROG_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ${{ env.HYPERCI_INSTALL }} run publish
