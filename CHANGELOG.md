@@ -1,3 +1,10 @@
+## [1.1.17](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.16...v1.1.17) (2026-03-12)
+
+
+### Bug Fixes
+
+* generic binary publish to GitHub Releases ([05b21fc](https://github.com/hyperi-io/hyperi-ci/commit/05b21fcf1d8cfbf7fd622c59eed80d907a46943a))
+
 ## [1.1.16](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.15...v1.1.16) (2026-03-12)
 
 
