@@ -1,3 +1,10 @@
+## [1.1.12](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.11...v1.1.12) (2026-03-12)
+
+
+### Bug Fixes
+
+* make corepack enable non-fatal for ARC runners ([c96cdd0](https://github.com/hyperi-io/hyperi-ci/commit/c96cdd000a0c7c7f86fc52a47207c57b1ba20202))
+
 ## [1.1.11](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.10...v1.1.11) (2026-03-12)
 
 
