@@ -1,3 +1,11 @@
+## [1.1.15](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.14...v1.1.15) (2026-03-12)
+
+
+### Bug Fixes
+
+* add --refresh to uvx for fresh PyPI resolution ([c24f711](https://github.com/hyperi-io/hyperi-ci/commit/c24f7112440a1d4ea7f9865df31ce547736b01a1))
+* use corepack --install-directory for permission-restricted runners ([6aa37e4](https://github.com/hyperi-io/hyperi-ci/commit/6aa37e493fac5f96fffff4326667e9f63b1e0776))
+
 ## [1.1.9-dev.8](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.7...v1.1.9-dev.8) (2026-03-12)
 
 
