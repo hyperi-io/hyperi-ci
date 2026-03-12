@@ -17,6 +17,7 @@ Usage:
 from __future__ import annotations
 
 import importlib
+import os
 from pathlib import Path
 from typing import Any
 
@@ -159,8 +160,13 @@ def stage_build(language: str, config: CIConfig, *, local: bool = False) -> int:
             if strategy == "native":
                 if language == "rust":
                     features = _normalize_rust_features(config, "build")
-                    # local=True: skip cross targets, build native only
-                    if not local:
+                    # Environment override (from workflow matrix) takes
+                    # precedence over config — allows split-runner builds
+                    # to specify a single target per matrix entry.
+                    env_targets = os.environ.get("RUST_BUILD_TARGETS", "")
+                    if env_targets:
+                        extra_env["RUST_BUILD_TARGETS"] = env_targets
+                    elif not local:
                         rust_targets = config.get("build.rust.targets", [])
                         if isinstance(rust_targets, list):
                             extra_env["RUST_BUILD_TARGETS"] = ",".join(rust_targets)

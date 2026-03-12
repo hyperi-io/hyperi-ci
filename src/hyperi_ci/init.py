@@ -350,7 +350,10 @@ def _render_releaserc(
         git_assets.append("package.json")
 
     config: dict = {
-        "branches": ["main"],
+        "branches": [
+            {"name": "main", "prerelease": "dev"},
+            "release",
+        ],
         "tagFormat": "v${version}",
         "plugins": [
             [
