@@ -1,3 +1,10 @@
+## [1.1.9-dev.2](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.1...v1.1.9-dev.2) (2026-03-12)
+
+
+### Bug Fixes
+
+* preserve yaml formatting in init-release ([d89576c](https://github.com/hyperi-io/hyperi-ci/commit/d89576c45d635dae99a0d01d611ad775ecd0d0b6))
+
 ## [1.1.9-dev.1](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.8...v1.1.9-dev.1) (2026-03-12)
 
 
