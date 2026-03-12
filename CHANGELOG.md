@@ -1,3 +1,13 @@
+## [1.1.8](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.7...v1.1.8) (2026-03-12)
+
+
+### Bug Fixes
+
+* add init-release command for release branch setup ([019118a](https://github.com/hyperi-io/hyperi-ci/commit/019118ad7b05b8e5875bbea3df3d70913078c74d))
+* pre-commit hook enforces action version SSOT ([39a8bb9](https://github.com/hyperi-io/hyperi-ci/commit/39a8bb9a696da119da449262833a8b01367afb7d))
+* split-runner build matrix and release channels ([c752184](https://github.com/hyperi-io/hyperi-ci/commit/c752184fa19faae4b3e5268b23b022d52f7c2760))
+* update upload-artifact v4 to v7, add to SSOT ([01b1f3a](https://github.com/hyperi-io/hyperi-ci/commit/01b1f3aa0cb61f0066ee49431e47a316959c2fd5))
+
 ## [1.1.7](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.6...v1.1.7) (2026-03-12)
 
 
