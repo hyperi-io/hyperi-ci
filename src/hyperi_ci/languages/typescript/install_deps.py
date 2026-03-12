@@ -22,28 +22,40 @@ from hyperi_ci.common import error, info, warn
 from ._common import detect_package_manager, yarn_frozen_flag
 
 
-def _enable_corepack(pm: str) -> None:
-    """Enable Corepack so that packageManager-pinned versions are respected.
+def _ensure_pm_available(pm: str) -> bool:
+    """Ensure the package manager binary is available on PATH.
 
-    Skips if the target package manager is already on PATH (e.g. pre-installed
-    on ARC runner images). Warns instead of failing if corepack enable fails —
-    the PM may still work without it (permissions issue on system Node installs).
+    For non-npm package managers (yarn, pnpm), tries in order:
+      1. Already on PATH (e.g. pre-installed on ARC runner images) — done
+      2. ``corepack enable`` to activate the PM via Node's built-in Corepack
+      3. ``npm install -g <pm>`` as a last resort
+
+    Args:
+        pm: Package manager name (npm, yarn, pnpm).
+
+    Returns:
+        True if the PM is available, False if all attempts failed.
     """
-    if pm != "npm" and shutil.which(pm):
-        info(f"  {pm} already on PATH — skipping corepack enable")
-        return
+    if pm == "npm" or shutil.which(pm):
+        if pm != "npm":
+            info(f"  {pm} already on PATH — skipping corepack enable")
+        return True
 
-    if not shutil.which("corepack"):
-        warn("corepack not found on PATH — skipping")
-        return
-
-    cp = subprocess.run(["corepack", "enable"], capture_output=True, text=True)
-    if cp.returncode != 0:
+    if shutil.which("corepack"):
+        cp = subprocess.run(["corepack", "enable"], capture_output=True, text=True)
+        if cp.returncode == 0:
+            info("  corepack enabled")
+            return True
         stderr = cp.stderr.strip() if cp.stderr else "unknown error"
-        warn(f"corepack enable failed ({stderr}) — continuing with system PM")
-        return
+        warn(f"corepack enable failed ({stderr})")
 
-    info("  corepack enabled")
+    info(f"  Installing {pm} globally via npm")
+    npm = subprocess.run(["npm", "install", "-g", pm], capture_output=True, text=True)
+    if npm.returncode == 0 and shutil.which(pm):
+        info(f"  {pm} installed successfully")
+        return True
+
+    return False
 
 
 def run(project_dir: Path | None = None) -> int:
@@ -63,7 +75,9 @@ def run(project_dir: Path | None = None) -> int:
     pm = detect_package_manager(root)
     info(f"Using {pm} (detected from package.json or lock file)")
 
-    _enable_corepack(pm)
+    if not _ensure_pm_available(pm):
+        error(f"{pm} is not available and could not be installed")
+        return 1
 
     if pm == "npm":
         if (root / "package-lock.json").exists():
