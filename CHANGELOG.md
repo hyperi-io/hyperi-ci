@@ -1,12 +1,25 @@
-## [1.1.10](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9...v1.1.10) (2026-03-12)
+## [1.1.9-dev.4](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.3...v1.1.9-dev.4) (2026-03-12)
 
 
 ### Bug Fixes
 
-* bytes/text mismatch in _rlib_has_wrong_arch ([6914fc5](https://github.com/hyperi-io/hyperi-ci/commit/6914fc5565a319b2bdbebed5db4fb74d1d3f4a30))
-* preserve yaml formatting in init-release ([1fd8cc3](https://github.com/hyperi-io/hyperi-ci/commit/1fd8cc3160d0cf8c4d33a4059afc4ad215c38a4f))
+* add ts package manager detection with importlib dispatcher ([8b0cc40](https://github.com/hyperi-io/hyperi-ci/commit/8b0cc400eb4ad9d32d1137b2d3f39c84b809e504))
 
-## [1.1.9](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.8...v1.1.9) (2026-03-12)
+## [1.1.9-dev.3](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.2...v1.1.9-dev.3) (2026-03-12)
+
+
+### Bug Fixes
+
+* bytes/text mismatch in _rlib_has_wrong_arch ([2985c1a](https://github.com/hyperi-io/hyperi-ci/commit/2985c1aee9719c3f6b0ad845069d4d07645a5749))
+
+## [1.1.9-dev.2](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.1...v1.1.9-dev.2) (2026-03-12)
+
+
+### Bug Fixes
+
+* preserve yaml formatting in init-release ([d89576c](https://github.com/hyperi-io/hyperi-ci/commit/d89576c45d635dae99a0d01d611ad775ecd0d0b6))
+
+## [1.1.9-dev.1](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.8...v1.1.9-dev.1) (2026-03-12)
 
 
 ### Bug Fixes
