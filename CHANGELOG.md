@@ -1,3 +1,10 @@
+## [1.1.9-dev.1](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.8...v1.1.9-dev.1) (2026-03-12)
+
+
+### Bug Fixes
+
+* two-branch release for self-hosting CI, fix hook symlink ([c88a2a3](https://github.com/hyperi-io/hyperi-ci/commit/c88a2a3d547cff62d9040b5701ed7f45f38acb19))
+
 ## [1.1.8](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.7...v1.1.8) (2026-03-12)
 
 
