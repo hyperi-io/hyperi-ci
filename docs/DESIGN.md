@@ -15,36 +15,48 @@ The system has two sides that work together:
 2. **CLI side** — `hyperi-ci` Python tool that executes each stage's
    actual logic (linting, testing, building, publishing)
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    GitHub Actions                           │
-│                                                             │
-│  Consumer repo                    hyperi-ci repo            │
-│  .github/workflows/ci.yml  ───►  .github/workflows/        │
-│  (5 lines, calls reusable)       ├── python-ci.yml          │
-│                                  ├── rust-ci.yml            │
-│                                  ├── ts-ci.yml              │
-│                                  └── go-ci.yml              │
-│                                       │                     │
-│                                       ▼                     │
-│                              uvx hyperi-ci run <stage>      │
-└────────────────────────────────────┬────────────────────────┘
-                                     │
-┌────────────────────────────────────▼────────────────────────┐
-│                    hyperi-ci CLI                             │
-│                                                             │
-│  cli.py ──► dispatch.py ──► languages/<lang>/<stage>.py     │
-│                    │                                        │
-│                    ├── detect.py    (language detection)     │
-│                    ├── config.py    (config cascade)         │
-│                    └── common.py    (logging, subprocess)    │
-│                                                             │
-│  Each handler calls language tools via subprocess:          │
-│    Python:  ruff, pytest, uv build, uv publish              │
-│    Rust:    cargo fmt/clippy/test/build/publish              │
-│    TS:      eslint, vitest/jest, npm build/publish           │
-│    Go:      go vet, go test, go build                       │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph GHA["GitHub Actions"]
+        subgraph Consumer["Consumer repo"]
+            ci[".github/workflows/ci.yml\n(5 lines, calls reusable)"]
+        end
+
+        subgraph HyperiRepo["hyperi-ci repo"]
+            python["python-ci.yml"]
+            rust["rust-ci.yml"]
+            ts["ts-ci.yml"]
+            go["go-ci.yml"]
+            uvx["uvx hyperi-ci run &lt;stage&gt;"]
+        end
+    end
+
+    subgraph CLI["hyperi-ci CLI"]
+        cli["cli.py"]
+        dispatch["dispatch.py"]
+        handlers["languages/&lt;lang&gt;/&lt;stage&gt;.py"]
+
+        subgraph Helpers["Helpers"]
+            detect["detect.py\n(language detection)"]
+            config["config.py\n(config cascade)"]
+            common["common.py\n(logging, subprocess)"]
+        end
+
+        subgraph Tools["Handler → language tools via subprocess"]
+            pyTools["Python: ruff, pytest, uv build, uv publish"]
+            rustTools["Rust: cargo fmt/clippy/test/build/publish"]
+            tsTools["TS: eslint, vitest/jest, npm build/publish"]
+            goTools["Go: go vet, go test, go build"]
+        end
+    end
+
+    ci --> python & rust & ts & go
+    python & rust & ts & go --> uvx
+    uvx --> cli
+    cli --> dispatch
+    dispatch --> handlers
+    dispatch --> detect & config & common
+    handlers --> pyTools & rustTools & tsTools & goTools
 ```
 
 ## GitHub Actions Side

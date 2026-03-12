@@ -13,6 +13,7 @@ import subprocess
 
 from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages.typescript._common import detect_package_manager
 
 
 def _find_npm_script(
@@ -44,17 +45,6 @@ def _find_npm_script(
     except (json.JSONDecodeError, KeyError):
         pass
     return None
-
-
-def _detect_package_manager() -> str:
-    """Detect which package manager the project uses."""
-    from pathlib import Path
-
-    if Path("pnpm-lock.yaml").exists():
-        return "pnpm"
-    if Path("yarn.lock").exists():
-        return "yarn"
-    return "npm"
 
 
 def _get_tool_mode(tool: str, config: CIConfig) -> str:
@@ -110,7 +100,7 @@ def _run_tool(
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     """Run TypeScript quality checks."""
     info("Running TypeScript quality checks...")
-    pm = _detect_package_manager()
+    pm = detect_package_manager()
     had_failure = False
 
     mode = _get_tool_mode("eslint", config)
