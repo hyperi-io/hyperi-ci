@@ -1,18 +1,9 @@
-## [1.1.12](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.11...v1.1.12) (2026-03-12)
+## [1.1.9-dev.5](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.4...v1.1.9-dev.5) (2026-03-12)
 
 
 ### Bug Fixes
 
 * make corepack enable non-fatal for ARC runners ([c96cdd0](https://github.com/hyperi-io/hyperi-ci/commit/c96cdd000a0c7c7f86fc52a47207c57b1ba20202))
-
-## [1.1.11](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.10...v1.1.11) (2026-03-12)
-
-
-### Bug Fixes
-
-* add ts package manager detection with importlib dispatcher ([8b0cc40](https://github.com/hyperi-io/hyperi-ci/commit/8b0cc400eb4ad9d32d1137b2d3f39c84b809e504))
-* bytes/text mismatch in _rlib_has_wrong_arch ([2985c1a](https://github.com/hyperi-io/hyperi-ci/commit/2985c1aee9719c3f6b0ad845069d4d07645a5749))
-* preserve yaml formatting in init-release ([d89576c](https://github.com/hyperi-io/hyperi-ci/commit/d89576c45d635dae99a0d01d611ad775ecd0d0b6))
 
 ## [1.1.9-dev.4](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.3...v1.1.9-dev.4) (2026-03-12)
 
