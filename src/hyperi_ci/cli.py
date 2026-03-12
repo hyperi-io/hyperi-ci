@@ -287,6 +287,29 @@ def logs(
     raise typer.Exit(rc)
 
 
+@app.command(name="init-release")
+def init_release_cmd(
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", "-n", help="Show what would be done"),
+    ] = False,
+    check_only: Annotated[
+        bool,
+        typer.Option("--check", help="Check release setup status only"),
+    ] = False,
+) -> None:
+    """Set up release branch and configure two-channel semantic-release."""
+    from hyperi_ci.init_release import init_release
+
+    dir_path = Path(project_dir) if project_dir else Path.cwd()
+    rc = init_release(dir_path, dry_run=dry_run, check_only=check_only)
+    raise typer.Exit(rc)
+
+
 @app.command(name="install-native-deps")
 def install_native_deps(
     language: Annotated[
