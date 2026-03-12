@@ -9,24 +9,16 @@
 from __future__ import annotations
 
 import subprocess
-from pathlib import Path
 
 from hyperi_ci.common import error, info, success
 from hyperi_ci.config import CIConfig
-
-
-def _detect_package_manager() -> str:
-    if Path("pnpm-lock.yaml").exists():
-        return "pnpm"
-    if Path("yarn.lock").exists():
-        return "yarn"
-    return "npm"
+from hyperi_ci.languages.typescript._common import detect_package_manager
 
 
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     """Run TypeScript build."""
     info("Building TypeScript project...")
-    pm = _detect_package_manager()
+    pm = detect_package_manager()
 
     result = subprocess.run([pm, "run", "build"])
     if result.returncode != 0:

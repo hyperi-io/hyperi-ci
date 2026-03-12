@@ -339,6 +339,25 @@ def install_native_deps(
     raise typer.Exit(rc)
 
 
+@app.command(name="install-deps")
+def install_deps_cmd(
+    language: Annotated[
+        str,
+        typer.Argument(help="Language (e.g. typescript)"),
+    ],
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+) -> None:
+    """Install project dependencies for a language (e.g. npm/yarn/pnpm for TypeScript)."""
+    from hyperi_ci.install_deps import install_deps
+
+    dir_path = Path(project_dir) if project_dir else None
+    rc = install_deps(language, project_dir=dir_path)
+    raise typer.Exit(rc)
+
+
 def main() -> int:
     """CLI entry point."""
     app()

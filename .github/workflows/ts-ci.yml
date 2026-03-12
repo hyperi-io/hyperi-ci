@@ -67,12 +67,6 @@ jobs:
         with:
           node-version: ${{ inputs.node-version }}
 
-      - name: Install pnpm
-        run: command -v pnpm || corepack enable pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
       - name: Install uv
         if: ${{ !contains(runner.name, 'arc-runner') }}
         uses: astral-sh/setup-uv@v7
@@ -83,6 +77,9 @@ jobs:
         run: |
           command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
           command -v python3 || uv python install 3.12
+
+      - name: Install dependencies
+        run: ${{ env.HYPERCI_INSTALL }} install-deps typescript
 
       - name: Install native dependencies
         run: ${{ env.HYPERCI_INSTALL }} install-native-deps typescript
@@ -107,12 +104,6 @@ jobs:
         with:
           node-version: ${{ inputs.node-version }}
 
-      - name: Install pnpm
-        run: command -v pnpm || corepack enable pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
       - name: Install uv
         if: ${{ !contains(runner.name, 'arc-runner') }}
         uses: astral-sh/setup-uv@v7
@@ -123,6 +114,9 @@ jobs:
         run: |
           command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
           command -v python3 || uv python install 3.12
+
+      - name: Install dependencies
+        run: ${{ env.HYPERCI_INSTALL }} install-deps typescript
 
       - name: Install native dependencies
         run: ${{ env.HYPERCI_INSTALL }} install-native-deps typescript
@@ -155,12 +149,6 @@ jobs:
         with:
           node-version: ${{ inputs.node-version }}
 
-      - name: Install pnpm
-        run: command -v pnpm || corepack enable pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
       - name: Install uv
         if: ${{ !contains(runner.name, 'arc-runner') }}
         uses: astral-sh/setup-uv@v7
@@ -171,6 +159,9 @@ jobs:
         run: |
           command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
           command -v python3 || uv python install 3.12
+
+      - name: Install dependencies
+        run: ${{ env.HYPERCI_INSTALL }} install-deps typescript
 
       - name: Install native dependencies
         run: ${{ env.HYPERCI_INSTALL }} install-native-deps typescript
@@ -240,14 +231,6 @@ jobs:
         with:
           node-version: ${{ inputs.node-version }}
 
-      - name: Install pnpm
-        if: steps.check.outputs.has_version == 'true'
-        run: corepack enable pnpm
-
-      - name: Install dependencies
-        if: steps.check.outputs.has_version == 'true'
-        run: pnpm install --frozen-lockfile
-
       - name: Install uv
         if: steps.check.outputs.has_version == 'true'
         uses: astral-sh/setup-uv@v7
@@ -257,6 +240,10 @@ jobs:
       - name: Set up Python
         if: steps.check.outputs.has_version == 'true'
         run: uv python install 3.12
+
+      - name: Install dependencies
+        if: steps.check.outputs.has_version == 'true'
+        run: ${{ env.HYPERCI_INSTALL }} install-deps typescript
 
       - name: Publish
         if: steps.check.outputs.has_version == 'true'
