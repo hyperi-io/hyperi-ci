@@ -1,3 +1,10 @@
+## [1.1.6](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.5...v1.1.6) (2026-03-12)
+
+
+### Bug Fixes
+
+* force apt-get update after widening custom repos for cross arch ([597e51b](https://github.com/hyperi-io/hyperi-ci/commit/597e51b08f46c4b7fd1d762a674e91e1cce42469))
+
 ## [1.1.5](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.4...v1.1.5) (2026-03-12)
 
 
