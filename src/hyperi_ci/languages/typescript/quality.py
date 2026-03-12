@@ -13,7 +13,10 @@ import subprocess
 
 from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.typescript._common import detect_package_manager
+from hyperi_ci.languages.typescript._common import (
+    detect_package_manager,
+    ensure_pm_available,
+)
 
 
 def _find_npm_script(
@@ -101,6 +104,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     """Run TypeScript quality checks."""
     info("Running TypeScript quality checks...")
     pm = detect_package_manager()
+    if not ensure_pm_available(pm):
+        error(f"{pm} is not available and could not be installed")
+        return 1
     had_failure = False
 
     mode = _get_tool_mode("eslint", config)
