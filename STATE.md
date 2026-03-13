@@ -44,6 +44,7 @@ src/hyperi_ci/
 ├── common.py            # Logging, subprocess helpers, GH Actions output
 ├── detect.py            # Language detection from file markers
 ├── dispatch.py          # Stage dispatcher → language handlers
+├── publish_binaries.py  # Generic binary publish (GitHub Releases, JFrog, R2)
 ├── init.py              # Project scaffolding (replaces attach.sh)
 ├── gh.py                # GitHub CLI helpers
 ├── trigger.py           # Workflow trigger command
