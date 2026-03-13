@@ -1,3 +1,10 @@
+## [1.1.9-dev.12](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.11...v1.1.9-dev.12) (2026-03-13)
+
+
+### Bug Fixes
+
+* skip jfrog binary publish when credentials missing ([61bd1d9](https://github.com/hyperi-io/hyperi-ci/commit/61bd1d99c025c6252daa3a4e81133c9c4163ab16))
+
 ## [1.1.9-dev.11](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.10...v1.1.9-dev.11) (2026-03-12)
 
 
