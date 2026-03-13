@@ -1,3 +1,11 @@
+## [1.1.18](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.17...v1.1.18) (2026-03-13)
+
+
+### Bug Fixes
+
+* merge main into release for GA v1.1.18 ([c3bbc78](https://github.com/hyperi-io/hyperi-ci/commit/c3bbc784d5da36ff9b214f4f750906036c83c847))
+* skip jfrog binary publish when credentials missing ([61bd1d9](https://github.com/hyperi-io/hyperi-ci/commit/61bd1d99c025c6252daa3a4e81133c9c4163ab16))
+
 ## [1.1.9-dev.11](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.10...v1.1.9-dev.11) (2026-03-12)
 
 
