@@ -9,7 +9,7 @@
 Uploads pre-built binaries from dist/ to configured destinations:
 - GitHub Releases (OSS)
 - JFrog Artifactory generic repository (internal)
-- Cloudflare R2 binary repository (internal, Phase 2)
+- Cloudflare R2 binary repository (internal)
 
 Called from dispatch.py after the language-specific publish handler.
 Any language that packages binaries to dist/ gets this for free.
@@ -18,11 +18,18 @@ Any language that packages binaries to dist/ gets this for free.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
 from hyperi_ci.common import error, group, info, mask, success, warn
 from hyperi_ci.config import CIConfig, load_org_config
+
+# R2 bucket and endpoint configuration
+R2_BUCKET = "bin-repo"
+R2_ACCOUNT_ID = "98d20454e2af7a9397ad9366a1641659"
+R2_ENDPOINT = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+R2_PUBLIC_URL = "https://downloads.hyperi.io"
 
 
 def _read_version() -> str | None:
@@ -136,7 +143,8 @@ def _publish_jfrog_binaries() -> int:
     password = os.environ.get("ARTIFACTORY_PASSWORD")
     if not username or not password:
         warn(
-            "ARTIFACTORY_USERNAME/ARTIFACTORY_PASSWORD not set — skipping JFrog binary publish"
+            "ARTIFACTORY_USERNAME/ARTIFACTORY_PASSWORD not set"
+            " — skipping JFrog binary publish"
         )
         return 0
 
@@ -166,6 +174,81 @@ def _publish_jfrog_binaries() -> int:
             return 1
 
     success(f"Published {uploaded} artifact(s) to JFrog Artifactory")
+    return 0
+
+
+def _publish_r2_binaries() -> int:
+    """Publish built binaries to Cloudflare R2 binary repository.
+
+    Uploads all files from dist/ to R2 under:
+      {project}/{version}/{filename}   — versioned path
+      {project}/latest/{filename}      — latest alias (overwritten each release)
+
+    Public URL: https://releases.hyperi.io/{project}/{version}/{filename}
+
+    Requires R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY env vars.
+
+    Returns:
+        Exit code (0 = success).
+    """
+    access_key = os.environ.get("R2_ACCESS_KEY_ID")
+    secret_key = os.environ.get("R2_SECRET_ACCESS_KEY")
+    if not access_key or not secret_key:
+        warn(
+            "R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY not set — skipping R2 binary publish"
+        )
+        return 0
+
+    mask(secret_key)
+
+    if not shutil.which("aws"):
+        error("aws CLI not found — required for R2 upload")
+        return 1
+
+    artifacts = _collect_artifacts()
+    if not artifacts:
+        warn("No artifacts found in dist/ — skipping R2 binary publish")
+        return 0
+
+    project_name = Path.cwd().name
+    version = _read_version() or "unknown"
+
+    versioned_prefix = f"s3://{R2_BUCKET}/{project_name}/v{version}/"
+    latest_prefix = f"s3://{R2_BUCKET}/{project_name}/latest/"
+
+    # Common env for aws CLI — use R2 credentials as AWS credentials
+    aws_env = {
+        **os.environ,
+        "AWS_ACCESS_KEY_ID": access_key,
+        "AWS_SECRET_ACCESS_KEY": secret_key,
+        "AWS_DEFAULT_REGION": "auto",
+    }
+
+    info(f"Publishing to R2: {R2_PUBLIC_URL}/{project_name}/v{version}/")
+
+    for dest_prefix in (versioned_prefix, latest_prefix):
+        label = "versioned" if "/v" in dest_prefix else "latest"
+        info(f"  Uploading to {label}: {dest_prefix}")
+
+        for artifact in artifacts:
+            cmd = [
+                "aws",
+                "s3",
+                "cp",
+                str(artifact),
+                f"{dest_prefix}{artifact.name}",
+                "--endpoint-url",
+                R2_ENDPOINT,
+            ]
+            result = subprocess.run(cmd, env=aws_env)
+            if result.returncode != 0:
+                error(f"  R2 upload failed for {artifact.name} ({label})")
+                return result.returncode
+
+    success(
+        f"Published {len(artifacts)} artifact(s) to R2 — "
+        f"{R2_PUBLIC_URL}/{project_name}/v{version}/"
+    )
     return 0
 
 
@@ -207,7 +290,10 @@ def publish_binaries(config: CIConfig) -> int:
                     return rc
 
         elif dest == "r2-binaries":
-            warn("R2 binary publish not yet implemented — skipping")
+            with group("Upload: Cloudflare R2"):
+                rc = _publish_r2_binaries()
+                if rc != 0:
+                    return rc
 
         else:
             error(f"Unknown binary publish destination: {dest}")
