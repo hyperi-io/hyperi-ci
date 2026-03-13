@@ -32,7 +32,7 @@ def _make_config(publish_target: str = "internal") -> CIConfig:
                 "cargo": "jfrog-cargo",
                 "container": "jfrog-docker",
                 "helm": "jfrog-helm",
-                "binaries": "jfrog-generic",
+                "binaries": "r2-binaries",
                 "go": "jfrog-go",
             },
             "destinations_oss": {
@@ -60,7 +60,7 @@ class TestPublishDestinationRouting:
             ("cargo", ["jfrog-cargo"]),
             ("container", ["jfrog-docker"]),
             ("helm", ["jfrog-helm"]),
-            ("binaries", ["jfrog-generic"]),
+            ("binaries", ["r2-binaries"]),
             ("go", ["jfrog-go"]),
         ],
     )
@@ -100,7 +100,7 @@ class TestPublishDestinationRouting:
             ("cargo", "jfrog-cargo", "crates-io"),
             ("container", "jfrog-docker", "ghcr"),
             ("helm", "jfrog-helm", "ghcr-charts"),
-            ("binaries", "jfrog-generic", "github-releases"),
+            ("binaries", "r2-binaries", "github-releases"),
             ("go", "jfrog-go", "go-proxy"),
         ],
     )
@@ -232,12 +232,21 @@ class TestOSSReadiness:
                 f"'{destination}'"
             )
 
-    def test_internal_destinations_are_jfrog(self) -> None:
+    def test_internal_destinations_are_private(self) -> None:
         config = _make_config("internal")
         dests = config.publish_destinations()
         internal_map = dests[0]
+        public_destinations = {
+            "pypi",
+            "npmjs",
+            "crates-io",
+            "ghcr",
+            "ghcr-charts",
+            "github-releases",
+            "go-proxy",
+        }
         for artifact_type, destination in internal_map.items():
-            assert "jfrog" in destination, (
-                f"Internal destination for '{artifact_type}' does not point "
-                f"to JFrog: '{destination}'"
+            assert destination not in public_destinations, (
+                f"Internal destination for '{artifact_type}' points to "
+                f"public registry: '{destination}'"
             )

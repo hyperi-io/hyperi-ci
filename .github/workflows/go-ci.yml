@@ -43,6 +43,10 @@ on:
         required: false
       GITLEAKS_GH_ACTIONS_KEY:
         required: false
+      R2_ACCESS_KEY_ID:
+        required: false
+      R2_SECRET_ACCESS_KEY:
+        required: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -257,4 +261,6 @@ jobs:
         env:
           JFROG_TOKEN: ${{ secrets.JFROG_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: ${{ env.HYPERCI_INSTALL }} run publish
