@@ -135,10 +135,10 @@ def _publish_jfrog_binaries() -> int:
     username = os.environ.get("ARTIFACTORY_USERNAME")
     password = os.environ.get("ARTIFACTORY_PASSWORD")
     if not username or not password:
-        error(
-            "ARTIFACTORY_USERNAME and ARTIFACTORY_PASSWORD required for JFrog publish"
+        warn(
+            "ARTIFACTORY_USERNAME/ARTIFACTORY_PASSWORD not set — skipping JFrog binary publish"
         )
-        return 1
+        return 0
 
     mask(password)
 
