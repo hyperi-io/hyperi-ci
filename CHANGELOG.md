@@ -1,16 +1,9 @@
-## [1.1.17](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.16...v1.1.17) (2026-03-12)
+## [1.1.9-dev.11](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.10...v1.1.9-dev.11) (2026-03-12)
 
 
 ### Bug Fixes
 
 * generic binary publish to GitHub Releases ([05b21fc](https://github.com/hyperi-io/hyperi-ci/commit/05b21fcf1d8cfbf7fd622c59eed80d907a46943a))
-
-## [1.1.16](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.15...v1.1.16) (2026-03-12)
-
-
-### Bug Fixes
-
-* ensure pm available in all ts handlers ([8f29ce3](https://github.com/hyperi-io/hyperi-ci/commit/8f29ce3bea021930ea8ce3abd344709d018f22fa))
 
 ## [1.1.9-dev.10](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.9...v1.1.9-dev.10) (2026-03-12)
 
