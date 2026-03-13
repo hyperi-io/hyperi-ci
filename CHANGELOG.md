@@ -1,3 +1,10 @@
+## [1.1.19](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.18...v1.1.19) (2026-03-13)
+
+
+### Bug Fixes
+
+* add R2 binary publish to downloads.hyperi.io ([fe219fb](https://github.com/hyperi-io/hyperi-ci/commit/fe219fb182736a604edf70cda2ae989ec7a26011))
+
 ## [1.1.18](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.17...v1.1.18) (2026-03-13)
 
 
