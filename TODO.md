@@ -54,6 +54,28 @@ Multi-arch builds via native runners per architecture instead of cross-compilati
 - [ ] hyperi-pylib — `init-release`, verify CI passes
 - [ ] dfe-engine — `init-release`, verify CI passes
 
+### Generic Binary Publishing (Phase 1 + Phase 2)
+
+- [x] Phase 1: Generic binary publish module (`publish_binaries.py`)
+  - [x] Extract shared binary upload from Go handler into language-agnostic module
+  - [x] GitHub Releases upload (`gh release upload`)
+  - [x] JFrog generic binary upload
+  - [x] Call `publish_binaries()` from `dispatch.py` after language handler
+  - [x] Skip `cargo publish` for binary apps (auto-detect via `_detect_binary_names()`)
+  - [x] Remove binary publish from Go handler (now in shared module)
+  - [x] Workflow artifact passing (upload in build, download in publish)
+- [x] Phase 2: Cloudflare R2 binary download site (`downloads.hyperi.io`)
+  - [x] R2 bucket `bin-repo` created (APAC region)
+  - [x] Cloudflare Worker `bin-repo-index` deployed (directory listing + file serving)
+  - [x] DNS AAAA record for `downloads.hyperi.io` (proxied)
+  - [x] Terraform IaC at `/projects/hyperi-infra/cloud/repo-bin/terraform/`
+  - [x] R2 upload function `_publish_r2_binaries()` in `publish_binaries.py`
+  - [x] R2 credentials stored: `~/.env`, GitHub org secrets, OpenBao
+  - [x] Logo uploaded to R2 `_assets/logo.svg`
+  - [x] End-to-end test verified (upload → serve → directory listing)
+  - [x] hyperi-ci pushed and published to PyPI
+- [ ] First real CI-driven R2 upload (next dfe-receiver code change to release branch)
+
 ### Other Active Tasks
 
 - [ ] Address non-blocking quality warnings across all three consumer projects
