@@ -1,3 +1,10 @@
+## [1.1.9-dev.15](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.14...v1.1.9-dev.15) (2026-03-16)
+
+
+### Bug Fixes
+
+* move plugin repos to deprecated in STATE.md ([51664f7](https://github.com/hyperi-io/hyperi-ci/commit/51664f7f56d09d1e60e7e36c3147476bc8123bb3))
+
 ## [1.1.9-dev.14](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.13...v1.1.9-dev.14) (2026-03-16)
 
 
