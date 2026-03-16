@@ -44,7 +44,6 @@ src/hyperi_ci/
 ├── common.py            # Logging, subprocess helpers, GH Actions output
 ├── detect.py            # Language detection from file markers
 ├── dispatch.py          # Stage dispatcher → language handlers
-├── publish_binaries.py  # Generic binary publish (GitHub Releases, JFrog, R2)
 ├── init.py              # Project scaffolding (replaces attach.sh)
 ├── gh.py                # GitHub CLI helpers
 ├── trigger.py           # Workflow trigger command
@@ -146,6 +145,9 @@ publish to GitHub Releases only (not R2) until GA.
 
 - **dfe-kafka-topic-scaler** — to be archived
 - **dfe-control-plane** — to be archived
+- **dfe-plugin-loader** — plugin system removed from receiver, sidecar pattern instead
+- **dfe-protocol-sdk** — plugin system removed from receiver, sidecar pattern instead
+- **dfe-receiver-plugin-syslog** — syslog is a built-in transport, plugin was redundant
 
 ## Licensing
 

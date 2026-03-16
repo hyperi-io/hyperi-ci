@@ -6,118 +6,6 @@ This is the **single source of truth** for all tasks and progress.
 
 ## Active Tasks
 
-### Split-Runner Architecture + Release Gating
-
-Multi-arch builds via native runners per architecture instead of cross-compilation sysroot.
-`main` = dev pre-releases (x64 only), `release` = GA releases (x64 + arm64).
-
-#### Phase 1: Documentation + SSOT
-
-- [x] Update `config/versions.yaml` — add `upload-artifact: v7`, `download-artifact: v8`
-- [x] Update `scripts/update-versions.py` — add upload/download-artifact to `_ACTION_OWNERS`
-- [x] Apply version updates to all 4 workflow files (v4 → v7)
-- [ ] Update `TODO.md` with full WBS (this section)
-- [ ] Update `docs/DESIGN.md` — replace cross-compile section with split-runner architecture
-- [ ] Create `config/runners.yaml` — runner SSOT per architecture
-
-#### Phase 2: Workflow Templates
-
-- [ ] `rust-ci.yml` — add setup job, build matrix (x64 ARC + arm64 native), remove cross-compile step
-- [ ] `python-ci.yml` — update Release/Publish conditions for main + release branches
-- [ ] `go-ci.yml` — update Release/Publish conditions for main + release branches
-- [ ] `ts-ci.yml` — update Release/Publish conditions for main + release branches
-- [ ] All workflows — Release on main (prerelease) + release (GA), Publish only on release
-
-#### Phase 3: Release Configuration
-
-- [ ] Update `init.py` `_render_releaserc()` — two-branch config (main=dev, release=GA)
-- [ ] Update Release job conditions in all workflows (main || release)
-- [ ] Publish job only on `release` branch
-
-#### Phase 4: CLI — `init-release` Command
-
-- [ ] Create `src/hyperi_ci/init_release.py` — init-release implementation
-- [ ] Register `init-release` in `cli.py`
-- [ ] Integrate with `migrate.py`
-
-#### Phase 5: Commit + Push
-
-- [ ] Commit GH Actions version fix (already staged)
-- [ ] Commit architecture changes
-- [ ] Push and verify hyperi-ci CI passes
-
-#### Phase 6: Test with Consumer Projects
-
-- [ ] hyperi-rustlib — `init-release`, verify dev + GA flow
-- [ ] dfe-loader — `init-release`, verify x64 dev build, x64+arm64 GA build
-- [ ] dfe-receiver — `init-release`, verify CI passes
-- [ ] hyperi-pylib — `init-release`, verify CI passes
-- [ ] dfe-engine — `init-release`, verify CI passes
-
-### Generic Binary Publishing (Phase 1 + Phase 2)
-
-- [x] Phase 1: Generic binary publish module (`publish_binaries.py`)
-  - [x] Extract shared binary upload from Go handler into language-agnostic module
-  - [x] GitHub Releases upload (`gh release upload`)
-  - [x] JFrog generic binary upload
-  - [x] Call `publish_binaries()` from `dispatch.py` after language handler
-  - [x] Skip `cargo publish` for binary apps (auto-detect via `_detect_binary_names()`)
-  - [x] Remove binary publish from Go handler (now in shared module)
-  - [x] Workflow artifact passing (upload in build, download in publish)
-- [x] Phase 2: Cloudflare R2 binary download site (`downloads.hyperi.io`)
-  - [x] R2 bucket `bin-repo` created (APAC region)
-  - [x] Cloudflare Worker `bin-repo-index` deployed (directory listing + file serving)
-  - [x] DNS AAAA record for `downloads.hyperi.io` (proxied)
-  - [x] Terraform IaC at `/projects/hyperi-infra/cloud/repo-bin/terraform/`
-  - [x] R2 upload function `_publish_r2_binaries()` in `publish_binaries.py`
-  - [x] R2 credentials stored: `~/.env`, GitHub org secrets, OpenBao
-  - [x] Logo uploaded to R2 `_assets/logo.svg`
-  - [x] End-to-end test verified (upload → serve → directory listing)
-  - [x] hyperi-ci pushed and published to PyPI
-- [x] First real CI-driven R2 upload — dfe-receiver v1.13.9 published to downloads.hyperi.io
-- [x] Fix: packaged defaults.yaml had `jfrog-generic` instead of `r2-binaries` (hyperi-ci v1.1.20)
-
-### Renovate Dependency Management (Org-Wide)
-
-Mend Renovate GitHub App installed on `hyperi-io` org (2026-03-13, ID 115954764),
-`repository_selection: all`. Org preset at `hyperi-io/renovate-config`.
-
-Dashboard: https://developer.mend.io/github/hyperi-io
-
-#### Phase 1: Org Preset + Per-Repo Config
-
-- [x] Org preset repo `hyperi-io/renovate-config` with `default.json`
-  - `config:recommended`, weekly schedule, grouped PRs by ecosystem
-  - Automerge patch/digest + GitHub Actions, `chore(deps):` prefix
-  - Docker digest pinning, Actions SHA pinning
-  - PR limits: 5/hour, 10 concurrent
-- [x] `hyperi-ci init` generates `renovate.json` (extends org preset)
-- [x] Added `renovate.json` to active repos:
-  - hyperi-ci, hyperi-pylib, hyperi-rustlib, dfe-engine, dfe-receiver, dfe-loader
-- [x] DESIGN.md updated with Renovate architecture and docs
-
-#### Phase 2: Verify Renovate PRs
-
-- [ ] dfe-receiver — verify Renovate PRs trigger CI and pass
-- [ ] dfe-loader — verify Renovate PRs trigger CI and pass
-- [ ] hyperi-ci — verify self-hosting CI works with Renovate PRs
-- [ ] hyperi-pylib — verify Renovate PRs pass quality+test
-- [ ] dfe-engine — verify Renovate PRs pass quality+test
-- [ ] hyperi-rustlib — verify Renovate PRs pass quality+test
-
-#### Phase 3: Dependabot Cleanup
-
-- [x] Dependabot already disabled on all active repos (confirmed 2026-03-16)
-- [x] No `.github/dependabot.yml` files exist in any repo
-- [x] Renovate `config:recommended` includes `osvVulnerabilityAlerts` (same CVE coverage)
-
-#### Notes
-
-- Mend hosted app requires per-repo `renovate.json` — `inheritConfig` is disabled
-- Org preset: `hyperi-io/renovate-config/default.json`
-- Docs: https://docs.renovatebot.com/configuration-options/
-- Repos without `renovate.json` won't get PRs — add via `hyperi-ci init` or manually
-
 ### Other Active Tasks
 
 - [ ] Address non-blocking quality warnings across all three consumer projects
@@ -166,6 +54,19 @@ Dashboard: https://developer.mend.io/github/hyperi-io
 ---
 
 ## Completed
+
+- [x] **Split-Runner Architecture + Release Gating**
+  - Split-runner build matrix in rust-ci.yml (x64 ARC + arm64 native)
+  - Two-branch release config in all workflows (main=dev, release=GA)
+  - `init-release` CLI command (`init_release.py` + registered in `cli.py`)
+  - `config/runners.yaml` SSOT, `docs/DESIGN.md` updated
+  - Consumer projects tested: hyperi-rustlib, dfe-loader, dfe-receiver, hyperi-pylib, dfe-engine
+
+- [x] **Fix: Branch names with `/` break build artifact paths**
+  - `_detect_version()` in Rust and Go build handlers used `GITHUB_REF_NAME` raw
+  - Branch names like `fix/reconcile-release` created subdirectories in `dist/`
+  - Added `sanitize_ref_name()` in `common.py` — replaces `/` with `-`
+  - Applied to both Rust and Go `_detect_version()` functions
 
 - [x] Add hyperi-ai standards submodule
 - [x] Create reusable workflow templates (python-ci, rust-ci, ts-ci, go-ci)
