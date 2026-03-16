@@ -1,3 +1,13 @@
+## [1.1.23](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.22...v1.1.23) (2026-03-16)
+
+
+### Bug Fixes
+
+* add R2 binary publish to downloads.hyperi.io ([edce4b6](https://github.com/hyperi-io/hyperi-ci/commit/edce4b6e00866ef072fb2ce940e81a5cb0af81f2))
+* move plugin repos to deprecated in STATE.md ([51664f7](https://github.com/hyperi-io/hyperi-ci/commit/51664f7f56d09d1e60e7e36c3147476bc8123bb3))
+* sanitize branch names with slashes in build artifact paths ([5cb4cc9](https://github.com/hyperi-io/hyperi-ci/commit/5cb4cc991f740eeb141e9f55c59e2c57388b7a7b))
+* set packaged defaults binaries destination to r2-binaries ([716d224](https://github.com/hyperi-io/hyperi-ci/commit/716d224b3233afe11ffeda86f06593ba84b8a0c6))
+
 ## [1.1.9-dev.16](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.15...v1.1.9-dev.16) (2026-03-16)
 
 
