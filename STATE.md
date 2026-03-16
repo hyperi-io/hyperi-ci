@@ -110,6 +110,43 @@ uv run hyperi-ci check --full        # Pre-push: quality + test + build (native 
 uv run hyperi-ci check --quick       # Pre-push: quality only
 ```
 
+## Consumer Projects
+
+### Fully Migrated (GA — publish to GitHub Releases + R2)
+
+These are stable, production-grade Rust CLI apps. Binaries publish to both
+GitHub Releases (OSS) and Cloudflare R2 (`downloads.hyperi.io`) via
+`publish.target: both` and `publish.binaries: both`.
+
+- **dfe-receiver** — Rust binary, single crate
+- **dfe-loader** — Rust binary, single crate, also builds Docker + Helm
+- **dfe-archiver** — Rust binary, 3-crate workspace
+
+### Fully Migrated (GA — publish to public registries)
+
+- **hyperi-rustlib** — Rust library, publishes to crates.io
+- **hyperi-pylib** — Python library, publishes to PyPI
+
+### Fully Migrated (GA — internal only)
+
+- **dfe-engine** — Python app, publishes to JFrog PyPI
+
+### Not Yet Migrated (Pre-GA)
+
+These have release branches but are not yet on hyperi-ci. When migrated,
+publish to GitHub Releases only (not R2) until GA.
+
+- **dfe-fetcher** — Rust binary
+- **dfe-transform-elastic** — Rust binary
+- **dfe-transform-vector** — Rust binary
+- **dfe-transform-vrl** — Rust binary
+- **dfe-transform-wasm** — Rust binary
+
+### Deprecated (Do Not Migrate)
+
+- **dfe-kafka-topic-scaler** — to be archived
+- **dfe-control-plane** — to be archived
+
 ## Licensing
 
 Proprietary — HYPERI PTY LIMITED.
