@@ -6,54 +6,6 @@ This is the **single source of truth** for all tasks and progress.
 
 ## Active Tasks
 
-### Split-Runner Architecture + Release Gating
-
-Multi-arch builds via native runners per architecture instead of cross-compilation sysroot.
-`main` = dev pre-releases (x64 only), `release` = GA releases (x64 + arm64).
-
-#### Phase 1: Documentation + SSOT
-
-- [x] Update `config/versions.yaml` — add `upload-artifact: v7`, `download-artifact: v8`
-- [x] Update `scripts/update-versions.py` — add upload/download-artifact to `_ACTION_OWNERS`
-- [x] Apply version updates to all 4 workflow files (v4 → v7)
-- [ ] Update `TODO.md` with full WBS (this section)
-- [ ] Update `docs/DESIGN.md` — replace cross-compile section with split-runner architecture
-- [ ] Create `config/runners.yaml` — runner SSOT per architecture
-
-#### Phase 2: Workflow Templates
-
-- [ ] `rust-ci.yml` — add setup job, build matrix (x64 ARC + arm64 native), remove cross-compile step
-- [ ] `python-ci.yml` — update Release/Publish conditions for main + release branches
-- [ ] `go-ci.yml` — update Release/Publish conditions for main + release branches
-- [ ] `ts-ci.yml` — update Release/Publish conditions for main + release branches
-- [ ] All workflows — Release on main (prerelease) + release (GA), Publish only on release
-
-#### Phase 3: Release Configuration
-
-- [ ] Update `init.py` `_render_releaserc()` — two-branch config (main=dev, release=GA)
-- [ ] Update Release job conditions in all workflows (main || release)
-- [ ] Publish job only on `release` branch
-
-#### Phase 4: CLI — `init-release` Command
-
-- [ ] Create `src/hyperi_ci/init_release.py` — init-release implementation
-- [ ] Register `init-release` in `cli.py`
-- [ ] Integrate with `migrate.py`
-
-#### Phase 5: Commit + Push
-
-- [ ] Commit GH Actions version fix (already staged)
-- [ ] Commit architecture changes
-- [ ] Push and verify hyperi-ci CI passes
-
-#### Phase 6: Test with Consumer Projects
-
-- [ ] hyperi-rustlib — `init-release`, verify dev + GA flow
-- [ ] dfe-loader — `init-release`, verify x64 dev build, x64+arm64 GA build
-- [ ] dfe-receiver — `init-release`, verify CI passes
-- [ ] hyperi-pylib — `init-release`, verify CI passes
-- [ ] dfe-engine — `init-release`, verify CI passes
-
 ### Other Active Tasks
 
 - [ ] Address non-blocking quality warnings across all three consumer projects
@@ -102,6 +54,19 @@ Multi-arch builds via native runners per architecture instead of cross-compilati
 ---
 
 ## Completed
+
+- [x] **Split-Runner Architecture + Release Gating**
+  - Split-runner build matrix in rust-ci.yml (x64 ARC + arm64 native)
+  - Two-branch release config in all workflows (main=dev, release=GA)
+  - `init-release` CLI command (`init_release.py` + registered in `cli.py`)
+  - `config/runners.yaml` SSOT, `docs/DESIGN.md` updated
+  - Consumer projects tested: hyperi-rustlib, dfe-loader, dfe-receiver, hyperi-pylib, dfe-engine
+
+- [x] **Fix: Branch names with `/` break build artifact paths**
+  - `_detect_version()` in Rust and Go build handlers used `GITHUB_REF_NAME` raw
+  - Branch names like `fix/reconcile-release` created subdirectories in `dist/`
+  - Added `sanitize_ref_name()` in `common.py` — replaces `/` with `-`
+  - Applied to both Rust and Go `_detect_version()` functions
 
 - [x] Add hyperi-ai standards submodule
 - [x] Create reusable workflow templates (python-ci, rust-ci, ts-ci, go-ci)

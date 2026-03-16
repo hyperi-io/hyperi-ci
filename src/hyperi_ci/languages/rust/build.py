@@ -23,7 +23,16 @@ import subprocess
 import sys
 from pathlib import Path
 
-from hyperi_ci.common import error, group, info, is_linux, is_macos, success, warn
+from hyperi_ci.common import (
+    error,
+    group,
+    info,
+    is_linux,
+    is_macos,
+    sanitize_ref_name,
+    success,
+    warn,
+)
 from hyperi_ci.config import CIConfig
 
 _TARGET_MAP = {
@@ -809,7 +818,7 @@ def _detect_version() -> str:
     for var in ("RUST_VERSION", "CI_COMMIT_TAG", "GITHUB_REF_NAME"):
         val = os.environ.get(var, "")
         if val:
-            return val
+            return sanitize_ref_name(val)
 
     result = subprocess.run(
         ["cargo", "metadata", "--format-version", "1", "--no-deps"],

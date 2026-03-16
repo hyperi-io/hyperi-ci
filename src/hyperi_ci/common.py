@@ -28,6 +28,15 @@ from hyperi_pylib.logger import setup as _setup_logger
 _setup_logger(ci_mode=None, mask_sensitive=True)
 
 
+def sanitize_ref_name(ref: str) -> str:
+    """Sanitize a git ref name for use in file paths.
+
+    Replaces '/' (from branch names like 'fix/reconcile-release') with '-'
+    so the ref can be safely used in artifact filenames.
+    """
+    return ref.replace("/", "-")
+
+
 def is_ci() -> bool:
     """Detect if running in a CI/runner environment."""
     return any(
