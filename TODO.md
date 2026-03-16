@@ -78,32 +78,31 @@ Multi-arch builds via native runners per architecture instead of cross-compilati
 
 ### Renovate Dependency Management (Org-Wide)
 
-Renovate GitHub App installed on `hyperi-io` org (2026-03-13, ID 115954764),
-`repository_selection: all`, correct permissions. But zero activity — no
-onboarding PRs, no dependency PRs. Needs config to start working.
+Mend Renovate GitHub App installed on `hyperi-io` org (2026-03-13, ID 115954764),
+`repository_selection: all`. Org preset at `hyperi-io/renovate-config`.
 
-#### Phase 1: Org-Level Config
+Dashboard: https://developer.mend.io/github/hyperi-io
 
-- [ ] Create `hyperi-io/.github` repo (org-level shared config repo)
-- [ ] Add `renovate.json` with org-wide defaults:
-  - `extends: ["config:recommended"]`
-  - Schedule: weekdays only, group minor+patch
-  - Auto-merge: patch updates with passing CI
-  - Labels: `dependencies`
-  - Branch prefix: `renovate/`
-  - Rust: enable cargo lockfile maintenance
-  - Python: enable uv.lock maintenance
-  - TypeScript: enable package-lock.json maintenance
-  - Ignore: `hyperi-ai` submodule (private, managed manually)
-- [ ] Verify Renovate creates onboarding PRs across repos
+#### Phase 1: Org Preset + Per-Repo Config
 
-#### Phase 2: Per-Repo Overrides (if needed)
+- [x] Org preset repo `hyperi-io/renovate-config` with `default.json`
+  - `config:recommended`, weekly schedule, grouped PRs by ecosystem
+  - Automerge patch/digest + GitHub Actions, `chore(deps):` prefix
+  - Docker digest pinning, Actions SHA pinning
+  - PR limits: 5/hour, 10 concurrent
+- [x] `hyperi-ci init` generates `renovate.json` (extends org preset)
+- [x] Added `renovate.json` to active repos:
+  - hyperi-ci, hyperi-pylib, hyperi-rustlib, dfe-engine, dfe-receiver, dfe-loader
+- [x] DESIGN.md updated with Renovate architecture and docs
+
+#### Phase 2: Verify Renovate PRs
 
 - [ ] dfe-receiver — verify Renovate PRs trigger CI and pass
 - [ ] dfe-loader — verify Renovate PRs trigger CI and pass
 - [ ] hyperi-ci — verify self-hosting CI works with Renovate PRs
 - [ ] hyperi-pylib — verify Renovate PRs pass quality+test
 - [ ] dfe-engine — verify Renovate PRs pass quality+test
+- [ ] hyperi-rustlib — verify Renovate PRs pass quality+test
 
 #### Phase 3: Disable Dependabot
 
@@ -113,10 +112,10 @@ onboarding PRs, no dependency PRs. Needs config to start working.
 
 #### Notes
 
-- Mend Renovate dashboard: https://developer.mend.io/ (login with GitHub)
-- Check dashboard if Renovate still not creating PRs after config is added
-- Renovate docs: https://docs.renovatebot.com/configuration-options/
-- The `hyperi-io/.github` repo pattern applies config to ALL org repos automatically
+- Mend hosted app requires per-repo `renovate.json` — `inheritConfig` is disabled
+- Org preset: `hyperi-io/renovate-config/default.json`
+- Docs: https://docs.renovatebot.com/configuration-options/
+- Repos without `renovate.json` won't get PRs — add via `hyperi-ci init` or manually
 
 ### Other Active Tasks
 
