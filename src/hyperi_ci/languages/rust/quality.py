@@ -37,6 +37,19 @@ def _get_tool_mode(tool: str, config: CIConfig) -> str:
     return str(config.get(f"quality.rust.{tool}", "blocking"))
 
 
+def _has_cargo_lint_config() -> bool:
+    """Check if project has its own clippy lint config in Cargo.toml.
+
+    Projects with [workspace.lints.clippy] or [lints.clippy] manage
+    their own lint levels — we should not override with -D warnings.
+    """
+    cargo_toml = Path("Cargo.toml")
+    if not cargo_toml.exists():
+        return False
+    content = cargo_toml.read_text()
+    return "[workspace.lints.clippy]" in content or "[lints.clippy]" in content
+
+
 def _resolve_tool_cmd(cmd: list[str], use_uvx: bool = False) -> list[str]:
     """Resolve tool command, using uvx for standalone tools not on PATH."""
     if shutil.which(cmd[0]):
@@ -113,6 +126,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # cargo clippy — run per feature set to catch issues with mutually
     # exclusive features (e.g. jemalloc vs mimalloc)
     mode = _get_tool_mode("clippy", config)
+    has_workspace_lints = _has_cargo_lint_config()
     features = (extra_env or {}).get("RUST_FEATURES", "all")
     feature_sets = _split_feature_sets(features)
     for feature_set in feature_sets:
@@ -121,7 +135,13 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             clippy_cmd.append("--all-features")
         elif feature_set != "default":
             clippy_cmd.extend(["--features", feature_set])
-        clippy_cmd.extend(["--", "-D", "warnings", "-D", "clippy::dbg_macro"])
+        # If the project has its own [workspace.lints] or [lints.clippy],
+        # respect it — only add baseline -D warnings for projects without
+        # lint configuration
+        clippy_args = ["-D", "clippy::dbg_macro"]
+        if not has_workspace_lints:
+            clippy_args = ["-D", "warnings"] + clippy_args
+        clippy_cmd.extend(["--"] + clippy_args)
         label = f"cargo clippy ({feature_set})"
         if not _run_tool(label, clippy_cmd, mode):
             had_failure = True
