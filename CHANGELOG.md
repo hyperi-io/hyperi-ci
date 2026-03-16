@@ -1,3 +1,10 @@
+## [1.1.20](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.19...v1.1.20) (2026-03-16)
+
+
+### Bug Fixes
+
+* set packaged defaults binaries destination to r2-binaries ([4d721da](https://github.com/hyperi-io/hyperi-ci/commit/4d721daa41a490b596633520c50a82ecc4fe39cd))
+
 ## [1.1.19](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.18...v1.1.19) (2026-03-13)
 
 
