@@ -37,6 +37,8 @@ _LANGUAGE_WORKFLOW_MAP: dict[str, str] = {
     "golang": "go-ci.yml",
 }
 
+_RENOVATE_PRESET = "github>hyperi-io/renovate-config"
+
 _DEPRECATED_CONFIG_NAMES = (
     ".hypersec-ci.yaml",
     ".hypersec-ci.yml",
@@ -470,6 +472,28 @@ def _has_releaserc(project_dir: Path) -> bool:
     return any((project_dir / name).exists() for name in candidates)
 
 
+def _has_renovate_config(project_dir: Path) -> bool:
+    """Check if Renovate configuration already exists."""
+    candidates = [
+        "renovate.json",
+        "renovate.json5",
+        ".renovaterc",
+        ".renovaterc.json",
+    ]
+    return any((project_dir / name).exists() for name in candidates)
+
+
+def _render_renovate_json() -> str:
+    """Render renovate.json extending the org preset."""
+    import json
+
+    config = {
+        "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+        "extends": [_RENOVATE_PRESET],
+    }
+    return json.dumps(config, indent=2) + "\n"
+
+
 def init_project(
     project_dir: Path,
     *,
@@ -562,6 +586,14 @@ def init_project(
             files_written += 1
     else:
         info("  Skipped .releaserc (already exists)")
+
+    if not _has_renovate_config(project_dir):
+        renovate_content = _render_renovate_json()
+        renovate_path = project_dir / "renovate.json"
+        if _write_file(renovate_path, renovate_content, force=force):
+            files_written += 1
+    else:
+        info("  Skipped renovate.json (already exists)")
 
     if files_written == 0:
         warn("No files written (all already exist)")

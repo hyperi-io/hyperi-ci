@@ -13,10 +13,12 @@ from hyperi_ci.init import (
     _detect_python_build_type,
     _detect_rust_workspace,
     _has_releaserc,
+    _has_renovate_config,
     _makefile_has_ci_targets,
     _render_hyperi_ci_yaml,
     _render_makefile,
     _render_releaserc,
+    _render_renovate_json,
     _render_workflow,
     init_project,
 )
@@ -236,3 +238,64 @@ class TestInitProject:
         (tmp_path / ".hypersec-ci.yaml").write_text("old: true\n")
         rc = init_project(tmp_path)
         assert rc == 0
+
+    def test_generates_renovate_json(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text("[project]\n")
+        rc = init_project(tmp_path)
+        assert rc == 0
+        assert (tmp_path / "renovate.json").exists()
+
+    def test_skips_renovate_json_when_exists(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text("[project]\n")
+        existing = '{"extends": ["local"]}\n'
+        (tmp_path / "renovate.json").write_text(existing)
+        rc = init_project(tmp_path)
+        assert rc == 0
+        assert (tmp_path / "renovate.json").read_text() == existing
+
+    def test_skips_renovaterc_json_when_exists(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text("[project]\n")
+        (tmp_path / ".renovaterc.json").write_text("{}\n")
+        rc = init_project(tmp_path)
+        assert rc == 0
+        assert not (tmp_path / "renovate.json").exists()
+
+
+class TestHasRenovateConfig:
+    """Renovate config detection."""
+
+    def test_renovate_json_detected(self, tmp_path: Path) -> None:
+        (tmp_path / "renovate.json").write_text("{}\n")
+        assert _has_renovate_config(tmp_path) is True
+
+    def test_renovaterc_detected(self, tmp_path: Path) -> None:
+        (tmp_path / ".renovaterc").write_text("{}\n")
+        assert _has_renovate_config(tmp_path) is True
+
+    def test_renovaterc_json_detected(self, tmp_path: Path) -> None:
+        (tmp_path / ".renovaterc.json").write_text("{}\n")
+        assert _has_renovate_config(tmp_path) is True
+
+    def test_none_found(self, tmp_path: Path) -> None:
+        assert _has_renovate_config(tmp_path) is False
+
+
+class TestRenderRenovateJson:
+    """Renovate JSON rendering."""
+
+    def test_extends_org_preset(self) -> None:
+        content = _render_renovate_json()
+        assert "github>hyperi-io/renovate-config" in content
+
+    def test_valid_json(self) -> None:
+        import json
+
+        data = json.loads(_render_renovate_json())
+        assert "$schema" in data
+        assert "extends" in data
+
+    def test_minimal_config(self) -> None:
+        import json
+
+        data = json.loads(_render_renovate_json())
+        assert len(data) == 2
