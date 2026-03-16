@@ -19,7 +19,7 @@ import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
-from hyperi_ci.common import error, group, info, success
+from hyperi_ci.common import error, group, info, sanitize_ref_name, success
 from hyperi_ci.config import CIConfig
 
 _TARGET_SHORTCUTS = {
@@ -77,7 +77,7 @@ def _detect_version() -> str:
     for var in ("GO_VERSION", "CI_COMMIT_TAG", "GITHUB_REF_NAME"):
         val = os.environ.get(var, "")
         if val:
-            return val
+            return sanitize_ref_name(val)
     return "dev"
 
 

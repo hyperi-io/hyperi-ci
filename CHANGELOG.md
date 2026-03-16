@@ -1,37 +1,36 @@
-## [1.1.22](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.21...v1.1.22) (2026-03-16)
+## [1.1.9-dev.16](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.15...v1.1.9-dev.16) (2026-03-16)
 
 
 ### Bug Fixes
 
-* respect project lint config in rust clippy ([2053fc1](https://github.com/hyperi-io/hyperi-ci/commit/2053fc18000c3abc603714a4eb098f6fc7f432d2))
+* sanitize branch names with slashes in build artifact paths ([5cb4cc9](https://github.com/hyperi-io/hyperi-ci/commit/5cb4cc991f740eeb141e9f55c59e2c57388b7a7b))
 
-## [1.1.21](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.20...v1.1.21) (2026-03-16)
-
-
-### Bug Fixes
-
-* add renovate config generation to init command ([b783883](https://github.com/hyperi-io/hyperi-ci/commit/b78388341dd523123f95624bf3cc52339e0c5cb1))
-
-## [1.1.20](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.19...v1.1.20) (2026-03-16)
+## [1.1.9-dev.15](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.14...v1.1.9-dev.15) (2026-03-16)
 
 
 ### Bug Fixes
 
-* set packaged defaults binaries destination to r2-binaries ([4d721da](https://github.com/hyperi-io/hyperi-ci/commit/4d721daa41a490b596633520c50a82ecc4fe39cd))
+* move plugin repos to deprecated in STATE.md ([51664f7](https://github.com/hyperi-io/hyperi-ci/commit/51664f7f56d09d1e60e7e36c3147476bc8123bb3))
 
-## [1.1.19](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.18...v1.1.19) (2026-03-13)
-
-
-### Bug Fixes
-
-* add R2 binary publish to downloads.hyperi.io ([fe219fb](https://github.com/hyperi-io/hyperi-ci/commit/fe219fb182736a604edf70cda2ae989ec7a26011))
-
-## [1.1.18](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.17...v1.1.18) (2026-03-13)
+## [1.1.9-dev.14](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.13...v1.1.9-dev.14) (2026-03-16)
 
 
 ### Bug Fixes
 
-* merge main into release for GA v1.1.18 ([c3bbc78](https://github.com/hyperi-io/hyperi-ci/commit/c3bbc784d5da36ff9b214f4f750906036c83c847))
+* set packaged defaults binaries destination to r2-binaries ([716d224](https://github.com/hyperi-io/hyperi-ci/commit/716d224b3233afe11ffeda86f06593ba84b8a0c6))
+
+## [1.1.9-dev.13](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.12...v1.1.9-dev.13) (2026-03-13)
+
+
+### Bug Fixes
+
+* add R2 binary publish to downloads.hyperi.io ([edce4b6](https://github.com/hyperi-io/hyperi-ci/commit/edce4b6e00866ef072fb2ce940e81a5cb0af81f2))
+
+## [1.1.9-dev.12](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.11...v1.1.9-dev.12) (2026-03-13)
+
+
+### Bug Fixes
+
 * skip jfrog binary publish when credentials missing ([61bd1d9](https://github.com/hyperi-io/hyperi-ci/commit/61bd1d99c025c6252daa3a4e81133c9c4163ab16))
 
 ## [1.1.9-dev.11](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.10...v1.1.9-dev.11) (2026-03-12)
