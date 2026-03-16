@@ -1,3 +1,10 @@
+## [1.1.22](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.21...v1.1.22) (2026-03-16)
+
+
+### Bug Fixes
+
+* respect project lint config in rust clippy ([2053fc1](https://github.com/hyperi-io/hyperi-ci/commit/2053fc18000c3abc603714a4eb098f6fc7f432d2))
+
 ## [1.1.21](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.20...v1.1.21) (2026-03-16)
 
 
