@@ -1,3 +1,10 @@
+## [1.1.9-dev.16](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.15...v1.1.9-dev.16) (2026-03-16)
+
+
+### Bug Fixes
+
+* sanitize branch names with slashes in build artifact paths ([5cb4cc9](https://github.com/hyperi-io/hyperi-ci/commit/5cb4cc991f740eeb141e9f55c59e2c57388b7a7b))
+
 ## [1.1.9-dev.15](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.14...v1.1.9-dev.15) (2026-03-16)
 
 
