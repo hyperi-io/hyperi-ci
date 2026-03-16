@@ -1,3 +1,10 @@
+## [1.1.21](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.20...v1.1.21) (2026-03-16)
+
+
+### Bug Fixes
+
+* add renovate config generation to init command ([b783883](https://github.com/hyperi-io/hyperi-ci/commit/b78388341dd523123f95624bf3cc52339e0c5cb1))
+
 ## [1.1.20](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.19...v1.1.20) (2026-03-16)
 
 
