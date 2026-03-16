@@ -74,7 +74,8 @@ Multi-arch builds via native runners per architecture instead of cross-compilati
   - [x] Logo uploaded to R2 `_assets/logo.svg`
   - [x] End-to-end test verified (upload → serve → directory listing)
   - [x] hyperi-ci pushed and published to PyPI
-- [ ] First real CI-driven R2 upload (next dfe-receiver code change to release branch)
+- [x] First real CI-driven R2 upload — dfe-receiver v1.13.9 published to downloads.hyperi.io
+- [x] Fix: packaged defaults.yaml had `jfrog-generic` instead of `r2-binaries` (hyperi-ci v1.1.20)
 
 ### Renovate Dependency Management (Org-Wide)
 
@@ -104,11 +105,11 @@ Dashboard: https://developer.mend.io/github/hyperi-io
 - [ ] dfe-engine — verify Renovate PRs pass quality+test
 - [ ] hyperi-rustlib — verify Renovate PRs pass quality+test
 
-#### Phase 3: Disable Dependabot
+#### Phase 3: Dependabot Cleanup
 
-- [ ] Disable Dependabot alerts on all repos (Renovate replaces it)
-- [ ] Remove any `.github/dependabot.yml` files from repos
-- [ ] Verify Renovate vulnerability alerts cover the same scope
+- [x] Dependabot already disabled on all active repos (confirmed 2026-03-16)
+- [x] No `.github/dependabot.yml` files exist in any repo
+- [x] Renovate `config:recommended` includes `osvVulnerabilityAlerts` (same CVE coverage)
 
 #### Notes
 
