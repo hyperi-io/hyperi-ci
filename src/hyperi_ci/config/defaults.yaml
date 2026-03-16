@@ -195,7 +195,7 @@ publish:
     cargo: jfrog-cargo         # hyperi-cargo-local
     container: jfrog-docker    # hypersec.jfrog.io/hyperi-docker-local
     helm: jfrog-helm           # oci://hypersec.jfrog.io/hyperi-helm-local
-    binaries: jfrog-generic    # hyperi-binaries
+    binaries: r2-binaries      # downloads.hyperi.io (Cloudflare R2)
     go: jfrog-go               # hyperi-go-local
 
   # oss: Public registries
