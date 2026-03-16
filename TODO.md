@@ -76,6 +76,48 @@ Multi-arch builds via native runners per architecture instead of cross-compilati
   - [x] hyperi-ci pushed and published to PyPI
 - [ ] First real CI-driven R2 upload (next dfe-receiver code change to release branch)
 
+### Renovate Dependency Management (Org-Wide)
+
+Renovate GitHub App installed on `hyperi-io` org (2026-03-13, ID 115954764),
+`repository_selection: all`, correct permissions. But zero activity — no
+onboarding PRs, no dependency PRs. Needs config to start working.
+
+#### Phase 1: Org-Level Config
+
+- [ ] Create `hyperi-io/.github` repo (org-level shared config repo)
+- [ ] Add `renovate.json` with org-wide defaults:
+  - `extends: ["config:recommended"]`
+  - Schedule: weekdays only, group minor+patch
+  - Auto-merge: patch updates with passing CI
+  - Labels: `dependencies`
+  - Branch prefix: `renovate/`
+  - Rust: enable cargo lockfile maintenance
+  - Python: enable uv.lock maintenance
+  - TypeScript: enable package-lock.json maintenance
+  - Ignore: `hyperi-ai` submodule (private, managed manually)
+- [ ] Verify Renovate creates onboarding PRs across repos
+
+#### Phase 2: Per-Repo Overrides (if needed)
+
+- [ ] dfe-receiver — verify Renovate PRs trigger CI and pass
+- [ ] dfe-loader — verify Renovate PRs trigger CI and pass
+- [ ] hyperi-ci — verify self-hosting CI works with Renovate PRs
+- [ ] hyperi-pylib — verify Renovate PRs pass quality+test
+- [ ] dfe-engine — verify Renovate PRs pass quality+test
+
+#### Phase 3: Disable Dependabot
+
+- [ ] Disable Dependabot alerts on all repos (Renovate replaces it)
+- [ ] Remove any `.github/dependabot.yml` files from repos
+- [ ] Verify Renovate vulnerability alerts cover the same scope
+
+#### Notes
+
+- Mend Renovate dashboard: https://developer.mend.io/ (login with GitHub)
+- Check dashboard if Renovate still not creating PRs after config is added
+- Renovate docs: https://docs.renovatebot.com/configuration-options/
+- The `hyperi-io/.github` repo pattern applies config to ALL org repos automatically
+
 ### Other Active Tasks
 
 - [ ] Address non-blocking quality warnings across all three consumer projects
