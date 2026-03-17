@@ -58,3 +58,36 @@ def _parse_latest_version(
     latest_stable = str(max(stable)) if stable else None
     latest_pre = str(max(all_versions)) if all_versions else None
     return latest_stable, latest_pre
+
+
+def _build_upgrade_cmd(
+    *,
+    uv_path: str | None,
+    version: str | None,
+    pre: bool,
+) -> list[str]:
+    """Build the subprocess command for upgrading hyperi-ci.
+
+    Args:
+        uv_path: Path to uv binary, or None to use pip.
+        version: Specific version to install, or None for latest.
+        pre: Include pre-releases when resolving latest.
+
+    Returns:
+        Command as list of strings.
+    """
+    if uv_path:
+        if version:
+            return [uv_path, "tool", "install", "--force", f"hyperi-ci=={version}"]
+        cmd = [uv_path, "tool", "upgrade"]
+        if pre:
+            cmd.append("--prerelease=allow")
+        cmd.append("hyperi-ci")
+        return cmd
+
+    cmd = [sys.executable, "-m", "pip", "install", "--upgrade"]
+    if pre and not version:
+        cmd.append("--pre")
+    pkg = f"hyperi-ci=={version}" if version else "hyperi-ci"
+    cmd.append(pkg)
+    return cmd

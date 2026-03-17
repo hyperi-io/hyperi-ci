@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
-from hyperi_ci.upgrade import _parse_latest_version
+from hyperi_ci.upgrade import _build_upgrade_cmd, _parse_latest_version
 
 
 class TestParseLatestVersion:
@@ -52,3 +52,65 @@ class TestParseLatestVersion:
         releases = {"1.0.0": [{}], "1.1.0": []}
         stable, _ = _parse_latest_version(releases)
         assert stable == "1.0.0"
+
+
+class TestBuildUpgradeCmd:
+    """Build the correct upgrade command based on install method."""
+
+    def test_uv_latest(self) -> None:
+        cmd = _build_upgrade_cmd(uv_path="/usr/bin/uv", version=None, pre=False)
+        assert cmd == ["/usr/bin/uv", "tool", "upgrade", "hyperi-ci"]
+
+    def test_uv_pinned(self) -> None:
+        cmd = _build_upgrade_cmd(uv_path="/usr/bin/uv", version="1.2.0", pre=False)
+        assert cmd == [
+            "/usr/bin/uv",
+            "tool",
+            "install",
+            "--force",
+            "hyperi-ci==1.2.0",
+        ]
+
+    def test_uv_pre(self) -> None:
+        cmd = _build_upgrade_cmd(uv_path="/usr/bin/uv", version=None, pre=True)
+        assert cmd == [
+            "/usr/bin/uv",
+            "tool",
+            "upgrade",
+            "--prerelease=allow",
+            "hyperi-ci",
+        ]
+
+    def test_pip_latest(self) -> None:
+        cmd = _build_upgrade_cmd(uv_path=None, version=None, pre=False)
+        assert cmd == [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--upgrade",
+            "hyperi-ci",
+        ]
+
+    def test_pip_pinned(self) -> None:
+        cmd = _build_upgrade_cmd(uv_path=None, version="1.2.0", pre=False)
+        assert cmd == [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--upgrade",
+            "hyperi-ci==1.2.0",
+        ]
+
+    def test_pip_pre(self) -> None:
+        cmd = _build_upgrade_cmd(uv_path=None, version=None, pre=True)
+        assert cmd == [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--upgrade",
+            "--pre",
+            "hyperi-ci",
+        ]
