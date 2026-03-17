@@ -14,7 +14,12 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
-from hyperi_ci.upgrade import _build_upgrade_cmd, _parse_latest_version
+from hyperi_ci.upgrade import (
+    CHECK_INTERVAL,
+    _build_upgrade_cmd,
+    _parse_latest_version,
+    _should_auto_update,
+)
 
 
 class TestParseLatestVersion:
@@ -114,3 +119,96 @@ class TestBuildUpgradeCmd:
             "--pre",
             "hyperi-ci",
         ]
+
+
+class TestShouldAutoUpdate:
+    """Gate checks for auto-update."""
+
+    def test_disabled_by_env(self) -> None:
+        with patch.dict(os.environ, {"HYPERCI_AUTO_UPDATE": "false"}):
+            assert _should_auto_update() is False
+
+    def test_disabled_in_ci(self) -> None:
+        env = {k: v for k, v in os.environ.items() if k not in ("HYPERCI_AUTO_UPDATE",)}
+        env["CI"] = "true"
+        with patch.dict(os.environ, env, clear=True):
+            assert _should_auto_update() is False
+
+    def test_enabled_in_ci_with_explicit_opt_in(self) -> None:
+        env = {k: v for k, v in os.environ.items() if k not in ("_HYPERCI_UPGRADING",)}
+        env.update({"CI": "true", "HYPERCI_AUTO_UPDATE": "true"})
+        with patch.dict(os.environ, env, clear=True):
+            with patch(
+                "hyperi_ci.upgrade._timestamp_age",
+                return_value=CHECK_INTERVAL + 1,
+            ):
+                assert _should_auto_update() is True
+
+    def test_disabled_by_recursion_guard(self) -> None:
+        with patch.dict(os.environ, {"_HYPERCI_UPGRADING": "1"}):
+            assert _should_auto_update() is False
+
+    def test_skipped_when_recently_checked(self, tmp_path: Path) -> None:
+        with patch("hyperi_ci.upgrade.TIMESTAMP_FILE", tmp_path / "ts"):
+            ts_file = tmp_path / "ts"
+            ts_file.write_text(str(time.time()))
+            env = {
+                k: v
+                for k, v in os.environ.items()
+                if k
+                not in (
+                    "CI",
+                    "GITHUB_ACTIONS",
+                    "GITLAB_CI",
+                    "JENKINS_URL",
+                    "BUILDKITE",
+                    "_HYPERCI_UPGRADING",
+                    "HYPERCI_AUTO_UPDATE",
+                )
+            }
+            with patch.dict(os.environ, env, clear=True):
+                assert _should_auto_update() is False
+
+    def test_allowed_when_check_is_stale(self, tmp_path: Path) -> None:
+        with patch("hyperi_ci.upgrade.TIMESTAMP_FILE", tmp_path / "ts"):
+            ts_file = tmp_path / "ts"
+            ts_file.write_text(str(time.time() - CHECK_INTERVAL - 1))
+            env = {
+                k: v
+                for k, v in os.environ.items()
+                if k
+                not in (
+                    "CI",
+                    "GITHUB_ACTIONS",
+                    "GITLAB_CI",
+                    "JENKINS_URL",
+                    "BUILDKITE",
+                    "_HYPERCI_UPGRADING",
+                    "HYPERCI_AUTO_UPDATE",
+                )
+            }
+            with patch.dict(os.environ, env, clear=True):
+                assert _should_auto_update() is True
+
+    def test_allowed_when_no_timestamp(self, tmp_path: Path) -> None:
+        with patch("hyperi_ci.upgrade.TIMESTAMP_FILE", tmp_path / "nonexistent"):
+            env = {
+                k: v
+                for k, v in os.environ.items()
+                if k
+                not in (
+                    "CI",
+                    "GITHUB_ACTIONS",
+                    "GITLAB_CI",
+                    "JENKINS_URL",
+                    "BUILDKITE",
+                    "_HYPERCI_UPGRADING",
+                    "HYPERCI_AUTO_UPDATE",
+                )
+            }
+            with patch.dict(os.environ, env, clear=True):
+                assert _should_auto_update() is True
+
+    def test_skipped_when_command_is_upgrade(self) -> None:
+        with patch("sys.argv", ["hyperi-ci", "upgrade"]):
+            assert _should_auto_update() is False
