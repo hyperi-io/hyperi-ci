@@ -1,3 +1,16 @@
+## [1.1.9-dev.17](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.16...v1.1.9-dev.17) (2026-03-17)
+
+
+### Bug Fixes
+
+* add auto-update gating logic ([f3255ec](https://github.com/hyperi-io/hyperi-ci/commit/f3255ec7e7fd43464f5b67fd4e3b210f8f8c6850))
+* add install method detection and command building ([391f102](https://github.com/hyperi-io/hyperi-ci/commit/391f1022b7531e62d0fcd7acc7a454347a9ba0bf))
+* add maybe_auto_update entry point ([8fdbd26](https://github.com/hyperi-io/hyperi-ci/commit/8fdbd2650aa656c4bcd5cb74a0bc1791e403ab29))
+* add PyPI version fetch with timeout ([49819f3](https://github.com/hyperi-io/hyperi-ci/commit/49819f3530efb0a105d55305f4c86e7f5210dcb3))
+* add upgrade command and auto-update to CLI ([4c5aed5](https://github.com/hyperi-io/hyperi-ci/commit/4c5aed57c1c8277978916872dc1fc6c3891a7833))
+* add upgrade execution with permission error handling ([a872eb1](https://github.com/hyperi-io/hyperi-ci/commit/a872eb1f14ec2818df2d1f67181ad848efb92604))
+* add upgrade module with PyPI version parsing ([143a9c0](https://github.com/hyperi-io/hyperi-ci/commit/143a9c08672bf3c2149fb147df3a62bd4f04ac37))
+
 ## [1.1.9-dev.16](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.15...v1.1.9-dev.16) (2026-03-16)
 
 
