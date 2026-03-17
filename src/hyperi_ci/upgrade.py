@@ -91,3 +91,47 @@ def _build_upgrade_cmd(
     pkg = f"hyperi-ci=={version}" if version else "hyperi-ci"
     cmd.append(pkg)
     return cmd
+
+
+def _timestamp_age() -> float:
+    """Return age of timestamp file in seconds, or infinity if missing."""
+    try:
+        ts = float(TIMESTAMP_FILE.read_text().strip())
+        return time.time() - ts
+    except (FileNotFoundError, ValueError):
+        return float("inf")
+
+
+def _write_timestamp() -> None:
+    """Write current time to the timestamp file."""
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    TIMESTAMP_FILE.write_text(str(time.time()))
+
+
+def _should_auto_update() -> bool:
+    """Check all gates for auto-update.
+
+    Returns False if any gate blocks the update.
+    """
+    # Recursion guard
+    if os.environ.get("_HYPERCI_UPGRADING") == "1":
+        return False
+
+    # Skip when the user is running "upgrade" explicitly
+    if len(sys.argv) >= 2 and sys.argv[1] == "upgrade":
+        return False
+
+    # Explicit env var override (takes precedence over CI detection)
+    auto_update_env = os.environ.get("HYPERCI_AUTO_UPDATE", "").lower()
+    if auto_update_env == "false":
+        return False
+    if auto_update_env == "true":
+        pass  # Explicit opt-in, skip CI check
+    elif is_ci():
+        return False
+
+    # Timestamp check
+    if _timestamp_age() < CHECK_INTERVAL:
+        return False
+
+    return True
