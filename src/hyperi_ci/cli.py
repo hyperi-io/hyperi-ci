@@ -59,6 +59,9 @@ def _main(
     ] = False,
 ) -> None:
     """HyperI CI — polyglot CI/CD tool."""
+    from hyperi_ci.upgrade import maybe_auto_update
+
+    maybe_auto_update()
 
 
 @app.command()
@@ -355,6 +358,24 @@ def install_deps_cmd(
 
     dir_path = Path(project_dir) if project_dir else None
     rc = install_deps(language, project_dir=dir_path)
+    raise typer.Exit(rc)
+
+
+@app.command()
+def upgrade(
+    target_version: Annotated[
+        str | None,
+        typer.Argument(help="Specific version to install (default: latest)"),
+    ] = None,
+    pre: Annotated[
+        bool,
+        typer.Option("--pre", help="Include pre-releases when resolving latest"),
+    ] = False,
+) -> None:
+    """Upgrade hyperi-ci to the latest version (or a specific version)."""
+    from hyperi_ci.upgrade import run_upgrade
+
+    rc = run_upgrade(version=target_version, pre=pre)
     raise typer.Exit(rc)
 
 

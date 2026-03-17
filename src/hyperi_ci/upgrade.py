@@ -17,11 +17,11 @@ import time
 import urllib.request
 from pathlib import Path
 
+from hyperi_pylib.logger import logger
 from packaging.version import Version
 
 from hyperi_ci import __version__
 from hyperi_ci.common import is_ci
-from hyperi_pylib.logger import logger
 
 PYPI_URL = "https://pypi.org/pypi/hyperi-ci/json"
 PYPI_TIMEOUT = 5

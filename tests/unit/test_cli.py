@@ -7,8 +7,12 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
+
+# Disable auto-update in subprocess-based CLI tests to prevent real PyPI queries
+_TEST_ENV = {**os.environ, "HYPERCI_AUTO_UPDATE": "false"}
 
 
 class TestCLI:
@@ -19,6 +23,7 @@ class TestCLI:
             [sys.executable, "-m", "hyperi_ci.cli", "--version"],
             capture_output=True,
             text=True,
+            env=_TEST_ENV,
         )
         assert result.returncode == 0
         assert "hyperi-ci" in result.stdout
@@ -35,6 +40,7 @@ class TestCLI:
             ],
             capture_output=True,
             text=True,
+            env=_TEST_ENV,
         )
         assert result.returncode == 1
 
@@ -51,6 +57,7 @@ class TestCLI:
             ],
             capture_output=True,
             text=True,
+            env=_TEST_ENV,
         )
         assert result.returncode == 0
         assert "python" in result.stdout
@@ -60,6 +67,7 @@ class TestCLI:
             [sys.executable, "-m", "hyperi_ci.cli", "run", "invalid"],
             capture_output=True,
             text=True,
+            env=_TEST_ENV,
         )
         assert result.returncode != 0
 
@@ -76,6 +84,7 @@ class TestCLI:
             ],
             capture_output=True,
             text=True,
+            env=_TEST_ENV,
         )
         assert result.returncode == 0
         assert "rust" in result.stdout
