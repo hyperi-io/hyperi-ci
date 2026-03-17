@@ -150,3 +150,92 @@ def _fetch_pypi_versions() -> tuple[str | None, str | None]:
         return _parse_latest_version(data.get("releases", {}))
     except Exception:
         return None, None
+
+
+def _run_upgrade_cmd(cmd: list[str]) -> int:
+    """Run the upgrade subprocess with graceful error handling.
+
+    Handles permission errors, missing binaries, and other OS-level
+    failures so the caller can decide whether to continue or abort.
+
+    Returns:
+        Exit code (0 = success, non-zero = failure).
+    """
+    try:
+        result = subprocess.run(cmd, check=False)
+        return result.returncode
+    except PermissionError:
+        logger.warning(
+            "Permission denied — try running with sudo or fix install permissions"
+        )
+        return 1
+    except FileNotFoundError as exc:
+        logger.warning(f"Command not found: {exc}")
+        return 1
+    except OSError as exc:
+        logger.warning(f"Upgrade command failed: {exc}")
+        return 1
+
+
+def _re_exec() -> None:
+    """Replace current process with a fresh invocation of the same command."""
+    env = os.environ.copy()
+    env["_HYPERCI_UPGRADING"] = "1"
+    try:
+        os.execvpe(sys.argv[0], sys.argv, env)
+    except OSError:
+        logger.warning("Upgrade installed but re-exec failed — run your command again")
+        raise SystemExit(0)
+
+
+def run_upgrade(
+    version: str | None = None,
+    pre: bool = False,
+) -> int:
+    """Run an explicit upgrade.
+
+    Args:
+        version: Specific version to install, or None for latest.
+        pre: Include pre-releases.
+
+    Returns:
+        Exit code (0 = success).
+    """
+    # Resolve target version
+    if version:
+        target = version
+    else:
+        stable, prerelease = _fetch_pypi_versions()
+        target = prerelease if pre else stable
+        if target is None:
+            logger.error("Could not determine latest version from PyPI")
+            return 1
+
+    current = Version(__version__)
+    try:
+        target_ver = Version(target)
+    except Exception:
+        logger.error(f"Invalid version: {target}")
+        return 1
+
+    if current == target_ver:
+        logger.info(f"Already up to date ({current})")
+        return 0
+
+    # Build and run upgrade command
+    uv_path = shutil.which("uv")
+    cmd = _build_upgrade_cmd(
+        uv_path=uv_path,
+        version=target if version else None,
+        pre=pre,
+    )
+    logger.info(f"Upgrading: {' '.join(cmd)}")
+
+    rc = _run_upgrade_cmd(cmd)
+    if rc != 0:
+        logger.error(f"Upgrade failed (exit {rc})")
+        return rc
+
+    logger.info(f"hyperi-ci upgraded: {current} -> {target}")
+    _re_exec()
+    return 0  # unreachable after execvpe, keeps type checker happy

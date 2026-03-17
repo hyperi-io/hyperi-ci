@@ -19,6 +19,7 @@ from hyperi_ci.upgrade import (
     _build_upgrade_cmd,
     _fetch_pypi_versions,
     _parse_latest_version,
+    _run_upgrade_cmd,
     _should_auto_update,
 )
 
@@ -243,3 +244,37 @@ class TestFetchPypiVersions:
             stable, pre = _fetch_pypi_versions()
         assert stable is None
         assert pre is None
+
+
+class TestRunUpgradeCmd:
+    """Run upgrade subprocess with permission error handling."""
+
+    def test_success(self) -> None:
+        with patch("hyperi_ci.upgrade.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            rc = _run_upgrade_cmd(["uv", "tool", "upgrade", "hyperi-ci"])
+        assert rc == 0
+
+    def test_nonzero_exit(self) -> None:
+        with patch("hyperi_ci.upgrade.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 1
+            rc = _run_upgrade_cmd(["uv", "tool", "upgrade", "hyperi-ci"])
+        assert rc == 1
+
+    def test_permission_error_from_os(self) -> None:
+        """OS raises PermissionError (e.g. no execute perms on uv)."""
+        with patch(
+            "hyperi_ci.upgrade.subprocess.run",
+            side_effect=PermissionError("no perms"),
+        ):
+            rc = _run_upgrade_cmd(["uv", "tool", "upgrade", "hyperi-ci"])
+        assert rc == 1
+
+    def test_file_not_found(self) -> None:
+        """Tool binary not found."""
+        with patch(
+            "hyperi_ci.upgrade.subprocess.run",
+            side_effect=FileNotFoundError("uv"),
+        ):
+            rc = _run_upgrade_cmd(["uv", "tool", "upgrade", "hyperi-ci"])
+        assert rc == 1
