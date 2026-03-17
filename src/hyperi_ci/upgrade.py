@@ -239,3 +239,40 @@ def run_upgrade(
     logger.info(f"hyperi-ci upgraded: {current} -> {target}")
     _re_exec()
     return 0  # unreachable after execvpe, keeps type checker happy
+
+
+def maybe_auto_update() -> None:
+    """Check for updates and auto-upgrade if appropriate.
+
+    Called from the CLI app callback. Never raises — all errors are
+    caught and logged as warnings so the original command proceeds.
+    """
+    try:
+        if not _should_auto_update():
+            return
+
+        stable, _ = _fetch_pypi_versions()
+        if stable is None:
+            return
+
+        current = Version(__version__)
+        latest = Version(stable)
+        if current >= latest:
+            _write_timestamp()
+            return
+
+        # Upgrade needed
+        uv_path = shutil.which("uv")
+        cmd = _build_upgrade_cmd(uv_path=uv_path, version=None, pre=False)
+
+        rc = _run_upgrade_cmd(cmd)
+        if rc != 0:
+            logger.warning(f"Auto-update failed (exit {rc})")
+            return
+
+        _write_timestamp()
+        logger.info(f"hyperi-ci upgraded: {current} -> {stable}")
+        _re_exec()
+
+    except Exception as exc:
+        logger.warning(f"Auto-update check failed: {exc}")
