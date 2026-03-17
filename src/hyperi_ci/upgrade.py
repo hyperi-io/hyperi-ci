@@ -135,3 +135,18 @@ def _should_auto_update() -> bool:
         return False
 
     return True
+
+
+def _fetch_pypi_versions() -> tuple[str | None, str | None]:
+    """Fetch latest stable and pre-release versions from PyPI.
+
+    Returns:
+        Tuple of (latest_stable, latest_prerelease). Both None on error.
+    """
+    try:
+        req = urllib.request.Request(PYPI_URL, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=PYPI_TIMEOUT) as resp:
+            data = json.loads(resp.read())
+        return _parse_latest_version(data.get("releases", {}))
+    except Exception:
+        return None, None

@@ -17,6 +17,7 @@ from unittest.mock import patch
 from hyperi_ci.upgrade import (
     CHECK_INTERVAL,
     _build_upgrade_cmd,
+    _fetch_pypi_versions,
     _parse_latest_version,
     _should_auto_update,
 )
@@ -212,3 +213,33 @@ class TestShouldAutoUpdate:
     def test_skipped_when_command_is_upgrade(self) -> None:
         with patch("sys.argv", ["hyperi-ci", "upgrade"]):
             assert _should_auto_update() is False
+
+
+class TestFetchPypiVersions:
+    """Fetch and parse versions from PyPI (with mocked network)."""
+
+    def test_parses_response(self) -> None:
+        sample = json.dumps(
+            {
+                "releases": {
+                    "1.0.0": [{"filename": "x"}],
+                    "1.1.0": [{"filename": "x"}],
+                    "1.2.0rc1": [{"filename": "x"}],
+                }
+            }
+        ).encode()
+
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__ = lambda s: s
+            mock_urlopen.return_value.__exit__ = lambda s, *a: None
+            mock_urlopen.return_value.read.return_value = sample
+            stable, pre = _fetch_pypi_versions()
+
+        assert stable == "1.1.0"
+        assert pre == "1.2.0rc1"
+
+    def test_returns_none_on_network_error(self) -> None:
+        with patch("urllib.request.urlopen", side_effect=OSError("timeout")):
+            stable, pre = _fetch_pypi_versions()
+        assert stable is None
+        assert pre is None
