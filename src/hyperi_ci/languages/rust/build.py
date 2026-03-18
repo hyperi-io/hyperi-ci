@@ -814,8 +814,19 @@ def _detect_binary_names() -> list[str]:
 
 
 def _detect_version() -> str:
-    """Detect project version from env vars or Cargo.toml."""
-    for var in ("RUST_VERSION", "CI_COMMIT_TAG", "GITHUB_REF_NAME"):
+    """Detect project version from VERSION file, env vars, or Cargo.toml.
+
+    Priority: VERSION file (semantic-release) > explicit env > Cargo.toml > "dev".
+    GITHUB_REF_NAME is deliberately excluded — during the publish job it is
+    the branch name (e.g. "release"), not the tag.
+    """
+    version_file = Path("VERSION")
+    if version_file.exists():
+        val = version_file.read_text().strip()
+        if val:
+            return f"v{val}" if not val.startswith("v") else val
+
+    for var in ("RUST_VERSION", "CI_COMMIT_TAG"):
         val = os.environ.get(var, "")
         if val:
             return sanitize_ref_name(val)
@@ -870,8 +881,8 @@ def _package_binaries(
 ) -> int:
     """Copy, strip, verify, and package built binaries into dist/.
 
-    Creates versioned binaries like: name-v1.2.3-linux-amd64
-    with SHA256 checksums.
+    Creates binaries like: name-linux-amd64
+    Version is in the R2/release path, not the filename.
     """
     output_dir = Path("dist")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -887,7 +898,7 @@ def _package_binaries(
 
         for bin_name in binary_names:
             src_bin = profile_dir / bin_name
-            output_name = f"{bin_name}-{version}-{os_arch}"
+            output_name = f"{bin_name}-{os_arch}"
 
             if "windows" in target:
                 src_bin = src_bin.with_suffix(".exe")
