@@ -1,3 +1,10 @@
+## [1.1.9-dev.19](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.18...v1.1.9-dev.19) (2026-03-18)
+
+
+### Bug Fixes
+
+* add missing packaging dependency for upgrade module ([5ca9b96](https://github.com/hyperi-io/hyperi-ci/commit/5ca9b96b54955edfe3bb7c3b6f1616ce593597c5))
+
 ## [1.1.9-dev.18](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.17...v1.1.9-dev.18) (2026-03-18)
 
 
