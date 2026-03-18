@@ -8,7 +8,8 @@
 
 Builds Go projects with ldflags version injection, cross-compilation,
 binary stripping, and SHA256 checksums. Output follows the naming
-convention: {binary}-{version}-{os}-{arch}[.exe]
+convention: {binary}-{os}-{arch}[.exe]
+Version is in the R2/release path, not the filename.
 """
 
 from __future__ import annotations
@@ -73,8 +74,19 @@ def _detect_main_package(binary_name: str) -> str:
 
 
 def _detect_version() -> str:
-    """Detect version from env vars or git."""
-    for var in ("GO_VERSION", "CI_COMMIT_TAG", "GITHUB_REF_NAME"):
+    """Detect version from VERSION file, env vars, or fallback to "dev".
+
+    Priority: VERSION file (semantic-release) > explicit env > "dev".
+    GITHUB_REF_NAME is deliberately excluded — during the publish job it is
+    the branch name (e.g. "release"), not the tag.
+    """
+    version_file = Path("VERSION")
+    if version_file.exists():
+        val = version_file.read_text().strip()
+        if val:
+            return f"v{val}" if not val.startswith("v") else val
+
+    for var in ("GO_VERSION", "CI_COMMIT_TAG"):
         val = os.environ.get(var, "")
         if val:
             return sanitize_ref_name(val)
@@ -185,7 +197,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             return 1
 
         goos, goarch = parts
-        output_name = f"{binary_name}-{version}-{goos}-{goarch}"
+        output_name = f"{binary_name}-{goos}-{goarch}"
         if goos == "windows":
             output_name += ".exe"
         output_path = output_dir / output_name
