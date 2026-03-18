@@ -32,3 +32,6 @@ Thumbs.db
 *.log
 .env
 .env.*
+
+# AI agent working files (not committed)
+docs/superpowers/
