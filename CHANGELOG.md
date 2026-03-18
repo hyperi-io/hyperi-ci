@@ -1,3 +1,10 @@
+## [1.1.9-dev.18](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.17...v1.1.9-dev.18) (2026-03-18)
+
+
+### Bug Fixes
+
+* drop version from binary filenames, fix version detection ([cf8e086](https://github.com/hyperi-io/hyperi-ci/commit/cf8e086b3a6b00d1e7178214427e513f63854caf)), closes [hyperi-io/dfe-receiver#6](https://github.com/hyperi-io/dfe-receiver/issues/6)
+
 ## [1.1.9-dev.17](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.16...v1.1.9-dev.17) (2026-03-17)
 
 
