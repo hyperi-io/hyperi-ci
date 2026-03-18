@@ -1,3 +1,10 @@
+## [1.1.25](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.24...v1.1.25) (2026-03-18)
+
+
+### Bug Fixes
+
+* add missing packaging dependency for upgrade module ([53a56a5](https://github.com/hyperi-io/hyperi-ci/commit/53a56a598a02206e377c63902b4a6a3d83707242))
+
 ## [1.1.24](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.23...v1.1.24) (2026-03-18)
 
 
