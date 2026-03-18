@@ -284,6 +284,53 @@ The upload logic is in `src/hyperi_ci/publish_binaries.py`. The `_collect_artifa
 function reads everything from `dist/` — language-specific build handlers are
 responsible for placing only binaries and checksums there.
 
+### Binary Naming Convention
+
+All compiled binaries follow a unified naming pattern regardless of source language:
+
+```
+{name}-{os}-{arch}[.exe]
+```
+
+| Element | Values | Example |
+|---|---|---|
+| `name` | Project binary name | `dfe-receiver` |
+| `os` | `linux`, `darwin`, `windows` | `linux` |
+| `arch` | `amd64`, `arm64` | `amd64` |
+
+**Examples:**
+```
+dfe-receiver-linux-amd64
+dfe-receiver-linux-arm64
+dfe-loader-linux-amd64
+```
+
+**Version is in the path, not the filename.** The R2 and GitHub Release directory
+structure carries the version:
+
+```
+dfe-receiver/v1.13.11/dfe-receiver-linux-amd64
+dfe-receiver/v1.13.11/dfe-receiver-linux-arm64
+dfe-receiver/v1.13.11/checksums.sha256
+dfe-receiver/latest/dfe-receiver-linux-amd64
+```
+
+**Why this convention:**
+
+- **`os-arch` shorthand over Rust target triples** — our consumers are ops/infra
+  people deploying server-side binaries. `linux-amd64` matches Docker, Kubernetes,
+  containerd, and HashiCorp naming. Full Rust triples (`x86_64-unknown-linux-gnu`)
+  are appropriate for developer tools (ripgrep, uv) but not for deployment artefacts.
+- **No version in filename** — avoids the `dfe-receiver-release-linux-amd64` bug
+  where `GITHUB_REF_NAME` (the branch name) leaked into filenames. Version in the
+  path is sufficient and enables stable download URLs that don't change per-release:
+  `downloads.hyperi.io/dfe-receiver/latest/dfe-receiver-linux-amd64`.
+- **Consistent across languages** — both Rust and Go build handlers produce the
+  same naming format. Consumers don't need to know or care what language built
+  the binary.
+
+Ref: [dfe-receiver#6](https://github.com/hyperi-io/dfe-receiver/issues/6)
+
 ## Configuration Boundaries: org.yaml vs GitHub Vars vs Secrets
 
 Configuration lives in three places with clear, non-overlapping boundaries:
