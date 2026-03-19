@@ -55,6 +55,33 @@ This is the **single source of truth** for all tasks and progress.
 
 ## Completed
 
+- [x] **Self-upgrade command (`hyperi-ci upgrade`)**
+  - Explicit `upgrade [VERSION] [--pre]` command
+  - Auto-update on run (default on, 4h check interval, `HYPERCI_AUTO_UPDATE=false` to disable)
+  - Detects install method: tries uv first, falls back to pip
+  - Re-execs via `os.execvp()` after upgrade with notification
+  - Spec: `docs/superpowers/specs/2026-03-18-self-upgrade-design.md`
+
+- [x] **Fix: R2 latest/ directory not cleaned between releases**
+  - Stale files lingered when binary filenames changed (e.g. `dfe-receiver-release-*` → `dfe-receiver-*`)
+  - Now `aws s3 rm --recursive` cleans latest/ before uploading new artifacts
+  - Versioned directories remain immutable
+
+- [x] **Fix: Binary naming — drop version from filenames**
+  - Convention: `{name}-{os}-{arch}` (e.g. `dfe-receiver-linux-amd64`)
+  - Version is in the directory path only (`/v1.14.0/dfe-receiver-linux-amd64`)
+  - Matches HashiCorp/Rust/Go convention
+  - Fixed `_detect_version()` to prefer VERSION file over GITHUB_REF_NAME
+  - Closes hyperi-io/dfe-receiver#6
+
+- [x] **R2 content decision: binaries + checksums only**
+  - No README/CHANGELOG in R2 — docs live in the source repo
+  - GitHub Releases already links to the repo for context
+  - Documented in DESIGN.md
+
+- [x] **Re-attached hyperi-ai submodule (3.1.0 → 3.1.2)**
+  - Ran `attach.sh --agent claude --force` to deploy commands, rules, skills, hooks
+
 - [x] **Split-Runner Architecture + Release Gating**
   - Split-runner build matrix in rust-ci.yml (x64 ARC + arm64 native)
   - Two-branch release config in all workflows (main=dev, release=GA)
