@@ -1,3 +1,10 @@
+## [1.1.9-dev.20](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.19...v1.1.9-dev.20) (2026-03-19)
+
+
+### Bug Fixes
+
+* clean R2 latest/ directory before upload ([c607b4a](https://github.com/hyperi-io/hyperi-ci/commit/c607b4a29742629a60af84a84e0b1c434505063b))
+
 ## [1.1.9-dev.19](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.18...v1.1.9-dev.19) (2026-03-18)
 
 
