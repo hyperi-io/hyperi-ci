@@ -226,6 +226,24 @@ def _publish_r2_binaries() -> int:
 
     info(f"Publishing to R2: {R2_PUBLIC_URL}/{project_name}/v{version}/")
 
+    # Clean latest/ before uploading so stale files from previous builds
+    # (e.g. renamed binaries) don't linger alongside new ones
+    info(f"  Cleaning latest/: {latest_prefix}")
+    rm_result = subprocess.run(
+        [
+            "aws",
+            "s3",
+            "rm",
+            latest_prefix,
+            "--recursive",
+            "--endpoint-url",
+            R2_ENDPOINT,
+        ],
+        env=aws_env,
+    )
+    if rm_result.returncode != 0:
+        warn("  Failed to clean latest/ — continuing with upload")
+
     for dest_prefix in (versioned_prefix, latest_prefix):
         label = "versioned" if "/v" in dest_prefix else "latest"
         info(f"  Uploading to {label}: {dest_prefix}")
