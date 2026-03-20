@@ -6,6 +6,14 @@ This is the **single source of truth** for all tasks and progress.
 
 ## Active Tasks
 
+### release-merge CLI improvements
+
+- [ ] Replace `gh` CLI dependency with direct GitHub REST API calls (httpx/urllib)
+  - Currently requires `gh` installed + authenticated
+  - Should work with just a `GITHUB_TOKEN` env var (works in CI without `gh`)
+  - Fallback: print manual commands if no token available
+- [ ] Fix `capture=True` bug in PR creation (stdout was None — patched in v1.2.0)
+
 ### Other Active Tasks
 
 - [ ] Address non-blocking quality warnings across all three consumer projects

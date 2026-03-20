@@ -88,7 +88,6 @@ CLI flags → ENV vars (HYPERCI_*) → .hyperi-ci.yaml → config/defaults.yaml 
 | `.releaserc.yaml` | Semantic release config |
 | `.github/workflows/ci.yml` | Self-hosting CI workflow |
 | `.github/workflows/rust-ci.yml` | Reusable Rust CI workflow |
-| `.github/workflows/release-merge.yml` | Reusable release merge workflow (auto version conflict resolution) |
 | `scripts/update-versions.py` | Version sync/update script |
 | `scripts/sync-secrets-access.py` | Secret repo access sync script |
 | `docs/DESIGN.md` | Full architecture documentation |

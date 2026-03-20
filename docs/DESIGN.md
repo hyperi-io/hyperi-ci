@@ -572,16 +572,17 @@ Two-branch semantic-release configuration:
 
 **Workflow:**
 1. Developers push to `main` — x64 dev pre-release created automatically
-2. When ready for GA: trigger the **Release Merge** workflow (manual dispatch)
-3. The workflow merges `main` into `release`, auto-resolves version conflicts
-   (VERSION, Cargo.toml, pyproject.toml, CHANGELOG.md), and creates a PR
+2. When ready for GA: run `hyperi-ci release-merge`
+3. The CLI clones to a temp directory, merges `main` into `release`, auto-resolves
+   version file conflicts (VERSION, Cargo.toml, pyproject.toml, CHANGELOG.md), and
+   creates a PR. Never touches the developer's working tree.
 4. Merge the PR — release branch triggers x64 + arm64 builds, GA semantic-release,
    publish to all registries
 
-**Release Merge automation:** The `release-merge.yml` reusable workflow handles the
+**Release Merge automation:** The `hyperi-ci release-merge` CLI command handles the
 recurring version file conflicts that arise because semantic-release bumps versions
-independently on each branch. Consumer projects add a caller workflow that triggers
-on `workflow_dispatch`. See `.github/workflows/release-merge.yml` for details.
+independently on each branch. No workflow file needed in consumer projects. If `gh`
+CLI is not available, the command prints manual git commands as a fallback.
 
 The `.releaserc.yaml` configuration:
 ```yaml
