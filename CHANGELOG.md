@@ -1,3 +1,12 @@
+## [1.1.26](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.25...v1.1.26) (2026-03-20)
+
+
+### Bug Fixes
+
+* add missing packaging dependency for upgrade module ([5ca9b96](https://github.com/hyperi-io/hyperi-ci/commit/5ca9b96b54955edfe3bb7c3b6f1616ce593597c5))
+* add release-merge reusable workflow for automated version conflict resolution ([7f63980](https://github.com/hyperi-io/hyperi-ci/commit/7f639802abb76cc7a0f6fa375b52f2e518c1a359))
+* clean R2 latest/ directory before upload ([c607b4a](https://github.com/hyperi-io/hyperi-ci/commit/c607b4a29742629a60af84a84e0b1c434505063b))
+
 ## [1.1.25](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.24...v1.1.25) (2026-03-18)
 
 
