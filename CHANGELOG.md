@@ -1,3 +1,10 @@
+## [1.1.9-dev.21](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.20...v1.1.9-dev.21) (2026-03-20)
+
+
+### Bug Fixes
+
+* add release-merge reusable workflow for automated version conflict resolution ([7f63980](https://github.com/hyperi-io/hyperi-ci/commit/7f639802abb76cc7a0f6fa375b52f2e518c1a359))
+
 ## [1.1.9-dev.20](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.19...v1.1.9-dev.20) (2026-03-19)
 
 
