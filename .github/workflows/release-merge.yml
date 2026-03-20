@@ -1,0 +1,132 @@
+# Project:   HyperI CI
+# File:      .github/workflows/release-merge.yml
+# Purpose:   Reusable workflow to merge main into release with auto conflict resolution
+#
+# License:   Proprietary — HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# Resolves the standard VERSION/Cargo.toml/CHANGELOG.md conflicts that occur
+# because semantic-release bumps versions on the release branch. The merge
+# always keeps the release branch's version files, since semantic-release
+# will set the correct version on the next release.
+
+name: Release Merge
+
+on:
+  workflow_call:
+    inputs:
+      base-branch:
+        type: string
+        default: "release"
+        description: "Target branch to merge into"
+      head-branch:
+        type: string
+        default: "main"
+        description: "Source branch to merge from"
+      version-files:
+        type: string
+        default: "VERSION Cargo.toml pyproject.toml package.json"
+        description: "Space-separated list of files with version conflicts to resolve (keeps base version)"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge:
+    name: Merge ${{ inputs.head-branch }} into ${{ inputs.base-branch }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.base-branch }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Attempt merge
+        id: merge
+        run: |
+          git fetch origin ${{ inputs.head-branch }}
+
+          # Try clean merge first
+          if git merge origin/${{ inputs.head-branch }} --no-edit 2>/dev/null; then
+            echo "clean=true" >> "$GITHUB_OUTPUT"
+            echo "Merge completed cleanly"
+          else
+            echo "clean=false" >> "$GITHUB_OUTPUT"
+            echo "Merge has conflicts — resolving version files"
+          fi
+
+      - name: Resolve version conflicts
+        if: steps.merge.outputs.clean == 'false'
+        run: |
+          resolved=0
+          unresolved=0
+
+          for file in ${{ inputs.version-files }}; do
+            if [ -f "$file" ] && grep -q "<<<<<<" "$file" 2>/dev/null; then
+              echo "Resolving conflict in $file (keeping ${{ inputs.base-branch }} version)"
+              git checkout --ours "$file"
+              git add "$file"
+              resolved=$((resolved + 1))
+            fi
+          done
+
+          # Handle CHANGELOG.md separately — keep ours (release has complete history)
+          if [ -f "CHANGELOG.md" ] && grep -q "<<<<<<" "CHANGELOG.md" 2>/dev/null; then
+            echo "Resolving CHANGELOG.md conflict (keeping ${{ inputs.base-branch }} version)"
+            git checkout --ours "CHANGELOG.md"
+            git add "CHANGELOG.md"
+            resolved=$((resolved + 1))
+          fi
+
+          # Check for remaining conflicts
+          if git diff --name-only --diff-filter=U | grep -q .; then
+            remaining=$(git diff --name-only --diff-filter=U | tr '\n' ', ')
+            echo "Unresolved conflicts in: $remaining"
+            echo "These require manual resolution."
+            exit 1
+          fi
+
+          echo "Resolved $resolved version conflicts"
+          git commit --no-edit
+
+      - name: Create merge branch and PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          branch="chore/merge-to-${{ inputs.base-branch }}"
+
+          # Delete remote branch if it exists from a previous run
+          git push origin --delete "$branch" 2>/dev/null || true
+
+          git checkout -b "$branch"
+          git push -u origin "$branch"
+
+          # Get commit count for PR description
+          commits=$(git log origin/${{ inputs.base-branch }}..HEAD --oneline)
+          commit_count=$(echo "$commits" | wc -l)
+
+          gh pr create \
+            --base "${{ inputs.base-branch }}" \
+            --head "$branch" \
+            --title "chore: merge ${{ inputs.head-branch }} into ${{ inputs.base-branch }}" \
+            --body "$(cat <<EOF
+          ## Automated Release Merge
+
+          Merging \`${{ inputs.head-branch }}\` into \`${{ inputs.base-branch }}\` ($commit_count commits).
+
+          Version conflicts resolved automatically (VERSION, Cargo.toml, CHANGELOG.md).
+
+          ### Commits
+
+          \`\`\`
+          $commits
+          \`\`\`
+          EOF
+          )"

@@ -572,8 +572,16 @@ Two-branch semantic-release configuration:
 
 **Workflow:**
 1. Developers push to `main` — x64 dev pre-release created automatically
-2. When ready for GA: create PR from `main` → `release`, merge
-3. Release branch triggers x64 + arm64 builds, GA semantic-release, publish to all registries
+2. When ready for GA: trigger the **Release Merge** workflow (manual dispatch)
+3. The workflow merges `main` into `release`, auto-resolves version conflicts
+   (VERSION, Cargo.toml, pyproject.toml, CHANGELOG.md), and creates a PR
+4. Merge the PR — release branch triggers x64 + arm64 builds, GA semantic-release,
+   publish to all registries
+
+**Release Merge automation:** The `release-merge.yml` reusable workflow handles the
+recurring version file conflicts that arise because semantic-release bumps versions
+independently on each branch. Consumer projects add a caller workflow that triggers
+on `workflow_dispatch`. See `.github/workflows/release-merge.yml` for details.
 
 The `.releaserc.yaml` configuration:
 ```yaml
