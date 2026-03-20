@@ -1,3 +1,10 @@
+# [1.2.0-dev.1](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.21...v1.2.0-dev.1) (2026-03-20)
+
+
+### Features
+
+* add release-merge CLI command with auto conflict resolution ([1bb04fd](https://github.com/hyperi-io/hyperi-ci/commit/1bb04fd5364fdcedb138b2268102e75846ed1532))
+
 ## [1.1.9-dev.21](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.9-dev.20...v1.1.9-dev.21) (2026-03-20)
 
 
