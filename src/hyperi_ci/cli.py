@@ -15,6 +15,7 @@ Usage:
     hyperi-ci trigger           Trigger a GitHub Actions workflow run
     hyperi-ci watch [RUN_ID]    Watch a GitHub Actions run to completion
     hyperi-ci logs [RUN_ID]     Fetch and filter GitHub Actions run logs
+    hyperi-ci release-merge     Merge main into release (auto conflict resolution)
     hyperi-ci --version         Show version
 """
 
@@ -358,6 +359,30 @@ def install_deps_cmd(
 
     dir_path = Path(project_dir) if project_dir else None
     rc = install_deps(language, project_dir=dir_path)
+    raise typer.Exit(rc)
+
+
+@app.command(name="release-merge")
+def release_merge_cmd(
+    base_branch: Annotated[
+        str,
+        typer.Option("--base", "-b", help="Target branch (default: release)"),
+    ] = "release",
+    head_branch: Annotated[
+        str,
+        typer.Option("--head", help="Source branch (default: main)"),
+    ] = "main",
+) -> None:
+    """Merge main into release with auto version conflict resolution.
+
+    Clones to a temp directory, merges, resolves VERSION/Cargo.toml/CHANGELOG.md
+    conflicts (keeps release versions), pushes, and creates a PR.
+
+    Never touches your working tree. Requires gh CLI (prints manual commands if unavailable).
+    """
+    from hyperi_ci.release_merge import release_merge
+
+    rc = release_merge(base_branch=base_branch, head_branch=head_branch)
     raise typer.Exit(rc)
 
 
