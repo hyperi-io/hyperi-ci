@@ -320,6 +320,7 @@ def release_merge(
                     pr_body,
                 ],
                 cwd=tmp_path,
+                capture=True,
             )
             pr_url = pr_result.stdout.strip()
             success(f"Release merge PR: {pr_url}")
