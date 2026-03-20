@@ -1,3 +1,10 @@
+## [1.2.1](https://github.com/hyperi-io/hyperi-ci/compare/v1.2.0...v1.2.1) (2026-03-20)
+
+
+### Bug Fixes
+
+* remove dead release-merge.yml, fix capture bug, update docs ([3a69312](https://github.com/hyperi-io/hyperi-ci/commit/3a69312eae9c256141ea9dfc87c68443014c5232))
+
 # [1.2.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.26...v1.2.0) (2026-03-20)
 
 
