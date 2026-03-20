@@ -145,7 +145,7 @@ def _fetch_pypi_versions() -> tuple[str | None, str | None]:
     """
     try:
         req = urllib.request.Request(PYPI_URL, headers={"Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=PYPI_TIMEOUT) as resp:
+        with urllib.request.urlopen(req, timeout=PYPI_TIMEOUT) as resp:  # nosec B310 — hardcoded PyPI HTTPS URL
             data = json.loads(resp.read())
         return _parse_latest_version(data.get("releases", {}))
     except Exception:
