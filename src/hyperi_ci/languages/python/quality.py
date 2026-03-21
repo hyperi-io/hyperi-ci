@@ -23,6 +23,26 @@ from pathlib import Path
 
 from hyperi_ci.common import error, get_exclude_dirs, info, success, warn
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages.quality_common import get_test_ignore, get_test_paths
+
+_DEFAULT_PYTHON_TEST_IGNORE = [
+    "S101",
+    "S104",
+    "S105",
+    "S108",
+    "S311",
+    "T201",
+    "PT003",
+    "PT006",
+    "PT011",
+    "PT012",
+    "PT017",
+    "PT018",
+    "N803",
+    "RUF003",
+    "RUF015",
+    "RUF043",
+]
 
 
 def _get_tool_mode(tool: str, config: CIConfig) -> str:
@@ -118,15 +138,34 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     excludes = get_exclude_dirs(config._raw)
     had_failure = False
 
-    # Ruff lint + format
+    # Ruff lint — two-pass: production (strict) + test (relaxed)
     mode = _get_tool_mode("ruff", config)
     exclude_args = _build_exclude_args("ruff", excludes)
     # Use GitHub-native annotations in CI for inline PR feedback
     output_fmt = ["--output-format=github"] if os.environ.get("GITHUB_ACTIONS") else []
+
+    test_paths = get_test_paths(config)
+    test_ignore = get_test_ignore("python", config, _DEFAULT_PYTHON_TEST_IGNORE)
+
+    # Production pass — exclude test dirs, full rules
+    prod_exclude = exclude_args + [f"--exclude={p}" for p in test_paths]
     if not _run_tool(
-        "ruff check", ["ruff", "check", "."] + output_fmt + exclude_args, mode
+        "ruff check (src)", ["ruff", "check", "."] + output_fmt + prod_exclude, mode
     ):
         had_failure = True
+
+    # Test pass — relaxed rules, same mode
+    if test_paths and test_ignore:
+        ignore_flag = [f"--extend-ignore={','.join(test_ignore)}"]
+        for tp in test_paths:
+            if not _run_tool(
+                f"ruff check ({tp})",
+                ["ruff", "check", tp] + output_fmt + ignore_flag + exclude_args,
+                mode,
+            ):
+                had_failure = True
+
+    # Ruff format — single pass (format is rule-agnostic, no split needed)
     if not _run_tool(
         "ruff format", ["ruff", "format", "--check", "."] + exclude_args, mode
     ):
