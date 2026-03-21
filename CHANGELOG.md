@@ -1,3 +1,10 @@
+# [1.2.0-dev.4](https://github.com/hyperi-io/hyperi-ci/compare/v1.2.0-dev.3...v1.2.0-dev.4) (2026-03-21)
+
+
+### Bug Fixes
+
+* replace interrogate with ruff D rules for docstring checks ([20002e6](https://github.com/hyperi-io/hyperi-ci/commit/20002e60f144c93cd878d7f9b4e3168f932777fc))
+
 # [1.2.0-dev.3](https://github.com/hyperi-io/hyperi-ci/compare/v1.2.0-dev.2...v1.2.0-dev.3) (2026-03-21)
 
 
