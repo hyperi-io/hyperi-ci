@@ -297,6 +297,13 @@ def init_release_cmd(
         str | None,
         typer.Option("--project-dir", "-C", help="Project root directory"),
     ] = None,
+    channels: Annotated[
+        str | None,
+        typer.Option(
+            "--channels",
+            help="Extra release channels (comma-separated: alpha,beta). main+release always included.",
+        ),
+    ] = None,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", "-n", help="Show what would be done"),
@@ -306,11 +313,25 @@ def init_release_cmd(
         typer.Option("--check", help="Check release setup status only"),
     ] = False,
 ) -> None:
-    """Set up release branch and configure two-channel semantic-release."""
+    """Set up release branches and configure multi-channel semantic-release.
+
+    Channels (ordered by stability):
+      main    -> dev pre-releases  (v1.0.0-dev.1)
+      alpha   -> alpha releases    (v1.0.0-alpha.1)
+      beta    -> beta releases     (v1.0.0-beta.1)
+      release -> GA releases       (v1.0.0)
+
+    Examples:
+      hyperi-ci init-release                        # main + release (default)
+      hyperi-ci init-release --channels alpha       # main + alpha + release
+      hyperi-ci init-release --channels alpha,beta  # all four channels
+    """
     from hyperi_ci.init_release import init_release
 
     dir_path = Path(project_dir) if project_dir else Path.cwd()
-    rc = init_release(dir_path, dry_run=dry_run, check_only=check_only)
+    rc = init_release(
+        dir_path, channels_str=channels, dry_run=dry_run, check_only=check_only
+    )
     raise typer.Exit(rc)
 
 
@@ -366,19 +387,28 @@ def install_deps_cmd(
 def release_merge_cmd(
     base_branch: Annotated[
         str,
-        typer.Option("--base", "-b", help="Target branch (default: release)"),
+        typer.Option(
+            "--base",
+            "-b",
+            help="Target branch: release (GA), beta, or alpha (default: release)",
+        ),
     ] = "release",
     head_branch: Annotated[
         str,
         typer.Option("--head", help="Source branch (default: main)"),
     ] = "main",
 ) -> None:
-    """Merge main into release with auto version conflict resolution.
+    """Merge main into a release channel with auto version conflict resolution.
 
     Clones to a temp directory, merges, resolves VERSION/Cargo.toml/CHANGELOG.md
-    conflicts (keeps release versions), pushes, and creates a PR.
+    conflicts (keeps target branch versions), pushes, and creates a PR.
 
-    Never touches your working tree. Requires gh CLI (prints manual commands if unavailable).
+    Target can be any configured channel:
+      hyperi-ci release-merge                    # main -> release (GA)
+      hyperi-ci release-merge --base alpha       # main -> alpha
+      hyperi-ci release-merge --base beta        # main -> beta
+
+    Never touches your working tree. Requires gh CLI.
     """
     from hyperi_ci.release_merge import release_merge
 

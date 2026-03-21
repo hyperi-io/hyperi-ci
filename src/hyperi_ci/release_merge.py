@@ -4,11 +4,16 @@
 #
 # License:   Proprietary — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Release merge: merge main into release via gh CLI.
+"""Release merge: merge main into a release channel via gh CLI.
 
 Performs the merge in a temp clone via gh/git, resolves version file
-conflicts automatically (keeps release branch versions), and creates a PR.
+conflicts automatically (keeps target branch versions), and creates a PR.
 No workflow file needed in consumer projects.
+
+Supports merging to any release channel:
+  hyperi-ci release-merge                    # main -> release (GA)
+  hyperi-ci release-merge --base alpha       # main -> alpha
+  hyperi-ci release-merge --base beta        # main -> beta
 
 If gh CLI is not installed or not authenticated, prints the manual
 commands the user can run instead.
@@ -321,8 +326,9 @@ def release_merge(
                 ],
                 cwd=tmp_path,
                 capture=True,
+                check=True,
             )
-            pr_url = pr_result.stdout.strip()
+            pr_url = (pr_result.stdout or "").strip()
             success(f"Release merge PR: {pr_url}")
         except subprocess.CalledProcessError:
             error("Failed to create PR")
