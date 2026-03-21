@@ -16,6 +16,7 @@ which is unmaintained and pulls in the vulnerable 'py' package.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -120,7 +121,11 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # Ruff lint + format
     mode = _get_tool_mode("ruff", config)
     exclude_args = _build_exclude_args("ruff", excludes)
-    if not _run_tool("ruff check", ["ruff", "check", "."] + exclude_args, mode):
+    # Use GitHub-native annotations in CI for inline PR feedback
+    output_fmt = ["--output-format=github"] if os.environ.get("GITHUB_ACTIONS") else []
+    if not _run_tool(
+        "ruff check", ["ruff", "check", "."] + output_fmt + exclude_args, mode
+    ):
         had_failure = True
     if not _run_tool(
         "ruff format", ["ruff", "format", "--check", "."] + exclude_args, mode
