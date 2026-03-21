@@ -88,7 +88,7 @@ quality:
 test:
   enabled: true
   coverage: true
-  min_coverage: 0
+  min_coverage: 80
   fail_on_missing: false
   use_tiers: false
 
