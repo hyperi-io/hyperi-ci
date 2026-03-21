@@ -1,14 +1,17 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/languages/python/quality.py
-# Purpose:   Python quality checks (ruff, ty, semgrep, bandit, pip-audit)
+# Purpose:   Python quality checks (ruff, ty, semgrep, bandit, pip-audit, vulture)
 #
 # License:   Proprietary — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Python quality checks handler.
 
-Orchestrates quality tools: ruff, ty, semgrep, bandit, pip-audit,
-interrogate, vulture. Each tool's mode (blocking/warn/disabled) is
+Orchestrates quality tools: ruff (lint + format + docstrings), ty, semgrep,
+bandit, pip-audit, vulture. Each tool's mode (blocking/warn/disabled) is
 configurable via .hyperi-ci.yaml quality.python section.
+
+Docstring coverage uses ruff D rules (pydocstyle) instead of interrogate,
+which is unmaintained and pulls in the vulnerable 'py' package.
 """
 
 from __future__ import annotations
@@ -159,9 +162,12 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if not _run_tool("pip-audit", ["pip-audit"], mode, use_uvx=True):
         had_failure = True
 
-    # Interrogate docstring coverage
-    mode = _get_tool_mode("interrogate", config)
-    if not _run_tool("interrogate", ["interrogate", "src/"], mode, use_uvx=True):
+    # Docstring coverage via ruff D rules (replaces interrogate)
+    mode = _get_tool_mode("ruff_docstrings", config)
+    ruff_doc_cmd = ["ruff", "check", "--select", "D", "src/"] + _build_exclude_args(
+        "ruff", excludes
+    )
+    if not _run_tool("ruff docstrings", ruff_doc_cmd, mode):
         had_failure = True
 
     # Vulture dead code detection
