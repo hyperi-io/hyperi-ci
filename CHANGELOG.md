@@ -1,3 +1,10 @@
+# [1.2.0-dev.3](https://github.com/hyperi-io/hyperi-ci/compare/v1.2.0-dev.2...v1.2.0-dev.3) (2026-03-21)
+
+
+### Features
+
+* add alpha/beta release channels to init-release and release-merge ([8da6206](https://github.com/hyperi-io/hyperi-ci/commit/8da62068acf5543a6060b9d9793a428969c2bc4c))
+
 # [1.2.0-dev.2](https://github.com/hyperi-io/hyperi-ci/compare/v1.2.0-dev.1...v1.2.0-dev.2) (2026-03-20)
 
 
