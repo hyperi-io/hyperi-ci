@@ -1,3 +1,10 @@
+# [1.2.0-dev.6](https://github.com/hyperi-io/hyperi-ci/compare/v1.2.0-dev.5...v1.2.0-dev.6) (2026-03-21)
+
+
+### Bug Fixes
+
+* set 80% coverage default, add ruff github annotations ([558f76f](https://github.com/hyperi-io/hyperi-ci/commit/558f76f5aea63a48f3b9b5506d9b499ba5d68c93))
+
 # [1.2.0-dev.5](https://github.com/hyperi-io/hyperi-ci/compare/v1.2.0-dev.4...v1.2.0-dev.5) (2026-03-21)
 
 
