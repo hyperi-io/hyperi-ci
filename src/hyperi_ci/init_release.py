@@ -1,24 +1,28 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/init_release.py
-# Purpose:   Set up release branch and two-channel semantic-release
+# Purpose:   Set up release branches and multi-channel semantic-release
 #
 # License:   Proprietary — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Set up a release branch and configure two-channel semantic-release.
+"""Set up release branches and configure multi-channel semantic-release.
 
-After running init-release:
-- `main` branch → dev pre-releases (v1.15.0-dev.1)
-- `release` branch → GA releases (v1.15.0)
+Available channels (ordered by stability):
+- ``main``    -> dev pre-releases  (v1.15.0-dev.1)
+- ``alpha``   -> alpha releases    (v1.15.0-alpha.1)
+- ``beta``    -> beta releases     (v1.15.0-beta.1)
+- ``release`` -> GA releases       (v1.15.0)
 
 Usage:
-    hyperi-ci init-release              # set up release branch + update .releaserc
-    hyperi-ci init-release --check      # check if release setup is correct
-    hyperi-ci init-release --dry-run    # show what would be done
+    hyperi-ci init-release                          # default: main + release
+    hyperi-ci init-release --channels alpha,beta    # add alpha + beta channels
+    hyperi-ci init-release --check                  # check setup status
+    hyperi-ci init-release --dry-run                # show what would be done
 """
 
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -26,19 +30,31 @@ import yaml
 
 from hyperi_ci.common import error, info, success, warn
 
+# Ordered channel definitions — order matters for semantic-release.
+# Each entry: (branch_name, prerelease_tag_or_None)
+ALL_CHANNELS: list[tuple[str, str | None]] = [
+    ("main", "dev"),
+    ("alpha", "alpha"),
+    ("beta", "beta"),
+    ("release", None),
+]
+
+# The minimum viable config: dev pre-releases on main, GA on release.
+DEFAULT_CHANNELS = {"main", "release"}
+
 
 def _run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, timeout=30, **kwargs)
 
 
-def _has_release_branch(remote: bool = True) -> bool:
-    """Check if release branch exists locally or remotely."""
-    local = _run(["git", "rev-parse", "--verify", "release"])
+def _has_branch(name: str, remote: bool = True) -> bool:
+    """Check if a branch exists locally or remotely."""
+    local = _run(["git", "rev-parse", "--verify", name])
     if local.returncode == 0:
         return True
     if remote:
-        remote_check = _run(["git", "ls-remote", "--heads", "origin", "release"])
-        return "refs/heads/release" in (remote_check.stdout or "")
+        remote_check = _run(["git", "ls-remote", "--heads", "origin", name])
+        return f"refs/heads/{name}" in (remote_check.stdout or "")
     return False
 
 
@@ -59,54 +75,80 @@ def _load_releaserc(path: Path) -> tuple[dict, str]:
     return json.loads(content), "json"
 
 
-def _has_two_branch_config(config: dict) -> bool:
-    """Check if the releaserc already has two-branch (main+release) config."""
+def _configured_channels(config: dict) -> set[str]:
+    """Extract the set of branch names from a releaserc config."""
     branches = config.get("branches", [])
     if not isinstance(branches, list):
-        return False
-
-    branch_names = set()
+        return set()
+    names: set[str] = set()
     for b in branches:
         if isinstance(b, str):
-            branch_names.add(b)
+            names.add(b)
         elif isinstance(b, dict) and "name" in b:
-            branch_names.add(b["name"])
+            names.add(b["name"])
+    return names
 
-    return "main" in branch_names and "release" in branch_names
+
+def _has_required_channels(config: dict, channels: set[str]) -> bool:
+    """Check if the releaserc has all required channels configured."""
+    return channels.issubset(_configured_channels(config))
 
 
-def _update_releaserc(path: Path, *, dry_run: bool = False) -> bool:
-    """Update .releaserc to two-branch config. Returns True if changed."""
+def _build_branches_config(channels: set[str]) -> list[dict | str]:
+    """Build the semantic-release branches array in correct order."""
+    branches: list[dict | str] = []
+    for name, prerelease in ALL_CHANNELS:
+        if name not in channels:
+            continue
+        if prerelease:
+            branches.append({"name": name, "prerelease": prerelease})
+        else:
+            branches.append(name)
+    return branches
+
+
+def _build_branches_yaml(channels: set[str]) -> str:
+    """Build the YAML string for the branches block."""
+    lines = ["branches:\n"]
+    for name, prerelease in ALL_CHANNELS:
+        if name not in channels:
+            continue
+        if prerelease:
+            lines.append(f"  - name: {name}\n")
+            lines.append(f"    prerelease: {prerelease}\n")
+        else:
+            lines.append(f"  - {name}\n")
+    return "".join(lines)
+
+
+def _update_releaserc(
+    path: Path,
+    channels: set[str],
+    *,
+    dry_run: bool = False,
+) -> bool:
+    """Update .releaserc with the requested channels. Returns True if changed."""
     config, fmt = _load_releaserc(path)
 
-    if _has_two_branch_config(config):
-        info("  .releaserc already has two-branch config")
+    if _has_required_channels(config, channels):
+        info(f"  .releaserc already has channels: {', '.join(sorted(channels))}")
         return False
 
-    config["branches"] = [
-        {"name": "main", "prerelease": "dev"},
-        "release",
-    ]
+    config["branches"] = _build_branches_config(channels)
 
     if dry_run:
-        info(f"  Would update {path.name} with two-branch config")
+        info(f"  Would update {path.name} with channels: {', '.join(sorted(channels))}")
         return True
 
-    content = path.read_text()
-
     if fmt == "yaml":
-        # Targeted replacement: only change the branches block, preserve everything else
-        new_branches = "branches:\n  - name: main\n    prerelease: dev\n  - release\n"
-        # Match various forms: "branches:\n  - main\n" or "branches:\n- main\n"
-        import re
-
+        content = path.read_text()
+        new_branches = _build_branches_yaml(channels)
         pattern = re.compile(
             r"^branches:\s*\n(?:\s+-\s+.*\n)*",
             re.MULTILINE,
         )
         new_content = pattern.sub(new_branches, content, count=1)
         if new_content == content:
-            # Fallback: couldn't find branches block to replace
             warn(
                 f"  Could not find branches block in {path.name} — manual update needed"
             )
@@ -115,12 +157,17 @@ def _update_releaserc(path: Path, *, dry_run: bool = False) -> bool:
     else:
         path.write_text(json.dumps(config, indent=2) + "\n")
 
-    info(f"  Updated {path.name} with two-branch config")
+    info(f"  Updated {path.name} with channels: {', '.join(sorted(channels))}")
     return True
 
 
-def _update_consumer_workflow(project_dir: Path, *, dry_run: bool = False) -> bool:
-    """Ensure consumer workflow triggers on release branch pushes too.
+def _update_consumer_workflow(
+    project_dir: Path,
+    channels: set[str],
+    *,
+    dry_run: bool = False,
+) -> bool:
+    """Ensure consumer workflow triggers on all channel branches.
 
     Returns True if changed.
     """
@@ -128,40 +175,57 @@ def _update_consumer_workflow(project_dir: Path, *, dry_run: bool = False) -> bo
     if not wf_dir.exists():
         return False
 
+    # Build the branches list for the workflow trigger
+    branch_names = sorted(channels)
+    branches_str = ", ".join(branch_names)
+
     changed = False
     for wf_file in sorted(wf_dir.glob("*.yml")):
         content = wf_file.read_text()
-        # Skip if it already triggers on release branch or all branches
-        if 'branches: ["**"]' in content or "release" in content:
+        if 'branches: ["**"]' in content:
             continue
-        # Only modify files that have push triggers on main
-        if "branches: [main]" in content and "push:" in content:
-            if dry_run:
-                info(f"  Would update {wf_file.name} to trigger on release branch")
-                changed = True
-                continue
-            new_content = content.replace(
-                "branches: [main]",
-                "branches: [main, release]",
-                1,  # Only replace the first occurrence (push trigger, not PR trigger)
-            )
-            if new_content != content:
-                wf_file.write_text(new_content)
-                info(f"  Updated {wf_file.name} to trigger on release branch")
-                changed = True
+        # Match existing branches: [main] or branches: [main, release] etc.
+        pattern = re.compile(r"branches:\s*\[([^\]]+)\]")
+        match = pattern.search(content)
+        if not match or "push:" not in content:
+            continue
+        existing = match.group(1)
+        existing_set = {b.strip() for b in existing.split(",")}
+        if channels.issubset(existing_set):
+            continue
+        if dry_run:
+            info(f"  Would update {wf_file.name} branches to [{branches_str}]")
+            changed = True
+            continue
+        new_content = content.replace(
+            f"branches: [{existing}]",
+            f"branches: [{branches_str}]",
+            1,
+        )
+        if new_content != content:
+            wf_file.write_text(new_content)
+            info(f"  Updated {wf_file.name} branches to [{branches_str}]")
+            changed = True
 
     return changed
 
 
 def check_release_setup(project_dir: Path) -> bool:
-    """Check if release branch and config are properly set up."""
+    """Check if release branches and config are properly set up."""
     ok = True
 
-    if not _has_release_branch():
-        warn("  Release branch does not exist (local or remote)")
-        ok = False
-    else:
-        info("  Release branch exists")
+    for name, _ in ALL_CHANNELS:
+        if name == "main":
+            continue
+        if _has_branch(name):
+            info(f"  Branch '{name}' exists")
+        else:
+            # Only warn for release (required); alpha/beta are optional
+            if name == "release":
+                warn(f"  Branch '{name}' does not exist")
+                ok = False
+            else:
+                info(f"  Branch '{name}' not configured (optional)")
 
     releaserc = _get_releaserc_path(project_dir)
     if not releaserc:
@@ -169,22 +233,42 @@ def check_release_setup(project_dir: Path) -> bool:
         ok = False
     else:
         config, _ = _load_releaserc(releaserc)
-        if _has_two_branch_config(config):
-            info("  .releaserc has two-branch config")
+        channels = _configured_channels(config)
+        if "main" in channels and "release" in channels:
+            info(f"  .releaserc channels: {', '.join(sorted(channels))}")
         else:
-            warn("  .releaserc missing two-branch config (main + release)")
+            warn("  .releaserc missing required channels (main + release)")
             ok = False
 
     return ok
 
 
+def parse_channels(channels_str: str | None) -> set[str]:
+    """Parse a comma-separated channels string into a set.
+
+    Always includes 'main' and 'release'. Additional channels
+    (alpha, beta) are added from the input.
+    """
+    result = set(DEFAULT_CHANNELS)
+    if channels_str:
+        for ch in channels_str.split(","):
+            ch = ch.strip().lower()
+            valid = {name for name, _ in ALL_CHANNELS}
+            if ch in valid:
+                result.add(ch)
+            else:
+                warn(f"  Unknown channel '{ch}' — valid: {', '.join(sorted(valid))}")
+    return result
+
+
 def init_release(
     project_dir: Path,
     *,
+    channels_str: str | None = None,
     dry_run: bool = False,
     check_only: bool = False,
 ) -> int:
-    """Set up release branch and configure semantic-release channels.
+    """Set up release branches and configure semantic-release channels.
 
     Returns 0 on success, 1 on failure.
     """
@@ -194,13 +278,14 @@ def init_release(
         ok = check_release_setup(project_dir)
         return 0 if ok else 1
 
-    # Validate: must be a git repo
+    channels = parse_channels(channels_str)
+    info(f"  Channels: {', '.join(sorted(channels))}")
+
     git_check = _run(["git", "rev-parse", "--git-dir"], cwd=project_dir)
     if git_check.returncode != 0:
         error("Not a git repository")
         return 1
 
-    # Check for .hyperi-ci.yaml
     if not (project_dir / ".hyperi-ci.yaml").exists():
         warn("No .hyperi-ci.yaml found — run 'hyperi-ci init' first")
 
@@ -209,40 +294,41 @@ def init_release(
     # Step 1: Update .releaserc
     releaserc = _get_releaserc_path(project_dir)
     if releaserc:
-        if _update_releaserc(releaserc, dry_run=dry_run):
+        if _update_releaserc(releaserc, channels, dry_run=dry_run):
             changes_made = True
     else:
         warn("  No .releaserc file found — run 'hyperi-ci init' to create one")
 
-    # Step 2: Update consumer workflow to trigger on release branch
-    if _update_consumer_workflow(project_dir, dry_run=dry_run):
+    # Step 2: Update consumer workflow to trigger on all channel branches
+    if _update_consumer_workflow(project_dir, channels, dry_run=dry_run):
         changes_made = True
 
-    # Step 3: Create release branch if it doesn't exist
-    if not _has_release_branch():
-        if dry_run:
-            info("  Would create release branch from main")
-            changes_made = True
-        else:
-            # Create from current main HEAD
-            result = _run(["git", "branch", "release", "main"], cwd=project_dir)
-            if result.returncode != 0:
-                error(f"Failed to create release branch: {result.stderr.strip()}")
-                return 1
-            info("  Created release branch from main")
+    # Step 3: Create branches that don't exist
+    for name, _ in ALL_CHANNELS:
+        if name == "main" or name not in channels:
+            continue
+        if not _has_branch(name):
+            if dry_run:
+                info(f"  Would create branch '{name}' from main")
+                changes_made = True
+            else:
+                result = _run(["git", "branch", name, "main"], cwd=project_dir)
+                if result.returncode != 0:
+                    error(f"Failed to create branch '{name}': {result.stderr.strip()}")
+                    return 1
+                info(f"  Created branch '{name}' from main")
 
-            # Push the release branch
-            result = _run(
-                ["git", "push", "-u", "origin", "release"],
-                cwd=project_dir,
-            )
-            if result.returncode != 0:
-                error(f"Failed to push release branch: {result.stderr.strip()}")
-                return 1
-            info("  Pushed release branch to origin")
-            changes_made = True
-    else:
-        info("  Release branch already exists")
+                result = _run(
+                    ["git", "push", "-u", "origin", name],
+                    cwd=project_dir,
+                )
+                if result.returncode != 0:
+                    error(f"Failed to push branch '{name}': {result.stderr.strip()}")
+                    return 1
+                info(f"  Pushed branch '{name}' to origin")
+                changes_made = True
+        else:
+            info(f"  Branch '{name}' already exists")
 
     if dry_run:
         if changes_made:
