@@ -49,6 +49,11 @@ quality:
   exclude_paths: []
   gitleaks: blocking
 
+  # Directories treated as test code (relaxed rules applied)
+  # Override per project in .hyperi-ci.yaml
+  test_paths:
+    - tests/
+
   python:
     ruff: blocking
     ty: warn                   # Astral's type checker (OSS, Rust-based, replaces pyright/mypy)
@@ -59,6 +64,24 @@ quality:
     pip_audit: blocking
     ruff_docstrings: warn       # Ruff D rules (pydocstyle) — replaces interrogate
     vulture: warn
+    # Rules auto-relaxed in test directories (applied via --extend-ignore)
+    test_ignore:
+      - S101   # assert (standard pytest pattern)
+      - S104   # bind all interfaces (test servers)
+      - S105   # hardcoded passwords (test fixtures)
+      - S108   # hardcoded temp file (test temp dirs)
+      - S311   # non-cryptographic random (test data)
+      - T201   # print (debug output in tests)
+      - PT003  # fixture scope
+      - PT006  # parametrize names type
+      - PT011  # raises too broad
+      - PT012  # raises multiple statements
+      - PT017  # assert in except
+      - PT018  # composite assertion
+      - N803   # invalid argument name (fixtures)
+      - RUF003 # ambiguous unicode comment
+      - RUF015 # unnecessary iterable allocation
+      - RUF043 # raises ambiguous pattern
 
   typescript:
     eslint: blocking
@@ -67,6 +90,10 @@ quality:
     audit: blocking
     audit_level: moderate
     semgrep: warn              # Semgrep SAST — auto-config rules for TypeScript
+    test_ignore:
+      - "@typescript-eslint/no-explicit-any"
+      - "@typescript-eslint/no-non-null-assertion"
+      - "no-console"
 
   golang:
     gofmt: warn
@@ -75,6 +102,9 @@ quality:
     gosec: blocking
     govulncheck: warn
     semgrep: warn              # Semgrep SAST — auto-config rules for Go
+    test_ignore:
+      - errcheck
+      - gosec
 
   rust:
     fmt: blocking
@@ -83,6 +113,11 @@ quality:
     deny: warn
     features: all
     semgrep: warn              # Semgrep SAST — auto-config rules for Rust
+    test_ignore:
+      - clippy::unwrap_used
+      - clippy::expect_used
+      - clippy::panic
+      - clippy::indexing_slicing
 
 # Testing
 test:
