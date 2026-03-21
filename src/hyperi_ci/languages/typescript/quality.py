@@ -4,7 +4,16 @@
 #
 # License:   Proprietary — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""TypeScript quality checks handler."""
+"""TypeScript quality checks handler.
+
+Orchestrates: eslint, prettier, tsc, npm audit, semgrep.
+Each tool's mode is configurable via .hyperi-ci.yaml quality.typescript section.
+
+Note: TypeScript eslint is invoked via npm scripts, which use the project's
+eslint config. Test relaxation (test_ignore) is applied at the eslint config
+level (overrides section), not at the hyperi-ci invocation level. The
+test_ignore config is available for projects using direct eslint invocation.
+"""
 
 from __future__ import annotations
 
@@ -13,10 +22,18 @@ import subprocess
 
 from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages.quality_common import get_test_ignore
 from hyperi_ci.languages.typescript._common import (
     detect_package_manager,
     ensure_pm_available,
 )
+
+
+_DEFAULT_TS_TEST_IGNORE = [
+    "@typescript-eslint/no-explicit-any",
+    "@typescript-eslint/no-non-null-assertion",
+    "no-console",
+]
 
 
 def _find_npm_script(
