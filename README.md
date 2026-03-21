@@ -177,6 +177,62 @@ build:
       - aarch64-unknown-linux-gnu
 ```
 
+## Release Channels
+
+Multi-channel semantic-release for staged rollout. Every project gets
+`main` (dev) and `release` (GA) by default. Projects with experimental
+components can add `alpha` and `beta` channels.
+
+### Channel Model
+
+| Branch | Pre-release Tag | Stability | Example Version |
+|--------|----------------|-----------|-----------------|
+| `main` | `-dev.N` | Internal dev builds | `v0.2.0-dev.3` |
+| `alpha` | `-alpha.N` | Early adopter, API may break | `v0.2.0-alpha.1` |
+| `beta` | `-beta.N` | Feature-complete, API freezing | `v0.2.0-beta.2` |
+| `release` | (none) | GA stable | `v0.2.0` |
+
+### Setup
+
+```bash
+# Default: main + release (two-channel)
+hyperi-ci init-release
+
+# Add alpha channel
+hyperi-ci init-release --channels alpha
+
+# Add alpha + beta channels
+hyperi-ci init-release --channels alpha,beta
+
+# Check current setup
+hyperi-ci init-release --check
+```
+
+### Releasing
+
+```bash
+# Merge main into release (GA)
+hyperi-ci release-merge
+
+# Merge main into alpha
+hyperi-ci release-merge --base alpha
+
+# Merge main into beta
+hyperi-ci release-merge --base beta
+```
+
+Each merge creates a PR. Merging the PR triggers semantic-release on
+that channel's branch, which creates the appropriate pre-release tag.
+
+### Graduation Flow
+
+```
+main (dev) ──> alpha ──> beta ──> release (GA)
+```
+
+Use `release-merge --base <channel>` at each stage. Semantic-release
+handles version numbering automatically — no manual version bumps.
+
 ## Design Principles
 
 1. **NO BASH** — all CI logic is Python. 70% of old CI failures were
