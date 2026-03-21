@@ -1,3 +1,10 @@
+# [1.2.0-dev.5](https://github.com/hyperi-io/hyperi-ci/compare/v1.2.0-dev.4...v1.2.0-dev.5) (2026-03-21)
+
+
+### Bug Fixes
+
+* default bandit to disabled, superseded by ruff S rules ([4688d87](https://github.com/hyperi-io/hyperi-ci/commit/4688d87057011fee0f107c776405482627ad0804))
+
 # [1.2.0-dev.4](https://github.com/hyperi-io/hyperi-ci/compare/v1.2.0-dev.3...v1.2.0-dev.4) (2026-03-21)
 
 
