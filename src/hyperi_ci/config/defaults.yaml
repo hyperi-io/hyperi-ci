@@ -57,7 +57,7 @@ quality:
     bandit: blocking
     bandit_exclude_tests: true
     pip_audit: blocking
-    interrogate: warn
+    ruff_docstrings: warn       # Ruff D rules (pydocstyle) — replaces interrogate
     vulture: warn
 
   typescript:
