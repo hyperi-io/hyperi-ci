@@ -54,8 +54,8 @@ quality:
     ty: warn                   # Astral's type checker (OSS, Rust-based, replaces pyright/mypy)
     pyright: disabled          # Superseded by ty
     semgrep: warn              # Semgrep SAST — auto-config rules for Python
-    bandit: blocking
-    bandit_exclude_tests: true
+    bandit: disabled            # Superseded by ruff S rules
+    bandit_exclude_tests: true  # Legacy — only used if bandit re-enabled
     pip_audit: blocking
     ruff_docstrings: warn       # Ruff D rules (pydocstyle) — replaces interrogate
     vulture: warn
