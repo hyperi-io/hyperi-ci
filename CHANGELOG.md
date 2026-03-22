@@ -1,3 +1,17 @@
+# [1.2.0-dev.7](https://github.com/hyperi-io/hyperi-ci/compare/v1.2.0-dev.6...v1.2.0-dev.7) (2026-03-22)
+
+
+### Bug Fixes
+
+* resolve ruff import sort and unused import errors ([ae7628f](https://github.com/hyperi-io/hyperi-ci/commit/ae7628feb45c58f5165470f3de1a9483b1685e4a))
+
+
+### Features
+
+* add two-tier quality config and shared helper ([808e014](https://github.com/hyperi-io/hyperi-ci/commit/808e01416bf60abdcab9df1c988435cfd38490cf))
+* split Python ruff check into production/test passes ([fc413fa](https://github.com/hyperi-io/hyperi-ci/commit/fc413fa8226748bf7374b3b660a1f133d1ab3895))
+* split Rust/Go/TypeScript quality into production/test passes ([dafe5a4](https://github.com/hyperi-io/hyperi-ci/commit/dafe5a4a5ca21d9fccd8e94ff8a77197c124822b))
+
 # [1.2.0-dev.6](https://github.com/hyperi-io/hyperi-ci/compare/v1.2.0-dev.5...v1.2.0-dev.6) (2026-03-21)
 
 
