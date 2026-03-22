@@ -15,7 +15,6 @@ from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import get_test_ignore
 
-
 _DEFAULT_GO_TEST_IGNORE = ["errcheck", "gosec"]
 
 

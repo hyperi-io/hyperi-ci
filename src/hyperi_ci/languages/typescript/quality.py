@@ -22,12 +22,10 @@ import subprocess
 
 from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import get_test_ignore
 from hyperi_ci.languages.typescript._common import (
     detect_package_manager,
     ensure_pm_available,
 )
-
 
 _DEFAULT_TS_TEST_IGNORE = [
     "@typescript-eslint/no-explicit-any",
