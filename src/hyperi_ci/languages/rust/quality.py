@@ -19,6 +19,14 @@ from pathlib import Path
 
 from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages.quality_common import get_test_ignore
+
+_DEFAULT_RUST_TEST_IGNORE = [
+    "clippy::unwrap_used",
+    "clippy::expect_used",
+    "clippy::panic",
+    "clippy::indexing_slicing",
+]
 
 
 def _split_feature_sets(features: str) -> list[str]:
@@ -35,19 +43,6 @@ def _split_feature_sets(features: str) -> list[str]:
 def _get_tool_mode(tool: str, config: CIConfig) -> str:
     """Get quality tool mode: blocking, warn, or disabled."""
     return str(config.get(f"quality.rust.{tool}", "blocking"))
-
-
-def _has_cargo_lint_config() -> bool:
-    """Check if project has its own clippy lint config in Cargo.toml.
-
-    Projects with [workspace.lints.clippy] or [lints.clippy] manage
-    their own lint levels — we should not override with -D warnings.
-    """
-    cargo_toml = Path("Cargo.toml")
-    if not cargo_toml.exists():
-        return False
-    content = cargo_toml.read_text()
-    return "[workspace.lints.clippy]" in content or "[lints.clippy]" in content
 
 
 def _resolve_tool_cmd(cmd: list[str], use_uvx: bool = False) -> list[str]:
@@ -123,27 +118,32 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if not _run_tool("cargo fmt", ["cargo", "fmt", "--check"], mode):
         had_failure = True
 
-    # cargo clippy — run per feature set to catch issues with mutually
-    # exclusive features (e.g. jemalloc vs mimalloc)
+    # cargo clippy — two-pass: production (strict) + test (relaxed)
     mode = _get_tool_mode("clippy", config)
-    has_workspace_lints = _has_cargo_lint_config()
     features = (extra_env or {}).get("RUST_FEATURES", "all")
     feature_sets = _split_feature_sets(features)
+    test_ignore = get_test_ignore("rust", config, _DEFAULT_RUST_TEST_IGNORE)
+
     for feature_set in feature_sets:
-        clippy_cmd = ["cargo", "clippy", "--all-targets"]
+        feature_args = []
         if feature_set == "all":
-            clippy_cmd.append("--all-features")
+            feature_args.append("--all-features")
         elif feature_set != "default":
-            clippy_cmd.extend(["--features", feature_set])
-        # If the project has its own [workspace.lints] or [lints.clippy],
-        # respect it — only add baseline -D warnings for projects without
-        # lint configuration
-        clippy_args = ["-D", "clippy::dbg_macro"]
-        if not has_workspace_lints:
-            clippy_args = ["-D", "warnings"] + clippy_args
-        clippy_cmd.extend(["--"] + clippy_args)
-        label = f"cargo clippy ({feature_set})"
-        if not _run_tool(label, clippy_cmd, mode):
+            feature_args.extend(["--features", feature_set])
+
+        # Production pass — lib + bins only (no test/bench targets)
+        prod_cmd = ["cargo", "clippy", "--lib", "--bins"] + feature_args
+        prod_cmd.extend(["--", "-D", "warnings", "-D", "clippy::dbg_macro"])
+        if not _run_tool(f"clippy src ({feature_set})", prod_cmd, mode):
+            had_failure = True
+
+        # Test pass — test + bench targets, relaxed
+        test_cmd = ["cargo", "clippy", "--tests", "--benches"] + feature_args
+        allow_flags = [f"-A{rule}" for rule in test_ignore]
+        test_cmd.extend(
+            ["--", "-D", "warnings", "-D", "clippy::dbg_macro", *allow_flags]
+        )
+        if not _run_tool(f"clippy tests ({feature_set})", test_cmd, mode):
             had_failure = True
 
     # cargo audit

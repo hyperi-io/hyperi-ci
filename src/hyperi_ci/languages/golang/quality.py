@@ -13,6 +13,9 @@ import subprocess
 
 from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages.quality_common import get_test_ignore
+
+_DEFAULT_GO_TEST_IGNORE = ["errcheck", "gosec"]
 
 
 def _get_tool_mode(tool: str, config: CIConfig) -> str:
@@ -78,14 +81,30 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if not _run_tool("go vet", ["go", "vet", "./..."], mode):
         had_failure = True
 
+    # golangci-lint — two-pass: production (strict) + test (relaxed)
     mode = _get_tool_mode("golangci_lint", config)
+    test_ignore = get_test_ignore("golang", config, _DEFAULT_GO_TEST_IGNORE)
+
+    # Production pass — skip test files
     if not _run_tool(
-        "golangci-lint", ["golangci-lint", "run", "--timeout", "5m"], mode
+        "golangci-lint (src)",
+        ["golangci-lint", "run", "--tests=false", "--timeout", "5m"],
+        mode,
     ):
         had_failure = True
 
+    # Test pass — include tests, disable specific linters
+    if test_ignore:
+        disable_flags = [f"--disable={linter}" for linter in test_ignore]
+        if not _run_tool(
+            "golangci-lint (tests)",
+            ["golangci-lint", "run", "--timeout", "5m"] + disable_flags,
+            mode,
+        ):
+            had_failure = True
+
     mode = _get_tool_mode("gosec", config)
-    if not _run_tool("gosec", ["gosec", "-quiet", "./..."], mode):
+    if not _run_tool("gosec", ["gosec", "-quiet", "-tests=false", "./..."], mode):
         had_failure = True
 
     mode = _get_tool_mode("govulncheck", config)
