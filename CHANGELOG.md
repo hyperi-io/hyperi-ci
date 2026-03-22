@@ -1,3 +1,20 @@
+# [1.4.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.3.0...v1.4.0) (2026-03-22)
+
+
+### Bug Fixes
+
+* default bandit to disabled, superseded by ruff S rules ([4688d87](https://github.com/hyperi-io/hyperi-ci/commit/4688d87057011fee0f107c776405482627ad0804))
+* replace interrogate with ruff D rules for docstring checks ([20002e6](https://github.com/hyperi-io/hyperi-ci/commit/20002e60f144c93cd878d7f9b4e3168f932777fc))
+* resolve ruff import sort and unused import errors ([ae7628f](https://github.com/hyperi-io/hyperi-ci/commit/ae7628feb45c58f5165470f3de1a9483b1685e4a))
+* set 80% coverage default, add ruff github annotations ([558f76f](https://github.com/hyperi-io/hyperi-ci/commit/558f76f5aea63a48f3b9b5506d9b499ba5d68c93))
+
+
+### Features
+
+* add two-tier quality config and shared helper ([808e014](https://github.com/hyperi-io/hyperi-ci/commit/808e01416bf60abdcab9df1c988435cfd38490cf))
+* split Python ruff check into production/test passes ([fc413fa](https://github.com/hyperi-io/hyperi-ci/commit/fc413fa8226748bf7374b3b660a1f133d1ab3895))
+* split Rust/Go/TypeScript quality into production/test passes ([dafe5a4](https://github.com/hyperi-io/hyperi-ci/commit/dafe5a4a5ca21d9fccd8e94ff8a77197c124822b))
+
 # [1.3.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.2.1...v1.3.0) (2026-03-21)
 
 
