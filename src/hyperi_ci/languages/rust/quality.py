@@ -21,7 +21,6 @@ from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import get_test_ignore
 
-
 _DEFAULT_RUST_TEST_IGNORE = [
     "clippy::unwrap_used",
     "clippy::expect_used",
