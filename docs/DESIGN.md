@@ -93,11 +93,14 @@ test ─────┘
    - Skipped on fork PRs (`github.event.pull_request.head.repo.fork != true`)
 5. **release** (needs build, main or release push) — runs `semantic-release`
    - On `main` push: creates dev pre-release (`v1.15.0-dev.1`)
+   - On `alpha` push: creates alpha pre-release (`v1.15.0-alpha.1`)
+   - On `beta` push: creates beta pre-release (`v1.15.0-beta.1`)
    - On `release` push: creates GA release (`v1.15.0`)
+   - Alpha/beta channels are optional — configure via `hyperi-ci init-release --channels alpha,beta`
    - Creates git tag + GitHub release, writes `VERSION` file
 6. **publish** (needs release, release branch only) — runs `uvx hyperi-ci run build`
    then `uvx hyperi-ci run publish`
-   - Only on `release` branch — dev pre-releases skip registry publishing
+   - Only on `release` branch — pre-releases (dev/alpha/beta) skip registry publishing
    - Re-checks out `release` after semantic-release has pushed the version bump
    - Skipped if `VERSION` file absent (non-publishable projects)
    - Publish step MUST use `hyperi-ci run build` not raw `uv build` — the
