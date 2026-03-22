@@ -1,24 +1,48 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/languages/python/quality.py
-# Purpose:   Python quality checks (ruff, ty, semgrep, bandit, pip-audit)
+# Purpose:   Python quality checks (ruff, ty, semgrep, bandit, pip-audit, vulture)
 #
 # License:   Proprietary — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Python quality checks handler.
 
-Orchestrates quality tools: ruff, ty, semgrep, bandit, pip-audit,
-interrogate, vulture. Each tool's mode (blocking/warn/disabled) is
+Orchestrates quality tools: ruff (lint + format + docstrings), ty, semgrep,
+bandit, pip-audit, vulture. Each tool's mode (blocking/warn/disabled) is
 configurable via .hyperi-ci.yaml quality.python section.
+
+Docstring coverage uses ruff D rules (pydocstyle) instead of interrogate,
+which is unmaintained and pulls in the vulnerable 'py' package.
 """
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
 
 from hyperi_ci.common import error, get_exclude_dirs, info, success, warn
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages.quality_common import get_test_ignore, get_test_paths
+
+_DEFAULT_PYTHON_TEST_IGNORE = [
+    "S101",
+    "S104",
+    "S105",
+    "S108",
+    "S311",
+    "T201",
+    "PT003",
+    "PT006",
+    "PT011",
+    "PT012",
+    "PT017",
+    "PT018",
+    "N803",
+    "RUF003",
+    "RUF015",
+    "RUF043",
+]
 
 
 def _get_tool_mode(tool: str, config: CIConfig) -> str:
@@ -114,11 +138,34 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     excludes = get_exclude_dirs(config._raw)
     had_failure = False
 
-    # Ruff lint + format
+    # Ruff lint — two-pass: production (strict) + test (relaxed)
     mode = _get_tool_mode("ruff", config)
     exclude_args = _build_exclude_args("ruff", excludes)
-    if not _run_tool("ruff check", ["ruff", "check", "."] + exclude_args, mode):
+    # Use GitHub-native annotations in CI for inline PR feedback
+    output_fmt = ["--output-format=github"] if os.environ.get("GITHUB_ACTIONS") else []
+
+    test_paths = get_test_paths(config)
+    test_ignore = get_test_ignore("python", config, _DEFAULT_PYTHON_TEST_IGNORE)
+
+    # Production pass — exclude test dirs, full rules
+    prod_exclude = exclude_args + [f"--exclude={p}" for p in test_paths]
+    if not _run_tool(
+        "ruff check (src)", ["ruff", "check", "."] + output_fmt + prod_exclude, mode
+    ):
         had_failure = True
+
+    # Test pass — relaxed rules, same mode
+    if test_paths and test_ignore:
+        ignore_flag = [f"--extend-ignore={','.join(test_ignore)}"]
+        for tp in test_paths:
+            if not _run_tool(
+                f"ruff check ({tp})",
+                ["ruff", "check", tp] + output_fmt + ignore_flag + exclude_args,
+                mode,
+            ):
+                had_failure = True
+
+    # Ruff format — single pass (format is rule-agnostic, no split needed)
     if not _run_tool(
         "ruff format", ["ruff", "format", "--check", "."] + exclude_args, mode
     ):
@@ -159,9 +206,12 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if not _run_tool("pip-audit", ["pip-audit"], mode, use_uvx=True):
         had_failure = True
 
-    # Interrogate docstring coverage
-    mode = _get_tool_mode("interrogate", config)
-    if not _run_tool("interrogate", ["interrogate", "src/"], mode, use_uvx=True):
+    # Docstring coverage via ruff D rules (replaces interrogate)
+    mode = _get_tool_mode("ruff_docstrings", config)
+    ruff_doc_cmd = ["ruff", "check", "--select", "D", "src/"] + _build_exclude_args(
+        "ruff", excludes
+    )
+    if not _run_tool("ruff docstrings", ruff_doc_cmd, mode):
         had_failure = True
 
     # Vulture dead code detection
