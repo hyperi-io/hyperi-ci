@@ -45,6 +45,29 @@ This is the **single source of truth** for all tasks and progress.
 - [ ] Consumer project cutover — remove `ci/` submodule, run `hyperi-ci init`, verify
 - [ ] Archive old repo — `hyperi-io/ci` → read-only
 
+### @kay Review — Tooling Modernisation
+
+- [ ] **Biome support for TypeScript projects** `@kay`
+  - Biome (v2.3, Jan 2026) replaces ESLint + Prettier in one tool — 25x faster
+  - 423 lint rules, type-aware linting via Biotype (~75-85% typescript-eslint coverage)
+  - Plugin system via GritQL (Biome 2.0+)
+  - **Proposal:** Detect `biome.json` in project root → use `biome ci` instead of eslint+prettier
+  - **Migration path for existing projects:** `npx biome migrate eslint --write`
+  - **For new projects:** Default to Biome via `hyperi-ci init` for TypeScript
+  - **Not suitable yet for:** Next.js projects (eslint-config-next not ported)
+  - **References:** [Biome vs ESLint 2026](https://www.pkgpulse.com/blog/biome-vs-eslint-vs-oxlint-2026), [Migration Guide](https://dev.to/pockit_tools/biome-the-eslint-and-prettier-killer-complete-migration-guide-for-2026-27m)
+
+- [ ] **Ruff auto-fix as pre-commit hook template** `@kay`
+  - Safe auto-fixable rules: import sorting (I001), unused noqa (RUF100), modernise syntax (UP*), remove placeholders (PIE790)
+  - **Proposal:** Add `.pre-commit-config.yaml` template to `hyperi-ci init` with `ruff check --fix` + `ruff format`
+  - Recommended but not required — CI is the enforcement gate, pre-commit is developer convenience
+  - Avoids the `--no-verify` anti-pattern (optional hooks don't get bypassed habitually)
+
+- [ ] **Evaluate Oxlint as CI speed layer** `@kay`
+  - 50-100x faster than ESLint, ~300 rules, lint-only (no format)
+  - Vercel pattern: Oxlint fast pre-pass + ESLint for deep rules
+  - Lower priority — Biome covers most of this if adopted
+
 ### Requires Design Discussion
 
 - [ ] **OSS deployment model and access control**
