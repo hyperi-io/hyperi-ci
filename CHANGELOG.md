@@ -1,3 +1,10 @@
+## [1.4.1](https://github.com/hyperi-io/hyperi-ci/compare/v1.4.0...v1.4.1) (2026-03-23)
+
+
+### Bug Fixes
+
+* add PT001, PT021, S106 to Python test_ignore defaults ([e04e541](https://github.com/hyperi-io/hyperi-ci/commit/e04e5413cdf31ce6797dcfa105e9ebe462d9034c))
+
 # [1.4.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.3.0...v1.4.0) (2026-03-22)
 
 
