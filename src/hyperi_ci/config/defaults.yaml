@@ -79,6 +79,9 @@ quality:
       - PT017  # assert in except
       - PT018  # composite assertion
       - N803   # invalid argument name (fixtures)
+      - PT001  # fixture parentheses style
+      - PT021  # fixture finalizer callback
+      - S106   # hardcoded password func arg
       - RUF003 # ambiguous unicode comment
       - RUF015 # unnecessary iterable allocation
       - RUF043 # raises ambiguous pattern
