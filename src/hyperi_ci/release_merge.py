@@ -125,6 +125,76 @@ def _gh(
     return run_cmd(["gh", *args], cwd=cwd, **kwargs)
 
 
+def _extract_version(content: str, filepath: str) -> str | None:
+    """Extract the version string from a manifest file."""
+    import re
+
+    if filepath == "Cargo.toml":
+        # Match version = "x.y.z" in the [package] section
+        match = re.search(r'^version\s*=\s*"([^"]+)"', content, re.MULTILINE)
+    elif filepath == "pyproject.toml":
+        match = re.search(r'^version\s*=\s*"([^"]+)"', content, re.MULTILINE)
+    elif filepath == "package.json":
+        match = re.search(r'"version"\s*:\s*"([^"]+)"', content)
+    else:
+        return None
+    return match.group(1) if match else None
+
+
+def _replace_version(content: str, filepath: str, version: str) -> str:
+    """Replace the version string in a manifest file."""
+    import re
+
+    def _sub(pattern: str, flags: int = 0) -> str:
+        repl = r"\g<1>" + version + '"'
+        return re.sub(pattern, repl, content, count=1, flags=flags)
+
+    if filepath in ("Cargo.toml", "pyproject.toml"):
+        return _sub(r'^(version\s*=\s*")[^"]+"', flags=re.MULTILINE)
+    if filepath == "package.json":
+        return _sub(r'("version"\s*:\s*")[^"]+"')
+    return content
+
+
+def _resolve_manifest_conflict(
+    cwd: Path,
+    filepath: str,
+    base_branch: str,
+    head_branch: str,
+) -> None:
+    """Resolve manifest conflict: main's content + release's version.
+
+    Takes the full file from head (main) but replaces the version field
+    with the value from base (release). This preserves new features,
+    dependencies, and config from main while keeping semantic-release's
+    version on the release branch.
+    """
+    # Get the release branch's version from --ours
+    ours = _git(
+        ["show", f":2:{filepath}"],
+        cwd=cwd,
+        capture=True,
+        check=True,
+    )
+    release_version = _extract_version(ours.stdout, filepath)
+
+    # Get main's full content from --theirs
+    theirs = _git(
+        ["show", f":3:{filepath}"],
+        cwd=cwd,
+        capture=True,
+        check=True,
+    )
+    main_content = theirs.stdout
+
+    if release_version and main_content:
+        resolved = _replace_version(main_content, filepath, release_version)
+        (cwd / filepath).write_text(resolved)
+    else:
+        # Fallback: keep release's version entirely (old behaviour)
+        _git(["checkout", "--ours", "--", filepath], cwd=cwd, check=True)
+
+
 def release_merge(
     *,
     base_branch: str = "release",
@@ -252,12 +322,25 @@ def release_merge(
                     check=False,
                 )
                 if check.stdout.strip():
-                    info(f"    Resolved: {filepath} (keeping {base_branch} version)")
-                    _git(
-                        ["checkout", "--ours", "--", filepath],
-                        cwd=tmp_path,
-                        check=True,
-                    )
+                    if filepath in ("VERSION", "CHANGELOG.md"):
+                        # Pure version/changelog files: keep release's entirely
+                        info(
+                            f"    Resolved: {filepath} (keeping {base_branch} version)"
+                        )
+                        _git(
+                            ["checkout", "--ours", "--", filepath],
+                            cwd=tmp_path,
+                            check=True,
+                        )
+                    else:
+                        # Manifest files (Cargo.toml, pyproject.toml, package.json):
+                        # take main's content but keep release's version field
+                        info(
+                            f"    Resolved: {filepath} (main content, {base_branch} version)"
+                        )
+                        _resolve_manifest_conflict(
+                            tmp_path, filepath, base_branch, head_branch
+                        )
                     _git(["add", "--", filepath], cwd=tmp_path, check=True)
                     resolved += 1
 
