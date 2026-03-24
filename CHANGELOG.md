@@ -1,3 +1,10 @@
+# [1.2.0-dev.9](https://github.com/hyperi-io/hyperi-ci/compare/v1.2.0-dev.8...v1.2.0-dev.9) (2026-03-24)
+
+
+### Bug Fixes
+
+* resolve manifest conflicts by merging content, not replacing ([695846d](https://github.com/hyperi-io/hyperi-ci/commit/695846dd5e5a816e354cbcde1fe90902fa9a1891))
+
 # [1.2.0-dev.8](https://github.com/hyperi-io/hyperi-ci/compare/v1.2.0-dev.7...v1.2.0-dev.8) (2026-03-23)
 
 
