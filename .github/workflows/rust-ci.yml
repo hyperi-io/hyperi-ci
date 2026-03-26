@@ -38,6 +38,10 @@ on:
         type: string
         default: ""
         description: "JSON array of runner OS for test matrix (overrides runner-test)"
+      tag:
+        type: string
+        default: ""
+        description: "Tag to publish (workflow_dispatch only)"
     secrets:
       JFROG_TOKEN:
         required: false
@@ -50,8 +54,27 @@ on:
       R2_SECRET_ACCESS_KEY:
         required: false
 
+  workflow_dispatch:
+    inputs:
+      tag:
+        type: string
+        required: true
+        description: "Tag to publish (e.g. v1.3.0)"
+      runner-mode:
+        type: string
+        default: ""
+        description: "Runner mode override"
+      publish-target:
+        type: string
+        default: "internal"
+        description: "Publish destination: internal, oss, or both"
+      rust-toolchain:
+        type: string
+        default: "stable"
+        description: "Rust toolchain version"
+
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ inputs.tag || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -64,6 +87,8 @@ jobs:
     runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Install uv
         if: ${{ !contains(runner.name, 'arc-runner') }}
@@ -116,6 +141,8 @@ jobs:
         os: ${{ fromJson((inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Install uv
         if: ${{ !contains(runner.name, 'arc-runner') }}
@@ -174,7 +201,7 @@ jobs:
         run: |
           AMD64_RUNNER="${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"
           ARM64_RUNNER="${{ vars.GH_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}"
-          if [[ "${{ github.ref }}" == "refs/heads/release" ]]; then
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             echo "matrix={\"include\":[{\"target\":\"x86_64-unknown-linux-gnu\",\"runner\":\"${AMD64_RUNNER}\",\"os_arch\":\"linux-amd64\"},{\"target\":\"aarch64-unknown-linux-gnu\",\"runner\":\"${ARM64_RUNNER}\",\"os_arch\":\"linux-arm64\"}]}" >> "$GITHUB_OUTPUT"
           else
             echo "matrix={\"include\":[{\"target\":\"x86_64-unknown-linux-gnu\",\"runner\":\"${AMD64_RUNNER}\",\"os_arch\":\"linux-amd64\"}]}" >> "$GITHUB_OUTPUT"
@@ -188,6 +215,8 @@ jobs:
       matrix: ${{ fromJson(needs.setup.outputs.build-matrix) }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Install uv
         if: ${{ !contains(runner.name, 'arc-runner') }}
@@ -237,7 +266,7 @@ jobs:
   release:
     name: Release
     needs: [quality, test, build]
-    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release') && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -263,7 +292,6 @@ jobs:
           @semantic-release/changelog
           @semantic-release/exec
           @semantic-release/git
-          @semantic-release/github
           conventional-changelog-conventionalcommits
 
       - name: Release
@@ -273,15 +301,15 @@ jobs:
 
   publish:
     name: Publish
-    needs: [build, release]
-    if: github.ref == 'refs/heads/release' && github.event_name == 'push'
+    needs: [build]
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ inputs.tag }}
 
       - name: Check for VERSION
         id: check
