@@ -428,6 +428,42 @@ def check_commit_cmd(
 
 
 @app.command()
+def release(
+    tag: Annotated[
+        str | None,
+        typer.Argument(help="Tag to publish (e.g. v1.3.0)"),
+    ] = None,
+    list_tags: Annotated[
+        bool,
+        typer.Option("--list", help="List unpublished version tags"),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Show what would be dispatched"),
+    ] = False,
+) -> None:
+    """Trigger a publish workflow for a version tag.
+
+    Lists available tags or dispatches a publish for a specific tag.
+    Replaces the old release-merge flow — no release branch needed.
+    """
+    from hyperi_ci.release import dispatch_publish, list_unpublished
+
+    if list_tags:
+        rc = list_unpublished()
+        raise typer.Exit(rc)
+
+    if not tag:
+        typer.echo(
+            "Specify a tag to publish, or use --list to see available tags.", err=True
+        )
+        raise typer.Exit(1)
+
+    rc = dispatch_publish(tag, dry_run=dry_run)
+    raise typer.Exit(rc)
+
+
+@app.command()
 def upgrade(
     target_version: Annotated[
         str | None,
