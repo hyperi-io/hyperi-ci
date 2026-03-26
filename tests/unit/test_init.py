@@ -129,6 +129,33 @@ class TestRenderReleaserc:
         content = _render_releaserc("my-project")
         assert "my-project" in content
 
+    def test_branches_main_only(self) -> None:
+        content = _render_releaserc("my-project")
+        assert "prerelease" not in content
+        assert "- main" in content
+
+    def test_no_github_plugin(self) -> None:
+        content = _render_releaserc("my-project")
+        assert "@semantic-release/github" not in content
+
+    def test_has_all_commit_types(self) -> None:
+        content = _render_releaserc("my-project")
+        for t in [
+            "cleanup",
+            "data",
+            "debt",
+            "design",
+            "infra",
+            "meta",
+            "ops",
+            "review",
+            "spike",
+            "ui",
+            "hotfix",
+            "security",
+        ]:
+            assert t in content, f"Missing commit type: {t}"
+
 
 class TestLanguageSpecificConfig:
     """Language-specific config defaults in generated YAML."""
