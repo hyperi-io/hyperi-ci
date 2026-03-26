@@ -31,6 +31,26 @@ R2_ACCOUNT_ID = "98d20454e2af7a9397ad9366a1641659"
 R2_ENDPOINT = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
 R2_PUBLIC_URL = "https://downloads.hyperi.io"
 
+VALID_CHANNELS = ("spike", "alpha", "beta", "release")
+
+
+def _resolve_gh_release_flags(channel: str) -> list[str]:
+    """Return extra flags for gh release create based on channel."""
+    if channel != "release":
+        return ["--prerelease"]
+    return []
+
+
+def _resolve_r2_paths(project_name: str, version: str, channel: str) -> tuple[str, str]:
+    """Return (versioned_prefix, latest_prefix) S3 paths for R2."""
+    if channel == "release":
+        versioned = f"s3://{R2_BUCKET}/{project_name}/v{version}/"
+        latest = f"s3://{R2_BUCKET}/{project_name}/latest/"
+    else:
+        versioned = f"s3://{R2_BUCKET}/{project_name}/{channel}/v{version}/"
+        latest = f"s3://{R2_BUCKET}/{project_name}/{channel}/latest/"
+    return versioned, latest
+
 
 def _read_version() -> str | None:
     """Read version from VERSION file (written by semantic-release)."""
@@ -54,14 +74,12 @@ def _collect_artifacts() -> list[Path]:
     ]
 
 
-def _upload_binaries_github() -> int:
-    """Upload built binaries and checksums to GitHub Releases.
+def _upload_binaries_github(channel: str = "release") -> int:
+    """Create GitHub Release and upload built binaries.
 
-    Reads the release tag from the VERSION file (prefixed with 'v').
-    In the publish job, GITHUB_REF_NAME is the branch name (e.g. 'release'),
-    not the tag — semantic-release writes the version to the VERSION file.
-
-    Uses gh CLI with --clobber for idempotent re-runs.
+    Creates a GH Release for the tag (from VERSION file). For non-release
+    channels (spike, alpha, beta), the release is marked as prerelease.
+    Falls back to upload if the release already exists (idempotent re-runs).
 
     Returns:
         Exit code (0 = success).
@@ -77,17 +95,29 @@ def _upload_binaries_github() -> int:
         return 1
 
     tag = f"v{version}"
-    info(f"Uploading {len(artifacts)} artifact(s) to GitHub Release {tag}")
+    info(f"Publishing {len(artifacts)} artifact(s) to GitHub Release {tag}")
 
-    cmd = ["gh", "release", "upload", tag, "--clobber"]
+    cmd = ["gh", "release", "create", tag, "--title", tag, "--generate-notes"]
+    cmd.extend(_resolve_gh_release_flags(channel))
     cmd.extend(str(f) for f in artifacts)
 
-    result = subprocess.run(cmd)
+    result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        error("GitHub Release upload failed")
-        return result.returncode
+        if "already exists" in result.stderr:
+            info(f"  GH Release {tag} already exists — uploading artifacts")
+            upload_cmd = ["gh", "release", "upload", tag, "--clobber"]
+            upload_cmd.extend(str(f) for f in artifacts)
+            result = subprocess.run(upload_cmd)
+            if result.returncode != 0:
+                error("GitHub Release upload failed")
+                return result.returncode
+        else:
+            error("GitHub Release creation failed")
+            if result.stderr:
+                error(result.stderr)
+            return result.returncode
 
-    success(f"Uploaded {len(artifacts)} artifact(s) to GitHub Release {tag}")
+    success(f"Published {len(artifacts)} artifact(s) to GitHub Release {tag}")
     return 0
 
 
@@ -177,14 +207,12 @@ def _publish_jfrog_binaries() -> int:
     return 0
 
 
-def _publish_r2_binaries() -> int:
+def _publish_r2_binaries(channel: str = "release") -> int:
     """Publish built binaries to Cloudflare R2 binary repository.
 
-    Uploads all files from dist/ to R2 under:
-      {project}/{version}/{filename}   — versioned path
-      {project}/latest/{filename}      — latest alias (overwritten each release)
-
-    Public URL: https://releases.hyperi.io/{project}/{version}/{filename}
+    Uploads all files from dist/ to R2. Channel controls path:
+      release:  {project}/v{version}/  + {project}/latest/
+      other:    {project}/{channel}/v{version}/  + {project}/{channel}/latest/
 
     Requires R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY env vars.
 
@@ -213,8 +241,7 @@ def _publish_r2_binaries() -> int:
     project_name = Path.cwd().name
     version = _read_version() or "unknown"
 
-    versioned_prefix = f"s3://{R2_BUCKET}/{project_name}/v{version}/"
-    latest_prefix = f"s3://{R2_BUCKET}/{project_name}/latest/"
+    versioned_prefix, latest_prefix = _resolve_r2_paths(project_name, version, channel)
 
     # Common env for aws CLI — use R2 credentials as AWS credentials
     aws_env = {
@@ -292,12 +319,15 @@ def publish_binaries(config: CIConfig) -> int:
         info("No dist/ artifacts — skipping binary publish")
         return 0
 
+    channel = config.get("publish.channel", "release")
     info(f"Binary publish destinations: {', '.join(destinations)}")
+    if channel != "release":
+        info(f"Channel: {channel} (prerelease)")
 
     for dest in destinations:
         if dest == "github-releases":
             with group("Upload: GitHub Releases"):
-                rc = _upload_binaries_github()
+                rc = _upload_binaries_github(channel=channel)
                 if rc != 0:
                     return rc
 
@@ -309,7 +339,7 @@ def publish_binaries(config: CIConfig) -> int:
 
         elif dest == "r2-binaries":
             with group("Upload: Cloudflare R2"):
-                rc = _publish_r2_binaries()
+                rc = _publish_r2_binaries(channel=channel)
                 if rc != 0:
                     return rc
 
