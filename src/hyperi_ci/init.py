@@ -563,6 +563,29 @@ def init_project(
     else:
         info("  Skipped .releaserc (already exists)")
 
+    hook_path = project_dir / ".githooks" / "commit-msg"
+    if not hook_path.exists() or force:
+        hook_path.parent.mkdir(parents=True, exist_ok=True)
+        hook_path.write_text(
+            "#!/usr/bin/env bash\n"
+            "# Conventional commit validation hook\n"
+            "# Install: git config core.hooksPath .githooks\n"
+            "\n"
+            "if command -v hyperi-ci >/dev/null 2>&1; then\n"
+            '    hyperi-ci check-commit "$1"\n'
+            "elif command -v uvx >/dev/null 2>&1; then\n"
+            '    uvx hyperi-ci check-commit "$1"\n'
+            "else\n"
+            '    echo "Warning: hyperi-ci not found — skipping commit validation" >&2\n'
+            "    exit 0\n"
+            "fi\n"
+        )
+        hook_path.chmod(0o755)
+        info(f"  Created: {hook_path}")
+        files_written += 1
+    else:
+        info("  Skipped .githooks/commit-msg (already exists)")
+
     if files_written == 0:
         warn("No files written (all already exist)")
     else:
