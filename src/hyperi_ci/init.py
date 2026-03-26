@@ -350,10 +350,7 @@ def _render_releaserc(
         git_assets.append("package.json")
 
     config: dict = {
-        "branches": [
-            {"name": "main", "prerelease": "dev"},
-            "release",
-        ],
+        "branches": ["main"],
         "tagFormat": "v${version}",
         "plugins": [
             [
@@ -365,11 +362,28 @@ def _render_releaserc(
                         {"type": "fix", "release": "patch"},
                         {"type": "perf", "release": "patch"},
                         {"type": "sec", "release": "patch"},
+                        {"type": "hotfix", "release": "patch"},
+                        {"type": "security", "release": "patch"},
                         {"type": "docs", "release": False},
                         {"type": "test", "release": False},
                         {"type": "refactor", "release": False},
-                        {"type": "chore", "release": False},
+                        {"type": "style", "release": False},
+                        {"type": "build", "release": False},
                         {"type": "ci", "release": False},
+                        {"type": "chore", "release": False},
+                        {"type": "deps", "release": False},
+                        {"type": "revert", "release": False},
+                        {"type": "wip", "release": False},
+                        {"type": "cleanup", "release": False},
+                        {"type": "data", "release": False},
+                        {"type": "debt", "release": False},
+                        {"type": "design", "release": False},
+                        {"type": "infra", "release": False},
+                        {"type": "meta", "release": False},
+                        {"type": "ops", "release": False},
+                        {"type": "review", "release": False},
+                        {"type": "spike", "release": False},
+                        {"type": "ui", "release": False},
                     ],
                 },
             ],
@@ -389,7 +403,6 @@ def _render_releaserc(
                     "message": "chore: version ${nextRelease.version} [skip ci]",
                 },
             ],
-            "@semantic-release/github",
         ],
     }
 
