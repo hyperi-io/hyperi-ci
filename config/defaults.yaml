@@ -183,6 +183,7 @@ build:
 publish:
   enabled: true
   target: internal
+  channel: release    # spike | alpha | beta | release
   binaries: both
   binaries_repo: hyperi-binaries
 
