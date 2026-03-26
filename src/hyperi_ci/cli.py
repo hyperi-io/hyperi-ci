@@ -383,6 +383,49 @@ def install_deps_cmd(
     raise typer.Exit(rc)
 
 
+@app.command(name="check-commit")
+def check_commit_cmd(
+    message_file: Annotated[
+        str | None,
+        typer.Argument(help="Path to commit message file (reads stdin if omitted)"),
+    ] = None,
+    list_types: Annotated[
+        bool,
+        typer.Option("--list", help="List all accepted commit types"),
+    ] = False,
+) -> None:
+    """Validate a commit message against conventional commit rules.
+
+    Used by .githooks/commit-msg hook. Reads from file or stdin.
+    """
+    from hyperi_ci.quality.commit_validation import (
+        format_rejection,
+        format_type_list,
+        validate_message,
+    )
+
+    if list_types:
+        typer.echo(format_type_list())
+        raise typer.Exit(0)
+
+    if message_file:
+        msg = Path(message_file).read_text().strip()
+    elif not sys.stdin.isatty():
+        msg = sys.stdin.read().strip()
+    else:
+        typer.echo(
+            "No commit message provided. Pass a file or pipe via stdin.", err=True
+        )
+        raise typer.Exit(1)
+
+    result = validate_message(msg)
+    if result.valid:
+        raise typer.Exit(0)
+
+    typer.echo(format_rejection(result, msg), err=True)
+    raise typer.Exit(1)
+
+
 @app.command(name="release-merge")
 def release_merge_cmd(
     base_branch: Annotated[
