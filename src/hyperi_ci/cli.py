@@ -15,7 +15,8 @@ Usage:
     hyperi-ci trigger           Trigger a GitHub Actions workflow run
     hyperi-ci watch [RUN_ID]    Watch a GitHub Actions run to completion
     hyperi-ci logs [RUN_ID]     Fetch and filter GitHub Actions run logs
-    hyperi-ci release-merge     Merge main into release (auto conflict resolution)
+    hyperi-ci release <tag>     Trigger publish for a version tag
+    hyperi-ci check-commit      Validate commit message format
     hyperi-ci --version         Show version
 """
 
@@ -424,39 +425,6 @@ def check_commit_cmd(
 
     typer.echo(format_rejection(result, msg), err=True)
     raise typer.Exit(1)
-
-
-@app.command(name="release-merge")
-def release_merge_cmd(
-    base_branch: Annotated[
-        str,
-        typer.Option(
-            "--base",
-            "-b",
-            help="Target branch: release (GA), beta, or alpha (default: release)",
-        ),
-    ] = "release",
-    head_branch: Annotated[
-        str,
-        typer.Option("--head", help="Source branch (default: main)"),
-    ] = "main",
-) -> None:
-    """Merge main into a release channel with auto version conflict resolution.
-
-    Clones to a temp directory, merges, resolves VERSION/Cargo.toml/CHANGELOG.md
-    conflicts (keeps target branch versions), pushes, and creates a PR.
-
-    Target can be any configured channel:
-      hyperi-ci release-merge                    # main -> release (GA)
-      hyperi-ci release-merge --base alpha       # main -> alpha
-      hyperi-ci release-merge --base beta        # main -> beta
-
-    Never touches your working tree. Requires gh CLI.
-    """
-    from hyperi_ci.release_merge import release_merge
-
-    rc = release_merge(base_branch=base_branch, head_branch=head_branch)
-    raise typer.Exit(rc)
 
 
 @app.command()
