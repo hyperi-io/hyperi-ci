@@ -1,0 +1,82 @@
+# Project:   HyperI CI
+# File:      config/commit-types.yaml
+# Purpose:   Single source of truth for commit types and semantic-release rules
+#
+# License:   Proprietary — HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+
+# Consumed by:
+#   - .releaserc.yaml generation (releaseRules)
+#   - CI quality stage (commit validation)
+#   - Git hook (local validation via check-commit)
+
+release_types:
+  feat:
+    description: New feature or capability
+    bump: minor
+  fix:
+    description: Bug fix, defect, or regression
+    bump: patch
+  perf:
+    description: Performance optimisation
+    bump: patch
+  hotfix:
+    description: Critical production fix
+    bump: patch
+  security:
+    description: Security fix or hardening
+    bump: patch
+    aliases: [sec]
+
+no_release_types:
+  docs:
+    description: Documentation changes only
+  test:
+    description: Test coverage or QA improvement
+  refactor:
+    description: Internal code restructure, no functional change
+  style:
+    description: Code formatting, linting, cosmetic
+  build:
+    description: Build system or tooling changes
+  ci:
+    description: CI/CD configuration or workflow updates
+  chore:
+    description: Maintenance tasks, config, cleanup
+  deps:
+    description: Dependency updates
+  revert:
+    description: Revert a previous commit
+  wip:
+    description: Work in progress (squash before merge)
+  cleanup:
+    description: Code cleanup, dead code removal
+  data:
+    description: Data migrations or seed data
+  debt:
+    description: Technical debt reduction
+  design:
+    description: Design system or UX changes
+  infra:
+    description: Infrastructure changes
+  meta:
+    description: Repository metadata (labels, templates)
+  ops:
+    description: Operational tooling or runbooks
+  review:
+    description: Changes from code review feedback
+  spike:
+    description: Experimental investigation (throwaway)
+  ui:
+    description: User interface changes
+
+validation:
+  pattern: '^(feat|fix|chore|docs|test|refactor|hotfix|release|perf|style|build|ci|revert|wip|deps|security|sec|cleanup|data|debt|design|infra|meta|ops|review|spike|ui)(\([a-z0-9-]+\))?: .{3,100}$'
+  description:
+    min_length: 3
+    max_length: 100
+
+ai_attribution_patterns:
+  - "Generated with"
+  - "Co-Authored-By:.*(Claude|Copilot|Cursor|Codex|Gemini|Windsurf)"
+  - "Assisted by.*(Claude|Copilot|Cursor|Codex|Gemini|Windsurf)"
