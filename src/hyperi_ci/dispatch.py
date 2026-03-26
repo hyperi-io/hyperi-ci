@@ -227,15 +227,20 @@ def stage_publish(language: str, config: CIConfig) -> int:
         info("Publish disabled in configuration")
         return 0
 
-    # Language-specific publish (crates, PyPI, npm, go proxy)
-    rc = _dispatch_to_handler(language, "publish", config)
-    if rc == -1:
-        error(f"Publish handler not found for {language}")
-        return 1
-    if rc != 0:
-        return rc
+    channel = config.get("publish.channel", "release")
 
-    # Generic binary publish (any language with dist/ artifacts)
+    # Language-specific publish (crates, PyPI, npm, go proxy) — release channel only
+    if channel != "release":
+        info(f"Channel '{channel}' — skipping registry publish (release-only)")
+    else:
+        rc = _dispatch_to_handler(language, "publish", config)
+        if rc == -1:
+            error(f"Publish handler not found for {language}")
+            return 1
+        if rc != 0:
+            return rc
+
+    # Generic binary publish always runs (GH Release + R2)
     from hyperi_ci.publish_binaries import publish_binaries
 
     return publish_binaries(config)
