@@ -31,7 +31,7 @@ from hyperi_ci.common import (
 )
 from hyperi_ci.config import CIConfig, load_config
 from hyperi_ci.detect import detect_language
-from hyperi_ci.quality import gitleaks
+from hyperi_ci.quality import commit_validation, gitleaks
 
 VALID_STAGES = ("setup", "quality", "test", "build", "publish")
 
@@ -112,6 +112,11 @@ def stage_quality(language: str, config: CIConfig) -> int:
     # Cross-language checks first
     with group("Gitleaks secret scanning"):
         rc = gitleaks.run(config)
+        if rc != 0:
+            return rc
+
+    with group("Commit message validation"):
+        rc = commit_validation.run(config)
         if rc != 0:
             return rc
 
