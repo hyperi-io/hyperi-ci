@@ -194,6 +194,15 @@ class TestInitProject:
         content = (tmp_path / ".hyperi-ci.yaml").read_text()
         assert "language: rust" in content
 
+    def test_creates_commit_hook(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text("[project]\n")
+        init_project(tmp_path)
+        hook = tmp_path / ".githooks" / "commit-msg"
+        assert hook.exists()
+        assert hook.stat().st_mode & 0o111  # executable
+        content = hook.read_text()
+        assert "check-commit" in content
+
     def test_no_language_fails(self, tmp_path: Path) -> None:
         rc = init_project(tmp_path)
         assert rc == 1
