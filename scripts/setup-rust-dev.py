@@ -28,7 +28,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -141,7 +140,7 @@ def remove_cargo_target_dir_env(dry_run: bool) -> None:
         return
 
     lines = ETC_ENVIRONMENT.read_text().splitlines()
-    new_lines = [l for l in lines if not l.startswith("CARGO_TARGET_DIR=")]
+    new_lines = [line for line in lines if not line.startswith("CARGO_TARGET_DIR=")]
 
     if len(new_lines) == len(lines):
         log("CARGO_TARGET_DIR not found in /etc/environment — already clean")
@@ -202,7 +201,8 @@ def create_target_symlinks(dry_run: bool) -> None:
             else:
                 if dry_run:
                     log(
-                        f"  {name}: [DRY RUN] Would repoint symlink {current} -> {target_on_cache}"
+                        f"  {name}: [DRY RUN] Would repoint "
+                        f"symlink {current} -> {target_on_cache}"
                     )
                     continue
                 target_in_project.unlink()
@@ -239,6 +239,19 @@ def create_target_symlinks(dry_run: bool) -> None:
 
 def install_sccache(dry_run: bool) -> None:
     log_section("Step 3: Install sccache")
+
+    # Ensure SCCACHE_DIR exists with correct ownership
+    sccache_dir = Path(os.environ.get("SCCACHE_DIR", "/cache/sccache"))
+    if not sccache_dir.exists():
+        if dry_run:
+            log(f"[DRY RUN] Would create {sccache_dir}")
+        else:
+            import getpass
+
+            user = getpass.getuser()
+            run(["sudo", "mkdir", "-p", str(sccache_dir)])
+            run(["sudo", "chown", f"{user}:{user}", str(sccache_dir)])
+            log(f"Created sccache cache dir: {sccache_dir}")
 
     if command_exists("sccache"):
         result = run(["sccache", "--version"], check=False)
@@ -485,9 +498,12 @@ def verify(dry_run: bool) -> None:
     # Check sccache
     if command_exists("sccache"):
         result = run(["sccache", "--show-stats"], check=False)
-        log(
-            f"sccache: installed ({result.stdout.splitlines()[0] if result.returncode == 0 else 'stats unavailable'})"
+        stats = (
+            result.stdout.splitlines()[0]
+            if result.returncode == 0
+            else "stats unavailable"
         )
+        log(f"sccache: installed ({stats})")
     else:
         log("WARNING: sccache not found in PATH")
 
@@ -506,9 +522,7 @@ def verify(dry_run: bool) -> None:
     else:
         log(f"WARNING: {config_path} does not exist")
 
-    log(
-        "\nDone. Test concurrent builds by running cargo build in two projects simultaneously."
-    )
+    log("\nDone. Test with concurrent cargo build in two projects simultaneously.")
 
 
 # ---------------------------------------------------------------------------
@@ -540,7 +554,8 @@ def main() -> None:
     # Verify we're on a machine with /cache
     if not CACHE_DIR.exists():
         print(
-            f"ERROR: {CACHE_DIR} does not exist. This script is for machines with a /cache disk."
+            f"ERROR: {CACHE_DIR} does not exist. "
+            "This script is for machines with a /cache disk."
         )
         sys.exit(1)
 
