@@ -1,3 +1,10 @@
+## [1.4.4](https://github.com/hyperi-io/hyperi-ci/compare/v1.4.3...v1.4.4) (2026-03-27)
+
+
+### Bug Fixes
+
+* always create GH Release on publish (not just for binary projects) ([9ae2536](https://github.com/hyperi-io/hyperi-ci/commit/9ae25365437aeef2c9f441a09e53b9e2109e6fff))
+
 ## [1.4.3](https://github.com/hyperi-io/hyperi-ci/compare/v1.4.2...v1.4.3) (2026-03-27)
 
 
