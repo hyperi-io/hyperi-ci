@@ -1,3 +1,10 @@
+## [1.4.6](https://github.com/hyperi-io/hyperi-ci/compare/v1.4.5...v1.4.6) (2026-03-27)
+
+
+### Bug Fixes
+
+* remove dead init-release command and module ([caa5110](https://github.com/hyperi-io/hyperi-ci/commit/caa5110eedee2429183714182d046ca5f513b440))
+
 ## [1.4.5](https://github.com/hyperi-io/hyperi-ci/compare/v1.4.4...v1.4.5) (2026-03-27)
 
 
