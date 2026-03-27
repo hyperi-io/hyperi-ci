@@ -292,50 +292,6 @@ def logs(
     raise typer.Exit(rc)
 
 
-@app.command(name="init-release")
-def init_release_cmd(
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Project root directory"),
-    ] = None,
-    channels: Annotated[
-        str | None,
-        typer.Option(
-            "--channels",
-            help="Extra release channels (comma-separated: alpha,beta). main+release always included.",
-        ),
-    ] = None,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", "-n", help="Show what would be done"),
-    ] = False,
-    check_only: Annotated[
-        bool,
-        typer.Option("--check", help="Check release setup status only"),
-    ] = False,
-) -> None:
-    """Set up release branches and configure multi-channel semantic-release.
-
-    Channels (ordered by stability):
-      main    -> dev pre-releases  (v1.0.0-dev.1)
-      alpha   -> alpha releases    (v1.0.0-alpha.1)
-      beta    -> beta releases     (v1.0.0-beta.1)
-      release -> GA releases       (v1.0.0)
-
-    Examples:
-      hyperi-ci init-release                        # main + release (default)
-      hyperi-ci init-release --channels alpha       # main + alpha + release
-      hyperi-ci init-release --channels alpha,beta  # all four channels
-    """
-    from hyperi_ci.init_release import init_release
-
-    dir_path = Path(project_dir) if project_dir else Path.cwd()
-    rc = init_release(
-        dir_path, channels_str=channels, dry_run=dry_run, check_only=check_only
-    )
-    raise typer.Exit(rc)
-
-
 @app.command(name="install-native-deps")
 def install_native_deps(
     language: Annotated[
