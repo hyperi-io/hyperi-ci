@@ -1,3 +1,11 @@
+## [1.4.3](https://github.com/hyperi-io/hyperi-ci/compare/v1.4.2...v1.4.3) (2026-03-27)
+
+
+### Bug Fixes
+
+* add consumer project migration guide for single versioning ([79f531f](https://github.com/hyperi-io/hyperi-ci/commit/79f531f3698f32e2cdb756d2745cf2f808df42a9))
+* update hyperi-ai submodule with CI standards and release skill ([089fd05](https://github.com/hyperi-io/hyperi-ci/commit/089fd05f34f9982e5411f1efd51c7b3a4dad6216))
+
 # [1.2.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.1.8...v1.2.0) (2026-03-26)
 
 
