@@ -240,9 +240,14 @@ def stage_publish(language: str, config: CIConfig) -> int:
         if rc != 0:
             return rc
 
-    # Generic binary publish always runs (GH Release + R2)
-    from hyperi_ci.publish_binaries import publish_binaries
+    # Always create the GH Release (even for libraries with no binaries)
+    from hyperi_ci.publish_binaries import create_github_release, publish_binaries
 
+    rc = create_github_release(config)
+    if rc != 0:
+        return rc
+
+    # Upload binary artifacts to GH Release + R2 (if any exist in dist/)
     return publish_binaries(config)
 
 
