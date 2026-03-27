@@ -163,6 +163,16 @@ This is the **single source of truth** for all tasks and progress.
   - Consumer migration guide: docs/MIGRATION-GUIDE.md
   - Spec: docs/superpowers/specs/2026-03-27-single-versioning-design.md
 
+- [x] **Rust Build Optimisation + Renovate Runner Fix**
+  - Renovate branches routed to 2cpu runners (`GH_RUNNER_RENOVATE` org var, all 4 workflows)
+  - Local dev: per-project target symlinks on `/cache`, sccache, mold, cargo-sweep, jobs=8
+  - Per-project `.cargo/config.toml`: removed `jobs=2`, added mold linker flag to x86_64 rustflags
+  - `install-native-deps rust`: mold + clang installed for all Rust CI builds
+  - dfe-developer Ansible role: sccache, mold, cargo-sweep, global cargo config
+  - `setup-rust-dev.py` script for workstation remediation
+  - Verified: concurrent builds, 100% sccache hit rate, mold in binaries, 2x repeat speedup
+  - Loose end: per-project config changes applied locally but not committed to individual repos
+
 - [x] **hyperi-pylib v2.24.3 released and published to PyPI**
   - Fixed ruff import sort in test file; user restructured to optional extras (http, metrics, etc.)
   - All jobs: Quality ✓, Test ✓, Build ✓, Release ✓, Publish ✓
