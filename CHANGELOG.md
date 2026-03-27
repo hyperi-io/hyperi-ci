@@ -1,3 +1,10 @@
+## [1.4.9](https://github.com/hyperi-io/hyperi-ci/compare/v1.4.8...v1.4.9) (2026-03-27)
+
+
+### Bug Fixes
+
+* lint fixes and sccache dir creation in setup-rust-dev ([6a11704](https://github.com/hyperi-io/hyperi-ci/commit/6a117041767e83ce9cdc5a82e365269ed1697cb5))
+
 ## [1.4.8](https://github.com/hyperi-io/hyperi-ci/compare/v1.4.7...v1.4.8) (2026-03-27)
 
 
