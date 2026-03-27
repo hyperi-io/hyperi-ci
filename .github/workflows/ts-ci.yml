@@ -61,7 +61,8 @@ env:
 jobs:
   quality:
     name: Quality
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_TYPESCRIPT || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    # Renovate branches use lightweight runners — dependency update PRs don't need large runners
+    runs-on: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_TYPESCRIPT || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
 
@@ -98,7 +99,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: ${{ fromJson((inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_TYPESCRIPT || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
+        # Renovate branches use lightweight runners
+        os: ${{ fromJson(startsWith(github.head_ref || github.ref_name, 'renovate/') && format('["{0}"]', vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_TYPESCRIPT || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
     steps:
       - uses: actions/checkout@v6
 
@@ -143,7 +145,8 @@ jobs:
     name: Build
     needs: [quality, test]
     if: github.event.pull_request.head.repo.fork != true
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_TYPESCRIPT || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    # Renovate branches use lightweight runners
+    runs-on: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_TYPESCRIPT || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
 

@@ -84,7 +84,8 @@ env:
 jobs:
   quality:
     name: Quality
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    # Renovate branches use lightweight runners — dependency update PRs don't need 16cpu
+    runs-on: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -138,7 +139,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: ${{ fromJson((inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
+        # Renovate branches use lightweight runners — dependency update PRs don't need 16cpu
+        os: ${{ fromJson(startsWith(github.head_ref || github.ref_name, 'renovate/') && format('["{0}"]', vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -199,7 +201,8 @@ jobs:
       - name: Generate build matrix
         id: matrix
         run: |
-          AMD64_RUNNER="${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"
+          # Renovate branches use lightweight runners — dependency update PRs don't need 16cpu
+          AMD64_RUNNER="${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"
           ARM64_RUNNER="${{ vars.GH_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}"
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             echo "matrix={\"include\":[{\"target\":\"x86_64-unknown-linux-gnu\",\"runner\":\"${AMD64_RUNNER}\",\"os_arch\":\"linux-amd64\"},{\"target\":\"aarch64-unknown-linux-gnu\",\"runner\":\"${ARM64_RUNNER}\",\"os_arch\":\"linux-arm64\"}]}" >> "$GITHUB_OUTPUT"
