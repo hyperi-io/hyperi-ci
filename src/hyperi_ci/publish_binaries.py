@@ -74,6 +74,42 @@ def _collect_artifacts() -> list[Path]:
     ]
 
 
+def create_github_release(config: CIConfig) -> int:
+    """Create a GitHub Release for the current version.
+
+    Always called during publish, regardless of whether there are binary
+    artifacts. Libraries get a GH Release without attachments; binaries
+    get artifacts uploaded separately by publish_binaries().
+
+    Returns:
+        Exit code (0 = success).
+    """
+    version = _read_version()
+    if not version:
+        error("No VERSION file — cannot determine release tag")
+        return 1
+
+    channel = config.get("publish.channel", "release")
+    tag = f"v{version}"
+
+    cmd = ["gh", "release", "create", tag, "--title", tag, "--generate-notes"]
+    cmd.extend(_resolve_gh_release_flags(channel))
+
+    info(f"Creating GitHub Release {tag}")
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        if "already exists" in result.stderr:
+            info(f"  GH Release {tag} already exists")
+            return 0
+        error("GitHub Release creation failed")
+        if result.stderr:
+            error(result.stderr)
+        return result.returncode
+
+    success(f"Created GitHub Release {tag}")
+    return 0
+
+
 def _upload_binaries_github(channel: str = "release") -> int:
     """Create GitHub Release and upload built binaries.
 
