@@ -1,3 +1,10 @@
+## [1.4.8](https://github.com/hyperi-io/hyperi-ci/compare/v1.4.7...v1.4.8) (2026-03-27)
+
+
+### Bug Fixes
+
+* add mold and clang to rust native-deps, add build optimisation script ([5ac84a6](https://github.com/hyperi-io/hyperi-ci/commit/5ac84a6dd25f1dc2f7e70b5eb864cea8d62705bb))
+
 ## [1.4.7](https://github.com/hyperi-io/hyperi-ci/compare/v1.4.6...v1.4.7) (2026-03-27)
 
 
