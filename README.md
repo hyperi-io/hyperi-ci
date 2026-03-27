@@ -1,27 +1,22 @@
 # hyperi-ci
 
-Polyglot CI/CD tool for HyperI projects. Python, Rust, TypeScript, and
-Go — one CLI, same behaviour locally and in CI.
+One CLI for all your CI. Python, Rust, TypeScript, Go — same tool locally
+and in GitHub Actions. No bash scripts, no composite actions, no submodules.
 
-## Background
+## Why Use This
 
-The previous CI system (`hyperi-io/ci`) grew organically from its GitLab
-origins — running both local and cloud GitLab concurrently — before
-migrating to GitHub Actions. That evolution produced ~100 shell scripts,
-26 Python scripts, 50+ composite actions, a 1020-line `attach.sh`, and
-delivery via git submodule across 14+ consumer projects. The dispatch
-hierarchy reached six layers deep (workflow → action → bash → Python →
-bash → tools), with config settable in four different places and
-significant dead code accumulated along the way.
+**You get:**
+- One command before every push: `hyperi-ci check`
+- Same quality/test/build runs locally as in CI — no "works on my machine"
+- Automatic versioning via semantic-release (just use conventional commits)
+- Publishing when you're ready: `hyperi-ci release v1.3.0`
+- Commit message validation that actually helps ("Computer says no.")
 
-This repo rationalises everything back into a single Python CLI tool,
-distributed as a standard package via `uv tool install`. Consumer
-projects get a five-line reusable workflow and a Makefile — no
-submodules, no composite actions, no bash dispatch chains. The same tool
-runs locally and in GitHub Actions.
-
-The old repo will be archived read-only once all consumer projects have
-cut over.
+**Your repo gets:**
+- A 5-line GitHub Actions workflow (calls our reusable workflow)
+- A Makefile with `make check`, `make quality`, `make test`, `make build`
+- Semantic-release config that just works
+- A commit hook that catches bad messages before they hit CI
 
 ## Install
 
@@ -29,145 +24,193 @@ cut over.
 uv tool install hyperi-ci
 ```
 
-## Quick Start
-
-Initialise an existing project:
+## Set Up a Project
 
 ```bash
 cd my-project
-hyperi-ci init                          # Auto-detects language
-hyperi-ci init --language rust          # Override language
-hyperi-ci init --force                  # Overwrite existing files
+hyperi-ci init              # Auto-detects language, generates everything
+git config core.hooksPath .githooks   # Activate commit validation hook
 ```
 
-This generates `.hyperi-ci.yaml`, `Makefile`, `.github/workflows/ci.yml`,
-and `.releaserc.yaml`. Commit and push — CI runs automatically.
+This creates `.hyperi-ci.yaml`, `Makefile`, `.github/workflows/ci.yml`,
+`.releaserc.yaml`, and `.githooks/commit-msg`. Commit and push.
 
-## Usage
-
-### Local Validation (Pre-Push)
-
-Run local checks before pushing — same tool, same code path as CI:
+## Daily Workflow
 
 ```bash
-hyperi-ci check                        # Quality + test (default)
-hyperi-ci check --quick                # Quality only (fast)
-hyperi-ci check --full                 # Quality + test + build (native target only)
+# 1. Write code
+# 2. Check before pushing (mandatory)
+hyperi-ci check              # Quality + test
+hyperi-ci check --quick      # Quality only (fast)
+hyperi-ci check --full       # Quality + test + build
+
+# 3. Commit (hook validates your message format)
+git commit -m "fix: resolve timeout in auth handler"
+
+# 4. Push
+git pull --rebase origin main
+git push origin main
+
+# 5. CI runs automatically — semantic-release tags a version if warranted
 ```
 
-`check` stops on first failure. When `--full` includes the build
-stage, cross-compilation targets are skipped — only the native host
-target is built. Cross-compilation needs CI-specific toolchains and
-is validated in CI, not locally.
+## Publishing a Release
 
-### CI Stages
+Versions accumulate on main. You choose when to ship:
 
 ```bash
-hyperi-ci run quality                   # Lint, format, type check, audit
-hyperi-ci run test                      # Run test suite
-hyperi-ci run build                     # Build artifacts
-hyperi-ci run publish                   # Publish (CI only)
+# See what's available
+hyperi-ci release --list
+  v1.5.0  (2026-03-27)
+  v1.4.0  (2026-03-25)
+
+# Ship it
+hyperi-ci release v1.5.0
 ```
 
-### Project Info
+This triggers the full pipeline: quality, test, build (cross-compile), publish.
+Creates a GitHub Release, uploads binaries to R2, publishes to registries
+(PyPI, crates.io, npm — depending on language and config).
 
-```bash
-hyperi-ci detect                        # Show detected language
-hyperi-ci config                        # Show merged config as JSON
+Not every version needs publishing. `v1.4.0` stays as a tag — ship it later
+or skip it entirely.
+
+## Commit Messages
+
+Conventional commits are enforced by a git hook and CI. The format:
+
+```
+<type>: <description>
+<type>(scope): <description>
 ```
 
-### GitHub Actions Commands
+Get it wrong and you'll hear about it:
 
-```bash
-hyperi-ci trigger                       # Trigger workflow run
-hyperi-ci trigger --watch               # Trigger and watch to completion
-hyperi-ci watch                         # Watch latest run
-hyperi-ci watch <RUN_ID>                # Watch specific run
-hyperi-ci logs                          # Show latest run logs
-hyperi-ci logs --failed                 # Show only failed job logs
-hyperi-ci logs --job build --grep error # Filter by job and pattern
+```
+Computer says no.
+
+  Unknown commit type: "yolo"
+
+  Did you mean one of these?
+    style  — code formatting, linting, cosmetic changes
+    spike  — experimental, throwaway investigation
 ```
 
-### Via Makefile (Consumer Projects)
+**Types that bump the version:** `feat:` (minor), `fix:` (patch), `perf:`,
+`hotfix:`, `security:`/`sec:` (all patch).
 
-```bash
-make quality
-make test
-make build
-make check                             # Runs hyperi-ci check
+**Types that don't:** `docs`, `test`, `refactor`, `chore`, `ci`, `build`,
+`deps`, `style`, `revert`, `wip`, `cleanup`, `data`, `debt`, `design`,
+`infra`, `meta`, `ops`, `review`, `spike`, `ui`.
+
+Full list: `hyperi-ci check-commit --list`
+
+## Publish Channels
+
+Control where artifacts go with one line in `.hyperi-ci.yaml`:
+
+```yaml
+publish:
+  channel: release    # spike | alpha | beta | release
 ```
+
+| Channel | GitHub Release | R2 Path | Registries |
+|---------|---------------|---------|------------|
+| `spike` | Prerelease | `/{project}/spike/v1.3.0/` | Skipped |
+| `alpha` | Prerelease | `/{project}/alpha/v1.3.0/` | Skipped |
+| `beta` | Prerelease | `/{project}/beta/v1.3.0/` | Skipped |
+| `release` | GA | `/{project}/v1.3.0/` | Published |
+
+Graduate a project by changing one line. No code changes, no workflow changes.
+
+## Commands
+
+| Command | What it does |
+|---------|-------------|
+| `hyperi-ci check` | Pre-push validation (quality + test) |
+| `hyperi-ci check --quick` | Quality only |
+| `hyperi-ci check --full` | Quality + test + build |
+| `hyperi-ci run quality` | Lint, format, type check, security audit |
+| `hyperi-ci run test` | Tests with coverage |
+| `hyperi-ci run build` | Build artifacts |
+| `hyperi-ci release --list` | List unpublished version tags |
+| `hyperi-ci release <tag>` | Trigger publish for a tag |
+| `hyperi-ci check-commit --list` | Show all accepted commit types |
+| `hyperi-ci detect` | Show detected language |
+| `hyperi-ci config` | Show merged config |
+| `hyperi-ci trigger [--watch]` | Trigger CI workflow |
+| `hyperi-ci watch` | Watch latest CI run |
+| `hyperi-ci logs [--failed]` | Show CI run logs |
+| `hyperi-ci init` | Scaffold a new project |
+| `hyperi-ci upgrade` | Upgrade to latest version |
 
 ## How It Works
 
-GitHub Actions handles orchestration (job ordering, matrix, caching,
-secrets). The CLI handles execution (what tools to run, how to invoke
-them). Workflow files stay small, and the same code path runs locally
-and in CI.
+GitHub Actions handles orchestration. The CLI handles execution. Workflow
+files stay small, and the same code path runs locally and in CI.
 
 ```
-Consumer Project                     hyperi-ci (this repo)
-├── .github/workflows/               ├── .github/workflows/
-│   └── ci.yml (5 lines)            │   ├── python-ci.yml   (reusable)
-│       uses: hyperi-io/hyperi-ci/   │   ├── rust-ci.yml     (reusable)
-│         .github/workflows/         │   ├── ts-ci.yml       (reusable)
-│         python-ci.yml@v1.0         │   └── go-ci.yml       (reusable)
-├── .hyperi-ci.yaml                  │           │
-├── Makefile                         │           ▼
-│   quality: hyperi-ci run quality   │   uvx hyperi-ci run <stage>
-│   test:    hyperi-ci run test      │           │
-│   build:   hyperi-ci run build     │           ▼
-└── .releaserc.yaml                  ├── src/hyperi_ci/
-                                     │   ├── cli.py          (entry point)
-                                     │   ├── config.py       (config cascade)
-                                     │   ├── dispatch.py     (stage dispatcher)
-                                     │   ├── detect.py       (language detection)
-                                     │   └── languages/
-                                     │       ├── python/     quality, test, build, publish
-                                     │       ├── rust/       quality, test, build, publish
-                                     │       ├── typescript/ quality, test, build, publish
-                                     │       └── golang/     quality, test, build, publish
-                                     └── config/
-                                         ├── org.yaml        (JFrog, GHCR URLs)
-                                         └── defaults.yaml   (default settings)
+Your Project                        hyperi-ci
+├── .github/workflows/ci.yml       ├── .github/workflows/
+│   (5 lines — calls reusable)     │   ├── rust-ci.yml    (reusable)
+├── .hyperi-ci.yaml                │   ├── python-ci.yml  (reusable)
+├── .releaserc.yaml                │   ├── ts-ci.yml      (reusable)
+├── .githooks/commit-msg           │   └── go-ci.yml      (reusable)
+└── Makefile                       └── src/hyperi_ci/
+                                       ├── cli.py         (entry point)
+                                       ├── dispatch.py    (stage router)
+                                       └── languages/     (per-language handlers)
 ```
 
-See [docs/DESIGN.md](docs/DESIGN.md) for full architecture documentation.
+**On push to main:**
+```
+quality -> test -> build (validation) -> semantic-release (tags version)
+```
+
+**On publish dispatch:**
+```
+checkout tag -> quality -> test -> build (full cross-compile) -> publish
+```
 
 ## Config
 
-Single source of truth: `.hyperi-ci.yaml` in the project root.
+`.hyperi-ci.yaml` in the project root. Cascade (highest wins):
 
-Cascade priority (highest wins):
 ```
-CLI flags → ENV vars (HYPERCI_*) → .hyperi-ci.yaml → defaults.yaml → hardcoded
+CLI flags -> ENV vars (HYPERCI_*) -> .hyperi-ci.yaml -> defaults.yaml -> hardcoded
 ```
 
-### Publish Target
-
-Controls whether artifacts go to JFrog (internal) or public registries (OSS).
-Set via GitHub org variable `PUBLISH_TARGET` — repo-level variable overrides org.
-
-| Value | Destination |
-|-------|-------------|
-| `internal` | JFrog Artifactory (default) |
-| `oss` | PyPI, npm, crates.io, GHCR, GitHub Releases |
-| `both` | Publish to both |
+```yaml
+language: rust              # Auto-detected if omitted
+publish:
+  enabled: true
+  target: both              # internal | oss | both
+  channel: release          # spike | alpha | beta | release
+build:
+  strategies: [native]
+  rust:
+    targets:
+      - x86_64-unknown-linux-gnu
+      - aarch64-unknown-linux-gnu
+quality:
+  gitleaks: blocking
+```
 
 ## Languages
 
 | Language | Quality | Test | Build | Publish |
 |----------|---------|------|-------|---------|
-| Python | ruff, pyright, bandit, pip-audit | pytest | uv build | uv publish |
-| Rust | cargo fmt, clippy, audit, deny | cargo test/nextest | cargo build (cross-compile) | cargo publish |
+| Python | ruff, ty, bandit, pip-audit | pytest | uv build | uv publish (PyPI/JFrog) |
+| Rust | cargo fmt, clippy, audit, deny | cargo test/nextest | cargo build (cross) | cargo publish (crates.io/JFrog) |
 | TypeScript | eslint, prettier, tsc, npm audit | vitest/jest | npm/pnpm build | npm publish |
-| Go | gofmt, go vet, golangci-lint, gosec | go test -race | go build (cross-compile) | go proxy, gh release |
+| Go | gofmt, go vet, golangci-lint, gosec | go test -race | go build (cross) | go proxy, gh release |
 
 ## Cross-Compilation
 
-Rust projects with C/C++ dependencies (e.g. librdkafka) are supported.
-The build handler automatically sets `CC`, `CXX`, `AR`, and
-`PKG_CONFIG` environment variables for cross-compilation targets.
-Configure targets in `.hyperi-ci.yaml`:
+Rust projects with C/C++ dependencies (librdkafka, openssl, zstd) are
+supported. The build handler auto-detects native `-dev` packages, downloads
+cross-arch equivalents into a private sysroot, and sets all compiler/linker
+environment variables. Configure targets in `.hyperi-ci.yaml`:
 
 ```yaml
 build:
@@ -177,83 +220,15 @@ build:
       - aarch64-unknown-linux-gnu
 ```
 
-## Release Channels
-
-Multi-channel semantic-release for staged rollout. Every project gets
-`main` (dev) and `release` (GA) by default. Projects with experimental
-components can add `alpha` and `beta` channels.
-
-### Channel Model
-
-| Branch | Pre-release Tag | Stability | Example Version |
-|--------|----------------|-----------|-----------------|
-| `main` | `-dev.N` | Internal dev builds | `v0.2.0-dev.3` |
-| `alpha` | `-alpha.N` | Early adopter, API may break | `v0.2.0-alpha.1` |
-| `beta` | `-beta.N` | Feature-complete, API freezing | `v0.2.0-beta.2` |
-| `release` | (none) | GA stable | `v0.2.0` |
-
-### Setup
-
-```bash
-# Default: main + release (two-channel)
-hyperi-ci init-release
-
-# Add alpha channel
-hyperi-ci init-release --channels alpha
-
-# Add alpha + beta channels
-hyperi-ci init-release --channels alpha,beta
-
-# Check current setup
-hyperi-ci init-release --check
-```
-
-### Releasing
-
-```bash
-# Merge main into release (GA)
-hyperi-ci release-merge
-
-# Merge main into alpha
-hyperi-ci release-merge --base alpha
-
-# Merge main into beta
-hyperi-ci release-merge --base beta
-```
-
-Each merge creates a PR. Merging the PR triggers semantic-release on
-that channel's branch, which creates the appropriate pre-release tag.
-
-### Graduation Flow
-
-```
-main (dev) ──> alpha ──> beta ──> release (GA)
-```
-
-Use `release-merge --base <channel>` at each stage. Semantic-release
-handles version numbering automatically — no manual version bumps.
+Main branch builds amd64 only (validation). Publish builds the full matrix.
 
 ## Design Principles
 
-1. **NO BASH** — all CI logic is Python. 70% of old CI failures were
-   bash syntax issues (env expansion, quoting, jq). `subprocess.run()`
-   with list args only.
-2. **Semantic release centric** — push to main, semantic-release creates
-   tags and publishes. No manual version bumps.
+1. **No bash** — all CI logic is Python. `subprocess.run()` with list args.
+2. **Semantic release** — push to main, versions happen automatically.
 3. **uv for everything** — venv, sync, lock, tool install, build.
-4. **Cross-platform** — Linux (CI runners) and macOS (dev laptops).
+4. **Cross-platform** — Linux (CI) and macOS (dev).
 5. **Self-hosting** — hyperi-ci uses itself for its own CI.
-
-## Test Projects
-
-Minimal projects for fast CI iteration and handler validation:
-
-| Language | Path | Notes |
-|----------|------|-------|
-| Rust | `test-projects/ci-test-rust-minimal/` | Binary with C/C++ deps (librdkafka) |
-| Python | `test-projects/ci-test-python-minimal/` | Zero-dep package |
-| TypeScript | `test-projects/ci-test-ts-minimal/` | Zero-dep package |
-| Go | `test-projects/ci-test-go-minimal/` | Zero-dep binary |
 
 ## Licence
 
