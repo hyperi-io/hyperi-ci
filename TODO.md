@@ -6,17 +6,28 @@ This is the **single source of truth** for all tasks and progress.
 
 ## Active Tasks
 
-### release-merge CLI improvements
+### Single Versioning Migration — Remaining Consumer Projects
 
-- [ ] Replace `gh` CLI dependency with direct GitHub REST API calls (httpx/urllib)
-  - Currently requires `gh` installed + authenticated
-  - Should work with just a `GITHUB_TOKEN` env var (works in CI without `gh`)
-  - Fallback: print manual commands if no token available
-- [ ] Fix `capture=True` bug in PR creation (stdout was None — patched in v1.2.0)
+- [ ] Migrate remaining Rust consumer projects to single versioning
+  - dfe-receiver, dfe-loader, dfe-archiver, dfe-fetcher
+  - dfe-transform-vrl, dfe-transform-elastic, dfe-transform-wasm, dfe-transform-vector
+  - Use migration prompt in docs/MIGRATION-GUIDE.md
+  - Delete release branch after CI green
+
+- [ ] Migrate remaining Python consumer projects
+  - dfe-engine (Python/JFrog)
+  - Use migration prompt in docs/MIGRATION-GUIDE.md
+
+- [ ] Migrate other projects
+  - dfe-docker, dfe-ui
+
+- [ ] Fix hyperi-pylib quality failures (493 type-check errors blocking CI)
+  - Pre-existing issue, not caused by versioning migration
+  - Blocks semantic-release from running on pylib
 
 ### Other Active Tasks
 
-- [ ] Address non-blocking quality warnings across all three consumer projects
+- [ ] Address non-blocking quality warnings across consumer projects
   - vulture: dead code in hyperi-pylib, dfe-engine (non-blocking)
   - semgrep: security patterns in dfe-engine (non-blocking)
   - ty: type errors in all three (non-blocking, replaces pyright)
@@ -157,6 +168,19 @@ This is the **single source of truth** for all tasks and progress.
   - Fixed: `std::env::set_var` unsafe in Rust 2024 — changed unsafe_code forbid→deny, added allow in test files
   - Fixed: hyperi-ci build handler incorrectly packaging library-only crates (no bin targets) — now skips packaging
   - Publish target: oss (crates.io)
+
+- [x] **Single Versioning with Channel-Based Publishing (v1.4.3)**
+  - Eliminated version mismatch: binary --version now always matches GH Release
+  - Single versioning on main (no prerelease `-dev.N` suffixes)
+  - Release branch eliminated — publish via `hyperi-ci release <tag>` (workflow_dispatch)
+  - Channel system: spike/alpha/beta/release in `.hyperi-ci.yaml` `publish.channel`
+  - Commit message enforcement: "Computer says no." validation (hook + CI)
+  - `check-commit` CLI, `.githooks/commit-msg` in init, commit-types SSOT
+  - All reusable workflows updated (rust-ci, python-ci, ci)
+  - `release-merge` command removed, `release` command added
+  - Verified: hyperi-ci v1.4.3 on PyPI, hyperi-rustlib v1.20.1 on crates.io
+  - Consumer migration guide: docs/MIGRATION-GUIDE.md
+  - Spec: docs/superpowers/specs/2026-03-27-single-versioning-design.md
 
 - [x] **hyperi-pylib v2.24.3 released and published to PyPI**
   - Fixed ruff import sort in test file; user restructured to optional extras (http, metrics, etc.)
