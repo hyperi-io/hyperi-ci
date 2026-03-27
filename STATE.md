@@ -39,16 +39,21 @@ See `docs/DESIGN.md` for full architecture documentation.
 
 ```
 src/hyperi_ci/
-├── cli.py               # Typer CLI (run, check, init, detect, config, trigger, watch, logs)
+├── cli.py               # Typer CLI (run, check, init, detect, config, trigger, watch, logs, release, check-commit)
 ├── config.py            # CIConfig, OrgConfig, config cascade loader
 ├── common.py            # Logging, subprocess helpers, GH Actions output
 ├── detect.py            # Language detection from file markers
 ├── dispatch.py          # Stage dispatcher → language handlers
-├── init.py              # Project scaffolding (replaces attach.sh)
+├── init.py              # Project scaffolding (config, Makefile, workflow, releaserc, githooks)
+├── release.py           # Tag-based publish dispatch (replaces release-merge)
+├── publish_binaries.py  # GH Release creation + R2/JFrog binary upload
 ├── gh.py                # GitHub CLI helpers
 ├── trigger.py           # Workflow trigger command
 ├── watch.py             # Run watch command
 ├── logs.py              # Log fetch command
+├── quality/
+│   ├── gitleaks.py      # Secret scanning
+│   └── commit_validation.py  # Conventional commit enforcement
 └── languages/
     ├── python/          # quality, test, build, publish
     ├── rust/            # quality, test, build, publish
@@ -81,6 +86,7 @@ CLI flags → ENV vars (HYPERCI_*) → .hyperi-ci.yaml → config/defaults.yaml 
 | `VERSION` | Source of truth for version |
 | `config/org.yaml` | Organisation-specific config (JFrog, GitHub, GHCR) |
 | `config/defaults.yaml` | Default values for all CI settings |
+| `config/commit-types.yaml` | SSOT for commit types and semantic-release rules |
 | `config/versions.yaml` | SSOT for action/runtime/tool versions |
 | `config/secrets-access.yaml` | Group-based org secret visibility management |
 | `pyproject.toml` | Package config, deps, tool config |
@@ -107,47 +113,51 @@ uv run hyperi-ci init                # Scaffold a project
 uv run hyperi-ci check               # Pre-push: quality + test
 uv run hyperi-ci check --full        # Pre-push: quality + test + build (native only)
 uv run hyperi-ci check --quick       # Pre-push: quality only
+uv run hyperi-ci release --list      # List unpublished version tags
+uv run hyperi-ci release v1.3.0      # Trigger publish for a tag
+uv run hyperi-ci check-commit --list # List accepted commit types
 ```
+
+## Versioning and Publishing
+
+**Single versioning on main.** Semantic-release runs only on `main`, producing
+real versions (`1.3.0`, not `1.3.0-dev.8`). No release branch.
+
+**Publish is explicit.** `hyperi-ci release <tag>` dispatches a workflow that
+builds from the tag and publishes. Not every version needs to be published.
+
+**Channels** control where artifacts go (`publish.channel` in `.hyperi-ci.yaml`):
+- `spike` / `alpha` / `beta` — GH Release (prerelease), R2 channel path, no registries
+- `release` — GH Release (GA), R2 versioned path, PyPI/crates.io/npm
+
+**Commit validation** enforced by `.githooks/commit-msg` hook and CI quality stage.
+Invalid messages get "Computer says no." with friendly guidance.
+
+See `docs/MIGRATION-GUIDE.md` for migrating projects to this model.
 
 ## Consumer Projects
 
-### Fully Migrated (GA — publish to GitHub Releases + R2)
+### On Single Versioning (migrated)
 
-These are stable, production-grade Rust CLI apps. Binaries publish to both
-GitHub Releases (OSS) and Cloudflare R2 (`downloads.hyperi.io`) via
-`publish.target: both` and `publish.binaries: both`.
+- **hyperi-rustlib** — Rust library, crates.io (`publish.channel: release`)
+- **hyperi-pylib** — Python library, PyPI (`publish.channel: release`)
 
-- **dfe-receiver** — Rust binary, single crate
-- **dfe-loader** — Rust binary, single crate, also builds Docker + Helm
-- **dfe-archiver** — Rust binary, 3-crate workspace
+### On hyperi-ci (migrating to single versioning)
 
-### Fully Migrated (GA — publish to public registries)
-
-- **hyperi-rustlib** — Rust library, publishes to crates.io
-- **hyperi-pylib** — Python library, publishes to PyPI
-
-### Fully Migrated (GA — internal only)
-
-- **dfe-engine** — Python app, publishes to JFrog PyPI
-
-### Not Yet Migrated (Pre-GA)
-
-These have release branches but are not yet on hyperi-ci. When migrated,
-publish to GitHub Releases only (not R2) until GA.
-
-- **dfe-fetcher** — Rust binary
-- **dfe-transform-elastic** — Rust binary
-- **dfe-transform-vector** — Rust binary
-- **dfe-transform-vrl** — Rust binary
-- **dfe-transform-wasm** — Rust binary
+- **dfe-receiver** — Rust binary, GH Releases + R2
+- **dfe-loader** — Rust binary, GH Releases + R2
+- **dfe-archiver** — Rust binary, 3-crate workspace, GH Releases + R2
+- **dfe-fetcher** — Rust binary, GH Releases + R2
+- **dfe-engine** — Python app, JFrog PyPI
+- **dfe-transform-vrl/elastic/vector/wasm** — Rust binaries
 
 ### Deprecated (Do Not Migrate)
 
 - **dfe-kafka-topic-scaler** — to be archived
 - **dfe-control-plane** — to be archived
-- **dfe-plugin-loader** — plugin system removed from receiver, sidecar pattern instead
-- **dfe-protocol-sdk** — plugin system removed from receiver, sidecar pattern instead
-- **dfe-receiver-plugin-syslog** — syslog is a built-in transport, plugin was redundant
+- **dfe-plugin-loader** — plugin system removed, sidecar pattern instead
+- **dfe-protocol-sdk** — plugin system removed
+- **dfe-receiver-plugin-syslog** — syslog is built-in transport
 
 ## Licensing
 
