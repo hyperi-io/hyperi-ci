@@ -1,3 +1,10 @@
+## [1.4.7](https://github.com/hyperi-io/hyperi-ci/compare/v1.4.6...v1.4.7) (2026-03-27)
+
+
+### Bug Fixes
+
+* route renovate branches to lightweight runners ([cbe0275](https://github.com/hyperi-io/hyperi-ci/commit/cbe0275e9944250c3a7a417411bd01bee7077012))
+
 ## [1.4.6](https://github.com/hyperi-io/hyperi-ci/compare/v1.4.5...v1.4.6) (2026-03-27)
 
 
