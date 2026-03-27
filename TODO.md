@@ -6,25 +6,6 @@ This is the **single source of truth** for all tasks and progress.
 
 ## Active Tasks
 
-### Single Versioning Migration — Remaining Consumer Projects
-
-- [ ] Migrate remaining Rust consumer projects to single versioning
-  - dfe-receiver, dfe-loader, dfe-archiver, dfe-fetcher
-  - dfe-transform-vrl, dfe-transform-elastic, dfe-transform-wasm, dfe-transform-vector
-  - Use migration prompt in docs/MIGRATION-GUIDE.md
-  - Delete release branch after CI green
-
-- [ ] Migrate remaining Python consumer projects
-  - dfe-engine (Python/JFrog)
-  - Use migration prompt in docs/MIGRATION-GUIDE.md
-
-- [ ] Migrate other projects
-  - dfe-docker, dfe-ui
-
-- [ ] Fix hyperi-pylib quality failures (493 type-check errors blocking CI)
-  - Pre-existing issue, not caused by versioning migration
-  - Blocks semantic-release from running on pylib
-
 ### Other Active Tasks
 
 - [ ] Address non-blocking quality warnings across consumer projects
