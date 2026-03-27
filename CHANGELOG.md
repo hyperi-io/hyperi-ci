@@ -1,3 +1,10 @@
+## [1.4.5](https://github.com/hyperi-io/hyperi-ci/compare/v1.4.4...v1.4.5) (2026-03-27)
+
+
+### Bug Fixes
+
+* rewrite README and CLAUDE.md for single versioning model ([68ec791](https://github.com/hyperi-io/hyperi-ci/commit/68ec791922ca11761501c85087876e31126afb89))
+
 ## [1.4.4](https://github.com/hyperi-io/hyperi-ci/compare/v1.4.3...v1.4.4) (2026-03-27)
 
 
