@@ -14,6 +14,29 @@
 # All apt_packages are arch-agnostic names — apt resolves them to the correct
 # architecture (amd64, arm64) automatically when the package exists for that arch.
 
+# --- Build tools (always installed for Rust) ---
+# mold: fast linker for native x86_64 builds (5-10x faster linking).
+# Only used when .cargo/config.toml sets -fuse-ld=mold.
+# Does NOT affect C++ builds — this is Rust-only config.
+- name: mold linker
+  patterns:
+    - "[package]"
+  manifest_files:
+    - Cargo.toml
+  dpkg_check: mold
+  apt_packages:
+    - mold
+
+# sccache build dep: clang is needed as the linker when mold is configured
+- name: clang linker
+  patterns:
+    - "[package]"
+  manifest_files:
+    - Cargo.toml
+  dpkg_check: clang
+  apt_packages:
+    - clang
+
 # --- Kafka (librdkafka) ---
 # rdkafka-sys requires >= 2.12.1 which is newer than Ubuntu's default.
 # Confluent APT repo provides the latest version.
