@@ -64,7 +64,11 @@ def _build_exclude_args(tool: str, excludes: list[str]) -> list[str]:
     return []
 
 
-def _resolve_tool_cmd(cmd: list[str], use_uvx: bool = False) -> list[str]:
+def _resolve_tool_cmd(
+    cmd: list[str],
+    use_uvx: bool = False,
+    use_uv_with: bool = False,
+) -> list[str]:
     """Resolve tool command, using uv run if tool isn't on PATH.
 
     When hyperi-ci runs via uvx, project tools (ruff, pytest, etc.)
@@ -75,14 +79,42 @@ def _resolve_tool_cmd(cmd: list[str], use_uvx: bool = False) -> list[str]:
         cmd: Command and arguments.
         use_uvx: If True, use 'uvx' instead of 'uv run' for tools
             that are standalone (not project deps).
+        use_uv_with: If True, use 'uv run --with <tool>' to install
+            the tool temporarily and run it within the project's
+            venv. Use for tools that scan installed packages
+            (e.g. pip-audit) and must see the project's deps.
     """
     if shutil.which(cmd[0]):
         return cmd
     if shutil.which("uv"):
+        if use_uv_with:
+            return ["uv", "run", "--with", cmd[0], "--", *cmd]
         if use_uvx:
             return ["uvx", *cmd]
         return ["uv", "run", *cmd]
     return cmd
+
+
+def _build_pip_audit_cmd() -> list[str]:
+    """Build pip-audit command that targets the project's venv.
+
+    pip-audit scans installed packages in the active Python env.
+    We must ensure it sees the project's .venv, not ~/.venv or
+    the system Python. Strategy:
+    - If uv is available: 'uv run --with pip-audit -- pip-audit'
+      installs pip-audit temporarily and scans the project's deps.
+    - Fallback: bare 'pip-audit' (hopes the right venv is active).
+    """
+    if shutil.which("uv"):
+        return [
+            "uv",
+            "run",
+            "--with",
+            "pip-audit",
+            "--",
+            "pip-audit",
+        ]
+    return ["pip-audit"]
 
 
 def _run_tool(
@@ -90,6 +122,7 @@ def _run_tool(
     cmd: list[str],
     mode: str,
     use_uvx: bool = False,
+    use_uv_with: bool = False,
 ) -> bool:
     """Run a quality tool and handle its result based on mode.
 
@@ -99,7 +132,7 @@ def _run_tool(
         info(f"  {tool_name}: disabled")
         return True
 
-    resolved = _resolve_tool_cmd(cmd, use_uvx=use_uvx)
+    resolved = _resolve_tool_cmd(cmd, use_uvx=use_uvx, use_uv_with=use_uv_with)
     if resolved == cmd and not shutil.which(cmd[0]):
         if mode == "blocking":
             error(f"  {tool_name}: not installed (required)")
@@ -205,8 +238,11 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         had_failure = True
 
     # pip-audit vulnerability scanning
+    # Always run via 'uv run --with' to ensure it scans the PROJECT's
+    # installed packages, not ~/.venv or the system Python.
     mode = _get_tool_mode("pip_audit", config)
-    if not _run_tool("pip-audit", ["pip-audit"], mode, use_uvx=True):
+    pip_audit_cmd = _build_pip_audit_cmd()
+    if not _run_tool("pip-audit", pip_audit_cmd, mode):
         had_failure = True
 
     # Docstring coverage via ruff D rules (replaces interrogate)
