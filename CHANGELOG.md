@@ -1,3 +1,10 @@
+## [1.4.10](https://github.com/hyperi-io/hyperi-ci/compare/v1.4.9...v1.4.10) (2026-03-29)
+
+
+### Bug Fixes
+
+* pip-audit now scans project venv instead of system venv ([e151a81](https://github.com/hyperi-io/hyperi-ci/commit/e151a8104d369b665c5710afd9ef652a3856eab2))
+
 ## [1.4.9](https://github.com/hyperi-io/hyperi-ci/compare/v1.4.8...v1.4.9) (2026-03-27)
 
 
