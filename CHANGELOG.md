@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.4.10...v1.5.0) (2026-03-31)
+
+
+### Features
+
+* add AI/ML training restriction policy and crawler blocklist ([e93a364](https://github.com/hyperi-io/hyperi-ci/commit/e93a364861da15ce4db9116575758488c049a98d))
+
 ## [1.4.10](https://github.com/hyperi-io/hyperi-ci/compare/v1.4.9...v1.4.10) (2026-03-29)
 
 
