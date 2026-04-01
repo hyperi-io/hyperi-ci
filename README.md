@@ -112,16 +112,45 @@ Control where artifacts go with one line in `.hyperi-ci.yaml`:
 ```yaml
 publish:
   channel: release    # spike | alpha | beta | release
+  target: oss         # internal | oss | both
 ```
 
-| Channel | GitHub Release | R2 Path | Registries |
-|---------|---------------|---------|------------|
-| `spike` | Prerelease | `/{project}/spike/v1.3.0/` | Skipped |
-| `alpha` | Prerelease | `/{project}/alpha/v1.3.0/` | Skipped |
-| `beta` | Prerelease | `/{project}/beta/v1.3.0/` | Skipped |
-| `release` | GA | `/{project}/v1.3.0/` | Published |
+### Channel behaviour
 
-Graduate a project by changing one line. No code changes, no workflow changes.
+Pre-release channels (`spike`, `alpha`, `beta`) automatically publish to
+**internal staging only** (JFrog PyPI/Cargo), regardless of the configured
+`publish.target`. This keeps pre-GA packages private. The `release` channel
+publishes to whatever target is configured.
+
+| Channel | Registry publish | GH Release | R2 binaries | R2 path |
+|---------|-----------------|------------|-------------|---------|
+| `spike` | Internal only (JFrog staging) | Prerelease | Uploaded | `/{project}/spike/v1.3.0/` |
+| `alpha` | Internal only (JFrog staging) | Prerelease | Uploaded | `/{project}/alpha/v1.3.0/` |
+| `beta` | Internal only (JFrog staging) | Prerelease | Uploaded | `/{project}/beta/v1.3.0/` |
+| `release` | Configured target | GA | Uploaded | `/{project}/v1.3.0/` |
+
+### Graduating to GA
+
+```
+spike → alpha → beta → release
+```
+
+Each step is a one-line change to `publish.channel` in `.hyperi-ci.yaml`.
+No code changes, no workflow changes.
+
+When `channel` reaches `release` and `target` is `oss` or `both`, the
+package is published to public registries (PyPI, crates.io, npmjs).
+Standard pre-release version conventions protect consumers:
+
+| Registry | Pre-release versions | Default install behaviour |
+|----------|---------------------|-------------------------|
+| PyPI | `1.0.0a1`, `1.0.0b1`, `1.0.0rc1` | `pip install pkg` skips pre-releases |
+| crates.io | `1.0.0-alpha.1`, `1.0.0-beta.1` | `cargo add pkg` skips pre-releases |
+| npmjs | dist-tag `alpha`/`beta` | `npm install pkg` gets `latest` only |
+
+Pre-release versions are discoverable but never installed by default.
+Consumers must explicitly opt in (`pip install --pre`, `cargo add pkg@1.0.0-alpha.1`,
+`npm install pkg@alpha`).
 
 ## Commands
 
@@ -133,6 +162,7 @@ Graduate a project by changing one line. No code changes, no workflow changes.
 | `hyperi-ci run quality` | Lint, format, type check, security audit |
 | `hyperi-ci run test` | Tests with coverage |
 | `hyperi-ci run build` | Build artifacts |
+| `hyperi-ci run container` | Build and push container image to GHCR |
 | `hyperi-ci release --list` | List unpublished version tags |
 | `hyperi-ci release <tag>` | Trigger publish for a tag |
 | `hyperi-ci check-commit --list` | Show all accepted commit types |
@@ -163,13 +193,23 @@ Your Project                        hyperi-ci
 ```
 
 **On push to main:**
-```
-quality -> test -> build (validation) -> semantic-release (tags version)
+
+```mermaid
+flowchart LR
+    Q[quality] --> B[build]
+    T[test] --> B
+    B --> C[container]
+    C --> SR[semantic-release]
 ```
 
 **On publish dispatch:**
-```
-checkout tag -> quality -> test -> build (full cross-compile) -> publish
+
+```mermaid
+flowchart LR
+    Q[quality] --> B["build\n(cross-compile)"]
+    T[test] --> B
+    B --> C["container\n(multi-arch)"]
+    C --> P[publish]
 ```
 
 ## Config
@@ -196,13 +236,36 @@ quality:
   gitleaks: blocking
 ```
 
+## Container Builds
+
+Enable container image builds with one config flag:
+
+```yaml
+# .hyperi-ci.yaml
+container:
+  enabled: true
+  # mode auto-detected: contract (Rust), template (Python/Node), custom (Dockerfile)
+```
+
+| Mode | Language | What Happens |
+|------|----------|-------------|
+| **contract** | Rust + rustlib | Binary emits `container-manifest.json`, CI composes Dockerfile |
+| **template** | Python | CI generates Dockerfile using uv + venv pattern |
+| **template** | TypeScript | CI generates Dockerfile using pnpm + distroless |
+| **custom** | Any | CI uses your `Dockerfile`, injects OCI labels |
+
+Images push to GHCR (`ghcr.io/hyperi-io/<app>`). Tags:
+- Push to main: `:sha-abc1234`
+- Release: `:v1.13.5` + `:latest`
+- Pre-release: `:v1.13.5-alpha`
+
 ## Languages
 
 | Language | Quality | Test | Build | Publish |
 |----------|---------|------|-------|---------|
-| Python | ruff, ty, bandit, pip-audit | pytest | uv build | uv publish (PyPI/JFrog) |
-| Rust | cargo fmt, clippy, audit, deny | cargo test/nextest | cargo build (cross) | cargo publish (crates.io/JFrog) |
-| TypeScript | eslint, prettier, tsc, npm audit | vitest/jest | npm/pnpm build | npm publish |
+| Python | ruff, ty, bandit, pip-audit | pytest | uv build | uv publish (PyPI / JFrog staging) |
+| Rust | cargo fmt, clippy, audit, deny | cargo test/nextest | cargo build (cross) | cargo publish (crates.io / JFrog staging) |
+| TypeScript | eslint, prettier, tsc, npm audit | vitest/jest | npm/pnpm build | npm publish (npmjs / GH Packages) |
 | Go | gofmt, go vet, golangci-lint, gosec | go test -race | go build (cross) | go proxy, gh release |
 
 ## Cross-Compilation

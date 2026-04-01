@@ -75,33 +75,33 @@ Four language-specific reusable workflows live in
 
 ### Job Structure
 
-Every reusable workflow has the same five-job structure:
+Every reusable workflow has this job structure:
 
-```
-quality ──┐
-           ├──► build ──► release ──► publish
-test ─────┘
+```mermaid
+flowchart LR
+    Q[quality] --> S[setup]
+    T[test] --> S
+    S --> B["build\n(matrix)"]
+    B --> C[container]
+    C --> SR[semantic-release]
+    SR --> P[publish]
 ```
 
 1. **quality** — runs `uvx hyperi-ci run quality`
 2. **test** (matrix) — runs `uvx hyperi-ci run test`
-3. **setup** (needs quality + test) — generates build matrix JSON from branch context
-   - `release` branch → x64 (ARC) + arm64 (`ubuntu-24.04-arm`)
-   - All other branches → x64 only (ARC)
+3. **setup** (needs quality + test) — generates build matrix JSON
 4. **build** (needs setup, matrix) — runs `uvx hyperi-ci run build`
    - Uses `runs-on: ${{ matrix.runner }}` — each arch builds natively
-   - Skipped on fork PRs (`github.event.pull_request.head.repo.fork != true`)
-5. **release** (needs build, main or release push) — runs `semantic-release`
-   - On `main` push: creates dev pre-release (`v1.15.0-dev.1`)
-   - On `alpha` push: creates alpha pre-release (`v1.15.0-alpha.1`)
-   - On `beta` push: creates beta pre-release (`v1.15.0-beta.1`)
-   - On `release` push: creates GA release (`v1.15.0`)
-   - Alpha/beta channels are optional — configure via `hyperi-ci init-release --channels alpha,beta`
+   - Skipped on fork PRs
+5. **container** (needs build) — runs `uvx hyperi-ci run container`
+   - Builds and pushes container image to GHCR
+   - Only runs if `container.enabled: true` in `.hyperi-ci.yaml`
+   - Skips entirely (no Docker setup) if disabled
+   - Three modes: contract (Rust), template (Python/Node), custom (own Dockerfile)
+   - See "Container Builds" section below
+6. **release** (needs build + container, main push) — runs `semantic-release`
    - Creates git tag + GitHub release, writes `VERSION` file
-6. **publish** (needs release, release branch only) — runs `uvx hyperi-ci run build`
-   then `uvx hyperi-ci run publish`
-   - Only on `release` branch — pre-releases (dev/alpha/beta) skip registry publishing
-   - Re-checks out `release` after semantic-release has pushed the version bump
+7. **publish** (needs build + container, workflow_dispatch) — runs `uvx hyperi-ci run publish`
    - Skipped if `VERSION` file absent (non-publishable projects)
    - Publish step MUST use `hyperi-ci run build` not raw `uv build` — the
      build handler injects standard sdist exclusions (AI agent dirs, submodules)
@@ -194,17 +194,17 @@ src/hyperi_ci/languages/
 │   ├── quality.py    ruff check, ruff format, ty, bandit, pip-audit
 │   ├── test.py       pytest with coverage
 │   ├── build.py      uv build (wheel + sdist), Nuitka (native binary)
-│   └── publish.py    uv publish → PyPI or JFrog
+│   └── publish.py    uv publish → PyPI or JFrog (private staging)
 ├── rust/
 │   ├── quality.py    cargo fmt, clippy, cargo audit, cargo deny
 │   ├── test.py       cargo nextest / cargo test
 │   ├── build.py      cargo build --release (multi-target, cross-compile)
-│   └── publish.py    cargo publish → crates.io or JFrog
+│   └── publish.py    cargo publish → crates.io or JFrog (private staging)
 ├── typescript/
 │   ├── quality.py    eslint, prettier, tsc, npm audit
 │   ├── test.py       vitest / jest (auto-detected), Playwright E2E
 │   ├── build.py      npm run build / pnpm build
-│   └── publish.py    npm publish → npmjs or JFrog
+│   └── publish.py    npm publish → npmjs or GH Packages
 └── golang/
     ├── quality.py    gofmt, go vet, golangci-lint, gosec, govulncheck
     ├── test.py       go test -race -cover
@@ -241,11 +241,23 @@ class CIConfig:
 
 A single config value (`publish.target`) controls where artifacts go:
 
-| Target | Python | Rust | TypeScript | Go |
-|--------|--------|------|------------|-----|
-| `internal` | JFrog PyPI | JFrog Cargo | JFrog npm | JFrog Go |
-| `oss` | pypi.org | crates.io | npmjs.com | proxy.golang.org |
-| `both` | Both | Both | Both | Both |
+| Target | Python | Rust | TypeScript | Containers | Binaries | Go |
+|--------|--------|------|------------|------------|----------|-----|
+| `internal` | JFrog PyPI | JFrog Cargo | GH Packages npm | GHCR (private) | R2 | go-proxy |
+| `oss` | pypi.org | crates.io | npmjs.com | GHCR (public) | GH Releases | go-proxy |
+| `both` | Both | Both | Both | GHCR | Both | go-proxy |
+
+JFrog is used **only** for private Python and Rust package staging (pre-GA).
+All other artifact types use GitHub. See `docs/JFROG-MIGRATION.md`.
+
+```mermaid
+flowchart LR
+    CI["hyperi-ci publish"]
+    CI -->|"internal"| JF["JFrog<br/>PyPI + Cargo only"]
+    CI -->|"internal"| GH["GitHub<br/>npm, GHCR, R2, GH Releases"]
+    CI -->|"oss"| PUB["Public Registries<br/>PyPI, crates.io, npmjs, GHCR"]
+    CI -->|"oss"| GHR["GH Releases"]
+```
 
 Set via GitHub org/repo variable `PUBLISH_TARGET`, which maps to
 `HYPERCI_PUBLISH_TARGET` env var in workflows.
@@ -259,13 +271,52 @@ class OrgConfig:
     jfrog_domain: str        # "hypersec.jfrog.io"
     pypi_publish_url: str    # Derived: "{base}/api/pypi/hyperi-pypi-local"
     cargo_publish_url: str   # Derived: "{base}/api/cargo/hyperi-cargo-local"
-    npm_url: str             # Derived: "{base}/api/npm/hyperi-npm"
+    ghcr_registry: str       # "ghcr.io"
+    github_org: str          # "hyperi-io"
     # ... etc
 ```
 
+### Container Builds
+
+The `container` stage builds and pushes OCI container images to GHCR.
+Three modes, auto-detected from language and project structure:
+
+| Mode | Language | Dockerfile Source |
+|------|----------|------------------|
+| **contract** | Rust + rustlib | Generated from `container-manifest.json` (binary emits contract) |
+| **template** | Python, TypeScript | Generated from built-in templates (uv, pnpm patterns) |
+| **custom** | Any | Uses repo's own `Dockerfile`, injects OCI labels |
+
+**Push to main (single-arch):**
+
+```mermaid
+flowchart LR
+    B["build\n(amd64)"] --> C["container\n(amd64)"]
+    C -->|"push"| G["GHCR\n:sha-abc1234"]
+```
+
+**Publish dispatch (multi-arch release):**
+
+```mermaid
+flowchart TB
+    BA["build (amd64)"] -->|"artifact"| CT[container]
+    BB["build (arm64)"] -->|"artifact"| CT
+    CT -->|"buildx --platform\namd64,arm64"| G["GHCR\n:v1.13.5 + :latest"]
+```
+
+Enable in `.hyperi-ci.yaml`:
+
+```yaml
+container:
+  enabled: true
+  # mode auto-detected: contract (Rust), template (Python/Node), custom (Dockerfile)
+```
+
+Registry auth uses the `hyperi-container-mgt` GitHub App (packages:write).
+
 ### Binary Publish: What Gets Uploaded
 
-Binary destinations (`r2-binaries`, `github-releases`, `jfrog-generic`) receive
+Binary destinations (`r2-binaries`, `github-releases`) receive
 only compiled binaries and their SHA-256 checksum files. No README, CHANGELOG,
 LICENSE, or other documentation files are included.
 
@@ -566,21 +617,36 @@ This applies universally across all languages, not just Rust:
 
 ### Release Channels
 
-Two-branch semantic-release configuration:
+Single-branch model with channel-based publish routing:
 
-| Branch | Channel | Version Format | Publish Targets |
-|--------|---------|---------------|-----------------|
-| `main` | `dev` (prerelease) | `v1.15.0-dev.1` | GitHub Releases only (pre-release) |
-| `release` | default (GA) | `v1.15.0` | All destinations (JFrog, crates.io, PyPI, npm, GHCR) |
+| Channel | Registry Publish | GH Release | R2 Path |
+|---------|-----------------|------------|---------|
+| `spike` | Internal only (JFrog staging) | Prerelease | `/{project}/spike/v1.0.0/` |
+| `alpha` | Internal only (JFrog staging) | Prerelease | `/{project}/alpha/v1.0.0/` |
+| `beta` | Internal only (JFrog staging) | Prerelease | `/{project}/beta/v1.0.0/` |
+| `release` | Configured target (internal/oss/both) | GA | `/{project}/v1.0.0/` |
+
+Pre-release channels (`spike`, `alpha`, `beta`) automatically force
+`publish_target` to `internal`, regardless of the configured target.
+This keeps pre-GA packages on JFrog staging (private PyPI/Cargo) without
+appearing on public registries.
+
+```mermaid
+flowchart LR
+    S[spike] -->|"change channel"| A[alpha]
+    A -->|"change channel"| B[beta]
+    B -->|"change channel"| R[release]
+
+    S & A & B -->|"forced internal"| JF["JFrog Staging<br/>(private)"]
+    R -->|"target: oss"| PUB["Public Registries<br/>PyPI, crates.io, npmjs"]
+    R -->|"target: internal"| JF
+    R -->|"target: both"| JF & PUB
+```
 
 **Workflow:**
-1. Developers push to `main` — x64 dev pre-release created automatically
-2. When ready for GA: run `hyperi-ci release-merge`
-3. The CLI clones to a temp directory, merges `main` into `release`, auto-resolves
-   version file conflicts (VERSION, Cargo.toml, pyproject.toml, CHANGELOG.md), and
-   creates a PR. Never touches the developer's working tree.
-4. Merge the PR — release branch triggers x64 + arm64 builds, GA semantic-release,
-   publish to all registries
+1. Set `publish.channel: spike` in `.hyperi-ci.yaml` — push, test internally
+2. Graduate through `alpha` → `beta` → `release` by changing one line
+3. At `release` channel, `publish.target` controls public vs private
 
 **Release Merge automation:** The `hyperi-ci release-merge` CLI command handles the
 recurring version file conflicts that arise because semantic-release bumps versions
@@ -784,6 +850,13 @@ hyperi-ci/
 │   ├── trigger.py             Workflow trigger command
 │   ├── watch.py               Run watch command
 │   ├── logs.py                Log fetch command
+│   ├── container/
+│   │   ├── stage.py           Container stage handler (mode detection, orchestration)
+│   │   ├── labels.py          OCI label generation
+│   │   ├── templates.py       Python + Node Dockerfile templates
+│   │   ├── manifest.py        Parse container-manifest.json (contract mode)
+│   │   ├── compose.py         Compose Dockerfile from contract (contract mode)
+│   │   └── build.py           Docker buildx build + push
 │   └── languages/
 │       ├── python/            quality, test, build, publish
 │       ├── rust/              quality, test, build, publish
