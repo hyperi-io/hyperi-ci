@@ -358,6 +358,7 @@ def _render_releaserc(
                 {
                     "preset": "conventionalcommits",
                     "releaseRules": [
+                        {"breaking": True, "release": "major"},
                         {"type": "feat", "release": "minor"},
                         {"type": "fix", "release": "patch"},
                         {"type": "perf", "release": "patch"},

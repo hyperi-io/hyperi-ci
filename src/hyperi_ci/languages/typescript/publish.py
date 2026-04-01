@@ -1,13 +1,15 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/languages/typescript/publish.py
-# Purpose:   TypeScript/Node publish handler (npm + JFrog)
+# Purpose:   TypeScript/Node publish handler (npm + GitHub Packages)
 #
 # License:   Proprietary — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """TypeScript/Node publish handler.
 
-Publishes npm packages to npmjs.com (OSS) and/or JFrog Artifactory (internal)
+Publishes npm packages to npmjs.com (OSS) and/or GitHub Packages npm (internal)
 depending on the publish target configuration.
+
+Legacy JFrog npm support retained for migration period.
 """
 
 from __future__ import annotations
@@ -99,6 +101,52 @@ def _publish_jfrog() -> int:
     return 0
 
 
+def _publish_ghcr_npm() -> int:
+    """Publish to GitHub Packages npm registry.
+
+    Uses GITHUB_TOKEN (via GH_TOKEN) for auth. Packages are private by default
+    and visible only to org members.
+
+    Returns:
+        Exit code (0 = success).
+    """
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if not token:
+        error("GH_TOKEN/GITHUB_TOKEN not set — cannot publish to GitHub Packages")
+        return 1
+
+    org = load_org_config()
+    registry_url = f"https://npm.pkg.github.com/{org.github_org}"
+
+    npmrc = Path(".npmrc")
+    npmrc_backup = npmrc.read_text() if npmrc.exists() else None
+
+    npmrc.write_text(
+        f"@{org.github_org}:registry={registry_url}\n"
+        f"//npm.pkg.github.com/:_authToken={token}\n"
+    )
+
+    try:
+        result = subprocess.run(["npm", "publish"], capture_output=True, text=True)
+    finally:
+        if npmrc_backup is not None:
+            npmrc.write_text(npmrc_backup)
+        else:
+            npmrc.unlink(missing_ok=True)
+
+    if result.returncode != 0:
+        if "already exists" in (result.stderr + result.stdout):
+            warn("  Package version already exists on GitHub Packages (skipping)")
+            return 0
+        error("GitHub Packages npm publish failed")
+        if result.stderr:
+            error(result.stderr)
+        return result.returncode
+
+    success("Published to GitHub Packages npm")
+    return 0
+
+
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     """Run TypeScript/Node publish stage.
 
@@ -123,7 +171,14 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
                 if rc != 0:
                     return rc
 
+        elif dest == "ghcr-npm":
+            with group("Publish: GitHub Packages npm"):
+                rc = _publish_ghcr_npm()
+                if rc != 0:
+                    return rc
+
         elif dest == "jfrog-npm":
+            # Legacy — retained for migration. See docs/JFROG-MIGRATION.md.
             with group("Publish: JFrog npm"):
                 rc = _publish_jfrog()
                 if rc != 0:
