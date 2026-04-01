@@ -33,7 +33,7 @@ from hyperi_ci.config import CIConfig, load_config
 from hyperi_ci.detect import detect_language
 from hyperi_ci.quality import commit_validation, gitleaks
 
-VALID_STAGES = ("setup", "quality", "test", "build", "publish")
+VALID_STAGES = ("setup", "quality", "test", "build", "container", "publish")
 
 
 def _find_handler_module(language: str, stage: str) -> Any | None:
@@ -229,16 +229,26 @@ def stage_publish(language: str, config: CIConfig) -> int:
 
     channel = config.get("publish.channel", "release")
 
-    # Language-specific publish (crates, PyPI, npm, go proxy) — release channel only
+    # Channel-aware registry publish:
+    #   spike/alpha/beta → internal destinations only (JFrog staging)
+    #   release          → configured target (internal, oss, or both)
+    #
+    # This lets pre-GA packages land on JFrog for internal testing without
+    # appearing on public registries (PyPI, crates.io, npmjs).
     if channel != "release":
-        info(f"Channel '{channel}' — skipping registry publish (release-only)")
-    else:
-        rc = _dispatch_to_handler(language, "publish", config)
-        if rc == -1:
-            error(f"Publish handler not found for {language}")
-            return 1
-        if rc != 0:
-            return rc
+        original_target = config.publish_target
+        config.publish_target = "internal"
+        info(
+            f"Channel '{channel}' — publishing to internal staging only"
+            f" (target overridden from '{original_target}')"
+        )
+
+    rc = _dispatch_to_handler(language, "publish", config)
+    if rc == -1:
+        error(f"Publish handler not found for {language}")
+        return 1
+    if rc != 0:
+        return rc
 
     # Always create the GH Release (even for libraries with no binaries)
     from hyperi_ci.publish_binaries import create_github_release, publish_binaries
@@ -251,11 +261,19 @@ def stage_publish(language: str, config: CIConfig) -> int:
     return publish_binaries(config)
 
 
+def stage_container(language: str, config: CIConfig) -> int:
+    """Container build — cross-language stage, delegates to container package."""
+    from hyperi_ci.container.stage import run as container_run
+
+    return container_run(config, language=language)
+
+
 _STAGE_HANDLERS = {
     "setup": stage_setup,
     "quality": stage_quality,
     "test": stage_test,
     "build": stage_build,
+    "container": stage_container,
     "publish": stage_publish,
 }
 
