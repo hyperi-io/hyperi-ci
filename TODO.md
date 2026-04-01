@@ -6,6 +6,26 @@ This is the **single source of truth** for all tasks and progress.
 
 ## Active Tasks
 
+### Feature Branch: `feat/jfrog-migration-container-pipeline`
+
+All work pushed to feature branch. Merge to main when ready.
+
+- [ ] **JFrog Migration** — merge when CI is free
+  - JFrog reduced to PyPI/Cargo staging only, everything else to GitHub
+  - Docker Hub auth, GHCR login via container mgt app, channel-aware publish
+  - GitHub secrets already updated live (JFROG narrowed, DOCKERHUB widened, CONTAINER_MGT visibility)
+  - Blocker: user approval to merge (impacts all consumer projects)
+
+- [ ] **Issue #14: Breaking change rule** — bundled with JFrog migration
+  - `{"breaking": True, "release": "major"}` added to init.py + .releaserc.yaml
+
+- [ ] **Container Build Pipeline** — merge after rustlib deployment contract + dfe-loader test
+  - 6 modules in `src/hyperi_ci/container/` (labels, templates, manifest, compose, build, stage)
+  - 33 new tests, 273 total passing
+  - Container job added to all 3 CI workflows (rust, python, ts)
+  - Spec: `docs/superpowers/specs/2026-04-01-container-build-pipeline-design.md`
+  - Blocker: rustlib `deployment_contract()` not yet implemented
+
 ### Other Active Tasks
 
 - [ ] Address non-blocking quality warnings across consumer projects
