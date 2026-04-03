@@ -387,7 +387,7 @@ def check_commit_cmd(
 def release(
     tag: Annotated[
         str | None,
-        typer.Argument(help="Tag to publish (e.g. v1.3.0)"),
+        typer.Argument(help="Tag to publish (e.g. v1.3.0) or 'latest'"),
     ] = None,
     list_tags: Annotated[
         bool,
