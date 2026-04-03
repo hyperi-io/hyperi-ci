@@ -99,8 +99,25 @@ def _detect_workflow_file() -> str:
     return "ci.yml"
 
 
+def resolve_latest_tag() -> str | None:
+    """Resolve the latest version tag."""
+    tags = _get_version_tags()
+    return tags[0] if tags else None
+
+
 def dispatch_publish(tag: str, dry_run: bool = False) -> int:
-    """Trigger a publish workflow for the given tag."""
+    """Trigger a publish workflow for the given tag.
+
+    If tag is "latest", resolves to the most recent version tag.
+    """
+    if tag == "latest":
+        resolved = resolve_latest_tag()
+        if not resolved:
+            error("No version tags found")
+            return 1
+        info(f"Resolved 'latest' to {resolved}")
+        tag = resolved
+
     tags = _get_version_tags()
     if tag not in tags:
         error(f"Tag '{tag}' does not exist")
