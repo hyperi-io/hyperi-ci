@@ -9,6 +9,7 @@
 Usage:
     hyperi-ci run <stage>       Run a CI stage (setup, quality, test, build, publish)
     hyperi-ci check             Pre-push checks (quality + test; --full adds build)
+    hyperi-ci push              Push with pre-checks (replaces bare git push)
     hyperi-ci init              Initialise project (config, Makefile, workflow)
     hyperi-ci detect            Detect project language
     hyperi-ci config            Show merged configuration
@@ -115,6 +116,52 @@ def check(
             raise typer.Exit(rc)
 
     raise typer.Exit(0)
+
+
+@app.command()
+def push(
+    release: Annotated[
+        bool,
+        typer.Option(
+            "--release", help="After CI passes, auto-dispatch publish for new version"
+        ),
+    ] = False,
+    no_ci: Annotated[
+        bool,
+        typer.Option("--no-ci", help="Amend last commit with [skip ci] and push"),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", "-n", help="Show what would happen without pushing"),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force", "-f", help="Skip pre-push checks (does NOT force-push)"
+        ),
+    ] = False,
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+) -> None:
+    """Push with pre-checks. Replaces bare 'git push'.
+
+    Default: runs quality + test checks, rebases, then pushes.
+    Use --release to auto-publish after CI passes.
+    Use --no-ci to skip CI on this push.
+    """
+    from hyperi_ci.push import push as do_push
+
+    dir_path = Path(project_dir) if project_dir else None
+    rc = do_push(
+        release=release,
+        no_ci=no_ci,
+        dry_run=dry_run,
+        force=force,
+        project_dir=dir_path,
+    )
+    raise typer.Exit(rc)
 
 
 @app.command()
@@ -332,7 +379,7 @@ def install_deps_cmd(
         typer.Option("--project-dir", "-C", help="Project root directory"),
     ] = None,
 ) -> None:
-    """Install project dependencies for a language (e.g. npm/yarn/pnpm for TypeScript)."""
+    """Install project dependencies for a language."""
     from hyperi_ci.install_deps import install_deps
 
     dir_path = Path(project_dir) if project_dir else None
