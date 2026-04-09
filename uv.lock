@@ -154,11 +154,11 @@ wheels = [
 
 [[package]]
 name = "dynaconf"
-version = "3.2.12"
+version = "3.2.13"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/cd/bd/7a6f84b68268fe1d12e709faec7d293e0c37c9c03bacaf363de41e7e7568/dynaconf-3.2.12.tar.gz", hash = "sha256:29cea583b007d890e6031fa89c0ac489b631c73dbee83bcd5e6f97602c26354e", size = 313801, upload-time = "2025-10-10T19:54:06.164Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/57/0e/05927cf459e73f8bf9a9277cbea6f2d5b7db8a5cc9dc1e20e7a5fbac1b90/dynaconf-3.2.13.tar.gz", hash = "sha256:d79e0189d97b3f226b8ebb1717e2ce05d1a05cdf6ea05de66d24625fdb5a0cbd", size = 283507, upload-time = "2026-03-17T19:38:47.632Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/26/68/51adede38ab2ee9ecfddb8b60a80a42b618a72f1018fcf60974e5d852831/dynaconf-3.2.12-py2.py3-none-any.whl", hash = "sha256:eb2a11865917dff8810c6098cd736b8f4d2f4e39ad914500e2dfbe064b82c499", size = 237788, upload-time = "2025-10-10T19:54:03.731Z" },
+    { url = "https://files.pythonhosted.org/packages/97/43/11d6e5d2c00bf000b5329717c74563bf76a9193f4a41cb0c4ef277dde4fa/dynaconf-3.2.13-py2.py3-none-any.whl", hash = "sha256:4305527aef4834bdba3e39479b23c005186e83fb85f65bcaa4bcea58fa26759b", size = 238041, upload-time = "2026-03-17T19:38:45.337Z" },
 ]
 
 [[package]]
@@ -166,6 +166,7 @@ name = "hyperi-ci"
 source = { editable = "." }
 dependencies = [
     { name = "hyperi-pylib" },
+    { name = "packaging" },
     { name = "pyyaml" },
     { name = "tomli-w" },
 ]
@@ -180,6 +181,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "hyperi-pylib", editable = "../hyperi-pylib" },
+    { name = "packaging", specifier = ">=24.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "tomli-w", specifier = ">=1.2.0" },
 ]
@@ -193,7 +195,7 @@ dev = [
 
 [[package]]
 name = "hyperi-pylib"
-version = "2.24.3"
+version = "2.25.1"
 source = { editable = "../hyperi-pylib" }
 dependencies = [
     { name = "dulwich" },
@@ -216,7 +218,6 @@ requires-dist = [
     { name = "azure-keyvault-secrets", marker = "extra == 'secrets'", specifier = ">=4.9.0" },
     { name = "azure-keyvault-secrets", marker = "extra == 'secrets-azure'", specifier = ">=4.9.0" },
     { name = "bandit", extras = ["toml"], marker = "extra == 'dev'", specifier = ">=1.7.0" },
-    { name = "black", marker = "extra == 'dev'", specifier = ">=24.0.0" },
     { name = "boto3", marker = "extra == 'dev'", specifier = ">=1.35.0" },
     { name = "boto3", marker = "extra == 'secrets'", specifier = ">=1.35.0" },
     { name = "boto3", marker = "extra == 'secrets-aws'", specifier = ">=1.35.0" },
@@ -227,7 +228,7 @@ requires-dist = [
     { name = "cryptography", marker = "extra == 'dev'", specifier = ">=46.0.5" },
     { name = "cryptography", marker = "extra == 'license'", specifier = ">=46.0.5" },
     { name = "dulwich", specifier = ">=0.22.0" },
-    { name = "dynaconf", specifier = ">=3.2.12" },
+    { name = "dynaconf", specifier = ">=3.2.13" },
     { name = "faker", marker = "extra == 'dev'", specifier = ">=33.0.0" },
     { name = "genson", marker = "extra == 'kafka'", specifier = ">=1.3.0" },
     { name = "google-cloud-secret-manager", marker = "extra == 'secrets'", specifier = ">=2.26.0" },
@@ -235,14 +236,12 @@ requires-dist = [
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27.0" },
     { name = "httpx", marker = "extra == 'http'", specifier = ">=0.27.0" },
     { name = "httpx", marker = "extra == 'license'", specifier = ">=0.27.0" },
-    { name = "interrogate", marker = "extra == 'dev'", specifier = ">=1.5.0" },
-    { name = "isort", marker = "extra == 'dev'", specifier = ">=5.12.0" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "mergedeep", specifier = ">=1.3.4" },
     { name = "mergedeep", marker = "extra == 'dev'", specifier = ">=1.3.4" },
     { name = "msgpack", marker = "extra == 'cache'", specifier = ">=1.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
-    { name = "myst-parser", marker = "extra == 'docs'", specifier = ">=3.0.0" },
+    { name = "myst-parser", marker = "extra == 'docs'", specifier = ">=5.0.0" },
     { name = "opentelemetry-api", marker = "extra == 'opentelemetry'", specifier = ">=1.20.0" },
     { name = "opentelemetry-exporter-otlp", marker = "extra == 'opentelemetry'", specifier = ">=1.20.0" },
     { name = "opentelemetry-exporter-prometheus", marker = "extra == 'opentelemetry'", specifier = ">=0.41b0" },
@@ -264,7 +263,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "setuptools", marker = "extra == 'dev'", specifier = ">=70.0.0" },
-    { name = "sphinx", marker = "extra == 'docs'", specifier = ">=7.0.0,<8.0.0" },
+    { name = "sphinx", marker = "extra == 'docs'", specifier = ">=8.0.0,<10" },
     { name = "sphinx-autobuild", marker = "extra == 'docs'", specifier = ">=2024.0.0" },
     { name = "sphinx-rtd-theme", marker = "extra == 'docs'", specifier = ">=3.0.0" },
     { name = "stamina", marker = "extra == 'dev'", specifier = ">=25.1.0" },
@@ -284,6 +283,7 @@ provides-extras = ["cli", "http", "cache", "metrics", "opentelemetry", "expressi
 dev = [
     { name = "azure-identity", specifier = ">=1.25.1" },
     { name = "azure-keyvault-secrets", specifier = ">=4.9.0" },
+    { name = "fastapi", specifier = ">=0.115.0" },
     { name = "google-cloud-secret-manager", specifier = ">=2.26.0" },
 ]
 
