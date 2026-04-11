@@ -19,6 +19,22 @@ Usage:
     hyperi-ci release <tag>     Trigger publish for a version tag
     hyperi-ci check-commit      Validate commit message format
     hyperi-ci --version         Show version
+
+Conventions (all commands):
+    -V, --version      Show version and exit (global only)
+    -C, --project-dir  Project root directory
+    -n, --dry-run      Show what would happen without executing
+    -f, --force        Skip confirmations / overwrite (semantics per-command)
+
+Help:
+    hyperi-ci --help          List all commands
+    hyperi-ci <cmd> --help    Show command-specific options
+
+When adding new commands, respect these short-flag conventions so users can
+rely on muscle memory. In particular:
+  - Never repurpose -n for anything other than --dry-run
+  - Never repurpose -C for anything other than --project-dir
+  - --force semantics vary (overwrite vs skip-checks) — document in each command
 """
 
 from __future__ import annotations
@@ -176,10 +192,17 @@ def init(
     ] = None,
     force: Annotated[
         bool,
-        typer.Option("--force", "-f", help="Overwrite existing files"),
+        typer.Option(
+            "--force", "-f", help="Overwrite existing files (init-specific semantic)"
+        ),
     ] = False,
 ) -> None:
-    """Initialise a project for hyperi-ci (generates config, Makefile, workflow)."""
+    """Initialise a project for hyperi-ci (generates config, Makefile, workflow).
+
+    Note: `--force` here means "overwrite existing files" — different from
+    `push --force` which means "skip pre-push checks". See module docstring
+    for the project-wide convention on per-command `--force` semantics.
+    """
     from hyperi_ci.init import init_project
 
     dir_path = Path(project_dir) if project_dir else Path.cwd()
@@ -210,11 +233,21 @@ def config(
         str | None,
         typer.Option("--project-dir", "-C", help="Project root directory"),
     ] = None,
+    as_json: Annotated[
+        bool,
+        typer.Option("--json", help="Output as JSON instead of YAML"),
+    ] = False,
 ) -> None:
-    """Show merged configuration."""
+    """Show merged configuration (YAML by default, --json for scripts)."""
+    import yaml
+
     dir_path = Path(project_dir) if project_dir else None
     cfg = load_config(reload=True, project_dir=dir_path)
-    typer.echo(json.dumps(cfg._raw, indent=2, default=str))
+
+    if as_json:
+        typer.echo(json.dumps(cfg._raw, indent=2, default=str))
+    else:
+        typer.echo(yaml.safe_dump(cfg._raw, sort_keys=False, default_flow_style=False))
 
 
 @app.command()
@@ -263,7 +296,12 @@ def trigger(
         typer.Option("--interval", "-i", help="Poll interval in seconds"),
     ] = 30,
 ) -> None:
-    """Trigger a GitHub Actions workflow run."""
+    """Trigger a GitHub Actions workflow run.
+
+    Dispatches the workflow via `gh workflow run`. Use --watch to block
+    until the run completes — equivalent to running `hyperi-ci trigger`
+    then `hyperi-ci watch` as separate commands.
+    """
     from hyperi_ci.trigger import trigger_workflow
 
     rc = trigger_workflow(
@@ -318,7 +356,7 @@ def logs(
     ] = None,
     tail: Annotated[
         int | None,
-        typer.Option("--tail", "-n", help="Show last N lines"),
+        typer.Option("--tail", help="Show last N lines"),
     ] = None,
     failed: Annotated[
         bool,
@@ -442,7 +480,7 @@ def release(
     ] = False,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Show what would be dispatched"),
+        typer.Option("--dry-run", "-n", help="Show what would be dispatched"),
     ] = False,
 ) -> None:
     """Trigger a publish workflow for a version tag.
