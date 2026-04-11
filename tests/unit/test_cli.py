@@ -71,7 +71,7 @@ class TestCLI:
         )
         assert result.returncode != 0
 
-    def test_config_shows_json(self, tmp_path) -> None:
+    def test_config_defaults_to_yaml(self, tmp_path) -> None:
         (tmp_path / ".hyperi-ci.yaml").write_text("language: rust\n")
         result = subprocess.run(
             [
@@ -88,3 +88,29 @@ class TestCLI:
         )
         assert result.returncode == 0
         assert "rust" in result.stdout
+        # YAML output has unquoted keys with colon
+        assert "language: rust" in result.stdout
+        # JSON would have quoted keys — YAML does not
+        assert '"language"' not in result.stdout
+
+    def test_config_json_flag(self, tmp_path) -> None:
+        (tmp_path / ".hyperi-ci.yaml").write_text("language: rust\n")
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "hyperi_ci.cli",
+                "config",
+                "--project-dir",
+                str(tmp_path),
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+            env=_TEST_ENV,
+        )
+        assert result.returncode == 0
+        assert "rust" in result.stdout
+        # JSON output has quoted keys and braces
+        assert '"language"' in result.stdout
+        assert "{" in result.stdout
