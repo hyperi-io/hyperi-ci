@@ -18,23 +18,23 @@ github:
 jfrog:
   domain: hypersec.jfrog.io
   org_prefix: hyperi
+  # Reduced to private staging only (PyPI + Cargo).
+  # All other artifact types use GitHub. See docs/JFROG-MIGRATION.md.
   repos:
     pypi: hyperi-pypi
     pypi_local: hyperi-pypi-local
-    npm: hyperi-npm
-    go: go-local
-    binaries: hyperi-binaries
     cargo_virtual: hyperi-cargo-virtual
     cargo_local: hyperi-cargo-local
-    docker: hyperi-docker
-    docker_local: hyperi-docker-local
-    helm: hyperi-helm
-    helm_local: hyperi-helm-local
 
 ghcr:
   registry: ghcr.io
   org: hyperi-io
   charts_url: oci://ghcr.io/hyperi-io/charts
+
+dockerhub:
+  # Authenticated pulls only — bypasses Docker Hub rate limits.
+  # NOT a publish target. We publish containers to GHCR.
+  registry: docker.io
 
 # Deprecated URL patterns for auto-migration from old repo names
 deprecated_ci_urls:

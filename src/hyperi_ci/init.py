@@ -358,6 +358,7 @@ def _render_releaserc(
                 {
                     "preset": "conventionalcommits",
                     "releaseRules": [
+                        {"breaking": True, "release": "major"},
                         {"type": "feat", "release": "minor"},
                         {"type": "fix", "release": "patch"},
                         {"type": "perf", "release": "patch"},
@@ -598,6 +599,35 @@ def init_project(
         files_written += 1
     else:
         info("  Skipped .githooks/commit-msg (already exists)")
+
+    pre_push_path = project_dir / ".githooks" / "pre-push"
+    if not pre_push_path.exists() or force:
+        pre_push_path.parent.mkdir(parents=True, exist_ok=True)
+        pre_push_path.write_text(
+            "#!/usr/bin/env bash\n"
+            "# Enforce hyperi-ci push instead of bare git push\n"
+            "# hyperi-ci push sets HYPERCI_PUSH=1 before calling git push\n"
+            "\n"
+            'if [ "${HYPERCI_PUSH:-}" = "1" ]; then\n'
+            "    exit 0\n"
+            "fi\n"
+            "\n"
+            "echo ''\n"
+            "echo '  Push blocked. Use hyperi-ci push instead of git push.'\n"
+            "echo ''\n"
+            "echo '    hyperi-ci push            # normal push with pre-checks'\n"
+            "echo '    hyperi-ci push --release  # push + auto-publish if CI passes'\n"
+            "echo '    hyperi-ci push --no-ci    # push, skip CI'\n"
+            "echo ''\n"
+            "echo '  To bypass (emergency): HYPERCI_PUSH=1 git push'\n"
+            "echo ''\n"
+            "exit 1\n"
+        )
+        pre_push_path.chmod(0o755)
+        info(f"  Created: {pre_push_path}")
+        files_written += 1
+    else:
+        info("  Skipped .githooks/pre-push (already exists)")
 
     if files_written == 0:
         warn("No files written (all already exist)")

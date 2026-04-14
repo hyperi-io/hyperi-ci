@@ -9,6 +9,7 @@
 Usage:
     hyperi-ci run <stage>       Run a CI stage (setup, quality, test, build, publish)
     hyperi-ci check             Pre-push checks (quality + test; --full adds build)
+    hyperi-ci push              Push with pre-checks (replaces bare git push)
     hyperi-ci init              Initialise project (config, Makefile, workflow)
     hyperi-ci detect            Detect project language
     hyperi-ci config            Show merged configuration
@@ -18,6 +19,22 @@ Usage:
     hyperi-ci release <tag>     Trigger publish for a version tag
     hyperi-ci check-commit      Validate commit message format
     hyperi-ci --version         Show version
+
+Conventions (all commands):
+    -V, --version      Show version and exit (global only)
+    -C, --project-dir  Project root directory
+    -n, --dry-run      Show what would happen without executing
+    -f, --force        Skip confirmations / overwrite (semantics per-command)
+
+Help:
+    hyperi-ci --help          List all commands
+    hyperi-ci <cmd> --help    Show command-specific options
+
+When adding new commands, respect these short-flag conventions so users can
+rely on muscle memory. In particular:
+  - Never repurpose -n for anything other than --dry-run
+  - Never repurpose -C for anything other than --project-dir
+  - --force semantics vary (overwrite vs skip-checks) — document in each command
 """
 
 from __future__ import annotations
@@ -118,6 +135,52 @@ def check(
 
 
 @app.command()
+def push(
+    release: Annotated[
+        bool,
+        typer.Option(
+            "--release", help="After CI passes, auto-dispatch publish for new version"
+        ),
+    ] = False,
+    no_ci: Annotated[
+        bool,
+        typer.Option("--no-ci", help="Amend last commit with [skip ci] and push"),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", "-n", help="Show what would happen without pushing"),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force", "-f", help="Skip pre-push checks (does NOT force-push)"
+        ),
+    ] = False,
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+) -> None:
+    """Push with pre-checks. Replaces bare 'git push'.
+
+    Default: runs quality + test checks, rebases, then pushes.
+    Use --release to auto-publish after CI passes.
+    Use --no-ci to skip CI on this push.
+    """
+    from hyperi_ci.push import push as do_push
+
+    dir_path = Path(project_dir) if project_dir else None
+    rc = do_push(
+        release=release,
+        no_ci=no_ci,
+        dry_run=dry_run,
+        force=force,
+        project_dir=dir_path,
+    )
+    raise typer.Exit(rc)
+
+
+@app.command()
 def init(
     project_dir: Annotated[
         str | None,
@@ -129,10 +192,17 @@ def init(
     ] = None,
     force: Annotated[
         bool,
-        typer.Option("--force", "-f", help="Overwrite existing files"),
+        typer.Option(
+            "--force", "-f", help="Overwrite existing files (init-specific semantic)"
+        ),
     ] = False,
 ) -> None:
-    """Initialise a project for hyperi-ci (generates config, Makefile, workflow)."""
+    """Initialise a project for hyperi-ci (generates config, Makefile, workflow).
+
+    Note: `--force` here means "overwrite existing files" — different from
+    `push --force` which means "skip pre-push checks". See module docstring
+    for the project-wide convention on per-command `--force` semantics.
+    """
     from hyperi_ci.init import init_project
 
     dir_path = Path(project_dir) if project_dir else Path.cwd()
@@ -163,11 +233,21 @@ def config(
         str | None,
         typer.Option("--project-dir", "-C", help="Project root directory"),
     ] = None,
+    as_json: Annotated[
+        bool,
+        typer.Option("--json", help="Output as JSON instead of YAML"),
+    ] = False,
 ) -> None:
-    """Show merged configuration."""
+    """Show merged configuration (YAML by default, --json for scripts)."""
+    import yaml
+
     dir_path = Path(project_dir) if project_dir else None
     cfg = load_config(reload=True, project_dir=dir_path)
-    typer.echo(json.dumps(cfg._raw, indent=2, default=str))
+
+    if as_json:
+        typer.echo(json.dumps(cfg._raw, indent=2, default=str))
+    else:
+        typer.echo(yaml.safe_dump(cfg._raw, sort_keys=False, default_flow_style=False))
 
 
 @app.command()
@@ -216,7 +296,12 @@ def trigger(
         typer.Option("--interval", "-i", help="Poll interval in seconds"),
     ] = 30,
 ) -> None:
-    """Trigger a GitHub Actions workflow run."""
+    """Trigger a GitHub Actions workflow run.
+
+    Dispatches the workflow via `gh workflow run`. Use --watch to block
+    until the run completes — equivalent to running `hyperi-ci trigger`
+    then `hyperi-ci watch` as separate commands.
+    """
     from hyperi_ci.trigger import trigger_workflow
 
     rc = trigger_workflow(
@@ -271,7 +356,7 @@ def logs(
     ] = None,
     tail: Annotated[
         int | None,
-        typer.Option("--tail", "-n", help="Show last N lines"),
+        typer.Option("--tail", help="Show last N lines"),
     ] = None,
     failed: Annotated[
         bool,
@@ -332,7 +417,7 @@ def install_deps_cmd(
         typer.Option("--project-dir", "-C", help="Project root directory"),
     ] = None,
 ) -> None:
-    """Install project dependencies for a language (e.g. npm/yarn/pnpm for TypeScript)."""
+    """Install project dependencies for a language."""
     from hyperi_ci.install_deps import install_deps
 
     dir_path = Path(project_dir) if project_dir else None
@@ -387,7 +472,7 @@ def check_commit_cmd(
 def release(
     tag: Annotated[
         str | None,
-        typer.Argument(help="Tag to publish (e.g. v1.3.0)"),
+        typer.Argument(help="Tag to publish (e.g. v1.3.0) or 'latest'"),
     ] = None,
     list_tags: Annotated[
         bool,
@@ -395,7 +480,7 @@ def release(
     ] = False,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Show what would be dispatched"),
+        typer.Option("--dry-run", "-n", help="Show what would be dispatched"),
     ] = False,
 ) -> None:
     """Trigger a publish workflow for a version tag.

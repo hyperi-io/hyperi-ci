@@ -47,6 +47,12 @@ on:
         required: false
       R2_SECRET_ACCESS_KEY:
         required: false
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_TOKEN:
+        required: false
+      CONTAINER_MGT_APP_PRIVATE_KEY:
+        required: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -62,6 +68,13 @@ jobs:
     # Renovate branches use lightweight runners — dependency update PRs don't need large runners
     runs-on: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_GOLANG || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
+      - name: Docker Hub login
+        if: ${{ secrets.DOCKERHUB_USERNAME != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - uses: actions/checkout@v6
 
       - name: Set up Go
@@ -103,6 +116,13 @@ jobs:
         # Renovate branches use lightweight runners
         os: ${{ fromJson(startsWith(github.head_ref || github.ref_name, 'renovate/') && format('["{0}"]', vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_GOLANG || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
     steps:
+      - name: Docker Hub login
+        if: ${{ secrets.DOCKERHUB_USERNAME != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - uses: actions/checkout@v6
 
       - name: Set up Go
@@ -221,6 +241,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      packages: write
     steps:
       - uses: actions/checkout@v6
         with:
@@ -258,6 +279,30 @@ jobs:
       - name: Set up Python
         if: steps.check.outputs.has_version == 'true'
         run: uv python install 3.12
+
+      - name: Docker Hub login
+        if: steps.check.outputs.has_version == 'true' && secrets.DOCKERHUB_USERNAME != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Generate container mgt token
+        if: steps.check.outputs.has_version == 'true' && vars.CONTAINER_MGT_APP_ID != ''
+        id: container-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.CONTAINER_MGT_APP_ID }}
+          private-key: ${{ secrets.CONTAINER_MGT_APP_PRIVATE_KEY }}
+          owner: hyperi-io
+
+      - name: GHCR login
+        if: steps.check.outputs.has_version == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ steps.container-token.outputs.token || secrets.GITHUB_TOKEN }}
 
       - name: Publish
         if: steps.check.outputs.has_version == 'true'

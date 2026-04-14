@@ -368,6 +368,7 @@ def publish_binaries(config: CIConfig) -> int:
                     return rc
 
         elif dest == "jfrog-generic":
+            # Legacy — retained for migration. See docs/JFROG-MIGRATION.md.
             with group("Upload: JFrog Artifactory"):
                 rc = _publish_jfrog_binaries()
                 if rc != 0:

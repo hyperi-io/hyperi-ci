@@ -6,25 +6,46 @@ This is the **single source of truth** for all tasks and progress.
 
 ## Active Tasks
 
-### Feature Branch: `feat/jfrog-migration-container-pipeline`
+### JFrog Migration (DO NOT PUSH — dozens of projects use CI live)
 
-All work pushed to feature branch. Merge to main when ready.
+- [x] Fix CONTAINER_MGT secrets/vars visibility (PRIVATE -> all)
+- [x] Update config/secrets-access.yaml (jfrog-staging group, Docker Hub widened, container mgt)
+- [x] Widen DOCKERHUB_USERNAME + DOCKERHUB_TOKEN to ci-consumers group (applied live)
+- [x] Narrow JFROG_TOKEN/JFROG_USERNAME to selected (dfe-engine, dfe-core only, applied live)
+- [x] Delete JFROG_ACCESS_TOKEN (applied live)
+- [x] Add Docker Hub login + GHCR login to all 4 reusable workflows (local)
+- [x] Update defaults.yaml destinations_internal (npm/container/helm/go -> GitHub, local)
+- [x] Update org.yaml (reduce JFrog repos, add dockerhub section, local)
+- [x] Add _publish_ghcr_npm() to TypeScript publish handler (local)
+- [x] Channel-aware publish: spike/alpha/beta force internal target (dispatch.py, local)
+- [x] Update DESIGN.md, README.md, JFROG-MIGRATION.md with mermaid diagrams (local)
+- [ ] **Push all local changes** `[BLOCKED — waiting for user approval]`
+  - 13+ files modified locally, rebased onto v1.5.0
+  - Next: user says "push" when CI is free
 
-- [ ] **JFrog Migration** — merge when CI is free
-  - JFrog reduced to PyPI/Cargo staging only, everything else to GitHub
-  - Docker Hub auth, GHCR login via container mgt app, channel-aware publish
-  - GitHub secrets already updated live (JFROG narrowed, DOCKERHUB widened, CONTAINER_MGT visibility)
-  - Blocker: user approval to merge (impacts all consumer projects)
+### Issue #14: Breaking Change Rule Missing
 
-- [ ] **Issue #14: Breaking change rule** — bundled with JFrog migration
-  - `{"breaking": True, "release": "major"}` added to init.py + .releaserc.yaml
+- [x] Add `{"breaking": True, "release": "major"}` to init.py scaffolded releaseRules
+- [x] Fix hyperi-ci's own .releaserc.yaml
+- [x] Document breaking rule in config/commit-types.yaml
+- [ ] **Push fix** `[BLOCKED — bundled with JFrog migration push]`
 
-- [ ] **Container Build Pipeline** — merge after rustlib deployment contract + dfe-loader test
-  - 6 modules in `src/hyperi_ci/container/` (labels, templates, manifest, compose, build, stage)
-  - 33 new tests, 273 total passing
-  - Container job added to all 3 CI workflows (rust, python, ts)
-  - Spec: `docs/superpowers/specs/2026-04-01-container-build-pipeline-design.md`
-  - Blocker: rustlib `deployment_contract()` not yet implemented
+### Container Build Pipeline (DO NOT PUSH — depends on rustlib deployment contract)
+
+- [x] Spec approved: `docs/superpowers/specs/2026-04-01-container-build-pipeline-design.md`
+- [x] Plan written: `docs/superpowers/plans/2026-04-01-container-build-pipeline.md`
+- [x] Task 2: Extend container config defaults (defaults.yaml)
+- [ ] Task 1: OCI Label Generation (labels.py + tests) `[IN PROGRESS — subagent]`
+- [ ] Task 3: Python and Node Dockerfile Templates (templates.py + tests) `[IN PROGRESS — subagent]`
+- [ ] Task 4: Container Manifest Parser (manifest.py + tests) `[IN PROGRESS — subagent]`
+- [ ] Task 5: Dockerfile Composer contract mode (compose.py + tests)
+- [ ] Task 6: Build and Push Module (build.py)
+- [ ] Task 7: Container Stage Handler + Dispatch Integration (stage.py + dispatch.py)
+- [ ] Task 8: Add Container Job to Rust CI Workflow
+- [ ] Task 9: Add Container Job to Python and TS CI Workflows
+- [ ] Task 10: Update DESIGN.md and README.md with mermaid diagrams
+- [ ] Task 11: Run Full Test Suite + Lint
+- [ ] **Push** `[BLOCKED — wait for rustlib deployment contract + dfe-loader test]`
 
 ### Other Active Tasks
 

@@ -174,12 +174,16 @@ build:
 # Publishing
 #
 # publish.target controls where artifacts go:
-#   internal  — JFrog Artifactory only (default)
-#   oss       — Public registries only (PyPI, npm, crates.io, GHCR)
+#   internal  — Private registries (JFrog for PyPI/Cargo, GHCR private for containers)
+#   oss       — Public registries (PyPI, npm, crates.io, GHCR public)
 #   both      — Publish to both
 #
 # Set via GitHub org variable PUBLISH_TARGET (repo var overrides org var).
 # Maps to HYPERCI_PUBLISH_TARGET env var in workflows.
+#
+# JFrog is used ONLY for private Python/Cargo staging before public release.
+# All other artifact types use GitHub (GHCR, GH Packages, GH Releases).
+# See docs/JFROG-MIGRATION.md for details.
 publish:
   enabled: true
   target: internal
@@ -189,15 +193,15 @@ publish:
 
   # Destination mapping per target
   #
-  # internal: JFrog Artifactory
+  # internal: JFrog for PyPI/Cargo staging, GitHub for everything else
   destinations_internal:
-    python: jfrog-pypi         # hyperi-pypi-local
-    npm: jfrog-npm             # hyperi-npm-local
-    cargo: jfrog-cargo         # hyperi-cargo-local
-    container: jfrog-docker    # hypersec.jfrog.io/hyperi-docker-local
-    helm: jfrog-helm           # oci://hypersec.jfrog.io/hyperi-helm-local
+    python: jfrog-pypi         # hyperi-pypi-local (private staging)
+    cargo: jfrog-cargo         # hyperi-cargo-local (private staging)
+    npm: ghcr-npm              # GitHub Packages npm (private)
+    container: ghcr            # ghcr.io/hyperi-io/* (private)
+    helm: ghcr-charts          # oci://ghcr.io/hyperi-io/charts
     binaries: r2-binaries      # downloads.hyperi.io (Cloudflare R2)
-    go: jfrog-go               # hyperi-go-local
+    go: go-proxy               # proxy.golang.org (automatic)
 
   # oss: Public registries
   destinations_oss:
@@ -226,12 +230,24 @@ publish:
 
   container:
     enabled: false
-    registry: ghcr
-    dockerfile: Dockerfile
+    mode: ""                    # contract | template | custom (auto-detected if empty)
+    registry: ghcr.io/hyperi-io
+    dockerfile: Dockerfile      # Custom mode only
     context: .
     platforms:
       - linux/amd64
-      - linux/arm64
+    # Template mode settings
+    port: 8080
+    health_path: /healthz
+    entrypoint: ""              # Auto-detected from project name
+    cmd: ""
+    python_version: "3.12"
+    node_version: "22"
+    # Additional build args and labels
+    build_args: {}
+    labels: {}
+    # Private dependencies for template mode
+    private_deps: []
 
   helm:
     enabled: false

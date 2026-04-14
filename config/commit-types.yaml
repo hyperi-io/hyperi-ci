@@ -10,6 +10,13 @@
 #   - CI quality stage (commit validation)
 #   - Git hook (local validation via check-commit)
 
+# BREAKING CHANGE: in commit footer → major bump (any commit type).
+# This is a semantic-release releaseRule, not a commit type prefix.
+# Must be first in releaseRules to take priority.
+breaking:
+  description: Breaking API or behavioural change
+  bump: major
+
 release_types:
   feat:
     description: New feature or capability

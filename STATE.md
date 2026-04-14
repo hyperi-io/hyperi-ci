@@ -39,7 +39,7 @@ See `docs/DESIGN.md` for full architecture documentation.
 
 ```
 src/hyperi_ci/
-├── cli.py               # Typer CLI (run, check, init, detect, config, trigger, watch, logs, release, check-commit)
+├── cli.py               # Typer CLI (run, check, push, init, detect, config, trigger, watch, logs, release, check-commit)
 ├── config.py            # CIConfig, OrgConfig, config cascade loader
 ├── common.py            # Logging, subprocess helpers, GH Actions output
 ├── detect.py            # Language detection from file markers
@@ -48,6 +48,7 @@ src/hyperi_ci/
 ├── release.py           # Tag-based publish dispatch (replaces release-merge)
 ├── publish_binaries.py  # GH Release creation + R2/JFrog binary upload
 ├── gh.py                # GitHub CLI helpers
+├── push.py              # Push wrapper (pre-checks, --release, --no-ci)
 ├── trigger.py           # Workflow trigger command
 ├── watch.py             # Run watch command
 ├── logs.py              # Log fetch command
@@ -113,6 +114,9 @@ uv run hyperi-ci init                # Scaffold a project
 uv run hyperi-ci check               # Pre-push: quality + test
 uv run hyperi-ci check --full        # Pre-push: quality + test + build (native only)
 uv run hyperi-ci check --quick       # Pre-push: quality only
+uv run hyperi-ci push                # Check, rebase, push (NEVER use bare git push)
+uv run hyperi-ci push --release      # Push + auto-publish if CI passes
+uv run hyperi-ci push --no-ci        # Push, skip CI
 uv run hyperi-ci release --list      # List unpublished version tags
 uv run hyperi-ci release v1.3.0      # Trigger publish for a tag
 uv run hyperi-ci check-commit --list # List accepted commit types
