@@ -1,3 +1,24 @@
+# [1.6.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.5.0...v1.6.0) (2026-04-14)
+
+
+### Bug Fixes
+
+* CLI UX consistency + prefer-hyperi-ci hook + submodule update ([970ed97](https://github.com/hyperi-io/hyperi-ci/commit/970ed97e8fd3f94fcbee0b55d00c288bceb5daa6))
+* support 'latest' as tag argument in hyperi-ci release ([f834620](https://github.com/hyperi-io/hyperi-ci/commit/f8346201541d756d7d5f4688f60ddfa0af8e5aef))
+
+
+### Features
+
+* add container build job to all CI workflows ([401765d](https://github.com/hyperi-io/hyperi-ci/commit/401765d1b6d69a164d99cfad50ecff46cf3783fd))
+* add container manifest parser for rustlib deployment contracts ([08603ff](https://github.com/hyperi-io/hyperi-ci/commit/08603ff1b72f458c274d32be99c064425d8b5cbf))
+* add container stage handler with dispatch integration ([f50fa1d](https://github.com/hyperi-io/hyperi-ci/commit/f50fa1d9e1e2c4953b0a129e8241aa15f39fa76b))
+* add docker buildx build and push execution module ([9f30844](https://github.com/hyperi-io/hyperi-ci/commit/9f308448c96c017a5eef3d8a0aa74cce2f224f54))
+* add Dockerfile composer for contract-driven container builds ([9e018ab](https://github.com/hyperi-io/hyperi-ci/commit/9e018abb301f8da73d3db64b61ac61aa6d5c7a08))
+* add hyperi-ci push command with --release and --no-ci flags ([7ad8265](https://github.com/hyperi-io/hyperi-ci/commit/7ad826504ada1fd6e5a7a3027392d939add2d800))
+* add OCI label generation for container builds ([bf0fa2b](https://github.com/hyperi-io/hyperi-ci/commit/bf0fa2b596d43cbf9f21b68f0ccb416aba26d8f7))
+* add Python and Node Dockerfile templates for container builds ([4c4585c](https://github.com/hyperi-io/hyperi-ci/commit/4c4585cebdbfa81bdf39aa2ab407310c21f2e923))
+* JFrog migration + container pipeline + issue [#14](https://github.com/hyperi-io/hyperi-ci/issues/14) fix ([94862c8](https://github.com/hyperi-io/hyperi-ci/commit/94862c8ca0a472a3892dedba035c17a95ad4eae2))
+
 # [1.5.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.4.10...v1.5.0) (2026-03-31)
 
 
