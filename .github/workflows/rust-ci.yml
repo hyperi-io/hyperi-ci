@@ -326,7 +326,7 @@ jobs:
       - name: Generate container mgt token
         if: (steps.check.outputs.enabled == 'True' || steps.check.outputs.enabled == 'true') && vars.CONTAINER_MGT_APP_ID != ''
         id: container-token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.CONTAINER_MGT_APP_ID }}
           private-key: ${{ secrets.CONTAINER_MGT_APP_PRIVATE_KEY }}
@@ -429,7 +429,7 @@ jobs:
       - name: Generate container mgt token
         if: steps.check.outputs.has_version == 'true' && vars.CONTAINER_MGT_APP_ID != ''
         id: container-token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.CONTAINER_MGT_APP_ID }}
           private-key: ${{ secrets.CONTAINER_MGT_APP_PRIVATE_KEY }}
