@@ -1,3 +1,10 @@
+## [1.6.1](https://github.com/hyperi-io/hyperi-ci/compare/v1.6.0...v1.6.1) (2026-04-14)
+
+
+### Bug Fixes
+
+* update create-github-app-token from v2 to v3 in all workflows ([e9e1cf5](https://github.com/hyperi-io/hyperi-ci/commit/e9e1cf569b10226e27ac8825329705d508835bf4))
+
 # [1.6.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.5.0...v1.6.0) (2026-04-14)
 
 
