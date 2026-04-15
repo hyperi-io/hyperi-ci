@@ -1,3 +1,10 @@
+## [1.6.2](https://github.com/hyperi-io/hyperi-ci/compare/v1.6.1...v1.6.2) (2026-04-15)
+
+
+### Bug Fixes
+
+* use vars context instead of secrets in workflow step if-conditions ([b267656](https://github.com/hyperi-io/hyperi-ci/commit/b2676561b94c1602fa1fd6b2fa07df72aec81185))
+
 ## [1.6.1](https://github.com/hyperi-io/hyperi-ci/compare/v1.6.0...v1.6.1) (2026-04-14)
 
 
