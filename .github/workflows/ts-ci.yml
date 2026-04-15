@@ -202,6 +202,7 @@ jobs:
     if: github.event.pull_request.head.repo.fork != true
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       packages: write
     steps:
       - uses: actions/checkout@v6
