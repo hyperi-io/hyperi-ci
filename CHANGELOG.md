@@ -1,3 +1,10 @@
+## [1.6.3](https://github.com/hyperi-io/hyperi-ci/compare/v1.6.2...v1.6.3) (2026-04-15)
+
+
+### Bug Fixes
+
+* add contents:read to container job permissions ([6b113b4](https://github.com/hyperi-io/hyperi-ci/commit/6b113b43bb112b2e7f23b582ef5eb5250d221d10))
+
 ## [1.6.2](https://github.com/hyperi-io/hyperi-ci/compare/v1.6.1...v1.6.2) (2026-04-15)
 
 
