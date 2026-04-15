@@ -71,7 +71,7 @@ jobs:
     runs-on: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_TYPESCRIPT || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - name: Docker Hub login
-        if: ${{ secrets.DOCKERHUB_USERNAME != '' }}
+        if: ${{ vars.DOCKERHUB_USERNAME != '' }}
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -116,7 +116,7 @@ jobs:
         os: ${{ fromJson(startsWith(github.head_ref || github.ref_name, 'renovate/') && format('["{0}"]', vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_TYPESCRIPT || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
     steps:
       - name: Docker Hub login
-        if: ${{ secrets.DOCKERHUB_USERNAME != '' }}
+        if: ${{ vars.DOCKERHUB_USERNAME != '' }}
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -217,7 +217,7 @@ jobs:
           echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
 
       - name: Docker Hub login
-        if: (steps.check.outputs.enabled == 'True' || steps.check.outputs.enabled == 'true') && secrets.DOCKERHUB_USERNAME != ''
+        if: (steps.check.outputs.enabled == 'True' || steps.check.outputs.enabled == 'true') && vars.DOCKERHUB_USERNAME != ''
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -340,7 +340,7 @@ jobs:
         run: ${{ env.HYPERCI_INSTALL }} install-deps typescript
 
       - name: Docker Hub login
-        if: steps.check.outputs.has_version == 'true' && secrets.DOCKERHUB_USERNAME != ''
+        if: steps.check.outputs.has_version == 'true' && vars.DOCKERHUB_USERNAME != ''
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
