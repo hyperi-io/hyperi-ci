@@ -264,9 +264,43 @@ Images push to GHCR (`ghcr.io/hyperi-io/<app>`). Tags:
 | Language | Quality | Test | Build | Publish |
 |----------|---------|------|-------|---------|
 | Python | ruff, ty, bandit, pip-audit | pytest | uv build | uv publish (PyPI / JFrog staging) |
-| Rust | cargo fmt, clippy, audit, deny | cargo test/nextest | cargo build (cross) | cargo publish (crates.io / JFrog staging) |
+| Rust | cargo fmt, clippy, audit, deny, **feature_matrix** | cargo test/nextest | cargo build (cross) | cargo publish (crates.io / JFrog staging) |
 | TypeScript | eslint, prettier, tsc, npm audit | vitest/jest | npm/pnpm build | npm publish (npmjs / GH Packages) |
 | Go | gofmt, go vet, golangci-lint, gosec | go test -race | go build (cross) | go proxy, gh release |
+
+## Rust Feature Matrix Check
+
+Rust projects automatically get a `cargo hack --each-feature --no-dev-deps check --lib`
+pass during quality checks. This catches feature-gating bugs where a module behind
+feature `X` uses a crate only declared by feature `Y` — without this check,
+transitive deps from other features mask the bug until a downstream consumer
+enables only `X`.
+
+**Default behaviour** (always on, zero config): runs the bare-crate check
+(`cargo check --no-default-features --lib`) plus the each-feature pass.
+
+**Opt out** (requires a reason; CI fails if reason is missing):
+
+```yaml
+quality:
+  rust:
+    feature_matrix:
+      enabled: false
+      reason: "tracked in dfe-loader#87, remediating 2026-04-18"
+```
+
+**Edge cases** (rare; most projects need none of these):
+
+```yaml
+quality:
+  rust:
+    feature_matrix:
+      exclude: ["_internal-debug"]                 # skip private features
+      mutually_exclusive:                          # pairs that must not coexist
+        - ["native-tls", "rustls"]
+      also_check_no_default_features: true        # default true
+      extra_args: ["--workspace"]                  # passed through to cargo hack
+```
 
 ## Cross-Compilation
 
