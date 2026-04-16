@@ -1,3 +1,10 @@
+# [1.9.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.8.0...v1.9.0) (2026-04-16)
+
+
+### Features
+
+* channel-gated Rust release-track build optimisation ([754b308](https://github.com/hyperi-io/hyperi-ci/commit/754b30866c0615308458ff736d7cf8fc9f987245))
+
 # [1.8.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.7.0...v1.8.0) (2026-04-16)
 
 
