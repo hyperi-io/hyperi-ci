@@ -178,18 +178,14 @@ class TestRustdocHint:
             called.append(args)
             raise AssertionError("subprocess should not run when disabled")
 
-        monkeypatch.setattr(
-            "hyperi_ci.languages.rust.quality.subprocess.run", fake_run
-        )
+        monkeypatch.setattr("hyperi_ci.languages.rust.quality.subprocess.run", fake_run)
 
         raw = {"quality": {"rust": {"rustdoc_hint": {"enabled": False}}}}
         config = CIConfig(_raw=raw)
         _run_rustdoc_hint(config)  # should not raise
         assert called == []
 
-    def test_zero_warnings_emits_nothing(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_zero_warnings_emits_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         warnings_emitted: list[str] = []
 
         class FakeResult:
