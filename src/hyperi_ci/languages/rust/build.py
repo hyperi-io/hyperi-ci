@@ -34,6 +34,13 @@ from hyperi_ci.common import (
     warn,
 )
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages.rust.optimize import (
+    OptimizationProfile,
+    log_profile,
+    parse_cargo_features,
+    resolve_optimization_profile,
+    validate_profile,
+)
 
 _TARGET_MAP = {
     "x86_64-unknown-linux-gnu": ("linux", "amd64"),
@@ -1077,10 +1084,61 @@ def _build_for_target(
     features: str,
     all_features: bool,
     extra_env: dict[str, str] | None = None,
+    profile: OptimizationProfile | None = None,
 ) -> int:
-    """Build for a specific target triple."""
+    """Build for a specific target triple.
+
+    If `profile` is provided and `profile.pgo_enabled` is True, the PGO
+    pipeline (instrument -> workload -> optimise, optionally followed
+    by BOLT) is used instead of a plain `cargo build`.
+
+    Otherwise, the profile's allocator features are merged with
+    user-supplied `features` and `env_overrides()` (CARGO_PROFILE_RELEASE_LTO)
+    are injected into the build environment.
+    """
     if not _ensure_target_installed(target):
         return 1
+
+    # Merge profile allocator features with user-supplied features
+    if profile:
+        profile_features = profile.cargo_features()
+        if profile_features:
+            user_features = (
+                [f for f in features.split(",") if f.strip()] if features else []
+            )
+            # Deduplicate while preserving order
+            seen: set[str] = set()
+            merged: list[str] = []
+            for f in [*user_features, *profile_features]:
+                if f and f not in seen:
+                    seen.add(f)
+                    merged.append(f)
+            features = ",".join(merged)
+
+    # Merge profile env overrides (LTO) into extra_env
+    if profile:
+        profile_env = profile.env_overrides()
+        extra_env = {**(extra_env or {}), **profile_env}
+
+    # PGO path takes over the whole build for this target
+    if profile and profile.pgo_enabled:
+        binary_names = _detect_binary_names()
+        if not binary_names:
+            warn(
+                "PGO requested but crate has no binaries — falling back to plain build"
+            )
+        else:
+            # Use the first binary for PGO (projects with multiple bins can
+            # extend this later; the common case is one binary per crate).
+            from hyperi_ci.languages.rust.pgo import run_pgo_build
+
+            return run_pgo_build(
+                target=target,
+                profile=profile,
+                binary_name=binary_names[0],
+                cwd=Path.cwd(),
+                extra_env=extra_env,
+            )
 
     cmd = ["cargo", "build", "--release", "--target", target]
 
@@ -1152,9 +1210,31 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     native = _get_native_target()
     targets.sort(key=lambda t: (0 if t == native else 1, t))
 
+    # Resolve release-track optimisation profile (channel-gated).
+    # Libraries (no binaries) skip this entirely — their release profile is
+    # irrelevant because consumers recompile from source.
+    binary_names_for_profile = _detect_binary_names()
+    base_profile: OptimizationProfile | None = None
+    if binary_names_for_profile:
+        channel = config.get("publish.channel", "spike") or "spike"
+        user_optimize = config.get("build.rust.optimize") or {}
+        base_profile = resolve_optimization_profile(channel, user_optimize)
+        cargo_features = parse_cargo_features(Path.cwd() / "Cargo.toml")
+        # Target-specific validation happens per-target (BOLT is Linux-only)
+
     for target in targets:
         with group(f"Build: {target}"):
-            rc = _build_for_target(target, features, all_features, extra)
+            profile = None
+            if base_profile:
+                profile = validate_profile(
+                    base_profile,
+                    cargo_features=cargo_features,
+                    target=target,
+                )
+                log_profile(profile)
+            rc = _build_for_target(
+                target, features, all_features, extra, profile=profile
+            )
             if rc != 0:
                 error(f"Build failed for target: {target}")
                 return rc
