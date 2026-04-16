@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.6.3...v1.7.0) (2026-04-16)
+
+
+### Features
+
+* cargo hack feature_matrix check for Rust quality stage ([24c0be4](https://github.com/hyperi-io/hyperi-ci/commit/24c0be40c96d843dd43bbd31efc1eb23b476f0ac))
+
 ## [1.6.3](https://github.com/hyperi-io/hyperi-ci/compare/v1.6.2...v1.6.3) (2026-04-15)
 
 
