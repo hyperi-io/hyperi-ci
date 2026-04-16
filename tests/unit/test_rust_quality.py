@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.rust.quality import _run_feature_matrix
+from hyperi_ci.languages.rust.quality import _run_feature_matrix, _run_rustdoc_hint
 
 
 def _make_config(fm: dict[str, Any] | None) -> CIConfig:
@@ -164,3 +164,88 @@ class TestFeatureMatrixFailurePropagation:
         )
         config = _make_config(None)
         assert _run_feature_matrix(config) is False
+
+
+class TestRustdocHint:
+    """Non-blocking rustdoc hint emits a single concise warning."""
+
+    def test_disabled_via_config_skips_entirely(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        called = []
+
+        def fake_run(*args: object, **kwargs: object) -> object:
+            called.append(args)
+            raise AssertionError("subprocess should not run when disabled")
+
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality.subprocess.run", fake_run
+        )
+
+        raw = {"quality": {"rust": {"rustdoc_hint": {"enabled": False}}}}
+        config = CIConfig(_raw=raw)
+        _run_rustdoc_hint(config)  # should not raise
+        assert called == []
+
+    def test_zero_warnings_emits_nothing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        warnings_emitted: list[str] = []
+
+        class FakeResult:
+            stdout = "Documenting hyperi-rustlib v2.5.1\nFinished\n"
+            stderr = ""
+
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality.shutil.which", lambda n: f"/usr/bin/{n}"
+        )
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality.subprocess.run",
+            lambda *a, **kw: FakeResult(),
+        )
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality.warn", warnings_emitted.append
+        )
+
+        config = _make_config(None)
+        _run_rustdoc_hint(config)
+        assert warnings_emitted == []
+
+    def test_warnings_emit_single_concise_message_with_urls(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        warnings_emitted: list[str] = []
+
+        class FakeResult:
+            stdout = ""
+            stderr = (
+                "warning: unresolved link to `Foo`\n"
+                "  --> src/lib.rs:42:5\n"
+                "warning: bare URL not hyperlink\n"
+                "  --> src/lib.rs:50:1\n"
+                "warning: `mycrate` (lib doc) generated 2 warnings\n"
+            )
+
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality.shutil.which", lambda n: f"/usr/bin/{n}"
+        )
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality.subprocess.run",
+            lambda *a, **kw: FakeResult(),
+        )
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality.warn", warnings_emitted.append
+        )
+
+        config = _make_config(None)
+        _run_rustdoc_hint(config)
+
+        # Exactly one summary line — not spam
+        assert len(warnings_emitted) == 1
+        msg = warnings_emitted[0]
+        # Contains correct count (2 actual warnings, summary line subtracted)
+        assert "2 doc warning" in msg
+        # References the standards URLs
+        assert "doc.rust-lang.org/rustdoc" in msg
+        assert "api-guidelines" in msg
+        assert "hyperi-ai/standards" in msg
