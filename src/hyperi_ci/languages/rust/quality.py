@@ -13,6 +13,7 @@ Each tool's mode (blocking/warn/disabled) is configurable via
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -162,6 +163,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if not _run_feature_matrix(config):
         had_failure = True
 
+    # Rustdoc compliance hint (non-blocking; default: enabled)
+    _run_rustdoc_hint(config)
+
     # Semgrep SAST scanning
     mode = _get_tool_mode("semgrep", config)
     semgrep_cmd = ["semgrep", "scan", "--config", "auto", "--error", "--quiet"]
@@ -249,3 +253,53 @@ def _run_feature_matrix(config: CIConfig) -> bool:
         had_failure = True
 
     return not had_failure
+
+
+def _run_rustdoc_hint(config: CIConfig) -> None:
+    """Run cargo doc and emit a single concise warning if any issues found.
+
+    Non-blocking by design: rustdoc hygiene is a ratchet, not a gate. Reports
+    one summary line + standards links so AI agents and humans know where to
+    look. Set quality.rust.rustdoc_hint.enabled=false to silence entirely.
+    """
+    rd_config = config.get("quality.rust.rustdoc_hint", {})
+    if not isinstance(rd_config, dict):
+        rd_config = {}
+
+    if not rd_config.get("enabled", True):
+        return
+
+    if not shutil.which("cargo"):
+        return  # cargo not on PATH — quality stage already noted this
+
+    # Build with --no-deps + RUSTDOCFLAGS treating warnings as warnings (default)
+    # We just want the count, not to fail.
+    result = subprocess.run(
+        ["cargo", "doc", "--no-deps", "--lib", "--all-features"],
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "RUSTDOCFLAGS": "-W rustdoc::broken_intra_doc_links "
+            "-W rustdoc::private_intra_doc_links "
+            "-W rustdoc::invalid_codeblock_attributes "
+            "-W rustdoc::invalid_rust_codeblocks "
+            "-W rustdoc::bare_urls",
+        },
+    )
+    combined = (result.stdout or "") + (result.stderr or "")
+    warning_count = combined.count("warning:")
+    # Subtract the trailing summary line (e.g. "generated N warnings") to avoid
+    # double-counting; that line itself contains "warning:" once.
+    if "lib doc) generated" in combined:
+        warning_count = max(0, warning_count - 1)
+
+    if warning_count == 0:
+        return
+
+    warn(
+        f"  rustdoc: {warning_count} doc warning(s) — see "
+        "https://doc.rust-lang.org/rustdoc/ + "
+        "https://rust-lang.github.io/api-guidelines/documentation.html "
+        "(HyperI standard: hyperi-ai/standards/languages/RUST.md § Documentation)"
+    )

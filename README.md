@@ -302,6 +302,26 @@ quality:
       extra_args: ["--workspace"]                  # passed through to cargo hack
 ```
 
+## Rust Documentation Hint
+
+Quality stage emits a single concise warning if `cargo doc` finds rustdoc
+issues (broken intra-doc links, bare URLs, invalid code blocks, etc).
+**Non-blocking by design** — rustdoc hygiene is a ratchet, not a gate. The
+warning points to:
+
+- <https://doc.rust-lang.org/rustdoc/> — rustdoc tooling reference
+- <https://rust-lang.github.io/api-guidelines/documentation.html> — C-DOCS
+- `hyperi-ai/standards/languages/RUST.md` § Documentation — HyperI standard
+
+To silence:
+
+```yaml
+quality:
+  rust:
+    rustdoc_hint:
+      enabled: false
+```
+
 ## Cross-Compilation
 
 Rust projects with C/C++ dependencies (librdkafka, openssl, zstd) are
