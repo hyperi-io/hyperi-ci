@@ -116,6 +116,17 @@ quality:
     deny: warn
     features: all
     semgrep: warn              # Semgrep SAST — auto-config rules for Rust
+    # Feature-matrix check: catches feature-gating bugs where a module behind
+    # feature X uses a crate only declared by feature Y. Without this check,
+    # transitive deps from other features mask the bug until a downstream
+    # consumer enables only X. Always-on by default. Opt-out with a reason.
+    feature_matrix:
+      enabled: true
+      reason: ""                       # required IF enabled=false; CI fails without it
+      also_check_no_default_features: true
+      exclude: []                      # features to skip entirely (e.g., ["_testing-only"])
+      mutually_exclusive: []           # pairs that must not coexist (e.g., [["native-tls", "rustls"]])
+      extra_args: []                   # pass-through to `cargo hack` (e.g., ["--workspace"])
     test_ignore:
       - clippy::unwrap_used
       - clippy::expect_used

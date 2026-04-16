@@ -158,6 +158,10 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     elif not _run_tool("cargo deny", ["cargo", "deny", "check"], mode):
         had_failure = True
 
+    # Feature matrix check (cargo hack --each-feature)
+    if not _run_feature_matrix(config):
+        had_failure = True
+
     # Semgrep SAST scanning
     mode = _get_tool_mode("semgrep", config)
     semgrep_cmd = ["semgrep", "scan", "--config", "auto", "--error", "--quiet"]
@@ -165,3 +169,83 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         had_failure = True
 
     return 1 if had_failure else 0
+
+
+def _run_feature_matrix(config: CIConfig) -> bool:
+    """Run cargo-hack feature-matrix check.
+
+    Catches feature-gating bugs where a module behind feature X uses a crate
+    only declared by feature Y. Without this check, transitive deps from
+    other features mask the bug until a downstream consumer enables only X.
+
+    Default behaviour (enabled=true, no other config): runs
+        cargo check --no-default-features --lib
+        cargo hack --each-feature --no-dev-deps check --lib
+
+    Opt-out requires an explicit reason; CI fails if reason is missing.
+    """
+    fm_config = config.get("quality.rust.feature_matrix", {})
+    if not isinstance(fm_config, dict):
+        fm_config = {}
+
+    enabled = fm_config.get("enabled", True)
+    reason = fm_config.get("reason", "")
+
+    if not enabled:
+        if not reason or not str(reason).strip():
+            error(
+                "  feature_matrix: opt-out requires a reason "
+                "(set quality.rust.feature_matrix.reason)"
+            )
+            return False
+        info(f"  feature_matrix: disabled — {reason}")
+        return True
+
+    # Install cargo-hack if missing (rustlib-style: idempotent, fail-soft)
+    if not shutil.which("cargo-hack"):
+        info("  feature_matrix: installing cargo-hack...")
+        result = subprocess.run(
+            ["cargo", "install", "--locked", "cargo-hack"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            error("  feature_matrix: failed to install cargo-hack")
+            if result.stderr:
+                print(result.stderr)
+            return False
+
+    had_failure = False
+
+    # Pass 1 — bare crate (no default features). Catches "breaks without defaults" bugs.
+    if fm_config.get("also_check_no_default_features", True):
+        cmd = ["cargo", "check", "--no-default-features", "--lib"]
+        if not _run_tool("feature_matrix (no-default-features)", cmd, "blocking"):
+            had_failure = True
+
+    # Pass 2 — each feature in isolation
+    cmd = ["cargo", "hack", "--each-feature", "--no-dev-deps", "check", "--lib"]
+
+    exclude = fm_config.get("exclude", [])
+    if isinstance(exclude, list) and exclude:
+        cmd.extend(["--exclude-features", ",".join(str(x) for x in exclude)])
+
+    mutex = fm_config.get("mutually_exclusive", [])
+    if isinstance(mutex, list):
+        for pair in mutex:
+            if isinstance(pair, list) and len(pair) >= 2:
+                cmd.extend(
+                    [
+                        "--mutually-exclusive-features",
+                        ",".join(str(x) for x in pair),
+                    ]
+                )
+
+    extra = fm_config.get("extra_args", [])
+    if isinstance(extra, list):
+        cmd.extend(str(x) for x in extra)
+
+    if not _run_tool("feature_matrix (each-feature)", cmd, "blocking"):
+        had_failure = True
+
+    return not had_failure
