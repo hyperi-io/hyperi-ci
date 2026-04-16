@@ -1,3 +1,15 @@
+# [1.8.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.7.0...v1.8.0) (2026-04-16)
+
+
+### Bug Fixes
+
+* format test_rust_quality.py with ruff ([b13349c](https://github.com/hyperi-io/hyperi-ci/commit/b13349c42a294a356765e838335cd622887b74ba))
+
+
+### Features
+
+* rustdoc compliance hint (non-blocking) in Rust quality stage ([1ec69fe](https://github.com/hyperi-io/hyperi-ci/commit/1ec69fe17f6b64d6cec6e1e7b9d484a4290737cd))
+
 # [1.7.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.6.3...v1.7.0) (2026-04-16)
 
 
