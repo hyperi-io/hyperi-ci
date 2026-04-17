@@ -89,8 +89,10 @@ KAFKA_CID=$(docker run -d --rm \
     "$KAFKA_IMAGE")
 
 for i in $(seq 1 30); do
-    if docker exec "$KAFKA_CID" /opt/kafka/bin/kafka-topics.sh \
-        --bootstrap-server localhost:9092 --list >/dev/null 2>&1; then
+    # Readiness: the broker advertises localhost:<host-port>, which isn't
+    # routable inside the container. Check the host-mapped port instead.
+    if (echo > /dev/tcp/127.0.0.1/19092) 2>/dev/null; then
+        sleep 2  # give the broker a beat to finish RAFT bootstrap
         break
     fi
     [[ $i -eq 30 ]] && { echo "error: Kafka not ready" >&2; exit 1; }
