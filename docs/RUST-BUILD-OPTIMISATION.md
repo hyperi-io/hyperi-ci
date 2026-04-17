@@ -58,8 +58,8 @@ every project shares a single Cargo target directory.
   It falls back to `target/` when the env var is unset. No change needed there.
 - Self-hosted ARC runners on the DevEx k8s cluster may inherit `/etc/environment` if
   they run on this machine. Changes here should be tested on a runner.
-- `local_jobs: 2` is defined in `config/defaults.yaml` but **never wired into
-  `build.py`** — it's dead config.
+- `local_jobs: 2` is defined in `src/hyperi_ci/config/defaults.yaml` but **never wired
+  into `build.py`** — it's dead config.
 
 ---
 
@@ -206,8 +206,7 @@ Remove `jobs = 2` from each project's `.cargo/config.toml`:
 - `/projects/hyperi-rustlib/.cargo/config.toml` — this has no `jobs` setting, has its
   own complex cross-compile and clippy config.
 
-**CI alignment:** Update `config/defaults.yaml` and
-`src/hyperi_ci/config/defaults.yaml`:
+**CI alignment:** Update `src/hyperi_ci/config/defaults.yaml`:
 ```yaml
 rust:
   local_jobs: 8

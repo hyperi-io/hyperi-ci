@@ -53,7 +53,7 @@ use `command -v <tool> || install <tool>` so they still work on
 
 ### C/C++ Toolchain
 - LLVM/Clang 19 (default, with libc++), Clang 20 (without libc++ — conflicts with 19)
-- Default version configurable via `toolchain.llvm_version` in `config/defaults.yaml`
+- Default version configurable via `toolchain.llvm_version` in `src/hyperi_ci/config/defaults.yaml`
 - mold linker (default for native builds via LDFLAGS in runner YAML)
 - cmake, ninja-build, ccache
 

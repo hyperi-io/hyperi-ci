@@ -361,7 +361,7 @@ Remove dependency on JFrog remote proxy repos for base image pulls.
 
 Narrow JFrog's role in `destinations_internal` to PyPI + Cargo only.
 
-- [ ] Update `config/defaults.yaml`:
+- [ ] Update `src/hyperi_ci/config/defaults.yaml`:
   ```yaml
   destinations_internal:
     python: jfrog-pypi        # KEEP — private staging
