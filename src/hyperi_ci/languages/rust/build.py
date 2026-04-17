@@ -795,6 +795,12 @@ def _detect_binary_names() -> list[str]:
 
     Returns empty list for library-only crates (no bin targets).
     Only falls back to directory name when cargo metadata itself fails.
+
+    Feature-gated binaries (those with `required-features = [...]` in
+    Cargo.toml) are excluded — they are consumer-selected tools (PGO
+    drivers, benchmarking harnesses, etc.) not production artifacts,
+    and forcing them into the publish path breaks the default build
+    when the feature isn't enabled.
     """
     result = subprocess.run(
         ["cargo", "metadata", "--format-version", "1", "--no-deps"],
@@ -813,8 +819,14 @@ def _detect_binary_names() -> list[str]:
     names: list[str] = []
     for package in meta.get("packages", []):
         for target in package.get("targets", []):
-            if "bin" in target.get("kind", []):
-                names.append(target["name"])
+            if "bin" not in target.get("kind", []):
+                continue
+            # Skip feature-gated binaries — they are consumer tools
+            # (benchmark drivers, PGO workload generators, etc.) that
+            # shouldn't be part of the default publish payload.
+            if target.get("required-features"):
+                continue
+            names.append(target["name"])
 
     # Return empty list for library-only crates — packaging is skipped
     return names
