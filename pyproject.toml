@@ -46,6 +46,15 @@ force-single-line = false
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+# Integration tests marked @pytest.mark.slow are opt-in (they compile real
+# Rust crates and take ~30-90s each). Default test runs skip them.
+#   uv run pytest                    # default: skips slow tests
+#   uv run pytest -m slow            # runs only slow tests
+#   uv run pytest -m ""              # runs everything (empty marker expression)
+addopts = "-m 'not slow'"
+markers = [
+    "slow: integration tests that compile real Rust crates (opt-in, ~30-90s each)",
+]
 
 [tool.coverage.run]
 source = ["hyperi_ci"]

@@ -30,9 +30,19 @@ from typing import Any
 from hyperi_ci.common import info, warn
 
 # Allocator + LTO defaults per channel.
+#
+# Allocator: jemalloc at ALL channels. Consistency wins — spike/alpha
+# binaries behave like production (same fragmentation patterns, same
+# memory profile, same perf-trace symbols). The ~10s extra compile
+# cost is trivial and cached after first build.
+#
+# LTO: thin at spike/alpha, fat at beta+. Different tradeoff — fat LTO
+# adds 5-10 min per CI run, meaningful friction for spike iteration.
+# Thin vs fat LTO binaries behave identically, just run at different
+# speeds, so gating fat LTO at beta+ preserves fast spike feedback.
 _CHANNEL_DEFAULTS: dict[str, dict[str, str]] = {
-    "spike": {"allocator": "system", "lto": "thin"},
-    "alpha": {"allocator": "system", "lto": "thin"},
+    "spike": {"allocator": "jemalloc", "lto": "thin"},
+    "alpha": {"allocator": "jemalloc", "lto": "thin"},
     "beta": {"allocator": "jemalloc", "lto": "fat"},
     "release": {"allocator": "jemalloc", "lto": "fat"},
 }

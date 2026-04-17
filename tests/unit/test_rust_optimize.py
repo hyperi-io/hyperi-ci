@@ -17,16 +17,17 @@ from hyperi_ci.languages.rust.optimize import (
 
 
 class TestChannelDefaults:
-    """Channel-tiered defaults (Tier 1 = allocator + LTO per channel)."""
+    """Channel-tiered defaults. Allocator is jemalloc everywhere for
+    consistency; LTO tiers at beta+ for CI speed."""
 
-    def test_spike_uses_system_allocator_and_thin_lto(self) -> None:
+    def test_spike_uses_jemalloc_and_thin_lto(self) -> None:
         p = resolve_optimization_profile("spike", None)
-        assert p.allocator == "system"
+        assert p.allocator == "jemalloc"
         assert p.lto == "thin"
 
-    def test_alpha_uses_system_allocator_and_thin_lto(self) -> None:
+    def test_alpha_uses_jemalloc_and_thin_lto(self) -> None:
         p = resolve_optimization_profile("alpha", None)
-        assert p.allocator == "system"
+        assert p.allocator == "jemalloc"
         assert p.lto == "thin"
 
     def test_beta_enables_jemalloc_and_fat_lto(self) -> None:
@@ -41,7 +42,7 @@ class TestChannelDefaults:
 
     def test_unknown_channel_falls_back_to_spike_defaults(self) -> None:
         p = resolve_optimization_profile("random-channel-name", None)
-        assert p.allocator == "system"
+        assert p.allocator == "jemalloc"
         assert p.lto == "thin"
 
 
