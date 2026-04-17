@@ -1,3 +1,10 @@
+## [1.9.1](https://github.com/hyperi-io/hyperi-ci/compare/v1.9.0...v1.9.1) (2026-04-17)
+
+
+### Bug Fixes
+
+* jemalloc allocator at every channel, add integration tests ([f94a1ef](https://github.com/hyperi-io/hyperi-ci/commit/f94a1ef679ea0345ba125dbe908b3684bd3b77bc))
+
 # [1.9.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.8.0...v1.9.0) (2026-04-16)
 
 
