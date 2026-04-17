@@ -1,3 +1,10 @@
+## [1.9.2](https://github.com/hyperi-io/hyperi-ci/compare/v1.9.1...v1.9.2) (2026-04-17)
+
+
+### Bug Fixes
+
+* **rust:** skip feature-gated binaries in binary detection ([a55d6ef](https://github.com/hyperi-io/hyperi-ci/commit/a55d6efe04c67f9f048fcfadecdb6844ef3f993c))
+
 ## [1.9.1](https://github.com/hyperi-io/hyperi-ci/compare/v1.9.0...v1.9.1) (2026-04-17)
 
 
