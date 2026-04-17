@@ -195,7 +195,7 @@ dev = [
 
 [[package]]
 name = "hyperi-pylib"
-version = "2.25.1"
+version = "2.27.2"
 source = { editable = "../hyperi-pylib" }
 dependencies = [
     { name = "dulwich" },
@@ -213,6 +213,9 @@ requires-dist = [
     { name = "aiobotocore", marker = "extra == 'dev'", specifier = ">=2.15.0" },
     { name = "aiobotocore", marker = "extra == 'secrets'", specifier = ">=2.15.0" },
     { name = "aiobotocore", marker = "extra == 'secrets-aws'", specifier = ">=2.15.0" },
+    { name = "ansible-vault", marker = "extra == 'dev'", specifier = ">=4.0.0" },
+    { name = "ansible-vault", marker = "extra == 'secrets'", specifier = ">=4.0.0" },
+    { name = "ansible-vault", marker = "extra == 'secrets-ansible-vault'", specifier = ">=4.0.0" },
     { name = "azure-identity", marker = "extra == 'secrets'", specifier = ">=1.25.1" },
     { name = "azure-identity", marker = "extra == 'secrets-azure'", specifier = ">=1.25.1" },
     { name = "azure-keyvault-secrets", marker = "extra == 'secrets'", specifier = ">=4.9.0" },
@@ -277,7 +280,7 @@ requires-dist = [
     { name = "vulture", marker = "extra == 'dev'", specifier = ">=2.7.0" },
     { name = "wheel", marker = "extra == 'dev'", specifier = ">=0.42.0" },
 ]
-provides-extras = ["cli", "http", "cache", "metrics", "opentelemetry", "expression", "database", "kafka", "presidio", "secrets-vault", "secrets-aws", "secrets-gcp", "secrets-azure", "secrets", "license", "version-check", "enhanced", "dev", "docs"]
+provides-extras = ["cli", "http", "cache", "metrics", "opentelemetry", "expression", "database", "kafka", "presidio", "secrets-ansible-vault", "secrets-vault", "secrets-aws", "secrets-gcp", "secrets-azure", "secrets", "license", "version-check", "enhanced", "dev", "docs"]
 
 [package.metadata.requires-dev]
 dev = [

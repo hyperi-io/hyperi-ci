@@ -217,11 +217,11 @@ src/hyperi_ci/languages/
 Priority (highest wins):
 
 ```
-CLI flags → ENV vars (HYPERCI_*) → .hyperi-ci.yaml → config/defaults.yaml → hardcoded
+CLI flags → ENV vars (HYPERCI_*) → .hyperi-ci.yaml → src/hyperi_ci/config/defaults.yaml → hardcoded
 ```
 
 The `.hyperi-ci.yaml` in each project is the single source of truth for
-project-specific settings. `config/defaults.yaml` in the hyperi-ci
+project-specific settings. `src/hyperi_ci/config/defaults.yaml` in the hyperi-ci
 package provides sensible defaults for all languages.
 
 ### Config Schema
@@ -454,7 +454,7 @@ track latest major.
 ### What Does NOT Go in GitHub Vars
 
 - Registry URLs (use `org.yaml` — version-controlled, testable)
-- Destination mappings (use `config/defaults.yaml` — part of config cascade)
+- Destination mappings (use `src/hyperi_ci/config/defaults.yaml` — part of config cascade)
 - Tool versions (use `config/versions.yaml` — reviewable)
 
 ## How They Work Together
@@ -563,7 +563,7 @@ jobs:
     secrets: inherit
 ```
 
-The `config/defaults.yaml` documents the intended org-wide default
+The `src/hyperi_ci/config/defaults.yaml` documents the intended org-wide default
 (`runners.mode: self-hosted`) but actual enforcement is at the
 workflow expression level via `GH_RUNNER_MODE` and `runner-mode`.
 
