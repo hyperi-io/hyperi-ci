@@ -1,3 +1,10 @@
+## [1.9.6](https://github.com/hyperi-io/hyperi-ci/compare/v1.9.5...v1.9.6) (2026-04-18)
+
+
+### Bug Fixes
+
+* **rust:** pass instrumented binary as first positional arg to workload ([b370576](https://github.com/hyperi-io/hyperi-ci/commit/b370576564fb329c5bce1db26c921422a6938c90))
+
 ## [1.9.5](https://github.com/hyperi-io/hyperi-ci/compare/v1.9.4...v1.9.5) (2026-04-18)
 
 
