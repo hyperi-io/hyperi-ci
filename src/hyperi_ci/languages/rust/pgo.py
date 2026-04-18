@@ -52,12 +52,15 @@ def run_pgo_build(
     Returns:
         0 on success, non-zero on failure.
     """
-    if not _ensure_cargo_pgo_installed():
-        warn("cargo-pgo unavailable — skipping PGO optimisation")
-        return 0  # Non-fatal: fall back to plain build path handled by caller
-
     features = profile.cargo_features()
     feature_args = ["--features", ",".join(features)] if features else []
+
+    if not _ensure_cargo_pgo_installed():
+        warn(
+            "cargo-pgo unavailable — falling back to plain release build "
+            "(Tier 1 optimisations still apply)"
+        )
+        return _run_plain_release_build(target, feature_args, cwd, extra_env)
 
     # 1. Instrumented build
     info(f"PGO: building instrumented binary for {target}")
@@ -114,23 +117,68 @@ def run_pgo_build(
 # ---------------------------------------------------------------------------
 
 
+def _run_plain_release_build(
+    target: str,
+    feature_args: list[str],
+    cwd: Path,
+    extra_env: dict[str, str] | None,
+) -> int:
+    """Fallback plain `cargo build --release` when PGO tooling unavailable.
+
+    Tier 1 optimisations (allocator features, LTO env overrides) are still
+    applied via `feature_args` and `extra_env` — only PGO/BOLT are skipped.
+    """
+    env = dict(os.environ)
+    if extra_env:
+        env.update(extra_env)
+
+    cmd = ["cargo", "build", "--release", "--target", target, *feature_args]
+    info(f"  $ {' '.join(cmd)}")
+    result = subprocess.run(cmd, cwd=cwd, env=env, check=False)
+    return result.returncode
+
+
 def _ensure_cargo_pgo_installed() -> bool:
     """Check cargo-pgo is installed; auto-install if not.
 
-    Returns True if cargo-pgo is available after this call.
+    Returns True if cargo-pgo is available after this call. Ensures
+    `~/.cargo/bin` is on PATH so subsequent `cargo pgo` subprocess
+    calls find the freshly-installed binary. CI runners sometimes ship
+    with `~/.cargo/bin` absent from PATH even though it's the cargo
+    install default.
     """
     if shutil.which("cargo-pgo"):
         return True
+
+    # Ensure ~/.cargo/bin is on PATH before install — cargo writes there
+    cargo_bin = Path.home() / ".cargo" / "bin"
+    current_path = os.environ.get("PATH", "")
+    if str(cargo_bin) not in current_path.split(os.pathsep):
+        os.environ["PATH"] = f"{cargo_bin}{os.pathsep}{current_path}"
 
     info("cargo-pgo not found — installing with 'cargo install cargo-pgo --locked'")
     result = subprocess.run(
         ["cargo", "install", "cargo-pgo", "--locked"],
         check=False,
     )
-    if result.returncode == 0:
-        return shutil.which("cargo-pgo") is not None
+    if result.returncode != 0:
+        warn("cargo-pgo install failed")
+        return False
 
-    warn("cargo-pgo install failed")
+    # Re-check with PATH that now includes ~/.cargo/bin
+    if shutil.which("cargo-pgo"):
+        return True
+
+    # Last-ditch: check the absolute path
+    direct_path = cargo_bin / "cargo-pgo"
+    if direct_path.exists() and os.access(direct_path, os.X_OK):
+        info(f"cargo-pgo found at {direct_path} (PATH did not include ~/.cargo/bin)")
+        return True
+
+    warn(
+        "cargo-pgo installed successfully but not discoverable on PATH; "
+        "check runner environment"
+    )
     return False
 
 
