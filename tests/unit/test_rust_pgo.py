@@ -178,11 +178,19 @@ class TestInstrumentedBinaryPath:
 class TestRunPgoBuildOrchestration:
     """Full PGO pipeline: instrument → workload → optimise (→ BOLT)."""
 
-    def test_skips_when_cargo_pgo_install_fails(self, tmp_path) -> None:
+    def test_falls_back_to_plain_build_when_cargo_pgo_install_fails(
+        self, tmp_path
+    ) -> None:
         profile = _make_profile()
-        with patch(
-            "hyperi_ci.languages.rust.pgo._ensure_cargo_pgo_installed",
-            return_value=False,
+        with (
+            patch(
+                "hyperi_ci.languages.rust.pgo._ensure_cargo_pgo_installed",
+                return_value=False,
+            ),
+            patch(
+                "hyperi_ci.languages.rust.pgo._run_plain_release_build",
+                return_value=0,
+            ) as mock_plain,
         ):
             rc = run_pgo_build(
                 target="x86_64-unknown-linux-gnu",
@@ -190,8 +198,10 @@ class TestRunPgoBuildOrchestration:
                 binary_name="my-bin",
                 cwd=tmp_path,
             )
-        # Non-fatal: allows caller to fall through to plain build
+        # Graceful fallback: produce a plain-release binary so the overall
+        # build still ships (Tier 1 optimisations still applied).
         assert rc == 0
+        mock_plain.assert_called_once()
 
     def test_instrument_build_failure_aborts_pipeline(self, tmp_path) -> None:
         profile = _make_profile()
