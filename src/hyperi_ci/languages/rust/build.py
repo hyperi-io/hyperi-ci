@@ -790,6 +790,43 @@ def _strip_binary(binary: Path, target: str) -> None:
         )
 
 
+def _resolve_build_channel(config: CIConfig) -> str:
+    """Resolve the publish channel for build-time optimisation gating.
+
+    Priority (highest wins):
+      1. `HYPERCI_CHANNEL` env var (explicit override from reusable workflow)
+      2. Tag-ref inference: `GITHUB_REF_TYPE == "tag"` → "release" (a tag
+         checkout is inherently a release dispatch)
+      3. `RUST_VERSION` / `CI_COMMIT_TAG` env vars (semantic-release-style
+         tagged builds set these)
+      4. `publish.channel` in .hyperi-ci.yaml (project-declared default)
+      5. "spike" (safest default for push-event CI on feature branches)
+
+    Rationale: Tier 2 (PGO + BOLT) adds 30-60 min per build and MUST NOT
+    run on every push to main. It should only run on release-channel
+    dispatches (tagged builds). The channel the project *publishes to*
+    (stored in `publish.channel`) is a hint but not authoritative — a
+    project that ships as "release" still gets push-event CI on every
+    commit, which shouldn't trigger PGO.
+    """
+    override = os.environ.get("HYPERCI_CHANNEL", "").strip().lower()
+    if override:
+        return override
+
+    if os.environ.get("GITHUB_REF_TYPE", "").strip().lower() == "tag":
+        return "release"
+
+    for var in ("RUST_VERSION", "CI_COMMIT_TAG"):
+        if os.environ.get(var, "").strip():
+            return "release"
+
+    configured = config.get("publish.channel", "") or ""
+    if configured:
+        return str(configured).strip().lower()
+
+    return "spike"
+
+
 def _detect_binary_names() -> list[str]:
     """Detect binary target names from Cargo metadata.
 
@@ -1228,7 +1265,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     binary_names_for_profile = _detect_binary_names()
     base_profile: OptimizationProfile | None = None
     if binary_names_for_profile:
-        channel = config.get("publish.channel", "spike") or "spike"
+        channel = _resolve_build_channel(config)
         user_optimize = config.get("build.rust.optimize") or {}
         base_profile = resolve_optimization_profile(channel, user_optimize)
         cargo_features = parse_cargo_features(Path.cwd() / "Cargo.toml")

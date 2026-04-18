@@ -86,6 +86,12 @@ concurrency:
 env:
   HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
   HYPERCI_INSTALL: uvx --no-cache --refresh hyperi-ci
+  # When dispatched with a tag, this is a release-channel build —
+  # enables Tier 2 (PGO + BOLT) build optimisation. On push events
+  # `inputs.tag` is empty and HYPERCI_CHANNEL is also empty, which
+  # falls back to `publish.channel` config or "spike" default in
+  # hyperi-ci's build.py.
+  HYPERCI_CHANNEL: ${{ inputs.tag && 'release' || '' }}
 
 jobs:
   quality:
