@@ -794,20 +794,25 @@ def _resolve_build_channel(config: CIConfig) -> str:
     """Resolve the publish channel for build-time optimisation gating.
 
     Priority (highest wins):
-      1. `HYPERCI_CHANNEL` env var (explicit override from reusable workflow)
-      2. Tag-ref inference: `GITHUB_REF_TYPE == "tag"` → "release" (a tag
-         checkout is inherently a release dispatch)
-      3. `RUST_VERSION` / `CI_COMMIT_TAG` env vars (semantic-release-style
-         tagged builds set these)
-      4. `publish.channel` in .hyperi-ci.yaml (project-declared default)
-      5. "spike" (safest default for push-event CI on feature branches)
+      1. `HYPERCI_CHANNEL` env var (set by reusable workflow when
+         `inputs.tag` is non-empty, i.e. `hyperi-ci release` dispatch)
+      2. Tag-ref inference: `GITHUB_REF_TYPE == "tag"` → "release"
+      3. `RUST_VERSION` / `CI_COMMIT_TAG` env vars (semantic-release-
+         style tagged builds set these when checking out the tag)
+      4. "spike" (default for push-event CI)
 
-    Rationale: Tier 2 (PGO + BOLT) adds 30-60 min per build and MUST NOT
-    run on every push to main. It should only run on release-channel
-    dispatches (tagged builds). The channel the project *publishes to*
-    (stored in `publish.channel`) is a hint but not authoritative — a
-    project that ships as "release" still gets push-event CI on every
-    commit, which shouldn't trigger PGO.
+    **Rationale for not falling back to `publish.channel`:** Tier 2
+    (PGO + BOLT) adds 30-60 min per build and a bad workload causes
+    NEGATIVE gains. It MUST only run on explicit release dispatches
+    (artifact publishing), NOT on every push to main. `publish.channel`
+    in `.hyperi-ci.yaml` describes *where artifacts are published*
+    (JFrog, GHCR, PyPI, etc.) — a project that ships to "release"
+    still gets push-event CI on every commit, which must NOT trigger
+    Tier 2. The build channel is orthogonal to the publish channel.
+
+    An operator who explicitly wants a one-off release-style build on
+    a non-tag ref can set `HYPERCI_CHANNEL=release` in the workflow
+    dispatch env, or pin the workflow to a tagged ref.
     """
     override = os.environ.get("HYPERCI_CHANNEL", "").strip().lower()
     if override:
@@ -819,10 +824,6 @@ def _resolve_build_channel(config: CIConfig) -> str:
     for var in ("RUST_VERSION", "CI_COMMIT_TAG"):
         if os.environ.get(var, "").strip():
             return "release"
-
-    configured = config.get("publish.channel", "") or ""
-    if configured:
-        return str(configured).strip().lower()
 
     return "spike"
 
