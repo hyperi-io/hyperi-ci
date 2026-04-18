@@ -1,3 +1,10 @@
+## [1.9.5](https://github.com/hyperi-io/hyperi-ci/compare/v1.9.4...v1.9.5) (2026-04-18)
+
+
+### Bug Fixes
+
+* **rust:** cargo-pgo install PATH + plain-build fallback ([68ca536](https://github.com/hyperi-io/hyperi-ci/commit/68ca53652a9a4e000e327b5bb50c17d68641fff3))
+
 ## [1.9.4](https://github.com/hyperi-io/hyperi-ci/compare/v1.9.3...v1.9.4) (2026-04-18)
 
 
