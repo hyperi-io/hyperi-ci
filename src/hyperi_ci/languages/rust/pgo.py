@@ -211,9 +211,15 @@ def _run_workload(
 ) -> int:
     """Run the project's PGO workload command against the instrumented binary.
 
-    Sets HYPERCI_PGO_INSTRUMENTED_BINARY env var so the workload script
-    can find the binary. Enforces a hard timeout at `duration_secs * 1.2`
-    (20% grace for clean shutdown).
+    Contract with consumer workload scripts:
+      * Binary path is the **first positional argument** (`$1`). Matches
+        the Unix-idiomatic pattern used by every template in
+        `hyperi-ci/templates/pgo-workload/`.
+      * `HYPERCI_PGO_INSTRUMENTED_BINARY` env var is ALSO exported as a
+        convenience for scripts that prefer to read it from env.
+
+    Enforces a hard timeout at `duration_secs * 1.2` (20% grace for
+    clean shutdown).
     """
     if not workload_cmd:
         error("PGO enabled but workload_cmd is empty")
@@ -222,10 +228,16 @@ def _run_workload(
     env = dict(os.environ)
     env["HYPERCI_PGO_INSTRUMENTED_BINARY"] = str(instrumented_binary)
 
-    info(f"  $ {workload_cmd}  (timeout={duration_secs}s + 20% grace)")
+    # Append the binary path as the first positional argument. Shell
+    # quoting handled by shlex.quote so paths with spaces don't break.
+    import shlex as _shlex
+
+    full_cmd = f"{workload_cmd} {_shlex.quote(str(instrumented_binary))}"
+
+    info(f"  $ {full_cmd}  (timeout={duration_secs}s + 20% grace)")
     try:
         result = subprocess.run(
-            workload_cmd,
+            full_cmd,
             shell=True,  # noqa: S602 - workload_cmd is project-owned config, run in controlled CI env
             cwd=cwd,
             env=env,

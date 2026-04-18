@@ -3,6 +3,31 @@
 This guide teaches you to write a PGO workload script that actually
 improves your binary rather than hurting it.
 
+## Invocation contract (important)
+
+hyperi-ci invokes your `workload_cmd` with the **instrumented binary
+path as the first positional argument** (`$1`). The env var
+`HYPERCI_PGO_INSTRUMENTED_BINARY` is also exported as a convenience,
+but `$1` is the canonical contract.
+
+```bash
+# Your script starts like this:
+#!/usr/bin/env bash
+set -euo pipefail
+RECEIVER_BIN="$1"
+[[ -x "$RECEIVER_BIN" ]] || { echo "usage: $0 <binary>" >&2; exit 1; }
+```
+
+So if your `.hyperi-ci.yaml` says:
+```yaml
+pgo:
+  workload_cmd: "bash scripts/pgo-workload.sh"
+```
+hyperi-ci effectively runs:
+```bash
+bash scripts/pgo-workload.sh /path/to/target/<triple>/release/<binary>
+```
+
 PGO (Profile-Guided Optimisation) records which code paths run hot
 during a representative workload, then rebuilds the binary with that
 knowledge. A **good** workload gives the compiler a realistic picture
