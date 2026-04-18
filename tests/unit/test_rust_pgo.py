@@ -114,6 +114,33 @@ class TestWorkloadExecution:
         kwargs = mock_run.call_args.kwargs
         assert kwargs["env"]["HYPERCI_PGO_INSTRUMENTED_BINARY"] == str(binary)
 
+    def test_workload_appends_binary_path_as_first_arg(self, tmp_path) -> None:
+        """The binary path is appended to workload_cmd as $1 (Unix-idiomatic).
+
+        Consumer workload scripts take the binary path as their first
+        positional argument. This matches the contract documented in
+        docs/PGO-WORKLOAD-GUIDE.md and the shape of every template in
+        templates/pgo-workload/.
+        """
+        binary = tmp_path / "my-bin with spaces"  # exercises shell quoting
+        with patch(
+            "hyperi_ci.languages.rust.pgo.subprocess.run",
+            return_value=MagicMock(returncode=0),
+        ) as mock_run:
+            _run_workload(
+                "bash scripts/pgo-workload.sh",
+                duration_secs=10,
+                instrumented_binary=binary,
+                cwd=tmp_path,
+            )
+        # subprocess.run was called with the full shell command as its
+        # first positional argument — binary path appended + properly quoted.
+        call_cmd = mock_run.call_args.args[0]
+        assert call_cmd.startswith("bash scripts/pgo-workload.sh ")
+        assert str(binary) in call_cmd
+        # shlex.quote should have wrapped the path with spaces in quotes
+        assert "'" in call_cmd or '"' in call_cmd
+
     def test_workload_passes_cwd(self, tmp_path) -> None:
         binary = tmp_path / "bin"
         with patch(
