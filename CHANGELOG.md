@@ -1,3 +1,10 @@
+## [1.9.4](https://github.com/hyperi-io/hyperi-ci/compare/v1.9.3...v1.9.4) (2026-04-18)
+
+
+### Bug Fixes
+
+* **rust:** drop publish.channel fallback in build channel resolver ([95b2a89](https://github.com/hyperi-io/hyperi-ci/commit/95b2a89e9044ba545a4385ff30a5e5742fca257b))
+
 ## [1.9.3](https://github.com/hyperi-io/hyperi-ci/compare/v1.9.2...v1.9.3) (2026-04-18)
 
 
