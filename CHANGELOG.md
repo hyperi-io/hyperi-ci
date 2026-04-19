@@ -1,3 +1,10 @@
+## [1.10.2](https://github.com/hyperi-io/hyperi-ci/compare/v1.10.1...v1.10.2) (2026-04-19)
+
+
+### Bug Fixes
+
+* install bolt-21 and shim versioned llvm-bolt onto PATH ([22755b7](https://github.com/hyperi-io/hyperi-ci/commit/22755b7134d0dde8ce8c644a43c485e7a21e2b72))
+
 ## [1.10.1](https://github.com/hyperi-io/hyperi-ci/compare/v1.10.0...v1.10.1) (2026-04-19)
 
 
