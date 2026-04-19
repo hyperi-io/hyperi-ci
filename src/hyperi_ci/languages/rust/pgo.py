@@ -218,8 +218,12 @@ def _run_workload(
       * `HYPERCI_PGO_INSTRUMENTED_BINARY` env var is ALSO exported as a
         convenience for scripts that prefer to read it from env.
 
-    Enforces a hard timeout at `duration_secs * 1.2` (20% grace for
-    clean shutdown).
+    Enforces a hard timeout at `duration_secs + 600` (10-minute absolute
+    grace for setup overhead: spinning up testcontainers, cargo-building
+    feature-gated drivers, waiting for readiness, cleaning up). This is
+    generous on purpose — the workload script is trusted and should
+    self-terminate at `duration_secs`; the wrapper timeout is a safety
+    net that triggers only when the script hangs.
     """
     if not workload_cmd:
         error("PGO enabled but workload_cmd is empty")
@@ -234,7 +238,8 @@ def _run_workload(
 
     full_cmd = f"{workload_cmd} {_shlex.quote(str(instrumented_binary))}"
 
-    info(f"  $ {full_cmd}  (timeout={duration_secs}s + 20% grace)")
+    timeout_secs = duration_secs + 600
+    info(f"  $ {full_cmd}  (timeout={timeout_secs}s = duration+600s safety grace)")
     try:
         result = subprocess.run(
             full_cmd,
@@ -242,12 +247,12 @@ def _run_workload(
             cwd=cwd,
             env=env,
             check=False,
-            timeout=int(duration_secs * 1.2),
+            timeout=timeout_secs,
         )
         return result.returncode
     except subprocess.TimeoutExpired:
         error(
-            f"PGO workload exceeded {int(duration_secs * 1.2)}s timeout — "
+            f"PGO workload exceeded {timeout_secs}s timeout — "
             "workload should self-terminate at duration_secs"
         )
         return 1
