@@ -46,41 +46,36 @@
 #
 # We pull from apt.llvm.org (LLVM's official upstream repo) so we
 # always get the latest BOLT regardless of what the base Ubuntu
-# release ships. `bolt-21` is the current upstream latest (C++ /
-# ClickHouse fork uses its own pinned toolchain separately — no
-# conflict since these are version-suffixed binaries).
+# release ships. The LLVM major version is templated via the
+# `${HYPERCI_LLVM_VERSION}` placeholder — default is 22 (latest), set
+# via env var to override. C++/ClickHouse fork uses its own pinned
+# toolchain separately (no conflict — all binaries are version-suffixed).
 #
-# Installs /usr/bin/llvm-bolt-21 (version-suffixed only — pgo.py's
-# _ensure_llvm_bolt_available() falls back to versioned names and
-# shims ~/.local/bin/llvm-bolt → /usr/bin/llvm-bolt-21).
+# Idempotency: hyperi-ci's _add_apt_repo scans ALL files in
+# /etc/apt/sources.list{,.d} before writing, so if the runner image
+# has apt.llvm.org pre-configured (e.g. under /etc/apt/sources.list.d/
+# llvm.list with a different keyring path), we skip our own write.
+# This keeps us working on both vanilla GH runners and pre-provisioned
+# self-hosted runners.
+#
+# Installs /usr/bin/llvm-bolt-${HYPERCI_LLVM_VERSION} (version-suffixed
+# only — pgo.py's _ensure_llvm_bolt_available() falls back to versioned
+# names and shims ~/.local/bin/llvm-bolt → the versioned binary).
 # Linux only (apt); non-Linux runners skip this whole file.
 - name: llvm-bolt
   patterns:
     - "[package]"
   manifest_files:
     - Cargo.toml
-  dpkg_check: bolt-21
+  dpkg_check: bolt-${HYPERCI_LLVM_VERSION}
   apt_repos:
     - key_url: https://apt.llvm.org/llvm-snapshot.gpg.key
       keyring: /usr/share/keyrings/llvm.gpg
       url: https://apt.llvm.org/noble/
-      codename: llvm-toolchain-noble-21
+      codename: llvm-toolchain-noble-${HYPERCI_LLVM_VERSION}
   apt_packages:
-    - bolt-21
+    - bolt-${HYPERCI_LLVM_VERSION}
     - binutils
-
-# --- llvm-tools (llvm-profdata, used by cargo-pgo) ---
-# cargo-pgo shells out to llvm-profdata to merge .profraw files.
-# Comes with the rustup component 'llvm-tools-preview' but a system
-# package is more reliable on CI images.
-- name: llvm-tools
-  patterns:
-    - "[package]"
-  manifest_files:
-    - Cargo.toml
-  dpkg_check: llvm
-  apt_packages:
-    - llvm
 
 # --- Kafka (librdkafka) ---
 # rdkafka-sys requires >= 2.12.1 which is newer than Ubuntu's default.

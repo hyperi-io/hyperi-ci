@@ -198,9 +198,23 @@ def _ensure_llvm_bolt_available() -> bool:
     if shutil.which("llvm-bolt"):
         return True
 
-    # Try version-suffixed binaries, newest first. Range covers LLVM
-    # 18..30 which spans Ubuntu jammy through expected future releases.
-    for version in range(30, 17, -1):
+    # Prefer the version pinned in HYPERCI_LLVM_VERSION (matches the
+    # version the apt installer targeted), then fall back to a descending
+    # range. Range covers LLVM 18..30 which spans Ubuntu jammy through
+    # expected future releases.
+    preferred = os.environ.get("HYPERCI_LLVM_VERSION")
+    preferred_int: int | None = None
+    try:
+        preferred_int = int(preferred) if preferred else None
+    except ValueError:
+        preferred_int = None
+
+    versions: list[int] = []
+    if preferred_int is not None:
+        versions.append(preferred_int)
+    versions.extend(v for v in range(30, 17, -1) if v != preferred_int)
+
+    for version in versions:
         versioned = shutil.which(f"llvm-bolt-{version}")
         if not versioned:
             continue
