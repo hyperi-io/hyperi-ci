@@ -37,6 +37,35 @@
   apt_packages:
     - clang
 
+# --- LLVM BOLT (post-link optimisation) ---
+# Tier 2 release-track optimisation. Always installed for Rust projects
+# so Tier 2 Just Works when a project opts in via .hyperi-ci.yaml.
+# Small package (~10 MB) — install cost is negligible vs "missing on
+# release day" troubleshooting.
+# Linux only (apt); non-Linux runners skip this whole file.
+- name: llvm-bolt
+  patterns:
+    - "[package]"
+  manifest_files:
+    - Cargo.toml
+  dpkg_check: llvm
+  apt_packages:
+    - llvm
+    - binutils
+
+# --- llvm-tools (llvm-profdata, used by cargo-pgo) ---
+# cargo-pgo shells out to llvm-profdata to merge .profraw files.
+# Comes with the rustup component 'llvm-tools-preview' but a system
+# package is more reliable on CI images.
+- name: llvm-tools
+  patterns:
+    - "[package]"
+  manifest_files:
+    - Cargo.toml
+  dpkg_check: llvm
+  apt_packages:
+    - llvm
+
 # --- Kafka (librdkafka) ---
 # rdkafka-sys requires >= 2.12.1 which is newer than Ubuntu's default.
 # Confluent APT repo provides the latest version.

@@ -327,7 +327,70 @@ def install_native_deps(language: str, project_dir: Path | None = None) -> int:
         logger.error(f"apt-get install failed (exit {rc})")
         return rc
 
+    # Language-specific cargo/npm/pip tools that aren't apt packages
+    rc = _install_language_cargo_tools(language)
+    if rc != 0:
+        return rc
+
     logger.info(f"Native deps installed for {language}")
+    return 0
+
+
+# Cargo-installed tools that should be present on every Rust CI runner.
+# These are small (~5-15 MB each), quick to install (cached after first
+# build), and required by Tier 2 release-track optimisation. Installing
+# universally means Tier 2 opt-in via `.hyperi-ci.yaml` has no runtime
+# dependency on just-in-time tool install.
+_RUST_CARGO_TOOLS: list[dict[str, str]] = [
+    {
+        "name": "cargo-pgo",
+        "binary": "cargo-pgo",
+        "install_args": "cargo-pgo --locked",
+    },
+]
+
+
+def _install_language_cargo_tools(language: str) -> int:
+    """Install cargo-managed tools required by a language's CI pipeline.
+
+    Runs universally (not pattern-gated) — these tools are required by
+    build stages that may be opted into per-release. Installing them
+    always is simpler than guessing which stages a project will enable.
+
+    No-op on non-Linux; cargo tools install fine on macOS but the Tier 2
+    pipeline only runs on Linux so we skip to keep macOS CI fast.
+    """
+    if language != "rust":
+        return 0
+    if platform.system() != "Linux":
+        return 0
+
+    import os
+    import shutil
+
+    # Ensure ~/.cargo/bin is on PATH so `cargo install` outputs are found
+    cargo_bin = Path.home() / ".cargo" / "bin"
+    current_path = os.environ.get("PATH", "")
+    if str(cargo_bin) not in current_path.split(os.pathsep):
+        os.environ["PATH"] = f"{cargo_bin}{os.pathsep}{current_path}"
+
+    for tool in _RUST_CARGO_TOOLS:
+        binary = tool["binary"]
+        if shutil.which(binary) or (cargo_bin / binary).exists():
+            logger.info(f"[{tool['name']}] already installed")
+            continue
+
+        logger.info(f"Installing {tool['name']}: cargo install {tool['install_args']}")
+        result = subprocess.run(
+            ["cargo", "install", *tool["install_args"].split()],
+            check=False,
+        )
+        if result.returncode != 0:
+            logger.warning(
+                f"[{tool['name']}] install failed (exit {result.returncode}) — "
+                "Tier 2 builds will fall back to plain release"
+            )
+            # Non-fatal: Tier 2 has graceful fallback
     return 0
 
 
