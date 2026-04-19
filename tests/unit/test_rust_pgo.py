@@ -161,8 +161,9 @@ class TestWorkloadExecution:
             _run_workload(
                 "x", duration_secs=100, instrumented_binary=binary, cwd=tmp_path
             )
-        # 100 * 1.2 = 120
-        assert mock_run.call_args.kwargs["timeout"] == 120
+        # duration + 600s absolute grace (covers testcontainers spin-up,
+        # cargo-building feature-gated drivers, readiness waits, cleanup)
+        assert mock_run.call_args.kwargs["timeout"] == 700
 
     def test_workload_empty_command_returns_error(self, tmp_path) -> None:
         binary = tmp_path / "bin"
