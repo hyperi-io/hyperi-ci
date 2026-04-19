@@ -41,7 +41,9 @@ def _seed_apt_tree(tmp_path: Path, files: dict[str, str]) -> tuple[Path, Path]:
     return sources_list, sources_dir
 
 
-def _patch_apt_paths(monkeypatch: pytest.MonkeyPatch, sources_list: Path, sources_dir: Path) -> None:
+def _patch_apt_paths(
+    monkeypatch: pytest.MonkeyPatch, sources_list: Path, sources_dir: Path
+) -> None:
     """Redirect the two /etc/apt Path() constructions in native_deps.
 
     native_deps._repo_already_configured calls Path("/etc/apt/sources.list")
@@ -249,7 +251,10 @@ class TestAddAptRepoIdempotency:
         assert rc == 0
         # None of the "expensive/side-effecting" commands were invoked —
         # no key download, no gpg dearmor, no writing to sources.list.d.
-        invoked = [call.args[0][0] if call.args and call.args[0] else None for call in mock_run.call_args_list]
+        invoked = [
+            call.args[0][0] if call.args and call.args[0] else None
+            for call in mock_run.call_args_list
+        ]
         assert "curl" not in invoked, f"unexpected curl call: {invoked}"
         assert "gpg" not in invoked, f"unexpected gpg call: {invoked}"
         assert "sudo" not in invoked, f"unexpected sudo (tee) call: {invoked}"

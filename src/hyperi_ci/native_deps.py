@@ -277,7 +277,9 @@ def _add_apt_repo(repo: AptRepo) -> int:
     # repo (pre-configured by runner admin), skip to avoid duplicates.
     existing = _repo_already_configured(repo.url, codename)
     if existing is not None:
-        logger.info(f"APT source for {repo.url} {codename} already present in {existing}")
+        logger.info(
+            f"APT source for {repo.url} {codename} already present in {existing}"
+        )
         return 0
 
     # Derive a stable filename from the keyring name
