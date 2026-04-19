@@ -13,6 +13,7 @@ apt packages on Linux. No-ops on non-Linux platforms.
 
 from __future__ import annotations
 
+import os
 import platform
 import subprocess
 import sys
@@ -57,6 +58,27 @@ class DepGroup:
     dpkg_min_version: str = ""
 
 
+_DEFAULT_LLVM_VERSION = "22"
+
+
+def _expand_template_vars(text: str) -> str:
+    """Expand ${VAR} placeholders in native-deps YAML.
+
+    Supports a small set of hyperi-ci-controlled variables — keeps the
+    YAML readable while letting ops override per environment without
+    editing code.
+
+    Recognised variables:
+      HYPERCI_LLVM_VERSION  — LLVM/BOLT major version (default: 22)
+
+    Unknown ${VAR} placeholders pass through unchanged so apt-cache
+    surfaces a clear "package not found" error instead of a silent
+    mis-resolve.
+    """
+    llvm_version = os.environ.get("HYPERCI_LLVM_VERSION", _DEFAULT_LLVM_VERSION)
+    return text.replace("${HYPERCI_LLVM_VERSION}", llvm_version)
+
+
 def _load_dep_groups(language: str) -> list[DepGroup]:
     """Load dep group definitions for a language from bundled config."""
     config_file = _NATIVE_DEPS_DIR / f"{language}.yaml"
@@ -64,7 +86,7 @@ def _load_dep_groups(language: str) -> list[DepGroup]:
         logger.warning(f"No native-deps config for language: {language}")
         return []
 
-    raw = yaml.safe_load(config_file.read_text())
+    raw = yaml.safe_load(_expand_template_vars(config_file.read_text()))
     if not raw:
         return []
 
@@ -165,8 +187,55 @@ def _get_dpkg_arch() -> str:
     return result.stdout.strip() if result.returncode == 0 else "amd64"
 
 
+def _repo_already_configured(repo_url: str, codename: str) -> Path | None:
+    """Check if any existing APT sources file references this repo.
+
+    Self-hosted runners may pre-configure apt.llvm.org (or other upstream
+    repos) under a different filename than ours. To avoid duplicate
+    entries, scan all files in /etc/apt/sources.list.d/ and the main
+    /etc/apt/sources.list for a line that matches our url + codename.
+
+    Returns the path of the first matching file, or None if not found.
+    Match is substring-based on `url + " " + codename` so variations in
+    `[signed-by=...]` options, arch flags, or components don't cause
+    false negatives.
+    """
+    # Normalise scheme — pre-provisioned runners often use `http://` for
+    # apt.llvm.org (their Dockerfile does) while we write `https://`.
+    # Match on the scheme-less path so either form is detected.
+    url_stripped = repo_url.rstrip("/")
+    path_only = url_stripped.split("://", 1)[-1]  # e.g. "apt.llvm.org/noble"
+
+    candidates = [Path("/etc/apt/sources.list")]
+    sources_dir = Path("/etc/apt/sources.list.d")
+    if sources_dir.is_dir():
+        candidates.extend(sources_dir.glob("*.list"))
+        candidates.extend(sources_dir.glob("*.sources"))
+
+    for path in candidates:
+        try:
+            content = path.read_text()
+        except (OSError, UnicodeDecodeError):
+            continue
+        # Match on scheme-less URL path + codename. Covers both the
+        # one-line `deb` format and deb822-style `.sources` files.
+        if path_only in content and codename in content:
+            return path
+    return None
+
+
 def _add_apt_repo(repo: AptRepo) -> int:
-    """Add a GPG key and APT sources entry for a repo. Returns exit code."""
+    """Add a GPG key and APT sources entry for a repo. Returns exit code.
+
+    Idempotent on three levels:
+      1. GPG keyring: skips download if keyring file already present.
+      2. Exact sources.list match: skips write if our file already has
+         the exact same line.
+      3. Cross-file duplicate detection: skips write if ANY other apt
+         source file already references the same url + codename — this
+         handles self-hosted runners where admins have pre-configured
+         upstream repos under a different filename.
+    """
     keyring_path = Path(repo.keyring)
     if keyring_path.exists():
         logger.info(f"APT keyring already exists: {repo.keyring}")
@@ -203,6 +272,13 @@ def _add_apt_repo(repo: AptRepo) -> int:
         f"deb [signed-by={repo.keyring} arch={arch}] "
         f"{repo.url} {codename} {repo.components}"
     )
+
+    # Cross-file check: if another sources file already references this
+    # repo (pre-configured by runner admin), skip to avoid duplicates.
+    existing = _repo_already_configured(repo.url, codename)
+    if existing is not None:
+        logger.info(f"APT source for {repo.url} {codename} already present in {existing}")
+        return 0
 
     # Derive a stable filename from the keyring name
     sources_name = keyring_path.stem + ".list"
