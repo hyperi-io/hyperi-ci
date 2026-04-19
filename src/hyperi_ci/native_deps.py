@@ -327,8 +327,8 @@ def install_native_deps(language: str, project_dir: Path | None = None) -> int:
         logger.error(f"apt-get install failed (exit {rc})")
         return rc
 
-    # Language-specific cargo/npm/pip tools that aren't apt packages
-    rc = _install_language_cargo_tools(language)
+    # Universal per-language tooling (cargo / npm / pip / go-install)
+    rc = _install_language_tools(language)
     if rc != 0:
         return rc
 
@@ -336,31 +336,72 @@ def install_native_deps(language: str, project_dir: Path | None = None) -> int:
     return 0
 
 
-# Cargo-installed tools that should be present on every Rust CI runner.
-# These are small (~5-15 MB each), quick to install (cached after first
-# build), and required by Tier 2 release-track optimisation. Installing
-# universally means Tier 2 opt-in via `.hyperi-ci.yaml` has no runtime
-# dependency on just-in-time tool install.
-_RUST_CARGO_TOOLS: list[dict[str, str]] = [
-    {
-        "name": "cargo-pgo",
-        "binary": "cargo-pgo",
-        "install_args": "cargo-pgo --locked",
-    },
-]
+# ---------------------------------------------------------------------------
+# Universal language tooling
+# ---------------------------------------------------------------------------
+#
+# Install-once-per-runner tooling keyed by language. Runs unconditionally
+# after apt deps. Philosophy: if a CI stage (quality, test, build, release)
+# might need a tool, install it at setup time instead of just-in-time. The
+# "which stage uses it?" gating would be brittle + slow on opt-in features
+# like Rust Tier 2 PGO.
+#
+# Each entry:
+#   name:         Human label for logs
+#   binary:       Executable to probe for "already installed?"
+#   bin_dir:      Directory where the installer drops binaries (ensured on PATH)
+#   installer:    Shell tokens that install the tool (prepended to cargo/npm/etc)
+#   args:         Arguments passed after the installer tokens
+#
+# Non-fatal: failures log a warning and the function continues. Downstream
+# stages that depend on the tool handle the missing-tool case themselves
+# (Rust Tier 2 falls back to plain release, etc.).
 
 
-def _install_language_cargo_tools(language: str) -> int:
-    """Install cargo-managed tools required by a language's CI pipeline.
+@dataclass(frozen=True)
+class LanguageTool:
+    name: str
+    binary: str
+    bin_dir: str  # relative to $HOME
+    installer: list[str]
+    args: list[str]
 
-    Runs universally (not pattern-gated) — these tools are required by
-    build stages that may be opted into per-release. Installing them
-    always is simpler than guessing which stages a project will enable.
 
-    No-op on non-Linux; cargo tools install fine on macOS but the Tier 2
-    pipeline only runs on Linux so we skip to keep macOS CI fast.
+_LANGUAGE_TOOLS: dict[str, list[LanguageTool]] = {
+    "rust": [
+        LanguageTool(
+            name="cargo-pgo",
+            binary="cargo-pgo",
+            bin_dir=".cargo/bin",
+            installer=["cargo", "install"],
+            args=["cargo-pgo", "--locked"],
+        ),
+    ],
+    # Populate as concrete needs appear. The abstraction is in place;
+    # adding a Python tool (e.g. 'pip-audit' if a stage requires it) is
+    # one entry below. Don't over-populate preemptively — only list tools
+    # the CI pipeline actually runs.
+    "python": [],
+    "typescript": [],
+    "golang": [],
+}
+
+
+def _install_language_tools(language: str) -> int:
+    """Install per-language tooling (cargo / npm / pip / go-install tools).
+
+    Runs universally (not pattern-gated) — tools listed here may be
+    required by any CI stage (quality, test, build, release). Gating by
+    stage would be fragile on opt-in features like Rust Tier 2 PGO.
+
+    Non-fatal: install failure logs a warning and continues. Downstream
+    stages that depend on the tool handle missing-tool fallback.
+
+    No-op on non-Linux — CI stages that need these tools only run on
+    Linux runners in our current pipelines.
     """
-    if language != "rust":
+    tools = _LANGUAGE_TOOLS.get(language, [])
+    if not tools:
         return 0
     if platform.system() != "Linux":
         return 0
@@ -368,29 +409,26 @@ def _install_language_cargo_tools(language: str) -> int:
     import os
     import shutil
 
-    # Ensure ~/.cargo/bin is on PATH so `cargo install` outputs are found
-    cargo_bin = Path.home() / ".cargo" / "bin"
-    current_path = os.environ.get("PATH", "")
-    if str(cargo_bin) not in current_path.split(os.pathsep):
-        os.environ["PATH"] = f"{cargo_bin}{os.pathsep}{current_path}"
+    for tool in tools:
+        # Ensure the tool's install dir is on PATH before probe + install
+        bin_dir = Path.home() / tool.bin_dir
+        current_path = os.environ.get("PATH", "")
+        if str(bin_dir) not in current_path.split(os.pathsep):
+            os.environ["PATH"] = f"{bin_dir}{os.pathsep}{current_path}"
 
-    for tool in _RUST_CARGO_TOOLS:
-        binary = tool["binary"]
-        if shutil.which(binary) or (cargo_bin / binary).exists():
-            logger.info(f"[{tool['name']}] already installed")
+        if shutil.which(tool.binary) or (bin_dir / tool.binary).exists():
+            logger.info(f"[{tool.name}] already installed")
             continue
 
-        logger.info(f"Installing {tool['name']}: cargo install {tool['install_args']}")
-        result = subprocess.run(
-            ["cargo", "install", *tool["install_args"].split()],
-            check=False,
-        )
+        cmd = [*tool.installer, *tool.args]
+        logger.info(f"Installing {tool.name}: {' '.join(cmd)}")
+        result = subprocess.run(cmd, check=False)
         if result.returncode != 0:
             logger.warning(
-                f"[{tool['name']}] install failed (exit {result.returncode}) — "
-                "Tier 2 builds will fall back to plain release"
+                f"[{tool.name}] install failed (exit {result.returncode}) — "
+                "dependent CI stages will handle the missing tool"
             )
-            # Non-fatal: Tier 2 has graceful fallback
+            # Non-fatal: downstream has graceful fallback
     return 0
 
 
