@@ -180,7 +180,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "hyperi-pylib", editable = "../hyperi-pylib" },
+    { name = "hyperi-pylib", specifier = "==2.24.1" },
     { name = "packaging", specifier = ">=24.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "tomli-w", specifier = ">=1.2.0" },
@@ -195,99 +195,21 @@ dev = [
 
 [[package]]
 name = "hyperi-pylib"
-version = "2.27.2"
-source = { editable = "../hyperi-pylib" }
+version = "2.24.1"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dulwich" },
     { name = "dynaconf" },
     { name = "loguru" },
     { name = "mergedeep" },
-    { name = "python-dotenv" },
+    { name = "psutil" },
     { name = "pyyaml" },
     { name = "tomli-w" },
     { name = "typer" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiobotocore", marker = "extra == 'dev'", specifier = ">=2.15.0" },
-    { name = "aiobotocore", marker = "extra == 'secrets'", specifier = ">=2.15.0" },
-    { name = "aiobotocore", marker = "extra == 'secrets-aws'", specifier = ">=2.15.0" },
-    { name = "ansible-vault", marker = "extra == 'dev'", specifier = ">=4.0.0" },
-    { name = "ansible-vault", marker = "extra == 'secrets'", specifier = ">=4.0.0" },
-    { name = "ansible-vault", marker = "extra == 'secrets-ansible-vault'", specifier = ">=4.0.0" },
-    { name = "azure-identity", marker = "extra == 'secrets'", specifier = ">=1.25.1" },
-    { name = "azure-identity", marker = "extra == 'secrets-azure'", specifier = ">=1.25.1" },
-    { name = "azure-keyvault-secrets", marker = "extra == 'secrets'", specifier = ">=4.9.0" },
-    { name = "azure-keyvault-secrets", marker = "extra == 'secrets-azure'", specifier = ">=4.9.0" },
-    { name = "bandit", extras = ["toml"], marker = "extra == 'dev'", specifier = ">=1.7.0" },
-    { name = "boto3", marker = "extra == 'dev'", specifier = ">=1.35.0" },
-    { name = "boto3", marker = "extra == 'secrets'", specifier = ">=1.35.0" },
-    { name = "boto3", marker = "extra == 'secrets-aws'", specifier = ">=1.35.0" },
-    { name = "build", marker = "extra == 'dev'", specifier = ">=1.0.0" },
-    { name = "cashews", marker = "extra == 'cache'", specifier = ">=7.0.0" },
-    { name = "common-expression-language", marker = "extra == 'expression'", specifier = ">=0.5.6" },
-    { name = "confluent-kafka", marker = "extra == 'kafka'", specifier = ">=2.3.0" },
-    { name = "cryptography", marker = "extra == 'dev'", specifier = ">=46.0.5" },
-    { name = "cryptography", marker = "extra == 'license'", specifier = ">=46.0.5" },
-    { name = "dulwich", specifier = ">=0.22.0" },
-    { name = "dynaconf", specifier = ">=3.2.13" },
-    { name = "faker", marker = "extra == 'dev'", specifier = ">=33.0.0" },
-    { name = "genson", marker = "extra == 'kafka'", specifier = ">=1.3.0" },
-    { name = "google-cloud-secret-manager", marker = "extra == 'secrets'", specifier = ">=2.26.0" },
-    { name = "google-cloud-secret-manager", marker = "extra == 'secrets-gcp'", specifier = ">=2.26.0" },
-    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27.0" },
-    { name = "httpx", marker = "extra == 'http'", specifier = ">=0.27.0" },
-    { name = "httpx", marker = "extra == 'license'", specifier = ">=0.27.0" },
-    { name = "loguru", specifier = ">=0.7.3" },
-    { name = "mergedeep", specifier = ">=1.3.4" },
-    { name = "mergedeep", marker = "extra == 'dev'", specifier = ">=1.3.4" },
-    { name = "msgpack", marker = "extra == 'cache'", specifier = ">=1.0.0" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
-    { name = "myst-parser", marker = "extra == 'docs'", specifier = ">=5.0.0" },
-    { name = "opentelemetry-api", marker = "extra == 'opentelemetry'", specifier = ">=1.20.0" },
-    { name = "opentelemetry-exporter-otlp", marker = "extra == 'opentelemetry'", specifier = ">=1.20.0" },
-    { name = "opentelemetry-exporter-prometheus", marker = "extra == 'opentelemetry'", specifier = ">=0.41b0" },
-    { name = "opentelemetry-sdk", marker = "extra == 'opentelemetry'", specifier = ">=1.20.0" },
-    { name = "pip-audit", marker = "extra == 'dev'", specifier = ">=2.6.0" },
-    { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.0.0" },
-    { name = "presidio-analyzer", marker = "extra == 'presidio'", specifier = ">=2.2.0" },
-    { name = "presidio-anonymizer", marker = "extra == 'presidio'", specifier = ">=2.2.0" },
-    { name = "prometheus-client", marker = "extra == 'metrics'", specifier = ">=0.19.0" },
-    { name = "psutil", marker = "extra == 'metrics'", specifier = ">=7.1.0" },
-    { name = "psycopg", extras = ["binary", "pool"], marker = "extra == 'cache'", specifier = ">=3.2.0" },
-    { name = "pycryptodomex", marker = "extra == 'dev'", specifier = ">=3.20.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
-    { name = "pytest-httpx", marker = "extra == 'dev'", specifier = ">=0.30.0" },
-    { name = "python-dotenv", specifier = ">=1.0.0" },
-    { name = "python-semantic-release", marker = "extra == 'dev'", specifier = ">=9.0.0" },
-    { name = "pyyaml", specifier = ">=6.0.3" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
-    { name = "setuptools", marker = "extra == 'dev'", specifier = ">=70.0.0" },
-    { name = "sphinx", marker = "extra == 'docs'", specifier = ">=8.0.0,<10" },
-    { name = "sphinx-autobuild", marker = "extra == 'docs'", specifier = ">=2024.0.0" },
-    { name = "sphinx-rtd-theme", marker = "extra == 'docs'", specifier = ">=3.0.0" },
-    { name = "stamina", marker = "extra == 'dev'", specifier = ">=25.1.0" },
-    { name = "stamina", marker = "extra == 'http'", specifier = ">=25.1.0" },
-    { name = "tiktoken", marker = "extra == 'dev'", specifier = ">=0.5.0" },
-    { name = "tomli-w", specifier = ">=1.0.0" },
-    { name = "twine", marker = "extra == 'dev'", specifier = ">=5.0.0" },
-    { name = "ty", marker = "extra == 'dev'", specifier = ">=0.0.21" },
-    { name = "typer", specifier = ">=0.20.0" },
-    { name = "vermin", marker = "extra == 'dev'", specifier = ">=1.6.0" },
-    { name = "vulture", marker = "extra == 'dev'", specifier = ">=2.7.0" },
-    { name = "wheel", marker = "extra == 'dev'", specifier = ">=0.42.0" },
-]
-provides-extras = ["cli", "http", "cache", "metrics", "opentelemetry", "expression", "database", "kafka", "presidio", "secrets-ansible-vault", "secrets-vault", "secrets-aws", "secrets-gcp", "secrets-azure", "secrets", "license", "version-check", "enhanced", "dev", "docs"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "azure-identity", specifier = ">=1.25.1" },
-    { name = "azure-keyvault-secrets", specifier = ">=4.9.0" },
-    { name = "fastapi", specifier = ">=0.115.0" },
-    { name = "google-cloud-secret-manager", specifier = ">=2.26.0" },
+sdist = { url = "https://files.pythonhosted.org/packages/cc/df/0aa8c2cefda3f342c39654d0361f226863396f38cc32a0423e30d4cfe95e/hyperi_pylib-2.24.1.tar.gz", hash = "sha256:481e78d684079c5f0ab72b9b7e9cb354fdf47861ee192bbe722b50437c456f48", size = 176509, upload-time = "2026-03-06T20:42:45.54Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/74/07/7f2faf6308f09421c70acf7d925e9e5f3c81578bc90c889b1190e0b738f6/hyperi_pylib-2.24.1-py3-none-any.whl", hash = "sha256:9bad02f60206b40c28da2adf841d516d34df2856449bd22da84f1699f4bf66ea", size = 212975, upload-time = "2026-03-06T20:42:43.626Z" },
 ]
 
 [[package]]
@@ -361,6 +283,34 @@ wheels = [
 ]
 
 [[package]]
+name = "psutil"
+version = "7.2.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/aa/c6/d1ddf4abb55e93cebc4f2ed8b5d6dbad109ecb8d63748dd2b20ab5e57ebe/psutil-7.2.2.tar.gz", hash = "sha256:0746f5f8d406af344fd547f1c8daa5f5c33dbc293bb8d6a16d80b4bb88f59372", size = 493740, upload-time = "2026-01-28T18:14:54.428Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/51/08/510cbdb69c25a96f4ae523f733cdc963ae654904e8db864c07585ef99875/psutil-7.2.2-cp313-cp313t-macosx_10_13_x86_64.whl", hash = "sha256:2edccc433cbfa046b980b0df0171cd25bcaeb3a68fe9022db0979e7aa74a826b", size = 130595, upload-time = "2026-01-28T18:14:57.293Z" },
+    { url = "https://files.pythonhosted.org/packages/d6/f5/97baea3fe7a5a9af7436301f85490905379b1c6f2dd51fe3ecf24b4c5fbf/psutil-7.2.2-cp313-cp313t-macosx_11_0_arm64.whl", hash = "sha256:e78c8603dcd9a04c7364f1a3e670cea95d51ee865e4efb3556a3a63adef958ea", size = 131082, upload-time = "2026-01-28T18:14:59.732Z" },
+    { url = "https://files.pythonhosted.org/packages/37/d6/246513fbf9fa174af531f28412297dd05241d97a75911ac8febefa1a53c6/psutil-7.2.2-cp313-cp313t-manylinux2010_x86_64.manylinux_2_12_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:1a571f2330c966c62aeda00dd24620425d4b0cc86881c89861fbc04549e5dc63", size = 181476, upload-time = "2026-01-28T18:15:01.884Z" },
+    { url = "https://files.pythonhosted.org/packages/b8/b5/9182c9af3836cca61696dabe4fd1304e17bc56cb62f17439e1154f225dd3/psutil-7.2.2-cp313-cp313t-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:917e891983ca3c1887b4ef36447b1e0873e70c933afc831c6b6da078ba474312", size = 184062, upload-time = "2026-01-28T18:15:04.436Z" },
+    { url = "https://files.pythonhosted.org/packages/16/ba/0756dca669f5a9300d0cbcbfae9a4c30e446dfc7440ffe43ded5724bfd93/psutil-7.2.2-cp313-cp313t-win_amd64.whl", hash = "sha256:ab486563df44c17f5173621c7b198955bd6b613fb87c71c161f827d3fb149a9b", size = 139893, upload-time = "2026-01-28T18:15:06.378Z" },
+    { url = "https://files.pythonhosted.org/packages/1c/61/8fa0e26f33623b49949346de05ec1ddaad02ed8ba64af45f40a147dbfa97/psutil-7.2.2-cp313-cp313t-win_arm64.whl", hash = "sha256:ae0aefdd8796a7737eccea863f80f81e468a1e4cf14d926bd9b6f5f2d5f90ca9", size = 135589, upload-time = "2026-01-28T18:15:08.03Z" },
+    { url = "https://files.pythonhosted.org/packages/81/69/ef179ab5ca24f32acc1dac0c247fd6a13b501fd5534dbae0e05a1c48b66d/psutil-7.2.2-cp314-cp314t-macosx_10_15_x86_64.whl", hash = "sha256:eed63d3b4d62449571547b60578c5b2c4bcccc5387148db46e0c2313dad0ee00", size = 130664, upload-time = "2026-01-28T18:15:09.469Z" },
+    { url = "https://files.pythonhosted.org/packages/7b/64/665248b557a236d3fa9efc378d60d95ef56dd0a490c2cd37dafc7660d4a9/psutil-7.2.2-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:7b6d09433a10592ce39b13d7be5a54fbac1d1228ed29abc880fb23df7cb694c9", size = 131087, upload-time = "2026-01-28T18:15:11.724Z" },
+    { url = "https://files.pythonhosted.org/packages/d5/2e/e6782744700d6759ebce3043dcfa661fb61e2fb752b91cdeae9af12c2178/psutil-7.2.2-cp314-cp314t-manylinux2010_x86_64.manylinux_2_12_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:1fa4ecf83bcdf6e6c8f4449aff98eefb5d0604bf88cb883d7da3d8d2d909546a", size = 182383, upload-time = "2026-01-28T18:15:13.445Z" },
+    { url = "https://files.pythonhosted.org/packages/57/49/0a41cefd10cb7505cdc04dab3eacf24c0c2cb158a998b8c7b1d27ee2c1f5/psutil-7.2.2-cp314-cp314t-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:e452c464a02e7dc7822a05d25db4cde564444a67e58539a00f929c51eddda0cf", size = 185210, upload-time = "2026-01-28T18:15:16.002Z" },
+    { url = "https://files.pythonhosted.org/packages/dd/2c/ff9bfb544f283ba5f83ba725a3c5fec6d6b10b8f27ac1dc641c473dc390d/psutil-7.2.2-cp314-cp314t-win_amd64.whl", hash = "sha256:c7663d4e37f13e884d13994247449e9f8f574bc4655d509c3b95e9ec9e2b9dc1", size = 141228, upload-time = "2026-01-28T18:15:18.385Z" },
+    { url = "https://files.pythonhosted.org/packages/f2/fc/f8d9c31db14fcec13748d373e668bc3bed94d9077dbc17fb0eebc073233c/psutil-7.2.2-cp314-cp314t-win_arm64.whl", hash = "sha256:11fe5a4f613759764e79c65cf11ebdf26e33d6dd34336f8a337aa2996d71c841", size = 136284, upload-time = "2026-01-28T18:15:19.912Z" },
+    { url = "https://files.pythonhosted.org/packages/e7/36/5ee6e05c9bd427237b11b3937ad82bb8ad2752d72c6969314590dd0c2f6e/psutil-7.2.2-cp36-abi3-macosx_10_9_x86_64.whl", hash = "sha256:ed0cace939114f62738d808fdcecd4c869222507e266e574799e9c0faa17d486", size = 129090, upload-time = "2026-01-28T18:15:22.168Z" },
+    { url = "https://files.pythonhosted.org/packages/80/c4/f5af4c1ca8c1eeb2e92ccca14ce8effdeec651d5ab6053c589b074eda6e1/psutil-7.2.2-cp36-abi3-macosx_11_0_arm64.whl", hash = "sha256:1a7b04c10f32cc88ab39cbf606e117fd74721c831c98a27dc04578deb0c16979", size = 129859, upload-time = "2026-01-28T18:15:23.795Z" },
+    { url = "https://files.pythonhosted.org/packages/b5/70/5d8df3b09e25bce090399cf48e452d25c935ab72dad19406c77f4e828045/psutil-7.2.2-cp36-abi3-manylinux2010_x86_64.manylinux_2_12_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:076a2d2f923fd4821644f5ba89f059523da90dc9014e85f8e45a5774ca5bc6f9", size = 155560, upload-time = "2026-01-28T18:15:25.976Z" },
+    { url = "https://files.pythonhosted.org/packages/63/65/37648c0c158dc222aba51c089eb3bdfa238e621674dc42d48706e639204f/psutil-7.2.2-cp36-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:b0726cecd84f9474419d67252add4ac0cd9811b04d61123054b9fb6f57df6e9e", size = 156997, upload-time = "2026-01-28T18:15:27.794Z" },
+    { url = "https://files.pythonhosted.org/packages/8e/13/125093eadae863ce03c6ffdbae9929430d116a246ef69866dad94da3bfbc/psutil-7.2.2-cp36-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:fd04ef36b4a6d599bbdb225dd1d3f51e00105f6d48a28f006da7f9822f2606d8", size = 148972, upload-time = "2026-01-28T18:15:29.342Z" },
+    { url = "https://files.pythonhosted.org/packages/04/78/0acd37ca84ce3ddffaa92ef0f571e073faa6d8ff1f0559ab1272188ea2be/psutil-7.2.2-cp36-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:b58fabe35e80b264a4e3bb23e6b96f9e45a3df7fb7eed419ac0e5947c61e47cc", size = 148266, upload-time = "2026-01-28T18:15:31.597Z" },
+    { url = "https://files.pythonhosted.org/packages/b4/90/e2159492b5426be0c1fef7acba807a03511f97c5f86b3caeda6ad92351a7/psutil-7.2.2-cp37-abi3-win_amd64.whl", hash = "sha256:eb7e81434c8d223ec4a219b5fc1c47d0417b12be7ea866e24fb5ad6e84b3d988", size = 137737, upload-time = "2026-01-28T18:15:33.849Z" },
+    { url = "https://files.pythonhosted.org/packages/8c/c7/7bb2e321574b10df20cbde462a94e2b71d05f9bbda251ef27d104668306a/psutil-7.2.2-cp37-abi3-win_arm64.whl", hash = "sha256:8c233660f575a5a89e6d4cb65d9f938126312bca76d8fe087b947b3a1aaac9ee", size = 134617, upload-time = "2026-01-28T18:15:36.514Z" },
+]
+
+[[package]]
 name = "pygments"
 version = "2.19.2"
 source = { registry = "https://pypi.org/simple" }
@@ -397,15 +347,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/5e/f7/c933acc76f5208b3b00089573cf6a2bc26dc80a8aece8f52bb7d6b1855ca/pytest_cov-7.0.0.tar.gz", hash = "sha256:33c97eda2e049a0c5298e91f519302a1334c26ac65c1a483d6206fd458361af1", size = 54328, upload-time = "2025-09-09T10:57:02.113Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ee/49/1377b49de7d0c1ce41292161ea0f721913fa8722c19fb9c1e3aa0367eecb/pytest_cov-7.0.0-py3-none-any.whl", hash = "sha256:3b8e9558b16cc1479da72058bdecf8073661c7f57f7d3c5f22a1c23507f2d861", size = 22424, upload-time = "2025-09-09T10:57:00.695Z" },
-]
-
-[[package]]
-name = "python-dotenv"
-version = "1.2.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/82/ed/0301aeeac3e5353ef3d94b6ec08bbcabd04a72018415dcb29e588514bba8/python_dotenv-1.2.2.tar.gz", hash = "sha256:2c371a91fbd7ba082c2c1dc1f8bf89ca22564a087c2c287cd9b662adde799cf3", size = 50135, upload-time = "2026-03-01T16:00:26.196Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/0b/d7/1959b9648791274998a9c3526f6d0ec8fd2233e4d4acce81bbae76b44b2a/python_dotenv-1.2.2-py3-none-any.whl", hash = "sha256:1d8214789a24de455a8b8bd8ae6fe3c6b69a5e3d64aa8a8e5d68e694bbcb285a", size = 22101, upload-time = "2026-03-01T16:00:25.09Z" },
 ]
 
 [[package]]
