@@ -1,3 +1,10 @@
+## [1.10.1](https://github.com/hyperi-io/hyperi-ci/compare/v1.10.0...v1.10.1) (2026-04-19)
+
+
+### Bug Fixes
+
+* **rust:** workload timeout = duration + 600s absolute grace ([3b006d7](https://github.com/hyperi-io/hyperi-ci/commit/3b006d701d9d42179da52a54b701509ff9d561b9))
+
 # [1.10.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.9.6...v1.10.0) (2026-04-19)
 
 
