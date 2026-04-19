@@ -1,3 +1,11 @@
+## [1.10.4](https://github.com/hyperi-io/hyperi-ci/compare/v1.10.3...v1.10.4) (2026-04-19)
+
+
+### Bug Fixes
+
+* **ci:** use GITHUB_TOKEN for GHCR login to enable first-push package creation ([e733377](https://github.com/hyperi-io/hyperi-ci/commit/e733377acd04ca7058a7a208b34627064b0e61e3))
+* parameterize LLVM version, dedup pre-configured apt repos ([5ba0c4b](https://github.com/hyperi-io/hyperi-ci/commit/5ba0c4b4e544d805db19046c13820a3bc17896bd))
+
 ## [1.10.3](https://github.com/hyperi-io/hyperi-ci/compare/v1.10.2...v1.10.3) (2026-04-19)
 
 
