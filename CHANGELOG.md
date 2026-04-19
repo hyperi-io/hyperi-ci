@@ -1,3 +1,10 @@
+## [1.10.3](https://github.com/hyperi-io/hyperi-ci/compare/v1.10.2...v1.10.3) (2026-04-19)
+
+
+### Bug Fixes
+
+* pull bolt-21 from apt.llvm.org for latest BOLT upstream ([27ba197](https://github.com/hyperi-io/hyperi-ci/commit/27ba19778240eb97154b0ed6ce73421c30a020b2))
+
 ## [1.10.2](https://github.com/hyperi-io/hyperi-ci/compare/v1.10.1...v1.10.2) (2026-04-19)
 
 
