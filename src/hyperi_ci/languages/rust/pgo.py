@@ -183,8 +183,44 @@ def _ensure_cargo_pgo_installed() -> bool:
 
 
 def _ensure_llvm_bolt_available() -> bool:
-    """Check llvm-bolt is on PATH. No auto-install — it's a system package."""
-    return shutil.which("llvm-bolt") is not None
+    """Check llvm-bolt is discoverable; shim versioned binaries onto PATH.
+
+    Ubuntu's `bolt-NN` apt package installs `/usr/bin/llvm-bolt-NN` but
+    no unversioned `/usr/bin/llvm-bolt` — and cargo-pgo's BOLT subcommand
+    invokes the unversioned name. Try the plain name first, then fall
+    back to version-suffixed names (newest first) and create a symlink
+    in the user's `~/.local/bin` so subsequent `shutil.which()` calls
+    and subprocess invocations of `llvm-bolt` resolve correctly.
+
+    Returns True if `llvm-bolt` resolves (directly or via shim).
+    No auto-install — the apt package is added by native_deps.py.
+    """
+    if shutil.which("llvm-bolt"):
+        return True
+
+    # Try version-suffixed binaries, newest first. Range covers LLVM
+    # 18..30 which spans Ubuntu jammy through expected future releases.
+    for version in range(30, 17, -1):
+        versioned = shutil.which(f"llvm-bolt-{version}")
+        if not versioned:
+            continue
+
+        shim_dir = Path.home() / ".local" / "bin"
+        shim_dir.mkdir(parents=True, exist_ok=True)
+        shim = shim_dir / "llvm-bolt"
+        if shim.exists() or shim.is_symlink():
+            shim.unlink()
+        shim.symlink_to(versioned)
+
+        # Ensure ~/.local/bin is on PATH for subprocess children
+        current_path = os.environ.get("PATH", "")
+        if str(shim_dir) not in current_path.split(os.pathsep):
+            os.environ["PATH"] = f"{shim_dir}{os.pathsep}{current_path}"
+
+        info(f"llvm-bolt shim: {shim} -> {versioned}")
+        return True
+
+    return False
 
 
 def _run_cargo_pgo(

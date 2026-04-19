@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import os
 from unittest.mock import MagicMock, patch
 
 from hyperi_ci.languages.rust.optimize import OptimizationProfile
@@ -84,9 +85,15 @@ class TestCargoPgoInstallGate:
 
 
 class TestBoltAvailabilityCheck:
-    """llvm-bolt is system-package only, no auto-install."""
+    """llvm-bolt discovery with versioned-binary fallback shim.
 
-    def test_llvm_bolt_present(self) -> None:
+    Ubuntu ships only version-suffixed llvm-bolt-NN via the bolt-NN package
+    — no unversioned /usr/bin/llvm-bolt. _ensure_llvm_bolt_available() must
+    detect the versioned binary and expose it on PATH as `llvm-bolt` so
+    cargo-pgo's BOLT subcommand can invoke it.
+    """
+
+    def test_llvm_bolt_unversioned_present(self) -> None:
         with patch(
             "hyperi_ci.languages.rust.pgo.shutil.which",
             return_value="/usr/bin/llvm-bolt",
@@ -96,6 +103,33 @@ class TestBoltAvailabilityCheck:
     def test_llvm_bolt_missing(self) -> None:
         with patch("hyperi_ci.languages.rust.pgo.shutil.which", return_value=None):
             assert _ensure_llvm_bolt_available() is False
+
+    def test_llvm_bolt_versioned_fallback_creates_shim(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """When only /usr/bin/llvm-bolt-21 exists, create ~/.local/bin/llvm-bolt shim."""
+        # Fake versioned binary on disk (the shim target)
+        fake_bolt_21 = tmp_path / "llvm-bolt-21"
+        fake_bolt_21.touch()
+
+        # Redirect Path.home() to a clean tmp dir so the shim lands there
+        home = tmp_path / "home"
+        monkeypatch.setattr("hyperi_ci.languages.rust.pgo.Path.home", lambda: home)
+
+        def fake_which(name: str) -> str | None:
+            if name == "llvm-bolt":
+                return None  # no unversioned binary
+            if name == "llvm-bolt-21":
+                return str(fake_bolt_21)
+            return None
+
+        with patch("hyperi_ci.languages.rust.pgo.shutil.which", fake_which):
+            assert _ensure_llvm_bolt_available() is True
+
+        shim = home / ".local" / "bin" / "llvm-bolt"
+        assert shim.is_symlink()
+        assert shim.resolve() == fake_bolt_21.resolve()
+        assert str(home / ".local" / "bin") in os.environ["PATH"].split(os.pathsep)
 
 
 class TestWorkloadExecution:
