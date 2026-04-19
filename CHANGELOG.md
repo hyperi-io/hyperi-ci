@@ -1,3 +1,10 @@
+# [1.10.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.9.6...v1.10.0) (2026-04-19)
+
+
+### Features
+
+* **rust:** universal install of Tier 2 tooling (cargo-pgo + llvm-bolt) ([5a16224](https://github.com/hyperi-io/hyperi-ci/commit/5a1622405f339c73211b22bc1020d0633c6e38b5))
+
 ## [1.9.6](https://github.com/hyperi-io/hyperi-ci/compare/v1.9.5...v1.9.6) (2026-04-18)
 
 
