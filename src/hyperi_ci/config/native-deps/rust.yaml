@@ -42,10 +42,17 @@
 # so Tier 2 Just Works when a project opts in via .hyperi-ci.yaml.
 # Ubuntu ships llvm-bolt in `bolt-NN` (post-link optimizer), NOT in
 # the `llvm` metapackage — that was the silent BOLT-skip cause during
-# the dfe-receiver v1.15.7 canary. Use the latest available BOLT for
-# Rust; C++/ClickHouse fork uses its own pinned toolchain separately.
-# Installs binary at /usr/bin/llvm-bolt-21 (version-suffixed only —
-# pgo.py's _ensure_llvm_bolt_available() falls back to versioned names).
+# the dfe-receiver v1.15.7 canary.
+#
+# We pull from apt.llvm.org (LLVM's official upstream repo) so we
+# always get the latest BOLT regardless of what the base Ubuntu
+# release ships. `bolt-21` is the current upstream latest (C++ /
+# ClickHouse fork uses its own pinned toolchain separately — no
+# conflict since these are version-suffixed binaries).
+#
+# Installs /usr/bin/llvm-bolt-21 (version-suffixed only — pgo.py's
+# _ensure_llvm_bolt_available() falls back to versioned names and
+# shims ~/.local/bin/llvm-bolt → /usr/bin/llvm-bolt-21).
 # Linux only (apt); non-Linux runners skip this whole file.
 - name: llvm-bolt
   patterns:
@@ -53,6 +60,11 @@
   manifest_files:
     - Cargo.toml
   dpkg_check: bolt-21
+  apt_repos:
+    - key_url: https://apt.llvm.org/llvm-snapshot.gpg.key
+      keyring: /usr/share/keyrings/llvm.gpg
+      url: https://apt.llvm.org/noble/
+      codename: llvm-toolchain-noble-21
   apt_packages:
     - bolt-21
     - binutils
