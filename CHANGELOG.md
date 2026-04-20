@@ -1,3 +1,10 @@
+## [1.10.6](https://github.com/hyperi-io/hyperi-ci/compare/v1.10.5...v1.10.6) (2026-04-20)
+
+
+### Bug Fixes
+
+* alias javascript to typescript handler; gate TS tools on script/config presence ([a92bba7](https://github.com/hyperi-io/hyperi-ci/commit/a92bba79749ba29fdd51dadba814f14738e7a8ab))
+
 ## [1.10.5](https://github.com/hyperi-io/hyperi-ci/compare/v1.10.4...v1.10.5) (2026-04-20)
 
 
