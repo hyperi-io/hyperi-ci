@@ -182,7 +182,7 @@ def _ensure_cargo_pgo_installed() -> bool:
     return False
 
 
-_BOLT_TOOLCHAIN_BINARIES = ("llvm-bolt", "merge-fdata")
+_BOLT_TOOLCHAIN_BINARIES = ("llvm-bolt", "merge-fdata", "ld.lld")
 
 
 def _ensure_llvm_bolt_available() -> bool:
@@ -347,6 +347,29 @@ def _instrumented_binary_path(
     return cwd / "target" / target / "release" / binary_name
 
 
+def _bolt_linker_env(target: str) -> dict[str, str]:
+    """Env overrides that force lld as the linker for the given target.
+
+    BOLT's instrumented builds pass `-Wl,-q` (`--emit-relocs`) which mold
+    and GNU BFD don't handle reliably — mold segfaults on some link
+    combinations, BFD reports "invalid operation". LLD is the canonical
+    BOLT-compatible linker.
+
+    This replaces the project's per-target `rustflags` during BOLT steps
+    only. Project-specific flags like `-C target-cpu=x86-64-v3` are lost
+    for the BOLT-instrumented build, which is acceptable because that
+    binary only runs the workload to collect BOLT profile data — branch
+    profile correctness is independent of codegen target-cpu.
+    """
+    # Cargo env var for target-specific rustflags uses UPPERCASE with
+    # hyphens and dots replaced by underscores (e.g. x86_64-unknown-linux-gnu
+    # → X86_64_UNKNOWN_LINUX_GNU).
+    env_key = (
+        f"CARGO_TARGET_{target.upper().replace('-', '_').replace('.', '_')}_RUSTFLAGS"
+    )
+    return {env_key: "-C link-arg=-fuse-ld=lld"}
+
+
 def _run_bolt(
     target: str,
     feature_args: list[str],
@@ -356,19 +379,33 @@ def _run_bolt(
 ) -> int:
     """Run the BOLT post-link optimisation pipeline.
 
-    Requires llvm-bolt installed. Silent skip if not.
+    Requires the llvm-bolt + merge-fdata + ld.lld toolchain installed
+    (covered by the `bolt-NN` + `lld-NN` apt packages from apt.llvm.org).
+    Silent skip if any toolchain binary is missing.
+
+    Forces lld as the linker for both `cargo pgo bolt build` and
+    `cargo pgo bolt optimize` — mold and BFD don't handle the
+    `--emit-relocs` metadata BOLT requires. See `_bolt_linker_env()`.
+
     Requires the PGO step to have run already (BOLT uses the PGO profile).
     """
     if not _ensure_llvm_bolt_available():
-        warn("llvm-bolt not installed — skipping BOLT step")
+        warn(
+            "BOLT toolchain not complete (llvm-bolt / merge-fdata / ld.lld) — skipping BOLT step"
+        )
         return 0  # Non-fatal
 
+    # Merge project env_overrides (LTO etc.) with the BOLT-step linker
+    # override. Linker env takes precedence over project config for the
+    # target-specific rustflags — this is intentional.
+    bolt_env = {**(extra_env or {}), **_bolt_linker_env(target)}
+
     # BOLT instrument build
-    info(f"BOLT: building instrumented binary for {target}")
+    info(f"BOLT: building instrumented binary for {target} (linker forced to lld)")
     rc = _run_cargo_pgo(
         ["bolt", "build", "--", "--target", target, *feature_args],
         cwd=cwd,
-        extra_env=extra_env,
+        extra_env=bolt_env,
     )
     if rc != 0:
         return rc
@@ -379,11 +416,11 @@ def _run_bolt(
     # This is a placeholder for the workload re-run step — the actual
     # perf-record wiring is handled by cargo-pgo's bolt subcommand.
 
-    info(f"BOLT: optimising binary for {target} (using PGO profile)")
+    info(f"BOLT: optimising binary for {target} (using PGO profile, linker=lld)")
     rc = _run_cargo_pgo(
         ["bolt", "optimize", "--with-pgo", "--", "--target", target, *feature_args],
         cwd=cwd,
-        extra_env=extra_env,
+        extra_env=bolt_env,
     )
     # Silence unused arg warning
     del binary_name

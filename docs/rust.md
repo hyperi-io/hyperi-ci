@@ -190,7 +190,7 @@ producer/consumer, multi-protocol) live in
 ### LLVM version
 
 `HYPERCI_LLVM_VERSION` (default `22`) controls which `bolt-NN` +
-`llvm-bolt-NN` + `merge-fdata-NN` get used. Bump it in your project only
+`llvm-bolt-NN` + `merge-fdata-NN` + `ld.lld-NN` get used. Bump it in your project only
 if you need a specific LLVM major — otherwise trust the default.
 
 ---
@@ -209,7 +209,7 @@ if you need a specific LLVM major — otherwise trust the default.
 12:00 Workload complete, profile data: ~5 MiB collected
 12:00 PGO: building optimised binary (fresh compile with profile data)
 16:00 PGO-optimised build complete
-16:00 llvm-bolt + merge-fdata shim: ~/.local/bin/* -> /usr/bin/*-22
+16:00 llvm-bolt + merge-fdata + ld.lld shim: ~/.local/bin/* -> /usr/bin/*-22
 16:00 BOLT: building instrumented binary
 18:00 BOLT: applying profile, emitting final binary
 18:00 Artifact upload
@@ -255,6 +255,8 @@ PGO: building optimised binary
 PGO-optimized binary <name> built successfully
 llvm-bolt shim: ~/.local/bin/llvm-bolt -> /usr/bin/llvm-bolt-22
 merge-fdata shim: ~/.local/bin/merge-fdata -> /usr/bin/merge-fdata-22
+ld.lld shim: ~/.local/bin/ld.lld -> /usr/bin/ld.lld-22
+BOLT: building instrumented binary for <triple> (linker forced to lld)
 BOLT: building instrumented binary
 cargo pgo bolt build -- --target <triple> --features jemalloc
 BOLT: optimising binary
@@ -426,6 +428,7 @@ Weekly cron or on-demand.
 | "BOLT skipped — not a Linux target" | Expected on macOS/Windows targets. Non-fatal |
 | "llvm-bolt not installed — skipping BOLT step" | `bolt-NN` apt package didn't install. Check runner egress to apt.llvm.org, GPG key fetch succeeded, `dpkg -l bolt-22` on the runner |
 | "Cannot find merge-fdata: cannot find binary path" | The `bolt-NN` package ships both binaries; missing merge-fdata means the package didn't install. Same root cause as above. Fixed in hyperi-ci v1.10.4+ |
+| "linking with `cc` failed: ld terminated with signal 11" (mold segfault) OR "ld: final link failed: invalid operation" (BFD) during `cargo pgo bolt build` | BOLT's `-Wl,-q` (`--emit-relocs`) isn't supported by mold/BFD. hyperi-ci v1.10.7+ forces `-fuse-ld=lld` for BOLT steps via `CARGO_TARGET_<TRIPLE>_RUSTFLAGS` (lld-NN shipped by the `lld-NN` apt package). On older versions, strip `-fuse-ld=mold` from the project's `[target.*] rustflags` to unblock |
 
 ### Local developer
 

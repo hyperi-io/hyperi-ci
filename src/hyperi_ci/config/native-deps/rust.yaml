@@ -75,6 +75,7 @@
       codename: llvm-toolchain-noble-${HYPERCI_LLVM_VERSION}
   apt_packages:
     - bolt-${HYPERCI_LLVM_VERSION}
+    - lld-${HYPERCI_LLVM_VERSION}  # BOLT requires --emit-relocs (-Wl,-q) support; mold/BFD crash/reject
     - binutils
 
 # --- Kafka (librdkafka) ---
