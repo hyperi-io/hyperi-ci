@@ -85,51 +85,116 @@ class TestCargoPgoInstallGate:
 
 
 class TestBoltAvailabilityCheck:
-    """llvm-bolt discovery with versioned-binary fallback shim.
+    """BOLT toolchain discovery with versioned-binary fallback shim.
 
-    Ubuntu ships only version-suffixed llvm-bolt-NN via the bolt-NN package
-    — no unversioned /usr/bin/llvm-bolt. _ensure_llvm_bolt_available() must
-    detect the versioned binary and expose it on PATH as `llvm-bolt` so
-    cargo-pgo's BOLT subcommand can invoke it.
+    Ubuntu ships only version-suffixed binaries (llvm-bolt-NN, merge-fdata-NN)
+    via the bolt-NN package — no unversioned symlinks. cargo-pgo's BOLT flow
+    invokes BOTH `llvm-bolt` and `merge-fdata` unversioned, so the shim must
+    cover both and they must come from the SAME LLVM version for internal
+    consistency.
     """
 
-    def test_llvm_bolt_unversioned_present(self) -> None:
+    def test_both_tools_unversioned_present(self) -> None:
+        """Fast path: both unversioned binaries already on PATH."""
         with patch(
             "hyperi_ci.languages.rust.pgo.shutil.which",
-            return_value="/usr/bin/llvm-bolt",
+            side_effect=lambda name: (
+                f"/usr/bin/{name}" if name in ("llvm-bolt", "merge-fdata") else None
+            ),
         ):
             assert _ensure_llvm_bolt_available() is True
 
-    def test_llvm_bolt_missing(self) -> None:
+    def test_neither_tool_available_returns_false(self) -> None:
         with patch("hyperi_ci.languages.rust.pgo.shutil.which", return_value=None):
             assert _ensure_llvm_bolt_available() is False
 
-    def test_llvm_bolt_versioned_fallback_creates_shim(
+    def test_versioned_fallback_shims_both_binaries(
         self, tmp_path, monkeypatch
     ) -> None:
-        """When only /usr/bin/llvm-bolt-21 exists, create ~/.local/bin/llvm-bolt shim."""
-        # Fake versioned binary on disk (the shim target)
-        fake_bolt_21 = tmp_path / "llvm-bolt-21"
-        fake_bolt_21.touch()
+        """Only /usr/bin/*-22 present → shim both llvm-bolt AND merge-fdata."""
+        fake_bolt = tmp_path / "llvm-bolt-22"
+        fake_merge = tmp_path / "merge-fdata-22"
+        fake_bolt.touch()
+        fake_merge.touch()
 
-        # Redirect Path.home() to a clean tmp dir so the shim lands there
         home = tmp_path / "home"
         monkeypatch.setattr("hyperi_ci.languages.rust.pgo.Path.home", lambda: home)
+        monkeypatch.setenv("HYPERCI_LLVM_VERSION", "22")
 
         def fake_which(name: str) -> str | None:
-            if name == "llvm-bolt":
-                return None  # no unversioned binary
-            if name == "llvm-bolt-21":
-                return str(fake_bolt_21)
+            if name == "llvm-bolt-22":
+                return str(fake_bolt)
+            if name == "merge-fdata-22":
+                return str(fake_merge)
             return None
 
         with patch("hyperi_ci.languages.rust.pgo.shutil.which", fake_which):
             assert _ensure_llvm_bolt_available() is True
 
-        shim = home / ".local" / "bin" / "llvm-bolt"
-        assert shim.is_symlink()
-        assert shim.resolve() == fake_bolt_21.resolve()
-        assert str(home / ".local" / "bin") in os.environ["PATH"].split(os.pathsep)
+        shim_dir = home / ".local" / "bin"
+        bolt_shim = shim_dir / "llvm-bolt"
+        merge_shim = shim_dir / "merge-fdata"
+        assert bolt_shim.is_symlink() and bolt_shim.resolve() == fake_bolt.resolve()
+        assert merge_shim.is_symlink() and merge_shim.resolve() == fake_merge.resolve()
+        assert str(shim_dir) in os.environ["PATH"].split(os.pathsep)
+
+    def test_partial_toolchain_returns_false(self, tmp_path, monkeypatch) -> None:
+        """llvm-bolt-22 present but merge-fdata-22 missing → all-or-nothing refusal.
+
+        cargo-pgo's BOLT flow fails silently on partial toolchain; better to
+        return False here and let the caller surface a clear 'BOLT skipped'
+        warning than to shim only llvm-bolt and hit `Cannot find merge-fdata`
+        mid-build.
+        """
+        fake_bolt = tmp_path / "llvm-bolt-22"
+        fake_bolt.touch()
+        # merge-fdata-22 intentionally absent
+
+        home = tmp_path / "home"
+        monkeypatch.setattr("hyperi_ci.languages.rust.pgo.Path.home", lambda: home)
+
+        def fake_which(name: str) -> str | None:
+            if name == "llvm-bolt-22":
+                return str(fake_bolt)
+            return None
+
+        with patch("hyperi_ci.languages.rust.pgo.shutil.which", fake_which):
+            assert _ensure_llvm_bolt_available() is False
+        # No shim created since we refused the partial toolchain
+        assert not (home / ".local" / "bin" / "llvm-bolt").exists()
+
+    def test_skips_versions_with_incomplete_toolchain(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """v21 has only llvm-bolt; v22 has both — must pick v22 consistently."""
+        # v21: only llvm-bolt-21 (no merge-fdata-21)
+        v21_bolt = tmp_path / "llvm-bolt-21"
+        v21_bolt.touch()
+        # v22: both present
+        v22_bolt = tmp_path / "llvm-bolt-22"
+        v22_merge = tmp_path / "merge-fdata-22"
+        v22_bolt.touch()
+        v22_merge.touch()
+
+        home = tmp_path / "home"
+        monkeypatch.setattr("hyperi_ci.languages.rust.pgo.Path.home", lambda: home)
+        monkeypatch.delenv("HYPERCI_LLVM_VERSION", raising=False)
+
+        lookup = {
+            "llvm-bolt-21": str(v21_bolt),
+            "llvm-bolt-22": str(v22_bolt),
+            "merge-fdata-22": str(v22_merge),
+        }
+
+        with patch(
+            "hyperi_ci.languages.rust.pgo.shutil.which",
+            side_effect=lambda name: lookup.get(name),
+        ):
+            assert _ensure_llvm_bolt_available() is True
+
+        # Must have shimmed v22 (complete), not v21 (partial)
+        bolt_shim = home / ".local" / "bin" / "llvm-bolt"
+        assert bolt_shim.resolve() == v22_bolt.resolve()
 
 
 class TestWorkloadExecution:

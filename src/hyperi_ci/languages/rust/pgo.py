@@ -182,20 +182,33 @@ def _ensure_cargo_pgo_installed() -> bool:
     return False
 
 
+_BOLT_TOOLCHAIN_BINARIES = ("llvm-bolt", "merge-fdata")
+
+
 def _ensure_llvm_bolt_available() -> bool:
-    """Check llvm-bolt is discoverable; shim versioned binaries onto PATH.
+    """Check BOLT toolchain is discoverable; shim versioned binaries onto PATH.
 
-    Ubuntu's `bolt-NN` apt package installs `/usr/bin/llvm-bolt-NN` but
-    no unversioned `/usr/bin/llvm-bolt` — and cargo-pgo's BOLT subcommand
-    invokes the unversioned name. Try the plain name first, then fall
-    back to version-suffixed names (newest first) and create a symlink
-    in the user's `~/.local/bin` so subsequent `shutil.which()` calls
-    and subprocess invocations of `llvm-bolt` resolve correctly.
+    Ubuntu's `bolt-NN` apt package installs version-suffixed binaries
+    (e.g. `/usr/bin/llvm-bolt-22`, `/usr/bin/merge-fdata-22`) but NO
+    unversioned symlinks — and cargo-pgo's BOLT flow invokes the
+    unversioned names (`llvm-bolt` AND `merge-fdata`, the latter to
+    merge BOLT profile fragments before applying them).
 
-    Returns True if `llvm-bolt` resolves (directly or via shim).
+    For each toolchain binary, try the plain name first; if missing,
+    find the version-suffixed variant and create a symlink in
+    `~/.local/bin` so subsequent subprocess invocations resolve the
+    unversioned name. All shimmed binaries must share the same LLVM
+    major version — we pick the version that provides `llvm-bolt`
+    (preferring HYPERCI_LLVM_VERSION) and shim `merge-fdata` from the
+    same version for consistency.
+
+    Returns True only if every required binary is discoverable (either
+    directly or via shim). cargo-pgo's BOLT step fails silently on
+    partial toolchain — all-or-nothing is the safer contract.
     No auto-install — the apt package is added by native_deps.py.
     """
-    if shutil.which("llvm-bolt"):
+    # Fast path: all unversioned binaries already on PATH.
+    if all(shutil.which(name) for name in _BOLT_TOOLCHAIN_BINARIES):
         return True
 
     # Prefer the version pinned in HYPERCI_LLVM_VERSION (matches the
@@ -214,24 +227,32 @@ def _ensure_llvm_bolt_available() -> bool:
         versions.append(preferred_int)
     versions.extend(v for v in range(30, 17, -1) if v != preferred_int)
 
+    shim_dir = Path.home() / ".local" / "bin"
     for version in versions:
-        versioned = shutil.which(f"llvm-bolt-{version}")
-        if not versioned:
+        # Require that THIS version provides every needed binary so the
+        # shimmed toolchain is internally consistent.
+        resolved: dict[str, str] = {}
+        for name in _BOLT_TOOLCHAIN_BINARIES:
+            versioned = shutil.which(f"{name}-{version}")
+            if versioned:
+                resolved[name] = versioned
+
+        if len(resolved) != len(_BOLT_TOOLCHAIN_BINARIES):
             continue
 
-        shim_dir = Path.home() / ".local" / "bin"
         shim_dir.mkdir(parents=True, exist_ok=True)
-        shim = shim_dir / "llvm-bolt"
-        if shim.exists() or shim.is_symlink():
-            shim.unlink()
-        shim.symlink_to(versioned)
+        for name, versioned in resolved.items():
+            shim = shim_dir / name
+            if shim.exists() or shim.is_symlink():
+                shim.unlink()
+            shim.symlink_to(versioned)
+            info(f"{name} shim: {shim} -> {versioned}")
 
         # Ensure ~/.local/bin is on PATH for subprocess children
         current_path = os.environ.get("PATH", "")
         if str(shim_dir) not in current_path.split(os.pathsep):
             os.environ["PATH"] = f"{shim_dir}{os.pathsep}{current_path}"
 
-        info(f"llvm-bolt shim: {shim} -> {versioned}")
         return True
 
     return False
