@@ -34,7 +34,7 @@ knowledge. A **good** workload gives the compiler a realistic picture
 of production and yields 10-20% speedup. A **bad** workload mis-teaches
 the compiler and produces measurably slower code.
 
-For the CI contract, see `docs/RUST-RELEASE-TRACK-OPTIMISATION.md`.
+For the CI contract, see [`rust.md`](rust.md) → *Tier 2 — PGO + BOLT*.
 For copy-paste starting points, see `templates/pgo-workload/`.
 
 ## The Four Rules
