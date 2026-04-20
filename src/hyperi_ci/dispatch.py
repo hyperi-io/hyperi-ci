@@ -35,14 +35,27 @@ from hyperi_ci.quality import commit_validation, gitleaks
 
 VALID_STAGES = ("setup", "quality", "test", "build", "container", "publish")
 
+# Languages that share a handler package. The left-hand name is what
+# `detect_language()` returns (honest — describes what the project actually
+# is); the right-hand name is the handler module to dispatch to. Keeping
+# the alias in dispatch means log lines like "Detected language: javascript"
+# stay accurate while the TS handler runs the stage.
+_LANGUAGE_ALIASES = {
+    "javascript": "typescript",
+}
+
 
 def _find_handler_module(language: str, stage: str) -> Any | None:
     """Import a language-specific handler module if it exists.
 
     Looks for hyperi_ci.languages.<language>.<stage> and returns the module
-    if it has a run() function.
+    if it has a run() function. Handles language aliases (e.g. javascript
+    shares the typescript handler package).
     """
-    module_name = f"hyperi_ci.languages.{language}.{stage}"
+    canonical = _LANGUAGE_ALIASES.get(language, language)
+    if canonical != language:
+        info(f"Using {canonical} handler for {language} project")
+    module_name = f"hyperi_ci.languages.{canonical}.{stage}"
     try:
         mod = importlib.import_module(module_name)
         if hasattr(mod, "run"):
