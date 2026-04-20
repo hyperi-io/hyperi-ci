@@ -1,3 +1,10 @@
+## [1.10.5](https://github.com/hyperi-io/hyperi-ci/compare/v1.10.4...v1.10.5) (2026-04-20)
+
+
+### Bug Fixes
+
+* shim merge-fdata alongside llvm-bolt for cargo-pgo BOLT flow ([f6fcecf](https://github.com/hyperi-io/hyperi-ci/commit/f6fcecf8dbf7fc8305d40b32dbd6e3b6a294e5e0))
+
 ## [1.10.4](https://github.com/hyperi-io/hyperi-ci/compare/v1.10.3...v1.10.4) (2026-04-19)
 
 
