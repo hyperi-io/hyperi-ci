@@ -94,12 +94,17 @@ class TestBoltAvailabilityCheck:
     consistency.
     """
 
-    def test_both_tools_unversioned_present(self) -> None:
-        """Fast path: both unversioned binaries already on PATH."""
+    # BOLT toolchain = llvm-bolt + merge-fdata + ld.lld (all three must
+    # resolve from the same LLVM version for cargo-pgo's bolt flow to
+    # work — ld.lld is the linker BOLT requires for --emit-relocs metadata).
+    _BOLT_TOOLS = ("llvm-bolt", "merge-fdata", "ld.lld")
+
+    def test_all_tools_unversioned_present(self) -> None:
+        """Fast path: all three unversioned binaries already on PATH."""
         with patch(
             "hyperi_ci.languages.rust.pgo.shutil.which",
             side_effect=lambda name: (
-                f"/usr/bin/{name}" if name in ("llvm-bolt", "merge-fdata") else None
+                f"/usr/bin/{name}" if name in self._BOLT_TOOLS else None
             ),
         ):
             assert _ensure_llvm_bolt_available() is True
@@ -108,10 +113,44 @@ class TestBoltAvailabilityCheck:
         with patch("hyperi_ci.languages.rust.pgo.shutil.which", return_value=None):
             assert _ensure_llvm_bolt_available() is False
 
-    def test_versioned_fallback_shims_both_binaries(
+    def test_versioned_fallback_shims_all_three_binaries(
         self, tmp_path, monkeypatch
     ) -> None:
-        """Only /usr/bin/*-22 present → shim both llvm-bolt AND merge-fdata."""
+        """Only /usr/bin/*-22 present → shim llvm-bolt, merge-fdata, AND ld.lld."""
+        versioned_binaries = {
+            f"{name}-22": tmp_path / f"{name}-22" for name in self._BOLT_TOOLS
+        }
+        for path in versioned_binaries.values():
+            path.touch()
+
+        home = tmp_path / "home"
+        monkeypatch.setattr("hyperi_ci.languages.rust.pgo.Path.home", lambda: home)
+        monkeypatch.setenv("HYPERCI_LLVM_VERSION", "22")
+
+        def fake_which(name: str) -> str | None:
+            if name in versioned_binaries:
+                return str(versioned_binaries[name])
+            return None
+
+        with patch("hyperi_ci.languages.rust.pgo.shutil.which", fake_which):
+            assert _ensure_llvm_bolt_available() is True
+
+        shim_dir = home / ".local" / "bin"
+        for tool in self._BOLT_TOOLS:
+            shim = shim_dir / tool
+            expected = versioned_binaries[f"{tool}-22"]
+            assert shim.is_symlink(), f"{tool} shim not created"
+            assert shim.resolve() == expected.resolve()
+        assert str(shim_dir) in os.environ["PATH"].split(os.pathsep)
+
+    def test_partial_toolchain_returns_false(self, tmp_path, monkeypatch) -> None:
+        """llvm-bolt-22 + merge-fdata-22 present but ld.lld-22 missing → refuse.
+
+        All three binaries must come from the same LLVM version. Without
+        ld.lld, BOLT-instrumented link will fail — better to return False
+        here and surface a clear 'BOLT skipped' warning.
+        """
+        # Two of three present — missing ld.lld
         fake_bolt = tmp_path / "llvm-bolt-22"
         fake_merge = tmp_path / "merge-fdata-22"
         fake_bolt.touch()
@@ -119,43 +158,12 @@ class TestBoltAvailabilityCheck:
 
         home = tmp_path / "home"
         monkeypatch.setattr("hyperi_ci.languages.rust.pgo.Path.home", lambda: home)
-        monkeypatch.setenv("HYPERCI_LLVM_VERSION", "22")
 
         def fake_which(name: str) -> str | None:
             if name == "llvm-bolt-22":
                 return str(fake_bolt)
             if name == "merge-fdata-22":
                 return str(fake_merge)
-            return None
-
-        with patch("hyperi_ci.languages.rust.pgo.shutil.which", fake_which):
-            assert _ensure_llvm_bolt_available() is True
-
-        shim_dir = home / ".local" / "bin"
-        bolt_shim = shim_dir / "llvm-bolt"
-        merge_shim = shim_dir / "merge-fdata"
-        assert bolt_shim.is_symlink() and bolt_shim.resolve() == fake_bolt.resolve()
-        assert merge_shim.is_symlink() and merge_shim.resolve() == fake_merge.resolve()
-        assert str(shim_dir) in os.environ["PATH"].split(os.pathsep)
-
-    def test_partial_toolchain_returns_false(self, tmp_path, monkeypatch) -> None:
-        """llvm-bolt-22 present but merge-fdata-22 missing → all-or-nothing refusal.
-
-        cargo-pgo's BOLT flow fails silently on partial toolchain; better to
-        return False here and let the caller surface a clear 'BOLT skipped'
-        warning than to shim only llvm-bolt and hit `Cannot find merge-fdata`
-        mid-build.
-        """
-        fake_bolt = tmp_path / "llvm-bolt-22"
-        fake_bolt.touch()
-        # merge-fdata-22 intentionally absent
-
-        home = tmp_path / "home"
-        monkeypatch.setattr("hyperi_ci.languages.rust.pgo.Path.home", lambda: home)
-
-        def fake_which(name: str) -> str | None:
-            if name == "llvm-bolt-22":
-                return str(fake_bolt)
             return None
 
         with patch("hyperi_ci.languages.rust.pgo.shutil.which", fake_which):
@@ -166,25 +174,23 @@ class TestBoltAvailabilityCheck:
     def test_skips_versions_with_incomplete_toolchain(
         self, tmp_path, monkeypatch
     ) -> None:
-        """v21 has only llvm-bolt; v22 has both — must pick v22 consistently."""
-        # v21: only llvm-bolt-21 (no merge-fdata-21)
+        """v21 has only llvm-bolt; v22 has full trio — must pick v22 consistently."""
+        # v21: only llvm-bolt-21 (no merge-fdata-21, no ld.lld-21)
         v21_bolt = tmp_path / "llvm-bolt-21"
         v21_bolt.touch()
-        # v22: both present
-        v22_bolt = tmp_path / "llvm-bolt-22"
-        v22_merge = tmp_path / "merge-fdata-22"
-        v22_bolt.touch()
-        v22_merge.touch()
+        # v22: all three present
+        v22_binaries = {
+            f"{name}-22": tmp_path / f"{name}-22" for name in self._BOLT_TOOLS
+        }
+        for path in v22_binaries.values():
+            path.touch()
 
         home = tmp_path / "home"
         monkeypatch.setattr("hyperi_ci.languages.rust.pgo.Path.home", lambda: home)
         monkeypatch.delenv("HYPERCI_LLVM_VERSION", raising=False)
 
-        lookup = {
-            "llvm-bolt-21": str(v21_bolt),
-            "llvm-bolt-22": str(v22_bolt),
-            "merge-fdata-22": str(v22_merge),
-        }
+        lookup = {"llvm-bolt-21": str(v21_bolt)}
+        lookup.update({name: str(path) for name, path in v22_binaries.items()})
 
         with patch(
             "hyperi_ci.languages.rust.pgo.shutil.which",
@@ -192,9 +198,45 @@ class TestBoltAvailabilityCheck:
         ):
             assert _ensure_llvm_bolt_available() is True
 
-        # Must have shimmed v22 (complete), not v21 (partial)
-        bolt_shim = home / ".local" / "bin" / "llvm-bolt"
-        assert bolt_shim.resolve() == v22_bolt.resolve()
+        # All shims must point at v22 (complete), not v21 (partial)
+        shim_dir = home / ".local" / "bin"
+        for tool in self._BOLT_TOOLS:
+            shim = shim_dir / tool
+            expected = v22_binaries[f"{tool}-22"]
+            assert shim.resolve() == expected.resolve()
+
+
+class TestBoltLinkerOverride:
+    """BOLT steps force lld as the linker via CARGO_TARGET_<TRIPLE>_RUSTFLAGS.
+
+    mold (on some projects) and GNU BFD can't handle the `--emit-relocs`
+    metadata cargo-pgo's BOLT flow requires. LLD is the canonical
+    BOLT-compatible linker. Verifies the env key construction for
+    common triples and that the rustflags value forces fuse-ld=lld.
+    """
+
+    def test_amd64_linux_triple_produces_correct_env_key(self) -> None:
+        from hyperi_ci.languages.rust.pgo import _bolt_linker_env
+
+        env = _bolt_linker_env("x86_64-unknown-linux-gnu")
+        assert "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS" in env
+        assert env["CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS"] == (
+            "-C link-arg=-fuse-ld=lld"
+        )
+
+    def test_arm64_linux_triple_produces_correct_env_key(self) -> None:
+        from hyperi_ci.languages.rust.pgo import _bolt_linker_env
+
+        env = _bolt_linker_env("aarch64-unknown-linux-gnu")
+        assert "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS" in env
+
+    def test_triple_with_dots_is_sanitised_to_underscores(self) -> None:
+        """Some triples have dots (e.g. Apple targets) — must become underscores."""
+        from hyperi_ci.languages.rust.pgo import _bolt_linker_env
+
+        # Cargo's env var convention replaces BOTH - and . with _
+        env = _bolt_linker_env("aarch64-apple-darwin")
+        assert "CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS" in env
 
 
 class TestWorkloadExecution:
