@@ -1,3 +1,10 @@
+## [1.10.7](https://github.com/hyperi-io/hyperi-ci/compare/v1.10.6...v1.10.7) (2026-04-20)
+
+
+### Bug Fixes
+
+* install lld-NN and force lld as linker for BOLT steps ([af4dbe1](https://github.com/hyperi-io/hyperi-ci/commit/af4dbe12768d8fe78352d4ed9c42e20ce65094f1))
+
 ## [1.10.6](https://github.com/hyperi-io/hyperi-ci/compare/v1.10.5...v1.10.6) (2026-04-20)
 
 
