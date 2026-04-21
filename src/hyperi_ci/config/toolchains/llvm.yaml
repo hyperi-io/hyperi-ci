@@ -49,6 +49,13 @@
       # substituted per-version by the multi-version expander.
       url: https://apt.llvm.org/${OS_CODENAME}/
       codename: llvm-toolchain-${OS_CODENAME}-{V}
+  # Only coinstallable-across-versions packages are listed here. apt.llvm.org
+  # marks the runtime -dev headers (libc++-N-dev, libc++abi-N-dev,
+  # libomp-N-dev, libunwind-N-dev) with `Conflicts: libc++-x.y-dev` etc., so
+  # at most one version of those may be present. Installing all four
+  # together fails with "held broken packages". BOLT and cargo-pgo do not
+  # require them (they operate on ELF post-link); projects that need libc++
+  # runtime headers install the matching version themselves.
   apt_packages:
     - clang-{V}
     - clang-tools-{V}
@@ -60,8 +67,4 @@
     - llvm-{V}-tools
     - libclang-{V}-dev
     - libclang-rt-{V}-dev
-    - libc++-{V}-dev
-    - libc++abi-{V}-dev
-    - libomp-{V}-dev
-    - libunwind-{V}-dev
     - bolt-{V}
