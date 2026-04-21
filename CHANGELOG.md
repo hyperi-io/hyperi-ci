@@ -1,3 +1,10 @@
+## [1.11.1](https://github.com/hyperi-io/hyperi-ci/compare/v1.11.0...v1.11.1) (2026-04-21)
+
+
+### Bug Fixes
+
+* **native_deps:** append apt sources instead of overwriting ([f3dad80](https://github.com/hyperi-io/hyperi-ci/commit/f3dad8002f0b565f1dceff7448a15120ca913d66))
+
 # [1.11.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.10.7...v1.11.0) (2026-04-21)
 
 
