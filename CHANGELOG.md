@@ -1,3 +1,10 @@
+## [1.11.2](https://github.com/hyperi-io/hyperi-ci/compare/v1.11.1...v1.11.2) (2026-04-21)
+
+
+### Bug Fixes
+
+* **toolchains:** drop non-coinstallable libc++/libomp/libunwind dev packages ([fc103c6](https://github.com/hyperi-io/hyperi-ci/commit/fc103c640dbb37c7070db4b62623dd2dd373742f))
+
 ## [1.11.1](https://github.com/hyperi-io/hyperi-ci/compare/v1.11.0...v1.11.1) (2026-04-21)
 
 
