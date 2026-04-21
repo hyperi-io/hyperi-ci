@@ -66,7 +66,19 @@ class AptRepo:
 
 @dataclass
 class DepGroup:
-    """A group of related native packages triggered by manifest patterns."""
+    """A group of related native packages triggered by manifest patterns.
+
+    `bake` controls behaviour in `--all` mode (runner image bake):
+      True  (default): install unconditionally — entry ends up pre-baked
+                       into the runner image for every matching category.
+      False:           SKIP in --all mode. The entry still installs
+                       conditionally at CI job time when manifest patterns
+                       match. Use for non-coinstallable toolsets (e.g.
+                       `libc++-N-dev` and friends declare Conflicts:x.y,
+                       so only one version may be present at a time —
+                       baking a default would lock out jobs needing a
+                       different version).
+    """
 
     name: str
     patterns: list[str]
@@ -75,6 +87,7 @@ class DepGroup:
     apt_packages: list[str] = field(default_factory=list)
     apt_repos: list[AptRepo] = field(default_factory=list)
     dpkg_min_version: str = ""
+    bake: bool = True
 
 
 _DEFAULT_LLVM_VERSION = "22"
@@ -135,6 +148,7 @@ def _dep_group_from_entry(entry: dict, version: str | None = None) -> DepGroup:
         manifest_files=entry.get("manifest_files", []),
         dpkg_check=sub(entry["dpkg_check"]),
         apt_packages=[sub(p) for p in entry.get("apt_packages", [])],
+        bake=entry.get("bake", True),
         apt_repos=[
             AptRepo(
                 key_url=r["key_url"],
@@ -478,7 +492,19 @@ def install_native_deps(
 
     needed: list[DepGroup] = []
     for group in dep_groups:
-        if not all_mode:
+        if all_mode:
+            # --all mode bypasses manifest match, but entries marked
+            # `bake: false` are ALWAYS install-on-demand — runner image
+            # bake skips them. Non-coinstallable toolsets (one version
+            # at a time) use this; baking a default would lock out jobs
+            # that need a different version.
+            if not group.bake:
+                logger.info(
+                    f"[{group.name}] skipped in --all (bake: false, "
+                    "install-on-demand only)"
+                )
+                continue
+        else:
             # Conditional mode: only install if a manifest pattern matches
             content = _read_manifests(cwd, group.manifest_files)
             if not content:
@@ -638,7 +664,8 @@ def print_needed(
 
     for group in dep_groups:
         if all_mode:
-            matched = True
+            # --all skips bake: false entries (install-on-demand only)
+            matched = group.bake
         else:
             content = _read_manifests(cwd, group.manifest_files)
             matched = bool(content) and _patterns_match(content, group.patterns)
