@@ -318,11 +318,18 @@ def _add_apt_repo(repo: AptRepo) -> int:
     Idempotent on three levels:
       1. GPG keyring: skips download if keyring file already present.
       2. Exact sources.list match: skips write if our file already has
-         the exact same line.
+         the exact same line. Other unrelated lines in the file are
+         preserved (append, don't overwrite).
       3. Cross-file duplicate detection: skips write if ANY other apt
          source file already references the same url + codename — this
          handles self-hosted runners where admins have pre-configured
          upstream repos under a different filename.
+
+    Multi-version note: many entries can share a keyring (e.g. LLVM 19/20/
+    21/22 all use `/usr/share/keyrings/llvm.gpg`). The sources filename is
+    derived from the keyring stem, so multiple AptRepo writes collide on
+    one file. We APPEND — multiple `deb` lines in the same .list pointing
+    at the same keyring is valid apt syntax.
     """
     keyring_path = Path(repo.keyring)
     if keyring_path.exists():
@@ -374,14 +381,20 @@ def _add_apt_repo(repo: AptRepo) -> int:
     sources_name = keyring_path.stem + ".list"
     sources_path = Path("/etc/apt/sources.list.d") / sources_name
 
-    if sources_path.exists() and sources_path.read_text().strip() == sources_line:
+    # Skip if the exact `deb` line is already present in the file. Substring
+    # check (not equality) — the file may contain other entries for different
+    # versions of the same toolchain (e.g. llvm.list holds v19/v20/v21/v22).
+    if sources_path.exists() and sources_line in sources_path.read_text():
         logger.info(f"APT source already configured: {sources_path}")
         return 0
 
     logger.info(f"Adding APT source: {sources_line}")
+    # Append (don't overwrite) — `tee -a` creates the file if missing.
+    # Prepend a newline so subsequent lines don't get concatenated.
+    prefix = "" if not sources_path.exists() else "\n"
     result = subprocess.run(
-        ["sudo", "tee", str(sources_path)],
-        input=sources_line.encode(),
+        ["sudo", "tee", "-a", str(sources_path)],
+        input=f"{prefix}{sources_line}\n".encode(),
         capture_output=True,
     )
     return result.returncode
