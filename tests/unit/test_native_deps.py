@@ -400,6 +400,17 @@ class TestExpandTemplateVarsOsCodename:
         with patch.object(native_deps, "_get_os_codename", return_value=""):
             assert _expand_template_vars("${OS_CODENAME}") == "noble"
 
+    def test_get_os_codename_tolerates_missing_lsb_release(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """macOS CI runners have no lsb_release — must return "" not raise."""
+
+        def _raise_not_found(*_args, **_kwargs):
+            raise FileNotFoundError(2, "No such file", "lsb_release")
+
+        monkeypatch.setattr(native_deps.subprocess, "run", _raise_not_found)
+        assert native_deps._get_os_codename() == ""
+
 
 class TestAllModeBypass:
     """`all_mode=True` bypasses pattern matching for runner image bake."""

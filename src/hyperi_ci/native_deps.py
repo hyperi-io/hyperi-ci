@@ -208,12 +208,21 @@ def _patterns_match(content: str, patterns: list[str]) -> bool:
 
 
 def _get_os_codename() -> str:
-    """Get the current OS codename via lsb_release."""
-    result = subprocess.run(
-        ["lsb_release", "-cs"],
-        capture_output=True,
-        text=True,
-    )
+    """Get the current OS codename via lsb_release, or "" if unavailable.
+
+    macOS has no `lsb_release` binary — `FileNotFoundError` propagates up
+    from Popen. Swallow it so callers get an empty string (same contract
+    as a non-zero exit on Linux); the `_expand_template_vars` fallback
+    then defaults `${OS_CODENAME}` to "noble".
+    """
+    try:
+        result = subprocess.run(
+            ["lsb_release", "-cs"],
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        return ""
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
