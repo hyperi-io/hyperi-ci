@@ -2,6 +2,33 @@
 
 Static context for AI assistants. For tasks and progress see `TODO.md`.
 
+## Dep-Install SSOT (Single Source of Truth)
+
+**hyperi-ci is the SSOT for all apt-driven dependency installation across
+the HyperI toolchain.** Both the ARC runner image bake (in `hyperi-infra`)
+and per-project CI-time installs (on vanilla GH runners) use the same
+YAML data and the same install code path — just in different modes.
+
+- YAML: `config/toolchains/*.yaml` (multi-version apt families) +
+  `config/native-deps/*.yaml` (per-language conditional deps)
+- Driver: `src/hyperi_ci/native_deps.py`
+- CLI: `hyperi-ci install-toolchains [--all]` and
+  `hyperi-ci install-native-deps <lang> [--all]`
+- Standard for non-coinstallable toolsets: `bake: false` — skipped in
+  `--all` (runner image), installed on-demand at CI job time
+- Full architecture + cross-project flow: `docs/ARC-RUNNERS.md`
+
+### Cross-project responsibilities
+
+| Repo | Role in the SSOT flow |
+|------|----------------------|
+| **hyperi-ci** (this repo) | Owns YAML + driver. Published to PyPI. Bump version = new runner image build needed. |
+| **hyperi-pylib** | Runtime dep (logger, config cascade). Bumping it = bumping hyperi-ci at next release. |
+| **hyperi-infra** | Owns runner image Dockerfiles (`containers/arc-runner*/Dockerfile`) that `pip install hyperi-ci` and call `install-toolchains --all`. Pushes to `harbor.devex.hyperi.io:8443`. Ansible playbook: `ansible/playbooks/k8s-arc-runners.yml --tags image`. |
+| **dfe-receiver** | Canary 1 — exercises BOLT/PGO flow, touches most of the surface. |
+| **dfe-loader** | Canary 2 — ClickHouse/Arrow deps, broader apt surface. |
+| Other dfe-* + hyperi-rustlib | Broader rollout after both canaries land clean. |
+
 ## Background
 
 Ground-up rewrite of the HyperI CI system. The previous CI (`hyperi-io/ci`)

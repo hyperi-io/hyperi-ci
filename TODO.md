@@ -6,6 +6,134 @@ This is the **single source of truth** for all tasks and progress.
 
 ## Active Tasks
 
+### Dep-Install SSOT — Runner Image + Canary (2026-04-22)
+
+Current state (2026-04-22): hyperi-ci **v1.12.0 is on PyPI** with the
+`bake: false` standard flag. Runner image rebuild is in-flight against
+v1.12.0 after we diagnosed + fixed three apt conflicts:
+
+1. Multi-version sources clobbering each other in one file (1.11.1 bug,
+   fixed in 1.11.1 → `_add_apt_repo` uses `tee -a` to append)
+2. `libc++-N-dev` / `libc++abi-N-dev` / `libomp-N-dev` / `libunwind-N-dev`
+   declare `Conflicts: <pkg>-x.y` → multi-version install fails
+   ("held broken packages"). Dropped from multi-version in v1.11.2.
+3. `lldb-N` transitively pulls `python3-lldb-N` which also declares
+   `Conflicts: python3-lldb-x.y`. Dropped from multi-version in v1.12.0,
+   AND the same commit introduces `bake: false` as the first-class
+   standard for ANY non-coinstallable toolset.
+
+Also fixed in the Debian runner Dockerfile (hyperi-infra): arm64
+cross-compile sources consolidated into `debian.sources`
+(`Architectures: amd64 arm64`) instead of a separate `arm64.list` file,
+eliminating "main/binary-all/Packages configured multiple times"
+warnings on every `apt-get update`.
+
+**In-flight when you pick this up**: ARC runner image rebuild against
+v1.12.0, kicked off via ansible running on `desktop-derek` against
+`infra.devex.hyperi.io` (docker build happens on infra). Launched
+2026-04-22 ~09:00 UTC.
+
+**Source-of-truth checks (session-independent):**
+
+1. Is a docker build still in-progress on infra?
+   ```
+   ssh ubuntu@infra.devex.hyperi.io 'ps auxf | grep "docker build" | grep -v grep'
+   ```
+   Running line = build in-flight. Empty output = build finished
+   (or playbook errored). Ubuntu runs first, then Debian.
+
+2. Has Harbor received fresh pushes?
+   ```
+   HARBOR_PW=$(/projects/hyperi-infra/scripts/bao-admin kv get -field=admin_password kv/services/harbor)
+   curl -sk "https://admin:$HARBOR_PW@harbor.devex.hyperi.io:8443/api/v2.0/projects/library/repositories/arc-runner/artifacts?page_size=2" | jq -r '.[].push_time'
+   curl -sk "https://admin:$HARBOR_PW@harbor.devex.hyperi.io:8443/api/v2.0/projects/library/repositories/arc-runner-debian/artifacts?page_size=2" | jq -r '.[].push_time'
+   ```
+   Look for a push_time AFTER ~2026-04-22T09:00Z on both repos.
+
+3. If the build is still running, tail progress via `docker logs` on
+   infra. If it's NOT running and Harbor has no fresh push, it errored —
+   re-run the ansible command below:
+
+**Ansible rebuild command** (run from `/projects/hyperi-infra`):
+
+```
+env -C /projects/hyperi-infra \
+  ansible-playbook -i ansible/inventories/prod/inventory.yml \
+  ansible/playbooks/k8s-arc-runners.yml --tags image \
+  -e harbor_admin_password=$(scripts/bao-admin kv get -field=admin_password kv/services/harbor)
+```
+
+Takes ~25-30 min. Both runner variants rebuild.
+
+**hyperi-infra side commit (this session)**: there's a branch
+`fix/arc-runners-hyperi-ci-integration` with the Dockerfile pin bump
+(`'hyperi-ci>=1.12'`) and the Debian arm64 consolidation. `git -C
+/projects/hyperi-infra log fix/arc-runners-hyperi-ci-integration -1`
+to see it. Still needs to be pushed + merged there.
+
+Known things to check if the build failed this time:
+- If `install-toolchains --all` fails on a NEW conflict we haven't seen,
+  look for `E: held broken packages` lines in the build output. The
+  per-version install is done in ONE batched `apt-get install` (see
+  `install_native_deps()` in `src/hyperi_ci/native_deps.py`); any new
+  `Conflicts: <pkg>-x.y` declaration in apt.llvm.org for a future LLVM
+  version will surface the same way.
+- If the pin in hyperi-infra's Dockerfile isn't picking up v1.12 because
+  of Docker layer caching, bump `'hyperi-ci>=1.12'` to an exact version
+  and rebuild with `--no-cache` on the hyperi-ci install layer.
+
+### Dep-Install SSOT — Canary (blocked on runner rebuild)
+
+- [ ] **Canary 1: dfe-receiver** — trigger a build on one of the rebuilt
+  runners. The BOLT `strip=none` fix (hyperi-ci 1.10.8 earlier today)
+  and the multi-version LLVM install should both get exercised. Watch
+  for: cargo-pgo BOLT step succeeding (previously blocked by lld rejecting
+  `--strip-all` + `--emit-relocs`), the `ld.lld` unversioned shim being
+  present at `~/.local/bin/ld.lld` during BOLT, and apt never fetching
+  packages at job time (everything pre-baked except `bake: false` entries).
+- [ ] **Canary 2: dfe-loader** — same shape, different deps (ClickHouse
+  client lib, Arrow, columnar). Broader apt surface.
+- [ ] **Broader rollout** — dfe-archiver, dfe-fetcher, hyperi-rustlib,
+  hyperi-pylib, transform projects. Each should be a no-op if canaries
+  are clean.
+
+If the canary surfaces any issue: **no SEP fields** — the canary owner
+has explicit authority to edit any of hyperi-ci, hyperi-infra,
+dfe-receiver, dfe-loader to fix it. See `docs/ARC-RUNNERS.md` "Cross-
+Project Rollout Flow" for how changes propagate.
+
+### Dep-Install SSOT — Phases 2-5 (backlog)
+
+The goal: runner Dockerfiles shrink from ~300 lines to ~30 by moving
+ALL dep installation into hyperi-ci as SSOT.
+
+- [ ] **Phase 2** — `config/ci-tools/default.yaml` + GH-release fetcher
+  driver. Covers: `gh`, `hadolint`, `shellcheck`, `actionlint`,
+  `cargo-nextest`. Currently installed via inline `curl | tar`
+  invocations in the runner Dockerfiles.
+- [ ] **Phase 3** — `config/base-apt/{noble,trixie,resolute}.yaml` for
+  bootstrap apt packages (`build-essential`, `cmake`, `ninja-build`,
+  `mold`, `zlib1g-dev`, etc.). Replaces the big inline `apt install`
+  block in each runner Dockerfile.
+- [ ] **Phase 4** — `config/runtimes/*.yaml` covering language version
+  managers: `rustup`, `uv` (Python), `fnm` (Node), `mise` (Go),
+  `sdkman` (Java). Per-manager driver backends in a new `runtimes.py`.
+- [ ] **Phase 5** — `config/cross-sysroot/{arm64-noble,arm64-trixie}.yaml`
+  for cross-compile sources + `qemu-user-static`. Driver to handle
+  `dpkg --add-architecture` + source file writes in a dedupe-safe way.
+
+End state: the runner Dockerfile body is
+
+```dockerfile
+RUN apt-get update && apt-get install -y python3 python3-pip curl ca-certificates gnupg
+COPY internal-ca-chain.crt /usr/local/share/ca-certificates/
+RUN update-ca-certificates
+RUN pip install 'hyperi-ci==X.Y.Z'
+RUN hyperi-ci prime-image --distro noble --all
+```
+
+### Legacy Active Tasks
+
 ### JFrog Migration (DO NOT PUSH — dozens of projects use CI live)
 
 - [x] Fix CONTAINER_MGT secrets/vars visibility (PRIVATE -> all)
@@ -118,6 +246,27 @@ This is the **single source of truth** for all tasks and progress.
 ---
 
 ## Completed
+
+- [x] **Dep-Install SSOT foundation (v1.10.8 → v1.12.0, 2026-04-21/22)**
+  - v1.10.8: BOLT `strip=none` fix — rust-lld rejects `--strip-all` +
+    `--emit-relocs`; `_bolt_linker_env` → `_bolt_build_env` (alias kept).
+    Surfaced during dfe-receiver v1.15.7 canary.
+  - v1.11.0: **`toolchains` category + `versions:` multi-version expansion
+    + `${OS_CODENAME}` substitution + `--all` mode.** New `install-toolchains`
+    CLI. Resolute (Ubuntu 26.04 LTS) added to fallback codename list.
+  - v1.11.1: `_add_apt_repo` uses `tee -a` (append, not overwrite) —
+    multi-version expansion was clobbering the sources file so only the
+    last version survived.
+  - v1.11.2: Drop `libc++-N-dev`, `libc++abi-N-dev`, `libomp-N-dev`,
+    `libunwind-N-dev` from multi-version — apt.llvm.org declares
+    `Conflicts: <pkg>-x.y`, only one version installable at a time.
+  - v1.12.0: **`bake: false` schema flag** — first-class standard for
+    non-coinstallable toolsets. Skipped in `--all` (runner image),
+    installed on-demand at CI job time. Drops `lldb-N` from
+    multi-version (transitive `python3-lldb-N` Conflicts).
+  - Test suite: 438 passing.
+  - Cross-project integration: hyperi-infra runner Dockerfile uses
+    `pip install 'hyperi-ci>=1.12' && hyperi-ci install-toolchains --all`.
 
 - [x] **Self-upgrade command (`hyperi-ci upgrade`)**
   - Explicit `upgrade [VERSION] [--pre]` command
