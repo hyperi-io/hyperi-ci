@@ -395,15 +395,34 @@ class TestMultiVersionToolchains:
     ) -> None:
         monkeypatch.setenv("OS_CODENAME", "noble")
         groups = _load_dep_groups("llvm", category="toolchains")
-        # LLVM YAML declares versions [19, 20, 21, 22] → 4 groups
-        assert len(groups) == 4
-        names = [g.name for g in groups]
-        assert names == [
+        # LLVM YAML: versions [19,20,21,22] expand to 4 + 1 singleton
+        # (non-coinstallable runtime pinned to v22) = 5 total
+        multi_names = [g.name for g in groups if g.name.startswith("llvm-toolchain v")]
+        singleton_names = [g.name for g in groups if g.name == "llvm-singleton-default"]
+        assert multi_names == [
             "llvm-toolchain v19",
             "llvm-toolchain v20",
             "llvm-toolchain v21",
             "llvm-toolchain v22",
         ]
+        assert singleton_names == ["llvm-singleton-default"]
+        assert len(groups) == 5
+
+    def test_llvm_singleton_has_only_non_coinstallable_packages(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The singleton bundles the packages that can't multi-version install."""
+        monkeypatch.setenv("OS_CODENAME", "noble")
+        groups = _load_dep_groups("llvm", category="toolchains")
+        singleton = next(g for g in groups if g.name == "llvm-singleton-default")
+        # These all declare Conflicts: <pkg>-x.y on apt.llvm.org
+        assert "lldb-22" in singleton.apt_packages
+        assert "libc++-22-dev" in singleton.apt_packages
+        assert "libc++abi-22-dev" in singleton.apt_packages
+        assert "libomp-22-dev" in singleton.apt_packages
+        assert "libunwind-22-dev" in singleton.apt_packages
+        # Singleton must NOT include the coinstallable multi-version packages
+        assert "clang-22" not in singleton.apt_packages
 
     def test_substitutes_version_in_dpkg_check_and_packages(
         self, monkeypatch: pytest.MonkeyPatch
