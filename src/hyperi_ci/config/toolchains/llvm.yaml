@@ -69,3 +69,36 @@
     - libclang-{V}-dev
     - libclang-rt-{V}-dev
     - bolt-{V}
+
+# Singleton entry: non-coinstallable runtime/debugger packages, pinned to the
+# current latest stable LLVM (22). Gives runner images a complete default
+# toolchain: lldb for debugging, libc++/libc++abi for projects that prefer
+# libc++ over libstdc++, libomp for OpenMP, libunwind for stack traces.
+# Projects that need a different version install it themselves at build time.
+- name: llvm-singleton-default
+  patterns:
+    - "Cargo.toml"
+    - "[package]"
+    - "CMakeLists.txt"
+    - "configure.ac"
+    - "c_std"
+    - "cpp_std"
+  manifest_files:
+    - Cargo.toml
+    - Cargo.lock
+    - CMakeLists.txt
+    - configure.ac
+    - meson.build
+    - .hyperi-ci.yaml
+  dpkg_check: libc++-22-dev
+  apt_repos:
+    - key_url: https://apt.llvm.org/llvm-snapshot.gpg.key
+      keyring: /usr/share/keyrings/llvm.gpg
+      url: https://apt.llvm.org/${OS_CODENAME}/
+      codename: llvm-toolchain-${OS_CODENAME}-22
+  apt_packages:
+    - lldb-22
+    - libc++-22-dev
+    - libc++abi-22-dev
+    - libomp-22-dev
+    - libunwind-22-dev
