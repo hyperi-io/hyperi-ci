@@ -347,27 +347,51 @@ def _instrumented_binary_path(
     return cwd / "target" / target / "release" / binary_name
 
 
-def _bolt_linker_env(target: str) -> dict[str, str]:
-    """Env overrides that force lld as the linker for the given target.
+def _bolt_build_env(target: str) -> dict[str, str]:
+    """Env overrides for cargo-pgo BOLT build and optimize steps.
 
-    BOLT's instrumented builds pass `-Wl,-q` (`--emit-relocs`) which mold
-    and GNU BFD don't handle reliably — mold segfaults on some link
-    combinations, BFD reports "invalid operation". LLD is the canonical
-    BOLT-compatible linker.
+    BOLT imposes two linker-level requirements that collide with common
+    release-profile settings:
 
-    This replaces the project's per-target `rustflags` during BOLT steps
-    only. Project-specific flags like `-C target-cpu=x86-64-v3` are lost
-    for the BOLT-instrumented build, which is acceptable because that
-    binary only runs the workload to collect BOLT profile data — branch
-    profile correctness is independent of codegen target-cpu.
+    1. **Linker must be lld.** BOLT's instrumented builds pass
+       `-Wl,-q` (`--emit-relocs`) which mold segfaults on and GNU BFD
+       rejects. lld is the canonical BOLT-compatible linker.
+
+    2. **strip must be disabled.** Rust's `[profile.release] strip = true`
+       appends `-Wl,--strip-all` to the link, which lld refuses to
+       combine with `--emit-relocs`. We override via
+       `CARGO_PROFILE_RELEASE_STRIP=none` for the BOLT steps only —
+       the project's regular release build keeps whatever strip
+       setting it declared. Final binary is stripped by hyperi-ci's
+       post-build packaging separately, so dropping cargo-level strip
+       here doesn't bloat the shipped artefact.
+
+    These overrides apply to both the instrumented build (used only
+    for profile collection) and the final BOLT-optimized build.
+
+    The per-target `rustflags` override replaces the project's own
+    target-specific flags during BOLT steps only — flags like
+    `-C target-cpu=x86-64-v3` are lost for the instrumented build,
+    which is acceptable because that binary only runs the workload to
+    collect profile data (branch profile correctness is independent of
+    codegen target-cpu).
     """
     # Cargo env var for target-specific rustflags uses UPPERCASE with
     # hyphens and dots replaced by underscores (e.g. x86_64-unknown-linux-gnu
     # → X86_64_UNKNOWN_LINUX_GNU).
-    env_key = (
+    target_rustflags_key = (
         f"CARGO_TARGET_{target.upper().replace('-', '_').replace('.', '_')}_RUSTFLAGS"
     )
-    return {env_key: "-C link-arg=-fuse-ld=lld"}
+    return {
+        target_rustflags_key: "-C link-arg=-fuse-ld=lld",
+        "CARGO_PROFILE_RELEASE_STRIP": "none",
+    }
+
+
+# Backwards-compat alias for external callers / pre-1.11 tests.
+# No in-tree caller uses this — _run_bolt calls _bolt_build_env directly.
+# Remove in v2.
+_bolt_linker_env = _bolt_build_env
 
 
 def _run_bolt(
@@ -383,9 +407,9 @@ def _run_bolt(
     (covered by the `bolt-NN` + `lld-NN` apt packages from apt.llvm.org).
     Silent skip if any toolchain binary is missing.
 
-    Forces lld as the linker for both `cargo pgo bolt build` and
-    `cargo pgo bolt optimize` — mold and BFD don't handle the
-    `--emit-relocs` metadata BOLT requires. See `_bolt_linker_env()`.
+    Forces lld as the linker and disables strip for both
+    `cargo pgo bolt build` and `cargo pgo bolt optimize` — see
+    `_bolt_build_env()` for rationale.
 
     Requires the PGO step to have run already (BOLT uses the PGO profile).
     """
@@ -395,10 +419,10 @@ def _run_bolt(
         )
         return 0  # Non-fatal
 
-    # Merge project env_overrides (LTO etc.) with the BOLT-step linker
-    # override. Linker env takes precedence over project config for the
-    # target-specific rustflags — this is intentional.
-    bolt_env = {**(extra_env or {}), **_bolt_linker_env(target)}
+    # Merge project env_overrides (LTO etc.) with the BOLT-step build
+    # env (fuse-ld=lld + strip=none). BOLT env takes precedence over
+    # project config for the target-specific rustflags — intentional.
+    bolt_env = {**(extra_env or {}), **_bolt_build_env(target)}
 
     # BOLT instrument build
     info(f"BOLT: building instrumented binary for {target} (linker forced to lld)")
