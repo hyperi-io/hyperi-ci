@@ -395,34 +395,145 @@ class TestMultiVersionToolchains:
     ) -> None:
         monkeypatch.setenv("OS_CODENAME", "noble")
         groups = _load_dep_groups("llvm", category="toolchains")
-        # LLVM YAML: versions [19,20,21,22] expand to 4 + 1 singleton
-        # (non-coinstallable runtime pinned to v22) = 5 total
+        # LLVM YAML: versions [19,20,21,22] expand to 4 coinstallable groups
+        # plus 1 non-coinstallable singleton (bake: false) = 5 total.
         multi_names = [g.name for g in groups if g.name.startswith("llvm-toolchain v")]
-        singleton_names = [g.name for g in groups if g.name == "llvm-singleton-default"]
+        singleton_names = [g.name for g in groups if g.name == "llvm-non-coinstallable"]
         assert multi_names == [
             "llvm-toolchain v19",
             "llvm-toolchain v20",
             "llvm-toolchain v21",
             "llvm-toolchain v22",
         ]
-        assert singleton_names == ["llvm-singleton-default"]
+        assert singleton_names == ["llvm-non-coinstallable"]
         assert len(groups) == 5
 
-    def test_llvm_singleton_has_only_non_coinstallable_packages(
+    def test_llvm_non_coinstallable_entry_is_install_on_demand(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The singleton bundles the packages that can't multi-version install."""
+        """The non-coinstallable entry bundles the one-version-only packages.
+
+        Marked bake: false — skipped in --all mode (runner image), installed
+        conditionally at CI job time when manifest patterns match.
+        """
         monkeypatch.setenv("OS_CODENAME", "noble")
         groups = _load_dep_groups("llvm", category="toolchains")
-        singleton = next(g for g in groups if g.name == "llvm-singleton-default")
+        non_coinst = next(g for g in groups if g.name == "llvm-non-coinstallable")
         # These all declare Conflicts: <pkg>-x.y on apt.llvm.org
-        assert "lldb-22" in singleton.apt_packages
-        assert "libc++-22-dev" in singleton.apt_packages
-        assert "libc++abi-22-dev" in singleton.apt_packages
-        assert "libomp-22-dev" in singleton.apt_packages
-        assert "libunwind-22-dev" in singleton.apt_packages
-        # Singleton must NOT include the coinstallable multi-version packages
-        assert "clang-22" not in singleton.apt_packages
+        assert "lldb-22" in non_coinst.apt_packages
+        assert "libc++-22-dev" in non_coinst.apt_packages
+        assert "libc++abi-22-dev" in non_coinst.apt_packages
+        assert "libomp-22-dev" in non_coinst.apt_packages
+        assert "libunwind-22-dev" in non_coinst.apt_packages
+        # Entry must NOT include the coinstallable multi-version packages
+        assert "clang-22" not in non_coinst.apt_packages
+        # Most importantly: marked install-on-demand
+        assert non_coinst.bake is False
+
+
+class TestBakeFlag:
+    """`bake: false` skips an entry in --all mode regardless of category.
+
+    Standard pattern for toolsets that only support one version at a time
+    (libc++-N-dev, lldb-N, etc. declare Conflicts:x.y on apt.llvm.org).
+    Applies to ANY YAML entry in any category.
+    """
+
+    def test_bake_defaults_to_true_when_key_absent(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Existing YAMLs without a `bake` key stay unconditionally baked."""
+        monkeypatch.setenv("OS_CODENAME", "noble")
+        groups = _load_dep_groups("llvm", category="toolchains")
+        multi = next(g for g in groups if g.name == "llvm-toolchain v22")
+        assert multi.bake is True
+
+    def test_all_mode_skips_bake_false_entries(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """--all mode installs bake:true entries, skips bake:false."""
+        bogus_dir = tmp_path / "toolchains"
+        bogus_dir.mkdir()
+        (bogus_dir / "pair.yaml").write_text(
+            "- name: always-bake\n"
+            "  patterns: []\n"
+            "  manifest_files: []\n"
+            "  dpkg_check: 'clang-22'\n"
+            "  apt_packages:\n"
+            "    - 'clang-22'\n"
+            "- name: never-bake\n"
+            "  bake: false\n"
+            "  patterns: []\n"
+            "  manifest_files: []\n"
+            "  dpkg_check: 'lldb-22'\n"
+            "  apt_packages:\n"
+            "    - 'lldb-22'\n"
+        )
+        monkeypatch.setitem(native_deps._CATEGORY_DIRS, "toolchains", bogus_dir)
+        monkeypatch.setattr(native_deps.platform, "system", lambda: "Linux")
+
+        installed: list[str] = []
+
+        def fake_apt_install(packages: list[str]) -> int:
+            installed.extend(packages)
+            return 0
+
+        monkeypatch.setattr(native_deps, "_apt_install", fake_apt_install)
+        monkeypatch.setattr(
+            native_deps, "_is_dpkg_installed", lambda pkg, min_v="": False
+        )
+        monkeypatch.setattr(native_deps, "_add_apt_repo", lambda repo: 0)
+
+        rc = native_deps.install_native_deps(
+            "pair", project_dir=tmp_path, category="toolchains", all_mode=True
+        )
+        assert rc == 0
+        assert "clang-22" in installed  # bake: true default
+        assert "lldb-22" not in installed  # bake: false skipped
+
+    def test_conditional_mode_ignores_bake_flag(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Conditional mode installs based on patterns regardless of bake flag."""
+        bogus_dir = tmp_path / "toolchains"
+        bogus_dir.mkdir()
+        (bogus_dir / "pair.yaml").write_text(
+            "- name: never-bake\n"
+            "  bake: false\n"
+            "  patterns:\n"
+            "    - 'trigger-me'\n"
+            "  manifest_files:\n"
+            "    - 'Trigger.toml'\n"
+            "  dpkg_check: 'lldb-22'\n"
+            "  apt_packages:\n"
+            "    - 'lldb-22'\n"
+        )
+        (tmp_path / "Trigger.toml").write_text("trigger-me here\n")
+        monkeypatch.setitem(native_deps._CATEGORY_DIRS, "toolchains", bogus_dir)
+        monkeypatch.setattr(native_deps.platform, "system", lambda: "Linux")
+
+        installed: list[str] = []
+
+        def fake_apt_install(packages: list[str]) -> int:
+            installed.extend(packages)
+            return 0
+
+        monkeypatch.setattr(native_deps, "_apt_install", fake_apt_install)
+        monkeypatch.setattr(
+            native_deps, "_is_dpkg_installed", lambda pkg, min_v="": False
+        )
+        monkeypatch.setattr(native_deps, "_add_apt_repo", lambda repo: 0)
+
+        # all_mode=False (conditional) — bake flag does NOT affect the decision
+        rc = native_deps.install_native_deps(
+            "pair", project_dir=tmp_path, category="toolchains", all_mode=False
+        )
+        assert rc == 0
+        assert "lldb-22" in installed  # pattern matched → installed regardless of bake
 
     def test_substitutes_version_in_dpkg_check_and_packages(
         self, monkeypatch: pytest.MonkeyPatch

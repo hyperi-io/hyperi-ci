@@ -70,12 +70,23 @@
     - libclang-rt-{V}-dev
     - bolt-{V}
 
-# Singleton entry: non-coinstallable runtime/debugger packages, pinned to the
-# current latest stable LLVM (22). Gives runner images a complete default
-# toolchain: lldb for debugging, libc++/libc++abi for projects that prefer
-# libc++ over libstdc++, libomp for OpenMP, libunwind for stack traces.
-# Projects that need a different version install it themselves at build time.
-- name: llvm-singleton-default
+# ---- Non-coinstallable toolset: install-on-demand standard ----
+#
+# lldb-N, libc++-N-dev, libc++abi-N-dev, libomp-N-dev, libunwind-N-dev all
+# declare `Conflicts: <pkg>-x.y` (or via a transitive dep that does) — at most
+# one version may be installed concurrently. We cannot bake every version into
+# the runner image.
+#
+# Standard pattern: mark the entry `bake: false`. The `--all` mode (runner
+# image bake) SKIPS such entries entirely; they still install conditionally
+# at CI job time when the project's manifest patterns match. Jobs that need
+# these packages pay the ~5s apt-get cost once per runner pod.
+#
+# The YAML picks ONE version (22) for the single install-on-demand target.
+# Projects that need a different version install it themselves (version N's
+# `-dev` package uninstalls version M's, by apt's Conflicts).
+- name: llvm-non-coinstallable
+  bake: false
   patterns:
     - "Cargo.toml"
     - "[package]"
