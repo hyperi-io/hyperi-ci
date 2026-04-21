@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -260,6 +261,98 @@ class TestAddAptRepoIdempotency:
         assert "sudo" not in invoked, f"unexpected sudo (tee) call: {invoked}"
         # Our own filename (derived from keyring stem "llvm" + ".list") NOT created
         assert not (sources_dir / "llvm.list").exists()
+
+    def test_multi_version_writes_append_not_overwrite(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Multiple _add_apt_repo calls sharing a keyring must accumulate.
+
+        Multi-version toolchains (LLVM 19/20/21/22) reuse one keyring file,
+        which derives one sources filename. Before v1.11.1 the writer used
+        `tee` (overwrite), so only the last version's `deb` line survived.
+        Regression check: after four calls the file contains four lines.
+        """
+        fake_keyring = tmp_path / "llvm.gpg"
+        fake_keyring.write_bytes(b"fake-key")
+        sources_list, sources_dir = _seed_apt_tree(tmp_path, {})
+        _patch_apt_paths(monkeypatch, sources_list, sources_dir)
+
+        target_file = sources_dir / "llvm.list"
+
+        def fake_sudo_run(cmd, **kwargs):
+            # dpkg arch probe — return amd64
+            if cmd[:2] == ["dpkg", "--print-architecture"]:
+                return subprocess.CompletedProcess(cmd, 0, stdout="amd64\n", stderr="")
+            # Simulate sudo tee -a: append stdin to the target file
+            if cmd[:3] == ["sudo", "tee", "-a"]:
+                path = Path(cmd[3])
+                mode = "ab" if path.exists() else "wb"
+                with open(path, mode) as f:
+                    f.write(kwargs.get("input", b""))
+                return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+            # Legacy `sudo tee` (no -a) would land here; kept for regression detection.
+            if cmd[:2] == ["sudo", "tee"]:
+                path = Path(cmd[2])
+                with open(path, "wb") as f:
+                    f.write(kwargs.get("input", b""))
+                return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(native_deps.subprocess, "run", fake_sudo_run)
+
+        for version in ("19", "20", "21", "22"):
+            repo = AptRepo(
+                key_url="https://apt.llvm.org/llvm-snapshot.gpg.key",
+                keyring=str(fake_keyring),
+                url="https://apt.llvm.org/noble/",
+                codename=f"llvm-toolchain-noble-{version}",
+                components="main",
+            )
+            rc = _add_apt_repo(repo)
+            assert rc == 0, f"failed adding v{version}"
+
+        content = target_file.read_text()
+        for v in ("19", "20", "21", "22"):
+            assert f"llvm-toolchain-noble-{v}" in content, (
+                f"v{v} entry missing — writer clobbered earlier versions"
+            )
+
+    def test_idempotent_when_exact_line_already_present(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Second call with identical repo is a no-op (not a duplicate line)."""
+        fake_keyring = tmp_path / "llvm.gpg"
+        fake_keyring.write_bytes(b"fake-key")
+        sources_list, sources_dir = _seed_apt_tree(tmp_path, {})
+        _patch_apt_paths(monkeypatch, sources_list, sources_dir)
+        target_file = sources_dir / "llvm.list"
+
+        writes = {"count": 0}
+
+        def fake_sudo_run(cmd, **kwargs):
+            if cmd[:2] == ["dpkg", "--print-architecture"]:
+                return subprocess.CompletedProcess(cmd, 0, stdout="amd64\n", stderr="")
+            if cmd[:3] == ["sudo", "tee", "-a"]:
+                writes["count"] += 1
+                path = Path(cmd[3])
+                mode = "ab" if path.exists() else "wb"
+                with open(path, mode) as f:
+                    f.write(kwargs.get("input", b""))
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(native_deps.subprocess, "run", fake_sudo_run)
+
+        repo = AptRepo(
+            key_url="https://apt.llvm.org/llvm-snapshot.gpg.key",
+            keyring=str(fake_keyring),
+            url="https://apt.llvm.org/noble/",
+            codename="llvm-toolchain-noble-22",
+            components="main",
+        )
+        assert _add_apt_repo(repo) == 0
+        assert _add_apt_repo(repo) == 0  # no-op
+        assert writes["count"] == 1, "second identical add triggered a write"
+        assert target_file.read_text().count("llvm-toolchain-noble-22") == 1
 
 
 class TestDepGroupLoading:
