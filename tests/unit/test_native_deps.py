@@ -286,3 +286,184 @@ class TestDepGroupLoading:
         assert bolt.dpkg_check == "bolt-19"
         assert "bolt-19" in bolt.apt_packages
         assert bolt.apt_repos[0].codename == "llvm-toolchain-noble-19"
+
+
+class TestMultiVersionToolchains:
+    """Toolchains category expands `versions:` list into N DepGroups.
+
+    One YAML entry with `versions: [19, 20, 21, 22]` becomes four DepGroups
+    with `{V}` substituted in `dpkg_check`, `apt_repos[*].codename`, and
+    every `apt_packages[*]`. The `name` is suffixed " vN" so log lines
+    distinguish versions.
+    """
+
+    def test_llvm_yaml_expands_to_one_group_per_version(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OS_CODENAME", "noble")
+        groups = _load_dep_groups("llvm", category="toolchains")
+        # LLVM YAML declares versions [19, 20, 21, 22] → 4 groups
+        assert len(groups) == 4
+        names = [g.name for g in groups]
+        assert names == [
+            "llvm-toolchain v19",
+            "llvm-toolchain v20",
+            "llvm-toolchain v21",
+            "llvm-toolchain v22",
+        ]
+
+    def test_substitutes_version_in_dpkg_check_and_packages(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OS_CODENAME", "noble")
+        groups = _load_dep_groups("llvm", category="toolchains")
+        v22 = next(g for g in groups if g.name.endswith("v22"))
+        assert v22.dpkg_check == "clang-22"
+        assert "clang-22" in v22.apt_packages
+        assert "bolt-22" in v22.apt_packages
+        assert "libclang-rt-22-dev" in v22.apt_packages
+        # {V} must not leak into the final packages
+        assert not any("{V}" in p for p in v22.apt_packages)
+
+    def test_substitutes_os_codename_and_version_in_repo(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Repo URL takes OS codename; repo codename takes both OS + version."""
+        monkeypatch.setenv("OS_CODENAME", "resolute")
+        groups = _load_dep_groups("llvm", category="toolchains")
+        v21 = next(g for g in groups if g.name.endswith("v21"))
+        assert v21.apt_repos[0].url == "https://apt.llvm.org/resolute/"
+        assert v21.apt_repos[0].codename == "llvm-toolchain-resolute-21"
+
+    def test_gcc_expansion_no_repos(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """GCC uses distro repos — empty apt_repos after expansion."""
+        monkeypatch.setenv("OS_CODENAME", "trixie")
+        groups = _load_dep_groups("gcc", category="toolchains")
+        assert len(groups) == 2
+        for g in groups:
+            assert g.apt_repos == []
+
+    def test_unknown_category_returns_empty(self) -> None:
+        assert _load_dep_groups("llvm", category="bogus") == []
+
+    def test_empty_versions_list_is_skipped_with_warning(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """An empty `versions: []` is a config bug — warn and skip."""
+        # Redirect the toolchains dir to a tmp location we control
+        bogus_dir = tmp_path / "toolchains"
+        bogus_dir.mkdir()
+        (bogus_dir / "broken.yaml").write_text(
+            "- name: broken-entry\n"
+            "  versions: []\n"
+            "  patterns: []\n"
+            "  manifest_files: []\n"
+            "  dpkg_check: 'clang-{V}'\n"
+            "  apt_packages:\n"
+            "    - 'clang-{V}'\n"
+        )
+        monkeypatch.setitem(native_deps._CATEGORY_DIRS, "toolchains", bogus_dir)
+        # Loguru bypasses stdlib logging / capsys — capture via .warning patch
+        warnings: list[str] = []
+        monkeypatch.setattr(
+            native_deps.logger, "warning", lambda msg: warnings.append(msg)
+        )
+        groups = _load_dep_groups("broken", category="toolchains")
+        assert groups == []
+        assert len(warnings) == 1
+        assert "empty `versions:`" in warnings[0]
+        assert "broken-entry" in warnings[0]
+
+
+class TestExpandTemplateVarsOsCodename:
+    """`${OS_CODENAME}` expansion resolves from env var or lsb_release."""
+
+    def test_env_override_wins_over_lsb_release(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OS_CODENAME", "resolute")
+        assert _expand_template_vars("url: ${OS_CODENAME}/") == "url: resolute/"
+
+    def test_env_empty_falls_back_to_lsb_release(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("OS_CODENAME", raising=False)
+        with patch.object(native_deps, "_get_os_codename", return_value="noble"):
+            assert _expand_template_vars("${OS_CODENAME}") == "noble"
+
+    def test_lsb_release_missing_falls_back_to_noble(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("OS_CODENAME", raising=False)
+        with patch.object(native_deps, "_get_os_codename", return_value=""):
+            assert _expand_template_vars("${OS_CODENAME}") == "noble"
+
+
+class TestAllModeBypass:
+    """`all_mode=True` bypasses pattern matching for runner image bake."""
+
+    def test_all_mode_ignores_patterns(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """A group whose patterns don't match should still install in --all mode."""
+        monkeypatch.setenv("OS_CODENAME", "noble")
+        # Stub platform.system to "Linux" so install logic runs
+        monkeypatch.setattr(native_deps.platform, "system", lambda: "Linux")
+        # Record which groups reach the install step
+        installed_packages: list[str] = []
+
+        def fake_apt_install(packages: list[str]) -> int:
+            installed_packages.extend(packages)
+            return 0
+
+        monkeypatch.setattr(native_deps, "_apt_install", fake_apt_install)
+        monkeypatch.setattr(
+            native_deps, "_is_dpkg_installed", lambda pkg, min_v="": False
+        )
+        monkeypatch.setattr(native_deps, "_add_apt_repo", lambda repo: 0)
+
+        # Empty project dir → no manifests → patterns would normally match nothing
+        rc = native_deps.install_native_deps(
+            "gcc",
+            project_dir=tmp_path,
+            category="toolchains",
+            all_mode=True,
+        )
+        assert rc == 0
+        # All GCC versions should have been queued regardless of patterns
+        assert "gcc-13" in installed_packages
+        assert "gcc-14" in installed_packages
+
+    def test_conditional_mode_skips_when_no_manifest_match(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Default (conditional) mode must skip when manifest patterns miss."""
+        monkeypatch.setenv("OS_CODENAME", "noble")
+        monkeypatch.setattr(native_deps.platform, "system", lambda: "Linux")
+        installed_packages: list[str] = []
+
+        def fake_apt_install(packages: list[str]) -> int:
+            installed_packages.extend(packages)
+            return 0
+
+        monkeypatch.setattr(native_deps, "_apt_install", fake_apt_install)
+        monkeypatch.setattr(
+            native_deps, "_is_dpkg_installed", lambda pkg, min_v="": False
+        )
+        monkeypatch.setattr(native_deps, "_add_apt_repo", lambda repo: 0)
+
+        # Empty project dir → no patterns match → nothing installed
+        rc = native_deps.install_native_deps(
+            "gcc",
+            project_dir=tmp_path,
+            category="toolchains",
+            all_mode=False,
+        )
+        assert rc == 0
+        assert installed_packages == []

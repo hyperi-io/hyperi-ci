@@ -393,6 +393,14 @@ def install_native_deps(
             "--dry-run", "-n", help="Show what would be installed without installing"
         ),
     ] = False,
+    all_mode: Annotated[
+        bool,
+        typer.Option(
+            "--all",
+            help="Install every entry unconditionally (bypass manifest matching). "
+            "Use for runner image bake; stay default for CI-time conditional install.",
+        ),
+    ] = False,
 ) -> None:
     """Detect and install native system dependencies for a language."""
     from hyperi_ci.native_deps import install_native_deps as _install
@@ -400,10 +408,74 @@ def install_native_deps(
 
     dir_path = Path(project_dir) if project_dir else None
     if dry_run:
-        print_needed(language, project_dir=dir_path)
+        print_needed(language, project_dir=dir_path, all_mode=all_mode)
         return
-    rc = _install(language, project_dir=dir_path)
+    rc = _install(language, project_dir=dir_path, all_mode=all_mode)
     raise typer.Exit(rc)
+
+
+@app.command(name="install-toolchains")
+def install_toolchains(
+    family: Annotated[
+        str,
+        typer.Argument(
+            help="Toolchain family (llvm, gcc). Defaults to 'all' = every family.",
+        ),
+    ] = "all",
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run", "-n", help="Show what would be installed without installing"
+        ),
+    ] = False,
+    all_mode: Annotated[
+        bool,
+        typer.Option(
+            "--all",
+            help="Install every version unconditionally (bypass manifest matching). "
+            "Used for runner image bake. Default is conditional install.",
+        ),
+    ] = False,
+) -> None:
+    """Install multi-version toolchain families (LLVM, GCC).
+
+    By default fans out across every family in `config/toolchains/` and
+    matches project manifests to decide what to install. Pass `--all` on
+    a runner image bake to install every version of every family
+    regardless of manifest.
+
+    Examples:
+        hyperi-ci install-toolchains --all        # bake everything
+        hyperi-ci install-toolchains llvm --all   # bake only LLVM
+        hyperi-ci install-toolchains              # CI-time: conditional
+        hyperi-ci install-toolchains llvm         # CI-time: LLVM if triggered
+    """
+    from hyperi_ci.native_deps import _TOOLCHAINS_DIR, print_needed
+    from hyperi_ci.native_deps import install_native_deps as _install
+
+    dir_path = Path(project_dir) if project_dir else None
+
+    # `all` fans out to every toolchain YAML in config/toolchains/
+    if family == "all":
+        families = sorted(f.stem for f in _TOOLCHAINS_DIR.glob("*.yaml"))
+    else:
+        families = [family]
+
+    for fam in families:
+        if dry_run:
+            print_needed(
+                fam, project_dir=dir_path, category="toolchains", all_mode=all_mode
+            )
+            continue
+        rc = _install(
+            fam, project_dir=dir_path, category="toolchains", all_mode=all_mode
+        )
+        if rc != 0:
+            raise typer.Exit(rc)
 
 
 @app.command(name="install-deps")

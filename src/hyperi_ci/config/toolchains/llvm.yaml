@@ -1,0 +1,67 @@
+# Project:   HyperI CI
+# File:      src/hyperi_ci/config/toolchains/llvm.yaml
+# Purpose:   Multi-version LLVM/Clang toolchain install from apt.llvm.org
+#
+# Schema (shared with native-deps/, plus the `versions:` list):
+#   name:           Human-readable label (log line gets " v{V}" suffix per version)
+#   versions:       List of LLVM major versions. Each entry below is expanded
+#                   into N DepGroups with `{V}` substituted everywhere.
+#   patterns:       Manifest substrings that trigger install in conditional
+#                   mode. Ignored in `--all` mode (runner image bake).
+#   manifest_files: Files to search for patterns.
+#   dpkg_check:     dpkg package name — skips install if present.
+#   apt_repos:      APT repos to add before installing.
+#   apt_packages:   Packages to install.
+#
+# Per LLVM/Clang standards (C++ 22 stable, 21 for ClickHouse fork CI, 19
+# for ClickHouse OSS compatibility, 20 as intermediate). BOLT (post-link
+# optimiser) bundled per-version; ld.lld linker required for BOLT's
+# `--emit-relocs` flow.
+#
+# apt.llvm.org provides llvm-toolchain-{noble,trixie,resolute}-NN repos
+# for each version. The `${OS_CODENAME}` placeholder (used in apt_repos
+# below) is resolved at load time from the `$OS_CODENAME` env var or
+# `lsb_release -cs`.
+
+- name: llvm-toolchain
+  versions: [19, 20, 21, 22]
+  # Conditional triggers (ignored in --all): any C/C++/Rust/CMake project
+  patterns:
+    - "Cargo.toml"                   # Rust workspace marker
+    - "[package]"                    # Rust package marker (Cargo.toml)
+    - "CMakeLists.txt"               # CMake project
+    - "configure.ac"                 # Autotools project
+    - "c_std"                        # Meson C/C++ project
+    - "cpp_std"
+  manifest_files:
+    - Cargo.toml
+    - Cargo.lock
+    - CMakeLists.txt
+    - configure.ac
+    - meson.build
+    - .hyperi-ci.yaml
+  dpkg_check: clang-{V}
+  apt_repos:
+    - key_url: https://apt.llvm.org/llvm-snapshot.gpg.key
+      keyring: /usr/share/keyrings/llvm.gpg
+      # ${OS_CODENAME} is substituted at load time from lsb_release -cs,
+      # so the same YAML works on noble, trixie, and resolute. {V} is
+      # substituted per-version by the multi-version expander.
+      url: https://apt.llvm.org/${OS_CODENAME}/
+      codename: llvm-toolchain-${OS_CODENAME}-{V}
+  apt_packages:
+    - clang-{V}
+    - clang-tools-{V}
+    - clangd-{V}
+    - lld-{V}
+    - lldb-{V}
+    - llvm-{V}
+    - llvm-{V}-dev
+    - llvm-{V}-tools
+    - libclang-{V}-dev
+    - libclang-rt-{V}-dev
+    - libc++-{V}-dev
+    - libc++abi-{V}-dev
+    - libomp-{V}-dev
+    - libunwind-{V}-dev
+    - bolt-{V}
