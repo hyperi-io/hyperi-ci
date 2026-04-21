@@ -50,18 +50,19 @@
       url: https://apt.llvm.org/${OS_CODENAME}/
       codename: llvm-toolchain-${OS_CODENAME}-{V}
   # Only coinstallable-across-versions packages are listed here. apt.llvm.org
-  # marks the runtime -dev headers (libc++-N-dev, libc++abi-N-dev,
-  # libomp-N-dev, libunwind-N-dev) with `Conflicts: libc++-x.y-dev` etc., so
-  # at most one version of those may be present. Installing all four
-  # together fails with "held broken packages". BOLT and cargo-pgo do not
-  # require them (they operate on ELF post-link); projects that need libc++
-  # runtime headers install the matching version themselves.
+  # marks the following with `Conflicts: <pkg>-x.y` so at most one version of
+  # each may be installed at a time:
+  #   - libc++-N-dev, libc++abi-N-dev, libomp-N-dev, libunwind-N-dev
+  #   - lldb-N  (via its `python3-lldb-N` dep which declares the conflict)
+  # Installing all four versions together fails with "held broken packages".
+  # BOLT and cargo-pgo do not require them (they operate on ELF post-link);
+  # projects that need lldb or libc++ runtime install the matching version
+  # themselves.
   apt_packages:
     - clang-{V}
     - clang-tools-{V}
     - clangd-{V}
     - lld-{V}
-    - lldb-{V}
     - llvm-{V}
     - llvm-{V}-dev
     - llvm-{V}-tools
