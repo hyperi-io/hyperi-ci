@@ -24,10 +24,29 @@ from pathlib import Path
 import yaml
 from hyperi_pylib import logger
 
-# Ubuntu LTS codenames in reverse chronological order for fallback
-_LTS_CODENAMES = ["noble", "jammy", "focal"]
+# Codenames to try as fallbacks when a given APT repo doesn't ship
+# packages for the current OS codename. Ordered by preference (newest
+# Ubuntu LTS first, then older LTS, then Debian stable). Resolute
+# (Ubuntu 26.04 LTS, April 2026) is the current latest; trixie (Debian
+# 13) is supported alongside for ESH projects.
+_FALLBACK_CODENAMES = ["resolute", "noble", "jammy", "focal", "trixie"]
 
-_NATIVE_DEPS_DIR = Path(__file__).resolve().parent / "config" / "native-deps"
+_CONFIG_ROOT = Path(__file__).resolve().parent / "config"
+_NATIVE_DEPS_DIR = _CONFIG_ROOT / "native-deps"
+_TOOLCHAINS_DIR = _CONFIG_ROOT / "toolchains"
+
+# Supported categories map to config subdirectories. Both share the same
+# YAML schema (patterns, manifest_files, dpkg_check, apt_repos, apt_packages)
+# plus the optional `versions:` list for multi-version expansion.
+#
+# Semantic difference:
+#   native-deps: conditional by default (install only if manifest matches)
+#   toolchains:  conditional in --auto mode; --all bypasses pattern check.
+#                Covers multi-version apt families (LLVM 19-22, GCC 13/14).
+_CATEGORY_DIRS: dict[str, Path] = {
+    "native-deps": _NATIVE_DEPS_DIR,
+    "toolchains": _TOOLCHAINS_DIR,
+}
 
 
 @dataclass
@@ -62,7 +81,7 @@ _DEFAULT_LLVM_VERSION = "22"
 
 
 def _expand_template_vars(text: str) -> str:
-    """Expand ${VAR} placeholders in native-deps YAML.
+    """Expand ${VAR} placeholders in YAML configs.
 
     Supports a small set of hyperi-ci-controlled variables — keeps the
     YAML readable while letting ops override per environment without
@@ -70,47 +89,107 @@ def _expand_template_vars(text: str) -> str:
 
     Recognised variables:
       HYPERCI_LLVM_VERSION  — LLVM/BOLT major version (default: 22)
+      OS_CODENAME           — current OS codename from lsb_release -cs
+                              (e.g. noble, trixie, resolute). Lets a single
+                              YAML reference distro-specific apt.llvm.org
+                              subpaths (https://apt.llvm.org/${OS_CODENAME}/).
 
     Unknown ${VAR} placeholders pass through unchanged so apt-cache
     surfaces a clear "package not found" error instead of a silent
     mis-resolve.
     """
     llvm_version = os.environ.get("HYPERCI_LLVM_VERSION", _DEFAULT_LLVM_VERSION)
-    return text.replace("${HYPERCI_LLVM_VERSION}", llvm_version)
+    os_codename = os.environ.get("OS_CODENAME") or _get_os_codename() or "noble"
+    return text.replace("${HYPERCI_LLVM_VERSION}", llvm_version).replace(
+        "${OS_CODENAME}", os_codename
+    )
 
 
-def _load_dep_groups(language: str) -> list[DepGroup]:
-    """Load dep group definitions for a language from bundled config."""
-    config_file = _NATIVE_DEPS_DIR / f"{language}.yaml"
+def _substitute_version(text: str, version: str) -> str:
+    """Substitute the {V} placeholder with a concrete version."""
+    return text.replace("{V}", version)
+
+
+def _dep_group_from_entry(entry: dict, version: str | None = None) -> DepGroup:
+    """Materialise one DepGroup from a YAML entry, optionally substituting {V}.
+
+    When `version` is None (the common native-deps path) the entry is used
+    verbatim. When `version` is a concrete string (the toolchains path)
+    `{V}` is substituted everywhere it appears: `dpkg_check`, every
+    `apt_repos[*].codename`, every `apt_packages[*]`, and the `name`
+    (so log lines distinguish versions).
+    """
+
+    def sub(text: str) -> str:
+        return _substitute_version(text, version) if version is not None else text
+
+    name = sub(entry["name"])
+    if version is not None:
+        # Disambiguate the group name so log lines are readable
+        name = f"{entry['name']} v{version}"
+
+    return DepGroup(
+        name=name,
+        # patterns and manifest_files stay shared across version expansions
+        patterns=entry.get("patterns", []),
+        manifest_files=entry.get("manifest_files", []),
+        dpkg_check=sub(entry["dpkg_check"]),
+        apt_packages=[sub(p) for p in entry.get("apt_packages", [])],
+        apt_repos=[
+            AptRepo(
+                key_url=r["key_url"],
+                keyring=r["keyring"],
+                url=r["url"],
+                codename=sub(r.get("codename", "auto")),
+                components=r.get("components", "main"),
+            )
+            for r in entry.get("apt_repos", [])
+        ],
+        dpkg_min_version=entry.get("dpkg_min_version", ""),
+    )
+
+
+def _load_dep_groups(language: str, category: str = "native-deps") -> list[DepGroup]:
+    """Load dep group definitions from bundled config.
+
+    Entries with a `versions:` list expand into one DepGroup per version,
+    with `{V}` substituted in `dpkg_check`, `apt_repos[*].codename`, and
+    every `apt_packages[*]`. Entries without `versions:` are loaded as-is
+    (backward-compatible with existing native-deps YAMLs).
+    """
+    config_dir = _CATEGORY_DIRS.get(category)
+    if config_dir is None:
+        logger.warning(f"Unknown config category: {category}")
+        return []
+
+    config_file = config_dir / f"{language}.yaml"
     if not config_file.exists():
-        logger.warning(f"No native-deps config for language: {language}")
+        logger.warning(f"No {category} config for: {language}")
         return []
 
     raw = yaml.safe_load(_expand_template_vars(config_file.read_text()))
     if not raw:
         return []
 
-    return [
-        DepGroup(
-            name=entry["name"],
-            patterns=entry["patterns"],
-            manifest_files=entry["manifest_files"],
-            dpkg_check=entry["dpkg_check"],
-            apt_packages=entry.get("apt_packages", []),
-            apt_repos=[
-                AptRepo(
-                    key_url=r["key_url"],
-                    keyring=r["keyring"],
-                    url=r["url"],
-                    codename=r.get("codename", "auto"),
-                    components=r.get("components", "main"),
-                )
-                for r in entry.get("apt_repos", [])
-            ],
-            dpkg_min_version=entry.get("dpkg_min_version", ""),
-        )
-        for entry in raw
-    ]
+    groups: list[DepGroup] = []
+    for entry in raw:
+        versions = entry.get("versions")
+        if versions is None:
+            # No versions key — load as-is (backward-compatible native-deps path)
+            groups.append(_dep_group_from_entry(entry))
+        elif not versions:
+            # Empty list is almost certainly a config bug — {V} would leak
+            # into the final install command and fail at apt-cache time
+            # with a confusing "package not found" message. Warn loudly.
+            logger.warning(
+                f"entry {entry.get('name', '<unnamed>')!r} in "
+                f"{config_file} has empty `versions:` — skipping"
+            )
+        else:
+            # Multi-version expansion: one DepGroup per version
+            for v in versions:
+                groups.append(_dep_group_from_entry(entry, version=str(v)))
+    return groups
 
 
 def _read_manifests(project_dir: Path, manifest_files: list[str]) -> str:
@@ -163,7 +242,7 @@ def _resolve_codename(repo: AptRepo) -> str:
         logger.info(f"Repo {repo.url} supports current codename: {os_codename}")
         return os_codename
 
-    for lts in _LTS_CODENAMES:
+    for lts in _FALLBACK_CODENAMES:
         if lts == os_codename:
             continue
         if _repo_has_codename(repo.url, lts):
@@ -174,7 +253,7 @@ def _resolve_codename(repo: AptRepo) -> str:
             return lts
 
     logger.warning(f"No supported codename found for {repo.url}")
-    return os_codename or _LTS_CODENAMES[0]
+    return os_codename or _FALLBACK_CODENAMES[0]
 
 
 def _get_dpkg_arch() -> str:
@@ -344,12 +423,22 @@ def _apt_install(packages: list[str]) -> int:
     return install.returncode
 
 
-def install_native_deps(language: str, project_dir: Path | None = None) -> int:
-    """Detect and install native system deps for the given language.
+def install_native_deps(
+    language: str,
+    project_dir: Path | None = None,
+    category: str = "native-deps",
+    all_mode: bool = False,
+) -> int:
+    """Detect and install deps for the given language.
 
     Args:
-        language: Language identifier (rust, typescript, golang, python).
+        language: Language identifier (rust, typescript, golang, python) for
+            `native-deps`, or toolchain family (llvm, gcc) for `toolchains`.
         project_dir: Project root. Defaults to cwd.
+        category: Config subdirectory — `native-deps` or `toolchains`.
+        all_mode: If True, bypass the manifest-pattern check and install every
+            group unconditionally. Used by runner-image bake (`--all`); CI-time
+            invocations on vanilla runners stay conditional (default).
 
     Returns:
         0 on success, non-zero on failure.
@@ -357,29 +446,32 @@ def install_native_deps(language: str, project_dir: Path | None = None) -> int:
     cwd = project_dir or Path.cwd()
 
     if platform.system() != "Linux":
-        logger.info(f"Skipping native deps on {platform.system()}")
+        logger.info(f"Skipping {category} on {platform.system()}")
         return 0
 
-    dep_groups = _load_dep_groups(language)
+    dep_groups = _load_dep_groups(language, category=category)
     if not dep_groups:
-        logger.info(f"No native dep groups defined for {language}")
+        logger.info(f"No {category} groups defined for {language}")
         return 0
 
     needed: list[DepGroup] = []
     for group in dep_groups:
-        content = _read_manifests(cwd, group.manifest_files)
-        if not content:
-            continue
+        if not all_mode:
+            # Conditional mode: only install if a manifest pattern matches
+            content = _read_manifests(cwd, group.manifest_files)
+            if not content:
+                continue
+            if not _patterns_match(content, group.patterns):
+                continue
 
-        if _patterns_match(content, group.patterns):
-            if _is_dpkg_installed(group.dpkg_check, group.dpkg_min_version):
-                logger.info(f"[{group.name}] already installed ({group.dpkg_check})")
-            else:
-                logger.info(f"[{group.name}] needs install: {group.apt_packages}")
-                needed.append(group)
+        if _is_dpkg_installed(group.dpkg_check, group.dpkg_min_version):
+            logger.info(f"[{group.name}] already installed ({group.dpkg_check})")
+        else:
+            logger.info(f"[{group.name}] needs install: {group.apt_packages}")
+            needed.append(group)
 
     if not needed:
-        logger.info(f"All native deps satisfied for {language}")
+        logger.info(f"All {category} satisfied for {language}")
         return 0
 
     # Add any custom APT repos before installing
@@ -399,18 +491,20 @@ def install_native_deps(language: str, project_dir: Path | None = None) -> int:
                 all_packages.append(pkg)
                 seen.add(pkg)
 
-    logger.info(f"Installing native packages: {all_packages}")
+    logger.info(f"Installing {category} packages: {all_packages}")
     rc = _apt_install(all_packages)
     if rc != 0:
         logger.error(f"apt-get install failed (exit {rc})")
         return rc
 
-    # Universal per-language tooling (cargo / npm / pip / go-install)
-    rc = _install_language_tools(language)
-    if rc != 0:
-        return rc
+    # Universal per-language tooling (cargo / npm / pip / go-install) only
+    # applies to the native-deps category — toolchains have no language tools.
+    if category == "native-deps":
+        rc = _install_language_tools(language)
+        if rc != 0:
+            return rc
 
-    logger.info(f"Native deps installed for {language}")
+    logger.info(f"{category} installed for {language}")
     return 0
 
 
@@ -510,24 +604,32 @@ def _install_language_tools(language: str) -> int:
     return 0
 
 
-def print_needed(language: str, project_dir: Path | None = None) -> None:
+def print_needed(
+    language: str,
+    project_dir: Path | None = None,
+    category: str = "native-deps",
+    all_mode: bool = False,
+) -> None:
     """Print which dep groups would be triggered (dry-run helper)."""
     cwd = project_dir or Path.cwd()
-    dep_groups = _load_dep_groups(language)
+    dep_groups = _load_dep_groups(language, category=category)
 
     for group in dep_groups:
-        content = _read_manifests(cwd, group.manifest_files)
-        matched = content and _patterns_match(content, group.patterns)
+        if all_mode:
+            matched = True
+        else:
+            content = _read_manifests(cwd, group.manifest_files)
+            matched = bool(content) and _patterns_match(content, group.patterns)
         installed = (
             _is_dpkg_installed(group.dpkg_check)
             if platform.system() == "Linux"
             else None
         )
         status = (
-            "matched+installed"
+            "would-install (already present)"
             if matched and installed
-            else "matched+needed"
+            else "would-install"
             if matched and not installed
-            else "not matched"
+            else "skip (no match)"
         )
         print(f"  {group.name}: {status}", file=sys.stderr)
