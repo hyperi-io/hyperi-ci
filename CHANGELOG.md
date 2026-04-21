@@ -1,3 +1,16 @@
+# [1.11.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.10.7...v1.11.0) (2026-04-21)
+
+
+### Bug Fixes
+
+* **native_deps:** tolerate missing lsb_release on macOS ([e701cd9](https://github.com/hyperi-io/hyperi-ci/commit/e701cd9fee2f491398f6ba70a4cef724168463de))
+* **pgo:** disable strip for BOLT steps to avoid lld --strip-all/--emit-relocs conflict ([1a93cc1](https://github.com/hyperi-io/hyperi-ci/commit/1a93cc1b509fe79623838a481f209fc902b27489))
+
+
+### Features
+
+* **native_deps:** toolchains category, multi-version expansion, --all mode ([f0108cc](https://github.com/hyperi-io/hyperi-ci/commit/f0108cc4b38f56d1eac8c74d7ef1649f6949c008))
+
 ## [1.10.7](https://github.com/hyperi-io/hyperi-ci/compare/v1.10.6...v1.10.7) (2026-04-20)
 
 
