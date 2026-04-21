@@ -1,3 +1,16 @@
+# [1.12.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.11.2...v1.12.0) (2026-04-21)
+
+
+### Bug Fixes
+
+* **toolchains:** drop lldb-N from multi-version (python3-lldb-N conflicts) ([755f9ac](https://github.com/hyperi-io/hyperi-ci/commit/755f9ac0256b3f4766397418906e3455c6711784))
+
+
+### Features
+
+* **native_deps:** `bake: false` schema flag for install-on-demand entries ([6399c4b](https://github.com/hyperi-io/hyperi-ci/commit/6399c4ba1d2f74ddf24cd8184b5f46071db90918))
+* **toolchains:** bake lldb/libc++/libomp/libunwind as default-version singleton ([02d418c](https://github.com/hyperi-io/hyperi-ci/commit/02d418c5528213dd7ef116a5aa64efafc08e59d2))
+
 ## [1.11.2](https://github.com/hyperi-io/hyperi-ci/compare/v1.11.1...v1.11.2) (2026-04-21)
 
 
