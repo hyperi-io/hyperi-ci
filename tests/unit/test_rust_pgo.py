@@ -206,37 +206,53 @@ class TestBoltAvailabilityCheck:
             assert shim.resolve() == expected.resolve()
 
 
-class TestBoltLinkerOverride:
-    """BOLT steps force lld as the linker via CARGO_TARGET_<TRIPLE>_RUSTFLAGS.
+class TestBoltBuildEnv:
+    """BOLT steps need TWO env overrides to get a clean linker pass:
 
-    mold (on some projects) and GNU BFD can't handle the `--emit-relocs`
-    metadata cargo-pgo's BOLT flow requires. LLD is the canonical
-    BOLT-compatible linker. Verifies the env key construction for
-    common triples and that the rustflags value forces fuse-ld=lld.
+    1. `CARGO_TARGET_<TRIPLE>_RUSTFLAGS` with `-C link-arg=-fuse-ld=lld` —
+       mold segfaults on `--emit-relocs`, GNU BFD rejects it, lld is the
+       canonical BOLT-compatible linker.
+    2. `CARGO_PROFILE_RELEASE_STRIP=none` — lld refuses to combine
+       `--strip-all` with `--emit-relocs`, so projects with
+       `[profile.release] strip = true` otherwise fail the BOLT build.
+       Final binary is stripped by hyperi-ci's post-build packaging.
     """
 
-    def test_amd64_linux_triple_produces_correct_env_key(self) -> None:
-        from hyperi_ci.languages.rust.pgo import _bolt_linker_env
+    def test_amd64_linux_forces_lld_via_target_rustflags(self) -> None:
+        from hyperi_ci.languages.rust.pgo import _bolt_build_env
 
-        env = _bolt_linker_env("x86_64-unknown-linux-gnu")
-        assert "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS" in env
+        env = _bolt_build_env("x86_64-unknown-linux-gnu")
         assert env["CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS"] == (
             "-C link-arg=-fuse-ld=lld"
         )
 
-    def test_arm64_linux_triple_produces_correct_env_key(self) -> None:
-        from hyperi_ci.languages.rust.pgo import _bolt_linker_env
+    def test_disables_strip_for_bolt_steps(self) -> None:
+        """strip=true + --emit-relocs is rejected by lld — override to none."""
+        from hyperi_ci.languages.rust.pgo import _bolt_build_env
 
-        env = _bolt_linker_env("aarch64-unknown-linux-gnu")
+        env = _bolt_build_env("x86_64-unknown-linux-gnu")
+        assert env["CARGO_PROFILE_RELEASE_STRIP"] == "none"
+
+    def test_arm64_linux_triple_produces_correct_env_key(self) -> None:
+        from hyperi_ci.languages.rust.pgo import _bolt_build_env
+
+        env = _bolt_build_env("aarch64-unknown-linux-gnu")
         assert "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS" in env
+        assert env["CARGO_PROFILE_RELEASE_STRIP"] == "none"
 
     def test_triple_with_dots_is_sanitised_to_underscores(self) -> None:
         """Some triples have dots (e.g. Apple targets) — must become underscores."""
-        from hyperi_ci.languages.rust.pgo import _bolt_linker_env
+        from hyperi_ci.languages.rust.pgo import _bolt_build_env
 
         # Cargo's env var convention replaces BOTH - and . with _
-        env = _bolt_linker_env("aarch64-apple-darwin")
+        env = _bolt_build_env("aarch64-apple-darwin")
         assert "CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS" in env
+
+    def test_legacy_alias_still_works(self) -> None:
+        """_bolt_linker_env is kept as backwards-compat alias for one release."""
+        from hyperi_ci.languages.rust.pgo import _bolt_build_env, _bolt_linker_env
+
+        assert _bolt_linker_env is _bolt_build_env
 
 
 class TestWorkloadExecution:
