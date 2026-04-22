@@ -277,6 +277,10 @@ class TestAddAptRepoIdempotency:
         fake_keyring.write_bytes(b"fake-key")
         sources_list, sources_dir = _seed_apt_tree(tmp_path, {})
         _patch_apt_paths(monkeypatch, sources_list, sources_dir)
+        # Force ``["sudo"]`` prefix regardless of platform/uid — the macOS
+        # CI runner is non-Linux (so _sudo_prefix returns []), Linux CI is
+        # non-root. Both cases land in this test; pin to the sudo path.
+        monkeypatch.setattr(native_deps, "_sudo_prefix", lambda: ["sudo"])
 
         target_file = sources_dir / "llvm.list"
 
@@ -326,6 +330,7 @@ class TestAddAptRepoIdempotency:
         fake_keyring.write_bytes(b"fake-key")
         sources_list, sources_dir = _seed_apt_tree(tmp_path, {})
         _patch_apt_paths(monkeypatch, sources_list, sources_dir)
+        monkeypatch.setattr(native_deps, "_sudo_prefix", lambda: ["sudo"])
         target_file = sources_dir / "llvm.list"
 
         writes = {"count": 0}
