@@ -2,6 +2,24 @@
 
 Static context for AI assistants. For tasks and progress see `TODO.md`.
 
+## Local CLI Must Track Latest PyPI
+
+Before running any `hyperi-ci` command locally (this repo or any consumer
+project), ensure the installed CLI matches the latest **published** PyPI
+release. Stale CLIs silently drift from the runner image behaviour and
+mask bugs.
+
+```bash
+uv tool upgrade hyperi-ci          # or: hyperi-ci upgrade
+pip index versions hyperi-ci       # verify against PyPI
+```
+
+`HYPERCI_AUTO_UPDATE` defaults to on (4h check). If it's disabled for a
+session, you must upgrade explicitly before the first `hyperi-ci`
+invocation. This is mandatory for canary / release work — the runner
+image bakes a specific version and the local CLI must match to get
+consistent behaviour between dev and CI.
+
 ## Dep-Install SSOT (Single Source of Truth)
 
 **hyperi-ci is the SSOT for all apt-driven dependency installation across
