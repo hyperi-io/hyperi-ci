@@ -1,3 +1,11 @@
+## [1.12.1](https://github.com/hyperi-io/hyperi-ci/compare/v1.12.0...v1.12.1) (2026-04-22)
+
+
+### Bug Fixes
+
+* **native_deps:** skip sudo when already root (runner image bake) ([3a61037](https://github.com/hyperi-io/hyperi-ci/commit/3a61037729e375a6b28b027a3bf45d008c9a071e))
+* **tests:** pin _sudo_prefix to ["sudo"] in apt-repo idempotency tests ([378340e](https://github.com/hyperi-io/hyperi-ci/commit/378340e0f34a6166f77035dcd69262e829bad06e))
+
 # [1.12.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.11.2...v1.12.0) (2026-04-21)
 
 
