@@ -6,101 +6,66 @@ This is the **single source of truth** for all tasks and progress.
 
 ## Active Tasks
 
-### Dep-Install SSOT — Runner Image + Canary (2026-04-22)
+### Dep-Install SSOT — Canary Rollout
 
-Current state (2026-04-22): hyperi-ci **v1.12.0 is on PyPI** with the
-`bake: false` standard flag. Runner image rebuild is in-flight against
-v1.12.0 after we diagnosed + fixed three apt conflicts:
+**Canary 1 (dfe-receiver): COMPLETE — released to R2.** Full BOLT+PGO
+publish chain validated on rebuilt ARC runners. Remaining:
 
-1. Multi-version sources clobbering each other in one file (1.11.1 bug,
-   fixed in 1.11.1 → `_add_apt_repo` uses `tee -a` to append)
-2. `libc++-N-dev` / `libc++abi-N-dev` / `libomp-N-dev` / `libunwind-N-dev`
-   declare `Conflicts: <pkg>-x.y` → multi-version install fails
-   ("held broken packages"). Dropped from multi-version in v1.11.2.
-3. `lldb-N` transitively pulls `python3-lldb-N` which also declares
-   `Conflicts: python3-lldb-x.y`. Dropped from multi-version in v1.12.0,
-   AND the same commit introduces `bake: false` as the first-class
-   standard for ANY non-coinstallable toolset.
+- [ ] **Canary 2: dfe-loader** — same shape, different deps (ClickHouse
+  client lib, Arrow, columnar). Broader apt surface. Watch for the
+  same criteria: cargo-pgo BOLT step, `ld.lld` unversioned shim at
+  `~/.local/bin/ld.lld`, pre-baked toolchains (bolt-22, mold, LLVM
+  19/20/21/22, GCC 13/14) picked up without refetch, R2 upload to
+  `downloads.hyperi.io/dfe-loader/vX.Y.Z/`.
+- [ ] **Broader rollout** — dfe-archiver, dfe-fetcher, hyperi-rustlib,
+  hyperi-pylib, transform projects. Each should be a no-op if Canary 2
+  is clean.
+- [ ] **hyperi-infra side commit** — branch
+  `fix/arc-runners-hyperi-ci-integration` (Dockerfile pin
+  `'hyperi-ci>=1.12'` + Debian arm64 sources consolidation) still
+  needs to be pushed + merged. Deferred this session because the
+  hyperi-infra worktree has unrelated uncommitted changes (TODO.md,
+  inventory.yml, k8s playbooks, r2-frontend, scripts/mail-migration/).
 
-Also fixed in the Debian runner Dockerfile (hyperi-infra): arm64
-cross-compile sources consolidated into `debian.sources`
-(`Architectures: amd64 arm64`) instead of a separate `arm64.list` file,
-eliminating "main/binary-all/Packages configured multiple times"
-warnings on every `apt-get update`.
-
-**In-flight when you pick this up**: ARC runner image rebuild against
-v1.12.0, kicked off via ansible running on `desktop-derek` against
-`infra.devex.hyperi.io` (docker build happens on infra). Launched
-2026-04-22 ~09:00 UTC.
+If the canary surfaces any issue: **no SEP fields** — the canary owner
+has explicit authority to edit any of hyperi-ci, hyperi-infra,
+dfe-receiver, dfe-loader to fix it. See `docs/ARC-RUNNERS.md` "Cross-
+Project Rollout Flow" for how changes propagate.
 
 **Source-of-truth checks (session-independent):**
 
 1. Is a docker build still in-progress on infra?
-   ```
-   ssh ubuntu@infra.devex.hyperi.io 'ps auxf | grep "docker build" | grep -v grep'
-   ```
+   `ssh ubuntu@infra.devex.hyperi.io 'pgrep -af "docker build"'`
    Running line = build in-flight. Empty output = build finished
    (or playbook errored). Ubuntu runs first, then Debian.
-
 2. Has Harbor received fresh pushes?
-   ```
-   HARBOR_PW=$(/projects/hyperi-infra/scripts/bao-admin kv get -field=admin_password kv/services/harbor)
-   curl -sk "https://admin:$HARBOR_PW@harbor.devex.hyperi.io:8443/api/v2.0/projects/library/repositories/arc-runner/artifacts?page_size=2" | jq -r '.[].push_time'
-   curl -sk "https://admin:$HARBOR_PW@harbor.devex.hyperi.io:8443/api/v2.0/projects/library/repositories/arc-runner-debian/artifacts?page_size=2" | jq -r '.[].push_time'
-   ```
-   Look for a push_time AFTER ~2026-04-22T09:00Z on both repos.
-
-3. If the build is still running, tail progress via `docker logs` on
-   infra. If it's NOT running and Harbor has no fresh push, it errored —
-   re-run the ansible command below:
+   `bao-admin kv get -field=admin_password kv/services/harbor` → curl
+   `https://harbor.devex.hyperi.io:8443/api/v2.0/projects/library/repositories/arc-runner{,-debian}/artifacts?page_size=2`
+   and compare `.push_time` against when the rebuild was kicked off.
+3. If the build is not running and Harbor has no fresh push, it
+   errored — re-run the ansible command.
 
 **Ansible rebuild command** (run from `/projects/hyperi-infra`):
 
 ```
-env -C /projects/hyperi-infra \
-  ansible-playbook -i ansible/inventories/prod/inventory.yml \
+ansible-playbook -i ansible/inventories/prod/inventory.yml \
   ansible/playbooks/k8s-arc-runners.yml --tags image \
   -e harbor_admin_password=$(scripts/bao-admin kv get -field=admin_password kv/services/harbor)
 ```
 
 Takes ~25-30 min. Both runner variants rebuild.
 
-**hyperi-infra side commit (this session)**: there's a branch
-`fix/arc-runners-hyperi-ci-integration` with the Dockerfile pin bump
-(`'hyperi-ci>=1.12'`) and the Debian arm64 consolidation. `git -C
-/projects/hyperi-infra log fix/arc-runners-hyperi-ci-integration -1`
-to see it. Still needs to be pushed + merged there.
-
-Known things to check if the build failed this time:
-- If `install-toolchains --all` fails on a NEW conflict we haven't seen,
-  look for `E: held broken packages` lines in the build output. The
-  per-version install is done in ONE batched `apt-get install` (see
-  `install_native_deps()` in `src/hyperi_ci/native_deps.py`); any new
-  `Conflicts: <pkg>-x.y` declaration in apt.llvm.org for a future LLVM
-  version will surface the same way.
-- If the pin in hyperi-infra's Dockerfile isn't picking up v1.12 because
-  of Docker layer caching, bump `'hyperi-ci>=1.12'` to an exact version
-  and rebuild with `--no-cache` on the hyperi-ci install layer.
-
-### Dep-Install SSOT — Canary (blocked on runner rebuild)
-
-- [ ] **Canary 1: dfe-receiver** — trigger a build on one of the rebuilt
-  runners. The BOLT `strip=none` fix (hyperi-ci 1.10.8 earlier today)
-  and the multi-version LLVM install should both get exercised. Watch
-  for: cargo-pgo BOLT step succeeding (previously blocked by lld rejecting
-  `--strip-all` + `--emit-relocs`), the `ld.lld` unversioned shim being
-  present at `~/.local/bin/ld.lld` during BOLT, and apt never fetching
-  packages at job time (everything pre-baked except `bake: false` entries).
-- [ ] **Canary 2: dfe-loader** — same shape, different deps (ClickHouse
-  client lib, Arrow, columnar). Broader apt surface.
-- [ ] **Broader rollout** — dfe-archiver, dfe-fetcher, hyperi-rustlib,
-  hyperi-pylib, transform projects. Each should be a no-op if canaries
-  are clean.
-
-If the canary surfaces any issue: **no SEP fields** — the canary owner
-has explicit authority to edit any of hyperi-ci, hyperi-infra,
-dfe-receiver, dfe-loader to fix it. See `docs/ARC-RUNNERS.md` "Cross-
-Project Rollout Flow" for how changes propagate.
+Known things to check if the build fails:
+- If `install-toolchains --all` fails on a NEW conflict, look for
+  `E: held broken packages` or `root is not in the sudoers file` lines.
+  The per-version install is done in ONE batched `apt-get install` (see
+  `install_native_deps()` in `src/hyperi_ci/native_deps.py`).
+- Dockerfile `RUN` executes as root — `_sudo_prefix()` (v1.12.1+) drops
+  the `sudo` prefix in that case. If a stale hyperi-ci is installed,
+  the bake will fail with `root is not in the sudoers file`.
+- If the pin in hyperi-infra's Dockerfile isn't picking up the latest
+  version because of Docker layer caching, bump `'hyperi-ci>=X.Y'` to
+  an exact version and rebuild with `--no-cache` on that layer.
 
 ### Dep-Install SSOT — Phases 2-5 (backlog)
 
@@ -246,6 +211,41 @@ RUN hyperi-ci prime-image --distro noble --all
 ---
 
 ## Completed
+
+- [x] **Canary 1 (dfe-receiver) — fully released through BOLT + R2 on the
+  v1.12.1 runner image.** dfe-receiver v1.15.8 on GH Releases and
+  `downloads.hyperi.io/dfe-receiver/v1.15.8/` (amd64 15.2 MB, arm64
+  12.7 MB, checksums.sha256). BOLT+PGO both archs green (amd64 28m9s,
+  arm64 29m3s). Pre-baked toolchains (bolt-22, mold, LLVM 19-22, GCC
+  13/14) picked up without re-fetch at job time.
+
+- [x] **hyperi-ci v1.12.1: `_sudo_prefix()` helper (runner image bake).**
+  Dockerfile `RUN` runs as root where sudo isn't configured; old code
+  prepended `sudo` unconditionally and failed with `root is not in the
+  sudoers file`. New helper returns `[]` when root/non-Linux, `["sudo"]`
+  otherwise. Three new regression tests (TestSudoPrefix) + two existing
+  macOS test fixups (pin `_sudo_prefix` to `["sudo"]` so fake
+  subprocess matchers still hit). 441 tests green.
+
+- [x] **Rebuilt both ARC runner images against hyperi-ci v1.12.1.**
+  Harbor push_time 2026-04-22T02:31Z for both `arc-runner` (noble) and
+  `arc-runner-debian` (trixie). Ansible playbook
+  `k8s-arc-runners.yml --tags image` from `/projects/hyperi-infra`.
+
+- [x] **Fixed flaky dfe-receiver integration tests on ARC runners.**
+  `protocol_kafka_roundtrip::test_splunk_hec_to_kafka_roundtrip` +
+  `test_prometheus_rw_to_kafka_roundtrip` raced the handler bind with
+  a fixed 500ms sleep → ConnectionRefused under parallel load.
+  Replaced with `wait_for_port()` (polls `TcpStream::connect` with a
+  5s hard budget). Same fix applied to
+  `grpc_sink::start_server` (200ms sleep → port poll) and
+  `grpc_sink::test_grpc_sink_large_payload` (bare `send` → `send_with_retry`).
+
+- [x] **STATE.md rules added** (three static policies):
+  - Local CLI must track latest PyPI before any `hyperi-ci` invocation
+  - Flaky test = fix the test (no rerun-and-hope); readiness polls
+    require a hard budget
+  - Canary not done until R2 (branch CI bypasses release-gated PGO+BOLT)
 
 - [x] **Dep-Install SSOT foundation (v1.10.8 → v1.12.0, 2026-04-21/22)**
   - v1.10.8: BOLT `strip=none` fix — rust-lld rejects `--strip-all` +
