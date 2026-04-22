@@ -47,6 +47,7 @@ def _sudo_prefix() -> list[str]:
         return []
     return [] if os.geteuid() == 0 else ["sudo"]
 
+
 # Supported categories map to config subdirectories. Both share the same
 # YAML schema (patterns, manifest_files, dpkg_check, apt_repos, apt_packages)
 # plus the optional `versions:` list for multi-version expansion.
