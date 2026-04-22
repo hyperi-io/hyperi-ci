@@ -35,6 +35,18 @@ _CONFIG_ROOT = Path(__file__).resolve().parent / "config"
 _NATIVE_DEPS_DIR = _CONFIG_ROOT / "native-deps"
 _TOOLCHAINS_DIR = _CONFIG_ROOT / "toolchains"
 
+
+def _sudo_prefix() -> list[str]:
+    """Return ``["sudo"]`` when non-root, ``[]`` when already root.
+
+    Runner image bake (Dockerfile ``RUN``) executes as root where sudo
+    isn't configured, producing 'root is not in the sudoers file'. CI-time
+    invocations on vanilla runners still prepend sudo as before.
+    """
+    if platform.system() != "Linux":
+        return []
+    return [] if os.geteuid() == 0 else ["sudo"]
+
 # Supported categories map to config subdirectories. Both share the same
 # YAML schema (patterns, manifest_files, dpkg_check, apt_repos, apt_packages)
 # plus the optional `versions:` list for multi-version expansion.
@@ -361,7 +373,7 @@ def _add_apt_repo(repo: AptRepo) -> int:
 
         dearmor = subprocess.run(
             [
-                "sudo",
+                *_sudo_prefix(),
                 "gpg",
                 "--batch",
                 "--yes",
@@ -407,7 +419,7 @@ def _add_apt_repo(repo: AptRepo) -> int:
     # Prepend a newline so subsequent lines don't get concatenated.
     prefix = "" if not sources_path.exists() else "\n"
     result = subprocess.run(
-        ["sudo", "tee", "-a", str(sources_path)],
+        [*_sudo_prefix(), "tee", "-a", str(sources_path)],
         input=f"{prefix}{sources_line}\n".encode(),
         capture_output=True,
     )
@@ -442,13 +454,14 @@ def _is_dpkg_installed(package: str, min_version: str = "") -> bool:
 
 def _apt_install(packages: list[str]) -> int:
     """Run apt-get update then install packages. Returns exit code."""
-    update = subprocess.run(["sudo", "apt-get", "update"])
+    sudo = _sudo_prefix()
+    update = subprocess.run([*sudo, "apt-get", "update"])
     if update.returncode != 0:
         logger.warning("apt-get update failed — continuing anyway")
 
     install = subprocess.run(
         [
-            "sudo",
+            *sudo,
             "apt-get",
             "install",
             "-y",

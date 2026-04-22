@@ -20,6 +20,7 @@ from hyperi_ci.native_deps import (
     _expand_template_vars,
     _load_dep_groups,
     _repo_already_configured,
+    _sudo_prefix,
 )
 
 
@@ -353,6 +354,30 @@ class TestAddAptRepoIdempotency:
         assert _add_apt_repo(repo) == 0  # no-op
         assert writes["count"] == 1, "second identical add triggered a write"
         assert target_file.read_text().count("llvm-toolchain-noble-22") == 1
+
+
+class TestSudoPrefix:
+    """`_sudo_prefix()` skips sudo when already root.
+
+    Runner image bake (Dockerfile ``RUN``) runs as root where sudo isn't
+    configured; the previous 'sudo apt-get install' produced
+    'root is not in the sudoers file' and failed the build.
+    """
+
+    def test_non_root_prepends_sudo(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(native_deps.platform, "system", lambda: "Linux")
+        monkeypatch.setattr(native_deps.os, "geteuid", lambda: 1000)
+        assert _sudo_prefix() == ["sudo"]
+
+    def test_root_skips_sudo(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(native_deps.platform, "system", lambda: "Linux")
+        monkeypatch.setattr(native_deps.os, "geteuid", lambda: 0)
+        assert _sudo_prefix() == []
+
+    def test_non_linux_skips_sudo(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # macOS dev path — apt isn't used, but the helper must be safe to call
+        monkeypatch.setattr(native_deps.platform, "system", lambda: "Darwin")
+        assert _sudo_prefix() == []
 
 
 class TestDepGroupLoading:
