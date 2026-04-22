@@ -2,6 +2,30 @@
 
 Static context for AI assistants. For tasks and progress see `TODO.md`.
 
+## Flaky Test = Fix the Test
+
+**CI runs are 20-30 minutes on Rust projects. Re-running a flaky test
+in hope of getting lucky wastes half an hour and teaches nothing. Fix
+the race.**
+
+When an integration test fails with a race symptom (ConnectionRefused,
+timeout during startup, port-in-use, "no message arrived"), fix the
+root cause. Typical patterns:
+
+- Replace fixed-duration `sleep` with a readiness poll. For a spawned
+  TCP server, poll `TcpStream::connect` in a tight loop with a **hard
+  budget** (e.g. 100 × 50ms then panic with a useful message). Never
+  busy-loop without a ceiling — unbounded waits block the runner for
+  the whole workflow timeout and poison the job queue.
+- For spawned async tasks, have the handler signal readiness via a
+  channel and `await` the signal.
+- For subprocess / testcontainer infrastructure, use the container's
+  `wait_for` hook — don't sleep.
+
+`gh run rerun --failed` is reserved for genuine infra incidents
+(GitHub outage, transient 5xx from Harbor). For anything the project
+owns, fix it.
+
 ## Local CLI Must Track Latest PyPI
 
 Before running any `hyperi-ci` command locally (this repo or any consumer
