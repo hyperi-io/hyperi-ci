@@ -322,8 +322,15 @@ def watch(
     ] = None,
     timeout: Annotated[
         int,
-        typer.Option("--timeout", "-t", help="Timeout in seconds"),
-    ] = 1800,
+        typer.Option(
+            "--timeout",
+            "-t",
+            help=(
+                "Timeout in seconds. Default 3600 (60 min) covers Tier 2 "
+                "Rust builds. Pass 0 to disable timeout."
+            ),
+        ),
+    ] = 3600,
     interval: Annotated[
         int,
         typer.Option("--interval", "-i", help="Initial poll interval in seconds"),
