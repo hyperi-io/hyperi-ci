@@ -315,7 +315,7 @@ def _run_workload(
     try:
         result = subprocess.run(
             full_cmd,
-            shell=True,  # noqa: S602 - workload_cmd is project-owned config, run in controlled CI env
+            shell=True,  # noqa: S602  # nosemgrep: subprocess-shell-true — workload_cmd is project-owned config, run in controlled CI env
             cwd=cwd,
             env=env,
             check=False,

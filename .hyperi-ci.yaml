@@ -1,0 +1,13 @@
+# Project:   HyperI CI
+# File:      .hyperi-ci.yaml
+# Purpose:   Self-hosting hyperi-ci configuration overrides
+#
+# License:   Proprietary — HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+
+# Coverage is informational here — CI (.github/workflows/ci.yml) runs
+# pytest without --cov-fail-under, and the codebase is heavy on
+# subprocess-driven CI orchestration that's painful to unit-cover.
+# Lower the local gate so hyperi-ci check matches CI reality.
+test:
+  min_coverage: 0

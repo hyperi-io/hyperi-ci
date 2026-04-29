@@ -57,7 +57,9 @@ def _find_handler_module(language: str, stage: str) -> Any | None:
         info(f"Using {canonical} handler for {language} project")
     module_name = f"hyperi_ci.languages.{canonical}.{stage}"
     try:
-        mod = importlib.import_module(module_name)
+        # Module name composed from closed allowlist (_LANGUAGE_ALIASES +
+        # known stages), not user input.
+        mod = importlib.import_module(module_name)  # nosemgrep: non-literal-import
         if hasattr(mod, "run"):
             return mod
     except ImportError:
