@@ -31,6 +31,7 @@ def install_deps(language: str, project_dir: Path | None = None) -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     module_name = f"hyperi_ci.languages.{language}.install_deps"
     try:

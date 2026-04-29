@@ -26,6 +26,7 @@ def _corepack_enable() -> bool:
 
     Returns:
         True if corepack was enabled successfully.
+
     """
     if not shutil.which("corepack"):
         warn("corepack not found on PATH")
@@ -68,6 +69,7 @@ def ensure_pm_available(pm: str) -> bool:
 
     Returns:
         True if the PM is available, False if all attempts failed.
+
     """
     if pm == "npm" or shutil.which(pm):
         return True
@@ -96,6 +98,7 @@ def detect_package_manager(project_dir: Path | None = None) -> str:
 
     Returns:
         One of: pnpm, yarn, npm
+
     """
     root = project_dir or Path.cwd()
     pkg = root / "package.json"
@@ -132,6 +135,7 @@ def detect_yarn_version(project_dir: Path | None = None) -> int:
 
     Returns:
         Major version number (1 or 2+).
+
     """
     root = project_dir or Path.cwd()
     pkg = root / "package.json"
@@ -174,6 +178,7 @@ def yarn_frozen_flag(project_dir: Path | None = None) -> str:
 
     Returns:
         The appropriate CLI flag string.
+
     """
     version = detect_yarn_version(project_dir)
     if version >= 2:

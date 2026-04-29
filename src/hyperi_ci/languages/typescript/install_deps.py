@@ -32,6 +32,7 @@ def run(project_dir: Path | None = None) -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     root = project_dir or Path.cwd()
 

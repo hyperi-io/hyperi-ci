@@ -83,6 +83,7 @@ def create_github_release(config: CIConfig) -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     version = _read_version()
     if not version:
@@ -119,6 +120,7 @@ def _upload_binaries_github(channel: str = "release") -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     artifacts = _collect_artifacts()
     if not artifacts:
@@ -166,6 +168,7 @@ def _upload_to_artifactory(file_path: Path, target_url: str) -> bool:
 
     Returns:
         True on success (HTTP 200/201).
+
     """
     username = os.environ.get("ARTIFACTORY_USERNAME", "")
     password = os.environ.get("ARTIFACTORY_PASSWORD", "")
@@ -204,6 +207,7 @@ def _publish_jfrog_binaries() -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     username = os.environ.get("ARTIFACTORY_USERNAME")
     password = os.environ.get("ARTIFACTORY_PASSWORD")
@@ -254,6 +258,7 @@ def _publish_r2_binaries(channel: str = "release") -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     access_key = os.environ.get("R2_ACCESS_KEY_ID")
     secret_key = os.environ.get("R2_SECRET_ACCESS_KEY")
@@ -345,6 +350,7 @@ def publish_binaries(config: CIConfig) -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     destinations = config.destination_for("binaries")
     if not destinations:

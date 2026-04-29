@@ -60,6 +60,7 @@ def detect_license(project_dir: Path) -> str:
 
     Returns:
         License identifier string (e.g. "FSL-1.1-ALv2") or default.
+
     """
     license_file = project_dir / "LICENSE"
     if license_file.exists():
@@ -114,6 +115,7 @@ def _detect_python_build_type(project_dir: Path) -> str:
 
     Returns:
         "app" if entry points found, "package" otherwise.
+
     """
     pyproject = project_dir / "pyproject.toml"
     if not pyproject.exists():
@@ -139,6 +141,7 @@ def _detect_rust_workspace(project_dir: Path) -> bool:
 
     Returns:
         True if Cargo.toml contains [workspace].
+
     """
     cargo_toml = project_dir / "Cargo.toml"
     if not cargo_toml.exists():
@@ -283,6 +286,7 @@ def _build_prepare_cmd(language: str) -> str:
 
     Returns:
         Shell command string for prepareCmd.
+
     """
     base = "from pathlib import Path; "
     version_write = "Path('VERSION').write_text('${nextRelease.version}\\n')"
@@ -338,6 +342,7 @@ def _render_releaserc(
         project_name: Project name for header.
         language: Detected language (affects prepareCmd and git assets).
         license_id: License identifier for file header.
+
     """
     prepare_cmd = _build_prepare_cmd(language)
 
@@ -433,6 +438,7 @@ def _write_file(path: Path, content: str, *, force: bool) -> bool:
 
     Returns:
         True if the file was written.
+
     """
     if path.exists() and not force:
         warn(f"  Skipped {path.name} (exists, use --force to overwrite)")
@@ -461,6 +467,7 @@ def _makefile_has_ci_targets(project_dir: Path) -> bool:
 
     Returns:
         True if Makefile has quality/test/build targets.
+
     """
     makefile = project_dir / "Makefile"
     if not makefile.exists():
@@ -503,6 +510,7 @@ def init_project(
 
     Returns:
         Exit code (0 = success).
+
     """
     project_dir = project_dir.resolve()
     project_name = project_dir.name

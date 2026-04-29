@@ -31,6 +31,7 @@ def detect_mode(config: dict, *, language: str) -> str:
 
     Returns:
         Mode string: "contract", "template", or "custom".
+
     """
     container = config.get("container", {})
     explicit_mode = container.get("mode", "")
@@ -274,6 +275,7 @@ def run(config: CIConfig, *, language: str = "") -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     container_cfg = config.get("publish.container", {})
     if not isinstance(container_cfg, dict):

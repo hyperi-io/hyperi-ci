@@ -31,6 +31,7 @@ def _download_logs(run_id: str) -> Path | None:
 
     Returns:
         Path to the directory containing log files, or None on error.
+
     """
     tmp_dir = Path(tempfile.mkdtemp(prefix="hyperi-ci-logs-"))
 
@@ -71,6 +72,7 @@ def _get_failed_jobs(run_id: str) -> set[str]:
 
     Returns:
         Set of failed job names (lowercased for matching).
+
     """
     try:
         result = gh_run(
@@ -102,6 +104,7 @@ def _parse_log_path(path: Path, base: Path) -> tuple[str, str]:
 
     Returns:
         Tuple of (job_name, step_name).
+
     """
     relative = path.relative_to(base)
     parts = relative.parts
@@ -133,6 +136,7 @@ def _filter_and_print(
         grep_pattern: Regex pattern to match log lines (case-insensitive).
         tail_lines: Only show last N lines per file.
         failed_jobs: Set of failed job names to filter by.
+
     """
     compiled_grep = re.compile(grep_pattern, re.IGNORECASE) if grep_pattern else None
 
@@ -196,6 +200,7 @@ def fetch_logs(
 
     Returns:
         Exit code: 0=success, 1=error.
+
     """
     if not require_gh():
         return 1

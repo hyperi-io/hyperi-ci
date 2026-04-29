@@ -164,6 +164,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     extra = extra_env or {}
     info("Building Golang project...")

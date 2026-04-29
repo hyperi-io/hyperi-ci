@@ -118,6 +118,7 @@ class CIConfig:
 
         Returns:
             List of destination identifiers (e.g. ['jfrog-pypi', 'pypi']).
+
         """
         return [
             dest[artifact_type]
@@ -215,6 +216,7 @@ def load_config(
 
     Returns:
         Merged CIConfig instance.
+
     """
     global _config_cache
     if _config_cache is not None and not reload:

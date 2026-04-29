@@ -51,6 +51,7 @@ def run_pgo_build(
 
     Returns:
         0 on success, non-zero on failure.
+
     """
     features = profile.cargo_features()
     feature_args = ["--features", ",".join(features)] if features else []

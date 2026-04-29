@@ -146,6 +146,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     info("Running Rust tests...")
     features = (extra_env or {}).get("RUST_FEATURES", "all")

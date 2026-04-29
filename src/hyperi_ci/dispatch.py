@@ -147,7 +147,7 @@ def stage_quality(language: str, config: CIConfig) -> int:
 
 
 def stage_test(language: str, config: CIConfig) -> int:
-    """Tests — dispatch to language-specific handler."""
+    """Run tests — dispatch to language-specific handler."""
     extra_env: dict[str, str] = {}
     if language == "rust":
         features = _normalize_rust_features(config, "test")
@@ -306,6 +306,7 @@ def run_stage(
 
     Returns:
         Exit code (0 = success).
+
     """
     if stage not in _STAGE_HANDLERS:
         error(f"Unknown stage: {stage}")

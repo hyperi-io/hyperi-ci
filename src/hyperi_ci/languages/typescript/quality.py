@@ -81,6 +81,7 @@ def _find_npm_script(
 
     Returns:
         First matching script name, or None.
+
     """
     import json
     from pathlib import Path

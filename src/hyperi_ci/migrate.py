@@ -76,6 +76,7 @@ def _remove_ci_submodule(project_dir: Path) -> bool:
 
     Returns:
         True if removal succeeded.
+
     """
     info("  Removing ci/ submodule...")
 
@@ -115,6 +116,7 @@ def _remove_ci_directory(project_dir: Path) -> bool:
 
     Returns:
         True if removal succeeded.
+
     """
     info("  Removing ci/ directory...")
     ci_dir = project_dir / "ci"
@@ -200,6 +202,7 @@ def _remove_old_workflows(project_dir: Path) -> list[str]:
 
     Returns:
         List of removed workflow filenames.
+
     """
     old_workflows = _find_old_workflows(project_dir)
     removed = []
@@ -309,6 +312,7 @@ def _fix_releaserc(
 
     Returns:
         True if the file was modified.
+
     """
     releaserc_path = _find_releaserc(project_dir)
     if releaserc_path is None:
@@ -378,6 +382,7 @@ def _clean_broken_ci_symlinks(project_dir: Path) -> int:
 
     Returns:
         Number of broken symlinks removed.
+
     """
     count = 0
     for path in project_dir.rglob("*"):
@@ -403,6 +408,7 @@ def _remove_old_non_ci_workflows(project_dir: Path) -> list[str]:
 
     Returns:
         List of removed workflow filenames.
+
     """
     workflows_dir = project_dir / ".github" / "workflows"
     if not workflows_dir.is_dir():
@@ -446,6 +452,7 @@ def migrate_project(
 
     Returns:
         Exit code (0 = success).
+
     """
     project_dir = project_dir.resolve()
     project_name = project_dir.name

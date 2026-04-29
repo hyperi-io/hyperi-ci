@@ -26,6 +26,39 @@ root cause. Typical patterns:
 (GitHub outage, transient 5xx from Harbor). For anything the project
 owns, fix it.
 
+## Subprocess Output Is Not UTF-8 By Default
+
+Anything that captures `subprocess.run(text=True)` MUST also pin
+`encoding="utf-8", errors="replace"`. Python's default text decoder
+follows the locale, which on minimal containers / non-en_US hosts is
+ASCII or POSIX — a single 0xff in `gh run download` output then
+crashes the whole `hyperi-ci logs` run with `UnicodeDecodeError`.
+
+The same applies to `print()` of foreign bytes: at CLI entry,
+reconfigure `sys.stdout`/`sys.stderr` with `errors="replace"` so a
+missing terminal codepoint replaces with `�` instead of raising
+`UnicodeEncodeError` mid-stream.
+
+This is enforced in `common.run_cmd()` and `cli.main()`. Don't roll
+your own `subprocess.run` — call `run_cmd` so the policy applies.
+
+## Watch Timeout Must Match Real CI Durations
+
+`hyperi-ci watch` defaults to 3600s (60 min) — sized to cover Tier 2
+PGO + BOLT Rust builds for both archs in parallel (35-45 min observed
+in v1.17.5/v1.18.0 dfe-loader publishes). Smaller defaults silently
+time out mid-build and leave the developer staring at "still in
+progress" with no clear next step.
+
+When a timeout *does* fire, the error message includes:
+- Last-known status (so the caller knows whether to re-watch or
+  investigate stuck/silently-failing runs)
+- A copy-pasteable resume command (`hyperi-ci watch <id> --timeout 0`)
+
+`--timeout 0` disables the timeout entirely — use this for runs you
+know will run indefinitely (semantic-release rollbacks, manual
+publish reruns).
+
 ## Local CLI Must Track Latest PyPI
 
 Before running any `hyperi-ci` command locally (this repo or any consumer
@@ -119,8 +152,8 @@ src/hyperi_ci/
 ├── gh.py                # GitHub CLI helpers
 ├── push.py              # Push wrapper (pre-checks, --release, --no-ci)
 ├── trigger.py           # Workflow trigger command
-├── watch.py             # Run watch command
-├── logs.py              # Log fetch command
+├── watch.py             # Run watch command (default 3600s timeout; --timeout 0 disables)
+├── logs.py              # Log fetch command (force UTF-8 with errors=replace)
 ├── quality/
 │   ├── gitleaks.py      # Secret scanning
 │   └── commit_validation.py  # Conventional commit enforcement

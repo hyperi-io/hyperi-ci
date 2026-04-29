@@ -37,6 +37,7 @@ def build_and_push(
 
     Returns:
         Exit code (0 = success).
+
     """
     cmd = [
         "docker",
@@ -100,6 +101,7 @@ def resolve_tags(
 
     Returns:
         List of full image tags.
+
     """
     base = f"{registry}/{image_name}"
 

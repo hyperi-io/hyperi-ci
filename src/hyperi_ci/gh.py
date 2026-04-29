@@ -24,6 +24,7 @@ def require_gh() -> bool:
 
     Returns:
         True if gh is available, False otherwise.
+
     """
     if not shutil.which("gh"):
         error("gh CLI not found — install from https://cli.github.com/")
@@ -36,6 +37,7 @@ def get_current_branch() -> str | None:
 
     Returns:
         Branch name, or None if not in a git repo.
+
     """
     try:
         result = run_cmd(
@@ -63,6 +65,7 @@ def gh_run(
 
     Returns:
         CompletedProcess result.
+
     """
     return run_cmd(["gh", *args], capture=capture, check=check)
 
@@ -79,6 +82,7 @@ def gh_json(
 
     Returns:
         List of dicts with the requested fields.
+
     """
     result = gh_run([*args, "--json", ",".join(fields)])
     return json.loads(result.stdout)
@@ -96,6 +100,7 @@ def get_latest_run(
 
     Returns:
         Dict with run info, or None if no runs found.
+
     """
     args = ["run", "list", "--limit", "1"]
     if branch:
@@ -129,5 +134,6 @@ def get_run_jobs(run_id: str) -> list[dict]:
 
     Returns:
         List of job dicts with name, status, conclusion, steps.
+
     """
     return gh_json(["run", "view", run_id, "--json", "jobs"], ["jobs"])

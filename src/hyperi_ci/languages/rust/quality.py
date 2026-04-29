@@ -110,6 +110,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     info("Running Rust quality checks...")
     had_failure = False

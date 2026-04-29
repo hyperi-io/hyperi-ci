@@ -32,6 +32,7 @@ def _install_gitleaks() -> bool:
 
     Returns:
         True if gitleaks is available after install attempt.
+
     """
     if shutil.which("gitleaks"):
         return True
@@ -96,6 +97,7 @@ def run(config: CIConfig) -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     mode = str(config.get("quality.gitleaks", "blocking"))
     if mode == "disabled":

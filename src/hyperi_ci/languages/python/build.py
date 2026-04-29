@@ -80,6 +80,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     strategy = (extra_env or {}).get("BUILD_STRATEGY", "native")
     info(f"Building Python package (strategy: {strategy})...")
