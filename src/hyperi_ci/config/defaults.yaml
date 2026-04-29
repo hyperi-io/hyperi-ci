@@ -280,9 +280,26 @@ publish:
     prefix: download
     region: ap-southeast-2
 
+  # Container build & publish.
+  #
+  # `enabled` is three-state:
+  #   auto  (default) -- build when a container artefact is detected
+  #                      (Dockerfile in repo, or rustlib contract source);
+  #                      library projects skip silently.
+  #   true            -- build is required; fail loudly if no artefact
+  #                      detected (regression detector for projects that
+  #                      want strict container hygiene).
+  #   false           -- explicit skip.
+  #
+  # Routing follows publish.target — there is intentionally no
+  # `registry:` field. `oss` -> GHCR, `internal` -> JFrog Docker,
+  # `both` -> both (one buildx invocation, multiple --tag args).
+  #
+  # Docker Hub is NOT a publish target. The Docker Hub login step in
+  # the reusable workflows remains for authenticated pulls (avoids
+  # anonymous rate limits) but no project publishes there.
   container:
-    enabled: false
-    registry: ghcr
+    enabled: auto
     dockerfile: Dockerfile
     context: .
     platforms:
