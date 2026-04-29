@@ -4,6 +4,8 @@
 #
 # License:   Proprietary — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
+"""Commit message validation with friendly rejection messages."""
+
 from __future__ import annotations
 
 import difflib
@@ -118,6 +120,8 @@ def _get_limits() -> tuple[int, int]:
 
 @dataclass
 class ValidationResult:
+    """Result of validating a single commit message."""
+
     valid: bool
     reason: str
     error_type: str

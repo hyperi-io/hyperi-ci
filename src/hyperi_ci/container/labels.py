@@ -32,6 +32,7 @@ def build_oci_labels(
 
     Returns:
         Mapping of label keys to values.
+
     """
     created = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -62,6 +63,7 @@ def labels_to_build_args(labels: dict[str, str]) -> list[str]:
     Returns:
         Flat list of alternating ``--label`` flags and ``key=value`` strings,
         sorted by key.
+
     """
     args: list[str] = []
     for key in sorted(labels):

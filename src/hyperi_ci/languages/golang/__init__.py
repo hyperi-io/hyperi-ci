@@ -4,3 +4,4 @@
 #
 # License:   Proprietary — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
+"""Package marker."""

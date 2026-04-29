@@ -27,6 +27,7 @@ def _publish_go_proxy() -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     result = subprocess.run(
         ["go", "list", "-m"],
@@ -55,6 +56,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     go_destinations = config.destination_for("go")
 

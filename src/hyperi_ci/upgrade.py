@@ -40,6 +40,7 @@ def _parse_latest_version(
 
     Returns:
         Tuple of (latest_stable, latest_prerelease). Either may be None.
+
     """
     stable: list[Version] = []
     all_versions: list[Version] = []
@@ -75,6 +76,7 @@ def _build_upgrade_cmd(
 
     Returns:
         Command as list of strings.
+
     """
     if uv_path:
         if version:
@@ -142,6 +144,7 @@ def _fetch_pypi_versions() -> tuple[str | None, str | None]:
 
     Returns:
         Tuple of (latest_stable, latest_prerelease). Both None on error.
+
     """
     try:
         req = urllib.request.Request(PYPI_URL, headers={"Accept": "application/json"})
@@ -160,6 +163,7 @@ def _run_upgrade_cmd(cmd: list[str]) -> int:
 
     Returns:
         Exit code (0 = success, non-zero = failure).
+
     """
     try:
         result = subprocess.run(cmd, check=False)
@@ -200,6 +204,7 @@ def run_upgrade(
 
     Returns:
         Exit code (0 = success).
+
     """
     # Resolve target version
     if version:

@@ -62,6 +62,7 @@ def _poll_interval(base: int, attempt: int) -> float:
 
     Returns:
         Seconds to wait before next poll.
+
     """
     return min(base * (1.5 ** min(attempt - 1, 4)), 120.0)
 
@@ -79,6 +80,7 @@ def _get_run_status(run_id: str) -> dict | None:
     caller treats None as "transient — retry"; only after multiple
     consecutive failures should it be considered fatal. See
     `_MAX_CONSECUTIVE_FETCH_FAILURES`.
+
     """
     try:
         result = gh_run(
@@ -156,6 +158,7 @@ def watch_run(
 
     Returns:
         Exit code: 0=success, 1=failed/cancelled/unreachable, 2=timeout.
+
     """
     if not require_gh():
         return 1

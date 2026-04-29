@@ -49,6 +49,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     if not shutil.which("pytest") and not shutil.which("uv"):
         error("pytest not installed")

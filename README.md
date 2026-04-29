@@ -169,7 +169,7 @@ Consumers must explicitly opt in (`pip install --pre`, `cargo add pkg@1.0.0-alph
 | `hyperi-ci detect` | Show detected language |
 | `hyperi-ci config` | Show merged config |
 | `hyperi-ci trigger [--watch]` | Trigger CI workflow |
-| `hyperi-ci watch` | Watch latest CI run |
+| `hyperi-ci watch [--timeout SEC]` | Watch latest CI run (default 3600s; `--timeout 0` disables) |
 | `hyperi-ci logs [--failed]` | Show CI run logs |
 | `hyperi-ci init` | Scaffold a new project |
 | `hyperi-ci upgrade` | Upgrade to latest version |

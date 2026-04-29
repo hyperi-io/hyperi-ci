@@ -113,6 +113,7 @@ def resolve_optimization_profile(
 
     Returns:
         Resolved `OptimizationProfile`. Never raises.
+
     """
     defaults = _CHANNEL_DEFAULTS.get(channel, _CHANNEL_DEFAULTS["spike"])
     user = user_optimize or {}
@@ -163,6 +164,7 @@ def validate_profile(
 
     Returns:
         A new `OptimizationProfile` with fallbacks applied.
+
     """
     warnings: list[str] = []
     allocator = profile.allocator
@@ -228,6 +230,7 @@ def parse_cargo_features(cargo_toml_path: Path) -> set[str]:
     Returns:
         Set of feature names. Empty set if file missing or unreadable
         or no [features] section.
+
     """
     try:
         text = cargo_toml_path.read_text(encoding="utf-8")

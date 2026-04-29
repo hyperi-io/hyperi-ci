@@ -83,6 +83,7 @@ def _resolve_tool_cmd(
             the tool temporarily and run it within the project's
             venv. Use for tools that scan installed packages
             (e.g. pip-audit) and must see the project's deps.
+
     """
     if shutil.which(cmd[0]):
         return cmd
@@ -169,6 +170,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     info("Running Python quality checks...")
     excludes = get_exclude_dirs(config._raw)

@@ -76,6 +76,7 @@ def detect_language(project_dir: Path | None = None) -> str | None:
 
     Returns:
         Language name (lowercase) or None if not detected.
+
     """
     project_dir = project_dir or Path.cwd()
 

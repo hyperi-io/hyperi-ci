@@ -31,6 +31,7 @@ def compose_contract_dockerfile(
 
     Returns:
         Complete Dockerfile content as string.
+
     """
     sections = [
         _chef_stage(rust_version),

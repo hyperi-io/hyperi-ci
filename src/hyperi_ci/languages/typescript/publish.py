@@ -29,6 +29,7 @@ def _publish_npm() -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     token = os.environ.get("NPM_TOKEN")
     if not token:
@@ -63,6 +64,7 @@ def _publish_jfrog() -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     token = os.environ.get("JFROG_TOKEN")
     if not token:
@@ -109,6 +111,7 @@ def _publish_ghcr_npm() -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not token:
@@ -156,6 +159,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     destinations = config.destination_for("npm")
     if not destinations:

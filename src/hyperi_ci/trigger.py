@@ -38,6 +38,7 @@ def _wait_for_run(
 
     Returns:
         Run ID as string, or None if no run appeared.
+
     """
     deadline = time.monotonic() + max_wait
     while time.monotonic() < deadline:
@@ -67,6 +68,7 @@ def trigger_workflow(
 
     Returns:
         Exit code: 0=success, 1=failed, 2=timeout.
+
     """
     if not require_gh():
         return 1

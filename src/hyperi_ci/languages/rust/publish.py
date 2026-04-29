@@ -30,6 +30,7 @@ def _read_version() -> str | None:
 
     Returns:
         Version string (e.g. '1.2.3') or None if not found.
+
     """
     version_file = Path("VERSION")
     if not version_file.exists():
@@ -46,6 +47,7 @@ def _sync_cargo_toml_version(version: str) -> bool:
 
     Returns:
         True if updated successfully, False on error.
+
     """
     cargo_toml = Path("Cargo.toml")
     if not cargo_toml.exists():
@@ -80,6 +82,7 @@ def _configure_jfrog_registry(registry_name: str, index_url: str, token: str) ->
         registry_name: Registry name (e.g. 'hyperi').
         index_url: Sparse index URL for the registry.
         token: Bearer token for authentication.
+
     """
     cargo_home = Path(os.environ.get("CARGO_HOME", Path.home() / ".cargo"))
     cargo_home.mkdir(parents=True, exist_ok=True)
@@ -114,6 +117,7 @@ def _publish_crates_io() -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     token = os.environ.get("CARGO_REGISTRY_TOKEN")
     if not token:
@@ -155,6 +159,7 @@ def _publish_jfrog() -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     token = os.environ.get("JFROG_TOKEN")
     if not token:
@@ -216,6 +221,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     from hyperi_ci.languages.rust.build import _detect_binary_names
 

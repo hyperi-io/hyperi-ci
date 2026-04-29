@@ -492,6 +492,7 @@ def install_native_deps(
 
     Returns:
         0 on success, non-zero on failure.
+
     """
     cwd = project_dir or Path.cwd()
 
@@ -594,6 +595,8 @@ def install_native_deps(
 
 @dataclass(frozen=True)
 class LanguageTool:
+    """A language toolchain installable into a per-user dir (e.g. cargo-pgo)."""
+
     name: str
     binary: str
     bin_dir: str  # relative to $HOME

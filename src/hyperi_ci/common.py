@@ -151,6 +151,7 @@ def run_cmd(
 
     Returns:
         CompletedProcess with text output.
+
     """
     run_env = None
     if env:
@@ -190,6 +191,7 @@ def verify_publish(
 
     Returns:
         True if the artifact was found (HTTP 200), False otherwise.
+
     """
     import time
 

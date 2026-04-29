@@ -26,6 +26,7 @@ def _publish_pypi() -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     cmd = ["uv", "publish"]
 
@@ -54,6 +55,7 @@ def _publish_jfrog() -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     token = os.environ.get("JFROG_TOKEN")
     if not token:
@@ -101,6 +103,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     Returns:
         Exit code (0 = success).
+
     """
     destinations = config.destination_for("python")
     if not destinations:

@@ -40,6 +40,7 @@ class ContainerManifest:
 
         Raises:
             ValueError: If required fields are missing.
+
         """
         for field_name in _REQUIRED_FIELDS:
             if field_name not in data:
@@ -73,6 +74,7 @@ def load_manifest(path: Path) -> ContainerManifest:
     Raises:
         FileNotFoundError: If the file doesn't exist.
         ValueError: If required fields are missing.
+
     """
     if not path.exists():
         msg = f"Container manifest not found: {path}"

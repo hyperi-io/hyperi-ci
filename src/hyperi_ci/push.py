@@ -44,6 +44,7 @@ def push(
 
     Returns:
         Exit code: 0=success, non-zero=failure.
+
     """
     if release and no_ci:
         error("--release and --no-ci are mutually exclusive")
@@ -331,6 +332,7 @@ def _poll_for_new_run(
 
     Returns:
         New run ID, or None if timeout.
+
     """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
