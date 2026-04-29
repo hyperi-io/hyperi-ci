@@ -603,6 +603,13 @@ def upgrade(
 
 def main() -> int:
     """CLI entry point."""
+    # Force UTF-8 with replacement on stdout/stderr so log lines containing
+    # arbitrary bytes (gh CLI output, GH Actions log files, container build
+    # output) never crash the CLI with UnicodeEncodeError.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(encoding="utf-8", errors="replace")
     app()
     return 0
 

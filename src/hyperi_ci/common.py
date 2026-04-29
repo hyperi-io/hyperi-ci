@@ -161,6 +161,8 @@ def run_cmd(
         check=check,
         capture_output=capture,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         cwd=cwd,
         env=run_env,
     )
