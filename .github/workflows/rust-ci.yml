@@ -295,7 +295,14 @@ jobs:
   container:
     name: Container
     needs: [build]
-    if: github.event.pull_request.head.repo.fork != true
+    # Branch/PR pushes skip this job entirely. Push-to-main runs in
+    # validate mode (build, no push). Release dispatch runs with --push
+    # to whichever registries publish.target resolves to.
+    if: |
+      github.event.pull_request.head.repo.fork != true && (
+        (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+        github.event_name == 'workflow_dispatch'
+      )
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -306,25 +313,33 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
 
       - name: Check container enabled
+        # publish.container.enabled is three-state: auto | true | false.
+        # `false` skips the rest of this job. `auto` and `true` proceed
+        # to login + build; the handler resolves auto via signal
+        # detection (Dockerfile or rustlib contract source) and skips
+        # silently when no signal is present.
         id: check
         run: |
           if [ -f .hyperi-ci.yaml ]; then
-            enabled=$(python3 -c "import yaml; c=yaml.safe_load(open('.hyperi-ci.yaml')); print(c.get('container',{}).get('enabled','false'))" 2>/dev/null || echo "false")
+            enabled=$(python3 -c "import yaml; c=yaml.safe_load(open('.hyperi-ci.yaml')) or {}; print(str(c.get('publish',{}).get('container',{}).get('enabled','auto')).lower())" 2>/dev/null || echo "auto")
           else
-            enabled="false"
+            enabled="auto"
           fi
           echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
 
       - name: Download build artifacts
-        if: steps.check.outputs.enabled == 'True' || steps.check.outputs.enabled == 'true'
+        if: steps.check.outputs.enabled != 'false'
         uses: actions/download-artifact@v8
         with:
           pattern: build-dist-*
           path: dist/
           merge-multiple: true
 
-      - name: Docker Hub login
-        if: (steps.check.outputs.enabled == 'True' || steps.check.outputs.enabled == 'true') && vars.DOCKERHUB_USERNAME != ''
+      - name: Docker Hub login (authenticated pulls only)
+        # Docker Hub is not a publish target — login is solely to bypass
+        # anonymous rate limits when the Dockerfile pulls a Hub base
+        # image. Conditional on the org var being set; no-op otherwise.
+        if: steps.check.outputs.enabled != 'false' && vars.DOCKERHUB_USERNAME != ''
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -333,29 +348,42 @@ jobs:
       - name: GHCR login
         # GITHUB_TOKEN via job-level packages:write permission — can create
         # new repo-owned packages on first push.
-        if: steps.check.outputs.enabled == 'True' || steps.check.outputs.enabled == 'true'
+        if: steps.check.outputs.enabled != 'false'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: JFrog Docker login
+        # Required when publish.target resolves to internal or both. The
+        # registry resolver writes the JFrog tag; this step authenticates
+        # the push. No-op if vars.JFROG_DOMAIN is unset.
+        if: steps.check.outputs.enabled != 'false' && (inputs.publish-target == 'internal' || inputs.publish-target == 'both') && vars.JFROG_DOMAIN != ''
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ vars.JFROG_DOMAIN }}
+          username: ${{ secrets.JFROG_USERNAME }}
+          password: ${{ secrets.JFROG_TOKEN }}
+
       - name: Set up Docker Buildx
-        if: steps.check.outputs.enabled == 'True' || steps.check.outputs.enabled == 'true'
+        if: steps.check.outputs.enabled != 'false'
         uses: docker/setup-buildx-action@v3
 
       - name: Install uv
-        if: steps.check.outputs.enabled == 'True' || steps.check.outputs.enabled == 'true'
+        if: steps.check.outputs.enabled != 'false'
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: false
 
       - name: Set up Python
-        if: steps.check.outputs.enabled == 'True' || steps.check.outputs.enabled == 'true'
+        if: steps.check.outputs.enabled != 'false'
         run: uv python install 3.12
 
-      - name: Build and push container
-        if: steps.check.outputs.enabled == 'True' || steps.check.outputs.enabled == 'true'
+      - name: Build container
+        # Handler decides validate-only vs push based on event type:
+        # push-to-main → build, no push; workflow_dispatch → push.
+        if: steps.check.outputs.enabled != 'false'
         env:
           HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
         run: ${{ env.HYPERCI_INSTALL }} run container
