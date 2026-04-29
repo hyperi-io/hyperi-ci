@@ -1,3 +1,12 @@
+## [1.12.2](https://github.com/hyperi-io/hyperi-ci/compare/v1.12.1...v1.12.2) (2026-04-29)
+
+
+### Bug Fixes
+
+* **logs:** force UTF-8 with replacement on subprocess + stdout ([9ff03fb](https://github.com/hyperi-io/hyperi-ci/commit/9ff03fbae126402a731f5581417406df5a1e450d))
+* unblock hyperi-ci check on the self-hosting repo ([407bda1](https://github.com/hyperi-io/hyperi-ci/commit/407bda13e81c9703f37d12a9f0d8b876b60d61a0))
+* **watch:** saner default timeout + status-on-timeout + transient-failure tolerance ([5adf3e8](https://github.com/hyperi-io/hyperi-ci/commit/5adf3e832501e2c8226a14bc7be3e50d0851bc5c))
+
 ## [1.12.1](https://github.com/hyperi-io/hyperi-ci/compare/v1.12.0...v1.12.1) (2026-04-22)
 
 
