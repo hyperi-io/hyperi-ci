@@ -1,3 +1,10 @@
+## [1.13.1](https://github.com/hyperi-io/hyperi-ci/compare/v1.13.0...v1.13.1) (2026-04-29)
+
+
+### Bug Fixes
+
+* **rust:** drop --lib flag on bin-only crates in clippy + feature_matrix ([cbbe65c](https://github.com/hyperi-io/hyperi-ci/commit/cbbe65c13f31c8b97e0d1b7f34a153e2475b5f90))
+
 # [1.13.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.12.2...v1.13.0) (2026-04-29)
 
 
