@@ -30,6 +30,54 @@ _DEFAULT_RUST_TEST_IGNORE = [
 ]
 
 
+def _has_lib_target(project_dir: Path | None = None) -> bool:
+    """Return True if the project (or workspace) exposes any lib target.
+
+    ``cargo clippy --lib`` and ``cargo check --lib`` fail with ``no
+    library targets found`` on bin-only projects. We only pass ``--lib``
+    when at least one ``lib`` target is present so binary-only projects
+    (like ci-test-rust-minimal or any `cargo new --bin` crate) don't
+    spuriously fail the quality stage.
+
+    Authoritative answer comes from ``cargo metadata`` when available;
+    a Cargo.toml + filesystem fallback covers the case where cargo is
+    on PATH but metadata fails for some reason.
+    """
+    cwd = project_dir or Path.cwd()
+    if not (cwd / "Cargo.toml").exists():
+        return False
+
+    try:
+        result = subprocess.run(
+            ["cargo", "metadata", "--no-deps", "--format-version=1"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+        )
+        rc = getattr(result, "returncode", 1)
+    except (FileNotFoundError, OSError):
+        rc = 1
+        result = None  # type: ignore[assignment]
+
+    if rc == 0:
+        import json as _json
+
+        try:
+            metadata = _json.loads(getattr(result, "stdout", "") or "")
+        except _json.JSONDecodeError:
+            metadata = {}
+        for package in metadata.get("packages", []):
+            for target in package.get("targets", []):
+                if "lib" in target.get("kind", []) or "rlib" in target.get("kind", []):
+                    return True
+        return False
+
+    # Fallback: cargo metadata failed (e.g. cargo missing). Treat
+    # presence of src/lib.rs as a proxy. Workspace members aren't
+    # explored — this is the conservative path.
+    return (cwd / "src" / "lib.rs").exists()
+
+
 def _split_feature_sets(features: str) -> list[str]:
     """Split pipe-separated feature sets into individual sets.
 
@@ -126,6 +174,8 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     feature_sets = _split_feature_sets(features)
     test_ignore = get_test_ignore("rust", config, _DEFAULT_RUST_TEST_IGNORE)
 
+    has_lib = _has_lib_target()
+
     for feature_set in feature_sets:
         feature_args = []
         if feature_set == "all":
@@ -133,8 +183,11 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         elif feature_set != "default":
             feature_args.extend(["--features", feature_set])
 
-        # Production pass — lib + bins only (no test/bench targets)
-        prod_cmd = ["cargo", "clippy", "--lib", "--bins"] + feature_args
+        # Production pass — lib (when present) + bins, no test/bench targets.
+        # Bin-only crates would fail clippy --lib with "no library targets
+        # found", so we only include --lib when the project actually has one.
+        target_args = ["--lib", "--bins"] if has_lib else ["--bins"]
+        prod_cmd = ["cargo", "clippy", *target_args, *feature_args]
         prod_cmd.extend(["--", "-D", "warnings", "-D", "clippy::dbg_macro"])
         if not _run_tool(f"clippy src ({feature_set})", prod_cmd, mode):
             had_failure = True
@@ -221,15 +274,23 @@ def _run_feature_matrix(config: CIConfig) -> bool:
             return False
 
     had_failure = False
+    has_lib = _has_lib_target()
+
+    # Both passes use --lib when a lib target exists, --bins otherwise.
+    # cargo would error "no library targets found" on bin-only crates
+    # otherwise. The semantic intent is "check whatever this crate
+    # actually exposes" so falling back to --bins keeps the same
+    # feature-gate-safety guarantee.
+    target_args = ["--lib"] if has_lib else ["--bins"]
 
     # Pass 1 — bare crate (no default features). Catches "breaks without defaults" bugs.
     if fm_config.get("also_check_no_default_features", True):
-        cmd = ["cargo", "check", "--no-default-features", "--lib"]
+        cmd = ["cargo", "check", "--no-default-features", *target_args]
         if not _run_tool("feature_matrix (no-default-features)", cmd, "blocking"):
             had_failure = True
 
     # Pass 2 — each feature in isolation
-    cmd = ["cargo", "hack", "--each-feature", "--no-dev-deps", "check", "--lib"]
+    cmd = ["cargo", "hack", "--each-feature", "--no-dev-deps", "check", *target_args]
 
     exclude = fm_config.get("exclude", [])
     if isinstance(exclude, list) and exclude:
@@ -272,6 +333,11 @@ def _run_rustdoc_hint(config: CIConfig) -> None:
 
     if not shutil.which("cargo"):
         return  # cargo not on PATH — quality stage already noted this
+
+    # rustdoc hint only applies to lib targets — bin-only crates have
+    # no public rustdoc surface to lint against.
+    if not _has_lib_target():
+        return
 
     # Build with --no-deps + RUSTDOCFLAGS treating warnings as warnings (default)
     # We just want the count, not to fail.

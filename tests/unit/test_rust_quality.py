@@ -38,6 +38,21 @@ class TestFeatureMatrixOptOut:
         assert _run_feature_matrix(config) is True
 
 
+@pytest.fixture
+def _force_lib_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mark "lib target present" for tests that assume the original
+    behaviour (cargo invocations include ``--lib``). Bin-only behaviour
+    is covered by dedicated tests below.
+
+    Used as ``@pytest.mark.usefixtures("_force_lib_target")`` on classes
+    that pre-date the ``_has_lib_target`` gate.
+    """
+    monkeypatch.setattr(
+        "hyperi_ci.languages.rust.quality._has_lib_target", lambda *a, **kw: True
+    )
+
+
+@pytest.mark.usefixtures("_force_lib_target")
 class TestFeatureMatrixCommandConstruction:
     """Verify the cargo hack command is built correctly from config."""
 
@@ -166,6 +181,7 @@ class TestFeatureMatrixFailurePropagation:
         assert _run_feature_matrix(config) is False
 
 
+@pytest.mark.usefixtures("_force_lib_target")
 class TestRustdocHint:
     """Non-blocking rustdoc hint emits a single concise warning."""
 
@@ -245,3 +261,154 @@ class TestRustdocHint:
         assert "doc.rust-lang.org/rustdoc" in msg
         assert "api-guidelines" in msg
         assert "hyperi-ai/standards" in msg
+
+
+class TestHasLibTarget:
+    """`_has_lib_target` correctly identifies bin-only vs library projects."""
+
+    def test_no_cargo_toml_returns_false(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Override the autouse fixture by re-importing the real fn
+        from hyperi_ci.languages.rust.quality import _has_lib_target
+
+        assert _has_lib_target(tmp_path) is False
+
+    def test_bin_only_project_returns_false(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from hyperi_ci.languages.rust.quality import _has_lib_target
+
+        (tmp_path / "Cargo.toml").write_text(
+            '[package]\nname = "myapp"\nversion = "0.1.0"\n'
+        )
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "main.rs").write_text("fn main() {}\n")
+
+        # Mock cargo metadata to return only a bin target
+        class FakeResult:
+            returncode = 0
+            stdout = '{"packages":[{"name":"myapp","targets":[{"kind":["bin"],"name":"myapp"}]}]}'
+            stderr = ""
+
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality.subprocess.run",
+            lambda *a, **kw: FakeResult(),
+        )
+        assert _has_lib_target(tmp_path) is False
+
+    def test_library_project_returns_true(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from hyperi_ci.languages.rust.quality import _has_lib_target
+
+        (tmp_path / "Cargo.toml").write_text(
+            '[package]\nname = "mylib"\nversion = "0.1.0"\n'
+        )
+
+        class FakeResult:
+            returncode = 0
+            stdout = '{"packages":[{"name":"mylib","targets":[{"kind":["lib"],"name":"mylib"}]}]}'
+            stderr = ""
+
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality.subprocess.run",
+            lambda *a, **kw: FakeResult(),
+        )
+        assert _has_lib_target(tmp_path) is True
+
+    def test_mixed_lib_and_bin_returns_true(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from hyperi_ci.languages.rust.quality import _has_lib_target
+
+        (tmp_path / "Cargo.toml").write_text(
+            '[package]\nname = "myproj"\nversion = "0.1.0"\n'
+        )
+
+        class FakeResult:
+            returncode = 0
+            stdout = (
+                '{"packages":[{"name":"myproj","targets":['
+                '{"kind":["lib"],"name":"myproj"},'
+                '{"kind":["bin"],"name":"myproj"}'
+                "]}]}"
+            )
+            stderr = ""
+
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality.subprocess.run",
+            lambda *a, **kw: FakeResult(),
+        )
+        assert _has_lib_target(tmp_path) is True
+
+    def test_falls_back_to_filesystem_when_cargo_unavailable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from hyperi_ci.languages.rust.quality import _has_lib_target
+
+        (tmp_path / "Cargo.toml").write_text(
+            '[package]\nname = "mylib"\nversion = "0.1.0"\n'
+        )
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "lib.rs").write_text("// lib\n")
+
+        def fake_run(*args, **kwargs):
+            raise FileNotFoundError("cargo not on PATH")
+
+        monkeypatch.setattr("hyperi_ci.languages.rust.quality.subprocess.run", fake_run)
+        assert _has_lib_target(tmp_path) is True
+
+    def test_filesystem_fallback_returns_false_for_bin_only(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from hyperi_ci.languages.rust.quality import _has_lib_target
+
+        (tmp_path / "Cargo.toml").write_text(
+            '[package]\nname = "myapp"\nversion = "0.1.0"\n'
+        )
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "main.rs").write_text("fn main() {}\n")
+
+        def fake_run(*args, **kwargs):
+            raise FileNotFoundError("cargo not on PATH")
+
+        monkeypatch.setattr("hyperi_ci.languages.rust.quality.subprocess.run", fake_run)
+        assert _has_lib_target(tmp_path) is False
+
+
+class TestFeatureMatrixBinOnlyProject:
+    """Bin-only Rust crates should run feature_matrix with --bins, not --lib."""
+
+    def test_default_invocation_uses_bins_when_no_lib(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured_cmds: list[list[str]] = []
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality.shutil.which", lambda n: f"/usr/bin/{n}"
+        )
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality._run_tool",
+            lambda name, cmd, mode, use_uvx=False: captured_cmds.append(cmd) or True,
+        )
+        # Override the autouse "force lib" fixture
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality._has_lib_target", lambda *a, **kw: False
+        )
+
+        config = _make_config(None)
+        assert _run_feature_matrix(config) is True
+
+        assert captured_cmds[0] == ["cargo", "check", "--no-default-features", "--bins"]
+        assert captured_cmds[1] == [
+            "cargo",
+            "hack",
+            "--each-feature",
+            "--no-dev-deps",
+            "check",
+            "--bins",
+        ]
+
+
+# Re-import Path here so the new TestHasLibTarget tests can use it cleanly.
+from pathlib import Path  # noqa: E402
