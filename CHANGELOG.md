@@ -1,3 +1,10 @@
+# [1.13.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.12.2...v1.13.0) (2026-04-29)
+
+
+### Features
+
+* **container:** wire up real GHCR/JFrog publish — fix probe, drop registry: field, add 3-state enabled gate ([cc04033](https://github.com/hyperi-io/hyperi-ci/commit/cc0403360f759c2f702e9f6336cf2a9ce85fb258))
+
 ## [1.12.2](https://github.com/hyperi-io/hyperi-ci/compare/v1.12.1...v1.12.2) (2026-04-29)
 
 
