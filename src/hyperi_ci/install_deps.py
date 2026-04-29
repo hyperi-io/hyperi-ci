@@ -35,7 +35,9 @@ def install_deps(language: str, project_dir: Path | None = None) -> int:
     """
     module_name = f"hyperi_ci.languages.{language}.install_deps"
     try:
-        mod = importlib.import_module(module_name)
+        # `language` comes from project detection (closed set: rust, python,
+        # typescript, go, etc.), not user input.
+        mod = importlib.import_module(module_name)  # nosemgrep: non-literal-import
     except ImportError:
         error(f"install-deps not implemented for {language}")
         return 1

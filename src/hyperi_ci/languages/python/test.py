@@ -20,7 +20,17 @@ from hyperi_ci.config import CIConfig
 
 
 def _resolve_cmd(cmd: list[str]) -> list[str]:
-    """Resolve command, prefixing with 'uv run' if tool isn't on PATH."""
+    """Resolve command, preferring `uv run` for uv projects.
+
+    System-PATH pytest lives outside the project venv and won't see
+    project-local plugins (pytest-cov, pytest-xdist). When this is a
+    uv project (uv.lock present), always go through `uv run` so the
+    project's own pytest + plugins are used.
+    """
+    from pathlib import Path
+
+    if shutil.which("uv") and Path("uv.lock").exists():
+        return ["uv", "run", *cmd]
     if shutil.which(cmd[0]):
         return cmd
     if shutil.which("uv"):

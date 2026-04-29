@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import subprocess
 import time
+from datetime import datetime
 
 from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.gh import get_current_branch, get_latest_run, gh_run, require_gh
@@ -44,8 +45,22 @@ def _wait_for_run(
     while time.monotonic() < deadline:
         time.sleep(2)
         run = get_latest_run(branch=branch, workflow=workflow)
-        if run and run.get("databaseId"):
-            return str(run["databaseId"])
+        if not (run and run.get("databaseId")):
+            continue
+        # Filter out the previous run still showing as "latest" — gh's
+        # listing isn't strictly ordered by trigger time, and we need the
+        # NEW run, not whatever stale one happens to come back first.
+        created = run.get("createdAt")
+        if created:
+            try:
+                created_ts = datetime.fromisoformat(
+                    created.replace("Z", "+00:00")
+                ).timestamp()
+            except ValueError:
+                created_ts = 0.0
+            if created_ts < before_time:
+                continue
+        return str(run["databaseId"])
     return None
 
 

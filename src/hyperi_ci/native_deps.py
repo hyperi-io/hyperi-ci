@@ -258,7 +258,7 @@ def _repo_has_codename(repo_url: str, codename: str) -> bool:
     url = f"{repo_url.rstrip('/')}/dists/{codename}/Release"
     req = urllib.request.Request(url, method="HEAD")
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310 — URL constructed from known APT repo
+        with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310  # nosemgrep: dynamic-urllib-use-detected — URL constructed from known APT repo
             return resp.status == 200
     except (urllib.error.URLError, OSError):
         return False
