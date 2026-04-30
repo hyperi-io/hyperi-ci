@@ -1,3 +1,10 @@
+## [1.13.3](https://github.com/hyperi-io/hyperi-ci/compare/v1.13.2...v1.13.3) (2026-04-30)
+
+
+### Bug Fixes
+
+* add Pydantic deployment contract model + schema_version validator ([e83f2e1](https://github.com/hyperi-io/hyperi-ci/commit/e83f2e159fd04533747f3c521ab685a0d90aac70))
+
 ## [1.13.2](https://github.com/hyperi-io/hyperi-ci/compare/v1.13.1...v1.13.2) (2026-04-30)
 
 
