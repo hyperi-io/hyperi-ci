@@ -36,7 +36,7 @@ def _has_lib_target(project_dir: Path | None = None) -> bool:
     ``cargo clippy --lib`` and ``cargo check --lib`` fail with ``no
     library targets found`` on bin-only projects. We only pass ``--lib``
     when at least one ``lib`` target is present so binary-only projects
-    (like ci-test-rust-minimal or any `cargo new --bin` crate) don't
+    (like ci-test-rust-app or any `cargo new --bin` crate) don't
     spuriously fail the quality stage.
 
     Authoritative answer comes from ``cargo metadata`` when available;

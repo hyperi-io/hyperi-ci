@@ -1,4 +1,4 @@
-# HyperI CI Configuration — ci-test-go-minimal
+# HyperI CI Configuration — ci-test-go-app
 #
 # Minimal Go binary for CI pipeline testing.
 # Zero dependencies, builds in seconds.

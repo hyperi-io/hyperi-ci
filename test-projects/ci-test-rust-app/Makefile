@@ -1,4 +1,4 @@
-# Project:   ci-test-rust-minimal
+# Project:   ci-test-rust-app
 # File:      Makefile
 # Purpose:   CI targets wrapping hyperi-ci
 #

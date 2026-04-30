@@ -868,10 +868,10 @@ hyperi-ci/
 │   ├── runners.yaml           Runner SSOT per architecture
 │   └── versions.yaml          Action/runtime version SSOT
 ├── test-projects/
-│   ├── ci-test-rust-minimal/  Rust binary with C/C++ deps (librdkafka)
-│   ├── ci-test-python-minimal/
-│   ├── ci-test-ts-minimal/
-│   └── ci-test-go-minimal/
+│   ├── ci-test-rust-app/      Rust binary with C/C++ deps (librdkafka, aarch64 cross)
+│   ├── ci-test-python-app/
+│   ├── ci-test-ts-app/
+│   └── ci-test-go-app/
 ├── tests/
 │   └── unit/                  82 unit tests
 ├── docs/

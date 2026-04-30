@@ -1,4 +1,4 @@
-# Project:   ci-test-rust-minimal
+# Project:   ci-test-rust-app
 # File:      Dockerfile
 # Purpose:   Container image for Rust binary with C/C++ deps (librdkafka)
 
