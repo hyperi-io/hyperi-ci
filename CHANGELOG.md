@@ -1,3 +1,10 @@
+# [1.14.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.13.4...v1.14.0) (2026-04-30)
+
+
+### Features
+
+* add hyperi-ci emit-artefacts subcommand (Tier 3 templater stub) ([7b077aa](https://github.com/hyperi-io/hyperi-ci/commit/7b077aa237633b5c06cdb95d2c37bdbf8d8f697b))
+
 ## [1.13.4](https://github.com/hyperi-io/hyperi-ci/compare/v1.13.3...v1.13.4) (2026-04-30)
 
 
