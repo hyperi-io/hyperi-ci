@@ -22,6 +22,15 @@ import yaml
 
 _CONFIG_DIR = Path(__file__).resolve().parent / "config"
 
+# Re-exported for callers that just want the constant without going through
+# the full CIConfig load (e.g. quality-stage drift checks). Authoritative
+# value is defined alongside the Pydantic model that uses it as a field
+# validator. Mirrored as `deployment.max_supported_schema_version` in
+# defaults.yaml for operator visibility.
+from hyperi_ci.deployment.contract import (  # noqa: E402,F401
+    MAX_SUPPORTED_SCHEMA_VERSION,
+)
+
 
 @dataclass
 class OrgConfig:

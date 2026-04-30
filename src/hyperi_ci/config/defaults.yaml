@@ -322,6 +322,19 @@ standards:
   commit_messages: true
   conventional_commits: true
 
+# Deployment Contract
+#
+# Three-tier producer model for app deployment artefacts:
+#   Tier 1 — rustlib emits via DeploymentContract + generate_*
+#   Tier 2 — pylib emits via Application.deployment_contract()
+#   Tier 3 — hyperi-ci emit-artefacts templates from ci/deployment-contract.json
+#
+# max_supported_schema_version: highest schema version this hyperi-ci can
+# consume. Bumped in lockstep with rustlib + pylib on shape changes.
+# Consumers fail fast if a contract declares a higher schema_version.
+deployment:
+  max_supported_schema_version: 2
+
 # Integrations
 integrations:
   linear:
