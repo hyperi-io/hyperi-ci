@@ -186,6 +186,13 @@ def test_run_validate_only_on_push_to_main(tmp_path: Path, monkeypatch) -> None:
     (tmp_path / "Dockerfile").write_text("FROM scratch\n")
     (tmp_path / "VERSION").write_text("1.2.3\n")
 
+    # Simulate hyperi-ci's Build job having produced a single-arch
+    # binary (push-to-main behaviour); validate path should constrain
+    # buildx to that platform only.
+    image_name = tmp_path.name
+    (tmp_path / "dist").mkdir()
+    (tmp_path / "dist" / f"{image_name}-linux-amd64").write_bytes(b"\x7fELF...")
+
     monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
     monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
     monkeypatch.setenv("GITHUB_SHA", "abc12345abc12345abc")
@@ -200,6 +207,33 @@ def test_run_validate_only_on_push_to_main(tmp_path: Path, monkeypatch) -> None:
     assert kwargs["push"] is False
     # Validate-only emits NO tags (none would land in the registry anyway)
     assert kwargs["tags"] == []
+    # Multi-arch is filtered down to platforms that actually have a
+    # binary in dist/.
+    assert kwargs["platforms"] == ["linux/amd64"]
+
+
+def test_run_validate_skips_when_no_dist_binaries(tmp_path: Path, monkeypatch) -> None:
+    """Validate-only on push-to-main with no dist/ binaries should skip cleanly."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "Cargo.toml").write_text(
+        '[package]\nname = "myapp"\nversion = "0.1.0"\n'
+    )
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.rs").write_text("fn main() {}\n")
+    (tmp_path / "Dockerfile").write_text("FROM scratch\n")
+
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
+    monkeypatch.setenv("GITHUB_SHA", "abc12345abc12345abc")
+
+    cfg = _ci_config(container={"enabled": "auto"}, target="oss")
+
+    fake_build = MagicMock(return_value=0)
+    monkeypatch.setattr(stage_module, "build_and_push", fake_build)
+
+    # Should return 0 (skip cleanly, not fail) and never call buildx.
+    assert run(cfg, language="rust") == 0
+    fake_build.assert_not_called()
 
 
 def test_run_multi_registry_when_target_both(tmp_path: Path, monkeypatch) -> None:
