@@ -155,7 +155,7 @@ RUN hyperi-ci prime-image --distro noble --all
 ### High Priority
 
 - [ ] Validate TypeScript pipeline end-to-end (after Rust)
-  - ci-test-ts-minimal exists in test-projects — use for testing
+  - ci-test-ts-app exists in test-projects — use for testing
   - Need a real consumer TypeScript project to cut over
 
 - [ ] Validate Go pipeline end-to-end (after TypeScript)

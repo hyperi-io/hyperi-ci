@@ -1,4 +1,4 @@
-# HyperI CI Configuration — ci-test-rust-minimal
+# HyperI CI Configuration — ci-test-rust-app
 #
 # Mirrors dfe-loader complexity (jfrog publish, container, helm, aarch64 cross)
 # but with zero cargo dependencies so builds complete in <5 minutes.
