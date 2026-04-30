@@ -1,3 +1,10 @@
+## [1.13.2](https://github.com/hyperi-io/hyperi-ci/compare/v1.13.1...v1.13.2) (2026-04-30)
+
+
+### Bug Fixes
+
+* **container:** constrain validate-only platforms to dist/ binaries available ([df04135](https://github.com/hyperi-io/hyperi-ci/commit/df041352b107fef3d43459e8efbfab72251f3cb7))
+
 ## [1.13.1](https://github.com/hyperi-io/hyperi-ci/compare/v1.13.0...v1.13.1) (2026-04-29)
 
 
