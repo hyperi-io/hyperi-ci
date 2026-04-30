@@ -602,6 +602,47 @@ def upgrade(
     raise typer.Exit(rc)
 
 
+@app.command(name="emit-artefacts")
+def emit_artefacts_cmd(
+    output_dir: Annotated[
+        str,
+        typer.Argument(
+            help="Output directory for generated artefacts (e.g. ci/, ci-tmp/)",
+        ),
+    ],
+    contract: Annotated[
+        str | None,
+        typer.Option(
+            "--from",
+            help=(
+                "Path to deployment-contract.json "
+                "(default: ci/deployment-contract.json)"
+            ),
+        ),
+    ] = None,
+) -> None:
+    """Generate deployment artefacts from a contract JSON (Tier 3 templater).
+
+    Reads ``ci/deployment-contract.json`` and writes the generated
+    Dockerfile, Dockerfile.runtime, container-manifest.json,
+    argocd-application.yaml, Helm chart, and the schema reference into
+    ``output_dir``.
+
+    Used by:
+      - Tier 3 apps in their CI (Generate stage)
+      - All tiers' Quality stage drift check (output to /tmp/drift/)
+      - Local dev to regenerate ci/ after editing the contract
+
+    Exits non-zero if the contract is missing, invalid, or declares a
+    schema_version newer than this hyperi-ci can consume.
+    """
+    from hyperi_ci.deployment.cli import emit_artefacts
+
+    contract_path = Path(contract) if contract else None
+    rc = emit_artefacts(Path(output_dir), contract_path)
+    raise typer.Exit(rc)
+
+
 def main() -> int:
     """CLI entry point."""
     # Force UTF-8 with replacement on stdout/stderr so log lines containing
