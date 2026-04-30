@@ -395,6 +395,22 @@ def _dispatch_build(
     build_args = container_cfg.get("build_args", {})
     context = container_cfg.get("context", ".")
 
+    # On push-to-main the Build job only produces linux-amd64 (saves CI
+    # time). If the project's Dockerfile COPYs from dist/<name>-linux-<arch>
+    # then the arm64 platform run fails because the binary isn't there.
+    # Constrain the validate-only path to platforms whose binaries are
+    # actually present in dist/.
+    if push_to_main:
+        platforms = _filter_platforms_to_available_binaries(
+            platforms=platforms,
+            image_name=image_name,
+        )
+        if not platforms:
+            warn(
+                "No matching dist/ binaries for any configured platform — skipping container validate"
+            )
+            return 0
+
     rc = build_and_push(
         dockerfile_path=dockerfile_path,
         context=context,
@@ -407,6 +423,48 @@ def _dispatch_build(
     if rc == 0 and push_to_main:
         success("Container Dockerfile validated (no push on push-to-main)")
     return rc
+
+
+_PLATFORM_TO_OS_ARCH = {
+    "linux/amd64": "linux-amd64",
+    "linux/arm64": "linux-arm64",
+}
+
+
+def _filter_platforms_to_available_binaries(
+    *,
+    platforms: list[str],
+    image_name: str,
+    dist_dir: Path | None = None,
+) -> list[str]:
+    """Drop platforms whose pre-built binary is missing from ``dist/``.
+
+    On push-to-main the Build job builds a single arch by default
+    (saves CI time); on workflow_dispatch it builds the full matrix.
+    Multi-arch buildx fails on push-to-main with "binary not found"
+    when one architecture's artefact is absent.
+
+    Returns the subset of ``platforms`` whose corresponding binary
+    exists in ``dist/``. Platforms not in the os-arch map (e.g.
+    ``linux/s390x`` or future targets) pass through unchanged so we
+    don't silently drop a build the project actually wants.
+    """
+    cwd = dist_dir or Path("dist")
+    kept: list[str] = []
+    for platform in platforms:
+        os_arch = _PLATFORM_TO_OS_ARCH.get(platform)
+        if os_arch is None:
+            kept.append(platform)
+            continue
+        candidate = cwd / f"{image_name}-{os_arch}"
+        if candidate.exists():
+            kept.append(platform)
+        else:
+            info(
+                f"  Container: skipping {platform} — "
+                f"{candidate} not present (not built by current Build job)"
+            )
+    return kept
 
 
 def _detect_rust_version() -> str:
