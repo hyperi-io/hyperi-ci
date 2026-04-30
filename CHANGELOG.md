@@ -1,3 +1,10 @@
+## [1.13.4](https://github.com/hyperi-io/hyperi-ci/compare/v1.13.3...v1.13.4) (2026-04-30)
+
+
+### Bug Fixes
+
+* add deployment registry cascade resolvers + tier detection ([7d727dc](https://github.com/hyperi-io/hyperi-ci/commit/7d727dc922e68ddd46321c14a3b4b835a92b1c14))
+
 ## [1.13.3](https://github.com/hyperi-io/hyperi-ci/compare/v1.13.2...v1.13.3) (2026-04-30)
 
 
