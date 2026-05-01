@@ -411,15 +411,31 @@ def _dispatch_build(
             )
             return 0
 
-    rc = build_and_push(
-        dockerfile_path=dockerfile_path,
-        context=context,
-        tags=tags,
-        platforms=platforms,
-        labels=labels,
-        build_args=build_args if build_args else None,
-        push=not push_to_main,
-    )
+    # Bare `COPY <app> ...` lines in the Dockerfile reference a file in
+    # the build context root that the upstream Build stage doesn't put
+    # there — it puts arch-suffixed binaries in `dist/<app>-linux-<arch>`.
+    # Rewrite the Dockerfile to use ${TARGETARCH} substitution so multi-arch
+    # buildx works in a single invocation. No-op for Dockerfiles that
+    # already use the parameterised form (ci-test-* / dfe-loader pattern).
+    from hyperi_ci.container.binary_stage import stage_binary_dockerfile
+
+    effective_dockerfile = stage_binary_dockerfile(dockerfile_path)
+    rewrote = effective_dockerfile != dockerfile_path
+
+    try:
+        rc = build_and_push(
+            dockerfile_path=effective_dockerfile,
+            context=context,
+            tags=tags,
+            platforms=platforms,
+            labels=labels,
+            build_args=build_args if build_args else None,
+            push=not push_to_main,
+        )
+    finally:
+        if rewrote:
+            effective_dockerfile.unlink(missing_ok=True)
+
     if rc == 0 and push_to_main:
         success("Container Dockerfile validated (no push on push-to-main)")
     return rc
