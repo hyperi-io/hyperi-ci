@@ -1,3 +1,10 @@
+## [1.16.1](https://github.com/hyperi-io/hyperi-ci/compare/v1.16.0...v1.16.1) (2026-05-01)
+
+
+### Bug Fixes
+
+* **container:** rewrite bare 'COPY <app>' to use TARGETARCH for multi-arch builds ([8a7c2be](https://github.com/hyperi-io/hyperi-ci/commit/8a7c2be446867227f4c5193e7d328dc774c92f4d))
+
 # [1.16.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.15.0...v1.16.0) (2026-05-01)
 
 
