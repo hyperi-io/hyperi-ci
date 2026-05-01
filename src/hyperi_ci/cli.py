@@ -602,6 +602,50 @@ def upgrade(
     raise typer.Exit(rc)
 
 
+@app.command(name="init-contract")
+def init_contract_cmd(
+    app_name: Annotated[
+        str,
+        typer.Option(
+            "--app-name",
+            help="Application name (lowercase, hyphenated; e.g. my-app)",
+        ),
+    ],
+    output_dir: Annotated[
+        str,
+        typer.Option(
+            "--output-dir",
+            "-o",
+            help="Where to write deployment-contract.json (default: ci/)",
+        ),
+    ] = "ci",
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            "-f",
+            help="Overwrite an existing contract instead of erroring",
+        ),
+    ] = False,
+) -> None:
+    """Scaffold a starter ci/deployment-contract.json (Tier 3 onboarding).
+
+    Writes a contract with sensible defaults derived from app_name.
+    The file validates against the Pydantic DeploymentContract so
+    the very first emit-artefacts run works without manual editing.
+
+    Tier 3 only — Rust apps build their contract via
+    rustlib's DeploymentContract source, Python apps via pylib's
+    Application.deployment_contract(). Calling this in a Tier 1/2 repo
+    would create a contract that drifts from the framework's source
+    of truth.
+    """
+    from hyperi_ci.deployment.scaffold import init_contract
+
+    rc = init_contract(Path(output_dir), app_name, force=force)
+    raise typer.Exit(rc)
+
+
 @app.command(name="emit-artefacts")
 def emit_artefacts_cmd(
     output_dir: Annotated[
