@@ -1,4 +1,0 @@
-ci-test-go-app
-dist/
-coverage.out
-.tmp/

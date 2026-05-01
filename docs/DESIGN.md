@@ -867,11 +867,6 @@ hyperi-ci/
 │   ├── org.yaml               Organisation URLs (JFrog, GitHub, GHCR)
 │   ├── runners.yaml           Runner SSOT per architecture
 │   └── versions.yaml          Action/runtime version SSOT
-├── test-projects/
-│   ├── ci-test-rust-app/      Rust binary with C/C++ deps (librdkafka, aarch64 cross)
-│   ├── ci-test-python-app/
-│   ├── ci-test-ts-app/
-│   └── ci-test-go-app/
 ├── tests/
 │   └── unit/                  82 unit tests
 ├── docs/
