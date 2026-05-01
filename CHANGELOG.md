@@ -1,3 +1,10 @@
+# [1.16.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.15.0...v1.16.0) (2026-05-01)
+
+
+### Features
+
+* add 'generate' CI stage with three-tier producer dispatch ([b2ab78d](https://github.com/hyperi-io/hyperi-ci/commit/b2ab78d7f5b584c869f273d2c96185cdf5694d1f))
+
 # [1.15.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.14.0...v1.15.0) (2026-05-01)
 
 
