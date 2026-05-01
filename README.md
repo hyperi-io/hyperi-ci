@@ -163,6 +163,8 @@ Consumers must explicitly opt in (`pip install --pre`, `cargo add pkg@1.0.0-alph
 | `hyperi-ci run test` | Tests with coverage |
 | `hyperi-ci run build` | Build artifacts |
 | `hyperi-ci run container` | Build and push container image to GHCR |
+| `hyperi-ci init-contract --app-name <name>` | Scaffold a starter `ci/deployment-contract.json` (Tier 3 onboarding) |
+| `hyperi-ci emit-artefacts <output-dir>` | Generate Dockerfile + chart + ArgoCD app from a deployment contract |
 | `hyperi-ci release --list` | List unpublished version tags |
 | `hyperi-ci release <tag>` | Trigger publish for a tag |
 | `hyperi-ci check-commit --list` | Show all accepted commit types |
@@ -236,28 +238,46 @@ quality:
   gitleaks: blocking
 ```
 
-## Container Builds
+## Container Builds & Deployment Artefacts
 
-Enable container image builds with one config flag:
+Every app emits its container image, Helm chart, and ArgoCD `Application`
+from a single language-agnostic JSON contract — `ci/deployment-contract.json`.
+hyperi-ci's container stage regenerates these on every push and diff-checks
+against the committed `ci/` to catch drift.
 
-```yaml
-# .hyperi-ci.yaml
-container:
-  enabled: true
-  # mode auto-detected: contract (Rust), template (Python/Node), custom (Dockerfile)
-```
+Three-tier producer model (auto-detected):
 
-| Mode | Language | What Happens |
-|------|----------|-------------|
-| **contract** | Rust + rustlib | Binary emits `container-manifest.json`, CI composes Dockerfile |
-| **template** | Python | CI generates Dockerfile using uv + venv pattern |
-| **template** | TypeScript | CI generates Dockerfile using pnpm + distroless |
-| **custom** | Any | CI uses your `Dockerfile`, injects OCI labels |
+| Tier | Detected by | Producer |
+|---|---|---|
+| **Tier 1** (`rust`) | Cargo.toml + `hyperi-rustlib` dep | `<app> generate-artefacts` (rustlib) |
+| **Tier 2** (`python`) | pyproject.toml + `hyperi-pylib` dep | `<app> generate-artefacts` (pylib) |
+| **Tier 3** (`other`) | `ci/deployment-contract.json` only | `hyperi-ci emit-artefacts` |
+| (none) | nothing | container stage no-ops silently |
+
+All three tiers emit **byte-identical** output for the same JSON contract —
+verified by the cross-tier parity test suite.
+
+For Tier 3 onboarding: `hyperi-ci init-contract --app-name my-app` scaffolds
+a starter `ci/deployment-contract.json`, then commit it and run
+`hyperi-ci emit-artefacts ci/` to regenerate.
+
+See [`docs/deployment-contract.md`](docs/deployment-contract.md) for the
+user guide and [`docs/superpowers/specs/2026-04-30-deployment-contract-three-tier-design.md`](docs/superpowers/specs/2026-04-30-deployment-contract-three-tier-design.md)
+for the full architecture.
 
 Images push to GHCR (`ghcr.io/hyperi-io/<app>`). Tags:
 - Push to main: `:sha-abc1234`
 - Release: `:v1.13.5` + `:latest`
 - Pre-release: `:v1.13.5-alpha`
+
+Enable in `.hyperi-ci.yaml`:
+
+```yaml
+publish:
+  container:
+    enabled: auto    # auto | true | false
+    platforms: [linux/amd64, linux/arm64]
+```
 
 ## Languages
 
