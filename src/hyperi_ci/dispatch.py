@@ -33,7 +33,15 @@ from hyperi_ci.config import CIConfig, load_config
 from hyperi_ci.detect import detect_language
 from hyperi_ci.quality import commit_validation, gitleaks
 
-VALID_STAGES = ("setup", "quality", "test", "build", "container", "publish")
+VALID_STAGES = (
+    "setup",
+    "quality",
+    "test",
+    "build",
+    "generate",
+    "container",
+    "publish",
+)
 
 # Languages that share a handler package. The left-hand name is what
 # `detect_language()` returns (honest — describes what the project actually
@@ -283,11 +291,30 @@ def stage_container(language: str, config: CIConfig) -> int:
     return container_run(config, language=language)
 
 
+def stage_generate(language: str, config: CIConfig) -> int:
+    """Deployment-artefact generation — cross-tier stage.
+
+    Sits between Build and Container in the pipeline. Auto-detects the
+    producer tier from the project shape (rustlib dep / pylib dep /
+    bare contract.json) and dispatches to the appropriate producer.
+
+    The ``language`` argument is unused here — tier detection is
+    independent of language detection so a polyglot repo (Rust app
+    with a Python tools subdir) routes by which producer framework is
+    actually present.
+    """
+    del language  # unused — see docstring
+    from hyperi_ci.deployment.stage import run as generate_run
+
+    return generate_run()
+
+
 _STAGE_HANDLERS = {
     "setup": stage_setup,
     "quality": stage_quality,
     "test": stage_test,
     "build": stage_build,
+    "generate": stage_generate,
     "container": stage_container,
     "publish": stage_publish,
 }
