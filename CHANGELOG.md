@@ -1,3 +1,10 @@
+# [1.15.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.14.0...v1.15.0) (2026-05-01)
+
+
+### Features
+
+* add hyperi-ci init-contract for Tier 3 onboarding ([5937ceb](https://github.com/hyperi-io/hyperi-ci/commit/5937ceb7276a35813bb0e97ff227c9d9347f30e2))
+
 # [1.14.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.13.4...v1.14.0) (2026-04-30)
 
 
