@@ -287,6 +287,11 @@ def _build_contract(
             return 1
 
         binary = binary_candidates[0]
+        # actions/download-artifact strips the executable bit when
+        # extracting the zip — restore it before subprocess can invoke
+        # the binary, otherwise we hit PermissionError [Errno 13].
+        # Cheap to call even when the bit is already set.
+        binary.chmod(binary.stat().st_mode | 0o111)
         info(f"Generating contract artefacts from: {binary}")
         manifest_dir.mkdir(exist_ok=True)
         result = subprocess.run(

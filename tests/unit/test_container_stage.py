@@ -236,6 +236,73 @@ def test_run_validate_skips_when_no_dist_binaries(tmp_path: Path, monkeypatch) -
     fake_build.assert_not_called()
 
 
+def test_build_contract_chmods_binary_before_subprocess(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Regression: actions/download-artifact strips +x; we must restore it.
+
+    Without this chmod, contract-mode apps (Rust + hyperi-rustlib, no
+    repo Dockerfile) hit PermissionError [Errno 13] when subprocess
+    tries to invoke `<bin> generate-artefacts` to produce the manifest.
+
+    Reproduced on dfe-transform-vrl run 25294105711 against
+    hyperi-ci 1.16.1 — covered by this test from 1.16.2 onwards.
+    """
+    # `_build_contract` uses `Path.cwd().name` as the binary-glob prefix.
+    # Run inside a subdir named after the binary so the glob matches.
+    project_root = tmp_path / "myapp"
+    project_root.mkdir()
+    monkeypatch.chdir(project_root)
+
+    # Tier 1 layout: Cargo.toml + Build artefact in dist/, no Dockerfile,
+    # no committed .ci/container-manifest.json. Forces contract mode and
+    # the run-binary-to-generate-manifest branch.
+    (project_root / "Cargo.toml").write_text(
+        '[package]\nname = "myapp"\nversion = "0.1.0"\n'
+        "[dependencies]\n"
+        'hyperi-rustlib = "2.7"\n',
+    )
+    (project_root / "src").mkdir()
+    (project_root / "src" / "main.rs").write_text("fn main() {}\n")
+    (project_root / "VERSION").write_text("0.1.0\n")
+
+    dist = project_root / "dist"
+    dist.mkdir()
+    binary = dist / "myapp-linux-amd64"
+    # Fake binary with NO execute bits — mirrors the post-download state.
+    binary.write_text(
+        "#!/usr/bin/env bash\n"
+        'for i in "$@"; do\n'
+        '  if [ "$prev" = "--output-dir" ]; then\n'
+        '    mkdir -p "$i"\n'
+        "    cat > \"$i/container-manifest.json\" <<'JSON'\n"
+        '{"binary_name": "myapp", "base_image": "ubuntu:24.04", '
+        '"runtime_packages": [], "labels": {}, "env": {}, '
+        '"user": {"uid": 10001}}\n'
+        "JSON\n"
+        "  fi\n"
+        '  prev="$i"\n'
+        "done\n"
+    )
+    binary.chmod(0o644)  # Read-only, NOT executable.
+
+    monkeypatch.setenv("GITHUB_SHA", "abc12345abc12345abc")
+    monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
+    monkeypatch.delenv("GITHUB_REF", raising=False)
+
+    cfg = _ci_config(container={"enabled": "auto"}, target="oss")
+
+    fake_build = MagicMock(return_value=0)
+    monkeypatch.setattr(stage_module, "build_and_push", fake_build)
+
+    rc = run(cfg, language="rust")
+    assert rc == 0, f"contract build failed: {rc}"
+    fake_build.assert_called_once()
+
+    # Verify the chmod actually took effect — execute bits must be set.
+    assert binary.stat().st_mode & 0o111, "binary should have execute bits after chmod"
+
+
 def test_run_multi_registry_when_target_both(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "Cargo.toml").write_text(
