@@ -1,3 +1,10 @@
+## [1.16.2](https://github.com/hyperi-io/hyperi-ci/compare/v1.16.1...v1.16.2) (2026-05-03)
+
+
+### Bug Fixes
+
+* **container:** chmod +x downloaded binary before subprocess in contract mode ([f018c9c](https://github.com/hyperi-io/hyperi-ci/commit/f018c9cf3fd528588291b118f9aa1bcf69cfe078))
+
 ## [1.16.1](https://github.com/hyperi-io/hyperi-ci/compare/v1.16.0...v1.16.1) (2026-05-01)
 
 
