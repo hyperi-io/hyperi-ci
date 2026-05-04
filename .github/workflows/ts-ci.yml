@@ -87,7 +87,7 @@ jobs:
 
       - name: Install uv
         if: ${{ !contains(runner.name, 'arc-runner') }}
-        uses: astral-sh/setup-uv@v8
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: false
 
@@ -132,7 +132,7 @@ jobs:
 
       - name: Install uv
         if: ${{ !contains(runner.name, 'arc-runner') }}
-        uses: astral-sh/setup-uv@v8
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: false
 
@@ -178,7 +178,7 @@ jobs:
 
       - name: Install uv
         if: ${{ !contains(runner.name, 'arc-runner') }}
-        uses: astral-sh/setup-uv@v8
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: false
 
@@ -263,7 +263,7 @@ jobs:
 
       - name: Install uv
         if: steps.check.outputs.enabled != 'false'
-        uses: astral-sh/setup-uv@v8
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: false
 
@@ -346,7 +346,7 @@ jobs:
 
       - name: Install uv
         if: steps.check.outputs.has_version == 'true'
-        uses: astral-sh/setup-uv@v8
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: false
 

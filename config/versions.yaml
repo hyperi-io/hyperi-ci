@@ -19,7 +19,9 @@ actions:
   checkout: v6
   setup-node: v6
   setup-go: v6
-  setup-uv: v8
+  setup-uv: v7                    # v8.x tags exist but no sliding `v8`
+                                  # alias is published yet — pin v7 until
+                                  # astral-sh ships the major alias.
   cache: v5
   upload-artifact: v7             # v7's "direct uploads" pair with
   download-artifact: v8           # v8's "direct downloads" — supported
