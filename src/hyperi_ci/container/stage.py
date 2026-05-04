@@ -275,36 +275,39 @@ def _build_contract(
     from hyperi_ci.container.compose import compose_contract_dockerfile
     from hyperi_ci.container.manifest import load_manifest
 
-    manifest_dir = Path(".ci")
-    manifest_path = manifest_dir / "container-manifest.json"
+    # Lookup order:
+    #   1. ci-tmp/ — produced fresh by the Build stage (`hyperi-ci run
+    #      generate`). The canonical CI path.
+    #   2. ci/    — committed-and-regenerated artefacts (drift-checked
+    #      by the Quality stage). Used for local Container builds where
+    #      you skip the Build stage.
+    #   3. .ci/   — legacy path from before the Build/Container split.
+    #      Kept for one release for back-compat.
+    #
+    # We deliberately do NOT fall back to subprocess-invoking the binary
+    # here. The Container runner is bare — it has no Rust toolchain
+    # installed and so lacks runtime libs (librdkafka, libssl, libgit2,
+    # ...) that the binary dynamically links against. The Build runner
+    # has all of these via `install-native-deps rust`, which is why
+    # generate-artefacts now runs there.
+    manifest_path: Path | None = None
+    for candidate_dir in (Path("ci-tmp"), Path("ci"), Path(".ci")):
+        candidate = candidate_dir / "container-manifest.json"
+        if candidate.exists():
+            manifest_path = candidate
+            info(f"Using deployment artefacts from: {candidate_dir}/")
+            break
 
-    if not manifest_path.exists():
-        binary_name = Path.cwd().name
-        dist_dir = Path("dist")
-        binary_candidates = list(dist_dir.glob(f"{binary_name}*"))
-        if not binary_candidates:
-            error(f"No binary found in dist/ matching '{binary_name}'")
-            return 1
-
-        binary = binary_candidates[0]
-        # actions/download-artifact strips the executable bit when
-        # extracting the zip — restore it before subprocess can invoke
-        # the binary, otherwise we hit PermissionError [Errno 13].
-        # Cheap to call even when the bit is already set.
-        binary.chmod(binary.stat().st_mode | 0o111)
-        info(f"Generating contract artefacts from: {binary}")
-        manifest_dir.mkdir(exist_ok=True)
-        result = subprocess.run(
-            [str(binary), "generate-artefacts", "--output-dir", str(manifest_dir)],
-            capture_output=True,
-            text=True,
+    if manifest_path is None:
+        error(
+            "No deployment artefacts found. Looked in ci-tmp/, ci/, and "
+            ".ci/ for container-manifest.json. The Build stage runs "
+            "`hyperi-ci run generate` to produce these — check that the "
+            "Build job uploaded ci-tmp/ as part of build-dist-* and that "
+            "the Container job's download-artifact step picked it up. "
+            "For local Container builds, run `hyperi-ci run generate` "
+            "first to populate ci-tmp/."
         )
-        if result.returncode != 0:
-            error(f"Failed to generate contract artefacts: {result.stderr}")
-            return result.returncode
-
-    if not manifest_path.exists():
-        error(f"Contract manifest not found at {manifest_path}")
         return 1
 
     manifest = load_manifest(manifest_path)
@@ -406,15 +409,25 @@ def _dispatch_build(
     # Constrain the validate-only path to platforms whose binaries are
     # actually present in dist/.
     if push_to_main:
+        configured_platforms = list(platforms)
         platforms = _filter_platforms_to_available_binaries(
             platforms=platforms,
             image_name=image_name,
         )
         if not platforms:
-            warn(
-                "No matching dist/ binaries for any configured platform — skipping container validate"
+            # No silent-success — if the project has container builds enabled,
+            # missing binaries means the Build → Container artefact handoff
+            # is broken. Fail loud so we never report "container green" without
+            # actually producing an image. See:
+            # /projects/hyperi-ci/docs/superpowers/specs/2026-05-01-container-stage-binary-placement-bug.md
+            error(
+                f"Container build configured for {configured_platforms} but no "
+                f"matching dist/{image_name}-linux-<arch> binaries present. "
+                f"Build stage failed to produce artefacts OR the Container job "
+                f"can't see them (check actions/upload-artifact + "
+                f"actions/download-artifact version compatibility)."
             )
-            return 0
+            return 1
 
     # Bare `COPY <app> ...` lines in the Dockerfile reference a file in
     # the build context root that the upstream Build stage doesn't put

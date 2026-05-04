@@ -101,7 +101,7 @@ jobs:
     steps:
       - name: Docker Hub login
         if: ${{ vars.DOCKERHUB_USERNAME != '' }}
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -112,7 +112,7 @@ jobs:
 
       - name: Install uv
         if: ${{ !contains(runner.name, 'arc-runner') }}
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v8
         with:
           enable-cache: false
 
@@ -163,7 +163,7 @@ jobs:
     steps:
       - name: Docker Hub login
         if: ${{ vars.DOCKERHUB_USERNAME != '' }}
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -174,7 +174,7 @@ jobs:
 
       - name: Install uv
         if: ${{ !contains(runner.name, 'arc-runner') }}
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v8
         with:
           enable-cache: false
 
@@ -249,7 +249,7 @@ jobs:
 
       - name: Install uv
         if: ${{ !contains(runner.name, 'arc-runner') }}
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v8
         with:
           enable-cache: false
 
@@ -284,11 +284,22 @@ jobs:
           RUST_BUILD_TARGETS: ${{ matrix.target }}
         run: ${{ env.HYPERCI_INSTALL }} run build
 
+      - name: Generate deployment artefacts
+        # Runs the freshly built binary's `generate-artefacts` subcommand
+        # to emit Dockerfile.runtime + container-manifest.json (+ ArgoCD)
+        # into ci-tmp/. MUST run on the Build runner where the toolchain's
+        # runtime libs (librdkafka, libssl, etc.) are present — the
+        # Container runner is bare and can't load the binary.
+        # Skipped silently for projects without a deployment contract.
+        run: ${{ env.HYPERCI_INSTALL }} run generate
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:
           name: build-dist-${{ matrix.os_arch }}
-          path: dist/
+          path: |
+            dist/
+            ci-tmp/
           if-no-files-found: ignore
           retention-days: 1
 
@@ -328,11 +339,16 @@ jobs:
           echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
 
       - name: Download build artifacts
+        # The build-dist-* artifact carries both dist/ (binaries) and
+        # ci-tmp/ (deployment artefacts produced by the Build stage).
+        # Download into the project root so both trees land at their
+        # original paths — Container stage looks for dist/<binary> and
+        # ci-tmp/container-manifest.json relative to cwd.
         if: steps.check.outputs.enabled != 'false'
         uses: actions/download-artifact@v8
         with:
           pattern: build-dist-*
-          path: dist/
+          path: .
           merge-multiple: true
 
       - name: Docker Hub login (authenticated pulls only)
@@ -340,7 +356,7 @@ jobs:
         # anonymous rate limits when the Dockerfile pulls a Hub base
         # image. Conditional on the org var being set; no-op otherwise.
         if: steps.check.outputs.enabled != 'false' && vars.DOCKERHUB_USERNAME != ''
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -349,7 +365,7 @@ jobs:
         # GITHUB_TOKEN via job-level packages:write permission — can create
         # new repo-owned packages on first push.
         if: steps.check.outputs.enabled != 'false'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -360,7 +376,7 @@ jobs:
         # registry resolver writes the JFrog tag; this step authenticates
         # the push. No-op if vars.JFROG_DOMAIN is unset.
         if: steps.check.outputs.enabled != 'false' && (inputs.publish-target == 'internal' || inputs.publish-target == 'both') && vars.JFROG_DOMAIN != ''
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ vars.JFROG_DOMAIN }}
           username: ${{ secrets.JFROG_USERNAME }}
@@ -368,11 +384,11 @@ jobs:
 
       - name: Set up Docker Buildx
         if: steps.check.outputs.enabled != 'false'
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Install uv
         if: steps.check.outputs.enabled != 'false'
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v8
         with:
           enable-cache: false
 
@@ -449,7 +465,7 @@ jobs:
 
       - name: Docker Hub login
         if: steps.check.outputs.has_version == 'true' && vars.DOCKERHUB_USERNAME != ''
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -458,18 +474,20 @@ jobs:
         # GITHUB_TOKEN via job-level packages:write permission — can create
         # new repo-owned packages on first push.
         if: steps.check.outputs.has_version == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download build artifacts
+        # Build job uploads both dist/ and ci-tmp/ trees — extract at
+        # the project root so paths land where consumers expect them.
         if: steps.check.outputs.has_version == 'true'
         uses: actions/download-artifact@v8
         with:
           pattern: build-dist-*
-          path: dist/
+          path: .
           merge-multiple: true
 
       - name: Install Rust toolchain
@@ -480,7 +498,7 @@ jobs:
 
       - name: Install uv
         if: steps.check.outputs.has_version == 'true'
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v8
         with:
           enable-cache: false
 

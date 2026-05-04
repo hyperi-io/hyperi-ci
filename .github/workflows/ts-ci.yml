@@ -72,7 +72,7 @@ jobs:
     steps:
       - name: Docker Hub login
         if: ${{ vars.DOCKERHUB_USERNAME != '' }}
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -87,7 +87,7 @@ jobs:
 
       - name: Install uv
         if: ${{ !contains(runner.name, 'arc-runner') }}
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v8
         with:
           enable-cache: false
 
@@ -117,7 +117,7 @@ jobs:
     steps:
       - name: Docker Hub login
         if: ${{ vars.DOCKERHUB_USERNAME != '' }}
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -132,7 +132,7 @@ jobs:
 
       - name: Install uv
         if: ${{ !contains(runner.name, 'arc-runner') }}
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v8
         with:
           enable-cache: false
 
@@ -178,7 +178,7 @@ jobs:
 
       - name: Install uv
         if: ${{ !contains(runner.name, 'arc-runner') }}
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v8
         with:
           enable-cache: false
 
@@ -234,7 +234,7 @@ jobs:
         # anonymous rate limits when the Dockerfile pulls a Hub base
         # image. Conditional on the org var being set; no-op otherwise.
         if: steps.check.outputs.enabled != 'false' && vars.DOCKERHUB_USERNAME != ''
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -243,7 +243,7 @@ jobs:
         # GITHUB_TOKEN via job-level packages:write permission — can create
         # new repo-owned packages on first push.
         if: steps.check.outputs.enabled != 'false'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -251,7 +251,7 @@ jobs:
 
       - name: JFrog Docker login
         if: steps.check.outputs.enabled != 'false' && (inputs.publish-target == 'internal' || inputs.publish-target == 'both') && vars.JFROG_DOMAIN != ''
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ vars.JFROG_DOMAIN }}
           username: ${{ secrets.JFROG_USERNAME }}
@@ -259,11 +259,11 @@ jobs:
 
       - name: Set up Docker Buildx
         if: steps.check.outputs.enabled != 'false'
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Install uv
         if: steps.check.outputs.enabled != 'false'
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v8
         with:
           enable-cache: false
 
@@ -346,7 +346,7 @@ jobs:
 
       - name: Install uv
         if: steps.check.outputs.has_version == 'true'
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v8
         with:
           enable-cache: false
 
@@ -360,7 +360,7 @@ jobs:
 
       - name: Docker Hub login
         if: steps.check.outputs.has_version == 'true' && vars.DOCKERHUB_USERNAME != ''
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -369,7 +369,7 @@ jobs:
         # GITHUB_TOKEN via job-level packages:write permission — can create
         # new repo-owned packages on first push.
         if: steps.check.outputs.has_version == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}

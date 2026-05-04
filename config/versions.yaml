@@ -19,11 +19,15 @@ actions:
   checkout: v6
   setup-node: v6
   setup-go: v6
-  setup-uv: v7
+  setup-uv: v8
   cache: v5
-  upload-artifact: v7
-  download-artifact: v8
+  upload-artifact: v7             # v7's "direct uploads" pair with
+  download-artifact: v8           # v8's "direct downloads" — supported
+                                  # cross-major pairing per the v8 release
+                                  # notes (upload v8 doesn't exist yet).
   rust-toolchain: master          # dtolnay/rust-toolchain pins via @master
+  docker-login: v4
+  docker-setup-buildx: v4
 
 # Language runtimes (default versions in workflow inputs)
 runtimes:
