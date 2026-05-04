@@ -126,6 +126,73 @@ class TestTier1:
         # Fake binary returns 0 → producer succeeded.
         assert rc == EXIT_OK
 
+    def test_dist_arm64_binary_resolved_on_amd64_host(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Regression: arm64 build leg has dist/<bin>-linux-arm64 only.
+
+        Pre-fix the resolver hardcoded `dist/<bin>-linux-amd64` and the
+        arm64 Build job failed with "no Rust binary found" even though
+        a perfectly valid arm64 binary sat in dist/. The fix globs
+        `dist/<bin>-linux-*` as a fallback when the host-arch-specific
+        binary isn't present.
+        """
+        _write_tier1_repo(tmp_path, with_binary=False)
+        dist = tmp_path / "dist"
+        dist.mkdir()
+        binary = dist / "demo-app-linux-arm64"
+        binary.write_text(
+            '#!/usr/bin/env bash\necho "fake arm64 binary"\nexit 0\n',
+            encoding="utf-8",
+        )
+        os.chmod(binary, binary.stat().st_mode | stat.S_IXUSR)
+
+        # Force the host-arch detection to claim amd64 — proving the
+        # glob fallback is what found the binary, not the host-specific
+        # path. (In CI the arm64 runner reports aarch64 and the
+        # host-specific path matches directly; this test exercises the
+        # cross-arch fallback path.)
+        from hyperi_ci.deployment import stage as stage_module
+
+        monkeypatch.setattr(stage_module, "_host_linux_arch", lambda: "amd64")
+
+        rc = run(output_dir=tmp_path / "ci-tmp", project_dir=tmp_path)
+        assert rc == EXIT_OK
+
+    def test_dist_host_arch_binary_preferred_over_target_release(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """When both ``dist/<bin>-linux-amd64`` and ``target/release/<bin>``
+        exist, the dist/ artefact wins — the Build stage's published
+        artefact is the canonical thing the Container stage will use.
+        """
+        _write_tier1_repo(tmp_path, with_binary=True)  # populates target/release
+        dist = tmp_path / "dist"
+        dist.mkdir()
+        dist_bin = dist / "demo-app-linux-amd64"
+        # dist/ binary writes a marker file the test can detect.
+        dist_bin.write_text(
+            "#!/usr/bin/env bash\n"
+            'for i in "$@"; do\n'
+            '  if [ "$prev" = "--output-dir" ]; then\n'
+            '    mkdir -p "$i"\n'
+            '    echo "from-dist" > "$i/source.txt"\n'
+            "  fi\n"
+            '  prev="$i"\n'
+            "done\n",
+            encoding="utf-8",
+        )
+        os.chmod(dist_bin, dist_bin.stat().st_mode | stat.S_IXUSR)
+
+        from hyperi_ci.deployment import stage as stage_module
+
+        monkeypatch.setattr(stage_module, "_host_linux_arch", lambda: "amd64")
+
+        out = tmp_path / "ci-tmp"
+        rc = run(output_dir=out, project_dir=tmp_path)
+        assert rc == EXIT_OK
+        assert (out / "source.txt").read_text().strip() == "from-dist"
+
     def test_binary_failure_propagated(self, tmp_path: Path) -> None:
         binary_path = _write_tier1_repo(tmp_path, with_binary=True)
         # Rewrite the fake binary to exit non-zero.
