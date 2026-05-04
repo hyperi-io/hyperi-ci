@@ -1,3 +1,11 @@
+## [1.16.3](https://github.com/hyperi-io/hyperi-ci/compare/v1.16.2...v1.16.3) (2026-05-04)
+
+
+### Bug Fixes
+
+* **ci:** pin setup-uv back to v7 — v8 has no sliding major tag yet ([5438925](https://github.com/hyperi-io/hyperi-ci/commit/54389259a081f781531b7f924641ff8a4a9ad602))
+* **container:** move generate-artefacts to Build stage; fail-loud on missing artefacts ([5f7b8b9](https://github.com/hyperi-io/hyperi-ci/commit/5f7b8b996b18ae6dca7e3c8e8831f1b6102f4e6b))
+
 ## [1.16.2](https://github.com/hyperi-io/hyperi-ci/compare/v1.16.1...v1.16.2) (2026-05-03)
 
 
