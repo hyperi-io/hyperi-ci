@@ -1,3 +1,10 @@
+## [1.16.4](https://github.com/hyperi-io/hyperi-ci/compare/v1.16.3...v1.16.4) (2026-05-04)
+
+
+### Bug Fixes
+
+* **deployment:** resolve dist/<bin>-linux-arm64 on arm64 Build runner ([cd6c3fa](https://github.com/hyperi-io/hyperi-ci/commit/cd6c3fae6d8898f52a81e2700c67e61d62d8e5af))
+
 ## [1.16.3](https://github.com/hyperi-io/hyperi-ci/compare/v1.16.2...v1.16.3) (2026-05-04)
 
 
