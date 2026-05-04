@@ -212,8 +212,21 @@ def test_run_validate_only_on_push_to_main(tmp_path: Path, monkeypatch) -> None:
     assert kwargs["platforms"] == ["linux/amd64"]
 
 
-def test_run_validate_skips_when_no_dist_binaries(tmp_path: Path, monkeypatch) -> None:
-    """Validate-only on push-to-main with no dist/ binaries should skip cleanly."""
+def test_run_validate_fails_loud_when_no_dist_binaries(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Container validate with no dist/ binaries must fail loud, not skip silently.
+
+    Regression test for the artefact-handoff bug: when actions/download-artifact
+    finds 0 artefacts (e.g., due to upload/download version mismatch, expired
+    artefacts, or Build job failure), the Container stage previously returned 0
+    with a warning and never built or pushed an image — silently producing a
+    "successful" CI run that did no work and pushed nothing to GHCR.
+
+    Container is configured (publish.container.enabled != false). Missing
+    binaries means the Build → Container handoff is broken — fail loud so the
+    real failure surfaces in CI instead of being masked as success.
+    """
     monkeypatch.chdir(tmp_path)
     (tmp_path / "Cargo.toml").write_text(
         '[package]\nname = "myapp"\nversion = "0.1.0"\n'
@@ -231,32 +244,38 @@ def test_run_validate_skips_when_no_dist_binaries(tmp_path: Path, monkeypatch) -
     fake_build = MagicMock(return_value=0)
     monkeypatch.setattr(stage_module, "build_and_push", fake_build)
 
-    # Should return 0 (skip cleanly, not fail) and never call buildx.
-    assert run(cfg, language="rust") == 0
+    # Must fail (return 1) and never call buildx — the missing artefacts
+    # indicate a broken Build → Container handoff that needs surfacing.
+    assert run(cfg, language="rust") == 1
     fake_build.assert_not_called()
 
 
-def test_build_contract_chmods_binary_before_subprocess(
-    tmp_path: Path, monkeypatch
+_FAKE_MANIFEST_JSON = (
+    '{"binary_name": "myapp", "base_image": "ubuntu:24.04", '
+    '"runtime_packages": [], "labels": {}, "env": {}, '
+    '"user": {"uid": 10001}}'
+)
+
+
+@pytest.mark.parametrize("artefact_dir", ["ci-tmp", "ci", ".ci"])
+def test_build_contract_uses_pre_generated_artefacts(
+    tmp_path: Path, monkeypatch, artefact_dir: str
 ) -> None:
-    """Regression: actions/download-artifact strips +x; we must restore it.
+    """Container stage MUST consume pre-generated artefacts, not subprocess the binary.
 
-    Without this chmod, contract-mode apps (Rust + hyperi-rustlib, no
-    repo Dockerfile) hit PermissionError [Errno 13] when subprocess
-    tries to invoke `<bin> generate-artefacts` to produce the manifest.
+    The Build stage runs `hyperi-ci run generate` on a runner with the
+    Rust toolchain's runtime libs (librdkafka, libssl, ...) installed.
+    The Container stage runs on a bare runner that can't load those
+    libs, so subprocess-invoking the binary there fails with
+    `error while loading shared libraries: librdkafka.so.1`.
 
-    Reproduced on dfe-transform-vrl run 25294105711 against
-    hyperi-ci 1.16.1 — covered by this test from 1.16.2 onwards.
+    Lookup precedence: ci-tmp/ (CI Build output) → ci/ (committed
+    artefacts for local builds) → .ci/ (legacy back-compat).
     """
-    # `_build_contract` uses `Path.cwd().name` as the binary-glob prefix.
-    # Run inside a subdir named after the binary so the glob matches.
     project_root = tmp_path / "myapp"
     project_root.mkdir()
     monkeypatch.chdir(project_root)
 
-    # Tier 1 layout: Cargo.toml + Build artefact in dist/, no Dockerfile,
-    # no committed .ci/container-manifest.json. Forces contract mode and
-    # the run-binary-to-generate-manifest branch.
     (project_root / "Cargo.toml").write_text(
         '[package]\nname = "myapp"\nversion = "0.1.0"\n'
         "[dependencies]\n"
@@ -266,25 +285,74 @@ def test_build_contract_chmods_binary_before_subprocess(
     (project_root / "src" / "main.rs").write_text("fn main() {}\n")
     (project_root / "VERSION").write_text("0.1.0\n")
 
+    # The pre-generated manifest is the ONLY input the Container stage
+    # needs from the contract producer. The binary itself comes from
+    # dist/ but isn't invoked here.
+    artefacts = project_root / artefact_dir
+    artefacts.mkdir()
+    (artefacts / "container-manifest.json").write_text(_FAKE_MANIFEST_JSON)
+
     dist = project_root / "dist"
     dist.mkdir()
-    binary = dist / "myapp-linux-amd64"
-    # Fake binary with NO execute bits — mirrors the post-download state.
-    binary.write_text(
-        "#!/usr/bin/env bash\n"
-        'for i in "$@"; do\n'
-        '  if [ "$prev" = "--output-dir" ]; then\n'
-        '    mkdir -p "$i"\n'
-        "    cat > \"$i/container-manifest.json\" <<'JSON'\n"
-        '{"binary_name": "myapp", "base_image": "ubuntu:24.04", '
-        '"runtime_packages": [], "labels": {}, "env": {}, '
-        '"user": {"uid": 10001}}\n'
-        "JSON\n"
-        "  fi\n"
-        '  prev="$i"\n'
-        "done\n"
+    (dist / "myapp-linux-amd64").write_bytes(b"\x7fELF...")
+
+    monkeypatch.setenv("GITHUB_SHA", "abc12345abc12345abc")
+    monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
+    monkeypatch.delenv("GITHUB_REF", raising=False)
+
+    cfg = _ci_config(container={"enabled": "auto"}, target="oss")
+
+    # Fail the test if Container subprocess-invokes the binary in dist/
+    # — that's the path that previously hit librdkafka.so.1 errors.
+    # Other subprocesses (cargo metadata, git rev-parse) are fine.
+    real_run = stage_module.subprocess.run
+    binary_path = str(dist / "myapp-linux-amd64")
+
+    def _no_binary_subprocess(cmd, *args, **kwargs):
+        if isinstance(cmd, (list, tuple)) and cmd and str(cmd[0]) == binary_path:
+            raise AssertionError(
+                f"Container stage must not subprocess the binary. cmd={cmd!r}"
+            )
+        return real_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(stage_module.subprocess, "run", _no_binary_subprocess)
+
+    fake_build = MagicMock(return_value=0)
+    monkeypatch.setattr(stage_module, "build_and_push", fake_build)
+
+    rc = run(cfg, language="rust")
+    assert rc == 0, f"contract build failed: {rc}"
+    fake_build.assert_called_once()
+
+
+def test_build_contract_fails_loud_when_no_artefacts_present(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Missing artefacts in ci-tmp/, ci/, .ci/ MUST fail loud — never subprocess.
+
+    Regression: pre-fix, the Container stage fell back to invoking the
+    binary directly, which only worked on a runner with the Rust
+    toolchain's runtime libs installed. We now reject that path
+    entirely; the Build stage is responsible for producing artefacts.
+    """
+    project_root = tmp_path / "myapp"
+    project_root.mkdir()
+    monkeypatch.chdir(project_root)
+
+    (project_root / "Cargo.toml").write_text(
+        '[package]\nname = "myapp"\nversion = "0.1.0"\n'
+        "[dependencies]\n"
+        'hyperi-rustlib = "2.7"\n',
     )
-    binary.chmod(0o644)  # Read-only, NOT executable.
+    (project_root / "src").mkdir()
+    (project_root / "src" / "main.rs").write_text("fn main() {}\n")
+    (project_root / "VERSION").write_text("0.1.0\n")
+
+    # Binary present but NO ci-tmp/, ci/, .ci/ — exactly the failure
+    # mode that previously masqueraded as success.
+    dist = project_root / "dist"
+    dist.mkdir()
+    (dist / "myapp-linux-amd64").write_bytes(b"\x7fELF...")
 
     monkeypatch.setenv("GITHUB_SHA", "abc12345abc12345abc")
     monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
@@ -296,11 +364,8 @@ def test_build_contract_chmods_binary_before_subprocess(
     monkeypatch.setattr(stage_module, "build_and_push", fake_build)
 
     rc = run(cfg, language="rust")
-    assert rc == 0, f"contract build failed: {rc}"
-    fake_build.assert_called_once()
-
-    # Verify the chmod actually took effect — execute bits must be set.
-    assert binary.stat().st_mode & 0o111, "binary should have execute bits after chmod"
+    assert rc == 1, f"expected hard fail, got {rc}"
+    fake_build.assert_not_called()
 
 
 def test_run_multi_registry_when_target_both(tmp_path: Path, monkeypatch) -> None:

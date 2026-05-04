@@ -48,6 +48,8 @@ _ACTION_OWNERS: dict[str, str] = {
     "rust-toolchain": "dtolnay/rust-toolchain",
     "upload-artifact": "actions/upload-artifact",
     "download-artifact": "actions/download-artifact",
+    "docker-login": "docker/login-action",
+    "docker-setup-buildx": "docker/setup-buildx-action",
 }
 
 
