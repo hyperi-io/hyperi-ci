@@ -298,22 +298,60 @@ def _resolve_rust_binary(project_dir: Path) -> Path | None:
     """Find a built Rust binary to invoke for Tier 1.
 
     Reads the binary name from Cargo.toml ``[[bin]]`` tables, falls
-    back to the package name. Tries dist/, target/release/, target/debug/
-    in that order — same precedence the Container stage uses to find
-    cross-compiled artefacts.
+    back to the package name.
+
+    Lookup order:
+      1. ``dist/<bin>-linux-<host-arch>`` — preferred when the Build
+         stage just produced an arch-specific artefact for this runner.
+      2. ``dist/<bin>-linux-*`` glob — fallback when the host arch
+         doesn't match a dist/ binary (e.g. cross-compiled on amd64
+         host, dist/ contains arm64 only). Used so a cross-compile
+         producer can still emit a manifest from any arch.
+      3. ``target/release/<bin>`` then ``target/debug/<bin>`` — local
+         dev builds.
     """
     bin_name = _rust_binary_name(project_dir)
     if bin_name is None:
         return None
 
-    candidates = [
-        project_dir / "dist" / f"{bin_name}-linux-amd64",
+    host_arch = _host_linux_arch()
+    dist_dir = project_dir / "dist"
+
+    if host_arch:
+        host_specific = dist_dir / f"{bin_name}-linux-{host_arch}"
+        if host_specific.is_file():
+            return host_specific
+
+    if dist_dir.is_dir():
+        # Glob fallback — pick any linux-* binary. The generate-artefacts
+        # subcommand emits the same manifest regardless of which binary
+        # arch is invoked, so any matching binary works.
+        for candidate in sorted(dist_dir.glob(f"{bin_name}-linux-*")):
+            if candidate.is_file():
+                return candidate
+
+    for candidate in (
         project_dir / "target" / "release" / bin_name,
         project_dir / "target" / "debug" / bin_name,
-    ]
-    for candidate in candidates:
+    ):
         if candidate.is_file():
             return candidate
+    return None
+
+
+def _host_linux_arch() -> str | None:
+    """Map the host machine to the Linux dist/ arch suffix.
+
+    Returns ``"amd64"`` on x86_64, ``"arm64"`` on aarch64, ``None``
+    otherwise (so the caller falls back to the glob).
+    """
+    import platform
+
+    machine = platform.machine().lower()
+    if machine in {"x86_64", "amd64"}:
+        return "amd64"
+    if machine in {"aarch64", "arm64"}:
+        return "arm64"
     return None
 
 
