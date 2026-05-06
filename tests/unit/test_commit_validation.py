@@ -393,10 +393,7 @@ class TestBreakingChangeGate:
         # reference" and accidentally bump major. The documented escape
         # for documentation references is lowercase or differently-
         # formatted (see test_lowercase_form_not_gated below).
-        msg = (
-            "fix: rename helper\n\n"
-            "BREAKING-CHANGE: rename affects callers.\n"
-        )
+        msg = "fix: rename helper\n\nBREAKING-CHANGE: rename affects callers.\n"
         result = validate_message(msg)
         assert result.valid is False
         assert result.error_type == "breaking_change_without_opt_in"
@@ -404,10 +401,7 @@ class TestBreakingChangeGate:
     def test_lowercase_form_not_gated(self) -> None:
         # semantic-release matches the literal uppercase string only.
         # Free-form body text mentioning 'breaking change' is fine.
-        msg = (
-            "fix: rephrase docs\n\n"
-            "This rephrases the breaking change explanation.\n"
-        )
+        msg = "fix: rephrase docs\n\nThis rephrases the breaking change explanation.\n"
         result = validate_message(msg)
         assert result.valid is True
 
