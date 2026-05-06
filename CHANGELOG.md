@@ -1,3 +1,10 @@
+## [2.0.1](https://github.com/hyperi-io/hyperi-ci/compare/v2.0.0...v2.0.1) (2026-05-06)
+
+
+### Bug Fixes
+
+* **push:** allow --publish trailer amend on empty commits ([3324067](https://github.com/hyperi-io/hyperi-ci/commit/3324067efc70e8c371eb9b946ad1ae67452ce1dc))
+
 # [2.0.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.16.4...v2.0.0) (2026-05-06)
 
 
