@@ -167,6 +167,11 @@ def _has_publish_trailer(message: str) -> bool:
 
 def _amend_publish_trailer(*, cwd: str | None) -> int:
     """Amend HEAD to add the Publish: true trailer (no message change)."""
+    # `--allow-empty` covers the edge case where HEAD is already an empty
+    # commit (e.g. an empty `chore: trigger` marker) — git refuses to
+    # amend an empty commit by default. The trailer-only amend doesn't
+    # add content, so without --allow-empty the amend fails. Including
+    # the flag is harmless when there IS content.
     try:
         run_cmd(
             [
@@ -174,6 +179,7 @@ def _amend_publish_trailer(*, cwd: str | None) -> int:
                 "commit",
                 "--amend",
                 "--no-edit",
+                "--allow-empty",
                 "--trailer",
                 f"{PUBLISH_TRAILER_KEY}: {PUBLISH_TRAILER_VALUE}",
             ],
