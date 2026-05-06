@@ -1,3 +1,13 @@
+## [2.1.1](https://github.com/hyperi-io/hyperi-ci/compare/v2.1.0...v2.1.1) (2026-05-06)
+
+
+### Bug Fixes
+
+* **commit-validation:** block feat: and BREAKING-CHANGE markers by default ([72b1648](https://github.com/hyperi-io/hyperi-ci/commit/72b16489483abb331892e2f7409b761db32905af))
+* **push:** --allow-feat and --allow-breaking CLI flag aliases for env vars ([c52dfff](https://github.com/hyperi-io/hyperi-ci/commit/c52dfff87d0a7d58f5485a969b0d6d529a01c661))
+* **quality:** ruff format commit_validation.py ([ffbbf1e](https://github.com/hyperi-io/hyperi-ci/commit/ffbbf1e0e71943611ec301c9e194401b158b14be))
+* **quality:** ruff format test_commit_validation.py ([cfa8450](https://github.com/hyperi-io/hyperi-ci/commit/cfa8450c2f79f03afea2ad6df170c82c24589ad8))
+
 # [2.1.0](https://github.com/hyperi-io/hyperi-ci/compare/v2.0.1...v2.1.0) (2026-05-06)
 
 
