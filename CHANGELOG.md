@@ -1,3 +1,11 @@
+## [2.1.2](https://github.com/hyperi-io/hyperi-ci/compare/v2.1.1...v2.1.2) (2026-05-06)
+
+
+### Bug Fixes
+
+* **deployment:** pick package-name binary not first [[bin]] for Tier 1 generate-artefacts ([0dda66b](https://github.com/hyperi-io/hyperi-ci/commit/0dda66bfce0e39bb8fd0c2a9097f25bf5eefefee))
+* **quality:** ruff format test_stage.py ([b7eceb8](https://github.com/hyperi-io/hyperi-ci/commit/b7eceb8fb599dc6519cc3cd9c2447d4d5614b589))
+
 ## [2.1.1](https://github.com/hyperi-io/hyperi-ci/compare/v2.1.0...v2.1.1) (2026-05-06)
 
 
