@@ -178,6 +178,30 @@ def push(
         bool,
         typer.Option("--no-ci", help="Amend last commit with [skip ci] and push"),
     ] = False,
+    allow_feat: Annotated[
+        bool,
+        typer.Option(
+            "--allow-feat",
+            help=(
+                "Equivalent to setting HYPERCI_ALLOW_FEAT=1 — opts in to a "
+                "feat: commit (MINOR bump). Required when HEAD is a feat: "
+                "commit and you're using --publish, since the trailer "
+                "amend re-invokes the commit-msg hook gate."
+            ),
+        ),
+    ] = False,
+    allow_breaking: Annotated[
+        bool,
+        typer.Option(
+            "--allow-breaking",
+            help=(
+                "Equivalent to setting HYPERCI_ALLOW_BREAKING=1 — opts in "
+                "to a commit containing the BREAKING-CHANGE marker (MAJOR "
+                "bump). Required when HEAD has the marker and you're "
+                "using --publish."
+            ),
+        ),
+    ] = False,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", "-n", help="Show what would happen without pushing"),
@@ -214,12 +238,24 @@ def push(
     With ``--no-ci``: amends the last commit with ``[skip ci]`` and
     pushes (skips CI altogether).
     """
+    import os
+
     from hyperi_ci.push import push as do_push
 
     if bump_patch and bump_minor:
         typer.echo("--bump-patch and --bump-minor are mutually exclusive", err=True)
         raise typer.Exit(1)
     bump = "patch" if bump_patch else "minor" if bump_minor else None
+
+    # CLI flag → env var: the commit-msg hook (which fires during the
+    # trailer amend inside _publish_push) reads HYPERCI_ALLOW_FEAT /
+    # HYPERCI_ALLOW_BREAKING. Setting them here means a single
+    # `hyperi-ci push --publish --allow-feat` works without exporting
+    # the env var manually.
+    if allow_feat:
+        os.environ["HYPERCI_ALLOW_FEAT"] = "1"
+    if allow_breaking:
+        os.environ["HYPERCI_ALLOW_BREAKING"] = "1"
 
     dir_path = Path(project_dir) if project_dir else None
     rc = do_push(
