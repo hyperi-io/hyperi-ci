@@ -317,5 +317,3 @@ def _push_with_env(
 
     success("Pushed successfully")
     return 0
-
-
