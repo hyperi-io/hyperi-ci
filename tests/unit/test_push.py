@@ -280,10 +280,11 @@ class TestPublishPush:
 class TestForcedBumpPush:
     """Test --bump-patch / --bump-minor flow.
 
-    When bump is set, _publish_push adds an empty release-marker commit
-    on top of HEAD with a conventional message that semantic-release
-    will analyse as a patch/minor. The marker carries the Publish: true
-    trailer so the workflow's setup gate detects this as a publish run.
+    When bump is set, _publish_push computes the next version from the
+    latest tag, writes it to VERSION, and commits with a conventional
+    fix:/feat: marker message + Publish: true trailer. The VERSION
+    write is essential — it makes the commit non-empty so consumer
+    `paths-ignore` filters don't skip the CI run.
     """
 
     def test_bump_patch_creates_marker_commit(self) -> None:
@@ -292,23 +293,21 @@ class TestForcedBumpPush:
             patch("hyperi_ci.push.get_current_branch", return_value="main"),
             patch("hyperi_ci.push._check_dirty_tree", return_value=0),
             patch("hyperi_ci.push._run_check", return_value=0),
+            patch("hyperi_ci.push._compute_next_version", return_value="1.5.5"),
             patch(
-                "hyperi_ci.push._add_release_marker_commit", return_value=0
+                "hyperi_ci.push._write_version_and_commit", return_value=0
             ) as mock_marker,
             patch("hyperi_ci.push._rebase_and_push", return_value=0) as mock_push,
         ):
             from hyperi_ci.push import _publish_push
 
-            rc = _publish_push(
-                dry_run=False, force=False, bump="patch", cwd=None
-            )
+            rc = _publish_push(dry_run=False, force=False, bump="patch", cwd=None)
             assert rc == 0
             mock_marker.assert_called_once()
-            # The marker message must be a fix:(release) conventional
-            # commit subject AND carry the Publish: true trailer.
-            args, kwargs = mock_marker.call_args
+            kwargs = mock_marker.call_args.kwargs
+            assert kwargs["next_version"] == "1.5.5"
             msg = kwargs["message"]
-            assert msg.startswith("fix(release): force patch bump\n")
+            assert msg.startswith("fix(release): force patch bump v1.5.5\n")
             assert "Publish: true" in msg
             mock_push.assert_called_once()
 
@@ -318,19 +317,20 @@ class TestForcedBumpPush:
             patch("hyperi_ci.push.get_current_branch", return_value="main"),
             patch("hyperi_ci.push._check_dirty_tree", return_value=0),
             patch("hyperi_ci.push._run_check", return_value=0),
+            patch("hyperi_ci.push._compute_next_version", return_value="1.6.0"),
             patch(
-                "hyperi_ci.push._add_release_marker_commit", return_value=0
+                "hyperi_ci.push._write_version_and_commit", return_value=0
             ) as mock_marker,
             patch("hyperi_ci.push._rebase_and_push", return_value=0),
         ):
             from hyperi_ci.push import _publish_push
 
-            rc = _publish_push(
-                dry_run=False, force=False, bump="minor", cwd=None
-            )
+            rc = _publish_push(dry_run=False, force=False, bump="minor", cwd=None)
             assert rc == 0
-            msg = mock_marker.call_args.kwargs["message"]
-            assert msg.startswith("feat(release): force minor bump\n")
+            kwargs = mock_marker.call_args.kwargs
+            assert kwargs["next_version"] == "1.6.0"
+            msg = kwargs["message"]
+            assert msg.startswith("feat(release): force minor bump v1.6.0\n")
             assert "Publish: true" in msg
 
     def test_bump_dry_run_no_commit_no_push(self) -> None:
@@ -339,19 +339,32 @@ class TestForcedBumpPush:
             patch("hyperi_ci.push.get_current_branch", return_value="main"),
             patch("hyperi_ci.push._check_dirty_tree", return_value=0),
             patch("hyperi_ci.push._run_check", return_value=0),
+            patch("hyperi_ci.push._compute_next_version", return_value="1.5.5"),
             patch(
-                "hyperi_ci.push._add_release_marker_commit", return_value=0
+                "hyperi_ci.push._write_version_and_commit", return_value=0
             ) as mock_marker,
             patch("hyperi_ci.push._rebase_and_push", return_value=0) as mock_push,
         ):
             from hyperi_ci.push import _publish_push
 
-            rc = _publish_push(
-                dry_run=True, force=False, bump="patch", cwd=None
-            )
+            rc = _publish_push(dry_run=True, force=False, bump="patch", cwd=None)
             assert rc == 0
             mock_marker.assert_not_called()
             mock_push.assert_not_called()
+
+    def test_bump_aborts_when_no_existing_version(self) -> None:
+        # No tags AND no VERSION → can't compute next; hard fail.
+        with (
+            patch("hyperi_ci.push.require_gh", return_value=True),
+            patch("hyperi_ci.push.get_current_branch", return_value="main"),
+            patch("hyperi_ci.push._check_dirty_tree", return_value=0),
+            patch("hyperi_ci.push._run_check", return_value=0),
+            patch("hyperi_ci.push._compute_next_version", return_value=None),
+        ):
+            from hyperi_ci.push import _publish_push
+
+            rc = _publish_push(dry_run=False, force=False, bump="patch", cwd=None)
+            assert rc == 1
 
     def test_bump_invalid_level_rejected_at_top_level(self) -> None:
         # The push() top-level function validates bump value before
@@ -371,6 +384,45 @@ class TestForcedBumpPush:
             assert rc == 0
             mock.assert_called_once()
             assert mock.call_args.kwargs["bump"] == "patch"
+
+
+class TestComputeNextVersion:
+    """Test _compute_next_version semver math."""
+
+    def test_patch_increment(self) -> None:
+        result = MagicMock(stdout="v1.5.4\nv1.5.3\n", returncode=0)
+        with patch("hyperi_ci.push.run_cmd", return_value=result):
+            from hyperi_ci.push import _compute_next_version
+
+            assert _compute_next_version(bump="patch", cwd=None) == "1.5.5"
+
+    def test_minor_increment_resets_patch(self) -> None:
+        result = MagicMock(stdout="v1.5.4\n", returncode=0)
+        with patch("hyperi_ci.push.run_cmd", return_value=result):
+            from hyperi_ci.push import _compute_next_version
+
+            assert _compute_next_version(bump="minor", cwd=None) == "1.6.0"
+
+    def test_no_tags_no_version_returns_none(self) -> None:
+        result = MagicMock(stdout="", returncode=0)
+        with patch("hyperi_ci.push.run_cmd", return_value=result):
+            from hyperi_ci.push import _compute_next_version
+
+            # No VERSION file in cwd either (we're in a tmp-less test)
+            with patch("hyperi_ci.push.Path") as mock_path:
+                mock_version = MagicMock()
+                mock_version.is_file.return_value = False
+                mock_path.return_value.__truediv__.return_value = mock_version
+                mock_path.cwd.return_value.__truediv__.return_value = mock_version
+                result_v = _compute_next_version(bump="patch", cwd=None)
+                assert result_v is None
+
+    def test_unsupported_bump_returns_none(self) -> None:
+        result = MagicMock(stdout="v1.5.4\n", returncode=0)
+        with patch("hyperi_ci.push.run_cmd", return_value=result):
+            from hyperi_ci.push import _compute_next_version
+
+            assert _compute_next_version(bump="major", cwd=None) is None
 
 
 class TestSkipCIPush:

@@ -93,9 +93,7 @@ def push(
 
     # --bump-* implies --publish (you can't bump without publishing)
     if publish or bump:
-        return _publish_push(
-            dry_run=dry_run, force=force, bump=bump, cwd=cwd
-        )
+        return _publish_push(dry_run=dry_run, force=force, bump=bump, cwd=cwd)
 
     return _default_push(dry_run=dry_run, force=force, cwd=cwd)
 
@@ -159,28 +157,49 @@ def _publish_push(
             return rc
 
     if bump:
-        # Forced bump: add an empty release-marker commit.
+        # Forced bump: add a release-marker commit that ALSO writes the
+        # next version to VERSION. The VERSION write is essential — it
+        # makes the commit non-empty, defeating consumer-project
+        # `paths-ignore` filters that would otherwise skip CI for empty
+        # commits. semantic-release's prepareCmd will overwrite VERSION
+        # with the same value during the publish job, so this is
+        # idempotent.
         commit_type = _BUMP_TO_TYPE[bump]
         marker_subject = f"{commit_type}(release): force {bump} bump"
+
+        next_version = _compute_next_version(bump=bump, cwd=cwd)
+        if next_version is None:
+            error(
+                f"Cannot compute next {bump} version — no existing v* tags "
+                f"and no VERSION file. Initial release should set VERSION "
+                f"manually."
+            )
+            return 1
+
         marker_message = (
-            f"{marker_subject}\n\n"
+            f"{marker_subject} v{next_version}\n\n"
             f"Forced {bump} release requested via `hyperi-ci push --bump-{bump}`.\n"
             f"The preceding commits don't independently warrant a {bump} bump\n"
-            f"under conventional-commits rules; this empty marker commit\n"
-            f"records the operator's explicit decision to publish anyway.\n"
+            f"under conventional-commits rules; this marker commit records\n"
+            f"the operator's explicit decision to publish anyway.\n"
             f"\n"
             f"{PUBLISH_TRAILER_KEY}: {PUBLISH_TRAILER_VALUE}\n"
         )
         if dry_run:
             info(
-                f"Dry run: would add empty release-marker commit "
-                f"`{marker_subject}` (with Publish: true trailer), then push"
+                f"Dry run: would write VERSION={next_version}, commit "
+                f"`{marker_subject} v{next_version}`, then push"
             )
             return 0
-        rc = _add_release_marker_commit(message=marker_message, cwd=cwd)
+        rc = _write_version_and_commit(
+            next_version=next_version, message=marker_message, cwd=cwd
+        )
         if rc != 0:
             return rc
-        info(f"Added empty release-marker: `{marker_subject}`")
+        info(
+            f"Added release-marker: `{marker_subject} v{next_version}` "
+            f"(VERSION updated)"
+        )
     else:
         head_msg = _get_last_commit_message(cwd=cwd)
         if not head_msg:
@@ -213,21 +232,82 @@ def _publish_push(
     return 0
 
 
-def _add_release_marker_commit(*, message: str, cwd: str | None) -> int:
-    """Create an empty ``fix(release):``/``feat(release):`` marker commit.
+def _compute_next_version(*, bump: str, cwd: str | None) -> str | None:
+    """Compute the next semver string given a bump level.
 
-    Used by ``--bump-patch`` / ``--bump-minor`` to give semantic-release
-    a release-worthy commit to analyse without requiring the user to
-    invent a fake source change. The marker IS a real commit in git
-    history with a clear, conventional message — not a code-side
-    artificial change.
+    Reads the latest ``v*`` tag, increments the relevant component,
+    returns the bare version (no ``v`` prefix). Falls back to the
+    ``VERSION`` file when no tags exist (rare — initial release case).
+
+    Returns ``None`` when neither tags nor VERSION are available; the
+    caller should error out and ask the operator to set VERSION manually.
     """
+    # Latest v* tag, sorted by semver
+    result = run_cmd(
+        ["git", "tag", "--list", "v*", "--sort=-v:refname"],
+        capture=True,
+        check=False,
+        cwd=cwd,
+    )
+    latest: str | None = None
+    if result.returncode == 0 and result.stdout.strip():
+        latest = result.stdout.splitlines()[0].strip().lstrip("v")
+
+    # Fallback: VERSION file (initial-release case)
+    if not latest:
+        cwd_path = Path(cwd) if cwd else Path.cwd()
+        version_file = cwd_path / "VERSION"
+        if version_file.is_file():
+            latest = version_file.read_text().strip().lstrip("v")
+    if not latest:
+        return None
+
+    parts = latest.split(".")
+    while len(parts) < 3:
+        parts.append("0")
     try:
+        major, minor, patch = int(parts[0]), int(parts[1]), int(parts[2])
+    except ValueError:
+        return None
+
+    if bump == "patch":
+        patch += 1
+    elif bump == "minor":
+        minor += 1
+        patch = 0
+    else:
+        # _BUMP_TO_TYPE excludes "major" — defensive
+        return None
+
+    return f"{major}.{minor}.{patch}"
+
+
+def _write_version_and_commit(
+    *, next_version: str, message: str, cwd: str | None
+) -> int:
+    """Write VERSION + commit with the given message.
+
+    Used by ``--bump-patch`` / ``--bump-minor``. The VERSION write
+    ensures the commit is non-empty (defeats consumer ``paths-ignore``
+    filters); the commit message carries a conventional ``fix(release):``
+    / ``feat(release):`` subject so semantic-release computes the right
+    bump.
+    """
+    cwd_path = Path(cwd) if cwd else Path.cwd()
+    version_file = cwd_path / "VERSION"
+
+    try:
+        version_file.write_text(f"{next_version}\n")
+    except OSError as exc:
+        error(f"Failed to write {version_file}: {exc}")
+        return 1
+
+    try:
+        run_cmd(["git", "add", "VERSION"], cwd=cwd, capture=True)
         run_cmd(
             [
                 "git",
                 "commit",
-                "--allow-empty",
                 "-m",
                 message,
             ],
