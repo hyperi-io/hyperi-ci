@@ -1,0 +1,26 @@
+# Project:   HyperI CI
+# File:      .gitattributes
+# Purpose:   Path attributes — primarily archive-export controls
+
+# `.claude/` contains symlinks into the sibling `hyperi-ai/` submodule.
+# When this repo is consumed as a remote action (e.g.
+# `hyperi-io/hyperi-ci/.github/actions/predict-version@main`), GitHub
+# Actions downloads a zip of the repo at the requested ref. Broken
+# symlinks in that zip make the action-runner fail at "Set up job"
+# with `Could not find file '.../.claude/settings.json'`.
+#
+# `export-ignore` excludes the path from `git archive` — which is what
+# GitHub's zip-download path uses — so the symlinks never make it into
+# the action zip. Local development is unaffected.
+.claude/ export-ignore
+.claude/** export-ignore
+
+# Same defensive treatment for the hyperi-ai submodule reference; not
+# strictly needed (submodules aren't fetched anyway) but explicit.
+hyperi-ai/ export-ignore
+hyperi-ai/** export-ignore
+
+# Keep operator/CI directories out of action zips too — they're not
+# part of the runtime API surface.
+test-projects/ export-ignore
+docs/superpowers/ export-ignore
