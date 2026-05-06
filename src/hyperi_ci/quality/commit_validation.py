@@ -283,9 +283,7 @@ def validate_message(msg: str) -> ValidationResult:
             error_type="feat_without_opt_in",
         )
 
-    if _has_breaking_change_marker(msg) and not _env_bypass(
-        "HYPERCI_ALLOW_BREAKING"
-    ):
+    if _has_breaking_change_marker(msg) and not _env_bypass("HYPERCI_ALLOW_BREAKING"):
         return ValidationResult(
             valid=False,
             reason=(
