@@ -1,3 +1,16 @@
+# [2.1.0](https://github.com/hyperi-io/hyperi-ci/compare/v2.0.1...v2.1.0) (2026-05-06)
+
+
+### Bug Fixes
+
+* **ci:** exclude .claude/ symlinks from git archive (action zip downloads) ([32e4903](https://github.com/hyperi-io/hyperi-ci/commit/32e4903df272ca10ba20d2621a3551eac5583302))
+* **push:** --bump-* writes VERSION so consumer paths-ignore can't skip CI ([1ed5ce5](https://github.com/hyperi-io/hyperi-ci/commit/1ed5ce54842e9a1577d62adca2826fb203412023))
+
+
+### Features
+
+* **push:** --bump-patch / --bump-minor flags for forced releases ([0390a96](https://github.com/hyperi-io/hyperi-ci/commit/0390a96edd46410413c29f8c692bada04ab1fede))
+
 ## [2.0.1](https://github.com/hyperi-io/hyperi-ci/compare/v2.0.0...v2.0.1) (2026-05-06)
 
 
