@@ -128,52 +128,72 @@ multi-arch package conflicts, sysroot approach, integration test threading).
 
 ## Hard Design Principles
 
-1. **NO BASH** — all CI logic is Python. `subprocess.run()` with list args.
-2. **Semantic release centric** — push to main, semantic-release creates tags.
-3. **uv for everything** — venv, sync, lock, tool install, build.
-4. **Cross-platform** — Linux (CI) and macOS (dev). Uses `pathlib`, `shutil.which()`.
-5. **Self-hosting** — hyperi-ci uses itself for its own CI.
-6. **Publish target routing** — `PUBLISH_TARGET` = internal/oss/both controls where artifacts go.
+1. **Version-first** — predict version up front (semantic-release dry-run), stamp into Cargo.toml/VERSION/pyproject.toml/package.json before build. No catch-up rebuild.
+2. **Tag-on-publish** — git tags exist iff the artefact is in the registry.
+3. **No silent skips** — dispatcher hard-fails on broken handler; container hard-fails on missing artefacts; predict-version hard-fails on `Publish: true` with no release-worthy commits.
+4. **NO BASH** — all CI logic is Python. `subprocess.run()` with list args.
+5. **uv for everything** — venv, sync, lock, tool install, build.
+6. **Cross-platform** — Linux (CI) and macOS (dev). Uses `pathlib`, `shutil.which()`.
+7. **Self-hosting** — hyperi-ci uses itself for its own CI.
+8. **FOSS-first** — default `publish.target` is `oss`. JFrog paths are deprecated (4-6 week timeline).
 
 ## Architecture
 
 See `docs/DESIGN.md` for full architecture documentation.
 
 ```
+.github/
+├── workflows/
+│   ├── rust-ci.yml          # Per-language: quality + test + setup + build → calls _release-tail
+│   ├── python-ci.yml        # Per-language: same shape
+│   ├── go-ci.yml            # Per-language: same shape
+│   ├── ts-ci.yml            # Per-language: same shape
+│   └── _release-tail.yml    # SHARED: container + tag-and-publish (called by all 4)
+└── actions/
+    └── predict-version/     # SHARED COMPOSITE: gate + semantic-release dry-run
+
 src/hyperi_ci/
-├── cli.py               # Typer CLI (run, check, push, init, detect, config, trigger, watch, logs, release, check-commit)
-├── config.py            # CIConfig, OrgConfig, config cascade loader
-├── common.py            # Logging, subprocess helpers, GH Actions output
-├── detect.py            # Language detection from file markers
-├── dispatch.py          # Stage dispatcher → language handlers
-├── init.py              # Project scaffolding (config, Makefile, workflow, releaserc, githooks)
-├── release.py           # Tag-based publish dispatch (replaces release-merge)
-├── publish_binaries.py  # GH Release creation + R2/JFrog binary upload
-├── gh.py                # GitHub CLI helpers
-├── push.py              # Push wrapper (pre-checks, --release, --no-ci)
-├── trigger.py           # Workflow trigger command
-├── watch.py             # Run watch command (default 3600s timeout; --timeout 0 disables)
-├── logs.py              # Log fetch command (force UTF-8 with errors=replace)
+├── cli.py                # Typer CLI (run, check, push, init, detect, config, trigger, watch, logs, publish, release, check-commit)
+├── config.py             # CIConfig, OrgConfig, config cascade loader
+├── common.py             # Logging, subprocess helpers, GH Actions output
+├── detect.py             # Language detection from file markers
+├── dispatch.py           # Stage dispatcher → language handlers (StageRunFn protocol)
+├── init.py               # Project scaffolding (config, Makefile, workflow, releaserc, githooks)
+├── push.py               # Push wrapper (pre-checks, --publish trailer-amend, --no-ci)
+├── publish/              # Publish package
+│   ├── binaries.py       # GH Release creation + R2/JFrog binary upload
+│   └── dispatch.py       # Retroactive workflow_dispatch on existing tag
+├── release.py            # DEPRECATED back-compat shim (re-exports from publish/)
+├── publish_binaries.py   # DEPRECATED back-compat shim
+├── gh.py                 # GitHub CLI helpers
+├── trigger.py            # Workflow trigger command
+├── watch.py              # Run watch command (default 3600s timeout; --timeout 0 disables)
+├── logs.py               # Log fetch command (force UTF-8 with errors=replace)
 ├── quality/
-│   ├── gitleaks.py      # Secret scanning
+│   ├── gitleaks.py       # Secret scanning
 │   └── commit_validation.py  # Conventional commit enforcement
 └── languages/
-    ├── python/          # quality, test, build, publish
-    ├── rust/            # quality, test, build, publish
-    ├── typescript/      # quality, test, build, publish
-    └── golang/          # quality, test, build, publish
+    ├── _build_common.py  # Shared helpers: human_size, generate_checksums
+    ├── quality_common.py # Shared helpers: get_test_paths, get_test_ignore
+    ├── python/           # quality, test, build, publish
+    ├── rust/             # quality, test, build, publish
+    ├── typescript/       # quality, test, build, publish
+    └── golang/           # quality, test, build, publish
 ```
 
 ## Handler Interface
 
-Every language handler module exports:
+Every language handler module exports a function matching the
+:class:`StageRunFn` protocol in :mod:`hyperi_ci.dispatch`:
 
 ```python
-def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
+def run(config: CIConfig, *, extra_env: dict[str, str] | None = None) -> int:
     """Run the stage. Returns exit code (0 = success)."""
 ```
 
-Dispatch finds handlers via `hyperi_ci.languages.<lang>.<stage>` module path.
+Dispatch finds handlers via `hyperi_ci.languages.<lang>.<stage>` module
+path. A missing or non-callable `run` is a packaging bug — the dispatcher
+hard-fails with `TypeError` rather than silently skipping the stage.
 
 ## Config Cascade
 
@@ -217,20 +237,35 @@ uv run hyperi-ci check               # Pre-push: quality + test
 uv run hyperi-ci check --full        # Pre-push: quality + test + build (native only)
 uv run hyperi-ci check --quick       # Pre-push: quality only
 uv run hyperi-ci push                # Check, rebase, push (NEVER use bare git push)
-uv run hyperi-ci push --release      # Push + auto-publish if CI passes
+uv run hyperi-ci push --publish      # Stamp `Publish: true` trailer, push, single-run publish
 uv run hyperi-ci push --no-ci        # Push, skip CI
-uv run hyperi-ci release --list      # List unpublished version tags
-uv run hyperi-ci release v1.3.0      # Trigger publish for a tag
+uv run hyperi-ci publish --list      # List unpublished version tags
+uv run hyperi-ci publish v1.3.0      # Retroactive: dispatch publish on existing tag
 uv run hyperi-ci check-commit --list # List accepted commit types
 ```
 
-## Versioning and Publishing
+`--release` and `release` are kept as deprecated aliases of `--publish` /
+`publish` for back-compat; will be removed in v3.0.
+
+## Versioning and Publishing (v2 — version-first, tag-on-publish)
 
 **Single versioning on main.** Semantic-release runs only on `main`, producing
 real versions (`1.3.0`, not `1.3.0-dev.8`). No release branch.
 
-**Publish is explicit.** `hyperi-ci release <tag>` dispatches a workflow that
-builds from the tag and publishes. Not every version needs to be published.
+**Tag-on-publish.** A git tag exists iff the artefact is in the registry —
+the same convention as kubernetes / rust / python. No more orphan tags
+from "tag every fix:, publish later" mode.
+
+**Publish is explicit and single-run.** `hyperi-ci push --publish` amends
+the head commit with the `Publish: true` git trailer and pushes. The CI
+run sees the trailer in setup, predicts the next version, stamps it
+into `Cargo.toml` / `VERSION` / `pyproject.toml` / `package.json`
+**before** the build, then tags + publishes — all in one workflow. No
+catch-up rebuild.
+
+A push without `--publish` is validate-only: quality + test + build +
+container build (no push). Default state of `main` = "validated, ready
+to ship."
 
 **Channels** control where artifacts go (`publish.channel` in `.hyperi-ci.yaml`):
 - `spike` / `alpha` / `beta` — GH Release (prerelease), R2 channel path, no registries
@@ -239,7 +274,7 @@ builds from the tag and publishes. Not every version needs to be published.
 **Commit validation** enforced by `.githooks/commit-msg` hook and CI quality stage.
 Invalid messages get "Computer says no." with friendly guidance.
 
-See `docs/MIGRATION-GUIDE.md` for migrating projects to this model.
+See `docs/MIGRATION-GUIDE.md` for migrating projects from v1 to v2.
 
 ## Consumer Projects
 

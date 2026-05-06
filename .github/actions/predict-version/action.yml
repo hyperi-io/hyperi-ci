@@ -1,0 +1,118 @@
+# Project:   HyperI CI
+# File:      .github/actions/predict-version/action.yml
+# Purpose:   Composite action — detect publish trigger + predict next version
+#
+# License:   Proprietary — HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# Used by every language-specific workflow's `setup` job. Encapsulates
+# the universal "is this a publish run, and what version?" decision so
+# the rust/go/python/ts workflows don't duplicate ~80 lines of identical
+# bash + npm install.
+#
+# The matrix-generation step that follows is language-specific (target
+# triples for Rust/Go, single-arch for Python/TS) and stays in the
+# calling workflow.
+
+name: Predict version
+description: Detect Publish trigger + run semantic-release dry-run for next version
+
+inputs:
+  github-token:
+    description: GitHub token (for semantic-release dry-run)
+    required: true
+
+outputs:
+  will-publish:
+    description: "'true' iff this run should tag + publish"
+    value: ${{ steps.gate.outputs.will-publish }}
+  version:
+    description: "Predicted next version (without 'v' prefix); empty unless will-publish == 'true' on push"
+    value: ${{ steps.predict.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Detect publish trigger
+      # Gate the entire publish flow on one signal: `will-publish`.
+      #
+      # - workflow_dispatch with a tag input → always publish (retroactive).
+      # - push to main with `Publish: true` trailer in HEAD commit → publish.
+      # - everything else → validate-only (no version stamp, no tag, no
+      #   container push, no registry uploads).
+      id: gate
+      shell: bash
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          echo "will-publish=true" >> "$GITHUB_OUTPUT"
+          echo "::notice::Triggered by workflow_dispatch — publish run"
+          exit 0
+        fi
+
+        # push event — match Publish: true trailer (case-insensitive on key)
+        msg=$(git log -1 --format=%B HEAD)
+        if printf '%s' "$msg" | grep -qiE '^[[:space:]]*Publish:[[:space:]]*true[[:space:]]*$'; then
+          echo "will-publish=true" >> "$GITHUB_OUTPUT"
+          echo "::notice::'Publish: true' trailer detected — this is a publish run"
+        else
+          echo "will-publish=false" >> "$GITHUB_OUTPUT"
+          echo "No 'Publish: true' trailer — validate-only run (no tag, no publish)"
+        fi
+
+    - name: Set up Node.js (for semantic-release dry-run)
+      if: steps.gate.outputs.will-publish == 'true' && github.event_name == 'push'
+      uses: actions/setup-node@v6
+      with:
+        node-version: 22
+
+    - name: Predict next version
+      # Run semantic-release in --dry-run to determine the version that
+      # the tag-and-publish job will eventually create. The build job
+      # in the calling workflow stamps Cargo.toml + VERSION to this
+      # value BEFORE compiling, so CARGO_PKG_VERSION (used in
+      # AppMetrics, --version flags, log output) matches the published
+      # tag.
+      #
+      # Hard fail if `Publish: true` was set but no release-worthy
+      # commits exist — silent skip violates "nothing should say it
+      # worked if it didn't."
+      #
+      # We capture the dry-run exit code separately so a real crash
+      # (npm install failure, network, etc.) is distinguished from
+      # "ran successfully but no version to release."
+      id: predict
+      if: steps.gate.outputs.will-publish == 'true' && github.event_name == 'push'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        npm install -g \
+          semantic-release@25 \
+          @semantic-release/commit-analyzer \
+          @semantic-release/release-notes-generator \
+          @semantic-release/changelog \
+          @semantic-release/exec \
+          @semantic-release/git \
+          conventional-changelog-conventionalcommits
+
+        set +e
+        dry_output=$(npx semantic-release --dry-run 2>&1)
+        dry_rc=$?
+        set -e
+        echo "$dry_output"
+
+        if [[ $dry_rc -ne 0 ]]; then
+          echo "::error::semantic-release --dry-run exited $dry_rc — see log above"
+          exit $dry_rc
+        fi
+
+        version=$(printf '%s\n' "$dry_output" | grep -oE 'next release version is [0-9]+\.[0-9]+\.[0-9]+' | head -1 | awk '{print $5}')
+
+        if [[ -z "$version" ]]; then
+          echo "::error::'Publish: true' trailer present but no release-worthy commits since last tag."
+          echo "::error::Either remove the trailer (this is a non-release commit) or land a fix:/feat:/perf: commit first."
+          exit 1
+        fi
+
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "::notice::Predicted next version: v$version"

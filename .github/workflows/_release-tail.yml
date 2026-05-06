@@ -1,0 +1,283 @@
+# Project:   HyperI CI
+# File:      .github/workflows/_release-tail.yml
+# Purpose:   Shared release tail — container + tag-and-publish jobs
+#
+# License:   Proprietary — HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# Reusable workflow called by language-specific *-ci.yml files. Owns
+# the post-build half of the version-first single-run pipeline:
+#
+#   (caller)  setup     ← uses .github/actions/predict-version
+#   (caller)  build     ← stamps Cargo.toml/VERSION with next-version
+#                         BEFORE building, uploads dist/ + ci-tmp/
+#                         artefacts
+#
+#   (here)    container         ← docker build (validate or push, gated
+#                                  on will-publish)
+#   (here)    tag-and-publish   ← npx semantic-release real → tag +
+#                                  CHANGELOG; then hyperi-ci run publish
+#                                  → binaries to crates.io / R2 / GH
+#                                  Release / JFrog
+#
+# Doctrine: tag-on-publish. A git tag exists iff the artefact is in the
+# registry. Aligns with kubernetes/rust/python OSS conventions.
+#
+# Why a shared workflow?
+#  - The container, semantic-release, and publish jobs were byte-identical
+#    across rust/go/python/ts (the publish job was 100% duplicated).
+#  - Future CI plumbing changes (action version pins, registry tweaks,
+#    semver discipline) apply once instead of 4×.
+
+name: Release tail (shared)
+
+on:
+  workflow_call:
+    inputs:
+      language:
+        type: string
+        required: true
+        description: "Project language: rust | python | golang | typescript"
+      will-publish:
+        type: string
+        required: true
+        description: "'true' if this run should push to registries (from caller's setup output)"
+      tag:
+        type: string
+        default: ""
+        description: "Tag input — set on workflow_dispatch from caller"
+      publish-target:
+        type: string
+        default: "internal"
+        description: "Publish destination: internal, oss, or both"
+      python-version:
+        type: string
+        default: "3.12"
+        description: "Python runtime (used by container/publish toolchain)"
+      rust-toolchain:
+        type: string
+        default: "stable"
+        description: "Rust toolchain (only used when language=rust)"
+
+env:
+  HYPERCI_INSTALL: uvx --no-cache --refresh hyperi-ci
+  HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
+  # When dispatched with a tag, this is a release-channel build —
+  # enables Tier 2 (PGO + BOLT) build optimisation.
+  HYPERCI_CHANNEL: ${{ inputs.tag && 'release' || '' }}
+
+jobs:
+  container:
+    name: Container
+    # Branch / PR pushes never reach this workflow (caller gates on
+    # quality+test+build pre-needs). Pushes to main and
+    # workflow_dispatch always reach here:
+    #
+    # - Validate-only (push to main, will-publish == 'false'):
+    #   docker build runs to catch Dockerfile breakages, but no push
+    #   to any registry — verifies the Dockerfile is producible
+    #   BEFORE we ever try to publish from it.
+    # - Publish (will-publish == 'true'): docker build + push to all
+    #   configured registries.
+    #
+    # The push-vs-validate decision lives in container/stage.py keyed
+    # off HYPERCI_PUBLISH_MODE — set when will-publish is true.
+    if: |
+      github.event.pull_request.head.repo.fork != true && (
+        (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+        github.event_name == 'workflow_dispatch'
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Check container enabled
+        # publish.container.enabled is three-state: auto | true | false.
+        # `false` skips the rest of this job. `auto` and `true` proceed
+        # to login + build; the handler resolves auto via signal
+        # detection (Dockerfile or rustlib contract source) and skips
+        # silently when no signal is present.
+        id: check
+        run: |
+          if [ -f .hyperi-ci.yaml ]; then
+            enabled=$(python3 -c "import yaml; c=yaml.safe_load(open('.hyperi-ci.yaml')) or {}; print(str(c.get('publish',{}).get('container',{}).get('enabled','auto')).lower())" 2>/dev/null || echo "auto")
+          else
+            enabled="auto"
+          fi
+          echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
+
+      - name: Download build artifacts
+        # The build-dist-* artifact carries both dist/ (binaries) and
+        # ci-tmp/ (deployment artefacts produced by the Build stage).
+        # Download into the project root so both trees land at their
+        # original paths — Container stage looks for dist/<binary> and
+        # ci-tmp/container-manifest.json relative to cwd.
+        if: steps.check.outputs.enabled != 'false'
+        uses: actions/download-artifact@v8
+        with:
+          pattern: build-dist-*
+          path: .
+          merge-multiple: true
+
+      - name: Docker Hub login (authenticated pulls only)
+        # Docker Hub is not a publish target — login is solely to bypass
+        # anonymous rate limits when the Dockerfile pulls a Hub base
+        # image. Conditional on the org var being set; no-op otherwise.
+        if: steps.check.outputs.enabled != 'false' && vars.DOCKERHUB_USERNAME != ''
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: GHCR login
+        # GITHUB_TOKEN via job-level packages:write permission — can create
+        # new repo-owned packages on first push.
+        if: steps.check.outputs.enabled != 'false'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: JFrog Docker login
+        # Required when publish.target resolves to internal or both. The
+        # registry resolver writes the JFrog tag; this step authenticates
+        # the push. No-op if vars.JFROG_DOMAIN is unset.
+        if: steps.check.outputs.enabled != 'false' && (inputs.publish-target == 'internal' || inputs.publish-target == 'both') && vars.JFROG_DOMAIN != ''
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ vars.JFROG_DOMAIN }}
+          username: ${{ secrets.JFROG_USERNAME }}
+          password: ${{ secrets.JFROG_TOKEN }}
+
+      - name: Set up Docker Buildx
+        if: steps.check.outputs.enabled != 'false'
+        uses: docker/setup-buildx-action@v4
+
+      - name: Install uv
+        if: steps.check.outputs.enabled != 'false'
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
+
+      - name: Set up Python
+        if: steps.check.outputs.enabled != 'false'
+        run: uv python install ${{ inputs.python-version }}
+
+      - name: Build container
+        # Handler decides validate-only vs push based on HYPERCI_PUBLISH_MODE:
+        # unset/false → docker build only, no registry push;
+        # true        → docker build + push to all configured registries.
+        if: steps.check.outputs.enabled != 'false'
+        env:
+          HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
+          HYPERCI_PUBLISH_MODE: ${{ inputs.will-publish }}
+        run: ${{ env.HYPERCI_INSTALL }} run container
+
+  tag-and-publish:
+    name: Tag & Publish
+    needs: [container]
+    # Single gate: this job runs iff a release is being published.
+    # On push events it creates the git tag (semantic-release) AND
+    # uploads artefacts. On workflow_dispatch (retroactive) the tag
+    # already exists; only the upload runs.
+    if: inputs.will-publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # On push, check out main HEAD so semantic-release can commit
+          # the version bump + CHANGELOG. On workflow_dispatch, check
+          # out the tag (already exists, no semantic-release needed).
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        if: github.event_name == 'push'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Install semantic-release
+        if: github.event_name == 'push'
+        run: >-
+          npm install -g
+          semantic-release@25
+          @semantic-release/commit-analyzer
+          @semantic-release/release-notes-generator
+          @semantic-release/changelog
+          @semantic-release/exec
+          @semantic-release/git
+          conventional-changelog-conventionalcommits
+
+      - name: Tag (semantic-release)
+        # Real run (no --dry-run) — analyzes commits, writes Cargo.toml
+        # + VERSION + CHANGELOG, commits with [skip ci], pushes commit,
+        # creates and pushes the git tag.
+        # The version semantic-release picks here MUST equal the
+        # `next-version` predicted in setup (same algorithm, same input
+        # — deterministic). The build job already stamped artefacts at
+        # this version.
+        if: github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release
+
+      - name: Docker Hub login
+        if: vars.DOCKERHUB_USERNAME != ''
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: GHCR login
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download build artifacts
+        # Build job uploads both dist/ and ci-tmp/ trees — extract at
+        # the project root so paths land where consumers expect them.
+        uses: actions/download-artifact@v8
+        with:
+          pattern: build-dist-*
+          path: .
+          merge-multiple: true
+
+      - name: Install Rust toolchain
+        if: inputs.language == 'rust'
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ inputs.rust-toolchain }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
+
+      - name: Set up Python
+        run: uv python install ${{ inputs.python-version }}
+
+      - name: Publish
+        # Uploads to all configured destinations: crates.io / PyPI / npm
+        # (oss), JFrog Artifactory (internal), R2 (oss), GitHub Release.
+        env:
+          JFROG_TOKEN: ${{ secrets.JFROG_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: ${{ env.HYPERCI_INSTALL }} run publish

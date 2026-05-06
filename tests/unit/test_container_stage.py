@@ -157,6 +157,10 @@ def test_run_custom_mode_invokes_build_with_resolved_tags(
     monkeypatch.setenv("GITHUB_SHA", "abc12345abc12345abc")
     monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
     monkeypatch.delenv("GITHUB_REF", raising=False)
+    # New (post version-first refactor): publish mode is opt-in via
+    # HYPERCI_PUBLISH_MODE. The workflow's container job sets this from
+    # setup.outputs.will-publish; tests must set it explicitly.
+    monkeypatch.setenv("HYPERCI_PUBLISH_MODE", "true")
 
     cfg = _ci_config(container={"enabled": "auto"}, target="oss")
 
@@ -381,6 +385,7 @@ def test_run_multi_registry_when_target_both(tmp_path: Path, monkeypatch) -> Non
     monkeypatch.setenv("GITHUB_SHA", "abc12345abc12345abc")
     monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
     monkeypatch.delenv("GITHUB_REF", raising=False)
+    monkeypatch.setenv("HYPERCI_PUBLISH_MODE", "true")
 
     cfg = _ci_config(container={"enabled": "auto"}, target="both")
 

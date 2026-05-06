@@ -13,7 +13,6 @@ downloaded .deb packages (ported from old CI's proven sysroot approach).
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -22,6 +21,11 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
+
+from hyperi_ci.languages._build_common import (
+    generate_checksums as _generate_checksums,
+    human_size as _human_size,
+)
 
 from hyperi_ci.common import (
     error,
@@ -656,15 +660,6 @@ _ELF_MACHINE_MAP = {
 }
 
 
-def _human_size(size: int) -> str:
-    """Convert bytes to human-readable size."""
-    for unit in ("B", "K", "M", "G"):
-        if size < 1024:
-            return f"{size}{unit}"
-        size //= 1024
-    return f"{size}T"
-
-
 def _target_to_elf_machine(target: str) -> str | None:
     """Map Rust target to expected ELF machine string from readelf -h."""
     for prefix, machine in _ELF_MACHINE_MAP.items():
@@ -913,21 +908,6 @@ def _target_to_os_arch(target: str) -> str:
     if pair:
         return f"{pair[0]}-{pair[1]}"
     return target
-
-
-def _generate_checksums(output_dir: Path) -> None:
-    """Generate SHA256 checksums file for all binaries in output directory."""
-    checksum_file = output_dir / "checksums.sha256"
-    lines: list[str] = []
-
-    for f in sorted(output_dir.iterdir()):
-        if f.is_file() and f.name != "checksums.sha256":
-            sha = hashlib.sha256(f.read_bytes()).hexdigest()
-            lines.append(f"{sha}  {f.name}")
-
-    if lines:
-        checksum_file.write_text("\n".join(lines) + "\n")
-        info(f"Checksums written to {checksum_file}")
 
 
 def _package_binaries(

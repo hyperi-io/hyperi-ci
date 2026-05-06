@@ -4,6 +4,11 @@
 #
 # License:   Proprietary — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# Rust-specific stages: quality, test, setup, build (with version stamp).
+# Container + tag-and-publish are delegated to the shared
+# _release-tail.yml workflow. Setup uses the shared predict-version
+# composite action to avoid duplicating gate+dry-run across languages.
 
 name: Rust CI
 
@@ -16,8 +21,8 @@ on:
         description: "Runner mode: 'free' forces ubuntu-latest, empty uses GH_RUNNER_* vars"
       publish-target:
         type: string
-        default: "internal"
-        description: "Publish destination: internal, oss, or both"
+        default: "oss"
+        description: "Publish destination: oss (default, FOSS), internal (deprecated, JFrog), or both"
       rust-toolchain:
         type: string
         default: "stable"
@@ -72,8 +77,8 @@ on:
         description: "Runner mode override"
       publish-target:
         type: string
-        default: "internal"
-        description: "Publish destination: internal, oss, or both"
+        default: "oss"
+        description: "Publish destination: oss (default, FOSS), internal (deprecated, JFrog), or both"
       rust-toolchain:
         type: string
         default: "stable"
@@ -87,10 +92,7 @@ env:
   HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
   HYPERCI_INSTALL: uvx --no-cache --refresh hyperi-ci
   # When dispatched with a tag, this is a release-channel build —
-  # enables Tier 2 (PGO + BOLT) build optimisation. On push events
-  # `inputs.tag` is empty and HYPERCI_CHANNEL is also empty, which
-  # falls back to `publish.channel` config or "spike" default in
-  # hyperi-ci's build.py.
+  # enables Tier 2 (PGO + BOLT) build optimisation.
   HYPERCI_CHANNEL: ${{ inputs.tag && 'release' || '' }}
 
 jobs:
@@ -144,9 +146,12 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install cargo tools
+        # NB: no `|| true` — fail the job if cargo-audit/cargo-deny
+        # can't be installed. Quality stage runs them and silent absence
+        # would mask supply-chain risks.
         run: |
-          command -v cargo-audit || cargo install --locked cargo-audit || true
-          command -v cargo-deny || cargo install --locked cargo-deny || true
+          command -v cargo-audit || cargo install --locked cargo-audit
+          command -v cargo-deny || cargo install --locked cargo-deny
 
       - name: Run quality checks
         env:
@@ -158,7 +163,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        # Renovate branches use lightweight runners — dependency update PRs don't need 16cpu
         os: ${{ fromJson(startsWith(github.head_ref || github.ref_name, 'renovate/') && format('["{0}"]', vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
     steps:
       - name: Docker Hub login
@@ -223,14 +227,29 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       build-matrix: ${{ steps.matrix.outputs.matrix }}
+      will-publish: ${{ steps.predict.outputs.will-publish }}
+      next-version: ${{ steps.predict.outputs.version }}
     steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0  # full history — semantic-release dry-run reads it
+
+      - name: Predict version (gate + dry-run)
+        id: predict
+        uses: hyperi-io/hyperi-ci/.github/actions/predict-version@main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Generate build matrix
+        # Multi-arch (amd64 + arm64) for publish runs; single-arch for
+        # validate-only — arm64 is slow on shared runners and wasteful
+        # when nothing's being shipped.
         id: matrix
         run: |
-          # Renovate branches use lightweight runners — dependency update PRs don't need 16cpu
           AMD64_RUNNER="${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"
           ARM64_RUNNER="${{ vars.GH_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}"
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          if [[ "${{ steps.predict.outputs.will-publish }}" == "true" ]]; then
             echo "matrix={\"include\":[{\"target\":\"x86_64-unknown-linux-gnu\",\"runner\":\"${AMD64_RUNNER}\",\"os_arch\":\"linux-amd64\"},{\"target\":\"aarch64-unknown-linux-gnu\",\"runner\":\"${ARM64_RUNNER}\",\"os_arch\":\"linux-arm64\"}]}" >> "$GITHUB_OUTPUT"
           else
             echo "matrix={\"include\":[{\"target\":\"x86_64-unknown-linux-gnu\",\"runner\":\"${AMD64_RUNNER}\",\"os_arch\":\"linux-amd64\"}]}" >> "$GITHUB_OUTPUT"
@@ -246,6 +265,41 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.tag || github.ref }}
+
+      - name: Stamp predicted version
+        # Version-first pipeline: write the version we're about to tag
+        # into Cargo.toml + VERSION before `cargo build`, so the binary
+        # has the correct CARGO_PKG_VERSION baked in. Without this we'd
+        # publish a v1.18.3 release containing a binary that introspects
+        # itself as 1.18.2 — every metrics dashboard would lie.
+        #
+        # Skipped on workflow_dispatch (the checked-out tag's tree
+        # already has the correct version) and on validate-only runs
+        # (nothing being published, version doesn't matter).
+        if: needs.setup.outputs.will-publish == 'true' && github.event_name == 'push'
+        run: |
+          version="${{ needs.setup.outputs.next-version }}"
+          if [[ -z "$version" ]]; then
+            echo "::error::next-version output empty — setup.predict step must populate it"
+            exit 1
+          fi
+          echo "Stamping version: $version"
+
+          if grep -qE '^\[package\]' Cargo.toml; then
+            sed -i -E "/^\[package\]/,/^\[/ s/^version[[:space:]]*=[[:space:]]*\"[^\"]*\"/version = \"$version\"/" Cargo.toml
+          fi
+
+          if grep -qE '^\[workspace\.package\]' Cargo.toml; then
+            sed -i -E "/^\[workspace\.package\]/,/^\[/ s/^version[[:space:]]*=[[:space:]]*\"[^\"]*\"/version = \"$version\"/" Cargo.toml
+          fi
+
+          if [[ -f VERSION ]]; then
+            echo "$version" > VERSION
+          fi
+
+          echo "--- Cargo.toml after stamp:"
+          grep -E '^version[[:space:]]*=' Cargo.toml | head -3
+          [[ -f VERSION ]] && echo "--- VERSION: $(cat VERSION)"
 
       - name: Install uv
         if: ${{ !contains(runner.name, 'arc-runner') }}
@@ -288,8 +342,7 @@ jobs:
         # Runs the freshly built binary's `generate-artefacts` subcommand
         # to emit Dockerfile.runtime + container-manifest.json (+ ArgoCD)
         # into ci-tmp/. MUST run on the Build runner where the toolchain's
-        # runtime libs (librdkafka, libssl, etc.) are present — the
-        # Container runner is bare and can't load the binary.
+        # runtime libs (librdkafka, libssl, etc.) are present.
         # Skipped silently for projects without a deployment contract.
         run: ${{ env.HYPERCI_INSTALL }} run generate
 
@@ -303,215 +356,14 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
-  container:
-    name: Container
-    needs: [build]
-    # Branch/PR pushes skip this job entirely. Push-to-main runs in
-    # validate mode (build, no push). Release dispatch runs with --push
-    # to whichever registries publish.target resolves to.
-    if: |
-      github.event.pull_request.head.repo.fork != true && (
-        (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-        github.event_name == 'workflow_dispatch'
-      )
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.tag || github.ref }}
-
-      - name: Check container enabled
-        # publish.container.enabled is three-state: auto | true | false.
-        # `false` skips the rest of this job. `auto` and `true` proceed
-        # to login + build; the handler resolves auto via signal
-        # detection (Dockerfile or rustlib contract source) and skips
-        # silently when no signal is present.
-        id: check
-        run: |
-          if [ -f .hyperi-ci.yaml ]; then
-            enabled=$(python3 -c "import yaml; c=yaml.safe_load(open('.hyperi-ci.yaml')) or {}; print(str(c.get('publish',{}).get('container',{}).get('enabled','auto')).lower())" 2>/dev/null || echo "auto")
-          else
-            enabled="auto"
-          fi
-          echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
-
-      - name: Download build artifacts
-        # The build-dist-* artifact carries both dist/ (binaries) and
-        # ci-tmp/ (deployment artefacts produced by the Build stage).
-        # Download into the project root so both trees land at their
-        # original paths — Container stage looks for dist/<binary> and
-        # ci-tmp/container-manifest.json relative to cwd.
-        if: steps.check.outputs.enabled != 'false'
-        uses: actions/download-artifact@v8
-        with:
-          pattern: build-dist-*
-          path: .
-          merge-multiple: true
-
-      - name: Docker Hub login (authenticated pulls only)
-        # Docker Hub is not a publish target — login is solely to bypass
-        # anonymous rate limits when the Dockerfile pulls a Hub base
-        # image. Conditional on the org var being set; no-op otherwise.
-        if: steps.check.outputs.enabled != 'false' && vars.DOCKERHUB_USERNAME != ''
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: GHCR login
-        # GITHUB_TOKEN via job-level packages:write permission — can create
-        # new repo-owned packages on first push.
-        if: steps.check.outputs.enabled != 'false'
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: JFrog Docker login
-        # Required when publish.target resolves to internal or both. The
-        # registry resolver writes the JFrog tag; this step authenticates
-        # the push. No-op if vars.JFROG_DOMAIN is unset.
-        if: steps.check.outputs.enabled != 'false' && (inputs.publish-target == 'internal' || inputs.publish-target == 'both') && vars.JFROG_DOMAIN != ''
-        uses: docker/login-action@v4
-        with:
-          registry: ${{ vars.JFROG_DOMAIN }}
-          username: ${{ secrets.JFROG_USERNAME }}
-          password: ${{ secrets.JFROG_TOKEN }}
-
-      - name: Set up Docker Buildx
-        if: steps.check.outputs.enabled != 'false'
-        uses: docker/setup-buildx-action@v4
-
-      - name: Install uv
-        if: steps.check.outputs.enabled != 'false'
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: false
-
-      - name: Set up Python
-        if: steps.check.outputs.enabled != 'false'
-        run: uv python install 3.12
-
-      - name: Build container
-        # Handler decides validate-only vs push based on event type:
-        # push-to-main → build, no push; workflow_dispatch → push.
-        if: steps.check.outputs.enabled != 'false'
-        env:
-          HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
-        run: ${{ env.HYPERCI_INSTALL }} run container
-
-  release:
-    name: Release
-    needs: [quality, test, build, container]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-
-      - name: Install semantic-release
-        run: >-
-          npm install -g
-          semantic-release@25
-          @semantic-release/commit-analyzer
-          @semantic-release/release-notes-generator
-          @semantic-release/changelog
-          @semantic-release/exec
-          @semantic-release/git
-          conventional-changelog-conventionalcommits
-
-      - name: Release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx semantic-release
-
-  publish:
-    name: Publish
-    needs: [build, container]
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      packages: write
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.tag }}
-
-      - name: Check for VERSION
-        id: check
-        run: |
-          if [ -f VERSION ]; then
-            echo "has_version=true" >> "$GITHUB_OUTPUT"
-            echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_version=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Docker Hub login
-        if: steps.check.outputs.has_version == 'true' && vars.DOCKERHUB_USERNAME != ''
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: GHCR login
-        # GITHUB_TOKEN via job-level packages:write permission — can create
-        # new repo-owned packages on first push.
-        if: steps.check.outputs.has_version == 'true'
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Download build artifacts
-        # Build job uploads both dist/ and ci-tmp/ trees — extract at
-        # the project root so paths land where consumers expect them.
-        if: steps.check.outputs.has_version == 'true'
-        uses: actions/download-artifact@v8
-        with:
-          pattern: build-dist-*
-          path: .
-          merge-multiple: true
-
-      - name: Install Rust toolchain
-        if: steps.check.outputs.has_version == 'true'
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ inputs.rust-toolchain }}
-
-      - name: Install uv
-        if: steps.check.outputs.has_version == 'true'
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: false
-
-      - name: Set up Python
-        if: steps.check.outputs.has_version == 'true'
-        run: uv python install 3.12
-
-      - name: Publish
-        if: steps.check.outputs.has_version == 'true'
-        env:
-          JFROG_TOKEN: ${{ secrets.JFROG_TOKEN }}
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: ${{ env.HYPERCI_INSTALL }} run publish
+  release-tail:
+    name: Release tail
+    needs: [setup, build]
+    uses: hyperi-io/hyperi-ci/.github/workflows/_release-tail.yml@main
+    with:
+      language: rust
+      will-publish: ${{ needs.setup.outputs.will-publish }}
+      tag: ${{ inputs.tag }}
+      publish-target: ${{ inputs.publish-target }}
+      rust-toolchain: ${{ inputs.rust-toolchain }}
+    secrets: inherit

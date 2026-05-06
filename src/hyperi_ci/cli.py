@@ -136,10 +136,16 @@ def check(
 
 @app.command()
 def push(
-    release: Annotated[
+    publish: Annotated[
         bool,
         typer.Option(
-            "--release", help="After CI passes, auto-dispatch publish for new version"
+            "--publish",
+            "--release",  # back-compat alias
+            help=(
+                "Stamp HEAD with `Publish: true` trailer before pushing — "
+                "the single CI run will tag + publish via the version-first "
+                "pipeline. (--release is a deprecated alias for --publish.)"
+            ),
         ),
     ] = False,
     no_ci: Annotated[
@@ -161,17 +167,25 @@ def push(
         typer.Option("--project-dir", "-C", help="Project root directory"),
     ] = None,
 ) -> None:
-    """Push with pre-checks. Replaces bare 'git push'.
+    """Push with pre-checks. Replaces bare ``git push``.
 
-    Default: runs quality + test checks, rebases, then pushes.
-    Use --release to auto-publish after CI passes.
-    Use --no-ci to skip CI on this push.
+    Default flow: runs quality + test checks, rebases, then pushes.
+
+    With ``--publish`` (canonical) or ``--release`` (alias): amends the
+    head commit with the ``Publish: true`` trailer, then pushes. The
+    resulting CI run goes through the version-first pipeline — predicts
+    the next version, stamps it into Cargo.toml/VERSION before build,
+    creates the tag, and publishes to all configured registries — all
+    in one workflow.
+
+    With ``--no-ci``: amends the last commit with ``[skip ci]`` and
+    pushes (skips CI altogether).
     """
     from hyperi_ci.push import push as do_push
 
     dir_path = Path(project_dir) if project_dir else None
     rc = do_push(
-        release=release,
+        publish=publish,
         no_ci=no_ci,
         dry_run=dry_run,
         force=force,
@@ -548,6 +562,56 @@ def check_commit_cmd(
     raise typer.Exit(1)
 
 
+def _publish_impl(
+    tag: str | None,
+    list_tags: bool,
+    dry_run: bool,
+) -> None:
+    """Shared implementation for the ``publish`` and ``release`` commands."""
+    from hyperi_ci.publish import dispatch_publish, list_unpublished
+
+    if list_tags:
+        rc = list_unpublished()
+        raise typer.Exit(rc)
+
+    if not tag:
+        typer.echo(
+            "Specify a tag to publish, or use --list to see available tags.", err=True
+        )
+        raise typer.Exit(1)
+
+    rc = dispatch_publish(tag, dry_run=dry_run)
+    raise typer.Exit(rc)
+
+
+@app.command()
+def publish(
+    tag: Annotated[
+        str | None,
+        typer.Argument(help="Tag to publish (e.g. v1.3.0) or 'latest'"),
+    ] = None,
+    list_tags: Annotated[
+        bool,
+        typer.Option("--list", help="List unpublished version tags"),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", "-n", help="Show what would be dispatched"),
+    ] = False,
+) -> None:
+    """Retroactive publish: workflow_dispatch on an existing tag.
+
+    The primary publish path is ``hyperi-ci push --publish`` which uses
+    the version-first single-run pipeline (one CI run, one tag, one
+    publish, gated by the ``Publish: true`` commit trailer).
+
+    This command covers the secondary "I want to re-publish an existing
+    tag" use case — e.g. a previous publish run failed mid-way and
+    needs retrying without re-tagging.
+    """
+    _publish_impl(tag=tag, list_tags=list_tags, dry_run=dry_run)
+
+
 @app.command()
 def release(
     tag: Annotated[
@@ -563,25 +627,15 @@ def release(
         typer.Option("--dry-run", "-n", help="Show what would be dispatched"),
     ] = False,
 ) -> None:
-    """Trigger a publish workflow for a version tag.
+    """DEPRECATED alias of ``publish``. Will be removed in v3.0."""
+    import warnings
 
-    Lists available tags or dispatches a publish for a specific tag.
-    Replaces the old release-merge flow — no release branch needed.
-    """
-    from hyperi_ci.release import dispatch_publish, list_unpublished
-
-    if list_tags:
-        rc = list_unpublished()
-        raise typer.Exit(rc)
-
-    if not tag:
-        typer.echo(
-            "Specify a tag to publish, or use --list to see available tags.", err=True
-        )
-        raise typer.Exit(1)
-
-    rc = dispatch_publish(tag, dry_run=dry_run)
-    raise typer.Exit(rc)
+    warnings.warn(
+        "`hyperi-ci release` is deprecated; use `hyperi-ci publish`.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    _publish_impl(tag=tag, list_tags=list_tags, dry_run=dry_run)
 
 
 @app.command()

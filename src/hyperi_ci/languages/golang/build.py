@@ -14,7 +14,6 @@ Version is in the R2/release path, not the filename.
 
 from __future__ import annotations
 
-import hashlib
 import os
 import subprocess
 from datetime import UTC, datetime
@@ -22,6 +21,10 @@ from pathlib import Path
 
 from hyperi_ci.common import error, group, info, sanitize_ref_name, success
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages._build_common import (
+    generate_checksums as _generate_checksums,
+    human_size as _human_size,
+)
 
 _TARGET_SHORTCUTS = {
     "all": [
@@ -118,30 +121,6 @@ def _build_ldflags(version: str, version_pkg: str) -> str:
         base += f" -X '{version_pkg}.BuildTime={build_time}'"
 
     return base
-
-
-def _human_size(size: int) -> str:
-    """Convert bytes to human-readable size."""
-    for unit in ("B", "K", "M", "G"):
-        if size < 1024:
-            return f"{size}{unit}"
-        size //= 1024
-    return f"{size}T"
-
-
-def _generate_checksums(output_dir: Path) -> None:
-    """Generate SHA256 checksums file for all binaries in output directory."""
-    checksum_file = output_dir / "checksums.sha256"
-    lines: list[str] = []
-
-    for f in sorted(output_dir.iterdir()):
-        if f.is_file() and f.name != "checksums.sha256":
-            sha = hashlib.sha256(f.read_bytes()).hexdigest()
-            lines.append(f"{sha}  {f.name}")
-
-    if lines:
-        checksum_file.write_text("\n".join(lines) + "\n")
-        info(f"Checksums written to {checksum_file}")
 
 
 def _expand_targets(targets: list[str]) -> list[str]:

@@ -3,16 +3,38 @@
 One CLI for all your CI. Python, Rust, TypeScript, Go — same tool locally
 and in GitHub Actions. No bash scripts, no composite actions, no submodules.
 
+## What's New in v2.0
+
+**Version-first single-run pipeline.** A `Publish: true` git trailer on
+your head commit is the single signal that a push is a release. The CI
+run predicts the next version up front, stamps it into Cargo.toml /
+VERSION / pyproject.toml / package.json **before** the build, then tags
++ uploads to all configured registries — all in one workflow. No second
+"catch-up" build, no version-stamp drift between binary and tag.
+
+**Tag-on-publish.** A git tag exists iff the artefact is in the
+registry. Aligns with kubernetes / rust / python OSS conventions. No
+more orphan tags from "tag every fix:, publish later" mode.
+
+**100% FOSS pipeline by default.** Default `publish.target` is `oss`
+(GitHub Releases + crates.io / PyPI / npm + GHCR + R2). Internal /
+JFrog paths are opt-in and on a 4–6 week deprecation timeline.
+
+See [docs/MIGRATION-GUIDE.md](docs/MIGRATION-GUIDE.md) for the v1 → v2
+migration.
+
 ## Why Use This
 
 **You get:**
+
 - One command before every push: `hyperi-ci check`
-- Same quality/test/build runs locally as in CI — no "works on my machine"
+- Same quality / test / build runs locally as in CI — no "works on my machine"
 - Automatic versioning via semantic-release (just use conventional commits)
-- Publishing when you're ready: `hyperi-ci release v1.3.0`
+- One-shot publish: `hyperi-ci push --publish` (single CI run, single tag, single registry upload)
 - Commit message validation that actually helps ("Computer says no.")
 
 **Your repo gets:**
+
 - A 5-line GitHub Actions workflow (calls our reusable workflow)
 - A Makefile with `make check`, `make quality`, `make test`, `make build`
 - Semantic-release config that just works
@@ -28,8 +50,8 @@ uv tool install hyperi-ci
 
 ```bash
 cd my-project
-hyperi-ci init              # Auto-detects language, generates everything
-git config core.hooksPath .githooks   # Activate commit validation hook
+hyperi-ci init                          # Auto-detects language, generates everything
+git config core.hooksPath .githooks     # Activate commit validation hook
 ```
 
 This creates `.hyperi-ci.yaml`, `Makefile`, `.github/workflows/ci.yml`,
@@ -40,40 +62,69 @@ This creates `.hyperi-ci.yaml`, `Makefile`, `.github/workflows/ci.yml`,
 ```bash
 # 1. Write code
 # 2. Check before pushing (mandatory)
-hyperi-ci check              # Quality + test
-hyperi-ci check --quick      # Quality only (fast)
-hyperi-ci check --full       # Quality + test + build
+hyperi-ci check                         # Quality + test
+hyperi-ci check --quick                 # Quality only (fast)
+hyperi-ci check --full                  # Quality + test + build
 
 # 3. Commit (hook validates your message format)
 git commit -m "fix: resolve timeout in auth handler"
 
-# 4. Push
-git pull --rebase origin main
-git push origin main
+# 4. Push (validate-only — no tag, no publish)
+hyperi-ci push
 
-# 5. CI runs automatically — semantic-release tags a version if warranted
+# That's it. CI runs quality, test, build, and validates the container
+# Dockerfile. No tag is created. No registry is touched.
 ```
 
 ## Publishing a Release
 
-Versions accumulate on main. You choose when to ship:
+You opt in to a release explicitly. Two ways:
+
+### Primary: `hyperi-ci push --publish`
 
 ```bash
-# See what's available
-hyperi-ci release --list
-  v1.5.0  (2026-03-27)
-  v1.4.0  (2026-03-25)
-
-# Ship it
-hyperi-ci release v1.5.0
+git commit -m "fix: handle empty tenant id"
+hyperi-ci push --publish        # alias: --release
 ```
 
-This triggers the full pipeline: quality, test, build (cross-compile), publish.
-Creates a GitHub Release, uploads binaries to R2, publishes to registries
-(PyPI, crates.io, npm — depending on language and config).
+This amends your head commit with the `Publish: true` git trailer, then
+pushes. The single CI run:
 
-Not every version needs publishing. `v1.4.0` stays as a tag — ship it later
-or skip it entirely.
+1. Reads the trailer in setup → declares this a publish run
+2. Runs `npx semantic-release --dry-run` to predict the next version (e.g. v1.5.4)
+3. Stamps that version into Cargo.toml + VERSION before build
+4. Builds (binary now embeds CARGO_PKG_VERSION = 1.5.4)
+5. Builds + pushes container image to GHCR (multi-arch)
+6. Runs `npx semantic-release` for real → creates tag, CHANGELOG commit
+7. Uploads binaries to GitHub Release + R2; publishes to crates.io / PyPI / npm
+
+One workflow run, one tag, one publish.
+
+### Secondary: re-publish an existing tag
+
+If a previous publish run failed mid-way (e.g. registry timeout) and you
+want to retry without re-tagging:
+
+```bash
+hyperi-ci publish v1.5.4         # alias: release v1.5.4
+```
+
+This dispatches a `workflow_dispatch` event for the tag and runs
+build → container → publish from the existing tagged source.
+
+```bash
+hyperi-ci publish --list         # see unpublished tags
+```
+
+### What pushes WITHOUT `--publish`
+
+A plain `hyperi-ci push` runs the full pipeline through the build stage
+in **validate-only** mode. Container builds (to catch Dockerfile
+breakages) but does not push. No tag, no registry upload.
+
+This means the default state of `main` is "all green, ready to ship."
+You can release any time by running `hyperi-ci push --publish` on the
+next conventional commit.
 
 ## Commit Messages
 
@@ -97,7 +148,7 @@ Computer says no.
 ```
 
 **Types that bump the version:** `feat:` (minor), `fix:` (patch), `perf:`,
-`hotfix:`, `security:`/`sec:` (all patch).
+`hotfix:`, `security:` / `sec:` (all patch).
 
 **Types that don't:** `docs`, `test`, `refactor`, `chore`, `ci`, `build`,
 `deps`, `style`, `revert`, `wip`, `cleanup`, `data`, `debt`, `design`,
@@ -112,22 +163,31 @@ Control where artifacts go with one line in `.hyperi-ci.yaml`:
 ```yaml
 publish:
   channel: release    # spike | alpha | beta | release
-  target: oss         # internal | oss | both
+  target: oss         # oss (default, FOSS) | internal (deprecated, JFrog) | both
 ```
 
 ### Channel behaviour
 
-Pre-release channels (`spike`, `alpha`, `beta`) automatically publish to
-**internal staging only** (JFrog PyPI/Cargo), regardless of the configured
-`publish.target`. This keeps pre-GA packages private. The `release` channel
-publishes to whatever target is configured.
+Pre-release channels (`spike`, `alpha`, `beta`) keep packages off the
+public registries. Stable releases require `channel: release`.
 
 | Channel | Registry publish | GH Release | R2 binaries | R2 path |
-|---------|-----------------|------------|-------------|---------|
-| `spike` | Internal only (JFrog staging) | Prerelease | Uploaded | `/{project}/spike/v1.3.0/` |
-| `alpha` | Internal only (JFrog staging) | Prerelease | Uploaded | `/{project}/alpha/v1.3.0/` |
-| `beta` | Internal only (JFrog staging) | Prerelease | Uploaded | `/{project}/beta/v1.3.0/` |
-| `release` | Configured target | GA | Uploaded | `/{project}/v1.3.0/` |
+|---|---|---|---|---|
+| `spike` | none | Prerelease | Uploaded | `/{project}/spike/v1.3.0/` |
+| `alpha` | none | Prerelease | Uploaded | `/{project}/alpha/v1.3.0/` |
+| `beta`  | none | Prerelease | Uploaded | `/{project}/beta/v1.3.0/` |
+| `release` | configured target | GA | Uploaded | `/{project}/v1.3.0/` |
+
+### Target behaviour
+
+| `publish.target` | Containers | Binaries | Packages |
+|---|---|---|---|
+| `oss` (default) | GHCR | GitHub Release + R2 | crates.io / PyPI / npm |
+| `internal` | JFrog Docker (deprecated) | JFrog Generic (deprecated) | JFrog Cargo / PyPI / npm (deprecated) |
+| `both` | GHCR + JFrog | GitHub + R2 + JFrog | All registries |
+
+JFrog targets are kept for back-compat; the path is on a 4–6 week
+deprecation timeline. New projects should use `target: oss`.
 
 ### Graduating to GA
 
@@ -138,35 +198,21 @@ spike → alpha → beta → release
 Each step is a one-line change to `publish.channel` in `.hyperi-ci.yaml`.
 No code changes, no workflow changes.
 
-When `channel` reaches `release` and `target` is `oss` or `both`, the
-package is published to public registries (PyPI, crates.io, npmjs).
-Standard pre-release version conventions protect consumers:
-
-| Registry | Pre-release versions | Default install behaviour |
-|----------|---------------------|-------------------------|
-| PyPI | `1.0.0a1`, `1.0.0b1`, `1.0.0rc1` | `pip install pkg` skips pre-releases |
-| crates.io | `1.0.0-alpha.1`, `1.0.0-beta.1` | `cargo add pkg` skips pre-releases |
-| npmjs | dist-tag `alpha`/`beta` | `npm install pkg` gets `latest` only |
-
-Pre-release versions are discoverable but never installed by default.
-Consumers must explicitly opt in (`pip install --pre`, `cargo add pkg@1.0.0-alpha.1`,
-`npm install pkg@alpha`).
-
 ## Commands
 
 | Command | What it does |
-|---------|-------------|
+|---|---|
 | `hyperi-ci check` | Pre-push validation (quality + test) |
 | `hyperi-ci check --quick` | Quality only |
 | `hyperi-ci check --full` | Quality + test + build |
-| `hyperi-ci run quality` | Lint, format, type check, security audit |
-| `hyperi-ci run test` | Tests with coverage |
-| `hyperi-ci run build` | Build artifacts |
-| `hyperi-ci run container` | Build and push container image to GHCR |
-| `hyperi-ci init-contract --app-name <name>` | Scaffold a starter `ci/deployment-contract.json` (Tier 3 onboarding) |
-| `hyperi-ci emit-artefacts <output-dir>` | Generate Dockerfile + chart + ArgoCD app from a deployment contract |
-| `hyperi-ci release --list` | List unpublished version tags |
-| `hyperi-ci release <tag>` | Trigger publish for a tag |
+| `hyperi-ci push` | Push (validate-only — no tag, no publish) |
+| `hyperi-ci push --publish` | Stamp `Publish: true` trailer, push, single-run publish |
+| `hyperi-ci push --no-ci` | Push with `[skip ci]` (skip CI entirely) |
+| `hyperi-ci publish <tag>` | Retroactive: dispatch publish on existing tag |
+| `hyperi-ci publish --list` | List unpublished version tags |
+| `hyperi-ci run quality\|test\|build\|generate\|container\|publish` | Run a single stage locally |
+| `hyperi-ci init-contract --app-name <name>` | Scaffold `ci/deployment-contract.json` (Tier 3) |
+| `hyperi-ci emit-artefacts <output-dir>` | Generate Dockerfile + chart + ArgoCD app from contract |
 | `hyperi-ci check-commit --list` | Show all accepted commit types |
 | `hyperi-ci detect` | Show detected language |
 | `hyperi-ci config` | Show merged config |
@@ -176,43 +222,56 @@ Consumers must explicitly opt in (`pip install --pre`, `cargo add pkg@1.0.0-alph
 | `hyperi-ci init` | Scaffold a new project |
 | `hyperi-ci upgrade` | Upgrade to latest version |
 
+`hyperi-ci release` is kept as a deprecated alias of `hyperi-ci publish`
+and will be removed in v3.0.
+
 ## How It Works
 
-GitHub Actions handles orchestration. The CLI handles execution. Workflow
-files stay small, and the same code path runs locally and in CI.
-
 ```
-Your Project                        hyperi-ci
-├── .github/workflows/ci.yml       ├── .github/workflows/
-│   (5 lines — calls reusable)     │   ├── rust-ci.yml    (reusable)
-├── .hyperi-ci.yaml                │   ├── python-ci.yml  (reusable)
-├── .releaserc.yaml                │   ├── ts-ci.yml      (reusable)
-├── .githooks/commit-msg           │   └── go-ci.yml      (reusable)
-└── Makefile                       └── src/hyperi_ci/
-                                       ├── cli.py         (entry point)
-                                       ├── dispatch.py    (stage router)
-                                       └── languages/     (per-language handlers)
+Your Project                          hyperi-ci
+├── .github/workflows/ci.yml          ├── .github/
+│   (5 lines — calls reusable)        │   ├── workflows/
+├── .hyperi-ci.yaml                   │   │   ├── rust-ci.yml         (per-language)
+├── .releaserc.yaml                   │   │   ├── python-ci.yml       (per-language)
+├── .githooks/commit-msg              │   │   ├── go-ci.yml           (per-language)
+└── Makefile                          │   │   ├── ts-ci.yml           (per-language)
+                                      │   │   └── _release-tail.yml   (shared: container + publish)
+                                      │   └── actions/
+                                      │       └── predict-version/    (shared composite)
+                                      └── src/hyperi_ci/
+                                          ├── cli.py                  (entry point)
+                                          ├── dispatch.py             (stage router)
+                                          ├── push.py                 (push --publish)
+                                          ├── publish/                (binaries + retro dispatch)
+                                          ├── container/              (docker build/push)
+                                          ├── deployment/             (contract / artefact gen)
+                                          └── languages/              (per-language stage handlers)
 ```
 
-**On push to main:**
+### Pipeline (push to main, no `Publish: true` trailer)
 
 ```mermaid
 flowchart LR
-    Q[quality] --> B[build]
-    T[test] --> B
-    B --> C[container]
-    C --> SR[semantic-release]
+    Q[quality] --> S[setup]
+    T[test] --> S
+    S --> B[build]
+    B --> C["container<br/>(validate-only)"]
 ```
 
-**On publish dispatch:**
+No tag, no registry upload. Default state of main = "validated, ready to ship."
+
+### Pipeline (push to main with `Publish: true` trailer, OR workflow_dispatch)
 
 ```mermaid
 flowchart LR
-    Q[quality] --> B["build\n(cross-compile)"]
-    T[test] --> B
-    B --> C["container\n(multi-arch)"]
-    C --> P[publish]
+    Q[quality] --> S["setup<br/>(predict next-version)"]
+    T[test] --> S
+    S --> B["build<br/>(stamp version)"]
+    B --> C["container<br/>(push to registries)"]
+    C --> TP["tag-and-publish<br/>(semantic-release + run publish)"]
 ```
+
+One workflow, one tag, one publish.
 
 ## Config
 
@@ -226,7 +285,7 @@ CLI flags -> ENV vars (HYPERCI_*) -> .hyperi-ci.yaml -> defaults.yaml -> hardcod
 language: rust              # Auto-detected if omitted
 publish:
   enabled: true
-  target: both              # internal | oss | both
+  target: oss               # oss (default) | internal | both
   channel: release          # spike | alpha | beta | release
 build:
   strategies: [native]
@@ -242,8 +301,8 @@ quality:
 
 Every app emits its container image, Helm chart, and ArgoCD `Application`
 from a single language-agnostic JSON contract — `ci/deployment-contract.json`.
-hyperi-ci's container stage regenerates these on every push and diff-checks
-against the committed `ci/` to catch drift.
+The Build stage regenerates these via `hyperi-ci run generate`, and the
+Quality stage drift-checks the committed `ci/` against the contract.
 
 Three-tier producer model (auto-detected):
 
@@ -257,18 +316,17 @@ Three-tier producer model (auto-detected):
 All three tiers emit **byte-identical** output for the same JSON contract —
 verified by the cross-tier parity test suite.
 
-For Tier 3 onboarding: `hyperi-ci init-contract --app-name my-app` scaffolds
-a starter `ci/deployment-contract.json`, then commit it and run
-`hyperi-ci emit-artefacts ci/` to regenerate.
+For Tier 3 onboarding: `hyperi-ci init-contract --app-name my-app`
+scaffolds a starter `ci/deployment-contract.json`, then commit it and
+run `hyperi-ci emit-artefacts ci/` to regenerate.
 
 See [`docs/deployment-contract.md`](docs/deployment-contract.md) for the
-user guide and [`docs/superpowers/specs/2026-04-30-deployment-contract-three-tier-design.md`](docs/superpowers/specs/2026-04-30-deployment-contract-three-tier-design.md)
-for the full architecture.
+user guide.
 
 Images push to GHCR (`ghcr.io/hyperi-io/<app>`). Tags:
-- Push to main: `:sha-abc1234`
-- Release: `:v1.13.5` + `:latest`
-- Pre-release: `:v1.13.5-alpha`
+
+- Push to main with `Publish: true`: `:vX.Y.Z` + `:latest` + `:sha-abc1234`
+- workflow_dispatch on tag: same tag set on the existing tagged source
 
 Enable in `.hyperi-ci.yaml`:
 
@@ -282,11 +340,20 @@ publish:
 ## Languages
 
 | Language | Quality | Test | Build | Publish |
-|----------|---------|------|-------|---------|
-| Python | ruff, ty, bandit, pip-audit | pytest | uv build | uv publish (PyPI / JFrog staging) |
-| Rust | cargo fmt, clippy, audit, deny, **feature_matrix** | cargo test/nextest | cargo build (cross) | cargo publish (crates.io / JFrog staging) |
+|---|---|---|---|---|
+| Python | ruff, ty, bandit, pip-audit | pytest | uv build | uv publish (PyPI) |
+| Rust | cargo fmt, clippy, audit, deny, **feature_matrix** | cargo test/nextest | cargo build (cross) | cargo publish (crates.io) |
 | TypeScript | eslint, prettier, tsc, npm audit | vitest/jest | npm/pnpm build | npm publish (npmjs / GH Packages) |
 | Go | gofmt, go vet, golangci-lint, gosec | go test -race | go build (cross) | go proxy, gh release |
+
+Per-language version stamping (publish runs only):
+
+| Language | Stamps |
+|---|---|
+| Rust | `Cargo.toml` `[package].version` (and `[workspace.package].version` for workspaces) + `VERSION` |
+| Python | `pyproject.toml` `[project].version` + `VERSION` |
+| Go | `VERSION` (consumed via `-ldflags "-X main.Version=..."`) |
+| TypeScript | `package.json` (via `npm version --no-git-tag-version`) + `VERSION` |
 
 ## Rust Feature Matrix Check
 
@@ -309,39 +376,6 @@ quality:
       reason: "tracked in dfe-loader#87, remediating 2026-04-18"
 ```
 
-**Edge cases** (rare; most projects need none of these):
-
-```yaml
-quality:
-  rust:
-    feature_matrix:
-      exclude: ["_internal-debug"]                 # skip private features
-      mutually_exclusive:                          # pairs that must not coexist
-        - ["native-tls", "rustls"]
-      also_check_no_default_features: true        # default true
-      extra_args: ["--workspace"]                  # passed through to cargo hack
-```
-
-## Rust Documentation Hint
-
-Quality stage emits a single concise warning if `cargo doc` finds rustdoc
-issues (broken intra-doc links, bare URLs, invalid code blocks, etc).
-**Non-blocking by design** — rustdoc hygiene is a ratchet, not a gate. The
-warning points to:
-
-- <https://doc.rust-lang.org/rustdoc/> — rustdoc tooling reference
-- <https://rust-lang.github.io/api-guidelines/documentation.html> — C-DOCS
-- `hyperi-ai/standards/languages/RUST.md` § Documentation — HyperI standard
-
-To silence:
-
-```yaml
-quality:
-  rust:
-    rustdoc_hint:
-      enabled: false
-```
-
 ## Cross-Compilation
 
 Rust projects with C/C++ dependencies (librdkafka, openssl, zstd) are
@@ -357,15 +391,19 @@ build:
       - aarch64-unknown-linux-gnu
 ```
 
-Main branch builds amd64 only (validation). Publish builds the full matrix.
+Push to main without `Publish: true` builds amd64 only (validation).
+Publish runs build the full matrix.
 
 ## Design Principles
 
-1. **No bash** — all CI logic is Python. `subprocess.run()` with list args.
-2. **Semantic release** — push to main, versions happen automatically.
-3. **uv for everything** — venv, sync, lock, tool install, build.
-4. **Cross-platform** — Linux (CI) and macOS (dev).
-5. **Self-hosting** — hyperi-ci uses itself for its own CI.
+1. **Version-first** — predict version up front, stamp before build. No catch-up rebuild.
+2. **Tag-on-publish** — git tags exist iff the artefact is in the registry.
+3. **No silent skips** — fail loud on broken handoffs (missing artefacts, missing handlers, etc.).
+4. **No bash** — all CI logic is Python. `subprocess.run()` with list args.
+5. **Semantic release** — push to main with `Publish: true` triggers a single-run release.
+6. **uv for everything** — venv, sync, lock, tool install, build.
+7. **Cross-platform** — Linux (CI) and macOS (dev).
+8. **Self-hosting** — hyperi-ci uses itself for its own CI.
 
 ## Licence
 

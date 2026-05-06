@@ -19,7 +19,7 @@ from __future__ import annotations
 import importlib
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from hyperi_ci.common import (
     error,
@@ -32,6 +32,23 @@ from hyperi_ci.common import (
 from hyperi_ci.config import CIConfig, load_config
 from hyperi_ci.detect import detect_language
 from hyperi_ci.quality import commit_validation, gitleaks
+
+
+class StageRunFn(Protocol):
+    """Type contract every per-language stage handler's ``run`` exposes.
+
+    A handler module under ``hyperi_ci.languages.<lang>.<stage>`` exports
+    a ``run`` function matching this protocol. Pyright/mypy check
+    conformance statically; at runtime the dispatcher verifies ``run``
+    is present and callable, then a missing/mistyped handler fails
+    explicitly in :func:`_dispatch_to_handler` rather than producing
+    an AttributeError mid-stage.
+    """
+
+    def __call__(
+        self, config: CIConfig, *, extra_env: dict[str, str] | None = ...
+    ) -> int: ...
+
 
 VALID_STAGES = (
     "setup",
@@ -56,9 +73,16 @@ _LANGUAGE_ALIASES = {
 def _find_handler_module(language: str, stage: str) -> Any | None:
     """Import a language-specific handler module if it exists.
 
-    Looks for hyperi_ci.languages.<language>.<stage> and returns the module
-    if it has a run() function. Handles language aliases (e.g. javascript
-    shares the typescript handler package).
+    Looks for ``hyperi_ci.languages.<language>.<stage>`` and returns the
+    module if it has a callable ``run`` matching :class:`StageRunFn`.
+    Handles language aliases (e.g. javascript shares the typescript
+    handler package).
+
+    Returns ``None`` only when the module genuinely doesn't exist
+    (ImportError). If the module exists but ``run`` is missing or not
+    callable — a packaging bug — we raise ``TypeError`` rather than
+    silently returning None, so :func:`_dispatch_to_handler` produces
+    a clear error instead of mistaking it for "no handler".
     """
     canonical = _LANGUAGE_ALIASES.get(language, language)
     if canonical != language:
@@ -68,11 +92,15 @@ def _find_handler_module(language: str, stage: str) -> Any | None:
         # Module name composed from closed allowlist (_LANGUAGE_ALIASES +
         # known stages), not user input.
         mod = importlib.import_module(module_name)  # nosemgrep: non-literal-import
-        if hasattr(mod, "run"):
-            return mod
     except ImportError:
-        pass
-    return None
+        return None
+    run_fn = getattr(mod, "run", None)
+    if run_fn is None or not callable(run_fn):
+        raise TypeError(
+            f"{module_name}.run is missing or not callable. "
+            f"Stage handlers must export `def run(config, *, extra_env=None) -> int`."
+        )
+    return mod
 
 
 def _normalize_rust_features(config: CIConfig, stage: str) -> str:
@@ -166,8 +194,16 @@ def stage_test(language: str, config: CIConfig) -> int:
 
     rc = _dispatch_to_handler(language, "test", config, extra_env=extra_env)
     if rc == -1:
-        warn(f"No test handler found for {language} — skipping tests")
-        return 0
+        # No silent skip — a missing handler for a detected language is
+        # a hyperi-ci packaging bug, not "this project doesn't have tests."
+        # Projects that genuinely have no tests should set
+        # `test.enabled: false` in .hyperi-ci.yaml.
+        error(
+            f"No test handler found for language {language!r}. "
+            f"This is a hyperi-ci bug (handler module "
+            f"hyperi_ci.languages.{language}.test missing or has no run() function)."
+        )
+        return 1
     return rc
 
 
@@ -274,7 +310,7 @@ def stage_publish(language: str, config: CIConfig) -> int:
         return rc
 
     # Always create the GH Release (even for libraries with no binaries)
-    from hyperi_ci.publish_binaries import create_github_release, publish_binaries
+    from hyperi_ci.publish import create_github_release, publish_binaries
 
     rc = create_github_release(config)
     if rc != 0:

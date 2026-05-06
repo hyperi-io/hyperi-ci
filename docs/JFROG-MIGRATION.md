@@ -1,4 +1,16 @@
-# JFrog Migration Plan
+# JFrog Migration Plan (HISTORICAL)
+
+> **Status: superseded by full JFrog deprecation.**
+>
+> This document captured the v1-era plan to *reduce* JFrog to two roles
+> (Telstra delivery, private package staging). With the v2 release the
+> plan has changed: **JFrog is being phased out entirely** on a 4–6
+> week timeline. The default `publish.target` is now `oss` (GitHub
+> Releases + GHCR + crates.io / PyPI / npm + R2). The `internal` and
+> `both` targets are kept as opt-in paths for back-compat through the
+> deprecation window.
+>
+> Document kept for historical context.
 
 Reduce JFrog to two roles: Telstra artifact delivery and private package
 staging (PyPI + Cargo). Move everything else to GitHub (GHCR, GitHub

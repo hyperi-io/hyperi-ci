@@ -12,9 +12,15 @@ description = "HyperI CI/CD CLI tool — multi-language build, test, and publish
 requires-python = ">=3.12"
 license = {text = "Proprietary"}
 dependencies = [
-    "hyperi-pylib==2.24.1",
-    "packaging>=24.0",
-    "pydantic>=2.10",
+    # Pin to >= so transitive resolution can pick up bug fixes / new
+    # features without a manifest edit. Bump the floor when we adopt
+    # new pylib APIs (e.g. deployment contract module added in 2.28).
+    # The [metrics] extra is required because pylib's __init__.py
+    # eagerly imports hyperi_pylib.metrics.prometheus → psutil.
+    # Architectural fix (lazy metrics import) is tracked in pylib.
+    "hyperi-pylib[metrics]>=2.28.0",
+    "packaging>=26.0",
+    "pydantic>=2.13",
     "pyyaml>=6.0",
     "tomli-w>=1.2.0",
 ]
@@ -79,8 +85,8 @@ hyperi-pylib = { path = "/projects/hyperi-pylib", editable = true }
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
-    "pytest-cov>=7.0.0",
+    "pytest-cov>=7.1.0",
     # Pulled transitively via pytest+rich+typer; pin minimum to dodge CVE-2026-4539.
     "pygments>=2.20.0",
-    "ruff>=0.15.5",
+    "ruff>=0.15.12",
 ]
