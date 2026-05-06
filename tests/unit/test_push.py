@@ -176,14 +176,14 @@ class TestPublishPush:
         ):
             from hyperi_ci.push import _publish_push
 
-            rc = _publish_push(dry_run=False, force=False, cwd=None)
+            rc = _publish_push(dry_run=False, force=False, bump=None, cwd=None)
             assert rc == 1
 
     def test_no_gh_cli_aborts(self) -> None:
         with patch("hyperi_ci.push.require_gh", return_value=False):
             from hyperi_ci.push import _publish_push
 
-            rc = _publish_push(dry_run=False, force=False, cwd=None)
+            rc = _publish_push(dry_run=False, force=False, bump=None, cwd=None)
             assert rc == 1
 
     def test_dirty_tree_aborts(self) -> None:
@@ -194,7 +194,7 @@ class TestPublishPush:
         ):
             from hyperi_ci.push import _publish_push
 
-            rc = _publish_push(dry_run=False, force=False, cwd=None)
+            rc = _publish_push(dry_run=False, force=False, bump=None, cwd=None)
             assert rc == 1
 
     def test_check_failure_aborts(self) -> None:
@@ -206,7 +206,7 @@ class TestPublishPush:
         ):
             from hyperi_ci.push import _publish_push
 
-            rc = _publish_push(dry_run=False, force=False, cwd=None)
+            rc = _publish_push(dry_run=False, force=False, bump=None, cwd=None)
             assert rc == 1
 
     def test_amends_when_no_trailer_then_pushes(self) -> None:
@@ -227,7 +227,7 @@ class TestPublishPush:
         ):
             from hyperi_ci.push import _publish_push
 
-            rc = _publish_push(dry_run=False, force=False, cwd=None)
+            rc = _publish_push(dry_run=False, force=False, bump=None, cwd=None)
             assert rc == 0
             mock_amend.assert_called_once()
             mock_push.assert_called_once()
@@ -249,7 +249,7 @@ class TestPublishPush:
         ):
             from hyperi_ci.push import _publish_push
 
-            rc = _publish_push(dry_run=False, force=False, cwd=None)
+            rc = _publish_push(dry_run=False, force=False, bump=None, cwd=None)
             assert rc == 0
             mock_amend.assert_not_called()
             mock_push.assert_called_once()
@@ -271,10 +271,106 @@ class TestPublishPush:
         ):
             from hyperi_ci.push import _publish_push
 
-            rc = _publish_push(dry_run=True, force=False, cwd=None)
+            rc = _publish_push(dry_run=True, force=False, bump=None, cwd=None)
             assert rc == 0
             mock_amend.assert_not_called()
             mock_push.assert_not_called()
+
+
+class TestForcedBumpPush:
+    """Test --bump-patch / --bump-minor flow.
+
+    When bump is set, _publish_push adds an empty release-marker commit
+    on top of HEAD with a conventional message that semantic-release
+    will analyse as a patch/minor. The marker carries the Publish: true
+    trailer so the workflow's setup gate detects this as a publish run.
+    """
+
+    def test_bump_patch_creates_marker_commit(self) -> None:
+        with (
+            patch("hyperi_ci.push.require_gh", return_value=True),
+            patch("hyperi_ci.push.get_current_branch", return_value="main"),
+            patch("hyperi_ci.push._check_dirty_tree", return_value=0),
+            patch("hyperi_ci.push._run_check", return_value=0),
+            patch(
+                "hyperi_ci.push._add_release_marker_commit", return_value=0
+            ) as mock_marker,
+            patch("hyperi_ci.push._rebase_and_push", return_value=0) as mock_push,
+        ):
+            from hyperi_ci.push import _publish_push
+
+            rc = _publish_push(
+                dry_run=False, force=False, bump="patch", cwd=None
+            )
+            assert rc == 0
+            mock_marker.assert_called_once()
+            # The marker message must be a fix:(release) conventional
+            # commit subject AND carry the Publish: true trailer.
+            args, kwargs = mock_marker.call_args
+            msg = kwargs["message"]
+            assert msg.startswith("fix(release): force patch bump\n")
+            assert "Publish: true" in msg
+            mock_push.assert_called_once()
+
+    def test_bump_minor_creates_feat_marker(self) -> None:
+        with (
+            patch("hyperi_ci.push.require_gh", return_value=True),
+            patch("hyperi_ci.push.get_current_branch", return_value="main"),
+            patch("hyperi_ci.push._check_dirty_tree", return_value=0),
+            patch("hyperi_ci.push._run_check", return_value=0),
+            patch(
+                "hyperi_ci.push._add_release_marker_commit", return_value=0
+            ) as mock_marker,
+            patch("hyperi_ci.push._rebase_and_push", return_value=0),
+        ):
+            from hyperi_ci.push import _publish_push
+
+            rc = _publish_push(
+                dry_run=False, force=False, bump="minor", cwd=None
+            )
+            assert rc == 0
+            msg = mock_marker.call_args.kwargs["message"]
+            assert msg.startswith("feat(release): force minor bump\n")
+            assert "Publish: true" in msg
+
+    def test_bump_dry_run_no_commit_no_push(self) -> None:
+        with (
+            patch("hyperi_ci.push.require_gh", return_value=True),
+            patch("hyperi_ci.push.get_current_branch", return_value="main"),
+            patch("hyperi_ci.push._check_dirty_tree", return_value=0),
+            patch("hyperi_ci.push._run_check", return_value=0),
+            patch(
+                "hyperi_ci.push._add_release_marker_commit", return_value=0
+            ) as mock_marker,
+            patch("hyperi_ci.push._rebase_and_push", return_value=0) as mock_push,
+        ):
+            from hyperi_ci.push import _publish_push
+
+            rc = _publish_push(
+                dry_run=True, force=False, bump="patch", cwd=None
+            )
+            assert rc == 0
+            mock_marker.assert_not_called()
+            mock_push.assert_not_called()
+
+    def test_bump_invalid_level_rejected_at_top_level(self) -> None:
+        # The push() top-level function validates bump value before
+        # dispatching; an unknown level returns 1 without touching git.
+        from hyperi_ci.push import push
+
+        rc = push(bump="major")  # not in _BUMP_TO_TYPE
+        assert rc == 1
+
+    def test_bump_implies_publish(self) -> None:
+        # User passes --bump-patch but not --publish; push() should
+        # route to _publish_push anyway (bump implies publish).
+        with patch("hyperi_ci.push._publish_push", return_value=0) as mock:
+            from hyperi_ci.push import push
+
+            rc = push(bump="patch")
+            assert rc == 0
+            mock.assert_called_once()
+            assert mock.call_args.kwargs["bump"] == "patch"
 
 
 class TestSkipCIPush:

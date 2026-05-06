@@ -148,6 +148,32 @@ def push(
             ),
         ),
     ] = False,
+    bump_patch: Annotated[
+        bool,
+        typer.Option(
+            "--bump-patch",
+            help=(
+                "Force a +0.0.1 patch release even when HEAD commits "
+                "aren't release-worthy (e.g. docs-only). Adds an empty "
+                "`fix(release): force patch bump` marker commit and "
+                "publishes. Implies --publish."
+            ),
+        ),
+    ] = False,
+    bump_minor: Annotated[
+        bool,
+        typer.Option(
+            "--bump-minor",
+            help=(
+                "Force a +0.1.0 minor release even when HEAD commits "
+                "aren't release-worthy. Adds an empty "
+                "`feat(release): force minor bump` marker commit and "
+                "publishes. Implies --publish. (Major bumps require a "
+                "human-written BREAKING CHANGE: footer per HyperI "
+                "commit-type discipline.)"
+            ),
+        ),
+    ] = False,
     no_ci: Annotated[
         bool,
         typer.Option("--no-ci", help="Amend last commit with [skip ci] and push"),
@@ -178,15 +204,28 @@ def push(
     creates the tag, and publishes to all configured registries — all
     in one workflow.
 
+    With ``--bump-patch`` or ``--bump-minor``: same as ``--publish`` but
+    adds an empty release-marker commit on top of HEAD. Use this when
+    you want to ship a release whose actual commits are no-bump types
+    (``docs:``, ``chore:``, etc.) — saves you from inventing a fake
+    ``fix:`` commit. The marker IS a real commit in git history with a
+    clear conventional message stating "this is a forced bump."
+
     With ``--no-ci``: amends the last commit with ``[skip ci]`` and
     pushes (skips CI altogether).
     """
     from hyperi_ci.push import push as do_push
 
+    if bump_patch and bump_minor:
+        typer.echo("--bump-patch and --bump-minor are mutually exclusive", err=True)
+        raise typer.Exit(1)
+    bump = "patch" if bump_patch else "minor" if bump_minor else None
+
     dir_path = Path(project_dir) if project_dir else None
     rc = do_push(
         publish=publish,
         no_ci=no_ci,
+        bump=bump,
         dry_run=dry_run,
         force=force,
         project_dir=dir_path,
