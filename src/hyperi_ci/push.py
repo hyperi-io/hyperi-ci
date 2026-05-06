@@ -27,7 +27,6 @@ from pathlib import Path
 from hyperi_ci.common import error, info, run_cmd, success, warn
 from hyperi_ci.gh import get_current_branch, require_gh
 
-
 PUBLISH_TRAILER_KEY = "Publish"
 PUBLISH_TRAILER_VALUE = "true"
 

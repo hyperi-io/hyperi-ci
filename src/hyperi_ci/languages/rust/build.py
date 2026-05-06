@@ -22,11 +22,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-from hyperi_ci.languages._build_common import (
-    generate_checksums as _generate_checksums,
-    human_size as _human_size,
-)
-
 from hyperi_ci.common import (
     error,
     group,
@@ -38,6 +33,12 @@ from hyperi_ci.common import (
     warn,
 )
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages._build_common import (
+    generate_checksums as _generate_checksums,
+)
+from hyperi_ci.languages._build_common import (
+    human_size as _human_size,
+)
 from hyperi_ci.languages.rust.optimize import (
     OptimizationProfile,
     log_profile,
