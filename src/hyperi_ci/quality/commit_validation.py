@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import difflib
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -221,7 +222,111 @@ def validate_message(msg: str) -> ValidationResult:
             error_type="uppercase_description",
         )
 
+    # =========================================================================
+    # Bump-discipline gates — DO NOT REMOVE without reading this comment.
+    # =========================================================================
+    #
+    # These two gates exist for ONE reason: AI coding agents (Claude Code,
+    # Cursor, Copilot, et al.) repeatedly over-bump semver and produce
+    # unintended major/minor releases. The maintainer has had to revert
+    # accidental bumps and reset main HISTORY *multiple times across
+    # multiple sessions* because:
+    #
+    #   1. Agents default to `feat:` for any new capability — adding a CLI
+    #      flag, a config knob, a helper function, a small new branch in
+    #      existing code. HyperI policy is that `feat:` is RARE — only for
+    #      genuinely new user-facing features. Agents do not respect that
+    #      policy reliably even when it's documented in CLAUDE.md, in the
+    #      universal rules file, in the project STATE.md, in per-session
+    #      memory files, AND when the user has explicitly told the agent
+    #      "don't do this" in prior sessions. Memory-based discipline has
+    #      failed at least a dozen times.
+    #
+    #   2. Agents write `BREAKING CHANGE:` in commit body text as a
+    #      *documentation reference* — e.g. "Major bumps require a
+    #      BREAKING CHANGE: footer". semantic-release's commit-analyzer
+    #      cannot distinguish a documentation reference from an actual
+    #      breaking-change declaration; the literal string fires the
+    #      major-bump detection regardless of authorial intent. Agents
+    #      have triggered accidental v2.0.0, v3.0.0 bumps this way despite
+    #      being repeatedly warned.
+    #
+    # Cost to humans: an extra env-var prefix on the rare commit that IS a
+    # genuine feat: or breaking change. ~3 seconds of typing per intentional
+    # major/minor bump. This is the price humans now pay for AI agents'
+    # inability to follow stated commit-type discipline. The trade is
+    # worthwhile because rolling back a semver mistake is FAR more painful
+    # — git history rewrite, force-push, deleted tags, sometimes yanked
+    # PyPI/crates packages, downstream consumers that pulled the wrong
+    # version.
+    #
+    # If you (a human reading this comment) are tempted to remove these
+    # gates because they slow you down: understand that you are NOT the
+    # primary failure mode they exist for. AI agents are. Removing them
+    # will reintroduce the regression. Find another way to streamline
+    # your workflow — e.g. set HYPERCI_ALLOW_FEAT=1 in your shell rc on
+    # branches where genuine features are expected.
+    #
+    # =========================================================================
+
+    if commit_type == "feat" and not _env_bypass("HYPERCI_ALLOW_FEAT"):
+        return ValidationResult(
+            valid=False,
+            reason=(
+                "`feat:` triggers a MINOR bump. HyperI policy is to use "
+                "`feat:` RARELY — for genuinely new user-facing features. "
+                "Adding a CLI flag, config knob, helper, or refinement is "
+                "`fix:`, not `feat:`. If this commit IS a genuinely new "
+                "feature (not just an improvement), set HYPERCI_ALLOW_FEAT=1 "
+                "to confirm: `HYPERCI_ALLOW_FEAT=1 git commit ...`"
+            ),
+            error_type="feat_without_opt_in",
+        )
+
+    if _has_breaking_change_marker(msg) and not _env_bypass(
+        "HYPERCI_ALLOW_BREAKING"
+    ):
+        return ValidationResult(
+            valid=False,
+            reason=(
+                "Commit body contains `BREAKING CHANGE:` — this triggers a "
+                "MAJOR bump even when written as documentation reference. "
+                "Rephrase as `breaking-change footer` or `breaking change "
+                "marker`. If a major bump IS intentional, set "
+                "HYPERCI_ALLOW_BREAKING=1 to confirm: "
+                "`HYPERCI_ALLOW_BREAKING=1 git commit ...`"
+            ),
+            error_type="breaking_change_without_opt_in",
+        )
+
     return ValidationResult(valid=True, reason="", error_type="")
+
+
+_BREAKING_CHANGE_RE = re.compile(r"BREAKING[ \-]CHANGE:")
+
+
+def _has_breaking_change_marker(msg: str) -> bool:
+    """True iff the message contains either ``BREAKING CHANGE:`` or
+    ``BREAKING-CHANGE:`` anywhere (case-sensitive).
+
+    Both forms are recognised by conventional-commits-parser as the
+    breaking-change footer marker. Lowercase variants and free-form
+    text like "breaking change" pass through unblocked, as do other
+    hyphenations like "breaking-change footer" used as documentation.
+
+    Match is unanchored deliberately — semantic-release scans for the
+    literal string anywhere in the message body, and agents have
+    triggered major bumps with the marker mid-line in body text.
+    Better to over-block (operator sets HYPERCI_ALLOW_BREAKING=1 once)
+    than under-block (accidental major release).
+    """
+    return bool(_BREAKING_CHANGE_RE.search(msg))
+
+
+def _env_bypass(name: str) -> bool:
+    """True iff env var ``name`` is set to a truthy value."""
+    val = os.environ.get(name, "").strip().lower()
+    return val in ("1", "true", "yes")
 
 
 # ---------------------------------------------------------------------------

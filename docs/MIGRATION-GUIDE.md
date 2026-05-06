@@ -46,6 +46,13 @@ semantics. The biggest user-visible changes:
    - Use `hyperi-ci push --publish` instead — it amends your commit
      with the `Publish: true` trailer and triggers a single CI run that
      tags + publishes.
+   - For **forced bumps** when commits aren't release-worthy (docs-only,
+     refactor-only, force-rebuild): use `hyperi-ci push --bump-patch`
+     or `--bump-minor`. Adds a real `fix(release):` / `feat(release):`
+     marker commit (with VERSION write) that semantic-release picks up
+     and that won't be filtered by consumer `paths-ignore`. Major bumps
+     are deliberately excluded — they require a human-written breaking-
+     change footer.
    - Use `hyperi-ci publish vX.Y.Z` (canonical) for retroactive
      re-publishes against existing tags.
 

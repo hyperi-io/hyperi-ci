@@ -238,6 +238,8 @@ uv run hyperi-ci check --full        # Pre-push: quality + test + build (native 
 uv run hyperi-ci check --quick       # Pre-push: quality only
 uv run hyperi-ci push                # Check, rebase, push (NEVER use bare git push)
 uv run hyperi-ci push --publish      # Stamp `Publish: true` trailer, push, single-run publish
+uv run hyperi-ci push --bump-patch   # Force +0.0.1 release even with no-bump commits
+uv run hyperi-ci push --bump-minor   # Force +0.1.0 release even with no-bump commits
 uv run hyperi-ci push --no-ci        # Push, skip CI
 uv run hyperi-ci publish --list      # List unpublished version tags
 uv run hyperi-ci publish v1.3.0      # Retroactive: dispatch publish on existing tag
@@ -245,7 +247,17 @@ uv run hyperi-ci check-commit --list # List accepted commit types
 ```
 
 `--release` and `release` are kept as deprecated aliases of `--publish` /
-`publish` for back-compat; will be removed in v3.0.
+`publish` for back-compat; will be removed in v4.0.
+
+`--bump-patch` / `--bump-minor` are for the case where you want to ship
+a release whose commits aren't release-worthy under conventional-commits
+rules (e.g. a docs-only PR you want to release, or a force-rebuild).
+The flag adds a non-empty `fix(release):`/`feat(release):` marker commit
+that updates VERSION and carries the `Publish: true` trailer. The
+VERSION write is essential — empty marker commits get filtered by
+consumer-project `paths-ignore` in their `ci.yml`. Major bumps are
+deliberately excluded — they require a human-written breaking-change
+footer.
 
 ## Versioning and Publishing (v2 — version-first, tag-on-publish)
 
