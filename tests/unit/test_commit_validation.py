@@ -24,7 +24,20 @@ class TestValidMessages:
         assert result.valid is True
         assert result.error_type == ""
 
-    def test_feat_with_scope(self) -> None:
+    def test_feat_with_scope_requires_opt_in(self, monkeypatch) -> None:
+        """`feat:` is gated behind HYPERCI_ALLOW_FEAT to enforce HyperI policy.
+
+        feat: triggers a MINOR semver bump, but HyperI policy is to use feat:
+        rarely (genuinely new user-facing features only). The gate forces
+        the operator to opt in deliberately.
+        """
+        # Without opt-in: rejected
+        result = validate_message("feat(auth): add OAuth2 support")
+        assert result.valid is False
+        assert result.error_type == "feat_without_opt_in"
+
+        # With opt-in: accepted
+        monkeypatch.setenv("HYPERCI_ALLOW_FEAT", "1")
         result = validate_message("feat(auth): add OAuth2 support")
         assert result.valid is True
         assert result.error_type == ""
@@ -284,6 +297,132 @@ class TestAiAttribution:
         result = validate_message("chore: update config\n\nAssisted by Cursor IDE")
         assert result.valid is False
         assert result.error_type == "ai_attribution"
+
+
+# ---------------------------------------------------------------------------
+# Bump-discipline gates
+# ---------------------------------------------------------------------------
+
+
+class TestFeatGate:
+    """`feat:` is gated behind HYPERCI_ALLOW_FEAT.
+
+    Rationale: HyperI policy is `feat:` RARELY (genuinely new user-facing
+    feature). LLM/automation tendency is to over-bump by labeling small
+    additions as `feat:`. The gate forces a deliberate opt-in decision.
+    """
+
+    def test_feat_without_opt_in_rejected(self) -> None:
+        result = validate_message("feat: add new endpoint")
+        assert result.valid is False
+        assert result.error_type == "feat_without_opt_in"
+        # Reason mentions both the policy and the opt-in env var
+        assert "MINOR bump" in result.reason
+        assert "HYPERCI_ALLOW_FEAT" in result.reason
+
+    def test_feat_with_opt_in_accepted(self, monkeypatch) -> None:
+        monkeypatch.setenv("HYPERCI_ALLOW_FEAT", "1")
+        result = validate_message("feat: add daemon mode")
+        assert result.valid is True
+
+    def test_feat_with_opt_in_true_accepted(self, monkeypatch) -> None:
+        monkeypatch.setenv("HYPERCI_ALLOW_FEAT", "true")
+        result = validate_message("feat: add daemon mode")
+        assert result.valid is True
+
+    def test_feat_with_falsy_opt_in_rejected(self, monkeypatch) -> None:
+        monkeypatch.setenv("HYPERCI_ALLOW_FEAT", "0")
+        result = validate_message("feat: add new endpoint")
+        assert result.valid is False
+        assert result.error_type == "feat_without_opt_in"
+
+    def test_fix_not_gated(self) -> None:
+        # Default fix: stays the easy path; no env var required.
+        result = validate_message("fix: handle empty config")
+        assert result.valid is True
+
+
+class TestBreakingChangeGate:
+    """`BREAKING CHANGE:` in body is gated behind HYPERCI_ALLOW_BREAKING.
+
+    Rationale: semantic-release scans the entire commit body for the
+    literal string `BREAKING CHANGE:` and treats it as a footer marker
+    triggering a MAJOR bump — even when written as documentation
+    reference. The gate forces a deliberate opt-in.
+    """
+
+    def test_breaking_change_without_opt_in_rejected(self) -> None:
+        msg = (
+            "fix: rename helper function\n\n"
+            "Note: BREAKING CHANGE: this rename affects downstream code.\n"
+        )
+        result = validate_message(msg)
+        assert result.valid is False
+        assert result.error_type == "breaking_change_without_opt_in"
+        assert "MAJOR bump" in result.reason
+
+    def test_breaking_change_with_opt_in_accepted(self, monkeypatch) -> None:
+        monkeypatch.setenv("HYPERCI_ALLOW_BREAKING", "1")
+        msg = (
+            "fix: rename helper function\n\n"
+            "BREAKING CHANGE: rename affects downstream callers.\n"
+        )
+        result = validate_message(msg)
+        assert result.valid is True
+
+    def test_breaking_change_mid_body_paragraph_gated(self) -> None:
+        # Even when the marker appears mid-paragraph (not as a typical
+        # footer at the end), conventional-commits-parser scans the
+        # whole body and treats it as a major-bump trigger. The gate
+        # must catch this case — it's exactly how AI agents have
+        # accidentally bumped majors in the past (writing
+        # "BREAKING CHANGE:" as a documentation reference).
+        msg = (
+            "fix: tighten commit guidance\n\n"
+            "Note that BREAKING CHANGE: footers must be authored by\n"
+            "humans, never auto-generated.\n"
+        )
+        result = validate_message(msg)
+        assert result.valid is False
+        assert result.error_type == "breaking_change_without_opt_in"
+
+    def test_uppercase_hyphenated_form_also_gated(self) -> None:
+        # `BREAKING-CHANGE:` (with hyphen) is ALSO a conventional-commits
+        # major-bump trigger. We block it for the same reason — agents
+        # would otherwise write `BREAKING-CHANGE:` as a "documentation
+        # reference" and accidentally bump major. The documented escape
+        # for documentation references is lowercase or differently-
+        # formatted (see test_lowercase_form_not_gated below).
+        msg = (
+            "fix: rename helper\n\n"
+            "BREAKING-CHANGE: rename affects callers.\n"
+        )
+        result = validate_message(msg)
+        assert result.valid is False
+        assert result.error_type == "breaking_change_without_opt_in"
+
+    def test_lowercase_form_not_gated(self) -> None:
+        # semantic-release matches the literal uppercase string only.
+        # Free-form body text mentioning 'breaking change' is fine.
+        msg = (
+            "fix: rephrase docs\n\n"
+            "This rephrases the breaking change explanation.\n"
+        )
+        result = validate_message(msg)
+        assert result.valid is True
+
+    def test_descriptive_phrasing_not_gated(self) -> None:
+        # Operator-friendly phrases like 'breaking-change footer' or
+        # 'breaking change marker' (no colon, no uppercase BREAKING)
+        # don't fire. This is the documented escape hatch for
+        # commit-body documentation references.
+        msg = (
+            "fix: tidy commit conventions\n\n"
+            "Document the breaking-change footer convention.\n"
+            "The breaking change marker is required for major bumps.\n"
+        )
+        result = validate_message(msg)
+        assert result.valid is True
 
 
 # ---------------------------------------------------------------------------
