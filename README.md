@@ -100,6 +100,27 @@ pushes. The single CI run:
 
 One workflow run, one tag, one publish.
 
+### Forced bump: ship a release with no release-worthy commits
+
+Sometimes the work you want to ship is a docs-only PR, a refactor, or
+just a "force a rebuild" — none of which warrant a semver bump under
+conventional-commits rules. To avoid having to invent a fake `fix:`
+commit:
+
+```bash
+hyperi-ci push --bump-patch        # +0.0.1 even with docs:/chore: commits
+hyperi-ci push --bump-minor        # +0.1.0
+```
+
+Either flag implies `--publish`. Under the hood, the tool adds an empty
+`fix(release): force patch bump` (or `feat(release): force minor bump`)
+commit on top of HEAD with the `Publish: true` trailer. semantic-release
+sees that and cuts the version. Honest git history: the marker commit
+explicitly states "this is a forced bump."
+
+Major bumps are deliberately excluded from this flag — they require a
+human-written `BREAKING CHANGE:` footer per HyperI commit-type discipline.
+
 ### Secondary: re-publish an existing tag
 
 If a previous publish run failed mid-way (e.g. registry timeout) and you
@@ -207,6 +228,8 @@ No code changes, no workflow changes.
 | `hyperi-ci check --full` | Quality + test + build |
 | `hyperi-ci push` | Push (validate-only — no tag, no publish) |
 | `hyperi-ci push --publish` | Stamp `Publish: true` trailer, push, single-run publish |
+| `hyperi-ci push --bump-patch` | Force +0.0.1 release even with no-bump commits |
+| `hyperi-ci push --bump-minor` | Force +0.1.0 release even with no-bump commits |
 | `hyperi-ci push --no-ci` | Push with `[skip ci]` (skip CI entirely) |
 | `hyperi-ci publish <tag>` | Retroactive: dispatch publish on existing tag |
 | `hyperi-ci publish --list` | List unpublished version tags |
