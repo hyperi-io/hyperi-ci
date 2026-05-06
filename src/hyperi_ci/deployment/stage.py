@@ -358,6 +358,19 @@ def _host_linux_arch() -> str | None:
 def _rust_binary_name(project_dir: Path) -> str | None:
     """Best-effort Rust binary-name extraction from Cargo.toml.
 
+    Selection order:
+
+    1. The `[package].name` itself if a `[[bin]]` of the same name
+       exists. This is the cargo convention for the "main" binary —
+       a project named ``dfe-receiver`` with multiple `[[bin]]` blocks
+       (e.g. ``pgo-driver`` for instrumentation, ``dfe-receiver`` for
+       the app) wants the package-name-matching one to be the
+       generate-artefacts producer.
+    2. The `[package].name` even without an explicit `[[bin]]` block
+       — covers the implicit-bin case.
+    3. The FIRST `[[bin]]` block, in declaration order. Last-resort
+       fallback for projects that diverge from cargo conventions.
+
     Substring-based parse — same approach as
     :func:`hyperi_ci.deployment.detect._depends_on`. Tier dispatch only
     needs a name to invoke, not a full Cargo manifest parse.
@@ -370,21 +383,23 @@ def _rust_binary_name(project_dir: Path) -> str | None:
     except OSError:
         return None
 
-    in_bin_section = False
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped == "[[bin]]":
-            in_bin_section = True
-            continue
-        if in_bin_section and stripped.startswith("name"):
-            value = stripped.split("=", 1)[1].strip().strip('"').strip("'")
-            if value:
-                return value
-            in_bin_section = False
-        if stripped.startswith("[") and stripped != "[[bin]]":
-            in_bin_section = False
+    package_name = _extract_package_name(text)
+    bin_names = _extract_bin_names(text)
 
-    # Fallback to package name — `[package] name = "x"`.
+    # 1. package.name + matching [[bin]] (cargo convention)
+    if package_name and package_name in bin_names:
+        return package_name
+    # 2. package.name (implicit bin)
+    if package_name:
+        return package_name
+    # 3. first [[bin]] (last-resort)
+    if bin_names:
+        return bin_names[0]
+    return None
+
+
+def _extract_package_name(text: str) -> str | None:
+    """Extract `[package].name` from Cargo.toml text."""
     in_package = False
     for line in text.splitlines():
         stripped = line.strip()
@@ -393,13 +408,30 @@ def _rust_binary_name(project_dir: Path) -> str | None:
             continue
         if in_package and stripped.startswith("name"):
             value = stripped.split("=", 1)[1].strip().strip('"').strip("'")
-            if value:
-                return value
-            return None
+            return value or None
         if stripped.startswith("[") and stripped != "[package]":
             in_package = False
-
     return None
+
+
+def _extract_bin_names(text: str) -> list[str]:
+    """Extract every `[[bin]].name` from Cargo.toml text, in order."""
+    names: list[str] = []
+    in_bin = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped == "[[bin]]":
+            in_bin = True
+            continue
+        if in_bin and stripped.startswith("name"):
+            value = stripped.split("=", 1)[1].strip().strip('"').strip("'")
+            if value:
+                names.append(value)
+            in_bin = False
+            continue
+        if stripped.startswith("[") and stripped != "[[bin]]":
+            in_bin = False
+    return names
 
 
 def _resolve_python_entry_point(project_dir: Path) -> str | None:

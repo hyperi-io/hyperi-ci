@@ -208,6 +208,58 @@ class TestTier1:
         assert rc == EXIT_PRODUCER_FAILED
 
 
+class TestRustBinaryName:
+    """Regression tests for `[[bin]]` selection.
+
+    A project with multiple `[[bin]]` blocks (main app + helper bins
+    like a PGO instrumentation driver) needs the package-name binary
+    picked, not whatever happens to be declared first. dfe-receiver
+    hit this: pgo-driver was declared first and got picked instead
+    of dfe-receiver itself, so generate-artefacts ran the PGO driver
+    which obviously doesn't have that subcommand.
+    """
+
+    def test_picks_package_name_when_matching_bin_present(
+        self, tmp_path: Path
+    ) -> None:
+        from hyperi_ci.deployment.stage import _rust_binary_name
+
+        (tmp_path / "Cargo.toml").write_text(
+            '[package]\nname = "dfe-receiver"\nversion = "1.0.0"\n'
+            "[[bin]]\nname = \"pgo-driver\"\npath = \"src/bin/pgo-driver.rs\"\n"
+            "[[bin]]\nname = \"dfe-receiver\"\npath = \"src/main.rs\"\n",
+            encoding="utf-8",
+        )
+        assert _rust_binary_name(tmp_path) == "dfe-receiver"
+
+    def test_picks_package_name_when_no_explicit_bin(self, tmp_path: Path) -> None:
+        from hyperi_ci.deployment.stage import _rust_binary_name
+
+        (tmp_path / "Cargo.toml").write_text(
+            '[package]\nname = "myapp"\nversion = "1.0.0"\n',
+            encoding="utf-8",
+        )
+        assert _rust_binary_name(tmp_path) == "myapp"
+
+    def test_falls_back_to_first_bin_when_no_package_name(
+        self, tmp_path: Path
+    ) -> None:
+        from hyperi_ci.deployment.stage import _rust_binary_name
+
+        # No [package] table — last-resort fallback to first [[bin]].
+        (tmp_path / "Cargo.toml").write_text(
+            "[[bin]]\nname = \"first-bin\"\npath = \"src/a.rs\"\n"
+            "[[bin]]\nname = \"second-bin\"\npath = \"src/b.rs\"\n",
+            encoding="utf-8",
+        )
+        assert _rust_binary_name(tmp_path) == "first-bin"
+
+    def test_returns_none_when_no_cargo_toml(self, tmp_path: Path) -> None:
+        from hyperi_ci.deployment.stage import _rust_binary_name
+
+        assert _rust_binary_name(tmp_path) is None
+
+
 class TestTier2:
     """Tier 2 (python + pylib) routes through PATH lookup."""
 
