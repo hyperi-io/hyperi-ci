@@ -219,15 +219,13 @@ class TestRustBinaryName:
     which obviously doesn't have that subcommand.
     """
 
-    def test_picks_package_name_when_matching_bin_present(
-        self, tmp_path: Path
-    ) -> None:
+    def test_picks_package_name_when_matching_bin_present(self, tmp_path: Path) -> None:
         from hyperi_ci.deployment.stage import _rust_binary_name
 
         (tmp_path / "Cargo.toml").write_text(
             '[package]\nname = "dfe-receiver"\nversion = "1.0.0"\n'
-            "[[bin]]\nname = \"pgo-driver\"\npath = \"src/bin/pgo-driver.rs\"\n"
-            "[[bin]]\nname = \"dfe-receiver\"\npath = \"src/main.rs\"\n",
+            '[[bin]]\nname = "pgo-driver"\npath = "src/bin/pgo-driver.rs"\n'
+            '[[bin]]\nname = "dfe-receiver"\npath = "src/main.rs"\n',
             encoding="utf-8",
         )
         assert _rust_binary_name(tmp_path) == "dfe-receiver"
@@ -241,15 +239,13 @@ class TestRustBinaryName:
         )
         assert _rust_binary_name(tmp_path) == "myapp"
 
-    def test_falls_back_to_first_bin_when_no_package_name(
-        self, tmp_path: Path
-    ) -> None:
+    def test_falls_back_to_first_bin_when_no_package_name(self, tmp_path: Path) -> None:
         from hyperi_ci.deployment.stage import _rust_binary_name
 
         # No [package] table — last-resort fallback to first [[bin]].
         (tmp_path / "Cargo.toml").write_text(
-            "[[bin]]\nname = \"first-bin\"\npath = \"src/a.rs\"\n"
-            "[[bin]]\nname = \"second-bin\"\npath = \"src/b.rs\"\n",
+            '[[bin]]\nname = "first-bin"\npath = "src/a.rs"\n'
+            '[[bin]]\nname = "second-bin"\npath = "src/b.rs"\n',
             encoding="utf-8",
         )
         assert _rust_binary_name(tmp_path) == "first-bin"
