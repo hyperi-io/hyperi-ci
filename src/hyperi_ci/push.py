@@ -7,27 +7,34 @@
 """Push wrapper with pre-checks and meta-operations.
 
 Wraps git push with:
-- Pre-push validation (hyperi-ci check)
-- Auto-rebase to sync semantic-release commits
-- --release: auto-dispatch publish after CI passes
-- --no-ci: amend last commit with [skip ci] marker
 
-All flows set HYPERCI_PUSH=1 so the pre-push hook allows the push.
+- Pre-push validation (``hyperi-ci check``)
+- Auto-rebase to sync semantic-release commits
+- ``--publish`` (alias ``--release``): amend HEAD with the
+  ``Publish: true`` git trailer before pushing. The single CI run
+  triggered by the push runs through the version-first pipeline and
+  produces the tag + registry uploads in one shot.
+- ``--no-ci``: amend last commit with ``[skip ci]`` marker
+
+All flows set ``HYPERCI_PUSH=1`` so the pre-push hook allows the push.
 """
 
 from __future__ import annotations
 
 import subprocess
-import time
 from pathlib import Path
 
 from hyperi_ci.common import error, info, run_cmd, success, warn
-from hyperi_ci.gh import get_current_branch, get_latest_run, require_gh
+from hyperi_ci.gh import get_current_branch, require_gh
+
+
+PUBLISH_TRAILER_KEY = "Publish"
+PUBLISH_TRAILER_VALUE = "true"
 
 
 def push(
     *,
-    release: bool = False,
+    publish: bool = False,
     no_ci: bool = False,
     dry_run: bool = False,
     force: bool = False,
@@ -36,18 +43,21 @@ def push(
     """Push with pre-checks and optional meta-operations.
 
     Args:
-        release: After CI passes, auto-dispatch publish for new version.
-        no_ci: Amend last commit with [skip ci] and push.
+        publish: Stamp the head commit with the ``Publish: true``
+            trailer (justified amend) and push. The CI run sees the
+            trailer, predicts the next version, stamps it into
+            Cargo.toml/VERSION before build, then tags + publishes in
+            the same workflow run.
+        no_ci: Amend last commit with ``[skip ci]`` and push.
         dry_run: Show what would happen without executing.
         force: Skip hyperi-ci check step.
         project_dir: Project directory (default: cwd).
 
     Returns:
         Exit code: 0=success, non-zero=failure.
-
     """
-    if release and no_ci:
-        error("--release and --no-ci are mutually exclusive")
+    if publish and no_ci:
+        error("--publish and --no-ci are mutually exclusive")
         return 1
 
     cwd = str(project_dir) if project_dir else None
@@ -55,8 +65,8 @@ def push(
     if no_ci:
         return _skip_ci_push(dry_run=dry_run, cwd=cwd)
 
-    if release:
-        return _release_push(dry_run=dry_run, force=force, cwd=cwd)
+    if publish:
+        return _publish_push(dry_run=dry_run, force=force, cwd=cwd)
 
     return _default_push(dry_run=dry_run, force=force, cwd=cwd)
 
@@ -77,14 +87,32 @@ def _default_push(*, dry_run: bool, force: bool, cwd: str | None) -> int:
     return _rebase_and_push(cwd=cwd)
 
 
-def _release_push(*, dry_run: bool, force: bool, cwd: str | None) -> int:
-    """Check, rebase, push, watch CI, detect tag, dispatch publish, watch."""
+def _publish_push(*, dry_run: bool, force: bool, cwd: str | None) -> int:
+    """Stamp HEAD with the Publish: true trailer, then push.
+
+    The CI workflow detects the trailer in setup, runs semantic-release
+    in --dry-run to predict the next version, stamps that version into
+    Cargo.toml/VERSION before build, and after build runs
+    semantic-release for real (creating the tag) plus the publish
+    stage. One run, one tag, one publish — no chained dispatches.
+
+    The amend is justified because:
+    - HEAD is the user's own unpushed commit (we just verified the
+      working tree is clean).
+    - The user explicitly opted in via --publish.
+    - We're adding a trailer, not rewriting the message body.
+
+    The previous "_release_push" model push-then-watch-then-dispatched
+    a second workflow run. That doubled CI time (build runs twice,
+    once at the old version) and was the entire reason for the
+    version-first refactor.
+    """
     if not require_gh():
         return 1
 
     branch = get_current_branch()
     if branch != "main":
-        error("--release only works from main")
+        error("--publish only works from main")
         return 1
 
     if rc := _check_dirty_tree(cwd=cwd):
@@ -94,48 +122,70 @@ def _release_push(*, dry_run: bool, force: bool, cwd: str | None) -> int:
         if rc := _run_check(cwd=cwd):
             return rc
 
-    if dry_run:
-        info("Dry run: would rebase, push, watch CI, and dispatch publish")
-        return 0
+    head_msg = _get_last_commit_message(cwd=cwd)
+    if not head_msg:
+        error("Could not read HEAD commit message")
+        return 1
 
-    before_tags = _get_current_tags(cwd=cwd)
-    before_run_id = _get_latest_run_id("main")
+    if _has_publish_trailer(head_msg):
+        info("HEAD already carries Publish: true trailer — pushing as-is")
+    else:
+        if dry_run:
+            info("Dry run: would amend HEAD to add 'Publish: true' trailer, then push")
+            return 0
+        rc = _amend_publish_trailer(cwd=cwd)
+        if rc != 0:
+            return rc
+
+    if dry_run:
+        info("Dry run: would rebase and push")
+        return 0
 
     rc = _rebase_and_push(branch="main", cwd=cwd)
     if rc != 0:
         return rc
 
-    run_id = _poll_for_new_run("main", before_run_id)
-    if not run_id:
-        error("CI run did not appear within 30 seconds")
-        info("Check manually: hyperi-ci watch")
+    info("Pushed. The CI run will tag + publish in a single workflow.")
+    info("Watch: hyperi-ci watch")
+    return 0
+
+
+def _has_publish_trailer(message: str) -> bool:
+    """True iff the commit message already has ``Publish: true``."""
+    for line in message.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if ":" in stripped:
+            key, _, value = stripped.partition(":")
+            if (
+                key.strip().lower() == PUBLISH_TRAILER_KEY.lower()
+                and value.strip().lower() == PUBLISH_TRAILER_VALUE
+            ):
+                return True
+    return False
+
+
+def _amend_publish_trailer(*, cwd: str | None) -> int:
+    """Amend HEAD to add the Publish: true trailer (no message change)."""
+    try:
+        run_cmd(
+            [
+                "git",
+                "commit",
+                "--amend",
+                "--no-edit",
+                "--trailer",
+                f"{PUBLISH_TRAILER_KEY}: {PUBLISH_TRAILER_VALUE}",
+            ],
+            cwd=cwd,
+            capture=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        error(f"Failed to amend HEAD with Publish: true trailer: {exc}")
         return 1
-
-    info(f"CI run {run_id} started — watching...")
-
-    from hyperi_ci.watch import watch_run
-
-    rc = watch_run(run_id=run_id)
-    if rc != 0:
-        error("CI failed — publish not attempted")
-        return rc
-
-    new_tag = _detect_new_tag(before_tags, cwd=cwd)
-    if not new_tag:
-        info("No version bump from these commits — nothing to publish")
-        return 0
-
-    info(f"New version tag: {new_tag}")
-
-    from hyperi_ci.release import dispatch_publish
-
-    rc = dispatch_publish(new_tag)
-    if rc != 0:
-        warn(f"Publish dispatch failed — run manually: hyperi-ci release {new_tag}")
-        return rc
-
-    info("Watching publish run...")
-    return watch_run()
+    info(f"Amended HEAD with `{PUBLISH_TRAILER_KEY}: {PUBLISH_TRAILER_VALUE}` trailer")
+    return 0
 
 
 def _skip_ci_push(*, dry_run: bool, cwd: str | None) -> int:
@@ -270,74 +320,3 @@ def _push_with_env(
     return 0
 
 
-def _get_current_tags(*, cwd: str | None) -> set[str]:
-    """Snapshot of current version tags."""
-    result = run_cmd(
-        ["git", "tag", "--list", "v*"],
-        capture=True,
-        check=False,
-        cwd=cwd,
-    )
-    if result.returncode != 0:
-        return set()
-    return {t.strip() for t in result.stdout.splitlines() if t.strip()}
-
-
-def _detect_new_tag(before: set[str], *, cwd: str | None) -> str | None:
-    """Fetch tags and return the new tag if one was created."""
-    run_cmd(["git", "fetch", "--tags"], check=False, capture=True, cwd=cwd)
-
-    after = _get_current_tags(cwd=cwd)
-    new_tags = after - before
-
-    if not new_tags:
-        return None
-
-    # Sort by version descending, return latest
-    sorted_tags = sorted(new_tags, key=_version_sort_key, reverse=True)
-    return sorted_tags[0]
-
-
-def _version_sort_key(tag: str) -> tuple[int, ...]:
-    """Parse a version tag like v1.2.3 into a sortable tuple."""
-    stripped = tag.lstrip("v")
-    parts: list[int] = []
-    for part in stripped.split("."):
-        try:
-            parts.append(int(part))
-        except ValueError:
-            parts.append(0)
-    return tuple(parts)
-
-
-def _get_latest_run_id(branch: str) -> str | None:
-    """Get the latest CI run ID for a branch."""
-    run = get_latest_run(branch=branch)
-    if run and run.get("databaseId"):
-        return str(run["databaseId"])
-    return None
-
-
-def _poll_for_new_run(
-    branch: str,
-    previous_run_id: str | None,
-    timeout: int = 30,
-) -> str | None:
-    """Poll until a new CI run appears (different from previous_run_id).
-
-    Args:
-        branch: Branch to check.
-        previous_run_id: Run ID before push (to detect new run).
-        timeout: Maximum seconds to wait.
-
-    Returns:
-        New run ID, or None if timeout.
-
-    """
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        time.sleep(2)
-        current = _get_latest_run_id(branch)
-        if current and current != previous_run_id:
-            return current
-    return None

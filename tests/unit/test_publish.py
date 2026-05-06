@@ -256,31 +256,31 @@ class TestChannelRouting:
     """Channel determines GH Release flags and R2 paths."""
 
     def test_release_channel_no_prerelease(self) -> None:
-        from hyperi_ci.publish_binaries import _resolve_gh_release_flags
+        from hyperi_ci.publish.binaries import _resolve_gh_release_flags
 
         flags = _resolve_gh_release_flags("release")
         assert "--prerelease" not in flags
 
     def test_alpha_channel_prerelease(self) -> None:
-        from hyperi_ci.publish_binaries import _resolve_gh_release_flags
+        from hyperi_ci.publish.binaries import _resolve_gh_release_flags
 
         flags = _resolve_gh_release_flags("alpha")
         assert "--prerelease" in flags
 
     def test_spike_channel_prerelease(self) -> None:
-        from hyperi_ci.publish_binaries import _resolve_gh_release_flags
+        from hyperi_ci.publish.binaries import _resolve_gh_release_flags
 
         flags = _resolve_gh_release_flags("spike")
         assert "--prerelease" in flags
 
     def test_beta_channel_prerelease(self) -> None:
-        from hyperi_ci.publish_binaries import _resolve_gh_release_flags
+        from hyperi_ci.publish.binaries import _resolve_gh_release_flags
 
         flags = _resolve_gh_release_flags("beta")
         assert "--prerelease" in flags
 
     def test_release_r2_path(self) -> None:
-        from hyperi_ci.publish_binaries import _resolve_r2_paths
+        from hyperi_ci.publish.binaries import _resolve_r2_paths
 
         versioned, latest = _resolve_r2_paths("dfe-receiver", "1.3.0", "release")
         assert versioned.endswith("/dfe-receiver/v1.3.0/")
@@ -288,21 +288,21 @@ class TestChannelRouting:
         assert "/release/" not in versioned
 
     def test_alpha_r2_path(self) -> None:
-        from hyperi_ci.publish_binaries import _resolve_r2_paths
+        from hyperi_ci.publish.binaries import _resolve_r2_paths
 
         versioned, latest = _resolve_r2_paths("dfe-receiver", "1.3.0", "alpha")
         assert "/alpha/" in versioned
         assert "/alpha/" in latest
 
     def test_beta_r2_path(self) -> None:
-        from hyperi_ci.publish_binaries import _resolve_r2_paths
+        from hyperi_ci.publish.binaries import _resolve_r2_paths
 
         versioned, latest = _resolve_r2_paths("dfe-receiver", "1.3.0", "beta")
         assert "/beta/" in versioned
         assert "/beta/" in latest
 
     def test_spike_r2_path(self) -> None:
-        from hyperi_ci.publish_binaries import _resolve_r2_paths
+        from hyperi_ci.publish.binaries import _resolve_r2_paths
 
         versioned, latest = _resolve_r2_paths("dfe-receiver", "1.3.0", "spike")
         assert "/spike/" in versioned

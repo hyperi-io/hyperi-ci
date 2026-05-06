@@ -64,11 +64,41 @@ def _read_sha() -> str:
     return result.stdout.strip() if result.returncode == 0 else "unknown"
 
 
-def _is_push_to_main() -> bool:
-    return (
+def _is_publish_mode() -> bool:
+    """True iff the workflow has signalled this is a publish run.
+
+    Set by the rust-ci.yml ``container`` job from ``setup.will-publish``.
+    Maps directly to docker buildx ``--push``: when True we push to
+    every configured registry; when False we just build and discard.
+
+    Falls back to legacy event-based detection if HYPERCI_PUBLISH_MODE
+    isn't set (older workflows or local invocations) — in that case
+    workflow_dispatch implies publish, push-to-main implies validate.
+    """
+    flag = os.environ.get("HYPERCI_PUBLISH_MODE", "").strip().lower()
+    if flag in ("true", "1", "yes"):
+        return True
+    if flag in ("false", "0", "no"):
+        return False
+    # Legacy fallback: workflow_dispatch == publish, push to main == validate.
+    if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
+        return True
+    if (
         os.environ.get("GITHUB_EVENT_NAME") == "push"
         and os.environ.get("GITHUB_REF") == "refs/heads/main"
-    )
+    ):
+        return False
+    return False
+
+
+def _is_push_to_main() -> bool:
+    """Deprecated alias — kept for any out-of-tree callers.
+
+    Returns ``not _is_publish_mode()`` to match the original semantics
+    (``push_to_main`` was the validate-only flag, named confusingly).
+    Will be removed once consumers update.
+    """
+    return not _is_publish_mode()
 
 
 def _resolve_mode(*, language: str, decision: Decision, container_cfg: dict) -> str:

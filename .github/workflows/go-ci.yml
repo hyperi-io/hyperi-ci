@@ -4,6 +4,11 @@
 #
 # License:   Proprietary — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# Go-specific stages: quality, test, setup, build (with version stamp).
+# Container + tag-and-publish are delegated to the shared
+# _release-tail.yml workflow. Setup uses the shared predict-version
+# composite action.
 
 name: Go CI
 
@@ -16,8 +21,8 @@ on:
         description: "Runner mode: 'free' forces ubuntu-latest, empty uses GH_RUNNER_* vars"
       publish-target:
         type: string
-        default: "internal"
-        description: "Publish destination: internal, oss, or both"
+        default: "oss"
+        description: "Publish destination: oss (default, FOSS), internal (deprecated, JFrog), or both"
       go-version-file:
         type: string
         default: "go.mod"
@@ -25,19 +30,20 @@ on:
       runner-quality:
         type: string
         default: ""
-        description: "Runner for quality job"
       runner-test:
         type: string
         default: ""
-        description: "Runner for test job"
       runner-build:
         type: string
         default: ""
-        description: "Runner for build job"
       test-matrix:
         type: string
         default: ""
-        description: "JSON array of runner OS for test matrix (overrides runner-test)"
+        description: "JSON array of runner OS for test matrix"
+      tag:
+        type: string
+        default: ""
+        description: "Tag to publish (workflow_dispatch only)"
     secrets:
       JFROG_TOKEN:
         required: false
@@ -54,8 +60,21 @@ on:
       CONTAINER_MGT_APP_PRIVATE_KEY:
         required: false
 
+  workflow_dispatch:
+    inputs:
+      tag:
+        type: string
+        required: true
+        description: "Tag to publish (e.g. v1.3.0)"
+      runner-mode:
+        type: string
+        default: ""
+      publish-target:
+        type: string
+        default: "oss"
+
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ inputs.tag || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -65,7 +84,6 @@ env:
 jobs:
   quality:
     name: Quality
-    # Renovate branches use lightweight runners — dependency update PRs don't need large runners
     runs-on: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_GOLANG || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - name: Docker Hub login
@@ -76,6 +94,8 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Set up Go
         if: ${{ !contains(runner.name, 'arc-runner') }}
@@ -84,6 +104,8 @@ jobs:
           go-version-file: ${{ inputs.go-version-file }}
 
       - name: Install Go quality tools
+        # No `|| true` — quality stage runs these and silent absence
+        # would mask supply-chain risks.
         run: |
           command -v golangci-lint || go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
           command -v gosec || go install github.com/securego/gosec/v2/cmd/gosec@latest
@@ -113,7 +135,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        # Renovate branches use lightweight runners
         os: ${{ fromJson(startsWith(github.head_ref || github.ref_name, 'renovate/') && format('["{0}"]', vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_GOLANG || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
     steps:
       - name: Docker Hub login
@@ -124,6 +145,8 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Set up Go
         if: ${{ !contains(runner.name, 'arc-runner') }}
@@ -157,14 +180,67 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  build:
-    name: Build
+  setup:
+    name: Setup
     needs: [quality, test]
     if: github.event.pull_request.head.repo.fork != true
-    # Renovate branches use lightweight runners
-    runs-on: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_GOLANG || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
+    outputs:
+      build-matrix: ${{ steps.matrix.outputs.matrix }}
+      will-publish: ${{ steps.predict.outputs.will-publish }}
+      next-version: ${{ steps.predict.outputs.version }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Predict version (gate + dry-run)
+        id: predict
+        uses: hyperi-io/hyperi-ci/.github/actions/predict-version@main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate build matrix
+        # Go cross-compiles natively (GOOS/GOARCH) — same multi-arch
+        # matrix shape as Rust on publish; single-arch on validate.
+        id: matrix
+        run: |
+          AMD64_RUNNER="${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_GOLANG || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"
+          ARM64_RUNNER="${{ vars.GH_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}"
+          if [[ "${{ steps.predict.outputs.will-publish }}" == "true" ]]; then
+            echo "matrix={\"include\":[{\"goos\":\"linux\",\"goarch\":\"amd64\",\"runner\":\"${AMD64_RUNNER}\",\"os_arch\":\"linux-amd64\"},{\"goos\":\"linux\",\"goarch\":\"arm64\",\"runner\":\"${ARM64_RUNNER}\",\"os_arch\":\"linux-arm64\"}]}" >> "$GITHUB_OUTPUT"
+          else
+            echo "matrix={\"include\":[{\"goos\":\"linux\",\"goarch\":\"amd64\",\"runner\":\"${AMD64_RUNNER}\",\"os_arch\":\"linux-amd64\"}]}" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: Build (${{ matrix.os_arch }})
+    needs: [setup]
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix: ${{ fromJson(needs.setup.outputs.build-matrix) }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Stamp predicted version
+        # Version-first pipeline: write the version we're about to tag
+        # into VERSION before `go build`. Go binaries pick this up via
+        # `-ldflags "-X main.version=$VERSION"` in build.py.
+        if: needs.setup.outputs.will-publish == 'true' && github.event_name == 'push'
+        run: |
+          version="${{ needs.setup.outputs.next-version }}"
+          if [[ -z "$version" ]]; then
+            echo "::error::next-version output empty"
+            exit 1
+          fi
+          echo "Stamping version: $version"
+          if [[ -f VERSION ]]; then
+            echo "$version" > VERSION
+            echo "Stamped VERSION"
+          fi
 
       - name: Set up Go
         if: ${{ !contains(runner.name, 'arc-runner') }}
@@ -187,121 +263,32 @@ jobs:
         run: ${{ env.HYPERCI_INSTALL }} install-native-deps golang
 
       - name: Run build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
         run: ${{ env.HYPERCI_INSTALL }} run build
+
+      - name: Generate deployment artefacts
+        # Skipped silently for projects without a deployment contract.
+        run: ${{ env.HYPERCI_INSTALL }} run generate
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: build-dist-default
-          path: dist/
+          name: build-dist-${{ matrix.os_arch }}
+          path: |
+            dist/
+            ci-tmp/
           if-no-files-found: ignore
           retention-days: 1
 
-  release:
-    name: Release
-    needs: [quality, test, build]
-    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release') && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-
-      - name: Install semantic-release
-        run: >-
-          npm install -g
-          semantic-release@25
-          @semantic-release/commit-analyzer
-          @semantic-release/release-notes-generator
-          @semantic-release/changelog
-          @semantic-release/exec
-          @semantic-release/git
-          @semantic-release/github
-          conventional-changelog-conventionalcommits
-
-      - name: Release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx semantic-release
-
-  publish:
-    name: Publish
-    needs: [build, release]
-    if: github.ref == 'refs/heads/release' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      packages: write
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.ref_name }}
-
-      - name: Check for VERSION
-        id: check
-        run: |
-          if [ -f VERSION ]; then
-            echo "has_version=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_version=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Download build artifacts
-        if: steps.check.outputs.has_version == 'true'
-        uses: actions/download-artifact@v8
-        with:
-          pattern: build-dist-*
-          path: dist/
-          merge-multiple: true
-
-      - name: Set up Go
-        if: steps.check.outputs.has_version == 'true'
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: ${{ inputs.go-version-file }}
-
-      - name: Install uv
-        if: steps.check.outputs.has_version == 'true'
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: false
-
-      - name: Set up Python
-        if: steps.check.outputs.has_version == 'true'
-        run: uv python install 3.12
-
-      - name: Docker Hub login
-        if: steps.check.outputs.has_version == 'true' && vars.DOCKERHUB_USERNAME != ''
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: GHCR login
-        # GITHUB_TOKEN via job-level packages:write permission — can create
-        # new repo-owned packages on first push.
-        if: steps.check.outputs.has_version == 'true'
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish
-        if: steps.check.outputs.has_version == 'true'
-        env:
-          JFROG_TOKEN: ${{ secrets.JFROG_TOKEN }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: ${{ env.HYPERCI_INSTALL }} run publish
+  release-tail:
+    name: Release tail
+    needs: [setup, build]
+    uses: hyperi-io/hyperi-ci/.github/workflows/_release-tail.yml@main
+    with:
+      language: golang
+      will-publish: ${{ needs.setup.outputs.will-publish }}
+      tag: ${{ inputs.tag }}
+      publish-target: ${{ inputs.publish-target }}
+    secrets: inherit
