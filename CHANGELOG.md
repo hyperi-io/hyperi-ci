@@ -1,3 +1,121 @@
+# [2.0.0](https://github.com/hyperi-io/hyperi-ci/compare/v1.16.4...v2.0.0) (2026-05-06)
+
+
+### Bug Fixes
+
+* **quality:** ruff format push.py ([a85b7c3](https://github.com/hyperi-io/hyperi-ci/commit/a85b7c3159040ca8b55a3b45d3968dfb3923f658))
+* **quality:** ruff import sort fix-up post v2.0 refactor ([c066630](https://github.com/hyperi-io/hyperi-ci/commit/c0666309a621d471b705d7e099fe893a8bb458d8))
+
+
+### Features
+
+* version-first single-run pipeline + tag-on-publish + FOSS-first defaults ([a90b826](https://github.com/hyperi-io/hyperi-ci/commit/a90b826bf06c1206f9280c74f66f1c94af64d843))
+
+
+### BREAKING CHANGES
+
+* tag-on-publish — git tags are now created only when an
+artefact is published. Pre-existing tag history is unchanged; new tags
+from this version forward follow the new contract.
+
+The release flow is now single-run:
+
+- `hyperi-ci push --publish` (canonical; `--release` kept as alias)
+  amends the head commit with the `Publish: true` git trailer, then
+  pushes.
+- The CI run sees the trailer in setup, runs semantic-release in
+  --dry-run to predict the next version, stamps it into Cargo.toml /
+  VERSION / pyproject.toml / package.json BEFORE the build, then tags
+  + publishes via the merged tag-and-publish job. One workflow, one
+  tag, one publish.
+- A push without `--publish` is validate-only: quality + test + build
+  + container build (no push, no tag, no registry upload).
+- `hyperi-ci publish vX.Y.Z` (canonical; `release vX.Y.Z` alias)
+  covers retroactive workflow_dispatch on existing tags.
+
+The previous "push triggers a tag, then dispatch a separate publish
+run" two-build model is gone. Binaries now embed the correct
+CARGO_PKG_VERSION on the first build instead of lagging by one release.
+
+# Workflow refactor
+
+Extracted shared paths to remove ~600 LOC of YAML duplication:
+
+- `.github/actions/predict-version/action.yml` (composite): gate
+  detection + semantic-release dry-run + version prediction. Hard-fails
+  when `Publish: true` is set but no release-worthy commits exist
+  since the last tag.
+- `.github/workflows/_release-tail.yml` (reusable): shared `container`
+  + `tag-and-publish` jobs. Called by all 4 language workflows.
+- Each language workflow keeps only its own quality + test + setup +
+  build (with version stamp). rust-ci.yml: 648 → 369 lines;
+  python-ci.yml: 408 → 291; go-ci.yml: 307 → 294; ts-ci.yml: 386 → 292.
+
+# FOSS-first defaults
+
+Default `publish.target` flipped from `internal` (JFrog) to `oss`
+(GHCR + GitHub Release + R2 + crates.io / PyPI / npm). The `internal`
+and `both` targets keep working through the JFrog deprecation window
+(4-6 weeks). docs/JFROG-MIGRATION.md flagged historical.
+
+# Code reorganisation
+
+- src/hyperi_ci/release.py + publish_binaries.py → publish/dispatch.py
+  + publish/binaries.py inside the new publish/ package. Both old
+  paths remain as deprecated back-compat shims that emit
+  DeprecationWarning.
+- src/hyperi_ci/languages/_build_common.py extracts duplicated helpers
+  (human_size, generate_checksums) from rust/build.py and golang/build.py.
+- StageRunFn protocol added to dispatch.py; missing-handler /
+  non-callable `run` now raises TypeError instead of returning silently.
+
+# Fail-silent → hard-fail conversions
+
+- dispatch.stage_test no longer warn-and-skip when handler is missing.
+- container/stage.py reads HYPERCI_PUBLISH_MODE env from setup output
+  (replaces the legacy event-name guess); validate-only iff not in
+  publish mode.
+- Removed `|| true` masks on cargo install / golangci-lint install
+  (silent absence would mask supply-chain risks).
+- Removed `|| true` mask on semantic-release --dry-run (now captures
+  exit code separately to distinguish "ran but no release" from
+  "crashed").
+
+# Dead code removal
+
+- common.py: removed unused is_interactive, set_output, set_env,
+  verify_publish.
+
+# Dependency updates (Phase 1 of /deps review)
+
+- hyperi-pylib: ==2.24.1 → [metrics]>=2.28.0 (4 versions behind;
+  switch from exact to floor pin; add [metrics] extra to pull psutil
+  since pylib's __init__.py eagerly imports its metrics module).
+- pydantic: >=2.10 → >=2.13.
+- packaging: >=24.0 → >=26.0.
+- pytest-cov: >=7.0.0 → >=7.1.0.
+- ruff: >=0.15.5 → >=0.15.12.
+- pip-audit: clean (no known CVEs).
+
+# Docs
+
+Rewritten: README.md, STATE.md, docs/MIGRATION-GUIDE.md (with v1→v2
+section). docs/JFROG-MIGRATION.md flagged historical.
+
+# Tests
+
+632 unit tests pass.
+
+# Deferred follow-ups (chore: refactor commits)
+
+- F4 split rust/build.py (1305 LOC) into rust/cross.py +
+  rust/binary.py + rust/build.py.
+- F6 reorganise CLI into typer sub-apps.
+- F7 move init.py / migrate.py templates to a templates/ data dir.
+
+These are pure cosmetic refactors with no behaviour change; landing
+them separately keeps v2.0.0 focused on user-facing changes.
+
 ## [1.16.4](https://github.com/hyperi-io/hyperi-ci/compare/v1.16.3...v1.16.4) (2026-05-04)
 
 
