@@ -21,27 +21,24 @@ import pytest
 from hyperi_ci.config import CIConfig
 
 
-def _make_config(publish_target: str = "internal") -> CIConfig:
-    """Create a CIConfig with full destination mappings."""
+def _make_config(publish_target: str = "oss") -> CIConfig:
+    """Create a CIConfig with the OSS destination map populated.
+
+    The legacy ``destinations_internal`` block was removed in v2.1.4
+    along with JFrog publishing; the ``publish_target`` field is still
+    accepted for back-compat with downstream ``.hyperi-ci.yaml`` files
+    but is ignored at runtime.
+    """
     raw = {
         "publish": {
             "target": publish_target,
-            "destinations_internal": {
-                "python": "jfrog-pypi",
-                "npm": "jfrog-npm",
-                "cargo": "jfrog-cargo",
-                "container": "jfrog-docker",
-                "helm": "jfrog-helm",
-                "binaries": "r2-binaries",
-                "go": "jfrog-go",
-            },
             "destinations_oss": {
                 "python": "pypi",
                 "npm": "npmjs",
                 "cargo": "crates-io",
                 "container": "ghcr",
                 "helm": "ghcr-charts",
-                "binaries": "github-releases",
+                "binaries": "r2-binaries",
                 "go": "go-proxy",
             },
         },
@@ -50,27 +47,7 @@ def _make_config(publish_target: str = "internal") -> CIConfig:
 
 
 class TestPublishDestinationRouting:
-    """Verify destination_for returns correct registries per target."""
-
-    @pytest.mark.parametrize(
-        "artifact_type,expected",
-        [
-            ("python", ["jfrog-pypi"]),
-            ("npm", ["jfrog-npm"]),
-            ("cargo", ["jfrog-cargo"]),
-            ("container", ["jfrog-docker"]),
-            ("helm", ["jfrog-helm"]),
-            ("binaries", ["r2-binaries"]),
-            ("go", ["jfrog-go"]),
-        ],
-    )
-    def test_internal_routes_to_jfrog(
-        self,
-        artifact_type: str,
-        expected: list[str],
-    ) -> None:
-        config = _make_config("internal")
-        assert config.destination_for(artifact_type) == expected
+    """Verify destination_for returns OSS registries regardless of target."""
 
     @pytest.mark.parametrize(
         "artifact_type,expected",
@@ -80,7 +57,7 @@ class TestPublishDestinationRouting:
             ("cargo", ["crates-io"]),
             ("container", ["ghcr"]),
             ("helm", ["ghcr-charts"]),
-            ("binaries", ["github-releases"]),
+            ("binaries", ["r2-binaries"]),
             ("go", ["go-proxy"]),
         ],
     )
@@ -92,34 +69,21 @@ class TestPublishDestinationRouting:
         config = _make_config("oss")
         assert config.destination_for(artifact_type) == expected
 
-    @pytest.mark.parametrize(
-        "artifact_type,internal,oss",
-        [
-            ("python", "jfrog-pypi", "pypi"),
-            ("npm", "jfrog-npm", "npmjs"),
-            ("cargo", "jfrog-cargo", "crates-io"),
-            ("container", "jfrog-docker", "ghcr"),
-            ("helm", "jfrog-helm", "ghcr-charts"),
-            ("binaries", "r2-binaries", "github-releases"),
-            ("go", "jfrog-go", "go-proxy"),
-        ],
-    )
-    def test_both_routes_to_both(
-        self,
-        artifact_type: str,
-        internal: str,
-        oss: str,
-    ) -> None:
-        config = _make_config("both")
-        destinations = config.destination_for(artifact_type)
-        assert destinations == [internal, oss]
+    @pytest.mark.parametrize("legacy_target", ["internal", "both"])
+    def test_legacy_targets_route_to_oss(self, legacy_target: str) -> None:
+        """`internal` and `both` are accepted for back-compat but route
+        to OSS destinations only.
+        """
+        config = _make_config(legacy_target)
+        assert config.destination_for("python") == ["pypi"]
+        assert config.destination_for("container") == ["ghcr"]
 
     def test_unknown_artifact_type_returns_empty(self) -> None:
-        config = _make_config("internal")
+        config = _make_config("oss")
         assert config.destination_for("unknown") == []
 
     def test_no_destinations_configured(self) -> None:
-        config = CIConfig(publish_target="internal", _raw={})
+        config = CIConfig(publish_target="oss", _raw={})
         assert config.destination_for("python") == []
 
     def test_empty_destinations_map(self) -> None:
@@ -131,13 +95,7 @@ class TestPublishDestinationRouting:
 
 
 class TestPublishDestinations:
-    """Verify publish_destinations returns correct destination maps."""
-
-    def test_internal_returns_one_map(self) -> None:
-        config = _make_config("internal")
-        dests = config.publish_destinations()
-        assert len(dests) == 1
-        assert dests[0]["python"] == "jfrog-pypi"
+    """Verify publish_destinations returns the OSS destination map."""
 
     def test_oss_returns_one_map(self) -> None:
         config = _make_config("oss")
@@ -145,110 +103,46 @@ class TestPublishDestinations:
         assert len(dests) == 1
         assert dests[0]["python"] == "pypi"
 
-    def test_both_returns_two_maps(self) -> None:
-        config = _make_config("both")
-        dests = config.publish_destinations()
-        assert len(dests) == 2
-        assert dests[0]["python"] == "jfrog-pypi"
-        assert dests[1]["python"] == "pypi"
-
-    def test_invalid_target_returns_empty(self) -> None:
-        config = CIConfig(publish_target="nonexistent", _raw={})
-        assert config.publish_destinations() == []
-
-    def test_no_raw_publish_section_returns_empty_map(self) -> None:
-        config = CIConfig(publish_target="internal", _raw={})
+    @pytest.mark.parametrize("legacy_target", ["internal", "both"])
+    def test_legacy_targets_return_oss_map(self, legacy_target: str) -> None:
+        config = _make_config(legacy_target)
         dests = config.publish_destinations()
         assert len(dests) == 1
-        assert dests[0] == {}
+        assert dests[0]["python"] == "pypi"
+
+    def test_no_raw_publish_section_returns_empty(self) -> None:
+        config = CIConfig(publish_target="oss", _raw={})
+        assert config.publish_destinations() == []
 
 
 class TestPublishTargetFromEnv:
-    """Verify HYPERCI_PUBLISH_TARGET env var overrides config."""
+    """``HYPERCI_PUBLISH_TARGET`` env var feeds ``publish_target`` for back-compat."""
 
-    def test_env_sets_oss(
+    @pytest.mark.parametrize("value", ["oss", "internal", "both"])
+    def test_env_sets_target(
         self,
+        value: str,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import hyperi_ci.config as cfg_mod
 
         cfg_mod._config_cache = None
-        monkeypatch.setenv("HYPERCI_PUBLISH_TARGET", "oss")
+        monkeypatch.setenv("HYPERCI_PUBLISH_TARGET", value)
         config = cfg_mod.load_config(reload=True, project_dir=tmp_path)
-        assert config.publish_target == "oss"
-
-    def test_env_sets_both(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        import hyperi_ci.config as cfg_mod
-
-        cfg_mod._config_cache = None
-        monkeypatch.setenv("HYPERCI_PUBLISH_TARGET", "both")
-        config = cfg_mod.load_config(reload=True, project_dir=tmp_path)
-        assert config.publish_target == "both"
-
-    def test_env_sets_internal(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        import hyperi_ci.config as cfg_mod
-
-        cfg_mod._config_cache = None
-        monkeypatch.setenv("HYPERCI_PUBLISH_TARGET", "internal")
-        config = cfg_mod.load_config(reload=True, project_dir=tmp_path)
-        assert config.publish_target == "internal"
+        assert config.publish_target == value
 
 
-class TestOSSReadiness:
-    """Verify OSS destinations are complete and ready for JFrog cutover.
-
-    When publish_target switches from 'internal' to 'oss', every
-    artifact type that has a JFrog destination MUST have a corresponding
-    OSS destination. This test ensures no gaps exist.
-    """
-
-    def test_every_internal_type_has_oss_equivalent(self) -> None:
-        config = _make_config("both")
-        dests = config.publish_destinations()
-        internal_map = dests[0]
-        oss_map = dests[1]
-        for artifact_type in internal_map:
-            assert artifact_type in oss_map, (
-                f"Artifact type '{artifact_type}' has internal destination "
-                f"'{internal_map[artifact_type]}' but no OSS destination"
-            )
+class TestOSSDestinationHygiene:
+    """OSS destinations must never accidentally point at JFrog."""
 
     def test_oss_destinations_are_not_jfrog(self) -> None:
         config = _make_config("oss")
         dests = config.publish_destinations()
-        oss_map = dests[0]
-        for artifact_type, destination in oss_map.items():
+        for artifact_type, destination in dests[0].items():
             assert "jfrog" not in destination, (
                 f"OSS destination for '{artifact_type}' points to JFrog: "
                 f"'{destination}'"
-            )
-
-    def test_internal_destinations_are_private(self) -> None:
-        config = _make_config("internal")
-        dests = config.publish_destinations()
-        internal_map = dests[0]
-        public_destinations = {
-            "pypi",
-            "npmjs",
-            "crates-io",
-            "ghcr",
-            "ghcr-charts",
-            "github-releases",
-            "go-proxy",
-        }
-        for artifact_type, destination in internal_map.items():
-            assert destination not in public_destinations, (
-                f"Internal destination for '{artifact_type}' points to "
-                f"public registry: '{destination}'"
             )
 
 

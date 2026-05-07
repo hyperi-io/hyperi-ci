@@ -22,7 +22,7 @@ on:
       publish-target:
         type: string
         default: "oss"
-        description: "Publish destination: oss (default, FOSS), internal (deprecated, JFrog), or both"
+        description: "Publish destination (legacy field, ignored — every publish goes to OSS registries)"
       python-version:
         type: string
         default: "3.12"
@@ -118,14 +118,6 @@ jobs:
       - name: Install native dependencies
         run: ${{ env.HYPERCI_INSTALL }} install-native-deps python
 
-      # DO NOT add UV_EXTRA_INDEX_URL here.
-      # uv does NOT work like pip with mixed public+private indices. By default
-      # uv uses first-match-wins per package name — if JFrog returns an empty
-      # 200 for a package it doesn't have (e.g. hatchling), uv stops there and
-      # reports "no versions found" rather than falling back to PyPI.
-      # Workaround exists (UV_INDEX_STRATEGY=unsafe-best-match) but is fragile.
-      # Projects that need private JFrog packages configure [tool.uv.index] with
-      # explicit=true in their own pyproject.toml — not here.
       - name: Install dependencies
         run: uv sync --frozen --all-extras
 

@@ -37,7 +37,7 @@ def build_and_push(
         dockerfile_path: Path to the Dockerfile.
         context: Docker build context directory.
         tags: List of full image tags spanning all target registries
-            (e.g. ``["ghcr.io/hyperi-io/app:v1.0.0", "...jfrog.../app:v1.0.0"]``).
+            (e.g. ``["ghcr.io/hyperi-io/app:v1.0.0", "ghcr.io/hyperi-io/app:latest"]``).
         platforms: Target platforms (e.g. ``["linux/amd64", "linux/arm64"]``).
         labels: OCI labels dict.
         build_args: Additional ``--build-arg key=value`` pairs.
@@ -118,7 +118,7 @@ def resolve_tags(
     Args:
         registry_bases: Registry base URLs from
             :func:`hyperi_ci.container.registry.resolve_registry_bases`
-            (e.g. ``["ghcr.io/hyperi-io"]`` or both GHCR and JFrog).
+            (always ``["ghcr.io/<org>"]`` since JFrog was removed in v2.1.4).
         image_name: Image name (typically the repo name, e.g. ``dfe-loader``).
         version: Semantic version with no leading ``v``
             (e.g. ``"1.13.5"``).

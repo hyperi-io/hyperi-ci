@@ -1,16 +1,20 @@
-# JFrog Migration Plan (HISTORICAL)
+# JFrog Migration Plan (HISTORICAL — JFrog removed in v2.1.4)
 
-> **Status: superseded by full JFrog deprecation.**
+> **Status: complete. JFrog publishing was removed in v2.1.4.**
 >
-> This document captured the v1-era plan to *reduce* JFrog to two roles
-> (Telstra delivery, private package staging). With the v2 release the
-> plan has changed: **JFrog is being phased out entirely** on a 4–6
-> week timeline. The default `publish.target` is now `oss` (GitHub
-> Releases + GHCR + crates.io / PyPI / npm + R2). The `internal` and
-> `both` targets are kept as opt-in paths for back-compat through the
-> deprecation window.
+> This document is a historical artefact from the v1 → v2 transition,
+> when JFrog was being *reduced* to a smaller role. With v2.1.4 the
+> reduction completed: **all JFrog publishing code, config, and
+> workflow steps were deleted**. Every artefact now publishes to the
+> OSS registry stack (GHCR / crates.io / PyPI / npm / GitHub Releases
+> / Cloudflare R2). Downstream `.hyperi-ci.yaml` files that still set
+> `publish.target: internal` or `publish.target: both` are accepted —
+> the field is read for back-compat — but its value is **silently
+> routed to the OSS destination map**. There is no JFrog publishing
+> path in the codebase anymore.
 >
-> Document kept for historical context.
+> Document kept for historical context. Do not treat as a current
+> reference.
 
 Reduce JFrog to two roles: Telstra artifact delivery and private package
 staging (PyPI + Cargo). Move everything else to GitHub (GHCR, GitHub

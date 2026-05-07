@@ -1,6 +1,21 @@
 # Migration Guide
 
-## v1 → v2 (current)
+## v2.1.4 — JFrog removed
+
+JFrog publishing was removed entirely in v2.1.4. Every artefact now
+publishes to the OSS registry stack: GHCR, crates.io, PyPI, npm,
+GitHub Releases, and Cloudflare R2 (`downloads.hyperi.io`).
+
+If your `.hyperi-ci.yaml` still has `publish.target: internal` or
+`publish.target: both`: **leave it**. The field is read for backward
+compatibility and silently routed to OSS. There is no JFrog code path
+left to enable. New projects should set `target: oss` (or omit the
+field — `oss` is the default).
+
+The only remaining toggle for full open-source visibility is making
+the source repos themselves public on GitHub.
+
+## v1 → v2
 
 v2 introduces the version-first single-run pipeline and tag-on-publish
 semantics. The biggest user-visible changes:
@@ -12,16 +27,17 @@ semantics. The biggest user-visible changes:
 | Tag semantics | Tags accumulate; some published, some not | Tag = "this artefact is in a registry" |
 | Build runs per release | 2 (push run + dispatch run) | 1 |
 | Version stamping | Post-build (binary lags one release) | Pre-build (binary embeds correct version) |
-| Default `publish.target` | `internal` (JFrog) | `oss` (FOSS) |
+| Default `publish.target` | `internal` (JFrog) | `oss` (FOSS); JFrog removed in v2.1.4 |
 
 ### What you have to do
 
-1. **Update `.hyperi-ci.yaml`** — flip `target` to `oss` (or leave at `both`
-   during the JFrog deprecation window):
+1. **Update `.hyperi-ci.yaml`** — `target` no longer matters (JFrog was
+   removed in v2.1.4 and every value routes to OSS), but you can flip
+   to `oss` for clarity:
 
    ```yaml
    publish:
-     target: oss   # was: internal or both
+     target: oss   # was: internal or both — both still accepted, both go to OSS
    ```
 
 2. **Bump `hyperi-ci` to >= 2.0.0** in any local install:
@@ -76,9 +92,10 @@ semantics. The biggest user-visible changes:
   `Publish: true` trailer requires at least one release-worthy commit
   since the last tag. Add a `fix:` / `feat:` commit, or remove the
   trailer.
-- **JFrog registry deprecation**: `internal` and `both` targets keep
-  working through the 4–6 week deprecation window. Plan to flip to
-  `oss` before the JFrog endpoints turn off.
+- **JFrog removed in v2.1.4**: the `internal` and `both` target values
+  are still accepted in `.hyperi-ci.yaml` but ignored — every publish
+  goes to the OSS registry stack. No action required for projects
+  already using `target: oss`.
 
 ---
 

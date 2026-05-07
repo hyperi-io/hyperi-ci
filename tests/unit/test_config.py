@@ -71,19 +71,15 @@ class TestCIConfig:
         config = CIConfig(_raw={"language": "rust"})
         assert config.get("language") == "rust"
 
-    def test_publish_target_defaults_to_internal(self) -> None:
+    def test_publish_target_defaults_to_oss(self) -> None:
         config = CIConfig(_raw={})
-        assert config.publish_target == "internal"
+        assert config.publish_target == "oss"
 
-    def test_destination_for_internal(self) -> None:
+    def test_destination_for_oss(self) -> None:
         config = CIConfig(
-            publish_target="internal",
+            publish_target="oss",
             _raw={
                 "publish": {
-                    "destinations_internal": {
-                        "python": "jfrog-pypi",
-                        "container": "jfrog-docker",
-                    },
                     "destinations_oss": {
                         "python": "pypi",
                         "container": "ghcr",
@@ -91,32 +87,36 @@ class TestCIConfig:
                 },
             },
         )
-        assert config.destination_for("python") == ["jfrog-pypi"]
-        assert config.destination_for("container") == ["jfrog-docker"]
+        assert config.destination_for("python") == ["pypi"]
+        assert config.destination_for("container") == ["ghcr"]
 
-    def test_destination_for_oss(self) -> None:
+    def test_legacy_target_internal_routes_to_oss(self) -> None:
+        """Legacy ``target: internal`` is accepted for back-compat but
+        ignored — every publish goes to OSS destinations.
+        """
         config = CIConfig(
-            publish_target="oss",
+            publish_target="internal",
             _raw={
                 "publish": {
-                    "destinations_internal": {"python": "jfrog-pypi"},
                     "destinations_oss": {"python": "pypi"},
                 },
             },
         )
         assert config.destination_for("python") == ["pypi"]
 
-    def test_destination_for_both(self) -> None:
+    def test_legacy_target_both_routes_to_oss(self) -> None:
+        """Legacy ``target: both`` is accepted for back-compat but
+        treated as OSS since JFrog publishing was removed in v2.1.4.
+        """
         config = CIConfig(
             publish_target="both",
             _raw={
                 "publish": {
-                    "destinations_internal": {"python": "jfrog-pypi"},
                     "destinations_oss": {"python": "pypi"},
                 },
             },
         )
-        assert config.destination_for("python") == ["jfrog-pypi", "pypi"]
+        assert config.destination_for("python") == ["pypi"]
 
     def test_publish_target_from_env(
         self,

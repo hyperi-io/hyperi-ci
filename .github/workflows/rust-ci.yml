@@ -22,7 +22,7 @@ on:
       publish-target:
         type: string
         default: "oss"
-        description: "Publish destination: oss (default, FOSS), internal (deprecated, JFrog), or both"
+        description: "Publish destination (legacy field, ignored — every publish goes to OSS registries)"
       rust-toolchain:
         type: string
         default: "stable"
@@ -78,7 +78,7 @@ on:
       publish-target:
         type: string
         default: "oss"
-        description: "Publish destination: oss (default, FOSS), internal (deprecated, JFrog), or both"
+        description: "Publish destination (legacy field, ignored — every publish goes to OSS registries)"
       rust-toolchain:
         type: string
         default: "stable"

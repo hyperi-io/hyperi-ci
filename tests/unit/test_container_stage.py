@@ -372,7 +372,12 @@ def test_build_contract_fails_loud_when_no_artefacts_present(
     fake_build.assert_not_called()
 
 
-def test_run_multi_registry_when_target_both(tmp_path: Path, monkeypatch) -> None:
+def test_run_legacy_target_both_routes_to_ghcr_only(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Legacy ``target: both`` is accepted for back-compat but only
+    routes to GHCR — JFrog publishing was removed in v2.1.4.
+    """
     monkeypatch.chdir(tmp_path)
     (tmp_path / "Cargo.toml").write_text(
         '[package]\nname = "myapp"\nversion = "0.1.0"\n'
@@ -395,4 +400,4 @@ def test_run_multi_registry_when_target_both(tmp_path: Path, monkeypatch) -> Non
     assert run(cfg, language="rust") == 0
     tags = fake_build.call_args.kwargs["tags"]
     assert any("ghcr.io/hyperi-io" in t for t in tags)
-    assert any("hypersec.jfrog.io/hyperi-docker-local" in t for t in tags)
+    assert not any("jfrog" in t for t in tags)

@@ -38,45 +38,14 @@ class OrgConfig:
 
     github_org: str = "hyperi-io"
     github_base_url: str = "https://github.com/hyperi-io"
-    jfrog_domain: str = "hypersec.jfrog.io"
-    jfrog_org_prefix: str = "hyperi"
     ghcr_registry: str = "ghcr.io"
     ghcr_org: str = "hyperi-io"
 
-    # Derived JFrog URLs
-    artifactory_base_url: str = ""
-    pypi_url: str = ""
-    pypi_publish_url: str = ""
-    npm_url: str = ""
-    cargo_url: str = ""
-    cargo_publish_url: str = ""
-    binary_url: str = ""
-    docker_registry: str = ""
-    helm_url: str = ""
+    # Derived URLs
     ghcr_charts_url: str = ""
 
     def __post_init__(self) -> None:
         """Derive URLs from base config."""
-        base = f"https://{self.jfrog_domain}/artifactory"
-        pfx = self.jfrog_org_prefix
-        if not self.artifactory_base_url:
-            self.artifactory_base_url = base
-        if not self.pypi_url:
-            self.pypi_url = f"{base}/api/pypi/{pfx}-pypi/simple"
-        if not self.pypi_publish_url:
-            self.pypi_publish_url = f"{base}/api/pypi/{pfx}-pypi-local"
-        if not self.npm_url:
-            self.npm_url = f"{base}/api/npm/{pfx}-npm"
-        if not self.cargo_url:
-            self.cargo_url = f"{base}/api/cargo/{pfx}-cargo-virtual"
-        if not self.cargo_publish_url:
-            self.cargo_publish_url = f"{base}/api/cargo/{pfx}-cargo-local"
-        if not self.binary_url:
-            self.binary_url = f"{base}/{pfx}-binaries"
-        if not self.docker_registry:
-            self.docker_registry = f"{self.jfrog_domain}/{pfx}-docker-local"
-        if not self.helm_url:
-            self.helm_url = f"oci://{self.jfrog_domain}/{pfx}-helm-local"
         if not self.ghcr_charts_url:
             self.ghcr_charts_url = f"oci://{self.ghcr_registry}/{self.ghcr_org}/charts"
 
@@ -87,7 +56,10 @@ class CIConfig:
 
     language: str = "none"
     ci_min_python_version: str = "3.9"
-    publish_target: str = "internal"
+    # Kept for backwards compatibility with downstream .hyperi-ci.yaml files
+    # that still set `publish.target`. Ignored at runtime — see
+    # publish_destinations(). JFrog publishing was removed in v2.1.4.
+    publish_target: str = "oss"
 
     # Raw merged dict for accessing nested language-specific config
     _raw: dict[str, Any] = field(default_factory=dict, repr=False)
@@ -103,21 +75,16 @@ class CIConfig:
         return value
 
     def publish_destinations(self) -> list[dict[str, str]]:
-        """Return list of destination maps to publish to based on target.
+        """Return the destination map to publish to (OSS only).
 
-        Returns one or two dicts from destinations_internal / destinations_oss
-        depending on publish_target being 'internal', 'oss', or 'both'.
+        The legacy ``publish_target`` field (``internal`` / ``oss`` / ``both``)
+        is accepted for backward compatibility with downstream
+        ``.hyperi-ci.yaml`` files but ignored at runtime — every value
+        routes to the OSS destination map. JFrog publishing was removed
+        in v2.1.4.
         """
-        result: list[dict[str, str]] = []
-        if self.publish_target in ("internal", "both"):
-            dest = self.get("publish.destinations_internal", {})
-            if isinstance(dest, dict):
-                result.append(dest)
-        if self.publish_target in ("oss", "both"):
-            dest = self.get("publish.destinations_oss", {})
-            if isinstance(dest, dict):
-                result.append(dest)
-        return result
+        dest = self.get("publish.destinations_oss", {})
+        return [dest] if isinstance(dest, dict) and dest else []
 
     def destination_for(self, artifact_type: str) -> list[str]:
         """Get publish destination(s) for a specific artifact type.
@@ -126,7 +93,7 @@ class CIConfig:
             artifact_type: One of python, npm, cargo, container, helm, binaries, go.
 
         Returns:
-            List of destination identifiers (e.g. ['jfrog-pypi', 'pypi']).
+            List of destination identifiers (e.g. ['pypi'], ['ghcr']).
 
         """
         return [
@@ -190,17 +157,11 @@ def load_org_config(*, reload: bool = False) -> OrgConfig:
                 raw = loaded
 
     github = raw.get("github", {})
-    jfrog = raw.get("jfrog", {})
     ghcr = raw.get("ghcr", {})
 
     _org_cache = OrgConfig(
         github_org=os.environ.get("GITHUB_ORG", github.get("org", "hyperi-io")),
         github_base_url=github.get("base_url", "https://github.com/hyperi-io"),
-        jfrog_domain=os.environ.get(
-            "JFROG_DOMAIN",
-            jfrog.get("domain", "hypersec.jfrog.io"),
-        ),
-        jfrog_org_prefix=jfrog.get("org_prefix", "hyperi"),
         ghcr_registry=ghcr.get("registry", "ghcr.io"),
         ghcr_org=ghcr.get("org", "hyperi-io"),
     )
@@ -265,7 +226,7 @@ def load_config(
 
     publish = config.get("publish", {})
     publish_target = (
-        publish.get("target", "internal") if isinstance(publish, dict) else "internal"
+        publish.get("target", "oss") if isinstance(publish, dict) else "oss"
     )
 
     _config_cache = CIConfig(

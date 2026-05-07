@@ -16,11 +16,9 @@ Three-state ``publish.container.enabled`` gate:
   artefact.
 * ``false``: explicit skip.
 
-Routing follows ``publish.target``:
-
-* ``oss`` → GHCR
-* ``internal`` → JFrog Docker
-* ``both`` → both registries (one buildx, multiple ``--tag`` args)
+Every container is built and (in publish mode) pushed to GHCR. The
+legacy ``publish.target`` field is accepted for back-compat but ignored
+— JFrog publishing was removed in v2.1.4.
 
 Push-to-main runs in **validate** mode (build, no push). Release
 dispatch runs in **push** mode. Branch / PR pushes don't reach this

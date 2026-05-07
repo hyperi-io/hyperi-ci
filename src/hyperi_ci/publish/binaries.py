@@ -6,10 +6,9 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Generic binary artifact publishing.
 
-Uploads pre-built binaries from dist/ to configured destinations:
-- GitHub Releases (OSS)
-- JFrog Artifactory generic repository (internal)
-- Cloudflare R2 binary repository (internal)
+Uploads pre-built binaries from dist/ to:
+- GitHub Releases (per-tag artefacts)
+- Cloudflare R2 (``downloads.hyperi.io/<project>/<version|latest>/``)
 
 Called from dispatch.py after the language-specific publish handler.
 Any language that packages binaries to dist/ gets this for free.
@@ -23,7 +22,7 @@ import subprocess
 from pathlib import Path
 
 from hyperi_ci.common import error, group, info, mask, success, warn
-from hyperi_ci.config import CIConfig, load_org_config
+from hyperi_ci.config import CIConfig
 
 # R2 bucket and endpoint configuration
 R2_BUCKET = "bin-repo"
@@ -159,94 +158,6 @@ def _upload_binaries_github(channel: str = "release") -> int:
     return 0
 
 
-def _upload_to_artifactory(file_path: Path, target_url: str) -> bool:
-    """Upload a single file to JFrog Artifactory via HTTP PUT.
-
-    Args:
-        file_path: Local file to upload.
-        target_url: Full Artifactory URL for the upload target.
-
-    Returns:
-        True on success (HTTP 200/201).
-
-    """
-    username = os.environ.get("ARTIFACTORY_USERNAME", "")
-    password = os.environ.get("ARTIFACTORY_PASSWORD", "")
-
-    cmd = [
-        "curl",
-        "-sS",
-        "-o",
-        "/dev/null",
-        "-w",
-        "%{http_code}",
-        "-u",
-        f"{username}:{password}",
-        "-T",
-        str(file_path),
-        target_url,
-    ]
-
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    http_code = result.stdout.strip()
-
-    if http_code in ("200", "201"):
-        return True
-
-    error(f"  Upload failed for {file_path.name} (HTTP {http_code})")
-    return False
-
-
-def _publish_jfrog_binaries() -> int:
-    """Publish built binaries to JFrog Artifactory generic repository.
-
-    Uploads all files from dist/ to the JFrog generic repo under
-    {project}/{version}/ path.
-
-    Requires ARTIFACTORY_USERNAME + ARTIFACTORY_PASSWORD env vars.
-
-    Returns:
-        Exit code (0 = success).
-
-    """
-    username = os.environ.get("ARTIFACTORY_USERNAME")
-    password = os.environ.get("ARTIFACTORY_PASSWORD")
-    if not username or not password:
-        warn(
-            "ARTIFACTORY_USERNAME/ARTIFACTORY_PASSWORD not set"
-            " — skipping JFrog binary publish"
-        )
-        return 0
-
-    mask(password)
-
-    artifacts = _collect_artifacts()
-    if not artifacts:
-        warn("No artifacts found in dist/ — skipping JFrog binary publish")
-        return 0
-
-    org = load_org_config()
-    project_name = Path.cwd().name
-    version = _read_version() or "unknown"
-
-    base_url = org.artifactory_base_url
-    repo = os.environ.get("BINARY_REPO", "hyperi-binaries")
-
-    info(f"Publishing to: {base_url}/{repo}/{project_name}/{version}/")
-
-    uploaded = 0
-    for artifact in artifacts:
-        target_url = f"{base_url}/{repo}/{project_name}/{version}/{artifact.name}"
-        info(f"  Uploading: {artifact.name}")
-        if _upload_to_artifactory(artifact, target_url):
-            uploaded += 1
-        else:
-            return 1
-
-    success(f"Published {uploaded} artifact(s) to JFrog Artifactory")
-    return 0
-
-
 def _publish_r2_binaries(channel: str = "release") -> int:
     """Publish built binaries to Cloudflare R2 binary repository.
 
@@ -370,13 +281,6 @@ def publish_binaries(config: CIConfig) -> int:
         if dest == "github-releases":
             with group("Upload: GitHub Releases"):
                 rc = _upload_binaries_github(channel=channel)
-                if rc != 0:
-                    return rc
-
-        elif dest == "jfrog-generic":
-            # Legacy — retained for migration. See docs/JFROG-MIGRATION.md.
-            with group("Upload: JFrog Artifactory"):
-                rc = _publish_jfrog_binaries()
                 if rc != 0:
                     return rc
 
