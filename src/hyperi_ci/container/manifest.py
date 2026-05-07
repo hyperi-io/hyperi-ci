@@ -47,13 +47,25 @@ class ContainerManifest:
                 msg = f"container-manifest.json missing required field: {field_name}"
                 raise ValueError(msg)
 
+        # rustlib emits ``"user": "appuser"`` (bare string) while older
+        # contracts and the dataclass default use ``{"name": ..., "uid": ...}``.
+        # Normalise both shapes to a dict here so downstream code can assume
+        # the dict form unconditionally.
+        raw_user = data.get("user", {"name": "appuser", "uid": 1000})
+        if isinstance(raw_user, str):
+            user_dict: dict[str, Any] = {"name": raw_user, "uid": 1000}
+        elif isinstance(raw_user, dict):
+            user_dict = raw_user
+        else:
+            user_dict = {"name": "appuser", "uid": 1000}
+
         return cls(
             base_image=data["base_image"],
             binary_name=data["binary_name"],
             runtime_packages=data.get("runtime_packages", []),
             expose_ports=data.get("expose_ports", []),
             health_check=data.get("health_check", {}),
-            user=data.get("user", {"name": "appuser", "uid": 1000}),
+            user=user_dict,
             entrypoint=data.get("entrypoint", []),
             cmd=data.get("cmd", []),
             env=data.get("env", {}),
