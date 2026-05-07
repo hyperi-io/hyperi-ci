@@ -1,3 +1,10 @@
+## [2.1.6](https://github.com/hyperi-io/hyperi-ci/compare/v2.1.5...v2.1.6) (2026-05-07)
+
+
+### Bug Fixes
+
+* **container:** normalise manifest.user from string or dict ([7351d8d](https://github.com/hyperi-io/hyperi-ci/commit/7351d8d21c2b88084500655c7eb88d57964871de))
+
 ## [2.1.5](https://github.com/hyperi-io/hyperi-ci/compare/v2.1.4...v2.1.5) (2026-05-07)
 
 
