@@ -1,3 +1,10 @@
+## [2.1.5](https://github.com/hyperi-io/hyperi-ci/compare/v2.1.4...v2.1.5) (2026-05-07)
+
+
+### Bug Fixes
+
+* **test:** drop test_run_invalid_target — every target now routes to GHCR ([f7d8241](https://github.com/hyperi-io/hyperi-ci/commit/f7d82411fbfb12a4609d6045c8aa99c3d60868d9))
+
 ## [2.1.4](https://github.com/hyperi-io/hyperi-ci/compare/v2.1.3...v2.1.4) (2026-05-07)
 
 
