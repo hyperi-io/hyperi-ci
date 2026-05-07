@@ -1,3 +1,10 @@
+## [2.1.3](https://github.com/hyperi-io/hyperi-ci/compare/v2.1.2...v2.1.3) (2026-05-07)
+
+
+### Bug Fixes
+
+* **deployment+container:** workspace binary resolver + Ubuntu 24.04 useradd fix ([153fc19](https://github.com/hyperi-io/hyperi-ci/commit/153fc1980b67776ea524f71fdc9005093d74d36d))
+
 ## [2.1.2](https://github.com/hyperi-io/hyperi-ci/compare/v2.1.1...v2.1.2) (2026-05-06)
 
 
