@@ -16,12 +16,18 @@ VERSION / pyproject.toml / package.json **before** the build, then tags
 registry. Aligns with kubernetes / rust / python OSS conventions. No
 more orphan tags from "tag every fix:, publish later" mode.
 
-**100% FOSS pipeline by default.** Default `publish.target` is `oss`
-(GitHub Releases + crates.io / PyPI / npm + GHCR + R2). Internal /
-JFrog paths are opt-in and on a 4–6 week deprecation timeline.
+**100% FOSS pipeline.** Every artefact publishes to public registries:
+crates.io, PyPI, npm, GHCR, GitHub Releases, and Cloudflare R2
+(`downloads.hyperi.io`). The legacy `publish.target` knob is accepted
+in `.hyperi-ci.yaml` for backward compatibility but **ignored at
+runtime** — JFrog publishing was removed in v2.1.4. The only switch
+left to flip for full open-source visibility is making the source
+repos themselves public.
 
 See [docs/MIGRATION-GUIDE.md](docs/MIGRATION-GUIDE.md) for the v1 → v2
-migration.
+migration. Pre-v2.1.4 docs that mention JFrog targets, the
+`destinations_internal` block, or `target: internal` are historical
+only — those code paths have been removed.
 
 ## Why Use This
 
@@ -184,31 +190,40 @@ Control where artifacts go with one line in `.hyperi-ci.yaml`:
 ```yaml
 publish:
   channel: release    # spike | alpha | beta | release
-  target: oss         # oss (default, FOSS) | internal (deprecated, JFrog) | both
 ```
+
+### Publish targets
+
+Every artefact publishes to the OSS registry stack:
+
+| Artefact type | Destination |
+|---|---|
+| Containers | GHCR (`ghcr.io/<org>`) |
+| Rust crates | crates.io |
+| Python packages | PyPI |
+| npm packages | npmjs.com |
+| Binaries (per-tag) | GitHub Releases |
+| Binaries (web-downloadable) | Cloudflare R2 (`downloads.hyperi.io`) |
+| Helm charts | OCI under GHCR |
+
+The `publish.target` field is still accepted in `.hyperi-ci.yaml` for
+backward compatibility — values like `internal` or `both` are read,
+preserved on the `CIConfig` object, and **silently routed to the OSS
+destination map**. JFrog publishing was removed in v2.1.4. The only
+remaining toggle for full FOSS visibility is making the source repos
+themselves public on GitHub.
 
 ### Channel behaviour
 
-Pre-release channels (`spike`, `alpha`, `beta`) keep packages off the
-public registries. Stable releases require `channel: release`.
+Pre-release channels (`spike`, `alpha`, `beta`) flag GH Releases as
+prerelease and prefix R2 paths. Stable releases require `channel: release`.
 
-| Channel | Registry publish | GH Release | R2 binaries | R2 path |
-|---|---|---|---|---|
-| `spike` | none | Prerelease | Uploaded | `/{project}/spike/v1.3.0/` |
-| `alpha` | none | Prerelease | Uploaded | `/{project}/alpha/v1.3.0/` |
-| `beta`  | none | Prerelease | Uploaded | `/{project}/beta/v1.3.0/` |
-| `release` | configured target | GA | Uploaded | `/{project}/v1.3.0/` |
-
-### Target behaviour
-
-| `publish.target` | Containers | Binaries | Packages |
-|---|---|---|---|
-| `oss` (default) | GHCR | GitHub Release + R2 | crates.io / PyPI / npm |
-| `internal` | JFrog Docker (deprecated) | JFrog Generic (deprecated) | JFrog Cargo / PyPI / npm (deprecated) |
-| `both` | GHCR + JFrog | GitHub + R2 + JFrog | All registries |
-
-JFrog targets are kept for back-compat; the path is on a 4–6 week
-deprecation timeline. New projects should use `target: oss`.
+| Channel | GH Release | R2 path |
+|---|---|---|
+| `spike` | Prerelease | `/{project}/spike/v1.3.0/` |
+| `alpha` | Prerelease | `/{project}/alpha/v1.3.0/` |
+| `beta`  | Prerelease | `/{project}/beta/v1.3.0/` |
+| `release` | GA | `/{project}/v1.3.0/` + `/{project}/latest/` |
 
 ### Graduating to GA
 

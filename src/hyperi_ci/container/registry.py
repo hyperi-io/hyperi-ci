@@ -6,19 +6,13 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Container registry resolution.
 
-`publish.target` is the single source of truth for where a project's
-artefacts go. For containers:
-
-  oss      -> ghcr.io/<github-org>
-  internal -> <jfrog-domain>/<jfrog-prefix>-docker-local
-  both     -> both of the above
-
-The repo-local `.hyperi-ci.yaml` no longer carries a `registry:` field;
-routing is fully derived from `publish.target` to keep parity with how
-PyPI / crates / npm / R2 are routed.
+Every container publishes to GHCR (``ghcr.io/<github-org>``). The legacy
+``publish.target`` config key is accepted for backward compatibility with
+downstream ``.hyperi-ci.yaml`` files but ignored at runtime — JFrog
+publishing was removed in v2.1.4.
 
 Docker Hub is intentionally NOT a target. The Docker Hub login step in
-the reusable workflows remains, gated on `vars.DOCKERHUB_USERNAME`, so
+the reusable workflows remains, gated on ``vars.DOCKERHUB_USERNAME``, so
 authenticated pulls bypass anonymous rate limits — but no project
 publishes to Docker Hub.
 """
@@ -27,36 +21,18 @@ from __future__ import annotations
 
 from hyperi_ci.config import OrgConfig
 
-_VALID_TARGETS = ("oss", "internal", "both")
-
 
 def resolve_registry_bases(*, target: str, org: OrgConfig) -> list[str]:
     """Return the list of registry bases to push to.
 
     Args:
-        target: ``publish.target`` value (``oss`` | ``internal`` | ``both``).
+        target: Legacy ``publish.target`` value, accepted but ignored.
         org: Loaded organisation config.
 
     Returns:
-        Ordered list of registry base URLs (no trailing slash, no image name).
-        ``oss``      -> ``[ghcr.io/<org>]``
-        ``internal`` -> ``[<jfrog-domain>/<prefix>-docker-local]``
-        ``both``     -> both, in the order GHCR-first.
-
-    Raises:
-        ValueError: If ``target`` is not one of the recognised values.
+        Always ``[ghcr.io/<org>]``. The ``target`` argument is retained
+        for back-compat with callers that still pass it.
 
     """
-    if target not in _VALID_TARGETS:
-        raise ValueError(
-            f"publish.target must be one of {_VALID_TARGETS}, got {target!r}"
-        )
-
-    ghcr = f"{org.ghcr_registry}/{org.ghcr_org}"
-    jfrog = org.docker_registry
-
-    if target == "oss":
-        return [ghcr]
-    if target == "internal":
-        return [jfrog]
-    return [ghcr, jfrog]
+    del target  # ignored — every publish goes to GHCR
+    return [f"{org.ghcr_registry}/{org.ghcr_org}"]

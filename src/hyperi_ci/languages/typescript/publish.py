@@ -4,13 +4,7 @@
 #
 # License:   Proprietary — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""TypeScript/Node publish handler.
-
-Publishes npm packages to npmjs.com (OSS) and/or GitHub Packages npm (internal)
-depending on the publish target configuration.
-
-Legacy JFrog npm support retained for migration period.
-"""
+"""TypeScript/Node publish handler — publishes npm packages to npmjs.com or GitHub Packages."""
 
 from __future__ import annotations
 
@@ -18,7 +12,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from hyperi_ci.common import error, group, info, mask, success, warn
+from hyperi_ci.common import error, group, info, success, warn
 from hyperi_ci.config import CIConfig, load_org_config
 
 
@@ -52,54 +46,6 @@ def _publish_npm() -> int:
         return result.returncode
 
     success("Published to npm")
-    return 0
-
-
-def _publish_jfrog() -> int:
-    """Publish to JFrog Artifactory npm repository.
-
-    Uses a project-local .npmrc to avoid polluting global npm config.
-    Restores the original .npmrc (or removes ours) after publishing.
-    Requires JFROG_TOKEN env var and uses org config for registry URL.
-
-    Returns:
-        Exit code (0 = success).
-
-    """
-    token = os.environ.get("JFROG_TOKEN")
-    if not token:
-        error("JFROG_TOKEN not set — cannot publish to JFrog")
-        return 1
-
-    mask(token)
-    org = load_org_config()
-
-    # Write project-local .npmrc instead of polluting global npm config
-    registry_url = org.npm_url
-    auth_scope = f"//{org.jfrog_domain}/artifactory/api/npm/{org.jfrog_org_prefix}-npm/"
-    npmrc = Path(".npmrc")
-    npmrc_backup = npmrc.read_text() if npmrc.exists() else None
-
-    npmrc.write_text(f"registry={registry_url}\n{auth_scope}:_authToken={token}\n")
-
-    try:
-        result = subprocess.run(["npm", "publish"], capture_output=True, text=True)
-    finally:
-        if npmrc_backup is not None:
-            npmrc.write_text(npmrc_backup)
-        else:
-            npmrc.unlink(missing_ok=True)
-
-    if result.returncode != 0:
-        if "already exists" in (result.stderr + result.stdout):
-            warn("  Package version already exists on JFrog npm (skipping)")
-            return 0
-        error("JFrog npm publish failed")
-        if result.stderr:
-            error(result.stderr)
-        return result.returncode
-
-    success("Published to JFrog npm")
     return 0
 
 
@@ -178,13 +124,6 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         elif dest == "ghcr-npm":
             with group("Publish: GitHub Packages npm"):
                 rc = _publish_ghcr_npm()
-                if rc != 0:
-                    return rc
-
-        elif dest == "jfrog-npm":
-            # Legacy — retained for migration. See docs/JFROG-MIGRATION.md.
-            with group("Publish: JFrog npm"):
-                rc = _publish_jfrog()
                 if rc != 0:
                     return rc
 

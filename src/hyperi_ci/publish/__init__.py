@@ -10,8 +10,8 @@ Two related modules:
 
 - :mod:`hyperi_ci.publish.binaries` — language-agnostic binary
   publisher. Uploads pre-built artefacts from ``dist/`` to GitHub
-  Release, R2 (Cloudflare), and JFrog (deprecated). Called from the
-  publish stage handler in ``dispatch.py``.
+  Releases and Cloudflare R2 (``downloads.hyperi.io``). Called from
+  the publish stage handler in ``dispatch.py``.
 
 - :mod:`hyperi_ci.publish.dispatch` — retroactive publish via
   workflow_dispatch on an existing tag. The primary publish path is

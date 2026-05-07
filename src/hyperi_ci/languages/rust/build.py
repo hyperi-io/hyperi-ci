@@ -802,7 +802,7 @@ def _resolve_build_channel(config: CIConfig) -> str:
     NEGATIVE gains. It MUST only run on explicit release dispatches
     (artifact publishing), NOT on every push to main. `publish.channel`
     in `.hyperi-ci.yaml` describes *where artifacts are published*
-    (JFrog, GHCR, PyPI, etc.) — a project that ships to "release"
+    (GHCR, PyPI, crates.io, etc.) — a project that ships to "release"
     still gets push-event CI on every commit, which must NOT trigger
     Tier 2. The build channel is orthogonal to the publish channel.
 

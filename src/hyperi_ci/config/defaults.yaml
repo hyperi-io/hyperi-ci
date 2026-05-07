@@ -230,39 +230,24 @@ build:
 
 # Publishing
 #
-# publish.target controls where artifacts go:
-#   internal  — JFrog Artifactory only (default)
-#   oss       — Public registries only (PyPI, npm, crates.io, GHCR)
-#   both      — Publish to both
-#
-# Set via GitHub org variable PUBLISH_TARGET (repo var overrides org var).
-# Maps to HYPERCI_PUBLISH_TARGET env var in workflows.
+# All artefacts are published to OSS registries (PyPI / npm / crates.io /
+# GHCR / GitHub Releases / Cloudflare R2). The legacy `target` config key
+# is accepted for backward compatibility with downstream `.hyperi-ci.yaml`
+# files but is ignored at runtime — every publish goes to OSS.
 publish:
   enabled: true
-  target: internal
+  target: oss
   binaries: both
   binaries_repo: hyperi-binaries
 
-  # Destination mapping per target
-  #
-  # internal: JFrog Artifactory
-  destinations_internal:
-    python: jfrog-pypi         # hyperi-pypi-local
-    npm: jfrog-npm             # hyperi-npm-local
-    cargo: jfrog-cargo         # hyperi-cargo-local
-    container: jfrog-docker    # hypersec.jfrog.io/hyperi-docker-local
-    helm: jfrog-helm           # oci://hypersec.jfrog.io/hyperi-helm-local
-    binaries: r2-binaries      # downloads.hyperi.io (Cloudflare R2)
-    go: jfrog-go               # hyperi-go-local
-
-  # oss: Public registries
+  # Destination mapping (OSS only).
   destinations_oss:
     python: pypi               # pypi.org (OIDC Trusted Publishing)
     npm: npmjs                 # npmjs.com @hyperi/* (OIDC)
     cargo: crates-io           # crates.io (API token)
     container: ghcr            # ghcr.io/hyperi-io/*
     helm: ghcr-charts          # oci://ghcr.io/hyperi-io/charts
-    binaries: github-releases  # GitHub Releases
+    binaries: r2-binaries      # downloads.hyperi.io (Cloudflare R2) + GitHub Releases
     go: go-proxy               # proxy.golang.org (automatic)
 
   python:
@@ -291,9 +276,9 @@ publish:
   #                      want strict container hygiene).
   #   false           -- explicit skip.
   #
-  # Routing follows publish.target — there is intentionally no
-  # `registry:` field. `oss` -> GHCR, `internal` -> JFrog Docker,
-  # `both` -> both (one buildx invocation, multiple --tag args).
+  # Every container is published to GHCR (ghcr.io/<org>). There is
+  # intentionally no `registry:` field — JFrog publishing was removed
+  # in v2.1.4.
   #
   # Docker Hub is NOT a publish target. The Docker Hub login step in
   # the reusable workflows remains for authenticated pulls (avoids

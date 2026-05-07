@@ -289,19 +289,11 @@ def stage_publish(language: str, config: CIConfig) -> int:
         return 0
 
     channel = config.get("publish.channel", "release")
-
-    # Channel-aware registry publish:
-    #   spike/alpha/beta → internal destinations only (JFrog staging)
-    #   release          → configured target (internal, oss, or both)
-    #
-    # This lets pre-GA packages land on JFrog for internal testing without
-    # appearing on public registries (PyPI, crates.io, npmjs).
     if channel != "release":
-        original_target = config.publish_target
-        config.publish_target = "internal"
         info(
-            f"Channel '{channel}' — publishing to internal staging only"
-            f" (target overridden from '{original_target}')"
+            f"Channel '{channel}' — non-release channels currently publish "
+            "to the same OSS destinations as 'release'. Pre-GA staging on "
+            "private registries was retired with the JFrog removal in v2.1.4."
         )
 
     rc = _dispatch_to_handler(language, "publish", config)

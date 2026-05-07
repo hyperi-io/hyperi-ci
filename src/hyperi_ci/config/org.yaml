@@ -15,22 +15,6 @@ github:
   ci_repo_url: https://github.com/hyperi-io/hyperi-ci.git
   ai_repo_url: https://github.com/hyperi-io/ai.git
 
-jfrog:
-  domain: hypersec.jfrog.io
-  org_prefix: hyperi
-  repos:
-    pypi: hyperi-pypi
-    pypi_local: hyperi-pypi-local
-    npm: hyperi-npm
-    go: go-local
-    binaries: hyperi-binaries
-    cargo_virtual: hyperi-cargo-virtual
-    cargo_local: hyperi-cargo-local
-    docker: hyperi-docker
-    docker_local: hyperi-docker-local
-    helm: hyperi-helm
-    helm_local: hyperi-helm-local
-
 ghcr:
   registry: ghcr.io
   org: hyperi-io

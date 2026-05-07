@@ -9,6 +9,14 @@ across 14+ consumer projects.
 
 Source: `hyperi-io/ci` (to be archived once cutover is complete).
 
+> **JFrog sections in this document are historical (pre-v2.1.4).**
+> JFrog publishing was removed entirely in v2.1.4. The JFrog auth
+> patterns, registry URLs, and token handling notes below are kept for
+> archaeological context — they describe how things worked before the
+> 100% OSS pipeline. Do not use them as a current reference. The
+> publish path now goes to crates.io / PyPI / npm / GHCR / GitHub
+> Releases / Cloudflare R2 only.
+
 ---
 
 ## Rust

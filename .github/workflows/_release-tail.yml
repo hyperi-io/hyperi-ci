@@ -17,8 +17,8 @@
 #                                  on will-publish)
 #   (here)    tag-and-publish   ← npx semantic-release real → tag +
 #                                  CHANGELOG; then hyperi-ci run publish
-#                                  → binaries to crates.io / R2 / GH
-#                                  Release / JFrog
+#                                  → artefacts to crates.io / PyPI / npm /
+#                                  GHCR / GitHub Releases / Cloudflare R2
 #
 # Doctrine: tag-on-publish. A git tag exists iff the artefact is in the
 # registry. Aligns with kubernetes/rust/python OSS conventions.
@@ -144,17 +144,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: JFrog Docker login
-        # Required when publish.target resolves to internal or both. The
-        # registry resolver writes the JFrog tag; this step authenticates
-        # the push. No-op if vars.JFROG_DOMAIN is unset.
-        if: steps.check.outputs.enabled != 'false' && (inputs.publish-target == 'internal' || inputs.publish-target == 'both') && vars.JFROG_DOMAIN != ''
-        uses: docker/login-action@v4
-        with:
-          registry: ${{ vars.JFROG_DOMAIN }}
-          username: ${{ secrets.JFROG_USERNAME }}
-          password: ${{ secrets.JFROG_TOKEN }}
-
       - name: Set up Docker Buildx
         if: steps.check.outputs.enabled != 'false'
         uses: docker/setup-buildx-action@v4
@@ -272,11 +261,12 @@ jobs:
         run: uv python install ${{ inputs.python-version }}
 
       - name: Publish
-        # Uploads to all configured destinations: crates.io / PyPI / npm
-        # (oss), JFrog Artifactory (internal), R2 (oss), GitHub Release.
+        # Uploads to all OSS destinations: crates.io / PyPI / npm /
+        # GHCR / GitHub Releases / Cloudflare R2.
         env:
-          JFROG_TOKEN: ${{ secrets.JFROG_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
