@@ -81,3 +81,40 @@ def test_manifest_defaults():
     assert manifest.cmd == []
     assert manifest.env == {}
     assert manifest.labels == {}
+
+
+def test_manifest_user_as_bare_string_is_normalised():
+    """rustlib emits ``"user": "appuser"`` (string); we accept both
+    string and dict forms and normalise to the dict shape so compose.py
+    can always call ``user.get("uid")``.
+    """
+    data = {
+        "base_image": "ubuntu:24.04",
+        "binary_name": "myapp",
+        "user": "appuser",
+    }
+    manifest = ContainerManifest.from_dict(data)
+    assert manifest.user == {"name": "appuser", "uid": 1000}
+
+
+def test_manifest_user_as_dict_passes_through():
+    data = {
+        "base_image": "ubuntu:24.04",
+        "binary_name": "myapp",
+        "user": {"name": "nobody", "uid": 65534},
+    }
+    manifest = ContainerManifest.from_dict(data)
+    assert manifest.user == {"name": "nobody", "uid": 65534}
+
+
+def test_manifest_user_unknown_type_falls_back_to_default():
+    """Defensive — never let a malformed user field propagate as e.g.
+    a list/None into compose.py.
+    """
+    data = {
+        "base_image": "ubuntu:24.04",
+        "binary_name": "myapp",
+        "user": ["unexpected", "list"],
+    }
+    manifest = ContainerManifest.from_dict(data)
+    assert manifest.user == {"name": "appuser", "uid": 1000}
