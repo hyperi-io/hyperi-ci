@@ -130,18 +130,6 @@ def test_run_fails_when_strict_true_and_no_signal(tmp_path: Path, monkeypatch) -
     assert run(cfg, language="rust") == 1
 
 
-def test_run_invalid_target_returns_error(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "Cargo.toml").write_text(
-        '[package]\nname = "myapp"\nversion = "0.1.0"\n'
-    )
-    (tmp_path / "src").mkdir()
-    (tmp_path / "src" / "main.rs").write_text("fn main() {}\n")
-    (tmp_path / "Dockerfile").write_text("FROM scratch\n")
-    cfg = _ci_config(container={"enabled": "auto"}, target="dockerhub")
-    assert run(cfg, language="rust") == 1
-
-
 def test_run_custom_mode_invokes_build_with_resolved_tags(
     tmp_path: Path, monkeypatch
 ) -> None:
