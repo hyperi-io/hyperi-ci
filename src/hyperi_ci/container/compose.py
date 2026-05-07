@@ -89,7 +89,17 @@ def _runtime_stage(manifest: ContainerManifest) -> str:
     user = manifest.user
     uid = user.get("uid", 1000)
     name = user.get("name", "appuser")
-    lines.append(f"RUN useradd --create-home --uid {uid} {name}")
+    # Ubuntu 24.04 ships with `ubuntu` user at UID 1000. If we're claiming UID
+    # 1000, remove the existing user first; otherwise `useradd --uid 1000`
+    # fails with "UID is not unique" (exit 4). Harmless on images without a
+    # ubuntu user (`userdel` returns 6, `|| true` swallows it).
+    if uid == 1000:
+        lines.append(
+            f"RUN (userdel -r ubuntu 2>/dev/null || true) "
+            f"&& useradd --create-home --uid {uid} {name}"
+        )
+    else:
+        lines.append(f"RUN useradd --create-home --uid {uid} {name}")
     lines.append(f"USER {name}")
 
     for port in manifest.expose_ports:

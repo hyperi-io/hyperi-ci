@@ -95,6 +95,7 @@ def stage_binary_dockerfile(
         Either ``dockerfile_path`` unchanged (if no rewrite was needed)
         or a Path to a new temp Dockerfile that the caller should
         ``unlink(missing_ok=True)`` after the docker build completes.
+
     """
     dist = dist_dir or Path("dist")
     original = dockerfile_path.read_text(encoding="utf-8")

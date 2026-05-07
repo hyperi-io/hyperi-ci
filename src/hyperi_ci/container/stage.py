@@ -65,7 +65,7 @@ def _read_sha() -> str:
 
 
 def _is_publish_mode() -> bool:
-    """True iff the workflow has signalled this is a publish run.
+    """Return True when the workflow has signalled this is a publish run.
 
     Set by the rust-ci.yml ``container`` job from ``setup.will-publish``.
     Maps directly to docker buildx ``--push``: when True we push to
@@ -92,11 +92,10 @@ def _is_publish_mode() -> bool:
 
 
 def _is_push_to_main() -> bool:
-    """Deprecated alias — kept for any out-of-tree callers.
+    """Return ``not _is_publish_mode()`` (deprecated alias for out-of-tree callers).
 
-    Returns ``not _is_publish_mode()`` to match the original semantics
-    (``push_to_main`` was the validate-only flag, named confusingly).
-    Will be removed once consumers update.
+    The legacy ``push_to_main`` flag was the validate-only signal,
+    named confusingly. Will be removed once consumers update.
     """
     return not _is_publish_mode()
 

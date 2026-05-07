@@ -47,7 +47,9 @@ class StageRunFn(Protocol):
 
     def __call__(
         self, config: CIConfig, *, extra_env: dict[str, str] | None = ...
-    ) -> int: ...
+    ) -> int:
+        """Run the stage with ``config``; optional ``extra_env`` overlays the process env."""
+        ...
 
 
 VALID_STAGES = (

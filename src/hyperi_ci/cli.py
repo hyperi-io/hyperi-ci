@@ -702,7 +702,7 @@ def release(
         typer.Option("--dry-run", "-n", help="Show what would be dispatched"),
     ] = False,
 ) -> None:
-    """DEPRECATED alias of ``publish``. Will be removed in v3.0."""
+    """Dispatch a publish run (deprecated alias of ``publish``; will be removed in v3.0)."""
     import warnings
 
     warnings.warn(

@@ -75,6 +75,7 @@ def init_contract(
 
     Returns:
         Exit code (one of the ``EXIT_*`` constants).
+
     """
     if not _APP_NAME_RE.fullmatch(app_name):
         error(f"invalid app_name: {app_name!r}")
@@ -145,7 +146,7 @@ def _starter_contract(app_name: str) -> DeploymentContract:
 
 
 def _read_payload(path: Path) -> dict | None:
-    """Convenience for tests that want to inspect the written contract.
+    """Read a written contract file (test helper that mirrors the CLI parse path).
 
     Tests can also use ``json.loads(path.read_text())`` directly; this
     helper exists so tests share the same parse path the CLI uses.

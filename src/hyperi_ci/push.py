@@ -72,6 +72,7 @@ def push(
 
     Returns:
         Exit code: 0=success, non-zero=failure.
+
     """
     if publish and no_ci:
         error("--publish and --no-ci are mutually exclusive")
@@ -321,7 +322,7 @@ def _write_version_and_commit(
 
 
 def _has_publish_trailer(message: str) -> bool:
-    """True iff the commit message already has ``Publish: true``."""
+    """Return True if the commit message already has ``Publish: true``."""
     for line in message.splitlines():
         stripped = line.strip()
         if not stripped:

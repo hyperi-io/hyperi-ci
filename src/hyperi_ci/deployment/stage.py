@@ -74,6 +74,7 @@ def run(
 
     Returns:
         Exit code (0 on success / skip; non-zero on failure).
+
     """
     project_dir = project_dir or Path.cwd()
     output_dir = output_dir or DEFAULT_OUTPUT_DIR
@@ -127,6 +128,7 @@ def check_drift(
     Returns:
         ``EXIT_OK`` when the regenerated output matches the committed
         directory byte-for-byte; non-zero on producer failure or drift.
+
     """
     project_dir = project_dir or Path.cwd()
     committed = committed_dir or (project_dir / "ci")
@@ -370,6 +372,10 @@ def _rust_binary_name(project_dir: Path) -> str | None:
        — covers the implicit-bin case.
     3. The FIRST `[[bin]]` block, in declaration order. Last-resort
        fallback for projects that diverge from cargo conventions.
+    4. Workspace fallback — if the root Cargo.toml is `[workspace]`-only
+       (no `[package]`), resolve each `members = [...]` entry and apply
+       the same selection order. We pick the FIRST member that yields
+       a binary; tying members named like the workspace directory wins.
 
     Substring-based parse — same approach as
     :func:`hyperi_ci.deployment.detect._depends_on`. Tier dispatch only
@@ -395,7 +401,76 @@ def _rust_binary_name(project_dir: Path) -> str | None:
     # 3. first [[bin]] (last-resort)
     if bin_names:
         return bin_names[0]
+
+    # 4. Workspace-only root: probe members in declaration order, prefer
+    #    a member whose path-leaf matches the workspace directory name
+    #    (e.g. workspace `dfe-archiver` with member `crates/archiver`).
+    members = _extract_workspace_members(text)
+    workspace_name = project_dir.name
+    ranked: list[tuple[int, str]] = []
+    for relpath in members:
+        member_dir = project_dir / relpath
+        leaf = member_dir.name  # e.g. "archiver" for "crates/archiver"
+        # Prefer leaves that match the workspace directory loosely
+        # ("dfe-archiver" → "archiver"). Fall back to declaration order.
+        rank = 0 if leaf in workspace_name or workspace_name in leaf else 1
+        candidate = _rust_binary_name(member_dir)
+        if candidate:
+            ranked.append((rank, candidate))
+    if ranked:
+        ranked.sort(key=lambda r: r[0])
+        return ranked[0][1]
     return None
+
+
+def _extract_workspace_members(text: str) -> list[str]:
+    """Extract `members = [...]` entries from a `[workspace]` table.
+
+    Substring-based parse: handles single-line and multi-line array
+    forms. Returns relative paths with no quoting.
+    """
+    in_workspace = False
+    in_members = False
+    collected: list[str] = []
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if stripped == "[workspace]":
+            in_workspace = True
+            continue
+        if in_workspace and stripped.startswith("[") and stripped != "[workspace]":
+            in_workspace = False
+            in_members = False
+            continue
+        if not in_workspace:
+            continue
+        if stripped.startswith("members"):
+            # Could be `members = ["a", "b"]` or `members = [` (multi-line)
+            if "[" in stripped and "]" in stripped:
+                # Single-line form
+                inner = stripped.split("[", 1)[1].rsplit("]", 1)[0]
+                collected.extend(_split_members(inner))
+                in_members = False
+            elif "[" in stripped:
+                in_members = True
+            continue
+        if in_members:
+            if "]" in stripped:
+                inner = stripped.split("]", 1)[0]
+                collected.extend(_split_members(inner))
+                in_members = False
+            else:
+                collected.extend(_split_members(stripped))
+    return collected
+
+
+def _split_members(text: str) -> list[str]:
+    """Parse comma-separated quoted member paths from a `members` slice."""
+    parts: list[str] = []
+    for token in text.split(","):
+        cleaned = token.strip().strip(",").strip('"').strip("'").strip()
+        if cleaned:
+            parts.append(cleaned)
+    return parts
 
 
 def _extract_package_name(text: str) -> str | None:

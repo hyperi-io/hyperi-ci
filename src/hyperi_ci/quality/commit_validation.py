@@ -304,8 +304,7 @@ _BREAKING_CHANGE_RE = re.compile(r"BREAKING[ \-]CHANGE:")
 
 
 def _has_breaking_change_marker(msg: str) -> bool:
-    """True iff the message contains either ``BREAKING CHANGE:`` or
-    ``BREAKING-CHANGE:`` anywhere (case-sensitive).
+    """Return True when ``msg`` contains a ``BREAKING CHANGE:`` / ``BREAKING-CHANGE:`` marker.
 
     Both forms are recognised by conventional-commits-parser as the
     breaking-change footer marker. Lowercase variants and free-form
@@ -322,7 +321,7 @@ def _has_breaking_change_marker(msg: str) -> bool:
 
 
 def _env_bypass(name: str) -> bool:
-    """True iff env var ``name`` is set to a truthy value."""
+    """Return True when env var ``name`` is set to a truthy value."""
     val = os.environ.get(name, "").strip().lower()
     return val in ("1", "true", "yes")
 
