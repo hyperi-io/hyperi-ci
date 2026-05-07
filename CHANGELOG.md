@@ -1,3 +1,10 @@
+## [2.1.4](https://github.com/hyperi-io/hyperi-ci/compare/v2.1.3...v2.1.4) (2026-05-07)
+
+
+### Bug Fixes
+
+* **publish:** remove JFrog publishing entirely ([b7615d1](https://github.com/hyperi-io/hyperi-ci/commit/b7615d1992b1f29d333e2760d2ce72f8eb1867de))
+
 ## [2.1.3](https://github.com/hyperi-io/hyperi-ci/compare/v2.1.2...v2.1.3) (2026-05-07)
 
 
