@@ -42,6 +42,10 @@ packages = ["src/hyperi_ci"]
 [tool.ruff]
 line-length = 88
 target-version = "py312"
+extend-exclude = [
+    "test-projects",   # vendored fixture trees (node_modules, .venv etc.)
+    "hyperi-ai",       # submodule, not our code
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "W"]

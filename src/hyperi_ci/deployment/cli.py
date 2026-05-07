@@ -82,6 +82,7 @@ def emit_artefacts(
 
     Returns:
         Exit code (one of the ``EXIT_*`` constants in this module).
+
     """
     contract_path = _resolve_contract_path(output_dir, contract_path)
 

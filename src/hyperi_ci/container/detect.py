@@ -44,6 +44,7 @@ class Decision:
             output regardless of outcome.
         mode: Suggested build mode (``contract`` | ``template`` | ``custom``)
             when ``build`` is True. Empty string when ``build`` is False.
+
     """
 
     build: bool
@@ -223,8 +224,10 @@ def _typescript_is_library(project_dir: Path) -> bool:
 
 
 def _golang_is_library(project_dir: Path) -> bool:
-    """Go projects almost always have a ``package main`` entry; treat
-    a project with a ``go.mod`` and no ``main`` package as a library.
+    """Identify Go library projects (``go.mod`` present, no ``package main``).
+
+    Go projects almost always have a ``package main`` entry; treat a
+    project with a ``go.mod`` and no ``main`` package as a library.
     """
     if not (project_dir / "go.mod").exists():
         return False

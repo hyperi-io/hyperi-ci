@@ -255,6 +255,61 @@ class TestRustBinaryName:
 
         assert _rust_binary_name(tmp_path) is None
 
+    def test_workspace_root_resolves_to_first_member_with_binary(
+        self, tmp_path: Path
+    ) -> None:
+        """Workspace-only root (no [package]) recurses into members."""
+        from hyperi_ci.deployment.stage import _rust_binary_name
+
+        (tmp_path / "Cargo.toml").write_text(
+            '[workspace]\nresolver = "2"\n'
+            "members = [\n"
+            '    "crates/core",\n'
+            '    "crates/io",\n'
+            '    "crates/archiver",\n'
+            "]\n",
+            encoding="utf-8",
+        )
+        # Two leaf-only crates without [[bin]], one with.
+        (tmp_path / "crates" / "core").mkdir(parents=True)
+        (tmp_path / "crates" / "core" / "Cargo.toml").write_text(
+            '[package]\nname = "core"\nversion = "0.1.0"\n[lib]\n',
+            encoding="utf-8",
+        )
+        (tmp_path / "crates" / "io").mkdir(parents=True)
+        (tmp_path / "crates" / "io" / "Cargo.toml").write_text(
+            '[package]\nname = "io"\nversion = "0.1.0"\n[lib]\n',
+            encoding="utf-8",
+        )
+        (tmp_path / "crates" / "archiver").mkdir(parents=True)
+        (tmp_path / "crates" / "archiver" / "Cargo.toml").write_text(
+            '[package]\nname = "demo-archiver"\nversion = "0.1.0"\n'
+            '[[bin]]\nname = "demo-archiver"\npath = "src/main.rs"\n',
+            encoding="utf-8",
+        )
+        # Rename project_dir so the leaf-prefer rule kicks in.
+        ws = tmp_path.rename(tmp_path.parent / "demo-archiver")
+        try:
+            assert _rust_binary_name(ws) == "demo-archiver"
+        finally:
+            ws.rename(tmp_path)
+
+    def test_workspace_returns_none_when_no_member_has_binary(
+        self, tmp_path: Path
+    ) -> None:
+        from hyperi_ci.deployment.stage import _rust_binary_name
+
+        (tmp_path / "Cargo.toml").write_text(
+            '[workspace]\nmembers = ["crates/lib-only"]\n',
+            encoding="utf-8",
+        )
+        (tmp_path / "crates" / "lib-only").mkdir(parents=True)
+        (tmp_path / "crates" / "lib-only" / "Cargo.toml").write_text(
+            "[lib]\n",  # no [package], no [[bin]]
+            encoding="utf-8",
+        )
+        assert _rust_binary_name(tmp_path) is None
+
 
 class TestTier2:
     """Tier 2 (python + pylib) routes through PATH lookup."""

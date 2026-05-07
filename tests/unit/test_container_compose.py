@@ -65,6 +65,30 @@ def test_compose_has_user():
     assert "USER appuser" in result
 
 
+def test_compose_user_uid_1000_removes_existing_ubuntu_user():
+    """Ubuntu 24.04 ships with `ubuntu` at UID 1000; bare useradd would
+    fail with 'UID is not unique' (exit 4). The composer must `userdel
+    -r ubuntu` first when the requested UID is 1000.
+    """
+    result = compose_contract_dockerfile(_sample_manifest(), rust_version="1.87")
+    assert "userdel -r ubuntu" in result
+    assert "useradd --create-home --uid 1000 appuser" in result
+
+
+def test_compose_user_non_default_uid_skips_userdel():
+    """Non-default UIDs (e.g. 65534/nobody) don't need the ubuntu workaround."""
+    manifest = ContainerManifest(
+        base_image="debian:bookworm-slim",
+        binary_name="simple-app",
+        expose_ports=[8080],
+        entrypoint=["simple-app"],
+        user={"name": "nobody", "uid": 65534},
+    )
+    result = compose_contract_dockerfile(manifest, rust_version="1.87")
+    assert "userdel" not in result
+    assert "useradd --create-home --uid 65534 nobody" in result
+
+
 def test_compose_has_env():
     result = compose_contract_dockerfile(_sample_manifest(), rust_version="1.87")
     assert 'ENV RUST_LOG="info"' in result
