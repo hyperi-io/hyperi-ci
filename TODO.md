@@ -6,6 +6,36 @@ This is the **single source of truth** for all tasks and progress.
 
 ## Active Tasks
 
+### CI consolidation (KISS) — predict-first plan-job per language
+
+**Plan:** [`docs/superpowers/plans/2026-05-08-ci-consolidation-kiss.md`](docs/superpowers/plans/2026-05-08-ci-consolidation-kiss.md)
+
+**Architecture:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (will be created in Task 1 of the plan)
+
+**Why:** chore: commits + AI submodule bumps were burning ~25 minutes of CI compute per push. Two earlier consolidation attempts in this session (`_setup.yml` reusable workflow, sketched `_ci.yml` orchestrator) added indirection without solving the root cause. Web research (astral-sh/uv, tokio-rs/tokio, vercel/turborepo) showed the right shape: flat language workflow with a `plan` first job + conditional gates. No reusable-workflow chains.
+
+**Status:** plan written 2026-05-08. Implementation tracked task-by-task in the plan file (17 tasks).
+
+**Resume from this directory** (`/projects/hyperi-ci`) when picking this up — the plan, STATE.md, TODO.md, and code all live here. Recommended execution: inline for Tasks 1-12 (mechanical YAML + tests), subagent-driven for Tasks 13-15 (canaries that need fresh per-project context).
+
+**Canaries (no SEP fields — fix bugs found, don't dismiss):**
+
+- [ ] **Canary 0: hyperi-ci's own `test-projects/`** — `ci-test-python-app`, `ci-test-go-app`, `ci-test-ts-app` — drives the iteration loop in-repo via `tests/integration/`.
+- [ ] **Canary 1: dfe-loader (Rust)** — most complex Rust example: clickhouse-driver, Arrow, columnar deps. Must produce a tagged R2 + GHCR + GH Release artefact under the new shape, AND a chore: bump must skip build entirely.
+- [ ] **Canary 2: dfe-engine (Python)** — most complex Python example. Same exit criteria.
+
+**Done means:**
+
+- All 17 plan tasks checked off
+- All four `<lang>-ci.yml` workflows match the same shape (verified by `tests/unit/test_workflow_consistency.py`)
+- A chore: commit on each canary completes in <2 min, skips quality/test/build/container/publish
+- A `Publish: true` commit on each canary still runs the full pipeline and ships to the right registries
+- v2.2.0+ of hyperi-ci is published to PyPI
+
+**Bugs discovered during rollout (no SEP fields):** populate as the rollout proceeds.
+
+---
+
 ### Dep-Install SSOT — Canary Rollout
 
 **Canary 1 (dfe-receiver): COMPLETE — released to R2.** Full BOLT+PGO
