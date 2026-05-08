@@ -1,3 +1,12 @@
+## [2.2.1](https://github.com/hyperi-io/hyperi-ci/compare/v2.2.0...v2.2.1) (2026-05-08)
+
+
+### Bug Fixes
+
+* **init:** scaffold ci.yml with tag input on workflow_dispatch ([e6f7470](https://github.com/hyperi-io/hyperi-ci/commit/e6f7470c827ee8013db5ae2ed9b0af27c0226d93))
+* **test:** align spike-channel allocator test with current jemalloc-everywhere policy ([9de19e4](https://github.com/hyperi-io/hyperi-ci/commit/9de19e4a3d897b44caf0c586f5548443c1b8015d))
+* **watch:** accept --repo flag for cross-repo run watching ([378dea3](https://github.com/hyperi-io/hyperi-ci/commit/378dea37b86f7d3c3ca508233c57a9058ee28cdb))
+
 # [2.2.0](https://github.com/hyperi-io/hyperi-ci/compare/v2.1.6...v2.2.0) (2026-05-08)
 
 
