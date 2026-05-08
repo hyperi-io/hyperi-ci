@@ -154,6 +154,23 @@ workflows.
 - ["GitHub Actions Is Slowly Killing Your Engineering Team"](https://www.iankduncan.com/engineering/2026-02-05-github-actions-killing-your-team/) — explicit warning against generic-abstraction-layer reusable workflows
 - [Composite-action path resolution discussion #26245](https://github.com/orgs/community/discussions/26245) — confirms the cross-repo `./` problem is unsolved as of May 2026
 
+## Future portability (aspirational)
+
+We may move from GitHub + GitHub Actions to Codeberg (git) +
+Buildkite (CI) when budget and time allow. Not on the near-term
+roadmap, but it shapes design today:
+
+- The `hyperi-ci` Python CLI owns the work — quality, test, build,
+  publish. The reusable workflows are thin runner glue around it.
+  Porting to Buildkite means rewriting the glue, not the CLI.
+- Handler code (`src/hyperi_ci/languages/<lang>/*.py`) avoids
+  GitHub-only assumptions: no `${{ ... }}` template syntax leaking
+  into Python, no GHCR-only auth flows hardcoded in publish handlers.
+- The plan job + gate-output pattern translates directly to
+  Buildkite's dynamic pipelines.
+
+The shared CI tool keeps the cost of switching CI vendors bounded.
+
 ## Pre-2026-05-08 archaeology
 
 Before this consolidation, `_setup.yml` existed as a shared first-job
