@@ -1,3 +1,18 @@
+# [2.2.0](https://github.com/hyperi-io/hyperi-ci/compare/v2.1.6...v2.2.0) (2026-05-08)
+
+
+### Bug Fixes
+
+* **ci:** rewrite go-ci.yml with plan-first KISS pattern ([4cd75e3](https://github.com/hyperi-io/hyperi-ci/commit/4cd75e3224e51be61a852bf6fd4f6521cb033f7c))
+* **ci:** rewrite python-ci.yml with plan-first KISS pattern ([433e340](https://github.com/hyperi-io/hyperi-ci/commit/433e3407ada9366355ac3dec4f0209403e809fb4))
+* **ci:** rewrite rust-ci.yml with plan-first KISS pattern ([c9899b6](https://github.com/hyperi-io/hyperi-ci/commit/c9899b605add9af239ddcb613a77d05c4c00d075))
+* **ci:** rewrite ts-ci.yml with plan-first KISS pattern ([41e7009](https://github.com/hyperi-io/hyperi-ci/commit/41e70094e1a2305cce73fe4449727c4d9daf7f25))
+
+
+### Features
+
+* **actions:** add run-checks and run-build outputs to predict-version ([db2362a](https://github.com/hyperi-io/hyperi-ci/commit/db2362a1b2bfcbf7ed4ea366f64c1abb40957553))
+
 ## [2.1.6](https://github.com/hyperi-io/hyperi-ci/compare/v2.1.5...v2.1.6) (2026-05-07)
 
 
