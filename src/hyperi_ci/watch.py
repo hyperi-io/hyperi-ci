@@ -67,11 +67,16 @@ def _poll_interval(base: int, attempt: int) -> float:
     return min(base * (1.5 ** min(attempt - 1, 4)), 120.0)
 
 
-def _get_run_status(run_id: str) -> dict | None:
+def _get_run_status(run_id: str, repo: str | None = None) -> dict | None:
     """Fetch current run status.
 
     Args:
         run_id: Workflow run ID.
+        repo: Optional ``owner/name`` — pass this when watching a run
+            in a different repo than the current working directory.
+            ``gh run view`` defaults to the cwd's git remote and
+            silently 404s when the run isn't there, which the watch
+            loop misreads as transient network failure.
 
     Returns:
         Dict with status/conclusion/jobs, or None on transient error.
@@ -82,26 +87,28 @@ def _get_run_status(run_id: str) -> dict | None:
     `_MAX_CONSECUTIVE_FETCH_FAILURES`.
 
     """
+    args = [
+        "run",
+        "view",
+        run_id,
+        "--json",
+        "status,conclusion,jobs,url,workflowName,headBranch",
+    ]
+    if repo:
+        args.extend(["--repo", repo])
     try:
-        result = gh_run(
-            [
-                "run",
-                "view",
-                run_id,
-                "--json",
-                "status,conclusion,jobs,url,workflowName,headBranch",
-            ]
-        )
+        result = gh_run(args)
         return json.loads(result.stdout)
     except (subprocess.CalledProcessError, json.JSONDecodeError):
         return None
 
 
-def _resume_command(run_id: str, timeout: int) -> str:
+def _resume_command(run_id: str, timeout: int, repo: str | None = None) -> str:
     """Format a copy-pasteable resume command for the user."""
+    repo_arg = f" --repo {repo}" if repo else ""
     if timeout == 0:
-        return f"hyperi-ci watch {run_id} --timeout 0"
-    return f"hyperi-ci watch {run_id} --timeout {timeout}"
+        return f"hyperi-ci watch {run_id}{repo_arg} --timeout 0"
+    return f"hyperi-ci watch {run_id}{repo_arg} --timeout {timeout}"
 
 
 def _print_summary(run_data: dict) -> None:
@@ -146,6 +153,7 @@ def watch_run(
     run_id: str | None = None,
     timeout: int = _DEFAULT_TIMEOUT,
     interval: int = 30,
+    repo: str | None = None,
 ) -> int:
     """Watch a GitHub Actions run to completion.
 
@@ -155,6 +163,9 @@ def watch_run(
             (poll until the run reaches a terminal state). Default is
             sized for Tier 2 Rust builds (3600 s = 60 min).
         interval: Base poll interval in seconds.
+        repo: Optional ``owner/name`` — when set, all gh calls target
+            this repo instead of the cwd's git remote. Use this when
+            watching a run in a different repo than your cwd.
 
     Returns:
         Exit code: 0=success, 1=failed/cancelled/unreachable, 2=timeout.
@@ -170,16 +181,17 @@ def watch_run(
             return 1
 
         info(f"Finding latest run on {branch}...")
-        latest = get_latest_run(branch=branch)
+        latest = get_latest_run(branch=branch, repo=repo)
         if not latest:
             error(f"No runs found on {branch}")
             return 1
         run_id = str(latest["databaseId"])
 
+    repo_label = f" in {repo}" if repo else ""
     if timeout == 0:
-        info(f"Watching run {run_id} (no timeout)")
+        info(f"Watching run {run_id}{repo_label} (no timeout)")
     else:
-        info(f"Watching run {run_id} (timeout: {timeout}s)")
+        info(f"Watching run {run_id}{repo_label} (timeout: {timeout}s)")
 
     # `deadline = None` disables the timeout check entirely.
     deadline: float | None = None if timeout == 0 else time.monotonic() + timeout
@@ -192,7 +204,7 @@ def watch_run(
         now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         info(f"  [{now}] polling (attempt {attempt})...")
 
-        run_data = _get_run_status(run_id)
+        run_data = _get_run_status(run_id, repo=repo)
         if not run_data:
             consecutive_failures += 1
             if consecutive_failures >= _MAX_CONSECUTIVE_FETCH_FAILURES:
@@ -200,7 +212,7 @@ def watch_run(
                     f"  Failed to fetch run status "
                     f"{consecutive_failures} times in a row — giving up. "
                     f"Last known status: {last_known_status}. "
-                    f"Resume: {_resume_command(run_id, timeout)}"
+                    f"Resume: {_resume_command(run_id, timeout, repo=repo)}"
                 )
                 return 1
             warn(
@@ -232,7 +244,7 @@ def watch_run(
     # in progress) or investigate (stuck / silently failing).
     error(
         f"Timeout after {timeout} seconds — run still {last_known_status}. "
-        f"Resume: {_resume_command(run_id, timeout)} "
+        f"Resume: {_resume_command(run_id, timeout, repo=repo)} "
         f"(or use --timeout 0 to disable timeout)"
     )
     return 2

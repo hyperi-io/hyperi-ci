@@ -16,6 +16,7 @@ import pytest
 from hyperi_ci.watch import (
     _DEFAULT_TIMEOUT,
     _MAX_CONSECUTIVE_FETCH_FAILURES,
+    _get_run_status,
     _poll_interval,
     _resume_command,
     watch_run,
@@ -56,6 +57,41 @@ class TestResumeCommand:
 
     def test_with_zero_timeout(self) -> None:
         assert _resume_command("12345", 0) == "hyperi-ci watch 12345 --timeout 0"
+
+    def test_with_repo(self) -> None:
+        # When watching a run in a different repo than the cwd, the
+        # resume hint must include --repo so the user can copy-paste
+        # without re-deriving the repo from somewhere.
+        assert (
+            _resume_command("12345", 3600, repo="hyperi-io/dfe-loader")
+            == "hyperi-ci watch 12345 --repo hyperi-io/dfe-loader --timeout 3600"
+        )
+
+    def test_with_repo_and_zero_timeout(self) -> None:
+        assert (
+            _resume_command("12345", 0, repo="hyperi-io/dfe-loader")
+            == "hyperi-ci watch 12345 --repo hyperi-io/dfe-loader --timeout 0"
+        )
+
+
+class TestGetRunStatusRepo:
+    """`_get_run_status` must forward --repo to gh when set, so watching
+    a run in a different repo than cwd doesn't 404 on every poll."""
+
+    def test_no_repo_omits_flag(self) -> None:
+        with patch("hyperi_ci.watch.gh_run") as mock_gh:
+            mock_gh.return_value.stdout = '{"status": "in_progress"}'
+            _get_run_status("12345")
+            args = mock_gh.call_args[0][0]
+            assert "--repo" not in args
+
+    def test_repo_set_appends_flag(self) -> None:
+        with patch("hyperi_ci.watch.gh_run") as mock_gh:
+            mock_gh.return_value.stdout = '{"status": "in_progress"}'
+            _get_run_status("12345", repo="hyperi-io/dfe-loader")
+            args = mock_gh.call_args[0][0]
+            assert "--repo" in args
+            assert args[args.index("--repo") + 1] == "hyperi-io/dfe-loader"
 
 
 class TestDefaultTimeout:

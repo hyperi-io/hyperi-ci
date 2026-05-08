@@ -424,11 +424,23 @@ def watch(
         int,
         typer.Option("--interval", "-i", help="Initial poll interval in seconds"),
     ] = 30,
+    repo: Annotated[
+        str | None,
+        typer.Option(
+            "--repo",
+            "-R",
+            help=(
+                "Target repo as owner/name (e.g. hyperi-io/dfe-loader). "
+                "Defaults to the cwd's git remote — set this when watching "
+                "a run in a different repo than your cwd."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Watch a GitHub Actions run to completion."""
     from hyperi_ci.watch import watch_run
 
-    rc = watch_run(run_id=run_id, timeout=timeout, interval=interval)
+    rc = watch_run(run_id=run_id, timeout=timeout, interval=interval, repo=repo)
     raise typer.Exit(rc)
 
 
