@@ -29,6 +29,12 @@ outputs:
   version:
     description: "Predicted next version (without 'v' prefix); empty unless will-publish == 'true' on push"
     value: ${{ steps.predict.outputs.version }}
+  run-checks:
+    description: "'true' iff quality + test should run (publish-worthy commit OR pull_request)"
+    value: ${{ steps.derive.outputs.run-checks }}
+  run-build:
+    description: "'true' iff build + container + publish should run (publish-worthy only)"
+    value: ${{ steps.derive.outputs.run-build }}
 
 runs:
   using: composite
@@ -116,3 +122,31 @@ runs:
 
         echo "version=$version" >> "$GITHUB_OUTPUT"
         echo "::notice::Predicted next version: v$version"
+
+    - name: Derive gate outputs
+      # Single source of truth for the run-checks / run-build conditions.
+      # Language workflows read these outputs and never re-implement the
+      # boolean logic. If you find yourself writing `will-publish == 'true'
+      # || event_name == 'pull_request'` anywhere else, you've drifted.
+      id: derive
+      shell: bash
+      run: |
+        set -euo pipefail
+        will_publish='${{ steps.gate.outputs.will-publish }}'
+        event_name='${{ github.event_name }}'
+
+        if [[ "$will_publish" == "true" ]]; then
+          run_build=true
+        else
+          run_build=false
+        fi
+
+        if [[ "$will_publish" == "true" || "$event_name" == "pull_request" ]]; then
+          run_checks=true
+        else
+          run_checks=false
+        fi
+
+        echo "run-build=$run_build" >> "$GITHUB_OUTPUT"
+        echo "run-checks=$run_checks" >> "$GITHUB_OUTPUT"
+        echo "::notice::run-checks=$run_checks run-build=$run_build (will-publish=$will_publish event=$event_name)"
