@@ -261,15 +261,22 @@ def _render_workflow(
         "  pull_request:\n"
         "    branches: [main]\n"
         "  workflow_dispatch:\n"
+        "    inputs:\n"
+        "      tag:\n"
+        "        type: string\n"
+        "        required: true\n"
+        '        description: "Tag to publish (e.g. v1.3.0)"\n'
         "\n"
         "jobs:\n"
         "  ci:\n"
         f"    uses: {_CI_REPO}/.github/workflows/"
         f"{workflow_file}@{_WORKFLOW_REF}\n"
+        "    with:\n"
+        "      tag: ${{ inputs.tag || '' }}\n"
     )
 
     if publish_target != "internal":
-        base += f"    with:\n      publish-target: {publish_target}\n"
+        base += f"      publish-target: {publish_target}\n"
 
     base += "    secrets: inherit\n"
     return base
