@@ -91,18 +91,24 @@ def gh_json(
 def get_latest_run(
     branch: str | None = None,
     workflow: str | None = None,
+    repo: str | None = None,
 ) -> dict | None:
     """Find the most recent workflow run.
 
     Args:
         branch: Filter by branch name.
         workflow: Filter by workflow filename.
+        repo: Optional ``owner/name`` — when set, queries this repo
+            instead of the cwd's git remote. Use this when looking up
+            runs in a different repo than your cwd.
 
     Returns:
         Dict with run info, or None if no runs found.
 
     """
     args = ["run", "list", "--limit", "1"]
+    if repo:
+        args.extend(["--repo", repo])
     if branch:
         args.extend(["--branch", branch])
     if workflow:

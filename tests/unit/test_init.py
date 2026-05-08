@@ -64,7 +64,9 @@ class TestRenderTemplates:
         for workflow_file in ("python-ci.yml", "rust-ci.yml", "ts-ci.yml", "go-ci.yml"):
             content = _render_workflow("my-project", workflow_file)
             assert "workflow_dispatch:" in content
-            assert "inputs:" in content, f"{workflow_file}: missing workflow_dispatch inputs"
+            assert "inputs:" in content, (
+                f"{workflow_file}: missing workflow_dispatch inputs"
+            )
             assert "tag:" in content, f"{workflow_file}: missing tag input"
             assert "tag: ${{ inputs.tag" in content, (
                 f"{workflow_file}: tag input not forwarded to language workflow"
