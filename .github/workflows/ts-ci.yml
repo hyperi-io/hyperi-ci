@@ -87,8 +87,35 @@ env:
   HYPERCI_INSTALL: uvx --no-cache --refresh hyperi-ci
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # plan — runs FIRST. Computes gate outputs; downstream jobs read them.
+  # See docs/ARCHITECTURE.md.
+  # ---------------------------------------------------------------------------
+  plan:
+    name: Plan
+    if: github.event.pull_request.head.repo.fork != true
+    runs-on: ubuntu-latest
+    outputs:
+      run-checks: ${{ steps.predict.outputs.run-checks }}
+      run-build: ${{ steps.predict.outputs.run-build }}
+      will-publish: ${{ steps.predict.outputs.will-publish }}
+      next-version: ${{ steps.predict.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Predict version + derive gates
+        id: predict
+        uses: hyperi-io/hyperi-ci/.github/actions/predict-version@main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
   quality:
     name: Quality
+    needs: [plan]
+    if: needs.plan.outputs.run-checks == 'true'
     runs-on: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_TYPESCRIPT || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - name: Docker Hub login
@@ -132,6 +159,8 @@ jobs:
 
   test:
     name: Test
+    needs: [plan]
+    if: needs.plan.outputs.run-checks == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -185,30 +214,10 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  setup:
-    name: Setup
-    needs: [quality, test]
-    if: github.event.pull_request.head.repo.fork != true
-    runs-on: ubuntu-latest
-    outputs:
-      will-publish: ${{ steps.predict.outputs.will-publish }}
-      next-version: ${{ steps.predict.outputs.version }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.tag || github.ref }}
-          fetch-depth: 0
-
-      - name: Predict version (gate + dry-run)
-        id: predict
-        uses: hyperi-io/hyperi-ci/.github/actions/predict-version@main
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
   build:
     name: Build
-    needs: [setup]
-    if: github.event.pull_request.head.repo.fork != true
+    needs: [plan, quality, test]
+    if: needs.plan.outputs.run-build == 'true'
     runs-on: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_TYPESCRIPT || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
@@ -219,9 +228,9 @@ jobs:
         # Version-first pipeline: write the version we're about to tag
         # into package.json + VERSION before the bundle is built. npm
         # publish reads package.json's version field at publish time.
-        if: needs.setup.outputs.will-publish == 'true' && github.event_name == 'push'
+        if: needs.plan.outputs.will-publish == 'true' && github.event_name == 'push'
         run: |
-          version="${{ needs.setup.outputs.next-version }}"
+          version="${{ needs.plan.outputs.next-version }}"
           if [[ -z "$version" ]]; then
             echo "::error::next-version output empty"
             exit 1
@@ -282,11 +291,11 @@ jobs:
 
   release-tail:
     name: Release tail
-    needs: [setup, build]
+    needs: [plan, build]
     uses: hyperi-io/hyperi-ci/.github/workflows/_release-tail.yml@main
     with:
       language: typescript
-      will-publish: ${{ needs.setup.outputs.will-publish }}
+      will-publish: ${{ needs.plan.outputs.will-publish }}
       tag: ${{ inputs.tag }}
       publish-target: ${{ inputs.publish-target }}
     secrets: inherit
