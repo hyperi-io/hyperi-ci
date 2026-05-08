@@ -157,6 +157,16 @@ PR review and release-worthy pushes run them. The gate is computed
 ONCE in the `plan` job and consumed by every downstream job; do not
 re-implement the condition string elsewhere — `tests/unit/test_workflow_consistency.py` enforces this.
 
+## CI bug-log convention (cross-repo)
+
+CI bugs and fixes surfaced in consumer repos are logged under
+`<consumer>/docs/superpowers/plans/<date>-ci-<topic>.md` (gitignored
+local-only) plus a one-line entry in that consumer's `TODO.md`.
+This is the SSoT location for CI fixes across the org — when canary
+runs surface bugs, look there for the resolution status. The
+hyperi-ci rollout doc references back to those plans so the loop
+is closeable.
+
 ## Architecture
 
 See `docs/DESIGN.md` for full architecture documentation.
@@ -331,6 +341,27 @@ See `docs/MIGRATION-GUIDE.md` for migrating projects from v1 to v2.
 - **dfe-plugin-loader** — plugin system removed, sidecar pattern instead
 - **dfe-protocol-sdk** — plugin system removed
 - **dfe-receiver-plugin-syslog** — syslog is built-in transport
+
+## Future direction (aspirational)
+
+Today: GitHub for git hosting, GitHub Actions for CI. Likely move when
+budget and time allow:
+
+- **Codeberg** for git hosting — reduce single-vendor lock-in to GitHub.
+- **Buildkite** for CI — stronger pipeline ergonomics, self-hosted
+  runners without ARC's K8s overhead.
+
+Design implications today:
+
+- CI logic stays in the `hyperi-ci` Python CLI, not embedded in
+  workflow YAML. Buildkite (or any successor) calls the same CLI;
+  only the runner glue changes.
+- Workflows stay thin — plan job + gates + handler dispatch.
+- Avoid hard dependencies on GitHub-only features in handler code
+  (Actions-specific matrix syntax, GHCR-only auth flows).
+
+Not on the near-term roadmap; recorded so we don't accidentally make
+choices that paint us into the GitHub-Actions corner.
 
 ## Licensing
 
