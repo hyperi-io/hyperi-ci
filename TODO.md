@@ -32,7 +32,44 @@ This is the **single source of truth** for all tasks and progress.
 - A `Publish: true` commit on each canary still runs the full pipeline and ships to the right registries
 - v2.2.0+ of hyperi-ci is published to PyPI
 
-**Bugs discovered during rollout (no SEP fields):** populate as the rollout proceeds.
+**Bugs discovered during rollout (no SEP fields):**
+
+- [x] `tests/integration/test_rust_build_optimize.py::test_spike_channel_default_uses_system_allocator` encoded the old "spike → system allocator" policy; current code (and standards/rules/RUST.md Allocator Policy) says jemalloc at every channel. Fixed in commit `a331a0b`.
+- [x] `_release-tail.yml` expects a single `build-dist-*` artifact containing both `dist/` AND `ci-tmp/`. The plan's draft proposed splitting into separate artifacts which would have broken release-tail's download step. Combined-upload pattern preserved.
+- [x] `ts-ci.yml` had a duplicate `setup:` job key (silent YAML override) and `test:` job missing `needs:`/`if:`. Fixed during Task 8.
+- [x] `go-ci.yml` ran quality + test unconditionally before any gate decision (setup ran AFTER them). Fixed during Task 9.
+
+---
+
+### Follow-up: dedicated CI test repos (next plan)
+
+**Why:** in-repo `test-projects/` fixtures validate the CLI, but cannot exercise GitHub-side workflow behaviour (chore-skip, semantic-release tagging, publish flow). Real validation needs separate repos that push commits and trigger real CI runs.
+
+**Proposed minimum:**
+
+- `hyperi-io/ci-test-rust-app` — single-crate binary (chore-skip, R2 + GH Release path)
+- `hyperi-io/ci-test-rust-workspace` — 3-crate workspace (workspace version stamp)
+- `hyperi-io/ci-test-python-pypi` — Python lib for PyPI (sdist clean)
+- `hyperi-io/ci-test-python-app` — Python container app (Tier-3 deployment-contract path)
+- `hyperi-io/ci-test-ts-app` — TypeScript bundle (npm publish)
+- `hyperi-io/ci-test-go-app` — Go binary (cross-compile, GH Release)
+
+**Status:** scoped only — needs its own plan written. Track separately when we pick this up.
+
+---
+
+### Follow-up: deployment artefact distribution (next plan)
+
+**Why:** `hyperi-ci run generate` produces `argocd-application.yaml`, `chart/` (Helm), `Dockerfile.runtime`, `container-manifest.json`. These get uploaded as a CI artifact and then... dropped on the floor. `_release-tail.yml` consumes only the container-manifest. ArgoCD operators have no consumable distribution path.
+
+**Proposed:**
+
+- Helm `chart/` → push to GHCR as OCI artifact (`oci://ghcr.io/hyperi-io/charts/<app>:vX.Y.Z`); ArgoCD ≥2.6 reads OCI natively
+- `argocd-application.yaml` → PR into a `hyperi-io/gitops` cluster-config repo via GitHub App with `contents:write`
+- Versioning: chart version === app version === `next-version` from plan output
+- NOT R2 — Helm and ArgoCD don't read from R2; would need to reinvent chart-museum
+
+**Status:** scoped only — needs its own plan written. Out of scope for the KISS consolidation.
 
 ---
 
