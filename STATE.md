@@ -135,7 +135,27 @@ multi-arch package conflicts, sysroot approach, integration test threading).
 5. **uv for everything** — venv, sync, lock, tool install, build.
 6. **Cross-platform** — Linux (CI) and macOS (dev). Uses `pathlib`, `shutil.which()`.
 7. **Self-hosting** — hyperi-ci uses itself for its own CI.
-8. **FOSS-first** — default `publish.target` is `oss`. JFrog paths are deprecated (4-6 week timeline).
+8. **FOSS-first** — default `publish.target` is `oss`. JFrog publishing was removed in v2.1.4.
+
+## CI workflow architecture (post-2026-05-08)
+
+The CI workflow shape is documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+The summary, for context:
+
+- **Two-level indirection only:** consumer ci.yml → language workflow → `_release-tail.yml`. No `_ci.yml`. No `_setup.yml`.
+- **Plan-job pattern** (per [astral-sh/uv ci.yml](https://github.com/astral-sh/uv/blob/main/.github/workflows/ci.yml)): each language reusable workflow's first job runs the `predict-version` composite action and emits `run-checks` + `run-build` outputs. Every downstream job gates on those.
+- **Same-org refs use `@main`** — pinning every same-org workflow / composite action to a SHA adds maintenance burden without proportional security benefit. Third-party actions ARE SHA-pinned via Renovate.
+- **Drift between language workflows** is caught by `tests/unit/test_workflow_consistency.py` — pytest test that loads all four `<lang>-ci.yml` files and asserts the gate `if:` strings are identical.
+- **No `_ci.yml` orchestrator** — was proposed in conversation 2026-05-08, dropped because (a) composite-action path resolution from cross-repo reusable workflows is unsolved as of May 2026, (b) mature multi-language OSS repos (astral-sh/uv, tokio-rs/tokio, vercel/turborepo) all use flat single-workflow + plan-job pattern. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full reasoning.
+
+## CI gate doctrine
+
+A non-bumping commit (chore/docs/test/refactor/style/build/ci/cleanup/…)
+**MUST NOT cause cargo/uv/npm to compile or docker buildx to push**.
+Even quality + test are skipped on push events that won't ship — only
+PR review and release-worthy pushes run them. The gate is computed
+ONCE in the `plan` job and consumed by every downstream job; do not
+re-implement the condition string elsewhere — `tests/unit/test_workflow_consistency.py` enforces this.
 
 ## Architecture
 
