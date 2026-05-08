@@ -6,36 +6,22 @@ This is the **single source of truth** for all tasks and progress.
 
 ## Active Tasks
 
-### CI consolidation (KISS) — predict-first plan-job per language
+### CI consolidation (KISS) — predict-first plan-job per language ✅ DONE 2026-05-08
 
 **Plan:** [`docs/superpowers/plans/2026-05-08-ci-consolidation-kiss.md`](docs/superpowers/plans/2026-05-08-ci-consolidation-kiss.md)
 
-**Architecture:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (will be created in Task 1 of the plan)
+**Architecture:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
-**Why:** chore: commits + AI submodule bumps were burning ~25 minutes of CI compute per push. Two earlier consolidation attempts in this session (`_setup.yml` reusable workflow, sketched `_ci.yml` orchestrator) added indirection without solving the root cause. Web research (astral-sh/uv, tokio-rs/tokio, vercel/turborepo) showed the right shape: flat language workflow with a `plan` first job + conditional gates. No reusable-workflow chains.
+**Outcome:** v2.2.0 + v2.2.1 shipped to PyPI 2026-05-08. New plan-first gating validated on the most complex Rust consumer end-to-end. Python gate validated; full publish-canary on Python deferred to hyperi-pylib (clean library) instead of dfe-engine (in-progress feature branches).
 
-**Status:** plan written 2026-05-08. Implementation tracked task-by-task in the plan file (17 tasks).
+**Canary results:**
 
-**Resume from this directory** (`/projects/hyperi-ci`) when picking this up — the plan, STATE.md, TODO.md, and code all live here. Recommended execution: inline for Tasks 1-12 (mechanical YAML + tests), subagent-driven for Tasks 13-15 (canaries that need fresh per-project context).
-
-**Canaries (no SEP fields — fix bugs found, don't dismiss):**
-
-- [x] **Canary 0: hyperi-ci's own `test-projects/`** — integration tests green; one stale spike-allocator test fixed (commit `a331a0b`).
-- [x] **Canary 1a: dfe-loader chore-skip** — [run 25531398891](https://github.com/hyperi-io/dfe-loader/actions/runs/25531398891) — 16 seconds total, plan ✅, every other job skipped. **Killer feature validated.**
-- [ ] **Canary 1b: dfe-loader publish-dispatch** — [run 25531808212](https://github.com/hyperi-io/dfe-loader/actions/runs/25531808212) in flight as of 2026-05-08T01:40Z. Plan/Quality/Test green; both Build (linux-amd64, linux-arm64) jobs in_progress. BOLT/PGO; expect 30-45 min.
+- [x] **Canary 0: hyperi-ci's own `test-projects/`** — integration tests green (7 slow tests pass); one stale spike-allocator test fixed (commit `a331a0b`).
+- [x] **Canary 1a: dfe-loader chore-skip** — [run 25531398891](https://github.com/hyperi-io/dfe-loader/actions/runs/25531398891) — **16 seconds total**, plan ✅, every other job skipped. **Killer feature validated.**
+- [x] **Canary 1b: dfe-loader publish-dispatch** — [run 25531808212](https://github.com/hyperi-io/dfe-loader/actions/runs/25531808212) — **38 minutes total**, all 7 jobs ✅ green end-to-end (Plan, Quality, Test, Build linux-amd64, Build linux-arm64, Container, Tag & Publish). Multi-arch BOLT+PGO Rust publish chain proven on the most complex Rust consumer.
 - [x] **Canary 2a: dfe-engine chore-skip** — [run 25531462469](https://github.com/hyperi-io/dfe-engine/actions/runs/25531462469) — 33 seconds, all heavy jobs skipped. **Gate validated.**
-- [ ] **Canary 2b: dfe-engine publish-dispatch** — failed at quality stage on real pre-existing CVEs (pytest, cryptography). NOT a gate regression. Handed back to dfe-engine maintainers via [`dfe-engine/docs/superpowers/plans/2026-05-08-ci-canary-publish-fix.md`](../../dfe-engine/docs/superpowers/plans/2026-05-08-ci-canary-publish-fix.md). Blocked on merge coordination (Derek + Kaz have WIP on `feat/transport-filter-helpers`).
-- [ ] **Canary 3 (added 2026-05-08): hyperi-pylib publish-dispatch** — preferred Python canary now: clean lib, no parallel WIP. User to drive.
-
-**Ordering update 2026-05-08:** Python canary order is hyperi-pylib FIRST (clean), then dfe-engine after merge coordination. dfe-engine is the most complex Python case but its current branch state makes it a poor first canary.
-
-**Done means:**
-
-- All 17 plan tasks checked off
-- All four `<lang>-ci.yml` workflows match the same shape (verified by `tests/unit/test_workflow_consistency.py`)
-- A chore: commit on each canary completes in <2 min, skips quality/test/build/container/publish
-- A `Publish: true` commit on each canary still runs the full pipeline and ships to the right registries
-- v2.2.0+ of hyperi-ci is published to PyPI
+- [ ] **Canary 2b: dfe-engine publish-dispatch** — failed at quality on real pre-existing CVEs (pytest GHSA-6w46-j5rx-g56g, cryptography GHSA-p423-j2cm-9vmq). NOT a gate regression. Handed back to dfe-engine maintainers via [`dfe-engine/docs/superpowers/plans/2026-05-08-ci-canary-publish-fix.md`](../../dfe-engine/docs/superpowers/plans/2026-05-08-ci-canary-publish-fix.md). Blocked on Derek + Kaz merge coordination.
+- [ ] **Canary 3 (Python publish-dispatch on hyperi-pylib)** — preferred Python canary: clean lib, no parallel WIP. User to drive directly.
 
 **Bugs discovered during rollout (no SEP fields):**
 
@@ -43,6 +29,15 @@ This is the **single source of truth** for all tasks and progress.
 - [x] `_release-tail.yml` expects a single `build-dist-*` artifact containing both `dist/` AND `ci-tmp/`. The plan's draft proposed splitting into separate artifacts which would have broken release-tail's download step. Combined-upload pattern preserved.
 - [x] `ts-ci.yml` had a duplicate `setup:` job key (silent YAML override) and `test:` job missing `needs:`/`if:`. Fixed during Task 8.
 - [x] `go-ci.yml` ran quality + test unconditionally before any gate decision (setup ran AFTER them). Fixed during Task 9.
+- [x] `init.py` scaffold generated `workflow_dispatch:` with no `tag` input → `hyperi-ci publish` returned HTTP 422. Every project initialised with v2.2.0 inherited the bug. Fixed in v2.2.1 (commit `fa7d79b`) — surfaced by dfe-engine canary, fixed in dfe-engine consumer ci.yml AND in hyperi-ci scaffold.
+- [x] `hyperi-ci watch <run-id>` invoked from a different repo's cwd silently 404'd 10× before giving up. Added `--repo / -R` flag in v2.2.1 (commit `c90c96a`) — surfaced by dfe-loader canary subagent.
+
+**Versions shipped:**
+
+- v2.2.0 ([run 25531099781](https://github.com/hyperi-io/hyperi-ci/actions/runs/25531099781)) — initial KISS rollout
+- v2.2.1 ([run 25533443889](https://github.com/hyperi-io/hyperi-ci/actions/runs/25533443889)) — init.py + watch --repo + jemalloc test fixes
+
+**Next:** monitor hyperi-pylib's Python canary (when user runs it) and dfe-engine's CVE-cleanup re-canary. If both come back green, the rollout is fully closed. If new bugs surface, fix and ship as v2.2.x.
 
 ---
 
