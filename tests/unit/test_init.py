@@ -55,6 +55,21 @@ class TestRenderTemplates:
         content = _render_workflow("my-project", "rust-ci.yml")
         assert "secrets: inherit" in content
 
+    def test_workflow_dispatch_accepts_tag_input(self) -> None:
+        # `hyperi-ci publish vX.Y.Z` calls `gh workflow run ci.yml -f
+        # tag=vX.Y.Z`. Without a `tag` input on workflow_dispatch the
+        # GitHub API returns 422 "Unexpected inputs provided" and
+        # publish silently fails. Every scaffolded ci.yml must accept
+        # the tag input AND forward it to the language workflow.
+        for workflow_file in ("python-ci.yml", "rust-ci.yml", "ts-ci.yml", "go-ci.yml"):
+            content = _render_workflow("my-project", workflow_file)
+            assert "workflow_dispatch:" in content
+            assert "inputs:" in content, f"{workflow_file}: missing workflow_dispatch inputs"
+            assert "tag:" in content, f"{workflow_file}: missing tag input"
+            assert "tag: ${{ inputs.tag" in content, (
+                f"{workflow_file}: tag input not forwarded to language workflow"
+            )
+
 
 class TestDetectPythonBuildType:
     """Python build type detection from pyproject.toml."""
