@@ -20,9 +20,14 @@ This is the **single source of truth** for all tasks and progress.
 
 **Canaries (no SEP fields — fix bugs found, don't dismiss):**
 
-- [ ] **Canary 0: hyperi-ci's own `test-projects/`** — `ci-test-python-app`, `ci-test-go-app`, `ci-test-ts-app` — drives the iteration loop in-repo via `tests/integration/`.
-- [ ] **Canary 1: dfe-loader (Rust)** — most complex Rust example: clickhouse-driver, Arrow, columnar deps. Must produce a tagged R2 + GHCR + GH Release artefact under the new shape, AND a chore: bump must skip build entirely.
-- [ ] **Canary 2: dfe-engine (Python)** — most complex Python example. Same exit criteria.
+- [x] **Canary 0: hyperi-ci's own `test-projects/`** — integration tests green; one stale spike-allocator test fixed (commit `a331a0b`).
+- [x] **Canary 1a: dfe-loader chore-skip** — [run 25531398891](https://github.com/hyperi-io/dfe-loader/actions/runs/25531398891) — 16 seconds total, plan ✅, every other job skipped. **Killer feature validated.**
+- [ ] **Canary 1b: dfe-loader publish-dispatch** — [run 25531808212](https://github.com/hyperi-io/dfe-loader/actions/runs/25531808212) in flight as of 2026-05-08T01:40Z. Plan/Quality/Test green; both Build (linux-amd64, linux-arm64) jobs in_progress. BOLT/PGO; expect 30-45 min.
+- [x] **Canary 2a: dfe-engine chore-skip** — [run 25531462469](https://github.com/hyperi-io/dfe-engine/actions/runs/25531462469) — 33 seconds, all heavy jobs skipped. **Gate validated.**
+- [ ] **Canary 2b: dfe-engine publish-dispatch** — failed at quality stage on real pre-existing CVEs (pytest, cryptography). NOT a gate regression. Handed back to dfe-engine maintainers via [`dfe-engine/docs/superpowers/plans/2026-05-08-ci-canary-publish-fix.md`](../../dfe-engine/docs/superpowers/plans/2026-05-08-ci-canary-publish-fix.md). Blocked on merge coordination (Derek + Kaz have WIP on `feat/transport-filter-helpers`).
+- [ ] **Canary 3 (added 2026-05-08): hyperi-pylib publish-dispatch** — preferred Python canary now: clean lib, no parallel WIP. User to drive.
+
+**Ordering update 2026-05-08:** Python canary order is hyperi-pylib FIRST (clean), then dfe-engine after merge coordination. dfe-engine is the most complex Python case but its current branch state makes it a poor first canary.
 
 **Done means:**
 
