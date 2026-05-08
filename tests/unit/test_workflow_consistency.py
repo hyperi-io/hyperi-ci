@@ -95,9 +95,7 @@ def test_plan_job_uses_predict_version_composite(workflow_name: str) -> None:
     wf = _load_workflow(workflow_name)
     plan = wf.get("jobs", {}).get("plan", {})
     steps = plan.get("steps", [])
-    uses_predict = any(
-        "predict-version" in str(step.get("uses", "")) for step in steps
-    )
+    uses_predict = any("predict-version" in str(step.get("uses", "")) for step in steps)
     assert uses_predict, (
         f"{workflow_name}.plan: must call hyperi-io/hyperi-ci/.github/"
         f"actions/predict-version composite action. Re-implementing the "
@@ -115,8 +113,7 @@ def test_release_tail_uses_shared_workflow(workflow_name: str) -> None:
     jobs = wf.get("jobs", {})
     # Look for any job that calls _release-tail.yml
     tail_calls = [
-        job for job in jobs.values()
-        if "_release-tail.yml" in str(job.get("uses", ""))
+        job for job in jobs.values() if "_release-tail.yml" in str(job.get("uses", ""))
     ]
     assert tail_calls, (
         f"{workflow_name}: no job uses _release-tail.yml. "
