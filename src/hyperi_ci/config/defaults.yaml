@@ -13,6 +13,27 @@
 # Values: python, typescript, golang, rust, none
 language: none
 
+# Project metadata
+#
+# project.status: lifecycle stage of THIS PROJECT (not of any given release).
+# Information-only field — surfaced in `hyperi-ci config` and at stage
+# startup in CI logs so consumers can immediately see "oh, it's not GA".
+# Does not affect publish behaviour (that's `publish.channel`).
+#
+# Values:
+#   experimental — early R&D, no API commitment, expect anything
+#   alpha        — usable, expect breaks, no semver guarantees
+#   beta         — feature-stable, polishing, mild breaks possible
+#   ga           — semver guarantees apply, breaking only on major bump
+#   legacy       — still works, successor exists, plan migration
+#   deprecated   — active sunset, do not adopt
+#
+# Unset = "not declared" — the log line says "(status not declared)" which
+# is itself a useful signal. New projects scaffolded by `hyperi-ci init`
+# default to `experimental`.
+project:
+  status: ""
+
 # Runner Settings
 #
 # mode: controls which GitHub Actions runners are used

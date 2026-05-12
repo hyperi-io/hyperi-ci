@@ -158,6 +158,12 @@ def _render_hyperi_ci_yaml(
     """Render .hyperi-ci.yaml with language-specific defaults."""
     config: dict = {
         "language": language,
+        # Information-only: lifecycle stage of the project. Surfaced
+        # in CI logs and `hyperi-ci config`. Does not gate any
+        # behaviour. New projects default to `experimental` — bump as
+        # the project matures. Values: experimental | alpha | beta |
+        # ga | legacy | deprecated.
+        "project": {"status": "experimental"},
         "quality": {"enabled": True},
         "test": {"enabled": True},
         "build": {"enabled": True, "strategies": ["native"]},
