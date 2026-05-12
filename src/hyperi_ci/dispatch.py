@@ -29,7 +29,7 @@ from hyperi_ci.common import (
     success,
     warn,
 )
-from hyperi_ci.config import CIConfig, load_config
+from hyperi_ci.config import VALID_PROJECT_STATUSES, CIConfig, load_config
 from hyperi_ci.detect import detect_language
 from hyperi_ci.quality import commit_validation, gitleaks
 
@@ -386,6 +386,16 @@ def run_stage(
     info(f"Detected language: {language}")
 
     config = load_config(reload=True, project_dir=project_dir)
+
+    # Surface project lifecycle status so consumers reading CI logs can
+    # immediately see "oh, this isn't GA". Skipped silently when the
+    # field is unset — `.hyperi-ci.yaml` need not declare it.
+    status = str(config.get("project.status") or "").strip().lower()
+    if status:
+        if status in VALID_PROJECT_STATUSES and status != "ga":
+            warn(f"Project status: {status}")
+        elif status in VALID_PROJECT_STATUSES:
+            info(f"Project status: {status}")
 
     handler = _STAGE_HANDLERS[stage]
     if stage == "build":

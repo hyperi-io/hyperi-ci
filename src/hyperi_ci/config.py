@@ -22,6 +22,19 @@ import yaml
 
 _CONFIG_DIR = Path(__file__).resolve().parent / "config"
 
+# Lifecycle stages a project can declare via `project.status` in
+# `.hyperi-ci.yaml`. Information-only — does not gate any behaviour.
+# Empty string (default) means "not declared" — the field is optional.
+# See defaults.yaml for what each stage means.
+VALID_PROJECT_STATUSES: tuple[str, ...] = (
+    "experimental",
+    "alpha",
+    "beta",
+    "ga",
+    "legacy",
+    "deprecated",
+)
+
 # Re-exported for callers that just want the constant without going through
 # the full CIConfig load (e.g. quality-stage drift checks). Authoritative
 # value is defined alongside the Pydantic model that uses it as a field
@@ -228,6 +241,22 @@ def load_config(
     publish_target = (
         publish.get("target", "oss") if isinstance(publish, dict) else "oss"
     )
+
+    # Validate project.status if set. Warn on unknown values rather than
+    # failing — the field is information-only and a typo shouldn't break
+    # the build.
+    project = config.get("project", {})
+    if isinstance(project, dict):
+        status = str(project.get("status") or "").strip().lower()
+        if status and status not in VALID_PROJECT_STATUSES:
+            # Lazy import to avoid circular dep at module load.
+            from hyperi_ci.common import warn
+
+            warn(
+                f"Unknown project.status '{status}' — expected one of "
+                f"{', '.join(VALID_PROJECT_STATUSES)} (or unset). "
+                f"Treating as unset for logging purposes."
+            )
 
     _config_cache = CIConfig(
         language=config.get("language", "none"),
