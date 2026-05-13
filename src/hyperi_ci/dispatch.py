@@ -62,6 +62,19 @@ VALID_STAGES = (
     "publish",
 )
 
+# Parenthetical clarifier appended to the "Project status: <X>" log line
+# so a reader of the CI output immediately knows what each value means
+# without having to consult the docs. `ga` and `legacy` defaults are
+# bare — the clarifier carries the signal only where it adds something.
+_STATUS_CLARIFIER: dict[str, str] = {
+    "experimental": " — pre-GA, no API commitment",
+    "alpha": " — pre-GA, expect breaks",
+    "beta": " — pre-GA, polishing",
+    "ga": "",
+    "legacy": " — being phased out, plan migration",
+    "deprecated": " — do not adopt, scheduled for removal",
+}
+
 # Languages that share a handler package. The left-hand name is what
 # `detect_language()` returns (honest — describes what the project actually
 # is); the right-hand name is the handler module to dispatch to. Keeping
@@ -389,13 +402,13 @@ def run_stage(
 
     # Surface project lifecycle status so consumers reading CI logs can
     # immediately see "oh, this isn't GA". Skipped silently when the
-    # field is unset — `.hyperi-ci.yaml` need not declare it.
+    # field is unset — `.hyperi-ci.yaml` need not declare it. Always
+    # logged as INFO; the parenthetical clarifier on non-ga values
+    # carries the signal without elevating log level (a beta project
+    # isn't an error, just a fact).
     status = str(config.get("project.status") or "").strip().lower()
-    if status:
-        if status in VALID_PROJECT_STATUSES and status != "ga":
-            warn(f"Project status: {status}")
-        elif status in VALID_PROJECT_STATUSES:
-            info(f"Project status: {status}")
+    if status in VALID_PROJECT_STATUSES:
+        info(f"Project status: {status}{_STATUS_CLARIFIER.get(status, '')}")
 
     handler = _STAGE_HANDLERS[stage]
     if stage == "build":
