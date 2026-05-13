@@ -83,8 +83,20 @@ source = ["hyperi_ci"]
 # Keep this low so `pytest --cov` reports without failing the run.
 fail_under = 30
 
-[tool.uv.sources]
-hyperi-pylib = { path = "/projects/hyperi-pylib", editable = true }
+# NOTE: no [tool.uv.sources] block here on purpose.
+#
+# Tempting to point `hyperi-pylib` at a local editable checkout
+# (/projects/hyperi-pylib) so dev changes flow through `uv sync`,
+# but that breaks two things:
+#   - Dependabot's update_graph job can't resolve the path inside its
+#     container — fails on every push to main, leaving the dep-graph
+#     stale and GitHub's vulnerability banner inaccurate.
+#   - Reproducibility for anyone whose checkout isn't at that exact
+#     path.
+#
+# For local pylib co-development, run from this repo:
+#   uv pip install -e /path/to/hyperi-pylib
+# Manual install is per-developer scratch state; not in pyproject.
 
 [dependency-groups]
 dev = [
