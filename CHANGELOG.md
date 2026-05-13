@@ -1,3 +1,12 @@
+## [2.2.3](https://github.com/hyperi-io/hyperi-ci/compare/v2.2.2...v2.2.3) (2026-05-13)
+
+
+### Bug Fixes
+
+* **deployment:** exclude self-name from tier detection ([f61921b](https://github.com/hyperi-io/hyperi-ci/commit/f61921b9b0dcfe36c3c1809b0bacbedee4c78386))
+* **deps:** declare typer explicitly in runtime dependencies ([895a4a6](https://github.com/hyperi-io/hyperi-ci/commit/895a4a637e2f7f55bd74e2276ddb51f9184fc7cd))
+* **deps:** remove editable pylib source override to unblock Dependabot graph ([a4f1b28](https://github.com/hyperi-io/hyperi-ci/commit/a4f1b28551758e0e1287bf931f60e52194076021))
+
 ## [2.2.2](https://github.com/hyperi-io/hyperi-ci/compare/v2.2.1...v2.2.2) (2026-05-13)
 
 
