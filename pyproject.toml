@@ -23,6 +23,11 @@ dependencies = [
     "pydantic>=2.13",
     "pyyaml>=6.0",
     "tomli-w>=1.2.0",
+    # typer is used directly by src/hyperi_ci/cli.py — declare
+    # explicitly rather than relying on the transitive pull from
+    # hyperi-pylib's CLI infra. If pylib ever drops typer, this
+    # keeps us pinned to a known surface.
+    "typer>=0.25",
 ]
 
 [project.scripts]

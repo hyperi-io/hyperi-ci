@@ -183,6 +183,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "tomli-w" },
+    { name = "typer" },
 ]
 
 [package.dev-dependencies]
@@ -200,6 +201,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.13" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "tomli-w", specifier = ">=1.2.0" },
+    { name = "typer", specifier = ">=0.25" },
 ]
 
 [package.metadata.requires-dev]
