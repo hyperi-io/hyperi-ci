@@ -94,25 +94,91 @@ def _depends_on(manifest: Path, package_name: str) -> bool:
         dependencies = ["hyperi-pylib>=2.24"]
         dependencies = ["hyperi-pylib[metrics]>=2.24"]
 
-    Doesn't try to parse TOML because:
+    **Self-match exclusion.** If the manifest declares its own package
+    name as ``package_name`` (i.e. this manifest IS the library, not a
+    consumer of it), returns False. Without this, the library's own
+    repo gets misdispatched as a Tier 1/2 consumer and the
+    deployment-artefact producer fails with "no Rust binary found" /
+    equivalent. The check is generic — applies to any rustlib /
+    pylib / future *lib and to consumer projects whose own name
+    happens to share a prefix.
+
+    Doesn't try to parse TOML beyond pulling the ``name`` field out of
+    a recognised top-level section because:
+
       1. Avoids hauling `tomllib` in just for tier detection.
       2. Catches every form (workspace inheritance, extras, comments)
          that a stricter parse would have to handle case by case.
-      3. False positives only if the package name appears in another
-         context (e.g., a comment mentioning it) — acceptable, since
-         the consequence is "we try to invoke generate-artefacts and
-         the binary fails clearly" rather than silent miscategorisation.
+      3. False positives in the dep-match are bounded: the consequence
+         is "we try to invoke generate-artefacts and the binary fails
+         clearly" rather than silent miscategorisation.
 
     Args:
         manifest: Path to Cargo.toml or pyproject.toml.
         package_name: Dependency name to look for.
 
     Returns:
-        True if the substring appears in the manifest's text.
+        True if the substring appears AND the manifest isn't itself
+        the named package; False otherwise.
 
     """
     try:
         text = manifest.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return False
-    return package_name in text
+    if package_name not in text:
+        return False
+    return _manifest_self_name(text) != package_name
+
+
+# Top-level tables whose ``name`` field is the manifest's own package
+# name. Listed in scan precedence — the first match wins, so a Cargo
+# manifest's ``[package] name`` beats any later table (unlikely in
+# Cargo, but pyproject.toml can legitimately have both ``[project]``
+# and ``[tool.poetry]`` and we treat them equivalently).
+_SELF_NAME_SECTIONS: frozenset[str] = frozenset(
+    {"[package]", "[project]", "[tool.poetry]"}
+)
+
+
+def _manifest_self_name(text: str) -> str | None:
+    """Extract the manifest's own package name, if declared.
+
+    Scans for a ``name = "..."`` (or single-quoted) line inside one of
+    the recognised self-name sections (:data:`_SELF_NAME_SECTIONS`).
+    Returns the first match. No TOML parser — line-scoped, tolerant of
+    extra whitespace around ``=``.
+
+    Args:
+        text: Full manifest text.
+
+    Returns:
+        The declared package name, or ``None`` if no recognised
+        declaration is found.
+
+    """
+    current_section: str | None = None
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            current_section = stripped
+            continue
+        if current_section not in _SELF_NAME_SECTIONS:
+            continue
+        # Cheap pre-filter: skip lines that don't even start with "name".
+        if not stripped.startswith("name"):
+            continue
+        eq = stripped.find("=")
+        if eq < 0:
+            continue
+        # Confirm the LHS is exactly "name" (avoids matching "name-foo").
+        lhs = stripped[:eq].strip()
+        if lhs != "name":
+            continue
+        rhs = stripped[eq + 1 :].strip()
+        # Strip a trailing inline comment if present.
+        if "#" in rhs:
+            rhs = rhs[: rhs.index("#")].strip()
+        if len(rhs) >= 2 and rhs[0] in {'"', "'"} and rhs[-1] == rhs[0]:
+            return rhs[1:-1]
+    return None
