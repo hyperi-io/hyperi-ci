@@ -1,3 +1,11 @@
+## [2.2.2](https://github.com/hyperi-io/hyperi-ci/compare/v2.2.1...v2.2.2) (2026-05-13)
+
+
+### Bug Fixes
+
+* **config:** add project.status lifecycle field (information-only) ([a66a1a2](https://github.com/hyperi-io/hyperi-ci/commit/a66a1a23d911548078ebc62ba9995392ce9ec087))
+* **dispatch:** log project.status as INFO with clarifier phrase, not WARN ([c9de7cd](https://github.com/hyperi-io/hyperi-ci/commit/c9de7cdcae47939b93a830987e59e13643516027))
+
 ## [2.2.1](https://github.com/hyperi-io/hyperi-ci/compare/v2.2.0...v2.2.1) (2026-05-08)
 
 
