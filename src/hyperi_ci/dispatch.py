@@ -334,6 +334,33 @@ def stage_container(language: str, config: CIConfig) -> int:
     return container_run(config, language=language)
 
 
+def stage_helm(language: str, config: CIConfig) -> int:
+    """Helm stage — package + push (oci://ghcr.io/hyperi-io/helm-charts).
+
+    Cross-language: subprocesses into the consumer's ``emit-chart``
+    subcommand, applies overlays per ``publish.helm.overlays``, lints,
+    packages, pushes to GHCR OCI Helm.
+    """
+    del language  # unused — helm is language-agnostic
+    from hyperi_ci.helm.stage import run as helm_run
+
+    return helm_run(config)
+
+
+def stage_argocd(language: str, config: CIConfig) -> int:
+    """ArgoCD stage — generate Application + push to central GitOps repo.
+
+    Cross-language: subprocesses into the consumer's ``emit-argocd``,
+    applies overlays per ``publish.argocd.overlays``, pushes resulting
+    YAML into ``hyperi-io/gitops`` per the env push policy
+    (direct for dev/staging, PR for prod).
+    """
+    del language  # unused — argocd is language-agnostic
+    from hyperi_ci.argocd.stage import run as argocd_run
+
+    return argocd_run(config)
+
+
 def stage_generate(language: str, config: CIConfig) -> int:
     """Deployment-artefact generation — cross-tier stage.
 
@@ -359,6 +386,8 @@ _STAGE_HANDLERS = {
     "build": stage_build,
     "generate": stage_generate,
     "container": stage_container,
+    "helm": stage_helm,
+    "argocd": stage_argocd,
     "publish": stage_publish,
 }
 

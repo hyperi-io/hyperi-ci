@@ -828,6 +828,81 @@ def emit_artefacts_cmd(
     raise typer.Exit(rc)
 
 
+@app.command(name="overlay-render")
+def overlay_render_cmd(
+    kind: Annotated[
+        str | None,
+        typer.Option(
+            "--kind",
+            "-k",
+            help=(
+                "Artefact to render: dockerfile | helm | argocd. "
+                "Default: emit all three into the output directory "
+                "(mirrors the deployment contract's bulk behaviour)."
+            ),
+        ),
+    ] = None,
+    output: Annotated[
+        str | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help=(
+                "Output path. For single-kind renders, stdout if omitted "
+                "(Helm requires --output since it's a directory). For "
+                "all-three renders (default), defaults to ./ci-overlay/."
+            ),
+        ),
+    ] = None,
+    project_dir: Annotated[
+        str,
+        typer.Option(
+            "--project-dir",
+            "-C",
+            help="Project root directory (default: cwd)",
+        ),
+    ] = ".",
+    binary: Annotated[
+        str | None,
+        typer.Option(
+            "--binary",
+            help=(
+                "Override the consumer binary used for emit-* subcommand "
+                "calls. Default: <project_dir>/<project_name> via PATH."
+            ),
+        ),
+    ] = None,
+) -> None:
+    """Render deployment artefacts with `publish.<kind>.overlays` applied.
+
+    Subprocesses into the consumer's emit-{dockerfile,chart,argocd}
+    subcommand to fetch the contract-generated base, then splices any
+    overlays declared in `.hyperi-ci.yaml` and writes the final
+    artefact(s).
+
+    Use this for local container builds when the project declares
+    container overlays (since bare `docker build .` against the repo's
+    checked-in Dockerfile won't have the overlay content):
+
+        hyperi-ci overlay-render --kind dockerfile -o /tmp/Dockerfile.final
+        docker buildx build -f /tmp/Dockerfile.final .
+
+    Or render everything (Dockerfile + Helm chart + ArgoCD Application)
+    into one directory for inspection:
+
+        hyperi-ci overlay-render -o /tmp/ci-overlay
+    """
+    from hyperi_ci.deployment.overlay.cli import render
+
+    rc = render(
+        kind=kind,
+        project_dir=Path(project_dir).resolve(),
+        output=Path(output) if output else None,
+        binary=binary,
+    )
+    raise typer.Exit(rc)
+
+
 def main() -> int:
     """CLI entry point."""
     # Force UTF-8 with replacement on stdout/stderr so log lines containing

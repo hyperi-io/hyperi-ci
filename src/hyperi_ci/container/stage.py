@@ -366,7 +366,17 @@ def _build_from_content(
     push_to_main: bool,
     extra_labels: dict[str, str] | None = None,
 ) -> int:
-    """Write ``dockerfile_content`` to a temp file then build."""
+    """Write ``dockerfile_content`` to a temp file then build.
+
+    Before writing, splice any ``publish.container.overlays:`` declared
+    in ``.hyperi-ci.yaml`` into the Dockerfile content. See
+    ``deployment/overlay/`` and the framework spec.
+    """
+    dockerfile_content = _splice_dockerfile_overlays(
+        dockerfile_content=dockerfile_content,
+        container_cfg=container_cfg,
+    )
+
     with tempfile.NamedTemporaryFile(
         mode="w",
         suffix=".Dockerfile",
@@ -526,6 +536,48 @@ def _filter_platforms_to_available_binaries(
                 f"{candidate} not present (not built by current Build job)"
             )
     return kept
+
+
+def _splice_dockerfile_overlays(
+    *,
+    dockerfile_content: str,
+    container_cfg: dict,
+) -> str:
+    """Apply ``publish.container.overlays`` to ``dockerfile_content``.
+
+    No-op when no overlays are declared. Imports the overlay module
+    lazily so projects without overlays don't pay the import cost.
+
+    Anchor catalog + splice mechanics live in
+    ``hyperi_ci.deployment.overlay.anchors.dockerfile``. Errors (missing
+    anchor, missing fragment file, malformed declaration) propagate so
+    the build fails loudly with an actionable message.
+    """
+    raw_overlays = container_cfg.get("overlays")
+    if not raw_overlays:
+        return dockerfile_content
+
+    from hyperi_ci.deployment.overlay import apply_overlays
+    from hyperi_ci.deployment.overlay.anchors.dockerfile import (
+        DockerfileAnchorResolver,
+    )
+    from hyperi_ci.deployment.overlay.model import parse_simple_overlays
+
+    overlays = parse_simple_overlays(raw_overlays, artefact="container")
+    binary_name = container_cfg.get("binary_name") or Path.cwd().name
+    resolver = DockerfileAnchorResolver(binary_name=binary_name)
+
+    info(
+        f"  Container: applying {len(overlays)} overlay(s) to Dockerfile "
+        f"(anchors used: {sorted({o.anchor for o in overlays})})"
+    )
+    return apply_overlays(
+        base=dockerfile_content,
+        overlays=overlays,
+        resolver=resolver,
+        base_dir=Path.cwd(),
+        artefact="container",
+    )
 
 
 def _detect_rust_version() -> str:
