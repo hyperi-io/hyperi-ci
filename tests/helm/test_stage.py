@@ -34,9 +34,7 @@ def _make_chart(chart_dir: Path) -> None:
         ),
         encoding="utf-8",
     )
-    (chart_dir / "values.yaml").write_text(
-        "replicaCount: 1\n", encoding="utf-8"
-    )
+    (chart_dir / "values.yaml").write_text("replicaCount: 1\n", encoding="utf-8")
     (chart_dir / "templates").mkdir()
     (chart_dir / "templates" / "deployment.yaml").write_text(
         textwrap.dedent(
@@ -63,11 +61,11 @@ def _config(overlays: dict | None = None, *, enabled: bool = True) -> CIConfig:
 
 def _mock_run_factory(emit_chart_dir: Path | None):
     """Build a subprocess.run mock that:
-       - emit-chart: writes a chart into the path arg
-       - helm lint: success
-       - helm template: returns a minimal rendered yaml
-       - helm package: returns a path to a fake .tgz
-       - helm push: success
+    - emit-chart: writes a chart into the path arg
+    - helm lint: success
+    - helm template: returns a minimal rendered yaml
+    - helm package: returns a path to a fake .tgz
+    - helm push: success
     """
     package_path: dict = {"path": None}
 
@@ -78,11 +76,7 @@ def _mock_run_factory(emit_chart_dir: Path | None):
         result.stderr = ""
 
         # emit-chart subcommand from the consumer binary
-        if (
-            len(cmd) >= 3
-            and cmd[1] == "emit-chart"
-            and emit_chart_dir is None
-        ):
+        if len(cmd) >= 3 and cmd[1] == "emit-chart" and emit_chart_dir is None:
             chart_target = Path(cmd[2])
             _make_chart(chart_target)
             return result
@@ -111,9 +105,7 @@ def _mock_run_factory(emit_chart_dir: Path | None):
             tgz = dest / "dfe-transform-vector-1.0.13.tgz"
             tgz.write_bytes(b"fake-tgz")
             package_path["path"] = tgz
-            result.stdout = (
-                f"Successfully packaged chart and saved it to: {tgz}"
-            )
+            result.stdout = f"Successfully packaged chart and saved it to: {tgz}"
             return result
 
         # helm push
@@ -141,9 +133,7 @@ class TestHelmStage:
             rc = helm_run(cfg)
         assert rc == 0
 
-    def test_no_helm_binary_fails_clean(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:
+    def test_no_helm_binary_fails_clean(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.chdir(tmp_path)
         cfg = _config()
         with patch("hyperi_ci.helm.stage.shutil.which", return_value=None):
@@ -161,15 +151,11 @@ class TestHelmStage:
         cfg = _config()
         run_mock = _mock_run_factory(emit_chart_dir=None)
         with patch("hyperi_ci.helm.stage.shutil.which", return_value="/usr/bin/helm"):
-            with patch(
-                "hyperi_ci.helm.stage.subprocess.run", side_effect=run_mock
-            ):
+            with patch("hyperi_ci.helm.stage.subprocess.run", side_effect=run_mock):
                 rc = helm_run(cfg)
         assert rc == 0  # validate succeeds without push
 
-    def test_publish_mode_pushes_to_oci(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:
+    def test_publish_mode_pushes_to_oci(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("HYPERCI_PUBLISH_MODE", "true")
 
@@ -183,15 +169,11 @@ class TestHelmStage:
             return run_mock(cmd, **kwargs)
 
         with patch("hyperi_ci.helm.stage.shutil.which", return_value="/usr/bin/helm"):
-            with patch(
-                "hyperi_ci.helm.stage.subprocess.run", side_effect=_wrapper
-            ):
+            with patch("hyperi_ci.helm.stage.subprocess.run", side_effect=_wrapper):
                 rc = helm_run(cfg)
         assert rc == 0
         # `helm push` must have been called with the right registry.
-        push_calls = [
-            c for c in recorded_calls if c[:2] == ["helm", "push"]
-        ]
+        push_calls = [c for c in recorded_calls if c[:2] == ["helm", "push"]]
         assert len(push_calls) == 1
         assert push_calls[0][-1] == "oci://ghcr.io/hyperi-io/helm-charts"
 
@@ -234,7 +216,6 @@ class TestHelmStage:
                 rc = helm_run(cfg)
         assert rc == 0
         assert captured["path"] == "templates/extra-pvc.yaml", (
-            f"overlay add should have written templates/extra-pvc.yaml, "
-            f"got: {captured}"
+            f"overlay add should have written templates/extra-pvc.yaml, got: {captured}"
         )
         assert captured["content"] == "kind: PersistentVolumeClaim\n"

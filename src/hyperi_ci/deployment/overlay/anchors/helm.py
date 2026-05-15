@@ -106,9 +106,7 @@ class HelmAnchorResolver:
         """
         # Parse multi-doc YAML; preserve order so the rebuilt stream is
         # diff-friendly against the input.
-        docs: list[dict[str, Any] | None] = list(
-            yaml.safe_load_all(rendered_yaml)
-        )
+        docs: list[dict[str, Any] | None] = list(yaml.safe_load_all(rendered_yaml))
 
         for index, patch in enumerate(patches):
             patch_text = patch.resolve_patch(base_dir=base_dir, index=index)
@@ -180,9 +178,7 @@ def _matches_target(doc: dict[str, Any], target: dict[str, Any]) -> bool:
     return True
 
 
-def _strategic_merge(
-    base: dict[str, Any], patch: dict[str, Any]
-) -> dict[str, Any]:
+def _strategic_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
     """Recursively merge ``patch`` into ``base``.
 
     Rules:
@@ -198,10 +194,7 @@ def _strategic_merge(
         if val == {"$patch": "delete"}:
             result.pop(key, None)
             continue
-        if (
-            isinstance(val, dict)
-            and isinstance(result.get(key), dict)
-        ):
+        if isinstance(val, dict) and isinstance(result.get(key), dict):
             result[key] = _strategic_merge(result[key], val)
         else:
             result[key] = val

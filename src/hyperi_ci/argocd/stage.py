@@ -46,10 +46,7 @@ def run(config: CIConfig) -> int:
     if not isinstance(argocd_cfg, dict):
         argocd_cfg = {}
     if not argocd_cfg.get("enabled"):
-        info(
-            "ArgoCD publish disabled (publish.argocd.enabled: false) "
-            "— skipping"
-        )
+        info("ArgoCD publish disabled (publish.argocd.enabled: false) — skipping")
         return 0
 
     project_dir = Path.cwd()
@@ -152,18 +149,13 @@ def _push_to_gitops(
     from hyperi_ci.argocd.gitops_push import GitopsPushConfig, push
 
     if not envs:
-        warn(
-            "publish.argocd.enabled: true but no envs declared — "
-            "nothing to push"
-        )
+        warn("publish.argocd.enabled: true but no envs declared — nothing to push")
         return 0
 
     app = Path.cwd().name
     rcs: list[int] = []
     for env_name, push_mode in envs:
-        path = string.Template(path_template).safe_substitute(
-            APP=app, ENV=env_name
-        )
+        path = string.Template(path_template).safe_substitute(APP=app, ENV=env_name)
         cfg = GitopsPushConfig(
             repo=repo,
             path=path,
