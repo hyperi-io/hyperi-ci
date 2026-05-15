@@ -67,6 +67,7 @@ class ArgoCDAnchorResolver:
 
     @property
     def known_anchors(self) -> list[str]:
+        """List of all anchor names this resolver recognises (sorted)."""
         return sorted(_KNOWN_ANCHORS)
 
     def splice(self, base: str, overlays: Iterable[Overlay]) -> str:

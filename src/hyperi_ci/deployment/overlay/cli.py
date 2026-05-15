@@ -4,8 +4,10 @@
 #
 # License:   Proprietary - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""``hyperi-ci overlay-render`` - subprocess into the consumer's
-contract generator, splice declared overlays, write the final artefact.
+"""``hyperi-ci overlay-render`` subcommand handler.
+
+Subprocesses into the consumer's contract generator, splices declared
+overlays, writes the final artefact.
 
 Used by:
   * The container/helm/argocd build stages internally (subprocess
@@ -67,6 +69,7 @@ def render(
 
     Returns:
         Process exit code.
+
     """
     handlers: dict[str, Callable[..., int]] = {
         "dockerfile": _render_dockerfile,

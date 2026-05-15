@@ -81,6 +81,7 @@ class DockerfileAnchorResolver:
 
     @property
     def known_anchors(self) -> list[str]:
+        """List of all anchor names this resolver recognises (sorted)."""
         base = list(_SIMPLE_ANCHORS.keys()) + ["after-base-deps"]
         if self.binary_name:
             base.append("after-app-binary")
