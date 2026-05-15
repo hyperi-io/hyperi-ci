@@ -31,7 +31,10 @@ class TestValidMessages:
         rarely (genuinely new user-facing features only). The gate forces
         the operator to opt in deliberately.
         """
-        # Without opt-in: rejected
+        # Without opt-in: rejected. Explicitly clear the env var in case
+        # the calling shell has it set (e.g. from `hyperi-ci push --allow-feat`
+        # which exports HYPERCI_ALLOW_FEAT=1 to the test phase too).
+        monkeypatch.delenv("HYPERCI_ALLOW_FEAT", raising=False)
         result = validate_message("feat(auth): add OAuth2 support")
         assert result.valid is False
         assert result.error_type == "feat_without_opt_in"
@@ -312,7 +315,10 @@ class TestFeatGate:
     additions as `feat:`. The gate forces a deliberate opt-in decision.
     """
 
-    def test_feat_without_opt_in_rejected(self) -> None:
+    def test_feat_without_opt_in_rejected(self, monkeypatch) -> None:
+        # Same env-leak guard as above — `--allow-feat` exports the env
+        # var to the test phase, masking this gate's behaviour.
+        monkeypatch.delenv("HYPERCI_ALLOW_FEAT", raising=False)
         result = validate_message("feat: add new endpoint")
         assert result.valid is False
         assert result.error_type == "feat_without_opt_in"
