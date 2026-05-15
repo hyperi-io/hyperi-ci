@@ -346,7 +346,10 @@ def _helm_push(*, tgz_path: Path, registry: str) -> int:
 
 
 def _is_publish_mode() -> bool:
-    """Same logic as container/stage.py - publish vs validate."""
+    """Return True when the workflow has signalled this is a publish run.
+
+    Same logic as ``container/stage.py`` and ``argocd/stage.py``.
+    """
     flag = os.environ.get("HYPERCI_PUBLISH_MODE", "").strip().lower()
     if flag in ("true", "1", "yes"):
         return True

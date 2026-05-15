@@ -36,10 +36,10 @@ class OverlayValidationError(OverlayError):
     artefact: str = ""
     overlay_index: int = -1
 
-    def __post_init__(self) -> None:
+    def __post_init__(self) -> None:  # noqa: D105
         super().__init__(self.__str__())
 
-    def __str__(self) -> str:
+    def __str__(self) -> str:  # noqa: D105
         loc = ""
         if self.artefact and self.overlay_index >= 0:
             loc = (
@@ -58,10 +58,10 @@ class OverlayFileMissing(OverlayError):  # noqa: N818 — name reads naturally; 
     artefact: str = ""
     overlay_index: int = -1
 
-    def __post_init__(self) -> None:
+    def __post_init__(self) -> None:  # noqa: D105
         super().__init__(self.__str__())
 
-    def __str__(self) -> str:
+    def __str__(self) -> str:  # noqa: D105
         loc = (
             f" (publish.{self.artefact}.overlays[{self.overlay_index}])"
             if self.artefact and self.overlay_index >= 0
@@ -79,10 +79,10 @@ class AnchorNotFound(OverlayError):  # noqa: N818 — name reads naturally; suff
     candidates: list[str] = field(default_factory=list)
     base_excerpt: str = ""
 
-    def __post_init__(self) -> None:
+    def __post_init__(self) -> None:  # noqa: D105
         super().__init__(self.__str__())
 
-    def __str__(self) -> str:
+    def __str__(self) -> str:  # noqa: D105
         msg = (
             f"overlay anchor {self.anchor!r} not found in "
             f"{self.artefact} base"

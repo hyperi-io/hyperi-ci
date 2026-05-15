@@ -208,7 +208,10 @@ def _resolve_envs(argocd_cfg: dict) -> list[tuple[str, str]]:
 
 
 def _is_publish_mode() -> bool:
-    """Same logic as container/stage.py and helm/stage.py."""
+    """Return True when the workflow has signalled this is a publish run.
+
+    Same logic as ``container/stage.py`` and ``helm/stage.py``.
+    """
     flag = os.environ.get("HYPERCI_PUBLISH_MODE", "").strip().lower()
     if flag in ("true", "1", "yes"):
         return True

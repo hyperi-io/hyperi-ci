@@ -63,6 +63,7 @@ def apply_overlays(
 
     Returns:
         The spliced artefact text.
+
     """
     if not overlays:
         return base
