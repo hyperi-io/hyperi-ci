@@ -221,6 +221,31 @@ RUN hyperi-ci prime-image --distro noble --all
 
 ### High Priority
 
+- [ ] **GitOps repo bootstrap (`hyperi-io/gitops`)** — full spec at
+      [`docs/superpowers/specs/2026-05-15-gitops-repo-bootstrap-spec.md`](docs/superpowers/specs/2026-05-15-gitops-repo-bootstrap-spec.md).
+      Public monorepo, single ApplicationSet with git-generator scanning
+      `applications/*/*.yaml`, directory-per-env (no branch-per-env),
+      branch protection on `applications/*/prod.yaml`. Manual steps
+      (org admin creates repo + cluster admin applies bootstrap
+      ApplicationSet) plus an optional `hyperi-ci init-gitops`
+      subcommand to scaffold the initial layout. Lands in parallel
+      with overlay framework Phase 3 (ArgoCD overlays) — gitops repo
+      must exist before hyperi-ci can push Application YAMLs into it.
+
+- [ ] **Deployment-artefact overlay framework** — full spec at
+      [`docs/superpowers/specs/2026-05-15-deployment-overlay-framework-spec.md`](docs/superpowers/specs/2026-05-15-deployment-overlay-framework-spec.md).
+      Three-mode design (contract / contract+amendments / BYO) for
+      Dockerfile + Helm + ArgoCD. Phased: **Phase 1 Dockerfile**
+      unblocks `dfe-transform-vector` v1.0.13 release (currently uses
+      a per-consumer `emit_dockerfile()` stop-gap restored from the
+      eroded commit 2345818 pattern). Phase 2 Helm + Phase 3 ArgoCD
+      are designed but implement-on-pull. Distribution targets
+      decided 2026-05-15: containers → GHCR (existing), Helm →
+      GHCR OCI (`oci://ghcr.io/hyperi-io/helm-charts`), ArgoCD →
+      central public `hyperi-io/gitops` repo with ApplicationSet
+      git-generator on `applications/*/*.yaml`. Spec includes
+      bootstrap notes for the new gitops repo.
+
 - [ ] Validate TypeScript pipeline end-to-end (after Rust)
   - Standalone fixture: github.com/hyperi-io/ci-test-ts-app (cloned at /projects/ci-test-ts-app)
   - Need a real consumer TypeScript project to cut over
