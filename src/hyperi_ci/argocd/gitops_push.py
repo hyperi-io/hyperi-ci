@@ -31,7 +31,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from hyperi_ci.common import error, info, success, warn
+from hyperi_ci.common import error, info, success
 
 
 @dataclass(frozen=True, slots=True)

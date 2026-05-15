@@ -16,10 +16,7 @@ import textwrap
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 from hyperi_ci.deployment.overlay.cli import render
-
 
 _BASE_DOCKERFILE = textwrap.dedent(
     """\

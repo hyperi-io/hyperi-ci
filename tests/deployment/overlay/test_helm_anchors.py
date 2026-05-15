@@ -34,7 +34,6 @@ from hyperi_ci.deployment.overlay.model import (
     HelmPatchOverlay,
 )
 
-
 # A representative two-resource rendered chart (Deployment + Service).
 _RENDERED_CHART = textwrap.dedent(
     """\

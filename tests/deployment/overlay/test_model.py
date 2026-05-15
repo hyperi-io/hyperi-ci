@@ -26,9 +26,7 @@ from hyperi_ci.deployment.overlay.errors import (
     OverlayValidationError,
 )
 from hyperi_ci.deployment.overlay.model import (
-    HelmAddOverlay,
     HelmOverlays,
-    HelmPatchOverlay,
     Overlay,
     OverlayConfig,
     overlay_grouped_by_anchor,

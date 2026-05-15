@@ -27,7 +27,6 @@ from hyperi_ci.deployment.overlay.anchors.argocd import ArgoCDAnchorResolver
 from hyperi_ci.deployment.overlay.errors import AnchorNotFound
 from hyperi_ci.deployment.overlay.model import Overlay
 
-
 _BASE = textwrap.dedent(
     """\
     apiVersion: argoproj.io/v1alpha1
@@ -62,7 +61,7 @@ class TestSpecSourceAppend:
 
 
 class TestSyncPolicyAppendAutoCreates:
-    def test_creates_syncPolicy_when_missing(self) -> None:
+    def test_creates_syncpolicy_when_missing(self) -> None:
         resolver = ArgoCDAnchorResolver()
         overlay = Overlay(
             anchor="spec.syncPolicy.append",
@@ -73,7 +72,7 @@ class TestSyncPolicyAppendAutoCreates:
         assert doc["spec"]["syncPolicy"]["automated"]["prune"] is True
         assert doc["spec"]["syncPolicy"]["automated"]["selfHeal"] is True
 
-    def test_merges_into_existing_syncPolicy(self) -> None:
+    def test_merges_into_existing_syncpolicy(self) -> None:
         base_with_syncpolicy = textwrap.dedent(
             """\
             apiVersion: argoproj.io/v1alpha1

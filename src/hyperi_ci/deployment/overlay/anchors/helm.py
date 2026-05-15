@@ -34,7 +34,6 @@ algorithm via JSON 6902 fallback for list operations.
 
 from __future__ import annotations
 
-import shutil
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path

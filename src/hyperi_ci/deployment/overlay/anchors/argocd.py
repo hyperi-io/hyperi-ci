@@ -40,7 +40,6 @@ import yaml
 from hyperi_ci.deployment.overlay.errors import AnchorNotFound
 from hyperi_ci.deployment.overlay.model import Overlay
 
-
 _KNOWN_ANCHORS = (
     "spec.source.before",
     "spec.source.append",

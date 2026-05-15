@@ -16,8 +16,6 @@ import textwrap
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from hyperi_ci.config import CIConfig
 from hyperi_ci.helm.stage import run as helm_run
 
