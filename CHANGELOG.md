@@ -1,3 +1,18 @@
+# [2.3.0](https://github.com/hyperi-io/hyperi-ci/compare/v2.2.3...v2.3.0) (2026-05-15)
+
+
+### Bug Fixes
+
+* docstring polish (D102/D105/D205/D401) on overlay framework ([249b525](https://github.com/hyperi-io/hyperi-ci/commit/249b525e724928f6fe4b70f88f6ad13c5fcff60b))
+* ruff cleanups (D413, D401, N802, E741) on overlay framework files ([b276ef5](https://github.com/hyperi-io/hyperi-ci/commit/b276ef5afd16cc31b3c75e919725dcc98d262322))
+* ruff format on overlay framework files ([78a84f5](https://github.com/hyperi-io/hyperi-ci/commit/78a84f5a3d8c985198e0136e8f2b7a51004674ce))
+* **test:** make feat-gate tests env-independent (clear HYPERCI_ALLOW_FEAT) ([7262309](https://github.com/hyperi-io/hyperi-ci/commit/726230953c0002fa3ef5733386748b11008c211a))
+
+
+### Features
+
+* deployment-artefact overlay framework + helm/argocd stages ([ff63b37](https://github.com/hyperi-io/hyperi-ci/commit/ff63b375e587346ae0340af808b53dcbd47dca57))
+
 ## [2.2.3](https://github.com/hyperi-io/hyperi-ci/compare/v2.2.2...v2.2.3) (2026-05-13)
 
 
