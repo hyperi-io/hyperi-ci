@@ -97,9 +97,7 @@ class TestSyncPolicyAppendAutoCreates:
         out = resolver.splice(base_with_syncpolicy, [overlay])
         doc = yaml.safe_load(out)
         assert doc["spec"]["syncPolicy"]["automated"]["prune"] is True
-        assert doc["spec"]["syncPolicy"]["syncOptions"] == [
-            "CreateNamespace=true"
-        ]
+        assert doc["spec"]["syncPolicy"]["syncOptions"] == ["CreateNamespace=true"]
 
 
 class TestAnnotationsLabelsAutoCreate:
@@ -111,10 +109,7 @@ class TestAnnotationsLabelsAutoCreate:
         )
         out = resolver.splice(_BASE, [overlay])
         doc = yaml.safe_load(out)
-        assert (
-            doc["metadata"]["annotations"]["argocd.argoproj.io/sync-wave"]
-            == "-1"
-        )
+        assert doc["metadata"]["annotations"]["argocd.argoproj.io/sync-wave"] == "-1"
 
     def test_labels_append(self) -> None:
         resolver = ArgoCDAnchorResolver()
@@ -136,9 +131,7 @@ class TestRootAppend:
         )
         out = resolver.splice(_BASE, [overlay])
         doc = yaml.safe_load(out)
-        assert doc["finalizers"] == [
-            "resources-finalizer.argocd.argoproj.io"
-        ]
+        assert doc["finalizers"] == ["resources-finalizer.argocd.argoproj.io"]
 
 
 class TestSpecSourceBefore:
@@ -195,9 +188,6 @@ class TestMultipleOverlays:
         out = resolver.splice(_BASE, overlays)
         doc = yaml.safe_load(out)
         assert doc["spec"]["syncPolicy"]["automated"]["prune"] is True
-        assert (
-            doc["metadata"]["annotations"]["argocd.argoproj.io/sync-wave"]
-            == "-1"
-        )
+        assert doc["metadata"]["annotations"]["argocd.argoproj.io/sync-wave"] == "-1"
         # Last overlay overwrites the original targetRevision
         assert doc["spec"]["source"]["targetRevision"] == "2.0.0"

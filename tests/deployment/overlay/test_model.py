@@ -171,9 +171,7 @@ class TestHelmParsing:
 
     def test_helm_add_requires_path(self) -> None:
         with pytest.raises(OverlayValidationError) as exc:
-            parse_helm_overlays(
-                {"adds": [{"content": "kind: x"}]}
-            )
+            parse_helm_overlays({"adds": [{"content": "kind: x"}]})
         assert "missing required string `path`" in str(exc.value)
 
     def test_helm_add_rejects_both_content_and_file(self) -> None:
@@ -192,9 +190,7 @@ class TestHelmParsing:
 
     def test_helm_patch_requires_target(self) -> None:
         with pytest.raises(OverlayValidationError) as exc:
-            parse_helm_overlays(
-                {"patches": [{"patch": "spec:\n  x: 1\n"}]}
-            )
+            parse_helm_overlays({"patches": [{"patch": "spec:\n  x: 1\n"}]})
         assert "missing required mapping `target`" in str(exc.value)
 
 
@@ -202,15 +198,11 @@ class TestParseOverlayConfig:
     def test_parses_full_publish_block(self) -> None:
         publish = {
             "container": {
-                "overlays": [
-                    {"anchor": "before-user", "content": "RUN x\n"}
-                ]
+                "overlays": [{"anchor": "before-user", "content": "RUN x\n"}]
             },
             "helm": {
                 "overlays": {
-                    "adds": [
-                        {"path": "templates/x.yaml", "content": "kind: x\n"}
-                    ]
+                    "adds": [{"path": "templates/x.yaml", "content": "kind: x\n"}]
                 }
             },
             "argocd": {

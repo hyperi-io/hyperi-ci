@@ -58,9 +58,7 @@ class Overlay:
             )
         path = self.file if self.file.is_absolute() else base_dir / self.file
         if not path.exists():
-            raise OverlayFileMissing(
-                path=path, artefact=artefact, overlay_index=index
-            )
+            raise OverlayFileMissing(path=path, artefact=artefact, overlay_index=index)
         return path.read_text(encoding="utf-8", errors="replace")
 
 
@@ -88,9 +86,7 @@ class HelmAddOverlay:
             )
         path = self.file if self.file.is_absolute() else base_dir / self.file
         if not path.exists():
-            raise OverlayFileMissing(
-                path=path, artefact="helm", overlay_index=index
-            )
+            raise OverlayFileMissing(path=path, artefact="helm", overlay_index=index)
         return path.read_text(encoding="utf-8", errors="replace")
 
 
@@ -123,9 +119,7 @@ class HelmPatchOverlay:
             else base_dir / self.patch_file
         )
         if not path.exists():
-            raise OverlayFileMissing(
-                path=path, artefact="helm", overlay_index=index
-            )
+            raise OverlayFileMissing(path=path, artefact="helm", overlay_index=index)
         return path.read_text(encoding="utf-8", errors="replace")
 
 
@@ -183,9 +177,7 @@ def _parse_simple_overlay(raw: Any, *, artefact: str, index: int) -> Overlay:
     return Overlay(anchor=anchor, content=content, file=file_path)
 
 
-def parse_simple_overlays(
-    raw_list: Any, *, artefact: str
-) -> tuple[Overlay, ...]:
+def parse_simple_overlays(raw_list: Any, *, artefact: str) -> tuple[Overlay, ...]:
     """Parse a list of Dockerfile/ArgoCD overlays."""
     if raw_list is None:
         return ()
@@ -249,9 +241,7 @@ def _parse_helm_patch(raw: Any, *, index: int) -> HelmPatchOverlay:
             artefact="helm",
             overlay_index=index,
         )
-    return HelmPatchOverlay(
-        target=dict(target), patch=patch, patch_file=patch_file
-    )
+    return HelmPatchOverlay(target=dict(target), patch=patch, patch_file=patch_file)
 
 
 def parse_helm_overlays(raw: Any) -> HelmOverlays:
@@ -273,9 +263,7 @@ def parse_helm_overlays(raw: Any) -> HelmOverlays:
         raise OverlayValidationError(
             "helm overlays.patches must be a list", artefact="helm"
         )
-    adds = tuple(
-        _parse_helm_add(item, index=i) for i, item in enumerate(adds_raw)
-    )
+    adds = tuple(_parse_helm_add(item, index=i) for i, item in enumerate(adds_raw))
     patches = tuple(
         _parse_helm_patch(item, index=i) for i, item in enumerate(patches_raw)
     )

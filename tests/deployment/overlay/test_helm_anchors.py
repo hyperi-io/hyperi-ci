@@ -77,9 +77,7 @@ class TestApplyAdds:
             content="kind: PersistentVolumeClaim\n",
         )
         resolver = HelmAnchorResolver()
-        written = resolver.apply_adds(
-            chart_dir=chart, adds=[add], base_dir=tmp_path
-        )
+        written = resolver.apply_adds(chart_dir=chart, adds=[add], base_dir=tmp_path)
         assert written == [chart / "templates" / "vector-pvc.yaml"]
         assert (chart / "templates" / "vector-pvc.yaml").read_text(
             encoding="utf-8"
@@ -96,9 +94,7 @@ class TestApplyAdds:
         frag.mkdir()
         (frag / "pvc.yaml").write_text("kind: PVC\n", encoding="utf-8")
 
-        add = HelmAddOverlay(
-            path="templates/pvc.yaml", file=Path("helm.d/pvc.yaml")
-        )
+        add = HelmAddOverlay(path="templates/pvc.yaml", file=Path("helm.d/pvc.yaml"))
         resolver = HelmAnchorResolver()
         resolver.apply_adds(chart_dir=chart, adds=[add], base_dir=tmp_path)
         assert (chart / "templates" / "pvc.yaml").read_text(
@@ -117,14 +113,12 @@ class TestApplyAdds:
         )
         resolver = HelmAnchorResolver()
         with pytest.raises(OverlayValidationError) as exc:
-            resolver.apply_adds(
-                chart_dir=chart, adds=[add], base_dir=tmp_path
-            )
+            resolver.apply_adds(chart_dir=chart, adds=[add], base_dir=tmp_path)
         assert "would overwrite existing chart file" in str(exc.value)
         # Original untouched.
-        assert (
-            chart / "templates" / "deployment.yaml"
-        ).read_text(encoding="utf-8") == "kind: Deployment\n"
+        assert (chart / "templates" / "deployment.yaml").read_text(
+            encoding="utf-8"
+        ) == "kind: Deployment\n"
 
     def test_creates_intermediate_dirs(self, tmp_path: Path) -> None:
         chart = tmp_path / "chart"
@@ -157,9 +151,7 @@ class TestApplyPatches:
         assert deployment["spec"]["replicas"] == 5
         # Service still untouched
         service = next(d for d in docs if d["kind"] == "Service")
-        assert service["spec"]["ports"] == [
-            {"port": 8080, "targetPort": 8080}
-        ]
+        assert service["spec"]["ports"] == [{"port": 8080, "targetPort": 8080}]
 
     def test_target_with_namespace_disambiguates(self, tmp_path: Path) -> None:
         # Two deployments with same name in different namespaces
@@ -191,9 +183,7 @@ class TestApplyPatches:
             rendered_yaml=rendered, patches=[patch], base_dir=tmp_path
         )
         docs = list(yaml.safe_load_all(out))
-        prod = next(
-            d for d in docs if d["metadata"]["namespace"] == "prod"
-        )
+        prod = next(d for d in docs if d["metadata"]["namespace"] == "prod")
         dev = next(d for d in docs if d["metadata"]["namespace"] == "dev")
         assert prod["spec"]["replicas"] == 10
         assert dev["spec"]["replicas"] == 1
@@ -276,9 +266,7 @@ class TestApplyPatches:
             rendered_yaml=rendered, patches=[patch], base_dir=tmp_path
         )
         docs = list(yaml.safe_load_all(out))
-        backend = next(
-            d for d in docs if d["metadata"]["labels"]["tier"] == "backend"
-        )
+        backend = next(d for d in docs if d["metadata"]["labels"]["tier"] == "backend")
         frontend = next(
             d for d in docs if d["metadata"]["labels"]["tier"] == "frontend"
         )

@@ -105,10 +105,7 @@ def render(
 
     handler = handlers.get(kind)
     if handler is None:
-        error(
-            f"Unknown overlay kind {kind!r} - expected one of "
-            f"{sorted(handlers)!r}"
-        )
+        error(f"Unknown overlay kind {kind!r} - expected one of {sorted(handlers)!r}")
         return 2
     return handler(project_dir=project_dir, output=output, binary=binary)
 
@@ -194,9 +191,7 @@ def _render_dockerfile(
 
     publish = _load_publish_block(project_dir)
     overlay_cfg = parse_overlay_config(publish)
-    binary_name = (
-        publish.get("container", {}).get("binary_name") or project_dir.name
-    )
+    binary_name = publish.get("container", {}).get("binary_name") or project_dir.name
     resolver = DockerfileAnchorResolver(binary_name=binary_name)
     final = apply_overlays(
         base=base,
@@ -214,9 +209,7 @@ def _render_dockerfile(
     return 0
 
 
-def _render_helm(
-    *, project_dir: Path, output: Path | None, binary: str | None
-) -> int:
+def _render_helm(*, project_dir: Path, output: Path | None, binary: str | None) -> int:
     from hyperi_ci.deployment.overlay.anchors.helm import HelmAnchorResolver
     from hyperi_ci.deployment.overlay.model import parse_overlay_config
 

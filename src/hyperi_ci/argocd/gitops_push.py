@@ -38,11 +38,11 @@ from hyperi_ci.common import error, info, success
 class GitopsPushConfig:
     """Per-call configuration for a gitops push."""
 
-    repo: str          # "hyperi-io/gitops"
-    path: str          # "applications/dfe-loader/dev.yaml"
-    content: str       # the Application YAML
+    repo: str  # "hyperi-io/gitops"
+    path: str  # "applications/dfe-loader/dev.yaml"
+    content: str  # the Application YAML
     commit_message: str
-    push_mode: str     # "direct" | "pr"
+    push_mode: str  # "direct" | "pr"
     branch_main: str = "main"
 
 
@@ -55,8 +55,7 @@ def push(cfg: GitopsPushConfig) -> int:
     )
     if not token:
         error(
-            "No GITOPS_TOKEN / GITHUB_TOKEN in environment — "
-            f"can't push to {cfg.repo}"
+            f"No GITOPS_TOKEN / GITHUB_TOKEN in environment — can't push to {cfg.repo}"
         )
         return 1
 
@@ -70,9 +69,7 @@ def push(cfg: GitopsPushConfig) -> int:
 
         target = clone_dir / cfg.path
         target.parent.mkdir(parents=True, exist_ok=True)
-        existing = (
-            target.read_text(encoding="utf-8") if target.exists() else None
-        )
+        existing = target.read_text(encoding="utf-8") if target.exists() else None
         if existing == cfg.content:
             info(f"  argocd: {cfg.path} already up-to-date — no push needed")
             return 0
@@ -85,9 +82,7 @@ def push(cfg: GitopsPushConfig) -> int:
                 cfg=cfg,
                 token=token,
             )
-        return _push_direct(
-            clone_dir=clone_dir, cfg=cfg, token=token
-        )
+        return _push_direct(clone_dir=clone_dir, cfg=cfg, token=token)
 
 
 # ---- internals ----------------------------------------------------------
@@ -96,9 +91,7 @@ def push(cfg: GitopsPushConfig) -> int:
 def _git_clone(repo: str, dest: Path, *, token: str) -> int:
     """Clone via HTTPS + token. Shallow clone (depth=1) for speed."""
     url = f"https://x-access-token:{token}@github.com/{repo}.git"
-    proc = _run_git(
-        ["clone", "--depth=1", "--no-tags", url, str(dest)], cwd=Path.cwd()
-    )
+    proc = _run_git(["clone", "--depth=1", "--no-tags", url, str(dest)], cwd=Path.cwd())
     if proc.returncode != 0:
         # Don't print the URL (contains the token).
         error(f"git clone {repo} failed (exit {proc.returncode})")
@@ -177,16 +170,12 @@ def _push_pr(
         error(proc.stderr.rstrip())
         return proc.returncode
 
-    proc = _run_git(
-        ["push", "origin", branch_name], cwd=clone_dir
-    )
+    proc = _run_git(["push", "origin", branch_name], cwd=clone_dir)
     if proc.returncode != 0:
         error(proc.stderr.replace(token, "***").rstrip())
         return proc.returncode
 
-    return _open_pr(
-        cfg=cfg, branch=branch_name, token=token
-    )
+    return _open_pr(cfg=cfg, branch=branch_name, token=token)
 
 
 def _open_pr(*, cfg: GitopsPushConfig, branch: str, token: str) -> int:

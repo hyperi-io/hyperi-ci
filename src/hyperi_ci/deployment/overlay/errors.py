@@ -42,9 +42,7 @@ class OverlayValidationError(OverlayError):
     def __str__(self) -> str:  # noqa: D105
         loc = ""
         if self.artefact and self.overlay_index >= 0:
-            loc = (
-                f" (publish.{self.artefact}.overlays[{self.overlay_index}])"
-            )
+            loc = f" (publish.{self.artefact}.overlays[{self.overlay_index}])"
         elif self.artefact:
             loc = f" (publish.{self.artefact}.overlays)"
         return f"{self.message}{loc}"
@@ -83,10 +81,7 @@ class AnchorNotFound(OverlayError):  # noqa: N818 — name reads naturally; suff
         super().__init__(self.__str__())
 
     def __str__(self) -> str:  # noqa: D105
-        msg = (
-            f"overlay anchor {self.anchor!r} not found in "
-            f"{self.artefact} base"
-        )
+        msg = f"overlay anchor {self.anchor!r} not found in {self.artefact} base"
         if self.candidates:
             msg += f" (known anchors for this artefact: {sorted(self.candidates)!r})"
         return msg

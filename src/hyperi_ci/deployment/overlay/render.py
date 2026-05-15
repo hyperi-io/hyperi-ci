@@ -31,8 +31,7 @@ from hyperi_ci.deployment.overlay.model import Overlay
 class _Resolver(Protocol):
     """Anything that knows how to splice overlays into a base string."""
 
-    def splice(self, base: str, overlays: list[Overlay]) -> str:
-        ...
+    def splice(self, base: str, overlays: list[Overlay]) -> str: ...
 
 
 @dataclass(frozen=True, slots=True)

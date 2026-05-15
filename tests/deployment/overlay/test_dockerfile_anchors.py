@@ -64,9 +64,7 @@ class TestSimpleAnchors:
 
     def test_after_base_image_lands_just_after_from_directive(self) -> None:
         resolver = DockerfileAnchorResolver()
-        overlay = Overlay(
-            anchor="after-base-image", content="# right-after-FROM\n"
-        )
+        overlay = Overlay(anchor="after-base-image", content="# right-after-FROM\n")
         out = resolver.splice(_BASE, [overlay])
         lines = out.splitlines()
         # FROM should be line 0; overlay should be one of the next few lines.
@@ -84,9 +82,7 @@ class TestSimpleAnchors:
 
     def test_before_entrypoint(self) -> None:
         resolver = DockerfileAnchorResolver()
-        overlay = Overlay(
-            anchor="before-entrypoint", content="# right-before-ep\n"
-        )
+        overlay = Overlay(anchor="before-entrypoint", content="# right-before-ep\n")
         out = resolver.splice(_BASE, [overlay])
         assert out.index("# right-before-ep") < out.index("ENTRYPOINT")
 
@@ -100,9 +96,7 @@ class TestSimpleAnchors:
 class TestPackageManagerAnchor:
     def test_after_base_deps_lands_after_apt_get(self) -> None:
         resolver = DockerfileAnchorResolver()
-        overlay = Overlay(
-            anchor="after-base-deps", content="# post-apt\n"
-        )
+        overlay = Overlay(anchor="after-base-deps", content="# post-apt\n")
         out = resolver.splice(_BASE, [overlay])
         # Overlay must be after the apt-get line and before COPY.
         assert out.index("# post-apt") > out.index("apt-get update")

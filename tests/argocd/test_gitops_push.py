@@ -75,9 +75,7 @@ class TestPushDirect:
                 return _ok_proc()
             return _ok_proc()
 
-        with patch(
-            "hyperi_ci.argocd.gitops_push.subprocess.run", side_effect=_run_git
-        ):
+        with patch("hyperi_ci.argocd.gitops_push.subprocess.run", side_effect=_run_git):
             rc = push(cfg)
         assert rc == 0
         # Verify the sequence: clone, config x2, add, commit, push
@@ -87,9 +85,7 @@ class TestPushDirect:
         assert "commit" in ops
         assert "push" in ops
 
-    def test_no_change_skips_commit(
-        self, monkeypatch, tmp_path: Path
-    ) -> None:
+    def test_no_change_skips_commit(self, monkeypatch, tmp_path: Path) -> None:
         """If file content matches what's already in the repo, no push."""
         monkeypatch.setenv("GITOPS_TOKEN", "fake-token")
 
@@ -111,9 +107,7 @@ class TestPushDirect:
                 return _ok_proc()
             return _ok_proc()
 
-        with patch(
-            "hyperi_ci.argocd.gitops_push.subprocess.run", side_effect=_run_git
-        ):
+        with patch("hyperi_ci.argocd.gitops_push.subprocess.run", side_effect=_run_git):
             rc = push(cfg)
         assert rc == 0
 
@@ -132,9 +126,7 @@ class TestPushDirect:
                 return _fail_proc(returncode=2, stderr="permission denied")
             return _ok_proc()
 
-        with patch(
-            "hyperi_ci.argocd.gitops_push.subprocess.run", side_effect=_run_git
-        ):
+        with patch("hyperi_ci.argocd.gitops_push.subprocess.run", side_effect=_run_git):
             rc = push(cfg)
         assert rc == 2
 
@@ -167,9 +159,7 @@ class TestPushPR:
                 )
             return _ok_proc()
 
-        with patch(
-            "hyperi_ci.argocd.gitops_push.subprocess.run", side_effect=_run
-        ):
+        with patch("hyperi_ci.argocd.gitops_push.subprocess.run", side_effect=_run):
             rc = push(cfg)
         assert rc == 0
         git_ops = [c[1] for c in recorded if c[0] == "git" and len(c) > 1]

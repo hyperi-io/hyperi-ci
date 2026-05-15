@@ -50,9 +50,7 @@ def _make_project(tmp_path: Path, hyperi_ci_yaml: str) -> Path:
     """Create a minimal project dir with .hyperi-ci.yaml."""
     project = tmp_path / "myapp"
     project.mkdir()
-    (project / ".hyperi-ci.yaml").write_text(
-        hyperi_ci_yaml, encoding="utf-8"
-    )
+    (project / ".hyperi-ci.yaml").write_text(hyperi_ci_yaml, encoding="utf-8")
     return project
 
 

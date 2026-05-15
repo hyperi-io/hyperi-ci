@@ -76,9 +76,7 @@ def run(config: CIConfig) -> int:
             if rc != 0:
                 return rc
 
-            patches_present = bool(
-                helm_cfg.get("overlays", {}).get("patches")
-            )
+            patches_present = bool(helm_cfg.get("overlays", {}).get("patches"))
             rendered_path: Path | None = None
             if patches_present:
                 rendered_path, rc = _helm_template_and_patch(
@@ -214,7 +212,9 @@ def _helm_template_and_patch(
     if not helm_overlays.patches:
         return None, 0
 
-    info(f"  helm: rendering chart for post-render patching ({len(helm_overlays.patches)} patches)")
+    info(
+        f"  helm: rendering chart for post-render patching ({len(helm_overlays.patches)} patches)"
+    )
     proc = subprocess.run(
         ["helm", "template", "release-name", str(chart_dir)],
         capture_output=True,

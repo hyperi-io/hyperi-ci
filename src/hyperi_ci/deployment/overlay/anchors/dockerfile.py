@@ -63,9 +63,7 @@ _PKG_MANAGER_RE = re.compile(
 # Recognised binary-COPY shape for `after-app-binary`. Matches:
 #   COPY <name> /usr/local/bin/<name>
 #   COPY --chown=... <name> ...
-_BINARY_COPY_TEMPLATE = (
-    r"^\s*COPY\s+(?:--[\w=]+\s+)*{name}(\s|$)"
-)
+_BINARY_COPY_TEMPLATE = r"^\s*COPY\s+(?:--[\w=]+\s+)*{name}(\s|$)"
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,9 +116,7 @@ class DockerfileAnchorResolver:
 
         # Apply insertions bottom-up, before-then-after at the same line
         # so before-anchor lands above after-anchor at the same index.
-        insertions.sort(
-            key=lambda t: (t[0], 0 if t[1] == "after" else 1), reverse=True
-        )
+        insertions.sort(key=lambda t: (t[0], 0 if t[1] == "after" else 1), reverse=True)
         for line_index, position, block in insertions:
             target = line_index + 1 if position == "after" else line_index
             lines.insert(target, block)
@@ -163,9 +159,7 @@ class DockerfileAnchorResolver:
                     candidates=self.known_anchors,
                 )
             pattern = re.compile(
-                _BINARY_COPY_TEMPLATE.format(
-                    name=re.escape(self.binary_name)
-                )
+                _BINARY_COPY_TEMPLATE.format(name=re.escape(self.binary_name))
             )
             for idx, line in enumerate(lines):
                 if pattern.search(line):
