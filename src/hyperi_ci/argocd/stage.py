@@ -34,7 +34,6 @@ from pathlib import Path
 from hyperi_ci.common import error, group, info, success, warn
 from hyperi_ci.config import CIConfig
 
-
 _DEFAULT_REPO = "hyperi-io/gitops"
 _DEFAULT_PATH_TEMPLATE = "applications/${APP}/${ENV}.yaml"
 _DEFAULT_PROD_PUSH_MODE = "pr"

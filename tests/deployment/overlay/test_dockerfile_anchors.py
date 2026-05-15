@@ -24,7 +24,6 @@ from hyperi_ci.deployment.overlay.anchors.dockerfile import (
 from hyperi_ci.deployment.overlay.errors import AnchorNotFound
 from hyperi_ci.deployment.overlay.model import Overlay
 
-
 # A representative base Dockerfile in the shape rustlib/pylib generators emit.
 _BASE = """\
 FROM ubuntu:24.04
@@ -63,7 +62,7 @@ class TestSimpleAnchors:
         idx_user = out.index("USER appuser")
         assert idx_overlay < idx_user
 
-    def test_after_base_image_lands_just_after_FROM(self) -> None:
+    def test_after_base_image_lands_just_after_from_directive(self) -> None:
         resolver = DockerfileAnchorResolver()
         overlay = Overlay(
             anchor="after-base-image", content="# right-after-FROM\n"
@@ -71,9 +70,9 @@ class TestSimpleAnchors:
         out = resolver.splice(_BASE, [overlay])
         lines = out.splitlines()
         # FROM should be line 0; overlay should be one of the next few lines.
-        from_idx = next(i for i, l in enumerate(lines) if l.startswith("FROM"))
+        from_idx = next(i for i, line in enumerate(lines) if line.startswith("FROM"))
         ovl_idx = next(
-            i for i, l in enumerate(lines) if l.startswith("# right-after-FROM")
+            i for i, line in enumerate(lines) if line.startswith("# right-after-FROM")
         )
         assert ovl_idx == from_idx + 1
 

@@ -16,11 +16,8 @@ import textwrap
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from hyperi_ci.argocd.stage import run as argocd_run
 from hyperi_ci.config import CIConfig
-
 
 _BASE_ARGOCD = textwrap.dedent(
     """\

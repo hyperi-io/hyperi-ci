@@ -51,7 +51,7 @@ class OverlayValidationError(OverlayError):
 
 
 @dataclass
-class OverlayFileMissing(OverlayError):
+class OverlayFileMissing(OverlayError):  # noqa: N818 — name reads naturally; suffix would be redundant
     """An overlay's ``file:`` reference doesn't exist on disk."""
 
     path: Path
@@ -71,7 +71,7 @@ class OverlayFileMissing(OverlayError):
 
 
 @dataclass
-class AnchorNotFound(OverlayError):
+class AnchorNotFound(OverlayError):  # noqa: N818 — name reads naturally; suffix would be redundant
     """The named anchor doesn't exist in the base artefact."""
 
     anchor: str

@@ -42,7 +42,6 @@ from dataclasses import dataclass
 from hyperi_ci.deployment.overlay.errors import AnchorNotFound
 from hyperi_ci.deployment.overlay.model import Overlay
 
-
 # Anchor names that don't need positional context, mapped to (where, regex).
 # `where` is one of "before" | "after"; regex matches the landmark line.
 _SIMPLE_ANCHORS: dict[str, tuple[str, re.Pattern[str]]] = {
