@@ -14,6 +14,7 @@ from hyperi_ci.init import (
     _detect_rust_workspace,
     _has_releaserc,
     _makefile_has_ci_targets,
+    _render_contributing,
     _render_hyperi_ci_yaml,
     _render_makefile,
     _render_releaserc,
@@ -71,6 +72,57 @@ class TestRenderTemplates:
             assert "tag: ${{ inputs.tag" in content, (
                 f"{workflow_file}: tag input not forwarded to language workflow"
             )
+
+
+class TestRenderContributing:
+    """CONTRIBUTING.md template tells external contributors they don't
+    need any HyperI tooling, and tells maintainers exactly what to set
+    up to get the strict workflow.
+    """
+
+    def test_includes_project_name(self) -> None:
+        content = _render_contributing("my-project")
+        assert "my-project" in content
+
+    def test_has_two_audiences(self) -> None:
+        # The whole point of this template: separate paths for the
+        # two reader profiles.
+        content = _render_contributing("my-project")
+        assert "External contributors" in content
+        assert "Maintainers" in content
+
+    def test_external_contributors_do_not_need_hyperi_ci(self) -> None:
+        # If we ever drift back to "everyone must install hyperi-ci",
+        # this test catches it.
+        content = _render_contributing("my-project")
+        assert (
+            "do NOT need to install" in content or "do not need to install" in content
+        )
+
+    def test_maintainers_install_hyperi_ci_via_uv_tool(self) -> None:
+        # The maintainer section must show the install path so newcomers
+        # to the maintainer role have the bootstrap right there.
+        content = _render_contributing("my-project")
+        assert "uv tool install hyperi-ci" in content
+
+    def test_maintainers_activate_hooks(self) -> None:
+        # The hooks are opt-in. Maintainer section must document the
+        # activation command.
+        content = _render_contributing("my-project")
+        assert "git config core.hooksPath .githooks" in content
+
+    def test_documents_fork_pr_skipped_ci(self) -> None:
+        # The fork-PR gate in the workflows means contributors see
+        # green checks for non-runs. We surface that explicitly so
+        # they aren't misled.
+        content = _render_contributing("my-project")
+        # Substring of the relevant explanation, robust to wording
+        # tweaks but anchored on the key concept.
+        assert "skipped" in content.lower()
+
+    def test_documents_hyperi_ci_push_for_maintainers(self) -> None:
+        content = _render_contributing("my-project")
+        assert "hyperi-ci push" in content
 
 
 class TestDetectPythonBuildType:
