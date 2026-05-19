@@ -344,6 +344,97 @@ def _build_prepare_cmd(language: str) -> str:
     return f'python3 -c "{base}{version_write}"'
 
 
+def _render_contributing(project_name: str) -> str:
+    """Render CONTRIBUTING.md template.
+
+    Separates maintainer setup (strict tooling, hooks, hyperi-ci CLI)
+    from external-contributor experience (standard tooling, no
+    setup-by-default).
+    """
+    return (
+        f"# Contributing to {project_name}\n"
+        "\n"
+        "Two audiences, two paths.\n"
+        "\n"
+        "## External contributors -- the short path\n"
+        "\n"
+        "**You do NOT need to install `hyperi-ci` or activate any\n"
+        "repo-local git hooks.** Standard tooling is enough.\n"
+        "\n"
+        "1. Fork the repository, clone your fork, create a topic branch.\n"
+        "2. Make your change. Run the project's tests with whatever the\n"
+        "   language ecosystem provides (`pytest`, `cargo test`,\n"
+        "   `npm test`, `go test ./...`). Lint via the standard tools\n"
+        "   the project declares in its manifest (`ruff`, `clippy`,\n"
+        "   `eslint`, `golangci-lint`, etc.). The project's pyproject /\n"
+        "   Cargo.toml / package.json carries the lint config; your IDE\n"
+        "   picks it up without further setup.\n"
+        "3. Commit with whatever message format your workflow uses.\n"
+        "   Open a PR against `main`.\n"
+        "\n"
+        "**What happens to your PR's CI checks:**\n"
+        "\n"
+        "PRs from forks intentionally do not auto-trigger this repo's\n"
+        "full CI pipeline. You will see green checks because all jobs\n"
+        "are skipped, not because they ran and passed. A maintainer\n"
+        "will pull your PR locally to validate it against the full\n"
+        "pipeline. This avoids exposing internal CI credentials and\n"
+        "self-hosted runners to fork-originated workflows, which is the\n"
+        "standard GitHub-side security recommendation.\n"
+        "\n"
+        "If a maintainer requests changes, push to the same branch on\n"
+        "your fork. They will re-validate.\n"
+        "\n"
+        "## Maintainers -- the strict path\n"
+        "\n"
+        "Maintainers opt in to the project's stricter tooling:\n"
+        "\n"
+        "```bash\n"
+        "# install the CLI\n"
+        "uv tool install hyperi-ci          # or: pipx install hyperi-ci\n"
+        "\n"
+        "# activate the repo-local git hooks (commit-msg validation +\n"
+        "# pre-push enforcement of `hyperi-ci push` over bare `git push`)\n"
+        "git config core.hooksPath .githooks\n"
+        "\n"
+        "# verify\n"
+        "hyperi-ci --version\n"
+        "hyperi-ci check                    # quality + test, pre-push gate\n"
+        "```\n"
+        "\n"
+        "Maintainer workflow:\n"
+        "\n"
+        "1. Land changes on `main` via PR or direct push (your call).\n"
+        "2. `hyperi-ci push` instead of `git push`. The pre-push hook\n"
+        "   enforces this; bypass with `HYPERCI_PUSH=1 git push` if you\n"
+        "   know what you are doing.\n"
+        "3. `hyperi-ci push --publish` when you want to ship a release.\n"
+        "   Amends a `Publish: true` trailer to HEAD; the CI pipeline\n"
+        "   picks that up, predicts the next version, stamps it, and\n"
+        "   publishes.\n"
+        "\n"
+        "## What happens when you push commits to your fork\n"
+        "\n"
+        "Nothing on this repo's side. Your fork has its own GitHub\n"
+        "Actions context; this repo's workflows are not triggered until\n"
+        "you open a PR. Your fork's own CI (if you enabled it) runs in\n"
+        "your namespace.\n"
+        "\n"
+        "## Commit message conventions\n"
+        "\n"
+        "Maintainers follow Conventional Commits and the hooks enforce\n"
+        "it. External contributors do not need to follow this format --\n"
+        "the maintainer who merges your PR rewrites the merge commit\n"
+        "as needed.\n"
+        "\n"
+        "## Security disclosures\n"
+        "\n"
+        "Do NOT open a public issue or PR for security vulnerabilities.\n"
+        "See the repository's `SECURITY.md` (if present) or the\n"
+        "organisation's security contact for the disclosure process.\n"
+    )
+
+
 def _render_releaserc(
     project_name: str,
     language: str = "",
@@ -597,6 +688,20 @@ def init_project(
             files_written += 1
     else:
         info("  Skipped .releaserc (already exists)")
+
+    # CONTRIBUTING.md -- only generated if absent. Repos that already
+    # have their own contributing guide keep it; we do not overwrite.
+    contributing_path = project_dir / "CONTRIBUTING.md"
+    if not contributing_path.exists() or force:
+        contributing_content = _render_contributing(project_name)
+        if _write_file(
+            contributing_path,
+            contributing_content,
+            force=force,
+        ):
+            files_written += 1
+    else:
+        info("  Skipped CONTRIBUTING.md (already exists)")
 
     hook_path = project_dir / ".githooks" / "commit-msg"
     if not hook_path.exists() or force:
