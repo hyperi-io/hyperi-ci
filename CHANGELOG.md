@@ -1,3 +1,19 @@
+## [2.3.3](https://github.com/hyperi-io/hyperi-ci/compare/v2.3.2...v2.3.3) (2026-05-20)
+
+
+### Bug Fixes
+
+* **cli:** add hyperi-ci init-topology subcommand ([599fb0c](https://github.com/hyperi-io/hyperi-ci/commit/599fb0cc5075a7c066e7c6c0ff8fbfbd4bd1bdef))
+* **cli:** add hyperi-ci stitch subcommand ([38decd0](https://github.com/hyperi-io/hyperi-ci/commit/38decd0e155aca1846d59092d9127c3140a985c2))
+* **deployment:** add ChartVersionResolver with semver range matching ([6a90869](https://github.com/hyperi-io/hyperi-ci/commit/6a9086929292375d7521dc86a0ada6f4888e2121))
+* **deployment:** generate umbrella Chart.yaml with resolved deps ([e06a155](https://github.com/hyperi-io/hyperi-ci/commit/e06a155a1383cc7860c8dc586e5c287b5523de8a))
+* **deployment:** implement full stitch (values, glue, helm dep update + lint) ([944ef28](https://github.com/hyperi-io/hyperi-ci/commit/944ef280b84cca9f4042ffc7287b9c238719031c))
+* **deployment:** wire ORAS for OCI chart tag listing ([11069bf](https://github.com/hyperi-io/hyperi-ci/commit/11069bff3f8c6ef92eac1af702dd2248a6f678bf))
+* **helm:** add topology-mode to helm stage (stitcher integration) ([ca532d3](https://github.com/hyperi-io/hyperi-ci/commit/ca532d32f65ffdaa55ebb4bc84d423e63657c75d))
+* **init:** add gitops repo scaffolding templates ([1a3a519](https://github.com/hyperi-io/hyperi-ci/commit/1a3a519b72be300d9850dfddac067410f4f6a5ef))
+* **init:** add init_gitops module + CLI subcommand ([67d08a2](https://github.com/hyperi-io/hyperi-ci/commit/67d08a234e61820cc65ba1380214bb38cac6b3d2))
+* **init:** seed gitops docs with reference content ([79bab6b](https://github.com/hyperi-io/hyperi-ci/commit/79bab6b140735fade60a78cef014cdda20d0da31))
+
 ## [2.3.2](https://github.com/hyperi-io/hyperi-ci/compare/v2.3.1...v2.3.2) (2026-05-20)
 
 
