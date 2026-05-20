@@ -1,0 +1,11 @@
+# Default — platform team owns everything
+*       @{{ ORG }}/platform
+
+# Topology authors may co-own their topologies
+/topologies/  @{{ ORG }}/platform
+
+# Terraform changes — strict review
+/terraform/   @{{ ORG }}/platform @{{ ORG }}/sre
+
+# Docs — open to all platform-adjacent contributors
+/docs/        @{{ ORG }}/platform @{{ ORG }}/docs

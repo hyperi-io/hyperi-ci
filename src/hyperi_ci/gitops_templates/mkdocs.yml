@@ -1,0 +1,48 @@
+site_name: GitOps Runbook
+site_description: Deployment topology documentation
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - Concepts:
+      - Overview: concepts/overview.md
+      - Architecture: concepts/architecture.md
+  - How-To:
+      - Add a Topology: how-to/add-topology.md
+      - Add an Application: how-to/add-app.md
+      - Add an Environment: how-to/add-environment.md
+  - Reference:
+      - Topology Schema: reference/topology-schema.md
+      - Sync Waves: reference/sync-waves.md
+  - Operations:
+      - Rollback: operations/rollback.md
+      - Disaster Recovery: operations/disaster-recovery.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true

@@ -1,0 +1,60 @@
+name: Stitch and Publish
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'topologies/**'
+  workflow_dispatch:
+    inputs:
+      topology:
+        description: Specific topology to publish (blank = all)
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: stitch-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Stitch and publish Helm charts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Install hyperi-ci
+        run: uv tool install hyperi-ci
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.0
+      - name: Login to GHCR (Helm OCI)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Stitch and publish
+        env:
+          TOPOLOGY: ${{ github.event.inputs.topology }}
+        run: |
+          set -euo pipefail
+          targets=()
+          if [ -n "${TOPOLOGY}" ]; then
+            targets=("topologies/${TOPOLOGY}/")
+          else
+            for t in topologies/*/; do targets+=("$t"); done
+          fi
+          for topo in "${targets[@]}"; do
+            name=$(basename "$topo")
+            echo "::group::Stitching $name"
+            hyperi-ci stitch "$topo" --output-dir "/tmp/stitched/$name"
+            helm package "/tmp/stitched/$name" -d "/tmp/packaged/"
+            tgz=$(ls "/tmp/packaged/hyperi-deployment-${name}"-*.tgz | head -1)
+            helm push "${tgz}" oci://ghcr.io/hyperi-io/helm-charts
+            echo "Published $tgz"
+            echo "::endgroup::"
+          done

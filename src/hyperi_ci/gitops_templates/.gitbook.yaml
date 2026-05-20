@@ -1,0 +1,6 @@
+# GitBook GitHub Sync configuration.
+# https://docs.gitbook.com/integrations/git-sync/enabling-github-sync
+root: ./docs
+structure:
+  readme: index.md
+  summary: SUMMARY.md
