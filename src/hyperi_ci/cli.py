@@ -7,18 +7,19 @@
 """CLI entry point for HyperI CI.
 
 Usage:
-    hyperi-ci run <stage>       Run a CI stage (setup, quality, test, build, publish)
-    hyperi-ci check             Pre-push checks (quality + test; --full adds build)
-    hyperi-ci push              Push with pre-checks (replaces bare git push)
-    hyperi-ci init              Initialise project (config, Makefile, workflow)
-    hyperi-ci detect            Detect project language
-    hyperi-ci config            Show merged configuration
-    hyperi-ci trigger           Trigger a GitHub Actions workflow run
-    hyperi-ci watch [RUN_ID]    Watch a GitHub Actions run to completion
-    hyperi-ci logs [RUN_ID]     Fetch and filter GitHub Actions run logs
-    hyperi-ci release <tag>     Trigger publish for a version tag
-    hyperi-ci check-commit      Validate commit message format
-    hyperi-ci --version         Show version
+    hyperi-ci run <stage>               Run a CI stage (setup, quality, test, build, publish)
+    hyperi-ci check                     Pre-push checks (quality + test; --full adds build)
+    hyperi-ci push                      Push with pre-checks (replaces bare git push)
+    hyperi-ci init                      Initialise project (config, Makefile, workflow)
+    hyperi-ci detect                    Detect project language
+    hyperi-ci config                    Show merged configuration
+    hyperi-ci trigger                   Trigger a GitHub Actions workflow run
+    hyperi-ci watch [RUN_ID]            Watch a GitHub Actions run to completion
+    hyperi-ci logs [RUN_ID]             Fetch and filter GitHub Actions run logs
+    hyperi-ci release <tag>             Trigger publish for a version tag
+    hyperi-ci check-commit              Validate commit message format
+    hyperi-ci stitch <topology-dir>     Stitch a DeploymentTopology into an umbrella Helm chart
+    hyperi-ci --version                 Show version
 
 Conventions (all commands):
     -V, --version      Show version and exit (global only)
@@ -901,6 +902,140 @@ def overlay_render_cmd(
         binary=binary,
     )
     raise typer.Exit(rc)
+
+
+@app.command(name="stitch")
+def stitch_cmd(
+    topology_dir: Annotated[
+        str,
+        typer.Argument(
+            help="Path to the topology directory (must contain topology.yaml)",
+        ),
+    ],
+    output_dir: Annotated[
+        str | None,
+        typer.Option(
+            "--output-dir",
+            "-o",
+            help="Where to write the stitched umbrella chart (default: ./stitched/<topology-name>/)",
+        ),
+    ] = None,
+    oci_base: Annotated[
+        str,
+        typer.Option(
+            "--oci-base",
+            help="OCI registry URL for per-app charts",
+        ),
+    ] = "oci://ghcr.io/hyperi-io/helm-charts",
+    skip_helm_dep_update: Annotated[
+        bool,
+        typer.Option(
+            "--skip-helm-dep-update",
+            help="Skip `helm dep update` (useful for CI dry-runs)",
+        ),
+    ] = False,
+    skip_helm_lint: Annotated[
+        bool,
+        typer.Option(
+            "--skip-helm-lint",
+            help="Skip `helm lint`",
+        ),
+    ] = False,
+) -> None:
+    """Stitch a DeploymentTopology directory into an umbrella Helm chart.
+
+    Reads ``<topology-dir>/topology.yaml``, resolves each app's version
+    range against the OCI registry, then generates a complete Chart.yaml +
+    values.yaml ready for ``helm package``.
+
+    Exit codes:
+      0  stitched successfully
+      2  topology not found / invalid
+      3  OCI version resolution failed
+      4  helm tooling failure
+    """
+    from hyperi_pylib.deployment.topology import load_topology
+    from hyperi_pylib.deployment.topology.errors import (
+        TopologyError,
+        TopologyValidationError,
+        VersionResolutionError,
+    )
+
+    from hyperi_ci.common import error as _error
+    from hyperi_ci.common import info as _info
+    from hyperi_ci.common import success as _success
+    from hyperi_ci.deployment.topology.resolve import resolve_versions
+    from hyperi_ci.deployment.topology.stitch import stitch_topology
+
+    topo_path = Path(topology_dir)
+
+    # Load and validate the topology
+    _info(f"Loading topology from {topo_path}")
+    try:
+        topology = load_topology(topo_path)
+    except TopologyValidationError as exc:
+        _error(f"Invalid topology: {exc}")
+        raise typer.Exit(2) from exc
+    except TopologyError as exc:
+        _error(f"Topology error: {exc}")
+        raise typer.Exit(2) from exc
+
+    topology_name = topology.metadata.get("name", "topology")
+
+    # Compute output directory
+    out_path = Path(output_dir) if output_dir else Path("stitched") / topology_name
+
+    _info(f"Topology: {topology_name!r} → {out_path}")
+
+    # Build chart → version-range map for hyperi-io apps
+    hyperi_charts: dict[str, str] = {
+        app.name: app.version for app in topology.spec.apps
+    }
+
+    # Resolve versions
+    resolved: dict[str, str] = {}
+
+    if hyperi_charts:
+        _info(f"Resolving {len(hyperi_charts)} app chart(s) from {oci_base}")
+        try:
+            resolved.update(resolve_versions(registry=oci_base, charts=hyperi_charts))
+        except VersionResolutionError as exc:
+            _error(f"Version resolution failed: {exc}")
+            raise typer.Exit(3) from exc
+
+    # Third-party charts — group by repository, resolve each group separately
+    by_repo: dict[str, dict[str, str]] = {}
+    for tp in topology.spec.thirdParty:
+        by_repo.setdefault(tp.repository, {})[tp.name] = tp.version
+
+    for repo, charts in by_repo.items():
+        _info(f"Resolving {len(charts)} third-party chart(s) from {repo}")
+        try:
+            resolved.update(resolve_versions(registry=repo, charts=charts))
+        except VersionResolutionError as exc:
+            _error(f"Version resolution failed: {exc}")
+            raise typer.Exit(3) from exc
+
+    # Stitch the umbrella chart
+    _info(f"Stitching umbrella chart into {out_path}")
+    try:
+        result = stitch_topology(
+            topology,
+            topology_dir=topo_path if topo_path.is_dir() else topo_path.parent,
+            output_dir=out_path,
+            resolved=resolved,
+            oci_base=oci_base,
+            run_helm_dep_update=not skip_helm_dep_update,
+            run_helm_lint=not skip_helm_lint,
+        )
+    except TopologyError as exc:
+        _error(f"Stitch failed: {exc}")
+        raise typer.Exit(4) from exc
+
+    _success(f"Stitched {topology_name!r} → {result.chart_dir}")
+    for chart_name, version in sorted(result.resolved_versions.items()):
+        typer.echo(f"  {chart_name}: {version}")
+    raise typer.Exit(0)
 
 
 def main() -> int:
