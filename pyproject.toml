@@ -18,7 +18,7 @@ dependencies = [
     # The [metrics] extra is required because pylib's __init__.py
     # eagerly imports hyperi_pylib.metrics.prometheus → psutil.
     # Architectural fix (lazy metrics import) is tracked in pylib.
-    "hyperi-pylib[metrics]>=2.28.0",
+    "hyperi-pylib[metrics]>=2.28.2",
     "packaging>=26.0",
     "pydantic>=2.13",
     "pyyaml>=6.0",
