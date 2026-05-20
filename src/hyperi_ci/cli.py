@@ -1063,8 +1063,8 @@ def init_gitops_cmd(
     in TARGET.
 
     Example:
-
         hyperi-ci init-gitops ./my-gitops-repo --org my-github-org
+
     """
     from pathlib import Path as _Path
 
@@ -1102,8 +1102,8 @@ def init_topology_cmd(
     and README.md.
 
     Example:
-
         hyperi-ci init-topology production --app dfe-loader --app dfe-receiver
+
     """
     from pathlib import Path as _Path
 
