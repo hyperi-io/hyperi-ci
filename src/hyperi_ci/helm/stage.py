@@ -46,6 +46,9 @@ def run(config: CIConfig) -> int:
         info("Helm publish disabled (publish.helm.enabled: false) — skipping")
         return 0
 
+    if helm_cfg.get("topology_mode"):
+        return _run_topology_mode(helm_cfg, config)
+
     if shutil.which("helm") is None:
         error("`helm` binary not found on PATH — cannot run helm stage")
         return 1
@@ -343,6 +346,114 @@ def _helm_push(*, tgz_path: Path, registry: str) -> int:
         return proc.returncode
     success(f"Helm chart published: {tgz_path.name} → {registry}")
     return 0
+
+
+def _run_topology_mode(helm_cfg: dict, config: CIConfig) -> int:
+    """Run helm stage in 'gitops topology' mode.
+
+    Reads ``publish.helm.topology`` (a path under the current repo) and
+    invokes the stitcher to compose the umbrella chart instead of the
+    per-app ``emit-chart`` subprocess.
+
+    Exit codes:
+        0: stitched + pushed (publish mode) or validated (validate mode) ok.
+        1: misconfiguration (missing topology path / topology.yaml / helm not on PATH).
+        2: topology loader / validation error.
+        3: version resolution error.
+        4: stitcher error (glue missing, helm dep update / lint failure).
+    """
+    topology_path = helm_cfg.get("topology")
+    if not topology_path:
+        error("publish.helm.topology_mode requires publish.helm.topology to be set")
+        return 1
+
+    topo_dir = Path(topology_path).resolve()
+    if not (topo_dir / "topology.yaml").exists():
+        error(f"no topology.yaml in {topo_dir}")
+        return 1
+
+    # Deferred imports — keep pylib subsystem out of module-level import.
+    from hyperi_ci.deployment.topology.resolve import resolve_versions  # noqa: PLC0415
+    from hyperi_ci.deployment.topology.stitch import stitch_topology  # noqa: PLC0415
+
+    try:
+        from hyperi_pylib.deployment.topology import load_topology  # noqa: PLC0415
+        from hyperi_pylib.deployment.topology.errors import (  # noqa: PLC0415
+            TopologyError,
+            TopologyValidationError,
+            VersionResolutionError,
+        )
+    except ImportError as exc:
+        error(f"hyperi-pylib deployment extras not installed: {exc}")
+        return 1
+
+    registry = helm_cfg.get("registry") or "oci://ghcr.io/hyperi-io/helm-charts"
+    publish_mode = _is_publish_mode()
+
+    with group(f"Helm Topology Stage ({'push' if publish_mode else 'validate'})"):
+        try:
+            topology = load_topology(topo_dir)
+        except (TopologyValidationError, TopologyError) as exc:
+            error(str(exc))
+            return 2
+
+        chart_ranges: dict[str, str] = {}
+        third_party_repos: dict[str, str] = {}
+        for app in topology.spec.apps:
+            chart_ranges[app.name] = app.version
+        for tp in topology.spec.thirdParty:
+            chart_ranges[tp.name] = tp.version
+            third_party_repos[tp.name] = tp.repository
+
+        try:
+            hyperi_resolved = resolve_versions(
+                registry=registry,
+                charts={
+                    n: r for n, r in chart_ranges.items() if n not in third_party_repos
+                },
+            )
+            tp_resolved: dict[str, str] = {}
+            for tp_name, tp_repo in third_party_repos.items():
+                tp_resolved.update(
+                    resolve_versions(
+                        registry=tp_repo,
+                        charts={tp_name: chart_ranges[tp_name]},
+                    )
+                )
+            resolved = {**hyperi_resolved, **tp_resolved}
+        except VersionResolutionError as exc:
+            error(str(exc))
+            return 3
+
+        with tempfile.TemporaryDirectory(prefix="hyperi-helm-topology-") as tmpdir:
+            workspace = Path(tmpdir)
+            chart_dir = workspace / "umbrella"
+            try:
+                result = stitch_topology(
+                    topology,
+                    topology_dir=topo_dir,
+                    output_dir=chart_dir,
+                    resolved=resolved,
+                    oci_base=registry,
+                    run_helm_dep_update=True,
+                    run_helm_lint=True,
+                )
+            except TopologyError as exc:
+                error(str(exc))
+                return 4
+
+            tgz_path, rc = _helm_package(chart_dir=result.chart_dir, dest=workspace)
+            if rc != 0:
+                return rc
+
+            if not publish_mode:
+                success(
+                    f"Umbrella chart built and validated at {tgz_path.name} "
+                    "(no push on validate mode)"
+                )
+                return 0
+
+            return _helm_push(tgz_path=tgz_path, registry=registry)
 
 
 def _is_publish_mode() -> bool:
