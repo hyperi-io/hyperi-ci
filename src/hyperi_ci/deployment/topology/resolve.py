@@ -167,8 +167,35 @@ def resolve_versions(
 
 
 def _fetch_available(registry: str, chart_names: list[str]) -> dict[str, list[str]]:
-    """Query OCI for available versions of each chart.
+    """Query OCI for available versions of each chart via ORAS.
 
-    Task 2.2 replaces this stub with the real ORAS-backed implementation.
+    Args:
+        registry: ``oci://`` registry URL (e.g.
+            ``oci://ghcr.io/hyperi-io/helm-charts``).
+        chart_names: Names to look up under that registry.
+
+    Returns:
+        ``{chart-name: [versions]}``. Charts that 404 produce empty lists.
     """
-    return {}
+    if _OrasClient is None:
+        raise VersionResolutionError(
+            "oras-py not installed; `uv add oras`",
+            chart=chart_names[0] if chart_names else "",
+            version_range="",
+        )
+
+    # Strip oci:// prefix; ORAS uses bare host/path
+    base = registry.removeprefix("oci://")
+    client = _OrasClient()  # auth via standard docker creds chain
+
+    out: dict[str, list[str]] = {}
+    for chart in chart_names:
+        repo = f"{base}/{chart}"
+        try:
+            tags = client.get_tags(repo)
+        except Exception:  # noqa: BLE001
+            # Treat any failure (404, network error, auth) as no versions
+            out[chart] = []
+            continue
+        out[chart] = list(tags)
+    return out
