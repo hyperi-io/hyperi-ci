@@ -1,3 +1,10 @@
+## [2.3.7](https://github.com/hyperi-io/hyperi-ci/compare/v2.3.6...v2.3.7) (2026-05-20)
+
+
+### Bug Fixes
+
+* **push:** stage auto-modified lockfiles into release-marker commit ([e5e1dd7](https://github.com/hyperi-io/hyperi-ci/commit/e5e1dd73d56350f4e25ea75e4f27ea718c7930c2))
+
 ## [2.3.6](https://github.com/hyperi-io/hyperi-ci/compare/v2.3.5...v2.3.6) (2026-05-20)
 
 
