@@ -517,3 +517,88 @@ class TestPrePushHook:
             init_project(tmp_path)
 
         assert hook.read_text() == "#!/bin/bash\n# custom hook\n"
+
+
+class TestStageModifiedLockfiles:
+    """Verify the marker commit absorbs auto-modified lockfiles."""
+
+    def test_stages_cargo_lock_when_modified(self):
+        """Cargo.lock modifications get staged into the marker."""
+        from hyperi_ci.push import _stage_modified_lockfiles
+
+        with patch("hyperi_ci.push.run_cmd") as mock_run:
+            mock_run.side_effect = [
+                # First call: git diff --name-only returns Cargo.lock modified
+                MagicMock(stdout="Cargo.lock\n", returncode=0),
+                # Second call: git add Cargo.lock succeeds
+                MagicMock(stdout="", returncode=0),
+            ]
+            _stage_modified_lockfiles(cwd=None)
+
+        assert mock_run.call_count == 2
+        # First was git diff --name-only
+        assert mock_run.call_args_list[0].args[0] == ["git", "diff", "--name-only"]
+        # Second was git add Cargo.lock
+        assert mock_run.call_args_list[1].args[0] == ["git", "add", "Cargo.lock"]
+
+    def test_stages_multiple_lockfile_types(self):
+        """All known lockfile basenames get staged when modified together."""
+        from hyperi_ci.push import _stage_modified_lockfiles
+
+        with patch("hyperi_ci.push.run_cmd") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(
+                    stdout="Cargo.lock\nuv.lock\npackage-lock.json\n", returncode=0
+                ),
+                MagicMock(stdout="", returncode=0),
+                MagicMock(stdout="", returncode=0),
+                MagicMock(stdout="", returncode=0),
+            ]
+            _stage_modified_lockfiles(cwd=None)
+
+        assert mock_run.call_count == 4
+        staged = [call.args[0][2] for call in mock_run.call_args_list[1:]]
+        assert staged == ["Cargo.lock", "uv.lock", "package-lock.json"]
+
+    def test_ignores_non_lockfile_modifications(self):
+        """User-modified non-lockfile files are NOT auto-staged."""
+        from hyperi_ci.push import _stage_modified_lockfiles
+
+        with patch("hyperi_ci.push.run_cmd") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(stdout="src/main.rs\nCargo.lock\nREADME.md\n", returncode=0),
+                MagicMock(stdout="", returncode=0),
+            ]
+            _stage_modified_lockfiles(cwd=None)
+
+        # Only Cargo.lock should be added; src/main.rs and README.md ignored.
+        assert mock_run.call_count == 2
+        assert mock_run.call_args_list[1].args[0] == ["git", "add", "Cargo.lock"]
+
+    def test_stages_lockfile_in_subdirectory(self):
+        """Lockfiles in subdirectories (basename match) are staged."""
+        from hyperi_ci.push import _stage_modified_lockfiles
+
+        with patch("hyperi_ci.push.run_cmd") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(stdout="services/api/Cargo.lock\n", returncode=0),
+                MagicMock(stdout="", returncode=0),
+            ]
+            _stage_modified_lockfiles(cwd=None)
+
+        assert mock_run.call_args_list[1].args[0] == [
+            "git",
+            "add",
+            "services/api/Cargo.lock",
+        ]
+
+    def test_no_modified_files_is_noop(self):
+        """Empty diff output makes the function a no-op."""
+        from hyperi_ci.push import _stage_modified_lockfiles
+
+        with patch("hyperi_ci.push.run_cmd") as mock_run:
+            mock_run.return_value = MagicMock(stdout="", returncode=0)
+            _stage_modified_lockfiles(cwd=None)
+
+        # Only the git diff call should fire; no git add follow-up.
+        assert mock_run.call_count == 1

@@ -30,6 +30,23 @@ from hyperi_ci.gh import get_current_branch, require_gh
 PUBLISH_TRAILER_KEY = "Publish"
 PUBLISH_TRAILER_VALUE = "true"
 
+# Lockfile basenames we auto-stage into the release-marker commit when
+# they show up modified in the working tree at commit time. Cargo
+# routinely updates Cargo.lock during the quality stage to sync with
+# Cargo.toml, and we don't want that drift to fail the subsequent
+# rebase. Same applies to uv / poetry / npm / yarn / pnpm / go.
+_AUTO_STAGE_LOCKFILES: frozenset[str] = frozenset(
+    {
+        "Cargo.lock",
+        "uv.lock",
+        "poetry.lock",
+        "package-lock.json",
+        "yarn.lock",
+        "pnpm-lock.yaml",
+        "go.sum",
+    }
+)
+
 # Bump → conventional-commits type that semantic-release will treat as
 # the corresponding semver bump. We deliberately exclude "major" — major
 # bumps require a human to write `BREAKING CHANGE:` in the commit body
@@ -305,6 +322,7 @@ def _write_version_and_commit(
 
     try:
         run_cmd(["git", "add", "VERSION"], cwd=cwd, capture=True)
+        _stage_modified_lockfiles(cwd=cwd)
         run_cmd(
             [
                 "git",
@@ -319,6 +337,33 @@ def _write_version_and_commit(
         error(f"Failed to create release-marker commit: {exc}")
         return 1
     return 0
+
+
+def _stage_modified_lockfiles(*, cwd: str | None) -> None:
+    """Stage any modified lockfiles (Cargo.lock, uv.lock, ...) into the marker.
+
+    Quality / test invocations of cargo / uv / npm routinely refresh
+    lockfiles to match the manifest. Those drifts get left unstaged
+    after :func:`_write_version_and_commit` writes VERSION, and the
+    subsequent ``git pull --rebase`` then fails on "unstaged changes".
+    Stage any known lockfile modifications so the marker commit absorbs
+    them and the rebase has a clean working tree to work with.
+
+    Only stages lockfiles whose basename is in :data:`_AUTO_STAGE_LOCKFILES`.
+    User-modified non-lockfile files are left untouched.
+    """
+    result = run_cmd(
+        ["git", "diff", "--name-only"],
+        cwd=cwd,
+        capture=True,
+    )
+    modified = (result.stdout or "").splitlines()
+    for rel_path in modified:
+        rel_path = rel_path.strip()
+        if not rel_path:
+            continue
+        if Path(rel_path).name in _AUTO_STAGE_LOCKFILES:
+            run_cmd(["git", "add", rel_path], cwd=cwd, capture=True)
 
 
 def _has_publish_trailer(message: str) -> bool:
