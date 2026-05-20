@@ -251,6 +251,9 @@ No code changes, no workflow changes.
 | `hyperi-ci run quality\|test\|build\|generate\|container\|publish` | Run a single stage locally |
 | `hyperi-ci init-contract --app-name <name>` | Scaffold `ci/deployment-contract.json` (Tier 3) |
 | `hyperi-ci emit-artefacts <output-dir>` | Generate Dockerfile + chart + ArgoCD app from contract |
+| `hyperi-ci stitch <dir>` | Compose a deployment topology into an umbrella Helm chart |
+| `hyperi-ci init-gitops <dir>` | Scaffold a new gitops monorepo |
+| `hyperi-ci init-topology <name>` | Scaffold a new topology in existing gitops repo |
 | `hyperi-ci check-commit --list` | Show all accepted commit types |
 | `hyperi-ci detect` | Show detected language |
 | `hyperi-ci config` | Show merged config |
