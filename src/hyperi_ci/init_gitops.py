@@ -4,6 +4,14 @@
 #
 # License:   Proprietary - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
+"""Scaffold a new hyperi-io/gitops monorepo from packaged templates.
+
+Provides :func:`init_gitops` (full repo skeleton: topologies, argocd,
+values, terraform, docs site, workflows) and :func:`init_topology`
+(single topology directory inside an existing gitops repo).
+Templates live under ``src/hyperi_ci/gitops_templates/`` and are
+packaged into the wheel via ``[tool.hatch.build.targets.wheel.force-include]``.
+"""
 
 from __future__ import annotations
 
@@ -38,6 +46,7 @@ def init_gitops(
 
     Raises:
         GitopsInitError: When *target* is non-empty and *force* is False.
+
     """
     target = Path(target).resolve()
 
@@ -103,6 +112,7 @@ def init_topology(
     Raises:
         GitopsInitError: For invalid name or if the topology directory already
             exists.
+
     """
     if not _TOPO_NAME_RE.match(name):
         raise GitopsInitError(
