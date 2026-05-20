@@ -1,3 +1,10 @@
+## [2.3.5](https://github.com/hyperi-io/hyperi-ci/compare/v2.3.4...v2.3.5) (2026-05-20)
+
+
+### Bug Fixes
+
+* **deployment:** D-rule cleanup in topology + cli docstrings ([88fc7c9](https://github.com/hyperi-io/hyperi-ci/commit/88fc7c9bf2fd779d78b29d160c076a0dba23ed66))
+
 ## [2.3.4](https://github.com/hyperi-io/hyperi-ci/compare/v2.3.3...v2.3.4) (2026-05-20)
 
 
