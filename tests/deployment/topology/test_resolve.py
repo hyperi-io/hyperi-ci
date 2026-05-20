@@ -59,3 +59,56 @@ def test_resolver_ignores_prerelease_by_default():
         available={"dfe-loader": ["1.18.0", "1.19.0-rc.1", "1.18.3"]},
     )
     assert resolver.resolve("dfe-loader", "^1.0") == "1.18.3"
+
+
+# --- _fetch_available (OCI integration) ------------------------------
+
+
+def test_fetch_available_uses_oras(monkeypatch):
+    """_fetch_available queries the OCI registry via oras.client."""
+    from hyperi_ci.deployment.topology import resolve
+
+    class _MockOras:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_tags(self, repo, **kwargs):
+            return {
+                "ghcr.io/hyperi-io/helm-charts/dfe-loader": [
+                    "1.18.0",
+                    "1.18.3",
+                    "1.19.0",
+                ],
+                "ghcr.io/hyperi-io/helm-charts/dfe-receiver": ["1.15.0"],
+            }[repo]
+
+    monkeypatch.setattr(resolve, "_OrasClient", _MockOras)
+
+    out = resolve._fetch_available(
+        "oci://ghcr.io/hyperi-io/helm-charts",
+        ["dfe-loader", "dfe-receiver"],
+    )
+    assert out == {
+        "dfe-loader": ["1.18.0", "1.18.3", "1.19.0"],
+        "dfe-receiver": ["1.15.0"],
+    }
+
+
+def test_fetch_available_handles_missing_chart(monkeypatch):
+    """A 404 from OCI is treated as 'no versions' (returns []), not an error."""
+    from hyperi_ci.deployment.topology import resolve
+
+    class _MockOras:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_tags(self, repo, **kwargs):
+            raise FileNotFoundError(repo)
+
+    monkeypatch.setattr(resolve, "_OrasClient", _MockOras)
+
+    out = resolve._fetch_available(
+        "oci://ghcr.io/hyperi-io/helm-charts",
+        ["dfe-loader"],
+    )
+    assert out == {"dfe-loader": []}
