@@ -1,3 +1,11 @@
+## [2.3.2](https://github.com/hyperi-io/hyperi-ci/compare/v2.3.1...v2.3.2) (2026-05-20)
+
+
+### Bug Fixes
+
+* **ci:** gate release channel on publish-target=both for new push-trigger path ([c25787b](https://github.com/hyperi-io/hyperi-ci/commit/c25787b38b726c2fe1fe9db843c9b2f5ce5b0dce))
+* **deps:** bump hyperi-pylib floor to >=2.28.2 (topology subsystem) ([3026bcc](https://github.com/hyperi-io/hyperi-ci/commit/3026bcc3f5f1722cc958e9ce939d0d4fc9919ece))
+
 ## [2.3.1](https://github.com/hyperi-io/hyperi-ci/compare/v2.3.0...v2.3.1) (2026-05-20)
 
 
