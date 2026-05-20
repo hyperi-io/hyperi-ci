@@ -293,10 +293,41 @@ uv run hyperi-ci push --no-ci        # Push, skip CI
 uv run hyperi-ci publish --list      # List unpublished version tags
 uv run hyperi-ci publish v1.3.0      # Retroactive: dispatch publish on existing tag
 uv run hyperi-ci check-commit --list # List accepted commit types
+uv run hyperi-ci stitch <dir>        # Compose a deployment topology into an umbrella Helm chart
+uv run hyperi-ci init-gitops <dir>   # Scaffold a new gitops monorepo
+uv run hyperi-ci init-topology <name> # Scaffold a new topology in existing gitops repo
 ```
 
 `--release` and `release` are kept as deprecated aliases of `--publish` /
 `publish` for back-compat; will be removed in v4.0.
+
+## Gitops & Helm Topology Stitching
+
+The `stitch` subcommand and associated `init-gitops` / `init-topology`
+commands support a **gitops workflow** for managing Helm deployments
+across multiple applications.
+
+- **`hyperi-ci stitch <topology-dir>`** — composes a deployment topology
+  into an umbrella Helm chart. Reads `<dir>/topology.yaml`, resolves
+  `apps[]` semver ranges against OCI registries, generates `Chart.yaml`
+  + `values.yaml` + glue templates, runs `helm dep update` + `helm lint`.
+  Output is ready for `helm package` or `helm repo add`.
+
+- **`hyperi-ci init-gitops <dir> [--org NAME]`** — scaffolds a new gitops
+  monorepo skeleton with `topologies/`, `argocd/`, `values/`, `terraform/`,
+  `docs/` (MkDocs Material), `.github/workflows/`, README, CODEOWNERS,
+  and LICENSE.
+
+- **`hyperi-ci init-topology <name> [--app NAME ...]`** — scaffolds a new
+  topology directory inside an existing gitops repo, creating `topology.yaml`,
+  `values.yaml`, `glue/`, and README.
+
+### Helm Stage Topology Mode
+
+The Helm stage gains a `topology_mode` opt-in (via `publish.helm.topology_mode: true`
+in `.hyperi-ci.yaml`) that switches from per-app chart emission to topology
+stitching for gitops-repo CI. When enabled, the stage calls `hyperi-ci stitch`
+instead of running per-app chart generators.
 
 `--bump-patch` / `--bump-minor` are for the case where you want to ship
 a release whose commits aren't release-worthy under conventional-commits
