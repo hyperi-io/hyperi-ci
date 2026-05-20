@@ -1,3 +1,10 @@
+## [2.3.6](https://github.com/hyperi-io/hyperi-ci/compare/v2.3.5...v2.3.6) (2026-05-20)
+
+
+### Bug Fixes
+
+* **init:** suppress false-positive semgrep importlib.resources warning ([382f7b9](https://github.com/hyperi-io/hyperi-ci/commit/382f7b913eb3428f5ad307a202b07d012d7ebf71))
+
 ## [2.3.5](https://github.com/hyperi-io/hyperi-ci/compare/v2.3.4...v2.3.5) (2026-05-20)
 
 
