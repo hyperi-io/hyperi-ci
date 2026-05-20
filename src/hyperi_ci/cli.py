@@ -1038,6 +1038,90 @@ def stitch_cmd(
     raise typer.Exit(0)
 
 
+@app.command(name="init-gitops")
+def init_gitops_cmd(
+    target: str = typer.Argument(
+        ...,
+        help="Destination directory for the new gitops repo.",
+    ),
+    org: str = typer.Option(
+        "hyperi-io",
+        "--org",
+        help="GitHub org name substituted into CODEOWNERS.",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Write into a non-empty directory (existing files are preserved).",
+    ),
+) -> None:
+    """Scaffold a new hyperi-io/gitops monorepo from bundled templates.
+
+    Creates the standard directory structure, GitHub Actions workflows,
+    ArgoCD manifests, Terraform skeleton, and MkDocs documentation site
+    in TARGET.
+
+    Example:
+
+        hyperi-ci init-gitops ./my-gitops-repo --org my-github-org
+    """
+    from pathlib import Path as _Path
+
+    from hyperi_ci.common import error as _error
+    from hyperi_ci.init_gitops import GitopsInitError, init_gitops
+
+    try:
+        rc = init_gitops(_Path(target), org=org, force=force)
+    except GitopsInitError as exc:
+        _error(str(exc))
+        raise typer.Exit(code=2) from exc
+    raise typer.Exit(code=rc)
+
+
+@app.command(name="init-topology")
+def init_topology_cmd(
+    name: str = typer.Argument(
+        ...,
+        help="Topology name (lowercase RFC-1123-ish, e.g. 'default').",
+    ),
+    gitops_root: str = typer.Option(
+        ".",
+        "--gitops-root",
+        help="Path to the gitops repo root (default: current directory).",
+    ),
+    apps: list[str] = typer.Option(
+        [],
+        "--app",
+        help="HyperI application chart name (repeat for multiple apps).",
+    ),
+) -> None:
+    """Scaffold a new topology directory inside an existing gitops repo.
+
+    Creates topologies/<NAME>/ with topology.yaml, values.yaml, glue/,
+    and README.md.
+
+    Example:
+
+        hyperi-ci init-topology production --app dfe-loader --app dfe-receiver
+    """
+    from pathlib import Path as _Path
+
+    from hyperi_ci.common import error as _error
+    from hyperi_ci.common import warn as _warn
+    from hyperi_ci.init_gitops import GitopsInitError, init_topology
+
+    if not apps:
+        _warn("no --app specified; topology will have an empty apps list")
+
+    try:
+        rc = init_topology(gitops_root=_Path(gitops_root), name=name, apps=apps)
+    except GitopsInitError as exc:
+        _error(str(exc))
+        raise typer.Exit(code=2) from exc
+    raise typer.Exit(code=rc)
+
+
 def main() -> int:
     """CLI entry point."""
     # Force UTF-8 with replacement on stdout/stderr so log lines containing
