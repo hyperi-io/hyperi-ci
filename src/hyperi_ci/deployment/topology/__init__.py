@@ -11,8 +11,8 @@ The Pydantic schema for ``DeploymentTopology`` lives in
 This package holds hyperi-ci's operational tooling that consumes that
 schema:
 
-- ``resolve`` — OCI chart version resolution (semver range -> concrete version)
-- ``stitch`` (lands in Task 3) — umbrella chart generation from a topology
+- ``resolve`` - OCI chart version resolution (semver range -> concrete version)
+- ``stitch`` - umbrella chart generation from a topology
 
 Consumers should import data types from pylib and operational helpers
 from here:
@@ -21,14 +21,23 @@ from here:
 
     from hyperi_pylib.deployment.topology import DeploymentTopology, load_topology
     from hyperi_ci.deployment.topology.resolve import resolve_versions
+    from hyperi_ci.deployment.topology.stitch import stitch_topology
 """
 
 from hyperi_ci.deployment.topology.resolve import (
     ChartVersionResolver,
     resolve_versions,
 )
+from hyperi_ci.deployment.topology.stitch import (
+    StitchResult,
+    generate_chart_yaml,
+    stitch_topology,
+)
 
 __all__ = [
     "ChartVersionResolver",
+    "StitchResult",
+    "generate_chart_yaml",
     "resolve_versions",
+    "stitch_topology",
 ]
