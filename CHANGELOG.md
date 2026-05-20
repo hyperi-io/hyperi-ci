@@ -1,3 +1,10 @@
+## [2.3.4](https://github.com/hyperi-io/hyperi-ci/compare/v2.3.3...v2.3.4) (2026-05-20)
+
+
+### Bug Fixes
+
+* **init:** add module docstring + finalise Raises section formatting ([d7f7bb4](https://github.com/hyperi-io/hyperi-ci/commit/d7f7bb4f54bc0a06b7932508922e0a58be437d71))
+
 ## [2.3.3](https://github.com/hyperi-io/hyperi-ci/compare/v2.3.2...v2.3.3) (2026-05-20)
 
 
