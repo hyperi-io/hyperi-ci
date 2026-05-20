@@ -58,6 +58,7 @@ def generate_chart_yaml(
 
     Returns:
         ``Chart.yaml`` content as a UTF-8 string with LF line endings.
+
     """
     deps: list[dict[str, object]] = []
     for app in topology.spec.apps:
@@ -151,6 +152,7 @@ def stitch_topology(
 
     Raises:
         TopologyError: glue file missing, helm tooling failure.
+
     """
     # Fresh output directory
     if output_dir.exists():

@@ -43,6 +43,7 @@ class ChartVersionResolver:
     Attributes:
         registry: OCI registry URL (informational; not queried by this class).
         available: ``{chart-name: [versions]}`` catalog of known versions.
+
     """
 
     registry: str
@@ -60,6 +61,7 @@ class ChartVersionResolver:
 
         Raises:
             VersionResolutionError: chart not in catalog OR no version matches.
+
         """
         versions = self.available.get(chart)
         if not versions:
@@ -160,6 +162,7 @@ def resolve_versions(
 
     Raises:
         VersionResolutionError: any chart fails to resolve.
+
     """
     available = _fetch_available(registry, list(charts.keys()))
     resolver = ChartVersionResolver(registry=registry, available=available)
@@ -176,6 +179,7 @@ def _fetch_available(registry: str, chart_names: list[str]) -> dict[str, list[st
 
     Returns:
         ``{chart-name: [versions]}``. Charts that 404 produce empty lists.
+
     """
     if _OrasClient is None:
         raise VersionResolutionError(
