@@ -1,3 +1,11 @@
+## [2.3.1](https://github.com/hyperi-io/hyperi-ci/compare/v2.3.0...v2.3.1) (2026-05-20)
+
+
+### Bug Fixes
+
+* **ci:** add postgres services container to python-ci test job ([1d979fc](https://github.com/hyperi-io/hyperi-ci/commit/1d979fc0e2b633093a2b886ed40a8c4c1c307d70))
+* **init:** generate CONTRIBUTING.md template explaining the two paths ([35bd157](https://github.com/hyperi-io/hyperi-ci/commit/35bd157f4ec780088d864a0422da161534a5be4b))
+
 # [2.3.0](https://github.com/hyperi-io/hyperi-ci/compare/v2.2.3...v2.3.0) (2026-05-15)
 
 
