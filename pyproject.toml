@@ -45,12 +45,16 @@ pattern = "(?P<version>.+)"
 [tool.hatch.build.targets.wheel]
 packages = ["src/hyperi_ci"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"src/hyperi_ci/gitops_templates" = "hyperi_ci/gitops_templates"
+
 [tool.ruff]
 line-length = 88
 target-version = "py312"
 extend-exclude = [
-    "test-projects",   # vendored fixture trees (node_modules, .venv etc.)
-    "hyperi-ai",       # submodule, not our code
+    "test-projects",                             # vendored fixture trees (node_modules, .venv etc.)
+    "hyperi-ai",                                 # submodule, not our code
+    "src/hyperi_ci/gitops_templates",            # template data files, not Python source
 ]
 
 [tool.ruff.lint]
