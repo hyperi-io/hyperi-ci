@@ -1,3 +1,10 @@
+## [2.3.9](https://github.com/hyperi-io/hyperi-ci/compare/v2.3.8...v2.3.9) (2026-05-21)
+
+
+### Bug Fixes
+
+* **quality:** add generic quality.ignore list, per-language translation ([618bedc](https://github.com/hyperi-io/hyperi-ci/commit/618bedc5c0859f3ba6feee7d4d9cd9756d06179f))
+
 ## [2.3.8](https://github.com/hyperi-io/hyperi-ci/compare/v2.3.7...v2.3.8) (2026-05-21)
 
 
