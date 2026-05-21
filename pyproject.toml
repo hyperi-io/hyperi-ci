@@ -45,9 +45,6 @@ pattern = "(?P<version>.+)"
 [tool.hatch.build.targets.wheel]
 packages = ["src/hyperi_ci"]
 
-[tool.hatch.build.targets.wheel.force-include]
-"src/hyperi_ci/gitops_templates" = "hyperi_ci/gitops_templates"
-
 [tool.ruff]
 line-length = 88
 target-version = "py312"
