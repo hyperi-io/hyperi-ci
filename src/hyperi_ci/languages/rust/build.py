@@ -986,7 +986,7 @@ def _package_binaries(
 
     info(f"Built {built_count} binary(ies) to {output_dir}/")
     for f in sorted(output_dir.iterdir()):
-        if f.is_file() and f.name != "checksums.sha256":
+        if f.is_file() and f.suffix != ".sha256":
             info(f"  {f.name} ({_human_size(f.stat().st_size)})")
 
     _generate_checksums(output_dir)

@@ -219,7 +219,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     with group("Build summary"):
         for f in sorted(output_dir.iterdir()):
-            if f.is_file() and f.name != "checksums.sha256":
+            if f.is_file() and f.suffix != ".sha256":
                 info(f"  {f.name} ({_human_size(f.stat().st_size)})")
 
         _generate_checksums(output_dir)

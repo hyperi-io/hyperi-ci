@@ -386,10 +386,14 @@ structure carries the version:
 
 ```
 dfe-receiver/v1.13.11/dfe-receiver-linux-amd64
+dfe-receiver/v1.13.11/dfe-receiver-linux-amd64.sha256
 dfe-receiver/v1.13.11/dfe-receiver-linux-arm64
-dfe-receiver/v1.13.11/checksums.sha256
+dfe-receiver/v1.13.11/dfe-receiver-linux-arm64.sha256
 dfe-receiver/latest/dfe-receiver-linux-amd64
 ```
+
+Checksums are per-binary (`{binary}.sha256`, issue #22) — an aggregated
+file would last-write-wins across the multi-arch matrix uploads.
 
 **Why this convention:**
 

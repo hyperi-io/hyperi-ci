@@ -149,10 +149,16 @@ path, not the filename**:
 
 ```
 dfe-receiver/vX/dfe-receiver-linux-amd64
+dfe-receiver/vX/dfe-receiver-linux-amd64.sha256
 dfe-receiver/vX/dfe-receiver-linux-arm64
-dfe-receiver/vX/checksums.sha256
+dfe-receiver/vX/dfe-receiver-linux-arm64.sha256
 dfe-receiver/latest/dfe-receiver-linux-amd64
 ```
+
+Checksums are per-binary (`{binary}.sha256`, issue #22) — an aggregated
+`checksums.sha256` would last-write-wins when the multi-arch matrix jobs
+upload to the same path. Concatenate the per-arch files if you need a
+combined one.
 
 - `os-arch` shorthand (`linux-amd64`) matches Docker/K8s/HashiCorp, not Rust
   target triples — our consumers are ops deploying server-side binaries.
