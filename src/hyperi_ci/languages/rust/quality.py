@@ -21,6 +21,7 @@ from pathlib import Path
 from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import get_test_ignore
+from hyperi_ci.quality.ignores import for_tool, load_ignores
 
 _DEFAULT_RUST_TEST_IGNORE = [
     "clippy::unwrap_used",
@@ -161,6 +162,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     """
     info("Running Rust quality checks...")
+    ignores = load_ignores(config._raw)
     had_failure = False
 
     # cargo fmt --check
@@ -173,6 +175,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     features = (extra_env or {}).get("RUST_FEATURES", "all")
     feature_sets = _split_feature_sets(features)
     test_ignore = get_test_ignore("rust", config, _DEFAULT_RUST_TEST_IGNORE)
+    clippy_user_allows = [f"-A{e.id}" for e in for_tool(ignores, "clippy")]
 
     has_lib = _has_lib_target()
 
@@ -188,7 +191,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         # found", so we only include --lib when the project actually has one.
         target_args = ["--lib", "--bins"] if has_lib else ["--bins"]
         prod_cmd = ["cargo", "clippy", *target_args, *feature_args]
-        prod_cmd.extend(["--", "-D", "warnings", "-D", "clippy::dbg_macro"])
+        prod_cmd.extend(
+            ["--", "-D", "warnings", "-D", "clippy::dbg_macro", *clippy_user_allows]
+        )
         if not _run_tool(f"clippy src ({feature_set})", prod_cmd, mode):
             had_failure = True
 
@@ -196,14 +201,25 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         test_cmd = ["cargo", "clippy", "--tests", "--benches"] + feature_args
         allow_flags = [f"-A{rule}" for rule in test_ignore]
         test_cmd.extend(
-            ["--", "-D", "warnings", "-D", "clippy::dbg_macro", *allow_flags]
+            [
+                "--",
+                "-D",
+                "warnings",
+                "-D",
+                "clippy::dbg_macro",
+                *allow_flags,
+                *clippy_user_allows,
+            ]
         )
         if not _run_tool(f"clippy tests ({feature_set})", test_cmd, mode):
             had_failure = True
 
-    # cargo audit
+    # cargo audit -- one --ignore <RUSTSEC-id> per entry
     mode = _get_tool_mode("audit", config)
-    if not _run_tool("cargo audit", ["cargo", "audit"], mode):
+    audit_cmd = ["cargo", "audit"]
+    for entry in for_tool(ignores, "cargo-audit"):
+        audit_cmd.extend(["--ignore", entry.id])
+    if not _run_tool("cargo audit", audit_cmd, mode):
         had_failure = True
 
     # cargo deny (requires deny.toml — useless without project-specific config)
@@ -223,6 +239,8 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # Semgrep SAST scanning
     mode = _get_tool_mode("semgrep", config)
     semgrep_cmd = ["semgrep", "scan", "--config", "auto", "--error", "--quiet"]
+    for entry in for_tool(ignores, "semgrep"):
+        semgrep_cmd.extend(["--exclude-rule", entry.id])
     if not _run_tool("semgrep", semgrep_cmd, mode, use_uvx=True):
         had_failure = True
 

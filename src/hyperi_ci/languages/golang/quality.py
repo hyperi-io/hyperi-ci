@@ -14,6 +14,7 @@ import subprocess
 from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import get_test_ignore
+from hyperi_ci.quality.ignores import for_tool, load_ignores
 
 _DEFAULT_GO_TEST_IGNORE = ["errcheck", "gosec"]
 
@@ -71,6 +72,7 @@ def _run_tool(
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     """Run Golang quality checks."""
     info("Running Golang quality checks...")
+    ignores = load_ignores(config._raw)
     had_failure = False
 
     mode = _get_tool_mode("gofmt", config)
@@ -84,11 +86,13 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # golangci-lint — two-pass: production (strict) + test (relaxed)
     mode = _get_tool_mode("golangci_lint", config)
     test_ignore = get_test_ignore("golang", config, _DEFAULT_GO_TEST_IGNORE)
+    gci_user_ignores = for_tool(ignores, "golangci-lint")
+    gci_user_disable = [f"--disable={e.id}" for e in gci_user_ignores]
 
     # Production pass — skip test files
     if not _run_tool(
         "golangci-lint (src)",
-        ["golangci-lint", "run", "--tests=false", "--timeout", "5m"],
+        ["golangci-lint", "run", "--tests=false", "--timeout", "5m"] + gci_user_disable,
         mode,
     ):
         had_failure = True
@@ -98,22 +102,40 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         disable_flags = [f"--disable={linter}" for linter in test_ignore]
         if not _run_tool(
             "golangci-lint (tests)",
-            ["golangci-lint", "run", "--timeout", "5m"] + disable_flags,
+            ["golangci-lint", "run", "--timeout", "5m"]
+            + disable_flags
+            + gci_user_disable,
             mode,
         ):
             had_failure = True
 
     mode = _get_tool_mode("gosec", config)
-    if not _run_tool("gosec", ["gosec", "-quiet", "-tests=false", "./..."], mode):
+    gosec_cmd = ["gosec", "-quiet", "-tests=false"]
+    gosec_ignores = for_tool(ignores, "gosec")
+    if gosec_ignores:
+        gosec_cmd.extend(["-exclude", ",".join(e.id for e in gosec_ignores)])
+    gosec_cmd.append("./...")
+    if not _run_tool("gosec", gosec_cmd, mode):
         had_failure = True
 
+    # govulncheck has no native --ignore flag; emit a notice when entries
+    # exist for it so operators understand why their config isn't applied.
     mode = _get_tool_mode("govulncheck", config)
+    govuln_ignores = for_tool(ignores, "govulncheck")
+    if govuln_ignores:
+        warn(
+            "  govulncheck: quality.ignore entries present but the tool has "
+            "no CLI ignore flag. Use //vuln:ignore source annotations or run "
+            "via warn mode."
+        )
     if not _run_tool("govulncheck", ["govulncheck", "./..."], mode):
         had_failure = True
 
     # Semgrep SAST scanning
     mode = _get_tool_mode("semgrep", config)
     semgrep_cmd = ["semgrep", "scan", "--config", "auto", "--error", "--quiet"]
+    for entry in for_tool(ignores, "semgrep"):
+        semgrep_cmd.extend(["--exclude-rule", entry.id])
     if not _run_tool("semgrep", semgrep_cmd, mode, use_uvx=True):
         had_failure = True
 

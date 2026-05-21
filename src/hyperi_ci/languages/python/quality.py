@@ -24,6 +24,7 @@ from pathlib import Path
 from hyperi_ci.common import error, get_exclude_dirs, info, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import get_test_ignore, get_test_paths
+from hyperi_ci.quality.ignores import IgnoreEntry, for_tool, load_ignores
 
 _DEFAULT_PYTHON_TEST_IGNORE = [
     "S101",
@@ -96,7 +97,7 @@ def _resolve_tool_cmd(
     return cmd
 
 
-def _build_pip_audit_cmd() -> list[str]:
+def _build_pip_audit_cmd(ignores: list[IgnoreEntry]) -> list[str]:
     """Build pip-audit command that targets the project's venv.
 
     pip-audit scans installed packages in the active Python env.
@@ -105,17 +106,15 @@ def _build_pip_audit_cmd() -> list[str]:
     - If uv is available: 'uv run --with pip-audit -- pip-audit'
       installs pip-audit temporarily and scans the project's deps.
     - Fallback: bare 'pip-audit' (hopes the right venv is active).
+
+    Each ignore entry maps to one ``--ignore-vuln <id>`` flag.
     """
+    base = ["pip-audit"]
+    for entry in ignores:
+        base.extend(["--ignore-vuln", entry.id])
     if shutil.which("uv"):
-        return [
-            "uv",
-            "run",
-            "--with",
-            "pip-audit",
-            "--",
-            "pip-audit",
-        ]
-    return ["pip-audit"]
+        return ["uv", "run", "--with", "pip-audit", "--", *base]
+    return base
 
 
 def _run_tool(
@@ -174,6 +173,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     """
     info("Running Python quality checks...")
     excludes = get_exclude_dirs(config._raw)
+    ignores = load_ignores(config._raw)
     had_failure = False
 
     # Ruff lint — two-pass: production (strict) + test (relaxed)
@@ -187,14 +187,23 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     # Production pass — exclude test dirs, full rules
     prod_exclude = exclude_args + [f"--exclude={p}" for p in test_paths]
+    ruff_user_ignores = for_tool(ignores, "ruff")
+    ruff_user_ignore_flag = (
+        [f"--extend-ignore={','.join(e.id for e in ruff_user_ignores)}"]
+        if ruff_user_ignores
+        else []
+    )
     if not _run_tool(
-        "ruff check (src)", ["ruff", "check", "."] + output_fmt + prod_exclude, mode
+        "ruff check (src)",
+        ["ruff", "check", "."] + output_fmt + prod_exclude + ruff_user_ignore_flag,
+        mode,
     ):
         had_failure = True
 
     # Test pass — relaxed rules, same mode
     if test_paths and test_ignore:
-        ignore_flag = [f"--extend-ignore={','.join(test_ignore)}"]
+        combined_ignore = test_ignore + [e.id for e in ruff_user_ignores]
+        ignore_flag = [f"--extend-ignore={','.join(combined_ignore)}"]
         for tp in test_paths:
             if not _run_tool(
                 f"ruff check ({tp})",
@@ -225,6 +234,8 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if excludes:
         for exc in excludes:
             semgrep_cmd.extend(["--exclude", exc])
+    for entry in for_tool(ignores, "semgrep"):
+        semgrep_cmd.extend(["--exclude-rule", entry.id])
     if not _run_tool("semgrep", semgrep_cmd, mode, use_uvx=True):
         had_failure = True
 
@@ -236,6 +247,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if config.get("quality.python.bandit_exclude_tests", True):
         bandit_cmd.extend(["--exclude", "tests/"])
     bandit_cmd.extend(_build_exclude_args("bandit", excludes))
+    bandit_ignores = for_tool(ignores, "bandit")
+    if bandit_ignores:
+        bandit_cmd.extend(["--skip", ",".join(e.id for e in bandit_ignores)])
     if not _run_tool("bandit", bandit_cmd, mode, use_uvx=True):
         had_failure = True
 
@@ -243,7 +257,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # Always run via 'uv run --with' to ensure it scans the PROJECT's
     # installed packages, not ~/.venv or the system Python.
     mode = _get_tool_mode("pip_audit", config)
-    pip_audit_cmd = _build_pip_audit_cmd()
+    pip_audit_cmd = _build_pip_audit_cmd(for_tool(ignores, "pip-audit"))
     if not _run_tool("pip-audit", pip_audit_cmd, mode):
         had_failure = True
 

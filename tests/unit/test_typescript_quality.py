@@ -28,6 +28,7 @@ def _make_config() -> CIConfig:
     """Minimal config with all tools in 'blocking' mode (the default)."""
     cfg = MagicMock(spec=CIConfig)
     cfg.get.side_effect = lambda key, default=None: default
+    cfg._raw = {}
     return cfg
 
 

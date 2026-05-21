@@ -27,6 +27,7 @@ from hyperi_ci.languages.typescript._common import (
     detect_package_manager,
     ensure_pm_available,
 )
+from hyperi_ci.quality.ignores import for_tool, load_ignores
 
 # Config-file markers that signal a tool is meant to run even without an
 # npm script wrapper — we fall back to direct `npx <tool>` invocation.
@@ -170,6 +171,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if not ensure_pm_available(pm):
         error(f"{pm} is not available and could not be installed")
         return 1
+    ignores = load_ignores(config._raw)
     had_failure = False
 
     # --- eslint ---
@@ -223,11 +225,28 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # --- audit + semgrep — run on any JS/TS project; orthogonal to npm scripts ---
     mode = _get_tool_mode("audit", config)
     audit_level = config.get("quality.typescript.audit_level", "moderate")
-    if not _run_tool("audit", [pm, "audit", f"--audit-level={audit_level}"], mode):
+    audit_cmd = [pm, "audit", f"--audit-level={audit_level}"]
+    audit_ignores = for_tool(ignores, f"{pm}-audit")
+    if audit_ignores:
+        if pm == "pnpm":
+            for entry in audit_ignores:
+                audit_cmd.extend(["--ignore-cve", entry.id])
+        else:
+            # npm/yarn audit lack CLI ignore flags. Use package.json
+            # `overrides` / `resolutions` instead. Warn so operators know
+            # the entries aren't being applied.
+            warn(
+                f"  {pm} audit: quality.ignore entries present for "
+                f"{pm}-audit but the tool has no CLI ignore flag. Use "
+                f"package.json overrides instead."
+            )
+    if not _run_tool("audit", audit_cmd, mode):
         had_failure = True
 
     mode = _get_tool_mode("semgrep", config)
     semgrep_cmd = ["semgrep", "scan", "--config", "auto", "--error", "--quiet"]
+    for entry in for_tool(ignores, "semgrep"):
+        semgrep_cmd.extend(["--exclude-rule", entry.id])
     if not _run_tool("semgrep", semgrep_cmd, mode, use_uvx=True):
         had_failure = True
 
