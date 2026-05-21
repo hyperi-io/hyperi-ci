@@ -34,24 +34,30 @@ def human_size(size: int) -> str:
 
 
 def generate_checksums(output_dir: Path) -> None:
-    """Generate ``checksums.sha256`` for every binary in ``output_dir``.
+    """Write a per-binary ``{binary}.sha256`` file next to each artefact.
 
-    Written in the format ``sha256sum -c`` expects::
+    Each output file gets its own sibling ``.sha256`` in the format
+    ``sha256sum -c`` expects::
 
         <sha256>  <filename>
 
-    Excludes the checksums file itself. No-op when output_dir contains
-    no files (silent — same behaviour as the per-language copies it
-    replaces).
+    Per-binary filenames (rather than one aggregated ``checksums.sha256``)
+    let multi-arch matrix builds upload to the same R2 path without
+    last-write-wins: ``macbash-linux-amd64.sha256`` and
+    ``macbash-linux-arm64.sha256`` never collide. Downstream consumers
+    that need a combined file can concatenate the per-arch ones.
+
+    Excludes existing ``.sha256`` siblings so the call is idempotent.
+    No-op when ``output_dir`` contains no files.
     """
-    checksum_file = output_dir / "checksums.sha256"
-    lines: list[str] = []
-
+    count = 0
     for f in sorted(output_dir.iterdir()):
-        if f.is_file() and f.name != "checksums.sha256":
-            sha = hashlib.sha256(f.read_bytes()).hexdigest()
-            lines.append(f"{sha}  {f.name}")
-
-    if lines:
-        checksum_file.write_text("\n".join(lines) + "\n")
-        info(f"Checksums written to {checksum_file}")
+        if not f.is_file() or f.suffix == ".sha256":
+            continue
+        sha = hashlib.sha256(f.read_bytes()).hexdigest()
+        sha_path = f.with_name(f.name + ".sha256")
+        sha_path.write_text(f"{sha}  {f.name}\n")
+        info(f"Wrote {sha_path.name}")
+        count += 1
+    if count:
+        info(f"Per-binary checksums written ({count} file(s)) to {output_dir}/")
