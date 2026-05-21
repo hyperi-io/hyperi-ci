@@ -1,3 +1,10 @@
+## [2.3.8](https://github.com/hyperi-io/hyperi-ci/compare/v2.3.7...v2.3.8) (2026-05-21)
+
+
+### Bug Fixes
+
+* **build:** drop redundant force-include of gitops_templates ([4061194](https://github.com/hyperi-io/hyperi-ci/commit/4061194696e51c77ca58fbaec09e35451e3754e5))
+
 ## [2.3.7](https://github.com/hyperi-io/hyperi-ci/compare/v2.3.6...v2.3.7) (2026-05-20)
 
 
