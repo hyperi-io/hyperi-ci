@@ -136,7 +136,11 @@ class TestBatchIds:
         raw = {
             "quality": {
                 "ignore": [
-                    {"tool": "osv-scanner", "ids": ["  MAL-1  ", "MAL-2"], "reason": "r"}
+                    {
+                        "tool": "osv-scanner",
+                        "ids": ["  MAL-1  ", "MAL-2"],
+                        "reason": "r",
+                    }
                 ]
             }
         }
@@ -162,11 +166,7 @@ class TestBatchIds:
     def test_ids_must_be_a_list(self) -> None:
         with pytest.raises(ValueError, match="ids"):
             load_ignores(
-                {
-                    "quality": {
-                        "ignore": [{"tool": "x", "ids": "MAL-1", "reason": "r"}]
-                    }
-                }
+                {"quality": {"ignore": [{"tool": "x", "ids": "MAL-1", "reason": "r"}]}}
             )
 
     def test_neither_id_nor_ids_rejected(self) -> None:
@@ -182,7 +182,12 @@ class TestExpires:
         raw = {
             "quality": {
                 "ignore": [
-                    {"tool": "osv-scanner", "id": "MAL-1", "reason": "r", "expires": future}
+                    {
+                        "tool": "osv-scanner",
+                        "id": "MAL-1",
+                        "reason": "r",
+                        "expires": future,
+                    }
                 ]
             }
         }
@@ -195,7 +200,12 @@ class TestExpires:
         raw = {
             "quality": {
                 "ignore": [
-                    {"tool": "osv-scanner", "id": "MAL-1", "reason": "r", "expires": past}
+                    {
+                        "tool": "osv-scanner",
+                        "id": "MAL-1",
+                        "reason": "r",
+                        "expires": past,
+                    }
                 ]
             }
         }
@@ -206,7 +216,12 @@ class TestExpires:
         raw = {
             "quality": {
                 "ignore": [
-                    {"tool": "osv-scanner", "id": "MAL-1", "reason": "r", "expires": today}
+                    {
+                        "tool": "osv-scanner",
+                        "id": "MAL-1",
+                        "reason": "r",
+                        "expires": today,
+                    }
                 ]
             }
         }
@@ -255,9 +270,7 @@ class TestExpires:
 
     def test_lapsed_entry_is_logged(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls: list[str] = []
-        monkeypatch.setattr(
-            "hyperi_ci.quality.ignores.warn", lambda m: calls.append(m)
-        )
+        monkeypatch.setattr("hyperi_ci.quality.ignores.warn", lambda m: calls.append(m))
         past = (date.today() - timedelta(days=1)).isoformat()
         load_ignores(
             {
