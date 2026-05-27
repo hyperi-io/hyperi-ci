@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 import pytest
 
 from hyperi_ci.quality.ignores import IgnoreEntry, for_tool, load_ignores
@@ -104,6 +106,174 @@ class TestLoadIgnores:
                     }
                 }
             )
+
+
+class TestBatchIds:
+    """The ``ids`` list form expands one stanza into many entries."""
+
+    def test_ids_list_expands_to_one_entry_per_id(self) -> None:
+        raw = {
+            "quality": {
+                "ignore": [
+                    {
+                        "tool": "osv-scanner",
+                        "ids": ["MAL-2026-4228", "MAL-2026-4359", "MAL-2026-4360"],
+                        "reason": "ossf/malicious-packages#1276 FP wave",
+                    }
+                ]
+            }
+        }
+        entries = load_ignores(raw)
+        assert [e.id for e in entries] == [
+            "MAL-2026-4228",
+            "MAL-2026-4359",
+            "MAL-2026-4360",
+        ]
+        assert all(e.tool == "osv-scanner" for e in entries)
+        assert all("#1276" in e.reason for e in entries)
+
+    def test_ids_entries_strip_whitespace(self) -> None:
+        raw = {
+            "quality": {
+                "ignore": [
+                    {"tool": "osv-scanner", "ids": ["  MAL-1  ", "MAL-2"], "reason": "r"}
+                ]
+            }
+        }
+        entries = load_ignores(raw)
+        assert [e.id for e in entries] == ["MAL-1", "MAL-2"]
+
+    def test_id_and_ids_both_accepted_and_merged(self) -> None:
+        raw = {
+            "quality": {
+                "ignore": [
+                    {
+                        "tool": "osv-scanner",
+                        "id": "MAL-0",
+                        "ids": ["MAL-1", "MAL-2"],
+                        "reason": "r",
+                    }
+                ]
+            }
+        }
+        entries = load_ignores(raw)
+        assert {e.id for e in entries} == {"MAL-0", "MAL-1", "MAL-2"}
+
+    def test_ids_must_be_a_list(self) -> None:
+        with pytest.raises(ValueError, match="ids"):
+            load_ignores(
+                {
+                    "quality": {
+                        "ignore": [{"tool": "x", "ids": "MAL-1", "reason": "r"}]
+                    }
+                }
+            )
+
+    def test_neither_id_nor_ids_rejected(self) -> None:
+        with pytest.raises(ValueError, match="id"):
+            load_ignores({"quality": {"ignore": [{"tool": "x", "reason": "r"}]}})
+
+
+class TestExpires:
+    """Optional ``expires`` sunsets an ignore; framework-wide drop at load."""
+
+    def test_future_expiry_is_kept(self) -> None:
+        future = (date.today() + timedelta(days=30)).isoformat()
+        raw = {
+            "quality": {
+                "ignore": [
+                    {"tool": "osv-scanner", "id": "MAL-1", "reason": "r", "expires": future}
+                ]
+            }
+        }
+        entries = load_ignores(raw)
+        assert len(entries) == 1
+        assert entries[0].expires == date.today() + timedelta(days=30)
+
+    def test_past_expiry_is_dropped(self) -> None:
+        past = (date.today() - timedelta(days=1)).isoformat()
+        raw = {
+            "quality": {
+                "ignore": [
+                    {"tool": "osv-scanner", "id": "MAL-1", "reason": "r", "expires": past}
+                ]
+            }
+        }
+        assert load_ignores(raw) == []
+
+    def test_expiry_today_is_kept(self) -> None:
+        today = date.today().isoformat()
+        raw = {
+            "quality": {
+                "ignore": [
+                    {"tool": "osv-scanner", "id": "MAL-1", "reason": "r", "expires": today}
+                ]
+            }
+        }
+        assert len(load_ignores(raw)) == 1
+
+    def test_no_expires_is_permanent(self) -> None:
+        raw = {
+            "quality": {
+                "ignore": [{"tool": "pip-audit", "id": "PYSEC-1", "reason": "r"}]
+            }
+        }
+        assert load_ignores(raw)[0].expires is None
+
+    def test_invalid_expires_format_rejected(self) -> None:
+        with pytest.raises(ValueError, match="expires"):
+            load_ignores(
+                {
+                    "quality": {
+                        "ignore": [
+                            {
+                                "tool": "x",
+                                "id": "y",
+                                "reason": "r",
+                                "expires": "not-a-date",
+                            }
+                        ]
+                    }
+                }
+            )
+
+    def test_batch_with_expiry_drops_whole_stanza_when_past(self) -> None:
+        past = (date.today() - timedelta(days=5)).isoformat()
+        raw = {
+            "quality": {
+                "ignore": [
+                    {
+                        "tool": "osv-scanner",
+                        "ids": ["MAL-1", "MAL-2"],
+                        "reason": "FP wave",
+                        "expires": past,
+                    }
+                ]
+            }
+        }
+        assert load_ignores(raw) == []
+
+    def test_lapsed_entry_is_logged(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls: list[str] = []
+        monkeypatch.setattr(
+            "hyperi_ci.quality.ignores.warn", lambda m: calls.append(m)
+        )
+        past = (date.today() - timedelta(days=1)).isoformat()
+        load_ignores(
+            {
+                "quality": {
+                    "ignore": [
+                        {
+                            "tool": "osv-scanner",
+                            "id": "MAL-9",
+                            "reason": "r",
+                            "expires": past,
+                        }
+                    ]
+                }
+            }
+        )
+        assert any("MAL-9" in c for c in calls)
 
 
 class TestForTool:

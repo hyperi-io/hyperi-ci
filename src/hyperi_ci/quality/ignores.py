@@ -16,11 +16,27 @@ Schema in ``.hyperi-ci.yaml``::
         - tool: cargo-audit
           id: RUSTSEC-2020-0070
           reason: "Transitive via reqwest-retry; tracking upstream issue #123"
+        - tool: osv-scanner              # batch form for a whole FP wave
+          ids: [MAL-2026-4228, MAL-2026-4359]
+          reason: "ossf/malicious-packages#1276 false-positive withdrawal"
+          expires: 2026-06-15            # auto-sunsets; dropped after this date
 
 The shape is identical across languages. Each language quality runner
 filters for the slugs it owns and translates ``id`` to the tool's
 native ignore flag at command-build time. ``reason`` is mandatory --
 ignores are debt and a grep-able rationale is the price of admission.
+
+``id`` (scalar) and ``ids`` (list) may both be given; they merge. The
+list form keeps one stanza per logical suppression (e.g. an entire
+malicious-packages false-positive wave) instead of N near-identical
+entries.
+
+``expires`` (optional ``YYYY-MM-DD``) sunsets an ignore: once the date
+has passed the entry is dropped at load time and a warning is logged,
+so a suppression for a withdrawn false positive cannot silently mask a
+genuine future finding on the same ID. This is framework-wide -- every
+language runner inherits it because filtering happens here, not in the
+per-tool translation.
 
 Tool slugs in use:
 
@@ -39,7 +55,10 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
+
+from hyperi_ci.common import warn
 
 
 @dataclass(frozen=True)
@@ -49,6 +68,7 @@ class IgnoreEntry:
     tool: str
     id: str
     reason: str
+    expires: date | None = None
 
 
 def load_ignores(config_raw: dict[str, Any]) -> list[IgnoreEntry]:
@@ -70,21 +90,57 @@ def load_ignores(config_raw: dict[str, Any]) -> list[IgnoreEntry]:
         )
 
     entries: list[IgnoreEntry] = []
+    today = date.today()
     for i, item in enumerate(raw_list):
         if not isinstance(item, dict):
             raise ValueError(f"quality.ignore[{i}] must be a mapping")
-        missing = [k for k in ("tool", "id", "reason") if not item.get(k)]
+
+        missing = [k for k in ("tool", "reason") if not item.get(k)]
         if missing:
             raise ValueError(
                 f"quality.ignore[{i}] missing required field(s): {', '.join(missing)}"
             )
-        entries.append(
-            IgnoreEntry(
-                tool=str(item["tool"]).strip(),
-                id=str(item["id"]).strip(),
-                reason=str(item["reason"]).strip(),
+
+        ids: list[str] = []
+        if item.get("id"):
+            ids.append(str(item["id"]).strip())
+        raw_ids = item.get("ids")
+        if raw_ids is not None:
+            if not isinstance(raw_ids, list):
+                raise ValueError(
+                    f"quality.ignore[{i}] 'ids' must be a list "
+                    f"(got {type(raw_ids).__name__})"
+                )
+            ids.extend(s for x in raw_ids if (s := str(x).strip()))
+        if not ids:
+            raise ValueError(f"quality.ignore[{i}] requires 'id' or 'ids'")
+
+        expires: date | None = None
+        raw_expires = item.get("expires")
+        if raw_expires is not None and str(raw_expires).strip():
+            try:
+                expires = date.fromisoformat(str(raw_expires).strip())
+            except ValueError as e:
+                raise ValueError(
+                    f"quality.ignore[{i}] 'expires' must be an ISO date "
+                    f"(YYYY-MM-DD), got {raw_expires!r}"
+                ) from e
+
+        tool = str(item["tool"]).strip()
+        reason = str(item["reason"]).strip()
+
+        if expires is not None and expires < today:
+            for _id in ids:
+                warn(
+                    f"quality.ignore lapsed: {tool} {_id} expired "
+                    f"{expires.isoformat()} — re-evaluate or remove the entry"
+                )
+            continue
+
+        for _id in ids:
+            entries.append(
+                IgnoreEntry(tool=tool, id=_id, reason=reason, expires=expires)
             )
-        )
     return entries
 
 
