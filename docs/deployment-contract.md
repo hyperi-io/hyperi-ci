@@ -1,10 +1,10 @@
 # Deployment Contract
 
 User-facing reference for the three-tier deployment-contract model in
-hyperi-ci. For the full design and implementation status see:
+hyperi-ci.
 
-- Spec: [`docs/superpowers/specs/2026-04-30-deployment-contract-three-tier-design.md`](superpowers/specs/2026-04-30-deployment-contract-three-tier-design.md)
-- Plan: [`docs/superpowers/plans/2026-04-30-deployment-contract-three-tier.md`](superpowers/plans/2026-04-30-deployment-contract-three-tier.md)
+For the cross-tier artefact identity annotation scheme see
+[`deployment-contract-identity.md`](deployment-contract-identity.md).
 
 ## TL;DR
 
@@ -181,9 +181,5 @@ delegate to these get the same answer in Rust and Python.
 
 ## See also
 
-- [Container build pipeline spec](superpowers/specs/2026-04-01-container-build-pipeline-design.md) —
-  parent design this extends
-- [Three-tier producer model spec](superpowers/specs/2026-04-30-deployment-contract-three-tier-design.md) —
-  the architecture
-- [Implementation plan](superpowers/plans/2026-04-30-deployment-contract-three-tier.md) —
-  phase status
+- [`deployment-contract-identity.md`](deployment-contract-identity.md) —
+  cross-tier artefact identity annotation scheme
