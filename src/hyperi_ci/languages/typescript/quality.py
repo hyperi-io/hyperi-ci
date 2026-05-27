@@ -27,7 +27,16 @@ from hyperi_ci.languages.typescript._common import (
     detect_package_manager,
     ensure_pm_available,
 )
+from hyperi_ci.quality import osv_scanner
 from hyperi_ci.quality.ignores import for_tool, load_ignores
+
+# Lockfile each package manager writes — osv-scanner scans this for
+# malicious packages.
+_PM_LOCKFILE = {
+    "npm": "package-lock.json",
+    "pnpm": "pnpm-lock.yaml",
+    "yarn": "yarn.lock",
+}
 
 # Config-file markers that signal a tool is meant to run even without an
 # npm script wrapper — we fall back to direct `npx <tool>` invocation.
@@ -241,6 +250,21 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
                 f"package.json overrides instead."
             )
     if not _run_tool("audit", audit_cmd, mode):
+        had_failure = True
+
+    # osv-scanner — malicious-package (MAL-*) scan. npm/pnpm/yarn audit are
+    # CVE-only (GitHub Advisory DB) and miss the OSSF malicious-packages
+    # feed — where the bulk of typosquat/compromised-maintainer attacks
+    # (and ossf/malicious-packages#1276) live. Defence-in-depth behind the
+    # 7-day Renovate cooldown.
+    mode = _get_tool_mode("osv_scanner", config)
+    osv_lockfile = Path(_PM_LOCKFILE.get(pm, "package-lock.json"))
+    if not osv_scanner.run(
+        osv_lockfile,
+        for_tool(ignores, osv_scanner.SLUG),
+        mode,
+        _run_tool,
+    ):
         had_failure = True
 
     mode = _get_tool_mode("semgrep", config)

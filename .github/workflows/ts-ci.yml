@@ -152,6 +152,26 @@ jobs:
       - name: Install native dependencies
         run: ${{ env.HYPERCI_INSTALL }} install-native-deps typescript
 
+      - name: Install osv-scanner
+        # Malicious-package (MAL-*) scanner — covers the OSSF
+        # malicious-packages feed that npm/pnpm/yarn audit (CVE-only) do
+        # not. Most of ossf/malicious-packages#1276 lived in npm. No
+        # `|| true`: in CI the tool must be present (the quality stage
+        # skips it only for local dev convenience). Pinned; bump deliberately.
+        run: |
+          OSV_VERSION=v2.3.8
+          case "$(uname -m)" in
+            x86_64) OSV_ARCH=amd64 ;;
+            aarch64 | arm64) OSV_ARCH=arm64 ;;
+            *) echo "::error::unsupported arch $(uname -m) for osv-scanner"; exit 1 ;;
+          esac
+          mkdir -p "$HOME/.local/bin"
+          curl -sSfL -o "$HOME/.local/bin/osv-scanner" \
+            "https://github.com/google/osv-scanner/releases/download/${OSV_VERSION}/osv-scanner_linux_${OSV_ARCH}"
+          chmod +x "$HOME/.local/bin/osv-scanner"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/osv-scanner" --version
+
       - name: Run quality checks
         env:
           GITLEAKS_GH_ACTIONS_KEY: ${{ secrets.GITLEAKS_GH_ACTIONS_KEY }}

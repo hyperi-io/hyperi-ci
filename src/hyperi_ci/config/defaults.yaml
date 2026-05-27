@@ -113,6 +113,7 @@ quality:
     tsc: blocking
     audit: blocking
     audit_level: moderate
+    osv_scanner: warn          # malicious-package (MAL-*) scan; npm audit is CVE-only
     semgrep: warn              # Semgrep SAST — auto-config rules for TypeScript
     test_ignore:
       - "@typescript-eslint/no-explicit-any"
@@ -134,6 +135,7 @@ quality:
     fmt: blocking
     clippy: blocking
     audit: warn
+    osv_scanner: warn          # malicious-package (MAL-*) scan; OSV feed not in RustSec
     deny: warn
     features: all
     semgrep: warn              # Semgrep SAST — auto-config rules for Rust

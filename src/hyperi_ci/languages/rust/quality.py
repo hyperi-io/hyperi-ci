@@ -21,6 +21,7 @@ from pathlib import Path
 from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import get_test_ignore
+from hyperi_ci.quality import osv_scanner
 from hyperi_ci.quality.ignores import for_tool, load_ignores
 
 _DEFAULT_RUST_TEST_IGNORE = [
@@ -220,6 +221,18 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     for entry in for_tool(ignores, "cargo-audit"):
         audit_cmd.extend(["--ignore", entry.id])
     if not _run_tool("cargo audit", audit_cmd, mode):
+        had_failure = True
+
+    # osv-scanner -- malicious-package (MAL-*) scan. cargo audit uses the
+    # RustSec DB, which does NOT ingest the OSSF malicious-packages feed;
+    # osv-scanner does. Defence-in-depth behind the 7-day Renovate cooldown.
+    mode = _get_tool_mode("osv_scanner", config)
+    if not osv_scanner.run(
+        Path("Cargo.lock"),
+        for_tool(ignores, osv_scanner.SLUG),
+        mode,
+        _run_tool,
+    ):
         had_failure = True
 
     # cargo deny (requires deny.toml — useless without project-specific config)
