@@ -44,6 +44,19 @@ _CONTRACT_LANGUAGES = {"rust"}
 
 
 def _read_version() -> str:
+    """Resolve the version this container should be tagged with.
+
+    Precedence (issue #27): the Plan job's predicted ``next-version``,
+    threaded in via ``HYPERCI_VERSION``, is authoritative — it is the
+    same value Build stamps and Tag-and-Publish releases, so all jobs in
+    a run agree. The Container job's checkout is shallow + tagless and
+    its committed ``VERSION`` file can be stale (e.g. left by an aborted
+    ``--bump-patch``), so the file/ref are fallbacks only, for local
+    invocations or older callers that don't pass the env.
+    """
+    explicit = os.environ.get("HYPERCI_VERSION", "").strip()
+    if explicit:
+        return explicit.removeprefix("v")
     version_file = Path("VERSION")
     if version_file.exists():
         return version_file.read_text().strip()

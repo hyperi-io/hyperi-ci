@@ -42,6 +42,10 @@ on:
         type: string
         required: true
         description: "'true' if this run should push to registries (from caller's setup output)"
+      next-version:
+        type: string
+        default: ""
+        description: "Predicted next version from the caller's plan job. Single source of truth for the container image tag (issue #27): Build stamps it and Tag-and-Publish releases it, so the container must use the same value rather than its own (possibly stale) VERSION file."
       tag:
         type: string
         default: ""
@@ -166,6 +170,11 @@ jobs:
         env:
           HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
           HYPERCI_PUBLISH_MODE: ${{ inputs.will-publish }}
+          # Authoritative version for the image tag — same value Build
+          # stamps and Tag-and-Publish releases. Without this the stage
+          # falls back to the checked-out VERSION file, which is stale on
+          # a shallow/tagless container checkout (issue #27).
+          HYPERCI_VERSION: ${{ inputs.next-version }}
         run: ${{ env.HYPERCI_INSTALL }} run container
 
   tag-and-publish:

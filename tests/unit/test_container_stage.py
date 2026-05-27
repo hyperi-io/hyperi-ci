@@ -15,7 +15,65 @@ import pytest
 from hyperi_ci.config import CIConfig
 from hyperi_ci.container import stage as stage_module
 from hyperi_ci.container.detect import Decision
-from hyperi_ci.container.stage import _normalise_enabled, _resolve_mode, run
+from hyperi_ci.container.stage import (
+    _normalise_enabled,
+    _read_version,
+    _resolve_mode,
+    run,
+)
+
+# --- _read_version (issue #27) -------------------------------------------
+
+
+class TestReadVersion:
+    """Container version derivation precedence.
+
+    Regression for issue #27: the Container job tagged a published image
+    with a stale version (a committed ``VERSION`` file left by an aborted
+    ``--bump-patch``) while every other job used the Plan job's predicted
+    ``next-version``. The fix threads that prediction in via
+    ``HYPERCI_VERSION`` and has the stage prefer it.
+    """
+
+    def test_prefers_hyperci_version_over_stale_version_file(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "VERSION").write_text("1.2.4\n")  # stale committed value
+        monkeypatch.setenv("HYPERCI_VERSION", "1.3.0")
+        assert _read_version() == "1.3.0"
+
+    def test_strips_leading_v_from_hyperci_version(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("HYPERCI_VERSION", "v1.3.0")
+        assert _read_version() == "1.3.0"
+
+    def test_blank_hyperci_version_falls_back_to_version_file(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("HYPERCI_VERSION", "")  # dispatch path may be empty
+        (tmp_path / "VERSION").write_text("3.3.3\n")
+        assert _read_version() == "3.3.3"
+
+    def test_version_file_used_when_env_unset(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("HYPERCI_VERSION", raising=False)
+        (tmp_path / "VERSION").write_text("2.0.0\n")
+        assert _read_version() == "2.0.0"
+
+    def test_ref_name_fallback_when_no_env_no_file(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("HYPERCI_VERSION", raising=False)
+        monkeypatch.setenv("GITHUB_REF_NAME", "v9.9.9")
+        assert _read_version() == "9.9.9"
+
 
 # --- _normalise_enabled --------------------------------------------------
 

@@ -307,6 +307,7 @@ jobs:
     with:
       language: python
       will-publish: ${{ needs.plan.outputs.will-publish }}
+      next-version: ${{ needs.plan.outputs.next-version }}
       tag: ${{ inputs.tag }}
       publish-target: ${{ inputs.publish-target }}
       python-version: ${{ inputs.python-version }}
