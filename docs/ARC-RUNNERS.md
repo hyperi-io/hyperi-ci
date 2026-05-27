@@ -149,7 +149,7 @@ Bootstrap packages (`python3`, `python3-pip`, `curl`, `gnupg`,
 runtimes, CI tool binaries (`gh`, `hadolint`, `shellcheck`, `actionlint`),
 arm64 cross-compile sources.
 
-**Migrating these into hyperi-ci is phases 2-5** (tracked in TODO.md).
+**Migrating these into hyperi-ci is phases 2-5.**
 
 ## Cross-Project Rollout Flow
 

@@ -150,10 +150,9 @@ quality:
       extra_args: []                   # pass-through to `cargo hack` (e.g., ["--workspace"])
     # Rustdoc compliance hint — single concise warning if doc warnings are
     # found. Non-blocking by design (rustdoc hygiene is a ratchet, not a
-    # gate). Set enabled=false to silence entirely. Refers AI agents and
-    # humans to: https://doc.rust-lang.org/rustdoc/ +
-    # https://rust-lang.github.io/api-guidelines/documentation.html +
-    # hyperi-ai/standards/languages/RUST.md § Documentation.
+    # gate). Set enabled=false to silence entirely. References:
+    # https://doc.rust-lang.org/rustdoc/ +
+    # https://rust-lang.github.io/api-guidelines/documentation.html
     rustdoc_hint:
       enabled: true
     test_ignore:

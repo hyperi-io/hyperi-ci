@@ -22,8 +22,6 @@ and the Helm chart from that contract.
 
 For all three tiers, output must be byte-identical for the same JSON
 input. Cross-tier parity is verified via shared fixture suites.
-
-See: docs/superpowers/specs/2026-04-30-deployment-contract-three-tier-design.md
 """
 
 from hyperi_ci.deployment.contract import (

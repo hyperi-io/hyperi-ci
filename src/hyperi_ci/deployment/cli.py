@@ -115,14 +115,6 @@ def emit_artefacts(
     info(f"Would write the following under {output_dir}/:")
     for entry in ARTEFACT_FILES:
         info(f"  {entry}")
-    info(
-        "Plan: docs/superpowers/plans/"
-        "2026-04-30-deployment-contract-three-tier.md (Phase 2)"
-    )
-    info(
-        "Spec: docs/superpowers/specs/"
-        "2026-04-30-deployment-contract-three-tier-design.md"
-    )
     return EXIT_NOT_IMPLEMENTED
 
 

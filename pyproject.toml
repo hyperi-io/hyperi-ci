@@ -50,7 +50,6 @@ line-length = 88
 target-version = "py312"
 extend-exclude = [
     "test-projects",                             # vendored fixture trees (node_modules, .venv etc.)
-    "hyperi-ai",                                 # submodule, not our code
     "src/hyperi_ci/gitops_templates",            # template data files, not Python source
 ]
 

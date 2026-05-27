@@ -455,8 +455,7 @@ def _dispatch_build(
             # No silent-success — if the project has container builds enabled,
             # missing binaries means the Build → Container artefact handoff
             # is broken. Fail loud so we never report "container green" without
-            # actually producing an image. See:
-            # /projects/hyperi-ci/docs/superpowers/specs/2026-05-01-container-stage-binary-placement-bug.md
+            # actually producing an image.
             error(
                 f"Container build configured for {configured_platforms} but no "
                 f"matching dist/{image_name}-linux-<arch> binaries present. "

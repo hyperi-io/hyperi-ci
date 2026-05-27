@@ -26,8 +26,6 @@ Rewriting only fires when the source file is a bare name that matches a
 ``dist/<name>-linux-*`` artefact. Dockerfiles that already use
 ``COPY dist/<name>-linux-${TARGETARCH} ...`` (the ci-test-* and
 dfe-loader pattern) are left alone.
-
-See: docs/superpowers/specs/2026-05-01-container-stage-binary-placement-bug.md
 """
 
 from __future__ import annotations

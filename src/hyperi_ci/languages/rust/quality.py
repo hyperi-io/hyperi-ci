@@ -385,6 +385,5 @@ def _run_rustdoc_hint(config: CIConfig) -> None:
     warn(
         f"  rustdoc: {warning_count} doc warning(s) — see "
         "https://doc.rust-lang.org/rustdoc/ + "
-        "https://rust-lang.github.io/api-guidelines/documentation.html "
-        "(HyperI standard: hyperi-ai/standards/languages/RUST.md § Documentation)"
+        "https://rust-lang.github.io/api-guidelines/documentation.html"
     )

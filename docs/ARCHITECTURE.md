@@ -1,8 +1,6 @@
 # hyperi-ci Architecture
 
-> **Reading order:** start here, then [README.md](../README.md) for usage,
-> then [STATE.md](../STATE.md) for current decisions and constraints.
-> Plans for in-flight work live under `docs/superpowers/plans/`.
+> **Reading order:** start here, then [README.md](../README.md) for usage.
 
 ## What hyperi-ci is
 

@@ -15,8 +15,6 @@ build/package/apply tool.
 The module is artefact-agnostic at its core (``model``, ``render``,
 ``errors``); each artefact contributes its own anchor resolver under
 ``anchors/``.
-
-See: ``docs/superpowers/specs/2026-05-15-deployment-overlay-framework-spec.md``.
 """
 
 from __future__ import annotations

@@ -214,8 +214,7 @@ Your contract was emitted by a newer producer than this hyperi-ci.
 Run `uv tool upgrade hyperi-ci` (or `hyperi-ci upgrade`) and retry.
 
 **"Generate (Tier 3): emit-artefacts: artefact templater is not yet implemented"**  
-Expected until Phase 2 ships. Track [the plan](../superpowers/plans/2026-04-30-deployment-contract-three-tier.md)
-to see when that lands.
+Expected until Phase 2 ships.
 
 **"Drift check: artefacts under ci/ drift from the contract"**  
 You edited `ci/deployment-contract.json` without re-running
@@ -225,5 +224,3 @@ files.
 ## See also
 
 - [User guide](../deployment-contract.md) — concept + reference
-- [Spec](../superpowers/specs/2026-04-30-deployment-contract-three-tier-design.md)
-- [Plan](../superpowers/plans/2026-04-30-deployment-contract-three-tier.md)

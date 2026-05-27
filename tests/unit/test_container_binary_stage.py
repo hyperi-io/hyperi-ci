@@ -7,8 +7,7 @@
 """Tests for `hyperi_ci.container.binary_stage.stage_binary_dockerfile`.
 
 Covers the bare-`COPY <app>` rewrite logic that fixes the Container
-stage binary-placement bug. See:
-docs/superpowers/specs/2026-05-01-container-stage-binary-placement-bug.md
+stage binary-placement bug.
 """
 
 from __future__ import annotations

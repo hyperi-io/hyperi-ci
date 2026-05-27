@@ -15,6 +15,5 @@ Stage flow (per overlay-framework spec section 10.5):
   5. git commit + push (or open a PR per env policy)
 
 The GitOps repo (hyperi-io/gitops) is the public single-source-of-truth
-for ArgoCD cluster state. Its bootstrap spec lives at
-``docs/superpowers/specs/2026-05-15-gitops-repo-bootstrap-spec.md``.
+for ArgoCD cluster state.
 """

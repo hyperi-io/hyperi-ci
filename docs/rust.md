@@ -5,8 +5,6 @@ channel-gated release optimisation (Tier 1 allocator + LTO, Tier 2 PGO +
 BOLT), local developer hygiene, and operational troubleshooting.
 
 For PGO workload script specifics, see [`PGO-WORKLOAD-GUIDE.md`](PGO-WORKLOAD-GUIDE.md).
-For the internal design rationale, see
-`hyperi-ai/standards/rules/rust.md` → *hyperi-ci Release-Track Optimisation*.
 
 ---
 
@@ -495,8 +493,6 @@ Don't optimise this line — it's trivial.
 
 - [`PGO-WORKLOAD-GUIDE.md`](PGO-WORKLOAD-GUIDE.md) — how to write a good PGO workload script
 - [`templates/pgo-workload/`](../templates/pgo-workload/) — reusable workload skeletons
-- [dfe-receiver v1.15.7 canary notes](/projects/dfe-receiver/TODO.md) — *Canary run notes* section
-- `hyperi-ai/standards/rules/rust.md` — internal design rationale + standards
 - [`MIGRATION-GUIDE.md`](MIGRATION-GUIDE.md) — general onboarding to hyperi-ci
 
 ## Changelog

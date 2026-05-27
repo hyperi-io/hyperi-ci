@@ -260,7 +260,6 @@ class TestRustdocHint:
         # References the standards URLs
         assert "doc.rust-lang.org/rustdoc" in msg
         assert "api-guidelines" in msg
-        assert "hyperi-ai/standards" in msg
 
 
 class TestHasLibTarget:
