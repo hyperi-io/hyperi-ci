@@ -1,3 +1,12 @@
+## [2.3.10](https://github.com/hyperi-io/hyperi-ci/compare/v2.3.9...v2.3.10) (2026-05-27)
+
+
+### Bug Fixes
+
+* **container:** tag image with Plan's predicted version (refs [#27](https://github.com/hyperi-io/hyperi-ci/issues/27)) ([3a6f33f](https://github.com/hyperi-io/hyperi-ci/commit/3a6f33f7cca223e0f95a2fdc92115781946e8292)), closes [#1](https://github.com/hyperi-io/hyperi-ci/issues/1)
+* **quality:** osv-scanner malicious-package scan for Rust + TS ([109d8db](https://github.com/hyperi-io/hyperi-ci/commit/109d8db5f02a03fe56ee6700bbcff83ee2601d35)), closes [ossf/malicious-packages#1276](https://github.com/ossf/malicious-packages/issues/1276)
+* **quality:** self-expiring + batch quality.ignore overrides ([7fe9f77](https://github.com/hyperi-io/hyperi-ci/commit/7fe9f772c46d2f6f25709ce813355097f46967cf))
+
 ## [2.3.9](https://github.com/hyperi-io/hyperi-ci/compare/v2.3.8...v2.3.9) (2026-05-21)
 
 
