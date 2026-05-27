@@ -1,6 +1,9 @@
 # Project:   HyperI CI
 # File:      .github/workflows/go-ci.yml
 # Purpose:   Reusable Go CI workflow for consumer projects
+# Status:    BETA — functional but not battle-tested to the same degree
+#            as the Rust, Python, and TypeScript workflows. Maintained,
+#            not yet proven at the same scale.
 #
 # License:   Proprietary — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
@@ -97,6 +100,9 @@ jobs:
       next-version: ${{ steps.predict.outputs.version }}
       build-matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
+      - name: Beta notice
+        run: echo "::warning title=Go CI is beta::The Go reusable workflow is less battle-tested than Rust/Python/TS — verify results carefully."
+
       - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.tag || github.ref }}

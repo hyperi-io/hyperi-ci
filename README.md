@@ -385,7 +385,11 @@ publish:
 | Python | ruff, ty, bandit, pip-audit | pytest | uv build | uv publish (PyPI) |
 | Rust | cargo fmt, clippy, audit, deny, **feature_matrix** | cargo test/nextest | cargo build (cross) | cargo publish (crates.io) |
 | TypeScript | eslint, prettier, tsc, npm audit | vitest/jest | npm/pnpm build | npm publish (npmjs / GH Packages) |
-| Go | gofmt, go vet, golangci-lint, gosec | go test -race | go build (cross) | go proxy, gh release |
+| Go _(beta)_ | gofmt, go vet, golangci-lint, gosec | go test -race | go build (cross) | go proxy, gh release |
+
+> **Go support is beta** — functional but not battle-tested to the same
+> degree as Rust, Python, and TypeScript. Verify results carefully on
+> production pipelines.
 
 Per-language version stamping (publish runs only):
 
