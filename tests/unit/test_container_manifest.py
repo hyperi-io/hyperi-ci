@@ -2,7 +2,7 @@
 # File:      tests/unit/test_container_manifest.py
 # Purpose:   Tests for container manifest parser
 #
-# License:   FSL-1.1-ALv2
+# License:   BUSL-1.1
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 from __future__ import annotations

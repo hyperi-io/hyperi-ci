@@ -2,7 +2,7 @@
 # File:      tests/unit/test_container_labels.py
 # Purpose:   Tests for OCI image label generation
 #
-# License:   FSL-1.1-ALv2
+# License:   BUSL-1.1
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for OCI-standard label generation."""
 
@@ -29,7 +29,7 @@ def test_build_oci_labels_basic() -> None:
     assert labels["org.opencontainers.image.title"] == "My App"
     assert labels["org.opencontainers.image.description"] == "A test application"
     assert labels["org.opencontainers.image.vendor"] == "HYPERI PTY LIMITED"
-    assert labels["org.opencontainers.image.licenses"] == "FSL-1.1-ALv2"
+    assert labels["org.opencontainers.image.licenses"] == "BUSL-1.1"
     assert labels["io.hyperi.profile"] == "production"
     # created label must be a non-empty ISO 8601 UTC string
     assert labels["org.opencontainers.image.created"].endswith("Z")

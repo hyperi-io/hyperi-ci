@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/container/binary_stage.py
 # Purpose:   Stage pre-built binaries into the docker buildx context
 #
-# License:   FSL-1.1-ALv2
+# License:   BUSL-1.1
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Stage cross-compiled binaries into the Container stage's build context.
 

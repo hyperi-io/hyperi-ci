@@ -52,7 +52,7 @@ K8s cluster
 ├── .github/workflows/        # CI: validate, stitch+publish, docs
 ├── .gitbook.yaml             # GitBook GitHub Sync config
 ├── CODEOWNERS                # platform-team ownership
-├── LICENSE                   # FSL-1.1-ALv2
+├── LICENSE                   # BUSL-1.1
 ├── README.md                 # this file
 ├── docs/                     # MkDocs Material site (→ GitHub Pages)
 ├── mkdocs.yml                # docs config
