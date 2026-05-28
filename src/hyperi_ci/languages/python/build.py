@@ -119,3 +119,23 @@ def _build_nuitka(config: CIConfig) -> int:
     info("Nuitka build not yet implemented in hyperi-ci")
     warn("Nuitka builds will be ported from the old CI system")
     return 1
+
+
+def stamp_manifest(version: str, root: Path) -> None:
+    """Stamp `version` into pyproject.toml's [project] table.
+
+    Static-version projects (PEP 621 `[project] version = "..."`) get the
+    rewrite. Dynamic-version projects (hatch-vcs, setuptools-scm, or
+    hatch reading the VERSION file) have no `version` key in [project] —
+    those are left untouched; the VERSION file is authoritative for them.
+    """
+    from hyperi_ci.stamp import replace_toml_table_version
+
+    pyproject = root / "pyproject.toml"
+    if not pyproject.exists():
+        return
+    text = pyproject.read_text()
+    new_text = replace_toml_table_version(text, "project", version)
+    if new_text != text:
+        pyproject.write_text(new_text)
+        info(f"Stamped pyproject.toml: {version}")

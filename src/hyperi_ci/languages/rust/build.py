@@ -866,6 +866,28 @@ def _detect_binary_names() -> list[str]:
     return names
 
 
+def stamp_manifest(version: str, root: Path) -> None:
+    """Stamp `version` into Cargo.toml's [package] and [workspace.package].
+
+    Covers both the single-crate ([package]) and workspace-inherited
+    ([workspace.package]) layouts. Dependency pins are untouched — only the
+    `version` key inside those two tables is rewritten. A multi-crate
+    workspace inherits the [workspace.package] version, so the root stamp
+    propagates; per-crate Cargo.toml files that pin their own version are
+    the project's responsibility (rare).
+    """
+    from hyperi_ci.stamp import replace_toml_table_version
+
+    cargo = root / "Cargo.toml"
+    if not cargo.exists():
+        return
+    text = cargo.read_text()
+    for table in ("package", "workspace.package"):
+        text = replace_toml_table_version(text, table, version)
+    cargo.write_text(text)
+    info(f"Stamped Cargo.toml: {version}")
+
+
 def _detect_version() -> str:
     """Detect project version from VERSION file, env vars, or Cargo.toml.
 

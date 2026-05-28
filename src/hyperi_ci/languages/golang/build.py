@@ -226,3 +226,12 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     success("Build complete")
     return 0
+
+
+def stamp_manifest(version: str, root: Path) -> None:
+    """No-op: Go has no manifest version field.
+
+    The version is injected at link time via ldflags read from the VERSION
+    file (see the build's -ldflags). Nothing to stamp in go.mod.
+    """
+    del version, root

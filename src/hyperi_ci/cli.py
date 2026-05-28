@@ -317,6 +317,30 @@ def detect(
         raise typer.Exit(1)
 
 
+@app.command(name="stamp-version")
+def stamp_version_cmd(
+    version: Annotated[
+        str,
+        typer.Argument(help="Release version to stamp (with or without leading v)"),
+    ],
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+) -> None:
+    """Stamp the version into VERSION + the language manifest.
+
+    Central, version-first step run by every language workflow before
+    build. Writes the VERSION file (language-agnostic) and delegates the
+    manifest stamp (Cargo.toml / pyproject.toml / package.json) to the
+    detected language. Go is a no-op (version injected via ldflags).
+    """
+    from hyperi_ci.stamp import stamp_version
+
+    dir_path = Path(project_dir) if project_dir else None
+    raise typer.Exit(stamp_version(version, project_dir=dir_path))
+
+
 @app.command()
 def config(
     project_dir: Annotated[

@@ -8,7 +8,9 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
+from pathlib import Path
 
 from hyperi_ci.common import error, info, success
 from hyperi_ci.config import CIConfig
@@ -33,3 +35,25 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     success("TypeScript build complete")
     return 0
+
+
+def stamp_manifest(version: str, root: Path) -> None:
+    """Stamp `version` into package.json's top-level "version".
+
+    Regex-rewrites the first `"version": "..."` (the package's own field —
+    dependency specs use `"<name>": "<range>"`, never a bare `"version"`
+    key) so the file's formatting is preserved exactly.
+    """
+    pkg = root / "package.json"
+    if not pkg.exists():
+        return
+    text = pkg.read_text()
+    new_text = re.sub(
+        r'("version"\s*:\s*)"[^"]*"',
+        rf'\g<1>"{version}"',
+        text,
+        count=1,
+    )
+    if new_text != text:
+        pkg.write_text(new_text)
+        info(f"Stamped package.json: {version}")
