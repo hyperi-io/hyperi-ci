@@ -169,19 +169,10 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - name: Install uv
-        if: ${{ !contains(runner.name, 'arc-runner') }}
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - name: Setup runtime (uv + Python + native deps)
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
         with:
-          enable-cache: false
-
-      - name: Set up Python
-        run: |
-          command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
-          command -v python3 || uv python install 3.12
-
-      - name: Install native dependencies
-        run: ${{ env.HYPERCI_INSTALL }} install-native-deps rust
+          language: rust
 
       - name: Install Rust toolchain
         if: ${{ !contains(runner.name, 'arc-runner') }}
@@ -210,24 +201,8 @@ jobs:
           command -v cargo-audit || cargo install --locked cargo-audit
           command -v cargo-deny || cargo install --locked cargo-deny
 
-      - name: Install osv-scanner
-        # Malicious-package (MAL-*) scanner — covers the OSSF
-        # malicious-packages feed that cargo-audit (RustSec) does not.
-        # No `|| true`: in CI the tool must be present (the quality stage
-        # skips it only for local dev convenience). Pinned; bump deliberately.
-        run: |
-          OSV_VERSION=v2.3.8
-          case "$(uname -m)" in
-            x86_64) OSV_ARCH=amd64 ;;
-            aarch64 | arm64) OSV_ARCH=arm64 ;;
-            *) echo "::error::unsupported arch $(uname -m) for osv-scanner"; exit 1 ;;
-          esac
-          mkdir -p "$HOME/.local/bin"
-          curl -sSfL -o "$HOME/.local/bin/osv-scanner" \
-            "https://github.com/google/osv-scanner/releases/download/${OSV_VERSION}/osv-scanner_linux_${OSV_ARCH}"
-          chmod +x "$HOME/.local/bin/osv-scanner"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          "$HOME/.local/bin/osv-scanner" --version
+      - name: Setup osv-scanner
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-osv-scanner@main
 
       - name: Run quality checks
         env:
@@ -254,19 +229,10 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - name: Install uv
-        if: ${{ !contains(runner.name, 'arc-runner') }}
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - name: Setup runtime (uv + Python + native deps)
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
         with:
-          enable-cache: false
-
-      - name: Set up Python
-        run: |
-          command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
-          command -v python3 || uv python install 3.12
-
-      - name: Install native dependencies
-        run: ${{ env.HYPERCI_INSTALL }} install-native-deps rust
+          language: rust
 
       - name: Install Rust toolchain
         if: ${{ !contains(runner.name, 'arc-runner') }}
@@ -345,19 +311,10 @@ jobs:
           grep -E '^version[[:space:]]*=' Cargo.toml | head -3
           [[ -f VERSION ]] && echo "--- VERSION: $(cat VERSION)"
 
-      - name: Install uv
-        if: ${{ !contains(runner.name, 'arc-runner') }}
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - name: Setup runtime (uv + Python + native deps)
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
         with:
-          enable-cache: false
-
-      - name: Set up Python
-        run: |
-          command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
-          command -v python3 || uv python install 3.12
-
-      - name: Install native dependencies
-        run: ${{ env.HYPERCI_INSTALL }} install-native-deps rust
+          language: rust
 
       - name: Install Rust toolchain
         if: ${{ !contains(runner.name, 'arc-runner') }}

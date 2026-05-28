@@ -1,0 +1,43 @@
+# Project:   HyperI CI
+# File:      .github/actions/setup-osv-scanner/action.yml
+# Purpose:   Install the pinned osv-scanner (malicious-package MAL-* feed)
+#
+# License:   Proprietary — HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# osv-scanner covers the OSSF malicious-packages (MAL-*) feed that cargo-audit
+# (RustSec) and pip-audit do not. The install block was duplicated in rust-ci
+# and ts-ci — collapsed here so the pin + arch logic live once.
+#
+# Referenced from reusable workflows as
+#   hyperi-io/hyperi-ci/.github/actions/setup-osv-scanner@main
+
+name: Setup osv-scanner
+description: Install the pinned osv-scanner onto PATH (Linux runners)
+
+inputs:
+  version:
+    description: osv-scanner release tag to pin
+    required: false
+    default: v2.3.8
+
+runs:
+  using: composite
+  steps:
+    - name: Install osv-scanner
+      # No `|| true`: in CI the tool must be present (the quality stage skips
+      # it only for local-dev convenience). Pinned; bump deliberately.
+      shell: bash
+      run: |
+        OSV_VERSION="${{ inputs.version }}"
+        case "$(uname -m)" in
+          x86_64) OSV_ARCH=amd64 ;;
+          aarch64 | arm64) OSV_ARCH=arm64 ;;
+          *) echo "::error::unsupported arch $(uname -m) for osv-scanner"; exit 1 ;;
+        esac
+        mkdir -p "$HOME/.local/bin"
+        curl -sSfL -o "$HOME/.local/bin/osv-scanner" \
+          "https://github.com/google/osv-scanner/releases/download/${OSV_VERSION}/osv-scanner_linux_${OSV_ARCH}"
+        chmod +x "$HOME/.local/bin/osv-scanner"
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        "$HOME/.local/bin/osv-scanner" --version
