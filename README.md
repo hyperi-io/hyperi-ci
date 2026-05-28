@@ -452,4 +452,7 @@ Publish runs build the full matrix.
 
 ## Licence
 
-Proprietary — HYPERI PTY LIMITED
+This software is licensed under the Business Source License 1.1 (BUSL-1.1).
+See [LICENSE](LICENSE) for terms and [COMMERCIAL.md](COMMERCIAL.md) for commercial
+use; each version converts to Apache 2.0 three years after its release.
+(c) 2026 HYPERI PTY LIMITED.
