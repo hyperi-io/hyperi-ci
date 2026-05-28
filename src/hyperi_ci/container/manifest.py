@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/container/manifest.py
 # Purpose:   Parse container-manifest.json from rustlib deployment contract
 #
-# License:   FSL-1.1-ALv2
+# License:   BUSL-1.1
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Parse container-manifest.json emitted by rustlib deployment contracts."""
 

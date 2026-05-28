@@ -33,7 +33,7 @@ DEFAULT_SCHEMA_VERSION = 2
 DEFAULT_IMAGE_REGISTRY = "ghcr.io/hyperi-io"
 DEFAULT_BASE_IMAGE = "ubuntu:24.04"
 DEFAULT_VENDOR = "HYPERI PTY LIMITED"
-DEFAULT_LICENSE = "FSL-1.1-ALv2"
+DEFAULT_LICENSE = "BUSL-1.1"
 DEFAULT_PROTOCOL = "TCP"
 
 # Highest contract schema version this hyperi-ci can consume. Bumped in

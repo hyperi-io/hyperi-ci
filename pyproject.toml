@@ -10,7 +10,7 @@ name = "hyperi-ci"
 dynamic = ["version"]
 description = "HyperI CI/CD CLI tool — multi-language build, test, and publish automation"
 requires-python = ">=3.12"
-license = {text = "Proprietary"}
+license = "LicenseRef-BUSL-1.1-HyperI"
 dependencies = [
     # Pin to >= so transitive resolution can pick up bug fixes / new
     # features without a manifest edit. Bump the floor when we adopt

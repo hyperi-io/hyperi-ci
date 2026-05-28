@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/container/compose.py
 # Purpose:   Compose Dockerfile from rustlib deployment contract manifest
 #
-# License:   FSL-1.1-ALv2
+# License:   BUSL-1.1
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Compose multi-stage Dockerfile from contract manifest + cargo-chef build stages."""
 

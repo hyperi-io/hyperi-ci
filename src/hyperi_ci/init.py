@@ -28,7 +28,7 @@ from hyperi_ci.detect import detect_language
 
 _CI_REPO = "hyperi-io/hyperi-ci"
 _WORKFLOW_REF = "main"
-_DEFAULT_LICENSE = "FSL-1.1-ALv2"
+_DEFAULT_LICENSE = "BUSL-1.1"
 
 _LANGUAGE_WORKFLOW_MAP: dict[str, str] = {
     "python": "python-ci.yml",
@@ -43,7 +43,7 @@ _DEPRECATED_CONFIG_NAMES = (
 )
 
 _LICENSE_MARKERS = {
-    "FSL-1.1-ALv2": ("FSL-1.1-ALv2",),
+    "BUSL-1.1": ("BUSL-1.1",),
     "MIT": ("MIT License", "Permission is hereby granted"),
     "Apache-2.0": ("Apache License", "Licensed under the Apache"),
 }
@@ -59,7 +59,7 @@ def detect_license(project_dir: Path) -> str:
         project_dir: Project root directory.
 
     Returns:
-        License identifier string (e.g. "FSL-1.1-ALv2") or default.
+        License identifier string (e.g. "BUSL-1.1") or default.
 
     """
     license_file = project_dir / "LICENSE"
@@ -99,8 +99,8 @@ def detect_license(project_dir: Path) -> str:
 
 def _license_header_text(license_id: str) -> str:
     """Return the license line for file headers."""
-    if license_id == "FSL-1.1-ALv2":
-        return "FSL-1.1-ALv2"
+    if license_id == "BUSL-1.1":
+        return "BUSL-1.1"
     return f"{license_id} — HYPERI PTY LIMITED"
 
 

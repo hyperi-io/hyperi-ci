@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/container/labels.py
 # Purpose:   OCI image label generation for container builds
 #
-# License:   FSL-1.1-ALv2
+# License:   BUSL-1.1
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """OCI-standard label generation for container image builds."""
 
@@ -44,7 +44,7 @@ def build_oci_labels(
         "org.opencontainers.image.title": title,
         "org.opencontainers.image.description": description,
         "org.opencontainers.image.vendor": "HYPERI PTY LIMITED",
-        "org.opencontainers.image.licenses": "FSL-1.1-ALv2",
+        "org.opencontainers.image.licenses": "BUSL-1.1",
         "io.hyperi.profile": "production",
     }
 

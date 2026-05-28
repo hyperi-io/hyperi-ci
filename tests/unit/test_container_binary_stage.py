@@ -2,7 +2,7 @@
 # File:      tests/unit/test_container_binary_stage.py
 # Purpose:   Tests for binary-staging Dockerfile rewriter
 #
-# License:   FSL-1.1-ALv2
+# License:   BUSL-1.1
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for `hyperi_ci.container.binary_stage.stage_binary_dockerfile`.
 
