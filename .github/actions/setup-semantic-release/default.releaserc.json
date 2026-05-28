@@ -1,0 +1,43 @@
+{
+  "_comment": "Canonical tagger-only semantic-release config, provided by hyperi-ci when a repo has no .releaserc. semantic-release here ONLY analyses commits + tags HEAD; hyperi-ci's build stamps the version (hyperi-ci stamp-version) and its publish stage creates the GH release / GHCR / registry artefacts. No @semantic-release/exec (stamping is central), no @semantic-release/git (tag-on-HEAD), no npm/github defaults. A repo only commits its own .releaserc for a genuine exception. Edit this file to change the org-wide release rules.",
+  "branches": ["main"],
+  "tagFormat": "v${version}",
+  "plugins": [
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        "preset": "conventionalcommits",
+        "releaseRules": [
+          { "breaking": true, "release": "major" },
+          { "type": "feat", "release": "minor" },
+          { "type": "fix", "release": "patch" },
+          { "type": "perf", "release": "patch" },
+          { "type": "sec", "release": "patch" },
+          { "type": "hotfix", "release": "patch" },
+          { "type": "security", "release": "patch" },
+          { "type": "docs", "release": false },
+          { "type": "test", "release": false },
+          { "type": "refactor", "release": false },
+          { "type": "style", "release": false },
+          { "type": "build", "release": false },
+          { "type": "ci", "release": false },
+          { "type": "chore", "release": false },
+          { "type": "deps", "release": false },
+          { "type": "revert", "release": false },
+          { "type": "wip", "release": false },
+          { "type": "cleanup", "release": false },
+          { "type": "data", "release": false },
+          { "type": "debt", "release": false },
+          { "type": "design", "release": false },
+          { "type": "infra", "release": false },
+          { "type": "meta", "release": false },
+          { "type": "ops", "release": false },
+          { "type": "review", "release": false },
+          { "type": "spike", "release": false },
+          { "type": "ui", "release": false }
+        ]
+      }
+    ],
+    "@semantic-release/release-notes-generator"
+  ]
+}

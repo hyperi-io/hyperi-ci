@@ -8,8 +8,14 @@
 # Consumed by predict-version (dry-run), _release-tail (real tag), ci.yml.
 # Predict and the real run must install identical plugins, else they compute
 # different versions ("tag vX already exists"). One place for that list — here.
-# Does not touch .releaserc (per-repo, SME-owned). git plugin stays installed
-# for back-compat with repos still referencing it; new repos drop it.
+#
+# Release config is central too: if a repo has no .releaserc, this composite
+# drops the canonical tagger-only `default.releaserc.json` into the workspace
+# (ephemeral, never committed). Most repos carry NO .releaserc; one is
+# committed only for a genuine exception, and this step then defers to it.
+# semantic-release is a TAGGER only — version stamping is `hyperi-ci
+# stamp-version`, publishing is hyperi-ci's publish stage. git plugin stays in
+# the install list for back-compat; the default config does not use it.
 
 name: Setup semantic-release
 description: Install the pinned, shared semantic-release toolchain (single source of truth)
@@ -39,3 +45,14 @@ runs:
           @semantic-release/exec \
           @semantic-release/git \
           conventional-changelog-conventionalcommits
+
+    - name: Provide default release config if the repo has none
+      shell: bash
+      run: |
+        if compgen -G "$GITHUB_WORKSPACE/.releaserc*" > /dev/null
+        then
+          echo "Repo has its own .releaserc — deferring to it"
+        else
+          cp "$GITHUB_ACTION_PATH/default.releaserc.json" "$GITHUB_WORKSPACE/.releaserc.json"
+          echo "No .releaserc — provided the canonical tagger-only default"
+        fi
