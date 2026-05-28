@@ -118,6 +118,12 @@ jobs:
       - name: Set up Python
         run: uv python install 3.12
 
+      - name: Stamp VERSION from tag
+        # git-plugin dropped: semantic-release no longer commits the bump,
+        # so the tag's tree carries a stale VERSION. The dispatch tag IS the
+        # version — write it so hatch (path = VERSION) builds the right wheel.
+        run: python3 -c "import pathlib, sys; pathlib.Path('VERSION').write_text(sys.argv[1].removeprefix('v') + '\n')" "${{ inputs.tag }}"
+
       - name: Build wheel
         run: uv build
 
