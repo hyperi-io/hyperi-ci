@@ -5,21 +5,27 @@
 #
 # License:   Proprietary — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Synchronise GitHub Actions workflow files with the central versions SSOT.
+"""Pin GitHub Actions across the pipeline from the central versions SSOT.
+
+This is the /deps tool for hyperi-ci. Actions pin to a commit SHA with a
+`# <version>` comment (a tag can be force-moved, a SHA can't); the pre-commit
+hook enforces it. Scans both .github/workflows/ and .github/actions/. Policy
++ the Renovate split: docs/CI-DEPENDENCIES.md.
 
 Usage:
     uv run scripts/update-versions.py                # default: --check
-    uv run scripts/update-versions.py --check        # show mismatches (dry run)
-    uv run scripts/update-versions.py --apply        # update workflow files
-    uv run scripts/update-versions.py --latest       # check for newer versions upstream
-    uv run scripts/update-versions.py --auto-update  # update, test via CI, commit or revert
+    uv run scripts/update-versions.py --check        # show drift (dry run)
+    uv run scripts/update-versions.py --apply        # rewrite pipeline to SSOT
+    uv run scripts/update-versions.py --latest       # report newest release >=7d old
+    uv run scripts/update-versions.py --auto-update  # bump SSOT, test via CI, commit/revert
 
-Auto-update behaviour:
-  - Runtimes (python, node, rust) require explicit update — never auto-bumped
-  - Actions and semantic-release auto-update to latest major
-  - After updating, triggers CI on test projects
-  - If CI passes: commits changes
-  - If CI fails: reverts and reports what failed
+Update behaviour:
+  - Actions resolve to the newest release that has aged past the 7-day
+    cooldown, within the current major (major bumps are a manual edit).
+  - Branch refs (rust-toolchain@master) pin the newest master commit >=7d old.
+  - Runtimes (python, node, rust) require explicit update — never auto-bumped.
+  - --auto-update triggers CI on the ci-test-* projects; commits on pass,
+    reverts on fail.
 """
 
 from __future__ import annotations
@@ -30,6 +36,7 @@ import re
 import subprocess
 import sys
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import yaml
@@ -37,6 +44,12 @@ import yaml
 _ROOT = Path(__file__).resolve().parent.parent
 _VERSIONS_FILE = _ROOT / "config" / "versions.yaml"
 _WORKFLOWS_DIR = _ROOT / ".github" / "workflows"
+_ACTIONS_DIR = _ROOT / ".github" / "actions"
+
+# How long a release must have existed before we'll pin it. Mirrors the org
+# Renovate preset's `minimumReleaseAge` — a release sitting untouched for a
+# week is far less likely to be a compromised/yanked supply-chain attack.
+_COOLDOWN_DAYS = 7
 
 # Maps action short names in versions.yaml to their full GitHub owner/repo
 _ACTION_OWNERS: dict[str, str] = {
@@ -60,11 +73,164 @@ def _load_versions() -> dict:
 
 
 def _find_workflow_files() -> list[Path]:
-    """Find all workflow YAML files."""
+    """Find every pipeline YAML — workflows AND composite actions.
+
+    Composite actions under `.github/actions/*/action.yml` pin third-party
+    actions too (setup-node, etc.), so they must be scanned or they'd drift
+    unpinned — the gap that hid the unpinned refs during the deps review.
+    """
     files: list[Path] = []
     for pattern in ("*.yml", "*.yaml"):
         files.extend(_WORKFLOWS_DIR.glob(pattern))
+    if _ACTIONS_DIR.is_dir():
+        for pattern in ("**/action.yml", "**/action.yaml"):
+            files.extend(_ACTIONS_DIR.glob(pattern))
     return sorted(files)
+
+
+def _parse_semver(tag: str) -> tuple[int, int, int] | None:
+    """Parse `v1.2.3` / `1.2.3` to a tuple. None for anything else.
+
+    Rejects suffixed tags like `v3.1.0-node20` — those are backports, not
+    the canonical latest, and must never win selection.
+    """
+    m = re.match(r"^v?(\d+)\.(\d+)\.(\d+)$", tag.strip())
+    return (int(m[1]), int(m[2]), int(m[3])) if m else None
+
+
+def _select_pinned_release(
+    releases: list[dict],
+    now: datetime,
+    cooldown_days: int = _COOLDOWN_DAYS,
+    major: int | None = None,
+) -> dict | None:
+    """Pick the highest-semver release that has aged past the cooldown.
+
+    Highest semver, NOT newest-published: GitHub republishes old backports
+    (e.g. download-artifact `v3.1.0-node20`) with recent dates, so ordering
+    by publish date picks the wrong one. Skips drafts, prereleases,
+    non-semver tags, and — timestamp-required posture — anything without a
+    `published_at`. With `major` set, stays within that major so a surprise
+    major bump never auto-lands (those are a deliberate edit). Returns the
+    chosen release dict or None.
+    """
+    cutoff = now - timedelta(days=cooldown_days)
+    best: dict | None = None
+    best_ver: tuple[int, int, int] | None = None
+    for rel in releases:
+        if rel.get("draft") or rel.get("prerelease"):
+            continue
+        ts = rel.get("published_at")
+        if not ts:
+            continue
+        if datetime.fromisoformat(ts.replace("Z", "+00:00")) > cutoff:
+            continue
+        ver = _parse_semver(rel.get("tag_name", ""))
+        if ver is None:
+            continue
+        if major is not None and ver[0] != major:
+            continue
+        if best_ver is None or ver > best_ver:
+            best_ver, best = ver, rel
+    return best
+
+
+def _gh_json(path: str) -> object | None:
+    """GET a GitHub API path, parsed as JSON. None on any failure."""
+    try:
+        result = subprocess.run(
+            ["gh", "api", path],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if result.returncode != 0:
+            return None
+        return json.loads(result.stdout)
+    except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def _resolve_tag_sha(owner_repo: str, tag: str) -> str | None:
+    """Resolve a tag to its commit SHA (dereferencing annotated tags)."""
+    ref = _gh_json(f"/repos/{owner_repo}/git/ref/tags/{tag}")
+    if not isinstance(ref, dict):
+        return None
+    obj = ref.get("object", {})
+    if obj.get("type") == "tag":
+        # annotated tag → deref to the commit it points at
+        tag_obj = _gh_json(f"/repos/{owner_repo}/git/tags/{obj.get('sha')}")
+        if isinstance(tag_obj, dict):
+            return tag_obj.get("object", {}).get("sha")
+    return obj.get("sha")
+
+
+def _resolve_branch_sha(
+    owner_repo: str, branch: str, now: datetime, cooldown_days: int = _COOLDOWN_DAYS
+) -> str | None:
+    """Pin a branch ref (e.g. rust-toolchain@master) to its newest commit
+    that is older than the cooldown — no releases to gate on, so use the
+    commit date instead."""
+    commits = _gh_json(f"/repos/{owner_repo}/commits?sha={branch}&per_page=50")
+    if not isinstance(commits, list):
+        return None
+    cutoff = now - timedelta(days=cooldown_days)
+    for commit in commits:
+        date_str = commit.get("commit", {}).get("committer", {}).get("date")
+        if not date_str:
+            continue
+        committed = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        if committed <= cutoff:
+            return commit.get("sha")
+    return None
+
+
+def _pinned_spec_for(short_name: str, current: object, now: datetime) -> dict | None:
+    """Resolve {version, sha} for an action under the cooldown rule.
+
+    Branch pins (version == "master") track the branch HEAD ≥ cooldown.
+    Everything else picks the newest release ≥ cooldown and resolves its
+    tag to a SHA. Returns None if nothing eligible / lookups fail.
+    """
+    owner_repo = _ACTION_OWNERS.get(short_name)
+    if not owner_repo:
+        return None
+
+    cur_version = current.get("version") if isinstance(current, dict) else current
+
+    if cur_version == "master":
+        sha = _resolve_branch_sha(owner_repo, "master", now)
+        return {"version": "master", "sha": sha} if sha else None
+
+    releases = _gh_json(f"/repos/{owner_repo}/releases?per_page=30")
+    if not isinstance(releases, list):
+        return None
+    # Stay within the current major — major bumps are a deliberate edit.
+    cur_semver = _parse_semver(str(cur_version)) if cur_version else None
+    major = cur_semver[0] if cur_semver else None
+    chosen = _select_pinned_release(releases, now, major=major)
+    if not chosen:
+        return None
+    tag = chosen["tag_name"]
+    sha = _resolve_tag_sha(owner_repo, tag)
+    return {"version": tag, "sha": sha} if sha else None
+
+
+def _action_ref(spec: object) -> tuple[str, str]:
+    """Resolve an action spec from versions.yaml to (ref, comment).
+
+    New format — `{version: v6.0.2, sha: <sha>}` — pins the SHA with a
+    `# <version>` comment (supply-chain hardening: a tag can move, a SHA
+    can't). Legacy flat string — `v6` — pins the tag, no comment
+    (back-compat; lets a value be migrated incrementally).
+    """
+    if isinstance(spec, dict):
+        sha = spec.get("sha")
+        version = spec.get("version", "")
+        if sha:
+            return sha, f" # {version}" if version else ""
+        return version, ""
+    return str(spec), ""
 
 
 def _build_replacements(versions: dict) -> list[tuple[re.Pattern, str, str]]:
@@ -75,14 +241,17 @@ def _build_replacements(versions: dict) -> list[tuple[re.Pattern, str, str]]:
     replacements: list[tuple[re.Pattern, str, str]] = []
 
     actions = versions.get("actions", {})
-    for short_name, version in actions.items():
+    for short_name, spec in actions.items():
         owner_repo = _ACTION_OWNERS.get(short_name)
         if not owner_repo:
             continue
+        ref, comment = _action_ref(spec)
         owner_escaped = re.escape(owner_repo)
-        pattern = re.compile(rf"({owner_escaped})@\S+")
-        replacement = rf"\1@{version}"
-        replacements.append((pattern, replacement, f"{owner_repo}@{version}"))
+        # Consume the ref plus any trailing `# comment` so re-runs are
+        # idempotent and a stale multi-token comment is fully replaced.
+        pattern = re.compile(rf"({owner_escaped})@\S+(?:[ \t]*#[^\n]*)?")
+        replacement = rf"\1@{ref}{comment}"
+        replacements.append((pattern, replacement, f"{owner_repo}@{ref}{comment}"))
 
     runtimes = versions.get("runtimes", {})
 
@@ -222,64 +391,27 @@ def _latest(versions: dict) -> int:
     actions = versions.get("actions", {})
     updates_available = 0
 
-    print("Checking latest versions via GitHub API...\n")
+    print(f"Checking latest versions (>= {_COOLDOWN_DAYS}-day cooldown)...\n")
+    now = datetime.now(UTC)
 
-    for short_name, current_ver in actions.items():
+    for short_name, current in actions.items():
         owner_repo = _ACTION_OWNERS.get(short_name)
         if not owner_repo:
             continue
+        cur_version = current.get("version") if isinstance(current, dict) else current
+        cur_sha = current.get("sha") if isinstance(current, dict) else None
 
-        if current_ver == "master":
-            print(f"  {owner_repo}@master (branch pin, skipping)")
+        spec = _pinned_spec_for(short_name, current, now)
+        if not spec:
+            print(f"  {owner_repo}: {cur_version} (nothing aged past cooldown)")
             continue
-
-        try:
-            result = subprocess.run(
-                [
-                    "gh",
-                    "api",
-                    f"/repos/{owner_repo}/releases/latest",
-                    "--jq",
-                    ".tag_name",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=10,
+        if spec["version"] != cur_version or spec["sha"] != cur_sha:
+            print(
+                f"  {owner_repo}: {cur_version} → {spec['version']} ({spec['sha'][:12]})"
             )
-            if result.returncode != 0:
-                result = subprocess.run(
-                    [
-                        "gh",
-                        "api",
-                        f"/repos/{owner_repo}/tags",
-                        "--jq",
-                        ".[0].name",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-
-            latest = result.stdout.strip()
-            if not latest:
-                print(f"  {owner_repo}: could not determine latest")
-                continue
-
-            latest_major = latest.split(".")[0] if "." in latest else latest
-
-            if latest_major != current_ver:
-                print(
-                    f"  {owner_repo}: {current_ver} → {latest_major} (latest: {latest})"
-                )
-                updates_available += 1
-            else:
-                print(f"  {owner_repo}: {current_ver} (up to date)")
-
-        except subprocess.TimeoutExpired:
-            print(f"  {owner_repo}: timeout querying GitHub API")
-        except FileNotFoundError:
-            print("  ERROR: 'gh' CLI not found. Install GitHub CLI.")
-            return 1
+            updates_available += 1
+        else:
+            print(f"  {owner_repo}: {cur_version} (up to date)")
 
     runtimes = versions.get("runtimes", {})
     print()
@@ -326,30 +458,6 @@ _TEST_PROJECTS = [
     "hyperi-io/ci-test-ts-simple",
     "hyperi-io/ci-test-go-simple",
 ]
-
-
-def _get_latest_action_version(owner_repo: str) -> str | None:
-    """Query GitHub API for latest release tag of an action."""
-    try:
-        result = subprocess.run(
-            ["gh", "api", f"/repos/{owner_repo}/releases/latest", "--jq", ".tag_name"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            result = subprocess.run(
-                ["gh", "api", f"/repos/{owner_repo}/tags", "--jq", ".[0].name"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-        latest = result.stdout.strip()
-        if latest and "." in latest:
-            return latest.split(".")[0]
-        return latest or None
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return None
 
 
 def _get_latest_npm_major(package: str) -> str | None:
@@ -445,88 +553,102 @@ def _trigger_and_wait(repo: str, timeout_minutes: int = 15) -> tuple[bool, str]:
         return False, f"Error: {e}"
 
 
+def _set_action_spec_in_yaml(text: str, short_name: str, version: str, sha: str) -> str:
+    """Rewrite one action's `version:`/`sha:` lines in versions.yaml in place.
+
+    Block-scoped so comments and other actions are untouched — yaml.safe_dump
+    would nuke the file's comments, so we edit the lines directly.
+    """
+    out: list[str] = []
+    in_block = False
+    for line in text.splitlines(keepends=True):
+        if re.match(rf"^  {re.escape(short_name)}:\s*$", line):
+            in_block = True
+            out.append(line)
+            continue
+        if in_block:
+            if re.match(r"^    version:\s", line):
+                out.append(f"    version: {version}\n")
+                continue
+            if re.match(r"^    sha:\s", line):
+                out.append(f"    sha: {sha}\n")
+                continue
+            if re.match(r"^  \S", line):  # next 2-space key/comment → block ended
+                in_block = False
+        out.append(line)
+    return "".join(out)
+
+
 def _auto_update(versions: dict) -> int:
-    """Auto-update non-runtime versions, test, commit or revert."""
-    print("Auto-update: checking for newer versions...\n")
+    """Auto-update actions + semantic-release, test on ci-test-*, commit/revert.
 
-    updates: dict[str, tuple[str, str]] = {}
+    Actions resolve to the newest release past the 7-day cooldown, within
+    their current major (major bumps stay a manual edit). Runtimes never
+    auto-bump.
+    """
+    print("Auto-update: resolving releases past the cooldown...\n")
+    now = datetime.now(UTC)
 
-    # Check actions (skip branch pins like @master)
     actions = versions.get("actions", {})
-    for short_name, current_ver in actions.items():
-        if current_ver == "master":
+    action_updates: dict[str, dict] = {}
+    for short_name, current in actions.items():
+        if short_name not in _ACTION_OWNERS:
             continue
-        owner_repo = _ACTION_OWNERS.get(short_name)
-        if not owner_repo:
-            continue
-        latest = _get_latest_action_version(owner_repo)
-        if latest and latest != current_ver:
-            updates[f"actions.{short_name}"] = (current_ver, latest)
-            print(f"  {owner_repo}: {current_ver} → {latest}")
+        cur_version = current.get("version") if isinstance(current, dict) else current
+        cur_sha = current.get("sha") if isinstance(current, dict) else None
+        spec = _pinned_spec_for(short_name, current, now)
+        if spec and (spec["version"] != cur_version or spec["sha"] != cur_sha):
+            action_updates[short_name] = spec
+            print(
+                f"  {_ACTION_OWNERS[short_name]}: {cur_version} → "
+                f"{spec['version']} ({spec['sha'][:12]})"
+            )
 
-    # Check semantic-release
     sr = versions.get("semantic_release", {})
     sr_core = sr.get("core")
+    sr_update: tuple[str, str] | None = None
     if sr_core:
         latest_sr = _get_latest_npm_major("semantic-release")
         if latest_sr and latest_sr != sr_core:
-            updates["semantic_release.core"] = (sr_core, latest_sr)
+            sr_update = (sr_core, latest_sr)
             print(f"  semantic-release: {sr_core} → {latest_sr}")
 
-    # Runtimes are never auto-updated
     runtimes = versions.get("runtimes", {})
     for name in _AUTO_UPDATE_SKIP:
-        ver = runtimes.get(name)
-        if ver:
-            print(f"  {name}: {ver} (manual — skipped)")
+        if runtimes.get(name):
+            print(f"  {name}: {runtimes[name]} (manual — skipped)")
 
-    if not updates:
+    if not action_updates and not sr_update:
         print("\nNo auto-updates available.")
         return 0
 
-    print(f"\n{len(updates)} update(s) to apply.")
+    total = len(action_updates) + (1 if sr_update else 0)
+    print(f"\n{total} update(s) to apply.")
 
-    # Back up current versions.yaml
     original_yaml = _VERSIONS_FILE.read_text()
-    original_workflows: dict[str, str] = {}
-    for wf in _find_workflow_files():
-        original_workflows[str(wf)] = wf.read_text()
+    original_workflows = {str(wf): wf.read_text() for wf in _find_workflow_files()}
 
-    # Update versions.yaml
-    updated_versions = dict(versions)
-    for key, (_, new_ver) in updates.items():
-        parts = key.split(".")
-        target = updated_versions
-        for part in parts[:-1]:
-            target = target[part]
-        target[parts[-1]] = new_ver
-
-    # Write updated versions.yaml
-    with open(_VERSIONS_FILE) as f:
-        yaml_content = f.read()
-    for key, (old_ver, new_ver) in updates.items():
-        yaml_content = yaml_content.replace(
-            f": {old_ver}",
-            f": {new_ver}",
-            1,
+    yaml_content = original_yaml
+    for short_name, spec in action_updates.items():
+        yaml_content = _set_action_spec_in_yaml(
+            yaml_content, short_name, spec["version"], spec["sha"]
+        )
+    if sr_update:
+        yaml_content = re.sub(
+            r'(?m)^(  core:\s*")[^"]*(")', rf"\g<1>{sr_update[1]}\g<2>", yaml_content
         )
     _VERSIONS_FILE.write_text(yaml_content)
 
-    # Apply to workflow files
-    print("\nApplying to workflow files...")
-    updated_versions_loaded = _load_versions()
-    _apply(updated_versions_loaded)
+    print("\nApplying to pipeline files...")
+    _apply(_load_versions())
 
-    # Trigger CI on test projects
     print("\nTriggering CI on test projects...")
     failures: list[str] = []
     for repo in _TEST_PROJECTS:
         print(f"  {repo}...", end=" ", flush=True)
         ok, msg = _trigger_and_wait(repo, timeout_minutes=15)
-        if ok:
-            print("passed")
-        else:
-            print(f"FAILED ({msg})")
+        print("passed" if ok else f"FAILED ({msg})")
+        if not ok:
             failures.append(f"{repo}: {msg}")
 
     if failures:
@@ -540,10 +662,7 @@ def _auto_update(versions: dict) -> int:
         print("Reverted. Fix the issues and try again.")
         return 1
 
-    print("\nAll test projects passed. Changes applied:")
-    for key, (old_ver, new_ver) in updates.items():
-        print(f"  {key}: {old_ver} → {new_ver}")
-    print("\nReview and commit when ready.")
+    print("\nAll test projects passed. Review and commit when ready.")
     return 0
 
 

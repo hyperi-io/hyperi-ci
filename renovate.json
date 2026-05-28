@@ -1,4 +1,11 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>hyperi-io/renovate-config"]
+  "extends": ["github>hyperi-io/renovate-config"],
+  "packageRules": [
+    {
+      "description": "GitHub Actions on hyperi-ci are pinned by scripts/update-versions.py (the /deps SSOT in config/versions.yaml): SHA-pinned, 7-day cooldown, enforced at commit time by the pre-commit hook. Renovate stays a PASSIVE WATCHDOG here — it still detects action updates and lists them on the Dependency Dashboard (an independent second opinion), but raises no PR unless a human ticks the box, so it never fights the script's pins. Everything else (cargo/pip/npm) follows the org preset.",
+      "matchManagers": ["github-actions"],
+      "dependencyDashboardApproval": true
+    }
+  ]
 }

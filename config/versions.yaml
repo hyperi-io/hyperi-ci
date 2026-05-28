@@ -5,31 +5,56 @@
 # License:   Proprietary — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
-# This file is the SSOT for all versioned dependencies used in CI
-# workflows. The workflow templates reference these values via the
-# update script (scripts/update-versions.py).
+# SSOT for every versioned dependency in the CI workflows AND composite
+# actions. The pre-commit hook (scripts/update-versions.py --fix) keeps the
+# pipeline pinned to these exact SHAs.
+#
+# Actions pin to a commit SHA with a `# <version>` comment — a tag can be
+# force-moved, a SHA can't (supply-chain hardening). Policy + the Renovate
+# split: docs/CI-DEPENDENCIES.md.
 #
 # Update script: uv run scripts/update-versions.py
-#   --check    Show current vs latest versions (dry run)
-#   --apply    Update workflow files to match this file
-#   --latest   Check for newer versions available upstream
+#   --check         current vs SSOT (dry run, default)
+#   --apply         rewrite workflows + composites to match this file
+#   --fix           --apply + non-zero exit on change (pre-commit hook)
+#   --latest        report newest release >= 7 days old per action
+#   --auto-update   bump to those, test on ci-test-* projects, commit/revert
 
-# GitHub Actions
+# GitHub Actions — SHA-pinned, 7-day cooldown (see _select_pinned_release)
 actions:
-  checkout: v6
-  setup-node: v6
-  setup-go: v6
-  setup-uv: v7                    # v8.x tags exist but no sliding `v8`
-                                  # alias is published yet — pin v7 until
-                                  # astral-sh ships the major alias.
-  cache: v5
-  upload-artifact: v7             # v7's "direct uploads" pair with
-  download-artifact: v8           # v8's "direct downloads" — supported
-                                  # cross-major pairing per the v8 release
-                                  # notes (upload v8 doesn't exist yet).
-  rust-toolchain: master          # dtolnay/rust-toolchain pins via @master
-  docker-login: v4
-  docker-setup-buildx: v4
+  checkout:
+    version: v6.0.2
+    sha: de0fac2e4500dabe0009e67214ff5f5447ce83dd
+  setup-node:
+    version: v6.4.0
+    sha: 48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+  setup-go:
+    version: v6.4.0
+    sha: 4a3601121dd01d1626a1e23e37211e3254c1c06c
+  setup-uv:
+    version: v8.1.0
+    sha: 08807647e7069bb48b6ef5acd8ec9567f424441b
+  cache:
+    version: v5.0.5
+    sha: 27d5ce7f107fe9357f9df03efb73ab90386fccae
+  # Branch ref (dtolnay/rust-toolchain has no semver releases): pinned to
+  # the newest master commit >= 7 days old. The toolchain itself is chosen
+  # by the `with: toolchain:` input, not by the ref.
+  rust-toolchain:
+    version: master
+    sha: 3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+  upload-artifact:
+    version: v7.0.1
+    sha: 043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+  download-artifact:
+    version: v8.0.1
+    sha: 3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+  docker-login:
+    version: v4.1.0
+    sha: 4907a6ddec9925e35a0a9e82d7399ccc52663121
+  docker-setup-buildx:
+    version: v4.0.0
+    sha: 4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd
 
 # Language runtimes (default versions in workflow inputs)
 runtimes:
