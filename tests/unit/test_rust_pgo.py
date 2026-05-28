@@ -475,6 +475,8 @@ class TestRunPgoBuildOrchestration:
         bin_dir = tmp_path / "target" / "x86_64-unknown-linux-gnu" / "release"
         bin_dir.mkdir(parents=True)
         (bin_dir / "my-bin").touch()
+        # BOLT instrument produces its own binary; the workload must run on it.
+        (bin_dir / "my-bin-bolt-instrumented").touch()
 
         profile = _make_profile(bolt_enabled=True)
         with (
@@ -490,7 +492,9 @@ class TestRunPgoBuildOrchestration:
                 "hyperi_ci.languages.rust.pgo._run_cargo_pgo",
                 return_value=0,
             ) as mock_cargo,
-            patch("hyperi_ci.languages.rust.pgo._run_workload", return_value=0),
+            patch(
+                "hyperi_ci.languages.rust.pgo._run_workload", return_value=0
+            ) as mock_workload,
         ):
             rc = run_pgo_build(
                 target="x86_64-unknown-linux-gnu",
@@ -504,6 +508,11 @@ class TestRunPgoBuildOrchestration:
         last_call_args = mock_cargo.call_args_list[-1][0][0]
         assert last_call_args[0] == "bolt"
         assert last_call_args[1] == "optimize"
+        # Workload runs TWICE — PGO and BOLT each need their own profile data,
+        # else BOLT optimises against nothing (#29).
+        assert mock_workload.call_count == 2
+        bolt_workload_bin = str(mock_workload.call_args_list[1][0][2])
+        assert bolt_workload_bin.endswith("my-bin-bolt-instrumented")
 
     def test_bolt_skipped_when_llvm_bolt_missing(self, tmp_path) -> None:
         bin_dir = tmp_path / "target" / "x86_64-unknown-linux-gnu" / "release"

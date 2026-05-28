@@ -105,7 +105,7 @@ def run_pgo_build(
 
     # 4. BOLT (optional, Linux-only)
     if profile.bolt_enabled:
-        rc = _run_bolt(target, feature_args, binary_name, cwd, extra_env)
+        rc = _run_bolt(target, feature_args, binary_name, profile, cwd, extra_env)
         if rc != 0:
             warn("BOLT step failed — continuing with PGO-only optimised binary")
             # BOLT failure is non-fatal; PGO binary is already built
@@ -338,14 +338,13 @@ def _instrumented_binary_path(
 ) -> Path:
     """Locate the instrumented binary produced by cargo pgo.
 
-    cargo-pgo builds under target/<triple>/release/ with the normal
-    binary name. Profile data goes into target/pgo-profiles/ (handled
-    by cargo-pgo, not this code).
+    Both phases build under target/<triple>/release/. The PGO instrument
+    build keeps the plain binary name; the BOLT instrument build suffixes
+    it `-bolt-instrumented` (cargo-pgo convention). Profile data goes into
+    target/pgo-profiles/ (handled by cargo-pgo, not this code).
     """
-    # variant is currently unused but reserved for BOLT (which produces
-    # a separate bolt-instrumented binary).
-    del variant
-    return cwd / "target" / target / "release" / binary_name
+    name = f"{binary_name}-bolt-instrumented" if variant == "bolt" else binary_name
+    return cwd / "target" / target / "release" / name
 
 
 def _bolt_build_env(target: str) -> dict[str, str]:
@@ -399,20 +398,25 @@ def _run_bolt(
     target: str,
     feature_args: list[str],
     binary_name: str,
+    profile: OptimizationProfile,
     cwd: Path,
     extra_env: dict[str, str] | None,
 ) -> int:
     """Run the BOLT post-link optimisation pipeline.
 
+    Three phases, mirroring PGO: instrument → workload → optimise.
+    `bolt build` emits `<binary>-bolt-instrumented`; the workload must run
+    against THAT binary so BOLT collects its own branch profile. Skipping
+    the workload (the old behaviour) left `bolt optimize` with nothing to
+    optimise — see #29.
+
     Requires the llvm-bolt + merge-fdata + ld.lld toolchain installed
     (covered by the `bolt-NN` + `lld-NN` apt packages from apt.llvm.org).
     Silent skip if any toolchain binary is missing.
 
-    Forces lld as the linker and disables strip for both
-    `cargo pgo bolt build` and `cargo pgo bolt optimize` — see
-    `_bolt_build_env()` for rationale.
-
-    Requires the PGO step to have run already (BOLT uses the PGO profile).
+    Forces lld as the linker and disables strip for both build phases —
+    see `_bolt_build_env()` for rationale. Reuses the project's PGO
+    workload (`bolt optimize --with-pgo` also folds in the PGO profile).
     """
     if not _ensure_llvm_bolt_available():
         warn(
@@ -425,7 +429,7 @@ def _run_bolt(
     # project config for the target-specific rustflags — intentional.
     bolt_env = {**(extra_env or {}), **_bolt_build_env(target)}
 
-    # BOLT instrument build
+    # 1. BOLT instrument build
     info(f"BOLT: building instrumented binary for {target} (linker forced to lld)")
     rc = _run_cargo_pgo(
         ["bolt", "build", "--", "--target", target, *feature_args],
@@ -435,18 +439,31 @@ def _run_bolt(
     if rc != 0:
         return rc
 
-    # Note: cargo-pgo's bolt flow handles the perf record step internally
-    # when given a runnable binary. For our case, we re-run the workload
-    # (same command) and cargo-pgo instruments it automatically.
-    # This is a placeholder for the workload re-run step — the actual
-    # perf-record wiring is handled by cargo-pgo's bolt subcommand.
+    # 2. Run the workload against the bolt-instrumented binary to collect
+    #    BOLT's own profile. Without this, `bolt optimize` has no data.
+    bolt_bin = _instrumented_binary_path(cwd, target, binary_name, variant="bolt")
+    if not bolt_bin.exists():
+        warn(
+            f"BOLT-instrumented binary not found at {bolt_bin} — "
+            "skipping BOLT (PGO-only result stands)"
+        )
+        return 0  # Non-fatal
+    rc = _run_workload(
+        profile.pgo_workload_cmd or "",
+        profile.pgo_duration_secs,
+        bolt_bin,
+        cwd=cwd,
+    )
+    if rc != 0:
+        warn("BOLT workload failed — skipping BOLT optimise (PGO-only result stands)")
+        return 0  # Non-fatal: PGO binary already built
 
-    info(f"BOLT: optimising binary for {target} (using PGO profile, linker=lld)")
-    rc = _run_cargo_pgo(
+    # 3. BOLT optimise, folding in both the PGO and BOLT profiles
+    info(
+        f"BOLT: optimising binary for {target} (using PGO + BOLT profiles, linker=lld)"
+    )
+    return _run_cargo_pgo(
         ["bolt", "optimize", "--with-pgo", "--", "--target", target, *feature_args],
         cwd=cwd,
         extra_env=bolt_env,
     )
-    # Silence unused arg warning
-    del binary_name
-    return rc
