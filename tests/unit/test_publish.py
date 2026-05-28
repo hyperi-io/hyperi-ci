@@ -201,3 +201,32 @@ class TestChannelRouting:
         versioned, latest = _resolve_r2_paths("dfe-receiver", "1.3.0", "spike")
         assert "/spike/" in versioned
         assert "/spike/" in latest
+
+
+class TestCargoVersionSync:
+    """Publish's Cargo.toml stamp shares the build's table-scoped stamper —
+    no duplicate regex, and a dependency `version =` is never clobbered."""
+
+    def test_table_scoped_leaves_dependency_version_alone(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        # A dependency table with its own `version =` line BEFORE [package].
+        # The old unscoped count=1 regex would stamp tokio's version; the
+        # shared table-scoped stamper must only touch [package].
+        (tmp_path / "Cargo.toml").write_text(
+            '[dependencies.tokio]\nversion = "1.35"\n\n'
+            '[package]\nname = "x"\nversion = "0.0.0"\n'
+        )
+        from hyperi_ci.languages.rust.publish import _sync_cargo_toml_version
+
+        assert _sync_cargo_toml_version("9.9.9") is True
+        txt = (tmp_path / "Cargo.toml").read_text()
+        assert '[package]\nname = "x"\nversion = "9.9.9"' in txt
+        assert 'version = "1.35"' in txt  # tokio dependency untouched
+
+    def test_missing_cargo_toml_is_error(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        from hyperi_ci.languages.rust.publish import _sync_cargo_toml_version
+
+        assert _sync_cargo_toml_version("1.0.0") is False

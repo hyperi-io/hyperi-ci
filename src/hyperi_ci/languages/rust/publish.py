@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import os
-import re
 import subprocess
 from pathlib import Path
 
@@ -22,6 +21,7 @@ from hyperi_ci.common import (
     warn,
 )
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages.rust.build import stamp_manifest
 
 
 def _read_version() -> str | None:
@@ -31,35 +31,20 @@ def _read_version() -> str | None:
 
 
 def _sync_cargo_toml_version(version: str) -> bool:
-    """Update version in Cargo.toml to match VERSION file.
+    """Stamp the publish-job's Cargo.toml to the release version.
 
-    Args:
-        version: Semver version string (e.g. '1.2.3').
+    The publish job's checkout is the committed (stale) tree, so Cargo.toml
+    must be stamped before `cargo publish`. Delegates to the shared
+    `stamp_manifest` — the SAME table-scoped stamper the build uses, so the
+    two can't drift (the old unscoped regex here could clobber a dependency's
+    `version =`).
 
-    Returns:
-        True if updated successfully, False on error.
-
+    Returns False only if there's no Cargo.toml.
     """
-    cargo_toml = Path("Cargo.toml")
-    if not cargo_toml.exists():
+    if not Path("Cargo.toml").exists():
         error("Cargo.toml not found")
         return False
-
-    content = cargo_toml.read_text()
-    updated = re.sub(
-        r'^version\s*=\s*"[^"]*"',
-        f'version = "{version}"',
-        content,
-        count=1,
-        flags=re.MULTILINE,
-    )
-
-    if updated == content:
-        warn("Could not find version field in Cargo.toml to update")
-        return True
-
-    cargo_toml.write_text(updated)
-    info(f"  Updated Cargo.toml version to {version}")
+    stamp_manifest(version, Path.cwd())
     return True
 
 
@@ -128,14 +113,14 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         info("No Rust publish destinations configured")
         return 0
 
-    # Read version from VERSION file and sync to Cargo.toml
+    # Resolve the release version (HYPERCI_VERSION-first) + stamp Cargo.toml
     version = _read_version()
     if version:
         info(f"Publishing version {version}")
         if not _sync_cargo_toml_version(version):
             return 1
     else:
-        warn("No VERSION file found — publishing with existing Cargo.toml version")
+        warn("No release version resolved — publishing with existing Cargo.toml version")
 
     info(f"Publishing Rust crate to: {', '.join(destinations)}")
 
