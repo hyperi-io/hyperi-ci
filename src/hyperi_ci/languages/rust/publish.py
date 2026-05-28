@@ -120,7 +120,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         if not _sync_cargo_toml_version(version):
             return 1
     else:
-        warn("No release version resolved — publishing with existing Cargo.toml version")
+        warn(
+            "No release version resolved — publishing with existing Cargo.toml version"
+        )
 
     info(f"Publishing Rust crate to: {', '.join(destinations)}")
 
