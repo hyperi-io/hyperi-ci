@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<!--
+  ClickHouse low-memory profile for CI/dev single-node (pairs with mem_limit: 2g).
+  Source: Altinity low-memory KB
+  (https://kb.altinity.com/altinity-kb-setup-and-maintenance/configure_clickhouse_for_low_mem_envs/).
+  Mount at /etc/clickhouse-server/config.d/low-mem.xml. Tune for your workload —
+  these are conservative defaults for a constrained runner, not a verified
+  high-ingest profile.
+-->
+<clickhouse>
+    <!-- Cap server memory at 80% of the container (cgroup) limit, leaving
+         headroom for the OS; error out rather than getting OOM-killed. -->
+    <max_server_memory_usage_to_ram_ratio>0.8</max_server_memory_usage_to_ram_ratio>
+
+    <!-- Caches default to multiple GB and load into RAM — shrink hard. -->
+    <mark_cache_size>268435456</mark_cache_size>      <!-- 256MB (default ~5GB) -->
+    <index_mark_cache_size>67108864</index_mark_cache_size>  <!-- 64MB -->
+    <uncompressed_cache_size>16777216</uncompressed_cache_size> <!-- 16MB; page cache serves better -->
+
+    <!-- Background merges (not queries) are the usual OOM culprit on small
+         boxes — keep the pool and per-merge block small. -->
+    <background_pool_size>2</background_pool_size>
+    <max_concurrent_queries>8</max_concurrent_queries>
+
+    <!-- Silence high-write system log tables (write amplification). -->
+    <query_thread_log remove="1"/>
+    <opentelemetry_span_log remove="1"/>
+    <processors_profile_log remove="1"/>
+
+    <merge_tree>
+        <merge_max_block_size>4096</merge_max_block_size> <!-- default 8192 -->
+        <max_bytes_to_merge_at_max_space_in_pool>1073741824</max_bytes_to_merge_at_max_space_in_pool> <!-- 1GB (default 150GB) -->
+    </merge_tree>
+
+    <profiles>
+        <default>
+            <!-- Spill big aggregations/sorts to disk instead of failing/OOM. -->
+            <max_bytes_before_external_group_by>536870912</max_bytes_before_external_group_by> <!-- 512MB -->
+            <max_bytes_before_external_sort>536870912</max_bytes_before_external_sort> <!-- 512MB -->
+        </default>
+    </profiles>
+</clickhouse>

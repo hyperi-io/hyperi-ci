@@ -1,0 +1,33 @@
+# ClickHouse — single-node OLAP store for CI/dev integration tests.
+#
+# REFERENCE, NOT A DEPENDENCY. Copy this `clickhouse` service (and the sibling
+# clickhouse-low-mem.xml) into your project and adjust. hyperi-ci keeps the
+# canonical, memory-tuned pattern here.
+#
+# Memory: ClickHouse defaults assume 16GB+. 2g is the reliable single-node
+# floor — it ingests + queries fine (slower than prod). Below ~1.5g it gets
+# flaky; <1g needs swap + ratio>1 and is NOT CI-reliable. With Redpanda's
+# 512M that's ~2.5GB, leaving ~1.5GB for your app+test on a 4GB runner —
+# hence testenv is opt-in, copy only what you need.
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8 # pin a current LTS
+    mem_limit: 2g # reliable floor — see header; ClickHouse reads the cgroup cap
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 } # CH needs a high fd limit
+    ports:
+      - "8123:8123" # HTTP interface
+      - "9000:9000" # native protocol
+    volumes:
+      # The low-mem profile — caps server memory, shrinks caches, silences
+      # high-write log tables, keeps merges small, spills big queries to disk.
+      - ./clickhouse-low-mem.xml:/etc/clickhouse-server/config.d/low-mem.xml:ro
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+# Per-project data is YOURS: load your schema (e.g. from dfe-schemas) after the
+# healthcheck passes. hyperi-ci owns the infra pattern, not your tables.

@@ -1,9 +1,10 @@
 # CI Message Broker: Kafka → Redpanda
 
-> **Status:** learnings captured during the 2026-05 canary-release campaign
+> **Status:** lessons captured during the 2026-05 canary-release campaign
 > (dfe-archiver / dfe-transform-vector / dfe-transform-vrl). Will be folded
-> into the docs rewrite and is the seed for a centralised `hyperi-ci testenv`
-> (see [Forward: centralise as SSoT](#forward-centralise-as-ssot)).
+> into the docs rewrite. The canonical docker patterns now live as copyable
+> references in `templates/testenv/` (see
+> [SSoT — reference patterns](#ssot--reference-patterns-not-a-dependency)).
 
 Kafka is core to most of DFE, so its CI test-broker story matters everywhere.
 This documents why CI uses **Redpanda** (not Apache Kafka), the exact setup,
@@ -130,27 +131,27 @@ flowchart TB
   end
 ```
 
-## Forward: centralise as SSoT
+## SSoT — reference patterns, not a dependency
 
-Make hyperi-ci the single source of truth for CI test services — a
-`hyperi-ci testenv` subcommand that owns the canonical Redpanda (and later
-ClickHouse) definitions, used **identically locally and in CI**:
+hyperi-ci is the single place that gets the docker tuning right, as **copyable
+reference patterns** — `templates/testenv/`:
 
 ```mermaid
 flowchart TB
-  SSOT["hyperi-ci testenv (SSoT)<br/>images, 512M caps, readiness,<br/>topic pre-create, 4GB-tuned"]
-  SSOT --> C1["dfe-archiver"]
-  SSOT --> C2["dfe-transform-vector"]
-  SSOT --> C3["dfe-transform-vrl"]
-  SSOT --> LOCAL["dev laptop<br/>(hyperi-ci testenv up)"]
+  SSOT["templates/testenv/ (SSoT reference)<br/>redpanda.compose.yaml · clickhouse.compose.yaml<br/>+ clickhouse-low-mem.xml · 4GB-tuned"]
+  SSOT -.->|copy snippet| C1["dfe-archiver"]
+  SSOT -.->|copy snippet| C2["dfe-transform-vector"]
+  SSOT -.->|copy snippet| C3["dev laptop / any project"]
 ```
 
-- Generic infra (images, caps, readiness, lifecycle) lives once in hyperi-ci.
-- Per-project data = only **topics** (Redpanda) and **schema** (ClickHouse).
-- Phase 1: Redpanda (proven at 512M — kills the triplication).
-- Phase 2: ClickHouse — gated on proving a *meaningful* instance fits ≤~1.5GB
-  alongside everything else, plus a clean schema-bootstrap story
-  (likely from `dfe-schemas`). Local dev keeps a remote-CH escape hatch for
-  speed; CI always uses the self-contained canned one.
-
-A full design belongs in a `docs/superpowers/specs/` spec before building.
+- **Reference, not a dependency.** Projects copy the service block into their
+  own `docker-compose.dev.yaml` — no `hyperi-ci testenv` command, no
+  auto-provisioning, nothing mandatory. Deliberately not over-engineered.
+- Generic, 4GB-tuned infra (image, caps, readiness) lives once here; per-project
+  data (Redpanda topics, ClickHouse schema from `dfe-schemas`) stays the
+  project's own.
+- **Redpanda:** `--memory 512M`, dev-container — the campaign-proven setup.
+- **ClickHouse:** `mem_limit: 2g` (reliable single-node floor) + the
+  `clickhouse-low-mem.xml` profile. Defaults assume 16GB+; 2g ingests + queries
+  fine but slower. Local dev keeps a remote-CH escape hatch for speed; CI stays
+  self-contained.

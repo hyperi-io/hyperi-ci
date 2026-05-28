@@ -1,0 +1,36 @@
+# Redpanda — Kafka-wire-protocol broker for CI/dev integration tests.
+#
+# REFERENCE, NOT A DEPENDENCY. Copy this `redpanda` service into your project's
+# docker-compose.dev.yaml and adjust. hyperi-ci keeps the canonical, 4GB-tuned
+# pattern here so every DFE project stops re-solving the same gotchas — see
+# docs/CI-KAFKA-REDPANDA.md for the why (Redpanda not Apache Kafka) + readiness
+# + topic-precreate notes.
+#
+# Tuned for the 4GB CI-runner hard deck: dev-container mode, single core,
+# hard 512M cap. Same wire protocol as Apache Kafka — app code is unchanged.
+
+services:
+  redpanda:
+    image: redpandadata/redpanda:v26.1.9 # pin a current stable
+    command:
+      - redpanda
+      - start
+      - --mode dev-container # single node, no replication overhead
+      - --smp 1 # one core
+      - --memory 512M # hard cap (Seastar pre-allocates) — fits 4GB deck
+      - --reserve-memory 0M
+      - --kafka-addr PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr PLAINTEXT://localhost:19092
+    ports:
+      - "19092:9092" # brokers reachable on localhost:19092
+    healthcheck:
+      # Ready only once the cluster reports Healthy: true — a bare
+      # `rpk cluster health` exits 0 before that. Grep is the reliable gate.
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy.*true'"]
+      interval: 3s
+      timeout: 5s
+      retries: 30 # cold start can take ~30-60s on a loaded runner
+
+# Gotchas (see docs/CI-KAFKA-REDPANDA.md):
+#  - Consumers do NOT auto-create topics — pre-create with `rpk topic create`.
+#  - Wait for the healthcheck (Healthy: true), not just container "running".
