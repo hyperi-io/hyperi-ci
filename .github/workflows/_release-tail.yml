@@ -259,6 +259,11 @@ jobs:
         # Uploads to all OSS destinations: crates.io / PyPI / npm /
         # GHCR / GitHub Releases / Cloudflare R2.
         env:
+          # Version being released — same SSoT as Build (stamp) + Container
+          # (#27). Without it, publish reads the checked-out VERSION file,
+          # which is stale now stamping is central — it shipped a GH release on
+          # the wrong tag once set-version.py was removed.
+          HYPERCI_VERSION: ${{ inputs.next-version }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}

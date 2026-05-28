@@ -21,7 +21,15 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from hyperi_ci.common import error, group, info, mask, success, warn
+from hyperi_ci.common import (
+    error,
+    group,
+    info,
+    mask,
+    resolve_release_version,
+    success,
+    warn,
+)
 from hyperi_ci.config import CIConfig
 
 # R2 bucket and endpoint configuration
@@ -52,12 +60,9 @@ def _resolve_r2_paths(project_name: str, version: str, channel: str) -> tuple[st
 
 
 def _read_version() -> str | None:
-    """Read version from VERSION file (written by semantic-release)."""
-    version_file = Path("VERSION")
-    if not version_file.exists():
-        return None
-    version = version_file.read_text().strip()
-    return version if version else None
+    """Version being published. HYPERCI_VERSION-first — see
+    common.resolve_release_version (issue #27 + zero-config)."""
+    return resolve_release_version()
 
 
 def _collect_artifacts() -> list[Path]:

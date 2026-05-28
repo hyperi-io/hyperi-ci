@@ -13,22 +13,21 @@ import re
 import subprocess
 from pathlib import Path
 
-from hyperi_ci.common import error, group, info, success, warn
+from hyperi_ci.common import (
+    error,
+    group,
+    info,
+    resolve_release_version,
+    success,
+    warn,
+)
 from hyperi_ci.config import CIConfig
 
 
 def _read_version() -> str | None:
-    """Read version from VERSION file (written by semantic-release).
-
-    Returns:
-        Version string (e.g. '1.2.3') or None if not found.
-
-    """
-    version_file = Path("VERSION")
-    if not version_file.exists():
-        return None
-    version = version_file.read_text().strip()
-    return version if version else None
+    """Version being published. HYPERCI_VERSION-first — see
+    common.resolve_release_version (issue #27 + zero-config)."""
+    return resolve_release_version()
 
 
 def _sync_cargo_toml_version(version: str) -> bool:

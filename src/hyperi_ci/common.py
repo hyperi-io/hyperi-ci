@@ -37,6 +37,31 @@ def sanitize_ref_name(ref: str) -> str:
     return ref.replace("/", "-")
 
 
+def resolve_release_version() -> str | None:
+    """The version being released — single SSoT for every stage.
+
+    Precedence (issue #27): the Plan job's predicted ``next-version``, threaded
+    in via ``HYPERCI_VERSION``, is authoritative — the same value Build stamps
+    and Tag-and-Publish tags, so every job in a run agrees. The committed
+    ``VERSION`` file is a fallback only (local runs); it is stale in CI now that
+    stamping is central and not committed back. Leading ``v`` is stripped.
+    Returns None when neither is set (caller decides whether that's fatal).
+
+    Container, binary and registry publish all call this — do NOT re-implement
+    version reading per stage, or they drift (which is exactly how the GH
+    release shipped a stale tag once set-version.py was removed).
+    """
+    explicit = os.environ.get("HYPERCI_VERSION", "").strip()
+    if explicit:
+        return explicit.removeprefix("v")
+    version_file = Path("VERSION")
+    if version_file.exists():
+        value = version_file.read_text().strip()
+        if value:
+            return value.removeprefix("v")
+    return None
+
+
 def is_ci() -> bool:
     """Detect if running in a CI/runner environment."""
     return any(
