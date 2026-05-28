@@ -1,0 +1,41 @@
+# Project:   HyperI CI
+# File:      .github/actions/setup-semantic-release/action.yml
+# Purpose:   Install the pinned semantic-release toolchain — ONE source of truth
+#
+# License:   Proprietary — HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# Consumed by predict-version (dry-run), _release-tail (real tag), ci.yml.
+# Predict and the real run must install identical plugins, else they compute
+# different versions ("tag vX already exists"). One place for that list — here.
+# Does not touch .releaserc (per-repo, SME-owned). git plugin stays installed
+# for back-compat with repos still referencing it; new repos drop it.
+
+name: Setup semantic-release
+description: Install the pinned, shared semantic-release toolchain (single source of truth)
+
+inputs:
+  node-version:
+    description: Node.js version for the semantic-release runtime
+    required: false
+    default: "22"
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Install semantic-release + plugins (pinned)
+      shell: bash
+      run: |
+        npm install -g \
+          semantic-release@25 \
+          @semantic-release/commit-analyzer \
+          @semantic-release/release-notes-generator \
+          @semantic-release/changelog \
+          @semantic-release/exec \
+          @semantic-release/git \
+          conventional-changelog-conventionalcommits

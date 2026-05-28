@@ -65,11 +65,9 @@ runs:
           echo "No 'Publish: true' trailer — validate-only run (no tag, no publish)"
         fi
 
-    - name: Set up Node.js (for semantic-release dry-run)
+    - name: Setup semantic-release (shared toolchain — single source of truth)
       if: steps.gate.outputs.will-publish == 'true' && github.event_name == 'push'
-      uses: actions/setup-node@v6
-      with:
-        node-version: 22
+      uses: hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@main
 
     - name: Predict next version
       # Run semantic-release in --dry-run to determine the version that
@@ -92,15 +90,6 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
-        npm install -g \
-          semantic-release@25 \
-          @semantic-release/commit-analyzer \
-          @semantic-release/release-notes-generator \
-          @semantic-release/changelog \
-          @semantic-release/exec \
-          @semantic-release/git \
-          conventional-changelog-conventionalcommits
-
         set +e
         dry_output=$(npx semantic-release --dry-run 2>&1)
         dry_rc=$?

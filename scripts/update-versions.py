@@ -119,7 +119,9 @@ def _build_replacements(versions: dict) -> list[tuple[re.Pattern, str, str]]:
     sr = versions.get("semantic_release", {})
     sr_core = sr.get("core")
     if sr_core:
-        pattern = re.compile(r"(semantic-release@)\S+")
+        # Negative lookbehind: don't match inside a longer name such as the
+        # setup-semantic-release@main action ref (only the bare npm package).
+        pattern = re.compile(r"(?<![\w-])(semantic-release@)\S+")
         replacement = rf"\g<1>{sr_core}"
         replacements.append((pattern, replacement, f"semantic-release@{sr_core}"))
 

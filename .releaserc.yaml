@@ -77,8 +77,9 @@ plugins:
   - - "@semantic-release/exec"
     - prepareCmd: "python3 -c \"from pathlib import Path; Path('VERSION').write_text('${nextRelease.version}\\n')\""
 
-  - - "@semantic-release/git"
-    - assets:
-        - CHANGELOG.md
-        - VERSION
-      message: "chore: version ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+  # @semantic-release/git DROPPED (2026-05): it committed "chore: version X"
+  # back to main and tagged that commit; later force-pushes orphan it → tag
+  # unreachable → next release recomputes the same version → "tag vX already
+  # exists". semantic-release now tags HEAD (always reachable). VERSION/CHANGELOG
+  # no longer committed back — GH release has the notes, container reads
+  # HYPERCI_VERSION.

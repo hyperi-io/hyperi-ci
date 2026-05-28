@@ -201,23 +201,9 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Set up Node.js
+      - name: Setup semantic-release (shared toolchain — single source of truth)
         if: github.event_name == 'push'
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-
-      - name: Install semantic-release
-        if: github.event_name == 'push'
-        run: >-
-          npm install -g
-          semantic-release@25
-          @semantic-release/commit-analyzer
-          @semantic-release/release-notes-generator
-          @semantic-release/changelog
-          @semantic-release/exec
-          @semantic-release/git
-          conventional-changelog-conventionalcommits
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@main
 
       - name: Tag (semantic-release)
         # Real run (no --dry-run) — analyzes commits, writes Cargo.toml

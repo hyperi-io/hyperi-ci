@@ -89,21 +89,8 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-
-      - name: Install semantic-release
-        run: >-
-          npm install -g
-          semantic-release@25
-          @semantic-release/commit-analyzer
-          @semantic-release/release-notes-generator
-          @semantic-release/changelog
-          @semantic-release/exec
-          @semantic-release/git
-          conventional-changelog-conventionalcommits
+      - name: Setup semantic-release (shared toolchain — single source of truth)
+        uses: ./.github/actions/setup-semantic-release
 
       - name: Release
         env:
