@@ -31,6 +31,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.tag || github.ref }}
+          # Full history + tags: the interface gate diffs against the last
+          # release tag (issue #31).
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
@@ -48,6 +51,11 @@ jobs:
 
       - name: Format check
         run: uv run --no-sources ruff format --check src/ tests/
+
+      - name: Workflow interface compat gate (#31)
+        # Fail if a reusable-workflow/composite interface regressed vs the last
+        # release — a consumer pinned to an older caller would fail at startup.
+        run: uv run --no-sources python scripts/check-workflow-interfaces.py
 
   test:
     name: Test
