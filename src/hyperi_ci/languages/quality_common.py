@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/languages/quality_common.py
 # Purpose:   Shared utilities for two-tier quality (production/test) rule splitting
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Shared quality check utilities for two-tier (production/test) rule splitting.
 

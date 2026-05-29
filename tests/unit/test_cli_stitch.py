@@ -2,7 +2,7 @@
 # File:      tests/unit/test_cli_stitch.py
 # Purpose:   CLI tests for `hyperi-ci stitch`
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """CLI tests for `hyperi-ci stitch`."""
 

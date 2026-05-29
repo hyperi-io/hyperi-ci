@@ -2,7 +2,7 @@
 # File:      tests/argocd/test_gitops_push.py
 # Purpose:   Tests for the gitops_push module (git clone/commit/push + PR)
 #
-# License:   Proprietary - HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for ``hyperi_ci.argocd.gitops_push``.
 

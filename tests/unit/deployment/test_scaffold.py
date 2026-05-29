@@ -2,7 +2,7 @@
 # File:      tests/unit/deployment/test_scaffold.py
 # Purpose:   Tests for the init-contract scaffolder
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for `hyperi_ci.deployment.scaffold.init_contract`."""
 

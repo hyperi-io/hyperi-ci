@@ -2,7 +2,7 @@
 # File:      .github/actions/setup-runtime/action.yml
 # Purpose:   Install the hyperi-ci runtime — uv + Python + native deps
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # The hyperi-ci CLI is Python, so EVERY job (any language) needs uv + Python

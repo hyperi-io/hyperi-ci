@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/deployment/cli.py
 # Purpose:   `hyperi-ci emit-artefacts` subcommand handler
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """``hyperi-ci emit-artefacts`` — Tier 3 templater entry point.
 

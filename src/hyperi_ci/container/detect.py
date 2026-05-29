@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/container/detect.py
 # Purpose:   Detect whether a project has a containerisable artefact
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Container artefact detection.
 

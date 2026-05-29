@@ -2,7 +2,7 @@
 # File:      .github/actions/setup-osv-scanner/action.yml
 # Purpose:   Install the pinned osv-scanner (malicious-package MAL-* feed)
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # osv-scanner covers the OSSF malicious-packages (MAL-*) feed that cargo-audit

@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/init.py
 # Purpose:   Project scaffolding — generates config, Makefile, and workflow
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Project initialisation for hyperi-ci.
 
@@ -43,25 +43,36 @@ _DEPRECATED_CONFIG_NAMES = (
 )
 
 _LICENSE_MARKERS = {
-    "BUSL-1.1": ("BUSL-1.1",),
+    "BUSL-1.1": ("BUSL-1.1", "Business Source License"),
     "MIT": ("MIT License", "Permission is hereby granted"),
     "Apache-2.0": ("Apache License", "Licensed under the Apache"),
 }
 
 
 def detect_license(project_dir: Path) -> str:
-    """Detect project license from LICENSE file or source file headers.
+    """Resolve the project licence: explicit declaration, else scan, else default.
 
-    Scans LICENSE file first, then falls back to checking source file
-    headers for known license identifiers.
+    Order: an explicit ``license:`` in ``.hyperi-ci.yaml`` wins (the project
+    declares its licence), then the LICENSE file, then source-file headers, then
+    the default (BUSL-1.1).
 
     Args:
         project_dir: Project root directory.
 
     Returns:
-        License identifier string (e.g. "BUSL-1.1") or default.
+        License identifier string (e.g. "BUSL-1.1").
 
     """
+    ci_config = project_dir / ".hyperi-ci.yaml"
+    if ci_config.exists():
+        try:
+            data = yaml.safe_load(ci_config.read_text()) or {}
+            declared = data.get("license") if isinstance(data, dict) else None
+            if isinstance(declared, str) and declared.strip():
+                return declared.strip()
+        except (OSError, UnicodeDecodeError, yaml.YAMLError):
+            pass
+
     license_file = project_dir / "LICENSE"
     if license_file.exists():
         try:
@@ -158,6 +169,9 @@ def _render_hyperi_ci_yaml(
     """Render .hyperi-ci.yaml with language-specific defaults."""
     config: dict = {
         "language": language,
+        # Declared SPDX-ish licence id. Drives generated file headers and is
+        # the authoritative source for `detect_license`. Default BUSL-1.1.
+        "license": license_id,
         # Information-only: lifecycle stage of the project. Surfaced
         # in CI logs and `hyperi-ci config`. Does not gate any
         # behaviour. New projects default to `experimental` — bump as
@@ -167,7 +181,9 @@ def _render_hyperi_ci_yaml(
         "quality": {"enabled": True},
         "test": {"enabled": True},
         "build": {"enabled": True, "strategies": ["native"]},
-        "publish": {"enabled": True, "target": "internal"},
+        # JFrog removed in v2.1.4 — all publishing is OSS. `target` is a
+        # legacy no-op kept for back-compat; oss is the only meaningful value.
+        "publish": {"enabled": True, "target": "oss"},
     }
 
     if language == "python":

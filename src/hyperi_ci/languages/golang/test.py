@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/languages/golang/test.py
 # Purpose:   Golang test runner with coverage support
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Golang test handler.
 

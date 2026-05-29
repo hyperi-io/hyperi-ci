@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/deployment/topology/resolve.py
 # Purpose:   Resolve chart version ranges against OCI registry contents
 #
-# License:   Proprietary - HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """OCI chart version resolution.
 

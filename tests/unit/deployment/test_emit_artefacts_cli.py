@@ -2,7 +2,7 @@
 # File:      tests/unit/deployment/test_emit_artefacts_cli.py
 # Purpose:   emit-artefacts CLI subcommand tests
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for `hyperi_ci.deployment.cli.emit_artefacts`.
 

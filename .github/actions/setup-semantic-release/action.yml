@@ -2,7 +2,7 @@
 # File:      .github/actions/setup-semantic-release/action.yml
 # Purpose:   Install the pinned semantic-release toolchain — ONE source of truth
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # Consumed by predict-version (dry-run), _release-tail (real tag), ci.yml.

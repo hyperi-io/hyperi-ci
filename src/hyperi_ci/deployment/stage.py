@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/deployment/stage.py
 # Purpose:   `generate` stage handler — three-tier producer dispatch
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """``generate`` CI stage — produces fresh deployment artefacts.
 

@@ -2,7 +2,7 @@
 # File:      tests/unit/test_quality_ignore_wiring.py
 # Purpose:   Per-language wiring tests for the generic quality.ignore list
 #
-# License:   Proprietary -- HYPERI PTY LIMITED
+# License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Per-language wiring tests for ``quality.ignore``.
 

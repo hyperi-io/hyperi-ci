@@ -2,7 +2,7 @@
 # File:      tests/unit/test_dispatch_status.py
 # Purpose:   Unit tests for project.status logging at stage start
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for the `Project status:` log line emitted by the dispatcher.
 

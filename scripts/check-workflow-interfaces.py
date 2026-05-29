@@ -3,7 +3,7 @@
 # File:      scripts/check-workflow-interfaces.py
 # Purpose:   Gate — reusable-workflow/composite interfaces stay backward-compatible
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Interface backward-compatibility gate (issue #31).
 

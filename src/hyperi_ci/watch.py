@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/watch.py
 # Purpose:   Watch a GitHub Actions run to completion
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Watch GitHub Actions runs to completion.
 

@@ -2,7 +2,7 @@
 # File:      tests/unit/test_osv_scanner.py
 # Purpose:   Tests for the osv-scanner malicious-package helper
 #
-# License:   Proprietary -- HYPERI PTY LIMITED
+# License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for ``hyperi_ci.quality.osv_scanner``."""
 

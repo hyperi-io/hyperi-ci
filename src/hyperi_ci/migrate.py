@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/migrate.py
 # Purpose:   Migrate projects from old ci/ submodule to hyperi-ci
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Migrate consumer projects from the old ci/ submodule approach.
 

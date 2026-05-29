@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/gh.py
 # Purpose:   Shared GitHub CLI helpers for trigger, watch, and logs commands
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Shared GitHub CLI helpers.
 

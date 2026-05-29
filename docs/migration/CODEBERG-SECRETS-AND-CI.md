@@ -1,15 +1,21 @@
 # Codeberg Migration — CI, Secrets, and Variables
 
-> **Status:** companion to [codeberg.md](codeberg.md). Same caveat
+> **Status:** companion to the Codeberg + Buildkite portability plan. Same caveat
 > applies — this is **NOT happening anytime soon**. This document
 > exists to make the secrets/CI rework concrete enough that we'd know
 > what we're signing up for if a forcing function appeared.
 
-The headline finding from the parent doc is that **source migration
-is trivial; everything else is the cost.** Of "everything else", the
-secrets and CI surface is the single largest item, and the one most
-likely to bite us silently rather than loudly. This doc is where the
-detail lives.
+The headline finding is that **source migration is trivial; everything
+else is the cost.** Of "everything else", the secrets and CI surface is
+the single largest item, and the one most likely to bite us silently
+rather than loudly. This doc is where the detail lives.
+
+The matured CI shifts the balance further in our favour: the
+`hyperi-ci` CLI owns all the work, and the GitHub Actions side is now a
+thin, well-bounded glue layer — four reusable workflows, one shared
+`_release-tail.yml`, and a handful of composite actions. Porting means
+rewriting that glue into `.forgejo/`, not the CLI. The harder, now-larger
+item is the **reusable-workflow graph itself** (see §5).
 
 ## TL;DR
 
@@ -202,6 +208,16 @@ cache works differently — the reusable workflow has to be on the
 *same* Forgejo instance, not cross-instance, unless mirroring is set
 up.
 
+The surface to port is the **whole reusable-workflow graph**, not just
+the four language workflows: the shared `_release-tail.yml` and the
+composite actions under `.github/actions/` are all referenced `@main`
+by deliberate design (see [WORKFLOW-PINNING.md](../dependencies/WORKFLOW-PINNING.md)).
+Forgejo's cross-instance `@main` resolution amplifies exactly the
+issue-#31 failure mode — a floating sibling that breaks pinned callers
+— so the interface backward-compat gate (`check-workflow-interfaces.py`)
+must run on the destination CI too. It is host-agnostic Python, so it
+ports unchanged.
+
 This is the single line that makes a clean cutover impossible: the
 moment one consumer repo points at the Codeberg-hosted reusable
 workflow, every other consumer repo on GitHub still pointing at the
@@ -245,7 +261,7 @@ Independently of any actual migration, the following are
 | `SecretBackend` interface in `scripts/sync-secrets-access.py` | Yes (clarity) | Yes (required) |
 | OpenBao→CI populator script (one-shot, idempotent) | Yes (replace ad-hoc `gh secret set`) | Yes (only path) |
 | Token broker service (issues short-lived creds from OpenBao) | Yes (reduce App dependency) | Yes (only path) |
-| `.github/` ↔ `.forgejo/` template generator in `hyperi-ci init` | No until cutover | Required for dual-run |
+| `.github/` ↔ `.forgejo/` generator in `hyperi-ci init` (workflows + composite actions) | No until cutover | Required for dual-run |
 | Inventory script (list every secret + var across the org) | Yes (we don't have this) | Yes (input to migration) |
 
 The first three are worth doing **regardless of whether Codeberg ever
@@ -296,8 +312,7 @@ Phases 4-7 are only worth starting under a forcing function.
 
 ## See also
 
-- [Codeberg migration overview](codeberg.md) — parent doc
-- [Tier 3 deployment contract](deployment-contract-tier3.md) —
+- [Tier 3 deployment contract](../deployment/TIERS.md) —
   contract layer is host-agnostic
 - [`config/secrets-access.yaml`](../../config/secrets-access.yaml) —
   current source of truth for repo↔secret mapping

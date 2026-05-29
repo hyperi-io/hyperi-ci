@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/argocd/stage.py
 # Purpose:   ArgoCD stage orchestrator: emit-argocd → splice → push to gitops
 #
-# License:   Proprietary - HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """ArgoCD stage handler.
 

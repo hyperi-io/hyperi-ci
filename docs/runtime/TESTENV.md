@@ -61,8 +61,8 @@ docker exec "$CID" rpk cluster health | grep -q "Healthy:.*true"
 `/usr/bin/rpk topic create events ...` — the entrypoint prepends `rpk` for any
 non-`redpanda` first arg. So:
 
-- ✅ `<image> topic create events ...`  → runs `rpk topic create ...`
-- ❌ `<image> rpk topic create events ...` → runs `rpk rpk topic create ...` (wrong)
+- ✓ `<image> topic create events ...`  → runs `rpk topic create ...`
+- ✗ `<image> rpk topic create events ...` → runs `rpk rpk topic create ...` (wrong)
 
 Don't add `rpk` yourself for the one-shot client form. (The in-container
 `docker exec <cid> rpk ...` form *does* need `rpk` — different invocation.)

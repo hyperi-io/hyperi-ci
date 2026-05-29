@@ -2,7 +2,7 @@
 # File:      tests/unit/test_config.py
 # Purpose:   Tests for configuration loading and merging
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 from __future__ import annotations

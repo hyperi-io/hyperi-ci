@@ -4,7 +4,7 @@ set -euo pipefail
 # File:      scripts/pre-commit-versions.sh
 # Purpose:   Pre-commit hook to enforce action version SSOT
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # Runs update-versions.py --fix on staged workflow files.

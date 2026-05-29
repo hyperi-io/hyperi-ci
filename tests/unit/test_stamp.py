@@ -2,7 +2,7 @@
 # File:      tests/unit/test_stamp.py
 # Purpose:   Tests for central version stamping (VERSION + manifest)
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Central `stamp_version`: writes VERSION (language-agnostic), then
 delegates the manifest stamp to the detected language."""

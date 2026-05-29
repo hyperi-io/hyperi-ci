@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/logs.py
 # Purpose:   Fetch and filter GitHub Actions run logs
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Fetch and filter GitHub Actions run logs.
 

@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/languages/rust/test.py
 # Purpose:   Rust test runner (cargo nextest with tiered execution)
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Rust test handler.
 

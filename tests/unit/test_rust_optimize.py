@@ -2,7 +2,7 @@
 # File:      tests/unit/test_rust_optimize.py
 # Purpose:   Unit tests for Rust release-track optimisation profile resolver
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 from __future__ import annotations

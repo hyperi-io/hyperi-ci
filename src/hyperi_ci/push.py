@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/push.py
 # Purpose:   Push wrapper with pre-checks and meta-operations
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Push wrapper with pre-checks and meta-operations.
 

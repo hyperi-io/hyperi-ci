@@ -2,7 +2,7 @@
 # File:      tests/unit/deployment/test_contract.py
 # Purpose:   Unit tests for the Pydantic deployment contract model
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for `hyperi_ci.deployment.contract`."""
 

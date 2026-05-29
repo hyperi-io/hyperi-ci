@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/detect.py
 # Purpose:   Auto-detect project language from file markers
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Auto-detect project language from file markers.
 

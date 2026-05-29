@@ -91,19 +91,72 @@ per-language carve-out stays in the SME's domain.
 
 ## 5. Publish routing
 
-`publish.target` (and `publish.channel`) decide destinations.
+Everything goes to the OSS registry stack. **JFrog was removed in v2.1.4** — the
+legacy `publish.target` field (`internal`/`oss`/`both`) is still read for
+back-compat but every value routes to the same OSS destination map.
 
 ```mermaid
 flowchart LR
-    PUB[hyperi-ci run publish] --> T{publish.target}
-    T -->|internal| INT[JFrog: PyPI/Cargo staging<br/>+ GitHub for the rest]
-    T -->|oss| OSS[public: PyPI / crates.io / npm]
-    T -->|both| BOTH[internal + oss]
-    PUB --> GA{GA Rust binary?}
+    PUB[hyperi-ci run publish] --> M["OSS destination map<br/>(publish.target ignored)"]
+    M --> PY[pypi.org]
+    M --> CR[crates.io]
+    M --> NPM[npmjs.com]
+    M --> GH[GHCR + GitHub Releases]
+    PUB --> GA{GA Rust/Go binary?}
     GA -->|yes| R2[GitHub Releases + Cloudflare R2<br/>downloads.hyperi.io]
     GA -->|pre-GA| GHO[GitHub Releases only]
 ```
 
-- Container / Helm / npm / binaries / Go publish to GitHub regardless of target.
-- `publish.channel` (spike/alpha/beta) forces internal — pre-GA never reaches
-  public registries.
+- One artefact type → one destination; there is no private/internal path.
+- `publish.channel` controls prerelease vs GA (next section), not destination.
+
+## 6. Release channels
+
+One-branch model. `publish.channel` graduates a project by one line in
+`.hyperi-ci.yaml`; it sets prerelease-vs-GA and gates the Rust build-opt tiers —
+it does **not** change publish destination (all channels publish OSS).
+
+```mermaid
+flowchart LR
+    S[spike] --> A[alpha] --> B[beta] --> R[release]
+    S & A & B -->|GitHub prerelease| PRE["OSS registries<br/>+ /{project}/&lt;channel&gt;/vX/"]
+    R -->|GA| GA["OSS registries<br/>+ /{project}/vX/ + latest"]
+```
+
+| Channel | Release kind | Rust build-opt | R2 path |
+|---|---|---|---|
+| `spike` / `alpha` | GitHub prerelease | none (fast feedback) | `/{project}/<channel>/vX/` |
+| `beta` | GitHub prerelease | jemalloc + fat LTO | `/{project}/<channel>/vX/` |
+| `release` | GA | + PGO/BOLT (opt-in) | `/{project}/vX/` + `latest` |
+
+- `.releaserc` carries `branches: [{name: main, prerelease: dev}, release]`:
+  `main` produces dev pre-releases (x64, fast feedback); merging to `release`
+  cuts GA (x64 + arm64).
+- `hyperi-ci release-merge` resolves the recurring VERSION-file conflict that
+  arises when semantic-release bumps independently on each branch — no consumer
+  workflow file needed. Tier detail: [languages/RUST.md](languages/RUST.md).
+
+## 7. Binary publish — what's uploaded and how it's named
+
+Binary destinations (GitHub Releases, Cloudflare R2) receive **only
+compiled binaries + their SHA-256 checksums** — no README/CHANGELOG/LICENSE.
+This matches industry convention (HashiCorp, Rust, Go): docs live in the repo;
+semantic-release populates the release description. `_collect_artifacts()` reads
+everything from `dist/`, so build handlers place only binaries + checksums there.
+
+Unified naming across languages — `{name}-{os}-{arch}[.exe]`, **version in the
+path, not the filename**:
+
+```
+dfe-receiver/vX/dfe-receiver-linux-amd64
+dfe-receiver/vX/dfe-receiver-linux-arm64
+dfe-receiver/vX/checksums.sha256
+dfe-receiver/latest/dfe-receiver-linux-amd64
+```
+
+- `os-arch` shorthand (`linux-amd64`) matches Docker/K8s/HashiCorp, not Rust
+  target triples — our consumers are ops deploying server-side binaries.
+- Version in the path (not the filename) gives stable download URLs and avoids
+  the branch-name-leaks-into-filename class of bug.
+- Both Rust and Go handlers emit the same format — consumers don't care what
+  language built the binary.

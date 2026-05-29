@@ -2,7 +2,7 @@
 # File:      tests/unit/test_workflow_consistency.py
 # Purpose:   Mechanical drift-prevention for cross-language workflow gates
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Workflow consistency tests.
 

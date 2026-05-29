@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/languages/golang/build.py
 # Purpose:   Golang build handler with cross-compilation and version injection
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Golang build handler.
 

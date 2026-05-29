@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/argocd/gitops_push.py
 # Purpose:   Clone GitOps repo, write Application YAML, commit + push (or PR)
 #
-# License:   Proprietary - HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Push an ArgoCD Application YAML into the central GitOps repo.
 

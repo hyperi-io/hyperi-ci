@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/publish/__init__.py
 # Purpose:   Publish package — binaries + retroactive dispatch
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Publish package.
 

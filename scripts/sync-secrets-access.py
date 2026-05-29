@@ -3,7 +3,7 @@
 # File:      scripts/sync-secrets-access.py
 # Purpose:   Sync org secret repo access from config/secrets-access.yaml
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Sync GitHub org secret repo access lists from group-based config.
 

@@ -2,7 +2,7 @@
 # File:      tests/argocd/test_stage.py
 # Purpose:   Integration tests for hyperi-ci argocd stage
 #
-# License:   Proprietary - HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Integration tests for the argocd stage.
 

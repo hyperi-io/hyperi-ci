@@ -2,7 +2,7 @@
 # File:      config/versions.yaml
 # Purpose:   Single source of truth for all tool and action versions
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # SSOT for every versioned dependency in the CI workflows AND composite

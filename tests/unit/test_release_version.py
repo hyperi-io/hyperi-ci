@@ -2,7 +2,7 @@
 # File:      tests/unit/test_release_version.py
 # Purpose:   Tests for the shared release-version resolver (HYPERCI_VERSION-first)
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """`resolve_release_version` — the single SSoT all stages use for the version
 being released. HYPERCI_VERSION (Plan's next-version) wins over the committed

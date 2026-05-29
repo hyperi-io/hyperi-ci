@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/container/registry.py
 # Purpose:   Resolve publish.target into concrete container registry bases
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Container registry resolution.
 

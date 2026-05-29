@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/quality/ignores.py
 # Purpose:   Generic quality ignore-list parser
 #
-# License:   Proprietary -- HYPERI PTY LIMITED
+# License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Generic quality ignore-list, consumed by every language runner.
 

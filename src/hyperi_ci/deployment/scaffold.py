@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/deployment/scaffold.py
 # Purpose:   Scaffold a starter ci/deployment-contract.json for Tier 3 apps
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Scaffold a starter `deployment-contract.json` for Tier 3 onboarding.
 

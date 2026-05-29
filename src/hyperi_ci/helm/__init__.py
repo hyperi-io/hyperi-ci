@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/helm/__init__.py
 # Purpose:   Helm packaging + GHCR OCI publish
 #
-# License:   Proprietary - HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Helm chart packaging + publish to GHCR OCI Helm.
 

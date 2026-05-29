@@ -2,7 +2,7 @@
 # File:      tests/helm/test_stage_topology_mode.py
 # Purpose:   Tests for helm stage topology-mode (stitcher integration)
 #
-# License:   Proprietary - HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for helm stage's topology-mode integration."""
 

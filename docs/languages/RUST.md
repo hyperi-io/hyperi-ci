@@ -4,7 +4,7 @@ Single consumer-facing reference for hyperi-ci's Rust build pipeline. Covers
 channel-gated release optimisation (Tier 1 allocator + LTO, Tier 2 PGO +
 BOLT), local developer hygiene, and operational troubleshooting.
 
-For PGO workload script specifics, see [`PGO-WORKLOAD-GUIDE.md`](PGO-WORKLOAD-GUIDE.md).
+For PGO workload script specifics, see [`PGO-BOLT.md`](../runtime/PGO-BOLT.md).
 
 ---
 
@@ -153,7 +153,7 @@ Tier 2 behaviour.
 
 ### Workload script contract
 
-Full spec: [`PGO-WORKLOAD-GUIDE.md`](PGO-WORKLOAD-GUIDE.md). One-line
+Full spec: [`PGO-BOLT.md`](../runtime/PGO-BOLT.md). One-line
 summary:
 
 ```bash
@@ -165,12 +165,12 @@ summary:
 # Must exit 0 on success; non-zero aborts the build (bad profile > no profile).
 ```
 
-See dfe-receiver's [`scripts/pgo-workload.sh`](/projects/dfe-receiver/scripts/pgo-workload.sh)
-and [`tools/pgo-driver/`](/projects/dfe-receiver/tools/pgo-driver) for a
+See dfe-receiver's [`scripts/pgo-workload.sh`](https://github.com/hyperi-io/dfe-receiver/blob/main/scripts/pgo-workload.sh)
+and [`tools/pgo-driver/`](https://github.com/hyperi-io/dfe-receiver/tree/main/tools/pgo-driver) for a
 working reference that drives all 9 protocols against a testcontainer
 Kafka. Templates for common app shapes (HTTP server, gRPC server, Kafka
 producer/consumer, multi-protocol) live in
-[`templates/pgo-workload/`](../templates/pgo-workload/).
+[`templates/pgo-workload/`](../../templates/pgo-workload/).
 
 ### Runner requirements
 
@@ -412,7 +412,7 @@ Weekly cron or on-demand.
 | Symptom | Fix |
 |---|---|
 | "no workload_cmd configured" warning | Set `build.rust.optimize.pgo.workload_cmd` in `.hyperi-ci.yaml` |
-| "profile data too small" | Your workload didn't run long enough or didn't exercise hot paths. See PGO-WORKLOAD-GUIDE.md |
+| "profile data too small" | Your workload didn't run long enough or didn't exercise hot paths. See [PGO-BOLT.md](../runtime/PGO-BOLT.md) |
 | "cargo-pgo unavailable — falling back to plain release build" | cargo-pgo install failed. Check network egress to crates.io, `cargo install cargo-pgo --locked` works locally. Non-fatal — Tier 1 still applies |
 | "PGO workload failed — aborting" | Workload exited non-zero. Common causes: missing tooling on runner (use coreutils only), privileged port binding (use unprivileged), testcontainer advertised-listener mismatch (check readiness via host, not `docker exec`) |
 | Release build is 3× slower than before | Expected with PGO+BOLT. Accept the cost or set `bolt.enabled: false` |
@@ -491,13 +491,6 @@ Don't optimise this line — it's trivial.
 
 ## References
 
-- [`PGO-WORKLOAD-GUIDE.md`](PGO-WORKLOAD-GUIDE.md) — how to write a good PGO workload script
-- [`templates/pgo-workload/`](../templates/pgo-workload/) — reusable workload skeletons
-- [`MIGRATION-GUIDE.md`](MIGRATION-GUIDE.md) — general onboarding to hyperi-ci
-
-## Changelog
-
-- v1.8.0 — Tier 1 + Tier 2 handler code added
-- v1.10.1 — workload timeout widened to `duration_secs + 600s`
-- v1.10.2 — versioned `llvm-bolt` shim
-- v1.10.4 — `merge-fdata` added to shim (full BOLT toolchain)
+- [`PGO-BOLT.md`](../runtime/PGO-BOLT.md) — how to write a good PGO workload script
+- [`templates/pgo-workload/`](../../templates/pgo-workload/) — reusable workload skeletons
+- [`ONBOARDING.md`](../migration/ONBOARDING.md) — general onboarding to hyperi-ci

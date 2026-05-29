@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/trigger.py
 # Purpose:   Trigger a GitHub Actions workflow run
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Trigger GitHub Actions workflow runs.
 

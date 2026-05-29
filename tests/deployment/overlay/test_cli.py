@@ -2,7 +2,7 @@
 # File:      tests/deployment/overlay/test_cli.py
 # Purpose:   Integration tests for `hyperi-ci overlay-render` CLI
 #
-# License:   Proprietary - HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Integration tests for the overlay-render command.
 

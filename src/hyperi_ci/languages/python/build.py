@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/languages/python/build.py
 # Purpose:   Python build handler (wheel, sdist, nuitka)
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Python build handler.
 

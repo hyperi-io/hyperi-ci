@@ -2,7 +2,7 @@
 # File:      tests/unit/test_init.py
 # Purpose:   Tests for init command and template rendering
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 from __future__ import annotations
@@ -19,8 +19,48 @@ from hyperi_ci.init import (
     _render_makefile,
     _render_releaserc,
     _render_workflow,
+    detect_license,
     init_project,
 )
+
+
+class TestLicenseConfig:
+    """`.hyperi-ci.yaml` can declare the licence; declaration wins over scan."""
+
+    def test_yaml_declaration_overrides_detection(self, tmp_path: Path) -> None:
+        # A LICENSE file says Apache, but .hyperi-ci.yaml declares BUSL-1.1.
+        (tmp_path / "LICENSE").write_text("Apache License\nLicensed under the Apache")
+        (tmp_path / ".hyperi-ci.yaml").write_text(
+            "language: python\nlicense: BUSL-1.1\n"
+        )
+        assert detect_license(tmp_path) == "BUSL-1.1"
+
+    def test_yaml_declaration_used_for_any_id(self, tmp_path: Path) -> None:
+        (tmp_path / ".hyperi-ci.yaml").write_text("language: rust\nlicense: MIT\n")
+        assert detect_license(tmp_path) == "MIT"
+
+    def test_falls_back_to_scan_without_declaration(self, tmp_path: Path) -> None:
+        (tmp_path / ".hyperi-ci.yaml").write_text("language: python\n")
+        (tmp_path / "LICENSE").write_text("MIT License\nPermission is hereby granted")
+        assert detect_license(tmp_path) == "MIT"
+
+    def test_busl_marker_matches_full_name(self, tmp_path: Path) -> None:
+        # The canonical LICENSE text reads "Business Source License 1.1".
+        (tmp_path / "LICENSE").write_text("Business Source License 1.1\n\nParameters\n")
+        assert detect_license(tmp_path) == "BUSL-1.1"
+
+    def test_default_is_busl(self, tmp_path: Path) -> None:
+        assert detect_license(tmp_path) == "BUSL-1.1"
+
+    def test_scaffold_includes_license_key(self, tmp_path: Path) -> None:
+        content = _render_hyperi_ci_yaml("python", "p", tmp_path)
+        assert "license: BUSL-1.1" in content
+
+    def test_scaffold_publish_target_is_oss(self, tmp_path: Path) -> None:
+        # JFrog removed in v2.1.4 — new projects scaffold to oss, not internal.
+        content = _render_hyperi_ci_yaml("python", "p", tmp_path)
+        assert "target: oss" in content
+        assert "target: internal" not in content
 
 
 class TestRenderTemplates:

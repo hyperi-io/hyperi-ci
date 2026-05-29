@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/deployment/topology/__init__.py
 # Purpose:   Operational tooling for deployment topologies (resolver + stitcher + CLI)
 #
-# License:   Proprietary - HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Topology operational tooling.
 

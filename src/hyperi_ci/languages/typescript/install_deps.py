@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/languages/typescript/install_deps.py
 # Purpose:   Install TypeScript/Node project dependencies
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Install TypeScript/Node project dependencies.
 

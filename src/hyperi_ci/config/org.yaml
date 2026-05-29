@@ -2,7 +2,7 @@
 # File:      config/org.yaml
 # Purpose:   Organisation-specific configuration (single source of truth)
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # This file is the SINGLE SOURCE OF TRUTH for organisation-specific settings.

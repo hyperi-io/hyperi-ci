@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/deployment/overlay/cli.py
 # Purpose:   `hyperi-ci overlay-render` subcommand handler
 #
-# License:   Proprietary - HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """``hyperi-ci overlay-render`` subcommand handler.
 

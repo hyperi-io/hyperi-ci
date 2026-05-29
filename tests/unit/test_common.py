@@ -2,7 +2,7 @@
 # File:      tests/unit/test_common.py
 # Purpose:   Tests for common utilities
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 from __future__ import annotations

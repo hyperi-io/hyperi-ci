@@ -223,4 +223,4 @@ files.
 
 ## See also
 
-- [User guide](../deployment-contract.md) — concept + reference
+- [User guide](CONTRACT.md) — concept + reference

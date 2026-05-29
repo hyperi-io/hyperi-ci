@@ -3,7 +3,7 @@
 # File:      scripts/update-versions.py
 # Purpose:   Sync workflow files with config/versions.yaml SSOT
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Pin GitHub Actions across the pipeline from the central versions SSOT.
 

@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/native_deps.py
 # Purpose:   Detect and install native system dependencies from per-language config
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Detect and install native system dependencies for CI builds.
 

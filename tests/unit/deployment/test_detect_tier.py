@@ -2,7 +2,7 @@
 # File:      tests/unit/deployment/test_detect_tier.py
 # Purpose:   Tier auto-detection tests
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for `hyperi_ci.deployment.detect.detect_tier`."""
 

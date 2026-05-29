@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/languages/_build_common.py
 # Purpose:   Shared helpers used by per-language build modules
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Shared utilities for per-language build modules.
 

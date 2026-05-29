@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/deployment/detect.py
 # Purpose:   Tier auto-detection for the three-tier deployment-contract model
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Detect which producer tier a repository belongs to.
 

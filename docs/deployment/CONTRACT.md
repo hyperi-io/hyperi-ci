@@ -4,7 +4,7 @@ User-facing reference for the three-tier deployment-contract model in
 hyperi-ci.
 
 For the cross-tier artefact identity annotation scheme see
-[`deployment-contract-identity.md`](deployment-contract-identity.md).
+[`deployment-contract-identity.md`](CONTRACT-IDENTITY.md).
 
 ## TL;DR
 
@@ -181,5 +181,5 @@ delegate to these get the same answer in Rust and Python.
 
 ## See also
 
-- [`deployment-contract-identity.md`](deployment-contract-identity.md) —
+- [`deployment-contract-identity.md`](CONTRACT-IDENTITY.md) —
   cross-tier artefact identity annotation scheme

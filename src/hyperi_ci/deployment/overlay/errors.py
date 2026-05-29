@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/deployment/overlay/errors.py
 # Purpose:   Error taxonomy for overlay processing
 #
-# License:   Proprietary - HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Overlay-framework error types.
 

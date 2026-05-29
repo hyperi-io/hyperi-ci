@@ -85,5 +85,5 @@ These stages use the detected package manager for `{pm} run lint`, `{pm} run tes
 
 ## Related
 
-- `docs/CI-LESSONS.md` — TypeScript section for quality, publishing, and other patterns
-- `docs/DESIGN.md` — Architecture and workflow structure
+- [LESSONS.md](../LESSONS.md) — TypeScript section for quality, publishing, and other patterns
+- [ARCHITECTURE.md](../ARCHITECTURE.md) — architecture and workflow structure

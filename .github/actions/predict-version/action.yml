@@ -2,7 +2,7 @@
 # File:      .github/actions/predict-version/action.yml
 # Purpose:   Composite action — detect publish trigger + predict next version
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # Used by every language-specific workflow's `setup` job. Encapsulates

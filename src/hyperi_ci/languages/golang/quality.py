@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/languages/golang/quality.py
 # Purpose:   Golang quality checks (gofmt, govet, golangci-lint, gosec)
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Golang quality checks handler."""
 

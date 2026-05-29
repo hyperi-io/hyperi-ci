@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/languages/rust/build.py
 # Purpose:   Rust build handler with cross-compilation support
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Rust build handler.
 

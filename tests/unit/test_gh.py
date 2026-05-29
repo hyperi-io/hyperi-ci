@@ -2,7 +2,7 @@
 # File:      tests/unit/test_gh.py
 # Purpose:   Tests for shared GitHub CLI helpers
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 from __future__ import annotations

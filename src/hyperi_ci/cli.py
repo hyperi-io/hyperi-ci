@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/cli.py
 # Purpose:   CLI entry point for hyperi-ci tool (Typer via hyperi-pylib)
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """CLI entry point for HyperI CI.
 

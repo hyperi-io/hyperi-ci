@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/deployment/registry.py
 # Purpose:   Cascade-driven defaults for image_registry / base_image / argocd repo
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Resolve container-registry, base-image, and ArgoCD repo from the cascade.
 

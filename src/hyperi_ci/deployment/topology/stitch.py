@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/deployment/topology/stitch.py
 # Purpose:   Stitch a DeploymentTopology into an umbrella Helm chart
 #
-# License:   Proprietary - HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Topology stitcher - composes per-app charts into an umbrella chart.
 

@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/languages/rust/optimize.py
 # Purpose:   Channel-gated release-track build optimisation profile
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Release-track build optimisation profile.
 

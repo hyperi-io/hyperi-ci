@@ -2,7 +2,7 @@
 # File:      config/defaults.yaml
 # Purpose:   Default configuration values for HyperI CI
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # Projects override these via:

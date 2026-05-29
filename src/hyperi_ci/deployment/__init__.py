@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/deployment/__init__.py
 # Purpose:   Deployment contract — Tier 3 producer (templater)
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Deployment contract producer for hyperi-ci (Tier 3 of three-tier model).
 

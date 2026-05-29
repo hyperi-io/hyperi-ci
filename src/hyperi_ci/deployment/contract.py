@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/deployment/contract.py
 # Purpose:   Pydantic mirror of hyperi-rustlib::deployment::DeploymentContract
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Pydantic data model that mirrors rustlib's `DeploymentContract`.
 

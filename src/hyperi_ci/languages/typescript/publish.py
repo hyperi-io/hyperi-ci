@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/languages/typescript/publish.py
 # Purpose:   TypeScript/Node publish handler (npm + GitHub Packages)
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """TypeScript/Node publish handler — publishes npm packages to npmjs.com or GitHub Packages."""
 

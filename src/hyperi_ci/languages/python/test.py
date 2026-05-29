@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/languages/python/test.py
 # Purpose:   Python test runner (pytest with tiered execution)
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Python test handler.
 

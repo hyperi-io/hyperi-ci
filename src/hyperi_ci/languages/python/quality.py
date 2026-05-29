@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/languages/python/quality.py
 # Purpose:   Python quality checks (ruff, ty, semgrep, bandit, pip-audit, vulture)
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Python quality checks handler.
 

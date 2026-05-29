@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/install_deps.py
 # Purpose:   Dispatch language-specific dependency installation
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Install project dependencies for a language.
 

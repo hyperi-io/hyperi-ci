@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/languages/typescript/_common.py
 # Purpose:   Shared TypeScript/Node utilities
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Shared utilities for TypeScript language handlers."""
 

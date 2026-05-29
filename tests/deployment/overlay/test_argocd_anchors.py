@@ -2,7 +2,7 @@
 # File:      tests/deployment/overlay/test_argocd_anchors.py
 # Purpose:   Unit tests for ArgoCDAnchorResolver
 #
-# License:   Proprietary - HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Unit tests for ``ArgoCDAnchorResolver``.
 

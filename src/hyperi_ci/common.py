@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/common.py
 # Purpose:   Shared utilities for CI scripts (output, subprocess, exclusions)
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Shared utilities for HyperI CI.
 

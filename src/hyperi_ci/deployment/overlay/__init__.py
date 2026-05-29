@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/deployment/overlay/__init__.py
 # Purpose:   Public surface of the deployment-artefact overlay framework
 #
-# License:   Proprietary - HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Post-contract amendment framework for deployment artefacts.
 

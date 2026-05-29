@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/dispatch.py
 # Purpose:   Stage dispatcher — routes to language-specific handlers
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Stage dispatcher for HyperI CI.
 

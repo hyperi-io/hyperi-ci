@@ -2,7 +2,7 @@
 # File:      tests/integration/test_rust_build_optimize.py
 # Purpose:   Integration tests for Rust release-track build optimisation
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Integration tests — build a real minimal Rust fixture crate and verify
 the resulting binary has the expected optimisation characteristics.

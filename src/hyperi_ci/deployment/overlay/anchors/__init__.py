@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/deployment/overlay/anchors/__init__.py
 # Purpose:   Per-artefact anchor resolvers
 #
-# License:   Proprietary - HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Anchor-resolution implementations for each deployment artefact.
 

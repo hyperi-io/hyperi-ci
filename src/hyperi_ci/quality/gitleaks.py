@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/quality/gitleaks.py
 # Purpose:   Gitleaks secret scanning (cross-language)
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Gitleaks secret scanning.
 

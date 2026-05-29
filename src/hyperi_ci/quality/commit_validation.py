@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/quality/commit_validation.py
 # Purpose:   Commit message validation with friendly rejection messages
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Commit message validation with friendly rejection messages."""
 

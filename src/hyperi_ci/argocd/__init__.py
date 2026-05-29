@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/argocd/__init__.py
 # Purpose:   ArgoCD Application generation + push into central GitOps repo
 #
-# License:   Proprietary - HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """ArgoCD stage: generate Application YAML + push into hyperi-io/gitops.
 

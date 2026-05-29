@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/deployment/overlay/render.py
 # Purpose:   apply_overlays orchestrator - calls a per-artefact resolver
 #
-# License:   Proprietary - HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Orchestrator for applying overlays to a base artefact.
 

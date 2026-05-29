@@ -2,7 +2,7 @@
 # File:      tests/unit/test_typescript_quality.py
 # Purpose:   Unit tests for TypeScript/JavaScript quality handler
 #
-# License:   Proprietary — HYPERI PTY LIMITED
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 """Tests for the TS/JS quality handler's npm-script → npx fallback → skip ladder.
