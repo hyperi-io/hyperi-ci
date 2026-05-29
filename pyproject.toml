@@ -9,8 +9,31 @@
 name = "hyperi-ci"
 dynamic = ["version"]
 description = "HyperI CI/CD CLI tool — multi-language build, test, and publish automation"
+readme = "README.md"
 requires-python = ">=3.12"
 license = "LicenseRef-BUSL-1.1-HyperI"
+authors = [{ name = "HyperI Team", email = "dev@hyperi.io" }]
+maintainers = [{ name = "HyperI Team", email = "dev@hyperi.io" }]
+# Python version policy (mirrors hyperi-pylib): requires-python sets the
+# floor; the only version classifier is "Python :: 3 :: Only". Do NOT add
+# per-version classifiers (3.12, 3.13, …) — they churn on every release.
+# No OSI licence classifier — BUSL-1.1 is declared via `license` above.
+keywords = [
+    "ci", "cd", "continuous-integration", "build", "test", "publish",
+    "release", "semantic-release", "github-actions", "monorepo",
+    "packaging", "rust", "python", "typescript", "golang",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: System :: Software Distribution",
+    "Environment :: Console",
+]
 dependencies = [
     # Pin to >= so transitive resolution can pick up bug fixes / new
     # features without a manifest edit. Bump the floor when we adopt
@@ -33,6 +56,13 @@ dependencies = [
 
 [project.scripts]
 hyperi-ci = "hyperi_ci.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/hyperi-io/hyperi-ci"
+Repository = "https://github.com/hyperi-io/hyperi-ci"
+Documentation = "https://github.com/hyperi-io/hyperi-ci/blob/main/docs/README.md"
+"Bug Reports" = "https://github.com/hyperi-io/hyperi-ci/issues"
+Changelog = "https://github.com/hyperi-io/hyperi-ci/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["hatchling"]
