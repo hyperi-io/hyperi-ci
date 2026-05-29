@@ -134,6 +134,34 @@ def _resolve_mode(*, language: str, decision: Decision, container_cfg: dict) -> 
     return "custom"
 
 
+def should_build_container(config: CIConfig, *, language: str = "") -> tuple[bool, str]:
+    """Resolve whether the container stage will build — filesystem only.
+
+    Mirrors :func:`run`'s gate so the workflow can decide BEFORE booting
+    Docker Buildx (issue #33): ``enabled: false`` never builds;
+    ``enabled: true`` always builds (the artefact is required);
+    ``enabled: auto`` builds iff :func:`detect` finds a signal. A library
+    (e.g. a Rust crate — no GHCR deployment) has no signal, so the job
+    never pulls buildkit from Docker Hub nor logs in to GHCR.
+
+    Returns ``(build, reason)``.
+    """
+    container_cfg = config.get("publish.container", {})
+    if not isinstance(container_cfg, dict):
+        container_cfg = {}
+    enabled = _normalise_enabled(container_cfg.get("enabled", "auto"))
+    if enabled == "false":
+        return False, "publish.container.enabled: false"
+    if enabled == "true":
+        return True, "publish.container.enabled: true"
+    decision = detect(
+        language=language,
+        project_dir=Path.cwd(),
+        dockerfile=container_cfg.get("dockerfile", "Dockerfile"),
+    )
+    return decision.build, decision.reason
+
+
 def run(config: CIConfig, *, language: str = "") -> int:
     """Run the container build stage.
 
@@ -145,6 +173,18 @@ def run(config: CIConfig, *, language: str = "") -> int:
         Exit code (0 = success or skipped).
 
     """
+    # Resolve-only: emit the build decision for the workflow to gate Docker
+    # setup on, then return without any Docker work (issue #33). Keeps
+    # libraries from booting Buildx / touching GHCR at all.
+    if os.environ.get("HYPERCI_CONTAINER_RESOLVE_ONLY"):
+        build, reason = should_build_container(config, language=language)
+        info(f"Container resolve: build={'true' if build else 'false'} — {reason}")
+        gh_out = os.environ.get("GITHUB_OUTPUT")
+        if gh_out:
+            with open(gh_out, "a", encoding="utf-8") as fh:
+                fh.write(f"build={'true' if build else 'false'}\n")
+        return 0
+
     container_cfg = config.get("publish.container", {})
     if not isinstance(container_cfg, dict):
         container_cfg = {}

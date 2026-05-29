@@ -20,7 +20,113 @@ from hyperi_ci.container.stage import (
     _read_version,
     _resolve_mode,
     run,
+    should_build_container,
 )
+
+
+class TestShouldBuildContainer:
+    """Resolve-before-buildx gate (issue #33).
+
+    The container job must decide app-vs-library BEFORE booting Docker
+    Buildx, so a library (rustlib, a crate — no GHCR deployment) never
+    pulls buildkit from Docker Hub and never logs in to GHCR. This gate
+    is the filesystem decision, isolated from `detect`'s heuristics
+    (covered in test_container_detect.py) by mocking `detect`.
+    """
+
+    def _cfg(self, enabled: object) -> CIConfig:
+        return CIConfig(
+            language="rust",
+            _raw={"publish": {"container": {"enabled": enabled}}},
+        )
+
+    def test_library_does_not_build(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            stage_module,
+            "detect",
+            lambda **_: Decision(build=False, reason="rust project is library-only"),
+        )
+        build, reason = should_build_container(self._cfg("auto"), language="rust")
+        assert build is False
+        assert "library" in reason
+
+    def test_app_with_signal_builds(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            stage_module,
+            "detect",
+            lambda **_: Decision(build=True, reason="Dockerfile found", mode="custom"),
+        )
+        build, _ = should_build_container(self._cfg("auto"), language="rust")
+        assert build is True
+
+    def test_enabled_false_never_builds(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # enabled:false short-circuits — detect must not even be consulted.
+        def _boom(**_):  # pragma: no cover - must not be called
+            raise AssertionError("detect() should not run when enabled:false")
+
+        monkeypatch.setattr(stage_module, "detect", _boom)
+        build, _ = should_build_container(self._cfg("false"), language="rust")
+        assert build is False
+
+    def test_enabled_true_forces_build(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # enabled:true means the container is required — gate opens even
+        # if detect found no signal (the build step then errors loudly).
+        monkeypatch.setattr(
+            stage_module,
+            "detect",
+            lambda **_: Decision(build=False, reason="no signal"),
+        )
+        build, _ = should_build_container(self._cfg("true"), language="rust")
+        assert build is True
+
+
+class TestResolveOnlyEnv:
+    """`HYPERCI_CONTAINER_RESOLVE_ONLY` makes `run` emit the decision to
+    GITHUB_OUTPUT and return 0 WITHOUT any Docker work — the workflow
+    gates buildx/login/build on it (issue #33)."""
+
+    def test_library_writes_build_false_and_skips_build(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        out = tmp_path / "gh_output"
+        monkeypatch.setenv("GITHUB_OUTPUT", str(out))
+        monkeypatch.setenv("HYPERCI_CONTAINER_RESOLVE_ONLY", "1")
+        monkeypatch.setattr(
+            stage_module,
+            "detect",
+            lambda **_: Decision(build=False, reason="rust project is library-only"),
+        )
+
+        def _no_build(**_):  # pragma: no cover - must not run
+            raise AssertionError("resolve-only must not build")
+
+        monkeypatch.setattr(stage_module, "_build_custom", _no_build)
+        rc = run(CIConfig(language="rust", _raw={}), language="rust")
+        assert rc == 0
+        assert "build=false" in out.read_text()
+
+    def test_app_writes_build_true_and_skips_build(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        out = tmp_path / "gh_output"
+        monkeypatch.setenv("GITHUB_OUTPUT", str(out))
+        monkeypatch.setenv("HYPERCI_CONTAINER_RESOLVE_ONLY", "1")
+        monkeypatch.setattr(
+            stage_module,
+            "detect",
+            lambda **_: Decision(build=True, reason="Dockerfile found", mode="custom"),
+        )
+
+        def _no_build(**_):  # pragma: no cover - must not run
+            raise AssertionError("resolve-only must not build")
+
+        monkeypatch.setattr(stage_module, "_build_custom", _no_build)
+        rc = run(CIConfig(language="rust", _raw={}), language="rust")
+        assert rc == 0
+        assert "build=true" in out.read_text()
+
 
 # --- _read_version (issue #27) -------------------------------------------
 

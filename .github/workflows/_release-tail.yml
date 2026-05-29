@@ -100,39 +100,30 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - name: Check container enabled
-        # publish.container.enabled is three-state: auto | true | false.
-        # `false` skips the rest of this job. `auto` and `true` proceed
-        # to login + build; the handler resolves auto via signal
-        # detection (Dockerfile or rustlib contract source) and skips
-        # silently when no signal is present.
-        id: check
-        run: |
-          if [ -f .hyperi-ci.yaml ]; then
-            enabled=$(python3 -c "import yaml; c=yaml.safe_load(open('.hyperi-ci.yaml')) or {}; print(str(c.get('publish',{}).get('container',{}).get('enabled','auto')).lower())" 2>/dev/null || echo "auto")
-          else
-            enabled="auto"
-          fi
-          echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
-
-      - name: Download build artifacts
-        # The build-dist-* artifact carries both dist/ (binaries) and
-        # ci-tmp/ (deployment artefacts produced by the Build stage).
-        # Download into the project root so both trees land at their
-        # original paths — Container stage looks for dist/<binary> and
-        # ci-tmp/container-manifest.json relative to cwd.
-        if: steps.check.outputs.enabled != 'false'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - name: Install uv
+        # Needed to run the resolve step below. Cheap, no Docker Hub —
+        # so a library never pays the Buildx/Docker-Hub cost (issue #33).
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
-          pattern: build-dist-*
-          path: .
-          merge-multiple: true
+          enable-cache: false
+
+      - name: Resolve container build (app vs library)
+        # Decide BEFORE booting Buildx whether this project ships a
+        # container. enabled:false → no; enabled:true → yes; auto →
+        # filesystem signal (Dockerfile or rustlib contract; a crate/
+        # library has none). Gating every Docker step on this means a
+        # library (e.g. a Rust crate — no GHCR deployment) never pulls
+        # buildkit from Docker Hub nor logs in to GHCR (issue #33).
+        id: resolve
+        env:
+          HYPERCI_CONTAINER_RESOLVE_ONLY: "1"
+        run: ${{ env.HYPERCI_INSTALL }} run container
 
       - name: Docker Hub login (authenticated pulls only)
         # Docker Hub is not a publish target — login is solely to bypass
         # anonymous rate limits when the Dockerfile pulls a Hub base
         # image. Conditional on the org var being set; no-op otherwise.
-        if: steps.check.outputs.enabled != 'false' && vars.DOCKERHUB_USERNAME != ''
+        if: steps.resolve.outputs.build == 'true' && vars.DOCKERHUB_USERNAME != ''
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -141,7 +132,7 @@ jobs:
       - name: GHCR login
         # GITHUB_TOKEN via job-level packages:write permission — can create
         # new repo-owned packages on first push.
-        if: steps.check.outputs.enabled != 'false'
+        if: steps.resolve.outputs.build == 'true'
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           registry: ghcr.io
@@ -149,24 +140,31 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        if: steps.check.outputs.enabled != 'false'
+        if: steps.resolve.outputs.build == 'true'
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
-      - name: Install uv
-        if: steps.check.outputs.enabled != 'false'
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - name: Download build artifacts
+        # The build-dist-* artifact carries both dist/ (binaries) and
+        # ci-tmp/ (deployment artefacts produced by the Build stage).
+        # Download into the project root so both trees land at their
+        # original paths — Container stage looks for dist/<binary> and
+        # ci-tmp/container-manifest.json relative to cwd.
+        if: steps.resolve.outputs.build == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          enable-cache: false
+          pattern: build-dist-*
+          path: .
+          merge-multiple: true
 
       - name: Set up Python
-        if: steps.check.outputs.enabled != 'false'
+        if: steps.resolve.outputs.build == 'true'
         run: uv python install ${{ inputs.python-version }}
 
       - name: Build container
         # Handler decides validate-only vs push based on HYPERCI_PUBLISH_MODE:
         # unset/false → docker build only, no registry push;
         # true        → docker build + push to all configured registries.
-        if: steps.check.outputs.enabled != 'false'
+        if: steps.resolve.outputs.build == 'true'
         env:
           HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
           HYPERCI_PUBLISH_MODE: ${{ inputs.will-publish }}
@@ -180,11 +178,16 @@ jobs:
   tag-and-publish:
     name: Tag & Publish
     needs: [container]
-    # Single gate: this job runs iff a release is being published.
-    # On push events it creates the git tag (semantic-release) AND
+    # Runs iff a release is being published — and DECOUPLED from the
+    # container outcome (issue #33). `always()` means a failed or skipped
+    # Container job does not block the primary publish: a transient
+    # container/registry hiccup (e.g. a flaky Docker Hub buildkit pull)
+    # must never lose the crate/PyPI/npm + GitHub Release or skip the tag.
+    # The container failure still surfaces as a red run for follow-up.
+    # On push events this creates the git tag (semantic-release) AND
     # uploads artefacts. On workflow_dispatch (retroactive) the tag
     # already exists; only the upload runs.
-    if: inputs.will-publish == 'true'
+    if: ${{ always() && inputs.will-publish == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

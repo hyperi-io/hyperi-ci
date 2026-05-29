@@ -242,8 +242,8 @@ mermaid: [FLOW.md](FLOW.md) §5–6. JFrog history: [migration/JFROG.md](migrati
 
 ## Container builds
 
-The `release-tail` builds and pushes an OCI image to GHCR when
-`container.enabled: true`. Three auto-detected modes:
+The `release-tail` builds and pushes an OCI image to GHCR for **apps**. Three
+auto-detected modes:
 
 | Mode | Language | Dockerfile source |
 |---|---|---|
@@ -254,6 +254,19 @@ The `release-tail` builds and pushes an OCI image to GHCR when
 Push-to-main builds single-arch (`:sha-…`); publish builds multi-arch
 (`:vX` + `:latest`). Auth via the `hyperi-container-mgt` GitHub App. Artefact
 generation from the contract: [deployment/CONTRACT.md](deployment/CONTRACT.md).
+
+**App-only, resolved before Docker (issue #33).** `publish.container.enabled` is
+`auto` (default) | `true` | `false`. Under `auto` the stage builds only when it
+finds a signal — a Dockerfile, or a Rust binary using rustlib's contract.
+**Libraries (a Rust crate, a Python package) have no signal and ship no
+container.** The decision is resolved *before* Docker Buildx boots, so a library
+never pulls buildkit from Docker Hub nor logs in to GHCR.
+
+**Container failure never blocks the publish (issue #33).** Tag & Publish is
+decoupled from the Container job (`always()`): a transient container/registry
+hiccup surfaces as a red run but the crate/PyPI/npm + GitHub Release still ships
+and the tag is still cut. The container image is a secondary artefact; the
+package is the point of the release.
 
 ## Runner modes (summary)
 

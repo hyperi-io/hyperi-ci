@@ -48,6 +48,43 @@ def _load_workflow(name: str) -> dict:
         return yaml.safe_load(f)
 
 
+class TestReleaseTailDecoupling:
+    """issue #33: a Container failure must not block the primary publish,
+    and a library must not boot Buildx / touch GHCR at all."""
+
+    def _tail(self) -> dict:
+        return _load_workflow("_release-tail.yml")
+
+    def test_tag_and_publish_decoupled_from_container(self) -> None:
+        # `always()` ensures Tag & Publish runs even when Container fails
+        # or is skipped — the crate/GH release is never lost to a
+        # transient container hiccup.
+        job = self._tail()["jobs"]["tag-and-publish"]
+        assert "always()" in str(job["if"]), (
+            "tag-and-publish must use always() so a failed/skipped Container "
+            "job does not block the publish (issue #33)."
+        )
+
+    def test_container_resolves_before_docker(self) -> None:
+        # The Docker-touching steps must gate on the resolve step's output
+        # so a library never pulls buildkit / logs in to GHCR.
+        steps = self._tail()["jobs"]["container"]["steps"]
+        assert any(s.get("id") == "resolve" for s in steps), (
+            "container job must have a 'resolve' step before Docker setup."
+        )
+        docker_steps = [
+            s
+            for s in steps
+            if any(k in str(s.get("uses", "")) for k in ("buildx", "login-action"))
+        ]
+        assert docker_steps, "expected Docker login/buildx steps in container job"
+        for s in docker_steps:
+            assert "steps.resolve.outputs.build" in str(s.get("if", "")), (
+                f"Docker step {s.get('name')!r} must gate on resolve output "
+                "so libraries skip Buildx/GHCR (issue #33)."
+            )
+
+
 @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
 def test_workflow_has_plan_job_first(workflow_name: str) -> None:
     """Every language workflow's first job must be `plan`."""
