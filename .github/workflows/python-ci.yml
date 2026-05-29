@@ -44,6 +44,14 @@ on:
         type: string
         default: ""
         description: "Tag to publish (workflow_dispatch only)"
+      from-head:
+        type: string
+        default: ""
+        description: "'true' on a from-head dispatch (issue #35): release/retry HEAD — the CI creates the tag."
+      bump:
+        type: string
+        default: "auto"
+        description: "Version resolution for from-head: auto | patch | minor (forced)."
     secrets:
       JFROG_TOKEN:
         required: false
@@ -68,8 +76,19 @@ on:
     inputs:
       tag:
         type: string
-        required: true
-        description: "Tag to publish (e.g. v1.3.0)"
+        required: false
+        default: ""
+        description: "Tag to re-publish (existing tag). Omit + set from-head to release HEAD."
+      from-head:
+        type: string
+        required: false
+        default: ""
+        description: "'true' to release/retry the current HEAD — the CI creates the tag (issue #35). Mutually exclusive with `tag`."
+      bump:
+        type: string
+        required: false
+        default: "auto"
+        description: "Version resolution for from-head: auto | patch | minor (forced)."
       runner-mode:
         type: string
         default: ""
@@ -114,6 +133,8 @@ jobs:
         uses: hyperi-io/hyperi-ci/.github/actions/predict-version@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          from-head: ${{ inputs.from-head }}
+          bump: ${{ inputs.bump }}
 
   quality:
     name: Quality
@@ -309,6 +330,8 @@ jobs:
       will-publish: ${{ needs.plan.outputs.will-publish }}
       next-version: ${{ needs.plan.outputs.next-version }}
       tag: ${{ inputs.tag }}
+      from-head: ${{ inputs.from-head }}
+      bump: ${{ inputs.bump }}
       publish-target: ${{ inputs.publish-target }}
       python-version: ${{ inputs.python-version }}
     secrets: inherit

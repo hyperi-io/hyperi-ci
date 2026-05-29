@@ -678,21 +678,37 @@ def _publish_impl(
     tag: str | None,
     list_tags: bool,
     dry_run: bool,
+    bump: str | None = None,
 ) -> None:
     """Shared implementation for the ``publish`` and ``release`` commands."""
-    from hyperi_ci.publish import dispatch_publish, list_unpublished
+    from hyperi_ci.publish import (
+        dispatch_from_head,
+        dispatch_publish,
+        list_unpublished,
+    )
 
     if list_tags:
         rc = list_unpublished()
         raise typer.Exit(rc)
 
-    if not tag:
+    if tag and bump:
         typer.echo(
-            "Specify a tag to publish, or use --list to see available tags.", err=True
+            "Pass either a TAG (re-publish an existing tag) or --bump "
+            "(release the current HEAD) — not both.",
+            err=True,
         )
         raise typer.Exit(1)
 
-    rc = dispatch_publish(tag, dry_run=dry_run)
+    if tag:
+        # Re-publish an existing tag (idempotent retry of a partial publish).
+        rc = dispatch_publish(tag, dry_run=dry_run)
+        raise typer.Exit(rc)
+
+    # No tag → release/retry the current HEAD. The CI resolves the version,
+    # creates the tag, and publishes — no artificial commit, no local tag
+    # push (issue #35). `bump` defaults to auto (semantic-release picks the
+    # version from commits); --bump patch|minor forces a release.
+    rc = dispatch_from_head(bump=bump or "auto", dry_run=dry_run)
     raise typer.Exit(rc)
 
 
@@ -700,7 +716,15 @@ def _publish_impl(
 def publish(
     tag: Annotated[
         str | None,
-        typer.Argument(help="Tag to publish (e.g. v1.3.0) or 'latest'"),
+        typer.Argument(help="Existing tag to re-publish (e.g. v1.3.0 or 'latest')"),
+    ] = None,
+    bump: Annotated[
+        str | None,
+        typer.Option(
+            "--bump",
+            help="Release the current HEAD with a forced bump: patch | minor "
+            "(no release-worthy commit needed).",
+        ),
     ] = None,
     list_tags: Annotated[
         bool,
@@ -711,17 +735,24 @@ def publish(
         typer.Option("--dry-run", "-n", help="Show what would be dispatched"),
     ] = False,
 ) -> None:
-    """Retroactive publish: workflow_dispatch on an existing tag.
+    """Release or retry a release — the CI creates the tag (issue #35).
 
-    The primary publish path is ``hyperi-ci push --publish`` which uses
-    the version-first single-run pipeline (one CI run, one tag, one
-    publish, gated by the ``Publish: true`` commit trailer).
+    The primary release path is ``hyperi-ci push --publish`` (version-first
+    single run, gated by the ``Publish: true`` trailer). This command is the
+    "I need to release/retry that" escape hatch — no artificial ``fix:`` commit:
 
-    This command covers the secondary "I want to re-publish an existing
-    tag" use case — e.g. a previous publish run failed mid-way and
-    needs retrying without re-tagging.
+    - ``hyperi-ci publish`` — release the current ``main`` HEAD. Dispatches a
+      from-head run; the CI resolves the version (semantic-release), tags HEAD,
+      and publishes. Also finishes a release that died before the tag was cut.
+    - ``hyperi-ci publish --bump patch|minor`` — force a release of HEAD even
+      with no release-worthy commit since the last tag.
+    - ``hyperi-ci publish <tag>`` — re-dispatch an existing tag (idempotent
+      retry of a partial publish; fills in registries that were missed).
+
+    The CLI only triggers the workflow; the runner does the tagging and
+    publishing, so it works under branch protection and from the Actions UI too.
     """
-    _publish_impl(tag=tag, list_tags=list_tags, dry_run=dry_run)
+    _publish_impl(tag=tag, list_tags=list_tags, dry_run=dry_run, bump=bump)
 
 
 @app.command()
@@ -748,6 +779,28 @@ def release(
         stacklevel=2,
     )
     _publish_impl(tag=tag, list_tags=list_tags, dry_run=dry_run)
+
+
+@app.command(name="tag-head", hidden=True)
+def tag_head_cmd(
+    bump: Annotated[
+        str,
+        typer.Option("--bump", help="patch | minor"),
+    ],
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", "-n", help="Show what would be tagged"),
+    ] = False,
+) -> None:
+    """CI-internal: create the next tag at HEAD for a forced bump (issue #35).
+
+    Run by the from-head dispatch path in `_release-tail.yml` when
+    `bump` is patch/minor. Not a routine command — operators use
+    `hyperi-ci publish` instead.
+    """
+    from hyperi_ci.push import tag_head
+
+    raise typer.Exit(tag_head(bump=bump, dry_run=dry_run))
 
 
 @app.command()

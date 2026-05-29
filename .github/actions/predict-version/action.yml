@@ -21,14 +21,22 @@ inputs:
   github-token:
     description: GitHub token (for semantic-release dry-run)
     required: true
+  from-head:
+    description: "'true' on a from-head dispatch (issue #35): resolve version for tagging HEAD"
+    required: false
+    default: ""
+  bump:
+    description: "Version resolution for from-head: auto (semantic-release picks) | patch | minor (forced)"
+    required: false
+    default: "auto"
 
 outputs:
   will-publish:
     description: "'true' iff this run should tag + publish"
     value: ${{ steps.gate.outputs.will-publish }}
   version:
-    description: "Predicted next version (without 'v' prefix); empty unless will-publish == 'true' on push"
-    value: ${{ steps.predict.outputs.version }}
+    description: "Predicted next version (without 'v' prefix); set on push and on from-head dispatch"
+    value: ${{ steps.predict.outputs.version || steps.forced.outputs.version }}
   run-checks:
     description: "'true' iff quality + test should run (publish-worthy commit OR pull_request)"
     value: ${{ steps.derive.outputs.run-checks }}
@@ -66,7 +74,10 @@ runs:
         fi
 
     - name: Setup semantic-release (shared toolchain — single source of truth)
-      if: steps.gate.outputs.will-publish == 'true' && github.event_name == 'push'
+      # Runs on push, and on a from-head `auto` dispatch (issue #35) so the
+      # version is resolved in plan (the build then stamps the correct value).
+      # Forced bumps use the inline semver step below and skip semantic-release.
+      if: ${{ steps.gate.outputs.will-publish == 'true' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.from-head == 'true' && inputs.bump == 'auto')) }}
       uses: hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@main
 
     - name: Predict next version
@@ -85,7 +96,7 @@ runs:
       # (npm install failure, network, etc.) is distinguished from
       # "ran successfully but no version to release."
       id: predict
-      if: steps.gate.outputs.will-publish == 'true' && github.event_name == 'push'
+      if: ${{ steps.gate.outputs.will-publish == 'true' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.from-head == 'true' && inputs.bump == 'auto')) }}
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
@@ -104,13 +115,39 @@ runs:
         version=$(printf '%s\n' "$dry_output" | grep -oE 'next release version is [0-9]+\.[0-9]+\.[0-9]+' | head -1 | awk '{print $5}')
 
         if [[ -z "$version" ]]; then
-          echo "::error::'Publish: true' trailer present but no release-worthy commits since last tag."
-          echo "::error::Either remove the trailer (this is a non-release commit) or land a fix:/feat:/perf: commit first."
+          echo "::error::No release-worthy commits since last tag. On a push, drop the 'Publish: true' trailer (this is a non-release commit) or land a fix:/feat:/perf: commit. On a from-head dispatch, re-run with --bump patch (or minor) to force a release."
           exit 1
         fi
 
         echo "version=$version" >> "$GITHUB_OUTPUT"
         echo "::notice::Predicted next version: v$version"
+
+    - name: Predict next version (forced bump)
+      # from-head dispatch with bump=patch|minor (issue #35): release HEAD
+      # even with no release-worthy commit. Computes `last v* tag + bump`
+      # inline so plan + build stamp the forced version consistently with
+      # the tag tag-head creates later in Tag & Publish.
+      id: forced
+      if: ${{ steps.gate.outputs.will-publish == 'true' && github.event_name == 'workflow_dispatch' && inputs.from-head == 'true' && (inputs.bump == 'patch' || inputs.bump == 'minor') }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        latest=$(git tag --list 'v*' --sort=-v:refname | head -1 | sed 's/^v//')
+        if [[ -z "$latest" ]] && [[ -f VERSION ]]; then
+          latest=$(sed 's/^v//' VERSION | head -1)
+        fi
+        if [[ -z "$latest" ]]; then
+          echo "::error::No v* tag and no VERSION file — cannot compute forced bump."
+          exit 1
+        fi
+        IFS='.' read -r maj min pat <<< "$latest"
+        case "${{ inputs.bump }}" in
+          patch) pat=$((pat + 1)) ;;
+          minor) min=$((min + 1)); pat=0 ;;
+        esac
+        version="${maj}.${min}.${pat}"
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "::notice::Forced from-head bump (${{ inputs.bump }}): v$version (was v$latest)"
 
     - name: Derive gate outputs
       # Single source of truth for the run-checks / run-build conditions.

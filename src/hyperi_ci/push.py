@@ -21,6 +21,7 @@ All flows set ``HYPERCI_PUSH=1`` so the pre-push hook allows the push.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -247,6 +248,81 @@ def _publish_push(
 
     info("Pushed. The CI run will tag + publish in a single workflow.")
     info("Watch: hyperi-ci watch")
+    return 0
+
+
+def _emit_gh_output(**pairs: str) -> None:
+    """Append ``key=value`` lines to ``$GITHUB_OUTPUT`` when set (CI only)."""
+    gh_out = os.environ.get("GITHUB_OUTPUT")
+    if not gh_out:
+        return
+    with open(gh_out, "a", encoding="utf-8") as fh:
+        for key, value in pairs.items():
+            fh.write(f"{key}={value}\n")
+
+
+def tag_head(*, bump: str, dry_run: bool = False, cwd: str | None = None) -> int:
+    """CI-internal: create the next tag at HEAD for a forced bump (issue #35).
+
+    Computes ``last-tag + bump``, creates an annotated tag at HEAD, pushes it,
+    and writes ``version=`` + ``tag=`` to ``$GITHUB_OUTPUT`` so the publish
+    step can pick the version up. Used by the from-head dispatch path when
+    ``bump != auto`` (``auto`` lets semantic-release pick the version).
+    Idempotent: an existing tag is reused, not recreated.
+    """
+    if bump not in ("patch", "minor"):
+        error(f"tag-head: invalid bump '{bump}' (expected patch or minor)")
+        return 1
+
+    next_version = _compute_next_version(bump=bump, cwd=cwd)
+    if not next_version:
+        error("tag-head: cannot compute next version (no tags, no VERSION).")
+        return 1
+    tag = f"v{next_version}"
+
+    if dry_run:
+        info(f"tag-head: would create {tag} at HEAD (bump={bump})")
+        _emit_gh_output(version=next_version, tag=tag)
+        return 0
+
+    head = run_cmd(["git", "rev-parse", "HEAD"], capture=True, check=False, cwd=cwd)
+    if head.returncode != 0 or not head.stdout.strip():
+        error("tag-head: cannot resolve HEAD sha")
+        return 1
+    sha = head.stdout.strip()
+
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    if not repo:
+        error("tag-head: GITHUB_REPOSITORY not set (must run in CI)")
+        return 1
+
+    # Create the tag ref remotely via the GitHub API. Uses GITHUB_TOKEN, so
+    # it works even though the Tag & Publish checkout sets
+    # persist-credentials: false (no git push creds). Idempotent: a ref that
+    # already exists (HTTP 422) is fine — we're converging to "tag exists".
+    created = run_cmd(
+        [
+            "gh",
+            "api",
+            "-X",
+            "POST",
+            f"repos/{repo}/git/refs",
+            "-f",
+            f"ref=refs/tags/{tag}",
+            "-f",
+            f"sha={sha}",
+        ],
+        capture=True,
+        check=False,
+        cwd=cwd,
+    )
+    blob = (created.stdout + created.stderr).lower()
+    if created.returncode != 0 and "already exists" not in blob:
+        error(f"tag-head: failed to create tag {tag}: {created.stderr.strip()}")
+        return created.returncode
+
+    _emit_gh_output(version=next_version, tag=tag)
+    success(f"tag-head: {tag} created at HEAD ({sha[:8]})")
     return 0
 
 

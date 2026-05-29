@@ -48,6 +48,92 @@ def _load_workflow(name: str) -> dict:
         return yaml.safe_load(f)
 
 
+class TestFromHeadThreading:
+    """issue #35: from-head + bump inputs must thread through every layer —
+    consumer ci.yml -> <lang>-ci.yml workflow_call -> predict-version (plan) ->
+    _release-tail.yml -> Tag & Publish. Otherwise `hyperi-ci publish` dispatches
+    inputs the CI silently ignores."""
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_workflow_call_accepts_from_head_and_bump(self, workflow_name: str) -> None:
+        wf = _load_workflow(workflow_name)
+        # PyYAML parses bare `on:` as the boolean True (YAML 1.1).
+        on = wf.get("on") or wf.get(True, {})
+        wc = on.get("workflow_call", {}).get("inputs", {})
+        assert "from-head" in wc, f"{workflow_name}: workflow_call missing from-head"
+        assert "bump" in wc, f"{workflow_name}: workflow_call missing bump"
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_dispatch_tag_is_optional(self, workflow_name: str) -> None:
+        # from-head dispatch has no tag; tag must be optional (else `gh
+        # workflow run` errors before the plan job even starts).
+        wf = _load_workflow(workflow_name)
+        on = wf.get("on") or wf.get(True, {})
+        dispatch_inputs = on.get("workflow_dispatch", {}).get("inputs", {})
+        assert dispatch_inputs.get("tag", {}).get("required") is not True, (
+            f"{workflow_name}: workflow_dispatch.tag must be optional for "
+            "from-head dispatch (issue #35)"
+        )
+        assert "from-head" in dispatch_inputs and "bump" in dispatch_inputs, (
+            f"{workflow_name}: workflow_dispatch missing from-head/bump"
+        )
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_predict_version_receives_from_head_and_bump(
+        self, workflow_name: str
+    ) -> None:
+        wf = _load_workflow(workflow_name)
+        plan = wf["jobs"]["plan"]["steps"]
+        predict_step = next(
+            s for s in plan if "predict-version" in str(s.get("uses", ""))
+        )
+        with_inputs = predict_step.get("with", {})
+        assert "from-head" in with_inputs and "bump" in with_inputs, (
+            f"{workflow_name}.plan: predict-version must receive from-head/bump "
+            "so the version is resolved on a from-head dispatch (#35)"
+        )
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_release_tail_receives_from_head_and_bump(self, workflow_name: str) -> None:
+        wf = _load_workflow(workflow_name)
+        tail_call = next(
+            j
+            for j in wf["jobs"].values()
+            if "_release-tail.yml" in str(j.get("uses", ""))
+        )
+        with_inputs = tail_call.get("with", {})
+        assert "from-head" in with_inputs and "bump" in with_inputs, (
+            f"{workflow_name}: _release-tail call must forward from-head/bump"
+        )
+
+    def test_release_tail_accepts_from_head_and_bump(self) -> None:
+        wf = _load_workflow("_release-tail.yml")
+        on = wf.get("on") or wf.get(True, {})
+        wc = on.get("workflow_call", {}).get("inputs", {})
+        assert "from-head" in wc and "bump" in wc
+
+    def test_release_tail_tags_head_on_dispatch_auto(self) -> None:
+        # semantic-release tags HEAD on from-head + bump=auto (re-uses the
+        # push tagger). Forced bumps use tag-head instead.
+        steps = _load_workflow("_release-tail.yml")["jobs"]["tag-and-publish"]["steps"]
+        sr = next(s for s in steps if s.get("name") == "Tag (semantic-release)")
+        ifc = str(sr["if"])
+        assert "from-head" in ifc and "bump" in ifc and "auto" in ifc, (
+            "Tag (semantic-release) if: must extend to from-head + bump=auto"
+        )
+
+    def test_release_tail_has_forced_tag_step(self) -> None:
+        steps = _load_workflow("_release-tail.yml")["jobs"]["tag-and-publish"]["steps"]
+        forced = [s for s in steps if s.get("id") == "forcedtag"]
+        assert forced, "missing forced-bump tag step (tag-head) for from-head"
+        ifc = str(forced[0]["if"])
+        # Fires only on from-head with a non-auto bump.
+        assert "from-head" in ifc
+        assert "bump != 'auto'" in ifc, (
+            "forced-tag step must skip when bump == 'auto' (auto uses semantic-release)"
+        )
+
+
 class TestReleaseTailDecoupling:
     """issue #33: a Container failure must not block the primary publish,
     and a library must not boot Buildx / touch GHCR at all."""

@@ -160,3 +160,50 @@ dfe-receiver/latest/dfe-receiver-linux-amd64
   the branch-name-leaks-into-filename class of bug.
 - Both Rust and Go handlers emit the same format — consumers don't care what
   language built the binary.
+
+## 8. Release / retry on demand (no junk `fix:`)
+
+`hyperi-ci push --publish` is the **primary** release path — one CI run, one
+tag, one publish, gated by the `Publish: true` trailer. It assumes you have a
+release-worthy commit on HEAD. Two situations break that assumption, and have
+historically driven the "edit a single file and fake a `fix:` commit" workaround:
+
+1. **"Jeez I need to retry this"** — a release run died before Tag & Publish
+   (transient hiccup, container flake, etc.). No tag was cut, so `hyperi-ci
+   publish vX` can't help (the tag doesn't exist) and `push --bump-patch`
+   no-ops because VERSION on `main` already equals the target (#25 + #35).
+2. **"Man I needed to release that"** — you want to release HEAD on demand
+   (re-publish docs/refactor-only work, or release a fresh HEAD without an
+   intervening `Publish: true` push).
+
+The fix: **`hyperi-ci publish` is now first-class for both** (#35). The CLI
+is a thin trigger; the CI does the tagging and publishing, so it works under
+branch protection and from the Actions UI too.
+
+```mermaid
+flowchart LR
+    CLI[hyperi-ci publish] -->|gh workflow run<br/>-f from-head=true -f bump=auto| WD[workflow_dispatch]
+    BUTTON[Actions: Run workflow<br/>from-head=true bump=auto/patch/minor] --> WD
+    WD --> PLAN[plan: predict-version<br/>resolves version on dispatch too]
+    PLAN --> TAIL[Tag & Publish]
+    TAIL -->|auto: semantic-release| TAG[tag HEAD]
+    TAIL -->|patch/minor: tag-head| TAG
+    TAG --> PUB[publish to registries]
+```
+
+| Command | Action | When |
+|---|---|---|
+| `hyperi-ci publish` | dispatch from-head + bump=auto — the CI resolves the version (semantic-release), tags HEAD, publishes | Finish a stuck release; release HEAD when there are release-worthy commits |
+| `hyperi-ci publish --bump patch\|minor` | dispatch from-head + forced bump — `tag-head` computes `last + bump`, tags HEAD via `gh api`, publishes | Release HEAD with no release-worthy commit (kills the junk-`fix:` ritual) |
+| `hyperi-ci publish <tag>` | dispatch existing tag — **idempotent retry** (publish handlers skip artefacts already in their registry; a GH Release no longer hard-blocks) | A partial publish where the tag is cut but some registries missed |
+| Actions UI → Run workflow | same three modes via `tag` / `from-head` / `bump` inputs | No local checkout; one-click from the GitHub UI |
+
+**Why the CI does the tagging:** one source of truth (the workflow), the
+`GITHUB_TOKEN` cuts the tag (works under branch protection), and the CLI +
+UI button are byte-identical operations. The plan job resolves the version
+on dispatch too (`predict-version` runs semantic-release for `auto` or
+last+bump for forced) so the build stamps the same version Tag & Publish
+will tag — no artefact-version drift.
+
+> Caveat: `hyperi-ci push --publish` (the primary path) still pre-flights via
+> the same trailer/gate. `publish` is the escape hatch, not a replacement.

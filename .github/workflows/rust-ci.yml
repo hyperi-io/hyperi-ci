@@ -47,6 +47,14 @@ on:
         type: string
         default: ""
         description: "Tag to publish (workflow_dispatch only)"
+      from-head:
+        type: string
+        default: ""
+        description: "'true' on a from-head dispatch (issue #35): release/retry HEAD — the CI creates the tag."
+      bump:
+        type: string
+        default: "auto"
+        description: "Version resolution for from-head: auto | patch | minor (forced — release even with no release-worthy commit)."
     secrets:
       JFROG_TOKEN:
         required: false
@@ -69,8 +77,19 @@ on:
     inputs:
       tag:
         type: string
-        required: true
-        description: "Tag to publish (e.g. v1.3.0)"
+        required: false
+        default: ""
+        description: "Tag to re-publish (existing tag). Omit + set from-head to release HEAD."
+      from-head:
+        type: string
+        required: false
+        default: ""
+        description: "'true' to release/retry the current HEAD — the CI creates the tag (issue #35). Mutually exclusive with `tag`."
+      bump:
+        type: string
+        required: false
+        default: "auto"
+        description: "Version resolution for from-head: auto | patch | minor (forced)."
       runner-mode:
         type: string
         default: ""
@@ -91,13 +110,10 @@ concurrency:
 env:
   HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
   HYPERCI_INSTALL: uvx --no-cache --refresh hyperi-ci
-  # When dispatched with a tag (legacy workflow_dispatch path) OR when
-  # the caller declared `publish-target: both` (new `hyperi-ci push
-  # --release` path), this is a release-channel build — enables Tier 2
-  # (PGO + BOLT) build optimisation. Pre-2026-05-20 this only matched
-  # the workflow_dispatch path; consumers on the new push-trigger flow
-  # silently fell through to spike → Tier 1. See plan note for context.
-  HYPERCI_CHANNEL: ${{ (inputs.tag != '' || inputs.publish-target == 'both') && 'release' || '' }}
+  # Release-channel (Tier 2 PGO + BOLT) when dispatched with a tag (retroactive
+  # publish), or `publish-target: both`, or a from-head dispatch (issue #35 —
+  # a from-head release is GA, not a dev pre-release).
+  HYPERCI_CHANNEL: ${{ (inputs.tag != '' || inputs.publish-target == 'both' || inputs.from-head == 'true') && 'release' || '' }}
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -133,6 +149,8 @@ jobs:
         uses: hyperi-io/hyperi-ci/.github/actions/predict-version@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          from-head: ${{ inputs.from-head }}
+          bump: ${{ inputs.bump }}
 
       - name: Generate build matrix
         # Multi-arch (amd64 + arm64) on publish runs; single-arch on
@@ -366,6 +384,8 @@ jobs:
       will-publish: ${{ needs.plan.outputs.will-publish }}
       next-version: ${{ needs.plan.outputs.next-version }}
       tag: ${{ inputs.tag }}
+      from-head: ${{ inputs.from-head }}
+      bump: ${{ inputs.bump }}
       publish-target: ${{ inputs.publish-target }}
       rust-toolchain: ${{ inputs.rust-toolchain }}
     secrets: inherit

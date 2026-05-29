@@ -286,8 +286,19 @@ def _render_workflow(
         "    inputs:\n"
         "      tag:\n"
         "        type: string\n"
-        "        required: true\n"
-        '        description: "Tag to publish (e.g. v1.3.0)"\n'
+        "        required: false\n"
+        '        default: ""\n'
+        '        description: "Tag to re-publish (existing tag). Omit + set from-head to release HEAD."\n'
+        "      from-head:\n"
+        "        type: string\n"
+        "        required: false\n"
+        '        default: ""\n'
+        "        description: \"'true' to release/retry the current HEAD — the CI creates the tag (issue #35).\"\n"
+        "      bump:\n"
+        "        type: string\n"
+        "        required: false\n"
+        '        default: "auto"\n'
+        '        description: "Version resolution for from-head: auto | patch | minor (forced — release even with no release-worthy commit)."\n'
         "\n"
         "jobs:\n"
         "  ci:\n"
@@ -295,6 +306,8 @@ def _render_workflow(
         f"{workflow_file}@{_WORKFLOW_REF}\n"
         "    with:\n"
         "      tag: ${{ inputs.tag || '' }}\n"
+        "      from-head: ${{ inputs.from-head || '' }}\n"
+        "      bump: ${{ inputs.bump || 'auto' }}\n"
     )
 
     if publish_target != "internal":

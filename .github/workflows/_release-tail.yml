@@ -50,6 +50,14 @@ on:
         type: string
         default: ""
         description: "Tag input — set on workflow_dispatch from caller"
+      from-head:
+        type: string
+        default: ""
+        description: "'true' on a from-head dispatch (issue #35): release/retry the current HEAD — the CI creates the tag. Mutually exclusive with `tag`."
+      bump:
+        type: string
+        default: "auto"
+        description: "Version resolution for from-head: auto (semantic-release picks from commits) | patch | minor (forced — release even with no release-worthy commit)."
       publish-target:
         type: string
         default: "internal"
@@ -197,26 +205,27 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          # On push, check out main HEAD so semantic-release can commit
-          # the version bump + CHANGELOG. On workflow_dispatch, check
-          # out the tag (already exists, no semantic-release needed).
+          # On push OR a from-head dispatch (issue #35), check out main HEAD
+          # so the tag is created there. On a tag dispatch (retroactive
+          # re-publish), check out the existing tag (no tagging needed).
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Setup semantic-release (shared toolchain — single source of truth)
-        if: github.event_name == 'push'
+        # Runs the version oracle on a push, and on a from-head `auto`
+        # dispatch (release/retry HEAD letting semantic-release pick the
+        # version from commits). Forced bumps use tag-head instead.
+        if: ${{ github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto') }}
         uses: hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@main
 
       - name: Tag (semantic-release)
         # Real run (no --dry-run) — analyzes commits, writes Cargo.toml
         # + VERSION + CHANGELOG, commits with [skip ci], pushes commit,
-        # creates and pushes the git tag.
-        # The version semantic-release picks here MUST equal the
-        # `next-version` predicted in setup (same algorithm, same input
-        # — deterministic). The build job already stamped artefacts at
-        # this version.
-        if: github.event_name == 'push'
+        # creates and pushes the git tag. Same version `next-version`
+        # predicted in plan (deterministic). Also handles a from-head
+        # `auto` dispatch (#35): re-runs the tagger on HEAD.
+        if: ${{ github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx semantic-release
@@ -258,15 +267,28 @@ jobs:
       - name: Set up Python
         run: uv python install ${{ inputs.python-version }}
 
+      - name: Tag HEAD (forced bump)
+        # from-head dispatch with bump=patch|minor (issue #35): force a
+        # release of HEAD even with no release-worthy commit. semantic-release
+        # can't force a bump, so tag-head computes last-tag+bump and creates
+        # the tag at HEAD via the GitHub API (works with persist-credentials:
+        # false). It emits `version` for the Publish step, which re-stamps the
+        # manifest to it before pushing to the registry.
+        id: forcedtag
+        if: ${{ inputs.from-head == 'true' && inputs.bump != 'auto' && inputs.bump != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ${{ env.HYPERCI_INSTALL }} tag-head --bump ${{ inputs.bump }}
+
       - name: Publish
         # Uploads to all OSS destinations: crates.io / PyPI / npm /
         # GHCR / GitHub Releases / Cloudflare R2.
         env:
           # Version being released — same SSoT as Build (stamp) + Container
-          # (#27). Without it, publish reads the checked-out VERSION file,
-          # which is stale now stamping is central — it shipped a GH release on
-          # the wrong tag once set-version.py was removed.
-          HYPERCI_VERSION: ${{ inputs.next-version }}
+          # (#27). A forced from-head bump resolves its version from tag-head
+          # (the plan's prediction doesn't know the forced bump); otherwise
+          # the plan's next-version. publish re-stamps the manifest to this.
+          HYPERCI_VERSION: ${{ steps.forcedtag.outputs.version || inputs.next-version }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}

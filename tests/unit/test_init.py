@@ -96,6 +96,23 @@ class TestRenderTemplates:
         content = _render_workflow("my-project", "rust-ci.yml")
         assert "secrets: inherit" in content
 
+    def test_workflow_scaffolds_from_head_dispatch_inputs(self) -> None:
+        # issue #35: `hyperi-ci publish` dispatches from-head=true + bump=...;
+        # the scaffolded ci.yml must expose those workflow_dispatch inputs and
+        # forward them to the language workflow, else the dispatch errors.
+        for workflow_file in ("python-ci.yml", "rust-ci.yml", "ts-ci.yml", "go-ci.yml"):
+            content = _render_workflow("my-project", workflow_file)
+            # Inputs declared
+            assert "from-head:" in content, f"{workflow_file}: missing from-head input"
+            assert "bump:" in content, f"{workflow_file}: missing bump input"
+            # Tag relaxed to optional (else gh workflow run errors on no-tag dispatch)
+            assert "required: true" not in content, (
+                f"{workflow_file}: tag must be optional for from-head dispatch"
+            )
+            # Forwarded to the language workflow
+            assert "from-head: ${{ inputs.from-head" in content
+            assert "bump: ${{ inputs.bump" in content
+
     def test_workflow_dispatch_accepts_tag_input(self) -> None:
         # `hyperi-ci publish vX.Y.Z` calls `gh workflow run ci.yml -f
         # tag=vX.Y.Z`. Without a `tag` input on workflow_dispatch the

@@ -28,6 +28,7 @@ from hyperi_ci.publish.binaries import (
     publish_binaries,
 )
 from hyperi_ci.publish.dispatch import (
+    dispatch_from_head,
     dispatch_publish,
     list_unpublished,
     resolve_latest_tag,
@@ -35,6 +36,7 @@ from hyperi_ci.publish.dispatch import (
 
 __all__ = [
     "create_github_release",
+    "dispatch_from_head",
     "dispatch_publish",
     "list_unpublished",
     "publish_binaries",
