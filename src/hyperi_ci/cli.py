@@ -341,6 +341,29 @@ def stamp_version_cmd(
     raise typer.Exit(stamp_version(version, project_dir=dir_path))
 
 
+@app.command(name="next-version")
+def next_version_cmd() -> None:
+    """Predict the next release version (release-based oracle, issue #31).
+
+    Reads the highest existing release (highest pure-semver tag — decoupled
+    from git-tag reachability, so it survives off-main frozen-graph tags and
+    orphaned tags) and analyses commits since with the conventional-commit
+    release rules. Prints the version (no leading 'v'). Exits 1 when no commit
+    is release-worthy — the caller had a publish trigger but nothing to ship.
+    """
+    from hyperi_ci.release.oracle import resolve_next_version
+
+    version = resolve_next_version()
+    if not version:
+        typer.echo(
+            "No release-worthy commits since the last release. Remove the "
+            "Publish trigger, or land a fix:/feat:/perf: commit first.",
+            err=True,
+        )
+        raise typer.Exit(1)
+    typer.echo(version)
+
+
 @app.command()
 def config(
     project_dir: Annotated[
