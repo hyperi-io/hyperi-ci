@@ -44,6 +44,7 @@ runs:
           @semantic-release/changelog \
           @semantic-release/exec \
           @semantic-release/git \
+          @semantic-release/github \
           conventional-changelog-conventionalcommits
 
     - name: Provide default release config if the repo has none
