@@ -136,3 +136,27 @@ class TestBreakingDeltas:
         old = self._wf()
         new = self._wf(inputs={"b": {"required": False, "has_default": True}})
         assert cwi.breaking_deltas(old, new) == []
+
+
+class TestRemovedPipelineFiles:
+    """A composite/workflow present at the last release but deleted now breaks
+    a pinned caller's `@main` reference (404 at startup) — flag it."""
+
+    def test_flags_deleted_file(self) -> None:
+        old = {
+            ".github/workflows/rust-ci.yml",
+            ".github/actions/setup-runtime/action.yml",
+        }
+        cur = {".github/workflows/rust-ci.yml"}
+        assert cwi.removed_pipeline_files(old, cur) == [
+            ".github/actions/setup-runtime/action.yml"
+        ]
+
+    def test_none_when_all_present(self) -> None:
+        s = {".github/workflows/rust-ci.yml"}
+        assert cwi.removed_pipeline_files(s, s) == []
+
+    def test_added_file_not_flagged(self) -> None:
+        old = {".github/workflows/rust-ci.yml"}
+        cur = {".github/workflows/rust-ci.yml", ".github/workflows/new.yml"}
+        assert cwi.removed_pipeline_files(old, cur) == []

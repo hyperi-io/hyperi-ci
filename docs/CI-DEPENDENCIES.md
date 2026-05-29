@@ -68,4 +68,23 @@ flowchart TD
 It scans both `.github/workflows/*.yml` and `.github/actions/*/action.yml`
 — the full pipeline, not just top-level workflows.
 
-_Last reviewed: 28 May 2026._
+## Reusable-workflow pinning — gate-only (issue #31)
+
+`/deps` SHA-pins **third-party** actions. hyperi-ci's **own** reusable workflows
+reference their siblings + composites at `@main`, so a consumer that SHA-pins
+the caller still floats the internals — a breaking change on `main` can
+retroactively break pinned consumers.
+
+We **deliberately keep `@main` internals** and prevent the breakage **at source**
+with a static interface gate (`scripts/check-workflow-interfaces.py`, run in
+Quality): it fails our CI if a sibling interface regresses vs the last release.
+We rejected a "frozen graph" that would have replaced semantic-release with
+bespoke release machinery — **KISS; a battle-tested tool that's good enough beats
+custom code.** Full rationale + the trilemma + what we consciously accept:
+[the decision record](specs/2026-05-29-issue31-workflow-pinning.md).
+
+**Precondition:** the gate is source-side, so it only *blocks* a regression when
+**branch protection is on + Quality is a required check + merges are PR-only**.
+Re-enable branch protection on `main` when dev settles.
+
+_Last reviewed: 29 May 2026._

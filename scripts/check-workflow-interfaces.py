@@ -129,6 +129,16 @@ def breaking_deltas(old: dict, new: dict) -> list[str]:
     return deltas
 
 
+def removed_pipeline_files(old: set[str], current: set[str]) -> list[str]:
+    """Pipeline files present at the last release but gone now.
+
+    A pinned caller references its siblings `@main`; if a referenced composite/
+    workflow is deleted or renamed, that `@main` ref 404s and the graph fails
+    at startup. Flag any last-release pipeline file missing from the tree.
+    """
+    return sorted(p for p in old if p not in current)
+
+
 def _tracked_files() -> list[Path]:
     files = [p for p in sorted(_WORKFLOWS.glob("*.yml")) if _WORKFLOWS.exists()]
     if _ACTIONS.is_dir():
@@ -154,6 +164,24 @@ def _file_at(tag: str, rel_path: str) -> str | None:
         cwd=_ROOT,
     )
     return result.stdout if result.returncode == 0 else None
+
+
+def _pipeline_files_at(tag: str) -> set[str]:
+    """Pipeline file paths (workflows + composites) present at `tag`."""
+    result = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", tag, ".github/"],
+        capture_output=True,
+        text=True,
+        cwd=_ROOT,
+    )
+    if result.returncode != 0:
+        return set()
+    return {
+        p
+        for p in result.stdout.splitlines()
+        if (p.startswith(".github/workflows/") and p.endswith((".yml", ".yaml")))
+        or (p.startswith(".github/actions/") and p.endswith("action.yml"))
+    }
 
 
 def main() -> int:
@@ -184,6 +212,14 @@ def main() -> int:
                 print(f"      - {d}")
         else:
             print(f"  ✓ {rel}")
+
+    removed = removed_pipeline_files(
+        _pipeline_files_at(tag),
+        {p.relative_to(_ROOT).as_posix() for p in _tracked_files()},
+    )
+    for rel in removed:
+        regressions += 1
+        print(f"  ✗ {rel}: removed since {tag} (a pinned caller's @main ref 404s)")
 
     if regressions:
         print(

@@ -341,60 +341,6 @@ def stamp_version_cmd(
     raise typer.Exit(stamp_version(version, project_dir=dir_path))
 
 
-@app.command(name="next-version")
-def next_version_cmd() -> None:
-    """Predict the next release version (release-based oracle, issue #31).
-
-    Reads the highest existing release (highest pure-semver tag — decoupled
-    from git-tag reachability, so it survives off-main frozen-graph tags and
-    orphaned tags) and analyses commits since with the conventional-commit
-    release rules. Prints the version (no leading 'v'). Exits 1 when no commit
-    is release-worthy — the caller had a publish trigger but nothing to ship.
-    """
-    from hyperi_ci.release.oracle import resolve_next_version
-
-    version = resolve_next_version()
-    if not version:
-        typer.echo(
-            "No release-worthy commits since the last release. Remove the "
-            "Publish trigger, or land a fix:/feat:/perf: commit first.",
-            err=True,
-        )
-        raise typer.Exit(1)
-    typer.echo(version)
-
-
-@app.command(name="freeze-internals")
-def freeze_internals_cmd(
-    version: Annotated[
-        str,
-        typer.Argument(help="Version to freeze internal refs to (with or without v)"),
-    ],
-    project_dir: Annotated[
-        str | None,
-        typer.Option("--project-dir", "-C", help="Repo root directory"),
-    ] = None,
-) -> None:
-    """Freeze hyperi-ci's own @main sibling refs → @v<version> (issue #31).
-
-    Run by the release tagger on the (off-main) release commit so a released
-    <lang>-ci.yml@vX carries a frozen, atomic graph. External action pins are
-    left to /deps. Verifies zero internal @main refs remain (a hole would be a
-    floating leak).
-    """
-    from hyperi_ci.release.freeze import freeze_repo
-
-    root = Path(project_dir) if project_dir else None
-    try:
-        changed = freeze_repo(version, root)
-    except RuntimeError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(1) from exc
-    for p in changed:
-        typer.echo(f"froze {p}")
-    typer.echo(f"Frozen {len(changed)} file(s) → v{version.removeprefix('v')}")
-
-
 @app.command()
 def config(
     project_dir: Annotated[
