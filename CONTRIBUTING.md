@@ -125,12 +125,11 @@ git config --global user.email "your.email@example.com"
 ## License for Contributions
 
 All contributions to this project are licensed under the Business Source
-License, Version 1.1 (BUSL-1.1), the same license that covers the project.
+License 1.1 (BUSL-1.1), the same license that covers the project.
 
 Each version of the software (including your contributions) will automatically
-become available under the Apache License, Version 2.0 on the Change Date set
-in the LICENSE (the third anniversary of that version's first publication, or
-the fourth anniversary, whichever comes first).
+become available under the Apache License, Version 2.0 on the third
+anniversary of its release.
 
 ## How to Contribute
 
