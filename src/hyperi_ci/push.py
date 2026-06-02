@@ -403,6 +403,12 @@ def _write_version_and_commit(
             [
                 "git",
                 "commit",
+                # --allow-empty: the release marker is a publish TRIGGER, not a
+                # content change. When VERSION already holds the target value
+                # (re-run, or a forced bump that matches) there is no diff, and a
+                # plain commit aborts with exit 1 (issue #36). The marker is
+                # allowed to be empty by design.
+                "--allow-empty",
                 "-m",
                 message,
             ],

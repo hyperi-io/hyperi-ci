@@ -14,7 +14,11 @@ Generated files:
   - .hyperi-ci.yaml (CI configuration, language-specific defaults)
   - Makefile (quality/test/build targets — skipped if existing)
   - .github/workflows/ci.yml (reusable workflow caller)
-  - .releaserc.yaml (semantic-release config)
+
+No .releaserc is generated: hyperi-ci uses a central tagger-only
+semantic-release config (provided at CI time) and `hyperi-ci stamp-version`
+for stamping. Scaffolding a per-repo .releaserc with @semantic-release/git
+is what caused the issue #37 tag-rewrite damage.
 """
 
 from __future__ import annotations
@@ -464,103 +468,6 @@ def _render_contributing(project_name: str) -> str:
     )
 
 
-def _render_releaserc(
-    project_name: str,
-    language: str = "",
-    license_id: str = _DEFAULT_LICENSE,
-) -> str:
-    """Render .releaserc.yaml for semantic-release.
-
-    Args:
-        project_name: Project name for header.
-        language: Detected language (affects prepareCmd and git assets).
-        license_id: License identifier for file header.
-
-    """
-    prepare_cmd = _build_prepare_cmd(language)
-
-    git_assets = ["CHANGELOG.md", "VERSION"]
-    if language == "rust":
-        git_assets.append("Cargo.toml")
-    elif language == "python":
-        git_assets.append("pyproject.toml")
-    elif language == "typescript":
-        git_assets.append("package.json")
-
-    config: dict = {
-        "branches": ["main"],
-        "tagFormat": "v${version}",
-        "plugins": [
-            [
-                "@semantic-release/commit-analyzer",
-                {
-                    "preset": "conventionalcommits",
-                    "releaseRules": [
-                        {"breaking": True, "release": "major"},
-                        {"type": "feat", "release": "minor"},
-                        {"type": "fix", "release": "patch"},
-                        {"type": "perf", "release": "patch"},
-                        {"type": "sec", "release": "patch"},
-                        {"type": "hotfix", "release": "patch"},
-                        {"type": "security", "release": "patch"},
-                        {"type": "docs", "release": False},
-                        {"type": "test", "release": False},
-                        {"type": "refactor", "release": False},
-                        {"type": "style", "release": False},
-                        {"type": "build", "release": False},
-                        {"type": "ci", "release": False},
-                        {"type": "chore", "release": False},
-                        {"type": "deps", "release": False},
-                        {"type": "revert", "release": False},
-                        {"type": "wip", "release": False},
-                        {"type": "cleanup", "release": False},
-                        {"type": "data", "release": False},
-                        {"type": "debt", "release": False},
-                        {"type": "design", "release": False},
-                        {"type": "infra", "release": False},
-                        {"type": "meta", "release": False},
-                        {"type": "ops", "release": False},
-                        {"type": "review", "release": False},
-                        {"type": "spike", "release": False},
-                        {"type": "ui", "release": False},
-                    ],
-                },
-            ],
-            "@semantic-release/release-notes-generator",
-            [
-                "@semantic-release/changelog",
-                {"changelogFile": "CHANGELOG.md"},
-            ],
-            [
-                "@semantic-release/exec",
-                {"prepareCmd": prepare_cmd},
-            ],
-            [
-                "@semantic-release/git",
-                {
-                    "assets": git_assets,
-                    "message": "chore: version ${nextRelease.version} [skip ci]",
-                },
-            ],
-        ],
-    }
-
-    header = (
-        f"# Project:   {project_name}\n"
-        "# File:      .releaserc.yaml\n"
-        "# Purpose:   Semantic release configuration\n"
-        "#\n"
-        f"# License:   {_license_header_text(license_id)}\n"
-        "# Copyright: (c) 2026 HYPERI PTY LIMITED\n"
-        "\n"
-    )
-    return header + yaml.dump(
-        config,
-        default_flow_style=False,
-        sort_keys=False,
-    )
-
-
 def _write_file(path: Path, content: str, *, force: bool) -> bool:
     """Write a file, respecting the force flag.
 
@@ -702,21 +609,17 @@ def init_project(
         ):
             files_written += 1
 
-    if not _has_releaserc(project_dir):
-        releaserc_content = _render_releaserc(
-            project_name,
-            language=detected,
-            license_id=license_id,
+    # No .releaserc is scaffolded (issue #37). hyperi-ci uses a central
+    # tagger-only semantic-release config provided by the setup-semantic-release
+    # composite at CI time; version stamping is `hyperi-ci stamp-version`. A
+    # scaffolded .releaserc with @semantic-release/git is exactly what rewrote
+    # tags off-main and destroyed release history. A genuine exception goes in
+    # `.hyperi-ci.yaml`, not a raw per-repo file.
+    if _has_releaserc(project_dir):
+        info(
+            "  Left existing .releaserc in place (honoured if it has no "
+            "@semantic-release/git|github plugin; else ignored at CI time)"
         )
-        releaserc_path = project_dir / ".releaserc.yaml"
-        if _write_file(
-            releaserc_path,
-            releaserc_content,
-            force=force,
-        ):
-            files_written += 1
-    else:
-        info("  Skipped .releaserc (already exists)")
 
     # CONTRIBUTING.md -- only generated if absent. Repos that already
     # have their own contributing guide keep it; we do not overwrite.

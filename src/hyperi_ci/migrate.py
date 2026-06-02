@@ -512,8 +512,8 @@ def migrate_project(
             info(f"  - Fix {releaserc_path.name} (prepareCmd + git assets)")
         info("  - Generate new .github/workflows/ci.yml")
         info("  - Generate Makefile (if no CI targets exist)")
-        if not releaserc_path:
-            info("  - Generate .releaserc.yaml")
+        if releaserc_path:
+            info("  - Keep .releaserc only after cleaning (central config otherwise)")
         if not has_existing_config:
             info("  - Generate .hyperi-ci.yaml")
         if ref_warnings:

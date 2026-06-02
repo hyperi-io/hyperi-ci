@@ -17,7 +17,6 @@ from hyperi_ci.init import (
     _render_contributing,
     _render_hyperi_ci_yaml,
     _render_makefile,
-    _render_releaserc,
     _render_workflow,
     detect_license,
     init_project,
@@ -244,45 +243,6 @@ class TestHasReleaserc:
         assert _has_releaserc(tmp_path) is False
 
 
-class TestRenderReleaserc:
-    """Releaserc rendering."""
-
-    def test_contains_conventional_commits(self) -> None:
-        content = _render_releaserc("my-project")
-        assert "conventionalcommits" in content
-
-    def test_contains_project_name(self) -> None:
-        content = _render_releaserc("my-project")
-        assert "my-project" in content
-
-    def test_branches_main_only(self) -> None:
-        content = _render_releaserc("my-project")
-        assert "prerelease" not in content
-        assert "- main" in content
-
-    def test_no_github_plugin(self) -> None:
-        content = _render_releaserc("my-project")
-        assert "@semantic-release/github" not in content
-
-    def test_has_all_commit_types(self) -> None:
-        content = _render_releaserc("my-project")
-        for t in [
-            "cleanup",
-            "data",
-            "debt",
-            "design",
-            "infra",
-            "meta",
-            "ops",
-            "review",
-            "spike",
-            "ui",
-            "hotfix",
-            "security",
-        ]:
-            assert t in content, f"Missing commit type: {t}"
-
-
 class TestLanguageSpecificConfig:
     """Language-specific config defaults in generated YAML."""
 
@@ -317,7 +277,8 @@ class TestInitProject:
         assert (tmp_path / ".hyperi-ci.yaml").exists()
         assert (tmp_path / "Makefile").exists()
         assert (tmp_path / ".github" / "workflows" / "ci.yml").exists()
-        assert (tmp_path / ".releaserc.yaml").exists()
+        # No .releaserc is scaffolded (issue #37) — central tagger-only config.
+        assert not (tmp_path / ".releaserc.yaml").exists()
 
     def test_yaml_has_correct_language(self, tmp_path: Path) -> None:
         (tmp_path / "Cargo.toml").write_text("[package]\n")

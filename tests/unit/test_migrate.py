@@ -365,11 +365,13 @@ class TestMigrateProject:
         wf = tmp_path / ".github" / "workflows" / "ci.yml"
         assert "python-ci.yml" in wf.read_text()
 
-    def test_generates_releaserc(self, tmp_path: Path) -> None:
+    def test_does_not_generate_releaserc(self, tmp_path: Path) -> None:
+        # issue #37: migrate (like init) no longer scaffolds a .releaserc —
+        # migrated repos use the central tagger-only config too.
         self._setup_old_ci_project(tmp_path, with_submodule_entry=False)
         rc = migrate_project(tmp_path)
         assert rc == 0
-        assert (tmp_path / ".releaserc.yaml").exists()
+        assert not (tmp_path / ".releaserc.yaml").exists()
 
     def test_preserves_existing_releaserc(self, tmp_path: Path) -> None:
         self._setup_old_ci_project(tmp_path, with_submodule_entry=False)
