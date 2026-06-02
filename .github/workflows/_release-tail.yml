@@ -219,6 +219,28 @@ jobs:
         if: ${{ github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto') }}
         uses: hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@main
 
+      - name: Guard — predicted tag must not already exist off-HEAD
+        # Defence-in-depth for issue #37: refuse to tag if the predicted
+        # version already exists as a tag pointing somewhere other than
+        # HEAD. A collision means semantic-release mispredicted (blind to
+        # existing tags) — proceeding would rewrite release history. Fail
+        # fast and loud instead. Tags are present locally (fetch-depth: 0).
+        # Trivial glue: a tag-existence check + SHA compare.
+        if: ${{ github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto') }}
+        run: |
+          predicted="v${{ inputs.next-version }}"
+          if git rev-parse -q --verify "refs/tags/${predicted}^{commit}" >/dev/null 2>&1
+          then
+            existing=$(git rev-parse "refs/tags/${predicted}^{commit}")
+            head=$(git rev-parse "HEAD^{commit}")
+            if [ "$existing" != "$head" ]
+            then
+              echo "::error::Predicted ${predicted} already exists at ${existing} but HEAD is ${head}. Refusing to tag — this would rewrite release history (issue #37). semantic-release likely mispredicted (blind to existing tags); check tag reachability before retrying."
+              exit 1
+            fi
+            echo "${predicted} already exists at HEAD — nothing to tag."
+          fi
+
       - name: Tag (semantic-release)
         # Real run (no --dry-run) — analyzes commits, writes Cargo.toml
         # + VERSION + CHANGELOG, commits with [skip ci], pushes commit,

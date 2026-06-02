@@ -12,7 +12,17 @@ For our *own* reusable-workflow internals (which stay `@main` on purpose), see
 |---|---|---|---|
 | GitHub Actions (on hyperi-ci) | `/deps` script (`scripts/update-versions.py`) + `config/versions.yaml` | SHA-pinned at commit time via the pre-commit hook | 7 days, enforced by the script |
 | GitHub Actions (other repos) | Renovate org preset | SHA digest pin (`helpers:pinGitHubActionDigests`) | 7 days |
+| **hyperi-ci reusable-workflow caller** (other repos) | **nobody — floats `@main`** | **NOT pinned. Carved out of digest pinning in the org preset** (`hyperi-io/renovate-config`) | n/a |
 | cargo / pip / npm / docker (all repos) | Renovate org preset | version PRs | 7 days |
+
+**Why the caller is exempt.** SHA-pinning protects against *third-party*
+supply-chain risk. The hyperi-ci reusable workflow is our *own* CI tool —
+pinning its version at the consumer just freezes consumers off CI fixes
+(it stuck hyperi-pylib on v2.6.1, dfe-receiver on v2.6.4). Consumers call
+`<lang>-ci.yml@main` and always get latest; safety for `@main` is hyperi-ci's
+internal interface gate (see [WORKFLOW-PINNING.md](WORKFLOW-PINNING.md), issue
+#31), not a consumer pin. A deliberate pin (`@vN`, or `@sha` for a known
+reason) is still allowed — the carve-out only stops Renovate *imposing* one.
 
 - The org Renovate preset lives in `hyperi-io/renovate-config` but is governed
   from here — change the policy by editing that preset, then document it here.

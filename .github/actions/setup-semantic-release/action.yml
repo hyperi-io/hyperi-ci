@@ -9,13 +9,16 @@
 # Predict and the real run must install identical plugins, else they compute
 # different versions ("tag vX already exists"). One place for that list — here.
 #
-# Release config is central too: if a repo has no .releaserc, this composite
-# drops the canonical tagger-only `default.releaserc.json` into the workspace
-# (ephemeral, never committed). Most repos carry NO .releaserc; one is
-# committed only for a genuine exception, and this step then defers to it.
+# Release config is central by default: when a repo has no .releaserc this
+# composite drops the canonical tagger-only `default.releaserc.json` into the
+# workspace (ephemeral, never committed). A repo .releaserc that references
+# @semantic-release/git or @semantic-release/github (the issue #37 tag-rewrite
+# plugins — they destroyed every tag on dfe-receiver) is IGNORED in favour of
+# the central config. A repo .releaserc WITHOUT those plugins (e.g. an exec-only
+# stamp for a multi-crate workspace) is a legitimate exception and is honoured.
 # semantic-release is a TAGGER only — version stamping is `hyperi-ci
-# stamp-version`, publishing is hyperi-ci's publish stage. git plugin stays in
-# the install list for back-compat; the default config does not use it.
+# stamp-version`, publishing is hyperi-ci's publish stage. The git/github plugins
+# stay in the install list for back-compat but the central config never uses them.
 
 name: Setup semantic-release
 description: Install the pinned, shared semantic-release toolchain (single source of truth)
@@ -47,13 +50,38 @@ runs:
           @semantic-release/github \
           conventional-changelog-conventionalcommits
 
-    - name: Provide default release config if the repo has none
+    - name: Provide the release config (central default, never the #37 plugins)
       shell: bash
+      # A legacy .releaserc carrying @semantic-release/git / @semantic-release/github
+      # is the issue #37 root cause: the git plugin commits off-main "chore:
+      # version X" commits and force-rewrites tags — it destroyed every v* tag
+      # on dfe-receiver. So those plugins are NEVER honoured: if a repo .releaserc
+      # references either, it is ignored and the central tagger-only config is
+      # used instead. Combined with the existing-tag guard in _release-tail.yml,
+      # that fully neutralises #37 (no rewrite + a mispredicted collision fails
+      # loud instead of corrupting history).
+      #
+      # A .releaserc WITHOUT those plugins (e.g. an exec-only stamp for a
+      # multi-crate workspace like dfe-archiver, which the central single-root
+      # stamp can't cover) is a legitimate exception and is honoured. Repos with
+      # no .releaserc get the central tagger-only default. The long-term home for
+      # exceptions is `.hyperi-ci.yaml`, generating a SAFE config — never a raw
+      # per-repo file, never the destructive plugins.
       run: |
+        keep=""
         if compgen -G "$GITHUB_WORKSPACE/.releaserc*" > /dev/null
         then
-          echo "Repo has its own .releaserc — deferring to it"
-        else
+          if grep -qE '@semantic-release/(git|github)' "$GITHUB_WORKSPACE"/.releaserc*
+          then
+            echo "::warning::Ignoring repo .releaserc* — it references @semantic-release/git or @semantic-release/github, the issue #37 tag-rewrite plugins. Using the central tagger-only config. Remove those plugins (stamping is 'hyperi-ci stamp-version', publishing is the publish stage)."
+            rm -f "$GITHUB_WORKSPACE"/.releaserc*
+          else
+            keep="yes"
+            echo "Repo .releaserc* has no destructive plugins — honouring it (legitimate exception)."
+          fi
+        fi
+        if [ -z "$keep" ]
+        then
           cp "$GITHUB_ACTION_PATH/default.releaserc.json" "$GITHUB_WORKSPACE/.releaserc.json"
-          echo "No .releaserc — provided the canonical tagger-only default"
+          echo "Using the central tagger-only .releaserc.json"
         fi

@@ -137,13 +137,23 @@ watching**. Flip it on (PR-only + Quality-required + 0 approvals) at that point.
 The one cost of turning it on: `hyperi-ci push --publish` direct-to-main becomes
 push-branch → open PR → self-merge.
 
+## The caller floats `@main` too (not just the internals)
+
+Originally the consumer *caller* was SHA-pinned (by Renovate) while the
+internals floated `@main` — the worst of both: a pinned caller that still broke
+when `main` regressed, **and** consumers frozen off CI fixes (it stuck
+hyperi-pylib on v2.6.1, dfe-receiver on v2.6.4). Since the gate already makes
+`@main` safe, the caller is now `@main` too: `init` scaffolds
+`<lang>-ci.yml@main`, and the org Renovate preset **carves the hyperi-ci caller
+out of digest pinning** so it is never re-pinned (see
+[DEPS-PINNING.md](DEPS-PINNING.md)). A deliberate `@vN`/`@sha` pin is still
+allowed — the carve-out only stops Renovate *imposing* one.
+
 ## What we consciously accept
 
-- Consumer caller-pins are **skin-deep by design** — internals float `@main`;
-  breakage is prevented at source, not by a frozen graph.
-- Consumers always run hyperi-ci's **latest** `main` internals (no pin-back); a
-  bad `main` affects all at once — mitigated by the gate + the `ci-test-*`
-  fixtures + fast fix-forward.
+- Consumers run hyperi-ci's **latest** `main` (caller and internals both float);
+  a bad `main` affects all at once — mitigated by the gate + the `ci-test-*`
+  fixtures + fast fix-forward. This is the deliberate trade for always-latest CI.
 - The gate catches **structural/interface** breaks, not behavioural; there is no
   tamper-proof audit graph for the orchestration.
 
