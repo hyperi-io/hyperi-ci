@@ -80,18 +80,23 @@ class Plan:
     ambiguous: bool  # >1 chore commit for this version
 
 
-def _release_commits(repo: str, branch: str) -> dict[str, list[str]]:
-    """Map each version -> chore commits reachable from any remote branch.
+def _release_commits(
+    repo: str, branch: str, source_ref: str = ""
+) -> dict[str, list[str]]:
+    """Map each version -> chore commits reachable from the source ref(s).
 
-    Branch-model-agnostic: scans commits reachable from `origin/*` (not just
-    one branch), so it works for both main-only repos and the release-branch
-    model. Crucially this EXCLUDES the bug's orphaned bot commits (off every
-    branch) and abandoned history lines — a tag is only ever moved onto a
-    commit that genuinely lives on a branch. `branch` is kept as a fallback
-    when no remote refs are present (e.g. a local-only test repo).
+    Default (source_ref="") is branch-model-agnostic: scans commits reachable
+    from `origin/*`, so it works for both main-only and release-branch repos.
+    Pass an explicit `source_ref` (e.g. "origin/main") to restrict originals to
+    that line — "only recover tags whose original is on current main". Either
+    way this EXCLUDES the bug's orphaned bot commits (off every branch). `branch`
+    is the fallback when no remote refs are present (local-only test repo).
     """
-    spec = ["--remotes=origin"]
-    if not _git(repo, "for-each-ref", "refs/remotes/origin").strip():
+    if source_ref:
+        spec = [source_ref]
+    elif _git(repo, "for-each-ref", "refs/remotes/origin").strip():
+        spec = ["--remotes=origin"]
+    else:
         spec = [branch]  # fallback: no remote refs, use the named branch
     # newest-first from git log; reverse so index 0 is the original (oldest).
     log = _git(repo, "log", *spec, "--format=%H%x09%s")
@@ -104,9 +109,9 @@ def _release_commits(repo: str, branch: str) -> dict[str, list[str]]:
     return found
 
 
-def build_plans(repo: str, branch: str) -> list[Plan]:
+def build_plans(repo: str, branch: str, source_ref: str = "") -> list[Plan]:
     """Compute the recovery plan for every recoverable version."""
-    commits = _release_commits(repo, branch)
+    commits = _release_commits(repo, branch, source_ref)
     plans: list[Plan] = []
     for version, shas in sorted(
         commits.items(),
@@ -177,6 +182,16 @@ def main() -> int:
     ap.add_argument("--repo", default=".", help="path to the affected clone")
     ap.add_argument("--branch", default="main", help="branch carrying release commits")
     ap.add_argument(
+        "--source-ref",
+        default="",
+        help="restrict originals to this ref (e.g. origin/main); default scans all origin branches",
+    )
+    ap.add_argument(
+        "--no-create",
+        action="store_true",
+        help="only repoint existing tags (MOVE); never CREATE a missing tag",
+    )
+    ap.add_argument(
         "--apply",
         action="store_true",
         help="create/move tags LOCALLY and print the push command (never pushes)",
@@ -187,7 +202,9 @@ def main() -> int:
         print(f"error: {args.repo} is not a git repository", file=sys.stderr)
         return 2
 
-    plans = build_plans(args.repo, args.branch)
+    plans = build_plans(args.repo, args.branch, args.source_ref)
+    if args.no_create:
+        plans = [p for p in plans if p.action != "CREATE"]
     if not plans:
         print(
             f"No 'chore: version X.Y.Z' release commits on {args.branch} — "

@@ -77,3 +77,23 @@ def test_release_commits_separates_ga_from_prerelease(tmp_path: Path):
     assert ga in found["1.0.0"]
     assert dev not in found["1.0.0"]  # the bug: must not capture the prerelease
     assert "1.0.0-dev.1" not in found
+
+
+def test_source_ref_restricts_to_that_line(tmp_path: Path):
+    repo = tmp_path / "r"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", "t@t")
+    _git(repo, "config", "user.name", "t")
+    _commit(repo, "feat: initial")
+    _commit(repo, "chore: version 1.0.0 [skip ci]")
+    _git(repo, "checkout", "-q", "-b", "side")
+    _commit(repo, "chore: version 2.0.0 [skip ci]")
+    _git(repo, "checkout", "-q", "main")
+
+    # source_ref="main" must not see the version only on the side branch.
+    on_main = rt._release_commits(str(repo), "main", source_ref="main")
+    assert "1.0.0" in on_main
+    assert "2.0.0" not in on_main
+    # the side branch does carry it
+    assert "2.0.0" in rt._release_commits(str(repo), "main", source_ref="side")
