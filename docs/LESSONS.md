@@ -300,8 +300,9 @@ build to ensure fresh artifacts, also via `hyperi-ci run build`.
 - Coverage: separate `.coverage.<tier>` files, combine at end
 - No test directory: exit 0 (graceful skip)
 - Submodule-dependent tests:
-  - Public submodule: set the `submodules` input on the reusable workflow
-    (e.g. `submodules: schemas`) so CI checks it out and the tests run.
+  - Public submodule: declare `submodules: schemas` in `.hyperi-ci.yaml`;
+    `hyperi-ci init` renders it as the reusable-workflow `submodules` input
+    in `ci.yml`, and the test job checks it out so the tests run.
   - Private submodule (e.g. `dfe-schemas` while private): GITHUB_TOKEN can't
     clone it, so mark dependent tests with
     `@pytest.mark.skipif(not schemas_dir.exists(), reason="submodule not checked out")`
