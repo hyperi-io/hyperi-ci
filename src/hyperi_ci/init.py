@@ -112,6 +112,26 @@ def detect_license(project_dir: Path) -> str:
     return _DEFAULT_LICENSE
 
 
+def _detect_submodules(project_dir: Path) -> str:
+    """Read the ``submodules`` field from ``.hyperi-ci.yaml`` (else "").
+
+    Names submodule paths the CI test job should init (space-separated),
+    e.g. ``schemas``. Threaded into both the generated ci.yml (the
+    reusable-workflow ``submodules`` input) and the regenerated
+    ``.hyperi-ci.yaml``, so the value survives re-init.
+    """
+    ci_config = project_dir / ".hyperi-ci.yaml"
+    if ci_config.exists():
+        try:
+            data = yaml.safe_load(ci_config.read_text()) or {}
+            declared = data.get("submodules") if isinstance(data, dict) else None
+            if isinstance(declared, str) and declared.strip():
+                return declared.strip()
+        except (OSError, UnicodeDecodeError, yaml.YAMLError):
+            pass
+    return ""
+
+
 def _license_header_text(license_id: str) -> str:
     """Return the license line for file headers."""
     if license_id == "BUSL-1.1":
@@ -169,6 +189,7 @@ def _render_hyperi_ci_yaml(
     project_name: str,
     project_dir: Path,
     license_id: str = _DEFAULT_LICENSE,
+    submodules: str = "",
 ) -> str:
     """Render .hyperi-ci.yaml with language-specific defaults."""
     config: dict = {
@@ -218,6 +239,11 @@ def _render_hyperi_ci_yaml(
     elif language == "typescript":
         config["test"]["coverage"] = True
         config["typescript"] = {"package_manager": "auto"}
+
+    # Submodule paths the CI test job inits (space-separated, e.g. "schemas").
+    # Emitted as the reusable-workflow `submodules` input in ci.yml.
+    if submodules:
+        config["submodules"] = submodules
 
     header = (
         f"# Project:   {project_name}\n"
@@ -269,6 +295,7 @@ def _render_workflow(
     workflow_file: str,
     license_id: str = _DEFAULT_LICENSE,
     publish_target: str = "internal",
+    submodules: str = "",
 ) -> str:
     """Render consumer .github/workflows/ci.yml content."""
     base = (
@@ -316,6 +343,9 @@ def _render_workflow(
 
     if publish_target != "internal":
         base += f"      publish-target: {publish_target}\n"
+
+    if submodules:
+        base += f"      submodules: {submodules}\n"
 
     base += "    secrets: inherit\n"
     return base
@@ -564,6 +594,7 @@ def init_project(
         return 1
 
     license_id = detect_license(project_dir)
+    submodules = _detect_submodules(project_dir)
     info(f"Initialising {project_name} as {detected} project (license: {license_id})")
 
     workflow_file = _LANGUAGE_WORKFLOW_MAP.get(detected)
@@ -578,6 +609,7 @@ def init_project(
         project_name,
         project_dir,
         license_id=license_id,
+        submodules=submodules,
     )
     config_path = project_dir / ".hyperi-ci.yaml"
     if _write_file(config_path, config_content, force=force):
@@ -600,6 +632,7 @@ def init_project(
             project_name,
             workflow_file,
             license_id=license_id,
+            submodules=submodules,
         )
         workflow_path = project_dir / ".github" / "workflows" / "ci.yml"
         if _write_file(
