@@ -299,9 +299,13 @@ build to ensure fresh artifacts, also via `hyperi-ci run build`.
 - Detection: directory-based > marker-based > conftest-based
 - Coverage: separate `.coverage.<tier>` files, combine at end
 - No test directory: exit 0 (graceful skip)
-- Private submodules (e.g. `dfe-schemas`): mark dependent tests with
-  `@pytest.mark.skipif(not schemas_dir.exists(), reason="submodule not checked out")`
-  rather than trying to check out private submodules in CI (GITHUB_TOKEN can't)
+- Submodule-dependent tests:
+  - Public submodule: set the `submodules` input on the reusable workflow
+    (e.g. `submodules: schemas`) so CI checks it out and the tests run.
+  - Private submodule (e.g. `dfe-schemas` while private): GITHUB_TOKEN can't
+    clone it, so mark dependent tests with
+    `@pytest.mark.skipif(not schemas_dir.exists(), reason="submodule not checked out")`
+    rather than checking it out in CI (or wire a cross-repo token).
 
 ### Publishing
 
