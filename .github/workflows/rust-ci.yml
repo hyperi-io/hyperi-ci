@@ -54,7 +54,7 @@ on:
       bump:
         type: string
         default: "auto"
-        description: "Version resolution for from-head: auto | patch | minor (forced — release even with no release-worthy commit)."
+        description: "Version resolution for from-head: auto | patch | minor (forced — release even with no release-worthy commit) | X.Y.Z (exact version)."
     secrets:
       JFROG_TOKEN:
         required: false
@@ -89,7 +89,7 @@ on:
         type: string
         required: false
         default: "auto"
-        description: "Version resolution for from-head: auto | patch | minor (forced)."
+        description: "Version resolution for from-head: auto | patch | minor (forced) | X.Y.Z (exact version)."
       runner-mode:
         type: string
         default: ""
@@ -301,10 +301,14 @@ jobs:
         # publish a v1.18.3 release containing a binary that introspects
         # itself as 1.18.2 — every metrics dashboard would lie.
         #
-        # Skipped on workflow_dispatch (the checked-out tag's tree
-        # already has the correct version) and on validate-only runs
-        # (nothing being published, version doesn't matter).
-        if: needs.plan.outputs.will-publish == 'true' && github.event_name == 'push'
+        # Runs on push AND on a from-head dispatch (issue #35) — both
+        # release HEAD, whose committed tree is stale under the tagger-only
+        # model (the bumped version is never committed). next-version is the
+        # resolved value (semantic-release on auto, last+bump on a forced
+        # patch/minor, or the explicit X.Y.Z override). A plain `tag`
+        # dispatch is skipped: it checks out the tag's own tree, already
+        # correct. Validate-only runs are skipped too (nothing ships).
+        if: needs.plan.outputs.will-publish == 'true' && (github.event_name == 'push' || inputs.from-head == 'true')
         run: |
           version="${{ needs.plan.outputs.next-version }}"
           if [[ -z "$version" ]]; then

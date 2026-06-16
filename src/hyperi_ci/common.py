@@ -13,6 +13,7 @@ detection (GitHub Actions workflow commands, Solarized terminal, plain CI).
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from collections.abc import Iterator
@@ -60,6 +61,23 @@ def resolve_release_version() -> str | None:
         if value:
             return value.removeprefix("v")
     return None
+
+
+_SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
+
+
+def explicit_version(value: str | None) -> str | None:
+    """Bare ``X.Y.Z`` if ``value`` is an explicit version, else None.
+
+    The from-head ``bump`` channel doubles as an explicit-version override
+    (``hyperi-ci publish --version X.Y.Z``): ``auto``/``patch``/``minor`` are
+    bump levels resolved at release time; a bare semver is taken verbatim and
+    tagged at HEAD. A leading ``v`` is tolerated. Only plain ``X.Y.Z`` is
+    accepted (no pre-release / build metadata) — releases here are always
+    plain semver and the tag format is ``v${version}``.
+    """
+    candidate = value.strip().removeprefix("v") if value else ""
+    return candidate if _SEMVER_RE.match(candidate) else None
 
 
 def is_ci() -> bool:

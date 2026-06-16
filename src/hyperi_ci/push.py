@@ -25,7 +25,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from hyperi_ci.common import error, info, run_cmd, success, warn
+from hyperi_ci.common import error, explicit_version, info, run_cmd, success, warn
 from hyperi_ci.gh import get_current_branch, require_gh
 
 PUBLISH_TRAILER_KEY = "Publish"
@@ -262,19 +262,25 @@ def _emit_gh_output(**pairs: str) -> None:
 
 
 def tag_head(*, bump: str, dry_run: bool = False, cwd: str | None = None) -> int:
-    """CI-internal: create the next tag at HEAD for a forced bump (issue #35).
+    """CI-internal: create the tag at HEAD for a forced release (issue #35).
 
-    Computes ``last-tag + bump``, creates an annotated tag at HEAD, pushes it,
-    and writes ``version=`` + ``tag=`` to ``$GITHUB_OUTPUT`` so the publish
-    step can pick the version up. Used by the from-head dispatch path when
-    ``bump != auto`` (``auto`` lets semantic-release pick the version).
-    Idempotent: an existing tag is reused, not recreated.
+    The ``bump`` channel carries one of:
+
+    - ``patch`` / ``minor`` — compute ``last-tag + bump`` (forced bump);
+    - an explicit ``X.Y.Z`` — the ``hyperi-ci publish --version`` override,
+      used verbatim (skips a taken/orphaned tag, e.g. the issue #37 case).
+
+    Creates an annotated tag at HEAD, pushes it, and writes ``version=`` +
+    ``tag=`` to ``$GITHUB_OUTPUT`` so the publish step can pick the version up.
+    Used by the from-head dispatch path when ``bump != auto`` (``auto`` lets
+    semantic-release pick). Idempotent: an existing tag is reused, not recreated.
     """
-    if bump not in ("patch", "minor"):
-        error(f"tag-head: invalid bump '{bump}' (expected patch or minor)")
+    explicit = explicit_version(bump)
+    if explicit is None and bump not in ("patch", "minor"):
+        error(f"tag-head: invalid bump '{bump}' (expected patch, minor, or X.Y.Z)")
         return 1
 
-    next_version = _compute_next_version(bump=bump, cwd=cwd)
+    next_version = explicit or _compute_next_version(bump=bump, cwd=cwd)
     if not next_version:
         error("tag-head: cannot compute next version (no tags, no VERSION).")
         return 1
@@ -295,6 +301,34 @@ def tag_head(*, bump: str, dry_run: bool = False, cwd: str | None = None) -> int
     if not repo:
         error("tag-head: GITHUB_REPOSITORY not set (must run in CI)")
         return 1
+
+    # Explicit --version safety: never tag over a tag that points off-HEAD
+    # (e.g. an orphaned tag from a past rewrite, or an operator typo) — that
+    # would publish a fresh artefact under a tag pointing at old history
+    # (issue #37). A forced patch/minor always lands above the highest tag so
+    # can't collide; an explicit version can, so guard it. Tags are local in
+    # the Tag & Publish job (fetch-depth: 0); if the tag isn't found locally
+    # the gh-api create below is the authoritative check.
+    if explicit is not None:
+        peeled = run_cmd(
+            ["git", "rev-parse", "-q", "--verify", f"refs/tags/{tag}^{{commit}}"],
+            capture=True,
+            check=False,
+            cwd=cwd,
+        )
+        if peeled.returncode == 0 and peeled.stdout.strip():
+            existing_sha = peeled.stdout.strip()
+            if existing_sha != sha:
+                error(
+                    f"tag-head: {tag} already exists at {existing_sha[:8]} but "
+                    f"HEAD is {sha[:8]} — refusing to publish over it (issue #37). "
+                    "Pick a free version with --version, or use --bump patch."
+                )
+                return 1
+            # Already at HEAD — idempotent; nothing to create.
+            _emit_gh_output(version=next_version, tag=tag)
+            success(f"tag-head: {tag} already at HEAD ({sha[:8]}) — nothing to tag.")
+            return 0
 
     # Create the tag ref remotely via the GitHub API. Uses GITHUB_TOKEN, so
     # it works even though the Tag & Publish checkout sets

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import subprocess
 
-from hyperi_ci.common import error, info, success, warn
+from hyperi_ci.common import error, explicit_version, info, success, warn
 
 
 def _get_version_tags() -> list[str]:
@@ -133,13 +133,23 @@ def dispatch_from_head(*, bump: str = "auto", dry_run: bool = False) -> int:
     This is the first-class "I need to release/retry that" path (issue #35).
     The CLI only *triggers* the workflow; the runner resolves the version,
     creates the tag at HEAD, and publishes — so there is no artificial
-    `fix:` commit and no local tag push. `bump=auto` lets semantic-release
-    pick the version from commits (no-ops if nothing is release-worthy);
-    `bump=patch|minor` forces a release regardless.
+    `fix:` commit and no local tag push. The `bump` channel carries:
+
+    - ``auto`` — semantic-release picks the version from commits (no-ops if
+      nothing is release-worthy);
+    - ``patch`` / ``minor`` — force a release regardless;
+    - an explicit ``X.Y.Z`` — the ``--version`` override: tag HEAD at exactly
+      that version (skips a taken/orphaned tag, e.g. the issue #37 case).
     """
-    if bump not in ("auto", "patch", "minor"):
-        error(f"Invalid bump '{bump}' — expected auto, patch, or minor")
+    explicit = explicit_version(bump)
+    if explicit is None and bump not in ("auto", "patch", "minor"):
+        error(
+            f"Invalid version/bump '{bump}' — expected auto, patch, minor, "
+            "or an explicit X.Y.Z version"
+        )
         return 1
+    if explicit is not None:
+        bump = explicit  # normalised (no leading 'v') — travels in the bump input
 
     if not _head_in_sync_with_origin():
         warn(
@@ -160,17 +170,19 @@ def dispatch_from_head(*, bump: str = "auto", dry_run: bool = False) -> int:
         f"bump={bump}",
     ]
 
+    label = f"version=v{bump}" if explicit is not None else f"bump={bump}"
+
     if dry_run:
         info(f"Would run: {' '.join(cmd)}")
         return 0
 
-    info(f"Dispatching from-head publish (bump={bump}) via {workflow}...")
+    info(f"Dispatching from-head publish ({label}) via {workflow}...")
     result = subprocess.run(cmd)
     if result.returncode != 0:
         error("Failed to dispatch workflow")
         return result.returncode
 
-    success(f"Release dispatched from HEAD (bump={bump})")
+    success(f"Release dispatched from HEAD ({label})")
     info("The CI will resolve the version, tag HEAD, and publish.")
     info("Watch progress: hyperi-ci watch")
     return 0

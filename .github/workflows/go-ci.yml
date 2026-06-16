@@ -54,7 +54,7 @@ on:
       bump:
         type: string
         default: "auto"
-        description: "Version resolution for from-head: auto | patch | minor (forced)."
+        description: "Version resolution for from-head: auto | patch | minor (forced) | X.Y.Z (exact version)."
     secrets:
       JFROG_TOKEN:
         required: false
@@ -87,7 +87,7 @@ on:
         type: string
         required: false
         default: "auto"
-        description: "Version resolution for from-head: auto | patch | minor (forced)."
+        description: "Version resolution for from-head: auto | patch | minor (forced) | X.Y.Z (exact version)."
       runner-mode:
         type: string
         default: ""
@@ -268,8 +268,11 @@ jobs:
       - name: Stamp predicted version
         # Version-first pipeline: write the version we're about to tag
         # into VERSION before `go build`. Go binaries pick this up via
-        # `-ldflags "-X main.version=$VERSION"` in build.py.
-        if: needs.plan.outputs.will-publish == 'true' && github.event_name == 'push'
+        # `-ldflags "-X main.version=$VERSION"` in build.py. Runs on push
+        # AND on a from-head dispatch (issue #35) — both release HEAD,
+        # whose committed tree is stale (tagger-only). A plain `tag`
+        # dispatch is skipped (the tag's tree is correct).
+        if: needs.plan.outputs.will-publish == 'true' && (github.event_name == 'push' || inputs.from-head == 'true')
         run: |
           version="${{ needs.plan.outputs.next-version }}"
           if [[ -z "$version" ]]; then

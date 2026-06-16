@@ -57,7 +57,7 @@ on:
       bump:
         type: string
         default: "auto"
-        description: "Version resolution for from-head: auto (semantic-release picks from commits) | patch | minor (forced — release even with no release-worthy commit)."
+        description: "Version resolution for from-head: auto (semantic-release picks from commits) | patch | minor (forced — release even with no release-worthy commit) | X.Y.Z (exact version)."
       publish-target:
         type: string
         default: "internal"
@@ -235,7 +235,7 @@ jobs:
             head=$(git rev-parse "HEAD^{commit}")
             if [ "$existing" != "$head" ]
             then
-              echo "::error::Predicted ${predicted} already exists at ${existing} but HEAD is ${head}. Refusing to tag — this would rewrite release history (issue #37). semantic-release likely mispredicted (blind to existing tags); check tag reachability before retrying."
+              echo "::error::Predicted ${predicted} already exists at ${existing} but HEAD is ${head} — likely an orphaned tag from a past history rewrite (semantic-release is blind to tags not reachable from HEAD, so it re-predicted a taken version). Refusing to auto-tag: that would rewrite release history (issue #37). To ship past it, force an explicit version from HEAD: 'hyperi-ci publish --bump patch' (next free patch) or 'hyperi-ci publish --version X.Y.Z'. Both bypass this guard and tag HEAD directly."
               exit 1
             fi
             echo "${predicted} already exists at HEAD — nothing to tag."
@@ -289,13 +289,14 @@ jobs:
       - name: Set up Python
         run: uv python install ${{ inputs.python-version }}
 
-      - name: Tag HEAD (forced bump)
-        # from-head dispatch with bump=patch|minor (issue #35): force a
-        # release of HEAD even with no release-worthy commit. semantic-release
-        # can't force a bump, so tag-head computes last-tag+bump and creates
-        # the tag at HEAD via the GitHub API (works with persist-credentials:
-        # false). It emits `version` for the Publish step, which re-stamps the
-        # manifest to it before pushing to the registry.
+      - name: Tag HEAD (forced bump / explicit version)
+        # from-head dispatch with a non-auto bump (issue #35): force a release
+        # of HEAD. semantic-release can't force a version, so tag-head resolves
+        # it — `last-tag + bump` for patch/minor, or the explicit X.Y.Z verbatim
+        # (the --version override that steps past a taken/orphaned tag, #37) —
+        # and creates the tag at HEAD via the GitHub API (works with
+        # persist-credentials: false). It emits `version` for the Publish step,
+        # which re-stamps the manifest to it before pushing to the registry.
         id: forcedtag
         if: ${{ inputs.from-head == 'true' && inputs.bump != 'auto' && inputs.bump != '' }}
         env:

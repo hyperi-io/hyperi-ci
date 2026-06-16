@@ -122,16 +122,29 @@ runs:
         echo "version=$version" >> "$GITHUB_OUTPUT"
         echo "::notice::Predicted next version: v$version"
 
-    - name: Predict next version (forced bump)
-      # from-head dispatch with bump=patch|minor (issue #35): release HEAD
-      # even with no release-worthy commit. Computes `last v* tag + bump`
-      # inline so plan + build stamp the forced version consistently with
-      # the tag tag-head creates later in Tag & Publish.
+    - name: Predict next version (forced bump / explicit version)
+      # from-head dispatch with a non-auto bump (issue #35). The `bump`
+      # channel carries either a bump level (patch|minor — release HEAD even
+      # with no release-worthy commit, computed as `last v* tag + bump`) or an
+      # explicit X.Y.Z (the `hyperi-ci publish --version` override, used
+      # verbatim to step past a taken/orphaned tag — the issue #37 case). Runs
+      # for any non-auto, non-empty bump so plan + build stamp the same value
+      # tag-head later creates in Tag & Publish. Trivial glue: semver math +
+      # a regex; the same computation lives in push.tag_head for the real tag.
       id: forced
-      if: ${{ steps.gate.outputs.will-publish == 'true' && github.event_name == 'workflow_dispatch' && inputs.from-head == 'true' && (inputs.bump == 'patch' || inputs.bump == 'minor') }}
+      if: ${{ steps.gate.outputs.will-publish == 'true' && github.event_name == 'workflow_dispatch' && inputs.from-head == 'true' && inputs.bump != 'auto' && inputs.bump != '' }}
       shell: bash
       run: |
         set -euo pipefail
+        bump='${{ inputs.bump }}'
+
+        # Explicit version override: use it verbatim, no last-tag math.
+        if printf '%s' "$bump" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+          echo "version=$bump" >> "$GITHUB_OUTPUT"
+          echo "::notice::Explicit from-head version: v$bump"
+          exit 0
+        fi
+
         latest=$(git tag --list 'v*' --sort=-v:refname | head -1 | sed 's/^v//')
         if [[ -z "$latest" ]] && [[ -f VERSION ]]; then
           latest=$(sed 's/^v//' VERSION | head -1)
@@ -141,13 +154,14 @@ runs:
           exit 1
         fi
         IFS='.' read -r maj min pat <<< "$latest"
-        case "${{ inputs.bump }}" in
+        case "$bump" in
           patch) pat=$((pat + 1)) ;;
           minor) min=$((min + 1)); pat=0 ;;
+          *) echo "::error::Invalid bump '$bump' — expected patch, minor, or X.Y.Z"; exit 1 ;;
         esac
         version="${maj}.${min}.${pat}"
         echo "version=$version" >> "$GITHUB_OUTPUT"
-        echo "::notice::Forced from-head bump (${{ inputs.bump }}): v$version (was v$latest)"
+        echo "::notice::Forced from-head bump ($bump): v$version (was v$latest)"
 
     - name: Derive gate outputs
       # Single source of truth for the run-checks / run-build conditions.

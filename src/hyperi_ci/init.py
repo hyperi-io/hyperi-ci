@@ -329,7 +329,7 @@ def _render_workflow(
         "        type: string\n"
         "        required: false\n"
         '        default: "auto"\n'
-        '        description: "Version resolution for from-head: auto | patch | minor (forced — release even with no release-worthy commit)."\n'
+        '        description: "Version resolution for from-head: auto | patch | minor (forced — release even with no release-worthy commit) | X.Y.Z (exact version)."\n'
         "\n"
         "jobs:\n"
         "  ci:\n"

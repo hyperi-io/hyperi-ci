@@ -10,7 +10,9 @@ VERSION file, which is stale once stamping is central (#27 + zero-config)."""
 
 from __future__ import annotations
 
-from hyperi_ci.common import resolve_release_version
+import pytest
+
+from hyperi_ci.common import explicit_version, resolve_release_version
 
 
 def test_hyperci_version_wins_and_strips_v(monkeypatch, tmp_path) -> None:
@@ -38,3 +40,40 @@ def test_empty_hyperci_version_ignored(monkeypatch, tmp_path) -> None:
     (tmp_path / "VERSION").write_text("7.0.0\n")
     monkeypatch.chdir(tmp_path)
     assert resolve_release_version() == "7.0.0"
+
+
+class TestExplicitVersion:
+    """`explicit_version` distinguishes a `--version X.Y.Z` override from a
+    bump level travelling in the same `bump` channel (issue #37)."""
+
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            ("1.18.4", "1.18.4"),
+            ("v1.18.4", "1.18.4"),  # leading v tolerated + stripped
+            ("  1.18.4  ", "1.18.4"),  # whitespace trimmed
+            ("0.0.0", "0.0.0"),
+            ("12.345.6789", "12.345.6789"),
+        ],
+    )
+    def test_accepts_plain_semver(self, value: str, expected: str) -> None:
+        assert explicit_version(value) == expected
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            None,
+            "",
+            "auto",
+            "patch",
+            "minor",
+            "1.2",  # too few components
+            "1.2.3.4",  # too many
+            "1.2.x",
+            "1.2.3-rc1",  # no pre-release metadata
+            "v",
+            "latest",
+        ],
+    )
+    def test_rejects_non_semver(self, value: str | None) -> None:
+        assert explicit_version(value) is None

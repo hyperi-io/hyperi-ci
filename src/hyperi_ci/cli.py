@@ -679,8 +679,10 @@ def _publish_impl(
     list_tags: bool,
     dry_run: bool,
     bump: str | None = None,
+    version: str | None = None,
 ) -> None:
     """Shared implementation for the ``publish`` and ``release`` commands."""
+    from hyperi_ci.common import explicit_version
     from hyperi_ci.publish import (
         dispatch_from_head,
         dispatch_publish,
@@ -690,6 +692,26 @@ def _publish_impl(
     if list_tags:
         rc = list_unpublished()
         raise typer.Exit(rc)
+
+    # --version is a from-head release at an exact version (issue #37 escape
+    # hatch). It travels in the same `bump` channel the CI already threads, so
+    # consumers need no new workflow input. It's mutually exclusive with both
+    # a TAG (re-publish) and --bump (resolve-from-HEAD).
+    if version is not None:
+        if tag or bump:
+            typer.echo(
+                "--version is mutually exclusive with a TAG and --bump.",
+                err=True,
+            )
+            raise typer.Exit(1)
+        normalised = explicit_version(version)
+        if normalised is None:
+            typer.echo(
+                f"Invalid --version '{version}' — expected an explicit X.Y.Z.",
+                err=True,
+            )
+            raise typer.Exit(1)
+        bump = normalised
 
     if tag and bump:
         typer.echo(
@@ -707,7 +729,8 @@ def _publish_impl(
     # No tag → release/retry the current HEAD. The CI resolves the version,
     # creates the tag, and publishes — no artificial commit, no local tag
     # push (issue #35). `bump` defaults to auto (semantic-release picks the
-    # version from commits); --bump patch|minor forces a release.
+    # version from commits); --bump patch|minor forces a release; an explicit
+    # X.Y.Z (from --version) tags HEAD at exactly that version.
     rc = dispatch_from_head(bump=bump or "auto", dry_run=dry_run)
     raise typer.Exit(rc)
 
@@ -724,6 +747,14 @@ def publish(
             "--bump",
             help="Release the current HEAD with a forced bump: patch | minor "
             "(no release-worthy commit needed).",
+        ),
+    ] = None,
+    version: Annotated[
+        str | None,
+        typer.Option(
+            "--version",
+            help="Release the current HEAD at an exact X.Y.Z version. Tags HEAD "
+            "directly — use to step past a taken/orphaned tag (issue #37).",
         ),
     ] = None,
     list_tags: Annotated[
@@ -746,13 +777,18 @@ def publish(
       and publishes. Also finishes a release that died before the tag was cut.
     - ``hyperi-ci publish --bump patch|minor`` — force a release of HEAD even
       with no release-worthy commit since the last tag.
+    - ``hyperi-ci publish --version X.Y.Z`` — release HEAD at an exact version.
+      Tags HEAD directly, skipping a taken/orphaned tag the auto tagger would
+      otherwise collide with (issue #37).
     - ``hyperi-ci publish <tag>`` — re-dispatch an existing tag (idempotent
       retry of a partial publish; fills in registries that were missed).
 
     The CLI only triggers the workflow; the runner does the tagging and
     publishing, so it works under branch protection and from the Actions UI too.
     """
-    _publish_impl(tag=tag, list_tags=list_tags, dry_run=dry_run, bump=bump)
+    _publish_impl(
+        tag=tag, list_tags=list_tags, dry_run=dry_run, bump=bump, version=version
+    )
 
 
 @app.command()

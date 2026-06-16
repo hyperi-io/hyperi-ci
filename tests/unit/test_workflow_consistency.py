@@ -133,6 +133,50 @@ class TestFromHeadThreading:
             "forced-tag step must skip when bump == 'auto' (auto uses semantic-release)"
         )
 
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_build_stamps_on_from_head_dispatch(self, workflow_name: str) -> None:
+        # The from-head build-stamp gap (issue #37 / #27): HEAD's committed tree
+        # is stale under the tagger-only model, so a from-head release MUST
+        # stamp the resolved next-version before building — else the published
+        # binary introspects itself as the old version. The stamp step must
+        # fire on push AND on a from-head dispatch.
+        wf = _load_workflow(workflow_name)
+        build_steps = wf["jobs"]["build"]["steps"]
+        stamp = next(
+            s for s in build_steps if s.get("name") == "Stamp predicted version"
+        )
+        ifc = str(stamp["if"])
+        assert "inputs.from-head" in ifc, (
+            f"{workflow_name}.build: 'Stamp predicted version' must also run on a "
+            "from-head dispatch (issue #37) — else the released binary reports a "
+            "stale version."
+        )
+        assert "github.event_name == 'push'" in ifc, (
+            f"{workflow_name}.build: stamp must still run on push."
+        )
+
+
+ACTIONS_DIR = Path(__file__).parent.parent.parent / ".github" / "actions"
+
+
+def test_predict_version_forced_step_handles_explicit_version() -> None:
+    # The forced step resolves ANY non-auto bump — patch/minor OR an explicit
+    # X.Y.Z (the --version override, issue #37) — so plan stamps exactly what
+    # tag-head later tags. Gating only on patch/minor would leave an explicit
+    # version unresolved and the build would fail on an empty next-version.
+    path = ACTIONS_DIR / "predict-version" / "action.yml"
+    action = yaml.safe_load(path.read_text(encoding="utf-8"))
+    forced = next(s for s in action["runs"]["steps"] if s.get("id") == "forced")
+    ifc = str(forced["if"])
+    assert "bump != 'auto'" in ifc and "bump != ''" in ifc, (
+        "forced step must fire for any non-auto/non-empty bump (incl. an "
+        "explicit X.Y.Z), not only patch/minor"
+    )
+    # Body must recognise a bare semver and use it verbatim.
+    assert r"[0-9]+\.[0-9]+\.[0-9]+" in str(forced["run"]), (
+        "forced step body must match a bare X.Y.Z to use it verbatim"
+    )
+
 
 class TestReleaseTailDecoupling:
     """issue #33: a Container failure must not block the primary publish,
