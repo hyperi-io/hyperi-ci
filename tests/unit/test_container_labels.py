@@ -52,6 +52,27 @@ def test_build_oci_labels_with_extras() -> None:
     assert labels["org.opencontainers.image.version"] == "2.0.0"
 
 
+def test_build_oci_labels_uses_supplied_licence() -> None:
+    labels = build_oci_labels(
+        repo="hyperi-io/scalo",
+        revision="abc1234",
+        version="1.0.0",
+        title="scalo",
+        licenses="Apache-2.0",
+    )
+    assert labels["org.opencontainers.image.licenses"] == "Apache-2.0"
+
+
+def test_build_oci_labels_licence_defaults_to_busl() -> None:
+    labels = build_oci_labels(
+        repo="hyperi-io/my-app",
+        revision="abc1234",
+        version="1.2.3",
+        title="My App",
+    )
+    assert labels["org.opencontainers.image.licenses"] == "BUSL-1.1"
+
+
 def test_labels_to_build_args() -> None:
     labels = {
         "org.opencontainers.image.version": "1.0.0",

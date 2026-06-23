@@ -27,12 +27,13 @@ from pathlib import Path
 
 import yaml
 
+from hyperi_ci import licenses
 from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.detect import detect_language
 
 _CI_REPO = "hyperi-io/hyperi-ci"
 _WORKFLOW_REF = "main"
-_DEFAULT_LICENSE = "BUSL-1.1"
+_DEFAULT_LICENSE = licenses.DEFAULT_LICENSE
 
 _LANGUAGE_WORKFLOW_MAP: dict[str, str] = {
     "python": "python-ci.yml",
@@ -46,11 +47,7 @@ _DEPRECATED_CONFIG_NAMES = (
     ".hypersec-ci.yml",
 )
 
-_LICENSE_MARKERS = {
-    "BUSL-1.1": ("BUSL-1.1", "Business Source License"),
-    "MIT": ("MIT License", "Permission is hereby granted"),
-    "Apache-2.0": ("Apache License", "Licensed under the Apache"),
-}
+_LICENSE_MARKERS = licenses.LICENSE_MARKERS
 
 
 def detect_license(project_dir: Path) -> str:

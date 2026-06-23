@@ -477,11 +477,14 @@ def _dispatch_build(
         is_push_to_main=push_to_main,
     )
 
+    from hyperi_ci.init import detect_license
+
     labels = build_oci_labels(
         repo=f"{org.github_org}/{image_name}",
         revision=os.environ.get("GITHUB_SHA", _read_sha()),
         version=version,
         title=image_name,
+        licenses=detect_license(Path.cwd()),
     )
     if extra_labels:
         labels.update(extra_labels)

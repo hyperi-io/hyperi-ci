@@ -18,6 +18,7 @@ def build_oci_labels(
     version: str,
     title: str,
     description: str = "",
+    licenses: str = "BUSL-1.1",
     extra_labels: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """Build a dict of OCI-standard image labels.
@@ -28,6 +29,7 @@ def build_oci_labels(
         version: Semantic version string.
         title: Human-readable image title.
         description: Optional image description.
+        licenses: SPDX licence id for the image (defaults to BUSL-1.1).
         extra_labels: Additional labels merged into the result.
 
     Returns:
@@ -44,7 +46,7 @@ def build_oci_labels(
         "org.opencontainers.image.title": title,
         "org.opencontainers.image.description": description,
         "org.opencontainers.image.vendor": "HYPERI PTY LIMITED",
-        "org.opencontainers.image.licenses": "BUSL-1.1",
+        "org.opencontainers.image.licenses": licenses,
         "io.hyperi.profile": "production",
     }
 

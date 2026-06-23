@@ -258,6 +258,32 @@ def load_config(
                 f"Treating as unset for logging purposes."
             )
 
+    # Validate the declared project licence against the allowed set. Warn
+    # (ratchet, not gate) so a non-default licence is visible without
+    # breaking the build; extend the allowed set via `license_allow`.
+    declared_license = config.get("license")
+    if isinstance(declared_license, str) and declared_license.strip():
+        from hyperi_ci import licenses
+        from hyperi_ci.common import warn
+
+        lic = declared_license.strip()
+        extra = config.get("license_allow")
+        if not isinstance(extra, list):
+            extra = []
+        if not licenses.is_allowed(lic, extra):
+            if licenses.is_recognised(lic):
+                allowed = ", ".join(sorted(licenses.allowed_licenses(extra)))
+                warn(
+                    f"Project licence '{lic}' is not in the allowed set "
+                    f"({allowed}). Add it to `license_allow` in "
+                    f".hyperi-ci.yaml to permit it."
+                )
+            else:
+                warn(
+                    f"Project licence '{lic}' is not a recognised SPDX id -- "
+                    f"check the `license:` field in .hyperi-ci.yaml."
+                )
+
     _config_cache = CIConfig(
         language=config.get("language", "none"),
         ci_min_python_version=config.get("ci_min_python_version", "3.9"),
