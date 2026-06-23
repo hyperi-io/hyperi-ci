@@ -173,10 +173,18 @@ jobs:
         run: uv build
 
       - name: Upload build artifacts
+        # Upload VERSION alongside dist/ so the artifact root is the workspace,
+        # not dist/. A single `path: dist/` makes upload-artifact strip the
+        # dist/ prefix (the dir becomes the common ancestor), so the tag-publish
+        # job's `uv publish` (globs dist/*) finds nothing -- the cause of the
+        # v2.6.12 "No files found to publish" failure. Consumers dodge this by
+        # also uploading ci-tmp/; hyperi-ci has none, so VERSION pins the root.
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: build-dist-default
-          path: dist/
+          path: |
+            dist/
+            VERSION
           if-no-files-found: error
           retention-days: 1
 
