@@ -1,9 +1,22 @@
 # Project:   HyperI CI
 # File:      .github/workflows/ci.yml
-# Purpose:   Self-hosting CI — hyperi-ci uses itself for quality and test
+# Purpose:   Self-hosting CI -- hyperi-ci dogfoods its own version-first pipeline
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# quality + test run the LOCAL working tree (uv run --no-sources) so a
+# change to hyperi-ci's own code is exercised by that code, not by the
+# published version. The publish half (plan + build + release-tail) is the
+# SAME version-first pipeline consumers get, wired to the local copies of
+# the predict-version action and _release-tail.yml so a workflow change is
+# caught here before it reaches a consumer.
+#
+# Publish trigger: a push to main whose HEAD commit carries a `Publish: true`
+# trailer (written by `hyperi-ci push --publish`) tags HEAD and publishes;
+# every other push validates only. This replaces the old bespoke jobs that
+# tagged EVERY push but only published on a manual workflow_dispatch -- the
+# cause of the tag/PyPI version drift (tags ran ahead, PyPI lagged).
 
 name: CI
 
@@ -16,14 +29,47 @@ on:
     inputs:
       tag:
         type: string
-        required: true
-        description: "Tag to publish (e.g. v1.3.0)"
+        required: false
+        default: ""
+        description: "Existing tag to re-publish. Omit and set from-head to release HEAD."
+      from-head:
+        type: string
+        required: false
+        default: ""
+        description: "'true' to release/retry the current HEAD -- the CI creates the tag (issue #35). Mutually exclusive with `tag`."
+      bump:
+        type: string
+        required: false
+        default: "auto"
+        description: "Version resolution for from-head: auto | patch | minor (forced) | X.Y.Z (exact version)."
 
 concurrency:
   group: ${{ github.workflow }}-${{ inputs.tag || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  plan:
+    name: Plan
+    if: github.event.pull_request.head.repo.fork != true
+    runs-on: ubuntu-latest
+    outputs:
+      run-checks: ${{ steps.predict.outputs.run-checks }}
+      run-build: ${{ steps.predict.outputs.run-build }}
+      will-publish: ${{ steps.predict.outputs.will-publish }}
+      next-version: ${{ steps.predict.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0  # full history -- semantic-release dry-run reads it
+      - name: Predict version + derive gates
+        id: predict
+        uses: ./.github/actions/predict-version
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          from-head: ${{ inputs.from-head }}
+          bump: ${{ inputs.bump }}
+
   quality:
     name: Quality
     runs-on: ubuntu-latest
@@ -54,7 +100,7 @@ jobs:
 
       - name: Workflow interface compat gate (#31)
         # Fail if a reusable-workflow/composite interface regressed vs the last
-        # release — a consumer pinned to an older caller would fail at startup.
+        # release -- a consumer pinned to an older caller would fail at startup.
         run: uv run --no-sources python scripts/check-workflow-interfaces.py
 
   test:
@@ -82,60 +128,73 @@ jobs:
       - name: Run tests
         run: uv run --no-sources pytest tests/ -v --tb=short
 
-  release:
-    name: Release
-    needs: [quality, test]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+  build:
+    name: Build
+    needs: [plan, quality, test]
+    if: needs.plan.outputs.run-build == 'true'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
-          persist-credentials: false
+          ref: ${{ inputs.tag || github.ref }}
 
-      - name: Setup semantic-release (shared toolchain — single source of truth)
-        uses: ./.github/actions/setup-semantic-release
-
-      - name: Release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx semantic-release
-
-  publish:
-    name: Publish to PyPI
-    needs: [quality, test]
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    environment:
-      name: pypi
-      url: https://pypi.org/project/hyperi-ci/
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ inputs.tag }}
+      - name: Stamp predicted version
+        # Version-first: write the version we are about to tag into
+        # pyproject.toml + VERSION BEFORE building, so the wheel and
+        # importlib.metadata.version("hyperi-ci") carry the published value.
+        # Push and from-head both release HEAD (stale tree); a plain `tag`
+        # dispatch is skipped (the tag's tree is already correct).
+        if: github.event_name == 'push' || inputs.from-head == 'true'
+        run: |
+          version="${{ needs.plan.outputs.next-version }}"
+          if [[ -z "$version" ]]; then
+            echo "::error::next-version output empty"
+            exit 1
+          fi
+          echo "Stamping version: $version"
+          if [[ -f pyproject.toml ]] && grep -qE '^\[project\]' pyproject.toml; then
+            sed -i -E "/^\[project\]/,/^\[/ s/^version[[:space:]]*=[[:space:]]*\"[^\"]*\"/version = \"$version\"/" pyproject.toml
+            echo "Stamped pyproject.toml"
+          fi
+          if [[ -f VERSION ]]; then
+            echo "$version" > VERSION
+            echo "Stamped VERSION"
+          fi
 
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
 
       - name: Set up Python
         run: uv python install 3.12
 
-      - name: Stamp VERSION from tag
-        # git-plugin dropped: semantic-release no longer commits the bump,
-        # so the tag's tree carries a stale VERSION. The dispatch tag IS the
-        # version — write it so hatch (path = VERSION) builds the right wheel.
-        run: python3 -c "import pathlib, sys; pathlib.Path('VERSION').write_text(sys.argv[1].removeprefix('v') + '\n')" "${{ inputs.tag }}"
-
-      - name: Build wheel
+      - name: Build wheel + sdist
         run: uv build
 
-      - name: Publish to PyPI
-        run: uv publish --token "$PYPI_TOKEN"
-        env:
-          PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: build-dist-default
+          path: dist/
+          if-no-files-found: error
+          retention-days: 1
+
+  release-tail:
+    name: Release tail
+    needs: [plan, build]
+    # Local ref (dogfood): a change to the shared release tail is exercised
+    # on hyperi-ci's own CI before any consumer pins it. The tail's own
+    # tag-and-publish job is gated on will-publish == 'true', so a non-publish
+    # run reaches here only when build ran (run-build == will-publish).
+    uses: ./.github/workflows/_release-tail.yml
+    with:
+      language: python
+      will-publish: ${{ needs.plan.outputs.will-publish }}
+      next-version: ${{ needs.plan.outputs.next-version }}
+      tag: ${{ inputs.tag }}
+      from-head: ${{ inputs.from-head }}
+      bump: ${{ inputs.bump }}
+      publish-target: oss
+      python-version: "3.12"
+    secrets: inherit
