@@ -11,3 +11,13 @@
 # Lower the local gate so hyperi-ci check matches CI reality.
 test:
   min_coverage: 0
+
+# hyperi-ci ships as a pip-installable CLI (PyPI), not a containerised
+# service. The container stage treats a project with a [project.scripts]
+# entry point as an "app" and tries to build a template image, which is
+# both wrong here and fails (uv sync in the generated Dockerfile). The
+# version-first pipeline (adopted in ci.yml) routes through _release-tail,
+# which includes the container job -- so opt out explicitly.
+publish:
+  container:
+    enabled: false
