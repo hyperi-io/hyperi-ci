@@ -71,6 +71,11 @@ semantics. The biggest user-visible changes:
      change footer.
    - Use `hyperi-ci publish vX.Y.Z` (canonical) for retroactive
      re-publishes against existing tags.
+   - To release or retry the **current HEAD** without inventing a
+     release-worthy commit: dispatch the workflow with `from-head: true`
+     (optionally `bump: patch | minor | X.Y.Z`) from the Actions UI, or
+     run `hyperi-ci publish` with no tag. The CI creates the tag and
+     publishes in a single run (issue #35).
 
 ### What you don't have to do
 
