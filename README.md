@@ -24,7 +24,7 @@ runtime** — JFrog publishing was removed in v2.1.4. The only switch
 left to flip for full open-source visibility is making the source
 repos themselves public.
 
-See [docs/MIGRATION-GUIDE.md](docs/migration/ONBOARDING.md) for the v1 → v2
+See [docs/migration/ONBOARDING.md](docs/migration/ONBOARDING.md) for the v1 → v2
 migration. Pre-v2.1.4 docs that mention JFrog targets, the
 `destinations_internal` block, or `target: internal` are historical
 only — those code paths have been removed.
