@@ -347,35 +347,38 @@ def _instrumented_binary_path(
     return cwd / "target" / target / "release" / name
 
 
-# Extra RUSTFLAGS appended to the BOLT-step build, sourced from
-# HYPERCI_BOLT_EXTRA_RUSTFLAGS. Empty by default -> behaviour is unchanged for
-# every project (zero regression risk on push).
-#
-# WHY this exists: BOLT (in relocation mode) CANNOT process a binary whose
-# functions were already hot/cold-SPLIT by the compiler -- it emits `<fn>.cold`
-# fragments (e.g. drop glue on cold paths outlined into .text.unlikely/.text.split),
-# and llvm-bolt then aborts the step with:
+# RUSTFLAGS used on the no-split BOLT RETRY (see _run_bolt). BOLT in relocation
+# mode CANNOT process a binary whose functions the compiler already hot/cold-SPLIT
+# -- it emits `<fn>.cold` fragments (e.g. a closure's drop glue outlined into
+# .text.unlikely/.text.split) and llvm-bolt aborts the step with:
 #   BOLT-WARNING: split function detected on input ... limited in relocation mode
 #   BOLT-ERROR:   parent function not found for <fn>.cold
-# The whole BOLT step then fails and the build silently falls back to PGO-only,
-# losing the ~5-15% BOLT layer. BOLT wants to do the splitting ITSELF, so the
-# fix is to stop the COMPILER pre-splitting for the BOLT-targeted builds (the
-# LLVM equivalent of clang's -fno-reorder-blocks-and-partition), via -Cllvm-args.
+# BOLT wants to do the splitting ITSELF, so the fix is to stop the COMPILER
+# pre-splitting for the BOLT build (the LLVM equivalent of clang's
+# -fno-reorder-blocks-and-partition), via -Cllvm-args. This is applied ONLY on a
+# RETRY after a first BOLT attempt fails (see _run_bolt), so apps that already
+# BOLT-optimise cleanly never see it -- a working BOLT layer is the default
+# WITHOUT risking the apps that don't need the flag.
 #
-# The exact cl::opt is toolchain-version-dependent (and an UNKNOWN -Cllvm-args
-# would hard-error rustc and knock out BOLT for EVERY app), so it is NOT
-# hardcoded -- set it deliberately and validate on one build first:
-#   HYPERCI_BOLT_EXTRA_RUSTFLAGS="-Cllvm-args=-hot-cold-split=false"
-# (candidate alternatives if that proves ineffective on the toolchain:
-#  -Cllvm-args=-split-machine-functions=false). BOLT failure is non-fatal, so
-# validation is low-risk: a wrong value degrades to PGO-only, it cannot break a
-# build. Once proven on the fleet's toolchain, promote the value to the default.
-def _bolt_extra_rustflags() -> str:
-    """Operator-supplied extra RUSTFLAGS for the BOLT build (default: none)."""
-    return os.environ.get("HYPERCI_BOLT_EXTRA_RUSTFLAGS", "").strip()
+# The exact cl::opt is toolchain-version-dependent; this targets the PGO-driven
+# cold-splitter. Override (or disable the retry, with "") via
+# HYPERCI_BOLT_EXTRA_RUSTFLAGS; alternative candidate if this proves ineffective:
+# -Cllvm-args=-split-machine-functions=false. BOLT failure is non-fatal, so an
+# ineffective value simply leaves that one app PGO-only -- it cannot break a build.
+_DEFAULT_BOLT_NO_SPLIT_RUSTFLAGS = "-Cllvm-args=-hot-cold-split=false"
 
 
-def _bolt_build_env(target: str) -> dict[str, str]:
+def _bolt_no_split_rustflags() -> str:
+    """RUSTFLAGS for the no-split BOLT retry.
+
+    Defaults to disabling the compiler cold-splitter. An empty
+    HYPERCI_BOLT_EXTRA_RUSTFLAGS disables the retry entirely.
+    """
+    val = os.environ.get("HYPERCI_BOLT_EXTRA_RUSTFLAGS")
+    return _DEFAULT_BOLT_NO_SPLIT_RUSTFLAGS if val is None else val.strip()
+
+
+def _bolt_build_env(target: str, *, no_split: bool = False) -> dict[str, str]:
     """Env overrides for cargo-pgo BOLT build and optimize steps.
 
     BOLT imposes two linker-level requirements that collide with common
@@ -410,12 +413,13 @@ def _bolt_build_env(target: str) -> dict[str, str]:
     target_rustflags_key = (
         f"CARGO_TARGET_{target.upper().replace('-', '_').replace('.', '_')}_RUSTFLAGS"
     )
-    # Base BOLT rustflags (lld for --emit-relocs) plus any operator-supplied
-    # no-split flags (see _bolt_extra_rustflags / HYPERCI_BOLT_EXTRA_RUSTFLAGS).
+    # Base BOLT rustflags (lld for --emit-relocs). On the no-split retry, append
+    # the splitter-disabling flags (see _bolt_no_split_rustflags / _run_bolt).
     bolt_rustflags = "-C link-arg=-fuse-ld=lld"
-    extra = _bolt_extra_rustflags()
-    if extra:
-        bolt_rustflags = f"{bolt_rustflags} {extra}"
+    if no_split:
+        extra = _bolt_no_split_rustflags()
+        if extra:
+            bolt_rustflags = f"{bolt_rustflags} {extra}"
     return {
         target_rustflags_key: bolt_rustflags,
         "CARGO_PROFILE_RELEASE_STRIP": "none",
@@ -428,43 +432,41 @@ def _bolt_build_env(target: str) -> dict[str, str]:
 _bolt_linker_env = _bolt_build_env
 
 
-def _run_bolt(
+def _attempt_bolt(
     target: str,
     feature_args: list[str],
     binary_name: str,
     profile: OptimizationProfile,
     cwd: Path,
     extra_env: dict[str, str] | None,
+    *,
+    no_split: bool,
 ) -> int:
-    """Run the BOLT post-link optimisation pipeline.
+    """Run one BOLT pass: instrument → workload → optimise.
 
-    Three phases, mirroring PGO: instrument → workload → optimise.
     `bolt build` emits `<binary>-bolt-instrumented`; the workload must run
     against THAT binary so BOLT collects its own branch profile. Skipping
     the workload (the old behaviour) left `bolt optimize` with nothing to
     optimise — see #29.
 
-    Requires the llvm-bolt + merge-fdata + ld.lld toolchain installed
-    (covered by the `bolt-NN` + `lld-NN` apt packages from apt.llvm.org).
-    Silent skip if any toolchain binary is missing.
-
     Forces lld as the linker and disables strip for both build phases —
-    see `_bolt_build_env()` for rationale. Reuses the project's PGO
-    workload (`bolt optimize --with-pgo` also folds in the PGO profile).
-    """
-    if not _ensure_llvm_bolt_available():
-        warn(
-            "BOLT toolchain not complete (llvm-bolt / merge-fdata / ld.lld) — skipping BOLT step"
-        )
-        return 0  # Non-fatal
+    see `_bolt_build_env()`. When `no_split` is True, also disables the
+    compiler cold-splitter so BOLT can process the binary (see _run_bolt).
 
+    Returns 0 on success OR a non-fatal skip (missing instrumented binary or
+    a failed workload — PGO-only result stands). Returns non-zero only on a
+    BOLT BUILD failure (instrument or optimise), which _run_bolt retries.
+    """
     # Merge project env_overrides (LTO etc.) with the BOLT-step build
-    # env (fuse-ld=lld + strip=none). BOLT env takes precedence over
-    # project config for the target-specific rustflags — intentional.
-    bolt_env = {**(extra_env or {}), **_bolt_build_env(target)}
+    # env (fuse-ld=lld + strip=none [+ no-split]). BOLT env takes precedence
+    # over project config for the target-specific rustflags — intentional.
+    bolt_env = {**(extra_env or {}), **_bolt_build_env(target, no_split=no_split)}
+    label = " (no-split)" if no_split else ""
 
     # 1. BOLT instrument build
-    info(f"BOLT: building instrumented binary for {target} (linker forced to lld)")
+    info(
+        f"BOLT: building instrumented binary for {target} (linker forced to lld){label}"
+    )
     rc = _run_cargo_pgo(
         ["bolt", "build", "--", "--target", target, *feature_args],
         cwd=cwd,
@@ -494,10 +496,58 @@ def _run_bolt(
 
     # 3. BOLT optimise, folding in both the PGO and BOLT profiles
     info(
-        f"BOLT: optimising binary for {target} (using PGO + BOLT profiles, linker=lld)"
+        f"BOLT: optimising binary for {target} (using PGO + BOLT profiles, linker=lld){label}"
     )
     return _run_cargo_pgo(
         ["bolt", "optimize", "--with-pgo", "--", "--target", target, *feature_args],
         cwd=cwd,
         extra_env=bolt_env,
+    )
+
+
+def _run_bolt(
+    target: str,
+    feature_args: list[str],
+    binary_name: str,
+    profile: OptimizationProfile,
+    cwd: Path,
+    extra_env: dict[str, str] | None,
+) -> int:
+    """Run BOLT, retrying once with compiler function-splitting disabled.
+
+    The first attempt mirrors the project's normal build. If the BOLT BUILD
+    fails — most commonly because the compiler pre-split a function into a
+    `.cold` fragment that BOLT can't process in relocation mode — retry once
+    with the splitter disabled so BOLT splits the binary itself. Apps whose
+    first attempt succeeds never retry, so they are completely unaffected:
+    this makes a working BOLT layer the default WITHOUT risking the apps that
+    already optimise cleanly, and degrades to PGO-only (non-fatal) if neither
+    attempt succeeds.
+
+    Requires the llvm-bolt + merge-fdata + ld.lld toolchain installed
+    (covered by the `bolt-NN` + `lld-NN` apt packages from apt.llvm.org).
+    Silent skip if any toolchain binary is missing.
+    """
+    if not _ensure_llvm_bolt_available():
+        warn(
+            "BOLT toolchain not complete (llvm-bolt / merge-fdata / ld.lld) — skipping BOLT step"
+        )
+        return 0  # Non-fatal
+
+    rc = _attempt_bolt(
+        target, feature_args, binary_name, profile, cwd, extra_env, no_split=False
+    )
+    if rc == 0:
+        return 0
+
+    no_split_flags = _bolt_no_split_rustflags()
+    if not no_split_flags:
+        # Retry explicitly disabled via HYPERCI_BOLT_EXTRA_RUSTFLAGS="".
+        return rc
+    warn(
+        "BOLT build failed — retrying once with compiler function-splitting "
+        f"disabled ({no_split_flags})"
+    )
+    return _attempt_bolt(
+        target, feature_args, binary_name, profile, cwd, extra_env, no_split=True
     )

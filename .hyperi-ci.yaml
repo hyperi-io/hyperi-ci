@@ -21,3 +21,15 @@ test:
 publish:
   container:
     enabled: false
+
+# Quality-gate suppressions. semgrep's auto ruleset flags importlib.resources as
+# a pre-3.9 backport-compat issue; this repo pins requires-python >= 3.12, so the
+# whole python3x-compat rule class is noise here. Suppress both the py36 and py37
+# variants (the ruleset has surfaced different IDs across versions).
+quality:
+  ignore:
+    - tool: semgrep
+      ids:
+        - python.lang.compatibility.python36.python36-compatibility-importlib2
+        - python.lang.compatibility.python37.python37-compatibility-importlib2
+      reason: "importlib.resources is stdlib; repo requires-python >= 3.12, no py<3.9 support"

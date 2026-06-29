@@ -228,19 +228,19 @@ class TestBoltBuildEnv:
             "-C link-arg=-fuse-ld=lld"
         )
 
-    def test_extra_rustflags_appended_when_env_set(self, monkeypatch) -> None:
-        """HYPERCI_BOLT_EXTRA_RUSTFLAGS (the no-split lever) appends to all targets.
+    def test_no_split_appends_default_flag_to_all_targets(self, monkeypatch) -> None:
+        """no_split=True appends the default splitter-disable flag for EVERY target.
 
-        Default-off keeps the fleet's behaviour byte-identical; when an operator
-        sets it (to disable compiler hot/cold splitting so BOLT can split
-        itself), the flags are appended for EVERY target -- so the fix applies to
-        every DFE app, not one.
+        This is what makes a working BOLT layer the default fleet-wide: the retry
+        (see _run_bolt) rebuilds with the compiler cold-splitter disabled so BOLT
+        can process the binary. Applies to every target, not one app.
         """
-        from hyperi_ci.languages.rust.pgo import _bolt_build_env
-
-        monkeypatch.setenv(
-            "HYPERCI_BOLT_EXTRA_RUSTFLAGS", "-Cllvm-args=-hot-cold-split=false"
+        from hyperi_ci.languages.rust.pgo import (
+            _DEFAULT_BOLT_NO_SPLIT_RUSTFLAGS,
+            _bolt_build_env,
         )
+
+        monkeypatch.delenv("HYPERCI_BOLT_EXTRA_RUSTFLAGS", raising=False)
         for triple, key in (
             (
                 "x86_64-unknown-linux-gnu",
@@ -251,17 +251,29 @@ class TestBoltBuildEnv:
                 "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS",
             ),
         ):
-            env = _bolt_build_env(triple)
+            env = _bolt_build_env(triple, no_split=True)
             assert env[key] == (
-                "-C link-arg=-fuse-ld=lld -Cllvm-args=-hot-cold-split=false"
+                f"-C link-arg=-fuse-ld=lld {_DEFAULT_BOLT_NO_SPLIT_RUSTFLAGS}"
             )
 
-    def test_empty_extra_rustflags_is_noop(self, monkeypatch) -> None:
-        """An empty/whitespace override leaves the base lld flag untouched."""
+    def test_no_split_honours_env_override(self, monkeypatch) -> None:
+        """HYPERCI_BOLT_EXTRA_RUSTFLAGS overrides the default no-split flag."""
+        from hyperi_ci.languages.rust.pgo import _bolt_build_env
+
+        monkeypatch.setenv(
+            "HYPERCI_BOLT_EXTRA_RUSTFLAGS", "-Cllvm-args=-split-machine-functions=false"
+        )
+        env = _bolt_build_env("x86_64-unknown-linux-gnu", no_split=True)
+        assert env["CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS"] == (
+            "-C link-arg=-fuse-ld=lld -Cllvm-args=-split-machine-functions=false"
+        )
+
+    def test_no_split_env_empty_disables_extra(self, monkeypatch) -> None:
+        """An empty override drops the extra flags even on the no-split pass."""
         from hyperi_ci.languages.rust.pgo import _bolt_build_env
 
         monkeypatch.setenv("HYPERCI_BOLT_EXTRA_RUSTFLAGS", "   ")
-        env = _bolt_build_env("x86_64-unknown-linux-gnu")
+        env = _bolt_build_env("x86_64-unknown-linux-gnu", no_split=True)
         assert env["CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS"] == (
             "-C link-arg=-fuse-ld=lld"
         )
@@ -293,6 +305,83 @@ class TestBoltBuildEnv:
         from hyperi_ci.languages.rust.pgo import _bolt_build_env, _bolt_linker_env
 
         assert _bolt_linker_env is _bolt_build_env
+
+
+class TestRunBoltRetry:
+    """_run_bolt retries once (splitter disabled) on a BOLT build failure.
+
+    This is what makes a working BOLT layer the default: apps that already
+    optimise cleanly succeed on the first attempt and never retry; an app whose
+    build trips BOLT's split-function limitation self-heals on the no-split retry.
+    """
+
+    @staticmethod
+    def _profile() -> OptimizationProfile:
+        return _make_profile(bolt_enabled=True)
+
+    def test_no_retry_when_first_attempt_succeeds(self, monkeypatch, tmp_path) -> None:
+        from hyperi_ci.languages.rust import pgo
+
+        monkeypatch.setattr(pgo, "_ensure_llvm_bolt_available", lambda: True)
+        calls: list[bool] = []
+
+        def fake_attempt(*_a: object, no_split: bool, **_k: object) -> int:
+            calls.append(no_split)
+            return 0
+
+        monkeypatch.setattr(pgo, "_attempt_bolt", fake_attempt)
+        rc = pgo._run_bolt("t", [], "bin", self._profile(), tmp_path, None)
+        assert rc == 0
+        assert calls == [False]  # first attempt only, no retry
+
+    def test_retries_with_no_split_on_build_failure(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        from hyperi_ci.languages.rust import pgo
+
+        monkeypatch.setattr(pgo, "_ensure_llvm_bolt_available", lambda: True)
+        monkeypatch.delenv("HYPERCI_BOLT_EXTRA_RUSTFLAGS", raising=False)
+        calls: list[bool] = []
+
+        def fake_attempt(*_a: object, no_split: bool, **_k: object) -> int:
+            calls.append(no_split)
+            return 0 if no_split else 1  # fail first, succeed on the no-split retry
+
+        monkeypatch.setattr(pgo, "_attempt_bolt", fake_attempt)
+        rc = pgo._run_bolt("t", [], "bin", self._profile(), tmp_path, None)
+        assert rc == 0
+        assert calls == [False, True]
+
+    def test_no_retry_when_env_disables_it(self, monkeypatch, tmp_path) -> None:
+        from hyperi_ci.languages.rust import pgo
+
+        monkeypatch.setattr(pgo, "_ensure_llvm_bolt_available", lambda: True)
+        monkeypatch.setenv("HYPERCI_BOLT_EXTRA_RUSTFLAGS", "")  # disables the retry
+        calls: list[bool] = []
+
+        def fake_attempt(*_a: object, no_split: bool, **_k: object) -> int:
+            calls.append(no_split)
+            return 1
+
+        monkeypatch.setattr(pgo, "_attempt_bolt", fake_attempt)
+        rc = pgo._run_bolt("t", [], "bin", self._profile(), tmp_path, None)
+        assert rc == 1
+        assert calls == [False]  # no retry
+
+    def test_skips_when_toolchain_missing(self, monkeypatch, tmp_path) -> None:
+        from hyperi_ci.languages.rust import pgo
+
+        monkeypatch.setattr(pgo, "_ensure_llvm_bolt_available", lambda: False)
+        calls: list[bool] = []
+
+        def fake_attempt(*_a: object, no_split: bool, **_k: object) -> int:
+            calls.append(no_split)
+            return 0
+
+        monkeypatch.setattr(pgo, "_attempt_bolt", fake_attempt)
+        rc = pgo._run_bolt("t", [], "bin", self._profile(), tmp_path, None)
+        assert rc == 0  # non-fatal skip
+        assert calls == []  # never attempted
 
 
 class TestWorkloadExecution:

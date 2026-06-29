@@ -91,6 +91,9 @@ def stamp_version(version: str, project_dir: Path | None = None) -> int:
         module_name, func_name = _MANIFEST_STAMPERS[language]
         import importlib
 
+        # module_name comes from the hardcoded _MANIFEST_STAMPERS table, not user
+        # input, so there is no injection surface.
+        # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import
         stamp_manifest = getattr(importlib.import_module(module_name), func_name)
         stamp_manifest(version, root)
     elif language:
