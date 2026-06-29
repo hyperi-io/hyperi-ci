@@ -39,7 +39,7 @@ def sanitize_ref_name(ref: str) -> str:
 
 
 def resolve_release_version() -> str | None:
-    """The version being released — single SSoT for every stage.
+    """Resolve the version being released - single SSoT for every stage.
 
     Precedence (issue #27): the Plan job's predicted ``next-version``, threaded
     in via ``HYPERCI_VERSION``, is authoritative — the same value Build stamps

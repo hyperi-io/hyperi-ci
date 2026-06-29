@@ -112,7 +112,7 @@ def resolve_latest_tag() -> str | None:
 
 
 def _head_in_sync_with_origin() -> bool:
-    """True if local HEAD == origin/main — the commit the CI will tag.
+    """Return True if local HEAD == origin/main - the commit the CI will tag.
 
     from-head dispatch tags `origin/main` HEAD on the runner, not the
     local tree. If the operator's HEAD differs, what gets released is not

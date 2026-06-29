@@ -31,7 +31,7 @@ from pathlib import Path
 try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover — Python < 3.11
-    import tomli as tomllib  # type: ignore[no-redef]
+    import tomli as tomllib  # type: ignore[no-redef]  # ty: ignore[unresolved-import]
 
 
 @dataclass(frozen=True)

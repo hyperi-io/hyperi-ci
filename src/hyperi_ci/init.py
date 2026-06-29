@@ -24,6 +24,7 @@ is what caused the issue #37 tag-rewrite damage.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -189,7 +190,7 @@ def _render_hyperi_ci_yaml(
     submodules: str = "",
 ) -> str:
     """Render .hyperi-ci.yaml with language-specific defaults."""
-    config: dict = {
+    config: dict[str, Any] = {
         "language": language,
         # Declared SPDX-ish licence id. Drives generated file headers and is
         # the authoritative source for `detect_license`. Default BUSL-1.1.
@@ -208,13 +209,17 @@ def _render_hyperi_ci_yaml(
         "publish": {"enabled": True, "target": "oss"},
     }
 
+    # Widen the build section to Any: ty narrows config["build"] to the literal
+    # value type (dict[str, bool | list[str]]), which rejects the str/dict
+    # additions below. Same dict object, so the mutations apply to config.
+    build_section: dict[str, Any] = config["build"]
     if language == "python":
         build_type = _detect_python_build_type(project_dir)
-        config["build"]["type"] = build_type
+        build_section["type"] = build_type
 
     elif language == "rust":
         config["test"]["coverage"] = False
-        config["build"]["rust"] = {
+        build_section["rust"] = {
             "features": "all",
             "targets": [],
         }

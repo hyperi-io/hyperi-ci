@@ -78,7 +78,7 @@ def _inputs(raw: object) -> dict:
     if isinstance(raw, dict):
         for name, spec in raw.items():
             spec = spec if isinstance(spec, dict) else {}
-            out[name] = {
+            out[str(name)] = {
                 "required": bool(spec.get("required", False)),
                 "has_default": "default" in spec,
             }
@@ -90,7 +90,7 @@ def _secrets(raw: object) -> dict:
     if isinstance(raw, dict):
         for name, spec in raw.items():
             spec = spec if isinstance(spec, dict) else {}
-            out[name] = {"required": bool(spec.get("required", False))}
+            out[str(name)] = {"required": bool(spec.get("required", False))}
     return out
 
 

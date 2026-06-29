@@ -19,7 +19,7 @@ from __future__ import annotations
 import importlib
 import os
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from hyperi_ci.common import (
     error,
@@ -441,7 +441,9 @@ def run_stage(
 
     handler = _STAGE_HANDLERS[stage]
     if stage == "build":
-        rc = handler(language, config, local=local)
+        # The build handler takes `local`; the others do not. _STAGE_HANDLERS
+        # is typed to the common (no-local) signature, so cast for this branch.
+        rc = cast("Any", handler)(language, config, local=local)
     else:
         rc = handler(language, config)
 

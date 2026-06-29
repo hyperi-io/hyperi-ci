@@ -25,8 +25,10 @@ from hyperi_ci.languages.rust.build import stamp_manifest
 
 
 def _read_version() -> str | None:
-    """Version being published. HYPERCI_VERSION-first — see
-    common.resolve_release_version (issue #27 + zero-config)."""
+    """Read the version being published (HYPERCI_VERSION-first).
+
+    See common.resolve_release_version (issue #27 + zero-config).
+    """
     return resolve_release_version()
 
 

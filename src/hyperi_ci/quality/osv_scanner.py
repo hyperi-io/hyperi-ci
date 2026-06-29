@@ -55,6 +55,7 @@ def render_ignore_config(entries: Iterable[IgnoreEntry]) -> str:
 
     Returns:
         TOML text (empty string when there are no entries).
+
     """
     blocks: list[str] = []
     for e in entries:
@@ -99,6 +100,7 @@ def run(
 
     Returns:
         True on pass / skip; ``run_tool``'s result otherwise.
+
     """
     if mode == "disabled":
         info(f"  {SLUG}: disabled")

@@ -17,6 +17,7 @@ import os
 import platform
 import subprocess
 import sys
+import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path

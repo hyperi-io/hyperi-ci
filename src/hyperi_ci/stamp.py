@@ -70,6 +70,7 @@ def stamp_version(version: str, project_dir: Path | None = None) -> int:
 
     Returns:
         0 on success, 1 if ``version`` is empty.
+
     """
     version = version.removeprefix("v").strip()
     if not version:

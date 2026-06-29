@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -122,7 +123,7 @@ class TestRun:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         monkeypatch.setattr(osv_scanner, "available", lambda: True)
-        captured: dict[str, object] = {}
+        captured: dict[str, Any] = {}
 
         def fake_run_tool(label: str, cmd: list[str], mode: str) -> bool:
             captured["cmd"] = cmd
@@ -133,14 +134,14 @@ class TestRun:
             self._lockfile(tmp_path), [], "warn", fake_run_tool, write_dir=tmp_path
         )
         assert ok is True
-        assert "--config" not in captured["cmd"]  # type: ignore[operator]
+        assert "--config" not in captured["cmd"]
         assert captured["mode"] == "warn"
 
     def test_entries_write_config_and_pass_it(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         monkeypatch.setattr(osv_scanner, "available", lambda: True)
-        captured: dict[str, object] = {}
+        captured: dict[str, Any] = {}
 
         def fake_run_tool(label: str, cmd: list[str], mode: str) -> bool:
             captured["cmd"] = cmd
@@ -154,7 +155,7 @@ class TestRun:
             fake_run_tool,
             write_dir=tmp_path,
         )
-        assert "--config" in captured["cmd"]  # type: ignore[operator]
+        assert "--config" in captured["cmd"]
         config = tmp_path / "osv-scanner.toml"
         assert config.exists()
         assert "MAL-2026-1" in config.read_text()

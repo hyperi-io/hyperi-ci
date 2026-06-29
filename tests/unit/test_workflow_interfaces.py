@@ -22,6 +22,7 @@ _SPEC = importlib.util.spec_from_file_location(
     "check_workflow_interfaces",
     Path(__file__).resolve().parents[2] / "scripts" / "check-workflow-interfaces.py",
 )
+assert _SPEC is not None and _SPEC.loader is not None  # always resolves for a real file
 cwi = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(cwi)
 

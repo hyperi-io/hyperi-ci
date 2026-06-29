@@ -24,6 +24,7 @@ _SPEC = importlib.util.spec_from_file_location(
     "recover_tags",
     Path(__file__).resolve().parents[2] / "scripts" / "recover-tags.py",
 )
+assert _SPEC is not None and _SPEC.loader is not None  # always resolves for a real file
 rt = importlib.util.module_from_spec(_SPEC)
 sys.modules[_SPEC.name] = rt  # let @dataclass resolve Plan.__module__
 _SPEC.loader.exec_module(rt)

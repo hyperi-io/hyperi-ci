@@ -38,6 +38,7 @@ import sys
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any, cast
 
 import yaml
 
@@ -66,7 +67,7 @@ _ACTION_OWNERS: dict[str, str] = {
 }
 
 
-def _load_versions() -> dict:
+def _load_versions() -> dict[str, Any]:
     """Load the versions SSOT file."""
     with open(_VERSIONS_FILE) as f:
         return yaml.safe_load(f)
@@ -99,11 +100,11 @@ def _parse_semver(tag: str) -> tuple[int, int, int] | None:
 
 
 def _select_pinned_release(
-    releases: list[dict],
+    releases: list[dict[str, Any]],
     now: datetime,
     cooldown_days: int = _COOLDOWN_DAYS,
     major: int | None = None,
-) -> dict | None:
+) -> dict[str, Any] | None:
     """Pick the highest-semver release that has aged past the cooldown.
 
     Highest semver, NOT newest-published: GitHub republishes old backports
@@ -115,7 +116,7 @@ def _select_pinned_release(
     chosen release dict or None.
     """
     cutoff = now - timedelta(days=cooldown_days)
-    best: dict | None = None
+    best: dict[str, Any] | None = None
     best_ver: tuple[int, int, int] | None = None
     for rel in releases:
         if rel.get("draft") or rel.get("prerelease"):
@@ -135,8 +136,13 @@ def _select_pinned_release(
     return best
 
 
-def _gh_json(path: str) -> object | None:
-    """GET a GitHub API path, parsed as JSON. None on any failure."""
+def _gh_json(path: str) -> Any:
+    """GET a GitHub API path, parsed as JSON. None on any failure.
+
+    Returns the parsed JSON (typically dict or list) or None. Typed `Any`
+    because the JSON shape varies per endpoint - callers `isinstance`-guard
+    before use.
+    """
     try:
         result = subprocess.run(
             ["gh", "api", path],
@@ -156,12 +162,13 @@ def _resolve_tag_sha(owner_repo: str, tag: str) -> str | None:
     ref = _gh_json(f"/repos/{owner_repo}/git/ref/tags/{tag}")
     if not isinstance(ref, dict):
         return None
-    obj = ref.get("object", {})
+    obj: Any = cast("dict[str, Any]", ref).get("object", {})
     if obj.get("type") == "tag":
         # annotated tag → deref to the commit it points at
         tag_obj = _gh_json(f"/repos/{owner_repo}/git/tags/{obj.get('sha')}")
         if isinstance(tag_obj, dict):
-            return tag_obj.get("object", {}).get("sha")
+            inner: Any = cast("dict[str, Any]", tag_obj).get("object", {})
+            return inner.get("sha")
     return obj.get("sha")
 
 
@@ -175,7 +182,7 @@ def _resolve_branch_sha(
     if not isinstance(commits, list):
         return None
     cutoff = now - timedelta(days=cooldown_days)
-    for commit in commits:
+    for commit in cast("list[dict[str, Any]]", commits):
         date_str = commit.get("commit", {}).get("committer", {}).get("date")
         if not date_str:
             continue
@@ -205,6 +212,7 @@ def _pinned_spec_for(short_name: str, current: object, now: datetime) -> dict | 
     releases = _gh_json(f"/repos/{owner_repo}/releases?per_page=30")
     if not isinstance(releases, list):
         return None
+    releases = cast("list[dict[str, Any]]", releases)
     # Stay within the current major — major bumps are a deliberate edit.
     cur_semver = _parse_semver(str(cur_version)) if cur_version else None
     major = cur_semver[0] if cur_semver else None
@@ -228,8 +236,8 @@ def _action_ref(spec: object) -> tuple[str, str]:
         sha = spec.get("sha")
         version = spec.get("version", "")
         if sha:
-            return sha, f" # {version}" if version else ""
-        return version, ""
+            return str(sha), f" # {version}" if version else ""
+        return str(version), ""
     return str(spec), ""
 
 

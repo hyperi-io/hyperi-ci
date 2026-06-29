@@ -15,6 +15,7 @@ _SPEC = importlib.util.spec_from_file_location(
     "update_versions",
     Path(__file__).resolve().parents[2] / "scripts" / "update-versions.py",
 )
+assert _SPEC is not None and _SPEC.loader is not None  # always resolves for a real file
 update_versions = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(update_versions)
 
