@@ -218,9 +218,49 @@ class TestBoltBuildEnv:
        Final binary is stripped by hyperi-ci's post-build packaging.
     """
 
-    def test_amd64_linux_forces_lld_via_target_rustflags(self) -> None:
+    def test_amd64_linux_forces_lld_via_target_rustflags(self, monkeypatch) -> None:
         from hyperi_ci.languages.rust.pgo import _bolt_build_env
 
+        # Default (no operator override) is exactly the lld flag, unchanged.
+        monkeypatch.delenv("HYPERCI_BOLT_EXTRA_RUSTFLAGS", raising=False)
+        env = _bolt_build_env("x86_64-unknown-linux-gnu")
+        assert env["CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS"] == (
+            "-C link-arg=-fuse-ld=lld"
+        )
+
+    def test_extra_rustflags_appended_when_env_set(self, monkeypatch) -> None:
+        """HYPERCI_BOLT_EXTRA_RUSTFLAGS (the no-split lever) appends to all targets.
+
+        Default-off keeps the fleet's behaviour byte-identical; when an operator
+        sets it (to disable compiler hot/cold splitting so BOLT can split
+        itself), the flags are appended for EVERY target -- so the fix applies to
+        every DFE app, not one.
+        """
+        from hyperi_ci.languages.rust.pgo import _bolt_build_env
+
+        monkeypatch.setenv(
+            "HYPERCI_BOLT_EXTRA_RUSTFLAGS", "-Cllvm-args=-hot-cold-split=false"
+        )
+        for triple, key in (
+            (
+                "x86_64-unknown-linux-gnu",
+                "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS",
+            ),
+            (
+                "aarch64-unknown-linux-gnu",
+                "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS",
+            ),
+        ):
+            env = _bolt_build_env(triple)
+            assert env[key] == (
+                "-C link-arg=-fuse-ld=lld -Cllvm-args=-hot-cold-split=false"
+            )
+
+    def test_empty_extra_rustflags_is_noop(self, monkeypatch) -> None:
+        """An empty/whitespace override leaves the base lld flag untouched."""
+        from hyperi_ci.languages.rust.pgo import _bolt_build_env
+
+        monkeypatch.setenv("HYPERCI_BOLT_EXTRA_RUSTFLAGS", "   ")
         env = _bolt_build_env("x86_64-unknown-linux-gnu")
         assert env["CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS"] == (
             "-C link-arg=-fuse-ld=lld"

@@ -347,6 +347,34 @@ def _instrumented_binary_path(
     return cwd / "target" / target / "release" / name
 
 
+# Extra RUSTFLAGS appended to the BOLT-step build, sourced from
+# HYPERCI_BOLT_EXTRA_RUSTFLAGS. Empty by default -> behaviour is unchanged for
+# every project (zero regression risk on push).
+#
+# WHY this exists: BOLT (in relocation mode) CANNOT process a binary whose
+# functions were already hot/cold-SPLIT by the compiler -- it emits `<fn>.cold`
+# fragments (e.g. drop glue on cold paths outlined into .text.unlikely/.text.split),
+# and llvm-bolt then aborts the step with:
+#   BOLT-WARNING: split function detected on input ... limited in relocation mode
+#   BOLT-ERROR:   parent function not found for <fn>.cold
+# The whole BOLT step then fails and the build silently falls back to PGO-only,
+# losing the ~5-15% BOLT layer. BOLT wants to do the splitting ITSELF, so the
+# fix is to stop the COMPILER pre-splitting for the BOLT-targeted builds (the
+# LLVM equivalent of clang's -fno-reorder-blocks-and-partition), via -Cllvm-args.
+#
+# The exact cl::opt is toolchain-version-dependent (and an UNKNOWN -Cllvm-args
+# would hard-error rustc and knock out BOLT for EVERY app), so it is NOT
+# hardcoded -- set it deliberately and validate on one build first:
+#   HYPERCI_BOLT_EXTRA_RUSTFLAGS="-Cllvm-args=-hot-cold-split=false"
+# (candidate alternatives if that proves ineffective on the toolchain:
+#  -Cllvm-args=-split-machine-functions=false). BOLT failure is non-fatal, so
+# validation is low-risk: a wrong value degrades to PGO-only, it cannot break a
+# build. Once proven on the fleet's toolchain, promote the value to the default.
+def _bolt_extra_rustflags() -> str:
+    """Operator-supplied extra RUSTFLAGS for the BOLT build (default: none)."""
+    return os.environ.get("HYPERCI_BOLT_EXTRA_RUSTFLAGS", "").strip()
+
+
 def _bolt_build_env(target: str) -> dict[str, str]:
     """Env overrides for cargo-pgo BOLT build and optimize steps.
 
@@ -382,8 +410,14 @@ def _bolt_build_env(target: str) -> dict[str, str]:
     target_rustflags_key = (
         f"CARGO_TARGET_{target.upper().replace('-', '_').replace('.', '_')}_RUSTFLAGS"
     )
+    # Base BOLT rustflags (lld for --emit-relocs) plus any operator-supplied
+    # no-split flags (see _bolt_extra_rustflags / HYPERCI_BOLT_EXTRA_RUSTFLAGS).
+    bolt_rustflags = "-C link-arg=-fuse-ld=lld"
+    extra = _bolt_extra_rustflags()
+    if extra:
+        bolt_rustflags = f"{bolt_rustflags} {extra}"
     return {
-        target_rustflags_key: "-C link-arg=-fuse-ld=lld",
+        target_rustflags_key: bolt_rustflags,
         "CARGO_PROFILE_RELEASE_STRIP": "none",
     }
 
