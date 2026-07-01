@@ -247,7 +247,7 @@ auto-detected modes:
 
 | Mode | Language | Dockerfile source |
 |---|---|---|
-| **contract** | Rust + rustlib | generated from the binary's `container-manifest.json` |
+| **contract** | Rust + scalo | generated from the binary's `container-manifest.json` |
 | **template** | Python, TypeScript | built-in uv / pnpm templates |
 | **custom** | any | repo's own `Dockerfile` + injected OCI labels |
 
@@ -257,7 +257,7 @@ generation from the contract: [deployment/CONTRACT.md](deployment/CONTRACT.md).
 
 **App-only, resolved before Docker (issue #33).** `publish.container.enabled` is
 `auto` (default) | `true` | `false`. Under `auto` the stage builds only when it
-finds a signal — a Dockerfile, or a Rust binary using rustlib's contract.
+finds a signal — a Dockerfile, or a Rust binary using scalo's contract.
 **Libraries (a Rust crate, a Python package) have no signal and ship no
 container.** The decision is resolved *before* Docker Buildx boots, so a library
 never pulls buildkit from Docker Hub nor logs in to GHCR.

@@ -1,8 +1,8 @@
 # Migrating to the Deployment Contract — Tier 3
 
-For apps that **don't** use hyperi-rustlib or scalo (bash, TypeScript,
+For apps that **don't** use scalo at all (bash, TypeScript,
 Go, ad-hoc projects). Tier 1 (Rust) and Tier 2 (Python) migration guides
-will be added once the rustlib 2.7+ / scalo 2.x producers ship.
+will be added once the scalo 2.7+ / scalo 2.x producers ship.
 
 Adopting the deployment contract means:
 
@@ -19,10 +19,10 @@ Adopting the deployment contract means:
 | Check | Command | Expected |
 |---|---|---|
 | hyperi-ci on PATH | `hyperi-ci --version` | `1.15.0` or newer |
-| Repo has no rustlib/scalo dep | `grep -E 'hyperi-rustlib\|scalo' Cargo.toml pyproject.toml 2>/dev/null` | no match |
+| Repo has no scalo dep | `grep -E 'scalo\|scalo' Cargo.toml pyproject.toml 2>/dev/null` | no match |
 | Existing `ci/` not present, or backup made | `ls ci/ 2>/dev/null` | empty or backed up |
 
-If your repo is on **rustlib** or **scalo**, follow the matching tier
+If your repo is on **scalo** or **scalo**, follow the matching tier
 guide instead — Tier 3 commits the JSON manually, while Tier 1/2 emit it
 from the app's source.
 
@@ -118,7 +118,7 @@ passes.
 ## Step 3 — Generate the artefacts
 
 > **Status:** the templating engine itself is Phase 2 of the plan and
-> blocked on hyperi-rustlib 2.8.0 shipping the parity fixture suite.
+> blocked on scalo 2.8.0 shipping the parity fixture suite.
 > Until then, `emit-artefacts` returns exit code 5
 > (`EXIT_NOT_IMPLEMENTED`) after validating the contract. The
 > command's CLI surface, exit-code contract, and tier dispatch are

@@ -305,7 +305,7 @@ Three modes, auto-detected from language and project structure:
 
 | Mode | Language | Dockerfile Source |
 |------|----------|------------------|
-| **contract** | Rust + rustlib | Generated from `container-manifest.json` (binary emits contract) |
+| **contract** | Rust + scalo | Generated from `container-manifest.json` (binary emits contract) |
 | **template** | Python, TypeScript | Generated from built-in templates (uv, pnpm patterns) |
 | **custom** | Any | Uses repo's own `Dockerfile`, injects OCI labels |
 

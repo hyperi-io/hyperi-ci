@@ -17,7 +17,7 @@ diff-checks against the committed `ci/` to catch drift.
 ```mermaid
 flowchart LR
     C[ci/deployment-contract.json<br/>SSoT]
-    C -->|Tier 1: rustlib| GR["&lt;app&gt; generate-artefacts"]
+    C -->|Tier 1: scalo| GR["&lt;app&gt; generate-artefacts"]
     C -->|Tier 2: scalo| GP["&lt;app&gt; generate-artefacts"]
     C -->|Tier 3: hyperi-ci| GE["hyperi-ci emit-artefacts"]
     GR --> A["ci/Dockerfile<br/>ci/chart/<br/>ci/argocd-application.yaml<br/>..."]
@@ -32,7 +32,7 @@ contract — verified by the cross-tier parity test suite.
 
 | Repo | Tier | Producer |
 |---|---|---|
-| Rust app using `hyperi-rustlib` | 1 (`rust`) | `<app> generate-artefacts` |
+| Rust app using `scalo` | 1 (`rust`) | `<app> generate-artefacts` |
 | Python app using `scalo` | 2 (`python`) | `<app> generate-artefacts` |
 | Anything else (bash, TS, Go, ad-hoc) | 3 (`other`) | `hyperi-ci emit-artefacts` |
 | Library / no container | n/a (`none`) | container stage skips silently |
@@ -40,7 +40,7 @@ contract — verified by the cross-tier parity test suite.
 `hyperi-ci` auto-detects this — you don't pick by hand. Detection
 order, with the first match winning:
 
-1. `Cargo.toml` containing `hyperi-rustlib` (any form: string, table,
+1. `Cargo.toml` containing `scalo` (any form: string, table,
    `.workspace = true`, extras) → Tier 1.
 2. `pyproject.toml` containing `scalo` (incl. extras like
    `scalo[metrics]`) → Tier 2.
@@ -72,7 +72,7 @@ from the app name:
 | `health.metrics_path` | `/metrics` | DFE convention |
 | `image_registry` | `ghcr.io/hyperi-io` | cascade default |
 | `base_image` | `ubuntu:24.04` | cascade default |
-| `image_profile` | `production` | rustlib default |
+| `image_profile` | `production` | scalo default |
 
 App-name validation matches the org repo-naming convention:
 lowercase, hyphen-separated, no underscores, 3–50 chars, starts with
@@ -104,7 +104,7 @@ to `output_dir`):
 - `deployment-contract.schema.json`
 
 > **Status:** the templating engine itself is deferred to Phase 2 of
-> the implementation plan, blocked on hyperi-rustlib 2.8.0 shipping
+> the implementation plan, blocked on scalo 2.8.0 shipping
 > the `schemars`-derived JSON Schema export and the parity fixture
 > suite. Until then, `emit-artefacts` exits with code 5
 > (`EXIT_NOT_IMPLEMENTED`) after validating the contract — the

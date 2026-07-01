@@ -349,7 +349,7 @@ Three-tier producer model (auto-detected):
 
 | Tier | Detected by | Producer |
 |---|---|---|
-| **Tier 1** (`rust`) | Cargo.toml + `hyperi-rustlib` dep | `<app> generate-artefacts` (rustlib) |
+| **Tier 1** (`rust`) | Cargo.toml + `scalo` dep | `<app> generate-artefacts` (scalo) |
 | **Tier 2** (`python`) | pyproject.toml + `scalo` dep (or legacy `hyperi-pylib`) | `<app> generate-artefacts` (scalo) |
 | **Tier 3** (`other`) | `ci/deployment-contract.json` only | `hyperi-ci emit-artefacts` |
 | (none) | nothing | container stage no-ops silently |
