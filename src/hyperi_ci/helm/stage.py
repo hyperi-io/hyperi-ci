@@ -372,19 +372,19 @@ def _run_topology_mode(helm_cfg: dict, config: CIConfig) -> int:
         error(f"no topology.yaml in {topo_dir}")
         return 1
 
-    # Deferred imports — keep pylib subsystem out of module-level import.
+    # Deferred imports — keep scalo subsystem out of module-level import.
     from hyperi_ci.deployment.topology.resolve import resolve_versions  # noqa: PLC0415
     from hyperi_ci.deployment.topology.stitch import stitch_topology  # noqa: PLC0415
 
     try:
-        from hyperi_pylib.deployment.topology import load_topology  # noqa: PLC0415
-        from hyperi_pylib.deployment.topology.errors import (  # noqa: PLC0415
+        from scalo.deployment.topology import load_topology  # noqa: PLC0415
+        from scalo.deployment.topology.errors import (  # noqa: PLC0415
             TopologyError,
             TopologyValidationError,
             VersionResolutionError,
         )
     except ImportError as exc:
-        error(f"hyperi-pylib deployment extras not installed: {exc}")
+        error(f"scalo deployment extras not installed: {exc}")
         return 1
 
     registry = helm_cfg.get("registry") or "oci://ghcr.io/hyperi-io/helm-charts"

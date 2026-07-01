@@ -18,7 +18,7 @@ diff-checks against the committed `ci/` to catch drift.
 flowchart LR
     C[ci/deployment-contract.json<br/>SSoT]
     C -->|Tier 1: rustlib| GR["&lt;app&gt; generate-artefacts"]
-    C -->|Tier 2: pylib| GP["&lt;app&gt; generate-artefacts"]
+    C -->|Tier 2: scalo| GP["&lt;app&gt; generate-artefacts"]
     C -->|Tier 3: hyperi-ci| GE["hyperi-ci emit-artefacts"]
     GR --> A["ci/Dockerfile<br/>ci/chart/<br/>ci/argocd-application.yaml<br/>..."]
     GP --> A
@@ -33,7 +33,7 @@ contract — verified by the cross-tier parity test suite.
 | Repo | Tier | Producer |
 |---|---|---|
 | Rust app using `hyperi-rustlib` | 1 (`rust`) | `<app> generate-artefacts` |
-| Python app using `hyperi-pylib` | 2 (`python`) | `<app> generate-artefacts` |
+| Python app using `scalo` | 2 (`python`) | `<app> generate-artefacts` |
 | Anything else (bash, TS, Go, ad-hoc) | 3 (`other`) | `hyperi-ci emit-artefacts` |
 | Library / no container | n/a (`none`) | container stage skips silently |
 
@@ -42,8 +42,8 @@ order, with the first match winning:
 
 1. `Cargo.toml` containing `hyperi-rustlib` (any form: string, table,
    `.workspace = true`, extras) → Tier 1.
-2. `pyproject.toml` containing `hyperi-pylib` (incl. extras like
-   `hyperi-pylib[metrics]`) → Tier 2.
+2. `pyproject.toml` containing `scalo` (incl. extras like
+   `scalo[metrics]`) → Tier 2.
 3. `ci/deployment-contract.json` exists → Tier 3.
 4. None of the above → no contract; container stage no-ops.
 
@@ -119,8 +119,8 @@ the consumer supports.
 
 `MAX_SUPPORTED_SCHEMA_VERSION` is bumped in **lockstep** across:
 
-- `hyperi-rustlib::deployment::contract::default_schema_version()`
-- `hyperi-pylib`'s mirror module
+- `scalo::deployment::contract::default_schema_version()`
+- `scalo`'s mirror module
 - `hyperi-ci/src/hyperi_ci/deployment/contract.py`
 - `hyperi-ci/config/defaults.yaml` under
   `deployment.max_supported_schema_version`
@@ -176,7 +176,7 @@ deployment:
 
 Resolvers in `hyperi_ci.deployment.registry` (`image_registry_from_cascade`,
 `base_image_from_cascade`, `argocd_repo_url_from_cascade`) mirror the
-identical functions in `hyperi-rustlib::deployment::registry`. Apps that
+identical functions in `scalo::deployment::registry`. Apps that
 delegate to these get the same answer in Rust and Python.
 
 ## See also

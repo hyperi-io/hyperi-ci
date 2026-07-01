@@ -10,7 +10,7 @@ Three-tier producer model unified by a single JSON Schema as the
 language-agnostic source of truth:
 
   Tier 1 — hyperi-rustlib  (Rust apps emit their own contract + artefacts)
-  Tier 2 — hyperi-pylib    (Python apps emit their own contract + artefacts)
+  Tier 2 — scalo    (Python apps emit their own contract + artefacts)
   Tier 3 — hyperi-ci       (everything else — templates from committed
                             ci/deployment-contract.json)
 

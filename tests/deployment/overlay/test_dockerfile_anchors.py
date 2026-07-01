@@ -24,7 +24,7 @@ from hyperi_ci.deployment.overlay.anchors.dockerfile import (
 from hyperi_ci.deployment.overlay.errors import AnchorNotFound
 from hyperi_ci.deployment.overlay.model import Overlay
 
-# A representative base Dockerfile in the shape rustlib/pylib generators emit.
+# A representative base Dockerfile in the shape rustlib/scalo generators emit.
 _BASE = """\
 FROM ubuntu:24.04
 

@@ -14,7 +14,7 @@ requires-python = ">=3.12"
 license = "LicenseRef-BUSL-1.1-HyperI"
 authors = [{ name = "HyperI Team", email = "dev@hyperi.io" }]
 maintainers = [{ name = "HyperI Team", email = "dev@hyperi.io" }]
-# Python version policy (mirrors hyperi-pylib): requires-python sets the
+# Python version policy (mirrors scalo): requires-python sets the
 # floor; the only version classifier is "Python :: 3 :: Only". Do NOT add
 # per-version classifiers (3.12, 3.13, …) — they churn on every release.
 # No OSI licence classifier — BUSL-1.1 is declared via `license` above.
@@ -37,11 +37,12 @@ classifiers = [
 dependencies = [
     # Pin to >= so transitive resolution can pick up bug fixes / new
     # features without a manifest edit. Bump the floor when we adopt
-    # new pylib APIs (e.g. deployment contract module added in 2.28).
-    # The [metrics] extra is required because pylib's __init__.py
-    # eagerly imports hyperi_pylib.metrics.prometheus → psutil.
-    # Architectural fix (lazy metrics import) is tracked in pylib.
-    "hyperi-pylib[metrics]>=2.28.2",
+    # new scalo APIs (e.g. deployment contract module added in 2.28).
+    # scalo is the successor to the deprecated hyperi-pylib (same
+    # version lineage). The [metrics] extra is required because
+    # scalo's __init__.py eagerly imports scalo.metrics -> psutil.
+    # Architectural fix (lazy metrics import) is tracked in scalo.
+    "scalo[metrics]>=2.28.5",
     "oras>=0.2.42",
     "packaging>=26.0",
     "pydantic>=2.13",
@@ -49,7 +50,7 @@ dependencies = [
     "tomli-w>=1.2.0",
     # typer is used directly by src/hyperi_ci/cli.py — declare
     # explicitly rather than relying on the transitive pull from
-    # hyperi-pylib's CLI infra. If pylib ever drops typer, this
+    # scalo's CLI infra. If scalo ever drops typer, this
     # keeps us pinned to a known surface.
     "typer>=0.25",
 ]
@@ -121,8 +122,8 @@ fail_under = 30
 
 # NOTE: no [tool.uv.sources] block here on purpose.
 #
-# Tempting to point `hyperi-pylib` at a local editable checkout
-# (/projects/hyperi-pylib) so dev changes flow through `uv sync`,
+# Tempting to point `scalo` at a local editable checkout
+# (/projects/scalo-py) so dev changes flow through `uv sync`,
 # but that breaks two things:
 #   - Dependabot's update_graph job can't resolve the path inside its
 #     container — fails on every push to main, leaving the dep-graph
@@ -130,8 +131,8 @@ fail_under = 30
 #   - Reproducibility for anyone whose checkout isn't at that exact
 #     path.
 #
-# For local pylib co-development, run from this repo:
-#   uv pip install -e /path/to/hyperi-pylib
+# For local scalo co-development, run from this repo:
+#   uv pip install -e /path/to/scalo-py
 # Manual install is per-developer scratch state; not in pyproject.
 
 [dependency-groups]

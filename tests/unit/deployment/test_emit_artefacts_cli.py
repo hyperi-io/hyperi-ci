@@ -158,7 +158,7 @@ class TestNotImplemented:
     """Phase 2 isn't done; valid contract still returns EXIT_NOT_IMPLEMENTED.
 
     The user-facing log output (which advertises the would-be artefact list)
-    goes through hyperi_pylib's loguru sink and bypasses pytest's stdout/
+    goes through scalo's loguru sink and bypasses pytest's stdout/
     stderr capture, so we only assert on the exit-code contract here.
     The advertised file list is covered separately via ARTEFACT_FILES
     being importable from the cli module.

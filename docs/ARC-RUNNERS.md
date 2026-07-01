@@ -33,7 +33,7 @@ format, one install code path, two invocation modes.
   │    arc-runner[-debian]     │
   └────────────────────────────┘
 
-  hyperi-pylib is a runtime dep of hyperi-ci (logger, config cascade, etc.)
+  scalo is a runtime dep of hyperi-ci (logger, config cascade, etc.)
   — bumping it = bumping hyperi-ci at next release.
 ```
 
@@ -174,8 +174,8 @@ Step-by-step flow when a dep-install change lands:
    exercises most of the new surface.
 7. **second canary**: `dfe-loader` — same shape as receiver, different deps
    (ClickHouse-client, Arrow, columnar). Broader apt surface.
-8. **broader rollout**: `dfe-archiver`, `dfe-fetcher`, `hyperi-rustlib`,
-   `hyperi-pylib`, the transform projects.
+8. **broader rollout**: `dfe-archiver`, `dfe-fetcher`, `scalo-rs`,
+   `scalo-py`, the transform projects.
 
 Each canary produces concrete feedback about missing coverage or apt
 conflicts; iterate on hyperi-ci YAML accordingly.

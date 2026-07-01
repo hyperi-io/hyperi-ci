@@ -12,7 +12,7 @@ container-manifest.json, argocd-application.yaml, chart/) under the
 output directory.
 
 This is the producer for Tier 3 apps in the three-tier deployment-contract
-model. Tier 1 (rustlib) and Tier 2 (pylib) apps run their own binary's
+model. Tier 1 (rustlib) and Tier 2 (scalo) apps run their own binary's
 ``generate-artefacts`` subcommand; only repos with no producer framework
 fall through to Tier 3 here.
 

@@ -6,7 +6,7 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Resolve container-registry, base-image, and ArgoCD repo from the cascade.
 
-Mirrors `hyperi-rustlib::deployment::registry`. Org-wide defaults (where
+Mirrors `scalo::deployment::registry`. Org-wide defaults (where
 images go, what they're built FROM, where ArgoCD looks) are not
 per-app concerns — they live in the YAML cascade so ops can flip them
 once for everyone.
@@ -48,7 +48,7 @@ def image_registry_from_cascade(config: CIConfig) -> str:
     Falls back to :data:`DEFAULT_IMAGE_REGISTRY` (``ghcr.io/hyperi-io``)
     when unset or empty.
 
-    Mirrors ``hyperi-rustlib::deployment::registry::image_registry_from_cascade``
+    Mirrors ``scalo::deployment::registry::image_registry_from_cascade``
     — same key, same fallback. Apps that delegate to this resolver get the
     same answer in Rust and Python.
 
@@ -72,7 +72,7 @@ def base_image_from_cascade(config: CIConfig) -> str:
     Falls back to :data:`DEFAULT_BASE_IMAGE` (``ubuntu:24.04``) when
     unset or empty.
 
-    Mirrors ``hyperi-rustlib::deployment::registry::base_image_from_cascade``.
+    Mirrors ``scalo::deployment::registry::base_image_from_cascade``.
 
     Args:
         config: The merged CIConfig.
@@ -94,7 +94,7 @@ def argocd_repo_url_from_cascade(config: CIConfig, app_name: str) -> str:
     ``https://github.com/hyperi-io/{app_name}`` — matches the org
     convention where each app lives under hyperi-io.
 
-    Mirrors ``hyperi-rustlib::deployment::registry::argocd_repo_url_from_cascade``.
+    Mirrors ``scalo::deployment::registry::argocd_repo_url_from_cascade``.
 
     Args:
         config: The merged CIConfig.

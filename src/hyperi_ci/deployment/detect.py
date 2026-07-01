@@ -9,10 +9,12 @@
 Used by Quality drift checks and the Generate stage to dispatch to the
 right producer:
 
-  Tier 1 (RUST)   — Cargo.toml depends on hyperi-rustlib; the binary
-                    itself emits artefacts via `<app> generate-artefacts`.
-  Tier 2 (PYTHON) — pyproject.toml depends on hyperi-pylib; the entry
-                    point emits via `<app> generate-artefacts`.
+  Tier 1 (RUST)   — Cargo.toml depends on scalo (or legacy
+                    hyperi-rustlib); the binary itself emits artefacts
+                    via `<app> generate-artefacts`.
+  Tier 2 (PYTHON) — pyproject.toml depends on scalo (or legacy
+                    hyperi-pylib); the entry point emits via
+                    `<app> generate-artefacts`.
   Tier 3 (OTHER)  — repo commits ``ci/deployment-contract.json``;
                     hyperi-ci's own templater emits.
   NONE            — no contract at all; container stage skips silently.
@@ -41,12 +43,24 @@ class Tier(StrEnum):
     NONE = "none"
 
 
+# Marker deps, in match precedence. ``scalo`` is the current lib name
+# on BOTH sides (the crate scalo-rs on crates.io, and the scalo package
+# on PyPI); the ``hyperi-*lib`` names are the deprecated predecessors,
+# kept so consumer repos mid-migration still detect. No ambiguity from
+# the shared ``scalo`` name: Tier 1 only reads Cargo.toml, Tier 2 only
+# reads pyproject.toml.
+_RUST_DEPLOYMENT_DEPS: tuple[str, ...] = ("scalo", "hyperi-rustlib")
+_PYTHON_DEPLOYMENT_DEPS: tuple[str, ...] = ("scalo", "hyperi-pylib")
+
+
 def detect_tier(repo_root: Path) -> Tier:
     """Detect the producer tier for a repository.
 
     Order of precedence:
-      1. Cargo.toml + hyperi-rustlib in deps → :attr:`Tier.RUST`
-      2. pyproject.toml + hyperi-pylib in deps → :attr:`Tier.PYTHON`
+      1. Cargo.toml + scalo (or legacy hyperi-rustlib) in deps
+         → :attr:`Tier.RUST`
+      2. pyproject.toml + scalo (or legacy hyperi-pylib) in deps
+         → :attr:`Tier.PYTHON`
       3. ``ci/deployment-contract.json`` exists → :attr:`Tier.OTHER`
       4. Otherwise → :attr:`Tier.NONE`
 
@@ -63,11 +77,15 @@ def detect_tier(repo_root: Path) -> Tier:
 
     """
     cargo_toml = repo_root / "Cargo.toml"
-    if cargo_toml.exists() and _depends_on(cargo_toml, "hyperi-rustlib"):
+    if cargo_toml.exists() and any(
+        _depends_on(cargo_toml, dep) for dep in _RUST_DEPLOYMENT_DEPS
+    ):
         return Tier.RUST
 
     pyproject = repo_root / "pyproject.toml"
-    if pyproject.exists() and _depends_on(pyproject, "hyperi-pylib"):
+    if pyproject.exists() and any(
+        _depends_on(pyproject, dep) for dep in _PYTHON_DEPLOYMENT_DEPS
+    ):
         return Tier.PYTHON
 
     if (repo_root / "ci" / "deployment-contract.json").is_file():
@@ -84,15 +102,15 @@ def _depends_on(manifest: Path, package_name: str) -> bool:
     Handles all the common forms (string, table, workspace inheritance):
 
         # Cargo.toml — single line
-        hyperi-rustlib = "1.0"
-        hyperi-rustlib = { version = "1.0", features = [...] }
+        scalo = "2.0"
+        scalo = { version = "2.0", features = [...] }
 
         # Cargo.toml — workspace inheritance
-        hyperi-rustlib.workspace = true
+        scalo.workspace = true
 
         # pyproject.toml — list
-        dependencies = ["hyperi-pylib>=2.24"]
-        dependencies = ["hyperi-pylib[metrics]>=2.24"]
+        dependencies = ["scalo>=2.28"]
+        dependencies = ["scalo[metrics]>=2.28"]
 
     **Self-match exclusion.** If the manifest declares its own package
     name as ``package_name`` (i.e. this manifest IS the library, not a
@@ -100,8 +118,8 @@ def _depends_on(manifest: Path, package_name: str) -> bool:
     repo gets misdispatched as a Tier 1/2 consumer and the
     deployment-artefact producer fails with "no Rust binary found" /
     equivalent. The check is generic — applies to any rustlib /
-    pylib / future *lib and to consumer projects whose own name
-    happens to share a prefix.
+    scalo / future *lib and to consumer projects whose own name
+    happens to share a prefix (scalo's own repo, for one).
 
     Doesn't try to parse TOML beyond pulling the ``name`` field out of
     a recognised top-level section because:

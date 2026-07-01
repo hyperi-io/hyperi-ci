@@ -71,7 +71,7 @@ PROJECTS_WITH_JOBS = [
 
 # Do NOT touch these projects' configs
 SKIP_PROJECTS = [
-    "hyperi-rustlib",  # Complex cross-compile + clippy config
+    "scalo-rs",  # Complex cross-compile + clippy config
     "vrl",  # Upstream Vector fork, different conventions
 ]
 

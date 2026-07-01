@@ -16,7 +16,7 @@ Used by:
     a producer framework).
   - Quick smoke testing of the contract pipeline.
 
-Tier 1 (rustlib) and Tier 2 (pylib) apps DO NOT use this — they
+Tier 1 (rustlib) and Tier 2 (scalo) apps DO NOT use this — they
 construct their contract from the app's config cascade, not from a
 template. Calling ``init-contract`` in a rustlib repo would produce a
 contract that drifts from the source of truth.

@@ -6,7 +6,7 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Shared utilities for HyperI CI.
 
-Uses hyperi-pylib logger for structured output with automatic environment
+Uses scalo logger for structured output with automatic environment
 detection (GitHub Actions workflow commands, Solarized terminal, plain CI).
 """
 
@@ -21,10 +21,10 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from hyperi_pylib.logger import logger
+from scalo.logger import logger
 
 # Initialise logger for CI use (auto-detects GH Actions, CI, terminal)
-from hyperi_pylib.logger import setup as _setup_logger
+from scalo.logger import setup as _setup_logger
 
 _setup_logger(ci_mode=None, mask_sensitive=True)
 
@@ -104,22 +104,22 @@ def is_linux() -> bool:
 
 
 def info(msg: str) -> None:
-    """Info message — delegates to hyperi-pylib logger."""
+    """Info message — delegates to scalo logger."""
     logger.info(msg)
 
 
 def success(msg: str) -> None:
-    """Success message — delegates to hyperi-pylib logger."""
+    """Success message — delegates to scalo logger."""
     logger.success(msg)
 
 
 def warn(msg: str) -> None:
-    """Warning — delegates to hyperi-pylib logger."""
+    """Warning — delegates to scalo logger."""
     logger.warning(msg)
 
 
 def error(msg: str) -> None:
-    """Error — delegates to hyperi-pylib logger."""
+    """Error — delegates to scalo logger."""
     logger.error(msg)
 
 

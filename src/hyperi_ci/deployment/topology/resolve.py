@@ -18,16 +18,16 @@ time). This module:
 versions for testability; :func:`resolve_versions` provides the
 end-to-end resolution by querying OCI via the ORAS client.
 
-Error type comes from pylib: ``hyperi_pylib.deployment.topology.errors.VersionResolutionError``.
+Error type comes from scalo: ``scalo.deployment.topology.errors.VersionResolutionError``.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from hyperi_pylib.deployment.topology.errors import VersionResolutionError
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import InvalidVersion, Version
+from scalo.deployment.topology.errors import VersionResolutionError
 
 # Indirected for test monkeypatching; real binding is oras.client.OrasClient
 try:

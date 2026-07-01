@@ -1,6 +1,6 @@
 # Contract Identity Annotation Scheme — v1
 
-**Applies to:** `hyperi-rustlib` (Tier 1), `hyperi-pylib` (Tier 2), `hyperi-ci` (Tier 3).
+**Applies to:** `hyperi-rustlib` (Tier 1), `scalo` (Tier 2), `hyperi-ci` (Tier 3).
 
 The three deployment-contract producers stamp every artefact — container
 image, Helm chart, ArgoCD `Application` — with a uniform, greppable
@@ -22,7 +22,7 @@ Semantics:
 - `version` is the **schema** version of the contract format, not the
   app's semver. Bumps only when the contract schema breaks.
 - `source-commit` is the **consumer's** SHA (e.g. `dfe-receiver`'s
-  commit), not the producer's (rustlib / pylib / hyperi-ci).
+  commit), not the producer's (rustlib / scalo / hyperi-ci).
 - `image-ref` is what a consumer pulls. Tag form pre-push, digest form
   preferred post-push where the digest is known at emit time.
 
@@ -56,7 +56,7 @@ contract-emitted artefact regardless of format.
 
 | When                                                       | Form                                                                 | Who writes it                                |
 | ---------------------------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------- |
-| Pre-push (on the image itself, at build time)              | `ghcr.io/hyperi-io/<app>:<tag>` (tag form)                           | Producer (rustlib / pylib / hyperi-ci)       |
+| Pre-push (on the image itself, at build time)              | `ghcr.io/hyperi-io/<app>:<tag>` (tag form)                           | Producer (rustlib / scalo / hyperi-ci)       |
 | Post-push (on Helm `Chart.yaml` + ArgoCD `Application`)    | `ghcr.io/hyperi-io/<app>@sha256:<digest>` (digest form **preferred**) | Push step, after registry returns the digest |
 
 Rationale: an image cannot carry its own post-build digest in a label
@@ -73,7 +73,7 @@ logical input.
 flowchart LR
   C[ci/deployment-contract.json]
   C --> R[rustlib<br/>emit-artefacts]
-  C --> P[pylib<br/>emit-artefacts]
+  C --> P[scalo<br/>emit-artefacts]
   C --> H[hyperi-ci<br/>emit-artefacts]
   R --> A[Image labels<br/>Chart.yaml annotations<br/>Application annotations]
   P --> A
@@ -91,7 +91,7 @@ Each producer ships a parity test that:
 3. Asserts values match the expected normalized form.
 4. Compares output against a golden file shared across tiers — the
    golden file lives in `hyperi-ci/tests/fixtures/contract-parity/`
-   and is consumed by rustlib + pylib parity tests.
+   and is consumed by rustlib + scalo parity tests.
 
 ## What this is NOT
 
@@ -116,7 +116,7 @@ form on Chart + Application when the push step writes them.
 `source-commit` from `git2` or env (`GITHUB_SHA` in CI,
 `git rev-parse HEAD` locally).
 
-**Tier 2 — pylib (`hyperi-pylib`):** mirror rustlib's logic in the
+**Tier 2 — scalo (`scalo`):** mirror rustlib's logic in the
 equivalent Python module. Same normalization. Same parity-test fixture.
 
 **Tier 3 — hyperi-ci templater (`src/hyperi_ci/deployment/`):** add

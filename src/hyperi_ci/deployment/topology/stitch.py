@@ -12,7 +12,7 @@ templates/, runs ``helm dep update`` + ``helm lint``.
 
 The output directory is a complete Helm chart ready for ``helm package``.
 
-Data types come from pylib (``hyperi_pylib.deployment.topology``); this
+Data types come from scalo (``scalo.deployment.topology``); this
 module holds only the operational stitching logic.
 """
 
@@ -24,12 +24,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
-from hyperi_pylib.deployment.topology import (
+from scalo.deployment.topology import (
     AppEntry,
     DeploymentTopology,
     ThirdPartyEntry,
 )
-from hyperi_pylib.deployment.topology.errors import TopologyError
+from scalo.deployment.topology.errors import TopologyError
 
 
 @dataclass

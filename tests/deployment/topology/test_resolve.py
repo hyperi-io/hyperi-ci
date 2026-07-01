@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from hyperi_pylib.deployment.topology.errors import VersionResolutionError
+from scalo.deployment.topology.errors import VersionResolutionError
 
 from hyperi_ci.deployment.topology.resolve import (
     ChartVersionResolver,

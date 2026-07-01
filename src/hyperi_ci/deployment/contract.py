@@ -1,6 +1,6 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/deployment/contract.py
-# Purpose:   Pydantic mirror of hyperi-rustlib::deployment::DeploymentContract
+# Purpose:   Pydantic mirror of scalo::deployment::DeploymentContract
 #
 # License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
@@ -28,7 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # Defaults — must match rustlib's `default_*()` functions in contract.rs,
 # keda.rs, and native_deps.rs. Bumping any of these requires a coordinated
-# rustlib + pylib + hyperi-ci release.
+# rustlib + scalo + hyperi-ci release.
 DEFAULT_SCHEMA_VERSION = 2
 DEFAULT_IMAGE_REGISTRY = "ghcr.io/hyperi-io"
 DEFAULT_BASE_IMAGE = "ubuntu:24.04"
@@ -37,7 +37,7 @@ DEFAULT_LICENSE = "BUSL-1.1"
 DEFAULT_PROTOCOL = "TCP"
 
 # Highest contract schema version this hyperi-ci can consume. Bumped in
-# lockstep with rustlib + pylib on shape changes. Mirrored in
+# lockstep with rustlib + scalo on shape changes. Mirrored in
 # config/defaults.yaml under `deployment.max_supported_schema_version`
 # for operator visibility — this constant is the strict gate.
 MAX_SUPPORTED_SCHEMA_VERSION = 2
@@ -58,7 +58,7 @@ class _StrictModel(BaseModel):
 class ImageProfile(StrEnum):
     """Container image profile — production (minimal) or development (debug tools).
 
-    Mirrors `hyperi-rustlib::deployment::contract::ImageProfile` with
+    Mirrors `scalo::deployment::contract::ImageProfile` with
     ``#[serde(rename_all = "lowercase")]`` — so JSON values are
     ``"production"`` and ``"development"``.
     """
@@ -70,7 +70,7 @@ class ImageProfile(StrEnum):
 class HealthContract(_StrictModel):
     """Health probe endpoint paths.
 
-    Mirrors `hyperi-rustlib::deployment::contract::HealthContract`.
+    Mirrors `scalo::deployment::contract::HealthContract`.
     """
 
     liveness_path: str = "/healthz"
@@ -81,7 +81,7 @@ class HealthContract(_StrictModel):
 class PortContract(_StrictModel):
     """Additional container port beyond the metrics port.
 
-    Mirrors `hyperi-rustlib::deployment::contract::PortContract`.
+    Mirrors `scalo::deployment::contract::PortContract`.
     """
 
     name: str
@@ -92,7 +92,7 @@ class PortContract(_StrictModel):
 class SecretEnvContract(_StrictModel):
     """A single environment variable sourced from a K8s Secret.
 
-    Mirrors `hyperi-rustlib::deployment::contract::SecretEnvContract`.
+    Mirrors `scalo::deployment::contract::SecretEnvContract`.
     """
 
     env_var: str
@@ -103,7 +103,7 @@ class SecretEnvContract(_StrictModel):
 class SecretGroupContract(_StrictModel):
     """A group of secrets from the same K8s Secret.
 
-    Mirrors `hyperi-rustlib::deployment::contract::SecretGroupContract`.
+    Mirrors `scalo::deployment::contract::SecretGroupContract`.
     """
 
     group_name: str
@@ -117,7 +117,7 @@ class OciLabels(_StrictModel):
     revision, version, created) are injected by CI at build time via
     --build-arg.
 
-    Mirrors `hyperi-rustlib::deployment::contract::OciLabels`.
+    Mirrors `scalo::deployment::contract::OciLabels`.
     """
 
     title: str = ""
@@ -129,7 +129,7 @@ class OciLabels(_StrictModel):
 class AptRepoContract(_StrictModel):
     """A custom APT repository (e.g., Confluent for librdkafka).
 
-    Mirrors `hyperi-rustlib::deployment::native_deps::AptRepoContract`.
+    Mirrors `scalo::deployment::native_deps::AptRepoContract`.
     """
 
     key_url: str
@@ -142,7 +142,7 @@ class AptRepoContract(_StrictModel):
 class NativeDepsContract(_StrictModel):
     """Runtime native dependencies for a container image.
 
-    Mirrors `hyperi-rustlib::deployment::native_deps::NativeDepsContract`.
+    Mirrors `scalo::deployment::native_deps::NativeDepsContract`.
     """
 
     apt_repos: list[AptRepoContract] = Field(default_factory=list)
@@ -156,7 +156,7 @@ class NativeDepsContract(_StrictModel):
 class KedaContract(_StrictModel):
     """KEDA contract points validated against Helm values.yaml.
 
-    Mirrors `hyperi-rustlib::deployment::keda::KedaContract`. Defaults
+    Mirrors `scalo::deployment::keda::KedaContract`. Defaults
     derived from `KedaConfig::default()` in rustlib.
     """
 
@@ -178,7 +178,7 @@ class DeploymentContract(_StrictModel):
     Helm chart, Compose fragment, ArgoCD Application, container manifest)
     from the same source.
 
-    Mirrors `hyperi-rustlib::deployment::contract::DeploymentContract`.
+    Mirrors `scalo::deployment::contract::DeploymentContract`.
     Field order, defaults, and serde behaviour MUST track rustlib exactly
     — the parity tests assert byte-identical JSON output for shared
     fixtures.
@@ -222,7 +222,7 @@ class DeploymentContract(_StrictModel):
 
         Note: this constant must be bumped in lockstep with the
         `deployment.max_supported_schema_version` key in
-        `config/defaults.yaml` and in rustlib + pylib at every coordinated
+        `config/defaults.yaml` and in rustlib + scalo at every coordinated
         release. The yaml entry is for operator visibility only — this
         constant is the strict gate.
         """

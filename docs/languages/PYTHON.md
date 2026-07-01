@@ -40,18 +40,18 @@ versions found". We're OSS-only (a single public index), so this can't bite
 today, but it's why the reusable workflows carry an in-code warning against
 adding `UV_EXTRA_INDEX_URL` that mixes a private index with the public one.
 
-### hyperi-ci pins hyperi-pylib exactly
+### hyperi-ci pins scalo exactly
 
-hyperi-ci is the CI tool for every repo, so a broken pylib would break CI
-everywhere. hyperi-ci pins `hyperi-pylib==<exact>` in its `pyproject.toml`. pylib
+hyperi-ci is the CI tool for every repo, so a broken scalo would break CI
+everywhere. hyperi-ci pins `scalo==<exact>` in its `pyproject.toml`. scalo
 is on public PyPI; hyperi-ci's own CI uses `uv sync --no-sources` to resolve from
 PyPI rather than a local editable path.
 
 ### Eager imports gate extras
 
-pylib eager-imports optional native deps (e.g. psutil) in some paths — a bare
-`hyperi-pylib` install can fail at import. Consumers needing those paths declare
-the relevant extra (e.g. `hyperi-pylib[metrics]`) until pylib lazy-imports.
+scalo eager-imports optional native deps (e.g. psutil) in some paths — a bare
+`scalo` install can fail at import. Consumers needing those paths declare
+the relevant extra (e.g. `scalo[metrics]`) until scalo lazy-imports.
 
 ## Self-hosting
 

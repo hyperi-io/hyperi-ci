@@ -73,10 +73,10 @@ def _write_tier1_repo(root: Path, *, with_binary: bool = False) -> Path:
 
 
 def _write_tier2_repo(root: Path) -> None:
-    """Tier 2 layout: pyproject.toml with hyperi-pylib + scripts."""
+    """Tier 2 layout: pyproject.toml with scalo + scripts."""
     (root / "pyproject.toml").write_text(
         '[project]\nname = "demo-app"\n'
-        'dependencies = ["hyperi-pylib>=2.24"]\n'
+        'dependencies = ["scalo>=2.28"]\n'
         "[project.scripts]\n"
         'demo-app = "demo_app.main:main"\n',
         encoding="utf-8",
@@ -312,7 +312,7 @@ class TestRustBinaryName:
 
 
 class TestTier2:
-    """Tier 2 (python + pylib) invokes the entry point via uv run.
+    """Tier 2 (python + scalo) invokes the entry point via uv run.
 
     The producer entry point lives in the project's uv venv, not on
     PATH, so the stage prefers ``uv run`` and only falls back to a bare
@@ -348,7 +348,7 @@ class TestTier2:
     ) -> None:
         # pyproject.toml without [project.scripts] — no entry point to invoke.
         (tmp_path / "pyproject.toml").write_text(
-            '[project]\nname = "demo"\ndependencies = ["hyperi-pylib>=2.24"]\n',
+            '[project]\nname = "demo"\ndependencies = ["scalo>=2.28"]\n',
             encoding="utf-8",
         )
         rc = run(output_dir=tmp_path / "ci-tmp", project_dir=tmp_path)

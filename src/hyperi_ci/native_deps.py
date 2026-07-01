@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
-from hyperi_pylib import logger
+from scalo import logger
 
 # Codenames to try as fallbacks when a given APT repo doesn't ship
 # packages for the current OS codename. Ordered by preference (newest

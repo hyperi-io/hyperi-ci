@@ -1,6 +1,6 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/cli.py
-# Purpose:   CLI entry point for hyperi-ci tool (Typer via hyperi-pylib)
+# Purpose:   CLI entry point for hyperi-ci tool (Typer via scalo)
 #
 # License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
@@ -890,7 +890,7 @@ def init_contract_cmd(
     the very first emit-artefacts run works without manual editing.
 
     Tier 3 only — Rust apps build their contract via
-    rustlib's DeploymentContract source, Python apps via pylib's
+    rustlib's DeploymentContract source, Python apps via scalo's
     Application.deployment_contract(). Calling this in a Tier 1/2 repo
     would create a contract that drifts from the framework's source
     of truth.
@@ -1067,8 +1067,8 @@ def stitch_cmd(
       3  OCI version resolution failed
       4  helm tooling failure
     """
-    from hyperi_pylib.deployment.topology import load_topology
-    from hyperi_pylib.deployment.topology.errors import (
+    from scalo.deployment.topology import load_topology
+    from scalo.deployment.topology.errors import (
         TopologyError,
         TopologyValidationError,
         VersionResolutionError,

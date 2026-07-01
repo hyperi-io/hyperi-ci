@@ -309,11 +309,11 @@ wheels = [
 name = "hyperi-ci"
 source = { editable = "." }
 dependencies = [
-    { name = "hyperi-pylib", extra = ["metrics"] },
     { name = "oras" },
     { name = "packaging" },
     { name = "pydantic" },
     { name = "pyyaml" },
+    { name = "scalo", extra = ["metrics"] },
     { name = "tomli-w" },
     { name = "typer" },
 ]
@@ -328,11 +328,11 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "hyperi-pylib", extras = ["metrics"], specifier = ">=2.28.2" },
     { name = "oras", specifier = ">=0.2.42" },
     { name = "packaging", specifier = ">=26.0" },
     { name = "pydantic", specifier = ">=2.13" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "scalo", extras = ["metrics"], specifier = ">=2.28.5" },
     { name = "tomli-w", specifier = ">=1.2.0" },
     { name = "typer", specifier = ">=0.25" },
 ]
@@ -343,37 +343,6 @@ dev = [
     { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "ruff", specifier = ">=0.15.12" },
-]
-
-[[package]]
-name = "hyperi-pylib"
-version = "2.28.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "anyio" },
-    { name = "asyncer" },
-    { name = "detect-secrets" },
-    { name = "dulwich" },
-    { name = "dynaconf" },
-    { name = "loguru" },
-    { name = "mergedeep" },
-    { name = "phonenumbers" },
-    { name = "python-dotenv" },
-    { name = "python-stdnum" },
-    { name = "pyyaml" },
-    { name = "regex" },
-    { name = "tomli-w" },
-    { name = "typer" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/3c/10/f9defcbcf8508eedf44d1db3355e1f1dff4566adfccdfd696102ed33ac97/hyperi_pylib-2.28.2.tar.gz", hash = "sha256:a872e62a237d97921a9d53ecccf7bf7aae8d52b178af3d14c738aadd802cd7dc", size = 281052, upload-time = "2026-05-20T04:54:24.857Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/de/f6/0370ab9c7182d8f21e58e8c3356ffd214b8091e50dabddd0eeb20ef3746c/hyperi_pylib-2.28.2-py3-none-any.whl", hash = "sha256:2317fe9c331fa66993fad06cc74c217b09b50a85f194a844feb4116ac752b41a", size = 356469, upload-time = "2026-05-20T04:54:26.388Z" },
-]
-
-[package.optional-dependencies]
-metrics = [
-    { name = "prometheus-client" },
-    { name = "psutil" },
 ]
 
 [[package]]
@@ -968,6 +937,37 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/ea/f9/0ae446942c846b8266059ad8a30702a35afae55f5cdc54c5adf8d7afdc27/ruff-0.15.12-py3-none-win32.whl", hash = "sha256:d0185894e038d7043ba8fd6aee7499ece6462dc0ea9f1e260c7451807c714c20", size = 10657277, upload-time = "2026-04-24T18:17:18.591Z" },
     { url = "https://files.pythonhosted.org/packages/33/f1/9614e03e1cdcbf9437570b5400ced8a720b5db22b28d8e0f1bda429f660d/ruff-0.15.12-py3-none-win_amd64.whl", hash = "sha256:c87a162d61ab3adca47c03f7f717c68672edec7d1b5499e652331780fe74950d", size = 11837758, upload-time = "2026-04-24T18:17:00.113Z" },
     { url = "https://files.pythonhosted.org/packages/c0/98/6beb4b351e472e5f4c4613f7c35a5290b8be2497e183825310c4c3a3984b/ruff-0.15.12-py3-none-win_arm64.whl", hash = "sha256:a538f7a82d061cee7be55542aca1d86d1393d55d81d4fcc314370f4340930d4f", size = 11120821, upload-time = "2026-04-24T18:16:57.979Z" },
+]
+
+[[package]]
+name = "scalo"
+version = "2.29.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "asyncer" },
+    { name = "detect-secrets" },
+    { name = "dulwich" },
+    { name = "dynaconf" },
+    { name = "loguru" },
+    { name = "mergedeep" },
+    { name = "phonenumbers" },
+    { name = "python-dotenv" },
+    { name = "python-stdnum" },
+    { name = "pyyaml" },
+    { name = "regex" },
+    { name = "tomli-w" },
+    { name = "typer" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7a/d0/6a62e6ffe04b867c6af70dfec46ed4713c5946a197c9c164e0524c90a9f9/scalo-2.29.2.tar.gz", hash = "sha256:0184a65c58045a25194a5ee720cd07926270acd037659e7e49cae62d2df47621", size = 271230, upload-time = "2026-06-26T09:09:52.488Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ee/ca/c83412a0f6a2d8badca2a29637c3b925937c92d7a626790c4e4ab2e06b6b/scalo-2.29.2-py3-none-any.whl", hash = "sha256:54c9635616e10d6331e4ff9858402eaaaea66d7624c464886678d1b985241514", size = 338244, upload-time = "2026-06-26T09:09:51.054Z" },
+]
+
+[package.optional-dependencies]
+metrics = [
+    { name = "prometheus-client" },
+    { name = "psutil" },
 ]
 
 [[package]]

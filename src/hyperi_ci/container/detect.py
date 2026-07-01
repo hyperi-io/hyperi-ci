@@ -166,13 +166,14 @@ def _cargo_metadata(project_dir: Path) -> dict | None:
 
 
 def _rust_supports_contract(project_dir: Path) -> bool:
-    """Return True if the Rust project depends on hyperi-rustlib (contract source).
+    """Return True if the Rust project depends on scalo (contract source).
 
-    The contract source is the rustlib ``DfeApp::generate_artefacts``
-    code path, which is exposed by every binary that uses rustlib's CLI
-    harness. Presence of ``hyperi-rustlib`` in the project's manifest
-    is a sufficient signal — projects opting out of contract mode can
-    still set ``publish.container.mode: custom`` explicitly.
+    The contract source is scalo's ``DfeApp::generate_artefacts`` code
+    path, which is exposed by every binary that uses scalo's CLI
+    harness. Presence of ``scalo`` (or the deprecated predecessor
+    ``hyperi-rustlib``) in the project's manifest is a sufficient
+    signal — projects opting out of contract mode can still set
+    ``publish.container.mode: custom`` explicitly.
     """
     cargo_toml = project_dir / "Cargo.toml"
     if not cargo_toml.exists():
@@ -182,7 +183,7 @@ def _rust_supports_contract(project_dir: Path) -> bool:
     except Exception:
         return False
     deps = manifest.get("dependencies", {})
-    return "hyperi-rustlib" in deps
+    return "scalo" in deps or "hyperi-rustlib" in deps
 
 
 def _python_is_library(project_dir: Path) -> bool:

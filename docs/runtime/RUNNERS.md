@@ -51,7 +51,7 @@ flowchart TB
     HCI -->|"pip install hyperi-ci"| AUTO
 ```
 
-`hyperi-pylib` is a runtime dep of hyperi-ci — bumping pylib means bumping
+`scalo` is a runtime dep of hyperi-ci — bumping scalo means bumping
 hyperi-ci at its next release.
 
 ### Two invocation modes
@@ -197,7 +197,7 @@ flowchart LR
     PUB --> BUMP["hyperi-infra: bump<br/>'hyperi-ci>=X.Y' pin,<br/>rebuild image"]
     BUMP --> C1["canary: dfe-receiver<br/>(exercises BOLT)"]
     C1 --> C2["canary: dfe-loader<br/>(ClickHouse/Arrow surface)"]
-    C2 --> ALL["broader: archiver, fetcher,<br/>rustlib, pylib, transforms"]
+    C2 --> ALL["broader: archiver, fetcher,<br/>scalo-rs, scalo-py, transforms"]
 ```
 
 Each canary surfaces missing coverage or apt conflicts; iterate on the YAML.

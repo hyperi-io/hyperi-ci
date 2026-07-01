@@ -8,7 +8,7 @@
 
 Anchor names map to keyword-relative line positions in the base
 Dockerfile. The contract-generated Dockerfile (rustlib's
-``generate_dockerfile()`` or pylib's equivalent) emits a predictable
+``generate_dockerfile()`` or scalo's equivalent) emits a predictable
 shape with each top-level directive appearing once, which makes
 keyword-on-line matching unambiguous and avoids needing rustlib to
 emit explicit marker comments.

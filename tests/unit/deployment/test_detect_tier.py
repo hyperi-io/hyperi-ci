@@ -45,6 +45,14 @@ class TestDetectTier:
         )
         assert detect_tier(tmp_path) == Tier.RUST
 
+    def test_cargo_with_scalo_is_rust(self, tmp_path: Path) -> None:
+        # scalo is the current crate name (scalo-rs on crates.io).
+        (tmp_path / "Cargo.toml").write_text(
+            '[package]\nname = "x"\n[dependencies]\nscalo = "2.9"\n',
+            encoding="utf-8",
+        )
+        assert detect_tier(tmp_path) == Tier.RUST
+
     def test_cargo_without_rustlib_is_not_rust(self, tmp_path: Path) -> None:
         (tmp_path / "Cargo.toml").write_text(
             '[package]\nname = "x"\n[dependencies]\nserde = "1"\n',
@@ -52,22 +60,38 @@ class TestDetectTier:
         )
         assert detect_tier(tmp_path) == Tier.NONE
 
-    def test_pyproject_with_pylib_is_python(self, tmp_path: Path) -> None:
+    def test_pyproject_with_scalo_is_python(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "x"\ndependencies = ["scalo>=2.28"]\n',
+            encoding="utf-8",
+        )
+        assert detect_tier(tmp_path) == Tier.PYTHON
+
+    def test_pyproject_with_scalo_extras_is_python(self, tmp_path: Path) -> None:
+        # The metrics extra string still contains "scalo".
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "x"\ndependencies = ["scalo[metrics]>=2.28"]\n',
+            encoding="utf-8",
+        )
+        assert detect_tier(tmp_path) == Tier.PYTHON
+
+    def test_pyproject_with_legacy_pylib_is_python(self, tmp_path: Path) -> None:
+        # hyperi-pylib is deprecated but still recognised for consumers
+        # mid-migration to scalo.
         (tmp_path / "pyproject.toml").write_text(
             '[project]\nname = "x"\ndependencies = ["hyperi-pylib>=2.24"]\n',
             encoding="utf-8",
         )
         assert detect_tier(tmp_path) == Tier.PYTHON
 
-    def test_pyproject_with_pylib_extras_is_python(self, tmp_path: Path) -> None:
-        # The metrics extra string still contains "hyperi-pylib".
+    def test_pyproject_with_legacy_pylib_extras_is_python(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text(
             '[project]\nname = "x"\ndependencies = ["hyperi-pylib[metrics]>=2.24"]\n',
             encoding="utf-8",
         )
         assert detect_tier(tmp_path) == Tier.PYTHON
 
-    def test_pyproject_without_pylib_is_not_python(self, tmp_path: Path) -> None:
+    def test_pyproject_without_scalo_is_not_python(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text(
             '[project]\nname = "x"\ndependencies = ["pyyaml>=6"]\n',
             encoding="utf-8",
@@ -97,19 +121,19 @@ class TestDetectTier:
         assert detect_tier(tmp_path) == Tier.RUST
 
     def test_rust_wins_over_python(self, tmp_path: Path) -> None:
-        # Some repos vendor both. Rust is the main producer; pylib is for
+        # Some repos vendor both. Rust is the main producer; scalo is for
         # the integrations subdir. Rust takes precedence.
         (tmp_path / "Cargo.toml").write_text(
             '[dependencies]\nhyperi-rustlib = "2.5"\n', encoding="utf-8"
         )
         (tmp_path / "pyproject.toml").write_text(
-            'dependencies = ["hyperi-pylib>=2.24"]\n', encoding="utf-8"
+            'dependencies = ["scalo>=2.24"]\n', encoding="utf-8"
         )
         assert detect_tier(tmp_path) == Tier.RUST
 
     def test_python_wins_over_other(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text(
-            '[project]\ndependencies = ["hyperi-pylib>=2.24"]\n',
+            '[project]\ndependencies = ["scalo>=2.24"]\n',
             encoding="utf-8",
         )
         ci_dir = tmp_path / "ci"
@@ -130,9 +154,18 @@ class TestSelfMatchExclusion:
     Tier 1/2 producer, which then fails with "no binary found".
     """
 
+    def test_scalo_rust_own_repo_is_not_rust(self, tmp_path: Path) -> None:
+        # scalo-rs's own Cargo.toml has `name = "scalo"` in [package] but
+        # no `scalo = ...` dep line — must not self-detect as Tier RUST.
+        (tmp_path / "Cargo.toml").write_text(
+            '[package]\nname = "scalo"\nversion = "2.9.0"\n',
+            encoding="utf-8",
+        )
+        assert detect_tier(tmp_path) == Tier.NONE
+
     def test_hyperi_rustlib_own_repo_is_not_rust(self, tmp_path: Path) -> None:
-        # The library's own Cargo.toml has `name = "hyperi-rustlib"` in
-        # [package] but no `hyperi-rustlib = ...` dep line.
+        # The legacy library's own Cargo.toml has `name = "hyperi-rustlib"`
+        # in [package] but no `hyperi-rustlib = ...` dep line.
         (tmp_path / "Cargo.toml").write_text(
             '[package]\nname = "hyperi-rustlib"\nversion = "2.7.0"\n',
             encoding="utf-8",
@@ -151,17 +184,24 @@ class TestSelfMatchExclusion:
         )
         assert detect_tier(tmp_path) == Tier.NONE
 
-    def test_hyperi_pylib_own_repo_is_not_python(self, tmp_path: Path) -> None:
+    def test_scalo_own_repo_is_not_python(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "scalo"\nversion = "2.29.0"\n',
+            encoding="utf-8",
+        )
+        assert detect_tier(tmp_path) == Tier.NONE
+
+    def test_legacy_pylib_own_repo_is_not_python(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text(
             '[project]\nname = "hyperi-pylib"\nversion = "2.24.0"\n',
             encoding="utf-8",
         )
         assert detect_tier(tmp_path) == Tier.NONE
 
-    def test_hyperi_pylib_poetry_section_also_excluded(self, tmp_path: Path) -> None:
+    def test_scalo_poetry_section_also_excluded(self, tmp_path: Path) -> None:
         # Poetry-managed projects use [tool.poetry] instead of [project].
         (tmp_path / "pyproject.toml").write_text(
-            '[tool.poetry]\nname = "hyperi-pylib"\nversion = "2.24.0"\n',
+            '[tool.poetry]\nname = "scalo"\nversion = "2.29.0"\n',
             encoding="utf-8",
         )
         assert detect_tier(tmp_path) == Tier.NONE

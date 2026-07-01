@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 import yaml
-from hyperi_pylib.deployment.topology import (
+from scalo.deployment.topology import (
     AppEntry,
     DeploymentTopology,
     GlueEntry,
@@ -12,7 +12,7 @@ from hyperi_pylib.deployment.topology import (
     TopologySpec,
     UmbrellaMeta,
 )
-from hyperi_pylib.deployment.topology.errors import TopologyError
+from scalo.deployment.topology.errors import TopologyError
 
 from hyperi_ci.deployment.topology.stitch import (
     generate_chart_yaml,

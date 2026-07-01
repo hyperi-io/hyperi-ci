@@ -17,8 +17,8 @@ import time
 import urllib.request
 from pathlib import Path
 
-from hyperi_pylib.logger import logger
 from packaging.version import Version
+from scalo.logger import logger
 
 from hyperi_ci import __version__
 from hyperi_ci.common import is_ci
