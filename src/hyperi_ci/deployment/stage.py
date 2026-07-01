@@ -213,6 +213,17 @@ def _run_tier2(output_dir: Path, project_dir: Path) -> int:
     ``Application.deployment_contract()`` emits artefacts from. If
     multiple scripts are declared, the first one wins.
 
+    The entry point is installed into the project's uv-managed virtualenv
+    (via ``uv sync``), not the global ``PATH`` — so a bare ``PATH`` lookup
+    fails under ``uvx hyperi-ci run generate`` in CI, where the venv is
+    never activated. When ``uv`` is available we invoke through
+    ``uv run``, which resolves the script in the project environment
+    regardless of activation and respects ``UV_PROJECT_ENVIRONMENT``.
+    ``--frozen`` keeps the lockfile untouched (matching the workflow's
+    ``uv sync --frozen``, so generate can't mutate the lock). Falls back
+    to a ``PATH`` lookup when ``uv`` is absent but the script is installed
+    globally.
+
     Until hyperi-pylib ships its mirror of the rustlib deployment
     module (parallel work; not yet started), even an installed entry
     point will fail with no ``generate-artefacts`` subcommand. That
@@ -227,12 +238,31 @@ def _run_tier2(output_dir: Path, project_dir: Path) -> int:
         )
         return EXIT_PRODUCER_MISSING
 
+    uv = shutil.which("uv")
+    if uv is not None:
+        info(f"Generate (Tier 2): running uv run {script_name} generate-artefacts")
+        cmd = [
+            uv,
+            "run",
+            "--frozen",
+            "--project",
+            str(project_dir),
+            script_name,
+            "generate-artefacts",
+            "--output-dir",
+            str(output_dir),
+        ]
+        return _run_producer_subprocess(cmd, "Python")
+
     binary = shutil.which(script_name)
     if binary is None:
-        error(f"Generate (Tier 2): {script_name!r} not on PATH.")
+        error(
+            f"Generate (Tier 2): {script_name!r} not resolvable — "
+            "uv not on PATH and no globally installed script."
+        )
         info(
-            f"Run `uv sync --project {project_dir}` "
-            f"(or `pip install -e {project_dir}`) first."
+            f"Install uv (recommended), or run `uv sync --project {project_dir}` "
+            f"(or `pip install -e {project_dir}`) so {script_name!r} resolves."
         )
         return EXIT_PRODUCER_MISSING
 

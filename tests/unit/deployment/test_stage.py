@@ -312,13 +312,33 @@ class TestRustBinaryName:
 
 
 class TestTier2:
-    """Tier 2 (python + pylib) routes through PATH lookup."""
+    """Tier 2 (python + pylib) invokes the entry point via uv run.
 
-    def test_entry_point_not_on_path_returns_producer_missing(
+    The producer entry point lives in the project's uv venv, not on
+    PATH, so the stage prefers ``uv run`` and only falls back to a bare
+    PATH lookup when uv is absent.
+    """
+
+    def test_uv_run_invoked_when_uv_present(self, tmp_path: Path, monkeypatch) -> None:
+        _write_tier2_repo(tmp_path)
+        # Fake `uv` on PATH that succeeds for any args — isolates the test
+        # from a real uv/venv while exercising the uv-run producer path.
+        bindir = tmp_path / "fakebin"
+        bindir.mkdir()
+        uv = bindir / "uv"
+        uv.write_text('#!/usr/bin/env bash\nexit 0\n', encoding="utf-8")
+        os.chmod(uv, uv.stat().st_mode | stat.S_IXUSR)
+        # Prepend so the fake uv wins shutil.which while bash stays resolvable.
+        monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
+        rc = run(output_dir=tmp_path / "ci-tmp", project_dir=tmp_path)
+        # Fake uv exits 0 → producer succeeded.
+        assert rc == EXIT_OK
+
+    def test_entry_point_unresolvable_returns_producer_missing(
         self, tmp_path: Path, monkeypatch
     ) -> None:
         _write_tier2_repo(tmp_path)
-        # Empty PATH so shutil.which can't find demo-app.
+        # Empty PATH: neither uv nor the demo-app script is resolvable.
         monkeypatch.setenv("PATH", str(tmp_path / "no-such-bin"))
         rc = run(output_dir=tmp_path / "ci-tmp", project_dir=tmp_path)
         assert rc == EXIT_PRODUCER_MISSING
