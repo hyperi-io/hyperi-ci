@@ -102,6 +102,12 @@ class CIConfig:
     def destination_for(self, artifact_type: str) -> list[str]:
         """Get publish destination(s) for a specific artifact type.
 
+        A falsy destination (``false`` / ``null`` / empty) is treated as an
+        opt-out and skipped, so a project can drop one artefact from
+        publishing while keeping the rest — e.g. a private Python service
+        that ships only its GHCR container sets
+        ``publish.destinations_oss.python: false``.
+
         Args:
             artifact_type: One of python, npm, cargo, container, helm, binaries, go.
 
@@ -112,7 +118,7 @@ class CIConfig:
         return [
             dest[artifact_type]
             for dest in self.publish_destinations()
-            if artifact_type in dest
+            if artifact_type in dest and dest[artifact_type]
         ]
 
 

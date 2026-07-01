@@ -96,6 +96,23 @@ class TestCIConfig:
         assert config.destination_for("python") == ["pypi"]
         assert config.destination_for("container") == ["ghcr"]
 
+    def test_destination_for_falsy_is_opt_out(self) -> None:
+        # A private Python service ships only its GHCR container: python
+        # is opted out with `false`, container still resolves.
+        config = CIConfig(
+            publish_target="oss",
+            _raw={
+                "publish": {
+                    "destinations_oss": {
+                        "python": False,
+                        "container": "ghcr",
+                    },
+                },
+            },
+        )
+        assert config.destination_for("python") == []
+        assert config.destination_for("container") == ["ghcr"]
+
     def test_legacy_target_internal_routes_to_oss(self) -> None:
         """Legacy ``target: internal`` is accepted for back-compat but
         ignored — every publish goes to OSS destinations.
