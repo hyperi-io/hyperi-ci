@@ -56,8 +56,7 @@ def test_rust_binary_with_dockerfile_uses_custom_mode(tmp_path: Path) -> None:
 def test_rust_binary_with_scalo_dep_uses_contract_mode(tmp_path: Path) -> None:
     _write_cargo_toml(
         tmp_path,
-        '[package]\nname = "myapp"\nversion = "0.1.0"\n'
-        '[dependencies]\nscalo = "2.9"\n',
+        '[package]\nname = "myapp"\nversion = "0.1.0"\n[dependencies]\nscalo = "2.9"\n',
     )
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "main.rs").write_text("fn main() {}\n")
@@ -82,7 +81,7 @@ def test_rust_binary_with_legacy_rustlib_dep_uses_contract_mode(
     assert decision.mode == "contract"
 
 
-def test_rust_binary_no_dockerfile_no_rustlib_skips(tmp_path: Path) -> None:
+def test_rust_binary_no_dockerfile_no_scalo_skips(tmp_path: Path) -> None:
     _write_cargo_toml(
         tmp_path,
         '[package]\nname = "myapp"\nversion = "0.1.0"\n',

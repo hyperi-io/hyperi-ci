@@ -365,7 +365,7 @@ def stage_generate(language: str, config: CIConfig) -> int:
     """Deployment-artefact generation — cross-tier stage.
 
     Sits between Build and Container in the pipeline. Auto-detects the
-    producer tier from the project shape (rustlib dep / scalo dep /
+    producer tier from the project shape (scalo-rs dep / scalo-py dep /
     bare contract.json) and dispatches to the appropriate producer.
 
     The ``language`` argument is unused here — tier detection is

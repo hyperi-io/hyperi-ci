@@ -9,7 +9,7 @@
 Three-state ``publish.container.enabled`` gate:
 
 * ``auto`` (default): build when a container artefact is detected
-  (Dockerfile in repo, or rustlib contract source). Library projects
+  (Dockerfile in repo, or scalo contract source). Library projects
   and projects with no signal skip silently.
 * ``true``: build is required. Fails loudly if no signal is present —
   surfaces a regression where a project lost its containerisable

@@ -84,7 +84,7 @@ def test_manifest_defaults():
 
 
 def test_manifest_user_as_bare_string_is_normalised():
-    """rustlib emits ``"user": "appuser"`` (string); we accept both
+    """scalo emits ``"user": "appuser"`` (string); we accept both
     string and dict forms and normalise to the dict shape so compose.py
     can always call ``user.get("uid")``.
     """

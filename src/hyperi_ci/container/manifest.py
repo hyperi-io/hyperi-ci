@@ -1,10 +1,10 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/container/manifest.py
-# Purpose:   Parse container-manifest.json from rustlib deployment contract
+# Purpose:   Parse container-manifest.json from scalo deployment contract
 #
 # License:   BUSL-1.1
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Parse container-manifest.json emitted by rustlib deployment contracts."""
+"""Parse container-manifest.json emitted by scalo deployment contracts."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ _REQUIRED_FIELDS = ["base_image", "binary_name"]
 
 @dataclass
 class ContainerManifest:
-    """Parsed container manifest from a rustlib deployment contract."""
+    """Parsed container manifest from a scalo deployment contract."""
 
     base_image: str
     binary_name: str
@@ -47,7 +47,7 @@ class ContainerManifest:
                 msg = f"container-manifest.json missing required field: {field_name}"
                 raise ValueError(msg)
 
-        # rustlib emits ``"user": "appuser"`` (bare string) while older
+        # scalo emits ``"user": "appuser"`` (bare string) while older
         # contracts and the dataclass default use ``{"name": ..., "uid": ...}``.
         # Normalise both shapes to a dict here so downstream code can assume
         # the dict form unconditionally.

@@ -7,16 +7,16 @@
 """Dockerfile anchor resolver.
 
 Anchor names map to keyword-relative line positions in the base
-Dockerfile. The contract-generated Dockerfile (rustlib's
+Dockerfile. The contract-generated Dockerfile (scalo's
 ``generate_dockerfile()`` or scalo's equivalent) emits a predictable
 shape with each top-level directive appearing once, which makes
-keyword-on-line matching unambiguous and avoids needing rustlib to
+keyword-on-line matching unambiguous and avoids needing scalo to
 emit explicit marker comments.
 
 If a future consumer needs a finer-grained anchor that doesn't map to
 a Dockerfile keyword landmark, revisit by either (a) adding a new
 keyword anchor here that the consumer's contract-generator already
-emits, or (b) introducing rustlib-side marker comments — but only
+emits, or (b) introducing scalo-side marker comments — but only
 when at least one consumer actually pulls for it (Rule of Three).
 
 Anchor catalog (order = position-in-file):

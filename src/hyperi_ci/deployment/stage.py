@@ -10,7 +10,7 @@ Sits between Build and Container in the pipeline. Auto-detects the
 producer tier and dispatches:
 
   Tier 1 (RUST)   → subprocess `<app> generate-artefacts --output-dir <out>`
-                    (binary built by the Build stage; rustlib 2.7+
+                    (binary built by the Build stage; scalo 2.7+
                     provides the subcommand)
   Tier 2 (PYTHON) → subprocess `<app> generate-artefacts --output-dir <out>`
                     (entry point installed via uv; scalo 2.x provides
@@ -24,7 +24,7 @@ The Container stage then reads from ``ci-tmp/Dockerfile.runtime`` and
 ``ci-tmp/container-manifest.json`` rather than the repo's committed
 ``ci/`` so a stale commit can't poison a build.
 
-Until rustlib 2.7+ and scalo 2.x ship their generators, Tier RUST and
+Until the scalo crate (2.7+) and package (2.x) ship their generators, Tier RUST and
 Tier PYTHON paths return a clear "producer not yet shipped" error.
 Tier 3 works end-to-end (its templater is similarly Phase-2-blocked,
 but the dispatch and exit-code contract is already wired so adopters
@@ -45,7 +45,7 @@ DEFAULT_OUTPUT_DIR = Path("ci-tmp")
 DEFAULT_DRIFT_DIR = Path(".tmp/drift")
 
 # Exit codes layered on top of `emit_artefacts`'s set. EXIT_PRODUCER_MISSING
-# means the tier was detected but the producer isn't present yet (rustlib
+# means the tier was detected but the producer isn't present yet (scalo
 # binary not built, scalo entry point not on PATH, etc.) — distinct from
 # EXIT_CONTRACT_MISSING (= 2 from emit_artefacts) which means the JSON
 # contract file isn't there.
@@ -173,7 +173,7 @@ def check_drift(
 
 
 def _run_tier1(output_dir: Path, project_dir: Path) -> int:
-    """Tier 1 (Rust + rustlib): subprocess into the app binary.
+    """Tier 1 (Rust + scalo): subprocess into the app binary.
 
     The binary is expected at one of:
       - ``dist/<bin>-linux-amd64`` (post-Build artifact in CI)
@@ -184,7 +184,7 @@ def _run_tier1(output_dir: Path, project_dir: Path) -> int:
     none exist — the caller is expected to run Build (CI) or
     ``cargo build`` (local) first.
 
-    Until hyperi-rustlib 2.7+ ships and an app actually adopts the
+    Until scalo 2.7+ ships and an app actually adopts the
     `cli-service,deployment` features, even a built binary will fail
     with "unknown subcommand 'generate-artefacts'". That's an
     EXIT_PRODUCER_FAILED case, distinguished by exit code from the
@@ -224,7 +224,7 @@ def _run_tier2(output_dir: Path, project_dir: Path) -> int:
     to a ``PATH`` lookup when ``uv`` is absent but the script is installed
     globally.
 
-    Until scalo ships its mirror of the rustlib deployment
+    Until the scalo Python package ships its mirror of the scalo Rust crate's deployment
     module (parallel work; not yet started), even an installed entry
     point will fail with no ``generate-artefacts`` subcommand. That
     presents as EXIT_PRODUCER_FAILED.
@@ -312,13 +312,13 @@ def _run_producer_subprocess(cmd: list[str], tier_label: str) -> int:
     if result.returncode != 0:
         error(f"Generate ({tier_label}): producer exited with code {result.returncode}")
         # Common: the binary doesn't have generate-artefacts yet
-        # (rustlib < 2.7, scalo < 2.x). Hint at that for actionability.
+        # (scalo crate < 2.7, package < 2.x). Hint at that for actionability.
         if "generate-artefacts" in (result.stderr or ""):
             info(
                 "If this is a 'no such subcommand' error, the app "
                 "binary is built against an older library that doesn't "
                 "implement generate-artefacts yet. Update the app to "
-                "rustlib 2.7+ / scalo 2.x."
+                "scalo crate 2.7+ / package 2.x."
             )
         return EXIT_PRODUCER_FAILED
 

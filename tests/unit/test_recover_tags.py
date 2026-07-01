@@ -43,7 +43,7 @@ def test_chore_re_rejects_prerelease():
 
 
 def test_chore_re_ignores_unrelated_subjects():
-    assert rt._CHORE_RE.match("fix: update hyperi-rustlib 1.20.0 to 1.20.1") is None
+    assert rt._CHORE_RE.match("fix: update scalo 1.20.0 to 1.20.1") is None
     assert rt._CHORE_RE.match("feat: add 1.2.3 support") is None
 
 

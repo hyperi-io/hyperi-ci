@@ -890,7 +890,7 @@ def init_contract_cmd(
     the very first emit-artefacts run works without manual editing.
 
     Tier 3 only — Rust apps build their contract via
-    rustlib's DeploymentContract source, Python apps via scalo's
+    the scalo crate's DeploymentContract source, Python apps via the scalo package's
     Application.deployment_contract(). Calling this in a Tier 1/2 repo
     would create a contract that drifts from the framework's source
     of truth.

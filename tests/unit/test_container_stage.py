@@ -28,7 +28,7 @@ class TestShouldBuildContainer:
     """Resolve-before-buildx gate (issue #33).
 
     The container job must decide app-vs-library BEFORE booting Docker
-    Buildx, so a library (rustlib, a crate — no GHCR deployment) never
+    Buildx, so a library (scalo, a crate — no GHCR deployment) never
     pulls buildkit from Docker Hub and never logs in to GHCR. This gate
     is the filesystem decision, isolated from `detect`'s heuristics
     (covered in test_container_detect.py) by mocking `detect`.
@@ -433,9 +433,7 @@ def test_build_contract_uses_pre_generated_artefacts(
     monkeypatch.chdir(project_root)
 
     (project_root / "Cargo.toml").write_text(
-        '[package]\nname = "myapp"\nversion = "0.1.0"\n'
-        "[dependencies]\n"
-        'hyperi-rustlib = "2.7"\n',
+        '[package]\nname = "myapp"\nversion = "0.1.0"\n[dependencies]\nscalo = "2.7"\n',
     )
     (project_root / "src").mkdir()
     (project_root / "src" / "main.rs").write_text("fn main() {}\n")
@@ -496,9 +494,7 @@ def test_build_contract_fails_loud_when_no_artefacts_present(
     monkeypatch.chdir(project_root)
 
     (project_root / "Cargo.toml").write_text(
-        '[package]\nname = "myapp"\nversion = "0.1.0"\n'
-        "[dependencies]\n"
-        'hyperi-rustlib = "2.7"\n',
+        '[package]\nname = "myapp"\nversion = "0.1.0"\n[dependencies]\nscalo = "2.7"\n',
     )
     (project_root / "src").mkdir()
     (project_root / "src" / "main.rs").write_text("fn main() {}\n")

@@ -24,7 +24,7 @@ See [`docs/quickstart.md`](docs/quickstart.md).
 ## How a deployment ships
 
 ```
-per-app repo (rustlib/scalo)
+per-app repo (scalo-rs/scalo-py)
    │  emit-chart → helm push to OCI
    ▼
 oci://ghcr.io/hyperi-io/helm-charts/<app>:<version>

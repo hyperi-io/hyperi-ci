@@ -4,14 +4,14 @@
 #
 # License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Pydantic data model that mirrors rustlib's `DeploymentContract`.
+"""Pydantic data model that mirrors scalo's `DeploymentContract`.
 
-Field-for-field parity with `hyperi-rustlib/src/deployment/contract.rs`,
+Field-for-field parity with `scalo-rs/src/deployment/contract.rs`,
 `keda.rs`, and `native_deps.rs`. Any divergence here causes parity-test
-failures against fixtures emitted by rustlib's serde_json.
+failures against fixtures emitted by scalo's serde_json.
 
-Naming matches rustlib's serde-default field names. snake_case throughout
-because rustlib uses serde without `rename_all` overrides on these types.
+Naming matches scalo's serde-default field names. snake_case throughout
+because scalo uses serde without `rename_all` overrides on these types.
 
 Schema versioning:
   schema_version is stamped on every emitted JSON. Consumers (this module,
@@ -26,9 +26,9 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-# Defaults — must match rustlib's `default_*()` functions in contract.rs,
+# Defaults — must match scalo's `default_*()` functions in contract.rs,
 # keda.rs, and native_deps.rs. Bumping any of these requires a coordinated
-# rustlib + scalo + hyperi-ci release.
+# scalo-rs + scalo-py + hyperi-ci release.
 DEFAULT_SCHEMA_VERSION = 2
 DEFAULT_IMAGE_REGISTRY = "ghcr.io/hyperi-io"
 DEFAULT_BASE_IMAGE = "ubuntu:24.04"
@@ -37,7 +37,7 @@ DEFAULT_LICENSE = "BUSL-1.1"
 DEFAULT_PROTOCOL = "TCP"
 
 # Highest contract schema version this hyperi-ci can consume. Bumped in
-# lockstep with rustlib + scalo on shape changes. Mirrored in
+# lockstep with scalo-rs + scalo-py on shape changes. Mirrored in
 # config/defaults.yaml under `deployment.max_supported_schema_version`
 # for operator visibility — this constant is the strict gate.
 MAX_SUPPORTED_SCHEMA_VERSION = 2
@@ -48,7 +48,7 @@ class _StrictModel(BaseModel):
 
     `extra=forbid` catches schema drift early: a JSON contract that has a
     field hyperi-ci doesn't know about would silently ignore it without
-    this. Frozen mirrors rustlib's #[derive(Clone)] semantics — contracts
+    this. Frozen mirrors scalo's #[derive(Clone)] semantics — contracts
     are read-once, not mutated.
     """
 
@@ -157,7 +157,7 @@ class KedaContract(_StrictModel):
     """KEDA contract points validated against Helm values.yaml.
 
     Mirrors `scalo::deployment::keda::KedaContract`. Defaults
-    derived from `KedaConfig::default()` in rustlib.
+    derived from `KedaConfig::default()` in scalo.
     """
 
     min_replicas: int = Field(default=1, ge=0)
@@ -179,7 +179,7 @@ class DeploymentContract(_StrictModel):
     from the same source.
 
     Mirrors `scalo::deployment::contract::DeploymentContract`.
-    Field order, defaults, and serde behaviour MUST track rustlib exactly
+    Field order, defaults, and serde behaviour MUST track scalo exactly
     — the parity tests assert byte-identical JSON output for shared
     fixtures.
     """
@@ -222,7 +222,7 @@ class DeploymentContract(_StrictModel):
 
         Note: this constant must be bumped in lockstep with the
         `deployment.max_supported_schema_version` key in
-        `config/defaults.yaml` and in rustlib + scalo at every coordinated
+        `config/defaults.yaml` and in scalo-rs + scalo-py at every coordinated
         release. The yaml entry is for operator visibility only — this
         constant is the strict gate.
         """
@@ -241,14 +241,14 @@ class DeploymentContract(_StrictModel):
     def binary(self) -> str:
         """Effective binary name — falls back to app_name if binary_name unset.
 
-        Mirrors `DeploymentContract::binary` in rustlib.
+        Mirrors `DeploymentContract::binary` in scalo.
         """
         return self.binary_name or self.app_name
 
     def config_filename(self) -> str:
         """Config file name from the mount path (e.g., ``loader.yaml``).
 
-        Mirrors `DeploymentContract::config_filename` in rustlib.
+        Mirrors `DeploymentContract::config_filename` in scalo.
         """
         if "/" not in self.config_mount_path:
             return self.config_mount_path or "config.yaml"
@@ -257,7 +257,7 @@ class DeploymentContract(_StrictModel):
     def config_dir(self) -> str:
         """Config mount directory (e.g., ``/etc/dfe``).
 
-        Mirrors `DeploymentContract::config_dir` in rustlib.
+        Mirrors `DeploymentContract::config_dir` in scalo.
         """
         if "/" not in self.config_mount_path:
             return "/etc"

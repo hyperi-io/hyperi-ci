@@ -21,7 +21,7 @@ right producer:
 
 Detection is **cheap and string-based** — we don't fully parse manifests
 because the answer only needs to choose which subprocess to invoke.
-False-positive tier RUST that has no rustlib dep would fail at the
+False-positive tier RUST that has no scalo dep would fail at the
 ``generate-artefacts`` invocation with a clear error; not silently
 producing wrong artefacts.
 """
@@ -117,9 +117,10 @@ def _depends_on(manifest: Path, package_name: str) -> bool:
     consumer of it), returns False. Without this, the library's own
     repo gets misdispatched as a Tier 1/2 consumer and the
     deployment-artefact producer fails with "no Rust binary found" /
-    equivalent. The check is generic — applies to any rustlib /
-    scalo / future *lib and to consumer projects whose own name
-    happens to share a prefix (scalo's own repo, for one).
+    equivalent. The check is generic — applies to any marker dep
+    (scalo, the legacy hyperi-*lib names, future *lib) and to consumer
+    projects whose own name happens to share a prefix (scalo's own
+    repo, for one).
 
     Doesn't try to parse TOML beyond pulling the ``name`` field out of
     a recognised top-level section because:

@@ -295,7 +295,7 @@ publish:
   #
   # `enabled` is three-state:
   #   auto  (default) -- build when a container artefact is detected
-  #                      (Dockerfile in repo, or rustlib contract source);
+  #                      (Dockerfile in repo, or scalo contract source);
   #                      library projects skip silently.
   #   true            -- build is required; fail loudly if no artefact
   #                      detected (regression detector for projects that
@@ -336,12 +336,12 @@ standards:
 # Deployment Contract
 #
 # Three-tier producer model for app deployment artefacts:
-#   Tier 1 — rustlib emits via DeploymentContract + generate_*
+#   Tier 1 — scalo emits via DeploymentContract + generate_*
 #   Tier 2 — scalo emits via Application.deployment_contract()
 #   Tier 3 — hyperi-ci emit-artefacts templates from ci/deployment-contract.json
 #
 # max_supported_schema_version: highest schema version this hyperi-ci can
-# consume. Bumped in lockstep with rustlib + scalo on shape changes.
+# consume. Bumped in lockstep with scalo-rs + scalo-py on shape changes.
 # Consumers fail fast if a contract declares a higher schema_version.
 deployment:
   max_supported_schema_version: 2

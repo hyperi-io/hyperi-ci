@@ -290,7 +290,7 @@ def _run_feature_matrix(config: CIConfig) -> bool:
         info(f"  feature_matrix: disabled — {reason}")
         return True
 
-    # Install cargo-hack if missing (rustlib-style: idempotent, fail-soft)
+    # Install cargo-hack if missing (scalo-rs-style: idempotent, fail-soft)
     if not shutil.which("cargo-hack"):
         info("  feature_matrix: installing cargo-hack...")
         result = subprocess.run(

@@ -12,7 +12,7 @@ container-manifest.json, argocd-application.yaml, chart/) under the
 output directory.
 
 This is the producer for Tier 3 apps in the three-tier deployment-contract
-model. Tier 1 (rustlib) and Tier 2 (scalo) apps run their own binary's
+model. Tier 1 (scalo crate) and Tier 2 (scalo package) apps run their own binary's
 ``generate-artefacts`` subcommand; only repos with no producer framework
 fall through to Tier 3 here.
 
@@ -20,7 +20,7 @@ For all three tiers, output is byte-identical for the same JSON input —
 that's enforced by the parity test suite (see plan Phase 6).
 
 Generators are not yet implemented (Phase 2 of the implementation plan,
-blocked on rustlib 2.8.0 shipping the JSON schema export and the parity
+blocked on scalo 2.8.0 shipping the JSON schema export and the parity
 fixture suite). This module currently:
 
   - parses CLI args and resolves the contract path
@@ -105,7 +105,7 @@ def emit_artefacts(
     info(f"  image_registry: {contract.image_registry}")
     info(f"  image_profile:  {contract.image_profile.value}")
 
-    # Phase 2 (templating) is blocked on rustlib 2.8.0 + parity fixtures.
+    # Phase 2 (templating) is blocked on scalo 2.8.0 + parity fixtures.
     # Until then, advertise the would-be output and error out with a
     # clear pointer so callers know exactly what's missing.
     error(

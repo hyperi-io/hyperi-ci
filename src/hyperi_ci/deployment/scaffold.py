@@ -16,9 +16,9 @@ Used by:
     a producer framework).
   - Quick smoke testing of the contract pipeline.
 
-Tier 1 (rustlib) and Tier 2 (scalo) apps DO NOT use this — they
+Tier 1 (scalo crate) and Tier 2 (scalo package) apps DO NOT use this — they
 construct their contract from the app's config cascade, not from a
-template. Calling ``init-contract`` in a rustlib repo would produce a
+template. Calling ``init-contract`` in a scalo repo would produce a
 contract that drifts from the source of truth.
 """
 
@@ -58,7 +58,7 @@ def init_contract(
 
     Writes ``<output_dir>/deployment-contract.json`` derived from the
     Pydantic ``DeploymentContract`` defaults. Field defaults map to
-    rustlib's defaults so a Tier 3 starter and a Tier 1 default emit
+    scalo's defaults so a Tier 3 starter and a Tier 1 default emit
     byte-identical artefacts (same base_image, image_registry,
     health paths, vendor/license labels, etc.).
 
@@ -110,7 +110,7 @@ def init_contract(
     info(
         "Then run `hyperi-ci emit-artefacts ci/` "
         "to generate Dockerfile, chart/, etc. (Phase 2 — coming once "
-        "rustlib 2.8.0 ships the parity fixtures)."
+        "scalo 2.8.0 ships the parity fixtures)."
     )
     return EXIT_OK
 
@@ -121,7 +121,7 @@ def _starter_contract(app_name: str) -> DeploymentContract:
     Defaults derive every field from ``app_name`` so the scaffolded
     contract works without further editing:
 
-      - ``binary_name`` defaults to app_name (rustlib's fallback).
+      - ``binary_name`` defaults to app_name (scalo's fallback).
       - ``env_prefix`` is the SCREAMING_SNAKE form (``my-app`` →
         ``MY_APP``). DFE convention.
       - ``metric_prefix`` is the snake form (``my-app`` → ``my_app``).

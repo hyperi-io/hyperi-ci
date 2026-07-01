@@ -57,7 +57,7 @@ def _minimal_contract_dict() -> dict:
 
 
 class TestHealthContract:
-    """`HealthContract` defaults match rustlib's Default impl."""
+    """`HealthContract` defaults match scalo's Default impl."""
 
     def test_defaults(self) -> None:
         h = HealthContract()
@@ -92,10 +92,10 @@ class TestPortContract:
 
 class TestSecretGroup:
     """`SecretGroupContract` requires a non-empty env_vars list at parse-time
-    only when caller passes the wrong shape — empty list is allowed by rustlib."""
+    only when caller passes the wrong shape — empty list is allowed by scalo."""
 
     def test_empty_envs_allowed(self) -> None:
-        # rustlib's Vec<SecretEnvContract> can be empty; mirror that.
+        # scalo's Vec<SecretEnvContract> can be empty; mirror that.
         g = SecretGroupContract(group_name="kafka", env_vars=[])
         assert g.env_vars == []
 
@@ -114,7 +114,7 @@ class TestSecretGroup:
 
 
 class TestOciLabels:
-    """`OciLabels` defaults match rustlib's Default impl."""
+    """`OciLabels` defaults match scalo's Default impl."""
 
     def test_defaults(self) -> None:
         labels = OciLabels()
@@ -125,7 +125,7 @@ class TestOciLabels:
 
 
 class TestNativeDeps:
-    """`NativeDepsContract` defaults to empty; `is_empty()` mirrors rustlib."""
+    """`NativeDepsContract` defaults to empty; `is_empty()` mirrors scalo."""
 
     def test_empty_default(self) -> None:
         deps = NativeDepsContract()
@@ -152,7 +152,7 @@ class TestNativeDeps:
 
 
 class TestKedaContract:
-    """`KedaContract` defaults match `KedaConfig::default()` from rustlib."""
+    """`KedaContract` defaults match `KedaConfig::default()` from scalo."""
 
     def test_defaults(self) -> None:
         keda = KedaContract()
@@ -205,7 +205,7 @@ class TestDeploymentContract:
         assert contract.config_dir() == "/etc"
 
     def test_image_profile_serialises_lowercase(self) -> None:
-        # rustlib uses #[serde(rename_all = "lowercase")]; mirror that.
+        # scalo uses #[serde(rename_all = "lowercase")]; mirror that.
         d = _minimal_contract_dict()
         d["image_profile"] = "development"
         contract = DeploymentContract(**d)
@@ -227,7 +227,7 @@ class TestDeploymentContract:
     def test_full_roundtrip_via_json(self) -> None:
         # Serialise the model to JSON, parse back, assert equality.
         # This is the property parity tests will eventually verify against
-        # rustlib's serde_json output as well.
+        # scalo's serde_json output as well.
         d = _minimal_contract_dict()
         d["binary_name"] = "loader"
         d["description"] = "Test loader"

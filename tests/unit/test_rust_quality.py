@@ -205,7 +205,7 @@ class TestRustdocHint:
         warnings_emitted: list[str] = []
 
         class FakeResult:
-            stdout = "Documenting hyperi-rustlib v2.5.1\nFinished\n"
+            stdout = "Documenting scalo v2.5.1\nFinished\n"
             stderr = ""
 
         monkeypatch.setattr(

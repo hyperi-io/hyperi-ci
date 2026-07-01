@@ -10,7 +10,7 @@ A project ships a container if:
 
   * it is **not** a library, AND
   * it has a build signal — either a Dockerfile at the configured path,
-    or (Rust only) the project's binary supports the rustlib contract
+    or (Rust only) the project's binary supports the scalo contract
     `generate-artefacts` subcommand.
 
 Libraries (Rust crates with no ``[[bin]]``, Python packages with no
@@ -83,7 +83,7 @@ def detect(
     if language == "rust" and _rust_supports_contract(project_dir):
         return Decision(
             build=True,
-            reason="Rust binary supports rustlib generate-artefacts contract",
+            reason="Rust binary supports scalo generate-artefacts contract",
             mode="contract",
         )
 

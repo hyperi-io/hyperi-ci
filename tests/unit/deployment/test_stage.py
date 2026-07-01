@@ -48,11 +48,11 @@ def _write_tier3_repo(root: Path) -> Path:
 
 
 def _write_tier1_repo(root: Path, *, with_binary: bool = False) -> Path:
-    """Create a Tier 1 layout: Cargo.toml with hyperi-rustlib + optional binary."""
+    """Create a Tier 1 layout: Cargo.toml with scalo + optional binary."""
     (root / "Cargo.toml").write_text(
         '[package]\nname = "demo-app"\n'
         '[[bin]]\nname = "demo-app"\npath = "src/main.rs"\n'
-        '[dependencies]\nhyperi-rustlib = "2.5"\n',
+        '[dependencies]\nscalo = "2.5"\n',
         encoding="utf-8",
     )
     if with_binary:
@@ -113,7 +113,7 @@ class TestTier3:
 
 
 class TestTier1:
-    """Tier 1 (rust + rustlib) discovers and invokes the producer binary."""
+    """Tier 1 (rust + scalo) discovers and invokes the producer binary."""
 
     def test_no_binary_returns_producer_missing(self, tmp_path: Path) -> None:
         _write_tier1_repo(tmp_path, with_binary=False)

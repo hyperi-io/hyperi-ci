@@ -1,6 +1,6 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/container/compose.py
-# Purpose:   Compose Dockerfile from rustlib deployment contract manifest
+# Purpose:   Compose Dockerfile from scalo deployment contract manifest
 #
 # License:   BUSL-1.1
 # Copyright: (c) 2026 HYPERI PTY LIMITED
@@ -26,7 +26,7 @@ def compose_contract_dockerfile(
       - runtime stage: from manifest base image, install deps, copy binary
 
     Args:
-        manifest: Parsed container manifest from rustlib.
+        manifest: Parsed container manifest from scalo.
         rust_version: Rust toolchain version for build stages.
 
     Returns:
