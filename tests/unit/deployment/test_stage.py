@@ -326,7 +326,7 @@ class TestTier2:
         bindir = tmp_path / "fakebin"
         bindir.mkdir()
         uv = bindir / "uv"
-        uv.write_text('#!/usr/bin/env bash\nexit 0\n', encoding="utf-8")
+        uv.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
         os.chmod(uv, uv.stat().st_mode | stat.S_IXUSR)
         # Prepend so the fake uv wins shutil.which while bash stays resolvable.
         monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")

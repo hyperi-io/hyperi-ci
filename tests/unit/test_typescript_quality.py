@@ -224,6 +224,10 @@ class TestAuditCommand:
         assert cmd == expected
 
     def test_audit_level_is_threaded_through(self) -> None:
-        assert quality._audit_command(
-            audit_level="high", pm="yarn", yarn_major=4
-        ) == ["yarn", "npm", "audit", "--severity", "high"]
+        assert quality._audit_command(audit_level="high", pm="yarn", yarn_major=4) == [
+            "yarn",
+            "npm",
+            "audit",
+            "--severity",
+            "high",
+        ]
