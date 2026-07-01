@@ -263,6 +263,10 @@ publish:
   binaries_repo: hyperi-binaries
 
   # Destination mapping (OSS only).
+  #
+  # Set any artefact to `false` in a project's .hyperi-ci.yaml to opt out
+  # of publishing it while keeping the rest — e.g. a private Python service
+  # that ships only its GHCR container sets `python: false`.
   destinations_oss:
     python: pypi               # pypi.org (OIDC Trusted Publishing)
     npm: npmjs                 # npmjs.com @hyperi/* (OIDC)
