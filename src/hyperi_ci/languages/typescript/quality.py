@@ -25,6 +25,7 @@ from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.typescript._common import (
     detect_package_manager,
+    detect_yarn_version,
     ensure_pm_available,
 )
 from hyperi_ci.quality import osv_scanner
@@ -161,6 +162,32 @@ def _run_tool(
     return False
 
 
+def _audit_command(*, audit_level: str, pm: str, yarn_major: int) -> list[str]:
+    """Build the security-audit command for the package manager.
+
+    Yarn Berry (v2+) removed ``yarn audit`` in favour of ``yarn npm
+    audit --severity <level>``; running the Classic ``yarn audit
+    --audit-level`` there exits non-zero. Yarn Classic (v1) keeps
+    ``yarn audit --audit-level``. npm and pnpm both take
+    ``--audit-level``.
+
+    Args:
+        audit_level: Minimum severity to fail on (e.g. ``"moderate"``).
+        pm: Package manager — one of ``npm``, ``yarn``, ``pnpm``.
+        yarn_major: Yarn major version; only consulted when ``pm`` is
+            ``yarn``. ``>= 2`` selects the Berry command.
+
+    Returns:
+        The audit command as an argv list.
+
+    """
+    if pm == "yarn" and yarn_major >= 2:
+        return ["yarn", "npm", "audit", "--severity", audit_level]
+    if pm == "yarn":
+        return ["yarn", "audit", f"--audit-level={audit_level}"]
+    return [pm, "audit", f"--audit-level={audit_level}"]
+
+
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     """Run TypeScript/JavaScript quality checks.
 
@@ -234,7 +261,8 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # --- audit + semgrep — run on any JS/TS project; orthogonal to npm scripts ---
     mode = _get_tool_mode("audit", config)
     audit_level = config.get("quality.typescript.audit_level", "moderate")
-    audit_cmd = [pm, "audit", f"--audit-level={audit_level}"]
+    yarn_major = detect_yarn_version() if pm == "yarn" else 0
+    audit_cmd = _audit_command(audit_level=audit_level, pm=pm, yarn_major=yarn_major)
     audit_ignores = for_tool(ignores, f"{pm}-audit")
     if audit_ignores:
         if pm == "pnpm":
