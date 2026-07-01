@@ -66,14 +66,19 @@ def detect(
         ``Decision`` describing the outcome.
 
     """
-    if _is_library(language=language, project_dir=project_dir):
-        return Decision(build=False, reason=f"{language} project is library-only")
-
+    # An explicit Dockerfile is an unambiguous "ship a container" signal
+    # and must win over the library heuristic — otherwise a monorepo root
+    # with a Dockerfile (whose runnable start script lives in a workspace,
+    # not the root package.json) is wrongly declared library-only and the
+    # Dockerfile is never used.
     dockerfile_path = project_dir / dockerfile
     if dockerfile_path.exists():
         return Decision(
             build=True, reason=f"Dockerfile found at {dockerfile}", mode="custom"
         )
+
+    if _is_library(language=language, project_dir=project_dir):
+        return Decision(build=False, reason=f"{language} project is library-only")
 
     if language == "rust" and _rust_supports_contract(project_dir):
         return Decision(
@@ -208,6 +213,12 @@ def _typescript_is_library(project_dir: Path) -> bool:
     except json.JSONDecodeError:
         return False
     if manifest.get("bin"):
+        return False
+    # A ``workspaces`` field means this is a monorepo root, not a plain
+    # library: the runnable ``start``/``serve``/``server`` script lives in
+    # a workspace package (e.g. ``apps/<app>/package.json``), so the root
+    # legitimately has none. Treat the root as a runnable, not a library.
+    if manifest.get("workspaces"):
         return False
     scripts = manifest.get("scripts", {})
     for key in ("start", "serve", "server"):
