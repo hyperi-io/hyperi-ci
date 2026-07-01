@@ -200,3 +200,30 @@ class TestPureJsProjectEndToEnd:
         # Non-zero only if audit/semgrep actually failed in real env;
         # with our mocked zero return they succeed
         assert rc == 0
+
+
+class TestAuditCommand:
+    """`_audit_command` builds the right invocation per package manager."""
+
+    @pytest.mark.parametrize(
+        ("pm", "yarn_major", "expected"),
+        [
+            ("npm", 0, ["npm", "audit", "--audit-level=moderate"]),
+            ("pnpm", 0, ["pnpm", "audit", "--audit-level=moderate"]),
+            ("yarn", 1, ["yarn", "audit", "--audit-level=moderate"]),
+            ("yarn", 2, ["yarn", "npm", "audit", "--severity", "moderate"]),
+            ("yarn", 4, ["yarn", "npm", "audit", "--severity", "moderate"]),
+        ],
+    )
+    def test_command_per_package_manager(
+        self, pm: str, yarn_major: int, expected: list[str]
+    ) -> None:
+        cmd = quality._audit_command(
+            audit_level="moderate", pm=pm, yarn_major=yarn_major
+        )
+        assert cmd == expected
+
+    def test_audit_level_is_threaded_through(self) -> None:
+        assert quality._audit_command(
+            audit_level="high", pm="yarn", yarn_major=4
+        ) == ["yarn", "npm", "audit", "--severity", "high"]

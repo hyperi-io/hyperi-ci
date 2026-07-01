@@ -164,6 +164,44 @@ def test_typescript_with_start_script_uses_template(tmp_path: Path) -> None:
     assert decision.build is True
 
 
+def test_typescript_library_with_dockerfile_builds_custom(tmp_path: Path) -> None:
+    # A library-shaped root (no bin/start, main -> dist/lib.js) that
+    # nonetheless ships a Dockerfile must build — the explicit Dockerfile
+    # wins over the library heuristic (issue #45).
+    _write_package_json(
+        tmp_path,
+        {"name": "mylib", "version": "0.1.0", "main": "dist/lib.js"},
+    )
+    (tmp_path / "Dockerfile").write_text("FROM node:22-alpine\n")
+    decision = detect(language="typescript", project_dir=tmp_path)
+    assert decision.build is True
+    assert decision.mode == "custom"
+
+
+def test_typescript_monorepo_root_with_dockerfile_builds(tmp_path: Path) -> None:
+    # Turborepo root: runnable start lives in a workspace, root has no
+    # start script — but a root Dockerfile must still trigger the build.
+    _write_package_json(
+        tmp_path,
+        {"name": "root", "private": True, "workspaces": ["apps/*", "packages/*"]},
+    )
+    (tmp_path / "Dockerfile").write_text("FROM node:22-alpine\n")
+    decision = detect(language="typescript", project_dir=tmp_path)
+    assert decision.build is True
+    assert decision.mode == "custom"
+
+
+def test_typescript_monorepo_root_is_not_library(tmp_path: Path) -> None:
+    # A `workspaces` root with no start script and no Dockerfile is a
+    # monorepo, not a plain library — it should build (template), not skip.
+    _write_package_json(
+        tmp_path,
+        {"name": "root", "private": True, "workspaces": ["apps/*"]},
+    )
+    decision = detect(language="typescript", project_dir=tmp_path)
+    assert decision.build is True
+
+
 # --- Go ------------------------------------------------------------------
 
 
