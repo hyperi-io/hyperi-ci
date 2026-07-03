@@ -64,6 +64,27 @@ class TestFromHeadThreading:
         assert "bump" in wc, f"{workflow_name}: workflow_call missing bump"
 
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_workflow_call_accepts_submodules(self, workflow_name: str) -> None:
+        # All four language workflows expose the optional `submodules`
+        # input + init step for public submodules (issue #39). Parity so a
+        # rust/go/ts repo with a public submodule works the same as python.
+        wf = _load_workflow(workflow_name)
+        on = wf.get("on") or wf.get(True, {})
+        wc = on.get("workflow_call", {}).get("inputs", {})
+        assert "submodules" in wc, f"{workflow_name}: workflow_call missing submodules"
+        assert wc["submodules"].get("default", None) == "", (
+            f"{workflow_name}: submodules must default to '' (no-op for "
+            "consumers that don't set it)"
+        )
+        # The test job must actually init submodules when the input is set.
+        steps = wf["jobs"]["test"]["steps"]
+        init = [s for s in steps if s.get("name") == "Init submodules"]
+        assert init, f"{workflow_name}: test job missing 'Init submodules' step"
+        assert init[0].get("if") == "${{ inputs.submodules != '' }}", (
+            f"{workflow_name}: Init submodules must gate on the input"
+        )
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
     def test_dispatch_tag_is_optional(self, workflow_name: str) -> None:
         # from-head dispatch has no tag; tag must be optional (else `gh
         # workflow run` errors before the plan job even starts).

@@ -52,6 +52,10 @@ on:
         type: string
         default: "auto"
         description: "Version resolution for from-head: auto | patch | minor (forced) | X.Y.Z (exact version)."
+      submodules:
+        type: string
+        default: ""
+        description: "Space-separated submodule paths to init after checkout (e.g. 'schemas'). Empty (default) inits nothing. The submodule must be reachable by the job token -- public, or a token with cross-repo read access."
     secrets:
       JFROG_TOKEN:
         required: false
@@ -240,6 +244,12 @@ jobs:
 
       - name: Install native dependencies
         run: ${{ env.HYPERCI_INSTALL }} install-native-deps typescript
+
+      - name: Init submodules
+        if: ${{ inputs.submodules != '' }}
+        env:
+          SUBMODULES: ${{ inputs.submodules }}
+        run: git submodule update --init --depth 1 $SUBMODULES
 
       - name: Run tests
         run: ${{ env.HYPERCI_INSTALL }} run test
