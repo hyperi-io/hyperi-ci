@@ -277,14 +277,34 @@ _OLD_CI_PREPARE_PATTERNS = (
     "ci/scripts/",
 )
 
-_LANGUAGE_GIT_ASSETS: dict[str, list[str]] = {
-    "python": ["CHANGELOG.md", "VERSION", "pyproject.toml"],
-    "rust": ["CHANGELOG.md", "VERSION", "Cargo.toml"],
-    "typescript": ["CHANGELOG.md", "VERSION", "package.json"],
-    "golang": ["CHANGELOG.md", "VERSION"],
-}
+# The tag-rewrite plugins (issue #37): @semantic-release/git force-pushes
+# off-main "chore: version X" commits and rewrites tags; @semantic-release/github
+# creates releases. hyperi-ci is a TAGGER-only shop -- stamping is
+# `hyperi-ci stamp-version`, publishing is the publish stage -- so these are
+# dropped on migrate, not preserved (issue #28). setup-semantic-release already
+# ignores them at runtime; migrate now removes them at the source so the repo
+# stops carrying the destructive config (and the per-run "ignoring .releaserc"
+# warning).
+_DESTRUCTIVE_PLUGINS = frozenset({"@semantic-release/git", "@semantic-release/github"})
 
-_DEFAULT_GIT_ASSETS = ["CHANGELOG.md", "VERSION"]
+# Plugins the central tagger-only config already provides. A releaserc that,
+# after stripping the destructive plugins, carries only these is redundant --
+# the central default covers it, so migrate deletes the file entirely.
+_CENTRAL_DEFAULT_PLUGINS = frozenset(
+    {
+        "@semantic-release/commit-analyzer",
+        "@semantic-release/release-notes-generator",
+    }
+)
+
+
+def _plugin_name(plugin: object) -> str:
+    """Return a plugin entry's name (entries are ``"name"`` or ``["name", cfg]``)."""
+    if isinstance(plugin, str):
+        return plugin
+    if isinstance(plugin, list) and plugin:
+        return str(plugin[0])
+    return ""
 
 
 def _find_releaserc(project_dir: Path) -> Path | None:
@@ -302,9 +322,11 @@ def _fix_releaserc(
 ) -> bool:
     """Fix an existing .releaserc file for hyperi-ci migration.
 
-    Replaces old ci/ script references in prepareCmd with a
-    language-appropriate Python one-liner. Also cleans up git assets
-    to only include language-relevant manifest files.
+    Drops the issue #37 tag-rewrite plugins (``@semantic-release/git`` /
+    ``github``) outright — deleting the file entirely when nothing
+    beyond the central-default plugins survives — and replaces old ci/
+    script references in an exec ``prepareCmd`` with a
+    language-appropriate Python one-liner.
 
     Args:
         project_dir: Project root directory.
@@ -333,37 +355,54 @@ def _fix_releaserc(
     modified = False
 
     plugins = config.get("plugins", [])
-    for i, plugin in enumerate(plugins):
-        if not isinstance(plugin, list) or len(plugin) < 2:
+    kept: list[object] = []
+    dropped_destructive = False
+    for plugin in plugins:
+        name = _plugin_name(plugin)
+
+        # Drop the tag-rewrite plugins outright (issue #28 / #37).
+        if name in _DESTRUCTIVE_PLUGINS:
+            dropped_destructive = True
+            modified = True
             continue
 
-        plugin_name = plugin[0]
-        plugin_config = plugin[1]
-
-        if plugin_name == "@semantic-release/exec" and isinstance(plugin_config, dict):
-            prepare_cmd = plugin_config.get("prepareCmd", "")
+        # Repoint any old ci/ script reference in an exec prepareCmd.
+        if (
+            name == "@semantic-release/exec"
+            and isinstance(plugin, list)
+            and len(plugin) >= 2
+            and isinstance(plugin[1], dict)
+        ):
+            prepare_cmd = plugin[1].get("prepareCmd", "")
             if any(pat in prepare_cmd for pat in _OLD_CI_PREPARE_PATTERNS):
-                new_cmd = _build_prepare_cmd(language)
-                plugin_config["prepareCmd"] = new_cmd
-                plugins[i] = [plugin_name, plugin_config]
+                plugin[1]["prepareCmd"] = _build_prepare_cmd(language)
                 modified = True
                 info("  Fixed prepareCmd (replaced old ci/ script reference)")
 
-        if plugin_name == "@semantic-release/git" and isinstance(plugin_config, dict):
-            old_assets = plugin_config.get("assets", [])
-            expected_assets = _LANGUAGE_GIT_ASSETS.get(language, _DEFAULT_GIT_ASSETS)
-            if set(old_assets) != set(expected_assets):
-                plugin_config["assets"] = expected_assets
-                plugins[i] = [plugin_name, plugin_config]
-                modified = True
-                removed = set(old_assets) - set(expected_assets)
-                if removed:
-                    info(
-                        f"  Cleaned git assets (removed: {', '.join(sorted(removed))})"
-                    )
+        kept.append(plugin)
+
+    if dropped_destructive:
+        info(
+            "  Dropped @semantic-release/git/github — the issue #37 tag-rewrite "
+            "plugins (tagging is central, stamping is `hyperi-ci stamp-version`)"
+        )
+
+    # If nothing beyond the central default plugins survives, the whole
+    # releaserc is redundant with the central tagger-only config -- delete it
+    # so the repo stops carrying (and re-declaring) a bespoke file.
+    surviving_exceptions = [
+        p for p in kept if _plugin_name(p) not in _CENTRAL_DEFAULT_PLUGINS
+    ]
+    if dropped_destructive and not surviving_exceptions:
+        releaserc_path.unlink()
+        success(
+            f"  Removed redundant {releaserc_path.name} — the central "
+            "tagger-only config now applies (issue #28)"
+        )
+        return True
 
     if modified:
-        config["plugins"] = plugins
+        config["plugins"] = kept
         output = json.dumps(config, indent=2) + "\n"
         releaserc_path.write_text(output)
         success(f"  Updated {releaserc_path.name}")

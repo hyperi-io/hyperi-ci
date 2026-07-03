@@ -390,3 +390,73 @@ class TestMigrateProject:
         rc = migrate_project(tmp_path)
         assert rc == 0
         assert (tmp_path / ".releaserc.yaml").read_text() == existing
+
+
+class TestFixReleaserc:
+    """Migrate drops the tag-rewrite plugins (issue #28 / #37)."""
+
+    def _write(self, tmp_path: Path, config: dict) -> Path:
+        import json
+
+        path = tmp_path / ".releaserc.json"
+        path.write_text(json.dumps(config))
+        return path
+
+    def test_deletes_releaserc_that_only_carried_git(self, tmp_path: Path) -> None:
+        from hyperi_ci.migrate import _fix_releaserc
+
+        self._write(
+            tmp_path,
+            {
+                "branches": ["main"],
+                "plugins": [
+                    "@semantic-release/commit-analyzer",
+                    "@semantic-release/release-notes-generator",
+                    ["@semantic-release/git", {"assets": ["VERSION"]}],
+                ],
+            },
+        )
+        assert _fix_releaserc(tmp_path, "python") is True
+        # Redundant with the central tagger-only config -> removed entirely.
+        assert not (tmp_path / ".releaserc.json").exists()
+
+    def test_strips_git_keeps_exec_exception(self, tmp_path: Path) -> None:
+        import json
+
+        from hyperi_ci.migrate import _fix_releaserc
+
+        path = self._write(
+            tmp_path,
+            {
+                "branches": ["main"],
+                "plugins": [
+                    "@semantic-release/commit-analyzer",
+                    ["@semantic-release/exec", {"prepareCmd": "echo hi"}],
+                    "@semantic-release/github",
+                ],
+            },
+        )
+        assert _fix_releaserc(tmp_path, "rust") is True
+        # File kept (exec is a legit exception) but destructive plugins gone.
+        remaining = json.loads(path.read_text())
+        names = [p if isinstance(p, str) else p[0] for p in remaining["plugins"]]
+        assert "@semantic-release/git" not in names
+        assert "@semantic-release/github" not in names
+        assert "@semantic-release/exec" in names
+
+    def test_noop_when_no_destructive_plugins(self, tmp_path: Path) -> None:
+        from hyperi_ci.migrate import _fix_releaserc
+
+        self._write(
+            tmp_path,
+            {
+                "branches": ["main"],
+                "plugins": [
+                    "@semantic-release/commit-analyzer",
+                    ["@semantic-release/exec", {"prepareCmd": "make version"}],
+                ],
+            },
+        )
+        # No git/github and no old ci/ refs -> nothing to change.
+        assert _fix_releaserc(tmp_path, "python") is False
+        assert (tmp_path / ".releaserc.json").exists()
