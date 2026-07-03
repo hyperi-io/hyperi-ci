@@ -12,9 +12,22 @@ PYTHON_DOCKERFILE_TEMPLATE = """\
 FROM python:{python_version}-slim AS builder
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
-COPY pyproject.toml uv.lock README.md ./
-COPY src/ src/
-RUN uv venv .venv && uv sync --no-dev --frozen
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+# Two-phase sync -- uv's recommended Docker pattern
+# (https://docs.astral.sh/uv/guides/integration/docker/). The old
+# single-phase `uv sync` copied only pyproject/uv.lock/README/src and then
+# built the project, which fails for any package whose metadata references
+# files not in that set -- e.g. `project.license-files = ["LICENSE",
+# "NOTICE"]` -> "glob `LICENSE` did not match any files" (issue #51 RC2).
+# Phase 1 installs ONLY the dependency graph (`--no-install-project`), so it
+# needs neither the package source nor its license-files. Phase 2 copies the
+# whole context and installs the project itself, by which point every
+# metadata-referenced file is present. Phase 1 is also a cacheable layer keyed
+# on the lockfile alone.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+COPY . .
+RUN uv sync --frozen --no-dev
 
 FROM python:{python_version}-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \\

@@ -520,6 +520,59 @@ def test_build_contract_fails_loud_when_no_artefacts_present(
     fake_build.assert_not_called()
 
 
+def test_run_python_library_with_cli_auto_skips(tmp_path: Path, monkeypatch) -> None:
+    """Python library that ships a console-script auto-skips (issue #51).
+
+    logreducer's shape: a uv_build-backend library with
+    ``[project.scripts]`` and no Dockerfile. Under ``enabled: auto`` the
+    Container stage must skip silently — a CLI is not a container
+    workload — rather than run a failing template build.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "logreducer"\nversion = "3.4.0"\n'
+        '[project.scripts]\nlogreducer = "logreducer.cli:main"\n'
+    )
+    cfg = _ci_config(container={"enabled": "auto"})
+
+    fake_build = MagicMock(return_value=0)
+    monkeypatch.setattr(stage_module, "build_and_push", fake_build)
+
+    assert run(cfg, language="python") == 0
+    fake_build.assert_not_called()
+
+
+def test_run_python_service_opts_in_via_enabled_true(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A genuine Python service opts in with ``enabled: true`` (issue #51).
+
+    Now that a bare console-script no longer auto-containerises, a real
+    service sets ``publish.container.enabled: true`` and the stage builds
+    it via the python template even with no Dockerfile detected — it must
+    NOT hard-fail the way a Rust crate (contract language) would.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "mysvc"\nversion = "0.1.0"\n'
+        '[project.scripts]\nmysvc = "mysvc.cli:main"\n'
+    )
+    (tmp_path / "VERSION").write_text("0.1.0\n")
+
+    monkeypatch.setenv("GITHUB_SHA", "abc12345abc12345abc")
+    monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
+    monkeypatch.delenv("GITHUB_REF", raising=False)
+    monkeypatch.setenv("HYPERCI_PUBLISH_MODE", "true")
+
+    cfg = _ci_config(container={"enabled": True}, target="oss")
+
+    fake_build = MagicMock(return_value=0)
+    monkeypatch.setattr(stage_module, "build_and_push", fake_build)
+
+    assert run(cfg, language="python") == 0
+    fake_build.assert_called_once()
+
+
 def test_run_legacy_target_both_routes_to_ghcr_only(
     tmp_path: Path, monkeypatch
 ) -> None:

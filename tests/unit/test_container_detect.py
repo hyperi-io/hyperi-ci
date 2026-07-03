@@ -131,15 +131,33 @@ def test_python_with_console_script_and_dockerfile(tmp_path: Path) -> None:
     assert decision.mode == "custom"
 
 
-def test_python_with_console_script_no_dockerfile_uses_template(tmp_path: Path) -> None:
+def test_python_with_console_script_no_dockerfile_is_library(tmp_path: Path) -> None:
+    # A console-script is NOT a "ship a container" signal (issue #51) --
+    # the common Python shape is a library that also exposes a CLI. With
+    # no Dockerfile and no explicit opt-in, it is library-only and skips.
     _write_pyproject(
         tmp_path,
         '[project]\nname = "myapp"\nversion = "0.1.0"\n'
         '[project.scripts]\nmyapp = "myapp.cli:main"\n',
     )
     decision = detect(language="python", project_dir=tmp_path)
-    assert decision.build is True
-    assert decision.mode == "template"
+    assert decision.build is False
+    assert "library-only" in decision.reason
+
+
+def test_python_uv_build_backend_library_with_cli_skips(tmp_path: Path) -> None:
+    # The exact logreducer shape from issue #51: a uv_build-backend
+    # library that ships a console-script. Must NOT auto-containerise.
+    _write_pyproject(
+        tmp_path,
+        '[project]\nname = "logreducer"\nversion = "3.4.0"\n'
+        '[project.scripts]\nlogreducer = "logreducer.cli:main"\n'
+        "[build-system]\n"
+        'requires = ["uv_build>=0.8.0,<1"]\n'
+        'build-backend = "uv_build"\n',
+    )
+    decision = detect(language="python", project_dir=tmp_path)
+    assert decision.build is False
 
 
 # --- TypeScript ----------------------------------------------------------

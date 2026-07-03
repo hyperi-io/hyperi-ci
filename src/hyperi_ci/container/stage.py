@@ -11,9 +11,12 @@ Three-state ``publish.container.enabled`` gate:
 * ``auto`` (default): build when a container artefact is detected
   (Dockerfile in repo, or scalo contract source). Library projects
   and projects with no signal skip silently.
-* ``true``: build is required. Fails loudly if no signal is present —
-  surfaces a regression where a project lost its containerisable
-  artefact.
+* ``true``: build is required. Template languages (python /
+  typescript) build from the language template even with no detected
+  artefact — this is how a Python/TS service opts in now that a bare
+  console-script no longer auto-containerises (issue #51). Contract /
+  custom languages fail loudly if no signal is present — surfaces a
+  regression where a project lost its containerisable artefact.
 * ``false``: explicit skip.
 
 Every container is built and (in publish mode) pushed to GHCR. The
@@ -139,7 +142,9 @@ def should_build_container(config: CIConfig, *, language: str = "") -> tuple[boo
 
     Mirrors :func:`run`'s gate so the workflow can decide BEFORE booting
     Docker Buildx (issue #33): ``enabled: false`` never builds;
-    ``enabled: true`` always builds (the artefact is required);
+    ``enabled: true`` always builds — template languages via the language
+    template when no artefact is detected (the Python/TS service opt-in,
+    issue #51), contract/custom languages then fail loudly in :func:`run`;
     ``enabled: auto`` builds iff :func:`detect` finds a signal. A library
     (e.g. a Rust crate — no GHCR deployment) has no signal, so the job
     never pulls buildkit from Docker Hub nor logs in to GHCR.
@@ -205,13 +210,35 @@ def run(config: CIConfig, *, language: str = "") -> int:
 
     if not decision.build:
         if enabled == "true":
-            error(
-                "publish.container.enabled: true but no container artefact "
-                f"detected — {decision.reason}",
-            )
-            return 1
-        info(f"Container build skipped — {decision.reason}")
-        return 0
+            # Build is required. Template languages (python / typescript)
+            # can always build from the language template with no detected
+            # artefact — this is how a genuine Python service opts in now
+            # that a bare console-script no longer auto-containerises
+            # (issue #51). Contract / custom languages (e.g. a Rust crate
+            # with no Dockerfile and no scalo contract) genuinely have
+            # nothing to ship, so a required build is a hard fail.
+            if language in _TEMPLATE_LANGUAGES:
+                info(
+                    "publish.container.enabled: true — building "
+                    f"{language} via template despite: {decision.reason}"
+                )
+                decision = Decision(
+                    build=True,
+                    reason=(
+                        f"forced by publish.container.enabled: true "
+                        f"({language} template)"
+                    ),
+                    mode="template",
+                )
+            else:
+                error(
+                    "publish.container.enabled: true but no container artefact "
+                    f"detected — {decision.reason}",
+                )
+                return 1
+        else:
+            info(f"Container build skipped — {decision.reason}")
+            return 0
 
     info(f"Container build will run — {decision.reason}")
 

@@ -13,9 +13,12 @@ A project ships a container if:
     or (Rust only) the project's binary supports the scalo contract
     `generate-artefacts` subcommand.
 
-Libraries (Rust crates with no ``[[bin]]``, Python packages with no
-``[project.scripts]``, TypeScript packages with no ``bin``/``main`` /
-server entry) skip silently — there is nothing to ship.
+Libraries skip silently — there is nothing to ship. A Rust crate with
+no ``[[bin]]`` is a library; a Python package is treated as library-only
+regardless of any ``[project.scripts]`` CLI (a console-script is not a
+service — see issue #51); a TypeScript package with no ``bin``/``main`` /
+server entry is a library. A genuine Python/TS service opts in with a
+Dockerfile or ``publish.container.enabled: true``.
 
 The detector returns a ``Decision`` so callers can both gate the build
 and present a clear reason to the developer.
@@ -187,22 +190,26 @@ def _rust_supports_contract(project_dir: Path) -> bool:
 
 
 def _python_is_library(project_dir: Path) -> bool:
-    pyproject = project_dir / "pyproject.toml"
-    if not pyproject.exists():
-        return False
-    try:
-        manifest = tomllib.loads(pyproject.read_text())
-    except Exception:
-        return False
-    project = manifest.get("project", {})
-    if project.get("scripts"):
-        return False
-    if project.get("gui-scripts"):
-        return False
-    entry_points = project.get("entry-points", {})
-    if entry_points.get("console_scripts"):
-        return False
-    return True
+    """Python packages are library-only by default (issue #51).
+
+    A console-script (``[project.scripts]`` / ``[gui-scripts]`` /
+    ``console_scripts`` entry point) is NOT a "ship a container" signal.
+    The most common Python shape is a library that ALSO exposes a CLI --
+    ruff, black, pytest, uv, httpie, pip-audit all declare
+    ``[project.scripts]`` and none of them are container workloads. The
+    old heuristic treated any console-script as "build a container", so
+    every hyperi-io Python library that shipped a CLI got a spurious,
+    failing ``Release tail / Container`` job on every release.
+
+    There is no reliable pyproject signal for "this is a deployable
+    service", so Python defaults to library-only. A genuine Python
+    service opts in explicitly with a Dockerfile (wins over this
+    heuristic in :func:`detect`) or ``publish.container.enabled: true``
+    (forces the template build in the stage handler). This mirrors the
+    rust/golang behaviour -- a container needs a bin/main target or a
+    Dockerfile, not merely "has a CLI".
+    """
+    return (project_dir / "pyproject.toml").exists()
 
 
 def _typescript_is_library(project_dir: Path) -> bool:

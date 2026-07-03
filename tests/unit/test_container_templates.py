@@ -23,6 +23,20 @@ def test_python_template_defaults() -> None:
     assert "USER appuser" in result
 
 
+def test_python_template_two_phase_sync() -> None:
+    # Two-phase uv sync (issue #51 RC2): deps-only first, then the whole
+    # context + project. Guards against regressing to the single-phase
+    # `COPY ... src/ && uv sync` that failed on license-files globs.
+    result = render_python_template()
+    assert "uv sync --frozen --no-dev --no-install-project" in result
+    assert "COPY . ." in result
+    # Phase 2 installs the project itself (no --no-install-project).
+    assert "RUN uv sync --frozen --no-dev\n" in result
+    # The brittle single-phase form must be gone.
+    assert "uv venv .venv && uv sync" not in result
+    assert "COPY src/ src/" not in result
+
+
 def test_python_template_custom_port() -> None:
     result = render_python_template(
         python_version="3.11",
