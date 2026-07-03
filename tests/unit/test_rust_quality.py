@@ -411,3 +411,62 @@ class TestFeatureMatrixBinOnlyProject:
 
 # Re-import Path here so the new TestHasLibTarget tests can use it cleanly.
 from pathlib import Path  # noqa: E402
+
+# --- deny.toml advisory-ignore sharing (issue #42) -----------------------
+from hyperi_ci.languages.rust.quality import (  # noqa: E402
+    _deny_toml_advisory_ignores,
+    _merge_deny_advisory_ignores,
+)
+from hyperi_ci.quality.ignores import IgnoreEntry  # noqa: E402
+
+
+class TestDenyTomlAdvisoryIgnores:
+    def test_no_deny_toml_returns_empty(self, tmp_path: Path) -> None:
+        assert _deny_toml_advisory_ignores(tmp_path) == []
+
+    def test_string_and_table_forms(self, tmp_path: Path) -> None:
+        (tmp_path / "deny.toml").write_text(
+            "[advisories]\n"
+            "ignore = [\n"
+            '    "RUSTSEC-2024-0436",\n'
+            '    { id = "RUSTSEC-2021-0127", reason = "tracked upstream" },\n'
+            "]\n"
+        )
+        ids = _deny_toml_advisory_ignores(tmp_path)
+        assert ids == ["RUSTSEC-2024-0436", "RUSTSEC-2021-0127"]
+
+    def test_non_advisory_entries_filtered(self, tmp_path: Path) -> None:
+        # deny.toml ignore lists can also carry crate names / licence IDs
+        # that mean nothing to cargo-audit / osv-scanner.
+        (tmp_path / "deny.toml").write_text(
+            '[advisories]\nignore = ["RUSTSEC-2024-0436", "some-crate", "Apache-2.0"]\n'
+        )
+        assert _deny_toml_advisory_ignores(tmp_path) == ["RUSTSEC-2024-0436"]
+
+    def test_malformed_deny_toml_returns_empty(self, tmp_path: Path) -> None:
+        (tmp_path / "deny.toml").write_text("this is = = not valid toml [[[\n")
+        assert _deny_toml_advisory_ignores(tmp_path) == []
+
+    def test_no_advisories_section(self, tmp_path: Path) -> None:
+        (tmp_path / "deny.toml").write_text('[licenses]\nallow = ["MIT"]\n')
+        assert _deny_toml_advisory_ignores(tmp_path) == []
+
+
+class TestMergeDenyAdvisoryIgnores:
+    def test_appends_new_ids(self) -> None:
+        merged = _merge_deny_advisory_ignores([], "cargo-audit", ["RUSTSEC-2024-0436"])
+        assert [e.id for e in merged] == ["RUSTSEC-2024-0436"]
+        assert merged[0].tool == "cargo-audit"
+        assert "deny.toml" in merged[0].reason
+
+    def test_dedupes_against_existing(self) -> None:
+        existing = [
+            IgnoreEntry(tool="cargo-audit", id="RUSTSEC-2024-0436", reason="dup")
+        ]
+        merged = _merge_deny_advisory_ignores(
+            existing, "cargo-audit", ["RUSTSEC-2024-0436", "RUSTSEC-2021-0127"]
+        )
+        ids = [e.id for e in merged]
+        assert ids == ["RUSTSEC-2024-0436", "RUSTSEC-2021-0127"]
+        # the pre-existing quality.ignore entry is kept verbatim (its reason)
+        assert merged[0].reason == "dup"

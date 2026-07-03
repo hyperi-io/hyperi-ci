@@ -22,7 +22,12 @@ from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import get_test_ignore
 from hyperi_ci.quality import osv_scanner
-from hyperi_ci.quality.ignores import for_tool, load_ignores
+from hyperi_ci.quality.ignores import IgnoreEntry, for_tool, load_ignores
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover — Python < 3.11
+    import tomli as tomllib  # type: ignore[no-redef]  # ty: ignore[unresolved-import]
 
 _DEFAULT_RUST_TEST_IGNORE = [
     "clippy::unwrap_used",
@@ -30,6 +35,81 @@ _DEFAULT_RUST_TEST_IGNORE = [
     "clippy::panic",
     "clippy::indexing_slicing",
 ]
+
+
+def _deny_toml_advisory_ignores(project_dir: Path | None = None) -> list[str]:
+    """Return the RUSTSEC IDs ignored in ``deny.toml`` ``[advisories.ignore]``.
+
+    ``cargo deny`` reads its ignore list from ``deny.toml`` while
+    ``cargo audit`` / ``osv-scanner`` read the central ``quality.ignore``
+    (issue #42). An advisory acceptable to one was NOT honoured by the
+    others, so a repo could pass ``cargo deny`` on push yet fail
+    ``osv-scanner`` on the same ID at release. We make ``deny.toml`` a
+    shared source: its advisory ignores are fed into the other two tools
+    as well, so one entry silences all three.
+
+    Handles both entry forms cargo-deny accepts::
+
+        [advisories]
+        ignore = [
+            "RUSTSEC-2024-0436",
+            { id = "RUSTSEC-2021-0127", reason = "..." },
+        ]
+
+    Non-RUSTSEC/CVE entries (e.g. licence exceptions, crate bans) are not
+    advisory IDs and are left alone. Returns an empty list when there is
+    no ``deny.toml`` or no advisory ignores.
+    """
+    cwd = project_dir or Path.cwd()
+    deny_toml = cwd / "deny.toml"
+    if not deny_toml.exists():
+        return []
+    try:
+        manifest = tomllib.loads(deny_toml.read_text())
+    except Exception as exc:  # malformed deny.toml — cargo deny will report it
+        warn(f"  cargo deny: could not parse deny.toml for shared ignores: {exc}")
+        return []
+
+    raw = (manifest.get("advisories") or {}).get("ignore") or []
+    if not isinstance(raw, list):
+        return []
+
+    ids: list[str] = []
+    for entry in raw:
+        if isinstance(entry, str):
+            ident = entry.strip()
+        elif isinstance(entry, dict) and entry.get("id"):
+            ident = str(entry["id"]).strip()
+        else:
+            continue
+        # Advisory IDs only — cargo-deny's ignore list can also hold crate
+        # names / licence IDs which mean nothing to cargo-audit / osv.
+        if ident.startswith(("RUSTSEC-", "CVE-", "GHSA-")):
+            ids.append(ident)
+    return ids
+
+
+def _merge_deny_advisory_ignores(
+    entries: list[IgnoreEntry], tool: str, deny_ids: list[str]
+) -> list[IgnoreEntry]:
+    """Union ``deny.toml`` advisory IDs into ``tool``'s ignore entries.
+
+    De-dupes against IDs already present for ``tool`` in ``quality.ignore``
+    so the dfe-loader-style duplicate entry becomes unnecessary (issue #42).
+    """
+    existing = {e.id for e in entries}
+    merged = list(entries)
+    for ident in deny_ids:
+        if ident not in existing:
+            merged.append(
+                IgnoreEntry(
+                    tool=tool,
+                    id=ident,
+                    reason="shared from deny.toml [advisories.ignore] (issue #42)",
+                )
+            )
+            existing.add(ident)
+    return merged
 
 
 def _has_lib_target(project_dir: Path | None = None) -> bool:
@@ -215,10 +295,22 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         if not _run_tool(f"clippy tests ({feature_set})", test_cmd, mode):
             had_failure = True
 
+    # Advisory ignores declared in deny.toml are shared with cargo-audit
+    # and osv-scanner so one entry silences all three tools (issue #42).
+    deny_advisory_ids = _deny_toml_advisory_ignores()
+    if deny_advisory_ids:
+        info(
+            f"  advisories: sharing {len(deny_advisory_ids)} deny.toml ignore(s) "
+            f"with cargo-audit + osv-scanner (issue #42)"
+        )
+
     # cargo audit -- one --ignore <RUSTSEC-id> per entry
     mode = _get_tool_mode("audit", config)
     audit_cmd = ["cargo", "audit"]
-    for entry in for_tool(ignores, "cargo-audit"):
+    audit_ignores = _merge_deny_advisory_ignores(
+        for_tool(ignores, "cargo-audit"), "cargo-audit", deny_advisory_ids
+    )
+    for entry in audit_ignores:
         audit_cmd.extend(["--ignore", entry.id])
     if not _run_tool("cargo audit", audit_cmd, mode):
         had_failure = True
@@ -227,9 +319,12 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # RustSec DB, which does NOT ingest the OSSF malicious-packages feed;
     # osv-scanner does. Defence-in-depth behind the 7-day Renovate cooldown.
     mode = _get_tool_mode("osv_scanner", config)
+    osv_ignores = _merge_deny_advisory_ignores(
+        for_tool(ignores, osv_scanner.SLUG), osv_scanner.SLUG, deny_advisory_ids
+    )
     if not osv_scanner.run(
         Path("Cargo.lock"),
-        for_tool(ignores, osv_scanner.SLUG),
+        osv_ignores,
         mode,
         _run_tool,
     ):
