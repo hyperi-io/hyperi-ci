@@ -392,6 +392,12 @@ def _compute_next_version(*, bump: str, cwd: str | None) -> str | None:
     returns the bare version (no ``v`` prefix). Falls back to the
     ``VERSION`` file when no tags exist (rare — initial release case).
 
+    Note the deliberate asymmetry with the auto path (issue #37
+    follow-up): on a tag-less repo the predict-version composite ships
+    VERSION *verbatim* as the first release (the file declares the
+    starting version), while the forced ``--bump`` paths here bump FROM
+    it — a bump is a bump, even against a declared start.
+
     Returns ``None`` when neither tags nor VERSION are available; the
     caller should error out and ask the operator to set VERSION manually.
     """

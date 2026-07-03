@@ -247,10 +247,26 @@ jobs:
         # creates and pushes the git tag. Same version `next-version`
         # predicted in plan (deterministic). Also handles a from-head
         # `auto` dispatch (#35): re-runs the tagger on HEAD.
+        #
+        # First release on a tag-less repo (issue #37 follow-up): the real
+        # semantic-release run would tag its own 1.0.0 default, diverging
+        # from the plan's resolved starting version (a committed VERSION
+        # file overrides the default at predict time). The plan is the ONE
+        # version oracle — materialise its next-version via tag-head (the
+        # explicit-version primitive: idempotent, off-HEAD-guarded, works
+        # with persist-credentials: false) instead of re-running the
+        # oracle. Once the first tag exists this branch never fires again.
         if: ${{ github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx semantic-release
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -z "$(git tag --list 'v[0-9]*')" ]; then
+            echo "Tag-less repo — first release: tagging HEAD v${{ inputs.next-version }} from the plan's prediction"
+            ${{ env.HYPERCI_INSTALL }} tag-head --bump ${{ inputs.next-version }}
+          else
+            npx semantic-release
+          fi
 
       - name: Docker Hub login
         if: vars.DOCKERHUB_USERNAME != ''

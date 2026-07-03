@@ -119,6 +119,47 @@ runs:
           exit 1
         fi
 
+        # Orphaned-tag guard (issue #37): semantic-release only considers
+        # tags REACHABLE from HEAD ('No git tag version found on branch
+        # main'). If v* tags exist in refs but NONE are reachable, a past
+        # history rewrite orphaned them — semantic-release re-predicts a
+        # taken or regressed version. Fail at plan time (the _release-tail
+        # off-HEAD guard stays as defence-in-depth) instead of after a
+        # full build. Tags are local: the plan checkout is fetch-depth: 0.
+        tags_all=$(git tag --list 'v[0-9]*')
+        tags_reachable=$(git tag --list 'v[0-9]*' --merged HEAD)
+        if [[ -n "$tags_all" && -z "$tags_reachable" ]]; then
+          echo "::error::v* tags exist but none are reachable from HEAD — orphaned by a past history rewrite (issue #37). semantic-release is blind to them and predicted v${version}, which would collide or regress. Recover the tags with scripts/recover-tags.py, or ship past them with 'hyperi-ci publish --version X.Y.Z'."
+          exit 1
+        fi
+
+        # First release on a genuinely tag-less repo (issue #37 follow-up):
+        # semantic-release defaults to 1.0.0 ('There is no previous
+        # release'). A committed VERSION file declares the starting version
+        # and is shipped VERBATIM — the tag-on-publish twin of 'VERSION is
+        # the source of truth'. No VERSION file keeps the 1.0.0 default.
+        # (The forced --bump paths bump FROM VERSION instead — a bump is a
+        # bump; see push._compute_next_version.)
+        if [[ -z "$tags_all" && -f VERSION ]]; then
+          start=$(head -1 VERSION | tr -d '[:space:]' | sed 's/^v//')
+          if printf '%s' "$start" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' && [[ "$start" != "$version" ]]; then
+            echo "::notice::First release on a tag-less repo — VERSION declares starting version $start (semantic-release default was $version)"
+            version="$start"
+          fi
+        fi
+
+        # Early collision guard: the predicted NEXT version must not
+        # already exist as a tag off-HEAD (existing at HEAD = idempotent
+        # re-run, allowed). Plan-time twin of the _release-tail guard.
+        if git rev-parse -q --verify "refs/tags/v${version}^{commit}" >/dev/null 2>&1; then
+          existing=$(git rev-parse "refs/tags/v${version}^{commit}")
+          head_sha=$(git rev-parse "HEAD^{commit}")
+          if [[ "$existing" != "$head_sha" ]]; then
+            echo "::error::Predicted v${version} already exists at ${existing} (HEAD is ${head_sha}) — refusing to re-release it (issue #37). Ship past it with 'hyperi-ci publish --version X.Y.Z' (or --bump patch), or recover orphaned tags with scripts/recover-tags.py."
+            exit 1
+          fi
+        fi
+
         echo "version=$version" >> "$GITHUB_OUTPUT"
         echo "::notice::Predicted next version: v$version"
 

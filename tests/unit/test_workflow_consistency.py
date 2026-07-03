@@ -199,6 +199,104 @@ def test_predict_version_forced_step_handles_explicit_version() -> None:
     )
 
 
+class TestFirstReleaseAndOrphanGuards:
+    """issue #37 follow-up: tag-less repos declare their starting version
+    via VERSION (shipped verbatim); orphaned-tag repos fail loud at plan
+    time instead of predicting a taken/regressed version."""
+
+    def _predict_step(self) -> dict:
+        path = ACTIONS_DIR / "predict-version" / "action.yml"
+        action = yaml.safe_load(path.read_text(encoding="utf-8"))
+        return next(s for s in action["runs"]["steps"] if s.get("id") == "predict")
+
+    def test_predict_fails_loud_on_orphaned_tags(self) -> None:
+        # v* tags in refs but none reachable from HEAD = a past history
+        # rewrite (the #37 damage signature). Must fail at plan time with
+        # actionable guidance, not predict 1.0.0 and die later on the
+        # tag collision.
+        run = str(self._predict_step()["run"])
+        assert "--merged HEAD" in run, (
+            "predict step must check tag reachability (--merged HEAD)"
+        )
+        # Polarity: tags exist AND none reachable -> error out.
+        assert '-n "$tags_all" && -z "$tags_reachable"' in run, (
+            "orphan guard polarity: fire when tags exist but none reachable"
+        )
+        assert "recover-tags.py" in run and "publish --version" in run, (
+            "orphan-guard error must name the escape hatches"
+        )
+
+    def test_predict_first_release_uses_version_file(self) -> None:
+        # Tag-less repo: a committed VERSION file declares the starting
+        # version verbatim; no VERSION keeps semantic-release's 1.0.0.
+        run = str(self._predict_step()["run"])
+        # Polarity: only on a genuinely tag-less repo AND with a VERSION file.
+        assert '-z "$tags_all" && -f VERSION' in run, (
+            "VERSION override must fire only on a tag-less repo with VERSION"
+        )
+        assert r"^[0-9]+\.[0-9]+\.[0-9]+$" in run, (
+            "VERSION content must be validated as strict X.Y.Z before use"
+        )
+
+    def test_predict_early_collision_guard(self) -> None:
+        # Plan-time twin of the _release-tail off-HEAD guard: a predicted
+        # version whose tag already exists off-HEAD fails before the build.
+        run = str(self._predict_step()["run"])
+        assert "refs/tags/v${version}^{commit}" in run, (
+            "predict step must check the predicted tag for an off-HEAD collision"
+        )
+
+    def test_predict_guard_ordering(self) -> None:
+        # The guards and the VERSION override must all run BEFORE the
+        # version is emitted to GITHUB_OUTPUT — substring presence alone
+        # would stay green if a refactor moved a guard after the emit,
+        # silently disarming it.
+        run = str(self._predict_step()["run"])
+        emit = run.index('echo "version=$version"')
+        assert run.index("--merged HEAD") < emit, (
+            "orphan guard must run before the version is emitted"
+        )
+        assert run.index('-z "$tags_all" && -f VERSION') < emit, (
+            "VERSION override must apply before the version is emitted"
+        )
+        assert run.index("refs/tags/v${version}^{commit}") < emit, (
+            "collision guard must run before the version is emitted"
+        )
+        # The override rewrites $version, so the collision guard must
+        # check the FINAL value: override strictly before collision guard.
+        assert run.index('-z "$tags_all" && -f VERSION') < run.index(
+            "refs/tags/v${version}^{commit}"
+        ), "collision guard must check the post-override version"
+
+    def test_release_tail_first_release_uses_tag_head(self) -> None:
+        # On a tag-less repo the real semantic-release run would tag its
+        # own 1.0.0 default, diverging from the plan's resolved starting
+        # version. The tail must materialise the plan's next-version via
+        # tag-head instead — one version oracle.
+        wf = _load_workflow("_release-tail.yml")
+        steps = wf["jobs"]["tag-and-publish"]["steps"]
+        sr = next(s for s in steps if s.get("name") == "Tag (semantic-release)")
+        run = str(sr["run"])
+        # Polarity: the -z (tag-less) branch runs tag-head; the else
+        # branch runs semantic-release. Substring presence alone would
+        # stay green with the branches swapped or the predicate inverted.
+        assert "if [ -z \"$(git tag --list 'v[0-9]*')\" ]" in run, (
+            "Tag step must branch on the tag-less (-z) predicate"
+        )
+        idx_if = run.index("if [ -z ")
+        idx_tag_head = run.index("tag-head --bump ${{ inputs.next-version }}")
+        idx_else = run.index("else")
+        idx_sr = run.index("npx semantic-release")
+        assert idx_if < idx_tag_head < idx_else < idx_sr, (
+            "tag-less branch must be tag-head; the else branch must be "
+            "the real semantic-release run"
+        )
+        # tag-head goes through `gh api` — the step needs GH_TOKEN.
+        assert "GH_TOKEN" in sr.get("env", {}), (
+            "Tag step must export GH_TOKEN for tag-head's gh api call"
+        )
+
+
 class TestReleaseTailDecoupling:
     """issue #33: a Container failure must not block the primary publish,
     and a library must not boot Buildx / touch GHCR at all."""
