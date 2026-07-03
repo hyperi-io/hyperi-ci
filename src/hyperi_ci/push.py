@@ -163,7 +163,7 @@ def _publish_push(
     if not require_gh():
         return 1
 
-    branch = get_current_branch()
+    branch = get_current_branch(cwd=cwd)
     if branch != "main":
         error("--publish only works from main")
         return 1
@@ -173,6 +173,15 @@ def _publish_push(
 
     if not force:
         if rc := _run_check(cwd=cwd):
+            return rc
+
+    # Predicted-bump gate on dry runs (issue #26): report the verdict on
+    # the LOCAL range before the dry-run paths return. The authoritative
+    # gate for a real push runs after the pull-rebase below — the pull can
+    # import feat!/BREAKING history from origin that the local range never
+    # contained, and that imported history must not escape analysis.
+    if dry_run:
+        if rc := _bump_gate(cwd=cwd, forced_bump=bump):
             return rc
 
     if bump:
@@ -242,7 +251,23 @@ def _publish_push(
         info("Dry run: would rebase and push")
         return 0
 
-    rc = _rebase_and_push(branch="main", cwd=cwd)
+    # Sync BEFORE the gate so the analysis covers exactly what the push
+    # will make reachable (issue #26). Gating pre-pull left a hole: a
+    # reconcile merge already on origin/main gets imported by the pull
+    # and shipped un-analysed — the rustlib v3.0.0 shape, arriving via
+    # the sync instead of the local worktree.
+    if rc := _pull_rebase(branch="main", cwd=cwd):
+        return rc
+
+    # Predicted-bump gate (issue #26): fail closed if the commit range
+    # this publish would ship implies a bump above patch, unless the
+    # operator opted in. A forced --bump-minor is already the operator's
+    # explicit minor decision, so the gate only needs to catch UNINTENDED
+    # bumps in the range beyond what the forced level allows.
+    if rc := _bump_gate(cwd=cwd, forced_bump=bump):
+        return rc
+
+    rc = _push_with_env(cwd=cwd)
     if rc != 0:
         return rc
 
@@ -619,6 +644,89 @@ def _run_check(*, cwd: str | None) -> int:
     return 0
 
 
+_BUMP_RANK = {"none": 0, "patch": 1, "minor": 2, "major": 3}
+
+
+def _env_true(name: str) -> bool:
+    """Return True when env var ``name`` holds a truthy opt-in value."""
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes")
+
+
+def _bump_gate(*, cwd: str | None, forced_bump: str | None) -> int:
+    """Fail closed when the publish would ship an unintended minor/major (#26).
+
+    Analyses ``<last-tag>..HEAD`` (the range semantic-release walks) and
+    compares the predicted bump against what the operator has authorised:
+
+    * a predicted MAJOR needs ``HYPERCI_ALLOW_MAJOR_BUMP=1`` (or
+      ``HYPERCI_ALLOW_BREAKING=1`` — declared breaking intent);
+    * a predicted MINOR needs ``HYPERCI_ALLOW_MINOR_BUMP=1`` (or
+      ``HYPERCI_ALLOW_FEAT=1`` — declared feat intent — or an explicit
+      ``--bump-minor``);
+    * PATCH / none always pass.
+
+    In the real publish flow this runs AFTER the pull-rebase, so the
+    analysed range is exactly what the push makes reachable — including
+    history the pull imported from origin. The dry-run call gates the
+    local range only (best effort, no mutation).
+
+    Fails open (returns 0) when the bump can't be predicted -- no prior
+    tag, no new commits, or git unavailable -- so an initial release or a
+    non-semantic-release repo is never blocked.
+    """
+    from hyperi_ci.quality.predicted_bump import predict_bump
+
+    project_dir = Path(cwd) if cwd else None
+    prediction = predict_bump(project_dir)
+
+    # An explicit --bump-* pre-authorises that level. The commit-text
+    # opt-ins carry the same intent one level up: HYPERCI_ALLOW_BREAKING
+    # ("yes, a breaking change") authorises a major, HYPERCI_ALLOW_FEAT
+    # ("yes, a feat") authorises a minor — an operator who set them to
+    # get the commit through shouldn't be re-blocked here for the very
+    # bump they declared.
+    authorised = _BUMP_RANK.get(forced_bump or "none", 0)
+    if _env_true("HYPERCI_ALLOW_MAJOR_BUMP") or _env_true("HYPERCI_ALLOW_BREAKING"):
+        authorised = max(authorised, _BUMP_RANK["major"])
+    elif _env_true("HYPERCI_ALLOW_MINOR_BUMP") or _env_true("HYPERCI_ALLOW_FEAT"):
+        authorised = max(authorised, _BUMP_RANK["minor"])
+
+    predicted_rank = _BUMP_RANK.get(prediction.bump, 0)
+    if predicted_rank <= max(authorised, _BUMP_RANK["patch"]):
+        return 0
+
+    reasons = (
+        prediction.major_reasons
+        if prediction.bump == "major"
+        else prediction.minor_reasons
+    )
+    env_flag = (
+        "HYPERCI_ALLOW_MAJOR_BUMP"
+        if prediction.bump == "major"
+        else "HYPERCI_ALLOW_MINOR_BUMP"
+    )
+    error(
+        f"Predicted release bump is {prediction.bump.upper()} "
+        f"(since {prediction.last_tag}) but no such bump was authorised."
+    )
+    warn(
+        "This can happen when a merge / cherry-pick brings already-committed "
+        "feat!/BREAKING history into reachability without you authoring it "
+        "(issue #26 — how rustlib shipped an unintended v3.0.0)."
+    )
+    if reasons:
+        info(f"  Commits driving the {prediction.bump} bump:")
+        for subject in reasons[:10]:
+            info(f"    - {subject}")
+        if len(reasons) > 10:
+            info(f"    ... and {len(reasons) - 10} more")
+    info(
+        f"  If this bump IS intended, re-run with {env_flag}=1 set: "
+        f"`{env_flag}=1 hyperi-ci push --publish`"
+    )
+    return 1
+
+
 def _has_upstream(*, cwd: str | None) -> bool:
     """Return True if the current branch has a configured upstream.
 
@@ -633,6 +741,20 @@ def _has_upstream(*, cwd: str | None) -> bool:
         cwd=cwd,
     )
     return result.returncode == 0 and bool(result.stdout.strip())
+
+
+def _pull_rebase(*, branch: str | None = None, cwd: str | None = None) -> int:
+    """Run ``git pull --rebase`` (optionally against ``origin <branch>``)."""
+    rebase_cmd = ["git", "pull", "--rebase"]
+    if branch:
+        rebase_cmd.extend(["origin", branch])
+
+    try:
+        run_cmd(rebase_cmd, cwd=cwd)
+    except subprocess.CalledProcessError:
+        error("Rebase failed — resolve conflicts and try again")
+        return 1
+    return 0
 
 
 def _rebase_and_push(
@@ -651,22 +773,15 @@ def _rebase_and_push(
     upstream, so this only changes behaviour for the new-branch case.
     """
     if not _has_upstream(cwd=cwd):
-        current = branch or get_current_branch()
+        current = branch or get_current_branch(cwd=cwd)
         if not current:
             error("Cannot determine current branch to push")
             return 1
         info(f"No upstream for '{current}' — first push, setting upstream")
         return _push_with_env(args=["-u", "origin", current], cwd=cwd)
 
-    rebase_cmd = ["git", "pull", "--rebase"]
-    if branch:
-        rebase_cmd.extend(["origin", branch])
-
-    try:
-        run_cmd(rebase_cmd, cwd=cwd)
-    except subprocess.CalledProcessError:
-        error("Rebase failed — resolve conflicts and try again")
-        return 1
+    if rc := _pull_rebase(branch=branch, cwd=cwd):
+        return rc
 
     return _push_with_env(cwd=cwd)
 

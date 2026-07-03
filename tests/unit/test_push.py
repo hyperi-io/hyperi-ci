@@ -157,6 +157,7 @@ class TestDefaultPush:
         with (
             patch("hyperi_ci.push._check_dirty_tree", return_value=0),
             patch("hyperi_ci.push._run_check", return_value=0),
+            patch("hyperi_ci.push._bump_gate", return_value=0),
             patch("hyperi_ci.push._rebase_and_push") as mock_push,
         ):
             from hyperi_ci.push import _default_push
@@ -216,6 +217,7 @@ class TestPublishPush:
             patch("hyperi_ci.push.get_current_branch", return_value="main"),
             patch("hyperi_ci.push._check_dirty_tree", return_value=0),
             patch("hyperi_ci.push._run_check", return_value=0),
+            patch("hyperi_ci.push._bump_gate", return_value=0),
             patch(
                 "hyperi_ci.push._get_last_commit_message",
                 return_value="fix: thing\n",
@@ -223,7 +225,8 @@ class TestPublishPush:
             patch(
                 "hyperi_ci.push._amend_publish_trailer", return_value=0
             ) as mock_amend,
-            patch("hyperi_ci.push._rebase_and_push", return_value=0) as mock_push,
+            patch("hyperi_ci.push._pull_rebase", return_value=0),
+            patch("hyperi_ci.push._push_with_env", return_value=0) as mock_push,
         ):
             from hyperi_ci.push import _publish_push
 
@@ -238,6 +241,7 @@ class TestPublishPush:
             patch("hyperi_ci.push.get_current_branch", return_value="main"),
             patch("hyperi_ci.push._check_dirty_tree", return_value=0),
             patch("hyperi_ci.push._run_check", return_value=0),
+            patch("hyperi_ci.push._bump_gate", return_value=0),
             patch(
                 "hyperi_ci.push._get_last_commit_message",
                 return_value="fix: thing\n\nPublish: true\n",
@@ -245,7 +249,8 @@ class TestPublishPush:
             patch(
                 "hyperi_ci.push._amend_publish_trailer", return_value=0
             ) as mock_amend,
-            patch("hyperi_ci.push._rebase_and_push", return_value=0) as mock_push,
+            patch("hyperi_ci.push._pull_rebase", return_value=0),
+            patch("hyperi_ci.push._push_with_env", return_value=0) as mock_push,
         ):
             from hyperi_ci.push import _publish_push
 
@@ -260,6 +265,7 @@ class TestPublishPush:
             patch("hyperi_ci.push.get_current_branch", return_value="main"),
             patch("hyperi_ci.push._check_dirty_tree", return_value=0),
             patch("hyperi_ci.push._run_check", return_value=0),
+            patch("hyperi_ci.push._bump_gate", return_value=0),
             patch(
                 "hyperi_ci.push._get_last_commit_message",
                 return_value="fix: thing\n",
@@ -267,7 +273,8 @@ class TestPublishPush:
             patch(
                 "hyperi_ci.push._amend_publish_trailer", return_value=0
             ) as mock_amend,
-            patch("hyperi_ci.push._rebase_and_push", return_value=0) as mock_push,
+            patch("hyperi_ci.push._pull_rebase", return_value=0),
+            patch("hyperi_ci.push._push_with_env", return_value=0) as mock_push,
         ):
             from hyperi_ci.push import _publish_push
 
@@ -293,11 +300,13 @@ class TestForcedBumpPush:
             patch("hyperi_ci.push.get_current_branch", return_value="main"),
             patch("hyperi_ci.push._check_dirty_tree", return_value=0),
             patch("hyperi_ci.push._run_check", return_value=0),
+            patch("hyperi_ci.push._bump_gate", return_value=0),
             patch("hyperi_ci.push._compute_next_version", return_value="1.5.5"),
             patch(
                 "hyperi_ci.push._write_version_and_commit", return_value=0
             ) as mock_marker,
-            patch("hyperi_ci.push._rebase_and_push", return_value=0) as mock_push,
+            patch("hyperi_ci.push._pull_rebase", return_value=0),
+            patch("hyperi_ci.push._push_with_env", return_value=0) as mock_push,
         ):
             from hyperi_ci.push import _publish_push
 
@@ -317,11 +326,13 @@ class TestForcedBumpPush:
             patch("hyperi_ci.push.get_current_branch", return_value="main"),
             patch("hyperi_ci.push._check_dirty_tree", return_value=0),
             patch("hyperi_ci.push._run_check", return_value=0),
+            patch("hyperi_ci.push._bump_gate", return_value=0),
             patch("hyperi_ci.push._compute_next_version", return_value="1.6.0"),
             patch(
                 "hyperi_ci.push._write_version_and_commit", return_value=0
             ) as mock_marker,
-            patch("hyperi_ci.push._rebase_and_push", return_value=0),
+            patch("hyperi_ci.push._pull_rebase", return_value=0),
+            patch("hyperi_ci.push._push_with_env", return_value=0),
         ):
             from hyperi_ci.push import _publish_push
 
@@ -339,11 +350,13 @@ class TestForcedBumpPush:
             patch("hyperi_ci.push.get_current_branch", return_value="main"),
             patch("hyperi_ci.push._check_dirty_tree", return_value=0),
             patch("hyperi_ci.push._run_check", return_value=0),
+            patch("hyperi_ci.push._bump_gate", return_value=0),
             patch("hyperi_ci.push._compute_next_version", return_value="1.5.5"),
             patch(
                 "hyperi_ci.push._write_version_and_commit", return_value=0
             ) as mock_marker,
-            patch("hyperi_ci.push._rebase_and_push", return_value=0) as mock_push,
+            patch("hyperi_ci.push._pull_rebase", return_value=0),
+            patch("hyperi_ci.push._push_with_env", return_value=0) as mock_push,
         ):
             from hyperi_ci.push import _publish_push
 
@@ -359,6 +372,7 @@ class TestForcedBumpPush:
             patch("hyperi_ci.push.get_current_branch", return_value="main"),
             patch("hyperi_ci.push._check_dirty_tree", return_value=0),
             patch("hyperi_ci.push._run_check", return_value=0),
+            patch("hyperi_ci.push._bump_gate", return_value=0),
             patch("hyperi_ci.push._compute_next_version", return_value=None),
         ):
             from hyperi_ci.push import _publish_push
@@ -665,3 +679,226 @@ class TestRebaseAndPush:
         with patch("hyperi_ci.push.run_cmd") as mock_run:
             mock_run.return_value = MagicMock(returncode=128, stdout="")
             assert _has_upstream(cwd=None) is False
+
+
+class TestBumpGate:
+    """Predicted-bump gate in the publish path (issue #26)."""
+
+    def _pred(self, bump, last_tag="v1.0.0", minor=None, major=None):
+        from hyperi_ci.quality.predicted_bump import BumpPrediction
+
+        return BumpPrediction(
+            bump=bump,
+            last_tag=last_tag,
+            minor_reasons=minor or [],
+            major_reasons=major or [],
+        )
+
+    def test_patch_passes(self):
+        from hyperi_ci.push import _bump_gate
+
+        with patch(
+            "hyperi_ci.quality.predicted_bump.predict_bump",
+            return_value=self._pred("patch"),
+        ):
+            assert _bump_gate(cwd=None, forced_bump=None) == 0
+
+    def test_minor_blocked_without_optin(self, monkeypatch):
+        from hyperi_ci.push import _bump_gate
+
+        monkeypatch.delenv("HYPERCI_ALLOW_MINOR_BUMP", raising=False)
+        monkeypatch.delenv("HYPERCI_ALLOW_MAJOR_BUMP", raising=False)
+        with patch(
+            "hyperi_ci.quality.predicted_bump.predict_bump",
+            return_value=self._pred("minor", minor=["feat: x"]),
+        ):
+            assert _bump_gate(cwd=None, forced_bump=None) == 1
+
+    def test_minor_allowed_with_env(self, monkeypatch):
+        from hyperi_ci.push import _bump_gate
+
+        monkeypatch.setenv("HYPERCI_ALLOW_MINOR_BUMP", "1")
+        with patch(
+            "hyperi_ci.quality.predicted_bump.predict_bump",
+            return_value=self._pred("minor", minor=["feat: x"]),
+        ):
+            assert _bump_gate(cwd=None, forced_bump=None) == 0
+
+    def test_minor_allowed_by_forced_bump_minor(self, monkeypatch):
+        from hyperi_ci.push import _bump_gate
+
+        monkeypatch.delenv("HYPERCI_ALLOW_MINOR_BUMP", raising=False)
+        with patch(
+            "hyperi_ci.quality.predicted_bump.predict_bump",
+            return_value=self._pred("minor", minor=["feat: x"]),
+        ):
+            assert _bump_gate(cwd=None, forced_bump="minor") == 0
+
+    def test_major_blocked_even_with_minor_optin(self, monkeypatch):
+        from hyperi_ci.push import _bump_gate
+
+        monkeypatch.setenv("HYPERCI_ALLOW_MINOR_BUMP", "1")
+        monkeypatch.delenv("HYPERCI_ALLOW_MAJOR_BUMP", raising=False)
+        with patch(
+            "hyperi_ci.quality.predicted_bump.predict_bump",
+            return_value=self._pred("major", major=["feat!: y"]),
+        ):
+            assert _bump_gate(cwd=None, forced_bump=None) == 1
+
+    def test_major_allowed_with_env(self, monkeypatch):
+        from hyperi_ci.push import _bump_gate
+
+        monkeypatch.setenv("HYPERCI_ALLOW_MAJOR_BUMP", "1")
+        with patch(
+            "hyperi_ci.quality.predicted_bump.predict_bump",
+            return_value=self._pred("major", major=["feat!: y"]),
+        ):
+            assert _bump_gate(cwd=None, forced_bump=None) == 0
+
+    def test_none_passes(self):
+        from hyperi_ci.push import _bump_gate
+
+        with patch(
+            "hyperi_ci.quality.predicted_bump.predict_bump",
+            return_value=self._pred("none", last_tag=None),
+        ):
+            assert _bump_gate(cwd=None, forced_bump=None) == 0
+
+    def test_forced_patch_does_not_authorise_minor(self, monkeypatch):
+        from hyperi_ci.push import _bump_gate
+
+        monkeypatch.delenv("HYPERCI_ALLOW_MINOR_BUMP", raising=False)
+        monkeypatch.delenv("HYPERCI_ALLOW_FEAT", raising=False)
+        with patch(
+            "hyperi_ci.quality.predicted_bump.predict_bump",
+            return_value=self._pred("minor", minor=["feat: x"]),
+        ):
+            assert _bump_gate(cwd=None, forced_bump="patch") == 1
+
+    def test_forced_minor_does_not_authorise_major(self, monkeypatch):
+        from hyperi_ci.push import _bump_gate
+
+        monkeypatch.delenv("HYPERCI_ALLOW_MAJOR_BUMP", raising=False)
+        monkeypatch.delenv("HYPERCI_ALLOW_BREAKING", raising=False)
+        with patch(
+            "hyperi_ci.quality.predicted_bump.predict_bump",
+            return_value=self._pred("major", major=["feat!: y"]),
+        ):
+            assert _bump_gate(cwd=None, forced_bump="minor") == 1
+
+    def test_allow_feat_authorises_minor(self, monkeypatch):
+        # The commit-text opt-in carries the same intent one level up:
+        # an operator who set HYPERCI_ALLOW_FEAT to get the feat: commit
+        # through must not be re-blocked for the minor it implies.
+        from hyperi_ci.push import _bump_gate
+
+        monkeypatch.delenv("HYPERCI_ALLOW_MINOR_BUMP", raising=False)
+        monkeypatch.setenv("HYPERCI_ALLOW_FEAT", "1")
+        with patch(
+            "hyperi_ci.quality.predicted_bump.predict_bump",
+            return_value=self._pred("minor", minor=["feat: x"]),
+        ):
+            assert _bump_gate(cwd=None, forced_bump=None) == 0
+
+    def test_allow_breaking_authorises_major(self, monkeypatch):
+        from hyperi_ci.push import _bump_gate
+
+        monkeypatch.delenv("HYPERCI_ALLOW_MAJOR_BUMP", raising=False)
+        monkeypatch.setenv("HYPERCI_ALLOW_BREAKING", "1")
+        with patch(
+            "hyperi_ci.quality.predicted_bump.predict_bump",
+            return_value=self._pred("major", major=["feat!: y"]),
+        ):
+            assert _bump_gate(cwd=None, forced_bump=None) == 0
+
+
+class TestBumpGateWiring:
+    """The gate's placement in _publish_push (issue #26 review findings).
+
+    The authoritative gate runs AFTER the pull-rebase so history imported
+    from origin is analysed; a gate failure must abort before the push;
+    and the forced bump level must be forwarded.
+    """
+
+    def _patches(self, **overrides):
+        defaults = {
+            "require_gh": patch("hyperi_ci.push.require_gh", return_value=True),
+            "branch": patch("hyperi_ci.push.get_current_branch", return_value="main"),
+            "dirty": patch("hyperi_ci.push._check_dirty_tree", return_value=0),
+            "check": patch("hyperi_ci.push._run_check", return_value=0),
+            "msg": patch(
+                "hyperi_ci.push._get_last_commit_message",
+                return_value="fix: thing\n\nPublish: true\n",
+            ),
+        }
+        defaults.update(overrides)
+        return defaults
+
+    def test_gate_failure_after_pull_aborts_before_push(self):
+        from hyperi_ci.push import _publish_push
+
+        call_order: list[str] = []
+        with (
+            patch("hyperi_ci.push.require_gh", return_value=True),
+            patch("hyperi_ci.push.get_current_branch", return_value="main"),
+            patch("hyperi_ci.push._check_dirty_tree", return_value=0),
+            patch("hyperi_ci.push._run_check", return_value=0),
+            patch(
+                "hyperi_ci.push._get_last_commit_message",
+                return_value="fix: thing\n\nPublish: true\n",
+            ),
+            patch(
+                "hyperi_ci.push._pull_rebase",
+                side_effect=lambda **kw: call_order.append("pull") or 0,
+            ),
+            patch(
+                "hyperi_ci.push._bump_gate",
+                side_effect=lambda **kw: call_order.append("gate") or 1,
+            ),
+            patch("hyperi_ci.push._push_with_env", return_value=0) as mock_push,
+        ):
+            rc = _publish_push(dry_run=False, force=False, bump=None, cwd=None)
+
+        assert rc == 1
+        # Gate ran after the pull (so imported history is analysed) and
+        # the push never happened.
+        assert call_order == ["pull", "gate"]
+        mock_push.assert_not_called()
+
+    def test_gate_receives_forced_bump(self):
+        from hyperi_ci.push import _publish_push
+
+        with (
+            patch("hyperi_ci.push.require_gh", return_value=True),
+            patch("hyperi_ci.push.get_current_branch", return_value="main"),
+            patch("hyperi_ci.push._check_dirty_tree", return_value=0),
+            patch("hyperi_ci.push._run_check", return_value=0),
+            patch("hyperi_ci.push._compute_next_version", return_value="1.5.5"),
+            patch("hyperi_ci.push._write_version_and_commit", return_value=0),
+            patch("hyperi_ci.push._pull_rebase", return_value=0),
+            patch("hyperi_ci.push._bump_gate", return_value=0) as mock_gate,
+            patch("hyperi_ci.push._push_with_env", return_value=0),
+        ):
+            rc = _publish_push(dry_run=False, force=False, bump="minor", cwd=None)
+
+        assert rc == 0
+        assert mock_gate.call_args.kwargs["forced_bump"] == "minor"
+
+    def test_dry_run_gates_local_range(self):
+        # Dry run mutates nothing, so it gates the LOCAL range before the
+        # early returns - a blocked bump surfaces without a pull.
+        from hyperi_ci.push import _publish_push
+
+        with (
+            patch("hyperi_ci.push.require_gh", return_value=True),
+            patch("hyperi_ci.push.get_current_branch", return_value="main"),
+            patch("hyperi_ci.push._check_dirty_tree", return_value=0),
+            patch("hyperi_ci.push._run_check", return_value=0),
+            patch("hyperi_ci.push._bump_gate", return_value=1) as mock_gate,
+            patch("hyperi_ci.push._pull_rebase", return_value=0) as mock_pull,
+        ):
+            rc = _publish_push(dry_run=True, force=False, bump=None, cwd=None)
+
+        assert rc == 1
+        mock_gate.assert_called_once()
+        mock_pull.assert_not_called()

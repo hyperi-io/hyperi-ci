@@ -32,11 +32,19 @@ def require_gh() -> bool:
     return True
 
 
-def get_current_branch() -> str | None:
+def get_current_branch(*, cwd: str | None = None) -> str | None:
     """Get the current git branch name.
 
+    Args:
+        cwd: Repository directory (default: process cwd). Callers that
+            honour a ``--project-dir`` MUST pass it — otherwise the
+            branch of whatever repo the shell happens to sit in is
+            reported (and pushed).
+
     Returns:
-        Branch name, or None if not in a git repo.
+        Branch name, or None if not in a git repo or on a detached HEAD
+        (``rev-parse --abbrev-ref`` reports the literal ``HEAD`` there —
+        not a pushable branch name).
 
     """
     try:
@@ -44,10 +52,14 @@ def get_current_branch() -> str | None:
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
             capture=True,
             check=True,
+            cwd=cwd,
         )
-        return result.stdout.strip()
     except subprocess.CalledProcessError:
         return None
+    branch = result.stdout.strip()
+    if not branch or branch == "HEAD":
+        return None
+    return branch
 
 
 def gh_run(
