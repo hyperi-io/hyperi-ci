@@ -619,12 +619,45 @@ def _run_check(*, cwd: str | None) -> int:
     return 0
 
 
+def _has_upstream(*, cwd: str | None) -> bool:
+    """Return True if the current branch has a configured upstream.
+
+    A brand-new local branch that was never pushed has no ``@{u}`` -
+    ``git rev-parse @{u}`` exits non-zero. We use that to distinguish a
+    first push (nothing to rebase against) from a normal push.
+    """
+    result = run_cmd(
+        ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+        capture=True,
+        check=False,
+        cwd=cwd,
+    )
+    return result.returncode == 0 and bool(result.stdout.strip())
+
+
 def _rebase_and_push(
     *,
     branch: str | None = None,
     cwd: str | None = None,
 ) -> int:
-    """Pull --rebase then push with HYPERCI_PUSH=1."""
+    """Pull --rebase then push with HYPERCI_PUSH=1.
+
+    First push of a new branch (issue #38): a freshly-created local
+    branch has no upstream, so ``git pull --rebase`` aborts with "no
+    tracking information" - which the old code mislabelled as a rebase
+    CONFLICT. Detect the no-upstream case and skip the rebase entirely,
+    pushing with ``-u origin <branch>`` to establish tracking. Only the
+    explicit-branch publish path (``branch="main"``) always has an
+    upstream, so this only changes behaviour for the new-branch case.
+    """
+    if not _has_upstream(cwd=cwd):
+        current = branch or get_current_branch()
+        if not current:
+            error("Cannot determine current branch to push")
+            return 1
+        info(f"No upstream for '{current}' — first push, setting upstream")
+        return _push_with_env(args=["-u", "origin", current], cwd=cwd)
+
     rebase_cmd = ["git", "pull", "--rebase"]
     if branch:
         rebase_cmd.extend(["origin", branch])

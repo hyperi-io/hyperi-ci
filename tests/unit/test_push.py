@@ -602,3 +602,66 @@ class TestStageModifiedLockfiles:
 
         # Only the git diff call should fire; no git add follow-up.
         assert mock_run.call_count == 1
+
+
+class TestRebaseAndPush:
+    """First push of a new branch with no upstream (issue #38).
+
+    A freshly-created local branch has no `@{u}`; the old code ran a bare
+    `git pull --rebase` that aborted with "no tracking information" and
+    was mislabelled as a rebase CONFLICT. The new-branch path must skip
+    the rebase and push with `-u origin <branch>` instead.
+    """
+
+    def test_new_branch_no_upstream_pushes_with_set_upstream(self):
+        from hyperi_ci.push import _rebase_and_push
+
+        with (
+            patch("hyperi_ci.push._has_upstream", return_value=False),
+            patch("hyperi_ci.push.get_current_branch", return_value="feat/x"),
+            patch("hyperi_ci.push._push_with_env", return_value=0) as mock_push,
+        ):
+            assert _rebase_and_push(cwd=None) == 0
+
+        # No rebase attempted; push sets the upstream.
+        mock_push.assert_called_once()
+        assert mock_push.call_args.kwargs["args"] == ["-u", "origin", "feat/x"]
+
+    def test_new_branch_unknown_name_errors(self):
+        from hyperi_ci.push import _rebase_and_push
+
+        with (
+            patch("hyperi_ci.push._has_upstream", return_value=False),
+            patch("hyperi_ci.push.get_current_branch", return_value=None),
+            patch("hyperi_ci.push._push_with_env", return_value=0) as mock_push,
+        ):
+            assert _rebase_and_push(cwd=None) == 1
+        mock_push.assert_not_called()
+
+    def test_existing_upstream_rebases_then_pushes(self):
+        from hyperi_ci.push import _rebase_and_push
+
+        with (
+            patch("hyperi_ci.push._has_upstream", return_value=True),
+            patch("hyperi_ci.push.run_cmd") as mock_run,
+            patch("hyperi_ci.push._push_with_env", return_value=0) as mock_push,
+        ):
+            assert _rebase_and_push(cwd=None) == 0
+
+        # Rebase ran before the push.
+        assert mock_run.call_args.args[0] == ["git", "pull", "--rebase"]
+        mock_push.assert_called_once()
+
+    def test_has_upstream_true_on_zero_exit(self):
+        from hyperi_ci.push import _has_upstream
+
+        with patch("hyperi_ci.push.run_cmd") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="origin/main\n")
+            assert _has_upstream(cwd=None) is True
+
+    def test_has_upstream_false_on_nonzero_exit(self):
+        from hyperi_ci.push import _has_upstream
+
+        with patch("hyperi_ci.push.run_cmd") as mock_run:
+            mock_run.return_value = MagicMock(returncode=128, stdout="")
+            assert _has_upstream(cwd=None) is False
