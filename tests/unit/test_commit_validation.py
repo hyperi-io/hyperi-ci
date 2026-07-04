@@ -649,12 +649,17 @@ class TestRunDegraded:
         payload = _write_push_event(tmp_path, "0" * 40, "HEAD")
         monkeypatch.setenv("GITHUB_EVENT_PATH", str(payload))
         monkeypatch.setattr(cv, "is_ci", lambda: True)
+        # Capture the (legitimate) degraded warning so it doesn't leak into
+        # CI logs from the test run itself.
+        warns: list[str] = []
+        monkeypatch.setattr(cv, "warn", lambda m: warns.append(m))
 
         from hyperi_ci.config import CIConfig
 
         rc = cv.run(CIConfig())
         # Degraded, but HEAD is invalid -> must FAIL, not silent-pass.
         assert rc == 1
+        assert any("DEGRADED" in w for w in warns)  # warns loudly, never silent
 
     def test_degraded_head_valid_passes(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -666,6 +671,7 @@ class TestRunDegraded:
         payload = _write_push_event(tmp_path, "0" * 40, "HEAD")
         monkeypatch.setenv("GITHUB_EVENT_PATH", str(payload))
         monkeypatch.setattr(cv, "is_ci", lambda: True)
+        monkeypatch.setattr(cv, "warn", lambda _m: None)  # capture degraded warning
 
         from hyperi_ci.config import CIConfig
 
