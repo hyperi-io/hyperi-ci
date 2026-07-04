@@ -6,6 +6,13 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 from __future__ import annotations
 
+import json
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from hyperi_ci.quality import commit_validation as cv
 from hyperi_ci.quality.commit_validation import (
     ValidationResult,
     format_rejection,
@@ -530,3 +537,144 @@ class TestValidationResult:
         assert result.valid is False
         assert result.reason == "bad prefix"
         assert result.error_type == "no_prefix"
+
+
+# ---------------------------------------------------------------------------
+# Commit-range resolution + degraded backstop (issue #52)
+# ---------------------------------------------------------------------------
+
+
+def _git(cwd: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def _repo(tmp_path: Path) -> Path:
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.email", "t@t.io")
+    _git(tmp_path, "config", "user.name", "t")
+    return tmp_path
+
+
+def _commit(cwd: Path, msg: str) -> str:
+    _git(cwd, "commit", "--allow-empty", "-q", "-m", msg)
+    return _git(cwd, "rev-parse", "HEAD")
+
+
+def _write_push_event(tmp_path: Path, before: str, after: str) -> Path:
+    payload = tmp_path / "event.json"
+    payload.write_text(json.dumps({"before": before, "after": after}))
+    return payload
+
+
+class TestGetCommitsToValidate:
+    def test_push_range_uses_before_after(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = _repo(tmp_path)
+        base = _commit(repo, "chore: seed")
+        _commit(repo, "fix: one")
+        head = _commit(repo, "feat: two")
+        payload = _write_push_event(tmp_path, base, head)
+
+        monkeypatch.chdir(repo)
+        monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+        monkeypatch.setenv("GITHUB_EVENT_PATH", str(payload))
+
+        commits, resolved = cv._get_commits_to_validate()
+        assert resolved is True
+        subjects = [m.splitlines()[0] for _, m in commits]
+        assert subjects == ["feat: two", "fix: one"]  # not the seed before `base`
+
+    def test_push_empty_range_is_resolved_not_degraded(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # before == after (e.g. a re-run): a legit "no new commits", resolved.
+        repo = _repo(tmp_path)
+        head = _commit(repo, "fix: only")
+        payload = _write_push_event(tmp_path, head, head)
+        monkeypatch.chdir(repo)
+        monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+        monkeypatch.setenv("GITHUB_EVENT_PATH", str(payload))
+
+        commits, resolved = cv._get_commits_to_validate()
+        assert resolved is True
+        assert commits == []
+
+    def test_push_new_branch_zero_before_is_unresolved(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A branch-creation push has an all-zeros `before` -> range can't be
+        # derived from it -> unresolved (caller must not treat as success).
+        repo = _repo(tmp_path)
+        head = _commit(repo, "fix: first")
+        payload = _write_push_event(tmp_path, "0" * 40, head)
+        monkeypatch.chdir(repo)
+        monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+        monkeypatch.setenv("GITHUB_EVENT_PATH", str(payload))
+        # No origin/main and shallow-style: force fallbacks to miss.
+        commits, resolved = cv._get_commits_to_validate()
+        assert resolved is False
+
+    def test_missing_before_commit_is_unresolved(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # `before` names a SHA not in the (shallow) clone -> git errors -> the
+        # push path can't resolve, and with no origin/main it stays unresolved.
+        repo = _repo(tmp_path)
+        _commit(repo, "fix: a")
+        head = _commit(repo, "fix: b")
+        payload = _write_push_event(tmp_path, "deadbeef" * 5, head)
+        monkeypatch.chdir(repo)
+        monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+        monkeypatch.setenv("GITHUB_EVENT_PATH", str(payload))
+        commits, resolved = cv._get_commits_to_validate()
+        assert resolved is False
+
+
+class TestRunDegraded:
+    """run() must never silently pass having validated nothing (issue #52)."""
+
+    def test_degraded_validates_head_and_warns(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = _repo(tmp_path)
+        # HEAD is a BAD commit; degraded path must still catch it.
+        _commit(repo, "seed proper base commit")  # non-conventional but skipped? no
+        _git(repo, "commit", "--allow-empty", "-q", "-m", "Broken Subject No Prefix")
+        monkeypatch.chdir(repo)
+        monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+        # Unresolvable: zeros before, no origin.
+        payload = _write_push_event(tmp_path, "0" * 40, "HEAD")
+        monkeypatch.setenv("GITHUB_EVENT_PATH", str(payload))
+        monkeypatch.setattr(cv, "is_ci", lambda: True)
+
+        from hyperi_ci.config import CIConfig
+
+        rc = cv.run(CIConfig())
+        # Degraded, but HEAD is invalid -> must FAIL, not silent-pass.
+        assert rc == 1
+
+    def test_degraded_head_valid_passes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = _repo(tmp_path)
+        _commit(repo, "fix: a good head commit")
+        monkeypatch.chdir(repo)
+        monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+        payload = _write_push_event(tmp_path, "0" * 40, "HEAD")
+        monkeypatch.setenv("GITHUB_EVENT_PATH", str(payload))
+        monkeypatch.setattr(cv, "is_ci", lambda: True)
+
+        from hyperi_ci.config import CIConfig
+
+        rc = cv.run(CIConfig())
+        assert rc == 0
+
+
+def test_is_zero_sha() -> None:
+    assert cv._is_zero_sha("0" * 40) is True
+    assert cv._is_zero_sha("0" * 7) is True
+    assert cv._is_zero_sha("deadbeef") is False
+    assert cv._is_zero_sha("000000") is False  # too short to be the sentinel

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import difflib
+import json
 import os
 import re
 import subprocess
@@ -17,7 +18,7 @@ from pathlib import Path
 
 import yaml
 
-from hyperi_ci.common import error, info, is_ci, success
+from hyperi_ci.common import error, info, is_ci, success, warn
 from hyperi_ci.config import CIConfig
 
 # ---------------------------------------------------------------------------
@@ -387,43 +388,114 @@ def format_rejection(result: ValidationResult, original: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _get_commits_to_validate() -> list[tuple[str, str]]:
-    """Return list of (hash, full_message) for commits to validate.
+_COMMIT_SEPARATOR = "----END----"
+_COMMIT_FMT = f"%H%n%s%n%b%n{_COMMIT_SEPARATOR}"
 
-    Tries origin/main..HEAD first; falls back to HEAD~10..HEAD for
-    shallow clones or detached-HEAD builds.
-    """
-    separator = "----END----"
-    fmt = f"%H%n%s%n%b%n{separator}"
 
-    def _parse(output: str) -> list[tuple[str, str]]:
-        commits = []
-        for block in output.split(separator):
-            block = block.strip()
-            if not block:
-                continue
-            first_newline = block.index("\n")
-            commit_hash = block[:first_newline].strip()
-            full_msg = block[first_newline:].strip()
-            if commit_hash and full_msg:
-                commits.append((commit_hash, full_msg))
-        return commits
-
-    for git_range in ("origin/main..HEAD", "HEAD~10..HEAD"):
-        try:
-            result = subprocess.run(
-                ["git", "log", f"--pretty={fmt}", git_range],
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            commits = _parse(result.stdout)
-            if commits:
-                return commits
-        except subprocess.CalledProcessError:
+def _parse_git_log(output: str) -> list[tuple[str, str]]:
+    commits = []
+    for block in output.split(_COMMIT_SEPARATOR):
+        block = block.strip()
+        if not block:
             continue
+        first_newline = block.index("\n")
+        commit_hash = block[:first_newline].strip()
+        full_msg = block[first_newline:].strip()
+        if commit_hash and full_msg:
+            commits.append((commit_hash, full_msg))
+    return commits
 
-    return []
+
+def _git_log(args: list[str]) -> tuple[int, list[tuple[str, str]]]:
+    """Run ``git log --pretty=<fmt> <args>``; return ``(returncode, commits)``."""
+    result = subprocess.run(
+        ["git", "log", f"--pretty={_COMMIT_FMT}", *args],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if result.returncode != 0:
+        return result.returncode, []
+    return 0, _parse_git_log(result.stdout)
+
+
+def _is_zero_sha(sha: str) -> bool:
+    """True for git's all-zeros sentinel SHA (branch creation / no parent)."""
+    return len(sha) >= 7 and set(sha) == {"0"}
+
+
+def _event_payload() -> dict:
+    path = os.environ.get("GITHUB_EVENT_PATH")
+    if not path:
+        return {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def _get_commits_to_validate() -> tuple[list[tuple[str, str]], bool]:
+    """Return ``(commits, resolved)`` for the commits this CI run should check.
+
+    ``resolved`` is True when we authoritatively determined the range the
+    event introduced (even if it is empty — a legitimate "no new commits").
+    It is False when we could NOT resolve the range (shallow checkout,
+    detached HEAD, missing ``before`` commit) — the caller MUST then treat
+    an empty result as a DEGRADED backstop, not as success (issue #52).
+
+    Resolution, in order of authority:
+
+    1. ``push`` event -> ``before..after`` from the event payload. This is
+       the ONLY correct range on a push to a tracked branch: after the push,
+       the runner's ``origin/<branch>`` already points at HEAD, so
+       ``origin/main..HEAD`` is empty and would silently validate nothing.
+       Also catches merge-imported history (the range includes commits a
+       merge made newly reachable) — the rustlib v3.0.0 class of bug.
+    2. ``pull_request`` event -> ``<base sha>..HEAD``.
+    3. Generic fallbacks for local / unknown contexts: ``origin/main..HEAD``
+       then a bounded ``HEAD~N..HEAD``.
+
+    A resolved-but-empty range short-circuits (returns ``([], True)``) so we
+    don't fall through and mis-resolve against a different range.
+    """
+    event = os.environ.get("GITHUB_EVENT_NAME", "")
+    payload = _event_payload()
+
+    if event == "push":
+        before = str(payload.get("before", ""))
+        after = str(payload.get("after", "")) or "HEAD"
+        # A real prior tip gives the authoritative range.
+        if before and not _is_zero_sha(before):
+            rc, commits = _git_log([f"{before}..{after}"])
+            if rc == 0:
+                return commits, True
+            # We KNOW new commits exist (before != after) but can't enumerate
+            # them -- `before` isn't in this shallow clone. Do NOT fall through
+            # to origin/main..HEAD: right after a push-to-main that range is
+            # EMPTY (origin/main already == HEAD) and would wrongly report "no
+            # new commits" -- the exact silent no-op of issue #52. Degrade to
+            # the HEAD-only backstop with a loud warning instead.
+            return [], False
+        # before is all-zeros (branch creation): no prior tip to diff from, so
+        # fall through to the generic ranges (origin/main..HEAD enumerates what
+        # the new branch adds over main).
+    elif event == "pull_request":
+        base = str((payload.get("pull_request") or {}).get("base", {}).get("sha", ""))
+        if not base and os.environ.get("GITHUB_BASE_REF"):
+            base = f"origin/{os.environ['GITHUB_BASE_REF']}"
+        if base:
+            rc, commits = _git_log([f"{base}..HEAD"])
+            if rc == 0:
+                return commits, True
+
+    for git_range in ("origin/main..HEAD", "HEAD~20..HEAD"):
+        rc, commits = _git_log([git_range])
+        if rc == 0:
+            return commits, True
+
+    return [], False
 
 
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
@@ -435,9 +507,32 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         info("Skipping commit message validation (not in CI)")
         return 0
 
-    commits = _get_commits_to_validate()
-    if not commits:
-        info("No commits to validate")
+    commits, resolved = _get_commits_to_validate()
+
+    if not resolved:
+        # Could NOT determine the range the event introduced (shallow
+        # checkout / detached HEAD / missing `before` commit). The old code
+        # returned success here, silently disarming the CI-side backstop on
+        # the standard push path -- consistent with rustlib v3.0.0 shipping
+        # despite this check existing (issue #52). Never silent-skip: fall
+        # back to validating HEAD (the tip commit) and warn loudly that the
+        # full range was NOT checked. Use `fetch-depth: 0` on the quality
+        # checkout to restore full-range validation.
+        rc, head = _git_log(["-1", "HEAD"])
+        if rc != 0 or not head:
+            warn(
+                "Commit validation could not resolve any commit to check "
+                "(not a git repo, or empty HEAD). Backstop did NOT run."
+            )
+            return 0
+        warn(
+            "Commit validation could not resolve the pushed range (shallow "
+            "checkout / detached HEAD) -- validating HEAD only. The full-range "
+            "backstop is DEGRADED; set `fetch-depth: 0` on the quality checkout."
+        )
+        commits = head
+    elif not commits:
+        info("No new commits to validate")
         return 0
 
     failures: list[tuple[str, str, ValidationResult]] = []

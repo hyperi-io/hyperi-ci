@@ -64,6 +64,25 @@ class TestFromHeadThreading:
         assert "bump" in wc, f"{workflow_name}: workflow_call missing bump"
 
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_quality_deepens_history_for_commit_validation(
+        self, workflow_name: str
+    ) -> None:
+        # The quality checkout is depth-1; commit validation needs the pushed
+        # range before..after (issue #52). Every language workflow must deepen
+        # history immediately before running quality, or the CI-side
+        # conventional-commit backstop only sees HEAD (degraded).
+        wf = _load_workflow(workflow_name)
+        steps = wf["jobs"]["quality"]["steps"]
+        names = [s.get("name") for s in steps]
+        assert "Deepen history for commit validation" in names, (
+            f"{workflow_name}: quality job missing the history-deepen step (#52)"
+        )
+        i = names.index("Deepen history for commit validation")
+        assert names[i + 1] == "Run quality checks", (
+            f"{workflow_name}: deepen step must run immediately before quality"
+        )
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
     def test_workflow_call_accepts_submodules(self, workflow_name: str) -> None:
         # All four language workflows expose the optional `submodules`
         # input + init step for public submodules (issue #39). Parity so a
