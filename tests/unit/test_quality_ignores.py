@@ -195,7 +195,11 @@ class TestExpires:
         assert len(entries) == 1
         assert entries[0].expires == date.today() + timedelta(days=30)
 
-    def test_past_expiry_is_dropped(self) -> None:
+    def test_past_expiry_is_dropped(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Capture the lapse warning so it doesn't leak into CI logs as a false
+        # "quality.ignore lapsed" annotation (the drop is asserted; that the
+        # warning fires is covered by test_lapsed_entry_is_logged).
+        monkeypatch.setattr("hyperi_ci.quality.ignores.warn", lambda _m: None)
         past = (date.today() - timedelta(days=1)).isoformat()
         raw = {
             "quality": {
@@ -252,7 +256,12 @@ class TestExpires:
                 }
             )
 
-    def test_batch_with_expiry_drops_whole_stanza_when_past(self) -> None:
+    def test_batch_with_expiry_drops_whole_stanza_when_past(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Capture the lapse warning (see test_past_expiry_is_dropped) so it
+        # doesn't surface as a false CI annotation.
+        monkeypatch.setattr("hyperi_ci.quality.ignores.warn", lambda _m: None)
         past = (date.today() - timedelta(days=5)).isoformat()
         raw = {
             "quality": {
