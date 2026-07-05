@@ -354,4 +354,5 @@ jobs:
       bump: ${{ inputs.bump }}
       publish-target: ${{ inputs.publish-target }}
       python-version: ${{ inputs.python-version }}
+      submodules: ${{ inputs.submodules }}
     secrets: inherit

@@ -364,4 +364,5 @@ jobs:
       from-head: ${{ inputs.from-head }}
       bump: ${{ inputs.bump }}
       publish-target: ${{ inputs.publish-target }}
+      submodules: ${{ inputs.submodules }}
     secrets: inherit
