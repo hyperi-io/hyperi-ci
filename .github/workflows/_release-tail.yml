@@ -70,6 +70,10 @@ on:
         type: string
         default: "stable"
         description: "Rust toolchain (only used when language=rust)"
+      submodules:
+        type: string
+        default: ""
+        description: "Space-separated submodule paths to init before the container build (e.g. 'schemas'), so a Dockerfile can bake submodule content. Empty (default) inits nothing."
 
 env:
   HYPERCI_INSTALL: uvx --no-cache --refresh hyperi-ci
@@ -107,6 +111,12 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.tag || github.ref }}
+
+      - name: Init submodules
+        if: ${{ inputs.submodules != '' }}
+        env:
+          SUBMODULES: ${{ inputs.submodules }}
+        run: git submodule update --init --depth 1 $SUBMODULES
 
       - name: Install uv
         # Needed to run the resolve step below. Cheap, no Docker Hub —

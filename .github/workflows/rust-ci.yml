@@ -411,4 +411,5 @@ jobs:
       bump: ${{ inputs.bump }}
       publish-target: ${{ inputs.publish-target }}
       rust-toolchain: ${{ inputs.rust-toolchain }}
+      submodules: ${{ inputs.submodules }}
     secrets: inherit
