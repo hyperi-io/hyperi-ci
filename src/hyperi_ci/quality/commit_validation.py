@@ -498,12 +498,35 @@ def _get_commits_to_validate() -> tuple[list[tuple[str, str]], bool]:
     return [], False
 
 
-def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
-    """Validate commit messages in the current branch.
+def run(
+    config: CIConfig | None = None,
+    extra_env: dict[str, str] | None = None,
+    *,
+    local: bool = False,
+) -> int:
+    """Validate commit messages in the CI push/PR range (or the local range).
 
-    Only runs inside CI (is_ci() guard). Returns 0 on success, 1 on failure.
+    ``config`` is unused (kept for call-site symmetry) so the CLI
+    ``check-commits`` command can call ``run()`` bare.
+
+    Behaviour by event:
+
+    - ``push`` (what lands on main) -> FATAL: a failing commit returns 1.
+      This is the real landing gate -- the run-checks gate skips the
+      quality job on non-publish main pushes, so this dedicated check is
+      where merge-to-main enforcement lives.
+    - ``pull_request`` -> ADVISORY: failures are warned, returns 0. The
+      branch commits validated on a PR may be discarded by a squash-merge
+      (only the squash subject lands) and are never re-validated on the
+      merge push, so a PR gets feedback rather than a hard red.
+
+    ``local=True`` runs the same check outside CI (``hyperi-ci check``
+    pre-push backstop): with no CI event the range falls back to
+    ``origin/main..HEAD`` (the unpushed commits) and is FATAL, so a bad
+    message is caught before the push, not after. Without ``local`` the
+    check is a no-op outside CI (the commit-msg hook covers authoring).
     """
-    if not is_ci():
+    if not local and not is_ci():
         info("Skipping commit message validation (not in CI)")
         return 0
 
@@ -543,10 +566,25 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             failures.append((commit_hash, full_msg, result))
 
     if failures:
+        # Advisory on a PR, fatal on push. See the run() docstring: PR
+        # branch commits may be squashed away and are never re-validated
+        # on the merge-to-main push, so a PR gets feedback -- not a hard
+        # red -- while the push that lands on main stays enforced.
+        advisory = os.environ.get("GITHUB_EVENT_NAME", "") == "pull_request"
+        emit = warn if advisory else error
         for commit_hash, full_msg, result in failures:
             short_hash = commit_hash[:8]
             rejection = format_rejection(result, full_msg)
-            error(f"[{short_hash}] {rejection}")
+            emit(f"[{short_hash}] {rejection}")
+
+        if advisory:
+            warn(
+                f"{len(failures)} commit(s) would fail validation on merge to "
+                "main. Advisory on a PR -- only the commit(s) that LAND on main "
+                "are enforced. If you squash-merge, make the squash subject a "
+                "valid conventional commit (that single line is what lands)."
+            )
+            return 0
 
         error(
             f"{len(failures)} commit(s) failed validation. "

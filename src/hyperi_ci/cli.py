@@ -674,6 +674,23 @@ def check_commit_cmd(
     raise typer.Exit(1)
 
 
+@app.command(name="check-commits")
+def check_commits_cmd() -> None:
+    """Validate the conventional-commit messages in the CI push/PR range.
+
+    Landing-gate counterpart to `check-commit` (single message, local
+    commit-msg hook). Resolves the range from the CI event -- push
+    before..after (what lands on main) or PR base..HEAD -- validates each
+    commit, and is FATAL on push but ADVISORY on pull_request (branch
+    commits may be squashed away). CI-only; a no-op locally. Driven by the
+    dedicated `commit-check` workflow job, NOT the run-checks-gated quality
+    job -- so a merge to main is validated even when it is not a publish.
+    """
+    from hyperi_ci.quality.commit_validation import run
+
+    raise typer.Exit(run())
+
+
 def _publish_impl(
     tag: str | None,
     list_tags: bool,
