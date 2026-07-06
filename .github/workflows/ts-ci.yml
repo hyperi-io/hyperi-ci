@@ -137,6 +137,30 @@ jobs:
           from-head: ${{ inputs.from-head }}
           bump: ${{ inputs.bump }}
 
+  commit-check:
+    name: Commit messages
+    # Landing gate for conventional-commit messages. Deliberately NOT gated
+    # on plan.outputs.run-checks: a cheap git-log + regex check must validate
+    # what actually reaches main on EVERY merge, not only publish-worthy
+    # pushes (all the quality job covers). Fatal on push to main (what lands);
+    # advisory on pull_request (branch commits may be squashed away -- see
+    # commit_validation.run). Feature-branch pushes skip it, so the fast
+    # chore-skip path is untouched. See CLAUDE.md CI gate doctrine.
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: false
+      - name: Validate commit messages
+        run: ${{ env.HYPERCI_INSTALL }} check-commits
+
   quality:
     name: Quality
     needs: [plan]
@@ -197,12 +221,11 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           "$HOME/.local/bin/osv-scanner" --version
 
-      - name: Deepen history for commit validation
-        # The quality checkout is depth-1; commit validation (issue #52) needs
-        # the pushed range before..after, which includes `before` and any
-        # merge-imported commits. Deepen so the range resolves. Harmless on an
-        # already-full clone. If skipped, the quality stage validates HEAD only
-        # and warns loudly -- it never silently passes having checked nothing.
+      - name: Deepen history for secret scan
+        # gitleaks scans the branch git log for committed secrets; a depth-1
+        # checkout would only see HEAD. Deepen so the scan covers the pushed
+        # range. Conventional-commit validation moved to the commit-check job
+        # (its own fetch-depth: 0 checkout). Harmless on an already-full clone.
         if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
         run: git fetch --deepen=200 origin
 

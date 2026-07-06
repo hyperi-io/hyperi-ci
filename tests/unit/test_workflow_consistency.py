@@ -64,20 +64,19 @@ class TestFromHeadThreading:
         assert "bump" in wc, f"{workflow_name}: workflow_call missing bump"
 
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
-    def test_quality_deepens_history_for_commit_validation(
-        self, workflow_name: str
-    ) -> None:
-        # The quality checkout is depth-1; commit validation needs the pushed
-        # range before..after (issue #52). Every language workflow must deepen
-        # history immediately before running quality, or the CI-side
-        # conventional-commit backstop only sees HEAD (degraded).
+    def test_quality_deepens_history_for_secret_scan(self, workflow_name: str) -> None:
+        # The quality checkout is depth-1; gitleaks scans the branch git log
+        # for secrets and would only see HEAD without deepened history. Every
+        # language workflow must deepen immediately before running quality.
+        # (Conventional-commit validation moved to the commit-check job -- see
+        # TestCommitCheckJob.)
         wf = _load_workflow(workflow_name)
         steps = wf["jobs"]["quality"]["steps"]
         names = [s.get("name") for s in steps]
-        assert "Deepen history for commit validation" in names, (
-            f"{workflow_name}: quality job missing the history-deepen step (#52)"
+        assert "Deepen history for secret scan" in names, (
+            f"{workflow_name}: quality job missing the history-deepen step"
         )
-        i = names.index("Deepen history for commit validation")
+        i = names.index("Deepen history for secret scan")
         assert names[i + 1] == "Run quality checks", (
             f"{workflow_name}: deepen step must run immediately before quality"
         )
@@ -351,6 +350,57 @@ class TestReleaseTailDecoupling:
                 f"Docker step {s.get('name')!r} must gate on resolve output "
                 "so libraries skip Buildx/GHCR (issue #33)."
             )
+
+
+class TestCommitCheckJob:
+    """The commit-check job is the landing gate for conventional-commit
+    messages: it validates what actually reaches main (push) and gives
+    advisory feedback on PRs. Deliberately independent of the run-checks
+    gate so a merge to main is validated even when it is not publish-worthy
+    (that gate skips non-publish main pushes). See commit_validation.run +
+    CLAUDE.md CI gate doctrine.
+    """
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_commit_check_job_exists(self, workflow_name: str) -> None:
+        wf = _load_workflow(workflow_name)
+        assert "commit-check" in wf.get("jobs", {}), (
+            f"{workflow_name}: missing the commit-check landing-gate job"
+        )
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_commit_check_not_gated_on_run_checks(self, workflow_name: str) -> None:
+        # The whole point: it must NOT depend on plan.outputs.run-checks (that
+        # gate skips non-publish main pushes -- exactly where merge-to-main
+        # enforcement is needed). It gates on the event instead, and stays
+        # independent of plan so it runs in parallel.
+        wf = _load_workflow(workflow_name)
+        job = wf["jobs"]["commit-check"]
+        ifc = str(job.get("if", ""))
+        assert "run-checks" not in ifc, (
+            f"{workflow_name}: commit-check must NOT gate on run-checks"
+        )
+        assert "refs/heads/main" in ifc and "pull_request" in ifc, (
+            f"{workflow_name}: commit-check must run on push-to-main + PRs"
+        )
+        assert "needs" not in job, (
+            f"{workflow_name}: commit-check must be independent of plan"
+        )
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_commit_check_runs_check_commits(self, workflow_name: str) -> None:
+        wf = _load_workflow(workflow_name)
+        steps = wf["jobs"]["commit-check"]["steps"]
+        # Full history so before..after / base..HEAD resolves without a
+        # separate deepen step.
+        checkout = next(s for s in steps if "checkout" in str(s.get("uses", "")))
+        assert checkout.get("with", {}).get("fetch-depth") == 0, (
+            f"{workflow_name}: commit-check checkout must be fetch-depth: 0"
+        )
+        runs = " ".join(str(s.get("run", "")) for s in steps)
+        assert "check-commits" in runs, (
+            f"{workflow_name}: commit-check must invoke `hyperi-ci check-commits`"
+        )
 
 
 @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)

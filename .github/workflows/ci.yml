@@ -70,6 +70,33 @@ jobs:
           from-head: ${{ inputs.from-head }}
           bump: ${{ inputs.bump }}
 
+  commit-check:
+    name: Commit messages
+    # Landing gate for conventional-commit messages -- dogfoods the same job
+    # the reusable <lang>-ci.yml workflows now ship. Deliberately NOT gated on
+    # plan.outputs.run-checks: it must validate what actually reaches main on
+    # EVERY merge, not only publish-worthy pushes. Fatal on push to main (what
+    # lands); advisory on pull_request. Runs the LOCAL branch code (uv run) so
+    # this repo's own PRs exercise the change. See CLAUDE.md CI gate doctrine.
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Install dependencies
+        run: uv sync --no-sources
+      - name: Validate commit messages
+        run: uv run --no-sources hyperi-ci check-commits
+
   quality:
     name: Quality
     runs-on: ubuntu-latest

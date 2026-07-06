@@ -82,10 +82,20 @@ the single place language divergence is allowed.
 | Job | needs | if | Purpose |
 |---|---|---|---|
 | `plan` | — | always | Decide if this run is publish-worthy; emit gate outputs |
+| `commit-check` | — | push-to-main OR `pull_request` | Conventional-commit **landing gate** — fatal on push to main (validates what lands), advisory on PRs. NOT `run-checks`-gated (see below) |
 | `quality` | `[plan]` | `run-checks` | Lint / typecheck / security scan |
 | `test` | `[plan]` | `run-checks` | Unit + integration tests |
 | `build` | `[plan, quality, test]` | `run-build` | Compile binaries / wheels / packages, stamp version, upload `dist/` |
 | `release-tail` | `[plan, build]` | own gates | Container + tag-and-publish, via shared `_release-tail.yml` |
+
+`commit-check` is deliberately **independent of `plan` / `run-checks`**: that
+gate skips the quality job on ordinary (non-publish) merges to main, so a bad
+conventional-commit message could otherwise land unvalidated. It is a cheap
+git-log + regex check (no compile/publish), fatal on the push that actually
+reaches main and advisory on PRs (branch commits may be squashed away — only
+the squash subject lands). Feature-branch pushes skip it, preserving the
+chore-skip fast path. Logic: `hyperi_ci.quality.commit_validation.run`; the
+local `hyperi-ci check` runs the same validation over `origin/main..HEAD`.
 
 ### Gate outputs (computed in `plan`)
 
@@ -115,13 +125,14 @@ flowchart LR
 
 ### What runs when
 
-| Push type | plan | quality | test | build | container | tag+publish |
-|---|---|---|---|---|---|---|
-| `chore:` / `docs:` to main | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| `feat:`/`fix:` to main, no `Publish:` trailer | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| `feat:`/`fix:` to main + `Publish: true` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Pull request | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |
-| `workflow_dispatch` (retroactive publish) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Push type | plan | commit-check | quality | test | build | container | tag+publish |
+|---|---|---|---|---|---|---|---|
+| `chore:` / `docs:` to main | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| `feat:`/`fix:` to main, no `Publish:` trailer | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| `feat:`/`fix:` to main + `Publish: true` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Pull request | ✓ | ✓ advisory | ✓ | ✓ | ✗ | ✗ | ✗ |
+| `workflow_dispatch` (retroactive publish) | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| push to a feature branch | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
 
 Tag-on-publish doctrine: a commit landing on main produces no tag and no
 artefacts. The operator opts in with `hyperi-ci push --publish` (adds the

@@ -679,6 +679,94 @@ class TestRunDegraded:
         assert rc == 0
 
 
+def _write_pr_event(tmp_path: Path, base_sha: str) -> Path:
+    payload = tmp_path / "event.json"
+    payload.write_text(json.dumps({"pull_request": {"base": {"sha": base_sha}}}))
+    return payload
+
+
+class TestRunAdvisoryOnPR:
+    """On a pull_request a failing commit is ADVISORY (warn, exit 0): branch
+    commits may be squashed away and are never re-validated on the merge-to-
+    main push. The push path stays FATAL (see TestRunDegraded)."""
+
+    def test_pr_failure_is_advisory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = _repo(tmp_path)
+        base = _commit(repo, "fix: base")
+        # GitHub branch-normalised squashy subject -> no valid prefix.
+        _git(repo, "commit", "--allow-empty", "-q", "-m", "Feat/bad squashy subject")
+        monkeypatch.chdir(repo)
+        monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+        monkeypatch.setenv("GITHUB_EVENT_PATH", str(_write_pr_event(tmp_path, base)))
+        monkeypatch.setattr(cv, "is_ci", lambda: True)
+        warns: list[str] = []
+        errors: list[str] = []
+        monkeypatch.setattr(cv, "warn", lambda m: warns.append(m))
+        monkeypatch.setattr(cv, "error", lambda m: errors.append(m))
+
+        from hyperi_ci.config import CIConfig
+
+        rc = cv.run(CIConfig())
+        # Advisory: a bad commit must NOT hard-fail a PR...
+        assert rc == 0
+        # ...but the problem is still surfaced, via warn (not error).
+        assert any("would fail validation on merge to main" in w for w in warns)
+        assert errors == []
+
+    def test_pr_all_valid_passes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = _repo(tmp_path)
+        base = _commit(repo, "fix: base")
+        _commit(repo, "fix: good change")
+        monkeypatch.chdir(repo)
+        monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+        monkeypatch.setenv("GITHUB_EVENT_PATH", str(_write_pr_event(tmp_path, base)))
+        monkeypatch.setattr(cv, "is_ci", lambda: True)
+
+        from hyperi_ci.config import CIConfig
+
+        rc = cv.run(CIConfig())
+        assert rc == 0
+
+
+class TestRunLocal:
+    """`local=True` (hyperi-ci check pre-push) validates the unpushed range
+    outside CI and is FATAL -- catch a bad message before the push. Without
+    it, run() is a no-op outside CI."""
+
+    def test_local_validates_range_and_is_fatal(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = _repo(tmp_path)
+        # Simulate origin/main at the base, one unpushed bad commit on top.
+        _commit(repo, "fix: base")
+        _git(repo, "branch", "origin/main")  # local ref standing in for origin
+        _git(repo, "commit", "--allow-empty", "-q", "-m", "Broken No Prefix")
+        monkeypatch.chdir(repo)
+        monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
+        monkeypatch.setattr(cv, "is_ci", lambda: False)
+        monkeypatch.setattr(cv, "warn", lambda _m: None)
+        monkeypatch.setattr(cv, "error", lambda _m: None)
+
+        rc = cv.run(local=True)
+        assert rc == 1  # not in CI, but local=True -> fatal on the bad commit
+
+    def test_not_local_and_not_ci_is_noop(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = _repo(tmp_path)
+        _git(repo, "commit", "--allow-empty", "-q", "-m", "Broken No Prefix")
+        monkeypatch.chdir(repo)
+        monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
+        monkeypatch.setattr(cv, "is_ci", lambda: False)
+
+        rc = cv.run()  # no local, not CI -> skip entirely
+        assert rc == 0
+
+
 def test_is_zero_sha() -> None:
     assert cv._is_zero_sha("0" * 40) is True
     assert cv._is_zero_sha("0" * 7) is True
