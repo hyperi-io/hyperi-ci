@@ -16,6 +16,7 @@ import pytest
 from hyperi_ci.watch import (
     _DEFAULT_TIMEOUT,
     _MAX_CONSECUTIVE_FETCH_FAILURES,
+    _first_failed_job,
     _get_run_status,
     _poll_interval,
     _resume_command,
@@ -301,3 +302,96 @@ class TestWatchRunTerminalStates:
         ):
             rc = watch_run(run_id="1", timeout=0, interval=1)
         assert rc == 1
+
+
+class TestWatchRunEarlyFail:
+    """Early-fail-on-red: a single failed job ends the watch (issue #58)."""
+
+    def _in_progress_with_job(self, conclusion: str) -> dict:
+        return {
+            "status": "in_progress",
+            "conclusion": None,
+            "url": "https://example/run",
+            "workflowName": "CI",
+            "headBranch": "main",
+            "jobs": [
+                {"name": "quality", "conclusion": "success"},
+                {"name": "build", "conclusion": conclusion},
+            ],
+        }
+
+    @pytest.mark.parametrize("conclusion", ["failure", "cancelled", "timed_out"])
+    def test_early_fail_returns_one_before_run_terminal(self, conclusion: str) -> None:
+        # Run status is still in_progress, but a job has already gone red.
+        # watch must return 1 immediately, without waiting for a terminal
+        # run status (which is never provided here — a single poll suffices).
+        with (
+            patch("hyperi_ci.watch.require_gh", return_value=True),
+            patch(
+                "hyperi_ci.watch._get_run_status",
+                return_value=self._in_progress_with_job(conclusion),
+            ),
+            patch("hyperi_ci.watch.time.sleep") as mock_sleep,
+        ):
+            rc = watch_run(run_id="1", timeout=0, interval=1)
+        assert rc == 1
+        # Fail-fast: it returned on the first poll, never sleeping to loop.
+        mock_sleep.assert_not_called()
+
+    def test_no_early_fail_while_jobs_pending_then_success(self) -> None:
+        # A job still pending (conclusion None) must NOT trip early-fail;
+        # watch keeps polling and returns 0 when the run completes green.
+        pending = {
+            "status": "in_progress",
+            "conclusion": None,
+            "url": "",
+            "workflowName": "CI",
+            "headBranch": "main",
+            "jobs": [{"name": "build", "conclusion": None}],
+        }
+        done = {
+            "status": "completed",
+            "conclusion": "success",
+            "url": "",
+            "workflowName": "CI",
+            "headBranch": "main",
+            "jobs": [{"name": "build", "conclusion": "success"}],
+        }
+        with (
+            patch("hyperi_ci.watch.require_gh", return_value=True),
+            patch("hyperi_ci.watch._get_run_status", side_effect=[pending, done]),
+            patch("hyperi_ci.watch.time.sleep"),
+        ):
+            rc = watch_run(run_id="1", timeout=0, interval=1)
+        assert rc == 0
+
+
+class TestFirstFailedJob:
+    """`_first_failed_job` picks the first job in a red conclusion."""
+
+    def test_returns_first_failed(self) -> None:
+        data = {
+            "jobs": [
+                {"name": "a", "conclusion": "success"},
+                {"name": "b", "conclusion": "failure"},
+                {"name": "c", "conclusion": "cancelled"},
+            ]
+        }
+        job = _first_failed_job(data)
+        assert job is not None
+        assert job["name"] == "b"
+
+    def test_none_when_all_ok_or_pending(self) -> None:
+        # success / skipped / pending (None) must not count as red.
+        data = {
+            "jobs": [
+                {"name": "a", "conclusion": "success"},
+                {"name": "b", "conclusion": None},
+                {"name": "c", "conclusion": "skipped"},
+            ]
+        }
+        assert _first_failed_job(data) is None
+
+    def test_none_on_empty_or_missing_jobs(self) -> None:
+        assert _first_failed_job({"jobs": []}) is None
+        assert _first_failed_job({}) is None
