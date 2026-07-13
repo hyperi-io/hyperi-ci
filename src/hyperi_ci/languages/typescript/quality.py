@@ -21,8 +21,9 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from hyperi_ci.common import error, info, success, warn
+from hyperi_ci.common import error, info, is_ci, success, warn
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.languages.typescript._common import (
     detect_package_manager,
     detect_yarn_version,
@@ -113,7 +114,7 @@ def _find_npm_script(
 
 
 def _get_tool_mode(tool: str, config: CIConfig) -> str:
-    return str(config.get(f"quality.typescript.{tool}", "blocking"))
+    return resolve_tool_mode(tool, config, "typescript")
 
 
 def _resolve_tool_cmd(cmd: list[str], use_uvx: bool = False) -> list[str]:
@@ -137,10 +138,15 @@ def _run_tool(
 
     resolved = _resolve_tool_cmd(cmd, use_uvx=use_uvx)
     if use_uvx and resolved == cmd and not shutil.which(cmd[0]):
-        if mode == "blocking":
+        # A missing tool fails the gate only in CI, where every tool MUST
+        # be present -- a silent skip would mask a coverage gap. Locally it
+        # is an environment gap, not a quality finding: warn and carry on
+        # so `hyperi-ci check` still runs whatever IS installed (matches
+        # the gitleaks stage's local-vs-CI handling).
+        if mode == "blocking" and is_ci():
             error(f"  {tool_name}: not installed (required)")
             return False
-        warn(f"  {tool_name}: not installed (skipping)")
+        warn(f"  {tool_name}: not installed (skipping locally)")
         return True
 
     result = subprocess.run(resolved, capture_output=True, text=True)

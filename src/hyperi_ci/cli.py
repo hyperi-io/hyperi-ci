@@ -8,7 +8,7 @@
 
 Usage:
     hyperi-ci run <stage>               Run a CI stage (setup, quality, test, build, publish)
-    hyperi-ci check                     Pre-push checks (quality + test; --full adds build)
+    hyperi-ci check                     Pre-push checks (quality + test; --full adds build, --strict fails on warnings)
     hyperi-ci push                      Push with pre-checks (replaces bare git push)
     hyperi-ci init                      Initialise project (config, Makefile, workflow)
     hyperi-ci detect                    Detect project language
@@ -117,9 +117,30 @@ def check(
         bool,
         typer.Option("--quick", help="Quality checks only (skip tests)"),
     ] = False,
+    strict: Annotated[
+        bool,
+        typer.Option(
+            "--strict",
+            help=(
+                "Fail on warn-tier quality findings (ty, semgrep, "
+                "docstrings, ...) too -- a zero-warnings pre-push gate that "
+                "surfaces everything CI would show, before the push."
+            ),
+        ),
+    ] = False,
 ) -> None:
-    """Run local pre-push checks (quality + test by default)."""
+    """Run local pre-push checks (quality + test by default).
+
+    With ``--strict``, warn-tier quality findings (which CI tolerates but
+    still prints) are treated as failures, so nothing is carried into a
+    push unseen. Fix each, or flag it to ignore if it genuinely should be.
+    """
+    import os
+
     dir_path = Path(project_dir) if project_dir else None
+
+    if strict:
+        os.environ["HYPERCI_QUALITY_STRICT"] = "1"
 
     stages = ["quality"]
     if not quick:
