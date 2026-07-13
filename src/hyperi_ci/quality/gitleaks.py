@@ -23,6 +23,7 @@ from pathlib import Path
 
 from hyperi_ci.common import error, info, is_ci, success, warn
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages.quality_common import is_skipped
 
 _GITLEAKS_VERSION = "v8.21.2"
 
@@ -100,6 +101,8 @@ def run(config: CIConfig) -> int:
 
     """
     mode = str(config.get("quality.gitleaks", "blocking"))
+    if is_skipped("gitleaks"):
+        return 0
     if mode == "disabled":
         info("  gitleaks: disabled")
         return 0

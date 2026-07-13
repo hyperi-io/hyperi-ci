@@ -118,6 +118,10 @@ env:
   # publish), or `publish-target: both`, or a from-head dispatch (issue #35 —
   # a from-head release is GA, not a dev pre-release).
   HYPERCI_CHANNEL: ${{ (inputs.tag != '' || inputs.publish-target == 'both' || inputs.from-head == 'true') && 'release' || '' }}
+  # Rare edge-case escape hatch: set the HYPERCI_QUALITY_SKIP repo/org
+  # variable (e.g. "semgrep") to force-skip a quality tool whose false
+  # positive is halting CI, until the real fix lands. Empty when unset.
+  HYPERCI_QUALITY_SKIP: ${{ vars.HYPERCI_QUALITY_SKIP }}
 
 # Least-privilege GITHUB_TOKEN default for every job (CodeQL
 # actions/missing-workflow-permissions). Only release-tail elevates -- it

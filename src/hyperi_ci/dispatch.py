@@ -31,7 +31,7 @@ from hyperi_ci.common import (
 )
 from hyperi_ci.config import VALID_PROJECT_STATUSES, CIConfig, load_config
 from hyperi_ci.detect import detect_language
-from hyperi_ci.quality import commit_validation, gitleaks
+from hyperi_ci.quality import commit_validation, gitleaks, semgrep
 
 
 class StageRunFn(Protocol):
@@ -178,6 +178,13 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
     # Cross-language checks first.
     with group("Gitleaks secret scanning"):
         rc = gitleaks.run(config)
+        if rc != 0:
+            return rc
+
+    # Semgrep SAST is cross-language too (python / go / ts / rust / yaml /
+    # ...), so it runs here once rather than inside every language handler.
+    with group("Semgrep SAST scanning"):
+        rc = semgrep.run(config, language=language)
         if rc != 0:
             return rc
 

@@ -69,6 +69,7 @@ quality:
   enabled: true
   exclude_paths: []
   gitleaks: blocking
+  semgrep: warn              # Semgrep SAST (cross-language) - runs once at dispatch, like gitleaks
 
   # Directories treated as test code (relaxed rules applied)
   # Override per project in .hyperi-ci.yaml
@@ -79,7 +80,6 @@ quality:
     ruff: blocking
     ty: warn                   # Astral's type checker (OSS, Rust-based, replaces pyright/mypy)
     pyright: disabled          # Superseded by ty
-    semgrep: warn              # Semgrep SAST — auto-config rules for Python
     bandit: disabled            # Superseded by ruff S rules
     bandit_exclude_tests: true  # Legacy — only used if bandit re-enabled
     pip_audit: blocking
@@ -114,7 +114,6 @@ quality:
     audit: blocking
     audit_level: moderate
     osv_scanner: warn          # malicious-package (MAL-*) scan; npm audit is CVE-only
-    semgrep: warn              # Semgrep SAST — auto-config rules for TypeScript
     test_ignore:
       - "@typescript-eslint/no-explicit-any"
       - "@typescript-eslint/no-non-null-assertion"
@@ -126,7 +125,6 @@ quality:
     golangci_lint: blocking
     gosec: blocking
     govulncheck: warn
-    semgrep: warn              # Semgrep SAST — auto-config rules for Go
     test_ignore:
       - errcheck
       - gosec
@@ -138,7 +136,6 @@ quality:
     osv_scanner: warn          # malicious-package (MAL-*) scan; OSV feed not in RustSec
     deny: warn
     features: all
-    semgrep: warn              # Semgrep SAST — auto-config rules for Rust
     # Feature-matrix check: catches feature-gating bugs where a module behind
     # feature X uses a crate only declared by feature Y. Without this check,
     # transitive deps from other features mask the bug until a downstream
