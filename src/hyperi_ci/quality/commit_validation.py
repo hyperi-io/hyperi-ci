@@ -421,7 +421,7 @@ def _git_log(args: list[str]) -> tuple[int, list[tuple[str, str]]]:
 
 
 def _is_zero_sha(sha: str) -> bool:
-    """True for git's all-zeros sentinel SHA (branch creation / no parent)."""
+    """Return True for git's all-zeros sentinel SHA (branch creation / no parent)."""
     return len(sha) >= 7 and set(sha) == {"0"}
 
 
