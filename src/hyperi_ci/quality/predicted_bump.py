@@ -38,7 +38,8 @@ from pathlib import Path
 try:
     import yaml
 except ModuleNotFoundError:  # pragma: no cover — yaml is a hard dep
-    yaml = None  # type: ignore[assignment]
+    # type: ignore[assignment] for pyright/mypy; ty uses its own code.
+    yaml = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
 # Bump precedence, low -> high.
 _BUMP_ORDER = {"none": 0, "patch": 1, "minor": 2, "major": 3}

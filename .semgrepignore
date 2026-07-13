@@ -1,0 +1,10 @@
+# semgrep path excludes for hyperi-ci's own quality scan.
+#
+# gitops scaffolding templates - payload copied verbatim into downstream
+# gitops repos by `hyperi-ci init-gitops`, NOT this repo's operational CI.
+# Their action refs are deliberately floating @vN tags: a readable starting
+# point that the GENERATED repo's own Renovate pins. Not part of hyperi-ci's
+# supply chain, so github-actions-mutable-action-tag is noise here. (This
+# repo's OWN workflows under .github/ ARE SHA-pinned via config/versions.yaml
+# + Renovate and stay in scope.)
+src/hyperi_ci/gitops_templates/
