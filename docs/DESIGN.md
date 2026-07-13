@@ -182,6 +182,7 @@ hyperi-ci run <stage>     Run CI stage (setup, quality, test, build, publish)
 hyperi-ci check           Pre-push validation (quality + test)
 hyperi-ci check --full    Pre-push with build (native target only)
 hyperi-ci check --quick   Quality checks only
+hyperi-ci check --strict  Also fail on warn-tier findings (zero-warnings gate)
 hyperi-ci init            Generate project scaffolding
 hyperi-ci detect          Show detected language
 hyperi-ci config          Show merged configuration

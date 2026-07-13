@@ -82,6 +82,7 @@ This creates `.hyperi-ci.yaml`, `Makefile`, `.github/workflows/ci.yml`,
 hyperi-ci check                         # Quality + test
 hyperi-ci check --quick                 # Quality only (fast)
 hyperi-ci check --full                  # Quality + test + build
+hyperi-ci check --strict                # Also fail on warn-tier findings (zero warnings)
 
 # 3. Commit (hook validates your message format)
 git commit -m "fix: resolve timeout in auth handler"
@@ -252,6 +253,7 @@ No code changes, no workflow changes.
 | `hyperi-ci check` | Pre-push validation (quality + test) |
 | `hyperi-ci check --quick` | Quality only |
 | `hyperi-ci check --full` | Quality + test + build |
+| `hyperi-ci check --strict` | Also fail on warn-tier findings - see [docs/quality-gate.md](docs/quality-gate.md) |
 | `hyperi-ci push` | Push (validate-only — no tag, no publish) |
 | `hyperi-ci push --publish` | Stamp `Publish: true` trailer, push, single-run publish |
 | `hyperi-ci push --bump-patch` | Force +0.0.1 release even with no-bump commits |
