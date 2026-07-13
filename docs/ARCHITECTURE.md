@@ -188,7 +188,7 @@ Third-party pinning policy: [dependencies/DEPS-PINNING.md](dependencies/DEPS-PIN
 
 ```
 hyperi-ci run <stage>      quality | test | build | publish
-hyperi-ci check [--quick|--full]   pre-push: quality(+test)(+native build)
+hyperi-ci check [--quick|--full|--strict]  pre-push: quality(+test)(+build); --strict fails on warn-tier findings
 hyperi-ci push [--publish]         commit + push, opt-in Publish: true trailer
 hyperi-ci release <tag>            dispatch a GA/optimised release run
 hyperi-ci publish                  run the publish stage
