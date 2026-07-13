@@ -16,11 +16,43 @@ overridable per project in .hyperi-ci.yaml.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from hyperi_ci.config import CIConfig
 
 DEFAULT_TEST_PATHS = ["tests/"]
+
+_STRICT_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def strict_quality() -> bool:
+    """Return True when strict quality mode is active.
+
+    Strict mode upgrades ``warn``-tier findings to ``blocking`` so a
+    developer sees -- and then fixes or explicitly ignores -- everything
+    CI would surface BEFORE the push, not after. Enabled by
+    ``hyperi-ci check --strict`` (which exports ``HYPERCI_QUALITY_STRICT``)
+    or by exporting that env var directly.
+    """
+    return (
+        os.environ.get("HYPERCI_QUALITY_STRICT", "").strip().lower() in _STRICT_TRUTHY
+    )
+
+
+def resolve_tool_mode(tool: str, config: CIConfig, language: str) -> str:
+    """Resolve a quality tool's mode: ``blocking``, ``warn`` or ``disabled``.
+
+    Reads ``quality.<language>.<tool>`` from config (default
+    ``blocking``). Under strict mode (:func:`strict_quality`) a ``warn``
+    tool is upgraded to ``blocking`` so its findings fail the gate.
+    ``disabled`` is left untouched -- strict enforces warnings, it does
+    not resurrect a tool the project deliberately turned off.
+    """
+    mode = str(config.get(f"quality.{language}.{tool}", "blocking"))
+    if mode == "warn" and strict_quality():
+        return "blocking"
+    return mode
 
 
 def get_test_paths(config: CIConfig) -> list[str]:

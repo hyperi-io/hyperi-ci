@@ -21,9 +21,13 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from hyperi_ci.common import error, get_exclude_dirs, info, success, warn
+from hyperi_ci.common import error, get_exclude_dirs, info, is_ci, success, warn
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import get_test_ignore, get_test_paths
+from hyperi_ci.languages.quality_common import (
+    get_test_ignore,
+    get_test_paths,
+    resolve_tool_mode,
+)
 from hyperi_ci.quality.ignores import IgnoreEntry, for_tool, load_ignores
 
 _DEFAULT_PYTHON_TEST_IGNORE = [
@@ -51,7 +55,7 @@ _DEFAULT_PYTHON_TEST_IGNORE = [
 
 def _get_tool_mode(tool: str, config: CIConfig) -> str:
     """Get quality tool mode: blocking, warn, or disabled."""
-    return str(config.get(f"quality.python.{tool}", "blocking"))
+    return resolve_tool_mode(tool, config, "python")
 
 
 def _build_exclude_args(tool: str, excludes: list[str]) -> list[str]:
@@ -134,10 +138,15 @@ def _run_tool(
 
     resolved = _resolve_tool_cmd(cmd, use_uvx=use_uvx, use_uv_with=use_uv_with)
     if resolved == cmd and not shutil.which(cmd[0]):
-        if mode == "blocking":
+        # A missing tool fails the gate only in CI, where every tool MUST
+        # be present -- a silent skip would mask a coverage gap. Locally it
+        # is an environment gap, not a quality finding: warn and carry on
+        # so `hyperi-ci check` still runs whatever IS installed (matches
+        # the gitleaks stage's local-vs-CI handling).
+        if mode == "blocking" and is_ci():
             error(f"  {tool_name}: not installed (required)")
             return False
-        warn(f"  {tool_name}: not installed (skipping)")
+        warn(f"  {tool_name}: not installed (skipping locally)")
         return True
 
     result = subprocess.run(resolved, capture_output=True, text=True)
