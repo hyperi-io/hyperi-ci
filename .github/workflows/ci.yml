@@ -47,6 +47,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ inputs.tag || github.ref }}
   cancel-in-progress: true
 
+# Least-privilege GITHUB_TOKEN default for every job (CodeQL
+# actions/missing-workflow-permissions). Only release-tail elevates -- it
+# passes write down to _release-tail.yml (semantic-release commit/tag + GHCR).
+# plan / commit-check / quality / test / build are read-only.
+permissions:
+  contents: read
+
 jobs:
   plan:
     name: Plan
@@ -218,6 +225,14 @@ jobs:
   release-tail:
     name: Release tail
     needs: [plan, build]
+    # Elevated + passed to _release-tail.yml: its tag-and-publish job commits +
+    # tags (contents), pushes GHCR (packages) and runs the semantic-release GH
+    # plugin (issues + pull-requests). Capped by the caller's grant.
+    permissions:
+      contents: write
+      packages: write
+      issues: write
+      pull-requests: write
     # Local ref (dogfood): a change to the shared release tail is exercised
     # on hyperi-ci's own CI before any consumer pins it. The tail's own
     # tag-and-publish job is gated on will-publish == 'true', so a non-publish
