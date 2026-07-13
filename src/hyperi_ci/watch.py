@@ -121,6 +121,11 @@ def _first_failed_job(run_data: dict) -> dict | None:
     well before the overall run ``status`` flips to a terminal value.
     Scanning job conclusions each tick is what lets watch fail fast
     (issue #58) rather than blocking to the end of a doomed run.
+
+    Caveat: a job with ``continue-on-error: true`` can conclude
+    ``failure`` while the run overall still concludes ``success``, so
+    this would early-fail such a run. No hyperi-ci / consumer workflow
+    uses job-level continue-on-error today; revisit if that changes.
     """
     for job in run_data.get("jobs", []):
         if job.get("conclusion") in _FAILED_JOB_CONCLUSIONS:

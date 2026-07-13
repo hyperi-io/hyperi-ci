@@ -33,3 +33,7 @@ quality:
         - python.lang.compatibility.python36.python36-compatibility-importlib2
         - python.lang.compatibility.python37.python37-compatibility-importlib2
       reason: "importlib.resources is stdlib; repo requires-python >= 3.12, no py<3.9 support"
+    - tool: semgrep
+      ids:
+        - yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+      reason: "gitops_templates/ ships floating @vN action refs as a readable starting point; downstream repos pin via their own Renovate. This repo's own workflows are SHA-pinned (versions.yaml + pre-commit hook) so the rule is redundant here. Rule-scoped, not a path exclude, so other semgrep rules still cover the templates."
