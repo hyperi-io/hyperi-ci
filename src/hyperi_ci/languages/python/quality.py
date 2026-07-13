@@ -237,17 +237,6 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         if not _run_tool("pyright", ["pyright"], pyright_mode):
             had_failure = True
 
-    # Semgrep SAST scanning
-    mode = _get_tool_mode("semgrep", config)
-    semgrep_cmd = ["semgrep", "scan", "--config", "auto", "--error", "--quiet"]
-    if excludes:
-        for exc in excludes:
-            semgrep_cmd.extend(["--exclude", exc])
-    for entry in for_tool(ignores, "semgrep"):
-        semgrep_cmd.extend(["--exclude-rule", entry.id])
-    if not _run_tool("semgrep", semgrep_cmd, mode, use_uvx=True):
-        had_failure = True
-
     # Bandit security scanning
     mode = _get_tool_mode("bandit", config)
     bandit_cmd = ["bandit", "-r", "src/", "-ll"]

@@ -97,7 +97,7 @@ class TestEslintResolution:
         assert ["npx", "eslint", "."] not in calls
         assert ["npm", "run", "lint"] not in calls
         # No hard failure from the skip
-        assert rc in (0, 1)  # may be 1 from audit/semgrep, not from eslint
+        assert rc in (0, 1)  # may be 1 from audit, not from eslint
 
 
 class TestPrettierResolution:
@@ -174,13 +174,14 @@ class TestTscResolution:
 
 
 class TestPureJsProjectEndToEnd:
-    """The motivating case: CommonJS project with only audit/semgrep-ish needs."""
+    """The motivating case: CommonJS project with only audit-ish needs."""
 
     def test_runs_without_crashing_on_pure_js_project(
         self, in_tmpdir: Path, stub_pm: None
     ) -> None:
         """No eslint config, no prettier config, no tsconfig, no lint scripts.
-        eslint / prettier / tsc all skip cleanly; audit + semgrep still run.
+        eslint / prettier / tsc all skip cleanly; audit still runs (semgrep is
+        now a cross-language dispatch-level scan, not a TS-handler step).
         """
         _write_pkg(in_tmpdir, {"test": "echo ok"})
         # No config files — tool-specific skips expected
@@ -195,10 +196,10 @@ class TestPureJsProjectEndToEnd:
         assert not any(c[:2] == ["npx", "eslint"] for c in calls)
         assert not any(c[:2] == ["npx", "prettier"] for c in calls)
         assert not any(c[:2] == ["npx", "tsc"] for c in calls)
-        # audit + semgrep still run (orthogonal to npm scripts)
+        # audit still runs (orthogonal to npm scripts)
         assert any(c[:2] == ["npm", "audit"] for c in calls)
-        # Non-zero only if audit/semgrep actually failed in real env;
-        # with our mocked zero return they succeed
+        # Non-zero only if audit actually failed in real env;
+        # with our mocked zero return it succeeds
         assert rc == 0
 
 

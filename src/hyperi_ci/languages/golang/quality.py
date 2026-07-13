@@ -136,12 +136,4 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if not _run_tool("govulncheck", ["govulncheck", "./..."], mode):
         had_failure = True
 
-    # Semgrep SAST scanning
-    mode = _get_tool_mode("semgrep", config)
-    semgrep_cmd = ["semgrep", "scan", "--config", "auto", "--error", "--quiet"]
-    for entry in for_tool(ignores, "semgrep"):
-        semgrep_cmd.extend(["--exclude-rule", entry.id])
-    if not _run_tool("semgrep", semgrep_cmd, mode, use_uvx=True):
-        had_failure = True
-
     return 1 if had_failure else 0

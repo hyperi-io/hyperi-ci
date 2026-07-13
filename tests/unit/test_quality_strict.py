@@ -17,9 +17,15 @@ from __future__ import annotations
 import pytest
 
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import resolve_tool_mode, strict_quality
+from hyperi_ci.languages.quality_common import (
+    is_skipped,
+    quality_skip,
+    resolve_tool_mode,
+    strict_quality,
+)
 
 _ENV = "HYPERCI_QUALITY_STRICT"
+_SKIP = "HYPERCI_QUALITY_SKIP"
 
 
 def _config(tool: str, mode: str, language: str = "python") -> CIConfig:
@@ -82,3 +88,40 @@ class TestResolveToolMode:
         monkeypatch.setenv(_ENV, "1")
         cfg = _config("semgrep", "warn", language)
         assert resolve_tool_mode("semgrep", cfg, language) == "blocking"
+
+
+class TestQualitySkip:
+    """HYPERCI_QUALITY_SKIP: the rare force-skip escape hatch."""
+
+    def test_unset_is_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv(_SKIP, raising=False)
+        assert quality_skip() == frozenset()
+
+    def test_parses_comma_separated_lowercased(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(_SKIP, "Semgrep, Bandit ,")
+        assert quality_skip() == frozenset({"semgrep", "bandit"})
+
+    def test_is_skipped_is_case_insensitive(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(_SKIP, "semgrep")
+        assert is_skipped("semgrep") is True
+        assert is_skipped("SEMGREP") is True
+        assert is_skipped("ruff") is False
+
+    def test_skip_disables_even_a_blocking_tool(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv(_ENV, raising=False)
+        monkeypatch.setenv(_SKIP, "ruff")
+        assert resolve_tool_mode("ruff", _config("ruff", "blocking"), "python") == (
+            "disabled"
+        )
+
+    def test_skip_wins_over_strict(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Both set: skip wins -- the tool is disabled, not upgraded to blocking.
+        monkeypatch.setenv(_ENV, "1")
+        monkeypatch.setenv(_SKIP, "ty")
+        assert resolve_tool_mode("ty", _config("ty", "warn"), "python") == "disabled"
