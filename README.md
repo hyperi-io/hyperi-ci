@@ -46,6 +46,17 @@ only — those code paths have been removed.
 - Semantic-release config that just works
 - A commit hook that catches bad messages before they hit CI
 
+## Preventative, Not Detective
+
+hyperi-ci is the preventative layer: gitleaks blocks a secret before
+the push, commit validation blocks a bad message before it lands,
+quality gates block a broken build before it merges. GitHub's native
+security features (secret scanning alerts, CodeQL code scanning,
+Dependabot) are the detective layer - they find what already landed,
+or what arrived from upstream in repos hyperi-ci never runs on
+(external forks, mirrors). Run both: hyperi-ci stops you making the
+mess, the GitHub side catches the mess you inherited.
+
 ## Install
 
 ```bash
