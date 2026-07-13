@@ -41,6 +41,7 @@ rely on muscle memory. In particular:
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Annotated
@@ -134,9 +135,10 @@ def check(
     With ``--strict``, warn-tier quality findings (which CI tolerates but
     still prints) are treated as failures, so nothing is carried into a
     push unseen. Fix each, or flag it to ignore if it genuinely should be.
+    A tool that is not installed locally (and has no uv fallback) is still
+    warn-skipped even under ``--strict`` -- strict enforces what runs, not
+    what your machine has; CI, where the tools are present, is the backstop.
     """
-    import os
-
     dir_path = Path(project_dir) if project_dir else None
 
     if strict:
@@ -260,8 +262,6 @@ def push(
     With ``--no-ci``: amends the last commit with ``[skip ci]`` and
     pushes (skips CI altogether).
     """
-    import os
-
     from hyperi_ci.push import push as do_push
 
     if bump_patch and bump_minor:

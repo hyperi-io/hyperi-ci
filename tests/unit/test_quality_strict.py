@@ -28,6 +28,13 @@ _ENV = "HYPERCI_QUALITY_STRICT"
 _SKIP = "HYPERCI_QUALITY_SKIP"
 
 
+@pytest.fixture(autouse=True)
+def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Isolate every test from ambient strict/skip env vars."""
+    monkeypatch.delenv(_ENV, raising=False)
+    monkeypatch.delenv(_SKIP, raising=False)
+
+
 def _config(tool: str, mode: str, language: str = "python") -> CIConfig:
     return CIConfig(_raw={"quality": {language: {tool: mode}}})
 

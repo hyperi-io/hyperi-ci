@@ -19,7 +19,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from hyperi_ci.common import warn
+from hyperi_ci.common import is_ci, warn
 from hyperi_ci.config import CIConfig
 
 DEFAULT_TEST_PATHS = ["tests/"]
@@ -72,19 +72,24 @@ def quality_skip() -> frozenset[str]:
 
 
 def is_skipped(tool: str) -> bool:
-    """Return True if ``tool`` is force-skipped, logging a loud warning.
+    """Return True if ``tool`` is force-skipped, surfacing it loudly.
 
-    The warning is intentional: a force-skip is an emergency override
-    that must be visible in the run log and removed once the underlying
-    false positive is resolved.
+    A force-skip is an emergency override that must NOT pass unnoticed --
+    especially for a security scanner like gitleaks. In CI it emits a
+    real GitHub ``::warning::`` annotation (which escapes the collapsed
+    log group and lands in the run summary), not just a logger line that
+    hides inside a folded group.
     """
-    if tool.lower() in quality_skip():
-        warn(
-            f"  {tool}: FORCE-SKIPPED via HYPERCI_QUALITY_SKIP -- rare "
-            f"edge-case override; remove it once the false positive is fixed"
-        )
-        return True
-    return False
+    if tool.lower() not in quality_skip():
+        return False
+    msg = (
+        f"{tool}: FORCE-SKIPPED via HYPERCI_QUALITY_SKIP -- rare edge-case "
+        f"override; remove it once the false positive is fixed"
+    )
+    warn(f"  {msg}")
+    if is_ci():
+        print(f"::warning title=hyperi-ci quality force-skip::{msg}")
+    return True
 
 
 def resolve_tool_mode(tool: str, config: CIConfig, language: str) -> str:
