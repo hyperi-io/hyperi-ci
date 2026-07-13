@@ -9,6 +9,11 @@
 Polls a workflow run with exponential backoff until it reaches a terminal
 status, then reports the result with job-level detail.
 
+Early-fail-on-red (issue #58): the poll exits non-zero the instant ANY
+job concludes failure/cancelled/timed_out, rather than waiting for the
+whole run to finish. A fleet watcher polling N runs in sequence must not
+block for the remaining ~hour on a run that is already doomed.
+
 Tier 2 (PGO + BOLT) Rust builds for both archs in parallel can take
 35-45 min, so the default timeout is set generously (60 min). For longer
 workflows pass `--timeout 0` to disable timeout entirely; the watcher
@@ -38,6 +43,12 @@ _TERMINAL_STATUSES = frozenset(
         "stale",
     }
 )
+
+# A single job reaching one of these conclusions dooms the whole run, so
+# fail fast (issue #58) instead of waiting for the run's own terminal
+# status -- which for a big multi-arch PGO+BOLT build can be tens of
+# minutes away. Job conclusions are populated the moment each job ends.
+_FAILED_JOB_CONCLUSIONS = frozenset({"failure", "cancelled", "timed_out"})
 
 # After this many consecutive `gh run view` failures, consider the
 # remote unreachable and exit with an error rather than spinning
@@ -101,6 +112,20 @@ def _get_run_status(run_id: str, repo: str | None = None) -> dict | None:
         return json.loads(result.stdout)
     except (subprocess.CalledProcessError, json.JSONDecodeError):
         return None
+
+
+def _first_failed_job(run_data: dict) -> dict | None:
+    """Return the first job in a failure conclusion, or None.
+
+    A job's ``conclusion`` is populated as soon as that job finishes,
+    well before the overall run ``status`` flips to a terminal value.
+    Scanning job conclusions each tick is what lets watch fail fast
+    (issue #58) rather than blocking to the end of a doomed run.
+    """
+    for job in run_data.get("jobs", []):
+        if job.get("conclusion") in _FAILED_JOB_CONCLUSIONS:
+            return job
+    return None
 
 
 def _resume_command(run_id: str, timeout: int, repo: str | None = None) -> str:
@@ -228,6 +253,21 @@ def watch_run(
 
         status = run_data.get("status", "unknown")
         last_known_status = status
+
+        # Early-fail-on-red (issue #58): the instant ANY job has concluded
+        # failure/cancelled/timed_out, stop -- do not wait for the whole run
+        # to reach a terminal status. Returns 1 (a job went red), matching
+        # the failed-run terminal path below.
+        failed_job = _first_failed_job(run_data)
+        if failed_job:
+            _print_summary(run_data)
+            error(
+                f"  Early-fail: job '{failed_job.get('name', 'unknown')}' "
+                f"concluded '{failed_job.get('conclusion')}' -- not waiting "
+                f"for the rest of the run. {run_data.get('url', '')}".rstrip()
+            )
+            return 1
+
         if status in _TERMINAL_STATUSES:
             _print_summary(run_data)
             conclusion = run_data.get("conclusion", "unknown")
