@@ -124,9 +124,10 @@ env:
   HYPERCI_QUALITY_SKIP: ${{ vars.HYPERCI_QUALITY_SKIP }}
 
 # Least-privilege GITHUB_TOKEN default for every job (CodeQL
-# actions/missing-workflow-permissions). Only release-tail elevates -- it
-# passes write down to _release-tail.yml (semantic-release commit/tag + GHCR).
-# plan / commit-check / quality / test / build are read-only.
+# actions/missing-workflow-permissions). Two jobs elevate: release-tail
+# (passes write down to _release-tail.yml -- semantic-release commit/tag +
+# GHCR) and plan (semantic-release push-access verify on a publish predict).
+# commit-check / quality / test / build are read-only.
 permissions:
   contents: read
 
@@ -147,6 +148,10 @@ jobs:
     name: Plan
     if: github.event.pull_request.head.repo.fork != true
     runs-on: ubuntu-latest
+    # predict-version runs semantic-release, whose git plugin verifies push
+    # access (a `git push --dry-run`) on a publish predict -- needs write.
+    permissions:
+      contents: write
     outputs:
       run-checks: ${{ steps.predict.outputs.run-checks }}
       run-build: ${{ steps.predict.outputs.run-build }}
