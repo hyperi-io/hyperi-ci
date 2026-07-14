@@ -51,8 +51,10 @@ on:
         default: ""
         description: "'true' to log what would be deleted without deleting."
 
-permissions:
-  contents: read
+# No workflow-level permissions here: a called workflow may only DOWNGRADE
+# what the caller job grants (callers grant packages: write alone), and a
+# workflow-level `contents: read` request above that grant is a startup
+# failure. The prune job needs no checkout — packages: write only.
 
 jobs:
   prune:
