@@ -76,7 +76,11 @@ on:
         description: "Space-separated submodule paths to init before the container build (e.g. 'schemas'), so a Dockerfile can bake submodule content. Empty (default) inits nothing."
 
 env:
-  HYPERCI_INSTALL: uvx --no-cache --refresh hyperi-ci
+  # Rehearsal / incident escape hatch: the HYPERCI_INSTALL_OVERRIDE repo
+  # variable replaces the CLI install command wholesale — a branch rehearsal
+  # points it at `uvx --from git+...@<branch> hyperi-ci`; an incident pins
+  # the repo to a known-good `uvx hyperi-ci==X.Y.Z`. Unset = latest PyPI.
+  HYPERCI_INSTALL: ${{ vars.HYPERCI_INSTALL_OVERRIDE || 'uvx --no-cache --refresh hyperi-ci' }}
   HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
   # When dispatched with a tag, this is a release-channel build —
   # enables Tier 2 (PGO + BOLT) build optimisation.
