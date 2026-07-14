@@ -708,6 +708,10 @@ class TestBumpGate:
 
         monkeypatch.delenv("HYPERCI_ALLOW_MINOR_BUMP", raising=False)
         monkeypatch.delenv("HYPERCI_ALLOW_MAJOR_BUMP", raising=False)
+        # HYPERCI_ALLOW_FEAT also satisfies the minor gate — clear it too,
+        # or running the suite under `hyperi-ci push` of a feat commit
+        # (which exports it) fails this test on ambient env.
+        monkeypatch.delenv("HYPERCI_ALLOW_FEAT", raising=False)
         with patch(
             "hyperi_ci.quality.predicted_bump.predict_bump",
             return_value=self._pred("minor", minor=["feat: x"]),
