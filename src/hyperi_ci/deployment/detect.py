@@ -12,9 +12,8 @@ right producer:
   Tier 1 (RUST)   — Cargo.toml depends on scalo (or legacy
                     hyperi-rustlib); the binary itself emits artefacts
                     via `<app> generate-artefacts`.
-  Tier 2 (PYTHON) — pyproject.toml depends on scalo (or legacy
-                    hyperi-pylib); the entry point emits via
-                    `<app> generate-artefacts`.
+  Tier 2 (PYTHON) — pyproject.toml depends on scalo; the entry point
+                    emits via `<app> generate-artefacts`.
   Tier 3 (OTHER)  — repo commits ``ci/deployment-contract.json``;
                     hyperi-ci's own templater emits.
   NONE            — no contract at all; container stage skips silently.
@@ -45,12 +44,13 @@ class Tier(StrEnum):
 
 # Marker deps, in match precedence. ``scalo`` is the current lib name
 # on BOTH sides (the crate scalo-rs on crates.io, and the scalo package
-# on PyPI); the ``hyperi-*lib`` names are the deprecated predecessors,
-# kept so consumer repos mid-migration still detect. No ambiguity from
-# the shared ``scalo`` name: Tier 1 only reads Cargo.toml, Tier 2 only
-# reads pyproject.toml.
+# on PyPI); ``hyperi-rustlib`` is the deprecated Rust predecessor, kept
+# so consumer repos mid-migration still detect. The deprecated Python
+# predecessor has no active consumers left, so it is not detected. No
+# ambiguity from the shared ``scalo`` name: Tier 1 only reads
+# Cargo.toml, Tier 2 only reads pyproject.toml.
 _RUST_DEPLOYMENT_DEPS: tuple[str, ...] = ("scalo", "hyperi-rustlib")
-_PYTHON_DEPLOYMENT_DEPS: tuple[str, ...] = ("scalo", "hyperi-pylib")
+_PYTHON_DEPLOYMENT_DEPS: tuple[str, ...] = ("scalo",)
 
 
 def detect_tier(repo_root: Path) -> Tier:
@@ -59,8 +59,7 @@ def detect_tier(repo_root: Path) -> Tier:
     Order of precedence:
       1. Cargo.toml + scalo (or legacy hyperi-rustlib) in deps
          → :attr:`Tier.RUST`
-      2. pyproject.toml + scalo (or legacy hyperi-pylib) in deps
-         → :attr:`Tier.PYTHON`
+      2. pyproject.toml + scalo in deps → :attr:`Tier.PYTHON`
       3. ``ci/deployment-contract.json`` exists → :attr:`Tier.OTHER`
       4. Otherwise → :attr:`Tier.NONE`
 
@@ -118,7 +117,7 @@ def _depends_on(manifest: Path, package_name: str) -> bool:
     repo gets misdispatched as a Tier 1/2 consumer and the
     deployment-artefact producer fails with "no Rust binary found" /
     equivalent. The check is generic — applies to any marker dep
-    (scalo, the legacy hyperi-*lib names, future *lib) and to consumer
+    (scalo, the legacy hyperi-rustlib, future libs) and to consumer
     projects whose own name happens to share a prefix (scalo's own
     repo, for one).
 

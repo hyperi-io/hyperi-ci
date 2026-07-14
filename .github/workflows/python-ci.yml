@@ -244,26 +244,11 @@ jobs:
     strategy:
       matrix:
         os: ${{ fromJson(startsWith(github.head_ref || github.ref_name, 'renovate/') && format('["{0}"]', vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_PYTHON || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
-    # Service containers required by integration tests.
-    # Always-on: harmless overhead for consumers that don't use them
-    # (job runs `psql` etc. against localhost ports). pylib's
-    # tests/conftest.py postgres fixture finds these via the
-    # `postgresql://postgres:postgres@localhost:5432/hyperi_pylib_test`
-    # DSN; matches pylib's docker-compose.postgres.yml.
-    services:
-      postgres:
-        image: postgres:18-alpine
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: hyperi_pylib_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d hyperi_pylib_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+    # Service containers for consumer integration tests would go here
+    # (always-on is harmless overhead for consumers that don't use
+    # them). The postgres service that used to live here served only
+    # the deprecated scalo predecessor's test suite; scalo has no
+    # live postgres fixture, so the block was removed.
     steps:
       - name: Docker Hub login
         if: ${{ vars.DOCKERHUB_USERNAME != '' }}
@@ -374,7 +359,7 @@ jobs:
         run: ${{ env.HYPERCI_INSTALL }} run build
 
       - name: Generate deployment artefacts
-        # Pylib's Application.deployment_contract() emits Dockerfile.runtime +
+        # scalo's Application.deployment_contract() emits Dockerfile.runtime +
         # container-manifest.json (+ ArgoCD) into ci-tmp/. Skipped silently
         # for projects without a deployment contract.
         run: ${{ env.HYPERCI_INSTALL }} run generate

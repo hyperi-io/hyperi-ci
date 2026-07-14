@@ -38,10 +38,9 @@ dependencies = [
     # Pin to >= so transitive resolution can pick up bug fixes / new
     # features without a manifest edit. Bump the floor when we adopt
     # new scalo APIs (e.g. deployment contract module added in 2.28).
-    # scalo is the successor to the deprecated hyperi-pylib (same
-    # version lineage). The [metrics] extra is required because
-    # scalo's __init__.py eagerly imports scalo.metrics -> psutil.
-    # Architectural fix (lazy metrics import) is tracked in scalo.
+    # The [metrics] extra is required because scalo's __init__.py
+    # eagerly imports scalo.metrics -> psutil. Architectural fix
+    # (lazy metrics import) is tracked in scalo.
     "scalo[metrics]>=2.28.5",
     "oras>=0.2.42",
     "packaging>=26.0",

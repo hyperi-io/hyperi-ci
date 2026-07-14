@@ -75,22 +75,6 @@ class TestDetectTier:
         )
         assert detect_tier(tmp_path) == Tier.PYTHON
 
-    def test_pyproject_with_legacy_pylib_is_python(self, tmp_path: Path) -> None:
-        # hyperi-pylib is deprecated but still recognised for consumers
-        # mid-migration to scalo.
-        (tmp_path / "pyproject.toml").write_text(
-            '[project]\nname = "x"\ndependencies = ["hyperi-pylib>=2.24"]\n',
-            encoding="utf-8",
-        )
-        assert detect_tier(tmp_path) == Tier.PYTHON
-
-    def test_pyproject_with_legacy_pylib_extras_is_python(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            '[project]\nname = "x"\ndependencies = ["hyperi-pylib[metrics]>=2.24"]\n',
-            encoding="utf-8",
-        )
-        assert detect_tier(tmp_path) == Tier.PYTHON
-
     def test_pyproject_without_scalo_is_not_python(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text(
             '[project]\nname = "x"\ndependencies = ["pyyaml>=6"]\n',
@@ -187,13 +171,6 @@ class TestSelfMatchExclusion:
     def test_scalo_own_repo_is_not_python(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text(
             '[project]\nname = "scalo"\nversion = "2.29.0"\n',
-            encoding="utf-8",
-        )
-        assert detect_tier(tmp_path) == Tier.NONE
-
-    def test_legacy_pylib_own_repo_is_not_python(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            '[project]\nname = "hyperi-pylib"\nversion = "2.24.0"\n',
             encoding="utf-8",
         )
         assert detect_tier(tmp_path) == Tier.NONE
