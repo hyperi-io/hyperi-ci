@@ -14,7 +14,7 @@ The language reusable workflows (`rust-ci.yml`, `python-ci.yml`, …) call their
 sibling composites + `_release-tail.yml` at `@main`. A consumer SHA-pins the
 *caller* (via Renovate), but those internals resolve **live from `main`** at run
 time. So a breaking interface change on `main` **retroactively breaks every
-pinned consumer** at startup — 0 jobs, no logs. It bit hyperi-pylib once. The
+pinned consumer** at startup — 0 jobs, no logs. It bit scalo-py once. The
 pin is skin-deep: the *cost* of pinning without the *benefit*.
 
 ```mermaid
@@ -142,7 +142,7 @@ push-branch → open PR → self-merge.
 Originally the consumer *caller* was SHA-pinned (by Renovate) while the
 internals floated `@main` — the worst of both: a pinned caller that still broke
 when `main` regressed, **and** consumers frozen off CI fixes (it stuck
-hyperi-pylib on v2.6.1, dfe-receiver on v2.6.4). Since the gate already makes
+scalo-py on v2.6.1, dfe-receiver on v2.6.4). Since the gate already makes
 `@main` safe, the caller is now `@main` too: `init` scaffolds
 `<lang>-ci.yml@main`, and the org Renovate preset **carves the hyperi-ci caller
 out of digest pinning** so it is never re-pinned (see

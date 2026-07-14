@@ -18,7 +18,7 @@ For our *own* reusable-workflow internals (which stay `@main` on purpose), see
 **Why the caller is exempt.** SHA-pinning protects against *third-party*
 supply-chain risk. The hyperi-ci reusable workflow is our *own* CI tool —
 pinning its version at the consumer just freezes consumers off CI fixes
-(it stuck hyperi-pylib on v2.6.1, dfe-receiver on v2.6.4). Consumers call
+(it stuck scalo-py on v2.6.1, dfe-receiver on v2.6.4). Consumers call
 `<lang>-ci.yml@main` and always get latest; safety for `@main` is hyperi-ci's
 internal interface gate (see [WORKFLOW-PINNING.md](WORKFLOW-PINNING.md), issue
 #31), not a consumer pin. A deliberate pin (`@vN`, or `@sha` for a known

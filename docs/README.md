@@ -132,8 +132,7 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 
 - **Package:** [hyperi-ci](https://pypi.org/project/hyperi-ci/) (PyPI)
 - **Runtime dep:** [scalo](https://pypi.org/project/scalo/)
-  (successor to the deprecated hyperi-pylib; a broken scalo would break
-  CI for every repo)
+  (a broken scalo would break CI for every repo)
 - **Languages:** Rust, Python, TypeScript, Go
 - **Self-hosting:** hyperi-ci runs its own CI through its own reusable workflow
 - **Used by:** dfe-engine, dfe-receiver, dfe-loader, dfe-archiver, dfe-fetcher,

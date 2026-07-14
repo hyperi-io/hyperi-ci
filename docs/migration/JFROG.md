@@ -88,7 +88,7 @@ flowchart TB
 | `hyperi-docker-local` | 6.6 GB | ci-runner + dfe-loader container | **Migrate to GHCR** |
 | `hyperi-binaries` | 2.0 GB | dfe-loader binary artifacts | **Delete (already on R2 + GH Releases)** |
 | `hypersec-terraform` | 1.3 GB | Terraform state backend | **Keep (or move to S3 later)** |
-| `hyperi-pypi-local` | 0.4 GB | dfe-engine, hyperi-pylib, dfecli | **Keep (private staging)** |
+| `hyperi-pypi-local` | 0.4 GB | dfe-engine, scalo, dfecli | **Keep (private staging)** |
 | `hyperi-cargo-local` | 29.6 MB | Private Rust crates | **Keep (private staging)** |
 | `hyperi-npm-local` | 0.9 MB | npm packages | **Migrate to GH Packages npm** |
 | `hyperi-helm-local` | 12 files | Helm charts | **Migrate to GHCR OCI** |
