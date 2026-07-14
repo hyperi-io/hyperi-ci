@@ -101,19 +101,24 @@ def resolve_tags(
     version: str,
     sha: str,
     channel: str = "release",
-    is_push_to_main: bool = False,
+    mode: str = "publish",
+    branch_slug: str = "",
 ) -> list[str]:
     """Generate image tags spanning all configured registries.
 
-    Tag matrix per registry base:
+    Tag matrix per registry base, by push mode
+    (:mod:`hyperi_ci.publish_mode`):
 
-    * push-to-main (validate-only) → ``:sha-<short>``  (no tags actually
-      land in any registry — this list is used only when buildx pushes)
-    * release channel              → ``:vX.Y.Z``, ``:latest``, ``:sha-<short>``
-    * pre-GA channel               → ``:vX.Y.Z-{channel}``, ``:sha-<short>``
+    * ``validate``                 → no tags (build-and-discard)
+    * ``dev``                      → ``:branch-<slug>``, ``:sha-<short>``
+      — the branch dev-image artifact class (plan decision 3). NEVER a
+      version tag and NEVER ``latest``: those belong to the GA publish
+      from main.
+    * ``publish``, release channel → ``:vX.Y.Z``, ``:latest``, ``:sha-<short>``
+    * ``publish``, pre-GA channel  → ``:vX.Y.Z-{channel}``, ``:sha-<short>``
 
-    The SHA tag is included on every published build to give consumers
-    an immutable-by-content pin alongside the human-readable version.
+    The SHA tag is included on every pushed build to give consumers an
+    immutable-by-content pin alongside the human-readable tag.
 
     Args:
         registry_bases: Registry base URLs from
@@ -125,18 +130,25 @@ def resolve_tags(
         sha: Short git SHA.
         channel: Publish channel (``spike`` | ``alpha`` | ``beta`` |
             ``release``).
-        is_push_to_main: True for push-to-main validate runs.
+        mode: Push mode — ``publish`` | ``dev`` | ``validate``.
+        branch_slug: Docker-tag-safe branch slug for dev mode
+            (:func:`hyperi_ci.publish_mode.dev_branch_slug`). Empty →
+            the dev image gets the sha tag only.
 
     Returns:
-        Flat list of fully-qualified image tags. Empty list when
-        ``is_push_to_main`` is True and no tags should be applied
-        (validate-only does not produce registry tags).
+        Flat list of fully-qualified image tags. Empty for ``validate``.
 
     """
-    if is_push_to_main:
+    if mode == "validate":
         return []
 
-    suffixes = _tag_suffixes(version=version, sha=sha, channel=channel)
+    if mode == "dev":
+        suffixes = [f"sha-{sha}"]
+        if branch_slug:
+            suffixes.insert(0, f"branch-{branch_slug}")
+    else:
+        suffixes = _tag_suffixes(version=version, sha=sha, channel=channel)
+
     tags: list[str] = []
     for base in registry_bases:
         prefix = f"{base}/{image_name}"

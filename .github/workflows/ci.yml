@@ -81,6 +81,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           from-head: ${{ inputs.from-head }}
           bump: ${{ inputs.bump }}
+          branch-build: ${{ vars.HYPERCI_BRANCH_BUILD }}
 
   commit-check:
     name: Commit messages

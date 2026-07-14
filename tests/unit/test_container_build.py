@@ -10,16 +10,60 @@ from __future__ import annotations
 from hyperi_ci.container.build import resolve_tags
 
 
-def test_resolve_tags_push_to_main_returns_no_tags():
-    """Push-to-main runs in validate mode — no tags are written to any registry."""
+def test_resolve_tags_validate_mode_returns_no_tags():
+    """Validate mode (push-to-main / local) — no tags land in any registry."""
     tags = resolve_tags(
         registry_bases=["ghcr.io/hyperi-io"],
         image_name="dfe-loader",
         version="1.13.5",
         sha="abc1234",
-        is_push_to_main=True,
+        mode="validate",
     )
     assert tags == []
+
+
+class TestDevModeTags:
+    """Branch-mode dev images (plan decision 3): mutable branch tag +
+    immutable sha tag, and NEVER a version tag or latest — those are the
+    GA artifact class, published only from main."""
+
+    def test_dev_mode_branch_and_sha_tags(self):
+        tags = resolve_tags(
+            registry_bases=["ghcr.io/hyperi-io"],
+            image_name="dfe-loader",
+            version="1.13.5",
+            sha="abc1234",
+            mode="dev",
+            branch_slug="fix-plan-permissions",
+        )
+        assert tags == [
+            "ghcr.io/hyperi-io/dfe-loader:branch-fix-plan-permissions",
+            "ghcr.io/hyperi-io/dfe-loader:sha-abc1234",
+        ]
+
+    def test_dev_mode_never_emits_version_or_latest(self):
+        tags = resolve_tags(
+            registry_bases=["ghcr.io/hyperi-io"],
+            image_name="dfe-loader",
+            version="1.13.5",
+            sha="abc1234",
+            channel="release",
+            mode="dev",
+            branch_slug="anything",
+        )
+        joined = " ".join(tags)
+        assert "v1.13.5" not in joined and "latest" not in joined
+
+    def test_dev_mode_empty_slug_falls_back_to_sha_only(self):
+        tags = resolve_tags(
+            registry_bases=["ghcr.io/hyperi-io"],
+            image_name="dfe-loader",
+            version="1.13.5",
+            sha="abc1234",
+            mode="dev",
+            branch_slug="",
+        )
+        assert tags == ["ghcr.io/hyperi-io/dfe-loader:sha-abc1234"]
 
 
 def test_resolve_tags_release_channel_includes_sha():

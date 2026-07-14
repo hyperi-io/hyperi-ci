@@ -265,6 +265,91 @@ class TestMainOnlyPublishGate:
         assert dispatch < guard, "dispatch bypass must precede the non-main ref guard"
 
 
+class TestBranchModeThreading:
+    """Branch-mode decision 2 (docs/plans/2026-07-branch-mode): an opted-in
+    pull_request runs build + container. The opt-in threads consumer ci.yml
+    -> <lang>-ci.yml (branch-build input, HYPERCI_BRANCH_BUILD var fallback)
+    -> predict-version derive (run-build) -> _release-tail container job.
+    Arch breadth stays publish-only. The GA publish gate is untouched."""
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_workflow_call_accepts_branch_build(self, workflow_name: str) -> None:
+        wf = _load_workflow(workflow_name)
+        on = wf.get("on") or wf.get(True, {})
+        wc = on.get("workflow_call", {}).get("inputs", {})
+        assert "branch-build" in wc, (
+            f"{workflow_name}: workflow_call missing branch-build"
+        )
+        assert wc["branch-build"].get("default", None) == "", (
+            f"{workflow_name}: branch-build must default to '' (opt-in)"
+        )
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_predict_version_receives_branch_build(self, workflow_name: str) -> None:
+        wf = _load_workflow(workflow_name)
+        plan = wf["jobs"]["plan"]["steps"]
+        predict_step = next(
+            s for s in plan if "predict-version" in str(s.get("uses", ""))
+        )
+        got = str(predict_step.get("with", {}).get("branch-build", ""))
+        assert "inputs.branch-build" in got and "HYPERCI_BRANCH_BUILD" in got, (
+            f"{workflow_name}.plan: predict-version must receive branch-build "
+            "with the HYPERCI_BRANCH_BUILD var fallback"
+        )
+
+    def test_composite_derives_run_build_from_branch_build(self) -> None:
+        path = ACTIONS_DIR / "predict-version" / "action.yml"
+        action = yaml.safe_load(path.read_text(encoding="utf-8"))
+        assert "branch-build" in action.get("inputs", {}), (
+            "predict-version composite missing the branch-build input"
+        )
+        derive = next(s for s in action["runs"]["steps"] if s.get("id") == "derive")
+        run = str(derive["run"])
+        # Polarity: pull_request AND branch_build=true -> run_build=true.
+        assert '"$event_name" == "pull_request" && "$branch_build" == "true"' in run, (
+            "derive must set run_build for opted-in pull_request events"
+        )
+
+    @pytest.mark.parametrize("workflow_name", ("rust-ci.yml", "go-ci.yml"))
+    def test_matrix_arch_breadth_keys_off_will_publish(
+        self, workflow_name: str
+    ) -> None:
+        # Branch-mode PR builds must stay single-arch: only shipping runs
+        # pay the arm64 cost. run-build in the matrix condition would make
+        # every opted-in PR build multi-arch.
+        wf = _load_workflow(workflow_name)
+        plan = wf["jobs"]["plan"]["steps"]
+        matrix = next(s for s in plan if s.get("id") == "matrix")
+        run = str(matrix["run"])
+        assert "steps.predict.outputs.will-publish" in run, (
+            f"{workflow_name}: matrix arch breadth must key off will-publish"
+        )
+        assert "steps.predict.outputs.run-build" not in run, (
+            f"{workflow_name}: matrix must NOT key off run-build (PR builds "
+            "would go multi-arch)"
+        )
+
+    def test_release_tail_container_accepts_pull_request(self) -> None:
+        wf = _load_workflow("_release-tail.yml")
+        ifc = str(wf["jobs"]["container"]["if"])
+        assert "github.event_name == 'pull_request'" in ifc, (
+            "_release-tail container job must accept pull_request events "
+            "(branch-mode dev builds)"
+        )
+        assert "fork != true" in ifc, (
+            "_release-tail container job must keep the fork guard"
+        )
+
+    def test_release_tail_publish_still_gated_on_will_publish(self) -> None:
+        # The GA publish gate is untouched by branch-mode: tag-and-publish
+        # fires ONLY on will-publish, never for a PR dev build.
+        wf = _load_workflow("_release-tail.yml")
+        ifc = str(wf["jobs"]["tag-and-publish"]["if"])
+        assert "inputs.will-publish == 'true'" in ifc, (
+            "tag-and-publish must stay gated on will-publish"
+        )
+
+
 class TestFirstReleaseAndOrphanGuards:
     """issue #37 follow-up: tag-less repos declare their starting version
     via VERSION (shipped verbatim); orphaned-tag repos fail loud at plan

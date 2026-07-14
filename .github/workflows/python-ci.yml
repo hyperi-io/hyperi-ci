@@ -56,6 +56,10 @@ on:
         type: string
         default: ""
         description: "Space-separated submodule paths to init after checkout (e.g. 'schemas'). Empty (default) inits nothing. The submodule must be reachable by the job token -- public, or a token with cross-repo read access."
+      branch-build:
+        type: string
+        default: ""
+        description: "'true' to run build + container on pull_request events (branch-mode). Also settable repo-wide via the HYPERCI_BRANCH_BUILD variable. Dev-image push is the separate publish.container.dev_push opt-in."
     secrets:
       JFROG_TOKEN:
         required: false
@@ -155,6 +159,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           from-head: ${{ inputs.from-head }}
           bump: ${{ inputs.bump }}
+          branch-build: ${{ inputs.branch-build || vars.HYPERCI_BRANCH_BUILD }}
 
   commit-check:
     name: Commit messages

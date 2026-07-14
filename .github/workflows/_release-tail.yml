@@ -85,9 +85,10 @@ env:
 jobs:
   container:
     name: Container
-    # Branch / PR pushes never reach this workflow (caller gates on
-    # quality+test+build pre-needs). Pushes to main and
-    # workflow_dispatch always reach here:
+    # Raw branch pushes never reach this workflow (caller gates on
+    # quality+test+build pre-needs). Pushes to main, workflow_dispatch,
+    # and branch-mode pull_request runs (caller's branch-build opt-in)
+    # reach here:
     #
     # - Validate-only (push to main, will-publish == 'false'):
     #   docker build runs to catch Dockerfile breakages, but no push
@@ -95,13 +96,18 @@ jobs:
     #   BEFORE we ever try to publish from it.
     # - Publish (will-publish == 'true'): docker build + push to all
     #   configured registries.
+    # - pull_request (branch-mode): docker build; pushed as a DEV image
+    #   (branch-<slug> + sha tags, GHCR only) iff the project sets
+    #   publish.container.dev_push — else validate-only. Fork PRs are
+    #   excluded outright (first clause; no secrets, no pushes).
     #
-    # The push-vs-validate decision lives in container/stage.py keyed
-    # off HYPERCI_PUBLISH_MODE — set when will-publish is true.
+    # The publish/dev/validate decision lives in hyperi_ci.publish_mode
+    # (the SSOT), keyed off HYPERCI_PUBLISH_MODE + the event context.
     if: |
       github.event.pull_request.head.repo.fork != true && (
         (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-        github.event_name == 'workflow_dispatch'
+        github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'pull_request'
       )
     runs-on: ubuntu-latest
     permissions:

@@ -101,14 +101,28 @@ local `hyperi-ci check` runs the same validation over `origin/main..HEAD`.
 
 | Output | True when | Effect |
 |---|---|---|
-| `will-publish` | push to main with `Publish: true` trailer, OR `workflow_dispatch` | The underlying release signal |
+| `will-publish` | push to **main** with `Publish: true` trailer, OR `workflow_dispatch` | The underlying release signal. A trailer on a non-main ref is ignored LOUDLY (`::warning::`) — main is the sole publish path (branch-mode decision 1) |
 | `run-checks` | `will-publish` OR `pull_request` | Run quality + test |
-| `run-build` | `will-publish` | Run build + container + publish |
+| `run-build` | `will-publish`, OR `pull_request` with the `branch-build` opt-in | Run build + container (publish stays `will-publish`-only) |
 | `next-version` | `will-publish` AND push | Predicted semver from semantic-release dry-run |
-| `build-matrix` | always | Single-arch for validate-only, multi-arch for publish |
+| `build-matrix` | always | Single-arch unless `will-publish` — PR branch-mode builds stay single-arch |
 
 **Two derived gates** because PR runs need quality+test (review feedback) but
 never build/publish, and `chore:`/`docs:` pushes to main need no heavy compute.
+
+### Branch-mode (opt-in PR build + dev images)
+
+`branch-build: "true"` (workflow input, or the `HYPERCI_BRANCH_BUILD` repo
+variable) makes pull_request runs also build + container-validate — the FULL
+pipeline short of publishing. Separately, `publish.container.dev_push: true`
+in `.hyperi-ci.yaml` makes that PR container push a **dev image**: mutable
+`branch-<slug>` + immutable `sha-<short>` tags, GHCR only, never a version
+tag or `latest`. Dev images are a different artifact class from a GA
+publish — main + explicit publish remains the ONLY path to PyPI / crates.io /
+R2 / GA container tags. Mode resolution (publish / dev / validate) is one
+SSOT: `hyperi_ci.publish_mode`, shared by the container, helm, and argocd
+stages (helm/argocd treat dev as validate). Design:
+`docs/plans/2026-07-branch-mode/PLAN.md`.
 
 ```mermaid
 flowchart LR
@@ -131,6 +145,7 @@ flowchart LR
 | `feat:`/`fix:` to main, no `Publish:` trailer | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
 | `feat:`/`fix:` to main + `Publish: true` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Pull request | ✓ | ✓ advisory | ✓ | ✓ | ✗ | ✗ | ✗ |
+| Pull request + `branch-build` opt-in | ✓ | ✓ advisory | ✓ | ✓ | ✓ | ✓ validate / dev push | ✗ |
 | `workflow_dispatch` (retroactive publish) | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | push to a feature branch | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
 

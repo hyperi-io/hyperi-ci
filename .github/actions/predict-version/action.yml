@@ -29,6 +29,10 @@ inputs:
     description: "Version resolution for from-head: auto (semantic-release picks) | patch | minor (forced)"
     required: false
     default: "auto"
+  branch-build:
+    description: "'true' to run build + container on pull_request events (branch-mode: PRs validate the full pipeline; whether the container also pushes a dev image is the separate publish.container.dev_push opt-in in .hyperi-ci.yaml)"
+    required: false
+    default: ""
 
 outputs:
   will-publish:
@@ -230,8 +234,17 @@ runs:
         set -euo pipefail
         will_publish='${{ steps.gate.outputs.will-publish }}'
         event_name='${{ github.event_name }}'
+        branch_build='${{ inputs.branch-build }}'
 
+        # run-build: publish runs always; an opted-in pull_request also
+        # builds (branch-mode decision 2 — PRs validate the FULL pipeline
+        # incl. container; whether that container is pushed as a dev
+        # image is the container stage's own dev_push decision). Raw
+        # branch pushes never build — the gate doctrine (non-shipping
+        # commits compile nothing) is unchanged.
         if [[ "$will_publish" == "true" ]]; then
+          run_build=true
+        elif [[ "$event_name" == "pull_request" && "$branch_build" == "true" ]]; then
           run_build=true
         else
           run_build=false
@@ -245,4 +258,4 @@ runs:
 
         echo "run-build=$run_build" >> "$GITHUB_OUTPUT"
         echo "run-checks=$run_checks" >> "$GITHUB_OUTPUT"
-        echo "::notice::run-checks=$run_checks run-build=$run_build (will-publish=$will_publish event=$event_name)"
+        echo "::notice::run-checks=$run_checks run-build=$run_build (will-publish=$will_publish event=$event_name branch-build=$branch_build)"

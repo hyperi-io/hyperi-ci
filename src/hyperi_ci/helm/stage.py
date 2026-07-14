@@ -457,20 +457,11 @@ def _run_topology_mode(helm_cfg: dict, config: CIConfig) -> int:
 
 
 def _is_publish_mode() -> bool:
-    """Return True when the workflow has signalled this is a publish run.
+    """Publish or not — delegates to :mod:`hyperi_ci.publish_mode` (SSOT).
 
-    Same logic as ``container/stage.py`` and ``argocd/stage.py``.
+    Helm has no dev mode: a branch-mode dev run behaves as validate here
+    (dev artifacts are container images only — plan decision 3).
     """
-    flag = os.environ.get("HYPERCI_PUBLISH_MODE", "").strip().lower()
-    if flag in ("true", "1", "yes"):
-        return True
-    if flag in ("false", "0", "no"):
-        return False
-    if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
-        return True
-    if (
-        os.environ.get("GITHUB_EVENT_NAME") == "push"
-        and os.environ.get("GITHUB_REF") == "refs/heads/main"
-    ):
-        return False
-    return False
+    from hyperi_ci.publish_mode import is_publish_mode
+
+    return is_publish_mode()

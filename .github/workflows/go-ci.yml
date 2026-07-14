@@ -59,6 +59,10 @@ on:
         type: string
         default: ""
         description: "Space-separated submodule paths to init after checkout (e.g. 'schemas'). Empty (default) inits nothing. The submodule must be reachable by the job token -- public, or a token with cross-repo read access."
+      branch-build:
+        type: string
+        default: ""
+        description: "'true' to run build + container on pull_request events (branch-mode). Also settable repo-wide via the HYPERCI_BRANCH_BUILD variable. Dev-image push is the separate publish.container.dev_push opt-in."
     secrets:
       JFROG_TOKEN:
         required: false
@@ -154,17 +158,20 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           from-head: ${{ inputs.from-head }}
           bump: ${{ inputs.bump }}
+          branch-build: ${{ inputs.branch-build || vars.HYPERCI_BRANCH_BUILD }}
 
       - name: Generate build matrix
         # Go cross-compiles natively (GOOS/GOARCH) — same multi-arch
-        # matrix shape as Rust on publish; single-arch on validate.
+        # matrix shape as Rust on publish; single-arch on validate AND
+        # branch-mode PR builds (arch breadth keys off will-publish,
+        # NOT run-build).
         id: matrix
         shell: bash
         run: |
           set -euo pipefail
           AMD64_RUNNER="${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_GOLANG || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"
           ARM64_RUNNER="${{ vars.GH_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}"
-          if [[ "${{ steps.predict.outputs.run-build }}" == "true" ]]; then
+          if [[ "${{ steps.predict.outputs.will-publish }}" == "true" ]]; then
             matrix='{"include":[{"goos":"linux","goarch":"amd64","runner":"'"$AMD64_RUNNER"'","os_arch":"linux-amd64"},{"goos":"linux","goarch":"arm64","runner":"'"$ARM64_RUNNER"'","os_arch":"linux-arm64"}]}'
           else
             matrix='{"include":[{"goos":"linux","goarch":"amd64","runner":"'"$AMD64_RUNNER"'","os_arch":"linux-amd64"}]}'

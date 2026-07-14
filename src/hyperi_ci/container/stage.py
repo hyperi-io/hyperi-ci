@@ -23,9 +23,15 @@ Every container is built and (in publish mode) pushed to GHCR. The
 legacy ``publish.target`` field is accepted for back-compat but ignored
 — JFrog publishing was removed in v2.1.4.
 
-Push-to-main runs in **validate** mode (build, no push). Release
-dispatch runs in **push** mode. Branch / PR pushes don't reach this
-handler — the workflow's outer gate skips the Container job.
+Push modes (resolved by :mod:`hyperi_ci.publish_mode` — the SSOT):
+
+* ``publish``  — release dispatch / Publish-trailer push to main: full
+  tag set, pushed.
+* ``dev``      — branch-mode dev image (plan decision 3): mutable
+  ``branch-<slug>`` + ``sha-<short>`` tags to GHCR only, behind the
+  ``publish.container.dev_push`` opt-in on pull_request / branch CI
+  runs. Never version tags, never ``latest``.
+* ``validate`` — push-to-main and local runs: build, no push.
 """
 
 from __future__ import annotations
@@ -48,6 +54,13 @@ from hyperi_ci.container.build import build_and_push, resolve_tags
 from hyperi_ci.container.detect import Decision, detect
 from hyperi_ci.container.labels import build_oci_labels
 from hyperi_ci.container.registry import resolve_registry_bases
+from hyperi_ci.publish_mode import (
+    DEV,
+    PUBLISH,
+    VALIDATE,
+    dev_branch_slug,
+    resolve_push_mode,
+)
 
 _TEMPLATE_LANGUAGES = {"python", "typescript"}
 _CONTRACT_LANGUAGES = {"rust"}
@@ -79,30 +92,12 @@ def _read_sha() -> str:
 
 
 def _is_publish_mode() -> bool:
-    """Return True when the workflow has signalled this is a publish run.
+    """Return the DEPRECATED bool view (delegates to :mod:`hyperi_ci.publish_mode`).
 
-    Set by the rust-ci.yml ``container`` job from ``setup.will-publish``.
-    Maps directly to docker buildx ``--push``: when True we push to
-    every configured registry; when False we just build and discard.
-
-    Falls back to legacy event-based detection if HYPERCI_PUBLISH_MODE
-    isn't set (older workflows or local invocations) — in that case
-    workflow_dispatch implies publish, push-to-main implies validate.
+    Kept for out-of-tree callers; in-tree code uses the tri-state
+    :func:`hyperi_ci.publish_mode.resolve_push_mode` (branch-mode).
     """
-    flag = os.environ.get("HYPERCI_PUBLISH_MODE", "").strip().lower()
-    if flag in ("true", "1", "yes"):
-        return True
-    if flag in ("false", "0", "no"):
-        return False
-    # Legacy fallback: workflow_dispatch == publish, push to main == validate.
-    if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
-        return True
-    if (
-        os.environ.get("GITHUB_EVENT_NAME") == "push"
-        and os.environ.get("GITHUB_REF") == "refs/heads/main"
-    ):
-        return False
-    return False
+    return resolve_push_mode() == PUBLISH
 
 
 def _is_push_to_main() -> bool:
@@ -112,6 +107,14 @@ def _is_push_to_main() -> bool:
     named confusingly. Will be removed once consumers update.
     """
     return not _is_publish_mode()
+
+
+def _dev_push_opt_in(container_cfg: dict) -> bool:
+    """Return the ``publish.container.dev_push`` opt-in, coerced to bool."""
+    raw = container_cfg.get("dev_push", False)
+    if isinstance(raw, str):
+        return raw.strip().lower() in ("true", "1", "yes")
+    return bool(raw)
 
 
 def _resolve_mode(*, language: str, decision: Decision, container_cfg: dict) -> str:
@@ -250,13 +253,13 @@ def run(config: CIConfig, *, language: str = "") -> int:
         error(str(exc))
         return 1
 
-    push_to_main = _is_push_to_main()
+    push_mode = resolve_push_mode(dev_push=_dev_push_opt_in(container_cfg))
     mode = _resolve_mode(
         language=language,
         decision=decision,
         container_cfg=container_cfg,
     )
-    info(f"Container build mode: {mode} ({'validate' if push_to_main else 'push'})")
+    info(f"Container build mode: {mode} ({push_mode})")
 
     with group(f"Container Build ({mode})"):
         if mode == "contract":
@@ -265,7 +268,7 @@ def run(config: CIConfig, *, language: str = "") -> int:
                 container_cfg=container_cfg,
                 org=org,
                 registry_bases=registry_bases,
-                push_to_main=push_to_main,
+                push_mode=push_mode,
             )
         if mode == "template":
             return _build_template(
@@ -274,7 +277,7 @@ def run(config: CIConfig, *, language: str = "") -> int:
                 container_cfg=container_cfg,
                 org=org,
                 registry_bases=registry_bases,
-                push_to_main=push_to_main,
+                push_mode=push_mode,
             )
         if mode == "custom":
             return _build_custom(
@@ -282,7 +285,7 @@ def run(config: CIConfig, *, language: str = "") -> int:
                 config=config,
                 org=org,
                 registry_bases=registry_bases,
-                push_to_main=push_to_main,
+                push_mode=push_mode,
                 dockerfile_name=dockerfile_name,
             )
 
@@ -312,7 +315,7 @@ def _build_custom(
     config: CIConfig,
     org: OrgConfig,
     registry_bases: list[str],
-    push_to_main: bool,
+    push_mode: str,
     dockerfile_name: str,
 ) -> int:
     dockerfile = Path(dockerfile_name)
@@ -326,7 +329,7 @@ def _build_custom(
         config=config,
         org=org,
         registry_bases=registry_bases,
-        push_to_main=push_to_main,
+        push_mode=push_mode,
     )
 
 
@@ -337,7 +340,7 @@ def _build_template(
     container_cfg: dict,
     org: OrgConfig,
     registry_bases: list[str],
-    push_to_main: bool,
+    push_mode: str,
 ) -> int:
     from hyperi_ci.container.templates import (
         render_node_template,
@@ -367,7 +370,7 @@ def _build_template(
         config=config,
         org=org,
         registry_bases=registry_bases,
-        push_to_main=push_to_main,
+        push_mode=push_mode,
     )
 
 
@@ -377,7 +380,7 @@ def _build_contract(
     container_cfg: dict,
     org: OrgConfig,
     registry_bases: list[str],
-    push_to_main: bool,
+    push_mode: str,
 ) -> int:
     from hyperi_ci.container.compose import compose_contract_dockerfile
     from hyperi_ci.container.manifest import load_manifest
@@ -431,7 +434,7 @@ def _build_contract(
         config=config,
         org=org,
         registry_bases=registry_bases,
-        push_to_main=push_to_main,
+        push_mode=push_mode,
         extra_labels=manifest.labels,
     )
 
@@ -443,7 +446,7 @@ def _build_from_content(
     config: CIConfig,
     org: OrgConfig,
     registry_bases: list[str],
-    push_to_main: bool,
+    push_mode: str,
     extra_labels: dict[str, str] | None = None,
 ) -> int:
     """Write ``dockerfile_content`` to a temp file then build.
@@ -473,7 +476,7 @@ def _build_from_content(
             config=config,
             org=org,
             registry_bases=registry_bases,
-            push_to_main=push_to_main,
+            push_mode=push_mode,
             extra_labels=extra_labels,
         )
     finally:
@@ -487,7 +490,7 @@ def _dispatch_build(
     config: CIConfig,
     org: OrgConfig,
     registry_bases: list[str],
-    push_to_main: bool,
+    push_mode: str,
     extra_labels: dict[str, str] | None = None,
 ) -> int:
     image_name = Path.cwd().name
@@ -501,7 +504,8 @@ def _dispatch_build(
         version=version,
         sha=sha,
         channel=channel,
-        is_push_to_main=push_to_main,
+        mode=push_mode,
+        branch_slug=dev_branch_slug() if push_mode == DEV else "",
     )
 
     from hyperi_ci.init import detect_license
@@ -523,12 +527,12 @@ def _dispatch_build(
     build_args = container_cfg.get("build_args", {})
     context = container_cfg.get("context", ".")
 
-    # On push-to-main the Build job only produces linux-amd64 (saves CI
-    # time). If the project's Dockerfile COPYs from dist/<name>-linux-<arch>
-    # then the arm64 platform run fails because the binary isn't there.
-    # Constrain the validate-only path to platforms whose binaries are
-    # actually present in dist/.
-    if push_to_main:
+    # Outside a GA publish the Build job only produces linux-amd64 (saves
+    # CI time on push-to-main validates AND branch dev builds). If the
+    # project's Dockerfile COPYs from dist/<name>-linux-<arch> then the
+    # arm64 platform run fails because the binary isn't there. Constrain
+    # non-publish paths to platforms whose binaries are actually present.
+    if push_mode != PUBLISH:
         configured_platforms = list(platforms)
         platforms = _filter_platforms_to_available_binaries(
             platforms=platforms,
@@ -567,14 +571,19 @@ def _dispatch_build(
             platforms=platforms,
             labels=labels,
             build_args=build_args if build_args else None,
-            push=not push_to_main,
+            push=push_mode != VALIDATE,
         )
     finally:
         if rewrote:
             effective_dockerfile.unlink(missing_ok=True)
 
-    if rc == 0 and push_to_main:
+    if rc == 0 and push_mode == VALIDATE:
         success("Container Dockerfile validated (no push on push-to-main)")
+    elif rc == 0 and push_mode == DEV:
+        success(
+            "Dev image pushed (branch artifact class — GHCR only, "
+            "mutable branch tag; GA publish untouched)"
+        )
     return rc
 
 
