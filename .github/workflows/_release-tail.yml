@@ -108,7 +108,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           ref: ${{ inputs.tag || github.ref }}
 
@@ -121,7 +121,7 @@ jobs:
       - name: Install uv
         # Needed to run the resolve step below. Cheap, no Docker Hub —
         # so a library never pays the Buildx/Docker-Hub cost (issue #33).
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: false
 
@@ -142,7 +142,7 @@ jobs:
         # anonymous rate limits when the Dockerfile pulls a Hub base
         # image. Conditional on the org var being set; no-op otherwise.
         if: steps.resolve.outputs.build == 'true' && vars.DOCKERHUB_USERNAME != ''
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -151,7 +151,7 @@ jobs:
         # GITHUB_TOKEN via job-level packages:write permission — can create
         # new repo-owned packages on first push.
         if: steps.resolve.outputs.build == 'true'
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -159,7 +159,7 @@ jobs:
 
       - name: Set up Docker Buildx
         if: steps.resolve.outputs.build == 'true'
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Download build artifacts
         # The build-dist-* artifact carries both dist/ (binaries) and
@@ -213,7 +213,7 @@ jobs:
       pull-requests: write
       packages: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           # On push OR a from-head dispatch (issue #35), check out main HEAD
           # so the tag is created there. On a tag dispatch (retroactive
@@ -280,13 +280,13 @@ jobs:
 
       - name: Docker Hub login
         if: vars.DOCKERHUB_USERNAME != ''
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: GHCR login
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -303,12 +303,12 @@ jobs:
 
       - name: Install Rust toolchain
         if: inputs.language == 'rust'
-        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: false
 
