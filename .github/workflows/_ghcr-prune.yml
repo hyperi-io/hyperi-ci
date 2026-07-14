@@ -1,0 +1,72 @@
+# Project:   HyperI CI
+# File:      .github/workflows/_ghcr-prune.yml
+# Purpose:   Scheduled GHCR prune of branch-mode dev images
+#
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# Reusable workflow for projects that enable branch-mode dev images
+# (publish.container.dev_push). Dev tags are a DIFFERENT artifact class
+# from a GA publish and are deliberately ephemeral — this prunes them so
+# GHCR never accumulates dead branch images.
+#
+# SAFE BY TAG DESIGN: dev images only ever carry `branch-*` and
+# `dev-sha-*` tags (hyperi_ci.container.build.resolve_tags), so the globs
+# below can NEVER touch the GA namespace (vX.Y.Z / latest / sha-<short>).
+# Untagged layers (superseded mutable branch tags) are cleaned too —
+# dataaxiom/ghcr-cleanup-action handles multi-arch manifests and
+# attestation referrers safely (why it was chosen over
+# snok/container-retention-policy, whose README warns against
+# multi-platform packages).
+#
+# Consumer usage (a project with dev_push enabled adds this tiny cron
+# workflow):
+#
+#   name: GHCR prune
+#   on:
+#     schedule:
+#       - cron: "17 2 * * *"
+#     workflow_dispatch:
+#   jobs:
+#     prune:
+#       permissions:
+#         packages: write
+#       uses: hyperi-io/hyperi-ci/.github/workflows/_ghcr-prune.yml@main
+
+name: GHCR prune (shared)
+
+on:
+  workflow_call:
+    inputs:
+      package:
+        type: string
+        default: ""
+        description: "GHCR package name to prune. Empty = the calling repo's name."
+      older-than:
+        type: string
+        default: "14 days"
+        description: "Only prune dev tags older than this interval (e.g. '14 days')."
+      dry-run:
+        type: string
+        default: ""
+        description: "'true' to log what would be deleted without deleting."
+
+permissions:
+  contents: read
+
+jobs:
+  prune:
+    name: Prune dev images
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - name: Prune branch-mode dev tags
+        uses: dataaxiom/ghcr-cleanup-action@cd0cdb900b5dbf3a6f2cc869f0dbb0b8211f50c4 # v1.0.16
+        with:
+          package: ${{ inputs.package || github.event.repository.name }}
+          delete-tags: "branch-*,dev-sha-*"
+          older-than: ${{ inputs.older-than }}
+          delete-untagged: true
+          dry-run: ${{ inputs.dry-run == 'true' }}
+          token: ${{ secrets.GITHUB_TOKEN }}

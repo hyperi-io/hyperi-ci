@@ -116,13 +116,17 @@ never build/publish, and `chore:`/`docs:` pushes to main need no heavy compute.
 variable) makes pull_request runs also build + container-validate — the FULL
 pipeline short of publishing. Separately, `publish.container.dev_push: true`
 in `.hyperi-ci.yaml` makes that PR container push a **dev image**: mutable
-`branch-<slug>` + immutable `sha-<short>` tags, GHCR only, never a version
-tag or `latest`. Dev images are a different artifact class from a GA
-publish — main + explicit publish remains the ONLY path to PyPI / crates.io /
-R2 / GA container tags. Mode resolution (publish / dev / validate) is one
-SSOT: `hyperi_ci.publish_mode`, shared by the container, helm, and argocd
-stages (helm/argocd treat dev as validate). Design:
-`docs/plans/2026-07-branch-mode/PLAN.md`.
+`branch-<slug>` (pointer) + immutable `branch-<slug>-sha-<short>` (pin),
+GHCR only, never a version tag, `latest`, or a bare `sha-<short>` — the GA
+namespace stays untouched, which is what makes pruning safe. Dev images are
+ephemeral: projects with `dev_push` add a tiny cron workflow calling the
+shared `_ghcr-prune.yml` (dataaxiom/ghcr-cleanup-action, multi-arch-safe),
+which globs `branch-*` / `dev-sha-*` plus untagged layers. Dev images are a
+different artifact class from a GA publish — main + explicit publish remains
+the ONLY path to PyPI / crates.io / R2 / GA container tags. Mode resolution
+(publish / dev / validate) is one SSOT: `hyperi_ci.publish_mode`, shared by
+the container, helm, and argocd stages (helm/argocd treat dev as validate).
+Design: `docs/plans/2026-07-branch-mode/PLAN.md`.
 
 ```mermaid
 flowchart LR

@@ -110,10 +110,13 @@ def resolve_tags(
     (:mod:`hyperi_ci.publish_mode`):
 
     * ``validate``                 → no tags (build-and-discard)
-    * ``dev``                      → ``:branch-<slug>``, ``:sha-<short>``
-      — the branch dev-image artifact class (plan decision 3). NEVER a
-      version tag and NEVER ``latest``: those belong to the GA publish
-      from main.
+    * ``dev``                      → ``:branch-<slug>`` (mutable pointer) +
+      ``:branch-<slug>-sha-<short>`` (immutable pin) — the branch
+      dev-image artifact class (plan decision 3). NEVER a version tag,
+      NEVER ``latest``, and NEVER a bare ``sha-<short>``: that namespace
+      belongs to the GA publish, and the distinct ``branch-*`` /
+      ``dev-sha-*`` prefixes are what lets the scheduled GHCR pruner
+      (``_ghcr-prune.yml``) glob dev tags without ever touching GA pins.
     * ``publish``, release channel → ``:vX.Y.Z``, ``:latest``, ``:sha-<short>``
     * ``publish``, pre-GA channel  → ``:vX.Y.Z-{channel}``, ``:sha-<short>``
 
@@ -133,7 +136,7 @@ def resolve_tags(
         mode: Push mode — ``publish`` | ``dev`` | ``validate``.
         branch_slug: Docker-tag-safe branch slug for dev mode
             (:func:`hyperi_ci.publish_mode.dev_branch_slug`). Empty →
-            the dev image gets the sha tag only.
+            the dev image gets a ``dev-sha-<short>`` tag only.
 
     Returns:
         Flat list of fully-qualified image tags. Empty for ``validate``.
@@ -143,9 +146,13 @@ def resolve_tags(
         return []
 
     if mode == "dev":
-        suffixes = [f"sha-{sha}"]
         if branch_slug:
-            suffixes.insert(0, f"branch-{branch_slug}")
+            suffixes = [
+                f"branch-{branch_slug}",
+                f"branch-{branch_slug}-sha-{sha}",
+            ]
+        else:
+            suffixes = [f"dev-sha-{sha}"]
     else:
         suffixes = _tag_suffixes(version=version, sha=sha, channel=channel)
 

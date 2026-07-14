@@ -23,11 +23,13 @@ def test_resolve_tags_validate_mode_returns_no_tags():
 
 
 class TestDevModeTags:
-    """Branch-mode dev images (plan decision 3): mutable branch tag +
-    immutable sha tag, and NEVER a version tag or latest — those are the
-    GA artifact class, published only from main."""
+    """Branch-mode dev images (plan decision 3): mutable branch pointer +
+    immutable branch-scoped sha pin, and NEVER a version tag, latest, or a
+    bare sha-<short> — those are the GA artifact class, published only
+    from main. The distinct branch-*/dev-sha-* prefixes are load-bearing:
+    the scheduled GHCR pruner globs them without touching GA pins."""
 
-    def test_dev_mode_branch_and_sha_tags(self):
+    def test_dev_mode_branch_pointer_and_pin_tags(self):
         tags = resolve_tags(
             registry_bases=["ghcr.io/hyperi-io"],
             image_name="dfe-loader",
@@ -38,10 +40,10 @@ class TestDevModeTags:
         )
         assert tags == [
             "ghcr.io/hyperi-io/dfe-loader:branch-fix-plan-permissions",
-            "ghcr.io/hyperi-io/dfe-loader:sha-abc1234",
+            "ghcr.io/hyperi-io/dfe-loader:branch-fix-plan-permissions-sha-abc1234",
         ]
 
-    def test_dev_mode_never_emits_version_or_latest(self):
+    def test_dev_mode_never_emits_ga_namespace(self):
         tags = resolve_tags(
             registry_bases=["ghcr.io/hyperi-io"],
             image_name="dfe-loader",
@@ -53,8 +55,11 @@ class TestDevModeTags:
         )
         joined = " ".join(tags)
         assert "v1.13.5" not in joined and "latest" not in joined
+        # The bare sha-<short> namespace belongs to GA publishes — a dev
+        # image emitting it would make prune globs unsafe.
+        assert not any(t.endswith(":sha-abc1234") for t in tags)
 
-    def test_dev_mode_empty_slug_falls_back_to_sha_only(self):
+    def test_dev_mode_empty_slug_falls_back_to_dev_sha(self):
         tags = resolve_tags(
             registry_bases=["ghcr.io/hyperi-io"],
             image_name="dfe-loader",
@@ -63,7 +68,7 @@ class TestDevModeTags:
             mode="dev",
             branch_slug="",
         )
-        assert tags == ["ghcr.io/hyperi-io/dfe-loader:sha-abc1234"]
+        assert tags == ["ghcr.io/hyperi-io/dfe-loader:dev-sha-abc1234"]
 
 
 def test_resolve_tags_release_channel_includes_sha():

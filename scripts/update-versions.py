@@ -68,6 +68,7 @@ _ACTION_OWNERS: dict[str, str] = {
     "download-artifact": "actions/download-artifact",
     "docker-login": "docker/login-action",
     "docker-setup-buildx": "docker/setup-buildx-action",
+    "ghcr-cleanup": "dataaxiom/ghcr-cleanup-action",
 }
 
 

@@ -55,6 +55,13 @@ actions:
   docker-setup-buildx:
     version: v4.2.0
     sha: bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
+  # Prunes branch-mode dev images (_ghcr-prune.yml). Chosen over
+  # snok/container-retention-policy: dataaxiom handles multi-arch
+  # packages + attestation referrers safely (snok's README warns
+  # against multi-platform use); verified maintained 2026-07.
+  ghcr-cleanup:
+    version: v1.0.16
+    sha: cd0cdb900b5dbf3a6f2cc869f0dbb0b8211f50c4
 
 # Language runtimes (default versions in workflow inputs)
 runtimes:
