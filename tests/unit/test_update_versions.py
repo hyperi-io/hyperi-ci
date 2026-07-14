@@ -168,6 +168,46 @@ class TestCooldownSelection:
         assert sel["tag_name"] == "v8.2.0"
 
 
+class TestValidateLocally:
+    """Local gates for --auto-update (replaces the remote ci-test-* trigger,
+    which validated @main rather than the unpushed bumps)."""
+
+    def _bad_tree(self, tmp_path: Path, content: str) -> Path:
+        wf_dir = tmp_path / "workflows"
+        wf_dir.mkdir()
+        (wf_dir / "broken.yml").write_text(content)
+        return wf_dir
+
+    def test_catches_unparseable_yaml(self, monkeypatch, tmp_path: Path) -> None:
+        wf_dir = self._bad_tree(tmp_path, "jobs:\n  x: [unclosed\n")
+        monkeypatch.setattr(update_versions, "_ROOT", tmp_path)
+        monkeypatch.setattr(update_versions, "_WORKFLOWS_DIR", wf_dir)
+        monkeypatch.setattr(update_versions, "_ACTIONS_DIR", tmp_path / "none")
+        failures = update_versions._validate_locally()
+        assert len(failures) == 1
+        assert failures[0].startswith("YAML parse:")
+
+    def test_catches_ssot_drift(self, monkeypatch, tmp_path: Path) -> None:
+        # A wrong SHA against the real versions.yaml SSOT = drift. This is
+        # the plan's falsifiable checkpoint: the old remote flow provably
+        # could not catch this (it triggered repos pinned @main).
+        wf_dir = self._bad_tree(
+            tmp_path,
+            "jobs:\n  x:\n    steps:\n      - uses: actions/checkout@wrongsha\n",
+        )
+        monkeypatch.setattr(update_versions, "_ROOT", tmp_path)
+        monkeypatch.setattr(update_versions, "_WORKFLOWS_DIR", wf_dir)
+        monkeypatch.setattr(update_versions, "_ACTIONS_DIR", tmp_path / "none")
+        failures = update_versions._validate_locally()
+        assert failures == ["SSOT sync: --check found drift after --apply"]
+
+    def test_real_repo_passes_all_gates(self) -> None:
+        # Full run against the actual repo — YAML parse, SSOT sync, and the
+        # nested workflow pytest gates. Slowish (spawns pytest) but real:
+        # no mocks, and it IS the post-apply state --auto-update relies on.
+        assert update_versions._validate_locally() == []
+
+
 class TestSetActionSpecInYaml:
     """Block-scoped version/sha rewrite preserves comments + other actions."""
 

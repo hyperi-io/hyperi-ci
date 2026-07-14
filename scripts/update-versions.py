@@ -24,8 +24,13 @@ Update behaviour:
     cooldown, within the current major (major bumps are a manual edit).
   - Branch refs (rust-toolchain@master) pin the newest master commit >=7d old.
   - Runtimes (python, node, rust) require explicit update — never auto-bumped.
-  - --auto-update triggers CI on the ci-test-* projects; commits on pass,
-    reverts on fail.
+  - --auto-update applies the bumps then validates LOCALLY (YAML re-parse,
+    SSOT sync check, the pytest workflow gates); reverts on local failure.
+    It deliberately does NOT trigger remote CI: the ci-test-* projects
+    reference the reusable workflows @main, so a remote run validates main,
+    not the unpushed bumps — and it reverted good bumps on unrelated remote
+    failures. Real E2E belongs to the branch-mode rehearsal/sweep (see
+    docs/plans/2026-07-branch-mode/PLAN.md decisions 4, 5 and 7).
 """
 
 from __future__ import annotations
@@ -35,7 +40,6 @@ import json
 import re
 import subprocess
 import sys
-import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
@@ -148,6 +152,8 @@ def _gh_json(path: str) -> Any:
             ["gh", "api", path],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=15,
         )
         if result.returncode != 0:
@@ -434,6 +440,8 @@ def _latest(versions: dict) -> int:
                 ["npm", "view", "semantic-release", "version"],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=10,
             )
             latest_sr = result.stdout.strip()
@@ -460,13 +468,6 @@ def _latest(versions: dict) -> int:
 # Auto-update skip list: these require explicit human decision
 _AUTO_UPDATE_SKIP = {"python", "node", "rust"}
 
-_TEST_PROJECTS = [
-    "hyperi-io/ci-test-python-cli",
-    "hyperi-io/ci-test-rust-minimal",
-    "hyperi-io/ci-test-ts-simple",
-    "hyperi-io/ci-test-go-simple",
-]
-
 
 def _get_latest_npm_major(package: str) -> str | None:
     """Query npm for latest major version of a package."""
@@ -475,6 +476,8 @@ def _get_latest_npm_major(package: str) -> str | None:
             ["npm", "view", package, "version"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
         )
         ver = result.stdout.strip()
@@ -483,82 +486,48 @@ def _get_latest_npm_major(package: str) -> str | None:
         return None
 
 
-def _trigger_and_wait(repo: str, timeout_minutes: int = 15) -> tuple[bool, str]:
-    """Trigger CI on a test project and wait for result.
+def _validate_locally() -> list[str]:
+    """Validate the applied bumps with LOCAL gates. Returns failure messages.
 
-    Returns (success, message).
+    Three gates, cheapest first — all offline apart from nothing:
+      1. every pipeline YAML still parses,
+      2. files match the SSOT (--check clean — a bad regex rewrite shows
+         here as drift or a mangled ref),
+      3. the pytest workflow gates (consistency + interface tests) pass.
+
+    This replaces the old remote-trigger flow, which validated @main rather
+    than the local bumps (the ci-test-* callers pin @main) and reverted good
+    bumps on unrelated remote failures.
     """
-    try:
-        result = subprocess.run(
-            ["gh", "workflow", "run", "ci.yml", "-R", repo],
-            capture_output=True,
-            text=True,
-            timeout=30,
+    failures: list[str] = []
+
+    for wf_file in _find_workflow_files():
+        try:
+            yaml.safe_load(wf_file.read_text())
+        except yaml.YAMLError as e:
+            failures.append(f"YAML parse: {wf_file.relative_to(_ROOT)}: {e}")
+    if failures:
+        return failures  # unparseable files make the later gates meaningless
+
+    if _check(_load_versions()) != 0:
+        return ["SSOT sync: --check found drift after --apply"]
+
+    result = subprocess.run(
+        ["uv", "run", "pytest", "tests/unit", "-k", "workflow", "-q"],
+        cwd=_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=600,
+    )
+    if result.returncode != 0:
+        tail = "\n".join(result.stdout.splitlines()[-15:])
+        failures.append(
+            f"workflow pytest gates failed (exit {result.returncode}):\n{tail}"
         )
-        if result.returncode != 0:
-            return False, f"Failed to trigger: {result.stderr.strip()}"
 
-        # Wait for the run to appear
-        time.sleep(5)
-
-        # Get the latest run ID
-        result = subprocess.run(
-            [
-                "gh",
-                "run",
-                "list",
-                "-R",
-                repo,
-                "-w",
-                "ci.yml",
-                "--limit",
-                "1",
-                "--json",
-                "databaseId,status",
-                "--jq",
-                ".[0]",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            return False, f"Failed to get run: {result.stderr.strip()}"
-
-        run_info = json.loads(result.stdout.strip())
-        run_id = run_info["databaseId"]
-
-        # Poll until complete
-        deadline = time.time() + (timeout_minutes * 60)
-        while time.time() < deadline:
-            result = subprocess.run(
-                [
-                    "gh",
-                    "run",
-                    "view",
-                    str(run_id),
-                    "-R",
-                    repo,
-                    "--json",
-                    "status,conclusion",
-                    "--jq",
-                    r'"\(.status) \(.conclusion)"',
-                ],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            output = result.stdout.strip()
-            if "completed" in output:
-                if "success" in output:
-                    return True, "passed"
-                return False, f"CI result: {output}"
-            time.sleep(30)
-
-        return False, "Timed out waiting for CI"
-
-    except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError) as e:
-        return False, f"Error: {e}"
+    return failures
 
 
 def _set_action_spec_in_yaml(text: str, short_name: str, version: str, sha: str) -> str:
@@ -588,11 +557,12 @@ def _set_action_spec_in_yaml(text: str, short_name: str, version: str, sha: str)
 
 
 def _auto_update(versions: dict) -> int:
-    """Auto-update actions + semantic-release, test on ci-test-*, commit/revert.
+    """Auto-update actions + semantic-release, validate locally, revert on fail.
 
     Actions resolve to the newest release past the 7-day cooldown, within
     their current major (major bumps stay a manual edit). Runtimes never
-    auto-bump.
+    auto-bump. Validation is LOCAL (see _validate_locally) — remote E2E is
+    the branch-mode rehearsal's job, not this script's.
     """
     print("Auto-update: resolving releases past the cooldown...\n")
     now = datetime.now(UTC)
@@ -650,17 +620,11 @@ def _auto_update(versions: dict) -> int:
     print("\nApplying to pipeline files...")
     _apply(_load_versions())
 
-    print("\nTriggering CI on test projects...")
-    failures: list[str] = []
-    for repo in _TEST_PROJECTS:
-        print(f"  {repo}...", end=" ", flush=True)
-        ok, msg = _trigger_and_wait(repo, timeout_minutes=15)
-        print("passed" if ok else f"FAILED ({msg})")
-        if not ok:
-            failures.append(f"{repo}: {msg}")
+    print("\nValidating locally (YAML parse, SSOT sync, workflow pytest gates)...")
+    failures = _validate_locally()
 
     if failures:
-        print(f"\n{len(failures)} test project(s) failed:")
+        print(f"\n{len(failures)} local gate(s) failed:")
         for f in failures:
             print(f"  {f}")
         print("\nReverting all changes...")
@@ -670,7 +634,7 @@ def _auto_update(versions: dict) -> int:
         print("Reverted. Fix the issues and try again.")
         return 1
 
-    print("\nAll test projects passed. Review and commit when ready.")
+    print("\nLocal gates passed. Review and commit when ready.")
     return 0
 
 
@@ -699,7 +663,7 @@ def main() -> int:
     group.add_argument(
         "--auto-update",
         action="store_true",
-        help="Update non-runtime versions, test via CI, commit or revert",
+        help="Update non-runtime versions, validate locally, revert on fail",
     )
     group.add_argument(
         "--fix",
