@@ -37,6 +37,7 @@ Push modes (resolved by :mod:`hyperi_ci.publish_mode` — the SSOT):
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -64,6 +65,15 @@ from hyperi_ci.publish_mode import (
 
 _TEMPLATE_LANGUAGES = {"python", "typescript"}
 _CONTRACT_LANGUAGES = {"rust"}
+# Languages whose Build stage ships per-arch dist/ binaries that custom
+# Dockerfiles consume (directly or via the binary_stage COPY rewrite).
+_BINARY_LANGUAGES = {"rust", "golang"}
+
+# A COPY/ADD of dist/ from the BUILD CONTEXT = the Dockerfile consumes CI
+# build artefacts. `COPY --from=<stage> ... dist/` does NOT count — that
+# is a multi-stage internal path (e.g. tsc compiles to dist/ inside the
+# builder stage, the ci-test-ts-app pattern) and needs no CI artefacts.
+_DIST_CONTEXT_COPY = re.compile(r"(?m)^\s*(?:COPY|ADD)\s+(?!--from[=\s])[^\n]*\bdist/")
 
 
 def _read_version() -> str:
@@ -287,6 +297,7 @@ def run(config: CIConfig, *, language: str = "") -> int:
                 registry_bases=registry_bases,
                 push_mode=push_mode,
                 dockerfile_name=dockerfile_name,
+                language=language,
             )
 
         error(f"Unknown container mode: {mode!r}")
@@ -317,11 +328,25 @@ def _build_custom(
     registry_bases: list[str],
     push_mode: str,
     dockerfile_name: str,
+    language: str = "",
 ) -> int:
     dockerfile = Path(dockerfile_name)
     if not dockerfile.exists():
         error(f"Dockerfile not found: {dockerfile}")
         return 1
+
+    # Binary languages (rust/go) conventionally consume dist/ binaries in
+    # custom Dockerfiles — even bare `COPY <app>` lines get rewritten to
+    # dist paths (binary_stage) — so they ALWAYS keep the dist filter and
+    # its loud artefact-handoff failure. For source languages a custom
+    # Dockerfile is only binary-backed if it copies dist/ from the BUILD
+    # CONTEXT (e.g. shipping a compiled sidecar); a python/node Dockerfile
+    # running pip/npm install — including multi-stage builds whose
+    # internal compile output happens to be named dist/ — has no CI dist
+    # binaries to filter on, same class as a template image.
+    binary_backed = language in _BINARY_LANGUAGES or bool(
+        _DIST_CONTEXT_COPY.search(dockerfile.read_text(encoding="utf-8"))
+    )
 
     return _dispatch_build(
         dockerfile_path=dockerfile,
@@ -330,6 +355,7 @@ def _build_custom(
         org=org,
         registry_bases=registry_bases,
         push_mode=push_mode,
+        binary_backed=binary_backed,
     )
 
 
@@ -371,6 +397,9 @@ def _build_template(
         org=org,
         registry_bases=registry_bases,
         push_mode=push_mode,
+        # Template images (python/node) build from SOURCE inside the
+        # Dockerfile — there are no dist/ binaries to stage or filter on.
+        binary_backed=False,
     )
 
 
@@ -448,6 +477,7 @@ def _build_from_content(
     registry_bases: list[str],
     push_mode: str,
     extra_labels: dict[str, str] | None = None,
+    binary_backed: bool = True,
 ) -> int:
     """Write ``dockerfile_content`` to a temp file then build.
 
@@ -478,6 +508,7 @@ def _build_from_content(
             registry_bases=registry_bases,
             push_mode=push_mode,
             extra_labels=extra_labels,
+            binary_backed=binary_backed,
         )
     finally:
         dockerfile_path.unlink(missing_ok=True)
@@ -492,6 +523,7 @@ def _dispatch_build(
     registry_bases: list[str],
     push_mode: str,
     extra_labels: dict[str, str] | None = None,
+    binary_backed: bool = True,
 ) -> int:
     image_name = Path.cwd().name
     version = _read_version()
@@ -528,29 +560,47 @@ def _dispatch_build(
     context = container_cfg.get("context", ".")
 
     # Outside a GA publish the Build job only produces linux-amd64 (saves
-    # CI time on push-to-main validates AND branch dev builds). If the
-    # project's Dockerfile COPYs from dist/<name>-linux-<arch> then the
-    # arm64 platform run fails because the binary isn't there. Constrain
-    # non-publish paths to platforms whose binaries are actually present.
+    # CI time on push-to-main validates AND branch dev builds).
+    #
+    # Binary-backed images (contract/custom — the Dockerfile COPYs from
+    # dist/<name>-linux-<arch>): constrain to platforms whose binaries are
+    # actually present, and fail loud when NONE are (broken Build ->
+    # Container artefact handoff).
+    #
+    # Template images (python/node — built from SOURCE inside the
+    # Dockerfile) have no dist/ binaries AT ALL, so the dist filter would
+    # always come up empty and hard-fail (the ts-app finding: its
+    # container path could never succeed). Constrain them to a single
+    # arch instead — same only-shipping-runs-pay-for-arm64 doctrine,
+    # decided explicitly rather than via dist contents.
     if push_mode != PUBLISH:
         configured_platforms = list(platforms)
-        platforms = _filter_platforms_to_available_binaries(
-            platforms=platforms,
-            image_name=image_name,
-        )
-        if not platforms:
-            # No silent-success — if the project has container builds enabled,
-            # missing binaries means the Build → Container artefact handoff
-            # is broken. Fail loud so we never report "container green" without
-            # actually producing an image.
-            error(
-                f"Container build configured for {configured_platforms} but no "
-                f"matching dist/{image_name}-linux-<arch> binaries present. "
-                f"Build stage failed to produce artefacts OR the Container job "
-                f"can't see them (check actions/upload-artifact + "
-                f"actions/download-artifact version compatibility)."
+        if binary_backed:
+            platforms = _filter_platforms_to_available_binaries(
+                platforms=platforms,
+                image_name=image_name,
             )
-            return 1
+            if not platforms:
+                # No silent-success — if the project has container builds
+                # enabled, missing binaries means the Build → Container
+                # artefact handoff is broken. Fail loud so we never report
+                # "container green" without actually producing an image.
+                error(
+                    f"Container build configured for {configured_platforms} "
+                    f"but no matching dist/{image_name}-linux-<arch> binaries "
+                    f"present. Build stage failed to produce artefacts OR the "
+                    f"Container job can't see them (check "
+                    f"actions/upload-artifact + actions/download-artifact "
+                    f"version compatibility)."
+                )
+                return 1
+        else:
+            platforms = _template_platforms(platforms)
+            if platforms != configured_platforms:
+                info(
+                    f"  Container: template {push_mode} build constrained "
+                    f"to {platforms} (multi-arch only on publish)"
+                )
 
     # Bare `COPY <app> ...` lines in the Dockerfile reference a file in
     # the build context root that the upstream Build stage doesn't put
@@ -591,6 +641,18 @@ _PLATFORM_TO_OS_ARCH = {
     "linux/amd64": "linux-amd64",
     "linux/arm64": "linux-arm64",
 }
+
+
+def _template_platforms(platforms: list[str]) -> list[str]:
+    """Single-arch subset for template-image validate/dev builds.
+
+    Prefers linux/amd64 (the runner's native arch — arm64 would go via
+    qemu); falls back to the first configured platform when amd64 isn't
+    configured at all. Never empty for a non-empty input.
+    """
+    if "linux/amd64" in platforms:
+        return ["linux/amd64"]
+    return list(platforms[:1])
 
 
 def _filter_platforms_to_available_binaries(
