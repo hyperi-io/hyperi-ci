@@ -111,7 +111,11 @@ concurrency:
 
 env:
   HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
-  HYPERCI_INSTALL: uvx --no-cache --refresh hyperi-ci
+  # Rehearsal / incident escape hatch: the HYPERCI_INSTALL_OVERRIDE repo
+  # variable replaces the CLI install command wholesale — a branch rehearsal
+  # points it at `uvx --from git+...@<branch> hyperi-ci`; an incident pins
+  # the repo to a known-good `uvx hyperi-ci==X.Y.Z`. Unset = latest PyPI.
+  HYPERCI_INSTALL: ${{ vars.HYPERCI_INSTALL_OVERRIDE || 'uvx --no-cache --refresh hyperi-ci' }}
   # Rare edge-case escape hatch: set the HYPERCI_QUALITY_SKIP repo/org
   # variable (e.g. "semgrep") to force-skip a quality tool whose false
   # positive is halting CI, until the real fix lands. Empty when unset.
