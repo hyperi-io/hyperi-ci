@@ -63,7 +63,22 @@ runs:
           exit 0
         fi
 
-        # push event — match Publish: true trailer (case-insensitive on key)
+        # Publish only ever happens from main (branch-mode decision 1:
+        # branches validate, main is the sole publish path). Stated HERE,
+        # at the gate SSOT, rather than relying on downstream job `if:`
+        # conditions to catch a trailer on a branch. A trailer on a
+        # non-main ref is ignored LOUDLY, never silently.
+        if [[ "${{ github.ref }}" != "refs/heads/main" ]]; then
+          echo "will-publish=false" >> "$GITHUB_OUTPUT"
+          msg=$(git log -1 --format=%B HEAD)
+          if printf '%s' "$msg" | grep -qiE '^[[:space:]]*Publish:[[:space:]]*true[[:space:]]*$'; then
+            echo "::warning::'Publish: true' trailer on non-main ref '${{ github.ref }}' — ignored. Publishing only happens from main; merge first."
+          fi
+          echo "Non-main ref — validate-only run (no tag, no publish)"
+          exit 0
+        fi
+
+        # push to main — match Publish: true trailer (case-insensitive on key)
         msg=$(git log -1 --format=%B HEAD)
         if printf '%s' "$msg" | grep -qiE '^[[:space:]]*Publish:[[:space:]]*true[[:space:]]*$'; then
           echo "will-publish=true" >> "$GITHUB_OUTPUT"

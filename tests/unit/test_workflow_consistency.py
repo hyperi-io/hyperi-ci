@@ -217,6 +217,54 @@ def test_predict_version_forced_step_handles_explicit_version() -> None:
     )
 
 
+class TestMainOnlyPublishGate:
+    """Branch-mode decision 1 (docs/plans/2026-07-branch-mode): a push can
+    only ever publish from main. The rule lives HERE, in the gate SSOT --
+    not in downstream job `if:` conditions. A `Publish: true` trailer on a
+    branch push is ignored LOUDLY (::warning::), never silently."""
+
+    def _gate_step(self) -> dict:
+        path = ACTIONS_DIR / "predict-version" / "action.yml"
+        action = yaml.safe_load(path.read_text(encoding="utf-8"))
+        return next(s for s in action["runs"]["steps"] if s.get("id") == "gate")
+
+    def test_push_publish_requires_main_ref(self) -> None:
+        run = str(self._gate_step()["run"])
+        assert 'github.ref }}" != "refs/heads/main"' in run, (
+            "gate must reject non-main refs on push before any trailer match"
+        )
+        # Ordering: the non-main guard must EXIT before the main trailer
+        # match that can set will-publish=true. Substring presence alone
+        # would stay green if a refactor moved the guard after the match.
+        guard = run.index('!= "refs/heads/main"')
+        main_trailer = run.index("push to main")
+        assert guard < main_trailer, (
+            "non-main guard must precede the main trailer publish decision"
+        )
+        # The guard block must exit 0 (validate-only), not fall through.
+        assert "exit 0" in run[guard:main_trailer], (
+            "non-main guard block must exit before the trailer decision"
+        )
+
+    def test_nonmain_trailer_warns_loudly(self) -> None:
+        # No silent skips: a trailer on a branch must emit ::warning::.
+        run = str(self._gate_step()["run"])
+        nonmain_block_start = run.index('!= "refs/heads/main"')
+        nonmain_block = run[nonmain_block_start:]
+        assert "::warning::" in nonmain_block, (
+            "ignored trailer on a non-main ref must warn loudly"
+        )
+
+    def test_dispatch_stays_explicit_publish(self) -> None:
+        # workflow_dispatch remains an explicit publish trigger (a deliberate
+        # act by someone with actions:write). It is checked FIRST, before the
+        # ref guard -- rehearsal dispatches on fixture branches rely on this.
+        run = str(self._gate_step()["run"])
+        dispatch = run.index("workflow_dispatch")
+        guard = run.index('!= "refs/heads/main"')
+        assert dispatch < guard, "dispatch bypass must precede the non-main ref guard"
+
+
 class TestFirstReleaseAndOrphanGuards:
     """issue #37 follow-up: tag-less repos declare their starting version
     via VERSION (shipped verbatim); orphaned-tag repos fail loud at plan
