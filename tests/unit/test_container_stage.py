@@ -573,6 +573,147 @@ def test_run_python_service_opts_in_via_enabled_true(
     fake_build.assert_called_once()
 
 
+def test_run_template_validate_needs_no_dist_binaries(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Template images build from source — a validate/dev run must NOT
+    demand dist/<name>-linux-<arch> binaries (the ts-app finding: the
+    dist filter always came up empty for template mode and hard-failed,
+    so a node/python template container could never validate or dev-push).
+    It constrains to a single arch instead.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "mysvc"\nversion = "0.1.0"\n'
+        '[project.scripts]\nmysvc = "mysvc.cli:main"\n'
+    )
+    (tmp_path / "VERSION").write_text("0.1.0\n")
+    # Deliberately NO dist/ directory at all.
+
+    monkeypatch.setenv("GITHUB_SHA", "abc12345abc12345abc")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
+    monkeypatch.setenv("HYPERCI_PUBLISH_MODE", "false")
+
+    cfg = _ci_config(
+        container={
+            "enabled": True,
+            "platforms": ["linux/amd64", "linux/arm64"],
+        },
+        target="oss",
+    )
+
+    fake_build = MagicMock(return_value=0)
+    monkeypatch.setattr(stage_module, "build_and_push", fake_build)
+
+    assert run(cfg, language="python") == 0
+    fake_build.assert_called_once()
+    assert fake_build.call_args.kwargs["platforms"] == ["linux/amd64"]
+    assert fake_build.call_args.kwargs["push"] is False
+
+
+def test_run_custom_python_dockerfile_needs_no_dist(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A python app with its OWN Dockerfile (custom mode) that builds from
+    source must not be dist-filtered on validate/dev either — only binary
+    languages (rust/go) and dist-referencing Dockerfiles keep the filter.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "mysvc"\nversion = "0.1.0"\n'
+    )
+    (tmp_path / "Dockerfile").write_text(
+        "FROM python:3.12-slim\nCOPY . /app\nRUN pip install /app\n"
+    )
+    (tmp_path / "VERSION").write_text("0.1.0\n")
+
+    monkeypatch.setenv("GITHUB_SHA", "abc12345abc12345abc")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
+    monkeypatch.setenv("HYPERCI_PUBLISH_MODE", "false")
+
+    cfg = _ci_config(
+        container={
+            "enabled": True,
+            "platforms": ["linux/amd64", "linux/arm64"],
+        },
+        target="oss",
+    )
+
+    fake_build = MagicMock(return_value=0)
+    monkeypatch.setattr(stage_module, "build_and_push", fake_build)
+
+    assert run(cfg, language="python") == 0
+    assert fake_build.call_args.kwargs["platforms"] == ["linux/amd64"]
+
+
+def test_run_custom_ts_multistage_dist_is_not_binary_backed(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """`COPY --from=builder .../dist/` is a multi-stage INTERNAL path (tsc
+    output), not a CI artefact copy — must not trigger the dist filter.
+    The ci-test-ts-app pattern, caught live by the branch rehearsal.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "package.json").write_text('{"name": "mysvc"}\n')
+    (tmp_path / "Dockerfile").write_text(
+        "FROM node:22-alpine AS builder\n"
+        "COPY src/ ./src/\n"
+        "RUN npm run build\n"
+        "FROM node:22-alpine\n"
+        "COPY --from=builder --chown=app:app /build/dist/ ./dist/\n"
+    )
+    (tmp_path / "VERSION").write_text("0.1.0\n")
+
+    monkeypatch.setenv("GITHUB_SHA", "abc12345abc12345abc")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
+    monkeypatch.setenv("HYPERCI_PUBLISH_MODE", "false")
+
+    cfg = _ci_config(
+        container={
+            "enabled": True,
+            "platforms": ["linux/amd64", "linux/arm64"],
+        },
+        target="oss",
+    )
+
+    fake_build = MagicMock(return_value=0)
+    monkeypatch.setattr(stage_module, "build_and_push", fake_build)
+
+    assert run(cfg, language="typescript") == 0
+    assert fake_build.call_args.kwargs["platforms"] == ["linux/amd64"]
+
+
+class TestDistContextCopy:
+    def test_context_copy_matches(self) -> None:
+        assert stage_module._DIST_CONTEXT_COPY.search("COPY dist/app-linux-amd64 /\n")
+
+    def test_from_stage_copy_does_not_match(self) -> None:
+        assert not stage_module._DIST_CONTEXT_COPY.search(
+            "COPY --from=builder /build/dist/ ./dist/\n"
+        )
+
+    def test_chown_context_copy_matches(self) -> None:
+        assert stage_module._DIST_CONTEXT_COPY.search(
+            "COPY --chown=app:app dist/app /app\n"
+        )
+
+
+class TestTemplatePlatforms:
+    def test_prefers_amd64(self) -> None:
+        got = stage_module._template_platforms(["linux/amd64", "linux/arm64"])
+        assert got == ["linux/amd64"]
+
+    def test_falls_back_to_first_configured(self) -> None:
+        got = stage_module._template_platforms(["linux/arm64", "linux/s390x"])
+        assert got == ["linux/arm64"]
+
+    def test_single_platform_passthrough(self) -> None:
+        assert stage_module._template_platforms(["linux/amd64"]) == ["linux/amd64"]
+
+
 def test_run_legacy_target_both_routes_to_ghcr_only(
     tmp_path: Path, monkeypatch
 ) -> None:
