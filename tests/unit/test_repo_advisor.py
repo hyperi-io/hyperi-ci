@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import cast
 
 import pytest
 
+from hyperi_ci.config import CIConfig
 from hyperi_ci.quality import repo_advisor
 
 
@@ -24,6 +26,11 @@ class _Config:
         if key == "quality.alint":
             return self._alint
         return default
+
+
+def _cfg(alint: str = "auto") -> CIConfig:
+    """Cast the minimal stand-in to CIConfig - the advisory only calls .get()."""
+    return cast(CIConfig, _Config(alint))
 
 
 def _stub_run(monkeypatch: pytest.MonkeyPatch, rc: int = 0) -> list[list[str]]:
@@ -44,14 +51,14 @@ def test_disabled_mode_never_runs(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         repo_advisor, "find_tool", lambda *a, **k: pytest.fail("should not resolve")
     )
-    assert repo_advisor.run(_Config("disabled"), Path(".")) == 0
+    assert repo_advisor.run(_cfg("disabled"), Path(".")) == 0
     assert calls == []
 
 
 def test_missing_alint_is_noop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = _stub_run(monkeypatch)
     monkeypatch.setattr(repo_advisor, "find_tool", lambda *a, **k: None)
-    assert repo_advisor.run(_Config("auto"), tmp_path) == 0
+    assert repo_advisor.run(_cfg("auto"), tmp_path) == 0
     assert calls == []  # nothing to run
 
 
@@ -61,7 +68,7 @@ def test_runs_with_packaged_config_when_no_repo_config(
     calls = _stub_run(monkeypatch, rc=0)
     monkeypatch.setattr(repo_advisor, "find_tool", lambda *a, **k: "/bin/alint")
     monkeypatch.setattr(repo_advisor, "is_ci", lambda: False)
-    assert repo_advisor.run(_Config("auto"), tmp_path) == 0
+    assert repo_advisor.run(_cfg("auto"), tmp_path) == 0
     (cmd,) = calls
     assert cmd[:3] == ["/bin/alint", "check", "--format"]
     assert "human" in cmd  # local
@@ -76,7 +83,7 @@ def test_repo_config_wins_no_dash_c(
     calls = _stub_run(monkeypatch, rc=0)
     monkeypatch.setattr(repo_advisor, "find_tool", lambda *a, **k: "/bin/alint")
     monkeypatch.setattr(repo_advisor, "is_ci", lambda: False)
-    assert repo_advisor.run(_Config("auto"), tmp_path) == 0
+    assert repo_advisor.run(_cfg("auto"), tmp_path) == 0
     (cmd,) = calls
     assert "-c" not in cmd  # let alint discover the repo's own .alint.yml
 
@@ -86,7 +93,7 @@ def test_ci_uses_github_format(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(repo_advisor, "find_tool", lambda *a, **k: "/bin/alint")
     monkeypatch.setattr(repo_advisor, "is_ci", lambda: True)
     # ...still returns 0: advisory, never gates the build.
-    assert repo_advisor.run(_Config("auto"), tmp_path) == 0
+    assert repo_advisor.run(_cfg("auto"), tmp_path) == 0
     (cmd,) = calls
     assert "github" in cmd
 
@@ -104,7 +111,7 @@ def test_exec_failure_is_non_fatal(
     monkeypatch.setattr(repo_advisor, "is_ci", lambda: False)
     monkeypatch.setattr(repo_advisor, "run_cmd", boom)
     monkeypatch.setattr(repo_advisor, "warn", lambda m: warns.append(m))
-    assert repo_advisor.run(_Config("auto"), tmp_path) == 0
+    assert repo_advisor.run(_cfg("auto"), tmp_path) == 0
     assert any("not failing" in w for w in warns)
 
 
@@ -116,5 +123,5 @@ def test_alint_internal_error_still_non_fatal(
     monkeypatch.setattr(repo_advisor, "find_tool", lambda *a, **k: "/bin/alint")
     monkeypatch.setattr(repo_advisor, "is_ci", lambda: False)
     monkeypatch.setattr(repo_advisor, "warn", lambda m: warns.append(m))
-    assert repo_advisor.run(_Config("auto"), tmp_path) == 0
+    assert repo_advisor.run(_cfg("auto"), tmp_path) == 0
     assert any("advisory only" in w for w in warns)
