@@ -70,6 +70,10 @@ quality:
   exclude_paths: []
   gitleaks: blocking
   semgrep: warn              # Semgrep SAST (cross-language) - runs once at dispatch, like gitleaks
+  alint: auto                # Repo-hygiene advisory via external `alint` (profile-aware,
+                             # NON-BLOCKING). auto = run if installed else info-skip;
+                             # enabled = warn if missing; disabled = never run. Ships an
+                             # opinionated default config so no per-repo .alint.yml is needed.
 
   # Directories treated as test code (relaxed rules applied)
   # Override per project in .hyperi-ci.yaml
@@ -291,13 +295,13 @@ publish:
   # Container build & publish.
   #
   # `enabled` is three-state:
-  #   auto  (default) -- build when a container artefact is detected
+  #   auto  (default) - build when a container artefact is detected
   #                      (Dockerfile in repo, or scalo contract source);
   #                      library projects skip silently.
-  #   true            -- build is required; fail loudly if no artefact
+  #   true            - build is required; fail loudly if no artefact
   #                      detected (regression detector for projects that
   #                      want strict container hygiene).
-  #   false           -- explicit skip.
+  #   false           - explicit skip.
   #
   # Every container is published to GHCR (ghcr.io/<org>). There is
   # intentionally no `registry:` field — JFrog publishing was removed

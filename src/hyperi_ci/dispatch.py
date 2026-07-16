@@ -35,6 +35,7 @@ from hyperi_ci.quality import (
     commit_validation,
     deprecated_files,
     gitleaks,
+    repo_advisor,
     semgrep,
 )
 
@@ -177,7 +178,7 @@ def stage_setup(language: str, config: CIConfig) -> int:
 def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> int:
     """Quality checks — gitleaks + language-specific checks."""
     # Deprecated-file hygiene nudge runs first and regardless of
-    # quality.enabled -- it is a non-fatal tidy-up recommendation, not a
+    # quality.enabled - it is a non-fatal tidy-up recommendation, not a
     # gate, and should surface even on repos that disable the quality tools.
     with group("Deprecated file check"):
         deprecated_files.scan()
@@ -185,6 +186,11 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
     if not config.get("quality.enabled", True):
         info("Quality checks disabled in configuration")
         return 0
+
+    # Repo-hygiene advisory via external `alint` (profile-aware). Non-blocking
+    # - opt via quality.alint (auto/enabled/disabled); never fails the build.
+    with group("Repo hygiene advisory (alint)"):
+        repo_advisor.run(config)
 
     # Cross-language checks first.
     with group("Gitleaks secret scanning"):
@@ -200,11 +206,11 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
             return rc
 
     # Commit-message validation. In CI this is the dedicated `commit-check`
-    # workflow job -- it runs on every merge to main (not just the
+    # workflow job - it runs on every merge to main (not just the
     # publish-worthy pushes the run-checks-gated quality job covers) and is
     # advisory on PRs. There is no such job for a LOCAL `hyperi-ci check`,
     # so run it here over the unpushed range (origin/main..HEAD) as a
-    # pre-push backstop -- catch a bad message before the push, not after.
+    # pre-push backstop - catch a bad message before the push, not after.
     # See hyperi_ci.quality.commit_validation.run + CLAUDE.md CI gate doctrine.
     if local:
         with group("Commit message validation"):

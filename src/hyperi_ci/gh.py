@@ -17,6 +17,7 @@ import shutil
 import subprocess
 
 from hyperi_ci.common import error, run_cmd
+from hyperi_ci.tools import missing_tool_notice
 
 
 def require_gh() -> bool:
@@ -27,7 +28,7 @@ def require_gh() -> bool:
 
     """
     if not shutil.which("gh"):
-        error("gh CLI not found — install from https://cli.github.com/")
+        error(missing_tool_notice("gh"))
         return False
     return True
 

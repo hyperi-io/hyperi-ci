@@ -9,7 +9,7 @@
 Single source of truth is **semantic-release's own default-release-rules**
 (`@semantic-release/commit-analyzer/lib/default-release-rules.js`), NOT a
 HyperI-maintained taxonomy. A repo overrides only by shipping its own
-`.releaserc.json` with a `commit-analyzer` `releaseRules` block -- the rare
+`.releaserc.json` with a `commit-analyzer` `releaseRules` block - the rare
 exception (e.g. a multi-crate workspace). 99.99% of repos carry no `.releaserc`
 and resolve straight to the defaults below.
 
@@ -17,7 +17,7 @@ Why mirror the rules in Python at all: the pre-push gate (`hyperi-ci push`)
 and the commit-msg hook must predict the same bump semantic-release will cut,
 WITHOUT a Node / semantic-release install in the loop. When git is unavailable
 or there is no prior tag the caller treats the result as "no prediction" and
-fails open -- see :mod:`hyperi_ci.quality.predicted_bump`.
+fails open - see :mod:`hyperi_ci.quality.predicted_bump`.
 
 The default rules (commit-analyzer, semantic-release 25):
 
@@ -29,12 +29,12 @@ The default rules (commit-analyzer, semantic-release 25):
 
 That is the WHOLE taxonomy. Types HyperI once patch-bumped by hand
 (``hotfix`` / ``sec`` / ``security``) are no longer release-worthy on their
-own -- ship a security patch as ``fix(security): ...`` (a real ``fix`` that
+own - ship a security patch as ``fix(security): ...`` (a real ``fix`` that
 bumps), or add a repo ``.releaserc.json`` override.
 
 Note on revert: semantic-release ALSO patch-bumps a genuine revert, but its
-``{revert: true}`` rule keys on the PARSER's revert flag -- a commit whose
-body carries ``This reverts commit <sha>`` -- NOT the ``revert:`` type prefix.
+``{revert: true}`` rule keys on the PARSER's revert flag - a commit whose
+body carries ``This reverts commit <sha>`` - NOT the ``revert:`` type prefix.
 A header-only mirror cannot detect that reliably, so ``revert`` is left out of
 the map (a bare ``revert:`` resolves to no-release, matching semantic-release
 for the no-body case). The pre-push gate only blocks minor/major, so
@@ -88,6 +88,10 @@ def _releaserc_overrides(project_dir: Path) -> dict[str, str]:
         data = json.loads(rc.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
+    if not isinstance(data, dict):
+        # Valid JSON but not an object (a bare list / null / scalar) - treat
+        # as no override, per the docstring, rather than crashing on .get().
+        return {}
 
     overrides: dict[str, str] = {}
     for plugin in data.get("plugins", []) or []:
@@ -129,7 +133,7 @@ def classify_commit(message: str, type_bump: dict[str, str] | None = None) -> st
 
     ``none`` / ``patch`` / ``minor`` / ``major``. A breaking marker (a ``!``
     on any type, or a ``BREAKING CHANGE:`` footer) is a major regardless of
-    type -- exactly what semantic-release's commit-analyzer does.
+    type - exactly what semantic-release's commit-analyzer does.
     """
     if type_bump is None:
         type_bump = _SEMREL_DEFAULT_BUMP

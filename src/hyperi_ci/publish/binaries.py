@@ -31,6 +31,7 @@ from hyperi_ci.common import (
     warn,
 )
 from hyperi_ci.config import CIConfig
+from hyperi_ci.tools import missing_tool_notice
 
 # R2 bucket and endpoint configuration
 R2_BUCKET = "bin-repo"
@@ -189,7 +190,7 @@ def _publish_r2_binaries(channel: str = "release") -> int:
     mask(secret_key)
 
     if not shutil.which("aws"):
-        error("aws CLI not found — required for R2 upload")
+        error(missing_tool_notice("aws"))
         return 1
 
     artifacts = _collect_artifacts()

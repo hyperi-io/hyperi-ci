@@ -18,11 +18,11 @@ from hyperi_ci.release_rules import (
     releases,
 )
 
-# --- defaults (mirror semantic-release commit-analyzer default-release-rules) --
+# --- defaults (mirror semantic-release commit-analyzer default-release-rules) -
 
 
 def test_default_map_is_semantic_release_defaults() -> None:
-    # feat/minor, fix/perf/revert/patch -- and NOTHING else. hotfix/sec/security
+    # feat/minor, fix/perf/revert/patch - and NOTHING else. hotfix/sec/security
     # are deliberately absent (the collapse to pure defaults).
     assert default_type_bump() == {
         "feat": "minor",
@@ -120,6 +120,14 @@ def test_malformed_releaserc_falls_back_to_defaults(tmp_path: Path) -> None:
     assert load_type_bump(tmp_path) == default_type_bump()
 
 
+@pytest.mark.parametrize("body", ["null", "[]", '"a string"', "123"])
+def test_non_object_releaserc_falls_back_to_defaults(tmp_path: Path, body: str) -> None:
+    # Valid JSON but not an object (a bare list / null / scalar) must NOT crash
+    # on .get() - it falls back to defaults, so `hyperi-ci push` stays alive.
+    (tmp_path / ".releaserc.json").write_text(body, encoding="utf-8")
+    assert load_type_bump(tmp_path) == default_type_bump()
+
+
 def test_releaserc_without_analyzer_block_uses_defaults(tmp_path: Path) -> None:
     (tmp_path / ".releaserc.json").write_text(
         json.dumps({"branches": ["main"], "plugins": ["@semantic-release/github"]}),
@@ -155,6 +163,6 @@ def test_central_default_carries_no_custom_release_rules() -> None:
     )
     opts = analyzer[1] if len(analyzer) > 1 else {}
     assert "releaseRules" not in opts, (
-        "central default must carry NO custom releaseRules -- the bump is "
+        "central default must carry NO custom releaseRules - the bump is "
         "semantic-release's own defaults (see release_rules.py)"
     )

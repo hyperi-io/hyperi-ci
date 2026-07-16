@@ -32,6 +32,7 @@ from pathlib import Path
 
 from hyperi_ci.common import error, group, info, success, warn
 from hyperi_ci.config import CIConfig
+from hyperi_ci.tools import missing_tool_notice
 
 
 def run(config: CIConfig) -> int:
@@ -50,7 +51,7 @@ def run(config: CIConfig) -> int:
         return _run_topology_mode(helm_cfg, config)
 
     if shutil.which("helm") is None:
-        error("`helm` binary not found on PATH — cannot run helm stage")
+        error(missing_tool_notice("helm"))
         return 1
 
     project_dir = Path.cwd()

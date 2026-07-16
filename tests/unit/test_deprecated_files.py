@@ -66,6 +66,26 @@ def test_scan_no_annotation_when_not_ci(
 def test_missing_table_is_nonfatal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # A missing/unreadable table must never raise -- it is a nudge, not a gate.
+    # A missing/unreadable table must never raise - it is a nudge, not a gate.
     monkeypatch.setattr(dep, "_TABLE_PATH", tmp_path / "does-not-exist.yaml")
+    assert dep.scan(tmp_path) == []
+
+
+def test_malformed_table_is_nonfatal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Unparseable YAML (yaml.YAMLError, NOT a ValueError) must not raise.
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("files: [unclosed\n", encoding="utf-8")
+    monkeypatch.setattr(dep, "_TABLE_PATH", bad)
+    assert dep.scan(tmp_path) == []
+
+
+def test_non_mapping_table_is_nonfatal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Valid YAML but a top-level list (not a mapping) must not crash on .get().
+    listy = tmp_path / "list.yaml"
+    listy.write_text("- a\n- b\n", encoding="utf-8")
+    monkeypatch.setattr(dep, "_TABLE_PATH", listy)
     assert dep.scan(tmp_path) == []

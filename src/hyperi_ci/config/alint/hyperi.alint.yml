@@ -1,0 +1,28 @@
+# Project:   HyperI CI
+# File:      src/hyperi_ci/config/alint/hyperi.alint.yml
+# Purpose:   HyperI opinionated default alint config (shipped, no per-repo file)
+#
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# hyperi-ci passes this to `alint check -c <this>` when a repo has no .alint.yml
+# of its own, so the repo-hygiene advisory works with ZERO per-project config.
+# Deliberately minimal and NOT bespoke: it just extends alint's own bundled
+# rulesets (the shared community baseline) - the same ones `alint init`
+# scaffolds - pre-including all four HyperI languages. Each language set is
+# fact-gated (a silent no-op when that ecosystem is absent), so one file adapts
+# to any repo.
+#
+# Precedence: a repo's own .alint.yml (from `alint init`) overrides this
+# entirely. Turn the whole advisory off with `quality.alint: disabled` in
+# .hyperi-ci.yaml. All findings are non-blocking (info/warning); the advisory
+# never fails a build.
+
+version: 1
+
+extends:
+  - alint://bundled/oss-baseline@v1
+  - alint://bundled/python@v1
+  - alint://bundled/rust@v1
+  - alint://bundled/node@v1
+  - alint://bundled/go@v1
