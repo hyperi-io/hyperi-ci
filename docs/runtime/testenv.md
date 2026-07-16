@@ -1,29 +1,29 @@
-# CI Message Broker: Kafka → Redpanda
+# CI Message Broker: Kafka -> Redpanda
 
 > **Status:** lessons captured during the 2026-05 canary-release campaign
 > (dfe-archiver / dfe-transform-vector / dfe-transform-vrl). Will be folded
 > into the docs rewrite. The canonical docker patterns now live as copyable
 > references in `templates/testenv/` (see
-> [SSoT — reference patterns](#ssot--reference-patterns-not-a-dependency)).
+> [SSoT - reference patterns](#ssot--reference-patterns-not-a-dependency)).
 
 Kafka is core to most of DFE, so its CI test-broker story matters everywhere.
 This documents why CI uses **Redpanda** (not Apache Kafka), the exact setup,
-and the gotchas — so projects stop re-solving them independently.
+and the gotchas - so projects stop re-solving them independently.
 
 ## Why Redpanda, not Apache Kafka, in CI
 
 The **hard deck for every CI runner job is 4GB** (the default GitHub-hosted
-OSS-runner size; HyperI is moving to OSS to use free runners — see
+OSS-runner size; HyperI is moving to OSS to use free runners - see
 [the 4GB envelope](#the-4gb-envelope)).
 
-- **Apache Kafka** runs on the JVM: a 1.5–2.5GB heap. On a 4GB runner that
+- **Apache Kafka** runs on the JVM: a 1.5-2.5GB heap. On a 4GB runner that
   starves the workload-under-test (a PGO-instrumented binary + load driver),
   causing OOM kills.
 - **Redpanda** is a C++/Seastar reimplementation of the Kafka wire protocol.
   In `dev-container` mode with `--memory 512M` it fits comfortably, leaving
   headroom for the build + binary + driver inside 4GB.
 
-Same Kafka wire protocol → **application code and the broker endpoint are
+Same Kafka wire protocol -> **application code and the broker endpoint are
 unchanged**; only the CI fixture differs.
 
 ## Canonical Redpanda CI setup
@@ -42,11 +42,11 @@ docker run -d --rm \
 ```
 
 `--mode dev-container` bundles `--overprovisioned`, `--reserve-memory 0M`,
-`--check=false`, `--unsafe-bypass-fsync` — i.e. throughput-irrelevant safety
+`--check=false`, `--unsafe-bypass-fsync` - i.e. throughput-irrelevant safety
 checks off, minimal reserved memory. The explicit `--memory 512M` is the
 budget cap.
 
-**Readiness** — gate on the admin API, never a bare TCP-open probe (the port
+**Readiness** - gate on the admin API, never a bare TCP-open probe (the port
 opens before the broker serves):
 
 ```bash
@@ -58,22 +58,22 @@ docker exec "$CID" rpk cluster health | grep -q "Healthy:.*true"
 ### 1. The image entrypoint auto-prepends `rpk`
 
 `docker run <redpanda-image> topic create events ...` actually execs
-`/usr/bin/rpk topic create events ...` — the entrypoint prepends `rpk` for any
+`/usr/bin/rpk topic create events ...` - the entrypoint prepends `rpk` for any
 non-`redpanda` first arg. So:
 
-- ✓ `<image> topic create events ...`  → runs `rpk topic create ...`
-- ✗ `<image> rpk topic create events ...` → runs `rpk rpk topic create ...` (wrong)
+- Right: `<image> topic create events ...` -> runs `rpk topic create ...`
+- Wrong: `<image> rpk topic create events ...` -> runs `rpk rpk topic create ...`
 
 Don't add `rpk` yourself for the one-shot client form. (The in-container
-`docker exec <cid> rpk ...` form *does* need `rpk` — different invocation.)
+`docker exec <cid> rpk ...` form *does* need `rpk` - different invocation.)
 
 ### 2. No topic auto-create on consumer SUBSCRIBE
 
 Redpanda auto-creates a topic on **produce**, but **not** when a consumer
 subscribes. Apache Kafka auto-created on subscribe, which masked an ordering
 bug: a consumer-first service (e.g. dfe-archiver) subscribes to a topic that
-doesn't exist yet → never reaches ready → the load driver (which starts only
-after the service is ready) never produces → deadlock.
+doesn't exist yet -> never reaches ready -> the load driver (which starts only
+after the service is ready) never produces -> deadlock.
 
 **Fix: pre-create topics** before starting the consumer:
 
@@ -95,13 +95,13 @@ runner, not the client container.
 
 ## The 4GB envelope
 
-Every CI job — **including integration tests** — must run within **4GB** and
+Every CI job - **including integration tests** - must run within **4GB** and
 **must not require any external service** (no remote ClickHouse, no remote
 Kafka). Remote services are a *local-dev* speed convenience only (Docker is too
 slow for fast local iteration); CI is always self-contained.
 
 CI **may** exploit larger runners (the LARGE ARC runners are ~free on the
-already-paid-for DevEx cluster) as an opportunistic speedup — but nothing in CI
+already-paid-for DevEx cluster) as an opportunistic speedup - but nothing in CI
 may *require* more than 4GB or any external dependency. Design for the 4GB
 free-runner floor.
 
@@ -110,7 +110,7 @@ Rough budget on a 4GB runner during a PGO workload:
 | Component | Budget |
 |---|---|
 | Redpanda (`--memory 512M`) | ~0.5 GB |
-| PGO-instrumented binary + buffers | ~1–1.5 GB |
+| PGO-instrumented binary + buffers | ~1-1.5 GB |
 | Load driver + OS + docker | ~1 GB |
 | Headroom | remainder |
 
@@ -131,10 +131,10 @@ flowchart TB
   end
 ```
 
-## SSoT — reference patterns, not a dependency
+## SSoT - reference patterns, not a dependency
 
 hyperi-ci is the single place that gets the docker tuning right, as **copyable
-reference patterns** — `templates/testenv/`:
+reference patterns** - `templates/testenv/`:
 
 ```mermaid
 flowchart TB
@@ -145,12 +145,12 @@ flowchart TB
 ```
 
 - **Reference, not a dependency.** Projects copy the service block into their
-  own `docker-compose.dev.yaml` — no `hyperi-ci testenv` command, no
+  own `docker-compose.dev.yaml` - no `hyperi-ci testenv` command, no
   auto-provisioning, nothing mandatory. Deliberately not over-engineered.
 - Generic, 4GB-tuned infra (image, caps, readiness) lives once here; per-project
   data (Redpanda topics, ClickHouse schema from `dfe-schemas`) stays the
   project's own.
-- **Redpanda:** `--memory 512M`, dev-container — the campaign-proven setup.
+- **Redpanda:** `--memory 512M`, dev-container - the campaign-proven setup.
 - **ClickHouse:** `mem_limit: 2g` (reliable single-node floor) + the
   `clickhouse-low-mem.xml` profile. Defaults assume 16GB+; 2g ingests + queries
   fine but slower. Local dev keeps a remote-CH escape hatch for speed; CI stays

@@ -1,6 +1,6 @@
 # Migration Guide
 
-## v2.1.4 — JFrog removed
+## v2.1.4 - JFrog removed
 
 JFrog publishing was removed entirely in v2.1.4. Every artefact now
 publishes to the OSS registry stack: GHCR, crates.io, PyPI, npm,
@@ -10,12 +10,12 @@ If your `.hyperi-ci.yaml` still has `publish.target: internal` or
 `publish.target: both`: **leave it**. The field is read for backward
 compatibility and silently routed to OSS. There is no JFrog code path
 left to enable. New projects should set `target: oss` (or omit the
-field — `oss` is the default).
+field - `oss` is the default).
 
 The only remaining toggle for full open-source visibility is making
 the source repos themselves public on GitHub.
 
-## v1 → v2
+## v1 -> v2
 
 v2 introduces the version-first single-run pipeline and tag-on-publish
 semantics. The biggest user-visible changes:
@@ -31,7 +31,7 @@ semantics. The biggest user-visible changes:
 
 ### What you have to do
 
-1. **Update `.hyperi-ci.yaml`** — `target` no longer matters (JFrog was
+1. **Update `.hyperi-ci.yaml`** - `target` no longer matters (JFrog was
    removed in v2.1.4 and every value routes to OSS), but you can flip
    to `oss` for clarity:
 
@@ -59,7 +59,7 @@ semantics. The biggest user-visible changes:
 
    - Drop `hyperi-ci release vX.Y.Z` (still works as a deprecated alias)
      for routine releases.
-   - Use `hyperi-ci push --publish` instead — it amends your commit
+   - Use `hyperi-ci push --publish` instead - it amends your commit
      with the `Publish: true` trailer and triggers a single CI run that
      tags + publishes.
    - For **forced bumps** when commits aren't release-worthy (docs-only,
@@ -67,7 +67,7 @@ semantics. The biggest user-visible changes:
      or `--bump-minor`. Adds a real `fix(release):` / `feat(release):`
      marker commit (with VERSION write) that semantic-release picks up
      and that won't be filtered by consumer `paths-ignore`. Major bumps
-     are deliberately excluded — they require a human-written breaking-
+     are deliberately excluded - they require a human-written breaking-
      change footer.
    - Use `hyperi-ci publish vX.Y.Z` (canonical) for retroactive
      re-publishes against existing tags.
@@ -92,22 +92,22 @@ semantics. The biggest user-visible changes:
 
 ### Edge cases
 
-- **PR → merge to main**: a normal merge is now validate-only (no
+- **PR -> merge to main**: a normal merge is now validate-only (no
   tag, no publish). Add `Publish: true` to your final commit in the
   PR (or merge then run `hyperi-ci push --publish` with an empty
   marker commit) to ship.
-- **Release on main with no `fix:`/`feat:`**: setup hard-fails — the
+- **Release on main with no `fix:`/`feat:`**: setup hard-fails - the
   `Publish: true` trailer requires at least one release-worthy commit
   since the last tag. Add a `fix:` / `feat:` commit, or remove the
   trailer.
 - **JFrog removed in v2.1.4**: the `internal` and `both` target values
-  are still accepted in `.hyperi-ci.yaml` but ignored — every publish
+  are still accepted in `.hyperi-ci.yaml` but ignored - every publish
   goes to the OSS registry stack. No action required for projects
   already using `target: oss`.
 
 ---
 
-## v0 → v1 (historical)
+## v0 -> v1 (historical)
 
 The migration from the old release-branch model to single-versioning
 on main with dispatch-triggered publishing. Kept for reference; new

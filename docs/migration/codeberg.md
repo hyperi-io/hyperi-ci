@@ -1,14 +1,14 @@
-# Migrating off GitHub to Codeberg — Feasibility
+# Migrating off GitHub to Codeberg - Feasibility
 
 > **Status:** **NOT happening anytime soon.** This document exists to
 > capture the scope, blockers, and rough sequencing so that if the
-> conversation comes up again — policy change at GitHub, sovereignty
-> mandate, cost shock — we have a sober starting point instead of a
+> conversation comes up again - policy change at GitHub, sovereignty
+> mandate, cost shock - we have a sober starting point instead of a
 > Slack thread.
 
 Codeberg ([codeberg.org](https://codeberg.org)) is a non-profit Forgejo
 host based in Germany. Forgejo is the soft-fork of Gitea that drives
-it. The platform is genuinely good — but the gap between "Codeberg can
+it. The platform is genuinely good - but the gap between "Codeberg can
 host the git repos" and "Codeberg can replace the GitHub-shaped hole
 in HyperI's toolchain" is large, and most of the cost lives on our
 side, not theirs.
@@ -47,7 +47,7 @@ graph LR
 Migration cost = **the sum of replacing every one of those edges**, not
 just `git remote set-url`.
 
-## Codeberg parity — what's actually there
+## Codeberg parity - what's actually there
 
 | Capability | GitHub | Codeberg | Parity |
 |---|---|---|---|
@@ -55,15 +55,15 @@ just `git remote set-url`.
 | PRs, issues, code review | Yes | Yes (Forgejo) | Close enough |
 | Branch protection | Yes | Yes | Subset of rules |
 | Reusable workflows | Yes (`uses:`) | Yes (Forgejo Actions) | Mostly compatible |
-| Marketplace actions | Yes, vast | Mostly works via `actions/*` mirroring | Partial — third-party actions hit-and-miss |
+| Marketplace actions | Yes, vast | Mostly works via `actions/*` mirroring | Partial - third-party actions hit-and-miss |
 | Self-hosted runners | ARC (K8s) | Forgejo Runner | Different controller; we'd port |
 | Bring-your-own runner pool | Yes | Yes | Workable |
 | **GitHub Apps** | Yes (hyperi-container-mgt etc.) | **No equivalent** | **Hard gap** |
 | OAuth applications | Yes | Yes | Workable for some flows |
 | **Container registry** | GHCR | **Disabled on codeberg.org** for storage reasons | **Hard gap unless self-host** |
 | Package registries (PyPI, npm, Cargo) | Limited / via Releases | Forgejo supports, but **disabled on codeberg.org** | Hard gap |
-| **Releases API** | Mature | Forgejo Releases (Gitea-shape) | Partial — schema differs |
-| Org secrets + visibility | Yes (per-repo, public/private/selected) | Yes (Forgejo orgs) | Partial — visibility model thinner |
+| **Releases API** | Mature | Forgejo Releases (Gitea-shape) | Partial - schema differs |
+| Org secrets + visibility | Yes (per-repo, public/private/selected) | Yes (Forgejo orgs) | Partial - visibility model thinner |
 | `gh` CLI | Yes | `tea` or `forgejo` CLI | Different CLI; migration touches every script |
 | `semantic-release` plugin | `@semantic-release/github` | `@semantic-release/gitea` | Maintained but smaller blast-radius testing |
 | SSO / SAML | Yes (Enterprise) | **No** | Hard gap for compliance work |
@@ -76,15 +76,15 @@ just `git remote set-url`.
 
 ### CI surface
 
-`.github/workflows/*` → `.forgejo/workflows/*`. Forgejo Actions is
+`.github/workflows/*` -> `.forgejo/workflows/*`. Forgejo Actions is
 broadly act-compatible, but every reusable workflow needs a parity
 pass:
 
-- `rust-ci.yml`, `python-ci.yml`, `typescript-ci.yml`, `go-ci.yml` —
+- `rust-ci.yml`, `python-ci.yml`, `typescript-ci.yml`, `go-ci.yml` -
   reusable workflow `uses:` syntax differs in resolution.
 - Any action calling `github.event.*`, `${{ github.token }}`, or the
   GitHub-only API surface needs an audit.
-- ARC → Forgejo Runner: we already self-host runners on K8s, so the
+- ARC -> Forgejo Runner: we already self-host runners on K8s, so the
   controller swap is mechanical, but the auto-scaling story (KEDA on
   workflow queue depth) needs re-derivation against Forgejo's API.
 
@@ -103,15 +103,15 @@ The CLI is shot through with `gh` invocations:
 
 Replacing `gh` means either:
 
-1. **Add a Codeberg backend** — abstract `gh` behind a transport
+1. **Add a Codeberg backend** - abstract `gh` behind a transport
    trait/interface and add a Forgejo implementation. Cleaner long-term,
    significant up-front cost. Likely 4-8 weeks of focused work plus a
    parity test suite.
-2. **Drop into REST directly** — write a thin Forgejo client. Faster
+2. **Drop into REST directly** - write a thin Forgejo client. Faster
    but accumulates `if codeberg: ... else: ...` everywhere.
 
 Option 1 is the only honest path. It also makes hyperi-ci portable to
-self-hosted Forgejo (Codeberg-the-instance ≠ Forgejo-the-software),
+self-hosted Forgejo (Codeberg-the-instance != Forgejo-the-software),
 which is a separate strategic option.
 
 ### GitHub Apps replacement
@@ -119,12 +119,12 @@ which is a separate strategic option.
 `hyperi-container-mgt` (App ID 3230495) is the auth path for GHCR
 pushes from CI. Codeberg has no GitHub-Apps-shaped construct. Options:
 
-- **Personal Access Tokens at org level** — short-lived, rotated,
+- **Personal Access Tokens at org level** - short-lived, rotated,
   injected as secrets. Workable but weaker than App-scoped permissions
   on lifetime, audit, and revocation.
-- **Forgejo OAuth applications** — exist but the granular permission
+- **Forgejo OAuth applications** - exist but the granular permission
   model is thinner than GitHub Apps. Better for human flows than CI.
-- **Side-step entirely** — push containers to Harbor (already ours),
+- **Side-step entirely** - push containers to Harbor (already ours),
   not to Codeberg's package registry. This is the realistic answer
   because Codeberg doesn't enable the Forgejo Package Registry on
   their instance regardless.
@@ -132,7 +132,7 @@ pushes from CI. Codeberg has no GitHub-Apps-shaped construct. Options:
 ### Container registry
 
 `ghcr.io/hyperi-io/*` has no Codeberg equivalent. We already operate
-Harbor at `harbor.devex.hyperi.io:8443` for ARC runner images — moving
+Harbor at `harbor.devex.hyperi.io:8443` for ARC runner images - moving
 all OCI traffic to Harbor is the obvious answer, and is independent of
 the source-host migration. **This one we should probably do anyway**,
 since GHCR coupling is gratuitous.
@@ -146,7 +146,7 @@ Two sub-cases:
 - **Binary releases (`downloads.hyperi.io` via R2):** unaffected. R2
   pipeline is independent of GitHub Releases.
 - **GitHub Releases as a binary mirror:** would move to Forgejo
-  Releases. Schema differs — the `dfe-receiver`/`loader`/`archiver`
+  Releases. Schema differs - the `dfe-receiver`/`loader`/`archiver`
   publish handlers would need a Forgejo path. Rework, not a blocker.
 
 ### semantic-release
@@ -211,10 +211,10 @@ migration being a hero project.
 
 ## Risks of *staying*
 
-For completeness — staying isn't free, just cheaper than leaving:
+For completeness - staying isn't free, just cheaper than leaving:
 
 - GitHub policy / pricing changes are unilateral.
-- GitHub Apps API is a vendor moat — depth of integration = depth of
+- GitHub Apps API is a vendor moat - depth of integration = depth of
   lock-in.
 - Australian entity exposure to US sanctions / export-control
   decisions affecting GitHub access is non-zero.
@@ -227,12 +227,12 @@ speculative migration.
 
 ## See also
 
-- [Codeberg migration — CI, secrets, variables](codeberg-secrets-and-ci.md)
-  — deep-dive on the single largest part of the cost. Read this if
+- [Codeberg migration - CI, secrets, variables](codeberg-secrets-and-ci.md)
+ - deep-dive on the single largest part of the cost. Read this if
   the migration ever becomes real.
-- [hyperi-ci CI lessons](../CI-LESSONS.md) — pattern catalogue from the
+- [hyperi-ci CI lessons](../lessons.md) - pattern catalogue from the
   old CI; relevant when planning Forgejo Actions parity.
-- [Tier 3 deployment contract](deployment-contract-tier3.md) — the
+- [Tier 3 deployment contract](../deployment/tiers.md) - the
   contract abstraction is host-agnostic and would survive a migration
   unchanged.
 - [Forgejo Actions docs](https://forgejo.org/docs/latest/user/actions/)

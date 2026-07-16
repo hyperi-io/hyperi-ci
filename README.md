@@ -24,7 +24,7 @@ runtime** — JFrog publishing was removed in v2.1.4. The only switch
 left to flip for full open-source visibility is making the source
 repos themselves public.
 
-See [docs/migration/ONBOARDING.md](docs/migration/ONBOARDING.md) for the v1 → v2
+See [docs/migration/onboarding.md](docs/migration/onboarding.md) for the v1 → v2
 migration. Pre-v2.1.4 docs that mention JFrog targets, the
 `destinations_internal` block, or `target: internal` are historical
 only — those code paths have been removed.
@@ -376,7 +376,7 @@ For Tier 3 onboarding: `hyperi-ci init-contract --app-name my-app`
 scaffolds a starter `ci/deployment-contract.json`, then commit it and
 run `hyperi-ci emit-artefacts ci/` to regenerate.
 
-See [`docs/deployment-contract.md`](docs/deployment/CONTRACT.md) for the
+See [`docs/deployment/contract.md`](docs/deployment/contract.md) for the
 user guide.
 
 Images push to GHCR (`ghcr.io/hyperi-io/<app>`). Tags:

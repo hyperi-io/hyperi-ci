@@ -31,4 +31,4 @@ Running both + your app is ~2.5GB of services on a 4GB runner — snug. That's
 why this is opt-in/copy: take only what a given test needs.
 
 Background + gotchas (Redpanda readiness, topic pre-create, why not Apache
-Kafka): `docs/CI-KAFKA-REDPANDA.md`.
+Kafka): `docs/runtime/testenv.md`.

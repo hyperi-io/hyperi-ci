@@ -2,7 +2,7 @@
 # TEMPLATE: PGO workload for a service that PRODUCES to Kafka
 # (receiver-style: accepts HTTP/gRPC ingress, forwards to Kafka).
 #
-# See docs/PGO-WORKLOAD-GUIDE.md for the four rules.
+# See docs/runtime/pgo-bolt.md for the four rules.
 #
 # Usage: pgo-workload.sh <instrumented-binary-path>
 

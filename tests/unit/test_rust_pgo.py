@@ -405,7 +405,7 @@ class TestWorkloadExecution:
 
         Consumer workload scripts take the binary path as their first
         positional argument. This matches the contract documented in
-        docs/PGO-WORKLOAD-GUIDE.md and the shape of every template in
+        docs/runtime/pgo-bolt.md and the shape of every template in
         templates/pgo-workload/.
         """
         binary = tmp_path / "my-bin with spaces"  # exercises shell quoting

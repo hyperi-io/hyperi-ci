@@ -1,6 +1,6 @@
 # hyperi-ci architecture
 
-> Start here, then [FLOW.md](FLOW.md) for the push→release lifecycle.
+> Start here, then [flow.md](flow.md) for the push -> release lifecycle.
 
 ## What it is
 
@@ -11,9 +11,9 @@ on a laptop and in CI, across Rust, Python, TypeScript and Go.
 
 Two sides, one job each:
 
-- **CLI side** does the work — lint, test, build, publish — via `subprocess`
+- **CLI side** does the work - lint, test, build, publish - via `subprocess`
   to language tools. No bash logic; 70% of old-CI failures were bash syntax.
-- **GitHub Actions side** does orchestration only — job ordering, matrix,
+- **GitHub Actions side** does orchestration only - job ordering, matrix,
   caching, secrets, the predict-and-gate, container build, tag, publish.
 
 ```mermaid
@@ -37,9 +37,9 @@ flowchart TB
 tested locally before CI; a new check is a Python change, not workflow YAML;
 the same code path runs everywhere, so "works locally, fails in CI" largely
 disappears. It also bounds the cost of one day moving off GitHub Actions
-(→ Buildkite): rewrite the glue, keep the CLI.
+( -> Buildkite): rewrite the glue, keep the CLI.
 
-## Workflow model — two levels, no deeper
+## Workflow model - two levels, no deeper
 
 ```mermaid
 flowchart TB
@@ -76,13 +76,13 @@ flat with a plan job + gates, not chained reusable workflows.
 
 Each `<lang>-ci.yml` is a `workflow_call` reusable workflow with the same jobs,
 same order, gating on the same `plan` outputs. Only the *internals* of
-quality/test/build differ per language (tools, toolchain, cache keys) — that is
+quality/test/build differ per language (tools, toolchain, cache keys) - that is
 the single place language divergence is allowed.
 
 | Job | needs | if | Purpose |
 |---|---|---|---|
-| `plan` | — | always | Decide if this run is publish-worthy; emit gate outputs |
-| `commit-check` | — | push-to-main OR `pull_request` | Conventional-commit **landing gate** — fatal on push to main (validates what lands), advisory on PRs. NOT `run-checks`-gated (see below) |
+| `plan` | - | always | Decide if this run is publish-worthy; emit gate outputs |
+| `commit-check` | - | push-to-main OR `pull_request` | Conventional-commit **landing gate** - fatal on push to main (validates what lands), advisory on PRs. NOT `run-checks`-gated (see below) |
 | `quality` | `[plan]` | `run-checks` | Lint / typecheck / security scan |
 | `test` | `[plan]` | `run-checks` | Unit + integration tests |
 | `build` | `[plan, quality, test]` | `run-build` | Compile binaries / wheels / packages, stamp version, upload `dist/` |
@@ -92,7 +92,7 @@ the single place language divergence is allowed.
 gate skips the quality job on ordinary (non-publish) merges to main, so a bad
 conventional-commit message could otherwise land unvalidated. It is a cheap
 git-log + regex check (no compile/publish), fatal on the push that actually
-reaches main and advisory on PRs (branch commits may be squashed away — only
+reaches main and advisory on PRs (branch commits may be squashed away - only
 the squash subject lands). Feature-branch pushes skip it, preserving the
 chore-skip fast path. Logic: `hyperi_ci.quality.commit_validation.run`; the
 local `hyperi-ci check` runs the same validation over `origin/main..HEAD`.
@@ -101,11 +101,11 @@ local `hyperi-ci check` runs the same validation over `origin/main..HEAD`.
 
 | Output | True when | Effect |
 |---|---|---|
-| `will-publish` | push to **main** with `Publish: true` trailer, OR `workflow_dispatch` | The underlying release signal. A trailer on a non-main ref is ignored LOUDLY (`::warning::`) — main is the sole publish path (branch-mode decision 1) |
+| `will-publish` | push to **main** with `Publish: true` trailer, OR `workflow_dispatch` | The underlying release signal. A trailer on a non-main ref is ignored LOUDLY (`::warning::`) - main is the sole publish path (branch-mode decision 1) |
 | `run-checks` | `will-publish` OR `pull_request` | Run quality + test |
 | `run-build` | `will-publish`, OR `pull_request` with the `branch-build` opt-in | Run build + container (publish stays `will-publish`-only) |
 | `next-version` | `will-publish` AND push | Predicted semver from semantic-release dry-run |
-| `build-matrix` | always | Single-arch unless `will-publish` — PR branch-mode builds stay single-arch |
+| `build-matrix` | always | Single-arch unless `will-publish` - PR branch-mode builds stay single-arch |
 
 **Two derived gates** because PR runs need quality+test (review feedback) but
 never build/publish, and `chore:`/`docs:` pushes to main need no heavy compute.
@@ -113,16 +113,16 @@ never build/publish, and `chore:`/`docs:` pushes to main need no heavy compute.
 ### Branch-mode (opt-in PR build + dev images)
 
 `branch-build: "true"` (workflow input, or the `HYPERCI_BRANCH_BUILD` repo
-variable) makes pull_request runs also build + container-validate — the FULL
+variable) makes pull_request runs also build + container-validate - the FULL
 pipeline short of publishing. Separately, `publish.container.dev_push: true`
 in `.hyperi-ci.yaml` makes that PR container push a **dev image**: mutable
 `branch-<slug>` (pointer) + immutable `branch-<slug>-sha-<short>` (pin),
-GHCR only, never a version tag, `latest`, or a bare `sha-<short>` — the GA
+GHCR only, never a version tag, `latest`, or a bare `sha-<short>` - the GA
 namespace stays untouched, which is what makes pruning safe. Dev images are
 ephemeral: projects with `dev_push` add a tiny cron workflow calling the
 shared `_ghcr-prune.yml` (dataaxiom/ghcr-cleanup-action, multi-arch-safe),
 which globs `branch-*` / `dev-sha-*` plus untagged layers. Dev images are a
-different artifact class from a GA publish — main + explicit publish remains
+different artifact class from a GA publish - main + explicit publish remains
 the ONLY path to PyPI / crates.io / R2 / GA container tags. Mode resolution
 (publish / dev / validate) is one SSOT: `hyperi_ci.publish_mode`, shared by
 the container, helm, and argocd stages (helm/argocd treat dev as validate).
@@ -145,22 +145,22 @@ flowchart LR
 
 | Push type | plan | commit-check | quality | test | build | container | tag+publish |
 |---|---|---|---|---|---|---|---|
-| `chore:` / `docs:` to main | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| `feat:`/`fix:` to main, no `Publish:` trailer | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| `feat:`/`fix:` to main + `Publish: true` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Pull request | ✓ | ✓ advisory | ✓ | ✓ | ✗ | ✗ | ✗ |
-| Pull request + `branch-build` opt-in | ✓ | ✓ advisory | ✓ | ✓ | ✓ | ✓ validate / dev push | ✗ |
-| `workflow_dispatch` (retroactive publish) | ✓ | ✗ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| push to a feature branch | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| `chore:` / `docs:` to main | yes | yes | no | no | no | no | no |
+| `feat:`/`fix:` to main, no `Publish:` trailer | yes | yes | no | no | no | no | no |
+| `feat:`/`fix:` to main + `Publish: true` | yes | yes | yes | yes | yes | yes | yes |
+| Pull request | yes | yes advisory | yes | yes | no | no | no |
+| Pull request + `branch-build` opt-in | yes | yes advisory | yes | yes | yes | yes validate / dev push | no |
+| `workflow_dispatch` (retroactive publish) | yes | no | yes | yes | yes | yes | yes |
+| push to a feature branch | yes | no | no | no | no | no | no |
 
 Tag-on-publish doctrine: a commit landing on main produces no tag and no
 artefacts. The operator opts in with `hyperi-ci push --publish` (adds the
-`Publish: true` trailer). See [FLOW.md](FLOW.md).
+`Publish: true` trailer). See [flow.md](flow.md).
 
-## What's shared vs duplicated — and the rule
+## What's shared vs duplicated - and the rule
 
-The rule: **language-agnostic and identical across languages → shared; anything
-that needs a per-language carve-out → stays in the language SME's domain in its
+The rule: **language-agnostic and identical across languages -> shared; anything
+that needs a per-language carve-out -> stays in the language SME's domain in its
 complete form.** Shared pieces must help the SME, never hobble them.
 
 | Concern | Shared? | Where |
@@ -172,11 +172,11 @@ complete form.** Shared pieces must help the SME, never hobble them.
 | Release tail (container + tag + publish) | YES | `_release-tail.yml` reusable workflow |
 | Version stamping (VERSION file) | YES | CLI `stamp-version` (central), see below |
 | Build commands, cache keys, `_run_tool` carve-outs | NO | Inline per language in `<lang>-ci.yml` + handlers |
-| Plan-job structure, gate `if:` strings | DUPLICATED inline | small and identical across the four workflows; cheaper than the abstraction — drift caught by `tests/unit/test_workflow_consistency.py` |
+| Plan-job structure, gate `if:` strings | DUPLICATED inline | small and identical across the four workflows; cheaper than the abstraction - drift caught by `tests/unit/test_workflow_consistency.py` |
 
 **When we extract a composite vs inline:** when the shared steps are more than a
 few lines *and* identical across languages (runtime setup, the OSV scan, the
-semantic-release toolchain). A short repeated snippet stays inlined — composite
+semantic-release toolchain). A short repeated snippet stays inlined - composite
 indirection would cost more than it saves, and the consistency lint catches
 drift. This is a refinement of the earlier "inline everything" stance: the four
 composites above earned extraction; nothing smaller has.
@@ -187,21 +187,21 @@ Version writing is identical regardless of language, so it is central:
 `stamp-version` writes the `VERSION` file, then delegates only the
 *manifest* edit (Cargo.toml `[package]`, pyproject `[project]`, package.json)
 to a per-language `stamp_manifest`. The release version itself resolves once,
-the same way everywhere — `HYPERCI_VERSION` env → `VERSION` file
-(`common.resolve_release_version`) — so build, container and publish never
-disagree. See [FLOW.md](FLOW.md) §3.
+the same way everywhere - `HYPERCI_VERSION` env -> `VERSION` file
+(`common.resolve_release_version`) - so build, container and publish never
+disagree. See [flow.md](flow.md) section 3.
 
-## Same-org refs stay `@main` — made safe by a gate
+## Same-org refs stay `@main` - made safe by a gate
 
 Third-party actions are SHA-pinned (`/deps` script + `config/versions.yaml`,
 7-day cooldown). Our **own** reusable workflows and composites reference their
-siblings at `@main`, deliberately — pinning them would freeze the dev loop. A
+siblings at `@main`, deliberately - pinning them would freeze the dev loop. A
 consumer SHA-pinning the *caller* still floats those `@main` internals, so a
 breaking interface change on `main` could break pinned consumers retroactively.
 We stop that **at source** with an interface backward-compat gate in our own
 Quality job, not with a frozen graph. Full rationale, the trilemma, and the
-branch-protection precondition: [dependencies/WORKFLOW-PINNING.md](dependencies/WORKFLOW-PINNING.md).
-Third-party pinning policy: [dependencies/DEPS-PINNING.md](dependencies/DEPS-PINNING.md).
+branch-protection precondition: [dependencies/WORKFLOW-PINNING.md](dependencies/workflow-pinning.md).
+Third-party pinning policy: [dependencies/DEPS-PINNING.md](dependencies/deps-pinning.md).
 
 ## CLI surface
 
@@ -212,7 +212,7 @@ hyperi-ci push [--publish]         commit + push, opt-in Publish: true trailer
 hyperi-ci release <tag>            dispatch a GA/optimised release run
 hyperi-ci publish                  run the publish stage
 hyperi-ci stamp-version <v>        write VERSION + manifest (central)
-hyperi-ci init                     scaffold ci.yml, .hyperi-ci.yaml, Makefile, .releaserc
+hyperi-ci init                     scaffold ci.yml, .hyperi-ci.yaml, Makefile, githooks
 hyperi-ci detect | config          show detected language / merged config
 hyperi-ci trigger | watch | logs   drive GitHub Actions from the terminal
 hyperi-ci install-toolchains | install-native-deps | install-deps   runner/CI dep install
@@ -222,8 +222,8 @@ hyperi-ci upgrade                  self-upgrade the installed tool
 
 ### Dispatch
 
-`hyperi-ci run quality` → `detect.py` identifies the language (file markers or
-`.hyperi-ci.yaml` / `HYPERI_CI_LANGUAGE`) → `config.py` merges configuration →
+`hyperi-ci run quality` -> `detect.py` identifies the language (file markers or
+`.hyperi-ci.yaml` / `HYPERI_CI_LANGUAGE`) -> `config.py` merges configuration ->
 `dispatch.py` imports `hyperi_ci.languages.<lang>.<stage>` and calls
 `run(config, extra_env) -> int`.
 
@@ -246,14 +246,14 @@ Three config homes with non-overlapping boundaries:
 | GitHub **Vars** | platform infra: `GH_RUNNER_*`, `PUBLISH_TARGET` | UI |
 | GitHub **Secrets** | credentials: `CRATES_TOKEN`, `NPM_TOKEN`, `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`, `CONTAINER_MGT_APP_PRIVATE_KEY`, `GIT_TOKEN` | UI, encrypted, scoped |
 
-Rule: affects CI logic/routing → `config/`. Platform infra → Vars. Credential →
+Rule: affects CI logic/routing -> `config/`. Platform infra -> Vars. Credential ->
 Secrets.
 
 ## Publish routing
 
 Everything publishes to the OSS registry stack. **JFrog was removed in v2.1.4**:
 the legacy `publish.target` field (`internal` / `oss` / `both`) is still accepted
-in downstream `.hyperi-ci.yaml` for back-compat but ignored at runtime — every
+in downstream `.hyperi-ci.yaml` for back-compat but ignored at runtime - every
 value routes to the same OSS destination map (`config.publish_destinations()`).
 
 | Artefact | Destination |
@@ -267,8 +267,8 @@ value routes to the same OSS destination map (`config.publish_destinations()`).
 
 `publish.channel` controls **prerelease vs GA**, not destination:
 `spike`/`alpha`/`beta` ship as GitHub prereleases (and gate the Rust build-opt
-tiers — see [languages/RUST.md](languages/RUST.md)); `release` is GA. Detail +
-mermaid: [FLOW.md](FLOW.md) §5–6. JFrog history: [migration/JFROG.md](migration/JFROG.md).
+tiers - see [languages/RUST.md](languages/rust.md)); `release` is GA. Detail +
+mermaid: [flow.md](flow.md) section 5-6. JFrog history: [migration/JFROG.md](migration/jfrog.md).
 
 ## Container builds
 
@@ -283,11 +283,11 @@ auto-detected modes:
 
 Push-to-main builds single-arch (`:sha-…`); publish builds multi-arch
 (`:vX` + `:latest`). Auth via the `hyperi-container-mgt` GitHub App. Artefact
-generation from the contract: [deployment/CONTRACT.md](deployment/CONTRACT.md).
+generation from the contract: [deployment/CONTRACT.md](deployment/contract.md).
 
 **App-only, resolved before Docker (issue #33).** `publish.container.enabled` is
 `auto` (default) | `true` | `false`. Under `auto` the stage builds only when it
-finds a signal — a Dockerfile, or a Rust binary using scalo's contract.
+finds a signal - a Dockerfile, or a Rust binary using scalo's contract.
 **Libraries (a Rust crate, a Python package) have no signal and ship no
 container.** The decision is resolved *before* Docker Buildx boots, so a library
 never pulls buildkit from Docker Hub nor logs in to GHCR.
@@ -305,12 +305,12 @@ package is the point of the release.
 | `self-hosted` | ARC on the DevEx cluster | persistent NFS sccache/ccache | pre-baked in the image |
 | `free` | GitHub `ubuntu-latest` | none between runs | installed per-job |
 
-Resolved highest-wins: workflow input `runner-mode` → var `GH_RUNNER_MODE` →
-`GH_RUNNER_*` labels → `ubuntu-latest`. `free` mode lets any org use the
+Resolved highest-wins: workflow input `runner-mode` -> var `GH_RUNNER_MODE` ->
+`GH_RUNNER_*` labels -> `ubuntu-latest`. `free` mode lets any org use the
 workflows with no self-hosted infra. Multi-arch uses **native runners per arch**
 (amd64 on ARC, arm64 on `ubuntu-24.04-arm`), not cross-compilation. Full
-detail — tiers, cache, dep-install SSOT, cross-compile (dormant):
-[runtime/RUNNERS.md](runtime/RUNNERS.md).
+detail - tiers, cache, dep-install SSOT, cross-compile (dormant):
+[runtime/RUNNERS.md](runtime/runners.md).
 
 ## Design principles
 
@@ -318,11 +318,11 @@ detail — tiers, cache, dep-install SSOT, cross-compile (dormant):
 2. **One version oracle.** semantic-release dry-run in `plan` predicts the
    version every stage stamps; the real run tags **HEAD** so the tag is always
    reachable (no orphaning).
-3. **uv for everything** — venv, sync, lock, tool install, build.
-4. **Cross-platform** — `pathlib`, `shutil.which`, `sys.platform`; Linux (CI)
+3. **uv for everything** - venv, sync, lock, tool install, build.
+4. **Cross-platform** - `pathlib`, `shutil.which`, `sys.platform`; Linux (CI)
    and macOS (dev).
-5. **Self-hosting** — hyperi-ci runs its own pipeline through its own workflow.
-6. **KISS** — a battle-tested tool that's good enough beats bespoke CI code.
+5. **Self-hosting** - hyperi-ci runs its own pipeline through its own workflow.
+6. **KISS** - a battle-tested tool that's good enough beats bespoke CI code.
    Over-engineered CI kills small teams; we reject custom machinery (see #31).
 
 ## Repo layout

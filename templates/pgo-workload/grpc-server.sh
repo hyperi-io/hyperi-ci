@@ -2,7 +2,7 @@
 # TEMPLATE: PGO workload for a gRPC server (generic).
 #
 # Copy to scripts/pgo-workload.sh, customise placeholders marked `# TODO:`.
-# See docs/PGO-WORKLOAD-GUIDE.md for the four rules.
+# See docs/runtime/pgo-bolt.md for the four rules.
 #
 # Usage: pgo-workload.sh <instrumented-binary-path>
 

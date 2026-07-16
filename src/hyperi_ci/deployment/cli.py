@@ -43,7 +43,7 @@ from hyperi_ci.common import error, info
 from hyperi_ci.deployment.contract import DeploymentContract
 
 # Files the templater will write for every contract. Exposed here so the
-# CLI's --help text and the docs/emit-artefacts.md reference can stay in
+# CLI's --help text and the docs/deployment/contract.md reference can stay in
 # sync with what's actually emitted.
 ARTEFACT_FILES: tuple[str, ...] = (
     "Dockerfile",

@@ -3,7 +3,7 @@
 # REFERENCE, NOT A DEPENDENCY. Copy this `redpanda` service into your project's
 # docker-compose.dev.yaml and adjust. hyperi-ci keeps the canonical, 4GB-tuned
 # pattern here so every DFE project stops re-solving the same gotchas — see
-# docs/CI-KAFKA-REDPANDA.md for the why (Redpanda not Apache Kafka) + readiness
+# docs/runtime/testenv.md for the why (Redpanda not Apache Kafka) + readiness
 # + topic-precreate notes.
 #
 # Tuned for the 4GB CI-runner hard deck: dev-container mode, single core,
@@ -31,6 +31,6 @@ services:
       timeout: 5s
       retries: 30 # cold start can take ~30-60s on a loaded runner
 
-# Gotchas (see docs/CI-KAFKA-REDPANDA.md):
+# Gotchas (see docs/runtime/testenv.md):
 #  - Consumers do NOT auto-create topics — pre-create with `rpk topic create`.
 #  - Wait for the healthcheck (Healthy: true), not just container "running".

@@ -1,26 +1,33 @@
-# Codeberg Migration — CI, Secrets, and Variables
+# Codeberg Migration - CI, Secrets, and Variables
 
-> **Status:** companion to [codeberg.md](codeberg.md). Same caveat
-> applies — this is **NOT happening anytime soon**. This document
+> **Status:** companion to [codeberg.md](codeberg.md), the Codeberg + Buildkite
+> portability plan. Same caveat applies - this is **NOT happening anytime soon**.
+> This document
 > exists to make the secrets/CI rework concrete enough that we'd know
 > what we're signing up for if a forcing function appeared.
 
-The headline finding from the parent doc is that **source migration
-is trivial; everything else is the cost.** Of "everything else", the
-secrets and CI surface is the single largest item, and the one most
-likely to bite us silently rather than loudly. This doc is where the
-detail lives.
+The headline finding is that **source migration is trivial; everything
+else is the cost.** Of "everything else", the secrets and CI surface is
+the single largest item, and the one most likely to bite us silently
+rather than loudly. This doc is where the detail lives.
+
+The matured CI shifts the balance further in our favour: the
+`hyperi-ci` CLI owns all the work, and the GitHub Actions side is now a
+thin, well-bounded glue layer - four reusable workflows, one shared
+`_release-tail.yml`, and a handful of composite actions. Porting means
+rewriting that glue into `.forgejo/`, not the CLI. The harder, now-larger
+item is the **reusable-workflow graph itself** (see section 5).
 
 ## TL;DR
 
 | Question | Answer |
 |---|---|
-| Are workflow files portable? | Mostly — Forgejo Actions is broadly act-compatible. |
+| Are workflow files portable? | Mostly - Forgejo Actions is broadly act-compatible. |
 | Are secret references portable? | Syntax yes (`${{ secrets.FOO }}`); semantics no. |
 | Can we copy secret values across? | **No.** GitHub's API doesn't return plaintext. Every secret rotates. |
 | Does the visibility model carry over? | **Partially.** Forgejo has org/user/repo/environment scopes; "private repos only" has no equivalent. |
 | Is GitHub App auth portable? | **No.** PEM private keys don't mean anything on Forgejo. |
-| What's the bright spot? | OpenBao is already the source of truth for most material — the destination CI doesn't need to read from the source CI. |
+| What's the bright spot? | OpenBao is already the source of truth for most material - the destination CI doesn't need to read from the source CI. |
 
 ## The shape of the problem
 
@@ -36,7 +43,7 @@ graph LR
     OB -->|already mirrors| ARC[ARC runner pods]
 ```
 
-We do **not** have to "copy secrets from GitHub to Codeberg" — we
+We do **not** have to "copy secrets from GitHub to Codeberg" - we
 can't, and we shouldn't. The realistic shape is "OpenBao writes
 secrets into both CIs in parallel during dual-run, and into Codeberg
 only after cutover."
@@ -77,7 +84,7 @@ Forgejo's secret/variable model has four scopes:
 Forgejo aliases `secrets.GITHUB_TOKEN` to its own job token for action
 compatibility, so most third-party actions that expect that name keep
 working without code changes. This compatibility shim is real but
-shallow — anything that introspects token *format* (`ghp_…`,
+shallow - anything that introspects token *format* (`ghp_…`,
 `ghs_…`) breaks.
 
 Visibility evolution: Forgejo has been adding org-level access
@@ -91,16 +98,16 @@ planning time.
 |---|---|---|
 | `${{ secrets.FOO }}` reference syntax | Identical | None |
 | `${{ vars.FOO }}` reference syntax | Identical | None |
-| `secrets.GITHUB_TOKEN` | Aliased to `GITEA_TOKEN`/job token | Low — works for most actions |
-| `secrets: inherit` in reusable workflows | Supported | Low — verify with parity tests |
+| `secrets.GITHUB_TOKEN` | Aliased to `GITEA_TOKEN`/job token | Low - works for most actions |
+| `secrets: inherit` in reusable workflows | Supported | Low - verify with parity tests |
 | Org secret "All repos" | Native | None (semantic) |
-| Org secret "Private repos only" | **Not native** | **High** — re-architect or move to repo |
-| Org secret "Selected repos" | Possible via repo-level placement; thinner native | Medium — list-driven sync |
+| Org secret "Private repos only" | **Not native** | **High** - re-architect or move to repo |
+| Org secret "Selected repos" | Possible via repo-level placement; thinner native | Medium - list-driven sync |
 | Environment secrets | Native | Low |
-| `gh secret set --org` | API-only; no first-class CLI parity | Medium — script port |
+| `gh secret set --org` | API-only; no first-class CLI parity | Medium - script port |
 | Secret rotation API | Present (Forgejo API) | Low |
 | Audit log of secret access | Limited | **High** for compliance work |
-| GitHub App private key | No equivalent | **Hard gap** — replace with PAT or OAuth |
+| GitHub App private key | No equivalent | **Hard gap** - replace with PAT or OAuth |
 | `actions/create-github-app-token` | No direct equivalent | Replace with token-issuing service |
 | Token format checks (`ghp_…`) | Forgejo tokens differ | Audit consumers |
 | Secret masking in logs | Native | None |
@@ -120,12 +127,12 @@ Forgejo doesn't have this lever at the org tier. The alternatives:
   repos that genuinely need it. Means more keys to rotate but the
   blast radius is correctly scoped. Driven from `secrets-access.yaml`
   the same way we already drive selective access.
-- **Per-key tokens with downstream-enforced scope** — issue
+- **Per-key tokens with downstream-enforced scope** - issue
   per-project JFrog tokens limited to the repo's namespace. Means a
   leak to a fork PR can only affect that project's namespace. Already
   good practice; not yet uniformly applied.
 - **Run publish jobs only on protected branches/tags** with environment
-  protection rules — Forgejo has environments. Job-level guard so
+  protection rules - Forgejo has environments. Job-level guard so
   even if a fork PR could see a secret reference, the job never
   executes with the secret attached.
 
@@ -158,7 +165,7 @@ discipline GitHub Apps gave us. **Option B is the right answer for
 anything that touches publish/registry credentials**; Option A is fine
 for read-only metadata access.
 
-The token broker doesn't have to be platform-specific — same broker
+The token broker doesn't have to be platform-specific - same broker
 works for GitHub-hosted runs too, if we wanted to reduce App
 dependency *while staying on GitHub*. This is a "good either way"
 investment.
@@ -198,9 +205,19 @@ Forgejo Actions supports `secrets: inherit`. The compatibility risk is
 elsewhere: we use `uses: hyperi-io/hyperi-ci/.github/workflows/...`
 across consumer repos. On Forgejo, that becomes
 `uses: hyperi-io/hyperi-ci/.forgejo/workflows/...` and the resolution
-cache works differently — the reusable workflow has to be on the
+cache works differently - the reusable workflow has to be on the
 *same* Forgejo instance, not cross-instance, unless mirroring is set
 up.
+
+The surface to port is the **whole reusable-workflow graph**, not just
+the four language workflows: the shared `_release-tail.yml` and the
+composite actions under `.github/actions/` are all referenced `@main`
+by deliberate design (see [workflow-pinning.md](../dependencies/workflow-pinning.md)).
+Forgejo's cross-instance `@main` resolution amplifies exactly the
+issue-#31 failure mode - a floating sibling that breaks pinned callers
+ - so the interface backward-compat gate (`check-workflow-interfaces.py`)
+must run on the destination CI too. It is host-agnostic Python, so it
+ports unchanged.
 
 This is the single line that makes a clean cutover impossible: the
 moment one consumer repo points at the Codeberg-hosted reusable
@@ -215,24 +232,24 @@ and `.forgejo/` directories are generated from a single template by
 
 The most important thing in this whole document:
 
-> **We don't migrate secrets. We rotate them — and we already have a
+> **We don't migrate secrets. We rotate them - and we already have a
 > source of truth that knows the new values.**
 
 For each category:
 
 | Secret | Source of truth | Migration step |
 |---|---|---|
-| JFROG_TOKEN | `jf atc` → OpenBao `kv/services/jfrog` | Issue new token, write to Forgejo, deactivate old |
-| R2 keys | Cloudflare dashboard → OpenBao `kv/services/cloudflare-r2` | Re-provision into Forgejo from OpenBao |
+| JFROG_TOKEN | `jf atc` -> OpenBao `kv/services/jfrog` | Issue new token, write to Forgejo, deactivate old |
+| R2 keys | Cloudflare dashboard -> OpenBao `kv/services/cloudflare-r2` | Re-provision into Forgejo from OpenBao |
 | PyPI tokens | pypi.org per-token | Issue new project-scoped token, set in Forgejo |
 | crates.io tokens | crates.io per-token | Same |
-| GitHub App private key | (only meaningful on GitHub) | Replaced by token broker — see option B |
-| Container registry creds | Harbor robot accounts → OpenBao | Re-issue robot, set in Forgejo |
+| GitHub App private key | (only meaningful on GitHub) | Replaced by token broker - see option B |
+| Container registry creds | Harbor robot accounts -> OpenBao | Re-issue robot, set in Forgejo |
 | semantic-release tokens | per-project | Re-issue per project |
 
 The flow is the same one we use today to populate ARC runner pods and
-Harbor — write a thin OpenBao→Forgejo populator alongside the existing
-OpenBao→GitHub populator (if we have one, or alongside whatever we
+Harbor - write a thin OpenBao -> Forgejo populator alongside the existing
+OpenBao -> GitHub populator (if we have one, or alongside whatever we
 use today, e.g. manual `gh secret set` invocations).
 
 ## What we'd need to build
@@ -243,9 +260,9 @@ Independently of any actual migration, the following are
 | Build item | Useful on GitHub? | Useful on Forgejo? |
 |---|---|---|
 | `SecretBackend` interface in `scripts/sync-secrets-access.py` | Yes (clarity) | Yes (required) |
-| OpenBao→CI populator script (one-shot, idempotent) | Yes (replace ad-hoc `gh secret set`) | Yes (only path) |
+| OpenBao -> CI populator script (one-shot, idempotent) | Yes (replace ad-hoc `gh secret set`) | Yes (only path) |
 | Token broker service (issues short-lived creds from OpenBao) | Yes (reduce App dependency) | Yes (only path) |
-| `.github/` ↔ `.forgejo/` template generator in `hyperi-ci init` | No until cutover | Required for dual-run |
+| `.github/` <-> `.forgejo/` generator in `hyperi-ci init` (workflows + composite actions) | No until cutover | Required for dual-run |
 | Inventory script (list every secret + var across the org) | Yes (we don't have this) | Yes (input to migration) |
 
 The first three are worth doing **regardless of whether Codeberg ever
@@ -267,7 +284,7 @@ flowchart TD
     P0 --> P1 --> P2 --> P3 --> P4 --> P5 --> P6 --> P7
 ```
 
-Phases 0-3 are useful even if we never migrate — they reduce coupling
+Phases 0-3 are useful even if we never migrate - they reduce coupling
 and improve security posture. **Those should be done.**
 
 Phases 4-7 are only worth starting under a forcing function.
@@ -296,11 +313,11 @@ Phases 4-7 are only worth starting under a forcing function.
 
 ## See also
 
-- [Codeberg migration overview](codeberg.md) — parent doc
-- [Tier 3 deployment contract](deployment-contract-tier3.md) —
+- [Codeberg migration overview](codeberg.md) - parent doc
+- [Tier 3 deployment contract](../deployment/tiers.md) -
   contract layer is host-agnostic
-- [`config/secrets-access.yaml`](../../config/secrets-access.yaml) —
-  current source of truth for repo↔secret mapping
-- [`scripts/sync-secrets-access.py`](../../scripts/sync-secrets-access.py) —
+- [`config/secrets-access.yaml`](../../config/secrets-access.yaml) -
+  current source of truth for repo <-> secret mapping
+- [`scripts/sync-secrets-access.py`](../../scripts/sync-secrets-access.py) -
   current driver, target of the `SecretBackend` refactor
 - [Forgejo Actions secrets docs](https://forgejo.org/docs/latest/user/actions/#secrets)

@@ -4,7 +4,7 @@ Copy-paste starting points for writing a `pgo-workload.sh` script for
 your project. Each template is a **skeleton** — customise the traffic
 mix, payload shapes, and duration to match your production profile.
 
-See `docs/PGO-WORKLOAD-GUIDE.md` for the four rules every workload must
+See `docs/runtime/pgo-bolt.md` for the four rules every workload must
 follow.
 
 ## Quick pick
@@ -26,7 +26,7 @@ follow.
    - Config generation (what your app needs to boot)
    - Load-driver invocation (tool + args)
    - Cleanup (any extra containers/processes)
-4. Run locally to validate (see PGO-WORKLOAD-GUIDE.md).
+4. Run locally to validate (see docs/runtime/pgo-bolt.md).
 5. Opt in via `.hyperi-ci.yaml`:
 
    ```yaml

@@ -19,7 +19,7 @@ jfrog:
   domain: hypersec.jfrog.io
   org_prefix: hyperi
   # Reduced to private staging only (PyPI + Cargo).
-  # All other artifact types use GitHub. See docs/JFROG-MIGRATION.md.
+  # All other artifact types use GitHub. See docs/migration/jfrog.md.
   repos:
     pypi: hyperi-pypi
     pypi_local: hyperi-pypi-local

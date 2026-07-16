@@ -142,7 +142,7 @@ permissions:
 jobs:
   # ---------------------------------------------------------------------------
   # plan — runs FIRST. Computes gate outputs that every downstream job
-  # reads. See docs/ARCHITECTURE.md for the full contract.
+  # reads. See docs/architecture.md for the full contract.
   #
   # Doctrine: a non-bumping commit (chore/docs/test/refactor/style/build/
   # ci/cleanup/...) MUST NOT cause cargo to compile or docker buildx to

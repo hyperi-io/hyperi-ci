@@ -12,7 +12,7 @@ Source: `hyperi-io/ci` (to be archived once cutover is complete).
 > **JFrog sections in this document are historical (pre-v2.1.4).**
 > JFrog publishing was removed entirely in v2.1.4. The JFrog auth
 > patterns, registry URLs, and token handling notes below are kept for
-> archaeological context — they describe how things worked before the
+> archaeological context - they describe how things worked before the
 > 100% OSS pipeline. Do not use them as a current reference. The
 > publish path now goes to crates.io / PyPI / npm / GHCR / GitHub
 > Releases / Cloudflare R2 only.
@@ -32,7 +32,7 @@ Source: `hyperi-io/ci` (to be archived once cutover is complete).
   cross-compilation CMake builds
 
 **Private sysroot approach (proven pattern):**
-- Many `-dev` packages (e.g. `libsasl2-dev`) are NOT `Multi-Arch: same` —
+- Many `-dev` packages (e.g. `libsasl2-dev`) are NOT `Multi-Arch: same` -
   installing arm64 replaces amd64, breaking native builds
 - **Solution:** Download cross-arch `.deb` files, extract to private sysroot
   (`/tmp/cross-sysroot/<arch>/`), point `PKG_CONFIG_PATH` and linker at it
@@ -44,12 +44,12 @@ Source: `hyperi-io/ci` (to be archived once cutover is complete).
 - Creates wrapper around cross-compiler that injects sysroot library paths
 - Uses `-fuse-ld=bfd` (forces GNU BFD linker, not mold)
 - Includes `-L` and `-rpath-link` flags for transitive `.so` dependencies
-- Example: `libsasl2.so` needs `libcrypto.so.3` — linker needs `-rpath-link`
+- Example: `libsasl2.so` needs `libcrypto.so.3` - linker needs `-rpath-link`
 
 **GNU LD script path patching:**
 - Some `.so` files are ASCII linker scripts with absolute paths:
   `GROUP ( /lib/aarch64-linux-gnu/libm.so.6 ... )`
-- These absolute paths don't exist on host — rewrite to point at sysroot
+- These absolute paths don't exist on host - rewrite to point at sysroot
 
 **Environment variables for cross-compilation:**
 - `CC_<TARGET>`, `CXX_<TARGET>`, `AR_<TARGET>` for cross-compiler binaries
@@ -93,8 +93,8 @@ Source: `hyperi-io/ci` (to be archived once cutover is complete).
 
 ### Quality
 
-- `cargo deny` requires `deny.toml` — skip if not present
-- `cargo audit` may fail with "error loading advisory database" — skip gracefully
+- `cargo deny` requires `deny.toml` - skip if not present
+- `cargo audit` may fail with "error loading advisory database" - skip gracefully
 - Clippy: force `-D clippy::dbg_macro` to prevent debug macros in production
 - Multi-feature testing: pipe-separated `RUST_FEATURES` runs clippy per set
 
@@ -194,7 +194,7 @@ Source: `hyperi-io/ci` (to be archived once cutover is complete).
 
 ## Python
 
-### uv Index Strategy (Critical — Do Not Change)
+### uv Index Strategy (Critical - Do Not Change)
 
 **NEVER add `UV_EXTRA_INDEX_URL` to dep install steps in reusable workflows.**
 
@@ -210,7 +210,7 @@ and changes resolver semantics across all packages.
 - Leave workflow install steps as `uv sync --frozen --all-extras` with NO
   extra index env vars
 - Projects that need private JFrog packages configure `[tool.uv.index]` with
-  `explicit=true` in their own `pyproject.toml` — explicit indices are only
+  `explicit=true` in their own `pyproject.toml` - explicit indices are only
   consulted for packages that name them
 
 This comment is in-code in all four reusable workflows. Do not remove it.
@@ -232,8 +232,8 @@ cmd = [
 ```
 
 **Org secrets required (both at org level, `visibility: all`):**
-- `JFROG_TOKEN` — JFrog Artifactory access token (JWT format `eyJ...`)
-- `JFROG_USERNAME` — JFrog account email (`artifactory@hypersec.io`)
+- `JFROG_TOKEN` - JFrog Artifactory access token (JWT format `eyJ...`)
+- `JFROG_USERNAME` - JFrog account email (`artifactory@hypersec.io`)
 
 Both must be declared in the reusable workflow's `secrets:` block and
 explicitly passed through in `env:` on the publish step.
@@ -241,7 +241,7 @@ explicitly passed through in `env:` on the publish step.
 **Token maintenance:**
 - Generate via: `jf atc <username> --description "..." --grant-admin --expiry 0`
 - Set via: `printf '%s' "$TOKEN" | gh secret set JFROG_TOKEN --org hyperi-io --visibility all`
-- Use `printf '%s'` not `echo` — `echo` adds trailing newline which can corrupt the stored value
+- Use `printf '%s'` not `echo` - `echo` adds trailing newline which can corrupt the stored value
 - Verify the stored token is non-empty by triggering a run and checking logs for "JFROG_TOKEN not set"
 
 ### uv Patterns
@@ -255,7 +255,7 @@ explicitly passed through in `env:` on the publish step.
 Hatchling's sdist includes all git-tracked files by default. This causes
 problems when the repo has:
 - AI agent config dirs (`.claude/`, `.cursor/`, `.gemini/`, `.windsurf/`)
-- AI-related symlinks (`.claude/rules/user-standards.md` → outside project)
+- AI-related symlinks (`.claude/rules/user-standards.md` -> outside project)
 - Org submodules (`hyperi-ai/`, `ci/`) with their own content
 
 **Solution:** The `build.py` handler uses a `_inject_sdist_excludes()` context
@@ -269,7 +269,7 @@ Standard exclusions applied automatically to every Python sdist build:
 ```
 
 Projects can add project-specific excludes via `[tool.hatch.build.targets.sdist]
-exclude` in their `pyproject.toml` — those are merged with the standard ones.
+exclude` in their `pyproject.toml` - those are merged with the standard ones.
 
 The build step in the reusable workflow MUST go through `hyperi-ci run build`
 (not raw `uv build`) so the exclusion injection runs. The publish step re-runs
@@ -278,7 +278,7 @@ build to ensure fresh artifacts, also via `hyperi-ci run build`.
 ### Quality Tool Exclusions (Critical)
 
 - `--extend-exclude` ADDS to defaults (safe)
-- `--exclude` REPLACES defaults (dangerous — would scan `.venv`)
+- `--exclude` REPLACES defaults (dangerous - would scan `.venv`)
 - Each tool has different exclusion syntax:
   - ruff: `--extend-exclude dir`
   - bandit: `--exclude dir1,dir2` (comma-separated, prefix with `./`)
@@ -314,7 +314,7 @@ build to ensure fresh artifacts, also via `hyperi-ci run build`.
 
 - Verification: query JFrog simple API, check for version in HTML response
 - Handle both naming conventions: `package-name-version` and `package_name-version`
-- JFrog indexing takes minutes — retry loop (5 retries, 10s delay)
+- JFrog indexing takes minutes - retry loop (5 retries, 10s delay)
 - "already exists" error from JFrog or PyPI is non-fatal (idempotent re-runs)
 
 ---
@@ -372,7 +372,7 @@ Three-layer:
 - Naming: `{binary}-{version}-{os}-{arch}`
 - Checksums: `SHA256SUMS` file (not per-file `.sha256`)
 - Latest: copy to `/latest/` + `LATEST_VERSION.txt` (skip snapshots)
-- GitHub Actions strips executable permissions — restore before publish
+- GitHub Actions strips executable permissions - restore before publish
 
 ### Publish Verification
 
@@ -400,7 +400,7 @@ Three-layer:
 ### Sysroot Location (ARC Runners)
 
 - **Never use `/tmp` for sysroot** on ARC (Actions Runner Controller) runners
-- ARC runners use pod ephemeral storage for `/tmp` — the same disk that
+- ARC runners use pod ephemeral storage for `/tmp` - the same disk that
   causes pod evictions when it fills up
 - **Solution:** Use `Path.cwd() / ".tmp" / "cross-sysroot"` (project-scoped,
   gitignored, survives across CI steps in the same job)
@@ -439,7 +439,7 @@ Three-layer:
 - JFrog has indexing lag: a just-uploaded artifact may 404 for 5-30 seconds
 - All publish handlers should verify with HTTP HEAD + retry loop
 - Default: 5 retries, 10 second delay (total ~50s worst case)
-- Shared helper in `common.py:verify_publish()` — reusable across all languages
+- Shared helper in `common.py:verify_publish()` - reusable across all languages
 - The old CI had this per-language; the new CI centralises it
 
 ### ARC Persistent Cache + Rust Cross-Compilation (Milestone: 2026-03)
@@ -449,7 +449,7 @@ cross-compilation env vars, the first run compiles aarch64 objects correctly
 and everything works. But if an earlier run compiled with the wrong compiler
 (e.g. host x86_64 gcc instead of `aarch64-linux-gnu-gcc`), those stale `.o`
 files persist in the OUT_DIR. Subsequent runs see no source changes and skip
-recompilation — the linker gets x86_64 objects and fails with `EM:62`.
+recompilation - the linker gets x86_64 objects and fails with `EM:62`.
 
 This is the *cache pays off / cache bites you* duality. We want the cache
 (warm builds are ~5x faster) but must detect and evict corrupt entries.
@@ -458,7 +458,7 @@ This is the *cache pays off / cache bites you* duality. We want the cache
 
 1. **Plain `CC` not set for configure-based `-sys` crates.**
    `rdkafka-sys` default build uses `./configure && make` (mklove), NOT cmake.
-   The `./configure` script reads `CC` from the environment directly — it does
+   The `./configure` script reads `CC` from the environment directly - it does
    NOT use the cc-crate's `CC_aarch64_unknown_linux_gnu` convention.
    Without `CC` set, `./configure` picks up the host `gcc` (x86_64) even when
    building for aarch64, silently producing x86_64 objects.
@@ -468,16 +468,16 @@ This is the *cache pays off / cache bites you* duality. We want the cache
 2. **Stale detection only scanned cmake-based crates.**
    The stale rlib detector checked only packages with a `cmake` dependency in
    `Cargo.lock`. `rdkafka-sys` without the `cmake-build` feature has no cmake
-   dependency — it was invisible to the scanner.
+   dependency - it was invisible to the scanner.
    **Fix:** Scan ALL packages ending in `-sys` regardless of build system.
    Any `-sys` crate may compile C code. The regex `name = "...-sys"` in
-   `Cargo.lock` catches them all. Renamed `_find_cmake_sys_crates()` →
+   `Cargo.lock` catches them all. Renamed `_find_cmake_sys_crates()` ->
    `_find_c_sys_crates()`.
 
 3. **Persistent OUT_DIR defeats `make libs` recompilation.**
    Even with `CC` now correct, `make libs` in an existing OUT_DIR sees
    unchanged source and reuses stale `.o` files. The Makefile has no concept
-   of "cross-compiler changed" — it only checks source timestamps.
+   of "cross-compiler changed" - it only checks source timestamps.
    **Fix:** The stale rlib detector reads each rlib with `ar p | file -`,
    checks the ELF machine type, and runs `cargo clean --package <pkg>
    --target <target>` when wrong-arch objects are found. This deletes the

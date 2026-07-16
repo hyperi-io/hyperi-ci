@@ -4,13 +4,13 @@ User-facing reference for the three-tier deployment-contract model in
 hyperi-ci.
 
 For the cross-tier artefact identity annotation scheme see
-[`deployment-contract-identity.md`](CONTRACT-IDENTITY.md).
+[`deployment-contract-identity.md`](contract-identity.md).
 
 ## TL;DR
 
 Every HyperI app's deployment artefacts (Dockerfile, Helm chart,
 ArgoCD `Application`, container manifest) come from a single
-language-agnostic JSON contract — `ci/deployment-contract.json`. CI
+language-agnostic JSON contract - `ci/deployment-contract.json`. CI
 regenerates these artefacts from the contract on every push, then
 diff-checks against the committed `ci/` to catch drift.
 
@@ -26,7 +26,7 @@ flowchart LR
 ```
 
 All three tiers must emit **byte-identical** output for the same JSON
-contract — verified by the cross-tier parity test suite.
+contract - verified by the cross-tier parity test suite.
 
 ## Picking your tier
 
@@ -37,15 +37,15 @@ contract — verified by the cross-tier parity test suite.
 | Anything else (bash, TS, Go, ad-hoc) | 3 (`other`) | `hyperi-ci emit-artefacts` |
 | Library / no container | n/a (`none`) | container stage skips silently |
 
-`hyperi-ci` auto-detects this — you don't pick by hand. Detection
+`hyperi-ci` auto-detects this - you don't pick by hand. Detection
 order, with the first match winning:
 
 1. `Cargo.toml` containing `scalo` (any form: string, table,
-   `.workspace = true`, extras) → Tier 1.
+   `.workspace = true`, extras) -> Tier 1.
 2. `pyproject.toml` containing `scalo` (incl. extras like
-   `scalo[metrics]`) → Tier 2.
-3. `ci/deployment-contract.json` exists → Tier 3.
-4. None of the above → no contract; container stage no-ops.
+   `scalo[metrics]`) -> Tier 2.
+3. `ci/deployment-contract.json` exists -> Tier 3.
+4. None of the above -> no contract; container stage no-ops.
 
 ## Tier 3 onboarding
 
@@ -63,8 +63,8 @@ from the app name:
 |---|---|---|
 | `app_name` | `my-app` | from `--app-name` |
 | `binary_name` | `my-app` | from `--app-name` |
-| `env_prefix` | `MY_APP` | hyphens→underscores, uppercased |
-| `metric_prefix` | `my_app` | hyphens→underscores |
+| `env_prefix` | `MY_APP` | hyphens -> underscores, uppercased |
+| `metric_prefix` | `my_app` | hyphens -> underscores |
 | `config_mount_path` | `/etc/my-app/my-app.yaml` | DFE convention |
 | `metrics_port` | `9090` | DFE convention |
 | `health.liveness_path` | `/healthz` | DFE convention |
@@ -75,7 +75,7 @@ from the app name:
 | `image_profile` | `production` | scalo default |
 
 App-name validation matches the org repo-naming convention:
-lowercase, hyphen-separated, no underscores, 3–50 chars, starts with
+lowercase, hyphen-separated, no underscores, 3-50 chars, starts with
 a letter. `my_app` and `My-App` are rejected.
 
 `--force` overwrites an existing file. Without `--force`, the command
@@ -107,7 +107,7 @@ to `output_dir`):
 > the implementation plan, blocked on scalo 2.8.0 shipping
 > the `schemars`-derived JSON Schema export and the parity fixture
 > suite. Until then, `emit-artefacts` exits with code 5
-> (`EXIT_NOT_IMPLEMENTED`) after validating the contract — the
+> (`EXIT_NOT_IMPLEMENTED`) after validating the contract - the
 > validation, schema-version gate, and exit-code contract are stable.
 
 ## Schema versioning
@@ -134,7 +134,7 @@ version when:
 - Changing a field's type
 
 You do **not** need to bump for adding an optional field with a default
-— consumers ignore unknown fields gracefully when they're optional.
+ - consumers ignore unknown fields gracefully when they're optional.
 
 ## Exit codes
 
@@ -145,9 +145,9 @@ You do **not** need to bump for adding an optional field with a default
 | 0 | success |
 | 2 | contract file missing |
 | 3 | contract invalid (parse error, schema violation, schema_version too new) |
-| 4 | (reserved — future explicit schema-too-new differentiation) |
+| 4 | (reserved - future explicit schema-too-new differentiation) |
 | 5 | generators not yet implemented (Phase 2) |
-| 6 | (reserved — I/O write errors once Phase 2 lands) |
+| 6 | (reserved - I/O write errors once Phase 2 lands) |
 
 `init-contract`:
 
@@ -161,7 +161,7 @@ You do **not** need to bump for adding an optional field with a default
 ## Cascade-driven defaults
 
 Org-wide deployment defaults live in the YAML cascade rather than in
-each app's contract source — flipping `deployment.image_registry` once
+each app's contract source - flipping `deployment.image_registry` once
 in `org.yaml` updates every app. Available keys:
 
 ```yaml
@@ -181,5 +181,5 @@ delegate to these get the same answer in Rust and Python.
 
 ## See also
 
-- [`deployment-contract-identity.md`](CONTRACT-IDENTITY.md) —
+- [`deployment-contract-identity.md`](contract-identity.md) -
   cross-tier artefact identity annotation scheme

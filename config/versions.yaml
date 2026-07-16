@@ -11,7 +11,7 @@
 #
 # Actions pin to a commit SHA with a `# <version>` comment — a tag can be
 # force-moved, a SHA can't (supply-chain hardening). Policy + the Renovate
-# split: docs/CI-DEPENDENCIES.md.
+# split: docs/dependencies/deps-pinning.md.
 #
 # Update script: uv run scripts/update-versions.py
 #   --check         current vs SSOT (dry run, default)

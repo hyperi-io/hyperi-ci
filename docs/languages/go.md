@@ -1,6 +1,6 @@
 # Go CI guide
 
-The simplest of the four language handlers — Go's toolchain does most of the
+The simplest of the four language handlers - Go's toolchain does most of the
 work, and there is no registry-publish step beyond the module proxy.
 
 ## Stages
@@ -21,13 +21,13 @@ flowchart LR
 
 ## Notes
 
-- **No registry push.** The Go module proxy serves modules by git tag — tagging
+- **No registry push.** The Go module proxy serves modules by git tag - tagging
   a release is the publish. The handler additionally uploads compiled binaries to
   GitHub Releases (and R2 for GA binaries), same as Rust.
 - **Cross-compile is native, not `GOOS`/`GOARCH` from one host.** Multi-arch
   builds run on native runners per architecture (see
-  [runtime/RUNNERS.md](../runtime/RUNNERS.md)); CGO builds need the native
+  [runtime/RUNNERS.md](../runtime/runners.md)); CGO builds need the native
   toolchain anyway.
 - **Binary naming** follows the unified convention shared with Rust:
   `{name}-{os}-{arch}`, version carried in the download path, not the filename.
-  See [FLOW.md](../FLOW.md) §5.
+  See [flow.md](../flow.md) section 5.

@@ -5,7 +5,7 @@ semantic-release computation drives every stage.
 
 ## 1. Trigger and gate
 
-One signal — `will-publish` — gates the whole pipeline.
+One signal - `will-publish` - gates the whole pipeline.
 
 ```mermaid
 flowchart TD
@@ -20,9 +20,9 @@ flowchart TD
 ```
 
 - `will-publish` = dispatch, or a `Publish: true` trailer on HEAD.
-- `next-version` comes from `semantic-release --dry-run` — same config the real
+- `next-version` comes from `semantic-release --dry-run` - same config the real
   tag step uses, so they cannot disagree.
-- No trailer on a push to main → validate-only (no tag, no publish).
+- No trailer on a push to main -> validate-only (no tag, no publish).
 
 ## 2. Pipeline and job dependencies
 
@@ -43,7 +43,7 @@ flowchart LR
 - Quality / Test / Build run in parallel after Plan.
 - Release tail runs only when `will-publish=true`; Container before Tag & Publish.
 
-## 3. Version — one oracle, used everywhere
+## 3. Version - one oracle, used everywhere
 
 ```mermaid
 flowchart TD
@@ -56,19 +56,20 @@ flowchart TD
 ```
 
 - Build stamps the binary, Container tags the image, Tag & Publish creates the
-  git tag — all the same `next-version`.
+  git tag - all the same `next-version`.
 - semantic-release tags **HEAD** (not a CI-authored commit), so the tag is
   always reachable and the next run computes the correct next version.
-- `@semantic-release/git` is dropped — see `.releaserc` for the why.
+- `@semantic-release/git` is dropped - hyperi-ci stamps the version itself
+  (version-first), so there is no commit-back that could rewrite tags (issue #37).
 
-## 4. What is done where — and why
+## 4. What is done where - and why
 
 ```mermaid
 flowchart TB
     subgraph SME[Per-language — owned by the language SME]
       W[rust/ts/python/go-ci.yml<br/>toolchain, build matrix]
       Q[quality.py / build.py<br/>per-tool carve-outs]
-      RC[.releaserc<br/>which file to stamp]
+      RC[build.py stamp_manifest<br/>language manifest to stamp]
     end
     subgraph SHARED[Shared — language-agnostic, consumed not owned]
       PV[predict-version action]
@@ -84,14 +85,14 @@ flowchart TB
 | Layer | Owns | Why here |
 |---|---|---|
 | Per-language workflow + handlers | toolchains, build matrix, `_run_tool` carve-outs (e.g. cargo-audit transient skip), version stamping target | legitimately differs per language; the SME needs full control |
-| `predict-version`, `setup-semantic-release`, `_release-tail` | trigger gate, version oracle, semantic-release toolchain, container + tag + publish orchestration | identical across languages; shared so a fix lands once, not 4× |
+| `predict-version`, `setup-semantic-release`, `_release-tail` | trigger gate, version oracle, semantic-release toolchain, container + tag + publish orchestration | identical across languages; shared so a fix lands once, not 4x |
 
 Rule: shared pieces must help the SME, never hobble them. Anything needing a
 per-language carve-out stays in the SME's domain.
 
 ## 5. Publish routing
 
-Everything goes to the OSS registry stack. **JFrog was removed in v2.1.4** — the
+Everything goes to the OSS registry stack. **JFrog was removed in v2.1.4** - the
 legacy `publish.target` field (`internal`/`oss`/`both`) is still read for
 back-compat but every value routes to the same OSS destination map.
 
@@ -107,13 +108,13 @@ flowchart LR
     GA -->|pre-GA| GHO[GitHub Releases only]
 ```
 
-- One artefact type → one destination; there is no private/internal path.
+- One artefact type -> one destination; there is no private/internal path.
 - `publish.channel` controls prerelease vs GA (next section), not destination.
 
 ## 6. Release channels
 
 One-branch model. `publish.channel` graduates a project by one line in
-`.hyperi-ci.yaml`; it sets prerelease-vs-GA and gates the Rust build-opt tiers —
+`.hyperi-ci.yaml`; it sets prerelease-vs-GA and gates the Rust build-opt tiers -
 it does **not** change publish destination (all channels publish OSS).
 
 ```mermaid
@@ -129,22 +130,22 @@ flowchart LR
 | `beta` | GitHub prerelease | jemalloc + fat LTO | `/{project}/<channel>/vX/` |
 | `release` | GA | + PGO/BOLT (opt-in) | `/{project}/vX/` + `latest` |
 
-- `.releaserc` carries `branches: [{name: main, prerelease: dev}, release]`:
-  `main` produces dev pre-releases (x64, fast feedback); merging to `release`
-  cuts GA (x64 + arm64).
-- `hyperi-ci release-merge` resolves the recurring VERSION-file conflict that
-  arises when semantic-release bumps independently on each branch — no consumer
-  workflow file needed. Tier detail: [languages/RUST.md](languages/RUST.md).
+- Channel is set by `publish.channel` in `.hyperi-ci.yaml`, not by a branch.
+  semantic-release runs only on `main` and produces real versions (`1.3.0`, not
+  `1.3.0-dev.8`) - there is no `release` branch and no dev pre-release track.
+- GA vs prerelease and the arch set follow the channel: `spike`/`alpha`/`beta`
+  are GitHub prereleases (x64, fast feedback); `release` is GA (x64 + arm64).
+  Tier detail: [languages/rust.md](languages/rust.md).
 
-## 7. Binary publish — what's uploaded and how it's named
+## 7. Binary publish - what's uploaded and how it's named
 
 Binary destinations (GitHub Releases, Cloudflare R2) receive **only
-compiled binaries + their SHA-256 checksums** — no README/CHANGELOG/LICENSE.
+compiled binaries + their SHA-256 checksums** - no README/CHANGELOG/LICENSE.
 This matches industry convention (HashiCorp, Rust, Go): docs live in the repo;
 semantic-release populates the release description. `_collect_artifacts()` reads
 everything from `dist/`, so build handlers place only binaries + checksums there.
 
-Unified naming across languages — `{name}-{os}-{arch}[.exe]`, **version in the
+Unified naming across languages - `{name}-{os}-{arch}[.exe]`, **version in the
 path, not the filename**:
 
 ```
@@ -155,30 +156,30 @@ dfe-receiver/vX/dfe-receiver-linux-arm64.sha256
 dfe-receiver/latest/dfe-receiver-linux-amd64
 ```
 
-Checksums are per-binary (`{binary}.sha256`, issue #22) — an aggregated
+Checksums are per-binary (`{binary}.sha256`, issue #22) - an aggregated
 `checksums.sha256` would last-write-wins when the multi-arch matrix jobs
 upload to the same path. Concatenate the per-arch files if you need a
 combined one.
 
 - `os-arch` shorthand (`linux-amd64`) matches Docker/K8s/HashiCorp, not Rust
-  target triples — our consumers are ops deploying server-side binaries.
+  target triples - our consumers are ops deploying server-side binaries.
 - Version in the path (not the filename) gives stable download URLs and avoids
   the branch-name-leaks-into-filename class of bug.
-- Both Rust and Go handlers emit the same format — consumers don't care what
+- Both Rust and Go handlers emit the same format - consumers don't care what
   language built the binary.
 
 ## 8. Release / retry on demand (no junk `fix:`)
 
-`hyperi-ci push --publish` is the **primary** release path — one CI run, one
+`hyperi-ci push --publish` is the **primary** release path - one CI run, one
 tag, one publish, gated by the `Publish: true` trailer. It assumes you have a
 release-worthy commit on HEAD. Two situations break that assumption, and have
 historically driven the "edit a single file and fake a `fix:` commit" workaround:
 
-1. **"Jeez I need to retry this"** — a release run died before Tag & Publish
+1. **"Jeez I need to retry this"** - a release run died before Tag & Publish
    (transient hiccup, container flake, etc.). No tag was cut, so `hyperi-ci
    publish vX` can't help (the tag doesn't exist) and `push --bump-patch`
    no-ops because VERSION on `main` already equals the target (#25 + #35).
-2. **"Man I needed to release that"** — you want to release HEAD on demand
+2. **"Man I needed to release that"** - you want to release HEAD on demand
    (re-publish docs/refactor-only work, or release a fresh HEAD without an
    intervening `Publish: true` push).
 
@@ -199,17 +200,17 @@ flowchart LR
 
 | Command | Action | When |
 |---|---|---|
-| `hyperi-ci publish` | dispatch from-head + bump=auto — the CI resolves the version (semantic-release), tags HEAD, publishes | Finish a stuck release; release HEAD when there are release-worthy commits |
-| `hyperi-ci publish --bump patch\|minor` | dispatch from-head + forced bump — `tag-head` computes `last + bump`, tags HEAD via `gh api`, publishes | Release HEAD with no release-worthy commit (kills the junk-`fix:` ritual) |
-| `hyperi-ci publish <tag>` | dispatch existing tag — **idempotent retry** (publish handlers skip artefacts already in their registry; a GH Release no longer hard-blocks) | A partial publish where the tag is cut but some registries missed |
-| Actions UI → Run workflow | same three modes via `tag` / `from-head` / `bump` inputs | No local checkout; one-click from the GitHub UI |
+| `hyperi-ci publish` | dispatch from-head + bump=auto - the CI resolves the version (semantic-release), tags HEAD, publishes | Finish a stuck release; release HEAD when there are release-worthy commits |
+| `hyperi-ci publish --bump patch\|minor` | dispatch from-head + forced bump - `tag-head` computes `last + bump`, tags HEAD via `gh api`, publishes | Release HEAD with no release-worthy commit (kills the junk-`fix:` ritual) |
+| `hyperi-ci publish <tag>` | dispatch existing tag - **idempotent retry** (publish handlers skip artefacts already in their registry; a GH Release no longer hard-blocks) | A partial publish where the tag is cut but some registries missed |
+| Actions UI -> Run workflow | same three modes via `tag` / `from-head` / `bump` inputs | No local checkout; one-click from the GitHub UI |
 
 **Why the CI does the tagging:** one source of truth (the workflow), the
 `GITHUB_TOKEN` cuts the tag (works under branch protection), and the CLI +
 UI button are byte-identical operations. The plan job resolves the version
 on dispatch too (`predict-version` runs semantic-release for `auto` or
 last+bump for forced) so the build stamps the same version Tag & Publish
-will tag — no artefact-version drift.
+will tag - no artefact-version drift.
 
 > Caveat: `hyperi-ci push --publish` (the primary path) still pre-flights via
 > the same trailer/gate. `publish` is the escape hatch, not a replacement.

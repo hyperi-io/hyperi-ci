@@ -1,4 +1,4 @@
-# TypeScript — Package Manager Support
+# TypeScript - Package Manager Support
 
 ## Summary of Implementation
 
@@ -8,7 +8,7 @@ Projects may use npm, yarn, or pnpm. The `packageManager` field in `package.json
 
 1. **Package manager detection**
    - Added `detect_package_manager()` in `src/hyperi_ci/languages/typescript/_common.py`
-   - **Priority order:** `package.json` `packageManager` field → lock files → default `npm`
+   - **Priority order:** `package.json` `packageManager` field -> lock files -> default `npm`
    - Lock file fallback: `pnpm-lock.yaml` > `yarn.lock` > `package-lock.json`
 
 2. **Shared detection**
@@ -85,5 +85,5 @@ These stages use the detected package manager for `{pm} run lint`, `{pm} run tes
 
 ## Related
 
-- [LESSONS.md](../LESSONS.md) — TypeScript section for quality, publishing, and other patterns
-- [ARCHITECTURE.md](../ARCHITECTURE.md) — architecture and workflow structure
+- [lessons.md](../lessons.md) - TypeScript section for quality, publishing, and other patterns
+- [architecture.md](../architecture.md) - architecture and workflow structure

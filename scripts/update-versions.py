@@ -10,7 +10,7 @@
 This is the /deps tool for hyperi-ci. Actions pin to a commit SHA with a
 `# <version>` comment (a tag can be force-moved, a SHA can't); the pre-commit
 hook enforces it. Scans both .github/workflows/ and .github/actions/. Policy
-+ the Renovate split: docs/CI-DEPENDENCIES.md.
++ the Renovate split: docs/dependencies/deps-pinning.md.
 
 Usage:
     uv run scripts/update-versions.py                # default: --check

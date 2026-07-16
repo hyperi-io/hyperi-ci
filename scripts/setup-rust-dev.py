@@ -7,7 +7,7 @@
 #  License:      BUSL-1.1
 #  Copyright:    (c) 2026 HYPERI PTY LIMITED
 #
-#  Implements the local developer hygiene plan from docs/rust.md
+#  Implements the local developer hygiene plan from docs/languages/rust.md
 #  (§ "Local developer hygiene"):
 #    1. Per-project target symlinks on /cache disk
 #    2. Install and configure sccache
@@ -534,7 +534,7 @@ def verify(dry_run: bool) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Set up Rust build optimisation on a developer workstation",
-        epilog="See docs/rust.md § 'Local developer hygiene' for details.",
+        epilog="See docs/languages/rust.md section 'Local developer hygiene' for details.",
     )
     parser.add_argument(
         "--check",

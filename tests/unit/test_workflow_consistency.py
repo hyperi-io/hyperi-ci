@@ -6,12 +6,12 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Workflow consistency tests.
 
-Each `<lang>-ci.yml` file follows the contract in `docs/ARCHITECTURE.md`:
+Each `<lang>-ci.yml` file follows the contract in `docs/architecture.md`:
 plan job first, downstream jobs gate on `plan.outputs.run-checks` (for
 quality / test) or `plan.outputs.run-build` (for build).
 
 Because the gate strings are duplicated across four files (deliberately
-— see ARCHITECTURE.md "what's shared vs duplicated"), drift is the main
+- see docs/architecture.md "what's shared vs duplicated"), drift is the main
 maintenance risk. This test catches drift mechanically: every gate
 must match the canonical strings below.
 """
@@ -587,7 +587,7 @@ def test_plan_job_uses_predict_version_composite(workflow_name: str) -> None:
     assert uses_predict, (
         f"{workflow_name}.plan: must call hyperi-io/hyperi-ci/.github/"
         f"actions/predict-version composite action. Re-implementing the "
-        f"gate decision is forbidden — see docs/ARCHITECTURE.md."
+        f"gate decision is forbidden — see docs/architecture.md."
     )
 
 
@@ -595,7 +595,7 @@ def test_plan_job_uses_predict_version_composite(workflow_name: str) -> None:
 def test_release_tail_uses_shared_workflow(workflow_name: str) -> None:
     """Release tail MUST be the shared `_release-tail.yml` workflow.
     This is the second of two allowed indirection layers (per
-    docs/ARCHITECTURE.md).
+    docs/architecture.md).
     """
     wf = _load_workflow(workflow_name)
     jobs = wf.get("jobs", {})

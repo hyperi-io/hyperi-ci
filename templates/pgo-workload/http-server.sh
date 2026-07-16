@@ -2,7 +2,7 @@
 # TEMPLATE: PGO workload for an HTTP server (generic).
 #
 # Copy to scripts/pgo-workload.sh, customise placeholders marked `# TODO:`,
-# then opt in via .hyperi-ci.yaml. See docs/PGO-WORKLOAD-GUIDE.md.
+# then opt in via .hyperi-ci.yaml. See docs/runtime/pgo-bolt.md.
 #
 # Usage: pgo-workload.sh <instrumented-binary-path>
 #

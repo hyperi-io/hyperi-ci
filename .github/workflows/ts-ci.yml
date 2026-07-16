@@ -132,7 +132,7 @@ permissions:
 jobs:
   # ---------------------------------------------------------------------------
   # plan — runs FIRST. Computes gate outputs; downstream jobs read them.
-  # See docs/ARCHITECTURE.md.
+  # See docs/architecture.md.
   # ---------------------------------------------------------------------------
   plan:
     name: Plan

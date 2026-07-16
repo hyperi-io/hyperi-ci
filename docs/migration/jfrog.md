@@ -1,15 +1,15 @@
-# JFrog Migration Plan (HISTORICAL — JFrog removed in v2.1.4)
+# JFrog Migration Plan (HISTORICAL - JFrog removed in v2.1.4)
 
 > **Status: complete. JFrog publishing was removed in v2.1.4.**
 >
-> This document is a historical artefact from the v1 → v2 transition,
+> This document is a historical artefact from the v1 -> v2 transition,
 > when JFrog was being *reduced* to a smaller role. With v2.1.4 the
 > reduction completed: **all JFrog publishing code, config, and
 > workflow steps were deleted**. Every artefact now publishes to the
 > OSS registry stack (GHCR / crates.io / PyPI / npm / GitHub Releases
 > / Cloudflare R2). Downstream `.hyperi-ci.yaml` files that still set
-> `publish.target: internal` or `publish.target: both` are accepted —
-> the field is read for back-compat — but its value is **silently
+> `publish.target: internal` or `publish.target: both` are accepted -
+> the field is read for back-compat - but its value is **silently
 > routed to the OSS destination map**. There is no JFrog publishing
 > path in the codebase anymore.
 >
@@ -113,7 +113,7 @@ the pull URL requires Telstra to update deployment manifests. Do not touch.
 
 ### 1. Telstra DFE 2.1 Artifacts
 
-`hypersec-docker-local` — read-only, no CI changes needed. These images
+`hypersec-docker-local` - read-only, no CI changes needed. These images
 were built by the old CI system (`hyperi-io/ci`), not `hyperi-ci`.
 
 **Action:** Do nothing. When Telstra decommissions DFE 2.1, delete the repo.
@@ -124,7 +124,7 @@ were built by the old CI system (`hyperi-io/ci`), not `hyperi-ci`.
 ### 2. Private Package Staging (PyPI + Cargo)
 
 JFrog remains the private staging registry for pre-GA packages. Neither
-PyPI nor crates.io offer private/paid tiers — once published, packages
+PyPI nor crates.io offer private/paid tiers - once published, packages
 are public with no visibility controls.
 
 **Kept repos:**
@@ -172,7 +172,7 @@ through GitHub regardless of target.
 
 ## What Moves to GitHub
 
-### Containers → GHCR
+### Containers -> GHCR
 
 | Image | From | To |
 |---|---|---|
@@ -182,14 +182,14 @@ through GitHub regardless of target.
 | Future DFE containers | Would have gone to JFrog | `ghcr.io/hyperi-io/<name>` |
 
 GHCR containers are private by default. Make public when ready for OSS.
-Auth via `GITHUB_TOKEN` — no org secrets needed.
+Auth via `GITHUB_TOKEN` - no org secrets needed.
 
-### Helm Charts → GHCR OCI
+### Helm Charts -> GHCR OCI
 
 From `oci://hypersec.jfrog.io/hyperi-helm-local` to
 `oci://ghcr.io/hyperi-io/charts`. Already configured in defaults.yaml.
 
-### npm → GitHub Packages
+### npm -> GitHub Packages
 
 GitHub Packages supports private npm with `@hyperi` scope. Direct
 replacement for `hyperi-npm-local`.
@@ -201,17 +201,17 @@ npm config set @hyperi:registry https://npm.pkg.github.com
 Private packages visible only to org members. When ready for OSS, switch
 to npmjs.com.
 
-### Binaries → Already Done
+### Binaries -> Already Done
 
 Already on Cloudflare R2 (`downloads.hyperi.io`) + GitHub Releases.
-`hyperi-binaries` on JFrog is redundant — delete it.
+`hyperi-binaries` on JFrog is redundant - delete it.
 
-### Go Modules → Already Done
+### Go Modules -> Already Done
 
 Go modules proxy automatically via `proxy.golang.org`. `hyperi-go-local`
-on JFrog was never meaningfully used — delete it.
+on JFrog was never meaningfully used - delete it.
 
-### Docker Hub Pulls → Direct Auth (replacing JFrog proxies)
+### Docker Hub Pulls -> Direct Auth (replacing JFrog proxies)
 
 JFrog currently proxies Docker Hub via `dockerhub-remote` to avoid
 anonymous rate limits (100 pulls/6hr). Replace with authenticated Docker
@@ -234,10 +234,10 @@ to `ci-consumers` so all CI jobs can authenticate pulls.
 ```
 
 GitHub-hosted runners share IP pools. Without auth, Docker Hub rate limits
-hit frequently. This is better than the JFrog proxy — no middleman, no
+hit frequently. This is better than the JFrog proxy - no middleman, no
 cache staleness.
 
-PyPI/npm/crates.io proxy repos are not needed — those registries have no
+PyPI/npm/crates.io proxy repos are not needed - those registries have no
 meaningful rate limits.
 
 ---
@@ -362,7 +362,7 @@ Remove dependency on JFrog remote proxy repos for base image pulls.
       username: ${{ github.actor }}
       password: ${{ secrets.GITHUB_TOKEN }}
   ```
-- [ ] Set GHCR packages to private (default) — make public per-package when OSS
+- [ ] Set GHCR packages to private (default) - make public per-package when OSS
 - [ ] Test container publish end-to-end
 
 ### Phase 3: npm to GitHub Packages (Week 2)
@@ -397,7 +397,7 @@ Narrow JFrog's role in `destinations_internal` to PyPI + Cargo only.
 
 ### Phase 5: Reduce JFrog Secrets Scope (Week 3)
 
-`JFROG_TOKEN` stays but is needed by fewer repos — only those that publish
+`JFROG_TOKEN` stays but is needed by fewer repos - only those that publish
 private Python or Rust packages.
 
 - [ ] Create new group in `secrets-access.yaml`:
@@ -560,10 +560,10 @@ dockerhub:
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Telstra pulls break | **High** — production outage | Do not touch hypersec-docker-local or its virtual repo |
-| JFrog staging needed for new private package | **None** — JFrog PyPI + Cargo remain | Workflow unchanged for Python/Rust |
-| Docker Hub rate limits without JFrog proxy | **Medium** — CI failures | Phase 1 adds DOCKERHUB auth before deleting proxies |
-| ARC runners reference JFrog ci-runner image | **Medium** — runners fail to start | Update pod specs in Phase 2 before deleting repo |
+| Telstra pulls break | **High** - production outage | Do not touch hypersec-docker-local or its virtual repo |
+| JFrog staging needed for new private package | **None** - JFrog PyPI + Cargo remain | Workflow unchanged for Python/Rust |
+| Docker Hub rate limits without JFrog proxy | **Medium** - CI failures | Phase 1 adds DOCKERHUB auth before deleting proxies |
+| ARC runners reference JFrog ci-runner image | **Medium** - runners fail to start | Update pod specs in Phase 2 before deleting repo |
 | npm private packages visible publicly | **Low** | GH Packages npm is private by default |
 | Lost build artifacts on deleted repos | **None** | All active artifacts exist on R2, GH Releases, or public registries |
 
@@ -586,20 +586,20 @@ dockerhub:
 
 ## What We Gain
 
-1. **Reduced JFrog surface** — from 12 repos to 4 (PyPI local/virtual + Cargo local/virtual)
-2. **Fewer secrets** — `JFROG_TOKEN` scoped to 2-3 repos instead of 20+
-3. **No proxy dependency** — CI pulls directly from registries, faster and simpler
-4. **GITHUB_TOKEN auth** — GHCR containers + GH Packages npm need no org secrets
-5. **Simpler publish code** — remove JFrog paths from npm, container, Helm, binary, Go handlers
-6. **JFrog exit readiness** — when Telstra decommissions + private packages go public, cancel JFrog with zero migration work
-7. **Docker Hub auth** — explicit, reliable, no cache staleness from proxy layer
+1. **Reduced JFrog surface** - from 12 repos to 4 (PyPI local/virtual + Cargo local/virtual)
+2. **Fewer secrets** - `JFROG_TOKEN` scoped to 2-3 repos instead of 20+
+3. **No proxy dependency** - CI pulls directly from registries, faster and simpler
+4. **GITHUB_TOKEN auth** - GHCR containers + GH Packages npm need no org secrets
+5. **Simpler publish code** - remove JFrog paths from npm, container, Helm, binary, Go handlers
+6. **JFrog exit readiness** - when Telstra decommissions + private packages go public, cancel JFrog with zero migration work
+7. **Docker Hub auth** - explicit, reliable, no cache staleness from proxy layer
 
 ## What We Keep
 
-1. **Private package staging** — pre-GA Python and Rust packages stay private on JFrog until ready for public registries
-2. **Telstra continuity** — zero disruption to production container pulls
-3. **Nuitka-Commercial** — license delivery unchanged
-4. **Terraform state** — untouched (separate migration if desired)
+1. **Private package staging** - pre-GA Python and Rust packages stay private on JFrog until ready for public registries
+2. **Telstra continuity** - zero disruption to production container pulls
+3. **Nuitka-Commercial** - license delivery unchanged
+4. **Terraform state** - untouched (separate migration if desired)
 
 ## Exit Conditions (full JFrog cancellation)
 

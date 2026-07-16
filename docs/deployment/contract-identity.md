@@ -1,9 +1,9 @@
-# Contract Identity Annotation Scheme — v1
+# Contract Identity Annotation Scheme - v1
 
 **Applies to:** `scalo-rs` (Tier 1, Rust), `scalo-py` (Tier 2, Python), `hyperi-ci` (Tier 3).
 
-The three deployment-contract producers stamp every artefact — container
-image, Helm chart, ArgoCD `Application` — with a uniform, greppable
+The three deployment-contract producers stamp every artefact - container
+image, Helm chart, ArgoCD `Application` - with a uniform, greppable
 identity using **one key prefix, three fields, the same string everywhere**.
 
 ## Fields
@@ -49,7 +49,7 @@ contract-emitted artefact regardless of format.
   (no implicit `docker.io`).
 - `version`: literal string `v1` (quote it in YAML so it does not get
   parsed as a number-with-prefix oddity).
-- Empty value → producer MUST fail the emit, not write a blank
+- Empty value -> producer MUST fail the emit, not write a blank
   annotation.
 
 ## image-ref: pre-push vs post-push
@@ -61,7 +61,7 @@ contract-emitted artefact regardless of format.
 
 Rationale: an image cannot carry its own post-build digest in a label
 (the digest is computed over the labels). Helm + ArgoCD are written
-*after* the push, so they can use the immutable digest form — and
+*after* the push, so they can use the immutable digest form - and
 should, because that is what makes the `Application` reproducible.
 
 ## Producer parity
@@ -89,7 +89,7 @@ Each producer ships a parity test that:
    fixed `source-commit` and `image-ref`.
 2. Asserts all three keys are present in each artefact.
 3. Asserts values match the expected normalized form.
-4. Compares output against a golden file shared across tiers — the
+4. Compares output against a golden file shared across tiers - the
    golden file lives in `hyperi-ci/tests/fixtures/contract-parity/`
    and is consumed by scalo-rs + scalo-py parity tests.
 
@@ -110,16 +110,16 @@ Each producer ships a parity test that:
 
 ## Implementation notes per tier
 
-**Tier 1 — Rust (`scalo` crate):** add to the module that emits
+**Tier 1 - Rust (`scalo` crate):** add to the module that emits
 the Dockerfile / Helm / Application. Tag form on image label; digest
 form on Chart + Application when the push step writes them.
 `source-commit` from `git2` or env (`GITHUB_SHA` in CI,
 `git rev-parse HEAD` locally).
 
-**Tier 2 — Python (`scalo` package):** mirror the Rust crate's logic in
+**Tier 2 - Python (`scalo` package):** mirror the Rust crate's logic in
 the equivalent Python module. Same normalization. Same parity-test fixture.
 
-**Tier 3 — hyperi-ci templater (`src/hyperi_ci/deployment/`):** add
+**Tier 3 - hyperi-ci templater (`src/hyperi_ci/deployment/`):** add
 three label entries to the Dockerfile template, three annotations to
 the `Chart.yaml` template, three annotations to the `Application`
 template. `source-commit` comes from the contract's commit field or
@@ -127,10 +127,10 @@ env.
 
 ## Open questions (defer until v2)
 
-- Adding `io.hyperi.contract.app-name` — only if a cross-artefact
+- Adding `io.hyperi.contract.app-name` - only if a cross-artefact
   correlation use case emerges that name + namespace cannot satisfy.
 - Adding `io.hyperi.contract.profile` (production / canary / staging)
-  — only if profile-specific gitops routing needs it.
+ - only if profile-specific gitops routing needs it.
 
 Keep v1 to three fields. Resist additions until a real grep / audit
 query is blocked.

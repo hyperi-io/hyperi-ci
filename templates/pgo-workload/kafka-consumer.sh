@@ -2,7 +2,7 @@
 # TEMPLATE: PGO workload for a service that CONSUMES from Kafka
 # (loader-style: reads Kafka, batches, writes to downstream sink).
 #
-# See docs/PGO-WORKLOAD-GUIDE.md.
+# See docs/runtime/pgo-bolt.md.
 #
 # Usage: pgo-workload.sh <instrumented-binary-path>
 

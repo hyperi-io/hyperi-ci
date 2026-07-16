@@ -134,7 +134,7 @@ permissions:
 jobs:
   # ---------------------------------------------------------------------------
   # plan — runs FIRST. Computes gate outputs; downstream jobs read them.
-  # See docs/ARCHITECTURE.md. Gate strings duplicated across languages
+  # See docs/architecture.md. Gate strings duplicated across languages
   # are enforced by tests/unit/test_workflow_consistency.py.
   # ---------------------------------------------------------------------------
   plan:

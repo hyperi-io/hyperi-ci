@@ -4,25 +4,25 @@ Single consumer-facing reference for hyperi-ci's Rust build pipeline. Covers
 channel-gated release optimisation (Tier 1 allocator + LTO, Tier 2 PGO +
 BOLT), local developer hygiene, and operational troubleshooting.
 
-For PGO workload script specifics, see [`PGO-BOLT.md`](../runtime/PGO-BOLT.md).
+For PGO workload script specifics, see [`pgo-bolt.md`](../runtime/pgo-bolt.md).
 
 ---
 
 ## What you get
 
-Measured on dfe-receiver v1.15.7 release canary (production workload mix —
+Measured on dfe-receiver v1.15.7 release canary (production workload mix -
 HTTP/gRPC/OTLP/Kafka):
 
 | Build | Binary size | vs baseline | Channel that applies |
 |---|---|---|---|
 | System allocator, thin LTO | ~14 MB | baseline | `spike`, `alpha` |
-| jemalloc + fat LTO (Tier 1) | ~12 MB | −14% size, +10-20% throughput | `beta` |
-| + PGO (Tier 2 partial) | ~9 MB | −36% size, +25-40% throughput | `release` (opt-in) |
-| + BOLT (Tier 2 full) | ~9 MB | −36% size, +30-50% throughput | `release` (opt-in) |
+| jemalloc + fat LTO (Tier 1) | ~12 MB | -14% size, +10-20% throughput | `beta` |
+| + PGO (Tier 2 partial) | ~9 MB | -36% size, +25-40% throughput | `release` (opt-in) |
+| + BOLT (Tier 2 full) | ~9 MB | -36% size, +30-50% throughput | `release` (opt-in) |
 
 **Build time cost**: Tier 2 adds roughly +14 min per arch per release
 (PGO instrument ~5 min, workload ~5 min, PGO optimise ~4 min, BOLT ~2 min).
-Not applied on `spike/alpha/beta` — release channel only.
+Not applied on `spike/alpha/beta` - release channel only.
 
 Both amd64 AND arm64 runners support full Tier 2. BOLT has supported
 aarch64 since LLVM 16 and the runner image provides everything for both
@@ -30,16 +30,16 @@ architectures.
 
 ---
 
-## Channel × tier matrix
+## Channel x tier matrix
 
 Defaults applied by channel (your `.hyperi-ci.yaml` can override
 individual keys):
 
 | Channel | Allocator | LTO | PGO | BOLT |
 |---------|-----------|------|------|------|
-| `spike` | jemalloc | thin | — | — |
-| `alpha` | jemalloc | thin | — | — |
-| `beta` | jemalloc | fat | — | — |
+| `spike` | jemalloc | thin | - | - |
+| `alpha` | jemalloc | thin | - | - |
+| `beta` | jemalloc | fat | - | - |
 | `release` | jemalloc | fat | opt-in | opt-in (Linux only) |
 
 **Allocator is jemalloc at every channel, no exceptions.** Rationale:
@@ -49,12 +49,12 @@ of where a binary came from. ~10s extra compile per build, cached after
 first run.
 
 **LTO ramp**: thin at spike/alpha (fast feedback), fat at beta+. Fat LTO
-adds 5-10 min per CI run — meaningful friction for rapid spike iteration,
+adds 5-10 min per CI run - meaningful friction for rapid spike iteration,
 worth the cost for beta/release.
 
 **Tier 2 is release-only, opt-in**: PGO/BOLT add ~20 min per arch. Also, a
 bad workload produces *negative* gains. They fire on manual `hyperi-ci
-release <tag>` dispatches only — never on push.
+release <tag>` dispatches only - never on push.
 
 ---
 
@@ -75,12 +75,12 @@ below cover each step.
 - [ ] Local PGO smoke: `cargo install cargo-pgo && cargo pgo build && ./scripts/pgo-workload.sh <path> && cargo pgo optimize` round-trips cleanly
 - [ ] First canary release dispatch: watch for the grep markers in [Verification](#verification)
 
-If any box can't be ticked, stop — ask in #hyperi-ci before dispatching a
+If any box can't be ticked, stop - ask in #hyperi-ci before dispatching a
 release.
 
 ---
 
-## Tier 1 — allocator + LTO
+## Tier 1 - allocator + LTO
 
 ### Cargo.toml preconditions
 
@@ -108,7 +108,7 @@ opt-level = 3
 injects `--features jemalloc` per channel; if it's already on by default
 you lose the ability to opt out for debugging or canary comparisons.
 
-**LTO source-level default stays `thin`** — hyperi-ci overrides to `fat`
+**LTO source-level default stays `thin`** - hyperi-ci overrides to `fat`
 on beta+ via `CARGO_PROFILE_RELEASE_LTO=fat`, so local `cargo build
 --release` remains fast while CI builds get the fat-LTO benefit.
 
@@ -120,7 +120,7 @@ on beta+ via `CARGO_PROFILE_RELEASE_LTO=fat`, so local `cargo build
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 ```
 
-Nothing else — no runtime switching, no environment detection. Let cargo
+Nothing else - no runtime switching, no environment detection. Let cargo
 features drive it.
 
 ### Binary size overhead
@@ -130,7 +130,7 @@ jemalloc adds approximately 400-500 KB to a stripped release binary
 
 ---
 
-## Tier 2 — PGO + BOLT
+## Tier 2 - PGO + BOLT
 
 ### .hyperi-ci.yaml opt-in
 
@@ -148,12 +148,12 @@ build:
         enabled: true        # Linux only; skipped on macOS/Windows
 ```
 
-Nothing to configure in hyperi-ci itself — these keys control per-project
+Nothing to configure in hyperi-ci itself - these keys control per-project
 Tier 2 behaviour.
 
 ### Workload script contract
 
-Full spec: [`PGO-BOLT.md`](../runtime/PGO-BOLT.md). One-line
+Full spec: [`pgo-bolt.md`](../runtime/pgo-bolt.md). One-line
 summary:
 
 ```bash
@@ -174,14 +174,14 @@ producer/consumer, multi-protocol) live in
 
 ### Runner requirements
 
-- **apt.llvm.org egress** — `bolt-NN` (LLVM's post-link optimiser) isn't
+- **apt.llvm.org egress** - `bolt-NN` (LLVM's post-link optimiser) isn't
   in Ubuntu's default universe repo. hyperi-ci adds the repo
   scheme-agnostically if it's not already present (i.e. works on vanilla
   GH runners and on self-hosted runners that pre-provision the repo
   under any filename).
-- **crates.io egress** — for `cargo install cargo-pgo --locked`.
-- **Linux runners** — BOLT doesn't apply on macOS/Windows targets.
-- **Native arm64 runner for arm64 builds** — `ubuntu-24.04-arm`. Cross-
+- **crates.io egress** - for `cargo install cargo-pgo --locked`.
+- **Linux runners** - BOLT doesn't apply on macOS/Windows targets.
+- **Native arm64 runner for arm64 builds** - `ubuntu-24.04-arm`. Cross-
   compiled arm64 from amd64 cannot collect arm64-native PGO profiles
   (no way to execute the instrumented binary on the wrong host).
 
@@ -189,7 +189,7 @@ producer/consumer, multi-protocol) live in
 
 `HYPERCI_LLVM_VERSION` (default `22`) controls which `bolt-NN` +
 `llvm-bolt-NN` + `merge-fdata-NN` + `ld.lld-NN` get used. Bump it in your project only
-if you need a specific LLVM major — otherwise trust the default.
+if you need a specific LLVM major - otherwise trust the default.
 
 ---
 
@@ -213,7 +213,7 @@ if you need a specific LLVM major — otherwise trust the default.
 18:00 Artifact upload
 ```
 
-Both archs run concurrently. Release pipeline critical path ≈ 20 min
+Both archs run concurrently. Release pipeline critical path ~ 20 min
 from dispatch to published artifacts.
 
 ---
@@ -222,14 +222,14 @@ from dispatch to published artifacts.
 
 ### On the shipped binary
 
-Binary is stripped — `nm` won't show symbols. Use `strings`:
+Binary is stripped - `nm` won't show symbols. Use `strings`:
 
 ```bash
 strings /path/to/binary | grep -iE 'jemalloc|je_mallctl' | head
 # Expect: jemalloc_bg_thd, jemalloc, <jemalloc>: %s: %.*s:%.*s
 ```
 
-For BOLT — strip removes section markers, so the CI build log is the
+For BOLT - strip removes section markers, so the CI build log is the
 authoritative source (next section). If you need binary-level proof,
 build with `strip = false` locally (`cargo pgo bolt optimize` on your
 machine), then:
@@ -282,7 +282,7 @@ build:
 
 ### Library crates
 
-Library crates (no `[[bin]]`) skip this whole path — consumers choose
+Library crates (no `[[bin]]`) skip this whole path - consumers choose
 their own build profile when compiling from crates.io source. hyperi-ci
 detects library-only crates and doesn't try to apply allocator/LTO
 overrides or PGO.
@@ -293,7 +293,7 @@ overrides or PGO.
 
 Not strictly CI, but relevant: concurrent multi-project Rust development
 on a shared machine. This section is an **example setup** from
-`desktop-derek` — adapt to your machine's specifics.
+`desktop-derek` - adapt to your machine's specifics.
 
 ### Per-project target directories
 
@@ -323,7 +323,7 @@ CI impact: none. `build.py` falls back to `target/` when
 ### sccache (object-level dedup)
 
 With per-project targets, duplication across projects is still possible
-— sccache caches the compiled objects themselves, independent of target
+ - sccache caches the compiled objects themselves, independent of target
 directory.
 
 ```bash
@@ -340,8 +340,8 @@ Cache size ~5-10 GB, controlled by `SCCACHE_CACHE_SIZE`.
 
 ### mold linker (native x86_64 only)
 
-Linking is often the bottleneck in incremental builds. mold is 5-10×
-faster than `ld` and 2-3× faster than `lld`.
+Linking is often the bottleneck in incremental builds. mold is 5-10x
+faster than `ld` and 2-3x faster than `lld`.
 
 ```bash
 sudo apt install mold
@@ -354,11 +354,11 @@ linker = "clang"
 rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 ```
 
-**Native x86_64 only.** Cross-compilation to aarch64 must use BFD —
+**Native x86_64 only.** Cross-compilation to aarch64 must use BFD -
 hyperi-ci's `build.py` already enforces this via linker wrapper scripts
 that pass `-fuse-ld=bfd`. Don't touch the cross-compile linker config.
 
-**Per-project rustflags override this** — Cargo does NOT merge rustflags
+**Per-project rustflags override this** - Cargo does NOT merge rustflags
 across configs. If your project has
 `[target.x86_64-unknown-linux-gnu] rustflags = ["-C", "target-cpu=x86-64-v3"]`,
 add the mold flag alongside:
@@ -405,26 +405,26 @@ Weekly cron or on-demand.
 |---|---|
 | "allocator 'jemalloc' requested but feature not declared" | Add `jemalloc = ["dep:tikv-jemallocator"]` to your Cargo.toml `[features]` |
 | jemalloc symbols absent from published binary | Check `cargo tree --features jemalloc` resolves correctly. Check your `#[cfg(feature = "jemalloc")]` allocator wiring actually compiled in |
-| Build log says `channel=spike` on a release dispatch | You dispatched via the wrong path — use `hyperi-ci release <tag>`, not `gh workflow run` |
+| Build log says `channel=spike` on a release dispatch | You dispatched via the wrong path - use `hyperi-ci release <tag>`, not `gh workflow run` |
 
 ### Tier 2 / PGO
 
 | Symptom | Fix |
 |---|---|
 | "no workload_cmd configured" warning | Set `build.rust.optimize.pgo.workload_cmd` in `.hyperi-ci.yaml` |
-| "profile data too small" | Your workload didn't run long enough or didn't exercise hot paths. See [PGO-BOLT.md](../runtime/PGO-BOLT.md) |
-| "cargo-pgo unavailable — falling back to plain release build" | cargo-pgo install failed. Check network egress to crates.io, `cargo install cargo-pgo --locked` works locally. Non-fatal — Tier 1 still applies |
-| "PGO workload failed — aborting" | Workload exited non-zero. Common causes: missing tooling on runner (use coreutils only), privileged port binding (use unprivileged), testcontainer advertised-listener mismatch (check readiness via host, not `docker exec`) |
-| Release build is 3× slower than before | Expected with PGO+BOLT. Accept the cost or set `bolt.enabled: false` |
-| Cross-compile (arm64 from amd64) PGO produces slow binary | PGO profiles are arch-specific. Cross-compile PGO is skipped — use a native arm64 runner (hyperi-ci's `ubuntu-24.04-arm` does this) |
+| "profile data too small" | Your workload didn't run long enough or didn't exercise hot paths. See [pgo-bolt.md](../runtime/pgo-bolt.md) |
+| "cargo-pgo unavailable - falling back to plain release build" | cargo-pgo install failed. Check network egress to crates.io, `cargo install cargo-pgo --locked` works locally. Non-fatal - Tier 1 still applies |
+| "PGO workload failed - aborting" | Workload exited non-zero. Common causes: missing tooling on runner (use coreutils only), privileged port binding (use unprivileged), testcontainer advertised-listener mismatch (check readiness via host, not `docker exec`) |
+| Release build is 3x slower than before | Expected with PGO+BOLT. Accept the cost or set `bolt.enabled: false` |
+| Cross-compile (arm64 from amd64) PGO produces slow binary | PGO profiles are arch-specific. Cross-compile PGO is skipped - use a native arm64 runner (hyperi-ci's `ubuntu-24.04-arm` does this) |
 | "Binary not found: `<name>`" | Binary auto-detection picked up a feature-gated helper bin. Add `required-features = ["..."]` to the secondary `[[bin]]` |
 
 ### Tier 2 / BOLT
 
 | Symptom | Fix |
 |---|---|
-| "BOLT skipped — not a Linux target" | Expected on macOS/Windows targets. Non-fatal |
-| "llvm-bolt not installed — skipping BOLT step" | `bolt-NN` apt package didn't install. Check runner egress to apt.llvm.org, GPG key fetch succeeded, `dpkg -l bolt-22` on the runner |
+| "BOLT skipped - not a Linux target" | Expected on macOS/Windows targets. Non-fatal |
+| "llvm-bolt not installed - skipping BOLT step" | `bolt-NN` apt package didn't install. Check runner egress to apt.llvm.org, GPG key fetch succeeded, `dpkg -l bolt-22` on the runner |
 | "Cannot find merge-fdata: cannot find binary path" | The `bolt-NN` package ships both binaries; missing merge-fdata means the package didn't install. Same root cause as above. Fixed in hyperi-ci v1.10.4+ |
 | "linking with `cc` failed: ld terminated with signal 11" (mold segfault) OR "ld: final link failed: invalid operation" (BFD) during `cargo pgo bolt build` | BOLT's `-Wl,-q` (`--emit-relocs`) isn't supported by mold/BFD. hyperi-ci v1.10.7+ forces `-fuse-ld=lld` for BOLT steps via `CARGO_TARGET_<TRIPLE>_RUSTFLAGS` (lld-NN shipped by the `lld-NN` apt package). On older versions, strip `-fuse-ld=mold` from the project's `[target.*] rustflags` to unblock |
 
@@ -433,8 +433,8 @@ Weekly cron or on-demand.
 | Symptom | Fix |
 |---|---|
 | Builds serialise despite removing `CARGO_TARGET_DIR` | Some projects still have `target/` as a real dir rather than a symlink. Re-run the per-project symlink loop |
-| `cargo build` slower than expected after adding sccache | First build is cold — sccache populates. Check `sccache --show-stats` after 2-3 builds to confirm hits |
-| mold linker error on aarch64 cross-compile | mold is x86_64-native only. Your project's `[target.aarch64-unknown-linux-gnu]` config must NOT use mold — hyperi-ci's wrapper enforces BFD |
+| `cargo build` slower than expected after adding sccache | First build is cold - sccache populates. Check `sccache --show-stats` after 2-3 builds to confirm hits |
+| mold linker error on aarch64 cross-compile | mold is x86_64-native only. Your project's `[target.aarch64-unknown-linux-gnu]` config must NOT use mold - hyperi-ci's wrapper enforces BFD |
 
 ---
 
@@ -485,12 +485,12 @@ GitHub Actions minutes per release dispatch (private repo):
 | Container + Publish | ~2 min | self-hosted ARC + network | ~$0.02 |
 
 **Total per release: ~$0.23.** Weekly releases = ~$12/year per project.
-Don't optimise this line — it's trivial.
+Don't optimise this line - it's trivial.
 
 ---
 
 ## References
 
-- [`PGO-BOLT.md`](../runtime/PGO-BOLT.md) — how to write a good PGO workload script
-- [`templates/pgo-workload/`](../../templates/pgo-workload/) — reusable workload skeletons
-- [`ONBOARDING.md`](../migration/ONBOARDING.md) — general onboarding to hyperi-ci
+- [`pgo-bolt.md`](../runtime/pgo-bolt.md) - how to write a good PGO workload script
+- [`templates/pgo-workload/`](../../templates/pgo-workload/) - reusable workload skeletons
+- [`onboarding.md`](../migration/onboarding.md) - general onboarding to hyperi-ci
