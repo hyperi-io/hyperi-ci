@@ -1,43 +1,9 @@
 {
-  "_comment": "Canonical tagger-only semantic-release config, provided by hyperi-ci when a repo has no .releaserc. semantic-release here ONLY analyses commits + tags HEAD; hyperi-ci's build stamps the version (hyperi-ci stamp-version) and its publish stage creates the GH release / GHCR / registry artefacts. No @semantic-release/exec (stamping is central), no @semantic-release/git (tag-on-HEAD), no npm/github defaults. A repo only commits its own .releaserc for a genuine exception. Edit this file to change the org-wide release rules.",
+  "_comment": "Canonical tagger-only semantic-release config, injected by hyperi-ci when a repo has no .releaserc. It carries NO custom releaseRules on purpose: the version bump is semantic-release's OWN default-release-rules (commit-analyzer) -- feat->minor, fix/perf/revert->patch, breaking (! or footer)->major, everything else no release. That default IS the org SSoT; hyperi_ci.release_rules mirrors it in Python for the pre-push gate. semantic-release here ONLY analyses commits + tags HEAD; hyperi-ci's build stamps the version (hyperi-ci stamp-version) and its publish stage creates the GH release / GHCR / registry artefacts. No @semantic-release/exec, no @semantic-release/git, no npm/github defaults. A repo commits its own .releaserc.json ONLY for a genuine exception (e.g. a multi-crate workspace). There is nothing project-specific to edit here.",
   "branches": ["main"],
   "tagFormat": "v${version}",
   "plugins": [
-    [
-      "@semantic-release/commit-analyzer",
-      {
-        "preset": "conventionalcommits",
-        "releaseRules": [
-          { "breaking": true, "release": "major" },
-          { "type": "feat", "release": "minor" },
-          { "type": "fix", "release": "patch" },
-          { "type": "perf", "release": "patch" },
-          { "type": "sec", "release": "patch" },
-          { "type": "hotfix", "release": "patch" },
-          { "type": "security", "release": "patch" },
-          { "type": "docs", "release": false },
-          { "type": "test", "release": false },
-          { "type": "refactor", "release": false },
-          { "type": "style", "release": false },
-          { "type": "build", "release": false },
-          { "type": "ci", "release": false },
-          { "type": "chore", "release": false },
-          { "type": "deps", "release": false },
-          { "type": "revert", "release": false },
-          { "type": "wip", "release": false },
-          { "type": "cleanup", "release": false },
-          { "type": "data", "release": false },
-          { "type": "debt", "release": false },
-          { "type": "design", "release": false },
-          { "type": "infra", "release": false },
-          { "type": "meta", "release": false },
-          { "type": "ops", "release": false },
-          { "type": "review", "release": false },
-          { "type": "spike", "release": false },
-          { "type": "ui", "release": false }
-        ]
-      }
-    ],
-    "@semantic-release/release-notes-generator"
+    ["@semantic-release/commit-analyzer", { "preset": "conventionalcommits" }],
+    ["@semantic-release/release-notes-generator", { "preset": "conventionalcommits" }]
   ]
 }

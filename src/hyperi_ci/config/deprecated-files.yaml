@@ -1,0 +1,31 @@
+# Project:   HyperI CI
+# File:      src/hyperi_ci/config/deprecated-files.yaml
+# Purpose:   Table of deprecated project files -> the nudge to show if present
+#
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# hyperi-ci scans a project for these paths during `hyperi-ci check` and in CI
+# and emits a NON-FATAL warning (a GitHub ::warning:: annotation in CI) nudging
+# removal. This is the SSoT for "files hyperi-ci no longer wants". Driver:
+# src/hyperi_ci/quality/deprecated_files.py. Add an entry as:
+#
+#   - path: <project-relative path>
+#     level: warn          # warn (default) | info
+#     message: <one line: why it is deprecated + what to do instead>
+
+files:
+  - path: .releaserc.yaml
+    level: warn
+    message: >-
+      .releaserc.yaml is deprecated: hyperi-ci now uses semantic-release's own
+      default rules as the single source of truth for version bumps -- remove
+      it. Only a .releaserc.json is honoured, and only for a genuine exception
+      (e.g. a multi-crate workspace).
+  - path: .releaserc.yml
+    level: warn
+    message: >-
+      .releaserc.yml is deprecated: hyperi-ci now uses semantic-release's own
+      default rules as the single source of truth for version bumps -- remove
+      it. Only a .releaserc.json is honoured, and only for a genuine exception
+      (e.g. a multi-crate workspace).

@@ -11,7 +11,12 @@
 #
 # Release config is central by default: when a repo has no .releaserc this
 # composite drops the canonical tagger-only `default.releaserc.json` into the
-# workspace (ephemeral, never committed). A repo .releaserc that references
+# workspace (ephemeral, never committed). That default carries NO custom
+# releaseRules -- the bump is semantic-release's OWN default-release-rules
+# (feat->minor, fix/perf/revert->patch, breaking->major, else none), which is
+# the org SSoT; hyperi_ci.release_rules mirrors it in Python for the pre-push
+# gate. There is no HyperI-maintained taxonomy file any more. A repo .releaserc
+# that references
 # @semantic-release/git or @semantic-release/github (the issue #37 tag-rewrite
 # plugins — they destroyed every tag on dfe-receiver) is IGNORED in favour of
 # the central config. A repo .releaserc WITHOUT those plugins (e.g. an exec-only

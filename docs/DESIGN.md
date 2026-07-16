@@ -680,17 +680,20 @@ recurring version file conflicts that arise because semantic-release bumps versi
 independently on each branch. No workflow file needed in consumer projects. If `gh`
 CLI is not available, the command prints manual git commands as a fallback.
 
-The `.releaserc.yaml` configuration:
-```yaml
-branches:
-  - name: main
-    prerelease: dev
-  - release
-```
+**Release config:** in the common case a repo ships no `.releaserc` at all.
+The `setup-semantic-release` action injects a central tagger-only
+`default.releaserc.json` (single branch `main`, `tagFormat: v${version}`, and
+NO custom `releaseRules`), so the version bump is semantic-release's own
+default-release-rules -- `feat` -> minor, `fix`/`perf`/`revert` -> patch,
+a `!` or `BREAKING CHANGE:` footer -> major, everything else no release. That
+default IS the org SSoT; `hyperi_ci.release_rules` mirrors it in Python for the
+pre-push gate. A repo commits its own `.releaserc.json` only for a genuine
+exception (e.g. a multi-crate workspace). A legacy `.releaserc.yaml` is
+deprecated and flagged by the deprecated-file check.
 
-**Publish gating:** The Publish job only runs on the `release` branch.
-Dev pre-releases on `main` get GitHub Releases (binary downloads) but
-skip registry publishing (JFrog, crates.io, PyPI, npm).
+**Publish gating:** semantic-release is a TAGGER only -- it tags `main` on a
+publish run; version stamping is `hyperi-ci stamp-version` and the publish
+stage creates the GH release / GHCR / registry artefacts.
 
 ### Self-Hosted Mode (ARC Runners)
 
@@ -833,10 +836,10 @@ same thing in ~300 lines each.
    - Python: detects build backend (hatch, setuptools, poetry, flit)
    - Rust: detects workspace vs single crate
    - TypeScript: detects package manager (pnpm, yarn, npm)
-3. Generates `.hyperi-ci.yaml`, `Makefile`, `.github/workflows/ci.yml`,
-   and `.releaserc.yaml`
+3. Generates `.hyperi-ci.yaml`, `Makefile`, and `.github/workflows/ci.yml`
+   (no `.releaserc` -- version bumps follow semantic-release's own defaults)
 4. Skips files that already exist (unless `--force`)
-5. Detects deprecated config files (`.hypersec-ci.yaml`) and warns
+5. Detects deprecated config files (`.hypersec-ci.yaml`, `.releaserc.yaml`) and warns
 
 ## Design Principles
 
@@ -900,6 +903,5 @@ hyperi-ci/
 │   └── DESIGN.md              This file
 ├── VERSION                    Source of truth for version
 ├── pyproject.toml             Package config
-├── uv.lock                    Locked dependencies
-└── .releaserc.yaml            Semantic release config
+└── uv.lock                    Locked dependencies
 ```

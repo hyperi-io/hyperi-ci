@@ -20,10 +20,10 @@ predicted minor/major fails closed unless the operator sets
 ``HYPERCI_ALLOW_MINOR_BUMP=1`` / ``HYPERCI_ALLOW_MAJOR_BUMP=1``, the
 reachability-level twin of ``HYPERCI_ALLOW_FEAT`` / ``HYPERCI_ALLOW_BREAKING``.
 
-No Node / semantic-release install needed: the bump rules are standard
-conventional-commits (the same ``config/commit-types.yaml`` SSoT), applied
-in Python. A project's own ``config/commit-types.yaml`` overrides the
-built-ins when present. When there is no prior tag (initial release) or
+No Node / semantic-release install needed: the bump rules are
+semantic-release's own default-release-rules, applied in Python via
+:mod:`hyperi_ci.release_rules` (the SSoT). A repo's own ``.releaserc.json``
+override is honoured there. When there is no prior tag (initial release) or
 git is unavailable, the predictor returns ``none`` and the gate is a
 no-op -- fail open only when we genuinely cannot predict.
 """
@@ -35,31 +35,11 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-try:
-    import yaml
-except ModuleNotFoundError:  # pragma: no cover — yaml is a hard dep
-    # type: ignore[assignment] for pyright/mypy; ty uses its own code.
-    yaml = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+from hyperi_ci.release_rules import _BUMP_ORDER, classify_commit, load_type_bump
 
-# Bump precedence, low -> high.
-_BUMP_ORDER = {"none": 0, "patch": 1, "minor": 2, "major": 3}
-
-# Built-in conventional-commits bump map (mirrors config/commit-types.yaml
-# release_types). Used when no project config/commit-types.yaml is present
-# (the common case: the installed CLI runs from a consumer repo).
-_DEFAULT_TYPE_BUMP: dict[str, str] = {
-    "feat": "minor",
-    "fix": "patch",
-    "perf": "patch",
-    "hotfix": "patch",
-    "security": "patch",
-    "sec": "patch",
-}
-
-# `type: subject` / `type(scope): subject`, optionally with a `!` breaking
-# marker before the colon (`feat!:`, `fix(api)!:`).
-_HEADER_RE = re.compile(r"^(?P<type>[a-z]+)(?:\([a-z0-9._/-]+\))?(?P<bang>!)?:")
-_BREAKING_CHANGE_RE = re.compile(r"BREAKING[ \-]CHANGE:")
+# Re-exported so existing call sites (and tests) keep importing classify_commit
+# from this module. The bump SSoT itself lives in hyperi_ci.release_rules.
+__all__ = ["BumpPrediction", "classify_commit", "predict_bump"]
 
 
 @dataclass
@@ -72,42 +52,6 @@ class BumpPrediction:
     # the gate message can name the offenders.
     minor_reasons: list[str] = field(default_factory=list)
     major_reasons: list[str] = field(default_factory=list)
-
-
-def _load_type_bump(project_dir: Path) -> dict[str, str]:
-    """Build the ``type -> bump`` map, preferring a repo commit-types.yaml."""
-    mapping = dict(_DEFAULT_TYPE_BUMP)
-    config_path = project_dir / "config" / "commit-types.yaml"
-    if yaml is None or not config_path.exists():
-        return mapping
-    try:
-        data = yaml.safe_load(config_path.read_text()) or {}
-    except Exception:
-        return mapping
-    for name, meta in (data.get("release_types") or {}).items():
-        if not isinstance(meta, dict):
-            continue
-        bump = str(meta.get("bump", "")).strip().lower()
-        if bump in _BUMP_ORDER:
-            mapping[name] = bump
-            for alias in meta.get("aliases", []) or []:
-                mapping[str(alias)] = bump
-    return mapping
-
-
-def classify_commit(message: str, type_bump: dict[str, str]) -> str:
-    """Return the bump a single commit implies (``none``/``patch``/``minor``/``major``)."""
-    # A breaking-change footer (or bang on any type) is a major regardless
-    # of the commit type -- this is what semantic-release does.
-    if _BREAKING_CHANGE_RE.search(message):
-        return "major"
-    header = message.splitlines()[0] if message else ""
-    m = _HEADER_RE.match(header.strip())
-    if not m:
-        return "none"
-    if m.group("bang"):
-        return "major"
-    return type_bump.get(m.group("type"), "none")
 
 
 def _git(args: list[str], cwd: str | None) -> subprocess.CompletedProcess[str]:
@@ -164,7 +108,7 @@ def predict_bump(project_dir: Path | None = None) -> BumpPrediction:
     if result.returncode != 0:
         return prediction
 
-    type_bump = _load_type_bump(project_dir or Path.cwd())
+    type_bump = load_type_bump(project_dir or Path.cwd())
     best = "none"
     for record in result.stdout.split("\x1e"):
         record = record.strip("\n")

@@ -707,8 +707,13 @@ def check_commits_cmd() -> None:
     dedicated `commit-check` workflow job, NOT the run-checks-gated quality
     job -- so a merge to main is validated even when it is not a publish.
     """
+    from hyperi_ci.quality import deprecated_files
     from hyperi_ci.quality.commit_validation import run
 
+    # The always-on `commit-check` CI job is the cheapest run that fires on
+    # every push/PR, so surface the deprecated-file nudge here too (the
+    # run-checks-gated quality job is skipped on non-publish pushes).
+    deprecated_files.scan()
     raise typer.Exit(run())
 
 

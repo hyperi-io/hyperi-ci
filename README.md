@@ -72,7 +72,9 @@ git config core.hooksPath .githooks     # Activate commit validation hook
 ```
 
 This creates `.hyperi-ci.yaml`, `Makefile`, `.github/workflows/ci.yml`,
-`.releaserc.yaml`, and `.githooks/commit-msg`. Commit and push.
+and `.githooks/commit-msg`. Commit and push. No `.releaserc` is scaffolded --
+version bumps follow semantic-release's own default rules (a repo commits a
+`.releaserc.json` only for a genuine exception).
 
 ## Daily Workflow
 
@@ -286,9 +288,9 @@ Your Project                          hyperi-ci
 ├── .github/workflows/ci.yml          ├── .github/
 │   (5 lines — calls reusable)        │   ├── workflows/
 ├── .hyperi-ci.yaml                   │   │   ├── rust-ci.yml         (per-language)
-├── .releaserc.yaml                   │   │   ├── python-ci.yml       (per-language)
-├── .githooks/commit-msg              │   │   ├── go-ci.yml           (per-language)
-└── Makefile                          │   │   ├── ts-ci.yml           (per-language)
+├── .githooks/commit-msg              │   │   ├── python-ci.yml       (per-language)
+└── Makefile                          │   │   ├── go-ci.yml           (per-language)
+                                      │   │   ├── ts-ci.yml           (per-language)
                                       │   │   └── _release-tail.yml   (shared: container + publish)
                                       │   └── actions/
                                       │       └── predict-version/    (shared composite)

@@ -13,12 +13,16 @@ from pathlib import Path
 import pytest
 
 from hyperi_ci.quality.predicted_bump import (
-    _DEFAULT_TYPE_BUMP,
     classify_commit,
     predict_bump,
 )
 
 # --- classify_commit (pure) ----------------------------------------------
+#
+# The bump map is semantic-release's own default-release-rules (mirrored in
+# hyperi_ci.release_rules). classify_commit() with no explicit map uses those
+# defaults -- so `security`/`hotfix` are NO LONGER release-worthy on their own
+# (that was the deliberate collapse to pure semantic-release defaults).
 
 
 @pytest.mark.parametrize(
@@ -26,7 +30,9 @@ from hyperi_ci.quality.predicted_bump import (
     [
         ("fix: correct off-by-one", "patch"),
         ("perf: avoid alloc in loop", "patch"),
-        ("security: patch CVE", "patch"),
+        ("revert: undo the thing", "none"),  # bare revert: prefix -> no release
+        ("security: patch CVE", "none"),  # not a default rule -> no release
+        ("hotfix: prod incident", "none"),  # not a default rule -> no release
         ("feat: add new source", "minor"),
         ("feat(api): add endpoint", "minor"),
         ("feat!: drop legacy flag", "major"),
@@ -40,7 +46,7 @@ from hyperi_ci.quality.predicted_bump import (
     ],
 )
 def test_classify_commit(message: str, expected: str) -> None:
-    assert classify_commit(message, _DEFAULT_TYPE_BUMP) == expected
+    assert classify_commit(message) == expected
 
 
 # --- predict_bump (real git) ---------------------------------------------

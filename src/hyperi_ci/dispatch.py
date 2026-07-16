@@ -31,7 +31,12 @@ from hyperi_ci.common import (
 )
 from hyperi_ci.config import VALID_PROJECT_STATUSES, CIConfig, load_config
 from hyperi_ci.detect import detect_language
-from hyperi_ci.quality import commit_validation, gitleaks, semgrep
+from hyperi_ci.quality import (
+    commit_validation,
+    deprecated_files,
+    gitleaks,
+    semgrep,
+)
 
 
 class StageRunFn(Protocol):
@@ -171,6 +176,12 @@ def stage_setup(language: str, config: CIConfig) -> int:
 
 def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> int:
     """Quality checks — gitleaks + language-specific checks."""
+    # Deprecated-file hygiene nudge runs first and regardless of
+    # quality.enabled -- it is a non-fatal tidy-up recommendation, not a
+    # gate, and should surface even on repos that disable the quality tools.
+    with group("Deprecated file check"):
+        deprecated_files.scan()
+
     if not config.get("quality.enabled", True):
         info("Quality checks disabled in configuration")
         return 0

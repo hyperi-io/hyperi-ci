@@ -16,42 +16,49 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-import yaml
-
 from hyperi_ci.common import error, info, is_ci, success, warn
 from hyperi_ci.config import CIConfig
+from hyperi_ci.release_rules import load_type_bump
 
 # ---------------------------------------------------------------------------
-# Config loading
+# Commit-type allowlist (message-shape policy)
 # ---------------------------------------------------------------------------
+#
+# The curated set of type prefixes `hyperi-ci check-commit` accepts, each with
+# a one-line description, powering the friendly "did you mean" suggestion and a
+# consistent house vocabulary. This is a MESSAGE policy and is deliberately
+# distinct from the version-bump SSoT: which of these actually SHIP a release
+# is decided by hyperi_ci.release_rules (semantic-release's own defaults), NOT
+# here. So `hotfix` / `sec` / `security` remain valid messages but no longer
+# bump on their own -- ship a security patch as `fix(security): ...`.
 
-_FALLBACK_TYPES: dict[str, dict] = {
-    "feat": {"release": True, "description": "New user-facing feature"},
-    "fix": {"release": True, "description": "Bug fix or improvement"},
-    "perf": {"release": True, "description": "Performance optimisation"},
-    "hotfix": {"release": True, "description": "Critical production fix"},
-    "sec": {"release": True, "alias_for": "security", "description": "Security fix"},
-    "security": {"release": True, "description": "Security fix or hardening"},
-    "docs": {"release": False, "description": "Documentation update"},
-    "test": {"release": False, "description": "Test coverage or QA"},
-    "chore": {"release": False, "description": "Maintenance, dependencies, config"},
-    "ci": {"release": False, "description": "CI/CD configuration"},
-    "refactor": {"release": False, "description": "Code restructure"},
-    "style": {"release": False, "description": "Formatting, whitespace"},
-    "build": {"release": False, "description": "Build system changes"},
-    "deps": {"release": False, "description": "Dependency updates"},
-    "revert": {"release": False, "description": "Revert a previous commit"},
-    "wip": {"release": False, "description": "Work in progress"},
-    "cleanup": {"release": False, "description": "Remove deprecated code"},
-    "data": {"release": False, "description": "Data model or schema changes"},
-    "debt": {"release": False, "description": "Technical debt"},
-    "design": {"release": False, "description": "Architecture or UX design"},
-    "infra": {"release": False, "description": "Infrastructure changes"},
-    "meta": {"release": False, "description": "Process or workflow"},
-    "ops": {"release": False, "description": "Operational maintenance"},
-    "review": {"release": False, "description": "Internal review or audit"},
-    "spike": {"release": False, "description": "Research or proof-of-concept"},
-    "ui": {"release": False, "description": "Frontend or visual improvements"},
+_ALLOWED_TYPES: dict[str, str] = {
+    "feat": "New user-facing feature",
+    "fix": "Bug fix or improvement",
+    "perf": "Performance optimisation",
+    "hotfix": "Critical production fix",
+    "sec": "Security fix (alias of security)",
+    "security": "Security fix or hardening",
+    "docs": "Documentation update",
+    "test": "Test coverage or QA",
+    "chore": "Maintenance, dependencies, config",
+    "ci": "CI/CD configuration",
+    "refactor": "Code restructure",
+    "style": "Formatting, whitespace",
+    "build": "Build system changes",
+    "deps": "Dependency updates",
+    "revert": "Revert a previous commit",
+    "wip": "Work in progress",
+    "cleanup": "Remove deprecated code",
+    "data": "Data model or schema changes",
+    "debt": "Technical debt",
+    "design": "Architecture or UX design",
+    "infra": "Infrastructure changes",
+    "meta": "Process or workflow",
+    "ops": "Operational maintenance",
+    "review": "Internal review or audit",
+    "spike": "Research or proof-of-concept",
+    "ui": "Frontend or visual improvements",
 }
 
 _AI_ATTRIBUTION_PATTERNS = [
@@ -62,57 +69,6 @@ _AI_ATTRIBUTION_PATTERNS = [
 
 _MIN_DESCRIPTION_LENGTH = 3
 _MAX_DESCRIPTION_LENGTH = 100
-
-_commit_types: dict[str, dict] | None = None
-_ai_patterns: list[str] | None = None
-_min_len: int = _MIN_DESCRIPTION_LENGTH
-_max_len: int = _MAX_DESCRIPTION_LENGTH
-
-
-def _find_config_root() -> Path:
-    """Find the project root by locating the config directory."""
-    # Navigate up from this file: quality/ -> hyperi_ci/ -> src/ -> project root
-    return Path(__file__).resolve().parents[3]
-
-
-def _load_config() -> None:
-    global _commit_types, _ai_patterns, _min_len, _max_len
-
-    config_path = _find_config_root() / "config" / "commit-types.yaml"
-    if config_path.exists():
-        try:
-            data = yaml.safe_load(config_path.read_text())
-            _commit_types = data.get("types", _FALLBACK_TYPES)
-            _ai_patterns = data.get("ai_attribution_patterns", _AI_ATTRIBUTION_PATTERNS)
-            limits = data.get("description_length", {})
-            _min_len = limits.get("min", _MIN_DESCRIPTION_LENGTH)
-            _max_len = limits.get("max", _MAX_DESCRIPTION_LENGTH)
-        except Exception:
-            _commit_types = _FALLBACK_TYPES
-            _ai_patterns = _AI_ATTRIBUTION_PATTERNS
-    else:
-        _commit_types = _FALLBACK_TYPES
-        _ai_patterns = _AI_ATTRIBUTION_PATTERNS
-
-
-def _get_commit_types() -> dict[str, dict]:
-    if _commit_types is None:
-        _load_config()
-    assert _commit_types is not None
-    return _commit_types
-
-
-def _get_ai_patterns() -> list[str]:
-    if _ai_patterns is None:
-        _load_config()
-    assert _ai_patterns is not None
-    return _ai_patterns
-
-
-def _get_limits() -> tuple[int, int]:
-    if _commit_types is None:
-        _load_config()
-    return _min_len, _max_len
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +115,7 @@ def validate_message(msg: str) -> ValidationResult:
         return ValidationResult(valid=True, reason="", error_type="")
 
     # Check for AI attribution anywhere in the full message (including body)
-    for pattern in _get_ai_patterns():
+    for pattern in _AI_ATTRIBUTION_PATTERNS:
         if re.search(pattern, msg):
             return ValidationResult(
                 valid=False,
@@ -181,9 +137,8 @@ def validate_message(msg: str) -> ValidationResult:
     description = match.group(2).strip()
 
     # Validate type
-    known_types = _get_commit_types()
-    if commit_type not in known_types:
-        close = difflib.get_close_matches(commit_type, list(known_types.keys()), n=3)
+    if commit_type not in _ALLOWED_TYPES:
+        close = difflib.get_close_matches(commit_type, list(_ALLOWED_TYPES), n=3)
         suggestion = f" Did you mean: {', '.join(close)}?" if close else ""
         return ValidationResult(
             valid=False,
@@ -192,22 +147,22 @@ def validate_message(msg: str) -> ValidationResult:
         )
 
     # Validate description length
-    min_len, max_len = _get_limits()
-    if len(description) < min_len:
+    if len(description) < _MIN_DESCRIPTION_LENGTH:
         return ValidationResult(
             valid=False,
             reason=(
                 f"description is too short ({len(description)} chars, "
-                f"minimum {min_len})"
+                f"minimum {_MIN_DESCRIPTION_LENGTH})"
             ),
             error_type="description_too_short",
         )
 
-    if len(description) > max_len:
+    if len(description) > _MAX_DESCRIPTION_LENGTH:
         return ValidationResult(
             valid=False,
             reason=(
-                f"description is too long ({len(description)} chars, maximum {max_len})"
+                f"description is too long ({len(description)} chars, "
+                f"maximum {_MAX_DESCRIPTION_LENGTH})"
             ),
             error_type="description_too_long",
         )
@@ -333,12 +288,17 @@ def _env_bypass(name: str) -> bool:
 
 
 def format_type_list() -> str:
-    """Return a formatted string listing all valid commit types."""
-    types = _get_commit_types()
+    """Return a formatted string listing all valid commit types.
+
+    The ``[release]`` marker is sourced from :mod:`hyperi_ci.release_rules`
+    (semantic-release defaults + any repo ``.releaserc.json`` override), so
+    the list stays truthful about what actually ships without carrying its
+    own copy of the bump map.
+    """
+    type_bump = load_type_bump(Path.cwd())
     lines: list[str] = []
-    for name, meta in sorted(types.items()):
-        desc = meta.get("description", "")
-        release_marker = " [release]" if meta.get("release") else ""
+    for name, desc in sorted(_ALLOWED_TYPES.items()):
+        release_marker = " [release]" if type_bump.get(name, "none") != "none" else ""
         lines.append(f"  {name}:{release_marker} {desc}")
     return "\n".join(lines)
 
@@ -363,12 +323,13 @@ def format_rejection(result: ValidationResult, original: str) -> str:
         lines.append(format_type_list())
 
     elif result.error_type == "description_too_short":
-        _, max_len = _get_limits()
-        lines.append(f"  Keep descriptions between 3 and {max_len} characters.")
+        lines.append(
+            f"  Keep descriptions between {_MIN_DESCRIPTION_LENGTH} and "
+            f"{_MAX_DESCRIPTION_LENGTH} characters."
+        )
 
     elif result.error_type == "description_too_long":
-        _, max_len = _get_limits()
-        lines.append(f"  Keep the subject under {max_len} characters.")
+        lines.append(f"  Keep the subject under {_MAX_DESCRIPTION_LENGTH} characters.")
         lines.append("  Move additional context into the commit body.")
 
     elif result.error_type == "uppercase_description":
