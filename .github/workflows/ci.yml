@@ -1,8 +1,8 @@
 # Project:   HyperI CI
 # File:      .github/workflows/ci.yml
-# Purpose:   Self-hosting CI -- hyperi-ci dogfoods its own version-first pipeline
+# Purpose:   Self-hosting CI - hyperi-ci dogfoods its own version-first pipeline
 #
-# License:   BUSL-1.1 -- HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # quality + test run the LOCAL working tree (uv run --no-sources) so a
@@ -15,7 +15,7 @@
 # Publish trigger: a push to main whose HEAD commit carries a `Publish: true`
 # trailer (written by `hyperi-ci push --publish`) tags HEAD and publishes;
 # every other push validates only. This replaces the old bespoke jobs that
-# tagged EVERY push but only published on a manual workflow_dispatch -- the
+# tagged EVERY push but only published on a manual workflow_dispatch - the
 # cause of the tag/PyPI version drift (tags ran ahead, PyPI lagged).
 
 name: CI
@@ -36,7 +36,7 @@ on:
         type: string
         required: false
         default: ""
-        description: "'true' to release/retry the current HEAD -- the CI creates the tag (issue #35). Mutually exclusive with `tag`."
+        description: "'true' to release/retry the current HEAD - the CI creates the tag (issue #35). Mutually exclusive with `tag`."
       bump:
         type: string
         required: false
@@ -49,7 +49,7 @@ concurrency:
 
 # Least-privilege GITHUB_TOKEN default for every job (CodeQL
 # actions/missing-workflow-permissions). Two jobs elevate: release-tail
-# (passes write down to _release-tail.yml -- semantic-release commit/tag +
+# (passes write down to _release-tail.yml - semantic-release commit/tag +
 # GHCR) and plan (semantic-release push-access verify on a publish predict).
 # commit-check / quality / test / build are read-only.
 permissions:
@@ -61,7 +61,7 @@ jobs:
     if: github.event.pull_request.head.repo.fork != true
     runs-on: ubuntu-latest
     # predict-version runs semantic-release, whose git plugin verifies push
-    # access (a `git push --dry-run`) on a publish predict -- needs write.
+    # access (a `git push --dry-run`) on a publish predict - needs write.
     permissions:
       contents: write
     outputs:
@@ -73,7 +73,7 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           ref: ${{ inputs.tag || github.ref }}
-          fetch-depth: 0  # full history -- semantic-release dry-run reads it
+          fetch-depth: 0  # full history - semantic-release dry-run reads it
       - name: Predict version + derive gates
         id: predict
         uses: ./.github/actions/predict-version
@@ -85,7 +85,7 @@ jobs:
 
   commit-check:
     name: Commit messages
-    # Landing gate for conventional-commit messages -- dogfoods the same job
+    # Landing gate for conventional-commit messages - dogfoods the same job
     # the reusable <lang>-ci.yml workflows now ship. Deliberately NOT gated on
     # plan.outputs.run-checks: it must validate what actually reaches main on
     # EVERY merge, not only publish-worthy pushes. Fatal on push to main (what
@@ -140,7 +140,7 @@ jobs:
 
       - name: Workflow interface compat gate (#31)
         # Fail if a reusable-workflow/composite interface regressed vs the last
-        # release -- a consumer pinned to an older caller would fail at startup.
+        # release - a consumer pinned to an older caller would fail at startup.
         run: uv run --no-sources python scripts/check-workflow-interfaces.py
 
   test:
@@ -216,7 +216,7 @@ jobs:
         # Upload VERSION alongside dist/ so the artifact root is the workspace,
         # not dist/. A single `path: dist/` makes upload-artifact strip the
         # dist/ prefix (the dir becomes the common ancestor), so the tag-publish
-        # job's `uv publish` (globs dist/*) finds nothing -- the cause of the
+        # job's `uv publish` (globs dist/*) finds nothing - the cause of the
         # v2.6.12 "No files found to publish" failure. Consumers dodge this by
         # also uploading ci-tmp/; hyperi-ci has none, so VERSION pins the root.
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

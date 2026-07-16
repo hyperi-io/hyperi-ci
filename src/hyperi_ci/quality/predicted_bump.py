@@ -13,8 +13,8 @@ old ``feat!:`` / ``BREAKING CHANGE:`` commits imports a MAJOR bump the
 agent never authored. That is exactly how hyperi-rustlib shipped an
 unintended v3.0.0 to crates.io (2026-05-25, yanked). See issue #26.
 
-This module analyses every commit in ``<last-tag>..HEAD`` -- the same
-range semantic-release's commit-analyzer walks -- and returns the highest
+This module analyses every commit in ``<last-tag>..HEAD`` - the same
+range semantic-release's commit-analyzer walks - and returns the highest
 bump those commits imply. ``hyperi-ci push`` gates on the result: a
 predicted minor/major fails closed unless the operator sets
 ``HYPERCI_ALLOW_MINOR_BUMP=1`` / ``HYPERCI_ALLOW_MAJOR_BUMP=1``, the
@@ -25,7 +25,7 @@ semantic-release's own default-release-rules, applied in Python via
 :mod:`hyperi_ci.release_rules` (the SSoT). A repo's own ``.releaserc.json``
 override is honoured there. When there is no prior tag (initial release) or
 git is unavailable, the predictor returns ``none`` and the gate is a
-no-op -- fail open only when we genuinely cannot predict.
+no-op - fail open only when we genuinely cannot predict.
 """
 
 from __future__ import annotations
@@ -89,7 +89,7 @@ def predict_bump(project_dir: Path | None = None) -> BumpPrediction:
     """Predict the bump ``<last-tag>..HEAD`` would ship.
 
     Returns a :class:`BumpPrediction`. ``bump == "none"`` when there is no
-    prior tag, no new commits, or git is unavailable -- the gate treats
+    prior tag, no new commits, or git is unavailable - the gate treats
     those as pass (nothing to over-bump, or nothing we can assert).
     """
     cwd = str(project_dir) if project_dir else None
@@ -97,7 +97,7 @@ def predict_bump(project_dir: Path | None = None) -> BumpPrediction:
 
     last_tag = _last_version_tag(cwd)
     if last_tag is None:
-        # Initial release (no v* tag yet) -- nothing to compare against.
+        # Initial release (no v* tag yet) - nothing to compare against.
         return prediction
     prediction.last_tag = last_tag
 

@@ -8,7 +8,7 @@
 
 hyperi-ci recognises the common SPDX licences (used for licence
 detection and OCI image labelling) but only *allows* a small blessed
-set by default -- BUSL-1.1, Apache-2.0 and MIT. A project declaring any
+set by default - BUSL-1.1, Apache-2.0 and MIT. A project declaring any
 other recognised licence gets a non-blocking warning telling it to opt
 in via ``license_allow`` in ``.hyperi-ci.yaml``; an unrecognised id is
 flagged as a likely typo.
@@ -27,7 +27,7 @@ DEFAULT_LICENSE: str = "BUSL-1.1"
 
 # Substring markers used to identify a licence from LICENSE-file text or a
 # source-file header when the project does not declare ``license:``
-# explicitly. Limited to ids with distinctive, unambiguous wording -- the
+# explicitly. Limited to ids with distinctive, unambiguous wording - the
 # GPL/LGPL/BSD families share enough boilerplate that text sniffing is
 # unreliable, so those are recognised (below) but must be declared
 # explicitly rather than guessed.
@@ -44,7 +44,7 @@ LICENSE_MARKERS: dict[str, tuple[str, ...]] = {
     "AGPL-3.0": ("GNU AFFERO GENERAL PUBLIC LICENSE",),
 }
 
-# Every SPDX id hyperi-ci recognises for policy purposes -- a superset of
+# Every SPDX id hyperi-ci recognises for policy purposes - a superset of
 # LICENSE_MARKERS, including ids that must be declared rather than sniffed.
 RECOGNISED: frozenset[str] = frozenset(
     {

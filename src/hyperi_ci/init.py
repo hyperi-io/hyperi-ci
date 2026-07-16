@@ -421,7 +421,7 @@ def _render_contributing(project_name: str) -> str:
         "\n"
         "Two audiences, two paths.\n"
         "\n"
-        "## External contributors -- the short path\n"
+        "## External contributors - the short path\n"
         "\n"
         "**You do NOT need to install `hyperi-ci` or activate any\n"
         "repo-local git hooks.** Standard tooling is enough.\n"
@@ -450,7 +450,7 @@ def _render_contributing(project_name: str) -> str:
         "If a maintainer requests changes, push to the same branch on\n"
         "your fork. They will re-validate.\n"
         "\n"
-        "## Maintainers -- the strict path\n"
+        "## Maintainers - the strict path\n"
         "\n"
         "Maintainers opt in to the project's stricter tooling:\n"
         "\n"
@@ -656,7 +656,7 @@ def init_project(
             "@semantic-release/git|github plugin; else ignored at CI time)"
         )
 
-    # CONTRIBUTING.md -- only generated if absent. Repos that already
+    # CONTRIBUTING.md - only generated if absent. Repos that already
     # have their own contributing guide keep it; we do not overwrite.
     contributing_path = project_dir / "CONTRIBUTING.md"
     if not contributing_path.exists() or force:

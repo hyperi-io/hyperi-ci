@@ -2,7 +2,7 @@
 # File:      docs/quality-gate.md
 # Purpose:   Reference for the quality stage - tools, modes, --strict, skip hatch
 #
-# License:   BUSL-1.1 -- HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 # Quality gate
@@ -140,3 +140,30 @@ A tool that is not installed and has no `uv`/`uvx` fallback:
 
 This matches the gitleaks stage's existing behaviour (`is_ci()` in
 `src/hyperi_ci/common.py`).
+
+When a tool IS missing, the message is actionable, not just "not found": a
+single registry (`src/hyperi_ci/tools.py`) renders a Rust-style notice naming
+what hyperi-ci needs the tool for and the exact install command(s) + docs URL.
+`missing_tool_notice()` / `find_tool()` are used by gitleaks, semgrep, gh,
+helm, aws, and the alint advisory below.
+
+## Advisory (non-blocking) checks
+
+Two hygiene nudges run in the quality stage. Neither can ever fail a build -
+they surface a recommendation and carry on.
+
+- **Deprecated-file check.** A packaged table
+  (`src/hyperi_ci/config/deprecated-files.yaml`) maps a retired project file to
+  the nudge shown if it is present (a `::warning::` in CI). Driver:
+  `src/hyperi_ci/quality/deprecated_files.py`. Runs on `hyperi-ci check` and in
+  CI. Currently flags a legacy `.releaserc.yaml`.
+- **Repo-hygiene advisory (`alint`).** Optional, profile-aware repo hygiene via
+  the external `alint` linter (missing `.gitignore` / `.editorconfig`, tracked
+  build artefacts, absent lockfile, ...). hyperi-ci ships an opinionated default
+  config (`src/hyperi_ci/config/alint/hyperi.alint.yml` - alint's own bundled
+  baseline for our four languages, fact-gated) and passes it with `alint check
+  -c`, so no per-repo `.alint.yml` is needed; a repo's own `.alint.yml` wins.
+  Controlled by `quality.alint` (`auto` = run if installed else info-skip;
+  `enabled` = warn if missing; `disabled` = off). alint is not a hyperi-ci
+  dependency - it info-skips (with an install hint) when absent. Driver:
+  `src/hyperi_ci/quality/repo_advisor.py`.

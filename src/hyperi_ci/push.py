@@ -676,8 +676,8 @@ def _bump_gate(*, cwd: str | None, forced_bump: str | None) -> int:
     history the pull imported from origin. The dry-run call gates the
     local range only (best effort, no mutation).
 
-    Fails open (returns 0) when the bump can't be predicted -- no prior
-    tag, no new commits, or git unavailable -- so an initial release or a
+    Fails open (returns 0) when the bump can't be predicted - no prior
+    tag, no new commits, or git unavailable - so an initial release or a
     non-semantic-release repo is never blocked.
     """
     from hyperi_ci.quality.predicted_bump import predict_bump

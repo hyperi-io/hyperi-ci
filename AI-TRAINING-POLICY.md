@@ -24,35 +24,35 @@ learning training.**
 Without the prior written consent of HYPERI PTY LIMITED, you may NOT use the
 Materials for:
 
-- **Model training** -- Direct training of machine learning models, large
+- **Model training** - Direct training of machine learning models, large
   language models, or artificial intelligence systems on any part of the
   Materials
-- **Fine-tuning** -- Fine-tuning or transfer learning using the Materials as
+- **Fine-tuning** - Fine-tuning or transfer learning using the Materials as
   input data
-- **Dataset inclusion** -- Including the Materials in any dataset, corpus, or
+- **Dataset inclusion** - Including the Materials in any dataset, corpus, or
   data pipeline used for training or improving machine learning algorithms
-- **RAG / retrieval systems** -- Indexing or retrieving from the Materials in
+- **RAG / retrieval systems** - Indexing or retrieving from the Materials in
   retrieval-augmented generation systems or similar architectures
-- **Data mining** -- Automated extraction, analysis, or processing of the
+- **Data mining** - Automated extraction, analysis, or processing of the
   Materials for the purpose of training AI systems
-- **AI-assisted reverse engineering** -- Using AI tools to analyse, replicate,
+- **AI-assisted reverse engineering** - Using AI tools to analyse, replicate,
   or reconstruct the functionality of the Materials
-- **Natural language processing** -- Using the Materials as input for NLP
+- **Natural language processing** - Using the Materials as input for NLP
   training, benchmarking, or evaluation
 
 ## Permitted Uses
 
 The following uses are permitted without additional consent:
 
-- **Search engine indexing** -- Standard web crawlers indexing the Materials
+- **Search engine indexing** - Standard web crawlers indexing the Materials
   for search engine results (not AI training)
-- **Human reading and review** -- Individuals reading, studying, or reviewing
+- **Human reading and review** - Individuals reading, studying, or reviewing
   the Materials for their own understanding
-- **AI-assisted development** -- Using AI coding tools (e.g., GitHub Copilot,
+- **AI-assisted development** - Using AI coding tools (e.g., GitHub Copilot,
   Claude, ChatGPT) to assist with writing code that interacts with or extends
   the Materials, provided the Materials themselves are not used as training
   data for those tools
-- **License-governed use** -- Uses permitted by the Business Source License
+- **License-governed use** - Uses permitted by the Business Source License
   1.1 and its Additional Use Grant remain governed by the [LICENSE](LICENSE)
   file. This policy is separate and does not amend, narrow, or condition that
   grant.

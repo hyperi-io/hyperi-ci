@@ -194,7 +194,7 @@ def _python_is_library(project_dir: Path) -> bool:
 
     A console-script (``[project.scripts]`` / ``[gui-scripts]`` /
     ``console_scripts`` entry point) is NOT a "ship a container" signal.
-    The most common Python shape is a library that ALSO exposes a CLI --
+    The most common Python shape is a library that ALSO exposes a CLI -
     ruff, black, pytest, uv, httpie, pip-audit all declare
     ``[project.scripts]`` and none of them are container workloads. The
     old heuristic treated any console-script as "build a container", so
@@ -206,7 +206,7 @@ def _python_is_library(project_dir: Path) -> bool:
     service opts in explicitly with a Dockerfile (wins over this
     heuristic in :func:`detect`) or ``publish.container.enabled: true``
     (forces the template build in the stage handler). This mirrors the
-    rust/golang behaviour -- a container needs a bin/main target or a
+    rust/golang behaviour - a container needs a bin/main target or a
     Dockerfile, not merely "has a CLI".
     """
     return (project_dir / "pyproject.toml").exists()

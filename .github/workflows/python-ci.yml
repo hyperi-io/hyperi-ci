@@ -55,7 +55,7 @@ on:
       submodules:
         type: string
         default: ""
-        description: "Space-separated submodule paths to init after checkout (e.g. 'schemas'). Empty (default) inits nothing. The submodule must be reachable by the job token -- public, or a token with cross-repo read access."
+        description: "Space-separated submodule paths to init after checkout (e.g. 'schemas'). Empty (default) inits nothing. The submodule must be reachable by the job token - public, or a token with cross-repo read access."
       branch-build:
         type: string
         default: ""
@@ -125,7 +125,7 @@ env:
 
 # Least-privilege GITHUB_TOKEN default for every job (CodeQL
 # actions/missing-workflow-permissions). Two jobs elevate: release-tail
-# (passes write down to _release-tail.yml -- semantic-release commit/tag +
+# (passes write down to _release-tail.yml - semantic-release commit/tag +
 # GHCR) and plan (semantic-release push-access verify on a publish predict).
 # commit-check / quality / test / build are read-only.
 permissions:
@@ -142,7 +142,7 @@ jobs:
     if: github.event.pull_request.head.repo.fork != true
     runs-on: ubuntu-latest
     # predict-version runs semantic-release, whose git plugin verifies push
-    # access (a `git push --dry-run`) on a publish predict -- needs write.
+    # access (a `git push --dry-run`) on a publish predict - needs write.
     permissions:
       contents: write
     outputs:
@@ -171,7 +171,7 @@ jobs:
     # on plan.outputs.run-checks: a cheap git-log + regex check must validate
     # what actually reaches main on EVERY merge, not only publish-worthy
     # pushes (all the quality job covers). Fatal on push to main (what lands);
-    # advisory on pull_request (branch commits may be squashed away -- see
+    # advisory on pull_request (branch commits may be squashed away - see
     # commit_validation.run). Feature-branch pushes skip it, so the fast
     # chore-skip path is untouched. See CLAUDE.md CI gate doctrine.
     if: >-

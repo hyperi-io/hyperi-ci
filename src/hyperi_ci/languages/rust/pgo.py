@@ -349,7 +349,7 @@ def _instrumented_binary_path(
 
 # RUSTFLAGS used on the no-split BOLT RETRY (see _run_bolt). BOLT in relocation
 # mode CANNOT process a binary whose functions the compiler already hot/cold-SPLIT
-# -- it emits `<fn>.cold` fragments (e.g. a closure's drop glue outlined into
+# - it emits `<fn>.cold` fragments (e.g. a closure's drop glue outlined into
 # .text.unlikely/.text.split) and llvm-bolt aborts the step with:
 #   BOLT-WARNING: split function detected on input ... limited in relocation mode
 #   BOLT-ERROR:   parent function not found for <fn>.cold
@@ -357,14 +357,14 @@ def _instrumented_binary_path(
 # pre-splitting for the BOLT build (the LLVM equivalent of clang's
 # -fno-reorder-blocks-and-partition), via -Cllvm-args. This is applied ONLY on a
 # RETRY after a first BOLT attempt fails (see _run_bolt), so apps that already
-# BOLT-optimise cleanly never see it -- a working BOLT layer is the default
+# BOLT-optimise cleanly never see it - a working BOLT layer is the default
 # WITHOUT risking the apps that don't need the flag.
 #
 # The exact cl::opt is toolchain-version-dependent; this targets the PGO-driven
 # cold-splitter. Override (or disable the retry, with "") via
 # HYPERCI_BOLT_EXTRA_RUSTFLAGS; alternative candidate if this proves ineffective:
 # -Cllvm-args=-split-machine-functions=false. BOLT failure is non-fatal, so an
-# ineffective value simply leaves that one app PGO-only -- it cannot break a build.
+# ineffective value simply leaves that one app PGO-only - it cannot break a build.
 _DEFAULT_BOLT_NO_SPLIT_RUSTFLAGS = "-Cllvm-args=-hot-cold-split=false"
 
 

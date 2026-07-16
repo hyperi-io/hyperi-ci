@@ -734,7 +734,7 @@ class TestRunAdvisoryOnPR:
 
 class TestRunLocal:
     """`local=True` (hyperi-ci check pre-push) validates the unpushed range
-    outside CI and is FATAL -- catch a bad message before the push. Without
+    outside CI and is FATAL - catch a bad message before the push. Without
     it, run() is a no-op outside CI."""
 
     def test_local_validates_range_and_is_fatal(

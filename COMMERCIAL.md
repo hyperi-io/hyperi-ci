@@ -11,7 +11,7 @@ years).
 ## When You Need a Commercial License
 
 The Additional Use Grant in the LICENSE permits production use of the software,
-provided that you may not use the software for a "Hosted Service" -- a
+provided that you may not use the software for a "Hosted Service" - a
 commercial offering that allows third parties (other than your employees and
 contractors) to access the functionality of the software as a hosted or managed
 service. As clarified by the Affiliate Annexure, each entity in your group that
@@ -88,7 +88,7 @@ deployment for their own use. This is permitted.
 If one entity in your corporate group operates the software and provides it as a
 shared or centralised hosted or managed service to other entities in the group
 (rather than each entity running its own instance), that is the provision of a
-Hosted Service and requires a commercial license -- affiliate / group hosting
+Hosted Service and requires a commercial license - affiliate / group hosting
 rights.
 
 Example: Shared Services Co runs a centralised deployment and provides it as a
@@ -107,14 +107,14 @@ outside the Additional Use Grant and requires a commercial license.
 |----------|-----------------|
 | Single entity, internal use | BUSL-1.1 (no commercial license) |
 | Multiple entities, each runs own instance | BUSL-1.1 for each (no commercial license) |
-| One entity hosts for multiple group entities | Commercial license (ESLA) -- affiliate / group hosting rights |
-| Shared services / centralised IT for group | Commercial license (ESLA) -- affiliate / group hosting rights |
+| One entity hosts for multiple group entities | Commercial license (ESLA) - affiliate / group hosting rights |
+| Shared services / centralised IT for group | Commercial license (ESLA) - affiliate / group hosting rights |
 | Hosted or managed service for external parties | Commercial license (ESLA) with hosted-service rights |
 
 ## How to Obtain a Commercial License
 
 Production use outside the Additional Use Grant is available under a commercial
-license -- HyperI's Enterprise Subscription Licence Agreement (ESLA). For
+license - HyperI's Enterprise Subscription Licence Agreement (ESLA). For
 commercial licensing enquiries:
 
 **Email**: sales@hyperi.io
@@ -135,7 +135,7 @@ We offer flexible licensing options including:
 This document explains the commercial path. It is not the License. The default
 public license grant is maintained in:
 
-- [LICENSE](LICENSE) -- Business Source License 1.1, the Additional Use Grant,
+- [LICENSE](LICENSE) - Business Source License 1.1, the Additional Use Grant,
   and the Affiliate and Australia annexures as delineated, severable sections
 
 The AI / machine-learning terms are maintained separately in
@@ -148,7 +148,7 @@ applies. It is not part of the default public license grant.
 ## Future Open Source Conversion
 
 Each version of this software automatically becomes available under the Apache
-License, Version 2.0 on its Change Date -- the third anniversary of that
+License, Version 2.0 on its Change Date - the third anniversary of that
 version's release date. This means older versions will eventually be fully open
 source with no commercial restrictions. Release dates are recorded in the
 GitHub release history.

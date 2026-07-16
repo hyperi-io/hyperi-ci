@@ -45,7 +45,7 @@ def _run_tool(
     resolved = _resolve_tool_cmd(cmd, use_uvx=use_uvx)
     if resolved == cmd and not shutil.which(cmd[0]):
         # A missing tool fails the gate only in CI, where every tool MUST
-        # be present -- a silent skip would mask a coverage gap. Locally it
+        # be present - a silent skip would mask a coverage gap. Locally it
         # is an environment gap, not a quality finding: warn and carry on
         # so `hyperi-ci check` still runs whatever IS installed (matches
         # the gitleaks stage's local-vs-CI handling).

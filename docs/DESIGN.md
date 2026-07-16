@@ -116,7 +116,7 @@ pre-push enforcement). It deliberately does NOT scaffold a `.releaserc`
 at CI time (a scaffolded `@semantic-release/git` config is what rewrote
 tags off-main, issue #37).
 
-**`.github/workflows/ci.yml`** -- a thin caller into the language
+**`.github/workflows/ci.yml`** - a thin caller into the language
 reusable workflow. It triggers on every branch push and on PRs to
 `main`, and exposes the release-from-dispatch inputs (`tag` /
 `from-head` / `bump`, issue #35), passing them straight through:
@@ -142,7 +142,7 @@ jobs:
     secrets: inherit
 ```
 
-**`.hyperi-ci.yaml`** -- project configuration (language, build targets,
+**`.hyperi-ci.yaml`** - project configuration (language, build targets,
 publish settings).
 
 **`Makefile`** — wraps CLI for local use:
@@ -684,14 +684,14 @@ CLI is not available, the command prints manual git commands as a fallback.
 The `setup-semantic-release` action injects a central tagger-only
 `default.releaserc.json` (single branch `main`, `tagFormat: v${version}`, and
 NO custom `releaseRules`), so the version bump is semantic-release's own
-default-release-rules -- `feat` -> minor, `fix`/`perf`/`revert` -> patch,
+default-release-rules - `feat` -> minor, `fix`/`perf`/`revert` -> patch,
 a `!` or `BREAKING CHANGE:` footer -> major, everything else no release. That
 default IS the org SSoT; `hyperi_ci.release_rules` mirrors it in Python for the
 pre-push gate. A repo commits its own `.releaserc.json` only for a genuine
 exception (e.g. a multi-crate workspace). A legacy `.releaserc.yaml` is
 deprecated and flagged by the deprecated-file check.
 
-**Publish gating:** semantic-release is a TAGGER only -- it tags `main` on a
+**Publish gating:** semantic-release is a TAGGER only - it tags `main` on a
 publish run; version stamping is `hyperi-ci stamp-version` and the publish
 stage creates the GH release / GHCR / registry artefacts.
 
@@ -837,7 +837,7 @@ same thing in ~300 lines each.
    - Rust: detects workspace vs single crate
    - TypeScript: detects package manager (pnpm, yarn, npm)
 3. Generates `.hyperi-ci.yaml`, `Makefile`, and `.github/workflows/ci.yml`
-   (no `.releaserc` -- version bumps follow semantic-release's own defaults)
+   (no `.releaserc` - version bumps follow semantic-release's own defaults)
 4. Skips files that already exist (unless `--force`)
 5. Detects deprecated config files (`.hypersec-ci.yaml`, `.releaserc.yaml`) and warns
 

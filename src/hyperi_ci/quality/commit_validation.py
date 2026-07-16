@@ -30,7 +30,7 @@ from hyperi_ci.release_rules import load_type_bump
 # distinct from the version-bump SSoT: which of these actually SHIP a release
 # is decided by hyperi_ci.release_rules (semantic-release's own defaults), NOT
 # here. So `hotfix` / `sec` / `security` remain valid messages but no longer
-# bump on their own -- ship a security patch as `fix(security): ...`.
+# bump on their own - ship a security patch as `fix(security): ...`.
 
 _ALLOWED_TYPES: dict[str, str] = {
     "feat": "New user-facing feature",
@@ -433,10 +433,10 @@ def _get_commits_to_validate() -> tuple[list[tuple[str, str]], bool]:
             if rc == 0:
                 return commits, True
             # We KNOW new commits exist (before != after) but can't enumerate
-            # them -- `before` isn't in this shallow clone. Do NOT fall through
+            # them - `before` isn't in this shallow clone. Do NOT fall through
             # to origin/main..HEAD: right after a push-to-main that range is
             # EMPTY (origin/main already == HEAD) and would wrongly report "no
-            # new commits" -- the exact silent no-op of issue #52. Degrade to
+            # new commits" - the exact silent no-op of issue #52. Degrade to
             # the HEAD-only backstop with a loud warning instead.
             return [], False
         # before is all-zeros (branch creation): no prior tip to diff from, so
@@ -473,7 +473,7 @@ def run(
     Behaviour by event:
 
     - ``push`` (what lands on main) -> FATAL: a failing commit returns 1.
-      This is the real landing gate -- the run-checks gate skips the
+      This is the real landing gate - the run-checks gate skips the
       quality job on non-publish main pushes, so this dedicated check is
       where merge-to-main enforcement lives.
     - ``pull_request`` -> ADVISORY: failures are warned, returns 0. The
@@ -497,7 +497,7 @@ def run(
         # Could NOT determine the range the event introduced (shallow
         # checkout / detached HEAD / missing `before` commit). The old code
         # returned success here, silently disarming the CI-side backstop on
-        # the standard push path -- consistent with rustlib v3.0.0 shipping
+        # the standard push path - consistent with rustlib v3.0.0 shipping
         # despite this check existing (issue #52). Never silent-skip: fall
         # back to validating HEAD (the tip commit) and warn loudly that the
         # full range was NOT checked. Use `fetch-depth: 0` on the quality
@@ -511,7 +511,7 @@ def run(
             return 0
         warn(
             "Commit validation could not resolve the pushed range (shallow "
-            "checkout / detached HEAD) -- validating HEAD only. The full-range "
+            "checkout / detached HEAD) - validating HEAD only. The full-range "
             "backstop is DEGRADED; set `fetch-depth: 0` on the quality checkout."
         )
         commits = head
@@ -529,8 +529,8 @@ def run(
     if failures:
         # Advisory on a PR, fatal on push. See the run() docstring: PR
         # branch commits may be squashed away and are never re-validated
-        # on the merge-to-main push, so a PR gets feedback -- not a hard
-        # red -- while the push that lands on main stays enforced.
+        # on the merge-to-main push, so a PR gets feedback - not a hard
+        # red - while the push that lands on main stays enforced.
         advisory = os.environ.get("GITHUB_EVENT_NAME", "") == "pull_request"
         emit = warn if advisory else error
         for commit_hash, full_msg, result in failures:
@@ -541,7 +541,7 @@ def run(
         if advisory:
             warn(
                 f"{len(failures)} commit(s) would fail validation on merge to "
-                "main. Advisory on a PR -- only the commit(s) that LAND on main "
+                "main. Advisory on a PR - only the commit(s) that LAND on main "
                 "are enforced. If you squash-merge, make the squash subject a "
                 "valid conventional commit (that single line is what lands)."
             )

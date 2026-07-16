@@ -199,7 +199,7 @@ def _run_tool(
     resolved = _resolve_tool_cmd(cmd, use_uvx=use_uvx)
     if resolved == cmd and not shutil.which(cmd[0]):
         # A missing tool fails the gate only in CI, where every tool MUST
-        # be present -- a silent skip would mask a coverage gap. Locally it
+        # be present - a silent skip would mask a coverage gap. Locally it
         # is an environment gap, not a quality finding: warn and carry on
         # so `hyperi-ci check` still runs whatever IS installed (matches
         # the gitleaks stage's local-vs-CI handling).
@@ -309,7 +309,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             f"with cargo-audit + osv-scanner (issue #42)"
         )
 
-    # cargo audit -- one --ignore <RUSTSEC-id> per entry
+    # cargo audit - one --ignore <RUSTSEC-id> per entry
     mode = _get_tool_mode("audit", config)
     audit_cmd = ["cargo", "audit"]
     audit_ignores = _merge_deny_advisory_ignores(
@@ -320,7 +320,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if not _run_tool("cargo audit", audit_cmd, mode):
         had_failure = True
 
-    # osv-scanner -- malicious-package (MAL-*) scan. cargo audit uses the
+    # osv-scanner - malicious-package (MAL-*) scan. cargo audit uses the
     # RustSec DB, which does NOT ingest the OSSF malicious-packages feed;
     # osv-scanner does. Defence-in-depth behind the 7-day Renovate cooldown.
     mode = _get_tool_mode("osv_scanner", config)

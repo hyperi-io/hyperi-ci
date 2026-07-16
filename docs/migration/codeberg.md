@@ -153,9 +153,9 @@ Two sub-cases:
 
 `@semantic-release/gitea` exists, is maintained, and works against
 Forgejo. Lower battle-testing than `@semantic-release/github` but the
-risk is acceptable. Our `.releaserc.yaml` files already deliberately
-avoid `@semantic-release/github` (release creation is done by hyperi-ci
-post-tag), which means the migration here is smaller than it looks.
+risk is acceptable. Our central tagger-only semantic-release config already
+deliberately avoids `@semantic-release/github` (release creation is done by
+hyperi-ci post-tag), which means the migration here is smaller than it looks.
 
 ## Cost-benefit
 

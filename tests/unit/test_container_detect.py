@@ -132,7 +132,7 @@ def test_python_with_console_script_and_dockerfile(tmp_path: Path) -> None:
 
 
 def test_python_with_console_script_no_dockerfile_is_library(tmp_path: Path) -> None:
-    # A console-script is NOT a "ship a container" signal (issue #51) --
+    # A console-script is NOT a "ship a container" signal (issue #51) -
     # the common Python shape is a library that also exposes a CLI. With
     # no Dockerfile and no explicit opt-in, it is library-only and skips.
     _write_pyproject(

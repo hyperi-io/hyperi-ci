@@ -80,7 +80,10 @@ semantics. The biggest user-visible changes:
 ### What you don't have to do
 
 - **No code changes.** All Python source is unchanged.
-- **No `.releaserc.yaml` changes.** Same semantic-release config.
+- **No `.releaserc` to maintain.** hyperi-ci uses semantic-release's own
+  default rules as the SSoT (feat->minor, fix/perf->patch, breaking->major,
+  else none). A legacy `.releaserc.yaml` is deprecated (the deprecated-file
+  check flags it); a repo `.releaserc.json` is only for a rare exception.
 - **No `Cargo.toml` / `pyproject.toml` changes.** Version stamping
   happens transparently at build time on publish runs.
 - **Existing tags are unchanged.** Old "orphan" tags from v1 stay in
@@ -119,21 +122,13 @@ projects should follow v2 directly.
 
 ### Migration Steps
 
-#### 1. Create or Update `.releaserc.yaml`
+#### 1. Release config
 
-If the project doesn't have one, run:
-
-```bash
-hyperi-ci init
-```
-
-If it already has one, update it:
-
-- Change `branches:` to just `- main` (remove `release`, remove `prerelease: dev`)
-- Remove `@semantic-release/github` from the plugins list
-- Add all missing commit types to releaseRules
-
-Use `hyperi-ci`'s own `.releaserc.yaml` as the reference template.
+> Superseded: hyperi-ci no longer scaffolds or maintains a per-project
+> `.releaserc`. The version bump is semantic-release's own default rules (the
+> `setup-semantic-release` action injects a central tagger-only config); a
+> legacy `.releaserc.yaml` is deprecated. Just run `hyperi-ci init` and delete
+> any old `.releaserc.yaml`.
 
 #### 2. Update `.github/workflows/ci.yml`
 

@@ -339,5 +339,5 @@ config/        defaults · org · runners · versions · toolchains/ · native-d
 scripts/       update-versions.py (/deps) · check-workflow-interfaces.py (#31 gate)
 templates/     pgo-workload/ · testenv/
 docs/          this tree
-.releaserc.yaml · VERSION · pyproject.toml · uv.lock
+VERSION · pyproject.toml · uv.lock
 ```

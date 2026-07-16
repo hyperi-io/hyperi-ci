@@ -286,7 +286,7 @@ def load_config(
                 )
             else:
                 warn(
-                    f"Project licence '{lic}' is not a recognised SPDX id -- "
+                    f"Project licence '{lic}' is not a recognised SPDX id - "
                     f"check the `license:` field in .hyperi-ci.yaml."
                 )
 

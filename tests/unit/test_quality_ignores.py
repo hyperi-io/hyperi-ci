@@ -2,7 +2,7 @@
 # File:      tests/unit/test_quality_ignores.py
 # Purpose:   Tests for generic quality ignore-list parser and per-language wiring
 #
-# License:   BUSL-1.1 -- HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for ``quality.ignore`` parsing and per-language translation."""
 

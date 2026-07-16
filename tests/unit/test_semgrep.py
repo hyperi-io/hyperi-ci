@@ -2,14 +2,14 @@
 # File:      tests/unit/test_semgrep.py
 # Purpose:   Tests for the dispatch-level semgrep quality module
 #
-# License:   BUSL-1.1 -- HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for the centralised (dispatch-level) semgrep module.
 
 Semgrep moved out of the per-language handlers to run once, cross-
-language, like gitleaks. These cover mode resolution -- the new
+language, like gitleaks. These cover mode resolution - the new
 ``quality.semgrep`` key, the legacy per-language back-compat override,
-strict upgrade, and the force-skip escape hatch -- plus the disabled/
+strict upgrade, and the force-skip escape hatch - plus the disabled/
 skip short-circuits in ``run`` (which return before any scan).
 """
 

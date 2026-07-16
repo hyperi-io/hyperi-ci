@@ -68,7 +68,7 @@ class TestFromHeadThreading:
         # The quality checkout is depth-1; gitleaks scans the branch git log
         # for secrets and would only see HEAD without deepened history. Every
         # language workflow must deepen immediately before running quality.
-        # (Conventional-commit validation moved to the commit-check job -- see
+        # (Conventional-commit validation moved to the commit-check job - see
         # TestCommitCheckJob.)
         wf = _load_workflow(workflow_name)
         steps = wf["jobs"]["quality"]["steps"]
@@ -219,7 +219,7 @@ def test_predict_version_forced_step_handles_explicit_version() -> None:
 
 class TestMainOnlyPublishGate:
     """Branch-mode decision 1 (docs/plans/2026-07-branch-mode): a push can
-    only ever publish from main. The rule lives HERE, in the gate SSOT --
+    only ever publish from main. The rule lives HERE, in the gate SSOT -
     not in downstream job `if:` conditions. A `Publish: true` trailer on a
     branch push is ignored LOUDLY (::warning::), never silently."""
 
@@ -258,7 +258,7 @@ class TestMainOnlyPublishGate:
     def test_dispatch_stays_explicit_publish(self) -> None:
         # workflow_dispatch remains an explicit publish trigger (a deliberate
         # act by someone with actions:write). It is checked FIRST, before the
-        # ref guard -- rehearsal dispatches on fixture branches rely on this.
+        # ref guard - rehearsal dispatches on fixture branches rely on this.
         run = str(self._gate_step()["run"])
         dispatch = run.index("workflow_dispatch")
         guard = run.index('!= "refs/heads/main"')
@@ -504,7 +504,7 @@ class TestCommitCheckJob:
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
     def test_commit_check_not_gated_on_run_checks(self, workflow_name: str) -> None:
         # The whole point: it must NOT depend on plan.outputs.run-checks (that
-        # gate skips non-publish main pushes -- exactly where merge-to-main
+        # gate skips non-publish main pushes - exactly where merge-to-main
         # enforcement is needed). It gates on the event instead, and stays
         # independent of plan so it runs in parallel.
         wf = _load_workflow(workflow_name)

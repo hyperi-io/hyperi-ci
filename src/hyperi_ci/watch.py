@@ -46,7 +46,7 @@ _TERMINAL_STATUSES = frozenset(
 
 # A single job reaching one of these conclusions dooms the whole run, so
 # fail fast (issue #58) instead of waiting for the run's own terminal
-# status -- which for a big multi-arch PGO+BOLT build can be tens of
+# status - which for a big multi-arch PGO+BOLT build can be tens of
 # minutes away. Job conclusions are populated the moment each job ends.
 _FAILED_JOB_CONCLUSIONS = frozenset({"failure", "cancelled", "timed_out"})
 
@@ -260,7 +260,7 @@ def watch_run(
         last_known_status = status
 
         # Early-fail-on-red (issue #58): the instant ANY job has concluded
-        # failure/cancelled/timed_out, stop -- do not wait for the whole run
+        # failure/cancelled/timed_out, stop - do not wait for the whole run
         # to reach a terminal status. Returns 1 (a job went red), matching
         # the failed-run terminal path below.
         failed_job = _first_failed_job(run_data)
@@ -268,7 +268,7 @@ def watch_run(
             _print_summary(run_data)
             error(
                 f"  Early-fail: job '{failed_job.get('name', 'unknown')}' "
-                f"concluded '{failed_job.get('conclusion')}' -- not waiting "
+                f"concluded '{failed_job.get('conclusion')}' - not waiting "
                 f"for the rest of the run. {run_data.get('url', '')}".rstrip()
             )
             return 1

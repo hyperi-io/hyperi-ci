@@ -7,7 +7,7 @@
 """Tests for strict quality mode.
 
 Covers `hyperi_ci.languages.quality_common.strict_quality` and
-`resolve_tool_mode` -- the shared machinery behind `hyperi-ci check
+`resolve_tool_mode` - the shared machinery behind `hyperi-ci check
 --strict`, which upgrades warn-tier findings (ty, semgrep, docstrings)
 to blocking so they surface before a push instead of after.
 """
@@ -128,7 +128,7 @@ class TestQualitySkip:
         )
 
     def test_skip_wins_over_strict(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Both set: skip wins -- the tool is disabled, not upgraded to blocking.
+        # Both set: skip wins - the tool is disabled, not upgraded to blocking.
         monkeypatch.setenv(_ENV, "1")
         monkeypatch.setenv(_SKIP, "ty")
         assert resolve_tool_mode("ty", _config("ty", "warn"), "python") == "disabled"

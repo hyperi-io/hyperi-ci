@@ -124,7 +124,7 @@ def check(
             "--strict",
             help=(
                 "Fail on warn-tier quality findings (ty, semgrep, "
-                "docstrings, ...) too -- a zero-warnings pre-push gate that "
+                "docstrings, ...) too - a zero-warnings pre-push gate that "
                 "surfaces everything CI would show, before the push."
             ),
         ),
@@ -136,7 +136,7 @@ def check(
     still prints) are treated as failures, so nothing is carried into a
     push unseen. Fix each, or flag it to ignore if it genuinely should be.
     A tool that is not installed locally (and has no uv fallback) is still
-    warn-skipped even under ``--strict`` -- strict enforces what runs, not
+    warn-skipped even under ``--strict`` - strict enforces what runs, not
     what your machine has; CI, where the tools are present, is the backstop.
     """
     dir_path = Path(project_dir) if project_dir else None
@@ -700,12 +700,12 @@ def check_commits_cmd() -> None:
     """Validate the conventional-commit messages in the CI push/PR range.
 
     Landing-gate counterpart to `check-commit` (single message, local
-    commit-msg hook). Resolves the range from the CI event -- push
-    before..after (what lands on main) or PR base..HEAD -- validates each
+    commit-msg hook). Resolves the range from the CI event - push
+    before..after (what lands on main) or PR base..HEAD - validates each
     commit, and is FATAL on push but ADVISORY on pull_request (branch
     commits may be squashed away). CI-only; a no-op locally. Driven by the
     dedicated `commit-check` workflow job, NOT the run-checks-gated quality
-    job -- so a merge to main is validated even when it is not a publish.
+    job - so a merge to main is validated even when it is not a publish.
     """
     from hyperi_ci.quality import deprecated_files
     from hyperi_ci.quality.commit_validation import run

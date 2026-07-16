@@ -21,7 +21,7 @@ from hyperi_ci.quality.predicted_bump import (
 #
 # The bump map is semantic-release's own default-release-rules (mirrored in
 # hyperi_ci.release_rules). classify_commit() with no explicit map uses those
-# defaults -- so `security`/`hotfix` are NO LONGER release-worthy on their own
+# defaults - so `security`/`hotfix` are NO LONGER release-worthy on their own
 # (that was the deliberate collapse to pure semantic-release defaults).
 
 

@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/quality/osv_scanner.py
 # Purpose:   Malicious-package scanning via osv-scanner (Rust + TS gap)
 #
-# License:   BUSL-1.1 -- HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """osv-scanner helper: the malicious-package (``MAL-*``) detection layer.
 
@@ -50,7 +50,7 @@ def render_ignore_config(entries: Iterable[IgnoreEntry]) -> str:
 
     Each entry becomes an ``[[IgnoredVulns]]`` block. ``expires`` maps
     to osv-scanner's native ``ignoreUntil`` (RFC3339), so a suppression
-    self-clears once the date passes -- belt-and-braces with the
+    self-clears once the date passes - belt-and-braces with the
     framework-level drop in ``load_ignores``.
 
     Returns:

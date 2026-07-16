@@ -279,8 +279,8 @@ _OLD_CI_PREPARE_PATTERNS = (
 
 # The tag-rewrite plugins (issue #37): @semantic-release/git force-pushes
 # off-main "chore: version X" commits and rewrites tags; @semantic-release/github
-# creates releases. hyperi-ci is a TAGGER-only shop -- stamping is
-# `hyperi-ci stamp-version`, publishing is the publish stage -- so these are
+# creates releases. hyperi-ci is a TAGGER-only shop - stamping is
+# `hyperi-ci stamp-version`, publishing is the publish stage - so these are
 # dropped on migrate, not preserved (issue #28). setup-semantic-release already
 # ignores them at runtime; migrate now removes them at the source so the repo
 # stops carrying the destructive config (and the per-run "ignoring .releaserc"
@@ -288,7 +288,7 @@ _OLD_CI_PREPARE_PATTERNS = (
 _DESTRUCTIVE_PLUGINS = frozenset({"@semantic-release/git", "@semantic-release/github"})
 
 # Plugins the central tagger-only config already provides. A releaserc that,
-# after stripping the destructive plugins, carries only these is redundant --
+# after stripping the destructive plugins, carries only these is redundant -
 # the central default covers it, so migrate deletes the file entirely.
 _CENTRAL_DEFAULT_PLUGINS = frozenset(
     {
@@ -388,7 +388,7 @@ def _fix_releaserc(
         )
 
     # If nothing beyond the central default plugins survives, the whole
-    # releaserc is redundant with the central tagger-only config -- delete it
+    # releaserc is redundant with the central tagger-only config - delete it
     # so the repo stops carrying (and re-declaring) a bespoke file.
     surviving_exceptions = [
         p for p in kept if _plugin_name(p) not in _CENTRAL_DEFAULT_PLUGINS

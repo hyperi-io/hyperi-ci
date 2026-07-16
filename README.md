@@ -72,7 +72,7 @@ git config core.hooksPath .githooks     # Activate commit validation hook
 ```
 
 This creates `.hyperi-ci.yaml`, `Makefile`, `.github/workflows/ci.yml`,
-and `.githooks/commit-msg`. Commit and push. No `.releaserc` is scaffolded --
+and `.githooks/commit-msg`. Commit and push. No `.releaserc` is scaffolded -
 version bumps follow semantic-release's own default rules (a repo commits a
 `.releaserc.json` only for a genuine exception).
 

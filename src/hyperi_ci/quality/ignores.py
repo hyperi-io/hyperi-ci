@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/quality/ignores.py
 # Purpose:   Generic quality ignore-list parser
 #
-# License:   BUSL-1.1 -- HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Generic quality ignore-list, consumed by every language runner.
 
@@ -23,7 +23,7 @@ Schema in ``.hyperi-ci.yaml``::
 
 The shape is identical across languages. Each language quality runner
 filters for the slugs it owns and translates ``id`` to the tool's
-native ignore flag at command-build time. ``reason`` is mandatory --
+native ignore flag at command-build time. ``reason`` is mandatory -
 ignores are debt and a grep-able rationale is the price of admission.
 
 ``id`` (scalar) and ``ids`` (list) may both be given; they merge. The
@@ -34,7 +34,7 @@ entries.
 ``expires`` (optional ``YYYY-MM-DD``) sunsets an ignore: once the date
 has passed the entry is dropped at load time and a warning is logged,
 so a suppression for a withdrawn false positive cannot silently mask a
-genuine future finding on the same ID. This is framework-wide -- every
+genuine future finding on the same ID. This is framework-wide - every
 language runner inherits it because filtering happens here, not in the
 per-tool translation.
 
@@ -47,7 +47,7 @@ Tool slugs in use:
   use ``package.json`` ``overrides`` instead)
 
 Unknown tool slugs are accepted at load-time but silently ignored at
-runtime -- this lets projects pre-stage entries for tools that
+runtime - this lets projects pre-stage entries for tools that
 haven't been wired yet without breaking the build.
 """
 

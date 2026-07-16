@@ -19,13 +19,13 @@ files:
     level: warn
     message: >-
       .releaserc.yaml is deprecated: hyperi-ci now uses semantic-release's own
-      default rules as the single source of truth for version bumps -- remove
+      default rules as the single source of truth for version bumps - remove
       it. Only a .releaserc.json is honoured, and only for a genuine exception
       (e.g. a multi-crate workspace).
   - path: .releaserc.yml
     level: warn
     message: >-
       .releaserc.yml is deprecated: hyperi-ci now uses semantic-release's own
-      default rules as the single source of truth for version bumps -- remove
+      default rules as the single source of truth for version bumps - remove
       it. Only a .releaserc.json is honoured, and only for a genuine exception
       (e.g. a multi-crate workspace).

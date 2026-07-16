@@ -31,7 +31,7 @@ def strict_quality() -> bool:
     """Return True when strict quality mode is active.
 
     Strict mode upgrades ``warn``-tier findings to ``blocking`` so a
-    developer sees -- and then fixes or explicitly ignores -- everything
+    developer sees - and then fixes or explicitly ignores - everything
     CI would surface BEFORE the push, not after. Enabled by
     ``hyperi-ci check --strict`` (which exports ``HYPERCI_QUALITY_STRICT``)
     or by exporting that env var directly.
@@ -58,8 +58,8 @@ def quality_skip() -> frozenset[str]:
     """Tool names to forcibly skip this run (``HYPERCI_QUALITY_SKIP``).
 
     RARE edge-case escape hatch. When a tool's false positive halts CI
-    -- a semgrep rule misfiring on a dependency, an audit advisory with
-    no fix yet -- set ``HYPERCI_QUALITY_SKIP=semgrep`` (comma-separated
+    - a semgrep rule misfiring on a dependency, an audit advisory with
+    no fix yet - set ``HYPERCI_QUALITY_SKIP=semgrep`` (comma-separated
     for several) on the blocked runs to skip that tool WITHOUT a config
     commit, then remove it once the real fix (a rule ignore / version
     bump) lands. This is deliberately an env override, not a config knob:
@@ -74,7 +74,7 @@ def quality_skip() -> frozenset[str]:
 def is_skipped(tool: str) -> bool:
     """Return True if ``tool`` is force-skipped, surfacing it loudly.
 
-    A force-skip is an emergency override that must NOT pass unnoticed --
+    A force-skip is an emergency override that must NOT pass unnoticed -
     especially for a security scanner like gitleaks. In CI it emits a
     real GitHub ``::warning::`` annotation (which escapes the collapsed
     log group and lands in the run summary), not just a logger line that
@@ -83,7 +83,7 @@ def is_skipped(tool: str) -> bool:
     if tool.lower() not in quality_skip():
         return False
     msg = (
-        f"{tool}: FORCE-SKIPPED via HYPERCI_QUALITY_SKIP -- rare edge-case "
+        f"{tool}: FORCE-SKIPPED via HYPERCI_QUALITY_SKIP - rare edge-case "
         f"override; remove it once the false positive is fixed"
     )
     warn(f"  {msg}")
@@ -96,7 +96,7 @@ def resolve_tool_mode(tool: str, config: CIConfig, language: str) -> str:
     """Resolve a quality tool's mode: ``blocking``, ``warn`` or ``disabled``.
 
     Reads ``quality.<language>.<tool>`` from config (default
-    ``blocking``). A force-skip (:func:`is_skipped`) wins -- the tool is
+    ``blocking``). A force-skip (:func:`is_skipped`) wins - the tool is
     ``disabled`` for this run. Otherwise, under strict mode
     (:func:`strict_quality`) a ``warn`` tool is upgraded to ``blocking``;
     ``disabled`` is left untouched.

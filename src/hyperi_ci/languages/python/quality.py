@@ -107,7 +107,7 @@ def _build_pip_audit_cmd(ignores: list[IgnoreEntry]) -> list[str]:
     pip-audit scans installed packages in the active Python env.
     We must ensure it sees the project's .venv, not ~/.venv or
     the system Python. Strategy:
-    - If uv is available: 'uv run --with pip-audit -- pip-audit'
+    - If uv is available: 'uv run --with pip-audit - pip-audit'
       installs pip-audit temporarily and scans the project's deps.
     - Fallback: bare 'pip-audit' (hopes the right venv is active).
 
@@ -139,7 +139,7 @@ def _run_tool(
     resolved = _resolve_tool_cmd(cmd, use_uvx=use_uvx, use_uv_with=use_uv_with)
     if resolved == cmd and not shutil.which(cmd[0]):
         # A missing tool fails the gate only in CI, where every tool MUST
-        # be present -- a silent skip would mask a coverage gap. Locally it
+        # be present - a silent skip would mask a coverage gap. Locally it
         # is an environment gap, not a quality finding: warn and carry on
         # so `hyperi-ci check` still runs whatever IS installed (matches
         # the gitleaks stage's local-vs-CI handling).
