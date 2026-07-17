@@ -330,7 +330,8 @@ detail - tiers, cache, dep-install SSOT, cross-compile (dormant):
 ```
 .github/
   workflows/   ci.yml (self-host) · {python,rust,ts,go}-ci.yml · _release-tail.yml
-  actions/     predict-version · setup-runtime · setup-osv-scanner · setup-semantic-release
+  actions/     predict-version · setup-runtime · setup-semantic-release
+               setup-osv-scanner · setup-go-tools · setup-rust-tools   (pinned tool installs)
 src/hyperi_ci/
   cli.py · dispatch.py · detect.py · config.py · common.py · stamp.py · init.py
   container/   stage · labels · templates · manifest · compose · build

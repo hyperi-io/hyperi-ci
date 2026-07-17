@@ -19,7 +19,10 @@ inputs:
   version:
     description: osv-scanner release tag to pin
     required: false
-    default: v2.3.8
+    # Mirrors `tools.osv-scanner` in config/versions.yaml - the SSoT. Kept in
+    # step by scripts/update-versions.py --fix; do not hand-edit.
+    # hyperi-ci:pin tools.osv-scanner
+    default: v2.4.0
 
 runs:
   using: composite

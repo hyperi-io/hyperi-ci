@@ -257,21 +257,23 @@ jobs:
         if: ${{ !contains(runner.name, 'arc-runner') }}
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
+          # NOT ~/.cargo/bin/ in THIS job: it only ever held cargo-audit /
+          # cargo-deny, which now arrive pinned from setup-rust-tools into
+          # ~/.local/bin. Restoring a pre-migration entry puts STALE tool
+          # binaries back on PATH (observed: a cached cargo-audit 0.18.3 under a
+          # v0.22.2 pin). The key hashes Cargo.lock, so a repo with a stable
+          # lockfile would keep that entry warm indefinitely. setup-rust-tools
+          # already wins via a GITHUB_PATH prepend; dropping the dir removes the
+          # ambiguity rather than relying on PATH order alone.
           path: |
-            ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Install cargo tools
-        # NB: no `|| true` — fail the job if cargo-audit/cargo-deny
-        # can't be installed. Quality stage runs them and silent absence
-        # would mask supply-chain risks.
-        run: |
-          command -v cargo-audit || cargo install --locked cargo-audit
-          command -v cargo-deny || cargo install --locked cargo-deny
+      - name: Setup Rust tools
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-rust-tools@main
 
       - name: Setup osv-scanner
         uses: hyperi-io/hyperi-ci/.github/actions/setup-osv-scanner@main

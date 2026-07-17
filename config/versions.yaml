@@ -63,6 +63,96 @@ actions:
     version: v1.0.16
     sha: cd0cdb900b5dbf3a6f2cc869f0dbb0b8211f50c4
 
+# External CLI tools hyperi-ci installs at CI time.
+#
+# Same 7-day cooldown as actions above, and the same "a breaking bump is a
+# human edit" rule - but the clamp follows semver's COMPATIBILITY axis, which
+# is not always the major (see _compat_clamp):
+#   1.x+  clamp the major   - gitleaks v8 -> v9 never auto-lands. That is
+#         precisely the breaking-CLI case that produced #64 (`detect` removed).
+#   0.x   clamp major AND minor - under semver §4, 0.20 -> 0.21 is itself a
+#         breaking bump. cargo-deny (0.20.2) and cargo-audit (v0.22.2) are 0.x,
+#         so clamping only the major there would wave through the breaking axis
+#         while blocking the safe 1.0.0 move.
+#
+# `pin:` names the file that MIRRORS this version, because these tools are
+# consumed from Python / composite-action source rather than a `uses:` line.
+# config/ ships OUTSIDE the wheel (pyproject: packages = ["src/hyperi_ci"]), so
+# runtime code cannot read this file - the value is COPIED into the source, and
+# `update-versions.py --fix` (pre-commit) fails if the copy drifts. Mark the
+# mirrored line with `# hyperi-ci:pin tools.<name>` so the rewrite is anchored
+# to an explicit marker rather than a guessed regex.
+#
+# KNOWN GAP - these are pinned by TAG, which does not yet satisfy the "SHA over
+# tag" hard rule in docs/dependencies/deps-pinning.md. A git tag cannot be
+# force-moved into our download path (we fetch a release ASSET, not a ref), but
+# an asset CAN be deleted and re-uploaded under the same tag, and no install
+# path here verifies a digest today. Tracked in #66; the fix is a `sha256:` per
+# asset pinned here and verified at download.
+tools:
+  gitleaks:
+    version: v8.30.1
+    repo: gitleaks/gitleaks
+    pin: src/hyperi_ci/quality/gitleaks.py
+  osv-scanner:
+    version: v2.4.0
+    repo: google/osv-scanner
+    pin: .github/actions/setup-osv-scanner/action.yml
+  golangci-lint:
+    version: v2.12.2
+    repo: golangci/golangci-lint
+    pin: .github/actions/setup-go-tools/action.yml
+  # NOT v2.28.0: published 2026-07-14, still inside the 7-day cooldown. The
+  # cooldown applies to our own pins too, not just to what --auto-update picks.
+  gosec:
+    version: v2.27.1
+    repo: securego/gosec
+    pin: .github/actions/setup-go-tools/action.yml
+  # No prebuilt binaries upstream (golang/vuln releases carry no assets), so
+  # this one is still `go install` - but pinned, not @latest. Small pure-Go
+  # module, so the compile costs seconds.
+  govulncheck:
+    version: v1.1.4
+    repo: golang/vuln
+    pin: .github/actions/setup-go-tools/action.yml
+  # rustsec is a MONOREPO: every crate tags as `<crate>/vX.Y.Z`, so without
+  # tag_prefix the release scan sees `platforms/v4.0.0` et al and either picks
+  # the wrong crate or (because the tag is not bare semver) silently finds
+  # nothing at all.
+  cargo-audit:
+    version: v0.22.2
+    repo: rustsec/rustsec
+    tag_prefix: cargo-audit/
+    pin: .github/actions/setup-rust-tools/action.yml
+  # Upstream tags have NO leading `v` - keep it that way, the download URL is
+  # built from this string verbatim.
+  cargo-deny:
+    version: 0.20.2
+    repo: EmbarkStudios/cargo-deny
+    pin: .github/actions/setup-rust-tools/action.yml
+  # Used inside the generated cargo-chef Dockerfile (container/compose.py), not
+  # a workflow - the pin marker works the same in Python source.
+  cargo-chef:
+    version: v0.1.77
+    repo: LukeMathWalker/cargo-chef
+    pin: src/hyperi_ci/container/compose.py
+
+# Upstream capabilities we WANT but that are not ready yet.
+#
+# `--latest` prints these on every run, so the decision resurfaces at each
+# dependency update instead of living in someone's memory. Each entry names the
+# gate that would let it land - something checkable, not a vibe.
+watch:
+  uv-audit:
+    what: replace pip-audit with `uv audit` (astral stack consolidation)
+    blocked_by: >-
+      experimental as of uv 0.11.29 (latest, 2026-07-15) - the command warns
+      "may change without warning" and is gated behind
+      `--preview-features audit-command`. pip-audit is a BLOCKING gate in 14
+      repos; it does not ride on a preview command.
+    gate: "`uv audit` runs with no experimental warning and no --preview-features"
+    issue: 68
+
 # Language runtimes (default versions in workflow inputs)
 runtimes:
   python: "3.12"

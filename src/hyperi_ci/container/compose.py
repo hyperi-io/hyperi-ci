@@ -42,11 +42,77 @@ def compose_contract_dockerfile(
     return "\n".join(sections)
 
 
+# Mirrors `tools.cargo-chef` in config/versions.yaml - the SSoT.
+# hyperi-ci:pin tools.cargo-chef
+_CARGO_CHEF_VERSION = "v0.1.77"
+
+
+# rustup channel names. Docker Hub's `rust` image publishes NO tag for any of
+# them (`rust:stable-slim`, `rust:nightly-slim`, `rust:beta-slim` all 404) -
+# only `slim`, `1-slim`, `1.97-slim`. `_detect_rust_version()` returns the
+# `channel` from rust-toolchain.toml verbatim, so every one of these is
+# reachable, and the ARC image installs nightly, so it is a live configuration.
+_RUST_CHANNELS = ("stable", "beta", "nightly")
+
+
+def _rust_slim_tag(rust_version: str) -> str:
+    """Map a toolchain channel or version to a REAL `rust` image tag.
+
+    `slim` means current stable, so a `stable` channel maps cleanly. `beta` /
+    `nightly` (and dated nightlies like `nightly-2026-01-01`) have NO image at
+    all: they build on the stable image and are switched with `rustup`, which
+    _chef_stage emits. Returning `<channel>-slim` for them would reproduce the
+    exact unresolvable-image failure this function exists to prevent - the bug
+    was never about the word "stable", it was about channels not being tags.
+    """
+    if not rust_version or rust_version in ("latest", *_RUST_CHANNELS):
+        return "slim"
+    if rust_version.startswith(_RUST_CHANNELS):  # e.g. nightly-2026-01-01
+        return "slim"
+    return f"{rust_version}-slim"
+
+
+def _rust_channel_switch(rust_version: str) -> str:
+    """`rustup default` line when the toolchain is a non-stable channel, else "".
+
+    The image is always the stable one (see _rust_slim_tag), so a repo pinning
+    `nightly` needs rustup pointed at it explicitly or the build silently uses
+    stable - which would be a WRONG build, not a failed one.
+    """
+    if rust_version.startswith(("beta", "nightly")):
+        return f"RUN rustup toolchain install {rust_version} && rustup default {rust_version}\n"
+    return ""
+
+
 def _chef_stage(rust_version: str) -> str:
+    # cargo-chef ships a prebuilt musl-static binary, so fetch it instead of
+    # compiling it into every container build that misses the layer cache.
+    # Measured on this stage alone, `docker build --no-cache`: 24.6s compiling
+    # vs 3.6s fetching (dev laptop; a 4GB CI runner is slower at the compile
+    # and no faster at the download).
+    #
+    # rust:slim carries tar but NOT curl or xz, and Docker's ADD does not
+    # auto-extract a REMOTE archive - hence the explicit apt step.
+    # uname -m (not TARGETARCH) because ADD/ARG cannot do the arch mapping and
+    # this RUN executes on the target platform under buildx.
     return f"""\
-FROM rust:{rust_version}-slim AS chef
-RUN cargo install cargo-chef
-WORKDIR /app"""
+FROM rust:{_rust_slim_tag(rust_version)} AS chef
+ARG CARGO_CHEF_VERSION={_CARGO_CHEF_VERSION}
+RUN set -eux; \\
+    apt-get update; \\
+    apt-get install -y --no-install-recommends curl xz-utils ca-certificates; \\
+    rm -rf /var/lib/apt/lists/*; \\
+    case "$(uname -m)" in \\
+      x86_64)  chef_target=x86_64-unknown-linux-musl ;; \\
+      aarch64) chef_target=aarch64-unknown-linux-musl ;; \\
+      *) echo "unsupported arch $(uname -m) for cargo-chef" >&2; exit 1 ;; \\
+    esac; \\
+    curl -sSfL \\
+      "https://github.com/LukeMathWalker/cargo-chef/releases/download/${{CARGO_CHEF_VERSION}}/cargo-chef-${{chef_target}}.tar.xz" \\
+      | tar -xJ -C "$CARGO_HOME/bin" --strip-components=1 \\
+        "cargo-chef-${{chef_target}}/cargo-chef"; \\
+    cargo chef --version
+{_rust_channel_switch(rust_version)}WORKDIR /app"""
 
 
 def _planner_stage() -> str:

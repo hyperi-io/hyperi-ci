@@ -229,13 +229,8 @@ jobs:
         with:
           go-version-file: ${{ inputs.go-version-file }}
 
-      - name: Install Go quality tools
-        # No `|| true` — quality stage runs these and silent absence
-        # would mask supply-chain risks.
-        run: |
-          command -v golangci-lint || go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-          command -v gosec || go install github.com/securego/gosec/v2/cmd/gosec@latest
-          command -v govulncheck || go install golang.org/x/vuln/cmd/govulncheck@latest
+      - name: Setup Go tools
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-go-tools@main
 
       - name: Install uv
         if: ${{ !contains(runner.name, 'arc-runner') }}

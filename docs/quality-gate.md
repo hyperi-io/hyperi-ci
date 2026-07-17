@@ -47,6 +47,11 @@ is identical everywhere.
 | `warn` | A finding prints but does not fail |
 | `disabled` | The tool does not run |
 
+A tool may also fail the stage with **zero findings** when the tool itself
+cannot do its job - a `blocking` scanner that is not actually scanning is not a
+pass. Today that means gitleaks with a rule-less config (below); the mode still
+governs severity, so `warn` downgrades it to a warning.
+
 Set per project in `.hyperi-ci.yaml` under `quality.<lang>.<tool>` (or
 `quality.<tool>` for the cross-language `gitleaks` / `semgrep`); defaults live in
 `src/hyperi_ci/config/defaults.yaml`.
@@ -67,6 +72,42 @@ Set per project in `.hyperi-ci.yaml` under `quality.<lang>.<tool>` (or
 semgrep and gitleaks moved to the dispatch level because their rulesets are
 language-agnostic - running them once avoids the drift where only one handler
 passed shared excludes.
+
+### gitleaks config
+
+If your repo has a `.gitleaks.toml` (or `ci/.gitleaks.toml`), hyperi-ci passes
+it with `--config`. **It must name a source of rules**, or gitleaks scans every
+byte, matches nothing, and reports "no leaks found" - a green gate that checked
+nothing. That is not hypothetical; it is what issue #64 turned out to be.
+
+A config with allowlists but no `[[rules]]` and no `[extend]` **replaces** the
+default ruleset with an empty one rather than narrowing it:
+
+```toml
+# BLIND - allowlist only, no rules, no extend. Every scan passes.
+[[allowlists]]
+paths = ['''testdata/''']
+```
+
+```toml
+# CORRECT - keep the default rules, then narrow them.
+[extend]
+useDefault = true
+
+[[allowlists]]
+paths = ['''testdata/''']
+```
+
+hyperi-ci refuses to report success from a rule-less scan: `blocking` fails the
+stage, `warn` warns. This check only inspects where the rules come FROM - it
+cannot tell you a `[allowlist] paths = ['''.*''']` has neutered an otherwise
+valid ruleset (tracked in #67), so a green gitleaks stage is not proof the
+config is sane.
+
+`GITLEAKS_CONFIG` / `GITLEAKS_CONFIG_TOML` are honoured by gitleaks itself. A
+repo config passed via `--config` beats them, but with no repo config they take
+over silently - so hyperi-ci warns when one is set and there is nothing to
+override it. Prefer a committed `.gitleaks.toml`: it gets reviewed.
 
 ## --strict - a zero-warnings pre-push gate
 

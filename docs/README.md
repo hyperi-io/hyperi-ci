@@ -41,7 +41,7 @@ flowchart TB
         T["job: test"]
         B["job: build (matrix)"]
         RT["_release-tail.yml<br/>container → tag → publish"]
-        COMP["composites:<br/>predict-version · setup-runtime<br/>setup-osv-scanner · setup-semantic-release"]
+        COMP["composites:<br/>predict-version · setup-runtime · setup-semantic-release<br/>setup-osv-scanner · setup-go-tools · setup-rust-tools"]
     end
 
     subgraph CLI["hyperi-ci CLI — the work"]

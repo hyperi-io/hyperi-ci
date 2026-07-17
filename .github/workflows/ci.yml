@@ -143,6 +143,18 @@ jobs:
         # release - a consumer pinned to an older caller would fail at startup.
         run: uv run --no-sources python scripts/check-workflow-interfaces.py
 
+      - name: Version SSOT gate
+        # config/versions.yaml is the SSOT for pinned actions AND external CLI
+        # tools, but until now NOTHING enforced it in CI: the only wired caller
+        # was a .git/hooks/pre-commit symlink, which a fresh clone (and every
+        # runner) simply does not have. That is how the gitleaks pin sat 9
+        # versions stale while every gate stayed green.
+        #
+        # Offline: --check only reads local files, so no API calls, no cooldown
+        # logic, no flakiness. It fails on drifted pins, on a missing
+        # `# hyperi-ci:pin` marker, and on a `pin:` path that does not exist.
+        run: uv run --no-sources python scripts/update-versions.py --check
+
   test:
     name: Test
     runs-on: ${{ matrix.os }}

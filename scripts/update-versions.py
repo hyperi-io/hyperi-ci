@@ -72,10 +72,121 @@ _ACTION_OWNERS: dict[str, str] = {
 }
 
 
+# Marker that anchors a mirrored tool pin, e.g.
+#
+#     # hyperi-ci:pin tools.gitleaks
+#     _GITLEAKS_VERSION = "v8.30.1"
+#
+#     # hyperi-ci:pin tools.osv-scanner
+#     default: v2.4.0
+#
+# One explicit marker beats a per-tool regex guessing at each file's shape: it
+# reads the same in Python and YAML, survives the line being reworded, and lets
+# several tools share one file without a `default:` pattern rewriting all of
+# them to the same version. An unmarked pin is REPORTED, never silently missed.
+_PIN_MARKER = r"#\s*hyperi-ci:pin\s+tools\.{name}\s*\n"
+
+# Tag on problems that --apply CANNOT repair (it has nothing to anchor a rewrite
+# to). Callers test for this literal instead of pattern-matching prose, so the
+# advice cannot silently rot when a message is reworded.
+_UNFIXABLE = "NOT-AUTO-FIXABLE"
+
+
+def _tool_pin_pattern(name: str) -> re.Pattern[str]:
+    """Match the version token on the line following this tool's pin marker.
+
+    Requires a `=` or `:` (with optional opening quote) between the marker and
+    the version, so a digit inside an identifier - `_SHA256 = ...` - can't be
+    mistaken for the version.
+    """
+    marker = _PIN_MARKER.format(name=re.escape(name))
+    return re.compile(rf'({marker}[^\n]*?[=:]\s*"?)(v?\d[\w.+-]*)')
+
+
 def _load_versions() -> dict[str, Any]:
     """Load the versions SSOT file."""
-    with open(_VERSIONS_FILE) as f:
+    # Explicit encoding per the project rule: the default follows the locale,
+    # and this file DOES contain non-ASCII (the licence header em-dashes).
+    with open(_VERSIONS_FILE, encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+
+def _tool_pins(
+    versions: dict,
+) -> tuple[list[tuple[Path, re.Pattern[str], str, str]], list[str]]:
+    """Resolve `tools:` to ([(path, pattern, wanted version, name)], problems).
+
+    External CLI tools are consumed from Python / composite-action source
+    rather than a `uses:` line, so each pin is rewritten only in the one file
+    its `pin:` key names.
+
+    A malformed entry is RETURNED AS A REASON, never merely warned about and
+    never reduced to a bare count. Two reasons:
+      - warn-and-continue dropped the tool out of every downstream check, so
+        renaming a pin file without updating `pin:` left the gate green while
+        the pin stopped being enforced;
+      - a count cannot tell a caller WHICH failure it was, so --check could not
+        tell "run --apply" (fixable drift) apart from "fix this by hand"
+        (a broken path), and sent everyone to a command that cannot help.
+    """
+    out: list[tuple[Path, re.Pattern[str], str, str]] = []
+    problems: list[str] = []
+    for name, spec in (versions.get("tools") or {}).items():
+        if not isinstance(spec, dict):
+            problems.append(f"  tools.{name}: not a mapping [{_UNFIXABLE}]")
+            continue
+        version, pin = spec.get("version"), spec.get("pin")
+        if not version or not pin:
+            problems.append(
+                f"  tools.{name}: needs both `version:` and `pin:` [{_UNFIXABLE}]"
+            )
+            continue
+        path = _ROOT / pin
+        if not path.is_file():
+            problems.append(
+                f"  tools.{name}: `pin:` file does not exist: {pin} [{_UNFIXABLE}]"
+            )
+            continue
+        out.append((path, _tool_pin_pattern(name), str(version), name))
+    return out, problems
+
+
+def _pin_replacement(version: str) -> str:
+    """Build the re.sub replacement that swaps in `version`, keeping the prefix.
+
+    This is a REPLACEMENT, not a pattern: only a backslash is special here, so
+    re.escape would be the wrong tool (it would insert a literal `v2\\.4\\.0`).
+    """
+    return r"\g<1>" + version.replace("\\", "\\\\")
+
+
+def _tool_mismatches(versions: dict) -> list[str]:
+    """Report tool pins that disagree with the SSOT, or that we can't find.
+
+    A pattern matching NOTHING is reported, not ignored: silently rewriting
+    zero lines is how a pin drifts for nine months while the check stays green.
+    """
+    pins, problems = _tool_pins(versions)
+    for path, pattern, version, name in pins:
+        content = path.read_text(encoding="utf-8")
+        rel_path = path.relative_to(_ROOT)
+        matches = list(pattern.finditer(content))
+        if not matches:
+            problems.append(
+                f"  {rel_path}: no `# hyperi-ci:pin tools.{name}` marker found - "
+                f"{name} is no longer being kept in step [{_UNFIXABLE}]"
+            )
+            continue
+        for match in matches:
+            # Report the version TOKEN, not the whole match: the match spans the
+            # marker line, so echoing it prints a multi-line mess and points the
+            # line number at the marker rather than the pin.
+            if match.group(2) != version:
+                line_num = content[: match.start(2)].count("\n") + 1
+                problems.append(
+                    f"  {rel_path}:{line_num}: {name} {match.group(2)} → {version}"
+                )
+    return problems
 
 
 def _find_workflow_files() -> list[Path]:
@@ -109,6 +220,7 @@ def _select_pinned_release(
     now: datetime,
     cooldown_days: int = _COOLDOWN_DAYS,
     major: int | None = None,
+    minor: int | None = None,
 ) -> dict[str, Any] | None:
     """Pick the highest-semver release that has aged past the cooldown.
 
@@ -117,8 +229,9 @@ def _select_pinned_release(
     by publish date picks the wrong one. Skips drafts, prereleases,
     non-semver tags, and — timestamp-required posture — anything without a
     `published_at`. With `major` set, stays within that major so a surprise
-    major bump never auto-lands (those are a deliberate edit). Returns the
-    chosen release dict or None.
+    major bump never auto-lands (those are a deliberate edit). With `minor`
+    set, also stays within that minor — see _compat_clamp for why 0.x needs it.
+    Returns the chosen release dict or None.
     """
     cutoff = now - timedelta(days=cooldown_days)
     best: dict[str, Any] | None = None
@@ -136,9 +249,31 @@ def _select_pinned_release(
             continue
         if major is not None and ver[0] != major:
             continue
+        if minor is not None and ver[1] != minor:
+            continue
         if best_ver is None or ver > best_ver:
             best_ver, best = ver, rel
     return best
+
+
+def _compat_clamp(version: str) -> tuple[int | None, int | None]:
+    """Return the (major, minor) clamp that keeps an auto-bump compatible.
+
+    For 1.0.0+ the major is the compatibility axis, so clamping the major is
+    enough. For **0.x the MINOR is the compatibility axis** (semver §4: anything
+    may change at any time; 0.20 -> 0.21 is a breaking bump), so clamping only
+    the major there is exactly backwards - it BLOCKS the safe 0.20.2 -> 1.0.0
+    move while WAVING THROUGH the breaking 0.20 -> 0.21 one.
+
+    cargo-deny (0.20.2) and cargo-audit (v0.22.2) are both 0.x, so this is live,
+    not theoretical.
+    """
+    parsed = _parse_semver(version)
+    if parsed is None:
+        return None, None
+    if parsed[0] == 0:
+        return 0, parsed[1]
+    return parsed[0], None
 
 
 def _gh_json(path: str) -> Any:
@@ -319,10 +454,10 @@ def _check(versions: dict) -> int:
     mismatches = 0
 
     for wf_file in files:
-        content = wf_file.read_text()
+        content = wf_file.read_text(encoding="utf-8")
         rel_path = wf_file.relative_to(_ROOT)
 
-        for pattern, replacement, description in replacements:
+        for pattern, replacement, _description in replacements:
             for match in pattern.finditer(content):
                 expected = pattern.sub(replacement, match.group(0))
                 if match.group(0) != expected:
@@ -330,68 +465,128 @@ def _check(versions: dict) -> int:
                     print(f"  {rel_path}:{line_num}: {match.group(0)} → {expected}")
                     mismatches += 1
 
+    tool_problems = _tool_mismatches(versions)
+    for problem in tool_problems:
+        print(problem)
+    mismatches += len(tool_problems)
+
     if mismatches == 0:
-        print("All workflow files match versions.yaml")
+        print("All workflow files and tool pins match versions.yaml")
+        return 0
+
+    print(f"\n{mismatches} mismatch(es) found.")
+    # Don't blanket-advise --apply: a drifted VERSION is auto-fixable, but a
+    # missing marker or a broken `pin:` path is not - --apply has nothing to
+    # anchor the rewrite to. Sending someone to a command that cannot help is
+    # how a real problem gets mistaken for a flaky tool.
+    #
+    # Keyed off _UNFIXABLE, not off prose: the first cut matched substrings that
+    # `_tool_pins` never actually emitted downstream, so the branch was dead and
+    # every malformed entry got the "run --apply" advice this comment exists to
+    # prevent. A marker in the data beats pattern-matching your own messages.
+    if any(_UNFIXABLE in p for p in tool_problems):
+        print("  Version drift: run --apply.")
+        print("  Anything marked NOT-AUTO-FIXABLE: fix by hand, --apply cannot.")
     else:
-        print(f"\n{mismatches} mismatch(es) found. Run --apply to fix.")
-    return 1 if mismatches else 0
+        print("  Run --apply to fix.")
+    return 1
+
+
+def _rewrite_to_ssot(versions: dict, *, verb: str) -> tuple[int, int]:
+    """Rewrite every action ref AND tool pin to match the SSOT.
+
+    Returns (lines_changed, unenforceable) - the second being pins the SSOT
+    declares but that could NOT be rewritten (marker gone, `pin:` file missing).
+    That count is NOT cosmetic: an unenforceable pin is a pin nobody is holding,
+    which is the whole failure this design exists to prevent. Callers must treat
+    it as failure, not as a warning they scroll past.
+
+    ONE rewrite path, shared by --apply and --fix. They previously carried
+    near-identical copies of the workflow loop, which is how --fix (the
+    pre-commit hook, i.e. the thing that actually ENFORCES the SSOT) ended up
+    without the tool-pin half.
+    """
+    replacements = _build_replacements(versions)
+    total_changes = 0
+
+    def _write(path: Path, before: str, after: str) -> int:
+        if after == before:
+            return 0
+        path.write_text(after, encoding="utf-8", newline="\n")
+        changed = sum(
+            1 for a, b in zip(before.splitlines(), after.splitlines()) if a != b
+        )
+        print(f"  {verb} {path.relative_to(_ROOT)} ({changed} line(s))")
+        return changed
+
+    for wf_file in _find_workflow_files():
+        original = wf_file.read_text(encoding="utf-8")
+        content = original
+        for pattern, replacement, _description in replacements:
+            content = pattern.sub(replacement, content)
+        total_changes += _write(wf_file, original, content)
+
+    pins, problems = _tool_pins(versions)
+    unenforceable = len(problems)
+    for problem in problems:
+        print(f"  error:{problem.lstrip()}")
+    for path, pattern, version, name in pins:
+        original = path.read_text(encoding="utf-8")
+        if not pattern.search(original):
+            print(
+                f"  error: {path.relative_to(_ROOT)}: no `# hyperi-ci:pin"
+                f" tools.{name}` marker found - {name} is not being kept in step"
+            )
+            unenforceable += 1
+            continue
+        total_changes += _write(
+            path, original, pattern.sub(_pin_replacement(version), original)
+        )
+
+    return total_changes, unenforceable
+
+
+def _report_unenforceable(count: int) -> None:
+    """Explain why an unenforceable pin is a hard failure, not a nag."""
+    print(
+        f"\n{count} tool pin(s) in config/versions.yaml cannot be enforced.\n"
+        "  Nothing is holding those versions: they will drift silently, which is\n"
+        "  exactly how the gitleaks pin sat 9 versions stale.\n"
+        "  fix: restore the `# hyperi-ci:pin tools.<name>` marker above the line\n"
+        "       carrying the version, or correct the entry's `pin:` path."
+    )
 
 
 def _apply(versions: dict) -> int:
-    """Update workflow files to match SSOT."""
-    replacements = _build_replacements(versions)
-    files = _find_workflow_files()
-    total_changes = 0
-
-    for wf_file in files:
-        content = wf_file.read_text()
-        original = content
-        rel_path = wf_file.relative_to(_ROOT)
-
-        for pattern, replacement, description in replacements:
-            content = pattern.sub(replacement, content)
-
-        if content != original:
-            wf_file.write_text(content)
-            changes = sum(
-                1 for a, b in zip(original.splitlines(), content.splitlines()) if a != b
-            )
-            print(f"  Updated {rel_path} ({changes} line(s))")
-            total_changes += changes
-
+    """Update workflows, composites and tool pins to match SSOT."""
+    total_changes, unenforceable = _rewrite_to_ssot(versions, verb="Updated")
     if total_changes == 0:
         print("No changes needed — all files match versions.yaml")
     else:
         print(f"\nApplied {total_changes} change(s)")
+    if unenforceable:
+        # --apply is the "make it so" verb, so it still rewrites what it can -
+        # but it must not exit 0 and imply the SSOT is now honoured.
+        _report_unenforceable(unenforceable)
+        return 1
     return 0
 
 
 def _fix(versions: dict) -> int:
     """Apply fixes and return 1 if changes were needed (pre-commit hook mode).
 
-    Unlike --apply (always returns 0), --fix returns 1 when files were
-    modified. This tells the pre-commit framework to re-stage and retry.
+    Unlike --apply, --fix returns 1 when files were modified. This tells the
+    pre-commit framework to re-stage and retry.
+
+    It ALSO returns 1 for an unenforceable pin, which --fix cannot repair by
+    rewriting. --check and --fix must agree: --check is not wired into CI
+    anywhere, so this hook is the ONLY automated gate - if it waves through a
+    deleted marker, nothing else catches it.
     """
-    replacements = _build_replacements(versions)
-    files = _find_workflow_files()
-    total_changes = 0
-
-    for wf_file in files:
-        content = wf_file.read_text()
-        original = content
-        rel_path = wf_file.relative_to(_ROOT)
-
-        for pattern, replacement, description in replacements:
-            content = pattern.sub(replacement, content)
-
-        if content != original:
-            wf_file.write_text(content)
-            changes = sum(
-                1 for a, b in zip(original.splitlines(), content.splitlines()) if a != b
-            )
-            print(f"  Fixed {rel_path} ({changes} line(s))")
-            total_changes += changes
-
+    total_changes, unenforceable = _rewrite_to_ssot(versions, verb="Fixed")
+    if unenforceable:
+        _report_unenforceable(unenforceable)
+        return 1
     if total_changes == 0:
         return 0
 
@@ -405,6 +600,7 @@ def _latest(versions: dict) -> int:
     """Check for newer versions available upstream via GitHub API."""
     actions = versions.get("actions", {})
     updates_available = 0
+    lookup_failures = 0
 
     print(f"Checking latest versions (>= {_COOLDOWN_DAYS}-day cooldown)...\n")
     now = datetime.now(UTC)
@@ -428,10 +624,43 @@ def _latest(versions: dict) -> int:
         else:
             print(f"  {owner_repo}: {cur_version} (up to date)")
 
+    tools = versions.get("tools") or {}
+    if tools:
+        print()
+    for name, spec in tools.items():
+        if not isinstance(spec, dict):
+            continue
+        cur_version, repo = spec.get("version"), spec.get("repo")
+        if not repo:
+            print(f"  {name}: {cur_version} (no `repo:` — cannot check)")
+            continue
+        # Resolve through the SAME helper --auto-update uses. Reporting and
+        # bumping must never drift apart: when this loop had its own copy of the
+        # resolution it missed tag_prefix, so cargo-audit read as "nothing aged
+        # past cooldown" while --auto-update saw it fine.
+        latest_tag, status = _latest_tool_release(spec, now)
+        # Name the TOOL, not the repo: rustsec/rustsec hosts four pinned crates,
+        # so "rustsec/rustsec: v0.22.2" is ambiguous.
+        label = f"{name} ({repo})" if str(spec.get("tag_prefix") or "") else repo
+        if status == "ok":
+            print(f"  {label}: {cur_version} → {latest_tag}")
+            updates_available += 1
+        elif status == "lookup-failed":
+            # Never render a failed lookup as "up to date" - that is a silent
+            # skip wearing a green hat.
+            print(f"  {label}: {cur_version} (COULD NOT CHECK — treat as unknown)")
+            lookup_failures += 1
+        elif status == "no-candidate":
+            print(f"  {label}: {cur_version} (nothing aged past cooldown)")
+        else:
+            print(f"  {label}: {cur_version} (up to date)")
+
     runtimes = versions.get("runtimes", {})
     print()
     for name, ver in runtimes.items():
         print(f"  {name}: {ver} (manual — check release notes)")
+
+    _report_watchlist(versions)
 
     sr = versions.get("semantic_release", {})
     sr_core = sr.get("core")
@@ -461,8 +690,15 @@ def _latest(versions: dict) -> int:
     if updates_available:
         print(f"\n{updates_available} update(s) available.")
         print("Edit config/versions.yaml then run --apply.")
-    else:
+    elif not lookup_failures:
         print("\nAll versions up to date.")
+    if lookup_failures:
+        # "All up to date" would be a lie when we could not reach upstream.
+        print(
+            f"\n{lookup_failures} tool(s) COULD NOT BE CHECKED (API error / rate"
+            " limit?) — their status is unknown, not current. Re-run before"
+            " trusting this report."
+        )
     return 0
 
 
@@ -504,7 +740,7 @@ def _validate_locally() -> list[str]:
 
     for wf_file in _find_workflow_files():
         try:
-            yaml.safe_load(wf_file.read_text())
+            yaml.safe_load(wf_file.read_text(encoding="utf-8"))
         except yaml.YAMLError as e:
             failures.append(f"YAML parse: {wf_file.relative_to(_ROOT)}: {e}")
     if failures:
@@ -557,6 +793,126 @@ def _set_action_spec_in_yaml(text: str, short_name: str, version: str, sha: str)
     return "".join(out)
 
 
+def _tool_releases(spec: dict, releases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Narrow a repo's releases to THIS tool's, with tags normalised to semver.
+
+    A monorepo (rustsec/rustsec) tags every crate as `<crate>/vX.Y.Z`, so an
+    unfiltered scan mixes crates together, and `_parse_semver` rejects the
+    prefixed tag outright - the tool would look permanently up to date while
+    actually being unmanaged. `tag_prefix` selects the right crate and strips
+    the prefix so the usual semver + cooldown logic applies unchanged.
+    """
+    prefix = str(spec.get("tag_prefix") or "")
+    if not prefix:
+        return releases
+    out: list[dict[str, Any]] = []
+    for rel in releases:
+        tag = str(rel.get("tag_name") or "")
+        if tag.startswith(prefix):
+            out.append({**rel, "tag_name": tag[len(prefix) :]})
+    return out
+
+
+def _report_watchlist(versions: dict) -> None:
+    """Print `watch:` - upstream capabilities we want but that are not ready.
+
+    Surfaced on every --latest run ON PURPOSE. A "revisit this when upstream
+    stabilises" decision that lives only in a code comment is a decision nobody
+    revisits; printing it at the moment someone is already updating deps is the
+    cheapest place to make it resurface.
+    """
+    watch = versions.get("watch") or {}
+    if not watch:
+        return
+    print("\nWatchlist — recheck these while you are updating deps:")
+    for name, spec in watch.items():
+        if not isinstance(spec, dict):
+            continue
+        issue = f" (#{spec['issue']})" if spec.get("issue") else ""
+        print(f"  {name}{issue}: {str(spec.get('what', '')).strip()}")
+        # blocked_by carries the REASON. Declaring it and never printing it is
+        # how a watchlist decays into a list of nags nobody can evaluate.
+        if spec.get("blocked_by"):
+            print(f"    blocked by: {' '.join(str(spec['blocked_by']).split())}")
+        if spec.get("gate"):
+            print(f"    ready when: {str(spec['gate']).strip()}")
+
+
+def _latest_tool_release(spec: dict, now: datetime) -> tuple[str | None, str]:
+    """Newest compatible release for a `tools:` entry, past cooldown.
+
+    Returns (tag_or_None, status) where status is one of `ok` (tag is a real
+    upgrade), `current`, `no-candidate` (nothing aged past the cooldown within
+    the compatibility clamp), or `lookup-failed`.
+
+    The status is NOT decoration. Collapsing all of these into a bare None made
+    --latest render an API failure as "(up to date)" - so a rate-limited `gh`
+    reported every tool green, which is the same silent-skip shape as a pin that
+    nobody enforces.
+    """
+    repo, cur_version = spec.get("repo"), spec.get("version")
+    if not repo or not cur_version:
+        return None, "lookup-failed"
+    releases = _gh_json(f"/repos/{repo}/releases?per_page=100")
+    if not isinstance(releases, list):
+        return None, "lookup-failed"
+    releases = _tool_releases(spec, releases)
+    cur = _parse_semver(str(cur_version))
+    clamp_major, clamp_minor = _compat_clamp(str(cur_version))
+    best = _select_pinned_release(releases, now, major=clamp_major, minor=clamp_minor)
+    if not best:
+        return None, "no-candidate"
+    tag = best.get("tag_name")
+    if not tag or tag == cur_version:
+        return None, "current"
+    # NEWER only, never merely different. `_select_pinned_release` returns the
+    # highest release PAST THE COOLDOWN, so pinning a release younger than that
+    # (which is itself a policy breach) makes the best aged candidate look like
+    # an "update" - and --auto-update would silently roll the tool BACKWARDS.
+    best_ver = _parse_semver(tag)
+    if cur and best_ver and best_ver <= cur:
+        return None, "current"
+    # Preserve the SSOT's own spelling: cargo-deny tags have no leading `v` and
+    # the download URL is built from this string verbatim, so re-adding one
+    # would 404.
+    if not str(cur_version).startswith("v") and tag.startswith("v"):
+        tag = tag[1:]
+    return tag, "ok"
+
+
+def _set_tool_version_in_yaml(text: str, name: str, version: str) -> str:
+    """Rewrite one tool's `version:` line inside the `tools:` block.
+
+    Block-scoped like _set_action_spec_in_yaml, and additionally anchored to
+    the `tools:` section: an action and a tool could share a short name, and
+    yaml.safe_dump would strip every comment in the file.
+    """
+    out: list[str] = []
+    in_tools = False
+    in_block = False
+    for line in text.splitlines(keepends=True):
+        if re.match(r"^tools:\s*$", line):
+            in_tools = True
+            out.append(line)
+            continue
+        if in_tools and re.match(r"^\S", line):  # next top-level key ends tools:
+            in_tools = False
+            in_block = False
+        if in_tools:
+            if re.match(rf"^  {re.escape(name)}:\s*$", line):
+                in_block = True
+                out.append(line)
+                continue
+            if in_block:
+                if re.match(r"^    version:\s", line):
+                    out.append(f"    version: {version}\n")
+                    continue
+                if re.match(r"^  \S", line):  # next tool entry
+                    in_block = False
+        out.append(line)
+    return "".join(out)
+
+
 def _auto_update(versions: dict) -> int:
     """Auto-update actions + semantic-release, validate locally, revert on fail.
 
@@ -592,48 +948,86 @@ def _auto_update(versions: dict) -> int:
             sr_update = (sr_core, latest_sr)
             print(f"  semantic-release: {sr_core} → {latest_sr}")
 
+    tool_updates: dict[str, str] = {}
+    for name, spec in (versions.get("tools") or {}).items():
+        if not isinstance(spec, dict):
+            continue
+        latest, status = _latest_tool_release(spec, now)
+        if status == "ok" and latest:
+            tool_updates[name] = latest
+            print(f"  {name}: {spec.get('version')} → {latest}")
+        elif status == "lookup-failed":
+            # Say so. A tool we could not reach is not a tool that is current.
+            print(f"  {name}: {spec.get('version')} (COULD NOT CHECK — skipped)")
+
     runtimes = versions.get("runtimes", {})
     for name in _AUTO_UPDATE_SKIP:
         if runtimes.get(name):
             print(f"  {name}: {runtimes[name]} (manual — skipped)")
 
-    if not action_updates and not sr_update:
+    if not action_updates and not sr_update and not tool_updates:
         print("\nNo auto-updates available.")
         return 0
 
-    total = len(action_updates) + (1 if sr_update else 0)
+    total = len(action_updates) + len(tool_updates) + (1 if sr_update else 0)
     print(f"\n{total} update(s) to apply.")
 
-    original_yaml = _VERSIONS_FILE.read_text()
-    original_workflows = {str(wf): wf.read_text() for wf in _find_workflow_files()}
+    original_yaml = _VERSIONS_FILE.read_text(encoding="utf-8")
+    # Snapshot the tool pin files too, not just the pipeline YAML: --apply
+    # rewrites the mirrored constants (e.g. gitleaks.py) as well, and a revert
+    # that skipped them would leave the SSOT and the source diverged - in the
+    # very path whose job is to restore safety.
+    original_files = {
+        str(p): p.read_text(encoding="utf-8")
+        for p in {*_find_workflow_files(), *(pin[0] for pin in _tool_pins(versions)[0])}
+    }
 
     yaml_content = original_yaml
     for short_name, spec in action_updates.items():
         yaml_content = _set_action_spec_in_yaml(
             yaml_content, short_name, spec["version"], spec["sha"]
         )
+    for tool_name, tool_version in tool_updates.items():
+        yaml_content = _set_tool_version_in_yaml(yaml_content, tool_name, tool_version)
     if sr_update:
         yaml_content = re.sub(
             r'(?m)^(  core:\s*")[^"]*(")', rf"\g<1>{sr_update[1]}\g<2>", yaml_content
         )
-    _VERSIONS_FILE.write_text(yaml_content)
+    _VERSIONS_FILE.write_text(yaml_content, encoding="utf-8", newline="\n")
 
-    print("\nApplying to pipeline files...")
-    _apply(_load_versions())
+    def _revert(reason: str) -> None:
+        print(f"\n{reason} Reverting all changes...")
+        _VERSIONS_FILE.write_text(original_yaml, encoding="utf-8", newline="\n")
+        for path_str, content in original_files.items():
+            Path(path_str).write_text(content, encoding="utf-8", newline="\n")
+        print("Reverted.")
 
-    print("\nValidating locally (YAML parse, SSOT sync, workflow pytest gates)...")
-    failures = _validate_locally()
+    # try/finally, not just an `if failures`: from here on versions.yaml is
+    # ALREADY mutated, so any throw - a corrupt bumped YAML failing to re-parse
+    # in _apply, a KeyboardInterrupt mid-validate - would otherwise leave the
+    # SSOT bumped, the pipeline half-rewritten, and no revert. The failure path
+    # of a "revert on failure" feature must not itself be the one that strands
+    # the repo.
+    reverted = False
+    try:
+        print("\nApplying to pipeline files...")
+        _apply(_load_versions())
 
-    if failures:
-        print(f"\n{len(failures)} local gate(s) failed:")
-        for f in failures:
-            print(f"  {f}")
-        print("\nReverting all changes...")
-        _VERSIONS_FILE.write_text(original_yaml)
-        for path_str, content in original_workflows.items():
-            Path(path_str).write_text(content)
-        print("Reverted. Fix the issues and try again.")
-        return 1
+        print("\nValidating locally (YAML parse, SSOT sync, workflow pytest gates)...")
+        failures = _validate_locally()
+
+        if failures:
+            print(f"\n{len(failures)} local gate(s) failed:")
+            for f in failures:
+                print(f"  {f}")
+            _revert("Local gates failed.")
+            reverted = True
+            print("Fix the issues and try again.")
+            return 1
+    except BaseException as exc:  # noqa: BLE001 - re-raised after reverting
+        if not reverted:
+            _revert(f"Aborted ({type(exc).__name__}: {exc}).")
+        raise
 
     print("\nLocal gates passed. Review and commit when ready.")
     return 0

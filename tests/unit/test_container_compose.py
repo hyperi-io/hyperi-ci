@@ -7,8 +7,48 @@
 
 from __future__ import annotations
 
-from hyperi_ci.container.compose import compose_contract_dockerfile
+import pytest
+
+from hyperi_ci.container.compose import (
+    _rust_channel_switch,
+    _rust_slim_tag,
+    compose_contract_dockerfile,
+)
 from hyperi_ci.container.manifest import ContainerManifest
+
+
+class TestRustSlimTag:
+    """Every generated `FROM rust:<tag>` must be a tag that EXISTS.
+
+    Docker Hub publishes no tag for any rustup CHANNEL - `rust:stable-slim`,
+    `rust:nightly-slim` and `rust:beta-slim` all 404 (verified with
+    `docker manifest inspect`). `_detect_rust_version()` returns the channel
+    from rust-toolchain.toml verbatim and falls back to "stable" when the file
+    is absent, so the unresolvable-image path was the DEFAULT one.
+    """
+
+    @pytest.mark.parametrize(
+        "channel", ["stable", "beta", "nightly", "nightly-2026-01-01", "", "latest"]
+    )
+    def test_channels_map_to_the_stable_slim_image(self, channel: str) -> None:
+        assert _rust_slim_tag(channel) == "slim"
+
+    @pytest.mark.parametrize(
+        ("version", "want"), [("1.90", "1.90-slim"), ("1", "1-slim")]
+    )
+    def test_concrete_versions_keep_their_tag(self, version: str, want: str) -> None:
+        assert _rust_slim_tag(version) == want
+
+    @pytest.mark.parametrize("channel", ["stable", "1.90", "", "latest"])
+    def test_no_rustup_switch_when_stable(self, channel: str) -> None:
+        assert _rust_channel_switch(channel) == ""
+
+    @pytest.mark.parametrize("channel", ["beta", "nightly", "nightly-2026-01-01"])
+    def test_non_stable_channels_switch_with_rustup(self, channel: str) -> None:
+        # The image is stable, so without this the build would silently compile
+        # on the WRONG toolchain - a wrong build, not a failed one.
+        line = _rust_channel_switch(channel)
+        assert f"rustup default {channel}" in line
 
 
 def _sample_manifest() -> ContainerManifest:
@@ -108,6 +148,11 @@ def test_compose_no_packages():
         entrypoint=["simple-app"],
     )
     result = compose_contract_dockerfile(manifest, rust_version="1.87")
-    assert "apt-get" not in result
     assert "FROM debian:bookworm-slim AS runtime" in result
     assert "COPY --from=builder" in result
+    # No declared packages -> the RUNTIME image installs nothing. Scoped to the
+    # runtime stage rather than the whole file: the chef BUILD stage legitimately
+    # apt-gets curl/xz to fetch the prebuilt cargo-chef binary, and that says
+    # nothing about what ships in the final image.
+    runtime_stage = result.split("AS runtime", 1)[1]
+    assert "apt-get" not in runtime_stage

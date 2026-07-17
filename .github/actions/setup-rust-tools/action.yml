@@ -1,0 +1,114 @@
+# Project:   HyperI CI
+# File:      .github/actions/setup-rust-tools/action.yml
+# Purpose:   Install the pinned Rust audit tools (cargo-audit, cargo-deny)
+#
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# These were `cargo install --locked cargo-audit` / `cargo-deny` inline in
+# rust-ci.yml: unpinned AND compiled from source. Both are substantial Rust
+# programs, so that was minutes of every Rust job spent rebuilding a linter that
+# upstream already ships as a static binary.
+#
+# NO `command -v` SHORT-CIRCUIT, DELIBERATELY.
+# The obvious "skip if already installed" guard makes the pin inert on BOTH
+# runner paths we actually use:
+#   - ARC (the org default for rust jobs - vars.GH_RUNNER_RUST =
+#     arc-runner-16cpu) BAKES `cargo install cargo-audit cargo-deny` into the
+#     image, unpinned, and puts /opt/rust/cargo/bin on PATH.
+#   - hosted runners restore `~/.cargo/bin` from the cargo cache, so a repo with
+#     a warm pre-migration entry keeps resolving its OLD binaries (measured: a
+#     cached cargo-audit 0.18.3 satisfying a v0.22.2 pin, exit 0, green).
+# Either way the download is skipped, the pin never lands, and versions.yaml
+# ends up asserting a cooldown and clamp that were never applied. Downloading
+# unconditionally costs seconds; GITHUB_PATH PREPENDS, so the pinned copy wins.
+#
+# Naming is inconsistent between the two upstreams, which is why this does not
+# collapse into one loop:
+#   cargo-audit  rustsec/rustsec, MONOREPO - tag `cargo-audit/vX.Y.Z`,
+#                asset `cargo-audit-<target>-vX.Y.Z.tgz`  (version LAST, .tgz)
+#                and aarch64 ships gnu only, no musl.
+#   cargo-deny   tag `X.Y.Z` with NO leading v,
+#                asset `cargo-deny-X.Y.Z-<target>.tar.gz` (version MIDDLE)
+# Both nest the binary one level down.
+#
+# Versions are pinned in config/versions.yaml (`tools:`) and mirrored here by
+# scripts/update-versions.py --fix. Do not hand-edit the marked lines.
+#
+# Referenced from reusable workflows as
+#   hyperi-io/hyperi-ci/.github/actions/setup-rust-tools@main
+
+name: Setup Rust tools
+description: Install the pinned cargo-audit and cargo-deny (Linux runners)
+
+inputs:
+  cargo-audit-version:
+    description: cargo-audit release tag to pin (upstream tags carry a `v`)
+    required: false
+    # hyperi-ci:pin tools.cargo-audit
+    default: v0.22.2
+  cargo-deny-version:
+    description: cargo-deny release tag to pin (upstream tags have NO `v`)
+    required: false
+    # hyperi-ci:pin tools.cargo-deny
+    default: 0.20.2
+
+runs:
+  using: composite
+  steps:
+    - name: Install Rust audit tools
+      # No `|| true`: the quality stage runs these and silent absence would mask
+      # supply-chain risks.
+      shell: bash
+      run: |
+        set -euo pipefail
+        case "$(uname -m)" in
+          x86_64)
+            AUDIT_TARGET=x86_64-unknown-linux-musl
+            DENY_TARGET=x86_64-unknown-linux-musl
+            ;;
+          aarch64 | arm64)
+            # cargo-audit publishes no aarch64 musl build, only gnu.
+            AUDIT_TARGET=aarch64-unknown-linux-gnu
+            DENY_TARGET=aarch64-unknown-linux-musl
+            ;;
+          *) echo "::error::unsupported arch $(uname -m) for Rust tools"; exit 1 ;;
+        esac
+        mkdir -p "$HOME/.local/bin"
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+        AUDIT="${{ inputs.cargo-audit-version }}"
+        # Monorepo tag: the `/` must be percent-encoded in the download URL.
+        curl -sSfL \
+          "https://github.com/rustsec/rustsec/releases/download/cargo-audit%2F${AUDIT}/cargo-audit-${AUDIT_TARGET}-${AUDIT}.tgz" \
+          | tar xz -C "$HOME/.local/bin" --strip-components=1 \
+            "cargo-audit-${AUDIT_TARGET}-${AUDIT}/cargo-audit"
+
+        DENY="${{ inputs.cargo-deny-version }}"
+        curl -sSfL \
+          "https://github.com/EmbarkStudios/cargo-deny/releases/download/${DENY}/cargo-deny-${DENY}-${DENY_TARGET}.tar.gz" \
+          | tar xz -C "$HOME/.local/bin" --strip-components=1 \
+            "cargo-deny-${DENY}-${DENY_TARGET}/cargo-deny"
+
+    - name: Verify Rust tools match the pin
+      # ASSERT, don't just print - see the note in setup-go-tools. Separate step
+      # so the install step's GITHUB_PATH prepend is live, which is what makes
+      # the pinned copy shadow a baked or cache-restored one.
+      shell: bash
+      env:
+        AUDIT_WANT: ${{ inputs.cargo-audit-version }}
+        DENY_WANT: ${{ inputs.cargo-deny-version }}
+      run: |
+        set -uo pipefail
+        fail=0
+        assert() {  # $1=tool  $2=want substring  $3=actual --version output
+          if printf '%s' "$3" | grep -qF -- "$2"; then
+            echo "ok   $1: $2"
+          else
+            echo "::error::$1: expected version $2, got: $3"
+            fail=1
+          fi
+        }
+        assert cargo-audit "${AUDIT_WANT#v}" "$(cargo-audit --version 2>&1)"
+        assert cargo-deny  "${DENY_WANT#v}"  "$(cargo-deny --version 2>&1)"
+        exit "$fail"

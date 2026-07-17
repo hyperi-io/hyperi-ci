@@ -47,22 +47,40 @@ _REGISTRY: dict[str, ToolInfo] = {
     "alint": ToolInfo(
         name="alint",
         purpose="profile-aware repo-hygiene advice (.gitignore / .editorconfig / lockfiles / ...)",
+        # Prebuilt binaries first. `cargo install` compiles alint from source
+        # (minutes); every option above it fetches a release artefact (seconds).
+        # upstream publishes musl-static + darwin tarballs with SHA256SUMS.
         install=(
-            "brew tap asamarts/alint && brew install alint",
-            "cargo install alint",
+            "brew install asamarts/alint/alint",
+            "curl -sSL https://raw.githubusercontent.com/asamarts/alint/main/install.sh | bash",
+            "cargo binstall alint",
+            "cargo install alint  # from source - slowest, last resort",
         ),
         url="https://github.com/asamarts/alint",
     ),
     "gitleaks": ToolInfo(
         name="gitleaks",
         purpose="secret scanning",
-        install=("brew install gitleaks",),
+        # brew is macOS-only, so give Linux a real answer too: upstream ships
+        # prebuilt binaries. Never `go install ...@latest` - unpinned and built
+        # from source.
+        install=(
+            "brew install gitleaks",
+            "download a release binary: https://github.com/gitleaks/gitleaks/releases/latest",
+        ),
         url="https://github.com/gitleaks/gitleaks#installing",
     ),
     "semgrep": ToolInfo(
         name="semgrep",
         purpose="SAST scanning",
-        install=("uvx semgrep --help", "pipx install semgrep", "brew install semgrep"),
+        # astral first: uv is already a hard dependency of every hyperi-ci
+        # project, so `uvx` / `uv tool` needs nothing new installed. pipx would
+        # be a second, redundant Python tool manager.
+        install=(
+            "uvx semgrep --help",
+            "uv tool install semgrep",
+            "brew install semgrep",
+        ),
         url="https://semgrep.dev/docs/getting-started/",
     ),
     "osv-scanner": ToolInfo(

@@ -20,10 +20,39 @@ REAL_SCRIPT="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || realpath "${BASH_S
 readonly SCRIPT_DIR="$(cd "$(dirname "${REAL_SCRIPT}")" && pwd)"
 readonly ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-# Only run if workflow files are staged
-staged_workflows=$(git diff --cached --name-only -- '.github/workflows/*.yml' '.github/workflows/*.yaml' 2>/dev/null || true)
+# Only run when something --fix can actually rewrite is staged. That is more
+# than the workflows: composite actions pin third-party actions too, and a tool
+# pin (`# hyperi-ci:pin tools.<name>`) can live in any file, e.g.
+# src/hyperi_ci/quality/gitleaks.py. Gating on workflows alone meant committing
+# ONLY a pin file skipped the hook entirely - the SSOT went unenforced for
+# exactly the files most likely to drift.
+staged_pipeline=$(git diff --cached --name-only -- \
+    '.github/workflows/*.yml' '.github/workflows/*.yaml' \
+    '.github/actions/**/action.yml' '.github/actions/**/action.yaml' \
+    'config/versions.yaml' 2>/dev/null || true)
 
-if [[ -z "${staged_workflows}" ]]; then
+# Pin files come from the SSOT's own `pin:` entries, NOT from grepping staged
+# files for the marker. Grepping for the marker is self-referential: delete the
+# marker and the gate stops looking at that file, so the one edit that silently
+# unpins a tool is the one edit the hook waves through. A `pin:` path is gated
+# whether or not its marker survives. (Line-grep, not a YAML parse: the hook
+# must stay cheap enough to run on every commit.)
+staged_all=$(git diff --cached --name-only 2>/dev/null || true)
+pin_paths=$(sed -n 's/^[[:space:]]*pin:[[:space:]]*//p' \
+    "${ROOT_DIR}/config/versions.yaml" 2>/dev/null || true)
+
+staged_pins=""
+if [[ -n "${staged_all}" && -n "${pin_paths}" ]]; then
+    while IFS= read -r pin_path; do
+        [[ -z "${pin_path}" ]] && continue
+        if printf '%s\n' "${staged_all}" | grep -Fxq -- "${pin_path}"; then
+            staged_pins="${pin_path}"
+            break
+        fi
+    done <<< "${pin_paths}"
+fi
+
+if [[ -z "${staged_pipeline}" && -z "${staged_pins}" ]]; then
     exit 0
 fi
 
@@ -38,7 +67,8 @@ fi
 
 if [[ "${rc}" -ne 0 ]]; then
     echo ""
-    echo "Version SSOT mismatch detected and auto-fixed."
-    echo "Run: git add .github/workflows/ && git commit"
+    echo "Version SSOT check failed. Either files were auto-fixed (re-stage and"
+    echo "commit again), or a tool pin cannot be enforced at all - read the"
+    echo "output above; an unenforceable pin is NOT auto-fixable."
     exit 1
 fi
