@@ -12,7 +12,7 @@ against the `ci-test-*` E2E fixture repos. It exists for one reason:
 
 ```
 python3 scripts/fixture-git.py <repo> <git-args...>
-python3 scripts/fixture-git.py ci-test-go-simple status --short
+python3 scripts/fixture-git.py ci-test-go-app status --short
 python3 scripts/fixture-git.py ci-test-rust-lib commit -m "fix: ..."
 python3 scripts/fixture-git.py ci-test-rust-lib push origin main
 python3 scripts/fixture-git.py --list

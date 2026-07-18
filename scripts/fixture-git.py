@@ -31,14 +31,14 @@ Portability
 -----------
 No hardcoded paths. A fixture is resolved from, in order:
   1. a path (absolute or relative to CWD) that exists, or
-  2. a bare name (`ci-test-go-simple`) under the fixtures root:
+  2. a bare name (`ci-test-go-app`) under the fixtures root:
      $HYPERCI_FIXTURES_DIR, else the parent dir of this checkout, else the
      current working directory's parent.
 
 Usage
 -----
     fixture-git.py <repo> <git-args...>
-    fixture-git.py ci-test-go-simple status --short
+    fixture-git.py ci-test-go-app status --short
     fixture-git.py ../ci-test-rust-lib commit -m "fix: drop deprecated releaserc"
     fixture-git.py --list
 """
