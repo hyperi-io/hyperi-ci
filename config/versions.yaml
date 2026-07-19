@@ -94,6 +94,18 @@ tools:
     version: v8.30.1
     repo: gitleaks/gitleaks
     pin: src/hyperi_ci/quality/gitleaks.py
+  hadolint:
+    version: v2.14.0
+    repo: hadolint/hadolint
+    pin: src/hyperi_ci/quality/hadolint.py
+  kubeconform:
+    version: v0.8.0
+    repo: yannh/kubeconform
+    pin: src/hyperi_ci/quality/kubeconform.py
+  kube-linter:
+    version: v0.8.3
+    repo: stackrox/kube-linter
+    pin: src/hyperi_ci/quality/kube_linter.py
   osv-scanner:
     version: v2.4.0
     repo: google/osv-scanner

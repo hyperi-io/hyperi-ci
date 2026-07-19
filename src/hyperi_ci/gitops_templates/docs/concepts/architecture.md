@@ -70,4 +70,4 @@ topology.yaml   ──► stitched umbrella chart ──► GHCR OCI registry
 - CODEOWNERS assigns review responsibility per directory.
 - AppProject manifests in ArgoCD constrain which repositories and clusters each
   set of Applications may target.
-- Terraform state is stored remotely with appropriate IAM/RBAC controls.
+- OpenTofu state is stored remotely with appropriate IAM/RBAC controls.

@@ -62,6 +62,11 @@ Set per project in `.hyperi-ci.yaml` under `quality.<lang>.<tool>` (or
 |---|---|---|
 | gitleaks | cross-language secret scan | dispatch (`quality/gitleaks.py`) |
 | semgrep | cross-language SAST (`--config auto`) | dispatch (`quality/semgrep.py`) |
+| hadolint | Dockerfile lint GATE (shellcheck-on-`RUN`) | dispatch (`quality/hadolint.py`) |
+| droast | Dockerfile ADVISORY (cache / dockerignore) | dispatch (`quality/droast.py`) |
+| kubeconform | k8s manifest schema GATE | `lint-manifests` verb (`quality/kubeconform.py`) |
+| kube-linter | k8s best-practice ADVISORY | `lint-manifests` verb (`quality/kube_linter.py`) |
+| checkov | IaC security ADVISORY (k8s/helm/tf) | `lint-manifests` verb (`quality/checkov.py`) |
 | ruff (lint, format, docstrings) | Python | `languages/python/quality.py` |
 | ty | Python types | Python handler |
 | pip-audit, bandit, vulture | Python | Python handler |
@@ -108,6 +113,138 @@ config is sane.
 repo config passed via `--config` beats them, but with no repo config they take
 over silently - so hyperi-ci warns when one is set and there is nothing to
 override it. Prefer a committed `.gitleaks.toml`: it gets reviewed.
+
+## Container + k8s + IaC linting
+
+Five tools cover three artefact classes, each with a **gate** (blocks) and an
+**advisory** (warns, never blocks):
+
+| Layer | Dockerfiles | k8s manifests | IaC |
+|---|---|---|---|
+| Gate (blocking) | hadolint | kubeconform | - |
+| Advisory (warn) | droast | kube-linter | checkov (k8s/helm/kustomize/terraform) |
+
+They deliver through two paths, because the target repos differ in kind:
+
+- **Path A - the quality stage.** hadolint + droast auto-detect Dockerfiles
+  inside `hyperi-ci run quality`, like gitleaks/semgrep. A repo with no
+  Dockerfile just info-skips - no opt-out config needed.
+- **Path B - the `lint-manifests` verb.** `hyperi-ci lint-manifests <dir>` runs
+  kubeconform + kube-linter + checkov. Built for GitHub-Actions-native gitops /
+  infra repos that have no `.hyperi-ci.yaml` and no language pipeline - the
+  existing workflow calls the verb instead of adopting the whole pipeline. It
+  renders Helm charts (`helm template`) for kubeconform, which validates
+  RENDERED manifests.
+
+### Gate semantics
+
+hadolint gates on **error severity only**: a blocking hadolint fails on an
+error-level finding (a broken `RUN` shell caught by ShellCheck), while
+warning/info (DL3008 apt-pin, DL4006 pipefail, ...) surface but never fail.
+kubeconform fails on a schema-invalid manifest. droast, kube-linter and checkov
+are advisory by default and never fail the build (checkov can be escalated to
+`blocking` per repo once its findings are tuned).
+
+### How findings surface (the layered stack)
+
+Every tool parses its output into one shared surface (`quality/findings.py`):
+
+- **GitHub annotations** - a *bounded* set of inline pointers, errors first.
+  GitHub caps annotations at 10 error + 10 warning per step and silently drops
+  the rest; the whole quality stage is one step, so that budget is shared across
+  all tools. When it is exhausted the log says "+N more, see summary".
+- **Job summary** - the *complete* findings list as a markdown table
+  (`$GITHUB_STEP_SUMMARY`), bounded at 1000 rows (well past any real run) with a
+  truncation note, so it stays under GitHub's 1MiB/step ceiling. The
+  authoritative record.
+- **SARIF** - opt-in via `--sarif <path>` on the verb. Writing the file is
+  always safe; UPLOADING it into code scanning needs GitHub Code Security (a
+  paid add-on on private repos), so the *workflow* does the upload, gated to
+  where it is enabled - hyperi-ci never uploads and never triggers the "must
+  enable" error.
+
+### Config
+
+Modes are the usual `blocking` / `warn` / `disabled` under `quality.<tool>`
+(cross-language, top-level - not per-language). `quality.<tool>` may also be a
+**dict** carrying a `mode` plus tool options:
+
+```yaml
+quality:
+  hadolint: blocking          # or warn / disabled
+  droast: warn
+  kubeconform:
+    mode: blocking
+    schema_locations:         # extra CRD schema locations for kubeconform
+      - /path/to/crd-schemas
+  checkov:
+    mode: warn
+    frameworks: [kubernetes, helm, terraform]
+    skip: [CKV_K8S_35]        # skip check IDs (e.g. an ExternalSecret false positive)
+    skip_paths: ['.*/vendor/.*']  # extra path regexes to exclude (on top of .worktrees / .tmp)
+```
+
+### Coverage caveats (a green gate is not full proof)
+
+- kubeconform runs with `-ignore-missing-schemas`: a CRD with no schema anywhere
+  is **skipped**, not validated. A curated CRD schema location (the datreeio
+  catalogue is included by default) covers the common operators; the rest are
+  reported skipped, not green-lit.
+- For multi-source ArgoCD apps, the rendered manifest uses **in-repo default
+  values only** - the real cluster manifest depends on an external overlay, so a
+  passing kubeconform gate validates the chart-under-defaults, not the deployed
+  result.
+
+### Does this break existing projects?
+
+No, by design - the failure surface is deliberately narrow:
+
+- **No Dockerfile, no k8s, no `.tf` -> nothing runs.** hadolint/droast auto-detect
+  Dockerfiles and info-skip a repo with none. The k8s/IaC tools only run when you
+  explicitly call `lint-manifests`. A plain Rust/Python library sees zero change.
+- **The k8s/IaC tools never run in the normal quality stage.** kubeconform,
+  kube-linter and checkov are *only* reachable through the `lint-manifests` verb
+  (Path B). Bumping hyperi-ci does not add them to any language project's CI - a
+  gitops repo has to opt in by calling the verb.
+- **The one gate that auto-runs (hadolint) fails on ERROR severity only.** Routine
+  Dockerfile noise (DL3008 unpinned apt, DL4006 pipefail, base-image pinning) is
+  warning-tier and is surfaced, not failed. Only a genuine defect - chiefly a
+  broken `RUN` shell caught by embedded ShellCheck - fails the build.
+- **A missing tool never breaks the local loop.** `hyperi-ci check` warn-skips a
+  linter that is not installed; in CI hadolint auto-installs, and if that install
+  itself fails the stage does not crash (it reports and, for a blocking gate,
+  fails rather than falsely pass).
+- **Everything is opt-out** per repo: `quality.hadolint: disabled` (or `warn`),
+  and the same for each tool.
+
+**The one real behaviour change:** a project that *has* a Dockerfile whose hadolint
+finds an **error-severity** issue will newly fail CI where it previously had no
+Dockerfile check at all. That is the intended gate (a broken `RUN` is a real bug),
+but it is a change - so on first adoption, run `hyperi-ci run quality` locally, or
+set `quality.hadolint: warn` for a migration window, fix the findings, then flip it
+back to `blocking`.
+
+### Adopting it on a new or external project
+
+- **A language project (Python/Rust/Go/TS) that already uses hyperi-ci** - nothing
+  to do. hadolint + droast light up automatically the next time `run quality`
+  executes, *iff* the repo has a Dockerfile. Tune with `quality.hadolint` /
+  `quality.droast` if needed.
+- **A brand-new project** - onboard it with `hyperi-ci init` / `/onboard` as usual;
+  the linting is part of the quality stage it scaffolds. No extra wiring.
+- **A gitops / infra repo (Helm charts, k8s manifests, `.tf`)** - even one that is
+  GitHub-Actions-native with no `.hyperi-ci.yaml` - add one step to its workflow:
+  `hyperi-ci lint-manifests .`. It needs `helm` on the runner for the kubeconform
+  schema gate (kube-linter/checkov still run without it). A CRD-heavy cluster repo
+  will want `quality.kubeconform.schema_locations` for its operators and a
+  `quality.checkov.skip` list for known false positives (e.g. External-Secrets
+  `ExternalSecret` CRs). The gitops scaffold (`hyperi-ci init-gitops`) ships a
+  `validate.yaml` that already calls the verb.
+- **An external / third-party project you are migrating in** - start every tool at
+  `warn` (advisory) so the first run is a report, not a wall of failures; triage
+  the findings; then promote hadolint (and, if wanted, checkov) to `blocking` once
+  the repo is clean. The auto-detect + opt-out model means adoption is incremental,
+  never all-or-nothing.
 
 ## --strict - a zero-warnings pre-push gate
 

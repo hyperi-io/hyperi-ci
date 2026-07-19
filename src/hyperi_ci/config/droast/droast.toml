@@ -1,0 +1,22 @@
+# hyperi-ci default droast config -- shipped in the wheel, passed via
+# `droast --config`. A repo's own droast.toml (auto-discovered up to the .git
+# root) is used instead when present; this is only the zero-config default.
+#
+# min-severity MUST be "info". DF033 (.dockerignore effectiveness) and DF031
+# (npm install where npm ci belongs) are INFO-severity rules -- setting
+# "warning" (the intuitive advisory choice) silences the two findings droast is
+# here for, leaving only rules hadolint already covers. Do not "tidy" this up.
+min-severity = "info"
+
+# Two rules are skipped because they contradict HyperI's container standard:
+#   DF007 -- flags `COPY . .` outright. House policy is that `COPY . .` PLUS a
+#            correct .dockerignore is the RIGHT pattern; a mile-long explicit
+#            COPY list is worse on every axis. droast's own DF033 already checks
+#            the .dockerignore side, so DF007 is pure noise-against-policy here.
+#   DF012 -- wants a HEALTHCHECK on everything. Kubernetes ignores HEALTHCHECK
+#            entirely, so it is noise on any cluster-targeted image (most of ours).
+skip = ["DF007", "DF012"]
+
+# Technical output only -- the snarky "roast" messages are droast's charm on a
+# terminal but read as unprofessional in a PR annotation / job summary.
+no-roast = true

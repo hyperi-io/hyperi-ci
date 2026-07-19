@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  topologies:
-    name: Topology schema + helm lint
+  manifests:
+    name: k8s + IaC linting
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,45 +28,47 @@ jobs:
         uses: azure/setup-helm@v4
         with:
           version: v3.16.0
-      - name: Lint every topology
-        run: |
-          set -euo pipefail
-          for topo in topologies/*/; do
-            name=$(basename "$topo")
-            echo "::group::Validating $name"
-            hyperi-ci stitch "$topo" --output-dir "/tmp/stitched/$name" --skip-helm-dep-update --skip-helm-lint
-            helm lint "/tmp/stitched/$name"
-            echo "::endgroup::"
-          done
+      # kubeconform (schema GATE) + kube-linter (best-practice ADVISORY) +
+      # checkov (IaC security ADVISORY over k8s/helm/kustomize/terraform).
+      # kubeconform + kube-linter auto-install on Linux CI; checkov runs via uvx.
+      # A schema-invalid manifest fails this job; the advisories only report.
+      - name: Lint manifests, charts and IaC
+        run: hyperi-ci lint-manifests .
 
-  argocd:
-    name: ArgoCD manifest validation
+  topologies:
+    name: Topology stitch
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Argo CLI
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Install hyperi-ci
+        run: uv tool install hyperi-ci
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.0
+      # Verify each topology composes into a valid umbrella chart. Per-topology
+      # by nature; the stitch/lint logic lives in the hyperi-ci CLI, the shell
+      # only iterates the directories.
+      - name: Stitch every topology
         run: |
-          curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
-          chmod +x argocd
-          sudo mv argocd /usr/local/bin/
-      - name: Validate ApplicationSet + AppProject manifests
-        run: |
-          set -euo pipefail
-          for f in argocd/appprojects/*.yaml argocd/applicationsets/*.yaml argocd/bootstrap/*.yaml; do
-            [ -e "$f" ] || continue
-            kubectl --dry-run=client apply -f "$f" || true
+          shopt -s nullglob  # an absent/empty topologies/ runs zero iterations, not the literal glob
+          for topo in topologies/*/; do
+            hyperi-ci stitch "$topo" --output-dir "stitched/$(basename "$topo")" --skip-helm-dep-update
           done
 
-  terraform:
-    name: Terraform fmt + validate
+  opentofu:
+    name: OpenTofu fmt + validate
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
-      - name: terraform fmt
-        run: |
-          set -euo pipefail
-          if [ -d terraform ]; then
-            terraform -chdir=terraform fmt -recursive -check
-          fi
+      # OpenTofu, not Terraform - Terraform is being retired across HyperI.
+      # The .tf format is shared, so `tofu fmt` checks the same files.
+      - uses: opentofu/setup-opentofu@v1
+      # -recursive at the repo root formats every .tf (in terraform/ or
+      # elsewhere) and exits 0 when there are none - no dir guard needed.
+      - name: tofu fmt
+        run: tofu fmt -recursive -check

@@ -9,11 +9,11 @@ The entire cluster state is recoverable from this repo. All desired state is in 
 
 ### Steps
 
-1. **Provision a new cluster** using Terraform:
+1. **Provision a new cluster** using OpenTofu:
 
    ```bash
-   terraform -chdir=terraform/aws init
-   terraform -chdir=terraform/aws apply -var-file=environments/production.tfvars
+   tofu -chdir=terraform/aws init
+   tofu -chdir=terraform/aws apply -var-file=environments/production.tfvars
    ```
 
 2. **Install ArgoCD** on the new cluster:
@@ -78,7 +78,7 @@ helm upgrade --install ... /tmp/stitched/production
 
 | Component | RTO | RPO | Recovery method |
 |-----------|-----|-----|----------------|
-| Cluster | ~30 min | 0 (git is source of truth) | Terraform + bootstrap |
+| Cluster | ~30 min | 0 (git is source of truth) | OpenTofu + bootstrap |
 | ArgoCD | ~10 min | 0 | `kubectl apply -f argocd/` |
 | Application state | ~5 min | Depends on app | Helm install from stitch |
 

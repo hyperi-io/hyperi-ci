@@ -4,7 +4,7 @@
 # Topology authors may co-own their topologies
 /topologies/  @{{ ORG }}/platform
 
-# Terraform changes — strict review
+# OpenTofu (.tf) changes — strict review
 /terraform/   @{{ ORG }}/platform @{{ ORG }}/sre
 
 # Docs — open to all platform-adjacent contributors

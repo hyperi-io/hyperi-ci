@@ -74,7 +74,7 @@ automatically (if auto-sync is enabled). Otherwise, trigger a manual sync:
 argocd app sync <topology-name>-dr-production
 ```
 
-## Terraform
+## OpenTofu
 
 If the new environment requires new cloud infrastructure (VPC, EKS cluster, IAM),
-add it under `terraform/` and attach the `terraform plan` output to the PR.
+add it under `terraform/` and attach the `tofu plan` output to the PR.

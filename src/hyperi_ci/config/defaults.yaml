@@ -70,6 +70,18 @@ quality:
   exclude_paths: []
   gitleaks: blocking
   semgrep: warn              # Semgrep SAST (cross-language) - runs once at dispatch, like gitleaks
+
+  # Container linting (cross-language, dispatch-level, auto-detect Dockerfiles).
+  hadolint: blocking         # Dockerfile GATE - blocks on ERROR severity only (shellcheck-on-RUN)
+  droast: warn               # Dockerfile ADVISORY - cache order / .dockerignore / npm ci; never gates
+
+  # k8s + IaC linting (Path B - `hyperi-ci lint-manifests`, gitops/infra repos).
+  # Also honoured if a language project ships charts/manifests. May be a mode
+  # string OR a dict with `mode` + tool options (see docs/quality-gate.md).
+  kubeconform: blocking      # k8s schema-validation GATE (rendered manifests)
+  kube_linter: warn          # k8s best-practice ADVISORY; never gates
+  checkov: warn              # IaC security ADVISORY (k8s/helm/kustomize/terraform); never gates by default
+
   alint: auto                # Repo-hygiene advisory via external `alint` (profile-aware,
                              # NON-BLOCKING). auto = run if installed else info-skip;
                              # enabled = warn if missing; disabled = never run. Ships an

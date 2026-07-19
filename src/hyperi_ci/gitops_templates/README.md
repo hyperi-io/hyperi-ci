@@ -12,8 +12,8 @@ the platform team owns lives here:
 - **`values/`** — Per-topology + per-environment values overrides
   applied on top of the umbrella charts by ArgoCD multi-source
   Applications.
-- **`terraform/`** — IaC for cluster provisioning. AWS (EKS) and
-  Rancher (RKE2) live here as sibling subtrees.
+- **`terraform/`** — OpenTofu IaC for cluster provisioning (`.tf`, run
+  with `tofu`). AWS (EKS) and Rancher (RKE2) live here as sibling subtrees.
 - **`docs/`** — Reference documentation rendered to GitHub Pages
   (MkDocs Material) and mirrored to GitBook for the public site.
 
@@ -83,7 +83,7 @@ K8s cluster
 | `hyperi-ci init-gitops <dir>` | Scaffold a new gitops repo (this) |
 | `helm install` | Install umbrella charts directly (non-ArgoCD) |
 | ArgoCD | Reconcile cluster state from `argocd/` |
-| Terraform | Provision AWS / Rancher infra under `terraform/` |
+| OpenTofu (`tofu`) | Provision AWS / Rancher infra under `terraform/` |
 | MkDocs Material | Render `docs/` → GitHub Pages |
 
 ## Contributing
@@ -95,5 +95,5 @@ Per `CODEOWNERS`, platform-team approval required for changes outside
 2. `helm lint` passing on the stitched umbrella (CI preview)
 3. One platform-team reviewer
 
-PRs to `terraform/` require a `terraform plan` artifact in the PR
+PRs to `terraform/` require a `tofu plan` artifact in the PR
 description.
