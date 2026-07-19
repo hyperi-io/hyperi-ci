@@ -26,6 +26,10 @@ DEFAULT_TEST_PATHS = ["tests/"]
 
 _STRICT_TRUTHY = {"1", "true", "yes", "on"}
 
+# The only valid quality-tool modes. An out-of-vocabulary value is a typo, not a
+# silent request to disable the gate (see resolve_cross_tool_mode).
+_VALID_MODES = {"blocking", "warn", "disabled"}
+
 
 def strict_quality() -> bool:
     """Return True when strict quality mode is active.
@@ -90,6 +94,38 @@ def is_skipped(tool: str) -> bool:
     if is_ci():
         print(f"::warning title=hyperi-ci quality force-skip::{msg}")
     return True
+
+
+def resolve_cross_tool_mode(
+    config: CIConfig, tool: str, default: str = "blocking"
+) -> str:
+    """Resolve mode for a cross-language quality tool (``quality.<tool>``).
+
+    Unlike :func:`resolve_tool_mode` (per-language ``quality.<lang>.<tool>``),
+    this reads the top-level ``quality.<tool>`` key shared by gitleaks, semgrep,
+    hadolint, droast, kubeconform, kube-linter and Checkov.
+
+    ``quality.<tool>`` may be a plain mode string (``blocking`` / ``warn`` /
+    ``disabled``) OR a dict carrying a ``mode`` plus tool options (Checkov's
+    ``frameworks`` / ``skip``, kubeconform's ``schema_locations``) - a bare
+    string keeps the options at their defaults. A force-skip wins; otherwise
+    strict upgrades a ``warn`` to ``blocking``.
+    """
+    if is_skipped(tool):
+        return "disabled"
+    raw = config.get(f"quality.{tool}", default)
+    mode = (
+        str(raw.get("mode", default) if isinstance(raw, dict) else raw).strip().lower()
+    )
+    # A typo (`block`, `enabled`, `true`) must NOT silently downgrade a gate to
+    # advisory - warn loudly and fall back to the tool's default instead.
+    if mode not in _VALID_MODES:
+        warn(
+            f"quality.{tool}: unknown mode '{mode}' - expected "
+            f"blocking / warn / disabled; using '{default}'"
+        )
+        mode = default
+    return apply_strict(mode)
 
 
 def resolve_tool_mode(tool: str, config: CIConfig, language: str) -> str:

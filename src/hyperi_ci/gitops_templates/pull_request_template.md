@@ -7,7 +7,7 @@
 - [ ] `topologies/` (deployment composition)
 - [ ] `argocd/` (reconciliation config)
 - [ ] `values/` (env overrides)
-- [ ] `terraform/` (IaC) — `terraform plan` output attached
+- [ ] `terraform/` (IaC) — `tofu plan` output attached
 - [ ] `docs/` (reference documentation)
 - [ ] CI / workflows
 - [ ] Other (describe)

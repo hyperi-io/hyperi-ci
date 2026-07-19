@@ -1,5 +1,20 @@
 # Migration Guide
 
+## Container + k8s + IaC linting added
+
+The quality stage now runs hadolint as a **blocking Dockerfile gate** (plus the
+droast advisory), and a new `hyperi-ci lint-manifests` verb covers gitops / infra
+repos (kubeconform gate + kube-linter/checkov advisories). Full reference:
+[quality-gate.md](../quality-gate.md).
+
+**Behaviour change before you bump:** a repo that HAS a Dockerfile with an
+**error-severity** hadolint finding (chiefly a broken `RUN` shell caught by
+ShellCheck) will newly FAIL CI. Routine noise (DL3008 unpinned apt, DL4006
+pipefail) stays warning-tier and never fails; a repo with no Dockerfile sees no
+change, and the k8s/IaC tools only run when you explicitly call `lint-manifests`.
+On first adoption run `hyperi-ci run quality` locally, or set `quality.hadolint:
+warn` for a migration window, then flip back to `blocking` once clean.
+
 ## v2.1.4 - JFrog removed
 
 JFrog publishing was removed entirely in v2.1.4. Every artefact now

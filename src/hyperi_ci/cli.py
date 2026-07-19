@@ -158,6 +158,42 @@ def check(
     raise typer.Exit(0)
 
 
+@app.command(name="lint-manifests")
+def lint_manifests_cmd(
+    directory: Annotated[
+        str,
+        typer.Argument(help="Directory to lint (Helm charts / k8s manifests / IaC)"),
+    ] = ".",
+    sarif: Annotated[
+        str | None,
+        typer.Option(
+            "--sarif",
+            help=(
+                "Write combined SARIF here (opt-in). The workflow uploads it to "
+                "code scanning only where GitHub Code Security is enabled."
+            ),
+        ),
+    ] = None,
+) -> None:
+    """Lint Kubernetes manifests, Helm charts and IaC in a gitops / infra repo.
+
+    Runs kubeconform (schema-validation GATE), kube-linter (best-practice
+    ADVISORY) and Checkov (IaC security ADVISORY). Only kubeconform gates: a
+    schema-invalid manifest exits non-zero; the advisories never fail the build.
+
+    Built for GitHub-Actions-native gitops repos (no ``.hyperi-ci.yaml``, no
+    language pipeline) - call it from the existing workflow instead of adopting
+    the whole hyperi-ci pipeline.
+    """
+    from hyperi_ci.config import load_config
+    from hyperi_ci.quality import lint_manifests
+
+    root = Path(directory)
+    config = load_config(project_dir=root)
+    rc = lint_manifests.run(root, config, sarif_path=sarif)
+    raise typer.Exit(rc)
+
+
 @app.command()
 def push(
     publish: Annotated[
@@ -1215,7 +1251,7 @@ def init_gitops_cmd(
     """Scaffold a new hyperi-io/gitops monorepo from bundled templates.
 
     Creates the standard directory structure, GitHub Actions workflows,
-    ArgoCD manifests, Terraform skeleton, and MkDocs documentation site
+    ArgoCD manifests, OpenTofu skeleton, and MkDocs documentation site
     in TARGET.
 
     Example:

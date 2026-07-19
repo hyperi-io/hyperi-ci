@@ -83,6 +83,62 @@ _REGISTRY: dict[str, ToolInfo] = {
         ),
         url="https://semgrep.dev/docs/getting-started/",
     ),
+    "hadolint": ToolInfo(
+        name="hadolint",
+        purpose="Dockerfile linting gate (lints the shell inside RUN via ShellCheck)",
+        # Single static binary. brew on macOS; a release binary elsewhere. On
+        # Linux CI hyperi-ci auto-installs the pinned release, so this notice is
+        # for local dev.
+        install=(
+            "brew install hadolint",
+            "download a release binary: https://github.com/hadolint/hadolint/releases/latest",
+        ),
+        url="https://github.com/hadolint/hadolint#install",
+    ),
+    "droast": ToolInfo(
+        name="droast",
+        purpose="Dockerfile advisory - cache ordering / .dockerignore / npm ci (DF070/DF033/DF031)",
+        # Advisory-only, never auto-installed. cargo binstall fetches a prebuilt
+        # binary; `cargo install` builds from source (slower, last resort).
+        install=(
+            "cargo binstall dockerfile-roast",
+            "cargo install dockerfile-roast  # from source - slowest",
+            "download a release binary: https://github.com/immanuwell/dockerfile-roast/releases/latest",
+        ),
+        url="https://github.com/immanuwell/dockerfile-roast",
+    ),
+    "kubeconform": ToolInfo(
+        name="kubeconform",
+        purpose="Kubernetes manifest schema validation gate",
+        # Single static Go binary. On Linux CI hyperi-ci auto-installs the
+        # pinned release; this notice is for local dev.
+        install=(
+            "brew install kubeconform",
+            "go install github.com/yannh/kubeconform/cmd/kubeconform@latest",
+        ),
+        url="https://github.com/yannh/kubeconform#installation",
+    ),
+    "kube-linter": ToolInfo(
+        name="kube-linter",
+        purpose="Kubernetes best-practice advisory (production-readiness / security)",
+        install=(
+            "brew install kube-linter",
+            "go install golang.stackrox.io/kube-linter/cmd/kube-linter@latest",
+        ),
+        url="https://docs.kubelinter.io/#/configuring-kubelinter",
+    ),
+    "checkov": ToolInfo(
+        name="checkov",
+        purpose="IaC security scanning (k8s / helm / kustomize / terraform / opentofu)",
+        # astral first: uv is already a hard dependency, so `uvx` needs nothing
+        # new (same rationale as semgrep).
+        install=(
+            "uvx checkov --version",
+            "uv tool install checkov",
+            "pip install checkov",
+        ),
+        url="https://www.checkov.io/2.Basics/Installing%20Checkov.html",
+    ),
     "osv-scanner": ToolInfo(
         name="osv-scanner",
         purpose="dependency vulnerability scanning (OSV)",

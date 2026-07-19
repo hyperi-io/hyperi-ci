@@ -34,7 +34,9 @@ from hyperi_ci.detect import detect_language
 from hyperi_ci.quality import (
     commit_validation,
     deprecated_files,
+    droast,
     gitleaks,
+    hadolint,
     repo_advisor,
     semgrep,
 )
@@ -204,6 +206,17 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
         rc = semgrep.run(config, language=language)
         if rc != 0:
             return rc
+
+    # Dockerfile linting is cross-language too: hadolint GATES (blocks on
+    # error-severity, incl a broken RUN shell), droast ADVISES (cache ordering /
+    # .dockerignore, never blocks). Both auto-detect Dockerfiles and clean-skip
+    # a repo with none.
+    with group("hadolint Dockerfile linting"):
+        rc = hadolint.run(config)
+        if rc != 0:
+            return rc
+    with group("droast Dockerfile advisory"):
+        droast.run(config)
 
     # Commit-message validation. In CI this is the dedicated `commit-check`
     # workflow job - it runs on every merge to main (not just the
