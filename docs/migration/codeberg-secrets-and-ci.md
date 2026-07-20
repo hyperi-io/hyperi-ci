@@ -316,8 +316,9 @@ Phases 4-7 are only worth starting under a forcing function.
 - [Codeberg migration overview](codeberg.md) - parent doc
 - [Tier 3 deployment contract](../deployment/tiers.md) -
   contract layer is host-agnostic
-- [`config/secrets-access.yaml`](../../config/secrets-access.yaml) -
-  current source of truth for repo <-> secret mapping
-- [`scripts/sync-secrets-access.py`](../../scripts/sync-secrets-access.py) -
-  current driver, target of the `SecretBackend` refactor
+- `config/secrets-access.yaml` (in the private **hyperi-infra** repo) -
+  source of truth for repo <-> secret mapping. Moved out of this public
+  repo so the org's secret <-> repo topology is not world-readable.
+- `scripts/sync-secrets-access.py` (in **hyperi-infra**) - the driver,
+  target of the `SecretBackend` refactor
 - [Forgejo Actions secrets docs](https://forgejo.org/docs/latest/user/actions/#secrets)
