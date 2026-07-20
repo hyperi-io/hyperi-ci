@@ -27,9 +27,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      # enable-cache:false -- installs mkdocs-material as a TOOL (uv tool install),
+      # not project deps, and a gitops repo has no uv.lock. setup-uv hard-errors
+      # on enable-cache:true when no **/uv.lock is found.
       - uses: astral-sh/setup-uv@v3
         with:
-          enable-cache: true
+          enable-cache: false
       - name: Install MkDocs
         run: uv tool install mkdocs-material
       - name: Build
@@ -44,9 +47,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      # enable-cache:false -- installs mkdocs-material as a TOOL (uv tool install),
+      # not project deps, and a gitops repo has no uv.lock. setup-uv hard-errors
+      # on enable-cache:true when no **/uv.lock is found.
       - uses: astral-sh/setup-uv@v3
         with:
-          enable-cache: true
+          enable-cache: false
       - name: Install MkDocs
         run: uv tool install mkdocs-material
       - name: Deploy

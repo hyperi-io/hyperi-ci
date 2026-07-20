@@ -19,9 +19,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # enable-cache:false -- these jobs install TOOLS (hyperi-ci + checkov via
+      # uvx), not project deps, and a gitops repo has no uv.lock. setup-uv
+      # hard-errors on enable-cache:true when no **/uv.lock is found, so caching
+      # stays off here.
       - uses: astral-sh/setup-uv@v3
         with:
-          enable-cache: true
+          enable-cache: false
       - name: Install hyperi-ci
         run: uv tool install hyperi-ci
       - name: Set up Helm
@@ -40,9 +44,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # enable-cache:false -- these jobs install TOOLS (hyperi-ci + checkov via
+      # uvx), not project deps, and a gitops repo has no uv.lock. setup-uv
+      # hard-errors on enable-cache:true when no **/uv.lock is found, so caching
+      # stays off here.
       - uses: astral-sh/setup-uv@v3
         with:
-          enable-cache: true
+          enable-cache: false
       - name: Install hyperi-ci
         run: uv tool install hyperi-ci
       - name: Set up Helm
