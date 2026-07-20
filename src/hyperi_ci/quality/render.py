@@ -27,7 +27,7 @@ from hyperi_ci.common import info, run_cmd, warn
 
 
 def _release_name(chart: Path) -> str:
-    """A valid Helm release name derived from the chart dir.
+    """Derive a valid Helm release name from the chart dir.
 
     Helm release names must be lowercase RFC1123-ish (``[a-z0-9-]``, start
     alnum, <=53 chars). The chart DIRECTORY basename is not constrained that way
@@ -42,7 +42,7 @@ def _release_name(chart: Path) -> str:
 
 
 def helm_available() -> bool:
-    """True when the ``helm`` binary is on PATH."""
+    """Return True when the ``helm`` binary is on PATH."""
     return shutil.which("helm") is not None
 
 

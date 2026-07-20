@@ -116,7 +116,7 @@ def discover_helm_charts(
 
 
 def _is_library_chart(chart_yaml: Path) -> bool:
-    """True when Chart.yaml declares ``type: library`` (renders nothing)."""
+    """Return True when Chart.yaml declares ``type: library`` (renders nothing)."""
     try:
         data = yaml.safe_load(chart_yaml.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError):
@@ -125,7 +125,7 @@ def _is_library_chart(chart_yaml: Path) -> bool:
 
 
 def _looks_like_manifest(path: Path) -> bool:
-    """True when any YAML doc in ``path`` has both ``apiVersion`` and ``kind``.
+    """Return True when any YAML doc in ``path`` has both ``apiVersion`` and ``kind``.
 
     This is what separates a real k8s manifest (Deployment, an Argo CR, ...)
     from a Helm ``values.yaml``, a ``Chart.yaml`` (has apiVersion but no kind),
@@ -142,7 +142,7 @@ def _looks_like_manifest(path: Path) -> bool:
 
 
 def _inside_chart(dirpath: Path, root: Path) -> bool:
-    """True when ``dirpath`` is at or under a Helm chart (an ancestor Chart.yaml).
+    """Return True when ``dirpath`` is at or under a Helm chart (an ancestor Chart.yaml).
 
     Chart content (``templates/`` Go-templates, ``values.yaml``, ``Chart.yaml``)
     is handled by :func:`discover_helm_charts` + ``helm template``, so it must

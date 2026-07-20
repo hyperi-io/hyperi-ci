@@ -64,7 +64,7 @@ def _install_kubeconform() -> str | None:
 
 
 def _schema_locations(config: CIConfig) -> list[str]:
-    """Schema search path: built-in defaults, the CRD catalogue, then extras.
+    """Return the schema search path: built-in defaults, CRD catalogue, then extras.
 
     A repo adds cluster-specific CRD schema locations via
     ``quality.kubeconform.schema_locations`` (a list) in .hyperi-ci.yaml.
