@@ -28,7 +28,10 @@ from hyperi_ci import spill
 def _git(repo: Path, *args: str) -> str:
     r = subprocess.run(
         ["git", "-C", str(repo), *args],
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     return r.stdout.strip()
 
@@ -99,9 +102,9 @@ def test_classify_hits(path: str, category: str, severity: str) -> None:
 @pytest.mark.parametrize(
     "path",
     [
-        "src/app.py",                 # ordinary source
-        "config/.env.example",        # a template, not a secret
-        "src/secrets_manager.py",     # code that HANDLES secrets, not a secret
+        "src/app.py",  # ordinary source
+        "config/.env.example",  # a template, not a secret
+        "src/secrets_manager.py",  # code that HANDLES secrets, not a secret
         "README.md",
     ],
 )
@@ -131,9 +134,9 @@ def test_scan_finds_ai_artefact_unpushed(repo: Path) -> None:
 
 
 def test_scan_distinguishes_pushed_from_unpushed(repo_with_origin: Path) -> None:
-    _commit(repo_with_origin, ".env", "SECRET=1\n")          # committed + pushed
+    _commit(repo_with_origin, ".env", "SECRET=1\n")  # committed + pushed
     _git(repo_with_origin, "push", "-q", "origin", "main")
-    _commit(repo_with_origin, "CLAUDE.md", "notes\n")        # committed, NOT pushed
+    _commit(repo_with_origin, "CLAUDE.md", "notes\n")  # committed, NOT pushed
     report = spill.scan(repo_with_origin, rev_range="HEAD")
     where = {f.path: f.where for f in report.findings}
     assert where.get(".env") == "pushed"
@@ -255,9 +258,9 @@ def test_classify_ai_tool_files(path: str) -> None:
 @pytest.mark.parametrize(
     "path",
     [
-        "src/agents.py",          # not AGENTS.md
-        "docs/claude-usage.md",   # mentions claude, but not a CLAUDE.md artefact
-        "cursorrules.py",         # not .cursorrules
+        "src/agents.py",  # not AGENTS.md
+        "docs/claude-usage.md",  # mentions claude, but not a CLAUDE.md artefact
+        "cursorrules.py",  # not .cursorrules
     ],
 )
 def test_classify_ai_tool_false_positives(path: str) -> None:
@@ -279,7 +282,8 @@ def _commit_msg(repo: Path, rel: str, msg: str, body: str = "x") -> None:
 
 def test_commit_attribution_trailer_detected(repo: Path) -> None:
     _commit_msg(
-        repo, "feature.py",
+        repo,
+        "feature.py",
         "feat: add thing\n\nCo-authored-by: Claude <noreply@anthropic.com>",
         "print('x')\n",
     )
@@ -311,10 +315,10 @@ def test_content_no_false_positive_on_plain_code(repo: Path) -> None:
     "text",
     [
         "Co-authored-by: Claude <noreply@anthropic.com>",
-        "Co-authored-by: Claude <claude@anthropic.com>",   # any @anthropic.com
+        "Co-authored-by: Claude <claude@anthropic.com>",  # any @anthropic.com
         "Co-authored-by: Cursor Agent <agent@cursor.com>",
         "Co-authored-by: openai-codex[bot] <codex@openai.com>",
-        "Signed: dev <someone@anthropic.com>",             # bare vendor author
+        "Signed: dev <someone@anthropic.com>",  # bare vendor author
         "Generated with Claude Code",
         "assisted by GitHub Copilot",
         "on-behalf-of: gemini-cli",
@@ -330,7 +334,7 @@ def test_attribution_regex_hits(text: str) -> None:
         "fix: a normal human commit",
         "Reviewed-by: Derek <derek@hyperi.io>",
         "def add(a, b):\n    return a + b",
-        "See the google.com docs for details",   # google.com is NOT an agent match
+        "See the google.com docs for details",  # google.com is NOT an agent match
         "Signed-off-by: Kaz <kaz@example.com>",
     ],
 )

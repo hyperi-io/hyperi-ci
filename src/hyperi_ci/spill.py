@@ -58,7 +58,8 @@ def _rx(p: str) -> re.Pattern[str]:
 # documentation, not a secret -- excluded from the secret pattern.
 _CATEGORIES: tuple[Category, ...] = (
     Category(
-        "secret", "critical",
+        "secret",
+        "critical",
         "credential/secret material -- a leak, not a mistake. ROTATE it: a "
         "history rewrite does NOT un-leak what was already fetched.",
         True,
@@ -73,7 +74,8 @@ _CATEGORIES: tuple[Category, ...] = (
         ),
     ),
     Category(
-        "ai-artefact", "high",
+        "ai-artefact",
+        "high",
         "AI-assistant footprint -- house rule is ZERO committed AI artefacts "
         "(agent memory/config/plans/handovers for claude, cursor, codex, "
         "gemini, copilot, aider, windsurf...).",
@@ -89,7 +91,7 @@ _CATEGORIES: tuple[Category, ...] = (
             # Per-tool dotfiles (whole basename).
             r"|(?:^|/)\.(?:cursorrules|cursorignore|codeiumignore|windsurfrules"
             r"|aiderignore|clinerules|mcp\.json)$"
-            r"|(?:^|/)\.aider(?:\.[^/]*)?$"          # .aider.conf.yml, .aider.chat.history.md
+            r"|(?:^|/)\.aider(?:\.[^/]*)?$"  # .aider.conf.yml, .aider.chat.history.md
             # hyperi-ai + superpowers artefacts.
             r"|(?:^|/)\.hyperi-ai(?:/|$)"
             r"|(?:^|/)docs/superpowers/"
@@ -97,7 +99,8 @@ _CATEGORIES: tuple[Category, ...] = (
         ),
     ),
     Category(
-        "vcs-cruft", "low",
+        "vcs-cruft",
+        "low",
         "editor/OS/merge cruft -- never belongs in a tree.",
         True,
         _rx(
@@ -106,7 +109,8 @@ _CATEGORIES: tuple[Category, ...] = (
         ),
     ),
     Category(
-        "build-artefact", "medium",
+        "build-artefact",
+        "medium",
         "build output / dependency dir -- rebuildable, bloats history.",
         True,
         _rx(
@@ -116,7 +120,8 @@ _CATEGORIES: tuple[Category, ...] = (
         ),
     ),
     Category(
-        "log-dump", "low",
+        "log-dump",
+        "low",
         "log / data dump -- usually accidental, sometimes large.",
         True,
         _rx(r"\.log$|(?:^|/)core\.\d+$|(?:^|/)npm-debug\.log"),
@@ -173,7 +178,9 @@ def _git(args: list[str], cwd: Path, check: bool = False) -> str:
 
 def _upstream(cwd: Path) -> str | None:
     """The tracking ref (e.g. origin/main), or None if none is set."""
-    ref = _git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], cwd)
+    ref = _git(
+        ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], cwd
+    )
     return ref or None
 
 
@@ -191,8 +198,14 @@ def _added_paths(rev_range: str, cwd: Path) -> dict[str, list[str]]:
     the same range is still surfaced (it was still committed + pushed-able).
     """
     out = _git(
-        ["log", "--no-merges", "--diff-filter=AM", "--name-only",
-         "--pretty=format:commit %h", rev_range],
+        [
+            "log",
+            "--no-merges",
+            "--diff-filter=AM",
+            "--name-only",
+            "--pretty=format:commit %h",
+            rev_range,
+        ],
         cwd,
     )
     result: dict[str, list[str]] = {}
@@ -237,7 +250,10 @@ def _commit_in_upstream(sha: str, cwd: Path) -> bool:
     if not up:
         return False
     r = run_cmd(
-        ["git", "merge-base", "--is-ancestor", sha, up], check=False, capture=True, cwd=cwd
+        ["git", "merge-base", "--is-ancestor", sha, up],
+        check=False,
+        capture=True,
+        cwd=cwd,
     )
     return r.returncode == 0
 
@@ -249,7 +265,10 @@ def commit_attributions(cwd: Path, rev_range: str) -> list[tuple[str, str, str]]
     trailer, the robot-emoji footer, and an agent no-reply author/committer.
     """
     shas = [
-        s for s in _git(["log", "--no-merges", "--format=%H", rev_range], cwd).splitlines()
+        s
+        for s in _git(
+            ["log", "--no-merges", "--format=%H", rev_range], cwd
+        ).splitlines()
         if s.strip()
     ]
     hits: list[tuple[str, str, str]] = []
@@ -306,12 +325,15 @@ def assess_exposure(cwd: Path) -> Exposure:
     visibility = "unknown"
     gh = run_cmd(
         ["gh", "repo", "view", "--json", "visibility", "-q", ".visibility"],
-        check=False, capture=True, cwd=cwd,
+        check=False,
+        capture=True,
+        cwd=cwd,
     )
     if gh.returncode == 0 and gh.stdout.strip():
         visibility = gh.stdout.strip().lower()
-    return Exposure(visibility=visibility, has_upstream=_upstream(cwd) is not None,
-                    remote_url=url)
+    return Exposure(
+        visibility=visibility, has_upstream=_upstream(cwd) is not None, remote_url=url
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -363,7 +385,9 @@ class Report:
         }
 
 
-def scan(cwd: Path, rev_range: str | None = None, include_untracked: bool = True) -> Report:
+def scan(
+    cwd: Path, rev_range: str | None = None, include_untracked: bool = True
+) -> Report:
     """Build a spill Report for a commit range (default: unpushed commits)."""
     rng = rev_range or default_range(cwd)
     exposure = assess_exposure(cwd)
@@ -374,7 +398,9 @@ def scan(cwd: Path, rev_range: str | None = None, include_untracked: bool = True
     # it is even committed -- the cheapest fix).
     staged: dict[str, list[str]] = {}
     if include_untracked:
-        for p in _git(["diff", "--cached", "--name-only", "--diff-filter=A"], cwd).splitlines():
+        for p in _git(
+            ["diff", "--cached", "--name-only", "--diff-filter=A"], cwd
+        ).splitlines():
             if p.strip():
                 staged.setdefault(p.strip(), [])
 
@@ -388,46 +414,70 @@ def scan(cwd: Path, rev_range: str | None = None, include_untracked: bool = True
             continue  # not a recognised spill shape and not self-gitignored
         if cat is None:
             # gitignored-but-committed with no category -> flag as medium cruft.
-            cat = Category("gitignored", "medium",
-                           "matches the repo's own .gitignore but was committed "
-                           "(force-added) -- almost always unintended.", True,
-                           re.compile(""))
+            cat = Category(
+                "gitignored",
+                "medium",
+                "matches the repo's own .gitignore but was committed "
+                "(force-added) -- almost always unintended.",
+                True,
+                re.compile(""),
+            )
         where = (
-            "untracked" if not commits else
-            "pushed" if _in_upstream(path, cwd) else
-            "unpushed"
+            "untracked"
+            if not commits
+            else "pushed"
+            if _in_upstream(path, cwd)
+            else "unpushed"
         )
-        report.findings.append(Finding(
-            path=path, category=cat.name, severity=cat.severity, why=cat.why,
-            remove_default=cat.remove_default, commits=[c for c in commits if c],
-            where=where, gitignored=is_ignored,
-        ))
+        report.findings.append(
+            Finding(
+                path=path,
+                category=cat.name,
+                severity=cat.severity,
+                why=cat.why,
+                remove_default=cat.remove_default,
+                commits=[c for c in commits if c],
+                where=where,
+                gitignored=is_ignored,
+            )
+        )
     # AI self-attribution -- in commit messages/authors, and in added content.
     # These are not file spills: a commit trailer is fixed by rewording/amending
     # (a pushed one needs a history rewrite), a content line by editing it out.
     for sha, subject, where in commit_attributions(cwd, rng):
-        report.findings.append(Finding(
-            path=f"commit {sha}: {subject}"[:100],
-            category="ai-attribution-commit", severity="high",
-            why="AI self-attribution in a commit (trailer/author). House rule "
+        report.findings.append(
+            Finding(
+                path=f"commit {sha}: {subject}"[:100],
+                category="ai-attribution-commit",
+                severity="high",
+                why="AI self-attribution in a commit (trailer/author). House rule "
                 "bans AI attribution -- reword/amend it out (a pushed one needs "
                 "a history rewrite).",
-            remove_default=True, commits=[sha], where=where, gitignored=False,
-        ))
+                remove_default=True,
+                commits=[sha],
+                where=where,
+                gitignored=False,
+            )
+        )
     seen: set[str] = set()
     for file, snippet in content_attributions(cwd, rng):
         key = f"{file}\x00{snippet}"
         if key in seen:
             continue
         seen.add(key)
-        report.findings.append(Finding(
-            path=file or "(diff)", category="ai-attribution", severity="high",
-            why=f"AI self-attribution in file content ({snippet!r}). House rule "
+        report.findings.append(
+            Finding(
+                path=file or "(diff)",
+                category="ai-attribution",
+                severity="high",
+                why=f"AI self-attribution in file content ({snippet!r}). House rule "
                 "bans AI attribution -- edit the line out.",
-            remove_default=True, commits=[],
-            where="pushed" if file and _in_upstream(file, cwd) else "unpushed",
-            gitignored=False,
-        ))
+                remove_default=True,
+                commits=[],
+                where="pushed" if file and _in_upstream(file, cwd) else "unpushed",
+                gitignored=False,
+            )
+        )
 
     report.findings.sort(key=lambda f: SEVERITY_ORDER[f.severity])
     return report
@@ -453,7 +503,9 @@ def render(report: Report) -> None:
         return
     for f in report.findings:
         tag = _SEV_LABEL[f.severity]
-        loc = {"pushed": "PUSHED", "unpushed": "unpushed local", "untracked": "staged"}[f.where]
+        loc = {"pushed": "PUSHED", "unpushed": "unpushed local", "untracked": "staged"}[
+            f.where
+        ]
         line = f"  [{tag}] {f.path}  ({f.category}, {loc}"
         line += ", self-gitignored)" if f.gitignored else ")"
         (error if f.severity in ("critical", "high") else warn)(line)
@@ -517,8 +569,9 @@ def fix(
 
 def _fix_untrack(cwd: Path, paths: list[str], amend: bool) -> int:
     for p in paths:
-        run_cmd(["git", "rm", "--cached", "-r", "--ignore-unmatch", p],
-                check=False, cwd=cwd)
+        run_cmd(
+            ["git", "rm", "--cached", "-r", "--ignore-unmatch", p], check=False, cwd=cwd
+        )
     _append_gitignore(cwd, paths)
     success(f"untracked {len(paths)} path(s) + added to .gitignore.")
     if amend:
@@ -548,7 +601,10 @@ def _print_rewrite_plan(cwd: Path, paths: list[str]) -> None:
     branch = _git(["rev-parse", "--abbrev-ref", "HEAD"], cwd) or "HEAD"
     info("  rewrite plan (already-pushed leak):")
     info(f"    1. backup branch: {_BACKUP_PREFIX}/{branch}")
-    info("    2. git filter-repo --invert-paths " + " ".join(f"--path {p}" for p in paths))
+    info(
+        "    2. git filter-repo --invert-paths "
+        + " ".join(f"--path {p}" for p in paths)
+    )
     info("    3. a HUMAN force-pushes the protected branch (agent must not):")
     info(f"         git push --force-with-lease origin {branch}")
     info("    4. ROTATE any leaked secret + tell collaborators to re-clone.")
@@ -561,7 +617,9 @@ def _fix_rewrite(cwd: Path, paths: list[str]) -> int:
     run_cmd(["git", "branch", "-f", backup], check=False, cwd=cwd)
     success(f"backup branch created: {backup} (rewrite is reversible from here).")
 
-    has_fr = run_cmd(["git", "filter-repo", "--help"], check=False, capture=True, cwd=cwd)
+    has_fr = run_cmd(
+        ["git", "filter-repo", "--help"], check=False, capture=True, cwd=cwd
+    )
     if has_fr.returncode != 0:
         error(
             "git-filter-repo is not installed -- it is the only safe rewriter. "
@@ -577,7 +635,9 @@ def _fix_rewrite(cwd: Path, paths: list[str]) -> int:
         args += ["--path", p]
     r = run_cmd(args, check=False, cwd=cwd)
     if r.returncode != 0:
-        error("filter-repo failed -- history is unchanged; restore from the backup if needed.")
+        error(
+            "filter-repo failed -- history is unchanged; restore from the backup if needed."
+        )
         return 1
     success("history rewritten locally. The spilled paths are gone from every commit.")
     warn(
