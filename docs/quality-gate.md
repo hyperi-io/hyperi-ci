@@ -341,7 +341,16 @@ they surface a recommendation and carry on.
   config (`src/hyperi_ci/config/alint/hyperi.alint.yml` - alint's own bundled
   baseline for our four languages, fact-gated) and passes it with `alint check
   -c`, so no per-repo `.alint.yml` is needed; a repo's own `.alint.yml` wins.
-  Controlled by `quality.alint` (`auto` = run if installed else info-skip;
-  `enabled` = warn if missing; `disabled` = off). alint is not a hyperi-ci
-  dependency - it info-skips (with an install hint) when absent. Driver:
-  `src/hyperi_ci/quality/repo_advisor.py`.
+  The default is primary-language-scoped: alint's root-only manifest/lockfile
+  rules (`go-mod-exists`, `node-package-json-exists`, ...) are disabled for
+  every ecosystem EXCEPT the repo's resolved language, because the bundled
+  `has_<lang>` facts match nested monorepo packages and would otherwise demand
+  a secondary ecosystem's manifest at the repo root (issue #75 - a TS monorepo
+  with `packages/*/go.mod` got a red `go-mod-exists`). Per-file rules
+  (Trojan-Source, hygiene) stay active for every ecosystem. Implemented as a
+  generated single-file layer that `extends:` the shipped default - alint
+  0.13's repeatable `-c` only honours the first file, so two `-c` layers do
+  not compose. Controlled by `quality.alint` (`auto` = run if installed else
+  info-skip; `enabled` = warn if missing; `disabled` = off). alint is not a
+  hyperi-ci dependency - it info-skips (with an install hint) when absent.
+  Driver: `src/hyperi_ci/quality/repo_advisor.py`.

@@ -191,8 +191,10 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
 
     # Repo-hygiene advisory via external `alint` (profile-aware). Non-blocking
     # - opt via quality.alint (auto/enabled/disabled); never fails the build.
+    # The resolved language scopes the default config so root-only rules of
+    # OTHER ecosystems don't fire on nested monorepo packages (issue #75).
     with group("Repo hygiene advisory (alint)"):
-        repo_advisor.run(config)
+        repo_advisor.run(config, language=language)
 
     # Cross-language checks first.
     with group("Gitleaks secret scanning"):

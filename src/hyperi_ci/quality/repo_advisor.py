@@ -24,6 +24,16 @@ alint is NOT a hyperi-ci dependency. Missing -> the step skips via
 :func:`hyperi_ci.tools.find_tool` (an info nudge under ``auto``, a louder warn
 under ``enabled``). It never installs anything and never fails the build.
 
+The default is additionally PRIMARY-LANGUAGE-AWARE (issue #75): alint's
+bundled ``has_<lang>`` facts match a manifest anywhere in the tree, but its
+manifest/lockfile existence rules demand the file at the repo ROOT - right
+for the repo's primary ecosystem, a false positive for a nested secondary
+one (a TS monorepo with ``packages/*/go.mod`` got a red ``go-mod-exists``
+error). When the primary language is known, a generated override layer
+(``extends:`` the shipped default, then ``level: off``) disables the OTHER
+ecosystems' root-only rules; per-file rules (Trojan-Source, hygiene) stay
+active for every ecosystem.
+
 Config (``.hyperi-ci.yaml``):
 
     quality.alint: auto      # run if alint is installed, else info-skip (default)
@@ -33,10 +43,12 @@ Config (``.hyperi-ci.yaml``):
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 
 from hyperi_ci.common import is_ci, run_cmd, warn
 from hyperi_ci.config import CIConfig
+from hyperi_ci.detect import LANGUAGE_MARKERS
 from hyperi_ci.tools import find_tool
 
 # Shipped opinionated default (packaged under hyperi_ci/config/, so it travels
@@ -45,13 +57,82 @@ _DEFAULT_CONFIG = (
     Path(__file__).resolve().parents[1] / "config" / "alint" / "hyperi.alint.yml"
 )
 
+# hyperi-ci language -> the alint bundled-ruleset group it maps to. bash has
+# no alint ruleset (absent here), so a bash-primary repo disables every
+# group's root-only rules below.
+_ALINT_GROUP: dict[str, str] = {
+    "python": "python",
+    "rust": "rust",
+    "typescript": "node",
+    "javascript": "node",
+    "golang": "go",
+}
 
-def run(config: CIConfig, project_dir: Path | None = None) -> int:
+# The root-only manifest/lockfile/toolchain existence rules in each bundled
+# ruleset (alint-dsl rulesets/v1/<group>.yml). These are the rules whose
+# `root_only: true` clashes with the tree-wide `has_<group>` fact on nested
+# monorepo packages - the per-file content/hygiene rules are NOT listed and
+# stay active for every ecosystem.
+_ROOT_ONLY_RULES: dict[str, tuple[str, ...]] = {
+    "python": ("python-manifest-exists", "python-has-lockfile"),
+    "rust": (
+        "rust-cargo-toml-exists",
+        "rust-cargo-lock-exists",
+        "rust-toolchain-pinned",
+    ),
+    "node": (
+        "node-package-json-exists",
+        "node-has-lockfile",
+        "node-engine-or-nvmrc",
+    ),
+    "go": ("go-mod-exists", "go-sum-exists"),
+}
+
+
+def _override_layer(language: str | None) -> str | None:
+    """Render the primary-language override config, or None to skip it.
+
+    Returns YAML that ``extends:`` the shipped default and sets ``level:
+    off`` on the root-only rules of every alint group EXCEPT the primary
+    language's own. None when the language is unknown - with no primary to
+    judge against, the shipped default runs unmodified.
+
+    NOTE: this must be ONE config file. alint 0.13's repeatable ``-c`` only
+    honours the first file (later layers are silently ignored), so a second
+    ``-c`` override layer does not work; ``extends:`` + same-id rule merge
+    does.
+    """
+    lang = (language or "").strip().lower()
+    if lang not in LANGUAGE_MARKERS:
+        return None
+    primary_group = _ALINT_GROUP.get(lang)
+    # Single-quote the path: YAML single quotes never escape backslashes, so
+    # a Windows install path survives verbatim. The only char needing care is
+    # a literal quote in the path (doubled per YAML).
+    default = str(_DEFAULT_CONFIG).replace("'", "''")
+    lines = ["version: 1", "", "extends:", f"  - '{default}'", "", "rules:"]
+    for group, rules in _ROOT_ONLY_RULES.items():
+        if group == primary_group:
+            continue
+        for rule_id in rules:
+            lines += [f"  - id: {rule_id}", "    level: off"]
+    return "\n".join(lines) + "\n"
+
+
+def run(
+    config: CIConfig,
+    project_dir: Path | None = None,
+    *,
+    language: str | None = None,
+) -> int:
     """Run the alint advisory. ALWAYS returns 0 - it never gates a build.
 
     ``quality.alint`` selects the mode (auto / enabled / disabled). Findings
     stream straight to the log (``--format github`` in CI so they land as
-    annotations, ``human`` locally).
+    annotations, ``human`` locally). ``language`` is the resolved primary
+    language (falls back to ``config.language``); when known, the shipped
+    default is wrapped in the :func:`_override_layer` so root-only rules of
+    OTHER ecosystems stop false-positive-ing on nested monorepo packages.
     """
     mode = str(config.get("quality.alint", "auto")).strip().lower()
     if mode in ("disabled", "off", "false", "none"):
@@ -63,18 +144,29 @@ def run(config: CIConfig, project_dir: Path | None = None) -> int:
 
     root = project_dir or Path.cwd()
     cmd = [exe, "check", "--format", "github" if is_ci() else "human"]
-    # A repo's own .alint.yml wins - let alint auto-discover it. Otherwise ship
-    # the HyperI default explicitly so the advisory works with no per-repo file.
-    if not (root / ".alint.yml").exists():
-        cmd += ["-c", str(_DEFAULT_CONFIG)]
+    # The generated override layer (if any) must outlive the alint run, so the
+    # temp dir wraps it. tempfile is the sanctioned process-local scratch.
+    with tempfile.TemporaryDirectory(prefix="hyperi-ci-alint-") as tmp:
+        # A repo's own .alint.yml wins - let alint auto-discover it. Otherwise
+        # ship the HyperI default explicitly so the advisory works with no
+        # per-repo file - language-scoped when the primary language is known.
+        if not (root / ".alint.yml").exists():
+            layer = _override_layer(language or getattr(config, "language", None))
+            if layer is None:
+                cmd += ["-c", str(_DEFAULT_CONFIG)]
+            else:
+                layer_path = Path(tmp) / "hyperi.alint.override.yml"
+                layer_path.write_text(layer, encoding="utf-8", newline="\n")
+                cmd += ["-c", str(layer_path)]
 
-    try:
-        result = run_cmd(cmd, check=False, cwd=root)
-    except OSError as exc:
-        # The binary resolved but could not be exec'd (removed between which()
-        # and exec, broken symlink, no exec bit). Advisory - never fail.
-        warn(f"alint could not be run ({exc}) - advisory only, not failing.")
-        return 0
+        try:
+            result = run_cmd(cmd, check=False, cwd=root)
+        except OSError as exc:
+            # The binary resolved but could not be exec'd (removed between
+            # which() and exec, broken symlink, no exec bit). Advisory -
+            # never fail.
+            warn(f"alint could not be run ({exc}) - advisory only, not failing.")
+            return 0
     # ADVISORY: alint exits 1 on error-level findings, 0 otherwise (warnings /
     # info never fail it). It is a recommendation surface here, not a gate, so
     # we never propagate a non-zero. Exit 2 (config) / 3 (internal) means alint

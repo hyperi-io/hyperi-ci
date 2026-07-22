@@ -6,6 +6,7 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 from typing import cast
@@ -19,8 +20,12 @@ from hyperi_ci.quality import repo_advisor
 class _Config:
     """Minimal CIConfig stand-in exposing .get(key, default)."""
 
-    def __init__(self, alint: str = "auto") -> None:
+    def __init__(self, alint: str = "auto", language: str | None = None) -> None:
         self._alint = alint
+        # Mirror CIConfig.language only when set - the no-language variant
+        # exercises the getattr fallback in repo_advisor.run.
+        if language is not None:
+            self.language = language
 
     def get(self, key: str, default=None):
         if key == "quality.alint":
@@ -28,9 +33,9 @@ class _Config:
         return default
 
 
-def _cfg(alint: str = "auto") -> CIConfig:
+def _cfg(alint: str = "auto", language: str | None = None) -> CIConfig:
     """Cast the minimal stand-in to CIConfig - the advisory only calls .get()."""
-    return cast(CIConfig, _Config(alint))
+    return cast(CIConfig, _Config(alint, language))
 
 
 def _stub_run(monkeypatch: pytest.MonkeyPatch, rc: int = 0) -> list[list[str]]:
@@ -43,6 +48,24 @@ def _stub_run(monkeypatch: pytest.MonkeyPatch, rc: int = 0) -> list[list[str]]:
 
     monkeypatch.setattr(repo_advisor, "run_cmd", fake_run_cmd)
     return calls
+
+
+def _stub_run_capture_cfg(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Capture the CONTENT of the -c config at call time.
+
+    The generated override layer lives in a TemporaryDirectory that dies when
+    run() returns, so it must be read inside the fake run_cmd.
+    """
+    configs: list[str] = []
+
+    def fake_run_cmd(cmd, *, check=True, cwd=None, **_kw):
+        if "-c" in cmd:
+            cfg = Path(cmd[cmd.index("-c") + 1])
+            configs.append(cfg.read_text(encoding="utf-8"))
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(repo_advisor, "run_cmd", fake_run_cmd)
+    return configs
 
 
 def test_disabled_mode_never_runs(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -125,3 +148,123 @@ def test_alint_internal_error_still_non_fatal(
     monkeypatch.setattr(repo_advisor, "warn", lambda m: warns.append(m))
     assert repo_advisor.run(_cfg("auto"), tmp_path) == 0
     assert any("advisory only" in w for w in warns)
+
+
+# --- Primary-language-scoped default (issue #75) ---------------------------
+
+
+def test_known_language_generates_override_layer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configs = _stub_run_capture_cfg(monkeypatch)
+    monkeypatch.setattr(repo_advisor, "find_tool", lambda *a, **k: "/bin/alint")
+    monkeypatch.setattr(repo_advisor, "is_ci", lambda: False)
+    assert repo_advisor.run(_cfg("auto"), tmp_path, language="typescript") == 0
+    (layer,) = configs
+    # The layer extends the shipped default (one file - alint 0.13 honours
+    # only the first -c, so layering must happen via extends).
+    assert "hyperi.alint.yml" in layer
+    # Non-primary ecosystems' root-only rules are off...
+    for rule in (
+        "go-mod-exists",
+        "go-sum-exists",
+        "rust-cargo-toml-exists",
+        "python-manifest-exists",
+    ):
+        assert f"- id: {rule}\n    level: off" in layer
+    # ...the primary's own stay active.
+    assert "node-package-json-exists" not in layer
+    assert "node-has-lockfile" not in layer
+
+
+def test_language_falls_back_to_config_attribute(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configs = _stub_run_capture_cfg(monkeypatch)
+    monkeypatch.setattr(repo_advisor, "find_tool", lambda *a, **k: "/bin/alint")
+    monkeypatch.setattr(repo_advisor, "is_ci", lambda: False)
+    assert repo_advisor.run(_cfg("auto", language="rust"), tmp_path) == 0
+    (layer,) = configs
+    assert "- id: go-mod-exists\n    level: off" in layer
+    assert "rust-cargo-toml-exists" not in layer
+
+
+def test_bash_primary_disables_all_ecosystem_root_rules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # bash has no alint ruleset: every ecosystem is non-primary, so all four
+    # groups' root-only rules go off.
+    configs = _stub_run_capture_cfg(monkeypatch)
+    monkeypatch.setattr(repo_advisor, "find_tool", lambda *a, **k: "/bin/alint")
+    monkeypatch.setattr(repo_advisor, "is_ci", lambda: False)
+    assert repo_advisor.run(_cfg("auto"), tmp_path, language="bash") == 0
+    (layer,) = configs
+    for rule in (
+        "python-manifest-exists",
+        "rust-cargo-toml-exists",
+        "node-package-json-exists",
+        "go-mod-exists",
+    ):
+        assert f"- id: {rule}\n    level: off" in layer
+
+
+def test_unknown_language_uses_plain_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # "none" (CIConfig's default) and anything unrecognised: no primary to
+    # judge against -> the shipped default runs unmodified.
+    calls = _stub_run(monkeypatch)
+    monkeypatch.setattr(repo_advisor, "find_tool", lambda *a, **k: "/bin/alint")
+    monkeypatch.setattr(repo_advisor, "is_ci", lambda: False)
+    assert repo_advisor.run(_cfg("auto"), tmp_path, language="none") == 0
+    (cmd,) = calls
+    assert cmd[-1].endswith("hyperi.alint.yml")
+
+
+def test_repo_config_wins_even_with_language(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / ".alint.yml").write_text("version: 1\n", encoding="utf-8")
+    calls = _stub_run(monkeypatch)
+    monkeypatch.setattr(repo_advisor, "find_tool", lambda *a, **k: "/bin/alint")
+    monkeypatch.setattr(repo_advisor, "is_ci", lambda: False)
+    assert repo_advisor.run(_cfg("auto"), tmp_path, language="typescript") == 0
+    (cmd,) = calls
+    assert "-c" not in cmd  # the repo's own config still wins outright
+
+
+@pytest.mark.skipif(shutil.which("alint") is None, reason="alint not installed")
+def test_override_layer_suppresses_nested_go_mod_with_real_alint(
+    tmp_path: Path,
+) -> None:
+    """E2E for issue #75: TS-primary monorepo, nested go.mod, real alint."""
+    (tmp_path / "package.json").write_text(
+        '{"name": "fixture", "private": true}\n', encoding="utf-8"
+    )
+    nested = tmp_path / "packages" / "oc"
+    nested.mkdir(parents=True)
+    (nested / "go.mod").write_text(
+        "module example.com/oc\n\ngo 1.22\n", encoding="utf-8"
+    )
+
+    layer = repo_advisor._override_layer("typescript")
+    assert layer is not None
+    layer_path = tmp_path / "override.yml"
+    layer_path.write_text(layer, encoding="utf-8", newline="\n")
+
+    result = subprocess.run(
+        ["alint", "check", str(tmp_path), "-c", str(layer_path), "--compact"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    out = result.stdout + result.stderr
+    assert "go-mod-exists" not in out
+    assert "go-sum-exists" not in out
+    # The advisory still checks the primary ecosystem's root rules.
+    assert "node-has-lockfile" in out
+    # Exit 0/1 = ran (1 would mean error-level findings remain); >=2 = broken
+    # config, which is exactly what this test exists to catch.
+    assert result.returncode in (0, 1)
