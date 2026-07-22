@@ -305,3 +305,34 @@ def test_content_attribution_detected(repo: Path) -> None:
 def test_content_no_false_positive_on_plain_code(repo: Path) -> None:
     _commit(repo, "plain.py", "def add(a, b):\n    return a + b\n")
     assert spill.content_attributions(repo, "HEAD") == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Co-authored-by: Claude <noreply@anthropic.com>",
+        "Co-authored-by: Claude <claude@anthropic.com>",   # any @anthropic.com
+        "Co-authored-by: Cursor Agent <agent@cursor.com>",
+        "Co-authored-by: openai-codex[bot] <codex@openai.com>",
+        "Signed: dev <someone@anthropic.com>",             # bare vendor author
+        "Generated with Claude Code",
+        "assisted by GitHub Copilot",
+        "on-behalf-of: gemini-cli",
+    ],
+)
+def test_attribution_regex_hits(text: str) -> None:
+    assert spill._AI_ATTRIBUTION_RE.search(text) is not None, text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "fix: a normal human commit",
+        "Reviewed-by: Derek <derek@hyperi.io>",
+        "def add(a, b):\n    return a + b",
+        "See the google.com docs for details",   # google.com is NOT an agent match
+        "Signed-off-by: Kaz <kaz@example.com>",
+    ],
+)
+def test_attribution_regex_misses(text: str) -> None:
+    assert spill._AI_ATTRIBUTION_RE.search(text) is None, text

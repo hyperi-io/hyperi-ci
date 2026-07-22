@@ -141,19 +141,21 @@ def classify(path: str) -> Category | None:
 # ---------------------------------------------------------------------------
 
 _AI_ATTRIBUTION_RE = re.compile(
-    # Commit trailer: Co-authored-by a known agent / bot.
-    r"co-authored-by:[^\n]*"
-    r"(?:claude|cursor|copilot|gemini|codex|chatgpt|openai|devin|aider"
-    r"|windsurf|codeium|tabnine|sourcegraph|cody|\[bot\])"
-    # "Generated/written/assisted with|by <agent>".
-    r"|(?:generated|written|authored|created|assisted)\s+(?:with|by)\s+"
-    r"(?:claude|cursor|copilot|gemini|codex|chatgpt|openai|github\s+copilot)"
-    # The Claude Code / robot-emoji footer.
+    # Co-authored-by / on-behalf-of a known agent or a [bot] account.
+    r"(?:co-authored-by|on-behalf-of):[^\n]*"
+    r"(?:claude|cursor|copilot|gemini|codex|chatgpt|openai|anthropic|google"
+    r"|devin|aider|windsurf|codeium|tabnine|sourcegraph|cody|\[bot\])"
+    # "Generated/assisted with|by <agent>".
+    r"|(?:generated|written|authored|created|assisted|co-authored)\s+(?:with|by)\s+"
+    r"(?:claude|cursor|copilot|gemini|codex|chatgpt|openai|anthropic|github\s+copilot)"
+    # Claude Code / robot-emoji footer.
     r"|generated with \[?claude code"
     r"|\U0001f916\s*generated with"
-    # Agent no-reply / service emails.
-    r"|noreply@anthropic\.com"
-    r"|@(?:anthropic|openai|cursor|codeium)\.com",
+    # Agent-vendor author/committer email -- ANY local-part @vendor (a HyperI
+    # repo committer @anthropic.com/@openai.com is the agent, not a colleague).
+    # NB: google.com is deliberately NOT here (real employees + vendored repos
+    # -> false positives); Gemini is caught by name above.
+    r"|@(?:anthropic|openai|cursor|codeium|windsurf|sourcegraph|tabnine)\.(?:com|ai|sh)",
     re.IGNORECASE,
 )
 
