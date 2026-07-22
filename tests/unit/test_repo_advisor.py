@@ -38,6 +38,17 @@ def _cfg(alint: str = "auto", language: str | None = None) -> CIConfig:
     return cast(CIConfig, _Config(alint, language))
 
 
+def _have_alint(monkeypatch: pytest.MonkeyPatch, path: str = "/bin/alint") -> None:
+    """Pretend alint is on PATH (run() resolves quietly via shutil.which)."""
+    monkeypatch.setattr(repo_advisor.shutil, "which", lambda _n: path)
+
+
+def _no_alint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pretend alint is absent, locally (no CI install path)."""
+    monkeypatch.setattr(repo_advisor.shutil, "which", lambda _n: None)
+    monkeypatch.setattr(repo_advisor, "is_ci", lambda: False)
+
+
 def _stub_run(monkeypatch: pytest.MonkeyPatch, rc: int = 0) -> list[list[str]]:
     """Capture the command run_cmd is called with; return the capture list."""
     calls: list[list[str]] = []
@@ -80,16 +91,21 @@ def test_disabled_mode_never_runs(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_missing_alint_is_noop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = _stub_run(monkeypatch)
-    monkeypatch.setattr(repo_advisor, "find_tool", lambda *a, **k: None)
+    _no_alint(monkeypatch)
+    notices: list[tuple] = []
+    monkeypatch.setattr(
+        repo_advisor, "find_tool", lambda *a, **k: notices.append((a, k))
+    )
     assert repo_advisor.run(_cfg("auto"), tmp_path) == 0
     assert calls == []  # nothing to run
+    assert len(notices) == 1  # the install nudge still fires
 
 
 def test_runs_with_packaged_config_when_no_repo_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls = _stub_run(monkeypatch, rc=0)
-    monkeypatch.setattr(repo_advisor, "find_tool", lambda *a, **k: "/bin/alint")
+    _have_alint(monkeypatch)
     monkeypatch.setattr(repo_advisor, "is_ci", lambda: False)
     assert repo_advisor.run(_cfg("auto"), tmp_path) == 0
     (cmd,) = calls
@@ -104,7 +120,7 @@ def test_repo_config_wins_no_dash_c(
 ) -> None:
     (tmp_path / ".alint.yml").write_text("version: 1\n", encoding="utf-8")
     calls = _stub_run(monkeypatch, rc=0)
-    monkeypatch.setattr(repo_advisor, "find_tool", lambda *a, **k: "/bin/alint")
+    _have_alint(monkeypatch)
     monkeypatch.setattr(repo_advisor, "is_ci", lambda: False)
     assert repo_advisor.run(_cfg("auto"), tmp_path) == 0
     (cmd,) = calls
@@ -113,7 +129,7 @@ def test_repo_config_wins_no_dash_c(
 
 def test_ci_uses_github_format(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = _stub_run(monkeypatch, rc=1)  # error-level findings...
-    monkeypatch.setattr(repo_advisor, "find_tool", lambda *a, **k: "/bin/alint")
+    _have_alint(monkeypatch)
     monkeypatch.setattr(repo_advisor, "is_ci", lambda: True)
     # ...still returns 0: advisory, never gates the build.
     assert repo_advisor.run(_cfg("auto"), tmp_path) == 0
@@ -130,7 +146,7 @@ def test_exec_failure_is_non_fatal(
         raise OSError("no such file")
 
     warns: list[str] = []
-    monkeypatch.setattr(repo_advisor, "find_tool", lambda *a, **k: "/bin/alint")
+    _have_alint(monkeypatch)
     monkeypatch.setattr(repo_advisor, "is_ci", lambda: False)
     monkeypatch.setattr(repo_advisor, "run_cmd", boom)
     monkeypatch.setattr(repo_advisor, "warn", lambda m: warns.append(m))
@@ -143,7 +159,7 @@ def test_alint_internal_error_still_non_fatal(
 ) -> None:
     _stub_run(monkeypatch, rc=2)  # config/internal error
     warns: list[str] = []
-    monkeypatch.setattr(repo_advisor, "find_tool", lambda *a, **k: "/bin/alint")
+    _have_alint(monkeypatch)
     monkeypatch.setattr(repo_advisor, "is_ci", lambda: False)
     monkeypatch.setattr(repo_advisor, "warn", lambda m: warns.append(m))
     assert repo_advisor.run(_cfg("auto"), tmp_path) == 0
@@ -157,13 +173,17 @@ def test_known_language_generates_override_layer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     configs = _stub_run_capture_cfg(monkeypatch)
-    monkeypatch.setattr(repo_advisor, "find_tool", lambda *a, **k: "/bin/alint")
+    _have_alint(monkeypatch)
     monkeypatch.setattr(repo_advisor, "is_ci", lambda: False)
     assert repo_advisor.run(_cfg("auto"), tmp_path, language="typescript") == 0
     (layer,) = configs
     # The layer extends the shipped default (one file - alint 0.13 honours
-    # only the first -c, so layering must happen via extends).
+    # only the first -c and 0.14 rejects a second outright, so layering must
+    # happen via extends).
     assert "hyperi.alint.yml" in layer
+    # Both layer and packaged default sit outside the linted repo; without
+    # this opt-out alint 0.14's extends confinement hard-errors the run.
+    assert "allow_out_of_root: true" in layer
     # Non-primary ecosystems' root-only rules are off...
     for rule in (
         "go-mod-exists",
@@ -181,7 +201,7 @@ def test_language_falls_back_to_config_attribute(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     configs = _stub_run_capture_cfg(monkeypatch)
-    monkeypatch.setattr(repo_advisor, "find_tool", lambda *a, **k: "/bin/alint")
+    _have_alint(monkeypatch)
     monkeypatch.setattr(repo_advisor, "is_ci", lambda: False)
     assert repo_advisor.run(_cfg("auto", language="rust"), tmp_path) == 0
     (layer,) = configs
@@ -195,7 +215,7 @@ def test_bash_primary_disables_all_ecosystem_root_rules(
     # bash has no alint ruleset: every ecosystem is non-primary, so all four
     # groups' root-only rules go off.
     configs = _stub_run_capture_cfg(monkeypatch)
-    monkeypatch.setattr(repo_advisor, "find_tool", lambda *a, **k: "/bin/alint")
+    _have_alint(monkeypatch)
     monkeypatch.setattr(repo_advisor, "is_ci", lambda: False)
     assert repo_advisor.run(_cfg("auto"), tmp_path, language="bash") == 0
     (layer,) = configs
@@ -214,7 +234,7 @@ def test_unknown_language_uses_plain_default(
     # "none" (CIConfig's default) and anything unrecognised: no primary to
     # judge against -> the shipped default runs unmodified.
     calls = _stub_run(monkeypatch)
-    monkeypatch.setattr(repo_advisor, "find_tool", lambda *a, **k: "/bin/alint")
+    _have_alint(monkeypatch)
     monkeypatch.setattr(repo_advisor, "is_ci", lambda: False)
     assert repo_advisor.run(_cfg("auto"), tmp_path, language="none") == 0
     (cmd,) = calls
@@ -226,11 +246,86 @@ def test_repo_config_wins_even_with_language(
 ) -> None:
     (tmp_path / ".alint.yml").write_text("version: 1\n", encoding="utf-8")
     calls = _stub_run(monkeypatch)
-    monkeypatch.setattr(repo_advisor, "find_tool", lambda *a, **k: "/bin/alint")
+    _have_alint(monkeypatch)
     monkeypatch.setattr(repo_advisor, "is_ci", lambda: False)
     assert repo_advisor.run(_cfg("auto"), tmp_path, language="typescript") == 0
     (cmd,) = calls
     assert "-c" not in cmd  # the repo's own config still wins outright
+
+
+# --- CI-time pinned install (tools.alint SSoT) -----------------------------
+
+
+def test_install_skipped_outside_ci(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(repo_advisor, "is_ci", lambda: False)
+    monkeypatch.setattr(
+        repo_advisor, "run_cmd", lambda *a, **k: pytest.fail("must not download")
+    )
+    assert repo_advisor._install_alint(tmp_path) is None
+
+
+def test_install_linux_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(repo_advisor, "is_ci", lambda: True)
+    monkeypatch.setattr(repo_advisor.sys, "platform", "darwin")
+    monkeypatch.setattr(
+        repo_advisor, "run_cmd", lambda *a, **k: pytest.fail("must not download")
+    )
+    assert repo_advisor._install_alint(tmp_path) is None
+
+
+def test_install_download_failure_returns_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(repo_advisor, "is_ci", lambda: True)
+    monkeypatch.setattr(repo_advisor.sys, "platform", "linux")
+    _stub_run(monkeypatch, rc=1)  # curl fails
+    assert repo_advisor._install_alint(tmp_path) is None
+
+
+def test_install_happy_path_returns_pinned_binary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(repo_advisor, "is_ci", lambda: True)
+    monkeypatch.setattr(repo_advisor.sys, "platform", "linux")
+    monkeypatch.setattr(repo_advisor.platform, "machine", lambda: "x86_64")
+
+    def fake_run_cmd(cmd, *, check=True, cwd=None, **_kw):
+        if cmd[0] == "tar":  # "extract" the expected layout
+            stem = f"alint-{repo_advisor._ALINT_VERSION}-x86_64-unknown-linux-musl"
+            binary = tmp_path / stem / "alint"
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"#!fake")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(repo_advisor, "run_cmd", fake_run_cmd)
+    got = repo_advisor._install_alint(tmp_path)
+    assert got is not None
+    assert got.endswith("alint")
+    assert repo_advisor._ALINT_VERSION in got
+    assert Path(got).stat().st_mode & 0o111  # executable
+
+
+def test_run_uses_ci_installed_binary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = _stub_run(monkeypatch)
+    monkeypatch.setattr(repo_advisor.shutil, "which", lambda _n: None)
+    monkeypatch.setattr(repo_advisor, "is_ci", lambda: True)
+    monkeypatch.setattr(repo_advisor, "_install_alint", lambda _d: "/dl/alint")
+    assert repo_advisor.run(_cfg("auto"), tmp_path, language="python") == 0
+    (cmd,) = calls
+    assert cmd[0] == "/dl/alint"
+
+
+def test_pin_matches_versions_yaml() -> None:
+    """The mirrored constant must track config/versions.yaml (the SSoT)."""
+    import yaml
+
+    versions = Path(__file__).resolve().parents[2] / "config" / "versions.yaml"
+    data = yaml.safe_load(versions.read_text(encoding="utf-8"))
+    assert data["tools"]["alint"]["version"] == repo_advisor._ALINT_VERSION
 
 
 @pytest.mark.skipif(shutil.which("alint") is None, reason="alint not installed")

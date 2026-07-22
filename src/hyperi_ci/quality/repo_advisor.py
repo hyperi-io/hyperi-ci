@@ -20,9 +20,13 @@ runs ``alint init`` to drop its own ``.alint.yml``; that wins and we step aside
 (let alint discover it). Turn the whole thing off with ``quality.alint:
 disabled``.
 
-alint is NOT a hyperi-ci dependency. Missing -> the step skips via
+alint is NOT a hyperi-ci dependency. Locally, missing -> the step skips via
 :func:`hyperi_ci.tools.find_tool` (an info nudge under ``auto``, a louder warn
-under ``enabled``). It never installs anything and never fails the build.
+under ``enabled``) and never installs anything. In CI a missing alint is
+fetched as the PINNED prebuilt binary (``tools.alint`` in
+``config/versions.yaml``, mirrored below) so the advisory actually runs on
+vanilla runners - nothing bakes alint into a runner image. Either way it
+never fails the build.
 
 The default is additionally PRIMARY-LANGUAGE-AWARE (issue #75): alint's
 bundled ``has_<lang>`` facts match a manifest anywhere in the tree, but its
@@ -43,10 +47,13 @@ Config (``.hyperi-ci.yaml``):
 
 from __future__ import annotations
 
+import platform
+import shutil
+import sys
 import tempfile
 from pathlib import Path
 
-from hyperi_ci.common import is_ci, run_cmd, warn
+from hyperi_ci.common import info, is_ci, run_cmd, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.detect import LANGUAGE_MARKERS
 from hyperi_ci.tools import find_tool
@@ -56,6 +63,51 @@ from hyperi_ci.tools import find_tool
 _DEFAULT_CONFIG = (
     Path(__file__).resolve().parents[1] / "config" / "alint" / "hyperi.alint.yml"
 )
+
+# Mirrors `tools.alint` in config/versions.yaml - the SSoT. The pre-commit
+# hook (scripts/update-versions.py --fix) rewrites the marked line, so do not
+# hand-edit it. It lives here rather than being read from the YAML because
+# config/ ships outside the wheel (pyproject packages = ["src/hyperi_ci"]).
+# hyperi-ci:pin tools.alint
+_ALINT_VERSION = "v0.14.0"
+
+
+def _install_alint(dest_dir: Path) -> str | None:
+    """Fetch the pinned prebuilt alint into ``dest_dir`` on Linux CI runners.
+
+    Returns the binary path, or None (the advisory then info-skips as it
+    always has). No sudo and no PATH mutation: the static musl binary is
+    exec'd by absolute path, so this works on ARC pods as well as vanilla
+    GitHub runners. Never raises - the advisory must not fail a build.
+    """
+    if not is_ci():
+        return None
+    if sys.platform != "linux":
+        warn("  alint auto-install only supported on Linux CI")
+        return None
+
+    machine = "x86_64" if platform.machine() in ("x86_64", "AMD64") else "aarch64"
+    target = f"{machine}-unknown-linux-musl"
+    stem = f"alint-{_ALINT_VERSION}-{target}"
+    url = (
+        f"https://github.com/asamarts/alint/releases/download/"
+        f"{_ALINT_VERSION}/{stem}.tar.gz"
+    )
+
+    info(f"  Installing alint {_ALINT_VERSION}...")
+    tarball = dest_dir / "alint.tar.gz"
+    fetched = run_cmd(["curl", "-sSL", url, "-o", str(tarball)], check=False)
+    if fetched.returncode != 0:
+        warn("  Failed to download alint - advisory skipped.")
+        return None
+    unpacked = run_cmd(["tar", "xzf", str(tarball), "-C", str(dest_dir)], check=False)
+    binary = dest_dir / stem / "alint"
+    if unpacked.returncode != 0 or not binary.exists():
+        warn("  Failed to unpack alint - advisory skipped.")
+        return None
+    binary.chmod(0o755)
+    return str(binary)
+
 
 # hyperi-ci language -> the alint bundled-ruleset group it maps to. bash has
 # no alint ruleset (absent here), so a bash-primary repo disables every
@@ -110,7 +162,21 @@ def _override_layer(language: str | None) -> str | None:
     # a Windows install path survives verbatim. The only char needing care is
     # a literal quote in the path (doubled per YAML).
     default = str(_DEFAULT_CONFIG).replace("'", "''")
-    lines = ["version: 1", "", "extends:", f"  - '{default}'", "", "rules:"]
+    lines = [
+        "version: 1",
+        "",
+        # This layer lives in a temp dir and extends the packaged default in
+        # site-packages - both outside the linted repo. alint 0.14 confines
+        # local `extends:` targets to the lint root unless the top-level
+        # config opts out; 0.13 parses the same key (there it grants rules
+        # out-of-root READS, harmless for the bundled repo-relative rules).
+        "allow_out_of_root: true",
+        "",
+        "extends:",
+        f"  - '{default}'",
+        "",
+        "rules:",
+    ]
     for group, rules in _ROOT_ONLY_RULES.items():
         if group == primary_group:
             continue
@@ -138,15 +204,22 @@ def run(
     if mode in ("disabled", "off", "false", "none"):
         return 0
 
-    exe = find_tool("alint", recommended=(mode == "enabled"))
-    if not exe:
-        return 0
-
     root = project_dir or Path.cwd()
-    cmd = [exe, "check", "--format", "github" if is_ci() else "human"]
-    # The generated override layer (if any) must outlive the alint run, so the
-    # temp dir wraps it. tempfile is the sanctioned process-local scratch.
+    # The temp dir holds the generated override layer and (in CI) the fetched
+    # binary - both must outlive the alint run. tempfile is the sanctioned
+    # process-local scratch.
     with tempfile.TemporaryDirectory(prefix="hyperi-ci-alint-") as tmp:
+        # Resolve quietly first; in CI fall back to the pinned prebuilt
+        # download so the advisory actually runs on vanilla runners (nothing
+        # bakes alint). Only when both miss does the install notice fire.
+        exe = shutil.which("alint")
+        if not exe and is_ci():
+            exe = _install_alint(Path(tmp))
+        if not exe:
+            find_tool("alint", recommended=(mode == "enabled"))
+            return 0
+
+        cmd = [exe, "check", "--format", "github" if is_ci() else "human"]
         # A repo's own .alint.yml wins - let alint auto-discover it. Otherwise
         # ship the HyperI default explicitly so the advisory works with no
         # per-repo file - language-scoped when the primary language is known.

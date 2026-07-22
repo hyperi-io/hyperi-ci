@@ -90,6 +90,16 @@ actions:
 # path here verifies a digest today. Tracked in #66; the fix is a `sha256:` per
 # asset pinned here and verified at download.
 tools:
+  # First pin of this tool. v0.14.0 was 4 days old at pin time - inside the
+  # 7-day cooldown - taken deliberately: 0.13.0's repeatable `-c` silently
+  # honours only the first config file, contradicting its own help text
+  # (0.14.0 rejects multiple `-c` and fixes the contract). Upstream ships
+  # per-asset .sha256 + SHA256SUMS, so alint is the natural first candidate
+  # when #66 (digest verification at download) lands.
+  alint:
+    version: v0.14.0
+    repo: asamarts/alint
+    pin: src/hyperi_ci/quality/repo_advisor.py
   gitleaks:
     version: v8.30.1
     repo: gitleaks/gitleaks

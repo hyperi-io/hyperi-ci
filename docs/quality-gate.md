@@ -349,8 +349,14 @@ they surface a recommendation and carry on.
   with `packages/*/go.mod` got a red `go-mod-exists`). Per-file rules
   (Trojan-Source, hygiene) stay active for every ecosystem. Implemented as a
   generated single-file layer that `extends:` the shipped default - alint
-  0.13's repeatable `-c` only honours the first file, so two `-c` layers do
-  not compose. Controlled by `quality.alint` (`auto` = run if installed else
+  0.13's repeatable `-c` only honours the first file (0.14 rejects a second
+  outright), so two `-c` layers do not compose. The layer carries
+  `allow_out_of_root: true`: it and the packaged default both live outside
+  the linted repo, which alint 0.14's `extends:` confinement would otherwise
+  reject. Controlled by `quality.alint` (`auto` = run if installed else
   info-skip; `enabled` = warn if missing; `disabled` = off). alint is not a
-  hyperi-ci dependency - it info-skips (with an install hint) when absent.
+  hyperi-ci dependency; locally it info-skips (with an install hint) when
+  absent, while in CI a missing alint is fetched as the pinned prebuilt
+  binary (`tools.alint` in `config/versions.yaml`, static musl, exec'd by
+  path - no sudo) so the advisory actually runs on vanilla runners.
   Driver: `src/hyperi_ci/quality/repo_advisor.py`.
