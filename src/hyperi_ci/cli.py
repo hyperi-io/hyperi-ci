@@ -158,6 +158,79 @@ def check(
     raise typer.Exit(0)
 
 
+spill_app = typer.Typer(
+    name="spill",
+    help="Find + remediate files that leaked into commits (AI artefacts, "
+    "secrets, scratch, build output). Bare `spill` scans (read-only).",
+    invoke_without_command=True,
+)
+app.add_typer(spill_app, name="spill")
+
+
+@spill_app.callback(invoke_without_command=True)
+def spill_scan(
+    ctx: typer.Context,
+    project_dir: Annotated[
+        str | None, typer.Option("--project-dir", "-C", help="Project root directory")
+    ] = None,
+    rev_range: Annotated[
+        str | None,
+        typer.Option(
+            "--range",
+            help="Commit range to scan (default: unpushed commits @{u}..HEAD).",
+        ),
+    ] = None,
+    as_json: Annotated[
+        bool, typer.Option("--json", help="Emit the machine report (for /spill).")
+    ] = False,
+) -> None:
+    """Scan a commit range for spilled files (READ-ONLY, always safe)."""
+    if ctx.invoked_subcommand is not None:
+        return
+    from hyperi_ci import spill
+
+    cwd = Path(project_dir) if project_dir else Path.cwd()
+    report = spill.scan(cwd, rev_range=rev_range)
+    if as_json:
+        typer.echo(json.dumps(report.to_dict(), indent=2))
+    else:
+        spill.render(report)
+    # Exit non-zero when a critical (secret) spill is present so CI / a caller
+    # can gate on it; other findings report but do not fail the scan.
+    raise typer.Exit(1 if report.worst == "critical" else 0)
+
+
+@spill_app.command("fix")
+def spill_fix(
+    paths: Annotated[list[str], typer.Argument(help="Spilled paths to remediate.")],
+    project_dir: Annotated[
+        str | None, typer.Option("--project-dir", "-C", help="Project root directory")
+    ] = None,
+    mode: Annotated[
+        str,
+        typer.Option(
+            "--mode",
+            help="untrack (rm --cached + gitignore) | amend (unpushed commit) | "
+            "rewrite (pushed history -- prepares a backup, human force-pushes).",
+        ),
+    ] = "untrack",
+    execute: Annotated[
+        bool,
+        typer.Option("--execute", "-f", help="Apply (default is a dry run)."),
+    ] = False,
+) -> None:
+    """Remediate spilled paths. Dry run unless --execute.
+
+    `rewrite` NEVER force-pushes -- it prepares a backup + filtered history and
+    hands the protected-branch force-push to a human (the hyperi-ai guard keeps
+    force-push-to-main non-grantable). Rotate any leaked secret regardless.
+    """
+    from hyperi_ci import spill
+
+    cwd = Path(project_dir) if project_dir else Path.cwd()
+    raise typer.Exit(spill.fix(cwd, paths, mode=mode, execute=execute))
+
+
 @app.command(name="lint-manifests")
 def lint_manifests_cmd(
     directory: Annotated[
