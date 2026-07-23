@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import subprocess
 import tarfile
@@ -109,3 +110,74 @@ class TestInstallBody:
         # CalledProcessError crashing the whole quality stage.
         self._wire(monkeypatch, sudo_raises=True)
         assert install.install_ci_binary("tool", "http://x") is None
+
+    # --- fail-closed SHA256 integrity gate (the estate-wide RCE fix) ----------
+
+    def test_wrong_hash_installs_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # A swapped asset (its bytes hash to something other than the pin) is
+        # the estate-wide RCE case: refuse it, install nothing.
+        state = self._wire(monkeypatch, curl_stdout=b"EVIL")
+        result = install.install_ci_binary(
+            "tool", "http://x", expected_sha256="00" * 32
+        )
+        assert result is None
+        assert state["installed"] is False
+        # Never reached the privileged move - the gate is before any exec.
+        assert not any(c[:2] == ["sudo", "mv"] for c in state["cmds"])
+
+    def test_matching_hash_proceeds(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        payload = b"GOOD-BINARY"
+        state = self._wire(monkeypatch, curl_stdout=payload)
+        digest = hashlib.sha256(payload).hexdigest()
+        result = install.install_ci_binary("tool", "http://x", expected_sha256=digest)
+        assert result == "/usr/local/bin/tool"
+        assert state["installed"] is True
+
+    def test_matching_hash_case_insensitive(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        payload = b"GOOD-BINARY"
+        self._wire(monkeypatch, curl_stdout=payload)
+        digest = hashlib.sha256(payload).hexdigest().upper()
+        assert (
+            install.install_ci_binary("tool", "http://x", expected_sha256=digest)
+            == "/usr/local/bin/tool"
+        )
+
+    def test_tar_download_hashed_before_extract(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # For a tar member the RAW .tar.gz is what gets hashed (before extract),
+        # so the pin is the archive digest and a wrong pin fails closed.
+        archive = _make_targz("tool")
+        state = self._wire(monkeypatch, curl_stdout=archive)
+        result = install.install_ci_binary(
+            "tool", "http://x", tar_member="tool", expected_sha256="00" * 32
+        )
+        assert result is None
+        assert state["installed"] is False
+
+    def test_tar_matching_archive_hash_proceeds(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        archive = _make_targz("tool")
+        self._wire(monkeypatch, curl_stdout=archive)
+        digest = hashlib.sha256(archive).hexdigest()
+        assert (
+            install.install_ci_binary(
+                "tool", "http://x", tar_member="tool", expected_sha256=digest
+            )
+            == "/usr/local/bin/tool"
+        )
+
+    def test_no_hash_still_installs_unverified(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Rollout affordance: omitting the pin warns but proceeds, so callers
+        # that have not pinned a hash yet keep working.
+        state = self._wire(monkeypatch, curl_stdout=b"BIN")
+        assert (
+            install.install_ci_binary("tool", "http://x", expected_sha256=None)
+            == "/usr/local/bin/tool"
+        )
+        assert state["installed"] is True

@@ -52,6 +52,13 @@ from hyperi_ci.tools import missing_tool_notice
 # hyperi-ci:pin tools.hadolint
 _HADOLINT_VERSION = "v2.14.0"
 
+# sha256 pinned from hadolint v2.14.0 Linux release, verified before exec.
+# Keyed by the arch token in the asset name; the raw binary is hashed as-is.
+_HADOLINT_SHA256 = {
+    "x86_64": "6bf226944684f56c84dd014e8b979d27425c0148f61b3bd99bcc6f39e9dc5a47",
+    "arm64": "331f1d3511b84a4f1e3d18d52fec284723e4019552f4f47b19322a53ce9a40ed",
+}
+
 
 def _install_hadolint() -> str | None:
     """Return a hadolint path, installing the pinned static binary on Linux CI.
@@ -66,7 +73,7 @@ def _install_hadolint() -> str | None:
         f"https://github.com/hadolint/hadolint/releases/download/"
         f"{_HADOLINT_VERSION}/hadolint-Linux-{arch}"
     )
-    return install_ci_binary("hadolint", url)
+    return install_ci_binary("hadolint", url, expected_sha256=_HADOLINT_SHA256[arch])
 
 
 def _rule_url(code: str) -> str:

@@ -52,7 +52,7 @@ _REGISTRY: dict[str, ToolInfo] = {
         # upstream publishes musl-static + darwin tarballs with SHA256SUMS.
         install=(
             "brew install asamarts/alint/alint",
-            "curl -sSL https://raw.githubusercontent.com/asamarts/alint/main/install.sh | bash",
+            "download a release binary (musl-static/darwin + SHA256SUMS): https://github.com/asamarts/alint/releases/latest",
             "cargo binstall alint",
             "cargo install alint  # from source - slowest, last resort",
         ),

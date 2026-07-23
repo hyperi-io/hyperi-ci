@@ -35,17 +35,29 @@ from hyperi_ci.tools import find_tool
 # hyperi-ci:pin tools.kube-linter
 _KUBE_LINTER_VERSION = "v0.8.3"
 
+# sha256 pinned from kube-linter v0.8.3 linux release, verified before exec.
+# Raw binary, hashed as-is; keyed by arch (amd64 = kube-linter-linux, arm64 =
+# kube-linter-linux_arm64). Cross-checked against the release sigstore bundles.
+_KUBE_LINTER_SHA256 = {
+    "amd64": "618d299a3e2839c8ca9d86fce0db617be0fba41f0fecbbbfb7fbf1c04299fae1",
+    "arm64": "9c39d35252e0dcafb16b26197b9e93ba578e44eb402c3c6660fc94e08f94094f",
+}
+
 
 def _install_kube_linter() -> str | None:
     """Install the pinned kube-linter release on Linux CI (else None)."""
     # Raw single binary (no tarball) - amd64 is `kube-linter-linux`, arm64 adds
     # the `_arm64` suffix.
-    suffix = "" if platform.machine() in ("x86_64", "AMD64") else "_arm64"
+    is_amd64 = platform.machine() in ("x86_64", "AMD64")
+    suffix = "" if is_amd64 else "_arm64"
+    arch = "amd64" if is_amd64 else "arm64"
     url = (
         f"https://github.com/stackrox/kube-linter/releases/download/"
         f"{_KUBE_LINTER_VERSION}/kube-linter-linux{suffix}"
     )
-    return install_ci_binary("kube-linter", url)
+    return install_ci_binary(
+        "kube-linter", url, expected_sha256=_KUBE_LINTER_SHA256[arch]
+    )
 
 
 def run(
