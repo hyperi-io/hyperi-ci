@@ -16,7 +16,6 @@ from hyperi_ci.config import CIConfig
 from hyperi_ci.container import stage as stage_module
 from hyperi_ci.container.detect import Decision
 from hyperi_ci.container.stage import (
-    _normalise_enabled,
     _read_version,
     _resolve_mode,
     run,
@@ -179,27 +178,6 @@ class TestReadVersion:
         monkeypatch.delenv("HYPERCI_VERSION", raising=False)
         monkeypatch.setenv("GITHUB_REF_NAME", "v9.9.9")
         assert _read_version() == "9.9.9"
-
-
-# --- _normalise_enabled --------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [
-        (True, "true"),
-        (False, "false"),
-        ("true", "true"),
-        ("True", "true"),
-        ("FALSE", "false"),
-        ("auto", "auto"),
-        ("Auto", "auto"),
-        (None, "auto"),
-        ("garbage", "auto"),
-    ],
-)
-def test_normalise_enabled(raw: object, expected: str) -> None:
-    assert _normalise_enabled(raw) == expected
 
 
 # --- _resolve_mode -------------------------------------------------------

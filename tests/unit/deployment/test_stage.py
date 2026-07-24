@@ -13,6 +13,7 @@ import os
 import stat
 from pathlib import Path
 
+from hyperi_ci.config import CIConfig
 from hyperi_ci.deployment.cli import EXIT_NOT_IMPLEMENTED
 from hyperi_ci.deployment.stage import (
     EXIT_OK,
@@ -52,7 +53,10 @@ def _write_tier1_repo(root: Path, *, with_binary: bool = False) -> Path:
     (root / "Cargo.toml").write_text(
         '[package]\nname = "demo-app"\n'
         '[[bin]]\nname = "demo-app"\npath = "src/main.rs"\n'
-        '[dependencies]\nscalo = "2.5"\n',
+        "[dependencies]\n"
+        # The `deployment` feature is what compiles contract emission
+        # into generate-artefacts — without it this isn't Tier 1 at all.
+        'scalo = { version = "2.5", features = ["cli-service", "deployment"] }\n',
         encoding="utf-8",
     )
     if with_binary:
@@ -81,6 +85,23 @@ def _write_tier2_repo(root: Path) -> None:
         'demo-app = "demo_app.main:main"\n',
         encoding="utf-8",
     )
+
+
+def _write_scalo_library_consumer(root: Path) -> None:
+    """The culvert shape from issue #76.
+
+    Uses scalo as a library (logging / config / secrets), declares no
+    console script, and builds its container from its own Dockerfile.
+    """
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "culvert"\ndependencies = ["scalo>=2.28"]\n',
+        encoding="utf-8",
+    )
+
+
+def _producer_config(value: str) -> CIConfig:
+    """A CIConfig carrying just `deployment.producer`."""
+    return CIConfig(_raw={"deployment": {"producer": value}})
 
 
 class TestTierNone:
@@ -220,7 +241,7 @@ class TestRustBinaryName:
     """
 
     def test_picks_package_name_when_matching_bin_present(self, tmp_path: Path) -> None:
-        from hyperi_ci.deployment.stage import _rust_binary_name
+        from hyperi_ci.deployment.manifest import rust_binary_name
 
         (tmp_path / "Cargo.toml").write_text(
             '[package]\nname = "dfe-receiver"\nversion = "1.0.0"\n'
@@ -228,19 +249,19 @@ class TestRustBinaryName:
             '[[bin]]\nname = "dfe-receiver"\npath = "src/main.rs"\n',
             encoding="utf-8",
         )
-        assert _rust_binary_name(tmp_path) == "dfe-receiver"
+        assert rust_binary_name(tmp_path) == "dfe-receiver"
 
     def test_picks_package_name_when_no_explicit_bin(self, tmp_path: Path) -> None:
-        from hyperi_ci.deployment.stage import _rust_binary_name
+        from hyperi_ci.deployment.manifest import rust_binary_name
 
         (tmp_path / "Cargo.toml").write_text(
             '[package]\nname = "myapp"\nversion = "1.0.0"\n',
             encoding="utf-8",
         )
-        assert _rust_binary_name(tmp_path) == "myapp"
+        assert rust_binary_name(tmp_path) == "myapp"
 
     def test_falls_back_to_first_bin_when_no_package_name(self, tmp_path: Path) -> None:
-        from hyperi_ci.deployment.stage import _rust_binary_name
+        from hyperi_ci.deployment.manifest import rust_binary_name
 
         # No [package] table — last-resort fallback to first [[bin]].
         (tmp_path / "Cargo.toml").write_text(
@@ -248,18 +269,18 @@ class TestRustBinaryName:
             '[[bin]]\nname = "second-bin"\npath = "src/b.rs"\n',
             encoding="utf-8",
         )
-        assert _rust_binary_name(tmp_path) == "first-bin"
+        assert rust_binary_name(tmp_path) == "first-bin"
 
     def test_returns_none_when_no_cargo_toml(self, tmp_path: Path) -> None:
-        from hyperi_ci.deployment.stage import _rust_binary_name
+        from hyperi_ci.deployment.manifest import rust_binary_name
 
-        assert _rust_binary_name(tmp_path) is None
+        assert rust_binary_name(tmp_path) is None
 
     def test_workspace_root_resolves_to_first_member_with_binary(
         self, tmp_path: Path
     ) -> None:
         """Workspace-only root (no [package]) recurses into members."""
-        from hyperi_ci.deployment.stage import _rust_binary_name
+        from hyperi_ci.deployment.manifest import rust_binary_name
 
         (tmp_path / "Cargo.toml").write_text(
             '[workspace]\nresolver = "2"\n'
@@ -290,14 +311,14 @@ class TestRustBinaryName:
         # Rename project_dir so the leaf-prefer rule kicks in.
         ws = tmp_path.rename(tmp_path.parent / "demo-archiver")
         try:
-            assert _rust_binary_name(ws) == "demo-archiver"
+            assert rust_binary_name(ws) == "demo-archiver"
         finally:
             ws.rename(tmp_path)
 
     def test_workspace_returns_none_when_no_member_has_binary(
         self, tmp_path: Path
     ) -> None:
-        from hyperi_ci.deployment.stage import _rust_binary_name
+        from hyperi_ci.deployment.manifest import rust_binary_name
 
         (tmp_path / "Cargo.toml").write_text(
             '[workspace]\nmembers = ["crates/lib-only"]\n',
@@ -308,7 +329,7 @@ class TestRustBinaryName:
             "[lib]\n",  # no [package], no [[bin]]
             encoding="utf-8",
         )
-        assert _rust_binary_name(tmp_path) is None
+        assert rust_binary_name(tmp_path) is None
 
 
 class TestTier2:
@@ -343,16 +364,94 @@ class TestTier2:
         rc = run(output_dir=tmp_path / "ci-tmp", project_dir=tmp_path)
         assert rc == EXIT_PRODUCER_MISSING
 
-    def test_no_scripts_in_pyproject_returns_producer_missing(
+    def test_no_scripts_in_pyproject_skips(self, tmp_path: Path) -> None:
+        # Issue #76: a scalo LIBRARY consumer (no [project.scripts]) is
+        # not a producer. It used to reach _run_tier2 and exit 7, which
+        # failed the Build job of every scalo-using container that
+        # wasn't a ServiceApp.
+        _write_scalo_library_consumer(tmp_path)
+        out = tmp_path / "ci-tmp"
+        rc = run(output_dir=out, project_dir=tmp_path, config=_producer_config("auto"))
+        assert rc == EXIT_OK
+        # Nothing generated, so nothing for the container stage to pick
+        # up from ci-tmp/ — the skip must not leave a half-built dir.
+        assert not out.exists()
+
+    def test_no_scripts_with_producer_forced_returns_producer_missing(
         self, tmp_path: Path
     ) -> None:
-        # pyproject.toml without [project.scripts] — no entry point to invoke.
-        (tmp_path / "pyproject.toml").write_text(
-            '[project]\nname = "demo"\ndependencies = ["scalo>=2.28"]\n',
+        # `deployment.producer: true` is the operator saying "yes it is
+        # a producer" — then a missing entry point IS an error worth
+        # failing on, rather than a silent skip.
+        _write_scalo_library_consumer(tmp_path)
+        rc = run(
+            output_dir=tmp_path / "ci-tmp",
+            project_dir=tmp_path,
+            config=_producer_config("true"),
+        )
+        assert rc == EXIT_PRODUCER_MISSING
+
+
+class TestProducerGate:
+    """`deployment.producer` overrides tier auto-detection (issue #76)."""
+
+    def test_false_skips_a_real_producer(self, tmp_path: Path) -> None:
+        # A repo that WOULD dispatch (Tier 3 contract committed) skips
+        # when the operator opts out — this is the escape hatch for a
+        # library consumer that ships its deployment artefacts by hand.
+        _write_tier3_repo(tmp_path)
+        rc = run(
+            output_dir=tmp_path / "ci-tmp",
+            project_dir=tmp_path,
+            config=_producer_config("false"),
+        )
+        assert rc == EXIT_OK
+
+    def test_false_skips_tier2(self, tmp_path: Path) -> None:
+        _write_tier2_repo(tmp_path)
+        rc = run(
+            output_dir=tmp_path / "ci-tmp",
+            project_dir=tmp_path,
+            config=_producer_config("false"),
+        )
+        assert rc == EXIT_OK
+
+    def test_true_without_any_marker_fails_loudly(self, tmp_path: Path) -> None:
+        # Forcing a producer on a repo with no scalo dep and no contract
+        # is a config error. Silently doing nothing would leave the
+        # operator waiting for artefacts that never arrive.
+        rc = run(
+            output_dir=tmp_path / "ci-tmp",
+            project_dir=tmp_path,
+            config=_producer_config("true"),
+        )
+        assert rc == EXIT_PRODUCER_MISSING
+
+    def test_true_forces_tier1_without_a_binary_target(self, tmp_path: Path) -> None:
+        # Library-shaped Cargo.toml (no [[bin]], no src/main.rs) that
+        # the operator declares IS a producer. Detection is overridden,
+        # so we get as far as looking for the built binary.
+        (tmp_path / "Cargo.toml").write_text(
+            '[package]\nname = "demo-app"\n[dependencies]\nscalo = "2.9"\n',
             encoding="utf-8",
         )
-        rc = run(output_dir=tmp_path / "ci-tmp", project_dir=tmp_path)
+        rc = run(
+            output_dir=tmp_path / "ci-tmp",
+            project_dir=tmp_path,
+            config=_producer_config("true"),
+        )
         assert rc == EXIT_PRODUCER_MISSING
+
+    def test_unknown_value_falls_back_to_auto(self, tmp_path: Path) -> None:
+        contract = _write_tier3_repo(tmp_path)
+        rc = run(
+            output_dir=tmp_path / "ci-tmp",
+            project_dir=tmp_path,
+            contract_path=contract,
+            config=_producer_config("sometimes"),
+        )
+        # 'auto' behaviour → Tier 3 dispatch → templater's not-implemented.
+        assert rc == EXIT_NOT_IMPLEMENTED
 
 
 class TestDriftCheck:
@@ -416,6 +515,29 @@ class TestDriftCheck:
         rc = check_drift(project_dir=tmp_path)
         assert rc == EXIT_OK
 
+    def test_non_producer_with_committed_ci_is_not_drift(self, tmp_path: Path) -> None:
+        # A repo that generates nothing but keeps a hand-maintained ci/
+        # must not read as drift. Without the gate, the empty regen dir
+        # diffs against a populated ci/ and every file looks deleted.
+        _write_scalo_library_consumer(tmp_path)
+        ci_dir = tmp_path / "ci"
+        ci_dir.mkdir()
+        (ci_dir / "Dockerfile").write_text("FROM debian:12\n", encoding="utf-8")
+
+        rc = check_drift(project_dir=tmp_path, config=_producer_config("auto"))
+        assert rc == EXIT_OK
+
+    def test_producer_false_skips_the_drift_check(self, tmp_path: Path) -> None:
+        # Opting out of generation opts out of policing what it would
+        # have generated.
+        _write_tier2_repo(tmp_path)
+        ci_dir = tmp_path / "ci"
+        ci_dir.mkdir()
+        (ci_dir / "Dockerfile").write_text("FROM debian:12\n", encoding="utf-8")
+
+        rc = check_drift(project_dir=tmp_path, config=_producer_config("false"))
+        assert rc == EXIT_OK
+
 
 class TestDispatchIntegration:
     """The dispatch table exposes ``generate`` as a stage."""
@@ -429,3 +551,30 @@ class TestDispatchIntegration:
         from hyperi_ci.dispatch import _STAGE_HANDLERS
 
         assert "generate" in _STAGE_HANDLERS
+
+    def test_config_reaches_the_producer_gate(self, monkeypatch) -> None:
+        # The gate is only useful if dispatch actually passes the config
+        # down — it used to `del language` and call generate_run() with
+        # no arguments, which is what made `deployment.producer` inert.
+        from hyperi_ci.dispatch import stage_generate
+
+        seen: dict[str, object] = {}
+
+        def fake_run(**kwargs: object) -> int:
+            seen.update(kwargs)
+            return 0
+
+        monkeypatch.setattr("hyperi_ci.deployment.stage.run", fake_run)
+        config = _producer_config("false")
+        assert stage_generate("python", config) == 0
+        assert seen["config"] is config
+
+    def test_project_dir_reaches_the_generate_stage(self, tmp_path: Path) -> None:
+        # `hyperi-ci run generate -C <dir>` resolved the root for
+        # language detection but not for tier detection, so the stage
+        # read the CURRENT repo's manifests and dispatched its producer
+        # against a different project.
+        from hyperi_ci.dispatch import run_stage
+
+        _write_scalo_library_consumer(tmp_path)
+        assert run_stage("generate", project_dir=tmp_path) == EXIT_OK

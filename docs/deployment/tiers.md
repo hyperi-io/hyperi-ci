@@ -19,12 +19,20 @@ Adopting the deployment contract means:
 | Check | Command | Expected |
 |---|---|---|
 | hyperi-ci on PATH | `hyperi-ci --version` | `1.15.0` or newer |
-| Repo has no scalo dep | `grep -E 'scalo\|scalo' Cargo.toml pyproject.toml 2>/dev/null` | no match |
+| Repo is not a Tier 1/2 producer | `hyperi-ci run generate` | logs `detected tier 'none'` |
 | Existing `ci/` not present, or backup made | `ls ci/ 2>/dev/null` | empty or backed up |
 
-If your repo is on **scalo** or **scalo**, follow the matching tier
-guide instead - Tier 3 commits the JSON manually, while Tier 1/2 emit it
-from the app's source.
+If your app is a **scalo ServiceApp**, follow the matching tier guide
+instead - Tier 3 commits the JSON manually, while Tier 1/2 emit it from
+the app's source.
+
+Merely DEPENDING on scalo does not put you in Tier 1/2 - a repo that
+uses scalo as a library and has no binary / console script of its own
+is a Tier 3 candidate like any other. `hyperi-ci run generate` is the
+authority: it prints the tier it detected and why. Before you have a
+contract it detects `none` and writes nothing, so it is safe to run as
+a probe; once a contract is committed the same command regenerates
+`ci-tmp/`.
 
 ## Step 1 - Scaffold the contract
 

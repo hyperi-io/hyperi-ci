@@ -35,17 +35,92 @@ contract - verified by the cross-tier parity test suite.
 | Rust app using `scalo` | 1 (`rust`) | `<app> generate-artefacts` |
 | Python app using `scalo` | 2 (`python`) | `<app> generate-artefacts` |
 | Anything else (bash, TS, Go, ad-hoc) | 3 (`other`) | `hyperi-ci emit-artefacts` |
-| Library / no container | n/a (`none`) | container stage skips silently |
+| Library / no container | n/a (`none`) | generate + container stages skip silently |
+
+Most repos are that last row. Nothing here is opt-in work for a repo
+that does not ship a container.
 
 `hyperi-ci` auto-detects this - you don't pick by hand. Detection
 order, with the first match winning:
 
 1. `Cargo.toml` containing `scalo` (any form: string, table,
-   `.workspace = true`, extras) -> Tier 1.
+   `.workspace = true`, extras) AND the crate builds a binary
+   (`[[bin]]`, `src/main.rs`, `src/bin/*.rs`, or a workspace member
+   that does) AND the `scalo` dependency enables the `deployment`
+   feature -> Tier 1.
 2. `pyproject.toml` containing `scalo` (incl. extras like
-   `scalo[metrics]`) -> Tier 2.
+   `scalo[metrics]`) AND a `[project.scripts]` console script is
+   declared -> Tier 2.
 3. `ci/deployment-contract.json` exists -> Tier 3.
-4. None of the above -> no contract; container stage no-ops.
+4. None of the above -> no contract; generate + container stages no-op.
+
+### Depending on scalo does not make you a producer
+
+The extra requirements in steps 1-2 are the point, not a detail. Two
+different things have to be true, and a repo can have the first without
+the second:
+
+- **It has something to run.** A repo can use scalo as a LIBRARY - for
+  logging, config, secrets - without being a scalo ServiceApp. A VPN
+  container that builds from its own Dockerfile is the worked example:
+  it has the dep, but there is nothing to run `generate-artefacts` on.
+- **That thing actually emits a contract.** In scalo-rs the contract
+  emission is behind the `deployment` cargo feature. A binary built
+  without it still HAS a `generate-artefacts` subcommand, and that
+  subcommand still exits 0 - it just writes no `Dockerfile.runtime` and
+  no `container-manifest.json`. Detecting the feature is what turns
+  that into a clean skip instead of a container-stage failure several
+  minutes later complaining about a missing `ci-tmp/`.
+
+Either way the repo falls through to step 3, then step 4 - it skips,
+and says why in the Build log:
+
+```
+Generate: detected tier 'none' - depends on scalo but declares no
+[project.scripts] entry point (library consumer, not a
+deployment-artefact producer)
+
+Generate: detected tier 'none' - depends on scalo without the
+'deployment' feature, so its generate-artefacts emits no contract
+(not a deployment-artefact producer)
+```
+
+Note the fall-THROUGH: a scalo library consumer that also commits a
+Tier 3 contract is a perfectly good Tier 3 repo, and gets dispatched
+as one. What does NOT happen is falling through into the OTHER
+language's tier - a Rust repo that fails the check is not then
+dispatched to a Python tools subdir's entry point.
+
+Two deliberate asymmetries, both load-bearing:
+
+- **The feature check is Rust-only.** scalo-py's `deployment` extra is
+  just a `pydantic` pin, not a code gate - dfe-engine emits contracts
+  without declaring it, so testing for it would demote a real producer.
+- **Unknown is permissive.** A member crate carrying a bare
+  `scalo.workspace = true` inherits its feature list from the workspace
+  root; where that cannot be resolved, detection assumes producer and
+  lets the run fail loudly. A wrong skip is silent, so it is the worse
+  direction to guess in.
+
+### Overriding detection - `deployment.producer`
+
+Auto-detection is a heuristic over two manifest formats, so there is an
+override for both directions:
+
+```yaml
+deployment:
+  producer: auto    # default
+```
+
+| Value | Behaviour | Use when |
+|---|---|---|
+| `auto` | Detection as above. | Default. Leave it alone. |
+| `false` | Skip the generate stage (and its drift check) outright. | A library consumer that DOES ship a CLI of its own, so it looks like a producer but hand-maintains its deployment artefacts. |
+| `true` | Force: the marker dep alone picks the tier. Fails loudly if no tier resolves at all. | A genuine producer whose shape detection can't see. |
+
+`false` is the one to reach for when CI is generating artefacts you
+don't want. `true` is rarely needed - if you find yourself needing it,
+the detection rule is probably wrong and worth an issue.
 
 ## Tier 3 onboarding
 
@@ -158,6 +233,15 @@ You do **not** need to bump for adding an optional field with a default
 | 3 | contract already exists (use `--force` to overwrite) |
 | 4 | I/O error writing the file |
 
+`hyperi-ci run generate` (layered on top of the `emit-artefacts` set):
+
+| Code | Meaning |
+|---|---|
+| 0 | success, or a legitimate skip (not a producer, or `producer: false`) |
+| 7 | producer missing - binary not built, entry point unresolvable, or `producer: true` with no tier |
+| 8 | producer ran and failed, or the drift check found a difference |
+| 9 | tier resolved to something this hyperi-ci can't dispatch |
+
 ## Cascade-driven defaults
 
 Org-wide deployment defaults live in the YAML cascade rather than in
@@ -172,6 +256,7 @@ deployment:
   argocd:
     repo_url: https://github.com/hyperi-io/{app}  # default
   max_supported_schema_version: 2     # mirrored from contract.py
+  producer: auto                      # auto | true | false - see "Picking your tier"
 ```
 
 Resolvers in `hyperi_ci.deployment.registry` (`image_registry_from_cascade`,

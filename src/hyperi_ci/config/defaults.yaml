@@ -356,8 +356,31 @@ standards:
 # max_supported_schema_version: highest schema version this hyperi-ci can
 # consume. Bumped in lockstep with scalo-rs + scalo-py on shape changes.
 # Consumers fail fast if a contract declares a higher schema_version.
+#
+# `producer` gates the generate stage (and the drift check that mirrors
+# it). Most repos are not producers at all and never touch this - they
+# have no scalo dep and no contract, so the stage skips silently as it
+# always has.
+#
+# The key exists because a scalo DEPENDENCY is not a scalo ServiceApp.
+# A VPN container that uses scalo for logging/config and ships its own
+# Dockerfile has the dep but nothing to run `generate-artefacts` on.
+#
+#   auto  (default) - dispatch on the detected tier: a Tier 1/2 marker
+#                     dep plus a POSITIVE producer signal (a Rust
+#                     binary target AND the crate's `deployment`
+#                     feature, or a `[project.scripts]` console
+#                     script), or a committed Tier 3 contract. A
+#                     library consumer skips silently.
+#   false           - explicit skip, for a library consumer that does
+#                     have a CLI of its own and would otherwise look
+#                     like a producer.
+#   true            - force. The marker dep alone selects the tier, for
+#                     a genuine producer whose shape detection misses.
+#                     Fails loudly if no tier resolves at all.
 deployment:
   max_supported_schema_version: 2
+  producer: auto
 
 # Integrations
 integrations:

@@ -147,6 +147,44 @@ def mask(value: str) -> None:
         print(f"::add-mask::{value}")
 
 
+def normalise_tristate(raw: object, *, key: str) -> str:
+    """Coerce a YAML on/off/auto setting into ``true`` / ``false`` / ``auto``.
+
+    The house shape for a stage gate: ``false`` never runs, ``true``
+    always runs (and fails loudly when it can't), ``auto`` runs iff
+    detection finds a signal. YAML hands us a real bool for ``true`` /
+    ``false`` and a string for ``auto``, so both are accepted.
+
+    An unrecognised value warns and falls back to ``auto`` — a typo in
+    a config key shouldn't turn a build red on its own, and the warning
+    names the key so it's findable.
+
+    Args:
+        raw: The value as read from the config cascade.
+        key: Dotted config key, used in the warning text.
+
+    Returns:
+        One of ``"true"``, ``"false"``, ``"auto"``.
+
+    """
+    if raw is True:
+        return "true"
+    if raw is False:
+        return "false"
+    if isinstance(raw, str):
+        lowered = raw.strip().lower()
+        if lowered in {"true", "false", "auto"}:
+            return lowered
+    elif raw is None:
+        # Key absent, or present with an empty value — the default.
+        return "auto"
+    # Anything else (a bare `1`, a float, a list) is a config mistake.
+    # `producer: 1` reads as "on" to a human and would otherwise do the
+    # opposite in silence.
+    warn(f"Unknown {key} value {raw!r} — falling back to 'auto'")
+    return "auto"
+
+
 def run_cmd(
     cmd: list[str],
     *,

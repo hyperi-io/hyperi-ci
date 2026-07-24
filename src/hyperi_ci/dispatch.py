@@ -408,7 +408,12 @@ def stage_argocd(language: str, config: CIConfig) -> int:
     return argocd_run(config)
 
 
-def stage_generate(language: str, config: CIConfig) -> int:
+def stage_generate(
+    language: str,
+    config: CIConfig,
+    *,
+    project_dir: Path | None = None,
+) -> int:
     """Deployment-artefact generation — cross-tier stage.
 
     Sits between Build and Container in the pipeline. Auto-detects the
@@ -419,11 +424,15 @@ def stage_generate(language: str, config: CIConfig) -> int:
     independent of language detection so a polyglot repo (Rust app
     with a Python tools subdir) routes by which producer framework is
     actually present.
+
+    The config IS used: ``deployment.producer`` gates the stage, so a
+    scalo library consumer can opt out of artefact generation instead
+    of failing the Build job (issue #76).
     """
     del language  # unused — see docstring
     from hyperi_ci.deployment.stage import run as generate_run
 
-    return generate_run()
+    return generate_run(project_dir=project_dir, config=config)
 
 
 _STAGE_HANDLERS = {
@@ -493,6 +502,12 @@ def run_stage(
         # check`). _STAGE_HANDLERS is typed to the common (no-local)
         # signature, so cast for this branch.
         rc = cast("Any", handler)(language, config, local=local)
+    elif stage == "generate":
+        # generate reads the project's manifests to pick a producer
+        # tier, so it needs the resolved root — the other handlers work
+        # off cwd, but here a wrong root means dispatching a DIFFERENT
+        # repo's producer under `hyperi-ci run generate -C <dir>`.
+        rc = cast("Any", handler)(language, config, project_dir=project_dir)
     else:
         rc = handler(language, config)
 

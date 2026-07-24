@@ -22,6 +22,15 @@ publish:
   container:
     enabled: false
 
+# Same shape one layer down: hyperi-ci depends on scalo and declares a
+# [project.scripts] entry, so tier detection reads it as a Tier 2
+# deployment-artefact producer. It isn't one -- the CLI has no
+# generate-artefacts subcommand, so `run generate` would exit 8. The
+# self-hosting ci.yml doesn't call that stage today; this keeps it
+# correct if it ever converges on the shared python-ci.yml.
+deployment:
+  producer: false
+
 # Quality-gate suppressions. semgrep's auto ruleset flags importlib.resources as
 # a pre-3.9 backport-compat issue; this repo pins requires-python >= 3.12, so the
 # whole python3x-compat rule class is noise here. Suppress both the py36 and py37

@@ -24,6 +24,11 @@ The Container stage then reads from ``ci-tmp/Dockerfile.runtime`` and
 ``ci-tmp/container-manifest.json`` rather than the repo's committed
 ``ci/`` so a stale commit can't poison a build.
 
+``deployment.producer`` in the config cascade overrides the tier
+auto-detection — ``false`` skips the stage outright (the escape hatch
+for a scalo library consumer that ships its own Dockerfile), ``true``
+forces dispatch on the marker dep alone.
+
 Until the scalo crate (2.7+) and package (2.x) ship their generators, Tier RUST and
 Tier PYTHON paths return a clear "producer not yet shipped" error.
 Tier 3 works end-to-end (its templater is similarly Phase-2-blocked,
@@ -37,12 +42,18 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from hyperi_ci.common import error, info, success
+from hyperi_ci.common import error, info, normalise_tristate, success
+from hyperi_ci.config import CIConfig, load_config
 from hyperi_ci.deployment.cli import emit_artefacts
-from hyperi_ci.deployment.detect import Tier, detect_tier
+from hyperi_ci.deployment.detect import Tier, resolve_tier
+from hyperi_ci.deployment.manifest import python_entry_point, rust_binary_name
 
 DEFAULT_OUTPUT_DIR = Path("ci-tmp")
 DEFAULT_DRIFT_DIR = Path(".tmp/drift")
+
+# Cascade key gating the whole stage. Tri-state, same shape as
+# `publish.container.enabled` — see :func:`run`.
+PRODUCER_KEY = "deployment.producer"
 
 # Exit codes layered on top of `emit_artefacts`'s set. EXIT_PRODUCER_MISSING
 # means the tier was detected but the producer isn't present yet (scalo
@@ -60,8 +71,23 @@ def run(
     *,
     project_dir: Path | None = None,
     contract_path: Path | None = None,
+    config: CIConfig | None = None,
 ) -> int:
     """Run the generate stage.
+
+    The ``deployment.producer`` cascade key gates the whole stage. Most
+    repos never set it — with no marker dep and no committed contract
+    they resolve to Tier NONE and skip, same as they always have.
+
+    * ``auto`` (default) — dispatch on the detected tier. A repo that
+      carries a Tier 1/2 marker dep but produces no binary / console
+      script is a library consumer, not a producer, and skips.
+    * ``false`` — skip outright. The escape hatch for a library
+      consumer whose shape DOES look like a producer (it has a CLI of
+      its own) but which ships deployment artefacts by hand.
+    * ``true`` — force. The marker dep alone selects the tier, for a
+      genuine producer auto-detection can't see. Hard-fails when no
+      tier resolves at all, rather than silently doing nothing.
 
     Args:
         output_dir: Where artefacts are written. Defaults to
@@ -71,6 +97,9 @@ def run(
         contract_path: For Tier 3, override the contract source.
             Ignored for Tier 1/2 (those producers find their own
             contract from the app's source).
+        config: Merged CI configuration. Loaded from the cascade
+            rooted at ``project_dir`` when not supplied, so a direct
+            ``hyperi-ci run generate`` honours ``.hyperi-ci.yaml`` too.
 
     Returns:
         Exit code (0 on success / skip; non-zero on failure).
@@ -79,13 +108,20 @@ def run(
     project_dir = project_dir or Path.cwd()
     output_dir = output_dir or DEFAULT_OUTPUT_DIR
 
-    tier = detect_tier(project_dir)
-    info(f"Generate: detected tier '{tier.value}'")
+    tier, rc = _resolve_producer(project_dir, config)
+    if tier is None:
+        return rc
 
-    if tier == Tier.NONE:
-        info("Generate: no deployment contract present — skipping")
-        return EXIT_OK
+    return _dispatch_tier(tier, output_dir, project_dir, contract_path)
 
+
+def _dispatch_tier(
+    tier: Tier,
+    output_dir: Path,
+    project_dir: Path,
+    contract_path: Path | None,
+) -> int:
+    """Run the producer for an already-resolved tier."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if tier == Tier.OTHER:
@@ -98,9 +134,62 @@ def run(
         return _run_tier2(output_dir, project_dir)
 
     # Defensive — Tier enum is exhaustive but a compatibility break
-    # in detect_tier (e.g. a future tier added) shouldn't crash here.
+    # in resolve_tier (e.g. a future tier added) shouldn't crash here.
     error(f"Generate: unrecognised tier '{tier.value}'")
     return EXIT_TIER_NOT_YET_IMPLEMENTED
+
+
+def _resolve_producer(
+    project_dir: Path,
+    config: CIConfig | None,
+) -> tuple[Tier | None, int]:
+    """Apply the ``deployment.producer`` gate and resolve the tier.
+
+    Returns ``(tier, exit_code)``. A ``None`` tier means "don't
+    dispatch" and the exit code is the caller's return value —
+    ``EXIT_OK`` for a legitimate skip, ``EXIT_PRODUCER_MISSING`` when
+    the operator forced a producer that doesn't resolve.
+
+    Shared by :func:`run` and :func:`check_drift` so the drift check
+    can't mistake "this repo generates nothing" for "the committed
+    artefacts drifted".
+    """
+    if config is None:
+        # reload=True because load_config caches globally and ignores
+        # project_dir on a warm cache — without it, `run(project_dir=X)`
+        # silently answers from whatever project loaded first. The CI
+        # path passes config explicitly and never lands here.
+        config = load_config(project_dir=project_dir, reload=True)
+    producer = normalise_tristate(config.get(PRODUCER_KEY, "auto"), key=PRODUCER_KEY)
+
+    if producer == "false":
+        info(f"Generate: {PRODUCER_KEY}: false — skipping")
+        return None, EXIT_OK
+
+    decision = resolve_tier(project_dir, require_producer=producer != "true")
+    info(f"Generate: detected tier '{decision.tier.value}' — {decision.reason}")
+
+    if decision.tier != Tier.NONE:
+        return decision.tier, EXIT_OK
+
+    if producer == "true":
+        error(
+            f"Generate: {PRODUCER_KEY}: true but no producer tier resolved "
+            f"— {decision.reason}"
+        )
+        info(
+            "A forced producer still needs a scalo dep in Cargo.toml / "
+            "pyproject.toml, or a committed ci/deployment-contract.json."
+        )
+        return None, EXIT_PRODUCER_MISSING
+
+    info(f"Generate: skipping — {decision.reason}")
+    if decision.demoted:
+        info(
+            f"Set `{PRODUCER_KEY}: true` if this repo really does emit "
+            "deployment artefacts."
+        )
+    return None, EXIT_OK
 
 
 def check_drift(
@@ -109,6 +198,7 @@ def check_drift(
     committed_dir: Path | None = None,
     drift_dir: Path | None = None,
     contract_path: Path | None = None,
+    config: CIConfig | None = None,
 ) -> int:
     """Run the producer to a temp dir and compare against the committed ``ci/``.
 
@@ -124,6 +214,9 @@ def check_drift(
         drift_dir: Where to regenerate to. Defaults to
             :data:`DEFAULT_DRIFT_DIR`.
         contract_path: Override for Tier 3 contract source.
+        config: Merged CI configuration, passed through to :func:`run`
+            so ``deployment.producer: false`` disables the drift check
+            along with the stage it checks.
 
     Returns:
         ``EXIT_OK`` when the regenerated output matches the committed
@@ -134,16 +227,21 @@ def check_drift(
     committed = committed_dir or (project_dir / "ci")
     drift = drift_dir or DEFAULT_DRIFT_DIR
 
+    # Resolve the gate FIRST. A repo that generates nothing has no
+    # drift to check — regenerating into an empty dir and diffing it
+    # against a committed ci/ would report every file as missing.
+    # Dispatching the resolved tier directly (rather than calling run())
+    # also keeps the gate from being resolved and logged twice.
+    tier, rc = _resolve_producer(project_dir, config)
+    if tier is None:
+        return rc
+
     # Ensure a clean drift dir — any leftovers from previous runs would
     # confuse the diff.
     if drift.exists():
         shutil.rmtree(drift)
 
-    rc = run(
-        output_dir=drift,
-        project_dir=project_dir,
-        contract_path=contract_path,
-    )
+    rc = _dispatch_tier(tier, drift, project_dir, contract_path)
     if rc != EXIT_OK:
         return rc
 
@@ -229,12 +327,19 @@ def _run_tier2(output_dir: Path, project_dir: Path) -> int:
     point will fail with no ``generate-artefacts`` subcommand. That
     presents as EXIT_PRODUCER_FAILED.
     """
-    script_name = _resolve_python_entry_point(project_dir)
+    script_name = python_entry_point(project_dir)
     if script_name is None:
+        # Only reachable under `deployment.producer: true` — auto
+        # detection demotes a scriptless repo to Tier NONE before it
+        # gets here (issue #76).
         error(
             "Generate (Tier 2): no [project.scripts] entry point found in "
             f"{project_dir}/pyproject.toml — scalo's generate-artefacts "
             "subcommand needs an installed CLI entry."
+        )
+        info(
+            f"If this repo only USES scalo as a library, drop the "
+            f"`{PRODUCER_KEY}: true` override and it will skip cleanly."
         )
         return EXIT_PRODUCER_MISSING
 
@@ -342,7 +447,7 @@ def _resolve_rust_binary(project_dir: Path) -> Path | None:
       3. ``target/release/<bin>`` then ``target/debug/<bin>`` — local
          dev builds.
     """
-    bin_name = _rust_binary_name(project_dir)
+    bin_name = rust_binary_name(project_dir)
     if bin_name is None:
         return None
 
@@ -384,190 +489,6 @@ def _host_linux_arch() -> str | None:
         return "amd64"
     if machine in {"aarch64", "arm64"}:
         return "arm64"
-    return None
-
-
-def _rust_binary_name(project_dir: Path) -> str | None:
-    """Best-effort Rust binary-name extraction from Cargo.toml.
-
-    Selection order:
-
-    1. The `[package].name` itself if a `[[bin]]` of the same name
-       exists. This is the cargo convention for the "main" binary —
-       a project named ``dfe-receiver`` with multiple `[[bin]]` blocks
-       (e.g. ``pgo-driver`` for instrumentation, ``dfe-receiver`` for
-       the app) wants the package-name-matching one to be the
-       generate-artefacts producer.
-    2. The `[package].name` even without an explicit `[[bin]]` block
-       — covers the implicit-bin case.
-    3. The FIRST `[[bin]]` block, in declaration order. Last-resort
-       fallback for projects that diverge from cargo conventions.
-    4. Workspace fallback — if the root Cargo.toml is `[workspace]`-only
-       (no `[package]`), resolve each `members = [...]` entry and apply
-       the same selection order. We pick the FIRST member that yields
-       a binary; tying members named like the workspace directory wins.
-
-    Substring-based parse — same approach as
-    :func:`hyperi_ci.deployment.detect._depends_on`. Tier dispatch only
-    needs a name to invoke, not a full Cargo manifest parse.
-    """
-    cargo_toml = project_dir / "Cargo.toml"
-    if not cargo_toml.is_file():
-        return None
-    try:
-        text = cargo_toml.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return None
-
-    package_name = _extract_package_name(text)
-    bin_names = _extract_bin_names(text)
-
-    # 1. package.name + matching [[bin]] (cargo convention)
-    if package_name and package_name in bin_names:
-        return package_name
-    # 2. package.name (implicit bin)
-    if package_name:
-        return package_name
-    # 3. first [[bin]] (last-resort)
-    if bin_names:
-        return bin_names[0]
-
-    # 4. Workspace-only root: probe members in declaration order, prefer
-    #    a member whose path-leaf matches the workspace directory name
-    #    (e.g. workspace `dfe-archiver` with member `crates/archiver`).
-    members = _extract_workspace_members(text)
-    workspace_name = project_dir.name
-    ranked: list[tuple[int, str]] = []
-    for relpath in members:
-        member_dir = project_dir / relpath
-        leaf = member_dir.name  # e.g. "archiver" for "crates/archiver"
-        # Prefer leaves that match the workspace directory loosely
-        # ("dfe-archiver" → "archiver"). Fall back to declaration order.
-        rank = 0 if leaf in workspace_name or workspace_name in leaf else 1
-        candidate = _rust_binary_name(member_dir)
-        if candidate:
-            ranked.append((rank, candidate))
-    if ranked:
-        ranked.sort(key=lambda r: r[0])
-        return ranked[0][1]
-    return None
-
-
-def _extract_workspace_members(text: str) -> list[str]:
-    """Extract `members = [...]` entries from a `[workspace]` table.
-
-    Substring-based parse: handles single-line and multi-line array
-    forms. Returns relative paths with no quoting.
-    """
-    in_workspace = False
-    in_members = False
-    collected: list[str] = []
-    for raw in text.splitlines():
-        stripped = raw.strip()
-        if stripped == "[workspace]":
-            in_workspace = True
-            continue
-        if in_workspace and stripped.startswith("[") and stripped != "[workspace]":
-            in_workspace = False
-            in_members = False
-            continue
-        if not in_workspace:
-            continue
-        if stripped.startswith("members"):
-            # Could be `members = ["a", "b"]` or `members = [` (multi-line)
-            if "[" in stripped and "]" in stripped:
-                # Single-line form
-                inner = stripped.split("[", 1)[1].rsplit("]", 1)[0]
-                collected.extend(_split_members(inner))
-                in_members = False
-            elif "[" in stripped:
-                in_members = True
-            continue
-        if in_members:
-            if "]" in stripped:
-                inner = stripped.split("]", 1)[0]
-                collected.extend(_split_members(inner))
-                in_members = False
-            else:
-                collected.extend(_split_members(stripped))
-    return collected
-
-
-def _split_members(text: str) -> list[str]:
-    """Parse comma-separated quoted member paths from a `members` slice."""
-    parts: list[str] = []
-    for token in text.split(","):
-        cleaned = token.strip().strip(",").strip('"').strip("'").strip()
-        if cleaned:
-            parts.append(cleaned)
-    return parts
-
-
-def _extract_package_name(text: str) -> str | None:
-    """Extract `[package].name` from Cargo.toml text."""
-    in_package = False
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped == "[package]":
-            in_package = True
-            continue
-        if in_package and stripped.startswith("name"):
-            value = stripped.split("=", 1)[1].strip().strip('"').strip("'")
-            return value or None
-        if stripped.startswith("[") and stripped != "[package]":
-            in_package = False
-    return None
-
-
-def _extract_bin_names(text: str) -> list[str]:
-    """Extract every `[[bin]].name` from Cargo.toml text, in order."""
-    names: list[str] = []
-    in_bin = False
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped == "[[bin]]":
-            in_bin = True
-            continue
-        if in_bin and stripped.startswith("name"):
-            value = stripped.split("=", 1)[1].strip().strip('"').strip("'")
-            if value:
-                names.append(value)
-            in_bin = False
-            continue
-        if stripped.startswith("[") and stripped != "[[bin]]":
-            in_bin = False
-    return names
-
-
-def _resolve_python_entry_point(project_dir: Path) -> str | None:
-    """Read the first ``[project.scripts]`` entry from pyproject.toml.
-
-    Only used to find the binary name; ``shutil.which`` resolves it
-    against PATH.
-    """
-    pyproject = project_dir / "pyproject.toml"
-    if not pyproject.is_file():
-        return None
-    try:
-        text = pyproject.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return None
-
-    in_scripts = False
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped == "[project.scripts]":
-            in_scripts = True
-            continue
-        if in_scripts:
-            if not stripped or stripped.startswith("#"):
-                continue
-            if stripped.startswith("["):
-                return None
-            if "=" in stripped:
-                name = stripped.split("=", 1)[0].strip()
-                # Strip quotes (TOML allows quoted keys for names with dashes).
-                return name.strip('"').strip("'")
     return None
 
 

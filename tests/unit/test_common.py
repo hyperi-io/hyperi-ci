@@ -7,7 +7,46 @@
 
 from __future__ import annotations
 
-from hyperi_ci.common import run_cmd, sanitize_ref_name
+import pytest
+
+from hyperi_ci import common
+from hyperi_ci.common import normalise_tristate, run_cmd, sanitize_ref_name
+
+
+class TestNormaliseTristate:
+    """The shared on/off/auto coercion for stage gates."""
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            (True, "true"),
+            (False, "false"),
+            ("true", "true"),
+            ("True", "true"),
+            ("FALSE", "false"),
+            ("auto", "auto"),
+            ("Auto", "auto"),
+            (None, "auto"),
+            ("garbage", "auto"),
+        ],
+    )
+    def test_coercion(self, raw: object, expected: str) -> None:
+        assert normalise_tristate(raw, key="publish.container.enabled") == expected
+
+    def test_unknown_value_names_the_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The warning has to be findable — a bare "unknown value" tells
+        # an operator nothing about which key to go fix. Intercept warn
+        # itself; the loguru sink doesn't flush to stderr until teardown.
+        warnings: list[str] = []
+        monkeypatch.setattr(common, "warn", warnings.append)
+        normalise_tristate("yes-please", key="deployment.producer")
+        assert warnings and "deployment.producer" in warnings[0]
+
+    def test_known_value_is_silent(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        warnings: list[str] = []
+        monkeypatch.setattr(common, "warn", warnings.append)
+        normalise_tristate("auto", key="deployment.producer")
+        assert not warnings
 
 
 class TestSanitizeRefName:

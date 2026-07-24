@@ -36,7 +36,7 @@ from hyperi_ci.deployment.contract import (
     SecretEnvContract,
     SecretGroupContract,
 )
-from hyperi_ci.deployment.detect import Tier, detect_tier
+from hyperi_ci.deployment.detect import Tier, TierDecision, detect_tier, resolve_tier
 from hyperi_ci.deployment.registry import (
     DEFAULT_BASE_IMAGE,
     DEFAULT_IMAGE_REGISTRY,
@@ -59,8 +59,10 @@ __all__ = [
     "SecretEnvContract",
     "SecretGroupContract",
     "Tier",
+    "TierDecision",
     "argocd_repo_url_from_cascade",
     "base_image_from_cascade",
     "detect_tier",
     "image_registry_from_cascade",
+    "resolve_tier",
 ]

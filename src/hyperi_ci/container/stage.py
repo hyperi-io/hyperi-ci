@@ -46,9 +46,9 @@ from hyperi_ci.common import (
     error,
     group,
     info,
+    normalise_tristate,
     resolve_release_version,
     success,
-    warn,
 )
 from hyperi_ci.config import CIConfig, OrgConfig, load_org_config
 from hyperi_ci.container.build import build_and_push, resolve_tags
@@ -167,7 +167,9 @@ def should_build_container(config: CIConfig, *, language: str = "") -> tuple[boo
     container_cfg = config.get("publish.container", {})
     if not isinstance(container_cfg, dict):
         container_cfg = {}
-    enabled = _normalise_enabled(container_cfg.get("enabled", "auto"))
+    enabled = normalise_tristate(
+        container_cfg.get("enabled", "auto"), key="publish.container.enabled"
+    )
     if enabled == "false":
         return False, "publish.container.enabled: false"
     if enabled == "true":
@@ -207,7 +209,9 @@ def run(config: CIConfig, *, language: str = "") -> int:
     if not isinstance(container_cfg, dict):
         container_cfg = {}
 
-    enabled = _normalise_enabled(container_cfg.get("enabled", "auto"))
+    enabled = normalise_tristate(
+        container_cfg.get("enabled", "auto"), key="publish.container.enabled"
+    )
 
     if enabled == "false":
         info("Container build disabled (publish.container.enabled: false) — skipping")
@@ -302,22 +306,6 @@ def run(config: CIConfig, *, language: str = "") -> int:
 
         error(f"Unknown container mode: {mode!r}")
         return 1
-
-
-def _normalise_enabled(raw: object) -> str:
-    """Coerce the YAML ``enabled`` value into ``true`` / ``false`` / ``auto``."""
-    if raw is True:
-        return "true"
-    if raw is False:
-        return "false"
-    if isinstance(raw, str):
-        lowered = raw.strip().lower()
-        if lowered in {"true", "false", "auto"}:
-            return lowered
-        warn(
-            f"Unknown publish.container.enabled value {raw!r} — falling back to 'auto'",
-        )
-    return "auto"
 
 
 def _build_custom(

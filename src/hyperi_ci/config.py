@@ -170,7 +170,7 @@ def load_org_config(*, reload: bool = False) -> OrgConfig:
     org_file = _CONFIG_DIR / "org.yaml"
     raw: dict[str, Any] = {}
     if org_file.exists():
-        with open(org_file) as f:
+        with open(org_file, encoding="utf-8") as f:
             loaded = yaml.safe_load(f)
             if loaded:
                 raw = loaded
@@ -217,7 +217,7 @@ def load_config(
     # Load package defaults
     defaults_file = _CONFIG_DIR / "defaults.yaml"
     if defaults_file.exists():
-        with open(defaults_file) as f:
+        with open(defaults_file, encoding="utf-8") as f:
             loaded = yaml.safe_load(f)
             if loaded:
                 config = loaded
@@ -231,7 +231,7 @@ def load_config(
     ):
         config_file = project_dir / name
         if config_file.exists():
-            with open(config_file) as f:
+            with open(config_file, encoding="utf-8") as f:
                 loaded = yaml.safe_load(f)
                 if loaded:
                     config = _merge_deep(config, loaded)
