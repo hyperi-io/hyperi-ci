@@ -44,7 +44,7 @@ inputs:
     description: gosec release tag to pin (must include the leading `v`)
     required: false
     # hyperi-ci:pin tools.gosec
-    default: v2.27.1
+    default: v2.28.0
   govulncheck-version:
     description: govulncheck module version to pin (no prebuilt binaries upstream)
     required: false

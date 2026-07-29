@@ -114,3 +114,76 @@ class TestCLI:
         # JSON output has quoted keys and braces
         assert '"language"' in result.stdout
         assert "{" in result.stdout
+
+
+class TestRunnerImageBake:
+    """The commands a runner image Dockerfile calls to pre-bake tooling.
+
+    A pre-baked tool only pays off if it is exactly what hyperi-ci would have
+    installed anyway -- otherwise it is either skipped as already-present
+    (silently overriding the pinned version) or reinstalled over the top
+    (wasting the image build). These cover the fan-out that makes baking BY
+    hyperi-ci possible.
+    """
+
+    def test_install_all_dry_run_covers_both_categories(self, tmp_path) -> None:
+        result = subprocess.run(
+            [sys.executable, "-m", "hyperi_ci.cli", "install-all", "--dry-run"],
+            capture_output=True,
+            text=True,
+            cwd=str(tmp_path),
+            env=_TEST_ENV,
+        )
+        assert result.returncode == 0
+        combined = result.stdout + result.stderr
+        # Every toolchain family AND every native-deps language, because an
+        # image is built with no project in front of it.
+        for expected in (
+            "toolchains/llvm",
+            "toolchains/gcc",
+            "native-deps/rust",
+            "native-deps/golang",
+            "native-deps/python",
+            "native-deps/typescript",
+        ):
+            assert expected in combined, f"install-all skipped {expected}"
+
+    def test_install_all_excludes_bake_false_entries(self, tmp_path) -> None:
+        """`bake: false` stays install-on-demand even in a full bake.
+
+        Non-coinstallable toolsets declare Conflicts, so baking one version
+        would lock out jobs needing another.
+        """
+        result = subprocess.run(
+            [sys.executable, "-m", "hyperi_ci.cli", "install-all", "--dry-run"],
+            capture_output=True,
+            text=True,
+            cwd=str(tmp_path),
+            env=_TEST_ENV,
+        )
+        assert result.returncode == 0
+        combined = result.stdout + result.stderr
+        assert "llvm-non-coinstallable: skip" in combined
+
+    def test_install_native_deps_defaults_to_every_language(self, tmp_path) -> None:
+        """Bare `install-native-deps --all` fans out, matching install-toolchains."""
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "hyperi_ci.cli",
+                "install-native-deps",
+                "--all",
+                "--dry-run",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(tmp_path),
+            env=_TEST_ENV,
+        )
+        assert result.returncode == 0
+        combined = result.stdout + result.stderr
+        # rust.yaml and typescript.yaml both carry entries -- seeing both
+        # proves the fan-out rather than a single default language.
+        assert "mold linker" in combined
+        assert "sharp / image processing" in combined

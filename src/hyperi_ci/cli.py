@@ -571,8 +571,11 @@ def logs(
 def install_native_deps(
     language: Annotated[
         str,
-        typer.Argument(help="Language (rust, typescript, golang, python)"),
-    ],
+        typer.Argument(
+            help="Language (rust, typescript, golang, python). "
+            "Defaults to 'all' = every language.",
+        ),
+    ] = "all",
     project_dir: Annotated[
         str | None,
         typer.Option("--project-dir", "-C", help="Project root directory"),
@@ -592,16 +595,34 @@ def install_native_deps(
         ),
     ] = False,
 ) -> None:
-    """Detect and install native system dependencies for a language."""
+    """Detect and install native system dependencies for a language.
+
+    Examples:
+        hyperi-ci install-native-deps --all        # bake every language
+        hyperi-ci install-native-deps rust --all   # bake only Rust
+        hyperi-ci install-native-deps              # CI-time: conditional
+        hyperi-ci install-native-deps rust         # CI-time: Rust if triggered
+
+    """
+    from hyperi_ci.native_deps import _NATIVE_DEPS_DIR, print_needed
     from hyperi_ci.native_deps import install_native_deps as _install
-    from hyperi_ci.native_deps import print_needed
 
     dir_path = Path(project_dir) if project_dir else None
-    if dry_run:
-        print_needed(language, project_dir=dir_path, all_mode=all_mode)
-        return
-    rc = _install(language, project_dir=dir_path, all_mode=all_mode)
-    raise typer.Exit(rc)
+
+    # `all` fans out to every language YAML in config/native-deps/, matching
+    # the install-toolchains contract so the two commands behave alike.
+    if language == "all":
+        languages = sorted(f.stem for f in _NATIVE_DEPS_DIR.glob("*.yaml"))
+    else:
+        languages = [language]
+
+    for lang in languages:
+        if dry_run:
+            print_needed(lang, project_dir=dir_path, all_mode=all_mode)
+            continue
+        rc = _install(lang, project_dir=dir_path, all_mode=all_mode)
+        if rc != 0:
+            raise typer.Exit(rc)
 
 
 @app.command(name="install-toolchains")
@@ -666,6 +687,85 @@ def install_toolchains(
             fam, project_dir=dir_path, category="toolchains", all_mode=all_mode
         )
         if rc != 0:
+            raise typer.Exit(rc)
+
+
+@app.command(name="install-all")
+def install_all_cmd(
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run", "-n", help="Show what would be installed without installing"
+        ),
+    ] = False,
+    skip_toolchains: Annotated[
+        bool,
+        typer.Option(
+            "--skip-toolchains",
+            help="Skip the language toolchain bootstrap (rustup, Go, Node) and "
+            "install only the apt-sourced deps.",
+        ),
+    ] = False,
+) -> None:
+    """Install everything hyperi-ci might need, for a runner image bake.
+
+    Every toolchain family and every language's native deps, unconditionally --
+    no manifest matching, because an image is built without a project in front
+    of it. This is the ONE command a runner image Dockerfile calls.
+
+    Why it exists: a pre-baked tool only pays off if it is what hyperi-ci would
+    have installed anyway. Anything else gets skipped as already-present (and
+    so silently overrides the pinned version) or reinstalled over the top (and
+    so wasted the image build). Baking BY this command keeps the image and the
+    CI-time install path the same code, so they cannot drift.
+
+    Entries marked `bake: false` are excluded -- non-coinstallable toolsets
+    stay install-on-demand so baking a default cannot lock out a job needing a
+    different version.
+
+    Covers three things, in order: the language toolchains from
+    `config/bootstrap.yaml` (rustup, Go, Node), the multi-version apt families
+    from `config/toolchains/`, then every language's `config/native-deps/`.
+
+    Examples:
+        hyperi-ci install-all                   # bake everything
+        hyperi-ci install-all --dry-run         # show the plan
+        hyperi-ci install-all --skip-toolchains # apt deps only
+
+    """
+    from hyperi_ci.bootstrap import install_toolchain_bootstrap, print_bootstrap_plan
+    from hyperi_ci.native_deps import _NATIVE_DEPS_DIR, _TOOLCHAINS_DIR, print_needed
+    from hyperi_ci.native_deps import install_native_deps as _install
+
+    plan: list[tuple[str, str]] = [
+        ("toolchains", f.stem) for f in sorted(_TOOLCHAINS_DIR.glob("*.yaml"))
+    ]
+    plan += [("native-deps", f.stem) for f in sorted(_NATIVE_DEPS_DIR.glob("*.yaml"))]
+
+    if not plan:
+        typer.echo("install-all found no toolchain or native-deps config", err=True)
+        raise typer.Exit(1)
+
+    # Language toolchains first: the apt families below include BOLT and the
+    # cross-compilers that a Rust build then links against.
+    if not skip_toolchains:
+        typer.echo("install-all: language toolchains", err=True)
+        if dry_run:
+            print_bootstrap_plan()
+        else:
+            rc = install_toolchain_bootstrap()
+            if rc != 0:
+                typer.echo(f"install-all failed on toolchains (exit {rc})", err=True)
+                raise typer.Exit(rc)
+
+    for category, name in plan:
+        typer.echo(f"install-all: {category}/{name}", err=True)
+        if dry_run:
+            print_needed(name, category=category, all_mode=True)
+            continue
+        rc = _install(name, category=category, all_mode=True)
+        if rc != 0:
+            typer.echo(f"install-all failed on {category}/{name} (exit {rc})", err=True)
             raise typer.Exit(rc)
 
 

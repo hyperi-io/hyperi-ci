@@ -1,0 +1,60 @@
+# Project:   HyperI CI
+# File:      src/hyperi_ci/config/bootstrap.yaml
+# Purpose:   Language toolchain bootstrap for runner image bake
+#
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# The language runtimes a runner image pre-installs. Distinct from
+# native-deps (apt system libraries) and toolchains (LLVM/GCC apt families):
+# these are the compilers themselves, installed from vendor channels rather
+# than apt.
+#
+# WHY THESE ARE BAKED AND THE LINTERS ARE NOT
+#
+# A pre-baked tool only pays off if it is what would have been installed
+# anyway. The linters fail that test - hyperi-ci reinstalls them per job, so
+# baking them is either wasted or a silent override of a pinned version.
+#
+# These pass it, because hyperi-ci does NOT install them per job: it assumes
+# they are already there (`rust/build.py` calls `rustup target add`). And they
+# are expensive - the cargo tools below are SOURCE builds, tens of minutes on
+# a cold runner. Paying that once per image instead of once per job is the
+# reason a pre-built runner image exists at all.
+#
+# NO VERSIONS HERE, DELIBERATELY. Channels and majors, not point releases.
+# The image is rebuilt on a cadence and rolled back by re-tagging, so it
+# tracks current rather than pinning. What IS listed is the stuff that is a
+# capacity or compatibility decision rather than a version bump.
+
+rust:
+  # stable for builds, nightly for the fmt/lint features some repos use.
+  channels:
+    - stable
+    - nightly
+  components:
+    - clippy
+    - rustfmt
+  # Cross-compilation targets to preinstall. arm64 release builds need this.
+  targets:
+    - aarch64-unknown-linux-gnu
+  # Installed with cargo-binstall where a prebuilt release exists, falling
+  # back to `cargo install --locked`. All four publish binaries, so the
+  # common path avoids a source build each.
+  cargo_tools:
+    - sccache
+    - cargo-audit
+    - cargo-deny
+    - cargo-nextest
+
+go:
+  enabled: true
+
+node:
+  # Every active LTS, so repos can pin via .nvmrc without setup-node
+  # re-downloading per job. Adding a major is a capacity decision - the image
+  # carries every one listed.
+  versions:
+    - "20"
+    - "22"
+  default: "22"
