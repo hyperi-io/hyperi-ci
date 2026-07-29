@@ -698,6 +698,14 @@ def install_all_cmd(
             "--dry-run", "-n", help="Show what would be installed without installing"
         ),
     ] = False,
+    skip_toolchains: Annotated[
+        bool,
+        typer.Option(
+            "--skip-toolchains",
+            help="Skip the language toolchain bootstrap (rustup, Go, Node) and "
+            "install only the apt-sourced deps.",
+        ),
+    ] = False,
 ) -> None:
     """Install everything hyperi-ci might need, for a runner image bake.
 
@@ -715,14 +723,17 @@ def install_all_cmd(
     stay install-on-demand so baking a default cannot lock out a job needing a
     different version.
 
-    Not covered here: the language toolchains themselves (rustup, Go, Node).
-    A runner image bootstraps those separately.
+    Covers three things, in order: the language toolchains from
+    `config/bootstrap.yaml` (rustup, Go, Node), the multi-version apt families
+    from `config/toolchains/`, then every language's `config/native-deps/`.
 
     Examples:
-        hyperi-ci install-all              # bake everything
-        hyperi-ci install-all --dry-run    # show the plan
+        hyperi-ci install-all                   # bake everything
+        hyperi-ci install-all --dry-run         # show the plan
+        hyperi-ci install-all --skip-toolchains # apt deps only
 
     """
+    from hyperi_ci.bootstrap import install_toolchain_bootstrap, print_bootstrap_plan
     from hyperi_ci.native_deps import _NATIVE_DEPS_DIR, _TOOLCHAINS_DIR, print_needed
     from hyperi_ci.native_deps import install_native_deps as _install
 
@@ -736,6 +747,18 @@ def install_all_cmd(
     if not plan:
         typer.echo("install-all found no toolchain or native-deps config", err=True)
         raise typer.Exit(1)
+
+    # Language toolchains first: the apt families below include BOLT and the
+    # cross-compilers that a Rust build then links against.
+    if not skip_toolchains:
+        typer.echo("install-all: language toolchains", err=True)
+        if dry_run:
+            print_bootstrap_plan()
+        else:
+            rc = install_toolchain_bootstrap()
+            if rc != 0:
+                typer.echo(f"install-all failed on toolchains (exit {rc})", err=True)
+                raise typer.Exit(rc)
 
     for category, name in plan:
         typer.echo(f"install-all: {category}/{name}", err=True)
