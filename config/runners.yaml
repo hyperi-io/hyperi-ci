@@ -42,6 +42,12 @@
 #   debian-4cpu     debian 4cpu    — .deb packaging
 #   debian-16cpu    debian 16cpu   — .deb packaging that needs the cores
 #
+# GH_RUNNER_CPP is set org-wide to `native-16cpu`. Nothing in this repo reads
+# it yet — there is no C++ reusable workflow, only the LLVM and GCC toolchains
+# the native image bakes — so a C++ job names it in `runs-on` directly. It is
+# declared now so the answer is already agreed when that workflow lands, rather
+# than someone picking a runner ad hoc.
+#
 # The native image is ~21 GB either way, so prefer a vanilla set when nothing
 # in the compiler estate is actually needed.
 #
