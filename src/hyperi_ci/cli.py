@@ -278,9 +278,7 @@ def deps(
             typer.echo("deps show: needs a surface id", err=True)
             raise typer.Exit(2)
         detail = _deps.show(root, surface)
-        typer.echo(
-            _json.dumps(detail, indent=2) if as_json else render.show(detail)
-        )
+        typer.echo(_json.dumps(detail, indent=2) if as_json else render.show(detail))
         raise typer.Exit(1 if "error" in detail else 0)
 
     typer.echo(f"deps: unknown action {action!r}", err=True)

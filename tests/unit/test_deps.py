@@ -336,7 +336,7 @@ class TestMultiLanguage:
             tmp_path,
             "Cargo.toml",
             '[package]\nname = "demo"\nversion = "0.1.0"\n\n'
-            "[dev-dependencies]\ncriterion = \"0.4\"\n",
+            '[dev-dependencies]\ncriterion = "0.4"\n',
         )
         _write(
             tmp_path,
@@ -388,7 +388,7 @@ class TestMultiLanguage:
             tmp_path,
             "crates/member/Cargo.toml",
             '[package]\nname = "member"\nversion = "0.1.0"\n\n'
-            "[dev-dependencies]\ncriterion = \"0.4\"\n",
+            '[dev-dependencies]\ncriterion = "0.4"\n',
         )
         _git_init(tmp_path)
 
@@ -403,9 +403,7 @@ class TestMultiLanguage:
 
 
 class TestScanActions:
-    def test_workflow_and_composite_action_pins_extracted(
-        self, tmp_path: Path
-    ) -> None:
+    def test_workflow_and_composite_action_pins_extracted(self, tmp_path: Path) -> None:
         _write(
             tmp_path,
             ".github/workflows/x.yml",
@@ -486,7 +484,6 @@ COPY --from=builder /app /app
             ("node", "24-alpine"),
             ("debian", "trixie-slim"),
         ]
-
 
     def test_a_source_file_named_dockerfile_py_is_not_a_dockerfile(
         self, tmp_path: Path
@@ -580,13 +577,11 @@ class TestScanStates:
 
 
 class TestPinMarkerSurface:
-    def test_marked_pin_in_arbitrary_source_is_discovered(
-        self, tmp_path: Path
-    ) -> None:
+    def test_marked_pin_in_arbitrary_source_is_discovered(self, tmp_path: Path) -> None:
         _write(
             tmp_path,
             "src/thing/tools.py",
-            "# hyperi-ci:pin tools.gitleaks\n_GITLEAKS_VERSION = \"v8.30.1\"\n",
+            '# hyperi-ci:pin tools.gitleaks\n_GITLEAKS_VERSION = "v8.30.1"\n',
         )
         _git_init(tmp_path)
 
@@ -708,7 +703,9 @@ class TestRenovateGaps:
     ) -> None:
         _python_repo(tmp_path)
         _write(
-            tmp_path, "renovate.json", json.dumps({"enabledManagers": ["github-actions"]})
+            tmp_path,
+            "renovate.json",
+            json.dumps({"enabledManagers": ["github-actions"]}),
         )
         subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
 
@@ -716,9 +713,7 @@ class TestRenovateGaps:
         by_id = {item["id"]: item for item in result["uncovered"]}
         assert "not in enabledManagers" in by_id["pep621"]["reason"]
 
-    def test_inert_manager_is_uncovered_even_when_enabled(
-        self, tmp_path: Path
-    ) -> None:
+    def test_inert_manager_is_uncovered_even_when_enabled(self, tmp_path: Path) -> None:
         _write(tmp_path, "renovate.json", json.dumps({}))
         _git_init(tmp_path)
 
@@ -756,7 +751,7 @@ class TestReportAndShow:
             tmp_path,
             "Cargo.toml",
             '[package]\nname = "demo"\nversion = "0.1.0"\n\n'
-            "[dependencies]\nserde = \"1.0\"\n",
+            '[dependencies]\nserde = "1.0"\n',
         )
         subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
 
@@ -879,9 +874,7 @@ class TestCli:
         from hyperi_ci.cli import app
 
         _python_repo(tmp_path)
-        result = CliRunner().invoke(
-            app, ["deps", "--root", str(tmp_path), "--json"]
-        )
+        result = CliRunner().invoke(app, ["deps", "--root", str(tmp_path), "--json"])
         assert result.exit_code == 0
         payload = json.loads(result.stdout)
         assert payload["drift"]["drift"][0]["source"] in {"parse", "uv"}
@@ -930,10 +923,10 @@ class TestShowRendering:
 
     def test_pins_are_not_capped(self, tmp_path: Path) -> None:
         """`show` is the uncapped view -- a truncated one would be a silent lie."""
-        steps = "".join(
-            f"      - uses: acme/action-{i}@v{i}\n" for i in range(60)
+        steps = "".join(f"      - uses: acme/action-{i}@v{i}\n" for i in range(60))
+        _write(
+            tmp_path, ".github/workflows/big.yml", f"jobs:\n  a:\n    steps:\n{steps}"
         )
-        _write(tmp_path, ".github/workflows/big.yml", f"jobs:\n  a:\n    steps:\n{steps}")
         _git_init(tmp_path)
         out = render.show(deps.show(tmp_path, "github-actions"))
 

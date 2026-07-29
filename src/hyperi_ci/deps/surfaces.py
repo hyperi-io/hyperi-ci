@@ -383,9 +383,7 @@ def scan(
         # file it merely passed over is not claimed by it -- only the ones it
         # actually pulled a pin out of are. Without this the extension net
         # swallows the whole unclassified bucket and it is always empty.
-        claimed.update(
-            {pin["file"] for pin in pins} if surface.broad else matched
-        )
+        claimed.update({pin["file"] for pin in pins} if surface.broad else matched)
         # A surface with groups but no pin regexes is `found` on the manifest
         # alone -- its versions live in a structure the drift pass parses, not
         # in a line regex.

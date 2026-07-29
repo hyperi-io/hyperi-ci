@@ -91,12 +91,8 @@ def drift_block(drift_result: dict, full: bool) -> list[str]:
         )
         out += [f"  note: {note}" for note in drift_result["notes"]]
         return out
-    out.append(
-        "  Nothing bumps a floor on its own, so this only ever grows. A dev or"
-    )
-    out.append(
-        "  test group here means the test stack has aged out underneath you."
-    )
+    out.append("  Nothing bumps a floor on its own, so this only ever grows. A dev or")
+    out.append("  test group here means the test stack has aged out underneath you.")
     shown, hidden = _cap(drift_result["drift"], full)
     # MANIFEST is not decoration: a monorepo has several pyproject.toml files
     # with the same group name, so without it four different repos' stale
@@ -229,9 +225,7 @@ def inventory(scan_result: dict) -> list[str]:
         rows,
     ) or ["No surface matched anything in this repo."]
     out.append("")
-    out.append(
-        "RESOLVER=no means no lockfile ever moves that pin -- only a human or a"
-    )
+    out.append("RESOLVER=no means no lockfile ever moves that pin -- only a human or a")
     out.append("bot does, which is how a surface rots without anyone noticing.")
     if absent:
         out.append("")
@@ -326,7 +320,9 @@ def drift_only(drift_result: dict, full: bool = False) -> str:
 
 def gaps_only(gaps_result: dict) -> str:
     """The Renovate-gap slice on its own."""
-    return "\n".join([f"deps gaps: {gaps_result['root']}", ""] + gaps_block(gaps_result))
+    return "\n".join(
+        [f"deps gaps: {gaps_result['root']}", ""] + gaps_block(gaps_result)
+    )
 
 
 def show(detail: dict) -> str:

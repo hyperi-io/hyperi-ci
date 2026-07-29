@@ -95,7 +95,9 @@ def walk_groups(data: dict, path: str) -> Iterator[tuple[str, object]]:
     """
     parts = path.split(".")
 
-    def walk(node: object, index: int, trail: list[str]) -> Iterator[tuple[str, object]]:
+    def walk(
+        node: object, index: int, trail: list[str]
+    ) -> Iterator[tuple[str, object]]:
         if index == len(parts):
             yield ".".join(trail), node
             return
