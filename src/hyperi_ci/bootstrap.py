@@ -43,9 +43,7 @@ _RUSTUP_URL = "https://sh.rustup.rs"
 _GO_VERSION_URL = "https://go.dev/VERSION?m=text"
 _GO_DOWNLOAD_BASE = "https://go.dev/dl"
 _NVM_INSTALL_BASE = "https://raw.githubusercontent.com/nvm-sh/nvm"
-_CARGO_BINSTALL_URL = (
-    "https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh"
-)
+_CARGO_BINSTALL_URL = "https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh"
 
 
 @dataclass
@@ -164,9 +162,13 @@ def _install_cargo_tools(tools: list[str]) -> int:
         if dl.returncode == 0 and dl.stdout:
             rc = subprocess.run(["bash"], input=dl.stdout, check=False).returncode
             if rc != 0:
-                logger.warning("cargo-binstall install failed - falling back to source builds")
+                logger.warning(
+                    "cargo-binstall install failed - falling back to source builds"
+                )
         else:
-            logger.warning("cargo-binstall download failed - falling back to source builds")
+            logger.warning(
+                "cargo-binstall download failed - falling back to source builds"
+            )
 
     failed: list[str] = []
     for tool in tools:
@@ -359,17 +361,13 @@ def install_node(spec: NodeSpec) -> int:
             logger.error("Failed to download the nvm installer")
             return dl.returncode or 1
         env = {**os.environ, "NVM_DIR": str(nvm_dir)}
-        rc = subprocess.run(
-            ["bash"], input=dl.stdout, env=env, check=False
-        ).returncode
+        rc = subprocess.run(["bash"], input=dl.stdout, env=env, check=False).returncode
         if rc != 0:
             logger.error("nvm install failed")
             return rc
 
     # nvm is a shell function, not a binary -- every call has to source it.
-    installs = " && ".join(
-        f'nvm install "{v}" --latest-npm' for v in spec.versions
-    )
+    installs = " && ".join(f'nvm install "{v}" --latest-npm' for v in spec.versions)
     script = (
         f'export NVM_DIR="{nvm_dir}"\n'
         f'. "$NVM_DIR/nvm.sh"\n'
@@ -455,7 +453,6 @@ def print_bootstrap_plan() -> None:
     print(f"    cargo tools: {', '.join(rust.cargo_tools) or '-'}", file=out)
     print(f"  go: {'current stable' if go_enabled else 'disabled'}", file=out)
     print(
-        f"  node: {', '.join(node.versions) or '-'} "
-        f"(default {node.default or '-'})",
+        f"  node: {', '.join(node.versions) or '-'} (default {node.default or '-'})",
         file=out,
     )

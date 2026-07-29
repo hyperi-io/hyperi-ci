@@ -740,9 +740,7 @@ def install_all_cmd(
     plan: list[tuple[str, str]] = [
         ("toolchains", f.stem) for f in sorted(_TOOLCHAINS_DIR.glob("*.yaml"))
     ]
-    plan += [
-        ("native-deps", f.stem) for f in sorted(_NATIVE_DEPS_DIR.glob("*.yaml"))
-    ]
+    plan += [("native-deps", f.stem) for f in sorted(_NATIVE_DEPS_DIR.glob("*.yaml"))]
 
     if not plan:
         typer.echo("install-all found no toolchain or native-deps config", err=True)
@@ -767,9 +765,7 @@ def install_all_cmd(
             continue
         rc = _install(name, category=category, all_mode=True)
         if rc != 0:
-            typer.echo(
-                f"install-all failed on {category}/{name} (exit {rc})", err=True
-            )
+            typer.echo(f"install-all failed on {category}/{name} (exit {rc})", err=True)
             raise typer.Exit(rc)
 
 
