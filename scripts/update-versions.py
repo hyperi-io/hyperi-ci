@@ -21,7 +21,10 @@ Usage:
 
 Update behaviour:
   - Actions resolve to the newest release that has aged past the 7-day
-    cooldown, within the current major (major bumps are a manual edit).
+    cooldown, MAJORS INCLUDED. Actions are SHA-pinned and every consumer runs
+    the full pipeline against them, so a breaking major surfaces as a red CI
+    run rather than a silent behaviour change. Holding majors back had its own
+    cost: the estate split across majors while nobody made the manual edit.
   - Branch refs (rust-toolchain@master) pin the newest master commit >=7d old.
   - Runtimes (python, node, rust) require explicit update — never auto-bumped.
   - --auto-update applies the bumps then validates LOCALLY (YAML re-parse,
@@ -228,9 +231,9 @@ def _select_pinned_release(
     (e.g. download-artifact `v3.1.0-node20`) with recent dates, so ordering
     by publish date picks the wrong one. Skips drafts, prereleases,
     non-semver tags, and — timestamp-required posture — anything without a
-    `published_at`. With `major` set, stays within that major so a surprise
-    major bump never auto-lands (those are a deliberate edit). With `minor`
-    set, also stays within that minor — see _compat_clamp for why 0.x needs it.
+    `published_at`. The optional `major` / `minor` clamps restrict the
+    candidate range; callers leave them unset, so majors are eligible and a
+    breaking bump is caught by CI on the PR rather than blocked here.
     Returns the chosen release dict or None.
     """
     cutoff = now - timedelta(days=cooldown_days)
@@ -254,26 +257,6 @@ def _select_pinned_release(
         if best_ver is None or ver > best_ver:
             best_ver, best = ver, rel
     return best
-
-
-def _compat_clamp(version: str) -> tuple[int | None, int | None]:
-    """Return the (major, minor) clamp that keeps an auto-bump compatible.
-
-    For 1.0.0+ the major is the compatibility axis, so clamping the major is
-    enough. For **0.x the MINOR is the compatibility axis** (semver §4: anything
-    may change at any time; 0.20 -> 0.21 is a breaking bump), so clamping only
-    the major there is exactly backwards - it BLOCKS the safe 0.20.2 -> 1.0.0
-    move while WAVING THROUGH the breaking 0.20 -> 0.21 one.
-
-    cargo-deny (0.20.2) and cargo-audit (v0.22.2) are both 0.x, so this is live,
-    not theoretical.
-    """
-    parsed = _parse_semver(version)
-    if parsed is None:
-        return None, None
-    if parsed[0] == 0:
-        return 0, parsed[1]
-    return parsed[0], None
 
 
 def _gh_json(path: str) -> Any:
@@ -355,10 +338,15 @@ def _pinned_spec_for(short_name: str, current: object, now: datetime) -> dict | 
     if not isinstance(releases, list):
         return None
     releases = cast("list[dict[str, Any]]", releases)
-    # Stay within the current major — major bumps are a deliberate edit.
-    cur_semver = _parse_semver(str(cur_version)) if cur_version else None
-    major = cur_semver[0] if cur_semver else None
-    chosen = _select_pinned_release(releases, now, major=major)
+    # Majors included. Actions are pinned to a SHA and every consumer runs the
+    # full pipeline against them, so a breaking major shows up as a red CI run
+    # on a PR rather than as a silent behaviour change - and holding a major
+    # back has its own cost, which is the estate splitting across majors while
+    # nobody gets round to the manual edit.
+    #
+    # The cooldown still applies, so a major has to be a week old before it is
+    # eligible. What catches an actual incompatibility is CI, not this clamp.
+    chosen = _select_pinned_release(releases, now)
     if not chosen:
         return None
     tag = chosen["tag_name"]
@@ -858,8 +846,11 @@ def _latest_tool_release(spec: dict, now: datetime) -> tuple[str | None, str]:
         return None, "lookup-failed"
     releases = _tool_releases(spec, releases)
     cur = _parse_semver(str(cur_version))
-    clamp_major, clamp_minor = _compat_clamp(str(cur_version))
-    best = _select_pinned_release(releases, now, major=clamp_major, minor=clamp_minor)
+    # No compatibility clamp. Same reasoning as actions: the cooldown still
+    # gates freshness, and a tool whose flags changed across a major shows up
+    # as a red quality stage on a PR. Clamping meant the estate quietly sat on
+    # an old major until someone made the manual edit, which nobody did.
+    best = _select_pinned_release(releases, now)
     if not best:
         return None, "no-candidate"
     tag = best.get("tag_name")
@@ -916,10 +907,11 @@ def _set_tool_version_in_yaml(text: str, name: str, version: str) -> str:
 def _auto_update(versions: dict) -> int:
     """Auto-update actions + semantic-release, validate locally, revert on fail.
 
-    Actions resolve to the newest release past the 7-day cooldown, within
-    their current major (major bumps stay a manual edit). Runtimes never
-    auto-bump. Validation is LOCAL (see _validate_locally) — remote E2E is
-    the branch-mode rehearsal's job, not this script's.
+    Actions resolve to the newest release past the 7-day cooldown, majors
+    included. Runtimes never auto-bump. Validation is LOCAL (see
+    _validate_locally) — remote E2E is the branch-mode rehearsal's job, not
+    this script's, so a major that breaks at RUNTIME is caught by CI on the
+    PR, not here.
     """
     print("Auto-update: resolving releases past the cooldown...\n")
     now = datetime.now(UTC)
