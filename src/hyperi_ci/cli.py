@@ -195,6 +195,99 @@ def lint_manifests_cmd(
 
 
 @app.command()
+def deps(
+    action: Annotated[
+        str,
+        typer.Argument(
+            help="scan (default, everything) | drift | gaps | show <surface>",
+        ),
+    ] = "scan",
+    surface: Annotated[
+        str | None,
+        typer.Argument(help="Surface id, for `show`"),
+    ] = None,
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--root", "-C", help="Repository root (default: cwd)"),
+    ] = None,
+    as_json: Annotated[
+        bool,
+        typer.Option("--json", help="Machine-readable output"),
+    ] = False,
+    full: Annotated[
+        bool,
+        typer.Option("--full", help="Lift the display cap on detail lists"),
+    ] = False,
+    kind: Annotated[
+        str | None,
+        typer.Option(
+            "--kind",
+            help="Limit to one surface kind (python, rust, node, container, ci, ...)",
+        ),
+    ] = None,
+) -> None:
+    """Enumerate dependency surfaces, audit floors against the lock, name gaps.
+
+    The PREVENTATIVE half of the dependency chain: it runs locally, BEFORE a
+    change reaches CI or the forge, and reports what you are about to leave
+    stale. Renovate is the remediation half and runs after the fact. See
+    docs/dependencies/deps-pinning.md.
+
+    Bare ``deps`` (and ``deps scan``) prints the whole picture in one call --
+    surfaces and their three states, every extracted pin, every dependency
+    group with its declared constraint, floor-vs-lock drift, and what Renovate
+    will never see. ``deps show <surface>`` dumps one surface uncapped.
+
+    Multi-language by construction: every manifest in the tree is parsed in the
+    same pass and each ecosystem reported separately. Language toolchains
+    (cargo, uv, npm) are used to enrich the result when installed and skipped
+    silently when not.
+
+    Exit codes: ``drift`` exits 1 when it finds drift, so it can gate a script.
+    Everything else is a report and exits 0.
+    """
+    import json as _json
+
+    from hyperi_ci import deps as _deps
+    from hyperi_ci.deps import render
+
+    root = Path(project_dir) if project_dir else Path.cwd()
+
+    if action == "scan":
+        payload = _deps.report(root, kind=kind or "")
+        typer.echo(
+            _json.dumps(payload, indent=2) if as_json else render.report(payload, full)
+        )
+        raise typer.Exit(0)
+    if action == "drift":
+        result = _deps.drift(root)
+        typer.echo(
+            _json.dumps(result, indent=2)
+            if as_json
+            else render.drift_only(result, full)
+        )
+        raise typer.Exit(1 if result["drift"] else 0)
+    if action == "gaps":
+        result = _deps.gaps(root, _deps.scan(root))
+        typer.echo(
+            _json.dumps(result, indent=2) if as_json else render.gaps_only(result)
+        )
+        raise typer.Exit(0)
+    if action == "show":
+        if not surface:
+            typer.echo("deps show: needs a surface id", err=True)
+            raise typer.Exit(2)
+        detail = _deps.show(root, surface)
+        typer.echo(
+            _json.dumps(detail, indent=2) if as_json else render.show(detail)
+        )
+        raise typer.Exit(1 if "error" in detail else 0)
+
+    typer.echo(f"deps: unknown action {action!r}", err=True)
+    raise typer.Exit(2)
+
+
+@app.command()
 def push(
     publish: Annotated[
         bool,

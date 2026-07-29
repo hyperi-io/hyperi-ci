@@ -49,6 +49,8 @@ from typing import Any, cast
 
 import yaml
 
+from hyperi_ci import pin_marker
+
 _ROOT = Path(__file__).resolve().parent.parent
 _VERSIONS_FILE = _ROOT / "config" / "versions.yaml"
 _WORKFLOWS_DIR = _ROOT / ".github" / "workflows"
@@ -75,20 +77,6 @@ _ACTION_OWNERS: dict[str, str] = {
 }
 
 
-# Marker that anchors a mirrored tool pin, e.g.
-#
-#     # hyperi-ci:pin tools.gitleaks
-#     _GITLEAKS_VERSION = "v8.30.1"
-#
-#     # hyperi-ci:pin tools.osv-scanner
-#     default: v2.4.0
-#
-# One explicit marker beats a per-tool regex guessing at each file's shape: it
-# reads the same in Python and YAML, survives the line being reworded, and lets
-# several tools share one file without a `default:` pattern rewriting all of
-# them to the same version. An unmarked pin is REPORTED, never silently missed.
-_PIN_MARKER = r"#\s*hyperi-ci:pin\s+tools\.{name}\s*\n"
-
 # Tag on problems that --apply CANNOT repair (it has nothing to anchor a rewrite
 # to). Callers test for this literal instead of pattern-matching prose, so the
 # advice cannot silently rot when a message is reworded.
@@ -98,12 +86,15 @@ _UNFIXABLE = "NOT-AUTO-FIXABLE"
 def _tool_pin_pattern(name: str) -> re.Pattern[str]:
     """Match the version token on the line following this tool's pin marker.
 
-    Requires a `=` or `:` (with optional opening quote) between the marker and
-    the version, so a digit inside an identifier - `_SHA256 = ...` - can't be
-    mistaken for the version.
+    The `# hyperi-ci:pin <key>` convention itself lives in
+    src/hyperi_ci/pin_marker.py, because `hyperi-ci deps` reads the same lines
+    to DISCOVER marked pins in any repo while this script ENFORCES them against
+    config/versions.yaml here. One definition, so the two cannot drift apart.
+
+    This script's keys are namespaced `tools.<name>`; the shared builder takes
+    the whole key.
     """
-    marker = _PIN_MARKER.format(name=re.escape(name))
-    return re.compile(rf'({marker}[^\n]*?[=:]\s*"?)(v?\d[\w.+-]*)')
+    return pin_marker.pin_pattern(f"tools.{name}")
 
 
 def _load_versions() -> dict[str, Any]:

@@ -1,0 +1,481 @@
+# Project:   HyperI CI
+# File:      config/dep-surfaces.yaml
+# Purpose:   Catalogue of every dependency-bearing surface a repo can carry
+#
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# Consumed by src/hyperi_ci/deps/ (`hyperi-ci deps`). Ships INSIDE the wheel
+# (pyproject packages = ["src/hyperi_ci"]), same as defaults.yaml and org.yaml,
+# so runtime code can read it in a consumer repo. Nothing about a surface is
+# hard-coded in Python: a new surface is a new entry HERE, no code change.
+#
+# The file patterns are VENDORED FROM RENOVATE's per-manager
+# `managerFilePatterns` defaults, adapted from JS regex to Python `re` (same
+# syntax for everything used here -- `(?:)`, named groups, anchors).
+# Source: https://docs.renovatebot.com/modules/manager/  -- vendored 2026-07-29.
+# `renovate_manager:` records the provenance per entry. `renovate_manager:
+# null` means Renovate has NO manager for that surface: those entries are why
+# this catalogue exists, and each carries a `gap:` note.
+#
+# WHY a catalogue and not a scanner: /deps kept updating the runtime pins and
+# leaving a three-year-old test stack, because nothing ENUMERATED the surfaces,
+# so nobody thought to look. The enumeration is the fix. Everything here is
+# deterministic -- match, extract, compare. No policy, no "should we upgrade",
+# no cooldown reasoning: that half lives in the Renovate preset and in
+# scripts/update-versions.py (see docs/dependencies/deps-pinning.md).
+#
+# Each entry:
+#   id                Stable key (matches the Renovate slug where one exists).
+#   label             One-line human name for the report table.
+#   kind              python | rust | node | go | container | ci | toolchain |
+#                     hooks | infra
+#   resolver          Does a lockfile/resolver ever move this pin on its own?
+#                     false means only a human or a bot ever bumps it, which is
+#                     exactly how a surface rots unnoticed.
+#   patterns          Python regexes, `re.search`-ed against each repo-relative
+#                     POSIX path. EMPTY list = the surface can never match
+#                     (see the `caveat:` entries) and is reported `inert`.
+#   exclude           Optional, OURS not Renovate's. Paths to drop after
+#                     `patterns` matched. Renovate tolerates a loose pattern
+#                     because its manager then parses the file and finds no
+#                     deps; we report a STATE, so a false match becomes a false
+#                     `inert` -- the exact signal we tell people to trust.
+#   pins              Optional. Line regexes extracting a version embedded
+#                     INSIDE the file. Named groups: `dep` and `ver`.
+#   pins_multiline    Optional. Same, but matched against the WHOLE file text
+#                     -- for a pin whose name and version sit on different
+#                     lines (the `# hyperi-ci:pin` marker convention).
+#   prefilter         Optional. Cheap whole-text regex that must hit before the
+#                     pin regexes run at all. Keeps a broad surface affordable.
+#   broad             Optional. The patterns are an extension NET, not a claim
+#                     of ownership (pin-marker looks at every source file). A
+#                     broad surface still reports normally, but a file it
+#                     merely swept past does not count as claimed for the
+#                     unclassified sweep -- otherwise it swallows the lot and
+#                     the "no surface claimed this" bucket is always empty.
+#   pin_guard         Optional. A pin only counts when this regex also hits
+#                     within `guard_window` lines -- for surfaces whose pin
+#                     regex is necessarily loose (testcontainers).
+#   pin_context       Optional. When a `pins` regex has no `dep` group, the
+#                     nearest PRECEDING line matching this supplies it
+#                     (pre-commit's `rev:` belongs to the `repo:` above it).
+#   pin_dep_default   Optional. Last-resort `dep` when a file pins one thing
+#                     and never names it (`.nvmrc` is a bare node version).
+#   guard_window      Optional, default 3. Lines either side for pin_guard.
+#   groups            Optional. For manifests: the dependency-group paths to
+#                     enumerate. `*` is a wildcard over the keys at that level.
+#   lock              Optional. Lockfiles that resolve this surface. Also
+#                     counts as "claimed" for the unclassified sweep.
+#   renovate_manager  Renovate manager slug, or null where none exists.
+#   gap / caveat      Why Renovate never sees it / why it can look clean when
+#                     it is not.
+#   notes             Anything the next reader needs.
+
+surfaces:
+
+  # -------------------------------------------------------------------------
+  # CI
+  # -------------------------------------------------------------------------
+  - id: github-actions
+    label: "GitHub Actions workflows + composite actions"
+    kind: ci
+    resolver: false
+    renovate_manager: github-actions
+    patterns:
+      - '(^|/)(workflow-templates|\.(?:github|gitea|forgejo)/(?:workflows|actions))/.+\.ya?ml$'
+      - '(^|/)action\.ya?ml$'
+    pins:
+      - 'uses:\s*(?P<dep>[^\s@]+)@(?P<ver>\S+)'
+    notes: >-
+      The second pattern is the commonly missed one: a COMPOSITE action's own
+      action.yml pins actions too, lives anywhere in the tree, and is the same
+      Renovate manager. scripts/update-versions.py already scans both for THIS
+      repo against config/versions.yaml; this surface is the generalisation of
+      that discovery to any repo, with no SSOT to read.
+
+  - id: hyperi-ci-config
+    label: ".hyperi-ci.yaml tool pins"
+    kind: ci
+    resolver: false
+    renovate_manager: null
+    gap: >-
+      HyperI's own CI config. No Renovate manager exists and none ever will --
+      a bespoke schema is invisible to every bot, so a tool version pinned here
+      only moves when a human notices.
+    patterns:
+      - '(^|/)\.hyperi-ci\.ya?ml$'
+    pins:
+      - '^\s*(?P<dep>[\w.\-]+):\s*["'']?(?P<ver>\d+\.\d+(?:\.\d+)?)["'']?\s*$'
+
+  - id: pin-marker
+    label: "# hyperi-ci:pin markers in source"
+    kind: ci
+    resolver: false
+    renovate_manager: null
+    gap: >-
+      A version mirrored into source (a Python constant, a composite action's
+      `default:`) is invisible to every manager. The marker is our answer, and
+      the local equivalent of Renovate's `# renovate:` comment.
+    patterns:
+      - '\.(?:py|ya?ml|toml|rs|ts|tsx|js|jsx|go|sh|bash)$'
+    broad: true
+    prefilter: 'hyperi-ci:pin'
+    pins_multiline:
+      - '#\s*hyperi-ci:pin\s+(?P<dep>[\w.\-/]+)\s*\n[^\n]*?[=:]\s*"?(?P<ver>v?\d[\w.+-]*)'
+    notes: >-
+      One explicit marker beats a per-tool regex guessing at each file's shape:
+      it reads the same in Python and YAML, survives the line being reworded,
+      and lets several tools share one file. The pattern is built by
+      src/hyperi_ci/pin_marker.py, which scripts/update-versions.py uses too --
+      one definition of the convention, not two.
+
+  # -------------------------------------------------------------------------
+  # Containers
+  # -------------------------------------------------------------------------
+  - id: dockerfile
+    label: "Dockerfile base images"
+    kind: container
+    resolver: false
+    renovate_manager: dockerfile
+    patterns:
+      - '(^|/|\.)([Dd]ocker|[Cc]ontainer)file$'
+      - '(^|/)([Dd]ocker|[Cc]ontainer)file[^/]*$'
+    exclude:
+      - '\.(?:py|rs|ts|tsx|js|jsx|go|java|kt|rb|md|txt)$'
+    pins:
+      - '^\s*FROM\s+(?:--\S+\s+)*(?P<dep>\S+?)(?::(?P<ver>[^\s@]+))?(?=\s|$)'
+    notes: >-
+      EVERY stage of a multi-stage build is a separate pin. The flag-skip and
+      end-anchor in the FROM regex are ours, not Renovate's: without them
+      `FROM --platform=$BUILDPLATFORM x` and an untagged `FROM builder` both
+      extract garbage. The exclude is ours too: Renovate's second pattern is
+      meant for `Dockerfile.prod`, but `[^/]*$` also swallows a source file
+      named dockerfile.py, which would then report a false `inert`.
+
+  - id: docker-compose
+    label: "Compose service images"
+    kind: container
+    resolver: false
+    renovate_manager: docker-compose
+    patterns:
+      - '(^|/)(?:docker-)?compose[^/]*\.ya?ml$'
+    pins:
+      - 'image:\s*["'']?(?P<dep>[^:"''\s]+):(?P<ver>[^"''\s]+)'
+
+  - id: devcontainer
+    label: "Dev container image"
+    kind: container
+    resolver: false
+    renovate_manager: devcontainer
+    patterns:
+      - '^\.devcontainer/devcontainer\.json$'
+      - '^\.devcontainer\.json$'
+    pins:
+      - '"image"\s*:\s*"(?P<dep>[^:"\s]+):(?P<ver>[^"\s]+)"'
+      - 'image:\s*["'']?(?P<dep>[^:"''\s]+):(?P<ver>[^"''\s]+)'
+
+  - id: testcontainers
+    label: "Container tags hard-coded in test source"
+    kind: container
+    resolver: false
+    renovate_manager: null
+    gap: >-
+      Renovate can only see an inline image tag when a `# renovate:` marker
+      comment sits above it. Unmarked ones -- nearly all of them -- are
+      invisible, so the integration-test stack ages out while the runtime pins
+      stay current. Use a `# hyperi-ci:pin` marker to make one enforceable.
+    patterns:
+      - '(^|/)tests?/.+\.(?:py|rs|ts|tsx|js|go|java|kt)$'
+      - '(^|/)conftest\.py$'
+      - '(^|/)test_[^/]+\.py$'
+      - '(^|/)[^/]+_test\.go$'
+    prefilter: 'testcontainers|with_image|GenericContainer|DockerImageName'
+    pins:
+      - '(?P<dep>[\w.\-/]+):(?P<ver>[\w.\-]+)'
+    pin_guard: 'testcontainers|with_image|GenericContainer|DockerImageName'
+    guard_window: 3
+    notes: >-
+      The pin regex is deliberately loose, so it ONLY counts inside the guard
+      window. Test files with no guard hit leave the surface `inert`, which is
+      the honest answer: files were read, nothing was extractable.
+
+  # -------------------------------------------------------------------------
+  # Python
+  # -------------------------------------------------------------------------
+  - id: pep621
+    label: "pyproject.toml (PEP 621 + PEP 735)"
+    kind: python
+    resolver: true
+    renovate_manager: pep621
+    patterns:
+      - '(^|/)pyproject\.toml$'
+    groups:
+      - 'project.dependencies'
+      - 'project.optional-dependencies.*'
+      - 'dependency-groups.*'
+      - 'build-system.requires'
+    lock:
+      - uv.lock
+      - poetry.lock
+    notes: >-
+      `dependency-groups` (PEP 735) and `project.optional-dependencies` are the
+      groups that rot: they never ship in the wheel, so nothing downstream ever
+      complains about the floor.
+
+  - id: poetry
+    label: "pyproject.toml (Poetry tables)"
+    kind: python
+    resolver: true
+    renovate_manager: poetry
+    patterns:
+      - '(^|/)pyproject\.toml$'
+    groups:
+      - 'tool.poetry.dependencies'
+      - 'tool.poetry.dev-dependencies'
+      - 'tool.poetry.group.*.dependencies'
+    lock:
+      - poetry.lock
+    notes: >-
+      Same file as pep621 and a DIFFERENT manager. One file can belong to
+      several surfaces; the scan reports every one it matches rather than
+      picking a winner.
+
+  - id: pip_requirements
+    label: "requirements*.txt"
+    kind: python
+    resolver: false
+    renovate_manager: pip_requirements
+    patterns:
+      - '(^|/)[\w-]*requirements([-._]\w+)?\.(txt|pip)$'
+    pins:
+      - '^\s*(?P<dep>[A-Za-z0-9][A-Za-z0-9._-]*(?:\[[^\]]+\])?)\s*(?:[<>=!~]=|[<>])\s*(?P<ver>[0-9][\w.*+!-]*)'
+
+  - id: pip_setup
+    label: "setup.py install_requires"
+    kind: python
+    resolver: false
+    renovate_manager: pip_setup
+    patterns:
+      - '(^|/)setup\.py$'
+    pins:
+      - '["''](?P<dep>[A-Za-z0-9][A-Za-z0-9._-]*(?:\[[^\]]+\])?)\s*(?:[<>=!~]=|[<>])\s*(?P<ver>[0-9][\w.*+!-]*)["'']'
+
+  - id: setup-cfg
+    label: "setup.cfg requirements"
+    kind: python
+    resolver: false
+    renovate_manager: setup-cfg
+    patterns:
+      - '(^|/)setup\.cfg$'
+    pins:
+      - '^\s*(?P<dep>[A-Za-z0-9][A-Za-z0-9._-]*(?:\[[^\]]+\])?)\s*(?:[<>=!~]=|[<>])\s*(?P<ver>[0-9][\w.*+!-]*)'
+
+  - id: pip-compile
+    label: "pip-compile outputs"
+    kind: python
+    resolver: true
+    renovate_manager: pip-compile
+    patterns: []
+    caveat: >-
+      Renovate ships this manager ENABLED with EMPTY default file patterns, so
+      it does nothing until someone sets managerFilePatterns. Listed here so it
+      reports `inert` rather than reading as covered -- an enabled manager that
+      matches no file is the false-assurance case.
+
+  - id: tox
+    label: "tox.ini test-env deps"
+    kind: python
+    resolver: false
+    renovate_manager: null
+    gap: >-
+      No Renovate manager exists for tox.ini (renovatebot/renovate#2214, still
+      open). A repo whose whole test matrix is declared here has its entire
+      test stack outside every bot's view.
+    patterns:
+      - '(^|/)tox\.ini$'
+    pins:
+      - '^\s*(?P<dep>[A-Za-z0-9][A-Za-z0-9._-]*(?:\[[^\]]+\])?)\s*(?:[<>=!~]=|[<>])\s*(?P<ver>[0-9][\w.*+!-]*)\s*$'
+
+  - id: nox
+    label: "noxfile.py session.install() deps"
+    kind: python
+    resolver: false
+    renovate_manager: null
+    gap: >-
+      Deps are Python function ARGUMENTS, not a manifest, so no manager can
+      read them. Same blind spot as tox.ini and the same consequence.
+    patterns:
+      - '(^|/)noxfile\.py$'
+    pins:
+      - '["''](?P<dep>[A-Za-z0-9][A-Za-z0-9._-]*(?:\[[^\]]+\])?)\s*(?:[<>=!~]=|[<>])\s*(?P<ver>[0-9][\w.*+!-]*)["'']'
+    pin_guard: '\.install\('
+    guard_window: 3
+
+  # -------------------------------------------------------------------------
+  # Rust
+  # -------------------------------------------------------------------------
+  - id: cargo
+    label: "Cargo.toml"
+    kind: rust
+    resolver: true
+    renovate_manager: cargo
+    patterns:
+      - '(^|/)Cargo\.toml$'
+    groups:
+      - 'dependencies'
+      - 'dev-dependencies'
+      - 'build-dependencies'
+      - 'target.*.dependencies'
+      - 'target.*.dev-dependencies'
+      - 'target.*.build-dependencies'
+      - 'workspace.dependencies'
+    lock:
+      - Cargo.lock
+
+  # -------------------------------------------------------------------------
+  # Node
+  # -------------------------------------------------------------------------
+  - id: npm
+    label: "package.json"
+    kind: node
+    resolver: true
+    renovate_manager: npm
+    patterns:
+      - '(^|/)package\.json$'
+      - '(^|/)pnpm-workspace\.yaml$'
+      - '(^|/)\.yarnrc\.yml$'
+    groups:
+      - 'dependencies'
+      - 'devDependencies'
+      - 'optionalDependencies'
+      - 'peerDependencies'
+    lock:
+      - package-lock.json
+      - pnpm-lock.yaml
+      - yarn.lock
+
+  # -------------------------------------------------------------------------
+  # Go
+  # -------------------------------------------------------------------------
+  - id: gomod
+    label: "go.mod"
+    kind: go
+    resolver: true
+    renovate_manager: gomod
+    patterns:
+      - '(^|/)go\.mod$'
+    pins:
+      - '^\s*(?P<dep>[\w.\-/]+)\s+(?P<ver>v[\w.\-+]+)'
+    lock:
+      - go.sum
+    notes: >-
+      go.mod records an EXACT version per module, so there is no declared floor
+      to drift from its lock -- `deps drift` says so and skips Go rather than
+      omitting it silently.
+
+  # -------------------------------------------------------------------------
+  # Toolchains
+  # -------------------------------------------------------------------------
+  - id: asdf
+    label: ".tool-versions (asdf)"
+    kind: toolchain
+    resolver: false
+    renovate_manager: asdf
+    patterns:
+      - '(^|/)\.tool-versions$'
+    pins:
+      - '^\s*(?P<dep>[\w.\-]+)\s+(?P<ver>[\w.\-]+)'
+    notes: >-
+      asdf ONLY. Renovate's asdf manager does not cover mise, and mise's
+      manager does not cover .tool-versions -- see the mise entry. A repo
+      driving mise from .tool-versions needs BOTH managers enabled.
+
+  - id: mise
+    label: "mise toolchain pins"
+    kind: toolchain
+    resolver: false
+    renovate_manager: mise
+    patterns:
+      - '(^|/)\.?mise([.\w-]*)?\.toml$'
+      - '(^|/)\.config/mise/.*\.toml$'
+      - '(^|/)\.rtx[.\w-]*\.toml$'
+    pins:
+      - '^\s*(?P<dep>[\w.\-]+)\s*=\s*["''](?P<ver>[^"'']+)["'']'
+    notes: >-
+      Does NOT match .tool-versions, even though mise reads that file.
+
+  - id: nvm
+    label: ".nvmrc node version"
+    kind: toolchain
+    resolver: false
+    renovate_manager: nvm
+    patterns:
+      - '(^|/)\.nvmrc$'
+    pins:
+      - '^\s*v?(?P<ver>[\w.\-]+)\s*$'
+    pin_dep_default: node
+
+  # -------------------------------------------------------------------------
+  # Hooks
+  # -------------------------------------------------------------------------
+  - id: pre-commit
+    label: ".pre-commit-config.yaml hook revs"
+    kind: hooks
+    resolver: false
+    renovate_manager: pre-commit
+    patterns:
+      - '(^|/)\.pre-commit-config\.ya?ml$'
+    pins:
+      - 'rev:\s*["'']?(?P<ver>[^"''\s]+)'
+    pin_context: 'repo:\s*(?P<dep>\S+)'
+    notes: >-
+      A `rev:` names no package, so the repo: line above it supplies the dep.
+      Renovate ships the pre-commit manager DISABLED by default, so a repo with
+      hooks and no explicit enable gets nothing.
+
+  # -------------------------------------------------------------------------
+  # Infrastructure
+  # -------------------------------------------------------------------------
+  - id: helmv3
+    label: "Helm chart dependencies"
+    kind: infra
+    resolver: true
+    renovate_manager: helmv3
+    patterns:
+      - '(^|/)Chart\.ya?ml$'
+    pins:
+      - '^\s*version:\s*["'']?(?P<ver>[\w.\-+]+)'
+    pin_context: '-\s*name:\s*(?P<dep>\S+)'
+    lock:
+      - Chart.lock
+
+  - id: terraform
+    label: "OpenTofu / Terraform modules and providers"
+    kind: infra
+    resolver: true
+    renovate_manager: terraform
+    patterns:
+      - '\.tf$'
+      - '\.tofu$'
+    pins:
+      - 'version\s*=\s*["''](?P<ver>[^"'']+)["'']'
+    pin_context: '(?:source|module)\s*=\s*["''](?P<dep>[^"'']+)["'']'
+    lock:
+      - .terraform.lock.hcl
+    notes: >-
+      `.tofu` is OpenTofu's own extension and `.tf` is shared. HyperI runs
+      OpenTofu; the manager slug is Renovate's spelling, not a recommendation.
+
+  - id: kubernetes
+    label: "Kubernetes manifests"
+    kind: infra
+    resolver: false
+    renovate_manager: kubernetes
+    patterns: []
+    caveat: >-
+      Renovate ships this manager ENABLED with EMPTY default file patterns -- a
+      manifest tree is indistinguishable from any other YAML, so it matches
+      nothing until managerFilePatterns is configured. Reported `inert`: an
+      enabled-but-inert manager is worse than an absent one, because it reads
+      as covered.

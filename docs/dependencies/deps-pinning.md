@@ -8,6 +8,14 @@ For our *own* reusable-workflow internals (which stay `@main` on purpose), see
 
 ## Two systems, clear split
 
+Three things, really, and they sit at different points in time. `hyperi-ci
+deps` is **preventative** - it runs on your machine BEFORE the change lands and
+tells you what you are about to leave stale. Renovate is **remediation** - it
+runs on the forge AFTER the fact and raises a PR for what already went stale.
+`update-versions.py` is **enforcement** for this repo's own pipeline, at commit
+time. None of them replaces another, and "Renovate is configured" must never be
+read as "the surfaces are covered" (see [the blind spots](#what-renovate-never-sees)).
+
 | Dependency | Owner | How | Cooldown |
 |---|---|---|---|
 | GitHub Actions (on hyperi-ci) | `/deps` script (`scripts/update-versions.py`) + `config/versions.yaml` | SHA-pinned at commit time via the pre-commit hook | 7 days, enforced by the script |
@@ -15,6 +23,8 @@ For our *own* reusable-workflow internals (which stay `@main` on purpose), see
 | GitHub Actions (other repos) | Renovate org preset | SHA digest pin (`helpers:pinGitHubActionDigests`) | 7 days |
 | **hyperi-ci reusable-workflow caller** (other repos) | **nobody - floats `@main`** | **NOT pinned. Carved out of digest pinning in the org preset** (`hyperi-io/renovate-config`) | n/a |
 | cargo / pip / npm / docker (all repos) | Renovate org preset | version PRs | 7 days |
+| **Everything else** (tox, nox, test-source image tags, `.tool-versions`, `.hyperi-ci.yaml`) | **nobody** | **`hyperi-ci deps` REPORTS it. Nothing pins it.** | n/a |
+| **Your declared floor vs your own lock** | **nobody** | **`hyperi-ci deps drift`. Renovate has no equivalent** | n/a |
 
 **Why the caller is exempt.** SHA-pinning protects against *third-party*
 supply-chain risk. The hyperi-ci reusable workflow is our *own* CI tool -
@@ -59,18 +69,130 @@ reason) is still allowed - the carve-out only stops Renovate *imposing* one.
 
 ```mermaid
 flowchart TD
-    subgraph SCRIPT["hyperi-ci Actions — /deps script"]
+    subgraph PREV["PREVENTATIVE — your machine, before the change lands"]
+      DEPS["hyperi-ci deps"] --> SURF["enumerate every surface<br/>found / inert / absent"]
+      DEPS --> DRIFT["floor vs lock drift<br/>per dependency group"]
+      DEPS --> GAPS["what Renovate never sees"]
+      SURF --> YOU["you fix it before it ships"]
+      DRIFT --> YOU
+      GAPS --> YOU
+    end
+    subgraph SCRIPT["ENFORCEMENT — hyperi-ci Actions, at commit time"]
       V["config/versions.yaml<br/>version + sha"] --> H["pre-commit hook<br/>update-versions.py --fix"]
       H --> W["workflows + composites<br/>pinned @sha # version"]
-      L["--latest / --auto-update"] -->|"newest release ≥7 days old"| V
+      L["--latest / --auto-update"] -->|newest release 7+ days old| V
     end
-    subgraph REN["Renovate org preset"]
+    subgraph REN["REMEDIATION — the forge, after the fact"]
       D["detect updates"] --> DD{"cooldown ≥7d<br/>+ timestamp"}
       DD -->|met| PR["raise PR"]
       PR --> HUMAN["human merges"]
     end
-    REN -.->|"watchdog only on hyperi-ci<br/>dashboard, no PR"| DASH["Dependency Dashboard"]
+    REN -.->|watchdog only on hyperi-ci - dashboard, no PR| DASH["Dependency Dashboard"]
+    GAPS -.->|names what REN cannot reach| REN
 ```
+
+## `hyperi-ci deps` - the preventative half
+
+`scripts/update-versions.py` enforces THIS repo's pipeline against
+`config/versions.yaml`. `hyperi-ci deps` is that idea generalised: any repo,
+any surface, discovering what is there instead of reading a hardcoded SSOT. It
+runs locally and makes no network calls, so it is safe to run on every branch.
+
+It exists because updating "the dependencies" reliably meant the package
+resolver and nothing else. A repo would come out with current runtime pins and
+a three-year-old test stack, because nothing ENUMERATED the surfaces, so nobody
+thought to look past `pyproject.toml`. The enumeration is the fix.
+
+| Command | Does | Exit |
+|---|---|---|
+| `hyperi-ci deps` (or `deps scan`) | everything in one call: surfaces + their state, every extracted pin, every dependency group with its declared constraint, drift, and the Renovate gaps | 0 |
+| `hyperi-ci deps drift` | declared floor vs locked version, per group | **1 on drift** - it can gate |
+| `hyperi-ci deps gaps` | present surfaces no enabled Renovate manager sees | 0 |
+| `hyperi-ci deps show <surface>` | one surface, uncapped: every matched file, every pin with line numbers, declared vs locked | 0 |
+| `--json` | machine-readable, same payload | |
+| `--full` | lift the display cap on detail lists | |
+| `--kind python\|rust\|node\|container\|ci\|...` | narrow a polyglot repo to one ecosystem | |
+
+Surfaces are DATA: `src/hyperi_ci/config/dep-surfaces.yaml`. The file patterns
+are vendored from Renovate's own `managerFilePatterns` defaults, so what we
+match is what Renovate matches; each entry records its `renovate_manager:`
+slug, or `null` plus a `gap:` note where no manager exists.
+
+**Three states per surface, never two.** The middle one is the whole point:
+
+| State | Means |
+|---|---|
+| `found` | files matched and versions came out |
+| `inert` | files matched and NOTHING came out, or the manager has no file patterns at all. **Not clean - go and look.** |
+| `absent` | nothing matched |
+
+Collapsing `inert` into either neighbour is how a surface reads as covered
+while being nothing of the sort.
+
+**Multi-language by construction.** A repo is not "a Python repo" - ours are
+Python and Rust and TypeScript and OpenTofu at once. Every manifest in the tree
+is parsed in the same pass and every ecosystem reported separately, so a stale
+Rust dev dependency cannot hide behind a current Python runtime pin. Language
+toolchains (`cargo metadata`, `uv export`, `npm ls`) are probed with
+`shutil.which` and used to ENRICH the result when present; a box without cargo
+gets the file-parsed answer and no complaint.
+
+### Floor drift - the thing nothing else checks
+
+Renovate's `rangeStrategy: bump` only rewrites a floor when a NEW upstream
+release triggers a PR. Nothing anywhere tells you your floor is already behind
+your own lock:
+
+```
+pytest          >=8.0.0   locked 9.0.3   major
+pytest-asyncio  >=0.23.0  locked 1.3.0   major
+mypy            >=1.0.0   locked 2.1.0   major
+```
+
+That repo installs and tests green every time - the lock resolves fine. The
+floor is a lie about what it supports, and it stays a lie until someone reads
+it. `deps drift` is the standing audit, reported per GROUP so a rotting `dev`
+extra is visibly separate from runtime.
+
+The 0.x rule matches the clamp table above: under
+[semver section 4](https://semver.org/#spec-item-4) minor is the breaking axis
+for 0.x, so `>=0.23` against a locked 0.40 is flagged the same as `>=1` against
+a locked 2.
+
+### What Renovate never sees
+
+These are why a Renovate-configured repo still rots. All verified against
+upstream, 2026-07-29:
+
+| Surface | Why it is invisible |
+|---|---|
+| `tox.ini` | **No manager exists at all** - [renovatebot/renovate#2214](https://github.com/renovatebot/renovate/issues/2214), still open. A repo whose whole test matrix lives here has its entire test stack outside every bot's view. |
+| `noxfile.py` | Deps are Python function ARGUMENTS, not a manifest. Nothing can read them. |
+| `pip-compile` | Ships **ENABLED with EMPTY default file patterns**. Does nothing until someone sets `managerFilePatterns`. |
+| `kubernetes` | Same - **enabled, empty patterns**. A manifest tree is indistinguishable from any other YAML. |
+| `asdf` vs `mise` | **They do not overlap.** The asdf manager does not cover mise's TOML; the mise manager does not match `.tool-versions`. Driving mise from `.tool-versions` needs BOTH enabled. |
+| container tag in test source | Renovate only sees an inline image tag with a `# renovate:` marker above it. Unmarked ones - nearly all of them - are invisible. |
+| `.hyperi-ci.yaml` | A bespoke schema. No bot will ever read it. |
+| composite `action.yml` | Same manager as workflows, but it lives anywhere in the tree. A repo whose workflows are current and whose composites are two years stale still reads as covered. |
+
+An enabled-but-inert manager is worse than an absent one, because it reads as
+covered. `deps gaps` names all of them, including the inert ones, and says
+which of the three reasons applies.
+
+### Making an in-source pin enforceable
+
+The answer to an unmarked tag is the same marker `update-versions.py` already
+uses - see [Tool pins live in source](#tool-pins-live-in-source-and-why):
+
+```python
+# hyperi-ci:pin tools.clickhouse
+_CLICKHOUSE_IMAGE = "clickhouse/clickhouse-server:25.3.1"
+```
+
+`hyperi-ci deps` DISCOVERS marked pins in any repo (the `pin-marker` surface);
+`update-versions.py` ENFORCES them against `config/versions.yaml` here. Both
+read the same lines through `src/hyperi_ci/pin_marker.py`, so the convention
+has one definition and the two cannot drift apart.
 
 ## `/deps` - the script
 
