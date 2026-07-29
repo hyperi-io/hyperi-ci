@@ -224,10 +224,14 @@ username convention and rejects it with "Wrong username was used" (401).
 **Correct invocation:**
 ```python
 cmd = [
-    "uv", "publish",
-    "--publish-url", org.pypi_publish_url,
-    "--username", os.environ.get("JFROG_USERNAME", "_token"),
-    "--password", os.environ["JFROG_TOKEN"],
+    "uv",
+    "publish",
+    "--publish-url",
+    org.pypi_publish_url,
+    "--username",
+    os.environ.get("JFROG_USERNAME", "_token"),
+    "--password",
+    os.environ["JFROG_TOKEN"],
 ]
 ```
 
