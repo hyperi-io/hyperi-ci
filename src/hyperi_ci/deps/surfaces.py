@@ -1,6 +1,8 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/deps/surfaces.py
 # Purpose:   Load the surface catalogue, match files, extract embedded pins
+# Origin:    Derek's deps automation scripts, merged into hyperi-ci now they are
+#            mature enough for people (and hyperi-ai's /deps) to use directly
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
@@ -348,6 +350,10 @@ def scan(
     files: list[str] | None = None,
 ) -> dict:
     """Enumerate every dependency surface present under ``root``.
+
+    The catalogue behind this is the durable form of what Derek's deps scripts
+    had learned to look for by hand, so a surface only has to be discovered
+    once for every later run to see it.
 
     Args:
         root: Repository root.

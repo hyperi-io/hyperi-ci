@@ -1,10 +1,17 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/deps/__init__.py
 # Purpose:   `hyperi-ci deps` -- enumerate dependency surfaces, audit floors
+# Origin:    Derek's deps automation scripts, merged into hyperi-ci now they
+#            are mature enough for people to use directly -- and for hyperi-ai's
+#            /deps skill to drive.
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Dependency-surface enumeration, floor/lock drift, Renovate blind spots.
+
+Grown out of Derek's deps automation scripts and merged here once they were
+mature enough to be worth handing to other people -- both to run at a terminal
+and for hyperi-ai's ``/deps`` skill to call.
 
 The PREVENTATIVE half of the dependency chain. It runs LOCALLY, before a change
 reaches CI or the forge, and says what you are about to leave stale. Renovate
@@ -44,6 +51,9 @@ def report(
     root: Path, surfaces: tuple[Surface, ...] | None = None, kind: str = ""
 ) -> dict:
     """Everything in one pass: surfaces, pins, groups, drift, Renovate gaps.
+
+    The entry point Derek's original scripts grew towards and never had: one
+    call that answers the whole question rather than a run of separate probes.
 
     Args:
         root: Repository root.

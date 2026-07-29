@@ -1,6 +1,8 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/deps/renovate.py
 # Purpose:   Which present surfaces the repo's Renovate config never sees
+# Origin:    Derek's deps automation scripts, merged into hyperi-ci now they are
+#            mature enough for people (and hyperi-ai's /deps) to use directly
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED

@@ -1,6 +1,8 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/deps/ecosystems.py
 # Purpose:   Declared floor vs locked version, per dependency group
+# Origin:    Derek's deps automation scripts, merged into hyperi-ci now they are
+#            mature enough for people (and hyperi-ai's /deps) to use directly
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
@@ -448,6 +450,11 @@ def drift(
     files: list[str] | None = None,
 ) -> dict:
     """Audit every declared floor against the version actually locked.
+
+    The check that started the whole thing: no update bot raises this, because
+    an open ``>=`` range is already satisfied by every future release, so there
+    is never a manifest edit to propose. Grown out of Derek's deps automation
+    scripts and generalised here from one repo to any.
 
     Args:
         root: Repository root.

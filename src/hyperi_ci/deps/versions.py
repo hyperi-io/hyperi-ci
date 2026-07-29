@@ -1,6 +1,8 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/deps/versions.py
 # Purpose:   Constraint floors and version comparison for the drift audit
+# Origin:    Derek's deps automation scripts, merged into hyperi-ci now they are
+#            mature enough for people (and hyperi-ai's /deps) to use directly
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED

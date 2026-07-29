@@ -16,13 +16,14 @@ design says must always be sufficient.
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
 from hyperi_ci import deps, pin_marker
-from hyperi_ci.deps import ecosystems, renovate, surfaces, versions
+from hyperi_ci.deps import ecosystems, render, renovate, surfaces, versions
 
 
 def _git_init(root: Path) -> None:
@@ -884,3 +885,181 @@ class TestCli:
         assert result.exit_code == 0
         payload = json.loads(result.stdout)
         assert payload["drift"]["drift"][0]["source"] in {"parse", "uv"}
+
+
+# ---------------------------------------------------------------------------
+# `deps show` rendering
+# ---------------------------------------------------------------------------
+
+
+class TestShowRendering:
+    """The rendered output, not just the detail dict.
+
+    `show` is the pre-canned follow-up -- the thing that exists so nobody
+    reaches for an ad-hoc rg. If its rendering drops the pins or the file list
+    it has failed at the one job it has, and the dict-level tests cannot see
+    that.
+    """
+
+    def test_renders_header_patterns_files_and_pins(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            ".github/workflows/ci.yml",
+            "jobs:\n  a:\n    steps:\n      - uses: actions/checkout@v4\n",
+        )
+        _git_init(tmp_path)
+        out = render.show(deps.show(tmp_path, "github-actions"))
+
+        assert "deps show: github-actions" in out
+        assert str(tmp_path) in out
+        assert "state: found" in out
+        assert "renovate manager: github-actions" in out
+        assert ".github/workflows/ci.yml" in out
+        assert "actions/checkout" in out
+        assert "v4" in out
+
+    def test_unknown_id_renders_the_error_and_the_known_list(
+        self, tmp_path: Path
+    ) -> None:
+        _git_init(tmp_path)
+        out = render.show(deps.show(tmp_path, "no-such-surface"))
+
+        assert "no-such-surface" in out
+        assert "known:" in out
+        assert "github-actions" in out
+
+    def test_pins_are_not_capped(self, tmp_path: Path) -> None:
+        """`show` is the uncapped view -- a truncated one would be a silent lie."""
+        steps = "".join(
+            f"      - uses: acme/action-{i}@v{i}\n" for i in range(60)
+        )
+        _write(tmp_path, ".github/workflows/big.yml", f"jobs:\n  a:\n    steps:\n{steps}")
+        _git_init(tmp_path)
+        out = render.show(deps.show(tmp_path, "github-actions"))
+
+        for i in (0, 30, 59):
+            assert f"acme/action-{i}" in out, i
+
+    def test_manifest_surface_renders_the_declared_vs_locked_table(
+        self, tmp_path: Path
+    ) -> None:
+        _python_repo(tmp_path)
+        out = render.show(deps.show(tmp_path, "pep621"))
+
+        assert "pytest" in out
+        assert ">=8.0.0" in out
+        assert "9.0.3" in out
+
+    def test_absent_surface_still_renders_rather_than_erroring(
+        self, tmp_path: Path
+    ) -> None:
+        _python_repo(tmp_path)
+        out = render.show(deps.show(tmp_path, "dockerfile"))
+
+        assert "deps show: dockerfile" in out
+        assert "state: absent" in out
+
+
+# ---------------------------------------------------------------------------
+# Optional toolchain enrichment -- the lockfile-absent path
+# ---------------------------------------------------------------------------
+
+
+def _lockless_cargo_workspace(root: Path) -> Path:
+    """A cargo workspace with a path dependency and NO Cargo.lock."""
+    _write(
+        root,
+        "Cargo.toml",
+        """\
+[workspace]
+members = ["member"]
+
+[package]
+name = "demo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+member = { path = "member", version = "0.4.2" }
+""",
+    )
+    _write(
+        root,
+        "member/Cargo.toml",
+        """\
+[package]
+name = "member"
+version = "0.4.2"
+edition = "2021"
+""",
+    )
+    _write(root, "src/lib.rs", "")
+    _write(root, "member/src/lib.rs", "")
+    _git_init(root)
+    assert not (root / "Cargo.lock").exists()
+    return root
+
+
+class TestEnrichmentWithoutLock:
+    """The path that only runs when a lockfile cannot answer.
+
+    `TestEnrichment` above covers the degradation rules. Everything there has a
+    lock on disk, so the parse always wins and `source` stays "parse" -- which
+    means the code that reaches for a toolchain never actually fires. These
+    remove the lock so it does.
+    """
+
+    def test_failing_tool_degrades_silently_to_an_empty_map(
+        self, tmp_path: Path
+    ) -> None:
+        """A directory that is not a cargo or npm project.
+
+        The binary exists, the command fails. Same contract as an absent
+        binary: no raise, no warning, no partial result.
+        """
+        assert ecosystems.enrich_cargo(tmp_path) == {}
+        assert ecosystems.enrich_npm(tmp_path) == {}
+
+    @pytest.mark.skipif(
+        shutil.which("cargo") is None,
+        reason="enrichment is optional by design; without cargo there is "
+        "nothing to enrich from",
+    )
+    def test_cargo_resolves_a_version_with_no_lock_on_disk(
+        self, tmp_path: Path
+    ) -> None:
+        """The path dependency keeps this offline.
+
+        No registry access, so the result does not depend on whatever happens
+        to be in the host's cargo cache.
+        """
+        _lockless_cargo_workspace(tmp_path)
+        assert ecosystems.enrich_cargo(tmp_path).get("member") == "0.4.2"
+
+    @pytest.mark.skipif(
+        shutil.which("cargo") is None,
+        reason="enrichment is optional by design; without cargo there is "
+        "nothing to enrich from",
+    )
+    def test_drift_attributes_the_version_to_cargo_when_the_lock_is_absent(
+        self, tmp_path: Path
+    ) -> None:
+        """Needs a tree cargo has never run in.
+
+        `cargo metadata` WRITES Cargo.lock as a side effect, so anything that
+        shells out first leaves a lock behind and the parse path wins on the
+        next call. That is why this gets its own tmp_path rather than sharing
+        one with the test above.
+        """
+        _lockless_cargo_workspace(tmp_path)
+
+        rows = [
+            row
+            for eco in ecosystems.drift(tmp_path)["ecosystems"]
+            for group in eco["groups"]
+            for row in group["entries"]
+            if row["dep"] == "member"
+        ]
+        assert rows, "the member dependency was not compared at all"
+        assert rows[0]["source"] == "cargo"
+        assert rows[0]["locked"] == "0.4.2"
