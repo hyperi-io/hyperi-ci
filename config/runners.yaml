@@ -27,26 +27,31 @@
 #   size   4cpu      matches the stock GitHub ubuntu runner
 #          16cpu     the step up
 #
-# Every deployed shape is ALSO reachable by a single label, because an org
-# variable holds one string and not an array. Both sizes exist for every type,
-# so no type name is unambiguous on its own and each set carries a compound
-# handle:
+# A JOB ADDRESSES A SCALE SET BY NAME, and the name states both axes:
 #
-#   default         vanilla 4cpu   — what a repo gets when it asks for nothing
-#   vanilla-4cpu    vanilla 4cpu   — the same set, named explicitly
-#   vanilla-16cpu   vanilla 16cpu  — grunt without the compiler estate
-#   native-4cpu     native 4cpu    — a hyperi-ci project that is not Rust or
-#                                    C++: it wants the pre-baked toolchain,
-#                                    not sixteen cores to run ruff
-#   native-16cpu    native 16cpu   — Rust and C++
-#   debian-4cpu     debian 4cpu    — .deb packaging
-#   debian-16cpu    debian 16cpu   — .deb packaging that needs the cores
+#   arc-vanilla-4cpu    what a repo gets when it asks for nothing
+#   arc-vanilla-16cpu   grunt without the compiler estate
+#   arc-native-4cpu     a hyperi-ci project that is not Rust or C++: it wants
+#                       the pre-baked toolchain, not sixteen cores to run ruff
+#   arc-native-16cpu    Rust and C++
+#   arc-debian-4cpu     .deb packaging
+#   arc-debian-16cpu    .deb packaging that needs the cores
 #
-# GH_RUNNER_CPP is set org-wide to `native-16cpu`. Nothing in this repo reads
-# it yet — there is no C++ reusable workflow, only the LLVM and GCC toolchains
-# the native image bakes — so a C++ job names it in `runs-on` directly. It is
-# declared now so the answer is already agreed when that workflow lands, rather
-# than someone picking a runner ad hoc.
+# Not by label, and that is measured rather than assumed: a `runs-on` naming a
+# LABEL queues forever with the listener reporting `assigned job=0`, while the
+# same job naming the scale set spawns runner pods in seconds. GitHub holds the
+# scale set registration server-side and the listener reconnects to it, so the
+# labels on the Kubernetes resource are not what a job matches against.
+#
+# The practical consequence: a `runs-on` value must be one of the names above,
+# exactly. Anything else matches nothing and the job queues SILENTLY -- it does
+# not fail, it waits, which is a far worse thing to debug.
+#
+# GH_RUNNER_CPP is set org-wide to `arc-native-16cpu`. Nothing in this repo
+# reads it yet — there is no C++ reusable workflow, only the LLVM and GCC
+# toolchains the native image bakes — so a C++ job names it in `runs-on`
+# directly. It is declared now so the answer is already agreed when that
+# workflow lands, rather than someone picking a runner ad hoc.
 #
 # The native image is ~21 GB either way, so prefer a vanilla set when nothing
 # in the compiler estate is actually needed.
@@ -63,8 +68,8 @@ runners:
   build:
     amd64:
       # Rust builds want the compiler estate and the cores: GH_RUNNER_RUST
-      # points at `native-16cpu`. Falls back through GH_RUNNER_DEFAULT
-      # (`default`) to the hosted runner only if neither variable exists.
+      # points at `arc-native-16cpu`. Falls back through GH_RUNNER_DEFAULT
+      # (`arc-vanilla-4cpu`) to the hosted runner only if neither exists.
       default: ubuntu-latest
       org_var: GH_RUNNER_RUST
       fallback_var: GH_RUNNER_DEFAULT
