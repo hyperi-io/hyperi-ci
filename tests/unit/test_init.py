@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
 from hyperi_ci.init import (
     _detect_python_build_type,
     _detect_rust_workspace,
@@ -258,13 +260,33 @@ class TestLanguageSpecificConfig:
         content = _render_hyperi_ci_yaml("rust", "test", tmp_path)
         assert "workspace:" in content
 
-    def test_golang_targets(self, tmp_path: Path) -> None:
-        content = _render_hyperi_ci_yaml("golang", "test", tmp_path)
-        assert "linux/amd64" in content
+    def test_golang_targets_land_where_the_handler_reads_them(
+        self, tmp_path: Path
+    ) -> None:
+        """Nested under build:, not top-level.
 
-    def test_typescript_package_manager(self, tmp_path: Path) -> None:
-        content = _render_hyperi_ci_yaml("typescript", "test", tmp_path)
-        assert "package_manager: auto" in content
+        `languages/golang/build.py` reads `build.golang.targets`. A top-level
+        `golang:` block parses fine and is read by nothing, so the project
+        silently builds the single default target instead of these four.
+        """
+        content = _render_hyperi_ci_yaml("golang", "test", tmp_path)
+        parsed = yaml.safe_load(content)
+        assert parsed["build"]["golang"]["targets"] == [
+            "linux/amd64",
+            "linux/arm64",
+            "darwin/amd64",
+            "darwin/arm64",
+        ]
+        assert parsed["build"]["golang"]["cgo"] is False
+        assert "golang" not in parsed
+
+    def test_typescript_scaffolds_no_dead_package_manager_key(
+        self, tmp_path: Path
+    ) -> None:
+        """detect_package_manager() never consults config, at any path."""
+        parsed = yaml.safe_load(_render_hyperi_ci_yaml("typescript", "test", tmp_path))
+        assert "typescript" not in parsed
+        assert "package_manager" not in str(parsed)
 
 
 class TestInitProject:

@@ -228,7 +228,9 @@ def _render_hyperi_ci_yaml(
 
     elif language == "golang":
         config["test"]["coverage"] = True
-        config["golang"] = {
+        # Nested under build: that is where languages/golang/build.py reads
+        # them, and a top-level `golang:` block is read by nothing.
+        build_section["golang"] = {
             "targets": [
                 "linux/amd64",
                 "linux/arm64",
@@ -240,7 +242,8 @@ def _render_hyperi_ci_yaml(
 
     elif language == "typescript":
         config["test"]["coverage"] = True
-        config["typescript"] = {"package_manager": "auto"}
+        # No package_manager key: detect_package_manager() resolves it from the
+        # package.json `packageManager` field, then the lockfile, then npm.
 
     # Submodule paths the CI test job inits (space-separated, e.g. "schemas").
     # Emitted as the reusable-workflow `submodules` input in ci.yml.
