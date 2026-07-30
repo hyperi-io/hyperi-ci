@@ -519,6 +519,14 @@ class TestSoakedVersion:
     def test_empty_releases(self) -> None:
         assert _soaked_version({}, now=NOW) is None
 
+    def test_an_unparseable_version_string_is_skipped(self) -> None:
+        """PyPI has served odd keys before; one must not sink the resolution."""
+        releases = {
+            "not-a-version": [{"upload_time_iso_8601": _iso(30)}],
+            "1.0.0": [{"upload_time_iso_8601": _iso(30)}],
+        }
+        assert _soaked_version(releases, now=NOW) == "1.0.0"
+
     def test_release_with_no_files_is_skipped(self) -> None:
         releases = {"2.0.0": [], "1.0.0": [{"upload_time_iso_8601": _iso(30)}]}
         assert _soaked_version(releases, now=NOW) == "1.0.0"

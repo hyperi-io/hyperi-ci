@@ -167,3 +167,13 @@ class TestFreeze:
         channel.unfreeze()
         channel.unfreeze()
         assert channel.is_frozen() is False
+
+    def test_unfreeze_survives_an_unlink_error(self, monkeypatch) -> None:
+        """A read-only config dir must not crash the command that clears it."""
+        channel.freeze()
+
+        def denied(self: Path, missing_ok: bool = False) -> None:
+            raise OSError("permission denied")
+
+        monkeypatch.setattr(Path, "unlink", denied)
+        channel.unfreeze()
