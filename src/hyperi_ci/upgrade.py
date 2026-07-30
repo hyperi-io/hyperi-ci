@@ -17,14 +17,16 @@ import time
 import urllib.request
 from pathlib import Path
 
-from packaging.version import Version
+from packaging.version import InvalidVersion, Version
 from scalo.logger import logger
 
 from hyperi_ci import __version__
 from hyperi_ci.common import is_ci
 
-PYPI_URL = "https://pypi.org/pypi/hyperi-ci/json"
+PACKAGE = "hyperi-ci"
+PYPI_URL = f"https://pypi.org/pypi/{PACKAGE}/json"
 PYPI_TIMEOUT = 5
+SUBPROCESS_TIMEOUT = 30
 CACHE_DIR = Path.home() / ".cache" / "hyperi-ci"
 TIMESTAMP_FILE = CACHE_DIR / "last-update-check"
 CHECK_INTERVAL = 4 * 60 * 60  # 4 hours in seconds
@@ -69,6 +71,13 @@ def _build_upgrade_cmd(
 ) -> list[str]:
     """Build the subprocess command for upgrading hyperi-ci.
 
+    The unpinned uv path uses ``tool install --force ...@latest`` rather than
+    ``tool upgrade``. ``tool upgrade`` refuses to act on an install whose receipt
+    carries an exact version, and refusing is how it reports that -- exit 0 with
+    "Nothing to upgrade". So one ``upgrade --version`` in the past would have
+    disabled every upgrade after it. ``@latest`` both moves the version and
+    clears the pin, which is uv's own advice in that message.
+
     Args:
         uv_path: Path to uv binary, or None to use pip.
         version: Specific version to install, or None for latest.
@@ -80,19 +89,115 @@ def _build_upgrade_cmd(
     """
     if uv_path:
         if version:
-            return [uv_path, "tool", "install", "--force", f"hyperi-ci=={version}"]
-        cmd = [uv_path, "tool", "upgrade"]
+            return [uv_path, "tool", "install", "--force", f"{PACKAGE}=={version}"]
+        cmd = [uv_path, "tool", "install", "--force"]
         if pre:
             cmd.append("--prerelease=allow")
-        cmd.append("hyperi-ci")
+        cmd.append(f"{PACKAGE}@latest")
         return cmd
 
     cmd = [sys.executable, "-m", "pip", "install", "--upgrade"]
     if pre and not version:
         cmd.append("--pre")
-    pkg = f"hyperi-ci=={version}" if version else "hyperi-ci"
+    pkg = f"{PACKAGE}=={version}" if version else PACKAGE
     cmd.append(pkg)
     return cmd
+
+
+def _parse_installed_version(output: str, *, from_uv: bool) -> str | None:
+    """Pull the installed hyperi-ci version out of uv or pip output.
+
+    Args:
+        output: stdout of ``uv tool list`` or ``pip show hyperi-ci``.
+        from_uv: True when parsing uv output, False for pip.
+
+    Returns:
+        Version string, or None if the package was not found in the output.
+
+    """
+    for raw in output.splitlines():
+        line = raw.strip()
+        if from_uv:
+            # `uv tool list` prints one line per tool -- "hyperi-ci v2.9.5" --
+            # followed by its entrypoints indented with "- ". Only the tool line
+            # carries the version, and the entrypoint shares the tool's name, so
+            # the "v" separator is what distinguishes them.
+            if line.startswith(f"{PACKAGE} v"):
+                return line.split(" v", 1)[1].strip()
+        elif line.lower().startswith("version:"):
+            return line.split(":", 1)[1].strip()
+    return None
+
+
+def _installed_version(uv_path: str | None) -> str | None:
+    """Read the version installed on disk, not the one currently running.
+
+    A process that upgrades itself still has the old ``__version__`` imported, so
+    it cannot use that to confirm anything landed. Ask the installer.
+
+    Args:
+        uv_path: Path to uv binary, or None to ask pip.
+
+    Returns:
+        Installed version string, or None if it could not be determined.
+
+    """
+    cmd = (
+        [uv_path, "tool", "list"]
+        if uv_path
+        else [sys.executable, "-m", "pip", "show", PACKAGE]
+    )
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=SUBPROCESS_TIMEOUT,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return _parse_installed_version(result.stdout, from_uv=bool(uv_path))
+
+
+def _confirm_upgraded(uv_path: str | None, target: str) -> bool:
+    """Check the installed version actually reached target.
+
+    Exit code 0 is not evidence of an upgrade. ``uv tool upgrade`` exits 0 when it
+    declines to do anything, so the old code logged a version bump that had not
+    happened, wrote the freshness timestamp, and suppressed the next check.
+
+    Args:
+        uv_path: Path to uv binary, or None for pip.
+        target: Version the upgrade was aiming at.
+
+    Returns:
+        True if the installed version is now at or past target.
+
+    """
+    installed = _installed_version(uv_path)
+    if installed is None:
+        logger.warning(
+            "Upgrade command succeeded but the installed version could not be "
+            "read, so the upgrade is unconfirmed"
+        )
+        return False
+    try:
+        moved = Version(installed) >= Version(target)
+    except InvalidVersion:
+        logger.warning(f"Installed version is not parseable: {installed}")
+        return False
+    if not moved:
+        logger.warning(
+            f"Upgrade did not take effect -- still on {installed}, wanted {target}. "
+            f"If this install is pinned, reinstall with: "
+            f"uv tool install --force {PACKAGE}@latest"
+        )
+    return moved
 
 
 def _timestamp_age() -> float:
@@ -241,7 +346,19 @@ def run_upgrade(
         logger.error(f"Upgrade failed (exit {rc})")
         return rc
 
-    logger.info(f"hyperi-ci upgraded: {current} -> {target}")
+    if not _confirm_upgraded(uv_path, target):
+        return 1
+
+    if version and uv_path:
+        # An explicit --version is a deliberate act, so honour it -- but say out
+        # loud what it costs, because uv records it as an exact pin and every
+        # later auto-update will decline without explaining why.
+        logger.warning(
+            f"Pinned to {target}. Auto-updates will not move off it. "
+            f"To go back to tracking latest: hyperi-ci upgrade"
+        )
+
+    logger.info(f"{PACKAGE} upgraded: {current} -> {target}")
     _re_exec()
     return 0  # unreachable after execvpe, keeps type checker happy
 
@@ -275,8 +392,14 @@ def maybe_auto_update() -> None:
             logger.warning(f"Auto-update failed (exit {rc})")
             return
 
+        if not _confirm_upgraded(uv_path, stable):
+            # Deliberately no timestamp. Writing one here is what let a stuck
+            # install go quiet for four hours at a time, so leave the check due
+            # and let the next invocation try again and warn again.
+            return
+
         _write_timestamp()
-        logger.info(f"hyperi-ci upgraded: {current} -> {stable}")
+        logger.info(f"{PACKAGE} upgraded: {current} -> {stable}")
         _re_exec()
 
     except Exception as exc:
