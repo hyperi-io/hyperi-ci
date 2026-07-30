@@ -58,8 +58,11 @@ semantics. The biggest user-visible changes:
 2. **Bump `hyperi-ci` to >= 2.0.0** in any local install:
 
    ```bash
-   uv tool upgrade hyperi-ci
+   uv tool install --force hyperi-ci@latest
    ```
+
+   Not `uv tool upgrade` -- it exits 0 without doing anything if the install was
+   ever pinned to an exact version.
 
 3. **Update reusable workflow ref** in your `.github/workflows/ci.yml`:
 
