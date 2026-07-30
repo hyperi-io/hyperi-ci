@@ -771,13 +771,18 @@ class TestRunUpgradeFreeze:
         ai_flag = channel.AI_CONFIG_DIR / "frozen"
         ai_flag.parent.mkdir(parents=True, exist_ok=True)
         ai_flag.touch()
-        with patch("hyperi_ci.upgrade._fetch_releases", return_value=SOAK_SAMPLE):
-            with patch(
-                "hyperi_ci.upgrade._run_upgrade_cmd", return_value=0
-            ) as mock_run:
-                with patch("hyperi_ci.upgrade._confirm_upgraded", return_value=True):
-                    with patch("hyperi_ci.upgrade._re_exec"):
-                        run_upgrade()
+        # Pinned for the same reason as TestRunUpgradeChannel._upgrade_cmd:
+        # a checkout now reports the latest release, so nothing would upgrade.
+        with patch("hyperi_ci.upgrade.__version__", "2.0.0"):
+            with patch("hyperi_ci.upgrade._fetch_releases", return_value=SOAK_SAMPLE):
+                with patch(
+                    "hyperi_ci.upgrade._run_upgrade_cmd", return_value=0
+                ) as mock_run:
+                    with patch(
+                        "hyperi_ci.upgrade._confirm_upgraded", return_value=True
+                    ):
+                        with patch("hyperi_ci.upgrade._re_exec"):
+                            run_upgrade()
         mock_run.assert_called_once()
 
 
@@ -785,13 +790,22 @@ class TestRunUpgradeChannel:
     """The channel decides what an unpinned `hyperi-ci upgrade` installs."""
 
     def _upgrade_cmd(self) -> list[str]:
-        with patch("hyperi_ci.upgrade._fetch_releases", return_value=SOAK_SAMPLE):
-            with patch(
-                "hyperi_ci.upgrade._run_upgrade_cmd", return_value=0
-            ) as mock_run:
-                with patch("hyperi_ci.upgrade._confirm_upgraded", return_value=True):
-                    with patch("hyperi_ci.upgrade.shutil.which", return_value="/uv"):
-                        run_upgrade()
+        # Pin the installed version rather than inheriting the checkout's:
+        # since issue #85 the build back-end resolves it from the git tag, so
+        # a checkout reports the latest release and there is nothing to
+        # upgrade to. The test is about which target the channel picks.
+        with patch("hyperi_ci.upgrade.__version__", "2.0.0"):
+            with patch("hyperi_ci.upgrade._fetch_releases", return_value=SOAK_SAMPLE):
+                with patch(
+                    "hyperi_ci.upgrade._run_upgrade_cmd", return_value=0
+                ) as mock_run:
+                    with patch(
+                        "hyperi_ci.upgrade._confirm_upgraded", return_value=True
+                    ):
+                        with patch(
+                            "hyperi_ci.upgrade.shutil.which", return_value="/uv"
+                        ):
+                            run_upgrade()
         return list(mock_run.call_args[0][0])
 
     def test_does_not_re_exec(self) -> None:
