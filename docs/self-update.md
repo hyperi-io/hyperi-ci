@@ -75,8 +75,7 @@ hyperi-ci's flag and says so when the sibling's is still set.
 
 ## The gates
 
-Auto-update runs only when every gate passes. `autoupdate status` reports the
-first one that does not, as `blocked_by`:
+Auto-update runs only when every gate passes, in this precedence:
 
 | Gate | Blocks when | Notes |
 |---|---|---|
@@ -88,6 +87,11 @@ first one that does not, as `blocked_by`:
 | `disabled` | `autoupdate disable` was run | `HYPERCI_AUTO_UPDATE=true` overrides it |
 | `recently-checked` | the last check was under 4 hours ago | |
 
+`autoupdate status` reports the first gate that blocks as `blocked_by`, from the
+`frozen` row down. It deliberately skips the top two: they describe the command
+you just typed rather than the machine's configuration, so reporting them would
+answer a question nobody asked.
+
 `HYPERCI_AUTO_UPDATE` still works and still wins over the stored flag, being the
 more immediate statement. `autoupdate disable` is the discoverable equivalent
 for a workstation.
@@ -98,9 +102,9 @@ for a workstation.
 the receipt pin it leaves and moves back to the channel target within 4 hours.
 To hold a version, hold auto-update: `hyperi-ci autoupdate freeze`.
 
-## Two failure modes worth knowing
+## Failure modes worth knowing
 
-Both were live, both are now covered by tests.
+All three were live, all three are now covered by tests.
 
 **A zero exit code is not evidence.** `uv tool upgrade` exits 0 when it declines
 to act, so the upgrade path confirms the version by re-reading it from the

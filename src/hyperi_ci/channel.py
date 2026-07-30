@@ -157,6 +157,12 @@ def _write_state(**updates: object) -> None:
     Read-modify-write rather than overwrite: channel and the enable flag live
     in the same file, so setting one must not drop the other.
 
+    The write goes to a temp file in the same directory and is renamed over the
+    target, so a reader never sees a half-written file. An unparseable file
+    reads as absent, which means the default -- and defaulting a machine from
+    ``stable`` back to ``live`` is the wrong direction to fail in, so the window
+    for a torn write is closed rather than tolerated.
+
     Args:
         **updates: Keys to set in the state mapping.
 
@@ -165,11 +171,13 @@ def _write_state(**updates: object) -> None:
     state = _read_state(path)
     state.update(updates)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    tmp = path.with_name(f"{path.name}.tmp")
+    tmp.write_text(
         json.dumps(state, indent=2) + "\n",
         encoding="utf-8",
         newline="\n",
     )
+    tmp.replace(path)
 
 
 def write_channel(value: str) -> None:

@@ -84,6 +84,25 @@ class TestWriteChannel:
         channel.write_channel("live")
         assert channel.channel_path().is_file()
 
+    def test_leaves_no_temp_file_behind(self) -> None:
+        """The write renames over the target rather than truncating it."""
+        channel.write_channel("stable")
+        assert sorted(p.name for p in channel.CONFIG_DIR.iterdir()) == ["channel.json"]
+
+    def test_a_half_written_file_cannot_be_read(self, monkeypatch) -> None:
+        """A crash mid-write must not turn a stable machine back into live."""
+        channel.write_channel("stable")
+        real_replace = Path.replace
+
+        def die_before_rename(self: Path, target: object) -> None:
+            raise OSError("crashed before the rename")
+
+        monkeypatch.setattr(Path, "replace", die_before_rename)
+        with pytest.raises(OSError):
+            channel.write_enabled(False)
+        monkeypatch.setattr(Path, "replace", real_replace)
+        assert channel.read_channel() == "stable"
+
 
 class TestEnabledFlag:
     """The enable flag shares one file with the channel."""

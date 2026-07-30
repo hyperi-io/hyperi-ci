@@ -518,16 +518,6 @@ def _fetch_releases() -> dict[str, list]:
     return releases if isinstance(releases, dict) else {}
 
 
-def _fetch_pypi_versions() -> tuple[str | None, str | None]:
-    """Fetch latest stable and pre-release versions from PyPI.
-
-    Returns:
-        Tuple of (latest_stable, latest_prerelease). Both None on error.
-
-    """
-    return _parse_latest_version(_fetch_releases())
-
-
 def _run_upgrade_cmd(cmd: list[str]) -> int:
     """Run the upgrade subprocess with graceful error handling.
 
@@ -762,8 +752,8 @@ def autoupdate_status() -> dict:
 
     ``running`` and ``installed`` differ when the command came from a source
     checkout, and again for one invocation after an upgrade -- the running
-    process still has the old ``__version__`` imported. The decisions use
-    ``running``.
+    process still has the old ``__version__`` imported. The decisions use the
+    newer of the two.
 
     Returns:
         Mapping of the channel state, the resolved target, and the gates.
@@ -774,11 +764,7 @@ def autoupdate_status() -> dict:
     age = _timestamp_age()
     releases = _fetch_releases()
     latest, _ = _parse_latest_version(releases)
-    resolved = (
-        _resolve_target(releases, channel_name=channel_name)
-        if releases
-        else UpgradeTarget(version=None, pin=False, note=None)
-    )
+    resolved = _resolve_target(releases, channel_name=channel_name)
     return {
         "running": __version__,
         "installed": _installed_version(shutil.which("uv")),

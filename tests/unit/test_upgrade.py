@@ -25,7 +25,7 @@ from hyperi_ci.upgrade import (
     _build_upgrade_cmd,
     _confirm_upgraded,
     _effective_current,
-    _fetch_pypi_versions,
+    _fetch_releases,
     _installed_version,
     _newest_with_age,
     _parse_installed_version,
@@ -395,34 +395,50 @@ class TestShouldAutoUpdate:
             assert _should_auto_update() is False
 
 
-class TestFetchPypiVersions:
-    """Fetch and parse versions from PyPI (with mocked network)."""
+class TestFetchReleases:
+    """Read the PyPI releases mapping (with mocked network)."""
+
+    RELEASES = {
+        "1.0.0": [{"filename": "x"}],
+        "1.1.0": [{"filename": "x"}],
+        "1.2.0rc1": [{"filename": "x"}],
+    }
+
+    def _urlopen(self, payload: bytes):
+        mock = patch("urllib.request.urlopen")
+        opened = mock.start()
+        opened.return_value.__enter__ = lambda s: s
+        opened.return_value.__exit__ = lambda s, *a: None
+        opened.return_value.read.return_value = payload
+        return mock
 
     def test_parses_response(self) -> None:
-        sample = json.dumps(
-            {
-                "releases": {
-                    "1.0.0": [{"filename": "x"}],
-                    "1.1.0": [{"filename": "x"}],
-                    "1.2.0rc1": [{"filename": "x"}],
-                }
-            }
-        ).encode()
+        mock = self._urlopen(json.dumps({"releases": self.RELEASES}).encode())
+        try:
+            releases = _fetch_releases()
+        finally:
+            mock.stop()
+        assert releases == self.RELEASES
+        assert _parse_latest_version(releases) == ("1.1.0", "1.2.0rc1")
 
-        with patch("urllib.request.urlopen") as mock_urlopen:
-            mock_urlopen.return_value.__enter__ = lambda s: s
-            mock_urlopen.return_value.__exit__ = lambda s, *a: None
-            mock_urlopen.return_value.read.return_value = sample
-            stable, pre = _fetch_pypi_versions()
-
-        assert stable == "1.1.0"
-        assert pre == "1.2.0rc1"
-
-    def test_returns_none_on_network_error(self) -> None:
+    def test_empty_on_network_error(self) -> None:
         with patch("urllib.request.urlopen", side_effect=OSError("timeout")):
-            stable, pre = _fetch_pypi_versions()
-        assert stable is None
-        assert pre is None
+            assert _fetch_releases() == {}
+
+    def test_empty_when_releases_is_not_a_mapping(self) -> None:
+        """A shape change upstream must not reach the resolvers as a list."""
+        mock = self._urlopen(json.dumps({"releases": ["1.0.0"]}).encode())
+        try:
+            assert _fetch_releases() == {}
+        finally:
+            mock.stop()
+
+    def test_empty_when_the_key_is_missing(self) -> None:
+        mock = self._urlopen(json.dumps({"info": {}}).encode())
+        try:
+            assert _fetch_releases() == {}
+        finally:
+            mock.stop()
 
 
 class TestReleaseUploadTime:
