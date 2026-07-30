@@ -78,6 +78,19 @@ def _build_upgrade_cmd(
     disabled every upgrade after it. ``@latest`` both moves the version and
     clears the pin, which is uv's own advice in that message.
 
+    ``--refresh`` is on both uv paths because ``@latest`` resolves against uv's
+    CACHED index, not PyPI. Observed on the 2.9.6 release: PyPI served 2.9.6 while
+    ``tool install --force ...@latest`` installed 2.9.5 from cache, and it took
+    ``--refresh`` to see it. Auto-update reads the real latest from the PyPI JSON
+    API, so without this it asks uv for a version uv does not yet believe in --
+    which now warns rather than lying, but should not happen at all. The pinned
+    path needs it for the same reason: a version released moments ago is not in
+    the cached index either.
+
+    pip has no index-only refresh -- ``--no-cache-dir`` would also throw away the
+    wheel cache -- so the pip path is left alone. If it serves stale metadata the
+    post-check catches it.
+
     Args:
         uv_path: Path to uv binary, or None to use pip.
         version: Specific version to install, or None for latest.
@@ -88,9 +101,10 @@ def _build_upgrade_cmd(
 
     """
     if uv_path:
+        cmd = [uv_path, "tool", "install", "--force", "--refresh"]
         if version:
-            return [uv_path, "tool", "install", "--force", f"{PACKAGE}=={version}"]
-        cmd = [uv_path, "tool", "install", "--force"]
+            cmd.append(f"{PACKAGE}=={version}")
+            return cmd
         if pre:
             cmd.append("--prerelease=allow")
         cmd.append(f"{PACKAGE}@latest")
@@ -195,7 +209,7 @@ def _confirm_upgraded(uv_path: str | None, target: str) -> bool:
         logger.warning(
             f"Upgrade did not take effect -- still on {installed}, wanted {target}. "
             f"If this install is pinned, reinstall with: "
-            f"uv tool install --force {PACKAGE}@latest"
+            f"uv tool install --force --refresh {PACKAGE}@latest"
         )
     return moved
 
