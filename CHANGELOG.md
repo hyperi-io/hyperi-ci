@@ -3,6 +3,8 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.9.12](https://github.com/hyperi-io/hyperi-ci/compare/v2.9.11...v2.9.12) (2026-07-30)
+
 ## [2.9.11](https://github.com/hyperi-io/hyperi-ci/compare/v2.9.10...v2.9.11) (2026-07-30)
 
 Nothing was written here between 2.3.10 and 2.9.11: `@semantic-release/git` was
