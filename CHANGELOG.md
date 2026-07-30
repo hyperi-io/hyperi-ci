@@ -2,6 +2,8 @@
 
 Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.9.11](https://github.com/hyperi-io/hyperi-ci/compare/v2.9.10...v2.9.11) (2026-07-30)
+
 This file is rendered by CI and committed back at the end of a release; do not
 edit it by hand. It stopped being written in May 2026, when
 `@semantic-release/git` was dropped for tagging its own bot commit (issue #37),
