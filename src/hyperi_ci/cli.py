@@ -17,6 +17,8 @@ Usage:
     hyperi-ci watch [RUN_ID]            Watch a GitHub Actions run to completion
     hyperi-ci logs [RUN_ID]             Fetch and filter GitHub Actions run logs
     hyperi-ci release <tag>             Trigger publish for a version tag
+    hyperi-ci upgrade                   Upgrade to the channel's release
+    hyperi-ci autoupdate                Show/set self-update channel + freeze
     hyperi-ci check-commit              Validate commit message format
     hyperi-ci stitch <topology-dir>     Stitch a DeploymentTopology into an umbrella Helm chart
     hyperi-ci --version                 Show version
@@ -1120,11 +1122,105 @@ def upgrade(
         typer.Option("--pre", help="Include pre-releases when resolving latest"),
     ] = False,
 ) -> None:
-    """Upgrade hyperi-ci to the latest version (or a specific version)."""
+    """Upgrade hyperi-ci to its channel's release (or a specific version).
+
+    Which release "latest" means is the channel's decision: `live` (the
+    default) takes the newest release on PyPI, `stable` takes the newest one
+    that has soaked for 7 days. See `hyperi-ci autoupdate`.
+    """
     from hyperi_ci.upgrade import run_upgrade
 
     rc = run_upgrade(version=target_version, pre=pre)
     raise typer.Exit(rc)
+
+
+@app.command()
+def autoupdate(
+    action: Annotated[
+        str,
+        typer.Argument(
+            # No square brackets: rich reads them as markup and eats the text.
+            help="status (default) | enable | disable | channel live|stable "
+            "| freeze | unfreeze",
+        ),
+    ] = "status",
+    value: Annotated[
+        str | None,
+        typer.Argument(help="Target channel, for `channel`"),
+    ] = None,
+) -> None:
+    """Show or change how hyperi-ci updates itself.
+
+    Same channels as hyperi-ai, so one mental model covers both:
+
+      live    the newest release on PyPI, adopted as soon as it exists (default)
+      stable  the newest release aged past the 7-day cooldown
+
+    hyperi-ci is a PyPI package, so neither channel follows unreleased commits
+    the way hyperi-ai's clone does. `freeze` is an orthogonal kill-switch: no
+    auto-update on any channel until `unfreeze`, and hyperi-ai's freeze counts
+    here too. `disable` stops auto-update while leaving the channel set;
+    `HYPERCI_AUTO_UPDATE=false` (what the CI images set) still works and wins.
+
+    State lives in ~/.config/hyperi-ci/channel.json. With none of its own,
+    hyperi-ci inherits hyperi-ai's channel choice -- `status` names the source.
+    """
+    from hyperi_ci import channel as _channel
+    from hyperi_ci.upgrade import autoupdate_status
+
+    if action == "status":
+        typer.echo(json.dumps(autoupdate_status(), indent=2))
+        return
+
+    if action == "channel":
+        if value is None:
+            name, source = _channel.resolve_channel()
+            typer.echo(f"hyperi-ci autoupdate: channel is '{name}' (from {source})")
+            return
+        try:
+            _channel.write_channel(value)
+        except ValueError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(1) from exc
+        # Echo what was persisted -- write_channel silently normalises
+        # hyperi-ai's retired "edge" and "nightly" aliases to "live".
+        typer.echo(f"hyperi-ci autoupdate: channel set to '{_channel.read_channel()}'")
+        return
+
+    if action in ("enable", "disable"):
+        _channel.write_enabled(action == "enable")
+        typer.echo(f"hyperi-ci autoupdate: {action}d")
+        if os.environ.get("HYPERCI_AUTO_UPDATE", "").lower() in ("true", "false"):
+            typer.echo(
+                "note: HYPERCI_AUTO_UPDATE is set in this environment and "
+                "overrides the stored flag"
+            )
+        return
+
+    if action == "freeze":
+        _channel.freeze()
+        typer.echo(
+            "hyperi-ci autoupdate: FROZEN (no updates on any channel). "
+            "Clear with `hyperi-ci autoupdate unfreeze`."
+        )
+        return
+
+    if action == "unfreeze":
+        _channel.unfreeze()
+        typer.echo("hyperi-ci autoupdate: unfrozen")
+        if _channel.is_frozen():
+            typer.echo(
+                "note: still frozen by hyperi-ai -- clear that with "
+                "`hyperi-ai autoupdate unfreeze`"
+            )
+        return
+
+    typer.echo(f"Unknown action: {action}", err=True)
+    typer.echo(
+        "Valid: status, enable, disable, channel [live|stable], freeze, unfreeze",
+        err=True,
+    )
+    raise typer.Exit(1)
 
 
 @app.command(name="init-contract")

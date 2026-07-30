@@ -218,6 +218,7 @@ hyperi-ci trigger | watch | logs   drive GitHub Actions from the terminal
 hyperi-ci install-toolchains | install-native-deps | install-deps   runner/CI dep install
 hyperi-ci init-contract | emit-artefacts | overlay-render | stitch | init-gitops | init-topology   deployment artefacts
 hyperi-ci upgrade                  self-upgrade the installed tool
+hyperi-ci autoupdate               channel (live|stable) / enable / freeze -- see self-update.md
 ```
 
 ### Dispatch
