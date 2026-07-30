@@ -1,0 +1,46 @@
+# Project:   HyperI CI
+# File:      config/dynamic-config-keys.yaml
+# Purpose:   Config keys read by a path no literal search can see
+#
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# `scripts/audit-config-keys.py` fails when a key declared in defaults.yaml is
+# read by nothing. It finds readers by searching for the quoted dotted path, so
+# a path assembled at runtime -- `f"quality.{language}.{tool}"` -- is invisible
+# to it and reads as dead. `quality.golang.test_ignore` is live and was nearly
+# deleted on exactly that evidence.
+#
+# Declaring the key here is the fix: a dynamic read must be written down, with
+# the file that performs it. The audit checks that file still exists, so an
+# entry cannot outlive its reader.
+#
+# Add an entry ONLY after reading the code and confirming the key is read. An
+# entry for a key nothing reads defeats the whole gate.
+
+keys:
+  # resolve_tool_mode() builds `quality.<language>.<tool>`.
+  quality.golang.gofmt: src/hyperi_ci/languages/quality_common.py
+  quality.golang.govet: src/hyperi_ci/languages/quality_common.py
+  quality.golang.golangci_lint: src/hyperi_ci/languages/quality_common.py
+  quality.golang.gosec: src/hyperi_ci/languages/quality_common.py
+  quality.golang.govulncheck: src/hyperi_ci/languages/quality_common.py
+
+  # get_test_ignore() builds `quality.<language>.test_ignore`.
+  quality.golang.test_ignore: src/hyperi_ci/languages/quality_common.py
+
+  # resolve_cross_tool_mode() builds `quality.<tool>` for the tools that run
+  # once at dispatch level rather than per language.
+  quality.hadolint: src/hyperi_ci/quality/hadolint.py
+  quality.droast: src/hyperi_ci/quality/droast.py
+  quality.kube_linter: src/hyperi_ci/quality/kube_linter.py
+
+  # Read off the raw config dict by chained .get(), not by dotted path.
+  quality.exclude_paths: src/hyperi_ci/common.py
+
+  # destination_for() builds `publish.<artefact>`.
+  publish.binaries: src/hyperi_ci/config.py
+
+  # Deliberate mirror of the Python constant, declared so an operator can see
+  # the supported schema version in `hyperi-ci config` output.
+  deployment.max_supported_schema_version: src/hyperi_ci/config.py

@@ -27,6 +27,7 @@ from pathlib import Path
 
 from hyperi_ci.common import error, explicit_version, info, run_cmd, success, warn
 from hyperi_ci.gh import get_current_branch, require_gh
+from hyperi_ci.version_source import seed_version
 
 PUBLISH_TRAILER_KEY = "Publish"
 PUBLISH_TRAILER_VALUE = "true"
@@ -198,9 +199,9 @@ def _publish_push(
         next_version = _compute_next_version(bump=bump, cwd=cwd)
         if next_version is None:
             error(
-                f"Cannot compute next {bump} version — no existing v* tags "
-                f"and no VERSION file. Initial release should set VERSION "
-                f"manually."
+                f"Cannot compute next {bump} version — the starting version "
+                f"is not plain X.Y.Z. Check the latest v* tag, or the version "
+                f"declared in pyproject.toml / Cargo.toml / package.json."
             )
             return 1
 
@@ -307,7 +308,7 @@ def tag_head(*, bump: str, dry_run: bool = False, cwd: str | None = None) -> int
 
     next_version = explicit or _compute_next_version(bump=bump, cwd=cwd)
     if not next_version:
-        error("tag-head: cannot compute next version (no tags, no VERSION).")
+        error("tag-head: cannot compute next version (starting version is not X.Y.Z).")
         return 1
     tag = f"v{next_version}"
 
@@ -389,17 +390,21 @@ def _compute_next_version(*, bump: str, cwd: str | None) -> str | None:
     """Compute the next semver string given a bump level.
 
     Reads the latest ``v*`` tag, increments the relevant component,
-    returns the bare version (no ``v`` prefix). Falls back to the
-    ``VERSION`` file when no tags exist (rare — initial release case).
+    returns the bare version (no ``v`` prefix). With no tags at all
+    (the initial-release case) it bumps from the version the project
+    declares in its own manifest, via :func:`version_source.seed_version`.
 
-    Note the deliberate asymmetry with the auto path (issue #37
-    follow-up): on a tag-less repo the predict-version composite ships
-    VERSION *verbatim* as the first release (the file declares the
-    starting version), while the forced ``--bump`` paths here bump FROM
-    it — a bump is a bump, even against a declared start.
+    Note the deliberate asymmetry with the auto path: on a tag-less repo
+    the predict-version composite ships the seed version *verbatim* as the
+    first release, while the forced ``--bump`` paths here bump FROM it —
+    a bump is a bump, even against a declared start.
 
-    Returns ``None`` when neither tags nor VERSION are available; the
-    caller should error out and ask the operator to set VERSION manually.
+    The ``VERSION`` file is deliberately not consulted (issue #85): it is
+    an artefact this tool writes, and the committed copy has been frozen
+    since May 2026 in every repo, so reading it here bumped from a value
+    dozens of releases stale.
+
+    Returns ``None`` only when the resolved starting version is unparseable.
     """
     # Latest v* tag, sorted by semver
     result = run_cmd(
@@ -412,14 +417,11 @@ def _compute_next_version(*, bump: str, cwd: str | None) -> str | None:
     if result.returncode == 0 and result.stdout.strip():
         latest = result.stdout.splitlines()[0].strip().lstrip("v")
 
-    # Fallback: VERSION file (initial-release case)
+    # Fallback: what the project declares about itself (initial-release case).
     if not latest:
         cwd_path = Path(cwd) if cwd else Path.cwd()
-        version_file = cwd_path / "VERSION"
-        if version_file.is_file():
-            latest = version_file.read_text().strip().lstrip("v")
-    if not latest:
-        return None
+        latest, source = seed_version(cwd_path)
+        info(f"No v* tags — bumping from {latest} ({source})")
 
     parts = latest.split(".")
     while len(parts) < 3:

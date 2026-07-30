@@ -60,7 +60,25 @@ def resolve_release_version() -> str | None:
         value = version_file.read_text().strip()
         if value:
             return value.removeprefix("v")
-    return None
+    return latest_version_tag()
+
+
+def latest_version_tag() -> str | None:
+    """Highest ``v*`` git tag as a bare version, or None outside a repo.
+
+    Last-resort fallback for a checkout with no ``VERSION`` file (issue #85 —
+    the file is an artefact, so a repo may legitimately not carry one). The
+    tag is the released version, so this is one behind mid-release; callers
+    that need the version being released read ``HYPERCI_VERSION``.
+    """
+    result = run_cmd(
+        ["git", "tag", "--list", "v[0-9]*", "--sort=-v:refname"],
+        capture=True,
+        check=False,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return result.stdout.splitlines()[0].strip().removeprefix("v")
 
 
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")

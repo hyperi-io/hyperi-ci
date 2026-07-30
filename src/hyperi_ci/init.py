@@ -31,6 +31,7 @@ import yaml
 from hyperi_ci import licenses
 from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.detect import detect_language
+from hyperi_ci.seed import seed_tag as _seed_tag
 
 _CI_REPO = "hyperi-io/hyperi-ci"
 _WORKFLOW_REF = "main"
@@ -166,22 +167,6 @@ def _detect_python_build_type(project_dir: Path) -> str:
     return "package"
 
 
-def _detect_rust_workspace(project_dir: Path) -> bool:
-    """Detect if a Rust project is a workspace.
-
-    Args:
-        project_dir: Project root directory.
-
-    Returns:
-        True if Cargo.toml contains [workspace].
-
-    """
-    cargo_toml = project_dir / "Cargo.toml"
-    if not cargo_toml.exists():
-        return False
-    return "[workspace]" in cargo_toml.read_text()
-
-
 def _render_hyperi_ci_yaml(
     language: str,
     project_name: str,
@@ -223,8 +208,6 @@ def _render_hyperi_ci_yaml(
             "features": "all",
             "targets": [],
         }
-        if _detect_rust_workspace(project_dir):
-            config["workspace"] = {"enabled": "auto"}
 
     elif language == "golang":
         config["test"]["coverage"] = True
@@ -571,6 +554,7 @@ def init_project(
     *,
     language: str | None = None,
     force: bool = False,
+    seed_tag: bool = True,
 ) -> int:
     """Initialise a consumer project for hyperi-ci.
 
@@ -582,6 +566,7 @@ def init_project(
         project_dir: Project root directory.
         language: Override detected language.
         force: Overwrite existing files.
+        seed_tag: Create the repo's first v* tag when it has none.
 
     Returns:
         Exit code (0 = success).
@@ -729,5 +714,12 @@ def init_project(
         warn("No files written (all already exist)")
     else:
         success(f"Initialised {files_written} file(s)")
+
+    if seed_tag:
+        # The version pipeline reads git tags and nothing else (issue #85).
+        # Adoption is the one moment a repo can have none, so give it the
+        # starting point here rather than at first release. No-op once any
+        # v* tag exists, and a bare directory just declines.
+        _seed_tag(project_dir=project_dir)
 
     return 0

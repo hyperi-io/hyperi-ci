@@ -377,17 +377,30 @@ class TestFirstReleaseAndOrphanGuards:
             "orphan-guard error must name the escape hatches"
         )
 
-    def test_predict_first_release_uses_version_file(self) -> None:
-        # Tag-less repo: a committed VERSION file declares the starting
-        # version verbatim; no VERSION keeps semantic-release's 1.0.0.
+    def test_predict_first_release_uses_the_declared_version(self) -> None:
+        # Tag-less repo: the starting version comes from the project's own
+        # manifest via seed_version.py, never from the committed VERSION file
+        # (issue #85 — that file is an artefact, frozen in every repo).
         run = str(self._predict_step()["run"])
-        # Polarity: only on a genuinely tag-less repo AND with a VERSION file.
-        assert '-z "$tags_all" && -f VERSION' in run, (
-            "VERSION override must fire only on a tag-less repo with VERSION"
+        # Polarity: only on a genuinely tag-less repo.
+        assert '-z "$tags_all"' in run, (
+            "seed override must fire only on a tag-less repo"
         )
-        assert r"^[0-9]+\.[0-9]+\.[0-9]+$" in run, (
-            "VERSION content must be validated as strict X.Y.Z before use"
+        assert "seed_version.py" in run, (
+            "starting version must come from the shared seed resolver"
         )
+        assert "-f VERSION" not in run, (
+            "predict must not read the VERSION file as an input (issue #85)"
+        )
+
+    def test_seed_resolver_ships_with_the_action(self) -> None:
+        # The composite loads it by path out of its own checkout; a rename
+        # would leave the step calling a file that is not there.
+        path = (
+            Path(__file__).resolve().parents[2]
+            / ".github/actions/predict-version/seed_version.py"
+        )
+        assert path.is_file(), f"{path} is referenced by action.yml but missing"
 
     def test_predict_early_collision_guard(self) -> None:
         # Plan-time twin of the _release-tail off-HEAD guard: a predicted
@@ -407,15 +420,15 @@ class TestFirstReleaseAndOrphanGuards:
         assert run.index("--merged HEAD") < emit, (
             "orphan guard must run before the version is emitted"
         )
-        assert run.index('-z "$tags_all" && -f VERSION') < emit, (
-            "VERSION override must apply before the version is emitted"
+        assert run.index("seed_version.py") < emit, (
+            "seed override must apply before the version is emitted"
         )
         assert run.index("refs/tags/v${version}^{commit}") < emit, (
             "collision guard must run before the version is emitted"
         )
         # The override rewrites $version, so the collision guard must
         # check the FINAL value: override strictly before collision guard.
-        assert run.index('-z "$tags_all" && -f VERSION') < run.index(
+        assert run.index("seed_version.py") < run.index(
             "refs/tags/v${version}^{commit}"
         ), "collision guard must check the post-override version"
 

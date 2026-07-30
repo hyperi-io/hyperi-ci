@@ -1,3 +1,18 @@
+# Changelog
+
+**Release notes live on the GitHub Releases page:**
+https://github.com/hyperi-io/hyperi-ci/releases
+
+This file is a generated artefact that stopped being generated in May 2026,
+when the `@semantic-release/git` plugin was dropped -- it tagged its own bot
+commit, and a later force-push orphaned that tag (issue #37). Nothing replaced
+it, so everything below covers 2.3.10 and earlier only.
+
+The git tag is the only truth about what was released, and the GitHub Release
+attached to each tag carries its notes. See issue #85.
+
+---
+
 ## [2.3.10](https://github.com/hyperi-io/hyperi-ci/compare/v2.3.9...v2.3.10) (2026-05-27)
 
 

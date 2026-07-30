@@ -469,8 +469,20 @@ def init(
             "--force", "-f", help="Overwrite existing files (init-specific semantic)"
         ),
     ] = False,
+    seed_tag: Annotated[
+        bool,
+        typer.Option(
+            "--seed-tag/--no-seed-tag",
+            help="Create the repo's first v* tag when it has none",
+        ),
+    ] = True,
 ) -> None:
     """Initialise a project for hyperi-ci (generates config, Makefile, workflow).
+
+    Also seeds the repo's first `v*` git tag when it has none, from the
+    version the project declares in its own manifest (`--no-seed-tag` to
+    skip). The version pipeline reads tags, so a tag-less repo has nothing
+    to release from.
 
     Note: `--force` here means "overwrite existing files" — different from
     `push --force` which means "skip pre-push checks". See module docstring
@@ -479,7 +491,7 @@ def init(
     from hyperi_ci.init import init_project
 
     dir_path = Path(project_dir) if project_dir else Path.cwd()
-    rc = init_project(dir_path, language=language, force=force)
+    rc = init_project(dir_path, language=language, force=force, seed_tag=seed_tag)
     raise typer.Exit(rc)
 
 
@@ -522,6 +534,56 @@ def stamp_version_cmd(
 
     dir_path = Path(project_dir) if project_dir else None
     raise typer.Exit(stamp_version(version, project_dir=dir_path))
+
+
+@app.command(name="seed-version")
+def seed_version_cmd(
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+    show_source: Annotated[
+        bool,
+        typer.Option("--source", help="Also print where the version came from"),
+    ] = False,
+) -> None:
+    """Print the version a tag-less repo should start from.
+
+    Read from the project's own manifest (pyproject.toml, Cargo.toml,
+    package.json); a project with nothing to declare starts at 0.1.0.
+    Prints the bare version to stdout so it can be captured — the
+    predict-version composite uses it to resolve a first release, instead
+    of trusting the committed VERSION file (issue #85).
+    """
+    from hyperi_ci.version_source import seed_version
+
+    dir_path = Path(project_dir) if project_dir else None
+    version, source = seed_version(dir_path)
+    typer.echo(f"{version}\t{source}" if show_source else version)
+
+
+@app.command(name="seed-tag")
+def seed_tag_cmd(
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Report what would be tagged, create nothing"),
+    ] = False,
+) -> None:
+    """Create the repo's first v* tag from its declared version.
+
+    Run once, at adoption: the version pipeline reads git tags, and a repo
+    with none has nothing to start from. Refuses (successfully) when a v*
+    tag already exists — the repo already has its truth. The tag is a
+    starting marker, not a release; the first publish bumps from it.
+    """
+    from hyperi_ci.seed import seed_tag
+
+    dir_path = Path(project_dir) if project_dir else None
+    raise typer.Exit(seed_tag(project_dir=dir_path, dry_run=dry_run))
 
 
 @app.command()

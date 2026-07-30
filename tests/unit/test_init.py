@@ -13,7 +13,6 @@ import yaml
 
 from hyperi_ci.init import (
     _detect_python_build_type,
-    _detect_rust_workspace,
     _has_releaserc,
     _makefile_has_ci_targets,
     _render_contributing,
@@ -200,21 +199,6 @@ class TestDetectPythonBuildType:
         assert _detect_python_build_type(tmp_path) == "package"
 
 
-class TestDetectRustWorkspace:
-    """Rust workspace detection from Cargo.toml."""
-
-    def test_workspace_detected(self, tmp_path: Path) -> None:
-        (tmp_path / "Cargo.toml").write_text("[workspace]\nmembers = ['crate-a']\n")
-        assert _detect_rust_workspace(tmp_path) is True
-
-    def test_single_crate(self, tmp_path: Path) -> None:
-        (tmp_path / "Cargo.toml").write_text("[package]\nname = 'myapp'\n")
-        assert _detect_rust_workspace(tmp_path) is False
-
-    def test_no_cargo_toml(self, tmp_path: Path) -> None:
-        assert _detect_rust_workspace(tmp_path) is False
-
-
 class TestMakefileHasCiTargets:
     """Makefile CI target detection."""
 
@@ -255,10 +239,15 @@ class TestLanguageSpecificConfig:
         content = _render_hyperi_ci_yaml("python", "test", tmp_path)
         assert "type: app" in content
 
-    def test_rust_workspace_config(self, tmp_path: Path) -> None:
+    def test_rust_workspace_scaffolds_no_workspace_block(self, tmp_path: Path) -> None:
+        """Workspaces are detected from Cargo.toml, never declared in config.
+
+        `workspace.enabled` / `workspace.members` were scaffolded for years and
+        read by nothing; Rust workspace handling parses `[workspace]` directly.
+        """
         (tmp_path / "Cargo.toml").write_text("[workspace]\nmembers = []\n")
         content = _render_hyperi_ci_yaml("rust", "test", tmp_path)
-        assert "workspace:" in content
+        assert "workspace:" not in content
 
     def test_golang_targets_land_where_the_handler_reads_them(
         self, tmp_path: Path

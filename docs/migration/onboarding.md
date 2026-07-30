@@ -156,20 +156,21 @@ projects should follow v2 directly.
 - Keep `workflow_dispatch:` (add it if missing)
 - The reusable workflow handles the new dispatch-triggered publish internally
 
-#### 3. Fix VERSION File
+#### 3. Check the Repo Has a Version Tag
 
-Check the latest GA tag (not `-dev.N`):
+The version pipeline reads git tags and nothing else -- see
+[versioning.md](../versioning.md). Don't edit `VERSION`: hyperi-ci writes it
+at build time, and a hand-set value is ignored.
+
+A repo with no `v*` tag at all gets one from `hyperi-ci init`, derived from the
+version its manifest already declares (`0.1.0` if it declares none). Seed it by
+hand if you skipped that:
 
 ```bash
-gh api repos/hyperi-io/<REPO>/tags --jq '.[0:5] | .[].name'
+hyperi-ci seed-tag --dry-run   # what it would create, and from where
+hyperi-ci seed-tag
+git push origin v<VERSION>
 ```
-
-Update `VERSION` to match the latest GA version. Also update the language
-manifest if applicable:
-
-- Rust: `Cargo.toml` version field
-- Python: `pyproject.toml` version field
-- TypeScript: `package.json` version field
 
 #### 4. Migrate the Tag
 

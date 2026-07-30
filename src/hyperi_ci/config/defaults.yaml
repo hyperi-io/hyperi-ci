@@ -291,10 +291,9 @@ publish:
     chart_path: ""
     registry_url: "oci://ghcr.io/hyperi-io/charts"
 
-# Workspace Settings
-workspace:
-  enabled: auto
-  members: {}
+# No `workspace:` block: Rust workspaces are detected by parsing Cargo.toml
+# (`[workspace]` / `[workspace.package]`), never declared in config. Nothing
+# read `workspace.enabled` or `workspace.members`.
 
 # No `standards:` block: commit-message validation is unconditional
 # (quality/commit_validation.py + the commit-msg hook), and branch naming is

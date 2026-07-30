@@ -152,17 +152,18 @@ runs:
           exit 1
         fi
 
-        # First release on a genuinely tag-less repo (issue #37 follow-up):
-        # semantic-release defaults to 1.0.0 ('There is no previous
-        # release'). A committed VERSION file declares the starting version
-        # and is shipped VERBATIM — the tag-on-publish twin of 'VERSION is
-        # the source of truth'. No VERSION file keeps the 1.0.0 default.
-        # (The forced --bump paths bump FROM VERSION instead — a bump is a
-        # bump; see push._compute_next_version.)
-        if [[ -z "$tags_all" && -f VERSION ]]; then
-          start=$(head -1 VERSION | tr -d '[:space:]' | sed 's/^v//')
-          if printf '%s' "$start" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' && [[ "$start" != "$version" ]]; then
-            echo "::notice::First release on a tag-less repo — VERSION declares starting version $start (semantic-release default was $version)"
+        # First release on a genuinely tag-less repo: semantic-release
+        # defaults to 1.0.0 ('There is no previous release'). The starting
+        # version comes from the project's own manifest instead, shipped
+        # verbatim as the first release. The forced --bump paths bump from
+        # the same value; see push._compute_next_version.
+        #
+        # Not the committed VERSION file (issue #85) — that is an artefact
+        # this tool writes, not an input.
+        if [[ -z "$tags_all" ]]; then
+          start=$(python3 "$GITHUB_ACTION_PATH/seed_version.py")
+          if [[ -n "$start" && "$start" != "$version" ]]; then
+            echo "::notice::First release on a tag-less repo — starting at $start (semantic-release default was $version)"
             version="$start"
           fi
         fi
@@ -206,11 +207,11 @@ runs:
         fi
 
         latest=$(git tag --list 'v*' --sort=-v:refname | head -1 | sed 's/^v//')
-        if [[ -z "$latest" ]] && [[ -f VERSION ]]; then
-          latest=$(sed 's/^v//' VERSION | head -1)
+        if [[ -z "$latest" ]]; then
+          latest=$(python3 "$GITHUB_ACTION_PATH/seed_version.py")
         fi
         if [[ -z "$latest" ]]; then
-          echo "::error::No v* tag and no VERSION file — cannot compute forced bump."
+          echo "::error::No v* tag and no declared version — cannot compute forced bump."
           exit 1
         fi
         IFS='.' read -r maj min pat <<< "$latest"

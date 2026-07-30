@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from hyperi_ci.push import (
@@ -417,19 +418,34 @@ class TestComputeNextVersion:
 
             assert _compute_next_version(bump="minor", cwd=None) == "1.6.0"
 
-    def test_no_tags_no_version_returns_none(self) -> None:
+    def test_no_tags_bumps_from_the_declared_version(self, tmp_path: Path) -> None:
+        """A tag-less repo bumps from what its manifest declares (issue #85)."""
+        (tmp_path / "Cargo.toml").write_text(
+            '[package]\nname = "thing"\nversion = "1.4.2"\n', encoding="utf-8"
+        )
         result = MagicMock(stdout="", returncode=0)
         with patch("hyperi_ci.push.run_cmd", return_value=result):
             from hyperi_ci.push import _compute_next_version
 
-            # No VERSION file in cwd either (we're in a tmp-less test)
-            with patch("hyperi_ci.push.Path") as mock_path:
-                mock_version = MagicMock()
-                mock_version.is_file.return_value = False
-                mock_path.return_value.__truediv__.return_value = mock_version
-                mock_path.cwd.return_value.__truediv__.return_value = mock_version
-                result_v = _compute_next_version(bump="patch", cwd=None)
-                assert result_v is None
+            assert _compute_next_version(bump="patch", cwd=str(tmp_path)) == "1.4.3"
+
+    def test_no_tags_no_manifest_bumps_from_the_seed_default(
+        self, tmp_path: Path
+    ) -> None:
+        result = MagicMock(stdout="", returncode=0)
+        with patch("hyperi_ci.push.run_cmd", return_value=result):
+            from hyperi_ci.push import _compute_next_version
+
+            assert _compute_next_version(bump="minor", cwd=str(tmp_path)) == "0.2.0"
+
+    def test_a_stale_version_file_is_not_consulted(self, tmp_path: Path) -> None:
+        """VERSION is an artefact this tool writes, never an input (issue #85)."""
+        (tmp_path / "VERSION").write_text("2.3.10\n", encoding="utf-8")
+        result = MagicMock(stdout="", returncode=0)
+        with patch("hyperi_ci.push.run_cmd", return_value=result):
+            from hyperi_ci.push import _compute_next_version
+
+            assert _compute_next_version(bump="patch", cwd=str(tmp_path)) == "0.1.1"
 
     def test_unsupported_bump_returns_none(self) -> None:
         result = MagicMock(stdout="v1.5.4\n", returncode=0)

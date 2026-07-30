@@ -73,6 +73,8 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
   two-level workflow model, the job contract, what's shared vs duplicated, why
 - [flow.md](flow.md) - push/dispatch -> gate -> version -> build -> tag -> publish,
   one semantic-release computation driving every stage
+- [versioning.md](versioning.md) - the git tag is the only truth; VERSION and
+  CHANGELOG are outputs; how a tag-less repo gets its first version
 - [migration/ONBOARDING.md](migration/onboarding.md) - put a repo on hyperi-ci
 - [self-update.md](self-update.md) - how the CLI keeps itself current: the
   `live` / `stable` channels, freeze, and the gates that hold an update back
