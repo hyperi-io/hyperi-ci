@@ -1239,6 +1239,10 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         Exit code (0 = success).
 
     """
+    if not shutil.which("cargo"):
+        error("cargo not installed")
+        return 1
+
     extra = extra_env or {}
     info("Building Rust project...")
 

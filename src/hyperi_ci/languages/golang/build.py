@@ -15,6 +15,7 @@ Version is in the R2/release path, not the filename.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -147,6 +148,10 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         Exit code (0 = success).
 
     """
+    if not shutil.which("go"):
+        error("go not installed")
+        return 1
+
     extra = extra_env or {}
     info("Building Golang project...")
 
