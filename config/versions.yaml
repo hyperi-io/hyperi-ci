@@ -17,7 +17,7 @@
 #   --check         current vs SSOT (dry run, default)
 #   --apply         rewrite workflows + composites to match this file
 #   --fix           --apply + non-zero exit on change (pre-commit hook)
-#   --latest        report newest release >= 7 days old per action
+#   --stable        report newest release >= 7 days old per action
 #   --auto-update   bump to those, validate LOCALLY, revert on failure. It
 #                   does not commit and does not trigger remote CI - the
 #                   ci-test-* fleet validates on the PR.
@@ -164,7 +164,7 @@ tools:
 
 # Upstream capabilities we WANT but that are not ready yet.
 #
-# `--latest` prints these on every run, so the decision resurfaces at each
+# `--stable` prints these on every run, so the decision resurfaces at each
 # dependency update instead of living in someone's memory. Each entry names the
 # gate that would let it land - something checkable, not a vibe.
 watch:

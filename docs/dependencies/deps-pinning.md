@@ -80,7 +80,7 @@ flowchart TD
     subgraph SCRIPT["ENFORCEMENT — hyperi-ci Actions, at commit time"]
       V["config/versions.yaml<br/>version + sha"] --> H["pre-commit hook<br/>update-versions.py --fix"]
       H --> W["workflows + composites<br/>pinned @sha # version"]
-      L["--latest / --auto-update"] -->|newest release 7+ days old| V
+      L["--stable / --auto-update"] -->|newest release 7+ days old| V
     end
     subgraph REN["REMEDIATION — the forge, after the fact"]
       D["detect updates"] --> DD{"cooldown ≥7d<br/>+ timestamp"}
@@ -205,8 +205,13 @@ the full pipeline, not just top-level workflows.
 | `--check` (default) | show drift between `versions.yaml` and the pinned refs |
 | `--apply` | rewrite workflows + composites to match the SSOT |
 | `--fix` | `--apply` + non-zero exit when it changed something (pre-commit) |
-| `--latest` | report the newest release of each Action that's >=7 days old |
+| `--stable` | report the newest release of each Action that's >=7 days old |
 | `--auto-update` | bump `versions.yaml` to those, test on the `ci-test-*` projects, commit or revert |
+
+`--stable` is the SOAKED release, not the newest one - the same sense as the
+`stable` channel in [self-update.md](../self-update.md). It was spelled
+`--latest`, which read backwards: `@latest` in an installer means the edge, the
+opposite of what this resolves. `--latest` still works as a silent alias.
 
 `config/versions.yaml` is the SSOT. Two maps matter here:
 
@@ -217,7 +222,7 @@ the full pipeline, not just top-level workflows.
 reverts both to match the SSOT. To change a pin, edit `versions.yaml` and let
 `--fix` rewrite it.
 
-The "latest version that's >=7 days old, pin *that* version's SHA now" rule means
+The "newest version that's >=7 days old, pin *that* version's SHA now" rule means
 we always adopt a release only after its cooldown, and we pin the immutable SHA
 at adoption time rather than tracking a movable tag. Tools follow the same
 cooldown, but pin by tag (see the exemption above).
