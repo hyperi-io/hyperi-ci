@@ -16,8 +16,13 @@ Usage:
     uv run scripts/update-versions.py                # default: --check
     uv run scripts/update-versions.py --check        # show drift (dry run)
     uv run scripts/update-versions.py --apply        # rewrite pipeline to SSOT
-    uv run scripts/update-versions.py --latest       # report newest release >=7d old
+    uv run scripts/update-versions.py --stable       # report newest release >=7d old
     uv run scripts/update-versions.py --auto-update  # bump SSOT, test via CI, commit/revert
+
+`--stable` reports the SOAKED release, matching the `stable` channel in
+`hyperi-ci autoupdate`. It was spelled `--latest`, which read backwards: in the
+installer `@latest` means the edge, the opposite of what this resolves.
+`--latest` still works as a silent alias.
 
 Update behaviour:
   - Actions resolve to the newest release that has aged past the 7-day
@@ -575,13 +580,17 @@ def _fix(versions: dict) -> int:
     return 1
 
 
-def _latest(versions: dict) -> int:
-    """Check for newer versions available upstream via GitHub API."""
+def _stable(versions: dict) -> int:
+    """Report the newest soaked release of each pinned Action and tool.
+
+    Soaked, not newest: a release inside the cooldown is reported as held, so
+    this answers "what may we pin to now", which is what --auto-update applies.
+    """
     actions = versions.get("actions", {})
     updates_available = 0
     lookup_failures = 0
 
-    print(f"Checking latest versions (>= {_COOLDOWN_DAYS}-day cooldown)...\n")
+    print(f"Checking stable versions (>= {_COOLDOWN_DAYS}-day cooldown)...\n")
     now = datetime.now(UTC)
 
     for short_name, current in actions.items():
@@ -795,7 +804,7 @@ def _tool_releases(spec: dict, releases: list[dict[str, Any]]) -> list[dict[str,
 def _report_watchlist(versions: dict) -> None:
     """Print `watch:` - upstream capabilities we want but that are not ready.
 
-    Surfaced on every --latest run ON PURPOSE. A "revisit this when upstream
+    Surfaced on every --stable run ON PURPOSE. A "revisit this when upstream
     stabilises" decision that lives only in a code comment is a decision nobody
     revisits; printing it at the moment someone is already updating deps is the
     cheapest place to make it resurface.
@@ -825,7 +834,7 @@ def _latest_tool_release(spec: dict, now: datetime) -> tuple[str | None, str]:
     the compatibility clamp), or `lookup-failed`.
 
     The status is NOT decoration. Collapsing all of these into a bare None made
-    --latest render an API failure as "(up to date)" - so a rate-limited `gh`
+    the report render an API failure as "(up to date)" - so a rate-limited `gh`
     reported every tool green, which is the same silent-skip shape as a pin that
     nobody enforces.
     """
@@ -1034,9 +1043,16 @@ def main() -> int:
         help="Update workflow files to match SSOT",
     )
     group.add_argument(
-        "--latest",
+        "--stable",
         action="store_true",
-        help="Check for newer versions upstream",
+        help="Report the newest release of each pin that has soaked past the cooldown",
+    )
+    # Kept working, kept out of --help: the old name for --stable.
+    group.add_argument(
+        "--latest",
+        dest="stable",
+        action="store_true",
+        help=argparse.SUPPRESS,
     )
     group.add_argument(
         "--auto-update",
@@ -1054,8 +1070,8 @@ def main() -> int:
 
     if args.auto_update:
         return _auto_update(versions)
-    if args.latest:
-        return _latest(versions)
+    if args.stable:
+        return _stable(versions)
     if args.fix:
         return _fix(versions)
     if args.apply:

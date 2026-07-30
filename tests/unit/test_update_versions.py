@@ -507,7 +507,7 @@ class TestToolReleases:
 class TestLatestToolRelease:
     """(tag, status) - the status is load-bearing, not decoration.
 
-    Collapsing these into a bare None made --latest render an API failure as
+    Collapsing these into a bare None made --stable render an API failure as
     "(up to date)": a rate-limited `gh` reported every tool green.
     """
 
@@ -768,3 +768,26 @@ class TestRewriteReturnCodes:
         pin.write_text(_DRIFTED_BODY, encoding="utf-8")
         assert update_versions._fix(_pin_versions()) == 1
         assert pin.read_text(encoding="utf-8") == _PIN_BODY
+
+
+class TestStableFlagAndItsAlias:
+    """`--stable` is the name; `--latest` keeps working, unadvertised."""
+
+    def _dispatch(self, monkeypatch, argv: list[str], verb: str) -> list[str]:
+        called: list[str] = []
+        monkeypatch.setattr(update_versions, "_load_versions", lambda: {})
+        monkeypatch.setattr(
+            update_versions, verb, lambda _versions: called.append(verb) or 0
+        )
+        monkeypatch.setattr("sys.argv", ["update-versions.py", *argv])
+        assert update_versions.main() == 0
+        return called
+
+    def test_stable_dispatches_the_report(self, monkeypatch) -> None:
+        assert self._dispatch(monkeypatch, ["--stable"], "_stable") == ["_stable"]
+
+    def test_latest_still_dispatches_the_same_report(self, monkeypatch) -> None:
+        assert self._dispatch(monkeypatch, ["--latest"], "_stable") == ["_stable"]
+
+    def test_no_flag_still_defaults_to_check(self, monkeypatch) -> None:
+        assert self._dispatch(monkeypatch, [], "_check") == ["_check"]
