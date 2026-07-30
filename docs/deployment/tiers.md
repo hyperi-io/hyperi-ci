@@ -219,9 +219,9 @@ into an invalid state.
 
 **"contract declares schema_version=N but this hyperi-ci supports up to M"**
 Your contract was emitted by a newer producer than this hyperi-ci.
-Run `hyperi-ci upgrade` (or `uv tool install --force hyperi-ci@latest`) and
-retry. Prefer either of those over `uv tool upgrade`, which silently declines on
-an install pinned to an exact version.
+Run `hyperi-ci upgrade` (or `uv tool install --force --refresh hyperi-ci@latest`)
+and retry. Prefer either of those over `uv tool upgrade`, which silently declines
+on an install pinned to an exact version.
 
 **"Generate (Tier 3): emit-artefacts: artefact templater is not yet implemented"**
 Expected until Phase 2 ships.

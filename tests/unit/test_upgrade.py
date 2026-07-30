@@ -79,6 +79,7 @@ class TestBuildUpgradeCmd:
             "tool",
             "install",
             "--force",
+            "--refresh",
             "hyperi-ci@latest",
         ]
         assert "upgrade" not in cmd
@@ -90,6 +91,7 @@ class TestBuildUpgradeCmd:
             "tool",
             "install",
             "--force",
+            "--refresh",
             "hyperi-ci==1.2.0",
         ]
 
@@ -100,9 +102,19 @@ class TestBuildUpgradeCmd:
             "tool",
             "install",
             "--force",
+            "--refresh",
             "--prerelease=allow",
             "hyperi-ci@latest",
         ]
+
+    def test_every_uv_path_refreshes_the_index(self) -> None:
+        """@latest resolves against uv's cached index, so it can miss a release."""
+        for version in (None, "1.2.0"):
+            for pre in (False, True):
+                cmd = _build_upgrade_cmd(
+                    uv_path="/usr/bin/uv", version=version, pre=pre
+                )
+                assert "--refresh" in cmd, f"missing for version={version} pre={pre}"
 
     def test_pip_latest(self) -> None:
         cmd = _build_upgrade_cmd(uv_path=None, version=None, pre=False)
