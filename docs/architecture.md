@@ -191,6 +191,15 @@ the same way everywhere - `HYPERCI_VERSION` env -> `VERSION` file
 (`common.resolve_release_version`) - so build, container and publish never
 disagree. See [flow.md](flow.md) section 3.
 
+`VERSION` is a stamp TARGET, not a version the project maintains. The value is
+derived from the git tags (semantic-release, in `predict-version`), written on the
+runner before packaging, and never committed back -- the other half of
+tag-on-publish: the released version IS the git tag. So the committed value is
+whatever it was last stamped to by hand, in every repo on hyperi-ci, and it goes
+stale immediately. It bites only where someone runs a package from its own
+checkout, which is why `hyperi-ci --version` names the checkout path when the
+install is editable.
+
 ## Same-org refs stay `@main` - made safe by a gate
 
 Third-party actions are SHA-pinned (`/deps` script + `config/versions.yaml`,

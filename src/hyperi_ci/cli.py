@@ -45,6 +45,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from importlib.metadata import distribution
 from pathlib import Path
 from typing import Annotated
 
@@ -62,9 +63,41 @@ app = typer.Typer(
 )
 
 
+def _source_checkout() -> str | None:
+    """Return the checkout path when this is an editable install, else None.
+
+    PEP 610 records the origin of a non-index install in ``direct_url.json``,
+    with ``dir_info.editable`` set for an editable one. Reported because a
+    checkout's ``hyperi-ci`` shim precedes the installed tool on PATH inside the
+    project, and a version with no provenance gets read as the released one.
+
+    Returns:
+        Filesystem path of the checkout, or None for an ordinary install.
+
+    """
+    try:
+        raw = distribution("hyperi-ci").read_text("direct_url.json")
+    except Exception:
+        return None
+    if not raw:
+        return None
+    try:
+        origin = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(origin, dict) or not origin.get("dir_info", {}).get("editable"):
+        return None
+    url = origin.get("url")
+    if not isinstance(url, str):
+        return None
+    return url.removeprefix("file://") or None
+
+
 def _version_callback(value: bool) -> None:
     if value:
-        typer.echo(f"hyperi-ci {__version__}")
+        checkout = _source_checkout()
+        suffix = f" (editable checkout: {checkout})" if checkout else ""
+        typer.echo(f"hyperi-ci {__version__}{suffix}")
         raise typer.Exit()
 
 

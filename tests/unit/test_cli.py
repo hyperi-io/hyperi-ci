@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from unittest.mock import patch
 
 # Disable auto-update in subprocess-based CLI tests to prevent real PyPI queries
 _TEST_ENV = {**os.environ, "HYPERCI_AUTO_UPDATE": "false"}
@@ -27,6 +28,57 @@ class TestCLI:
         )
         assert result.returncode == 0
         assert "hyperi-ci" in result.stdout
+
+
+class TestSourceCheckoutProvenance:
+    """`--version` says when the number came from a checkout, not a release.
+
+    A project's `.venv/bin` shim precedes the installed tool on PATH, and the
+    committed VERSION is stale in every hyperi-ci repo, so a bare number is
+    routinely read as the released one.
+    """
+
+    def _distribution(self, payload: str | None):
+        class _Dist:
+            def read_text(self, _name: str) -> str | None:
+                return payload
+
+        return lambda _name: _Dist()
+
+    def test_editable_install_reports_its_path(self) -> None:
+        from hyperi_ci import cli
+
+        raw = '{"url":"file:///repo","dir_info":{"editable":true}}'
+        with patch.object(cli, "distribution", self._distribution(raw)):
+            assert cli._source_checkout() == "/repo"
+
+    def test_non_editable_direct_install_is_not_flagged(self) -> None:
+        from hyperi_ci import cli
+
+        raw = '{"url":"file:///repo","dir_info":{}}'
+        with patch.object(cli, "distribution", self._distribution(raw)):
+            assert cli._source_checkout() is None
+
+    def test_index_install_has_no_direct_url(self) -> None:
+        from hyperi_ci import cli
+
+        with patch.object(cli, "distribution", self._distribution(None)):
+            assert cli._source_checkout() is None
+
+    def test_malformed_metadata_is_not_fatal(self) -> None:
+        from hyperi_ci import cli
+
+        with patch.object(cli, "distribution", self._distribution("{not json")):
+            assert cli._source_checkout() is None
+
+    def test_a_missing_distribution_is_not_fatal(self) -> None:
+        from hyperi_ci import cli
+
+        def boom(_name: str):
+            raise ValueError("no such distribution")
+
+        with patch.object(cli, "distribution", boom):
+            assert cli._source_checkout() is None
 
     def test_detect_in_empty_dir(self, tmp_path) -> None:
         result = subprocess.run(
