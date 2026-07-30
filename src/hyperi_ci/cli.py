@@ -536,6 +536,108 @@ def stamp_version_cmd(
     raise typer.Exit(stamp_version(version, project_dir=dir_path))
 
 
+@app.command(name="release-notify")
+def release_notify_cmd(
+    version: Annotated[
+        str,
+        typer.Argument(help="Version released (with or without leading v)"),
+    ],
+    outcome: Annotated[
+        str,
+        typer.Option("--outcome", help="success or failure"),
+    ] = "success",
+    run_url: Annotated[
+        str,
+        typer.Option("--run-url", help="Link to the run, for a failure issue"),
+    ] = "",
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+) -> None:
+    """Announce a release, or record that one failed.
+
+    `--outcome success` comments on every issue and PR carried by the release;
+    `--outcome failure` opens a tracker issue so a release that dies overnight
+    is waiting in the morning. Both are idempotent, and both always exit 0 — a
+    notification must never be the thing that fails a release.
+
+    Slack is off unless `notify.slack.webhook_env` names an env var holding a
+    webhook URL.
+    """
+    from hyperi_ci.release_notify import notify_failure, notify_slack, notify_success
+
+    dir_path = Path(project_dir) if project_dir else None
+    cfg = load_config(reload=True, project_dir=dir_path)
+
+    if outcome == "failure":
+        rc = notify_failure(version=version, run_url=run_url)
+        notify_slack(cfg, text=f"Release of v{version.removeprefix('v')} FAILED")
+    else:
+        rc = notify_success(version=version, cwd=str(dir_path) if dir_path else None)
+        notify_slack(cfg, text=f"Released v{version.removeprefix('v')}")
+    raise typer.Exit(rc)
+
+
+@app.command()
+def preflight(
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+) -> None:
+    """Verify publish credentials before anything is built.
+
+    semantic-release's `verifyConditions` equivalent. Checks only the
+    destinations this project actually publishes to, and only blocks on the
+    ones whose handler hard-fails without a token — a missing
+    CARGO_REGISTRY_TOKEN otherwise surfaces after a 40-minute Rust build.
+    Outside CI it is a no-op.
+    """
+    from hyperi_ci.preflight import run_preflight
+
+    dir_path = Path(project_dir) if project_dir else None
+    cfg = load_config(reload=True, project_dir=dir_path)
+    raise typer.Exit(run_preflight(cfg, project_dir=dir_path))
+
+
+@app.command(name="release-commit")
+def release_commit_cmd(
+    version: Annotated[
+        str,
+        typer.Argument(help="Version just released (with or without leading v)"),
+    ],
+    branch: Annotated[
+        str,
+        typer.Option("--branch", help="Branch to update"),
+    ] = "main",
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Report what would be committed"),
+    ] = False,
+) -> None:
+    """Commit the rendered VERSION + CHANGELOG.md back to the branch.
+
+    Runs after the tag exists, and only ever adds an UNTAGGED commit — the
+    property whose absence made `@semantic-release/git` orphan tags (issue
+    #37). Uses the GitHub Git Data API, so it works from a checkout with
+    `persist-credentials: false`. Idempotent: a branch already matching the
+    rendered artefacts is left alone.
+    """
+    from hyperi_ci.release_commit import commit_release_artefacts
+
+    dir_path = Path(project_dir) if project_dir else None
+    raise typer.Exit(
+        commit_release_artefacts(
+            version=version, branch=branch, project_dir=dir_path, dry_run=dry_run
+        )
+    )
+
+
 @app.command(name="seed-version")
 def seed_version_cmd(
     project_dir: Annotated[

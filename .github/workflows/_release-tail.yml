@@ -342,6 +342,7 @@ jobs:
       - name: Publish
         # Uploads to all OSS destinations: crates.io / PyPI / npm /
         # GHCR / GitHub Releases / Cloudflare R2.
+        id: publish
         env:
           # Version being released — same SSoT as Build (stamp) + Container
           # (#27). A forced from-head bump resolves its version from tag-head
@@ -355,3 +356,47 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: ${{ env.HYPERCI_INSTALL }} run publish
+
+      - name: Commit rendered release artefacts
+        # VERSION (stamped by the build) and CHANGELOG.md (rendered by
+        # @semantic-release/changelog) have had no owner since
+        # @semantic-release/git was dropped (issue #85).
+        #
+        # Runs after the tag exists and adds an untagged commit via the Git
+        # Data API, so no tag points at machine-authored history — the
+        # property whose absence caused the #37 orphaning.
+        #
+        # Non-fatal: once the registry has the release, a failure here must
+        # not turn a shipped release red.
+        if: steps.publish.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          ${{ env.HYPERCI_INSTALL }} release-commit
+          "${{ steps.forcedtag.outputs.version || inputs.next-version }}"
+
+      - name: Announce the release
+        # semantic-release's `success` step: comment on every issue and PR the
+        # release carries. Idempotent, and never fails a shipped release.
+        if: steps.publish.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          ${{ env.HYPERCI_INSTALL }} release-notify
+          "${{ steps.forcedtag.outputs.version || inputs.next-version }}"
+          --outcome success
+
+      - name: Record a failed release
+        # semantic-release's `fail` step: a release that dies overnight waits
+        # in the tracker rather than in a run log nobody reopens.
+        if: failure()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          ${{ env.HYPERCI_INSTALL }} release-notify
+          "${{ steps.forcedtag.outputs.version || inputs.next-version }}"
+          --outcome failure
+          --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

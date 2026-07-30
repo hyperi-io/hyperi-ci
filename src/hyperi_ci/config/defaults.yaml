@@ -291,6 +291,17 @@ publish:
     chart_path: ""
     registry_url: "oci://ghcr.io/hyperi-io/charts"
 
+# Release notifications
+#
+# A shipped release comments on the issues and PRs it carries; a failed one
+# opens a tracker issue. Both are GitHub-native and always on.
+#
+# Slack is opt-in and off: name the environment variable holding the webhook
+# URL, never the URL itself (config is committed, a webhook is a secret).
+notify:
+  slack:
+    webhook_env: ""
+
 # No `workspace:` block: Rust workspaces are detected by parsing Cargo.toml
 # (`[workspace]` / `[workspace.package]`), never declared in config. Nothing
 # read `workspace.enabled` or `workspace.members`.

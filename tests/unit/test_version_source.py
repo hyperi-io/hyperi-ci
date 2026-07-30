@@ -16,10 +16,15 @@ declares about itself.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 from hyperi_ci.version_source import (
     DEFAULT_SEED_VERSION,
+    build_version,
     declared_version,
     seed_version,
 )
@@ -163,6 +168,63 @@ class TestSeedVersion:
             '[project]\nname = "thing"\nversion = "2.29.12"\n', encoding="utf-8"
         )
         assert seed_version(tmp_path) == ("2.29.12", "pyproject.toml")
+
+
+class TestBuildVersion:
+    """The build back-end's version source, in every place a build starts."""
+
+    def test_the_run_version_wins(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYPERCI_VERSION", "5.6.7")
+        (tmp_path / "VERSION").write_text("1.1.1\n", encoding="utf-8")
+        assert build_version(tmp_path) == "5.6.7"
+
+    def test_a_leading_v_is_stripped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYPERCI_VERSION", "v5.6.7")
+        assert build_version(tmp_path) == "5.6.7"
+
+    def test_falls_to_the_stamped_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """In CI the stamp step wrote it moments earlier; an sdist carries it."""
+        monkeypatch.delenv("HYPERCI_VERSION", raising=False)
+        (tmp_path / "VERSION").write_text("2.9.10\n", encoding="utf-8")
+        assert build_version(tmp_path) == "2.9.10"
+
+    def test_falls_to_the_latest_tag(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A developer building a checkout that was never stamped."""
+        monkeypatch.delenv("HYPERCI_VERSION", raising=False)
+        with patch("hyperi_ci.version_source.latest_tag_version", return_value="4.0.1"):
+            assert build_version(tmp_path) == "4.0.1"
+
+    def test_falls_to_the_seed_on_a_tag_less_repo(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("HYPERCI_VERSION", raising=False)
+        with patch("hyperi_ci.version_source.latest_tag_version", return_value=None):
+            assert build_version(tmp_path) == DEFAULT_SEED_VERSION
+
+    def test_a_junk_version_file_does_not_win(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A build must not stop because someone left a note in VERSION."""
+        monkeypatch.delenv("HYPERCI_VERSION", raising=False)
+        (tmp_path / "VERSION").write_text("see the git tag\n", encoding="utf-8")
+        with patch("hyperi_ci.version_source.latest_tag_version", return_value="4.0.1"):
+            assert build_version(tmp_path) == "4.0.1"
+
+    def test_always_returns_plain_semver(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PEP 440 tolerates more than the tag format does."""
+        monkeypatch.delenv("HYPERCI_VERSION", raising=False)
+        with patch("hyperi_ci.version_source.latest_tag_version", return_value=None):
+            assert re.fullmatch(r"\d+\.\d+\.\d+", build_version(tmp_path))
 
 
 class TestStdlibOnly:

@@ -181,6 +181,27 @@ jobs:
           bump: ${{ inputs.bump }}
           branch-build: ${{ inputs.branch-build || vars.HYPERCI_BRANCH_BUILD }}
 
+      - name: Install uv (preflight)
+        if: steps.predict.outputs.will-publish == 'true'
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: false
+
+      - name: Preflight publish credentials
+        # semantic-release's verifyConditions equivalent: prove the tokens
+        # exist before anything compiles. A missing CARGO_REGISTRY_TOKEN
+        # otherwise surfaces at the publish stage, after a full build.
+        # Blocks only where the publish handler hard-fails without the
+        # credential; PyPI (OIDC fallback) and R2 warn.
+        if: steps.predict.outputs.will-publish == 'true'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: ${{ env.HYPERCI_INSTALL }} preflight
+
       - name: Generate build matrix
         # Multi-arch (amd64 + arm64) on publish runs; single-arch on
         # validate-only AND branch-mode PR builds — arm64 is slow on

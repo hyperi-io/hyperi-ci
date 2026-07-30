@@ -69,8 +69,12 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.version]
-path = "VERSION"
-pattern = "(?P<version>.+)"
+# VERSION is a rendered artefact, so the back-end must not depend on the
+# committed copy being correct. build_version() resolves
+# HYPERCI_VERSION -> VERSION -> latest v* tag -> seed version.
+source = "code"
+path = "src/hyperi_ci/version_source.py"
+expression = "build_version()"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hyperi_ci"]

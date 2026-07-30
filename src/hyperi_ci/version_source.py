@@ -22,16 +22,18 @@ Deliberately NOT read here: the ``VERSION`` file. It is a build-time artefact
 this tool writes, not an input — treating it as one is what let a value frozen
 in May 2026 masquerade as the current version across 14 repos (issue #85).
 
-Stdlib only, and no imports from the rest of the package: the
-``predict-version`` composite action loads this file BY PATH out of the
-action checkout, where no ``pip install`` has run. Keep it that way — git
-access belongs in the callers, which have ``run_cmd``.
+Stdlib only, and no imports from the rest of the package. Two loaders depend
+on that: the ``predict-version`` composite action loads this file BY PATH out
+of the action checkout, and hatchling imports it as the build back-end's
+version source (:func:`build_version`) — neither has run a ``pip install``.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
 import tomllib
 from collections.abc import Callable
 from pathlib import Path
@@ -160,3 +162,66 @@ def seed_version(root: Path | None = None) -> tuple[str, str]:
     """
     found = declared_version(root)
     return found if found else (DEFAULT_SEED_VERSION, "default")
+
+
+def latest_tag_version(root: Path | None = None) -> str | None:
+    """Read the highest ``v*`` git tag as a bare version, or None.
+
+    The released version, so one behind mid-release. Anything resolving the
+    version being released reads ``HYPERCI_VERSION`` instead.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "tag", "--list", "v[0-9]*", "--sort=-v:refname"],
+            cwd=str(root) if root else None,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return _usable(result.stdout.splitlines()[0].strip())
+
+
+def build_version(root: Path | None = None) -> str:
+    """Resolve the version for the build back-end.
+
+    hatchling's ``code`` version source calls this. ``VERSION`` is rendered
+    during the run rather than committed, so the back-end cannot assume a file
+    is there, and the fallbacks have to cover every place a build starts:
+
+    1. ``HYPERCI_VERSION`` — the plan job's predicted version, the same value
+       every other stage in the run agrees on.
+    2. ``VERSION`` — written moments earlier by the stamp step, and carried in
+       the sdist so a wheel built from one gets the released number.
+    3. The latest ``v*`` tag — a developer building a checkout with no stamp.
+    4. The seed version — a tag-less repo, which has nothing else to offer.
+
+    Args:
+        root: Project root. Defaults to cwd, which is where the back-end runs.
+
+    Returns:
+        A bare ``X.Y.Z``.
+
+    """
+    base = root or Path.cwd()
+
+    explicit = _usable(os.environ.get("HYPERCI_VERSION", ""))
+    if explicit:
+        return explicit
+
+    version_file = base / "VERSION"
+    if version_file.is_file():
+        stamped = _usable(version_file.read_text(encoding="utf-8").strip())
+        if stamped:
+            return stamped
+
+    tagged = latest_tag_version(base)
+    if tagged:
+        return tagged
+
+    return seed_version(base)[0]

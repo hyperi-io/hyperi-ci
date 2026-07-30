@@ -83,6 +83,23 @@ jobs:
           bump: ${{ inputs.bump }}
           branch-build: ${{ vars.HYPERCI_BRANCH_BUILD }}
 
+      - name: Install uv (preflight)
+        if: steps.predict.outputs.will-publish == 'true'
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: false
+
+      - name: Preflight publish credentials
+        # semantic-release's verifyConditions equivalent: prove the tokens
+        # exist before anything compiles. Runs the LOCAL branch code, so this
+        # repo's own PRs exercise the change.
+        if: steps.predict.outputs.will-publish == 'true'
+        env:
+          PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run hyperi-ci preflight
+
   commit-check:
     name: Commit messages
     # Landing gate for conventional-commit messages - dogfoods the same job
