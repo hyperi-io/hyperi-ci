@@ -97,6 +97,28 @@ class TestResolveToolMode:
         assert resolve_tool_mode("semgrep", cfg, language) == "blocking"
 
 
+class TestRuffFormatHasItsOwnMode:
+    """`ruff format` is configured apart from `ruff check`.
+
+    Adopting the formatter on an established tree is a whole-repo decision, so a
+    project must be able to defer it without relaxing the real lint gate.
+    """
+
+    def test_it_blocks_by_default(self) -> None:
+        assert resolve_tool_mode("ruff_format", CIConfig(_raw={}), "python") == (
+            "blocking"
+        )
+
+    def test_relaxing_it_leaves_ruff_check_blocking(self) -> None:
+        cfg = _config("ruff_format", "warn")
+        assert resolve_tool_mode("ruff_format", cfg, "python") == "warn"
+        assert resolve_tool_mode("ruff", cfg, "python") == "blocking"
+
+    def test_relaxing_ruff_check_does_not_relax_it(self) -> None:
+        cfg = _config("ruff", "warn")
+        assert resolve_tool_mode("ruff_format", cfg, "python") == "blocking"
+
+
 class TestQualitySkip:
     """HYPERCI_QUALITY_SKIP: the rare force-skip escape hatch."""
 

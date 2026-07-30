@@ -221,9 +221,14 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             ):
                 had_failure = True
 
-    # Ruff format — single pass (format is rule-agnostic, no split needed)
+    # Ruff format — single pass (format is rule-agnostic, no split needed).
+    # Its own mode, not ruff check's: adopting the formatter on an established
+    # tree is a whole-repo decision, and sharing the key forces a project to
+    # relax the real lint gate to defer it.
     if not _run_tool(
-        "ruff format", ["ruff", "format", "--check", "."] + exclude_args, mode
+        "ruff format",
+        ["ruff", "format", "--check", "."] + exclude_args,
+        _get_tool_mode("ruff_format", config),
     ):
         had_failure = True
 
