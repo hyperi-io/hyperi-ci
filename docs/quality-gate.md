@@ -78,6 +78,13 @@ semgrep and gitleaks moved to the dispatch level because their rulesets are
 language-agnostic - running them once avoids the drift where only one handler
 passed shared excludes.
 
+**ruff is three keys, not one.** `quality.python.ruff` governs the LINT passes
+only; the formatter is `quality.python.ruff_format` and the D rules are
+`quality.python.ruff_docstrings`, each resolved independently. Adopting the
+formatter on an established tree reformats most of it at once, so deferring that
+must not require relaxing the real lint gate. All three default to blocking
+except `ruff_docstrings` (warn).
+
 ### gitleaks config
 
 If your repo has a `.gitleaks.toml` (or `ci/.gitleaks.toml`), hyperi-ci passes

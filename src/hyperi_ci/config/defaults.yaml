@@ -99,6 +99,9 @@ quality:
     bandit: disabled            # Superseded by ruff S rules
     bandit_exclude_tests: true  # Legacy — only used if bandit re-enabled
     pip_audit: blocking
+    ruff_format: blocking       # Ruff formatter — its own key, not `ruff` above, so a
+                                # project can defer adopting it (a whole-tree reformat)
+                                # without relaxing the lint gate
     ruff_docstrings: warn       # Ruff D rules (pydocstyle) — replaces interrogate
     vulture: warn
     # Rules auto-relaxed in test directories (applied via --extend-ignore)
