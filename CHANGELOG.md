@@ -1,16 +1,14 @@
 # Changelog
 
-Release notes also appear on the GitHub Releases page, one per tag.
+Rendered by CI and committed back at the end of a release -- do not edit by
+hand. Release notes also appear on the GitHub Releases page, one per tag.
 
 ## [2.9.11](https://github.com/hyperi-io/hyperi-ci/compare/v2.9.10...v2.9.11) (2026-07-30)
 
-This file is rendered by CI and committed back at the end of a release; do not
-edit it by hand. It stopped being written in May 2026, when
-`@semantic-release/git` was dropped for tagging its own bot commit (issue #37),
-and resumed once `hyperi-ci release-commit` replaced it. Entries between 2.3.10
-and that point exist only on the Releases page.
-
----
+Nothing was written here between 2.3.10 and 2.9.11: `@semantic-release/git` was
+dropped in May 2026 for tagging its own bot commit (issue #37), and nothing
+replaced it until `hyperi-ci release-commit`. Those releases are on the GitHub
+Releases page.
 
 ## [2.3.10](https://github.com/hyperi-io/hyperi-ci/compare/v2.3.9...v2.3.10) (2026-05-27)
 
