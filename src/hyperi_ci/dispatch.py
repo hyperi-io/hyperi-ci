@@ -248,6 +248,10 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
 
 def stage_test(language: str, config: CIConfig) -> int:
     """Run tests — dispatch to language-specific handler."""
+    if not config.get("test.enabled", True):
+        info("Tests disabled in configuration")
+        return 0
+
     extra_env: dict[str, str] = {}
     if language == "rust":
         features = _normalize_rust_features(config, "test")

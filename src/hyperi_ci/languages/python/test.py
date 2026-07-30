@@ -38,6 +38,11 @@ def _resolve_cmd(cmd: list[str]) -> list[str]:
     return cmd
 
 
+# pytest's exit code for "collected nothing". Distinct from a test failure (1),
+# which is what makes `test.fail_on_missing` implementable at all.
+_PYTEST_NO_TESTS_COLLECTED = 5
+
+
 def _run_pytest(args: list[str], tier_name: str | None = None) -> int:
     """Run pytest with given arguments.
 
@@ -48,6 +53,32 @@ def _run_pytest(args: list[str], tier_name: str | None = None) -> int:
     info(f"  Running pytest{label}: {' '.join(cmd)}")
     result = subprocess.run(cmd)
     return result.returncode
+
+
+def _absolve_empty_run(rc: int, config: CIConfig, *, label: str = "") -> int:
+    """Map pytest's no-tests-collected exit to success unless configured fatal.
+
+    A project with no tests yet is not a broken project, so
+    ``test.fail_on_missing`` defaults to false. Only exit 5 is remapped: a real
+    failure keeps its code.
+
+    Args:
+        rc: pytest's exit code.
+        config: Merged CI configuration.
+        label: Tier name for the message, when running tiered.
+
+    Returns:
+        0 when the run collected nothing and that is permitted, else ``rc``.
+
+    """
+    if rc != _PYTEST_NO_TESTS_COLLECTED:
+        return rc
+    where = f" in {label}" if label else ""
+    if config.get("test.fail_on_missing", False):
+        error(f"No tests found{where} and test.fail_on_missing is set")
+        return rc
+    warn(f"No tests found{where} — allowed by test.fail_on_missing: false")
+    return 0
 
 
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
@@ -90,7 +121,11 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
                 info(f"  {tier_name} tests: disabled")
                 continue
 
-            rc = _run_pytest(base_args + [tier_path], tier_name=tier_name)
+            rc = _absolve_empty_run(
+                _run_pytest(base_args + [tier_path], tier_name=tier_name),
+                config,
+                label=tier_name,
+            )
             if rc != 0:
                 if tier_config.get("fail_fast", True):
                     error(f"  {tier_name} tests failed — stopping pipeline")
@@ -101,7 +136,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         return 0
 
     # Single run (no tiers)
-    rc = _run_pytest(base_args)
+    rc = _absolve_empty_run(_run_pytest(base_args), config)
     if rc == 0:
         success("Tests passed")
     return rc
