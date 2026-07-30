@@ -34,35 +34,16 @@ language: none
 project:
   status: ""
 
-# Runner Settings
-#
-# mode: controls which GitHub Actions runners are used
-#   self-hosted — ARC runners on DevEx cluster (persistent build cache, pre-installed toolchain)
-#   free        — GitHub-hosted ubuntu-latest (no setup needed, no cache between runs)
-#
-# This default applies org-wide. Individual repos override in .hyperi-ci.yaml.
-# ENV override: HYPERCI_RUNNERS_MODE=free
-#
-# When mode is "free", GH_RUNNER_* org variables are ignored and all jobs
-# run on ubuntu-latest. When mode is "self-hosted", the GH_RUNNER_* variables
-# select which ARC runner tier to use per language.
-runners:
-  mode: self-hosted
-  default: ""
-  windows: ""
-  macos: ""
-  arm64: ""
+# Runner selection is NOT configured here. The reusable workflows resolve it
+# from the GH_RUNNER_* org variables and their own `runner-*` inputs; ARC vs
+# free is a workflow-level decision. A `runners:` block in .hyperi-ci.yaml is
+# read by nothing.
 
 # Minimum Python version for CI scripts themselves
 ci_min_python_version: "3.9"
 
-# Toolchain versions (pre-installed on ARC runners, auto-installed on free runners)
-toolchain:
-  llvm_version: "19"
-
-# Rust Settings
-rust:
-  local_jobs: 2
+# LLVM/BOLT version is NOT configured here either. `native_deps` resolves it
+# from HYPERCI_LLVM_VERSION, falling back to its own _DEFAULT_LLVM_VERSION.
 
 # Quality Checks
 quality:
@@ -233,27 +214,11 @@ build:
   strategies:
     - native
 
-  python:
-    source_dir: src
-    nuitka:
-      enabled: false
-      platforms:
-        - linux-x64
-        - linux-arm64
-      build_native: true
-      protection_profile: recommended
-      allowed_profiles:
-        - none
-        - data-hiding
-        - recommended
-        - anti-debugger
-        - maximum
-      lto: false
-      extra_args: []
-      runners: {}
+  # No `python:` block: Nuitka is not implemented (languages/python/build.py
+  # `_build_nuitka` is a stub), so its settings configured nothing.
 
-  typescript:
-    package_manager: auto
+  # No `typescript.package_manager`: detect_package_manager() resolves it from
+  # the package.json `packageManager` field, the lockfile, then npm.
 
   golang:
     targets:
@@ -276,7 +241,6 @@ publish:
   enabled: true
   target: oss
   binaries: both
-  binaries_repo: hyperi-binaries
 
   # Destination mapping (OSS only).
   #
@@ -292,20 +256,9 @@ publish:
     binaries: r2-binaries      # downloads.hyperi.io (Cloudflare R2) + GitHub Releases
     go: go-proxy               # proxy.golang.org (automatic)
 
-  python:
-    repository: pypi-local
-
-  typescript:
-    registry: npm
-
-  golang:
-    repository: go-local
-
-  s3:
-    enabled: false
-    bucket: ""
-    prefix: download
-    region: ap-southeast-2
+  # No per-language `repository`/`registry` keys and no `s3:` block: the
+  # destinations map above is what routes a publish, and the R2 bucket is a
+  # constant in publish/binaries.py. Those keys routed nothing.
 
   # Container build & publish.
   #
@@ -343,11 +296,9 @@ workspace:
   enabled: auto
   members: {}
 
-# Standards Validation
-standards:
-  branch_naming: true
-  commit_messages: true
-  conventional_commits: true
+# No `standards:` block: commit-message validation is unconditional
+# (quality/commit_validation.py + the commit-msg hook), and branch naming is
+# not enforced at all. Those toggles switched nothing.
 
 # Deployment Contract
 #
@@ -385,9 +336,4 @@ deployment:
   max_supported_schema_version: 2
   producer: auto
 
-# Integrations
-integrations:
-  linear:
-    enabled: false
-    prefixes:
-      - DFE
+# No `integrations:` block: the Linear integration was never built.
