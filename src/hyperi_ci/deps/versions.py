@@ -104,10 +104,10 @@ def norm_python(name: str) -> str:
 
 
 def norm_cargo(name: str) -> str:
-    """cargo treats ``-`` and ``_`` as the same character in a crate name."""
+    """Cargo treats ``-`` and ``_`` as the same character in a crate name."""
     return str(name).replace("_", "-").lower()
 
 
 def norm_npm(name: str) -> str:
-    """npm names are case-insensitive in practice; fold for lookup."""
+    """Npm names are case-insensitive in practice; fold for lookup."""
     return str(name).lower()

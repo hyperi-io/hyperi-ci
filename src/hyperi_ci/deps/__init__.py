@@ -64,6 +64,7 @@ def report(
 
     Returns:
         ``{root, kind_filter, scan, drift, gaps}``.
+
     """
     root = Path(root).resolve()
     catalogue = surfaces if surfaces is not None else load()
@@ -116,6 +117,7 @@ def show(
 
     Returns:
         The detail dict, or ``{"error": ..., "known": [...]}`` for a bad id.
+
     """
     root = Path(root).resolve()
     catalogue = surfaces if surfaces is not None else load()

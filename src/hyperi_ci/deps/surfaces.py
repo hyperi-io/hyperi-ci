@@ -102,6 +102,7 @@ class Surface:
         caveat: Why it can look covered when it is not.
         notes: Anything the next reader needs.
         raw_patterns: The pattern source text, for ``--json`` consumers.
+
     """
 
     id: str
@@ -141,6 +142,7 @@ def load(path: Path | None = None) -> tuple[Surface, ...]:
 
     Returns:
         Every declared surface, catalogue order preserved.
+
     """
     global _CACHE
     if path is None and _CACHE is not None:
@@ -196,6 +198,7 @@ def repo_files(root: Path) -> tuple[list[str], str]:
 
     Returns:
         (paths, source) where source is ``git ls-files`` or ``walk``.
+
     """
     proc = subprocess.run(
         ["git", "-C", str(root), "ls-files"],
@@ -221,7 +224,7 @@ def repo_files(root: Path) -> tuple[list[str], str]:
 
 
 def matches(surface: Surface, rel: str) -> bool:
-    """True when a path pattern claims this file and no exclude drops it."""
+    """Report whether a pattern claims this file and no exclude drops it."""
     if not any(pattern.search(rel) for pattern in surface.patterns):
         return False
     return not any(pattern.search(rel) for pattern in surface.exclude)
@@ -260,6 +263,7 @@ def extract_pins(surface: Surface, root: Path, rel: str) -> list[dict]:
 
     Returns:
         One record per pin: file, line (1-based), dep, version.
+
     """
     if not surface.pins and not surface.pins_multiline:
         return []
@@ -312,7 +316,7 @@ def extract_pins(surface: Surface, root: Path, rel: str) -> list[dict]:
 
 
 def _guard_hit(surface: Surface, lines: list[str], index: int) -> bool:
-    """True when the guard regex hits within the window around ``index``."""
+    """Report whether the guard regex hits in the window around ``index``."""
     guard = surface.pin_guard
     if guard is None:
         return True
@@ -364,6 +368,7 @@ def scan(
     Returns:
         A report dict: root, file source and count, one record per surface with
         its state, and the unclassified sweep.
+
     """
     root = Path(root).resolve()
     catalogue = surfaces if surfaces is not None else load()

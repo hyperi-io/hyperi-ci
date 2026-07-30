@@ -55,6 +55,7 @@ def gaps(root: Path, scan_result: dict) -> dict:
         Config path (or None), the declared ``enabledManagers`` (or None when
         unset, meaning Renovate's own defaults), and one record per uncovered
         surface with the reason.
+
     """
     root = Path(root).resolve()
     config_path: Path | None = None

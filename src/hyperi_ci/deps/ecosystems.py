@@ -107,14 +107,17 @@ def walk_groups(data: dict, path: str) -> Iterator[tuple[str, object]]:
         if part == "*":
             for key, child in node.items():
                 yield from walk(child, index + 1, [*trail, str(key)])
-        elif part in node:
-            yield from walk(node[part], index + 1, [*trail, part])
+            return
+        for key, child in node.items():
+            if key == part:
+                yield from walk(child, index + 1, [*trail, part])
+                return
 
     yield from walk(data, 0, [])
 
 
 def group_entries(value: object) -> list[tuple[str, str]]:
-    """A dependency group -> ``[(name, constraint)]``, whatever shape it is in.
+    """Flatten a dependency group to ``[(name, constraint)]``, any shape in.
 
     Covers the three that occur: a list of PEP 508 strings (PEP 621/735), a map
     of name to constraint string (npm, poetry, simple cargo), and a map of name
@@ -246,7 +249,7 @@ def _run_tool(cmd: list[str], cwd: Path) -> str | None:
 
 
 def enrich_cargo(cwd: Path) -> dict[str, str]:
-    """Resolved crate versions from ``cargo metadata``, offline.
+    """Read resolved crate versions from ``cargo metadata``, offline.
 
     Buys the workspace case: a member whose Cargo.lock sits above the scan
     root, and renames the manifest declares but the lock records differently.
@@ -266,7 +269,7 @@ def enrich_cargo(cwd: Path) -> dict[str, str]:
 
 
 def enrich_uv(cwd: Path) -> dict[str, str]:
-    """Resolved distributions from ``uv export --frozen``, offline.
+    """Read resolved distributions from ``uv export --frozen``, offline.
 
     Buys the uv-workspace case, where the lock belongs to a parent member.
     ``--frozen`` reads the existing lock and never resolves, so this never
@@ -312,9 +315,17 @@ def enrich_npm(cwd: Path) -> dict[str, str]:
     def collect(node: object) -> None:
         if not isinstance(node, dict):
             return
-        for name, meta in (node.get("dependencies") or {}).items():
-            if isinstance(meta, dict) and isinstance(meta.get("version"), str):
-                resolved.setdefault(str(name), meta["version"])
+        children = node.get("dependencies")
+        if not isinstance(children, dict):
+            return
+        for name, meta in children.items():
+            if not isinstance(meta, dict):
+                continue
+            version = meta.get("version")
+            # A node with no version string is not recursed into either: an
+            # unmet peer dep carries no version and no resolved children.
+            if isinstance(version, str):
+                resolved.setdefault(str(name), version)
                 collect(meta)
 
     collect(data)
@@ -466,6 +477,7 @@ def drift(
     Returns:
         A report dict: per-ecosystem group breakdowns (every declared entry,
         drifted or not), the flat drift list, and notes for what was skipped.
+
     """
     root = Path(root).resolve()
     catalogue = surfaces if surfaces is not None else load()

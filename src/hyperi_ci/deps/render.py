@@ -137,7 +137,7 @@ def drift_block(drift_result: dict, full: bool) -> list[str]:
 
 
 def inert_block(scan_result: dict) -> list[str]:
-    """The false-assurance case, spelled out -- a human needs the definition."""
+    """Spell out the false-assurance case -- a human needs the definition."""
     inert = [r for r in scan_result["surfaces"] if r["state"] == INERT]
     out = [
         "INERT SURFACES -- files matched but nothing was extractable, or the",
@@ -256,7 +256,7 @@ def pins(scan_result: dict, full: bool) -> list[str]:
 
 
 def groups(drift_result: dict, full: bool) -> list[str]:
-    """Declared constraint beside the locked version, per group, per ecosystem."""
+    """Show the declared constraint beside the locked version, per group."""
     out: list[str] = []
     for eco in drift_result["ecosystems"]:
         lock = eco["lock"] or "(no lock found)"
@@ -277,7 +277,7 @@ def groups(drift_result: dict, full: bool) -> list[str]:
 
 
 def report(payload: dict, full: bool = False) -> str:
-    """The default view: what needs attention, then the full picture."""
+    """Render the default view: what needs attention, then the full picture."""
     scan_result = payload["scan"]
     drift_result = payload["drift"]
     gaps_result = payload["gaps"]
@@ -312,14 +312,14 @@ def report(payload: dict, full: bool = False) -> str:
 
 
 def drift_only(drift_result: dict, full: bool = False) -> str:
-    """The drift slice on its own, for scripting or a focused look."""
+    """Render the drift slice alone, for scripting or a focused look."""
     return "\n".join(
         [f"deps drift: {drift_result['root']}", ""] + drift_block(drift_result, full)
     )
 
 
 def gaps_only(gaps_result: dict) -> str:
-    """The Renovate-gap slice on its own."""
+    """Render the Renovate-gap slice alone."""
     return "\n".join(
         [f"deps gaps: {gaps_result['root']}", ""] + gaps_block(gaps_result)
     )
