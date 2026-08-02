@@ -291,6 +291,17 @@ publish:
     chart_path: ""
     registry_url: "oci://ghcr.io/hyperi-io/charts"
 
+# One-line project description, duplicated by every registry that wants one:
+# PyPI, crates.io, npm, the OCI image label, GHCR's package page, the GitHub
+# repo blurb.
+#
+# Leave empty. The manifest is the source -- pyproject [project], Cargo.toml
+# [package] (or [workspace.package] for a workspace), package.json -- because
+# cargo publish refuses without it and PyPI and npm render theirs from it, so
+# those files must be correct anyway. Set this only where no manifest field
+# exists (Go) or the registries should differ from the manifest.
+description: ""
+
 # Release notifications
 #
 # A shipped release comments on the issues and PRs it carries; a failed one

@@ -536,6 +536,66 @@ def stamp_version_cmd(
     raise typer.Exit(stamp_version(version, project_dir=dir_path))
 
 
+@app.command()
+def describe(
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+    check: Annotated[
+        bool,
+        typer.Option("--check", help="Report drift against the GitHub repo blurb"),
+    ] = False,
+    show_source: Annotated[
+        bool,
+        typer.Option("--source", help="Also print where the description came from"),
+    ] = False,
+) -> None:
+    """Print the project description every registry duplicates.
+
+    Resolved from `.hyperi-ci.yaml` `description`, else the manifest that owns
+    the published artefact (`[workspace.package]` for a Cargo workspace), else
+    the GitHub repo blurb. This is what lands in
+    `org.opencontainers.image.description` and on GHCR's package page.
+
+    `--check` compares the resolved value against the GitHub repo description
+    and reports drift. It never writes: the repo blurb is a repository
+    setting, so changing it stays a human's call.
+    """
+    from hyperi_ci.common import error, info, success, warn
+    from hyperi_ci.description_source import github_description, resolve_description
+
+    dir_path = Path(project_dir) if project_dir else None
+    cfg = load_config(reload=True, project_dir=dir_path)
+
+    resolved = resolve_description(cfg, root=dir_path, allow_github=not check)
+    if not resolved:
+        error(
+            "No description found. Add one to the manifest "
+            "(Cargo.toml [workspace.package] for a workspace), or set "
+            "`description:` in .hyperi-ci.yaml."
+        )
+        raise typer.Exit(1)
+
+    text, source = resolved
+    typer.echo(f"{text}\t{source}" if show_source else text)
+
+    if not check:
+        raise typer.Exit(0)
+
+    blurb = github_description(cwd=dir_path)
+    if blurb is None:
+        warn("GitHub repo description is unset or could not be read")
+    elif blurb != text:
+        warn(f"GitHub repo description differs from {source}:")
+        warn(f"  {source}: {text}")
+        warn(f"  GitHub:  {blurb}")
+        info(f'Align it with: gh repo edit --description "{text}"')
+    else:
+        success("GitHub repo description matches")
+    raise typer.Exit(0)
+
+
 @app.command(name="release-notify")
 def release_notify_cmd(
     version: Annotated[

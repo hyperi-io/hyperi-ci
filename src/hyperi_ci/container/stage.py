@@ -49,6 +49,7 @@ from hyperi_ci.common import (
     normalise_tristate,
     resolve_release_version,
     success,
+    warn,
 )
 from hyperi_ci.config import CIConfig, OrgConfig, load_org_config
 from hyperi_ci.container.build import build_and_push, resolve_tags
@@ -528,13 +529,30 @@ def _dispatch_build(
         branch_slug=dev_branch_slug() if push_mode == DEV else "",
     )
 
+    from hyperi_ci.description_source import resolve_description
     from hyperi_ci.init import detect_license
+
+    # GHCR renders this label as the package page's description, so an empty
+    # one leaves the page blank.
+    resolved = resolve_description(config, root=Path.cwd())
+    if resolved:
+        description, source = resolved
+        info(f"Image description from {source}: {description}")
+    else:
+        description = ""
+        warn(
+            "No project description found — the image label and the GHCR "
+            "package page will be blank. Add one to the manifest "
+            "(Cargo.toml [workspace.package] for a workspace), or set "
+            "`description:` in .hyperi-ci.yaml."
+        )
 
     labels = build_oci_labels(
         repo=f"{org.github_org}/{image_name}",
         revision=os.environ.get("GITHUB_SHA", _read_sha()),
         version=version,
         title=image_name,
+        description=description,
         licenses=detect_license(Path.cwd()),
     )
     if extra_labels:

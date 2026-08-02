@@ -8,7 +8,7 @@
 [project]
 name = "hyperi-ci"
 dynamic = ["version"]
-description = "HyperI CI/CD CLI tool — multi-language build, test, and publish automation"
+description = "HyperI CI/CD CLI tool - multi-language build, test, and publish automation"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "LicenseRef-BUSL-1.1-HyperI"
