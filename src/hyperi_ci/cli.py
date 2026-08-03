@@ -596,6 +596,82 @@ def describe(
     raise typer.Exit(0)
 
 
+@app.command("audit-callers")
+def audit_callers(
+    org: Annotated[
+        str | None,
+        typer.Option("--org", help="Sweep every repo in this org, reading main"),
+    ] = None,
+    repo: Annotated[
+        str | None,
+        typer.Option("--repo", help="Audit one repo (owner/name), reading main"),
+    ] = None,
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+) -> None:
+    """Report consumers whose ci.yml has fallen behind the dispatch contract.
+
+    `workflow_dispatch.inputs` only work when declared in the workflow that
+    receives the event, so a reusable workflow cannot add them to its caller.
+    Every consumer declares and forwards them itself, and drifts on its own
+    (issue #88).
+
+    Reports three faults: an input not declared at all (the HTTP 422), one
+    declared but not passed in `with:` (accepted then silently ignored), and
+    one declared `required: true` (which breaks every dispatch that does not
+    send it).
+
+    Never writes. The caller file belongs to the consumer repo.
+    """
+    from hyperi_ci.caller_audit import (
+        audit_local,
+        audit_repo,
+        org_repos,
+    )
+    from hyperi_ci.common import error, info, success, warn
+
+    if org and repo:
+        error("Use --org or --repo, not both")
+        raise typer.Exit(2)
+
+    if org:
+        targets = org_repos(org)
+        if not targets:
+            error(f"No repos readable in {org}")
+            raise typer.Exit(1)
+        reports = [audit_repo(name) for name in targets]
+        # A repo with no ci.yml, or one that calls nothing of ours, is not a
+        # consumer -- reporting it would bury the real findings.
+        reports = [r for r in reports if r.calls is not None]
+    elif repo:
+        reports = [audit_repo(repo)]
+    else:
+        reports = [audit_local(Path(project_dir) if project_dir else None)]
+
+    drifted = [r for r in reports if not r.ok]
+    for report in reports:
+        if report.ok:
+            continue
+        if report.error:
+            warn(f"{report.repo}: {report.error}")
+            continue
+        warn(f"{report.repo} ({report.calls}):")
+        for finding in report.findings:
+            warn(f"  {finding.describe()}")
+
+    info(f"Audited {len(reports)} caller(s)")
+    if not drifted:
+        success("Every caller honours the dispatch contract")
+        raise typer.Exit(0)
+
+    error(f"{len(drifted)} caller(s) drifted — a release from HEAD will fail")
+    info("Fix in the consumer repo's .github/workflows/ci.yml, or re-run")
+    info("`hyperi-ci init` there to regenerate it.")
+    raise typer.Exit(1)
+
+
 @app.command(name="release-notify")
 def release_notify_cmd(
     version: Annotated[
