@@ -621,3 +621,59 @@ def test_release_tail_uses_shared_workflow(workflow_name: str) -> None:
         f"Every language workflow must delegate container + tag-and-publish "
         f"to the shared release-tail workflow."
     )
+
+
+# Steps in _release-tail.yml that PUSH to the default branch or create a tag.
+# Named by the `name:` field so a reordering does not silently drop one.
+_PUSHING_STEPS = (
+    "Tag (semantic-release)",
+    "Tag HEAD (forced bump / explicit version)",
+    "Commit rendered release artefacts",
+)
+
+_BOT_TOKEN = "${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}"
+
+
+def _tag_and_publish_steps() -> list[dict]:
+    wf = _load_workflow("_release-tail.yml")
+    return wf["jobs"]["tag-and-publish"]["steps"]
+
+
+def test_release_tail_mints_a_bot_token() -> None:
+    """The App token must be minted from the Client ID, not the App ID.
+
+    `app-id` is deprecated in actions/create-github-app-token, and the Client
+    ID is a different value rather than a rename, so a swap back would fail at
+    token-mint time instead of at review.
+    """
+    steps = _tag_and_publish_steps()
+    mint = [s for s in steps if s.get("id") == "bot"]
+    assert mint, (
+        "_release-tail.tag-and-publish: no `bot` step minting an App token. "
+        "Pushes made as github-actions cannot be excepted from a branch "
+        "ruleset and trigger no workflows (issue #86)."
+    )
+    with_ = mint[0].get("with", {})
+    assert "client-id" in with_, "the bot token must be minted from client-id"
+    assert "app-id" not in with_, "app-id is deprecated — use client-id"
+
+
+@pytest.mark.parametrize("step_name", _PUSHING_STEPS)
+def test_pushing_steps_use_the_bot_token(step_name: str) -> None:
+    """Every step that writes to the repo must prefer the App token.
+
+    A bare `secrets.GITHUB_TOKEN` here is the regression that reintroduces
+    issue #86: the push lands as github-actions, which no ruleset can grant a
+    bypass to, so the repo cannot carry required status checks.
+    """
+    steps = _tag_and_publish_steps()
+    matching = [s for s in steps if s.get("name") == step_name]
+    assert matching, f"_release-tail: step {step_name!r} has gone or been renamed"
+    env = matching[0].get("env", {})
+    tokens = {k: v for k, v in env.items() if k in ("GH_TOKEN", "GITHUB_TOKEN")}
+    assert tokens, f"{step_name}: expected a GH_TOKEN/GITHUB_TOKEN in env"
+    for key, value in tokens.items():
+        assert value == _BOT_TOKEN, (
+            f"{step_name}: {key} is {value!r}, expected the bot token with a "
+            f"GITHUB_TOKEN fallback ({_BOT_TOKEN!r})."
+        )
