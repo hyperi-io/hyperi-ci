@@ -22,6 +22,30 @@ import subprocess
 
 from hyperi_ci.common import error, explicit_version, info, success, warn
 
+# Every input this module can send on a workflow_dispatch. A consumer's
+# `on.workflow_dispatch.inputs` must declare and forward all of these, or the
+# dispatch fails with HTTP 422 (issue #88). `hyperi-ci audit-callers` checks
+# consumers against this tuple.
+DISPATCH_INPUTS: tuple[str, ...] = ("tag", "from-head", "bump")
+
+
+def _dispatch_cmd(workflow: str, inputs: dict[str, str]) -> list[str]:
+    """Build a `gh workflow run` command for the given dispatch inputs.
+
+    Rejects an input outside DISPATCH_INPUTS, which would 422 on every
+    consumer that never declared it.
+    """
+    unknown = sorted(set(inputs) - set(DISPATCH_INPUTS))
+    if unknown:
+        raise ValueError(
+            f"dispatch input(s) {unknown} not in DISPATCH_INPUTS — add them "
+            f"there so audit-callers requires consumers to declare them"
+        )
+    cmd = ["gh", "workflow", "run", workflow]
+    for key, value in inputs.items():
+        cmd += ["-f", f"{key}={value}"]
+    return cmd
+
 
 def _get_version_tags() -> list[str]:
     """Get all version tags sorted by version descending."""
@@ -159,16 +183,7 @@ def dispatch_from_head(*, bump: str = "auto", dry_run: bool = False) -> int:
         )
 
     workflow = _detect_workflow_file()
-    cmd = [
-        "gh",
-        "workflow",
-        "run",
-        workflow,
-        "-f",
-        "from-head=true",
-        "-f",
-        f"bump={bump}",
-    ]
+    cmd = _dispatch_cmd(workflow, {"from-head": "true", "bump": bump})
 
     label = f"version=v{bump}" if explicit is not None else f"bump={bump}"
 
@@ -223,7 +238,7 @@ def dispatch_publish(tag: str, dry_run: bool = False) -> int:
         )
 
     workflow = _detect_workflow_file()
-    cmd = ["gh", "workflow", "run", workflow, "-f", f"tag={tag}"]
+    cmd = _dispatch_cmd(workflow, {"tag": tag})
 
     if dry_run:
         info(f"Would run: {' '.join(cmd)}")
