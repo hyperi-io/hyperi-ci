@@ -222,6 +222,12 @@ jobs:
       issues: write
       pull-requests: write
       packages: write
+    env:
+      # Mapped to env because the `secrets` context is not readable from a
+      # step-level `if`, and the release identity turns on whether this repo
+      # can see the App key at all (the org secret is `selected`, and this is
+      # a reusable workflow -- `secrets: inherit` resolves in the CALLER).
+      RELEASE_APP_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -231,6 +237,36 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Mint the release bot token
+        # Tag, commit and release-commit all PUSH. As `github-actions` those
+        # pushes cannot be excepted from a branch ruleset -- rulesets only
+        # accept org-installed apps as bypass actors and GitHub refuses the
+        # first-party integration -- so a repo wanting required status checks
+        # cannot have them (issue #86). A GITHUB_TOKEN push also triggers no
+        # workflows, leaving the release commit invisible to anything that
+        # should react to it.
+        id: bot
+        if: env.RELEASE_APP_KEY != ''
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.GH_APP_CLIENT_ID }}
+          private-key: ${{ env.RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+
+      - name: Report the release identity
+        # A silent fall back to github-actions is what makes a missing ruleset
+        # bypass look like a working release, so say which identity is in use.
+        run: |
+          if [ "${{ steps.bot.outcome }}" = "success" ]; then
+            echo "Tagging and pushing as hypersec-ci-bot."
+          else
+            echo "::warning::GH_APP_PRIVATE_KEY is not visible to this repo — tagging as github-actions. Required status checks cannot be bypassed, and the release push will trigger no workflows. Add this repo to the GH_APP_PRIVATE_KEY org secret's selected list to fix both."
+          fi
 
       - name: Setup semantic-release (shared toolchain — single source of truth)
         # Runs the version oracle on a push, and on a from-head `auto`
@@ -278,8 +314,8 @@ jobs:
         # oracle. Once the first tag exists this branch never fires again.
         if: ${{ github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto') }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
         run: |
           if [ -z "$(git tag --list 'v[0-9]*')" ]; then
             echo "Tag-less repo — first release: tagging HEAD v${{ inputs.next-version }} from the plan's prediction"
@@ -336,7 +372,7 @@ jobs:
         id: forcedtag
         if: ${{ inputs.from-head == 'true' && inputs.bump != 'auto' && inputs.bump != '' }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
         run: ${{ env.HYPERCI_INSTALL }} tag-head --bump ${{ inputs.bump }}
 
       - name: Publish
@@ -371,7 +407,9 @@ jobs:
         if: steps.publish.outcome == 'success'
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Also a push to the default branch, so it needs the bypass actor
+          # for the same reason the tag does.
+          GH_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
         run: >-
           ${{ env.HYPERCI_INSTALL }} release-commit
           "${{ steps.forcedtag.outputs.version || inputs.next-version }}"
