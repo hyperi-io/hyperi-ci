@@ -27,6 +27,7 @@ from hyperi_ci.common import (
     info,
     mask,
     resolve_release_version,
+    run_cmd,
     success,
     warn,
 )
@@ -104,7 +105,7 @@ def create_github_release(config: CIConfig) -> int:
     cmd.extend(_resolve_gh_release_flags(channel))
 
     info(f"Creating GitHub Release {tag}")
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = run_cmd(cmd, check=False, capture=True)
     if result.returncode != 0:
         if "already exists" in result.stderr:
             info(f"  GH Release {tag} already exists")
@@ -146,7 +147,7 @@ def _upload_binaries_github(channel: str = "release") -> int:
     cmd.extend(_resolve_gh_release_flags(channel))
     cmd.extend(str(f) for f in artifacts)
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = run_cmd(cmd, check=False, capture=True)
     if result.returncode != 0:
         if "already exists" in result.stderr:
             info(f"  GH Release {tag} already exists — uploading artifacts")

@@ -44,7 +44,10 @@ def test_notice_overrides_win() -> None:
     )
     assert "a custom purpose" in notice
     assert "do-the-thing" in notice
-    assert "https://example.test" in notice
+    # Exact final line, not a substring: asserts placement as well as content,
+    # and a URL substring-check is what CodeQL flags (py/incomplete-url-
+    # substring-sanitization, alert 50).
+    assert notice.splitlines()[-1] == "  docs: https://example.test"
     # registry defaults are replaced, not appended
     assert "cargo install alint" not in notice
 

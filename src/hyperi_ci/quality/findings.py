@@ -47,7 +47,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from hyperi_ci.common import is_github_actions, warn
+from hyperi_ci.common import escape_command_data, is_github_actions, warn
 
 # Cap the rows written to one job-summary section. GitHub truncates a step
 # summary at 1 MiB; a bounded table plus a "truncated" note keeps a pathological
@@ -170,10 +170,7 @@ def _annotation_line(f: Finding) -> str:
         props.insert(0, f"file={_prop_val(f.path)}")
         if f.line is not None:
             props.append(f"line={f.line}")
-    # Newlines in the message would break the single-line command; encode them
-    # the way GitHub expects (%0A) so a multi-line message survives intact.
-    msg = f.message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-    return f"::{cmd} {','.join(props)}::{msg}"
+    return f"::{cmd} {','.join(props)}::{escape_command_data(f.message)}"
 
 
 def emit_annotations(findings: list[Finding]) -> int:

@@ -112,7 +112,7 @@ To see what a checkout would release:
 
 ```bash
 git describe --tags --abbrev=0     # the last released version
-hyperi-ci --version                # the CLI's own version, and its checkout if editable
+hyperi-ci --version                # what this checkout would build as, if editable
 ```
 
 ## CHANGELOG.md

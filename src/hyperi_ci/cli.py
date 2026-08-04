@@ -103,6 +103,10 @@ def _checkout_version(checkout: str) -> str:
     to no release at all. Re-resolving through the same function the build
     back-end uses keeps the report honest without a re-sync.
 
+    ``HYPERCI_VERSION`` is excluded: it is process-wide rather than scoped to a
+    tree, so a release run in another project would have this answer with that
+    project's version under this checkout's path.
+
     Args:
         checkout: Filesystem path of the editable checkout.
 
@@ -112,8 +116,16 @@ def _checkout_version(checkout: str) -> str:
 
     """
     try:
-        return build_version(Path(checkout))
-    except Exception:
+        return build_version(Path(checkout), allow_env=False)
+    except Exception as exc:  # noqa: BLE001 - --version must not be the failure
+        # Warn rather than fall through quietly: the fallback is the frozen
+        # number this function exists to replace, so a silent one reads as the
+        # bug it fixes.
+        from hyperi_ci.common import warn
+
+        warn(
+            f"cannot resolve the checkout's version ({exc}) — showing the installed one"
+        )
         return __version__
 
 

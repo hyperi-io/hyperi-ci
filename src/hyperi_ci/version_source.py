@@ -187,7 +187,7 @@ def latest_tag_version(root: Path | None = None) -> str | None:
     return _usable(result.stdout.splitlines()[0].strip())
 
 
-def build_version(root: Path | None = None) -> str:
+def build_version(root: Path | None = None, *, allow_env: bool = True) -> str:
     """Resolve the version for the build back-end.
 
     hatchling's ``code`` version source calls this. ``VERSION`` is rendered
@@ -203,6 +203,9 @@ def build_version(root: Path | None = None) -> str:
 
     Args:
         root: Project root. Defaults to cwd, which is where the back-end runs.
+        allow_env: Consult ``HYPERCI_VERSION``. Off for a caller reporting on a
+            SPECIFIC checkout: the variable is process-wide, not scoped to a
+            tree, so a run inside another project would answer for that one.
 
     Returns:
         A bare ``X.Y.Z``.
@@ -210,7 +213,7 @@ def build_version(root: Path | None = None) -> str:
     """
     base = root or Path.cwd()
 
-    explicit = _usable(os.environ.get("HYPERCI_VERSION", ""))
+    explicit = _usable(os.environ.get("HYPERCI_VERSION", "")) if allow_env else ""
     if explicit:
         return explicit
 

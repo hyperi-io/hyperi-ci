@@ -89,6 +89,16 @@ class TestSourceCheckoutProvenance:
         (tmp_path / "VERSION").write_text("9.9.9\n", encoding="utf-8")
         assert cli._checkout_version(str(tmp_path)) == "9.9.9"
 
+    def test_checkout_version_ignores_a_process_wide_hyperci_version(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """A release running in another project must not answer for this one."""
+        monkeypatch.setenv("HYPERCI_VERSION", "9.9.9")
+        (tmp_path / "VERSION").write_text("2.9.15\n", encoding="utf-8")
+        from hyperi_ci import cli
+
+        assert cli._checkout_version(str(tmp_path)) == "2.9.15"
+
     def test_checkout_version_falls_back_when_the_checkout_is_gone(self) -> None:
         """A stale direct_url.json must not make `--version` the failure."""
         from hyperi_ci import cli

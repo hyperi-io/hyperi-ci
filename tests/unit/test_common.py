@@ -98,3 +98,76 @@ class TestRunCmdUtf8:
         # exception was raised and the surrounding text is intact.
         assert "before" in result.stdout
         assert "after" in result.stdout
+
+
+class TestMask:
+    """`mask` registers a secret for redaction, so what it emits is security-
+    relevant in its own right: the runner parses stdout line by line, and the
+    one caller feeds it an R2 secret key straight from the environment."""
+
+    def test_emits_the_add_mask_command(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(common, "is_github_actions", lambda: True)
+        common.mask("s3cret")
+        assert capsys.readouterr().out == "::add-mask::s3cret\n"
+
+    def test_silent_outside_actions(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(common, "is_github_actions", lambda: False)
+        common.mask("s3cret")
+        assert capsys.readouterr().out == ""
+
+    def test_percent_is_escaped_so_the_registered_value_is_the_real_one(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The runner unescapes command data, so an unescaped `%` registers a
+        different string and leaves the actual secret unmasked."""
+        monkeypatch.setattr(common, "is_github_actions", lambda: True)
+        common.mask("ab%25cd")
+        assert capsys.readouterr().out == "::add-mask::ab%2525cd\n"
+
+    def test_newlines_are_encoded_not_split(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """One line, so the remainder cannot be parsed as a further command."""
+        monkeypatch.setattr(common, "is_github_actions", lambda: True)
+        common.mask("first\n::set-output name=x::y")
+        out = capsys.readouterr().out
+        assert out == "::add-mask::first%0A::set-output name=x::y\n"
+        assert len(out.splitlines()) == 1
+
+    @pytest.mark.parametrize("blank", ["", "   ", "\n", "\t"])
+    def test_blank_values_emit_nothing(
+        self,
+        blank: str,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """The runner rejects a blank mask with a warning, so do not send one."""
+        monkeypatch.setattr(common, "is_github_actions", lambda: True)
+        common.mask(blank)
+        assert capsys.readouterr().out == ""
+
+    def test_is_flushed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Masking is not retroactive: an unflushed command can reach the log
+        after a spawned child has already printed the secret."""
+        monkeypatch.setattr(common, "is_github_actions", lambda: True)
+        flushed: list[bool] = []
+        monkeypatch.setattr(
+            "builtins.print", lambda *a, **kw: flushed.append(kw.get("flush", False))
+        )
+        common.mask("s3cret")
+        assert flushed == [True]
+
+
+class TestEscapeCommandData:
+    """The encoding the runner's UnescapeData expects."""
+
+    def test_percent_first_then_line_breaks(self) -> None:
+        # `%` must go first, or it would re-encode the `%` the others insert.
+        assert common.escape_command_data("a%b\rc\nd") == "a%25b%0Dc%0Ad"
+
+    def test_plain_value_unchanged(self) -> None:
+        assert common.escape_command_data("plain-value") == "plain-value"

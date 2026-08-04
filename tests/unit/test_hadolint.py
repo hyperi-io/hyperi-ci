@@ -68,9 +68,9 @@ class TestParse:
         found = hadolint._parse(payload)
         assert len(found) == 2
         assert found[0].level == "error"
-        assert "shellcheck.net" in found[0].url
+        assert found[0].url == "https://www.shellcheck.net/wiki/SC2086"
         assert found[1].rule == "DL3008"
-        assert "hadolint/hadolint/wiki" in found[1].url
+        assert found[1].url == "https://github.com/hadolint/hadolint/wiki/DL3008"
 
     def test_blank_is_empty(self) -> None:
         assert hadolint._parse("") == []

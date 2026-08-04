@@ -150,19 +150,56 @@ def fatal(msg: str) -> None:
 @contextmanager
 def group(title: str) -> Iterator[None]:
     """Collapsible group in GH Actions logs. No-op elsewhere."""
+    # Flush: stdout is a pipe under CI, so an unflushed marker orders after
+    # output from a child process that inherited the fd.
     if is_github_actions():
-        print(f"::group::{title}")
+        print(f"::group::{title}", flush=True)
     try:
         yield
     finally:
         if is_github_actions():
-            print("::endgroup::")
+            print("::endgroup::", flush=True)
+
+
+def escape_command_data(value: str) -> str:
+    """Percent-encode a value for the data half of a workflow command.
+
+    The runner runs the inverse (``UnescapeData``) on whatever follows the
+    ``::``, so anything not encoded here arrives as a DIFFERENT string than we
+    sent. ``%`` first, then the line breaks — the other order would re-encode
+    the ``%`` this function just inserted. Same sequence as
+    ``@actions/core``'s ``escapeData``.
+
+    Encoding the line breaks is also what keeps the command on one line, so a
+    newline in the value cannot close it and have the remainder parsed as a
+    further command.
+    """
+    return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
 
 
 def mask(value: str) -> None:
-    """Mask a value in GH Actions logs."""
-    if is_github_actions():
-        print(f"::add-mask::{value}")
+    """Register a value for redaction in GH Actions logs.
+
+    ``::add-mask::`` is the redaction primitive, not a log line — the runner
+    consumes the command and replaces every later occurrence of the value with
+    ``***``. CodeQL reads the write as clear-text logging of a secret
+    (``py/clear-text-logging-sensitive-data``, alert 52) and the taint it
+    traces is real — the one caller passes an R2 secret key — but this is the
+    mitigation for that taint, not an instance of it.
+
+    The value is escaped rather than split on newlines: an unescaped ``%``
+    registers a different string and leaves the real secret unmasked, and the
+    runner already registers both the whole value and each of its lines.
+
+    The write is flushed because masking is not retroactive — under CI stdout
+    is a pipe, and an unflushed command reaches the log after a child process
+    the caller spawns has already printed the secret.
+
+    Whitespace-only values are dropped; the runner rejects them.
+    """
+    if not is_github_actions() or not value.strip():
+        return
+    print(f"::add-mask::{escape_command_data(value)}", flush=True)
 
 
 def normalise_tristate(raw: object, *, key: str) -> str:
