@@ -3,6 +3,8 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.9.16](https://github.com/hyperi-io/hyperi-ci/compare/v2.9.15...v2.9.16) (2026-08-04)
+
 ## [2.9.15](https://github.com/hyperi-io/hyperi-ci/compare/v2.9.14...v2.9.15) (2026-08-04)
 
 ## [2.9.14](https://github.com/hyperi-io/hyperi-ci/compare/v2.9.13...v2.9.14) (2026-08-03)
