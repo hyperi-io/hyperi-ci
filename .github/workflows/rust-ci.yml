@@ -275,14 +275,14 @@ jobs:
           language: rust
 
       - name: Install Rust toolchain
-        if: ${{ !contains(runner.name, 'arc-runner') }}
+        if: ${{ runner.environment != 'self-hosted' }}
         uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
           components: clippy, rustfmt
 
       - name: Cache cargo
-        if: ${{ !contains(runner.name, 'arc-runner') }}
+        if: ${{ runner.environment != 'self-hosted' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           # NOT ~/.cargo/bin/ in THIS job: it only ever held cargo-audit /
@@ -345,13 +345,13 @@ jobs:
           language: rust
 
       - name: Install Rust toolchain
-        if: ${{ !contains(runner.name, 'arc-runner') }}
+        if: ${{ runner.environment != 'self-hosted' }}
         uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
 
       - name: Cache cargo
-        if: ${{ !contains(runner.name, 'arc-runner') }}
+        if: ${{ runner.environment != 'self-hosted' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -437,13 +437,13 @@ jobs:
           language: rust
 
       - name: Install Rust toolchain
-        if: ${{ !contains(runner.name, 'arc-runner') }}
+        if: ${{ runner.environment != 'self-hosted' }}
         uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
 
       - name: Cache cargo
-        if: ${{ !contains(runner.name, 'arc-runner') }}
+        if: ${{ runner.environment != 'self-hosted' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
