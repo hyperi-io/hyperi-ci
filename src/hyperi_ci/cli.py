@@ -55,6 +55,7 @@ from hyperi_ci import __version__
 from hyperi_ci.config import load_config
 from hyperi_ci.detect import detect_language
 from hyperi_ci.dispatch import VALID_STAGES, run_stage
+from hyperi_ci.version_source import build_version
 
 app = typer.Typer(
     name="hyperi-ci",
@@ -93,11 +94,38 @@ def _source_checkout() -> str | None:
     return url.removeprefix("file://") or None
 
 
+def _checkout_version(checkout: str) -> str:
+    """Return the version a checkout would build as, not its frozen metadata.
+
+    An editable install bakes the version into ``.dist-info`` when it is synced
+    and never revisits it, so it keeps reporting whatever ``VERSION`` said then
+    — a number that drifts further from the tree on every release, and belongs
+    to no release at all. Re-resolving through the same function the build
+    back-end uses keeps the report honest without a re-sync.
+
+    Args:
+        checkout: Filesystem path of the editable checkout.
+
+    Returns:
+        A bare ``X.Y.Z``, falling back to the frozen metadata if the checkout
+        can no longer be read — ``--version`` must not be the thing that fails.
+
+    """
+    try:
+        return build_version(Path(checkout))
+    except Exception:
+        return __version__
+
+
 def _version_callback(value: bool) -> None:
     if value:
         checkout = _source_checkout()
-        suffix = f" (editable checkout: {checkout})" if checkout else ""
-        typer.echo(f"hyperi-ci {__version__}{suffix}")
+        if checkout:
+            typer.echo(
+                f"hyperi-ci {_checkout_version(checkout)} (editable checkout: {checkout})"
+            )
+        else:
+            typer.echo(f"hyperi-ci {__version__}")
         raise typer.Exit()
 
 

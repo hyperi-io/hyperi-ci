@@ -80,6 +80,25 @@ class TestSourceCheckoutProvenance:
         with patch.object(cli, "distribution", boom):
             assert cli._source_checkout() is None
 
+    def test_checkout_version_resolves_the_tree_not_frozen_metadata(
+        self, tmp_path
+    ) -> None:
+        """The whole point: an editable install's baked number is ignored."""
+        from hyperi_ci import cli
+
+        (tmp_path / "VERSION").write_text("9.9.9\n", encoding="utf-8")
+        assert cli._checkout_version(str(tmp_path)) == "9.9.9"
+
+    def test_checkout_version_falls_back_when_the_checkout_is_gone(self) -> None:
+        """A stale direct_url.json must not make `--version` the failure."""
+        from hyperi_ci import cli
+
+        def boom(_root):
+            raise OSError("checkout deleted")
+
+        with patch.object(cli, "build_version", boom):
+            assert cli._checkout_version("/gone") == cli.__version__
+
     def test_detect_in_empty_dir(self, tmp_path) -> None:
         result = subprocess.run(
             [
