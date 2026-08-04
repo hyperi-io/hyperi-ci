@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 from pathlib import Path
 
 _SPEC = importlib.util.spec_from_file_location(
@@ -166,6 +167,202 @@ class TestCooldownSelection:
         releases = [_rel("v9.0.0", 20), _rel("v8.2.0", 20)]
         sel = update_versions._select_pinned_release(releases, self.NOW, 7, major=8)
         assert sel["tag_name"] == "v8.2.0"
+
+
+class TestMaxMajorClamp:
+    """`max_major:` opts one action out of the auto-major policy.
+
+    The blanket policy rests on "a breaking major shows up as a red CI run".
+    That is false for an action no PR ever executes, so those pin a ceiling.
+    """
+
+    NOW = datetime(2026, 5, 28, tzinfo=UTC)
+
+    def _stub_releases(self, monkeypatch) -> None:
+        releases = [_rel("v4.0.0", 20), _rel("v3.2.0", 30), _rel("v3.1.0", 60)]
+        monkeypatch.setattr(update_versions, "_gh_json", lambda _p: releases)
+        monkeypatch.setattr(
+            update_versions, "_resolve_tag_sha", lambda _r, tag: f"sha-{tag}"
+        )
+
+    def test_clamped_action_stays_on_its_major(self, monkeypatch) -> None:
+        """v4.0.0 is aged and would otherwise win; the clamp holds it at v3.
+
+        The pinned SHA is returned verbatim rather than re-resolved from the
+        tag: an unchanged version must not follow a tag that has been moved,
+        which is the whole point of pinning a SHA.
+        """
+        self._stub_releases(monkeypatch)
+        spec = update_versions._pinned_spec_for(
+            "create-github-app-token",
+            {"version": "v3.2.0", "sha": "keep-me", "max_major": 3},
+            self.NOW,
+        )
+        assert spec == {"version": "v3.2.0", "sha": "keep-me"}
+
+    def test_unclamped_action_takes_the_new_major(self, monkeypatch) -> None:
+        """Without the key the default policy is unchanged."""
+        self._stub_releases(monkeypatch)
+        spec = update_versions._pinned_spec_for(
+            "create-github-app-token", {"version": "v3.2.0", "sha": "x"}, self.NOW
+        )
+        assert spec == {"version": "v4.0.0", "sha": "sha-v4.0.0"}
+
+    def test_a_pin_inside_the_cooldown_is_not_rolled_backwards(
+        self, monkeypatch
+    ) -> None:
+        """A deliberate early pin must not be reverted by the next auto-update.
+
+        `_select_pinned_release` returns the highest release PAST the cooldown,
+        so against a newer-but-younger pin the aged candidate looks like an
+        update. Reported as up to date, not as a downgrade.
+        """
+        releases = [_rel("v4.6.0", 2), _rel("v4.5.2", 20)]
+        monkeypatch.setattr(update_versions, "_gh_json", lambda _p: releases)
+        monkeypatch.setattr(
+            update_versions, "_resolve_tag_sha", lambda _r, tag: f"sha-{tag}"
+        )
+        spec = update_versions._pinned_spec_for(
+            "docker-login", {"version": "v4.6.0", "sha": "keep-me"}, self.NOW
+        )
+        assert spec == {"version": "v4.6.0", "sha": "keep-me"}
+
+    def test_the_shipped_config_clamps_the_token_minter(self) -> None:
+        """The entry that motivated the mechanism must actually carry it."""
+        import yaml
+
+        data = yaml.safe_load(
+            update_versions._VERSIONS_FILE.read_text(encoding="utf-8")
+        )
+        assert data["actions"]["create-github-app-token"]["max_major"] == 3
+
+
+class TestEveryThirdPartyActionIsShaPinned:
+    """A bare tag can be force-moved; a SHA cannot.
+
+    `--check` only sees actions listed in BOTH `_ACTION_OWNERS` and
+    versions.yaml, so an action in neither map is invisible to it - which is
+    how `actions/create-github-app-token@v3` survived unpinned. This asserts
+    the class rather than the instance.
+
+    Same-org refs are exempt: they float `@main` by design (docs/dependencies/
+    workflow-pinning.md). Scope is every file the rewriter walks, which
+    includes the `init-gitops` templates - an unpinned ref there ships in the
+    wheel and lands in someone else's repo (issue #98).
+    """
+
+    def _offenders(self, text: str) -> list[str]:
+        """Third-party `uses:` refs in ``text`` whose rev is not a 40-hex SHA."""
+        found = []
+        for ref in re.findall(r"^\s*(?:-\s*)?uses:\s*(\S+)", text, re.MULTILINE):
+            if ref.startswith(("./", "hyperi-io/")):
+                continue
+            _, _, rev = ref.partition("@")
+            if not re.fullmatch(r"[0-9a-f]{40}", rev):
+                found.append(ref)
+        return found
+
+    def test_catches_a_bare_tag(self) -> None:
+        """The shape that slipped through: an action in neither map."""
+        bad = "    steps:\n      - uses: actions/create-github-app-token@v3\n"
+        assert self._offenders(bad) == ["actions/create-github-app-token@v3"]
+
+    def test_allows_a_sha_and_exempts_same_org(self) -> None:
+        ok = (
+            "      - uses: actions/checkout@" + "3" * 40 + " # v7.0.1\n"
+            "      - uses: hyperi-io/hyperi-ci/.github/actions/predict-version@main\n"
+            "      - uses: ./.github/actions/setup-runtime\n"
+        )
+        assert self._offenders(ok) == []
+
+    def test_the_real_pipeline_has_none(self) -> None:
+        # Every file the rewriter walks, so the templates are covered too.
+        offenders = []
+        for path in update_versions._find_workflow_files():
+            offenders += [
+                f"{path.name}: {ref}"
+                for ref in self._offenders(path.read_text(encoding="utf-8"))
+            ]
+        assert not offenders, "not SHA-pinned: " + "; ".join(offenders)
+
+    def test_the_scaffold_templates_are_in_scope(self) -> None:
+        """The gap that let them ship unpinned was discovery, not the rule."""
+        walked = update_versions._find_workflow_files()
+        assert any("gitops_templates" in str(p) for p in walked)
+
+
+class TestDiscoveryIsByContentNotLocation:
+    """Every workflow-shaped YAML in the repo must be one the rewriter walks.
+
+    The templates shipped unpinned for months because both guards - this
+    script and Renovate - key on LOCATION (`.github/`), and they are workflow
+    files that do not live where workflow files live. Neither was wrong about
+    the rule; both were looking in the wrong places.
+
+    So this asserts the inverse: find files by SHAPE, then require discovery to
+    cover them. A new workflow-shaped YAML anywhere in the tree fails here
+    until it is either discovered or exempted on purpose.
+    """
+
+    # Not source. `.github` is deliberately absent - it is source.
+    _SKIP_DIRS = {
+        ".git",
+        ".venv",
+        ".worktrees",
+        ".hyperi-ai",
+        ".tmp",
+        ".pytest_cache",
+        ".ruff_cache",
+        "node_modules",
+        "dist",
+        "__pycache__",
+    }
+
+    # Workflow-shaped files deliberately outside the rewriter's reach. Empty,
+    # and adding to it is a decision that needs a reason next to it.
+    _EXEMPT: set[str] = set()
+
+    def _is_workflow_shaped(self, text: str) -> bool:
+        """True if any line is an action reference, not merely the word uses.
+
+        Anchored at the key so a regex string (`- 'uses:\\s*...'` in
+        dep-surfaces.yaml) and prose in a comment do not count.
+        """
+        for ref in re.findall(r"^\s*(?:-\s*)?uses:\s*(\S+)", text, re.MULTILINE):
+            if ref.startswith("./") or ("/" in ref and "@" in ref):
+                return True
+        return False
+
+    def test_no_workflow_shaped_yaml_escapes_discovery(self) -> None:
+        root = update_versions._ROOT
+        walked = {p.resolve() for p in update_versions._find_workflow_files()}
+
+        missed = []
+        for path in root.rglob("*.y*ml"):
+            if self._SKIP_DIRS & set(path.relative_to(root).parts):
+                continue
+            if path.resolve() in walked:
+                continue
+            rel = str(path.relative_to(root))
+            if rel in self._EXEMPT:
+                continue
+            if self._is_workflow_shaped(path.read_text(encoding="utf-8")):
+                missed.append(rel)
+
+        assert not missed, (
+            "workflow-shaped YAML the version rewriter never sees, so its pins "
+            "are unenforced: " + "; ".join(sorted(missed))
+        )
+
+    def test_it_would_have_caught_the_templates(self, tmp_path) -> None:
+        """Guard against the check passing because the shape test is too narrow."""
+        assert self._is_workflow_shaped(
+            "    steps:\n      - uses: actions/checkout@v4\n"
+        )
+        assert self._is_workflow_shaped("      - uses: ./.github/actions/setup\n")
+        # The two real non-workflow hits: a comment, and a regex in config.
+        assert not self._is_workflow_shaped("# the last `uses:` in .github/\n")
+        assert not self._is_workflow_shaped("      - 'uses:\\s*(?P<dep>[^\\s@]+)@'\n")
 
 
 class TestValidateLocally:

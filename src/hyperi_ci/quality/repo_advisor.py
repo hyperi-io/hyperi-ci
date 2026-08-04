@@ -69,7 +69,7 @@ _DEFAULT_CONFIG = (
 # hand-edit it. It lives here rather than being read from the YAML because
 # config/ ships outside the wheel (pyproject packages = ["src/hyperi_ci"]).
 # hyperi-ci:pin tools.alint
-_ALINT_VERSION = "v0.14.0"
+_ALINT_VERSION = "v0.14.1"
 
 
 def _install_alint(dest_dir: Path) -> str | None:
@@ -96,7 +96,10 @@ def _install_alint(dest_dir: Path) -> str | None:
 
     info(f"  Installing alint {_ALINT_VERSION}...")
     tarball = dest_dir / "alint.tar.gz"
-    fetched = run_cmd(["curl", "-sSL", url, "-o", str(tarball)], check=False)
+    # -f: without it curl exits 0 on a 404 and writes the error page to the
+    # file, so a missing asset surfaces as a confusing unpack failure below
+    # rather than as the download failure it is.
+    fetched = run_cmd(["curl", "-fsSL", url, "-o", str(tarball)], check=False)
     if fetched.returncode != 0:
         warn("  Failed to download alint - advisory skipped.")
         return None

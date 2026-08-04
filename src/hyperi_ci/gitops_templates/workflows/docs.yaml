@@ -24,13 +24,13 @@ jobs:
     name: Build docs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       # enable-cache:false -- installs mkdocs-material as a TOOL (uv tool install),
       # not project deps, and a gitops repo has no uv.lock. setup-uv hard-errors
       # on enable-cache:true when no **/uv.lock is found.
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: false
       - name: Install MkDocs
@@ -44,13 +44,13 @@ jobs:
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       # enable-cache:false -- installs mkdocs-material as a TOOL (uv tool install),
       # not project deps, and a gitops repo has no uv.lock. setup-uv hard-errors
       # on enable-cache:true when no **/uv.lock is found.
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: false
       - name: Install MkDocs

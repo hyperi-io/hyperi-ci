@@ -51,9 +51,27 @@ actions:
   download-artifact:
     version: v8.0.1
     sha: 3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+  # Mints the bot token the release tail pushes tags with: the highest-
+  # privilege action in the pipeline, and the last `uses:` in .github/ still on
+  # a moveable tag. (The gitops_templates/ scaffold still ships bare tags - a
+  # separate surface, tracked separately.)
+  #
+  # max_major is the price of pinning it. `@v3` could never reach v4; a SHA pin
+  # can, and auto-update's "a breaking major shows up as a red CI run" does not
+  # hold here - the mint step sits behind `will-publish == 'true'`, so no PR
+  # ever executes it and the first exposure would be a real fleet-wide release.
+  # Lift the clamp by hand, having read v4's release notes.
+  create-github-app-token:
+    version: v3.2.0
+    sha: bcd2ba49218906704ab6c1aa796996da409d3eb1
+    max_major: 3
+  # v4.6.0 was ~6.5 days old at pin time - inside the 7-day cooldown - taken
+  # deliberately: it carries "Harden buildx scoped config path handling"
+  # (PR 1059), and `action.yml` is byte-identical to v4.5.2 (same blob
+  # 6eadfff765e47ed2882bd843fbe9a0193acc069d), so no consumer interface moves.
   docker-login:
-    version: v4.4.0
-    sha: af1e73f918a031802d376d3c8bbc3fe56130a9b0
+    version: v4.6.0
+    sha: dbcb813823bdd20940b903addbd779551569679f
   docker-setup-buildx:
     version: v4.2.0
     sha: bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
@@ -64,6 +82,15 @@ actions:
   ghcr-cleanup:
     version: v1.2.2
     sha: d52806a0dc70b430571a37da1fde39733ffd640f
+  # The next two appear ONLY in src/hyperi_ci/gitops_templates/workflows/, the
+  # pipeline `init-gitops` hands to a scaffolded repo. Pinned here so that repo
+  # starts on SHAs rather than the moveable tags it used to ship (issue #98).
+  setup-helm:
+    version: v5.0.1
+    sha: 9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310
+  setup-opentofu:
+    version: v2.0.2
+    sha: a1320f892987e89d278cc92dc5adc984fb93aca4
 
 # External CLI tools hyperi-ci installs at CI time.
 #
@@ -102,7 +129,7 @@ tools:
   # per-asset .sha256 + SHA256SUMS, so alint is the natural first candidate
   # when #66 (digest verification at download) lands.
   alint:
-    version: v0.14.0
+    version: v0.14.1
     repo: asamarts/alint
     pin: src/hyperi_ci/quality/repo_advisor.py
   gitleaks:

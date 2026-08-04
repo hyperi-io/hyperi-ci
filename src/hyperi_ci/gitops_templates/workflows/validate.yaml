@@ -18,18 +18,18 @@ jobs:
     name: k8s + IaC linting
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # enable-cache:false -- these jobs install TOOLS (hyperi-ci + checkov via
       # uvx), not project deps, and a gitops repo has no uv.lock. setup-uv
       # hard-errors on enable-cache:true when no **/uv.lock is found, so caching
       # stays off here.
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: false
       - name: Install hyperi-ci
         run: uv tool install hyperi-ci
       - name: Set up Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: v3.16.0
       # kubeconform (schema GATE) + kube-linter (best-practice ADVISORY) +
@@ -43,18 +43,18 @@ jobs:
     name: Topology stitch
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # enable-cache:false -- these jobs install TOOLS (hyperi-ci + checkov via
       # uvx), not project deps, and a gitops repo has no uv.lock. setup-uv
       # hard-errors on enable-cache:true when no **/uv.lock is found, so caching
       # stays off here.
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: false
       - name: Install hyperi-ci
         run: uv tool install hyperi-ci
       - name: Set up Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: v3.16.0
       # Verify each topology composes into a valid umbrella chart. Per-topology
@@ -72,10 +72,10 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # OpenTofu, not Terraform - Terraform is being retired across HyperI.
       # The .tf format is shared, so `tofu fmt` checks the same files.
-      - uses: opentofu/setup-opentofu@v1
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
       # -recursive at the repo root formats every .tf (in terraform/ or
       # elsewhere) and exits 0 when there are none - no dir guard needed.
       - name: tofu fmt

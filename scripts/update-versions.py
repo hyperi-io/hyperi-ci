@@ -60,6 +60,10 @@ _ROOT = Path(__file__).resolve().parent.parent
 _VERSIONS_FILE = _ROOT / "config" / "versions.yaml"
 _WORKFLOWS_DIR = _ROOT / ".github" / "workflows"
 _ACTIONS_DIR = _ROOT / ".github" / "actions"
+# Relative to _ROOT, resolved per call rather than at import: _check() reports
+# every hit as relative_to(_ROOT), so a frozen absolute path would raise the
+# moment _ROOT is repointed.
+_TEMPLATES_SUBDIR = Path("src") / "hyperi_ci" / "gitops_templates" / "workflows"
 
 # How long a release must have existed before we'll pin it. Mirrors the org
 # Renovate preset's `minimumReleaseAge` — a release sitting untouched for a
@@ -76,9 +80,13 @@ _ACTION_OWNERS: dict[str, str] = {
     "rust-toolchain": "dtolnay/rust-toolchain",
     "upload-artifact": "actions/upload-artifact",
     "download-artifact": "actions/download-artifact",
+    "create-github-app-token": "actions/create-github-app-token",
     "docker-login": "docker/login-action",
     "docker-setup-buildx": "docker/setup-buildx-action",
     "ghcr-cleanup": "dataaxiom/ghcr-cleanup-action",
+    # Used only by the gitops_templates scaffold, not our own pipeline.
+    "setup-helm": "azure/setup-helm",
+    "setup-opentofu": "opentofu/setup-opentofu",
 }
 
 
@@ -194,10 +202,17 @@ def _find_workflow_files() -> list[Path]:
     Composite actions under `.github/actions/*/action.yml` pin third-party
     actions too (setup-node, etc.), so they must be scanned or they'd drift
     unpinned — the gap that hid the unpinned refs during the deps review.
+
+    The `init-gitops` templates are scanned for the same reason one step
+    removed: they are not our pipeline, they are the pipeline we hand to every
+    repo we scaffold.
     """
+    templates_dir = _ROOT / _TEMPLATES_SUBDIR
     files: list[Path] = []
     for pattern in ("*.yml", "*.yaml"):
         files.extend(_WORKFLOWS_DIR.glob(pattern))
+        if templates_dir.is_dir():
+            files.extend(templates_dir.glob(pattern))
     if _ACTIONS_DIR.is_dir():
         for pattern in ("**/action.yml", "**/action.yaml"):
             files.extend(_ACTIONS_DIR.glob(pattern))
@@ -325,6 +340,9 @@ def _pinned_spec_for(short_name: str, current: object, now: datetime) -> dict | 
         return None
 
     cur_version = current.get("version") if isinstance(current, dict) else current
+    raw_major = current.get("max_major") if isinstance(current, dict) else None
+    # A non-int (a quoted "3", say) clamps to nothing rather than everything.
+    max_major = raw_major if isinstance(raw_major, int) else None
 
     if cur_version == "master":
         sha = _resolve_branch_sha(owner_repo, "master", now)
@@ -342,10 +360,26 @@ def _pinned_spec_for(short_name: str, current: object, now: datetime) -> dict | 
     #
     # The cooldown still applies, so a major has to be a week old before it is
     # eligible. What catches an actual incompatibility is CI, not this clamp.
-    chosen = _select_pinned_release(releases, now)
+    #
+    # `max_major:` opts one action OUT, for the case that breaks the reasoning
+    # above: an action no PR ever executes, so CI cannot be what catches the
+    # breaking major. Set it only with that justification, and say why in
+    # versions.yaml - the default stays unclamped.
+    chosen = _select_pinned_release(releases, now, major=max_major)
     if not chosen:
         return None
     tag = chosen["tag_name"]
+    # NEWER only, never merely different - the guard the tools path already
+    # carries. This returns the highest release PAST THE COOLDOWN, so a pin
+    # taken deliberately INSIDE the cooldown makes the best aged candidate look
+    # like an update, and --auto-update would roll the action backwards over
+    # the very reason it was pinned early. Returning the current spec reports
+    # it as up to date rather than as a downgrade.
+    cur = _parse_semver(str(cur_version))
+    new = _parse_semver(tag)
+    if cur and new and new <= cur:
+        cur_sha = current.get("sha") if isinstance(current, dict) else None
+        return {"version": str(cur_version), "sha": cur_sha} if cur_sha else None
     sha = _resolve_tag_sha(owner_repo, tag)
     return {"version": tag, "sha": sha} if sha else None
 

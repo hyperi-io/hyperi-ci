@@ -56,13 +56,13 @@ if [[ -z "${staged_pipeline}" && -z "${staged_pins}" ]]; then
     exit 0
 fi
 
-# Run the version fixer
+# Run the version fixer. `|| rc=$?` keeps `set -e` from exiting on the non-zero
+# that --fix returns by design, which is what the message below explains.
+rc=0
 if command -v uv >/dev/null 2>&1; then
-    uv run "${ROOT_DIR}/scripts/update-versions.py" --fix
-    rc=$?
+    uv run "${ROOT_DIR}/scripts/update-versions.py" --fix || rc=$?
 else
-    python3 "${ROOT_DIR}/scripts/update-versions.py" --fix
-    rc=$?
+    python3 "${ROOT_DIR}/scripts/update-versions.py" --fix || rc=$?
 fi
 
 if [[ "${rc}" -ne 0 ]]; then
