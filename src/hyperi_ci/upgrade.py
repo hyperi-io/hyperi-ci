@@ -581,7 +581,7 @@ def _refuse_when_frozen() -> bool:
 
 
 def _explicit_target(pre: bool) -> UpgradeTarget | None:
-    """Resolve the target for an unpinned ``hyperi-ci upgrade``.
+    """Resolve the target for an unpinned ``hyperi-ci update``.
 
     Args:
         pre: Include pre-releases when resolving.
@@ -681,7 +681,7 @@ def run_upgrade(
         )
 
     logger.info(f"{PACKAGE} upgraded: {current} -> {target}")
-    # No re-exec here. `hyperi-ci upgrade` has no original command to carry on
+    # No re-exec here. `hyperi-ci update` has no original command to carry on
     # with, so re-exec'ing means running `upgrade` again in the new binary --
     # and a new binary old enough to trust a zero exit code (before #82) then
     # re-execs on every "Nothing to upgrade", which never terminates.

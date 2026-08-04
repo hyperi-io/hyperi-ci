@@ -17,7 +17,7 @@ Usage:
     hyperi-ci watch [RUN_ID]            Watch a GitHub Actions run to completion
     hyperi-ci logs [RUN_ID]             Fetch and filter GitHub Actions run logs
     hyperi-ci release <tag>             Trigger publish for a version tag
-    hyperi-ci upgrade                   Upgrade to the channel's release
+    hyperi-ci update                    Update to the channel's release
     hyperi-ci autoupdate                Show/set self-update channel + freeze
     hyperi-ci check-commit              Validate commit message format
     hyperi-ci stitch <topology-dir>     Stitch a DeploymentTopology into an umbrella Helm chart
@@ -1445,6 +1445,29 @@ def tag_head_cmd(
 
 
 @app.command()
+def update(
+    target_version: Annotated[
+        str | None,
+        typer.Argument(help="Specific version to install (default: latest)"),
+    ] = None,
+    pre: Annotated[
+        bool,
+        typer.Option("--pre", help="Include pre-releases when resolving latest"),
+    ] = False,
+) -> None:
+    """Update hyperi-ci to its channel's release (or a specific version).
+
+    Which release "latest" means is the channel's decision: `live` (the
+    default) takes the newest release on PyPI, `stable` takes the newest one
+    that has soaked for 7 days. See `hyperi-ci autoupdate`.
+    """
+    from hyperi_ci.upgrade import run_upgrade
+
+    rc = run_upgrade(version=target_version, pre=pre)
+    raise typer.Exit(rc)
+
+
+@app.command(hidden=True)
 def upgrade(
     target_version: Annotated[
         str | None,
@@ -1455,16 +1478,16 @@ def upgrade(
         typer.Option("--pre", help="Include pre-releases when resolving latest"),
     ] = False,
 ) -> None:
-    """Upgrade hyperi-ci to its channel's release (or a specific version).
+    """Update hyperi-ci -- the deprecated spelling of `update`.
 
-    Which release "latest" means is the channel's decision: `live` (the
-    default) takes the newest release on PyPI, `stable` takes the newest one
-    that has soaked for 7 days. See `hyperi-ci autoupdate`.
+    The verb is `update` across the toolchain (`hyperi-ai update`). This
+    spelling keeps working because it is in docs and CI images; removal is a
+    4.0 change.
     """
-    from hyperi_ci.upgrade import run_upgrade
+    from hyperi_ci.common import warn
 
-    rc = run_upgrade(version=target_version, pre=pre)
-    raise typer.Exit(rc)
+    warn("`hyperi-ci upgrade` is deprecated -- use `hyperi-ci update`.")
+    update(target_version=target_version, pre=pre)
 
 
 @app.command()
