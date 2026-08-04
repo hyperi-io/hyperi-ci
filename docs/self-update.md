@@ -20,8 +20,8 @@ hyperi-ci autoupdate channel stable       # opt into the soak window
 hyperi-ci autoupdate disable              # stop auto-update, keep the channel
 hyperi-ci autoupdate freeze               # kill-switch: nothing updates
 hyperi-ci autoupdate unfreeze
-hyperi-ci upgrade                         # upgrade now, to the channel's release
-hyperi-ci upgrade 2.9.4                   # install exactly this (see below)
+hyperi-ci update                         # upgrade now, to the channel's release
+hyperi-ci update 2.9.4                   # install exactly this (see below)
 ```
 
 ## It is a package, not a clone
@@ -52,7 +52,7 @@ used, leaving no pin behind.
 
 Switching to `stable` while already ahead of the soak window does **not** roll
 the install back. The channel holds the version still; it never downgrades. Only
-an explicit `hyperi-ci upgrade <version>` installs something older.
+an explicit `hyperi-ci update <version>` installs something older.
 
 ## Where the state lives
 
@@ -98,7 +98,7 @@ for a workstation.
 
 ## An explicit version is not a pin
 
-`hyperi-ci upgrade 2.9.4` installs 2.9.4 and warns, because auto-update clears
+`hyperi-ci update 2.9.4` installs 2.9.4 and warns, because auto-update clears
 the receipt pin it leaves and moves back to the channel target within 4 hours.
 To hold a version, hold auto-update: `hyperi-ci autoupdate freeze`.
 
@@ -119,7 +119,7 @@ quiet for four hours at a time.
 saw it. Both uv paths carry `--refresh`. pip has no index-only refresh, so it is
 left alone and the post-check reports stale metadata instead.
 
-`hyperi-ci upgrade` deliberately does not re-exec. It has no original command to
+`hyperi-ci update` deliberately does not re-exec. It has no original command to
 carry on with, and re-exec'ing meant running `upgrade` again in the new binary --
 which, in a binary old enough to trust a zero exit code, re-execs on every
 "Nothing to upgrade" and never terminates.

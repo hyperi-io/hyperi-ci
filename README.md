@@ -276,7 +276,7 @@ No code changes, no workflow changes.
 | `hyperi-ci watch [--timeout SEC]` | Watch latest CI run (default 3600s; `--timeout 0` disables) |
 | `hyperi-ci logs [--failed]` | Show CI run logs |
 | `hyperi-ci init` | Scaffold a new project |
-| `hyperi-ci upgrade` | Upgrade to the channel's release (see `autoupdate`) |
+| `hyperi-ci update` | Update to the channel's release (see `autoupdate`) |
 | `hyperi-ci autoupdate [status\|channel live\|stable\|freeze\|unfreeze]` | Show/set how the CLI updates itself |
 
 `hyperi-ci release` is kept as a deprecated alias of `hyperi-ci publish`
