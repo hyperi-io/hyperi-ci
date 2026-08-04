@@ -731,3 +731,51 @@ class TestAllModeBypass:
         )
         assert rc == 0
         assert installed_packages == []
+
+
+class TestLanguageToolInstallerAbsent:
+    """issue #91: a missing installer degrades, it does not crash.
+
+    `install_language_tools` documents itself as non-fatal, but
+    `subprocess.run(..., check=False)` only suppresses a non-zero EXIT --
+    a missing executable raises FileNotFoundError before the process starts.
+    Rust reaches this before the workflow installs rustup.
+    """
+
+    def test_missing_installer_binary_warns_and_continues(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(native_deps.platform, "system", lambda: "Linux")
+        # cargo absent, and the tool it would install is absent too.
+        monkeypatch.setattr(native_deps.shutil, "which", lambda _cmd: None)
+
+        def explode(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("must not invoke a missing installer")
+
+        monkeypatch.setattr(native_deps.subprocess, "run", explode)
+
+        assert native_deps._install_language_tools("rust") == 0
+
+    def test_present_installer_is_still_invoked(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The skip stays narrow -- a real cargo still installs the tool."""
+        monkeypatch.setattr(native_deps.platform, "system", lambda: "Linux")
+        monkeypatch.setattr(
+            native_deps.shutil,
+            "which",
+            lambda cmd: "/usr/bin/cargo" if cmd == "cargo" else None,
+        )
+        calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess:
+            calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0)
+
+        monkeypatch.setattr(native_deps.subprocess, "run", fake_run)
+
+        assert native_deps._install_language_tools("rust") == 0
+        assert calls, "a present cargo must still be invoked"
+        assert calls[0][0] == "cargo"

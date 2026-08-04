@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import platform
+import shutil
 import subprocess
 import sys
 import urllib.error
@@ -644,9 +645,6 @@ def _install_language_tools(language: str) -> int:
     if platform.system() != "Linux":
         return 0
 
-    import os
-    import shutil
-
     for tool in tools:
         # Ensure the tool's install dir is on PATH before probe + install
         bin_dir = Path.home() / tool.bin_dir
@@ -659,6 +657,17 @@ def _install_language_tools(language: str) -> int:
             continue
 
         cmd = [*tool.installer, *tool.args]
+
+        # A missing installer raises FileNotFoundError before the process
+        # starts, which `check=False` does not cover (issue #91). Rust reaches
+        # here before `Install Rust toolchain` runs, so cargo may not exist.
+        if shutil.which(cmd[0]) is None:
+            logger.warning(
+                f"[{tool.name}] {cmd[0]} not on PATH — skipping; dependent CI "
+                "stages will handle the missing tool"
+            )
+            continue
+
         logger.info(f"Installing {tool.name}: {' '.join(cmd)}")
         result = subprocess.run(cmd, check=False)
         if result.returncode != 0:
