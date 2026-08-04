@@ -623,6 +623,30 @@ def test_release_tail_uses_shared_workflow(workflow_name: str) -> None:
     )
 
 
+def test_rust_renovate_carveout_never_lands_on_a_toolchainless_runner() -> None:
+    """issue #91: renovate/ branches must resolve to a runner with cargo.
+
+    GH_RUNNER_RENOVATE and GH_RUNNER_DEFAULT point at vanilla sets, and Rust
+    does not bootstrap its toolchain at job time — so rust-ci.yml's renovate
+    carve-out must chain GH_RUNNER_RENOVATE_RUST -> GH_RUNNER_RUST, never the
+    shared GH_RUNNER_RENOVATE.
+    """
+    import re
+
+    text = (WORKFLOW_DIR / "rust-ci.yml").read_text(encoding="utf-8")
+    expressions = [line for line in text.splitlines() if "renovate/" in line and "${{" in line]
+    assert expressions, "rust-ci.yml: the renovate carve-out has vanished entirely"
+    for line in expressions:
+        assert not re.search(r"GH_RUNNER_RENOVATE(?!_RUST)", line), (
+            f"rust-ci.yml routes a renovate/ branch through the shared "
+            f"GH_RUNNER_RENOVATE (a vanilla set with no cargo): {line.strip()}"
+        )
+        assert "GH_RUNNER_RUST" in line, (
+            f"rust-ci.yml renovate carve-out must fall back to GH_RUNNER_RUST: "
+            f"{line.strip()}"
+        )
+
+
 # Steps in _release-tail.yml that PUSH to the default branch or create a tag.
 # Named by the `name:` field so a reordering does not silently drop one.
 _PUSHING_STEPS = (
