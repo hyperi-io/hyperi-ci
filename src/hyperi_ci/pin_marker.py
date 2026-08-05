@@ -40,11 +40,20 @@ import re
 # enforcing caller, or a capture group for the discovering one.
 MARKER = r"#\s*hyperi-ci:pin\s+{name}\s*\n"
 
+# A sha256, which pins the BYTES rather than the name of a release. Listed
+# before the version alternative below because a digest beginning with a letter
+# (`d7882e...`) does not match the version token at all, and one beginning with
+# a digit would otherwise be consumed by it.
+_DIGEST = r"[0-9a-f]{64}"
+
 # Version token on the line FOLLOWING the marker. The `=` or `:` (with an
 # optional opening quote) is required, so a digit inside an identifier --
 # `_SHA256 = ...` -- cannot be mistaken for the version.
-_VERSION = r"(?P<ver>v?\d[\w.+-]*)"
-_VALUE = rf'[^\n]*?[=:]\s*"?{_VERSION}'
+_SEMVER = r"v?\d[\w.+-]*"
+
+_VERSION = rf"(?P<ver>{_SEMVER})"
+_TOKEN = rf"(?P<ver>{_DIGEST}|{_SEMVER})"
+_VALUE = rf'[^\n]*?[=:]\s*"?{_TOKEN}'
 
 
 def pin_pattern(name: str) -> re.Pattern[str]:
@@ -57,6 +66,17 @@ def pin_pattern(name: str) -> re.Pattern[str]:
     """
     marker = MARKER.format(name=re.escape(name))
     return re.compile(rf'({marker}[^\n]*?[=:]\s*"?){_VERSION}')
+
+
+def digest_pin_pattern(name: str) -> re.Pattern[str]:
+    """Match ONE named DIGEST pin, splitting the prefix from the hash.
+
+    Separate from :func:`pin_pattern` so a digest can never be rewritten with a
+    version, or the reverse: the two token shapes do not overlap, and a mixed-up
+    pin would install unverified rather than fail.
+    """
+    marker = MARKER.format(name=re.escape(name))
+    return re.compile(rf'({marker}[^\n]*?[=:]\s*"?)(?P<ver>{_DIGEST})')
 
 
 # A marker KEY is a dotted identifier (`tools.cargo-audit`), never arbitrary

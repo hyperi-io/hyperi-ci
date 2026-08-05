@@ -9,6 +9,14 @@
 # (RustSec) and pip-audit do not. The install block was duplicated in rust-ci
 # and ts-ci — collapsed here so the pin + arch logic live once.
 #
+# The version AND the per-arch sha256 are pinned in
+# src/hyperi_ci/config/versions.yaml (`tools:`) and mirrored here by
+# scripts/update-versions.py --fix. Do not hand-edit the marked lines.
+#
+# The digest is the pin that matters: a release asset can be deleted and
+# re-uploaded under the same tag, so a tag alone is not integrity (issue #66).
+# The download lands in a scratch dir, so a mismatch never reaches PATH.
+#
 # Referenced from reusable workflows as
 #   hyperi-io/hyperi-ci/.github/actions/setup-osv-scanner@main
 
@@ -23,6 +31,16 @@ inputs:
     # step by scripts/update-versions.py --fix; do not hand-edit.
     # hyperi-ci:pin tools.osv-scanner
     default: v2.4.0
+  sha256-amd64:
+    description: sha256 of the linux-amd64 osv-scanner binary
+    required: false
+    # hyperi-ci:pin tools.osv-scanner.sha256.amd64
+    default: 15314940c10d26af9c6649f150b8a47c1262e8fc7e17b1d1029b0e479e8ed8a0
+  sha256-arm64:
+    description: sha256 of the linux-arm64 osv-scanner binary
+    required: false
+    # hyperi-ci:pin tools.osv-scanner.sha256.arm64
+    default: 44e580752910f0ff36ec99aff59af20f65df1e859aa31e5605a8f0d055b496e9
 
 runs:
   using: composite
@@ -32,15 +50,35 @@ runs:
       # it only for local-dev convenience). Pinned; bump deliberately.
       shell: bash
       run: |
+        set -euo pipefail
         OSV_VERSION="${{ inputs.version }}"
         case "$(uname -m)" in
-          x86_64) OSV_ARCH=amd64 ;;
-          aarch64 | arm64) OSV_ARCH=arm64 ;;
+          x86_64)
+            OSV_ARCH=amd64
+            OSV_SHA="${{ inputs.sha256-amd64 }}"
+            ;;
+          aarch64 | arm64)
+            OSV_ARCH=arm64
+            OSV_SHA="${{ inputs.sha256-arm64 }}"
+            ;;
           *) echo "::error::unsupported arch $(uname -m) for osv-scanner"; exit 1 ;;
         esac
         mkdir -p "$HOME/.local/bin"
-        curl -sSfL -o "$HOME/.local/bin/osv-scanner" \
+
+        # A pinned tag is not integrity: a release asset can be deleted and
+        # re-uploaded under the same tag. Download to a scratch path so a
+        # mismatch never lands on PATH even briefly.
+        TMP="$(mktemp -d)"
+        trap 'rm -rf "$TMP"' EXIT
+        curl -fsSL --connect-timeout 10 --max-time 300 -o "$TMP/osv-scanner" \
           "https://github.com/google/osv-scanner/releases/download/${OSV_VERSION}/osv-scanner_linux_${OSV_ARCH}"
-        chmod +x "$HOME/.local/bin/osv-scanner"
+        echo "$OSV_SHA  $TMP/osv-scanner" | sha256sum -c - >/dev/null || {
+          echo "::error::osv-scanner failed its sha256 check - refusing to install"
+          echo "  expected $OSV_SHA"
+          echo "  got      $(sha256sum "$TMP/osv-scanner" | cut -d' ' -f1)"
+          exit 1
+        }
+
+        install -m 0755 "$TMP/osv-scanner" "$HOME/.local/bin/osv-scanner"
         echo "$HOME/.local/bin" >> "$GITHUB_PATH"
         "$HOME/.local/bin/osv-scanner" --version

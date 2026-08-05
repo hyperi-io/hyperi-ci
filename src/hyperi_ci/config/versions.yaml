@@ -152,18 +152,33 @@ tools:
     sha256:
       amd64: 618d299a3e2839c8ca9d86fce0db617be0fba41f0fecbbbfb7fbf1c04299fae1
       arm64: 9c39d35252e0dcafb16b26197b9e93ba578e44eb402c3c6660fc94e08f94094f
+  # The five tools below are fetched by a COMPOSITE ACTION rather than by our
+  # Python, because the quality job needs them before hyperi-ci is installed.
+  # That is why their digests are mirrored into the action's `default:` inputs
+  # as well as living here: GitHub parses a composite action before any of our
+  # code runs, so it cannot read this file. update-versions.py writes those
+  # mirrors; never hand-edit a marked line.
   osv-scanner:
     version: v2.4.0
     repo: google/osv-scanner
     pin: .github/actions/setup-osv-scanner/action.yml
+    sha256:
+      amd64: 15314940c10d26af9c6649f150b8a47c1262e8fc7e17b1d1029b0e479e8ed8a0
+      arm64: 44e580752910f0ff36ec99aff59af20f65df1e859aa31e5605a8f0d055b496e9
   golangci-lint:
     version: v2.12.2
     repo: golangci/golangci-lint
     pin: .github/actions/setup-go-tools/action.yml
+    sha256:
+      amd64: 8df580d2670fed8fa984aac0507099af8df275e665215f5c7a2ae3943893a553
+      arm64: 44cd40a8c76c86755375adfeea52cfd3533cb43d7bd647771e0ae065e166df3a
   gosec:
     version: v2.28.0
     repo: securego/gosec
     pin: .github/actions/setup-go-tools/action.yml
+    sha256:
+      amd64: d7882e505b1ff345d458bf0e893eec8019bc849f861ad73a212869540dd505ff
+      arm64: 63259681b6e4b9e7a24d4e187b485e75d3844d28d512b0c97dc831e51d374720
   # No prebuilt binaries upstream (golang/vuln releases carry no assets), so
   # this one is still `go install` - but pinned, not @latest. Small pure-Go
   # module, so the compile costs seconds.
@@ -175,17 +190,28 @@ tools:
   # tag_prefix the release scan sees `platforms/v4.0.0` et al and either picks
   # the wrong crate or (because the tag is not bare semver) silently finds
   # nothing at all.
+  #
+  # cargo-audit is the ONE tool here whose release publishes no checksum file,
+  # so its digests rest on our own download alone. The other four were each
+  # cross-checked against upstream's published sums at pin time.
   cargo-audit:
     version: v0.22.2
     repo: rustsec/rustsec
     tag_prefix: cargo-audit/
     pin: .github/actions/setup-rust-tools/action.yml
+    sha256:
+      # amd64 is the musl build; arm64 is gnu, since no aarch64 musl is published.
+      amd64: 7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428
+      arm64: c6603814ddaa45e51263dafd31c0ac98808f688d26f7395804f9670b0fd599dd
   # Upstream tags have NO leading `v` - keep it that way, the download URL is
   # built from this string verbatim.
   cargo-deny:
     version: 0.20.2
     repo: EmbarkStudios/cargo-deny
     pin: .github/actions/setup-rust-tools/action.yml
+    sha256:
+      amd64: 9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f
+      arm64: 995c82be0defc7a025cae49a2aa2644ce8245c9a3318fc4103907c6a285e8c7d
   # Baked into the generated cargo-chef Dockerfile by container/compose.py,
   # which reads it from here.
   cargo-chef:

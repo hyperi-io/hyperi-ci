@@ -25,8 +25,18 @@
 # makes a pin a pin. GITHUB_PATH PREPENDS, so our pinned copy wins over any
 # baked one.
 #
-# Versions are pinned in src/hyperi_ci/config/versions.yaml (`tools:`) and mirrored here by
+# Versions AND per-arch sha256 digests are pinned in
+# src/hyperi_ci/config/versions.yaml (`tools:`) and mirrored here by
 # scripts/update-versions.py --fix. Do not hand-edit the marked lines.
+#
+# The digest is the pin that matters: a release asset can be deleted and
+# re-uploaded under the same tag, so a tag alone is not integrity (issue #66).
+# A mismatch fails the step rather than installing. The mirror exists because
+# GitHub parses this file before hyperi-ci is installed, so it cannot read the
+# packaged SSOT the way `install.fetch_verified` does.
+#
+# govulncheck carries no digest deliberately: `go install` resolves through the
+# Go module proxy and is verified against the sum.golang.org transparency log.
 #
 # Referenced from reusable workflows as
 #   hyperi-io/hyperi-ci/.github/actions/setup-go-tools@main
@@ -50,6 +60,26 @@ inputs:
     required: false
     # hyperi-ci:pin tools.govulncheck
     default: v1.1.4
+  golangci-lint-sha256-amd64:
+    description: sha256 of the linux-amd64 golangci-lint tarball
+    required: false
+    # hyperi-ci:pin tools.golangci-lint.sha256.amd64
+    default: 8df580d2670fed8fa984aac0507099af8df275e665215f5c7a2ae3943893a553
+  golangci-lint-sha256-arm64:
+    description: sha256 of the linux-arm64 golangci-lint tarball
+    required: false
+    # hyperi-ci:pin tools.golangci-lint.sha256.arm64
+    default: 44cd40a8c76c86755375adfeea52cfd3533cb43d7bd647771e0ae065e166df3a
+  gosec-sha256-amd64:
+    description: sha256 of the linux-amd64 gosec tarball
+    required: false
+    # hyperi-ci:pin tools.gosec.sha256.amd64
+    default: d7882e505b1ff345d458bf0e893eec8019bc849f861ad73a212869540dd505ff
+  gosec-sha256-arm64:
+    description: sha256 of the linux-arm64 gosec tarball
+    required: false
+    # hyperi-ci:pin tools.gosec.sha256.arm64
+    default: 63259681b6e4b9e7a24d4e187b485e75d3844d28d512b0c97dc831e51d374720
 
 runs:
   using: composite
@@ -75,18 +105,48 @@ runs:
         mkdir -p "$HOME/.local/bin"
         echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
+        case "$GOARCH" in
+          amd64)
+            GCL_SHA="${{ inputs.golangci-lint-sha256-amd64 }}"
+            GOSEC_SHA="${{ inputs.gosec-sha256-amd64 }}"
+            ;;
+          arm64)
+            GCL_SHA="${{ inputs.golangci-lint-sha256-arm64 }}"
+            GOSEC_SHA="${{ inputs.gosec-sha256-arm64 }}"
+            ;;
+        esac
+
+        # A pinned tag is not integrity: a release asset can be deleted and
+        # re-uploaded under the same tag. Verification needs the whole file, so
+        # the download cannot pipe straight into tar.
+        fetch() {  # $1=url  $2=expected sha256  $3=dest file
+          curl -fsSL --connect-timeout 10 --max-time 300 -o "$3" "$1"
+          echo "$2  $3" | sha256sum -c - >/dev/null || {
+            echo "::error::$1 failed its sha256 check - refusing to install"
+            echo "  expected $2"
+            echo "  got      $(sha256sum "$3" | cut -d' ' -f1)"
+            exit 1
+          }
+        }
+
+        TMP="$(mktemp -d)"
+        trap 'rm -rf "$TMP"' EXIT
+
         # golangci-lint: binary nested one level down, hence --strip-components.
         GCL="${{ inputs.golangci-lint-version }}"
-        curl -sSfL \
+        fetch \
           "https://github.com/golangci/golangci-lint/releases/download/${GCL}/golangci-lint-${GCL#v}-linux-${GOARCH}.tar.gz" \
-          | tar xz -C "$HOME/.local/bin" --strip-components=1 \
-            "golangci-lint-${GCL#v}-linux-${GOARCH}/golangci-lint"
+          "$GCL_SHA" "$TMP/golangci-lint.tar.gz"
+        tar xz -C "$HOME/.local/bin" --strip-components=1 \
+          -f "$TMP/golangci-lint.tar.gz" \
+          "golangci-lint-${GCL#v}-linux-${GOARCH}/golangci-lint"
 
         # gosec: binary at the tarball ROOT, so no --strip-components here.
         GOSEC="${{ inputs.gosec-version }}"
-        curl -sSfL \
+        fetch \
           "https://github.com/securego/gosec/releases/download/${GOSEC}/gosec_${GOSEC#v}_linux_${GOARCH}.tar.gz" \
-          | tar xz -C "$HOME/.local/bin" gosec
+          "$GOSEC_SHA" "$TMP/gosec.tar.gz"
+        tar xz -C "$HOME/.local/bin" -f "$TMP/gosec.tar.gz" gosec
 
         # govulncheck: upstream publishes no binaries, so compile - but pinned,
         # and with GOBIN forced into our dir so it cannot silently resolve to a

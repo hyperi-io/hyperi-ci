@@ -97,6 +97,10 @@ _ACTION_OWNERS: dict[str, str] = {
 # advice cannot silently rot when a message is reworded.
 _UNFIXABLE = "NOT-AUTO-FIXABLE"
 
+# A digest is enforced only if it IS one: a truncated or upper-case value would
+# otherwise be mirrored verbatim and fail the install at job time instead of here.
+_SHA256_RE = re.compile(r"[0-9a-f]{64}")
+
 
 def _tool_pin_pattern(name: str) -> re.Pattern[str]:
     """Match the version token on the line following this tool's pin marker.
@@ -159,6 +163,27 @@ def _tool_pins(
             )
             continue
         out.append((path, _tool_pin_pattern(name), str(version), name))
+
+        # A pinned tool fetched by a composite action also mirrors its per-arch
+        # digest there: the action runs before hyperi-ci exists, so it cannot
+        # read the SSOT, and a tag alone is not integrity - a release asset can
+        # be deleted and re-uploaded under the same tag (issue #66).
+        digests = spec.get("sha256")
+        if digests is None:
+            continue
+        if not isinstance(digests, dict):
+            problems.append(f"  tools.{name}.sha256: not a mapping [{_UNFIXABLE}]")
+            continue
+        for arch, digest in digests.items():
+            key = f"{name}.sha256.{arch}"
+            if not isinstance(digest, str) or not _SHA256_RE.fullmatch(digest):
+                problems.append(
+                    f"  tools.{key}: not a sha256 hex digest [{_UNFIXABLE}]"
+                )
+                continue
+            out.append(
+                (path, pin_marker.digest_pin_pattern(f"tools.{key}"), digest, key)
+            )
     return out, problems
 
 

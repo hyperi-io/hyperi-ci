@@ -93,6 +93,83 @@ class TestEveryDownloadedToolIsPinnedAndVerifiable:
             assert re.fullmatch(r"[0-9a-f]{64}", str(digest)), f"{tool}/{arch}"
 
 
+class TestEveryCompositeActionDownloadIsVerified:
+    """A composite action that fetches a release asset must check its digest.
+
+    The quality job needs these tools before hyperi-ci exists, so they cannot go
+    through `install.fetch_verified` and its gate. That is why they are found by
+    CONTENT here rather than by a hand-kept list: a tool added to an action
+    later is covered without anyone remembering to extend a tuple (issue #66,
+    and the location-keyed blind spot from #98).
+    """
+
+    ACTIONS = _ROOT / ".github" / "actions"
+
+    @staticmethod
+    def _download_steps() -> list[tuple[str, str]]:
+        """Every (action, script) that curls a GitHub release asset."""
+        found = []
+        for path in sorted(
+            TestEveryCompositeActionDownloadIsVerified.ACTIONS.rglob("action.yml")
+        ):
+            action = yaml.safe_load(path.read_text(encoding="utf-8"))
+            for step in (action.get("runs") or {}).get("steps") or []:
+                script = str(step.get("run", ""))
+                if "releases/download/" in script:
+                    found.append((path.parent.name, script))
+        return found
+
+    def test_discovery_finds_the_downloading_actions(self) -> None:
+        # Guards the guard: an empty sweep makes every assertion below vacuous.
+        names = {name for name, _ in self._download_steps()}
+        assert names, "no composite action downloads a release asset — discovery broke"
+
+    def test_every_download_verifies_a_digest(self) -> None:
+        for action, script in self._download_steps():
+            assert "sha256sum -c" in script, (
+                f"{action}: fetches a release asset without checking its sha256. "
+                "A tag is not integrity — an asset can be re-uploaded under one."
+            )
+
+    def test_no_download_pipes_straight_into_tar(self) -> None:
+        # Piping means the bytes are extracted before anything can hash them,
+        # so the digest check would be unreachable however it were written.
+        for action, script in self._download_steps():
+            assert "| tar" not in script, (
+                f"{action}: pipes a download into tar, which extracts before "
+                "the digest can be checked. Fetch to a file first."
+            )
+
+    def test_every_download_fails_on_an_http_error(self) -> None:
+        # Without -f, curl exits 0 on a 404 and saves the error page, which is
+        # then treated as the tool.
+        for action, script in self._download_steps():
+            assert "curl -fsSL" in script, (
+                f"{action}: curl without -f saves a 404 body as the artefact"
+            )
+
+
+class TestCompositeToolsPinDigestsInTheSSOT:
+    """The digests those actions mirror have to exist here first."""
+
+    # go install resolves through the Go module proxy and is verified against
+    # the sum.golang.org transparency log, so it needs no digest of ours.
+    DELEGATED = {"govulncheck"}
+
+    def test_every_action_pinned_tool_pins_a_digest(self) -> None:
+        data = yaml.safe_load(versions.VERSIONS_FILE.read_text(encoding="utf-8"))
+        for name, spec in (data.get("tools") or {}).items():
+            if not spec.get("pin") or name in self.DELEGATED:
+                continue
+            digests = spec.get("sha256")
+            assert digests, f"tools.{name} is fetched by an action but pins no sha256"
+            assert set(digests) >= {"amd64", "arm64"}, (
+                f"tools.{name} must pin both arches its action installs"
+            )
+            for arch, digest in digests.items():
+                assert re.fullmatch(r"[0-9a-f]{64}", str(digest)), f"{name}/{arch}"
+
+
 class TestNoVersionLiteralsInSource:
     """The rule with teeth: no pinned third-party version copied into Python.
 

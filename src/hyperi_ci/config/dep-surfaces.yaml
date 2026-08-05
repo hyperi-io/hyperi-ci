@@ -122,7 +122,7 @@ surfaces:
     broad: true
     prefilter: 'hyperi-ci:pin'
     pins_multiline:
-      - '#\s*hyperi-ci:pin\s+(?P<dep>[\w.\-/]+)\s*\n[^\n]*?[=:]\s*"?(?P<ver>v?\d[\w.+-]*)'
+      - '#\s*hyperi-ci:pin\s+(?P<dep>[\w.\-/]+)\s*\n[^\n]*?[=:]\s*"?(?P<ver>[0-9a-f]{64}|v?\d[\w.+-]*)'
     notes: >-
       One explicit marker beats a per-tool regex guessing at each file's shape:
       it reads the same in Python and YAML, survives the line being reworded,

@@ -32,8 +32,16 @@
 #                asset `cargo-deny-X.Y.Z-<target>.tar.gz` (version MIDDLE)
 # Both nest the binary one level down.
 #
-# Versions are pinned in src/hyperi_ci/config/versions.yaml (`tools:`) and mirrored here by
+# Versions AND per-arch sha256 digests are pinned in
+# src/hyperi_ci/config/versions.yaml (`tools:`) and mirrored here by
 # scripts/update-versions.py --fix. Do not hand-edit the marked lines.
+#
+# The digest is the pin that matters: a release asset can be deleted and
+# re-uploaded under the same tag, so a tag alone is not integrity (issue #66).
+# A mismatch fails the step rather than installing.
+#
+# cargo-audit is the one tool here whose release publishes no checksum file, so
+# its digests rest on our own download rather than a second source.
 #
 # Referenced from reusable workflows as
 #   hyperi-io/hyperi-ci/.github/actions/setup-rust-tools@main
@@ -52,6 +60,26 @@ inputs:
     required: false
     # hyperi-ci:pin tools.cargo-deny
     default: 0.20.2
+  cargo-audit-sha256-amd64:
+    description: sha256 of the x86_64-musl cargo-audit tarball
+    required: false
+    # hyperi-ci:pin tools.cargo-audit.sha256.amd64
+    default: 7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428
+  cargo-audit-sha256-arm64:
+    description: sha256 of the aarch64-gnu cargo-audit tarball
+    required: false
+    # hyperi-ci:pin tools.cargo-audit.sha256.arm64
+    default: c6603814ddaa45e51263dafd31c0ac98808f688d26f7395804f9670b0fd599dd
+  cargo-deny-sha256-amd64:
+    description: sha256 of the x86_64-musl cargo-deny tarball
+    required: false
+    # hyperi-ci:pin tools.cargo-deny.sha256.amd64
+    default: 9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f
+  cargo-deny-sha256-arm64:
+    description: sha256 of the aarch64-musl cargo-deny tarball
+    required: false
+    # hyperi-ci:pin tools.cargo-deny.sha256.arm64
+    default: 995c82be0defc7a025cae49a2aa2644ce8245c9a3318fc4103907c6a285e8c7d
 
 runs:
   using: composite
@@ -66,29 +94,51 @@ runs:
           x86_64)
             AUDIT_TARGET=x86_64-unknown-linux-musl
             DENY_TARGET=x86_64-unknown-linux-musl
+            AUDIT_SHA="${{ inputs.cargo-audit-sha256-amd64 }}"
+            DENY_SHA="${{ inputs.cargo-deny-sha256-amd64 }}"
             ;;
           aarch64 | arm64)
             # cargo-audit publishes no aarch64 musl build, only gnu.
             AUDIT_TARGET=aarch64-unknown-linux-gnu
             DENY_TARGET=aarch64-unknown-linux-musl
+            AUDIT_SHA="${{ inputs.cargo-audit-sha256-arm64 }}"
+            DENY_SHA="${{ inputs.cargo-deny-sha256-arm64 }}"
             ;;
           *) echo "::error::unsupported arch $(uname -m) for Rust tools"; exit 1 ;;
         esac
         mkdir -p "$HOME/.local/bin"
         echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
+        # A pinned tag is not integrity: a release asset can be deleted and
+        # re-uploaded under the same tag. Verification needs the whole file, so
+        # the download cannot pipe straight into tar.
+        fetch() {  # $1=url  $2=expected sha256  $3=dest file
+          curl -fsSL --connect-timeout 10 --max-time 300 -o "$3" "$1"
+          echo "$2  $3" | sha256sum -c - >/dev/null || {
+            echo "::error::$1 failed its sha256 check - refusing to install"
+            echo "  expected $2"
+            echo "  got      $(sha256sum "$3" | cut -d' ' -f1)"
+            exit 1
+          }
+        }
+
+        TMP="$(mktemp -d)"
+        trap 'rm -rf "$TMP"' EXIT
+
         AUDIT="${{ inputs.cargo-audit-version }}"
         # Monorepo tag: the `/` must be percent-encoded in the download URL.
-        curl -sSfL \
+        fetch \
           "https://github.com/rustsec/rustsec/releases/download/cargo-audit%2F${AUDIT}/cargo-audit-${AUDIT_TARGET}-${AUDIT}.tgz" \
-          | tar xz -C "$HOME/.local/bin" --strip-components=1 \
-            "cargo-audit-${AUDIT_TARGET}-${AUDIT}/cargo-audit"
+          "$AUDIT_SHA" "$TMP/cargo-audit.tgz"
+        tar xz -C "$HOME/.local/bin" --strip-components=1 -f "$TMP/cargo-audit.tgz" \
+          "cargo-audit-${AUDIT_TARGET}-${AUDIT}/cargo-audit"
 
         DENY="${{ inputs.cargo-deny-version }}"
-        curl -sSfL \
+        fetch \
           "https://github.com/EmbarkStudios/cargo-deny/releases/download/${DENY}/cargo-deny-${DENY}-${DENY_TARGET}.tar.gz" \
-          | tar xz -C "$HOME/.local/bin" --strip-components=1 \
-            "cargo-deny-${DENY}-${DENY_TARGET}/cargo-deny"
+          "$DENY_SHA" "$TMP/cargo-deny.tar.gz"
+        tar xz -C "$HOME/.local/bin" --strip-components=1 -f "$TMP/cargo-deny.tar.gz" \
+          "cargo-deny-${DENY}-${DENY_TARGET}/cargo-deny"
 
     - name: Verify Rust tools match the pin
       # ASSERT, don't just print - see the note in setup-go-tools. Separate step
