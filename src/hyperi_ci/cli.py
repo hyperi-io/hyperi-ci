@@ -712,6 +712,131 @@ def audit_callers(
     raise typer.Exit(1)
 
 
+@app.command("audit-gates")
+def audit_gates(
+    org: Annotated[
+        str | None,
+        typer.Option("--org", help="Sweep every repo in this org"),
+    ] = None,
+    repo: Annotated[
+        str | None,
+        typer.Option("--repo", help="Audit one repo (owner/name)"),
+    ] = None,
+    max_age_days: Annotated[
+        float,
+        typer.Option("--max-age-days", help="How old an answer may be"),
+    ] = 7.0,
+    workflow: Annotated[
+        str,
+        typer.Option("--workflow", help="Workflow file holding the gate"),
+    ] = "ci.yml",
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="How many runs back to look"),
+    ] = 20,
+    include_prerelease: Annotated[
+        bool,
+        typer.Option(
+            "--include-prerelease",
+            help="Audit pre-GA repos too (skipped by default)",
+        ),
+    ] = False,
+    skip: Annotated[
+        list[str] | None,
+        typer.Option("--skip", help="Repo to leave out (repeatable)"),
+    ] = None,
+) -> None:
+    """Report repos whose quality gate has not actually EXECUTED.
+
+    A run whose gate was skipped still concludes `success`, so the repo reports
+    green while nothing was verified. The run-level conclusion is the lie, so
+    this reads job level and asks when each gate last produced a verdict
+    (issue #96).
+
+    A FAILING gate is deliberately not reported — GitHub already shows a red
+    repo as red, and pre-GA repos are expected to be red. Only the invisible
+    fault is reported: a gate that never ran.
+
+    Repos declaring a pre-GA `publish.channel` are skipped, since a dormant
+    gate is expected there; `--include-prerelease` audits them anyway. What was
+    skipped is always named, never dropped silently.
+
+    Never writes.
+    """
+    from hyperi_ci.common import error, info, success, warn
+    from hyperi_ci.gate_audit import audit_repo, is_prerelease, org_repos
+
+    if org and repo:
+        error("Use --org or --repo, not both")
+        raise typer.Exit(2)
+    if not org and not repo:
+        error("Give --org or --repo — there is no local equivalent to audit")
+        raise typer.Exit(2)
+
+    targets = org_repos(org) if org else [repo or ""]
+    if not targets:
+        error(f"No repos readable in {org}")
+        raise typer.Exit(1)
+
+    excluded = {name.strip() for name in (skip or []) if name.strip()}
+    if excluded:
+        targets = [
+            t for t in targets if t not in excluded and t.split("/")[-1] not in excluded
+        ]
+        info(
+            f"Skipping {len(excluded)} repo(s) by request: {', '.join(sorted(excluded))}"
+        )
+
+    if org and not include_prerelease:
+        prerelease = [t for t in targets if is_prerelease(t)]
+        if prerelease:
+            targets = [t for t in targets if t not in set(prerelease)]
+            info(
+                f"Skipping {len(prerelease)} pre-GA repo(s) — a dormant gate is "
+                f"expected there: {', '.join(sorted(prerelease))}"
+            )
+
+    reports = [
+        audit_repo(name, max_age_days=max_age_days, workflow=workflow, limit=limit)
+        for name in targets
+    ]
+    if org:
+        # A repo that never runs the workflow is not a consumer; reporting it
+        # would bury the real findings.
+        reports = [r for r in reports if r.error is None]
+    if not reports:
+        error(f"No repo in {org} runs {workflow}")
+        raise typer.Exit(1)
+
+    drifted = [r for r in reports if not r.ok]
+    for report in reports:
+        if report.ok:
+            continue
+        if report.error:
+            warn(f"{report.repo}: {report.error}")
+            continue
+        warn(f"{report.repo}:")
+        for finding in report.findings:
+            warn(f"  {finding.describe()}")
+
+    info(f"Audited {len(reports)} repo(s)")
+    if not drifted:
+        success(f"Every gate has answered within {max_age_days:.0f} days")
+        raise typer.Exit(0)
+
+    never = [r for r in drifted if any(f.kind == "never" for f in r.findings)]
+    if never:
+        error(f"{len(never)} repo(s) report green having never run their gate")
+    if len(drifted) > len(never):
+        error(
+            f"{len(drifted) - len(never)} repo(s) have not run their gate in "
+            f"{max_age_days:.0f} days"
+        )
+    info("Land a change through a PR to force the gate, or schedule a full")
+    info("run so the answer is never older than the window.")
+    raise typer.Exit(1)
+
+
 @app.command(name="release-notify")
 def release_notify_cmd(
     version: Annotated[

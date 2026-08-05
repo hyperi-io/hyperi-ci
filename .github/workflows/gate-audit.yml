@@ -1,0 +1,77 @@
+# Project:   HyperI CI
+# File:      .github/workflows/gate-audit.yml
+# Purpose:   Weekly sweep for repos whose quality gate never actually runs
+#
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# The gate doctrine skips quality and test on non-bumping pushes to main, so a
+# run whose gate never executed still concludes `success`. A repo landing work
+# by direct push therefore reports green while nothing has been verified
+# (issue #96). Nothing surfaces that on its own, which is what this fixes: the
+# answer is never more than a week old, and nobody has to open a PR to get it.
+#
+# Report-only. It reads other repos and writes to none of them.
+#
+# A FAILING gate is deliberately not reported — GitHub already shows a red repo
+# as red, and pre-GA repos are expected to be red. Repos declaring a pre-GA
+# `publish.channel` are skipped for the same reason, and what was skipped is
+# always named.
+
+name: Gate audit
+
+on:
+  schedule:
+    # Monday morning AEST, so a finding lands at the start of the week.
+    - cron: "23 20 * * 0"
+  workflow_dispatch:
+    inputs:
+      max-age-days:
+        type: string
+        default: "7"
+        description: "How old a gate's last real execution may be."
+      include-prerelease:
+        type: boolean
+        default: false
+        description: "Audit pre-GA repos too."
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Gate audit
+    runs-on: ${{ vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+
+      - name: Mint an org-wide read token
+        # An org sweep reads workflow runs and jobs across SIBLING repos, which
+        # GITHUB_TOKEN cannot do — it is scoped to this repo alone.
+        id: bot
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.GH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-actions: read
+          permission-contents: read
+
+      - name: Audit every consumer's gate
+        # No fallback to github.token on a failed mint: a repo-scoped token
+        # would sweep one repo and report "all clear", which is the very fault
+        # this workflow exists to catch.
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+        run: |
+          uv run hyperi-ci audit-gates \
+            --org hyperi-io \
+            --max-age-days "${{ inputs.max-age-days || '7' }}" \
+            ${{ inputs.include-prerelease && '--include-prerelease' || '' }}
