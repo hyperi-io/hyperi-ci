@@ -107,47 +107,51 @@ actions:
 # ci-test-* fleet exercises these tools for real. A tool whose flags moved
 # shows up as a red quality stage there.
 #
-# `pin:` names the file that MIRRORS this version, because these tools are
-# consumed from Python / composite-action source rather than a `uses:` line.
-# config/ ships OUTSIDE the wheel (pyproject: packages = ["src/hyperi_ci"]), so
-# runtime code cannot read this file - the value is COPIED into the source, and
-# `update-versions.py --fix` (pre-commit) fails if the copy drifts. Mark the
-# mirrored line with `# hyperi-ci:pin tools.<name>` so the rewrite is anchored
-# to an explicit marker rather than a guessed regex.
+# `pin:` names a file that carries a copy of the version. It exists only for
+# files GitHub parses before our code runs - a composite action's `default:`.
+# Python reads this file directly via hyperi_ci.versions, so a Python-only tool
+# has no `pin:` and no copy to drift. Anchor a copied line with
+# `# hyperi-ci:pin tools.<name>`.
 #
-# KNOWN GAP - these are pinned by TAG, which does not yet satisfy the "SHA over
-# tag" hard rule in docs/dependencies/deps-pinning.md. A git tag cannot be
-# force-moved into our download path (we fetch a release ASSET, not a ref), but
-# an asset CAN be deleted and re-uploaded under the same tag, and no install
-# path here verifies a digest today. Tracked in #66; the fix is a `sha256:` per
-# asset pinned here and verified at download.
+# `sha256:` pins the digest of the raw download per asset, keyed as that tool's
+# asset names spell the arch. A release asset can be deleted and re-uploaded
+# under the same tag, so the tag alone is not integrity. Refresh the digest in
+# the same commit as the version; a stale one fails the install closed.
 tools:
   # First pin of this tool. v0.14.0 was 4 days old at pin time - inside the
   # 7-day cooldown - taken deliberately: 0.13.0's repeatable `-c` silently
   # honours only the first config file, contradicting its own help text
-  # (0.14.0 rejects multiple `-c` and fixes the contract). Upstream ships
-  # per-asset .sha256 + SHA256SUMS, so alint is the natural first candidate
-  # when #66 (digest verification at download) lands.
+  # (0.14.0 rejects multiple `-c` and fixes the contract).
   alint:
     version: v0.14.1
     repo: asamarts/alint
-    pin: src/hyperi_ci/quality/repo_advisor.py
+    sha256:
+      x86_64: b310a0a7138cb847cf47dad759afd5ec7295cc4eee1a68cb167a83bcd5f961c4
+      aarch64: 7fea929a4c788ea85f52cd81e3168ef54e87af86e79efe3485eb82ac8ed20164
   gitleaks:
     version: v8.30.1
     repo: gitleaks/gitleaks
-    pin: src/hyperi_ci/quality/gitleaks.py
+    sha256:
+      x64: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+      arm64: e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080
   hadolint:
     version: v2.14.0
     repo: hadolint/hadolint
-    pin: src/hyperi_ci/quality/hadolint.py
+    sha256:
+      x86_64: 6bf226944684f56c84dd014e8b979d27425c0148f61b3bd99bcc6f39e9dc5a47
+      arm64: 331f1d3511b84a4f1e3d18d52fec284723e4019552f4f47b19322a53ce9a40ed
   kubeconform:
     version: v0.8.0
     repo: yannh/kubeconform
-    pin: src/hyperi_ci/quality/kubeconform.py
+    sha256:
+      amd64: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+      arm64: 1f53fc8e81258197a35e8603054162a5af1de8c5af13746c71ab680d9534ed87
   kube-linter:
     version: v0.8.3
     repo: stackrox/kube-linter
-    pin: src/hyperi_ci/quality/kube_linter.py
+    sha256:
+      amd64: 618d299a3e2839c8ca9d86fce0db617be0fba41f0fecbbbfb7fbf1c04299fae1
+      arm64: 9c39d35252e0dcafb16b26197b9e93ba578e44eb402c3c6660fc94e08f94094f
   osv-scanner:
     version: v2.4.0
     repo: google/osv-scanner
@@ -182,12 +186,11 @@ tools:
     version: 0.20.2
     repo: EmbarkStudios/cargo-deny
     pin: .github/actions/setup-rust-tools/action.yml
-  # Used inside the generated cargo-chef Dockerfile (container/compose.py), not
-  # a workflow - the pin marker works the same in Python source.
+  # Baked into the generated cargo-chef Dockerfile by container/compose.py,
+  # which reads it from here.
   cargo-chef:
     version: v0.1.77
     repo: LukeMathWalker/cargo-chef
-    pin: src/hyperi_ci/container/compose.py
 
 # Upstream capabilities we WANT but that are not ready yet.
 #
@@ -210,6 +213,9 @@ runtimes:
   python: "3.12"
   node: "22"
   rust: stable
+  # Major used to resolve apt.llvm.org subpaths in config/toolchains/llvm.yaml.
+  # HYPERCI_LLVM_VERSION overrides it per run.
+  llvm: "22"
 
 # npm packages (semantic-release toolchain)
 semantic_release:

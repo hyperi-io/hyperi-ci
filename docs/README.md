@@ -84,7 +84,7 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 ### Dependencies & supply chain
 
 - [dependencies/DEPS-PINNING.md](dependencies/deps-pinning.md) - `/deps` script
-  + `config/versions.yaml` SHA-pin Actions; Renovate as PR-only watchdog;
+  + `src/hyperi_ci/config/versions.yaml` SHA-pin Actions; Renovate as PR-only watchdog;
   7-day cooldown; the hard rules
 - [dependencies/WORKFLOW-PINNING.md](dependencies/workflow-pinning.md) - why our
   own reusable workflows stay `@main`, the interface gate that makes that safe,

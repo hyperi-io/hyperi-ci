@@ -29,35 +29,23 @@ from pathlib import Path
 from hyperi_ci.common import error, info, is_ci, warn
 
 
-def install_ci_binary(
-    name: str,
-    url: str,
-    *,
-    tar_member: str | None = None,
-    expected_sha256: str | None = None,
-) -> str | None:
-    """Return a path to ``name``, installing the pinned release on Linux CI.
+def fetch_verified(
+    name: str, url: str, expected_sha256: str | None = None
+) -> bytes | None:
+    """Download ``url`` and return the bytes, or None if they are not the pinned ones.
 
-    Returns the existing path if already installed; ``None`` off-CI / non-Linux
-    or on any download/extract failure (the caller decides whether that is
-    fatal). ``tar_member`` is the binary's name inside a ``.tar.gz`` (omit for a
-    raw-binary download).
+    Split from :func:`install_ci_binary` because placement differs per caller:
+    alint is exec'd by absolute path from a scratch dir, with no sudo and no
+    PATH mutation, so it runs on an ARC pod. The integrity gate is the shared
+    part.
 
-    ``expected_sha256`` is the fail-closed integrity gate. A pinned release URL
-    is NOT enough on its own: this binary is chmod+exec'd as root on every
-    consumer's CI, so a swapped release asset would be estate-wide RCE. When a
-    hash is supplied we verify the RAW downloaded bytes against it and REFUSE to
-    install (return ``None``) on any mismatch. When it is ``None`` we log a
-    warning and proceed unverified - a rollout affordance for callers that have
-    not pinned a hash yet, never the intended steady state.
+    A pinned URL is not integrity on its own - a release asset can be deleted
+    and re-uploaded under the same tag, and these bytes are chmod+exec'd on
+    every consumer's CI.
+
+    ``expected_sha256`` of None warns and returns the bytes unverified, for a
+    tool not yet pinned.
     """
-    exe = shutil.which(name)
-    if exe:
-        return exe
-    if not is_ci() or sys.platform != "linux":
-        return None
-
-    info(f"  Installing {name}...")
     # -f: fail (empty body, non-zero exit) on an HTTP error instead of saving a
     # 404/captive-portal HTML page and later chmod+exec'ing it as "the tool".
     # --connect-timeout/--max-time give a HARD ceiling so a stalled mirror
@@ -76,27 +64,55 @@ def install_ci_binary(
         error(f"  Failed to download {name} (curl exit {dl.returncode})")
         return None
 
-    # Fail-closed integrity gate. Hash the RAW download bytes (the binary itself
-    # for a raw download, the .tar.gz for a tar member) BEFORE we extract or
-    # chmod+exec anything, so ONE pinned hash per download covers the exact bytes
-    # that arrived off the wire. A mismatch means the pinned asset was swapped -
-    # do NOT install it, no matter the mode.
-    got_sha256 = hashlib.sha256(dl.stdout).hexdigest()
+    # Hash the RAW download (the binary itself, or the .tar.gz for a tar
+    # member) BEFORE extracting or exec'ing anything, so one pinned hash covers
+    # the exact bytes that arrived off the wire.
+    got = hashlib.sha256(dl.stdout).hexdigest()
     if expected_sha256 is None:
         warn(
             f"  {name}: installing WITHOUT a pinned SHA256 - integrity unverified "
-            f"(downloaded {got_sha256})"
+            f"(downloaded {got})"
         )
-    elif got_sha256.lower() != expected_sha256.strip().lower():
+    elif got.lower() != expected_sha256.strip().lower():
         error(
             f"  {name}: SHA256 mismatch - refusing to install "
-            f"(expected {expected_sha256}, got {got_sha256})"
+            f"(expected {expected_sha256}, got {got})"
         )
+        return None
+    return dl.stdout
+
+
+def install_ci_binary(
+    name: str,
+    url: str,
+    *,
+    tar_member: str | None = None,
+    expected_sha256: str | None = None,
+) -> str | None:
+    """Return a path to ``name``, installing the pinned release on Linux CI.
+
+    Returns the existing path if already installed; ``None`` off-CI / non-Linux
+    or on any download/extract failure (the caller decides whether that is
+    fatal). ``tar_member`` is the binary's name inside a ``.tar.gz`` (omit for a
+    raw-binary download).
+
+    ``expected_sha256`` is the fail-closed integrity gate - see
+    :func:`fetch_verified`, which owns it.
+    """
+    exe = shutil.which(name)
+    if exe:
+        return exe
+    if not is_ci() or sys.platform != "linux":
+        return None
+
+    info(f"  Installing {name}...")
+    payload = fetch_verified(name, url, expected_sha256)
+    if payload is None:
         return None
 
     if tar_member:
         try:
-            with tarfile.open(fileobj=io.BytesIO(dl.stdout), mode="r:gz") as tf:
+            with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as tf:
                 member = next(
                     (m for m in tf.getmembers() if Path(m.name).name == tar_member),
                     None,
@@ -109,7 +125,7 @@ def install_ci_binary(
             error(f"  {name}: '{tar_member}' not found in release archive")
             return None
     else:
-        data = dl.stdout
+        data = payload
 
     tmp_path = ""
     try:

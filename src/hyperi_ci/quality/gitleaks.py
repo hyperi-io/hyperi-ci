@@ -15,31 +15,26 @@ Ported from old CI: ci/scripts/core/gitleaks.sh
 from __future__ import annotations
 
 import os
+import platform
 import shutil
 import subprocess
 import sys
-import tempfile
 import tomllib
 from pathlib import Path
 
 from hyperi_ci.common import error, info, is_ci, run_cmd, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import apply_strict, is_skipped
+from hyperi_ci.quality.install import install_ci_binary
 from hyperi_ci.tools import missing_tool_notice
-
-# Mirrors `tools.gitleaks` in config/versions.yaml - the SSoT. The pre-commit
-# hook (scripts/update-versions.py --fix) rewrites the marked line, so do not
-# hand-edit it. It lives here rather than being read from the YAML because
-# config/ ships outside the wheel (pyproject packages = ["src/hyperi_ci"]).
-# hyperi-ci:pin tools.gitleaks
-_GITLEAKS_VERSION = "v8.30.1"
+from hyperi_ci.versions import tool_sha256, tool_version
 
 
 def _install_gitleaks() -> bool:
-    """Install gitleaks binary on Linux CI runners.
+    """Install the pinned gitleaks binary on a Linux CI runner.
 
     Returns:
-        True if gitleaks is available after install attempt.
+        True if gitleaks is available after the install attempt.
 
     """
     if shutil.which("gitleaks"):
@@ -52,41 +47,21 @@ def _install_gitleaks() -> bool:
         warn("  gitleaks auto-install only supported on Linux CI")
         return False
 
-    import platform
-
     arch = "x64" if platform.machine() in ("x86_64", "AMD64") else "arm64"
-    version_num = _GITLEAKS_VERSION.lstrip("v")
+    version = tool_version("gitleaks")
     url = (
         f"https://github.com/gitleaks/gitleaks/releases/download/"
-        f"{_GITLEAKS_VERSION}/gitleaks_{version_num}_linux_{arch}.tar.gz"
+        f"{version}/gitleaks_{version.lstrip('v')}_linux_{arch}.tar.gz"
     )
-
-    info(f"  Installing gitleaks {_GITLEAKS_VERSION}...")
-    with tempfile.TemporaryDirectory() as tmp:
-        result = subprocess.run(
-            ["curl", "-sSL", url],
-            capture_output=True,
+    return (
+        install_ci_binary(
+            "gitleaks",
+            url,
+            tar_member="gitleaks",
+            expected_sha256=tool_sha256("gitleaks", arch),
         )
-        if result.returncode != 0:
-            error("  Failed to download gitleaks")
-            return False
-
-        tar_path = Path(tmp) / "gitleaks.tar.gz"
-        tar_path.write_bytes(result.stdout)
-        subprocess.run(
-            ["tar", "xzf", str(tar_path), "-C", tmp],
-            check=True,
-        )
-        bin_path = Path(tmp) / "gitleaks"
-        if bin_path.exists():
-            dest = Path("/usr/local/bin/gitleaks")
-            subprocess.run(
-                ["sudo", "mv", str(bin_path), str(dest)],
-                check=True,
-            )
-            subprocess.run(["sudo", "chmod", "+x", str(dest)], check=True)
-
-    return shutil.which("gitleaks") is not None
+        is not None
+    )
 
 
 def _find_config() -> str | None:

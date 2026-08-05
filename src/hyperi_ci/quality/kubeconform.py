@@ -40,17 +40,7 @@ from hyperi_ci.languages.quality_common import resolve_cross_tool_mode
 from hyperi_ci.quality import findings as fdg
 from hyperi_ci.quality.install import install_ci_binary
 from hyperi_ci.tools import missing_tool_notice
-
-# hyperi-ci:pin tools.kubeconform
-_KUBECONFORM_VERSION = "v0.8.0"
-
-# sha256 pinned from kubeconform v0.8.0 linux release, verified before exec.
-# The RAW .tar.gz download is hashed (install_ci_binary hashes pre-extraction),
-# so these are the archive digests, keyed by the arch token in the asset name.
-_KUBECONFORM_SHA256 = {
-    "amd64": "9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883",
-    "arm64": "1f53fc8e81258197a35e8603054162a5af1de8c5af13746c71ab680d9534ed87",
-}
+from hyperi_ci.versions import tool_sha256, tool_version
 
 # Community CRD schema catalogue. kubeconform expands the templated path per
 # resource; a CRD present in the catalogue validates for real, the rest are
@@ -66,13 +56,13 @@ def _install_kubeconform() -> str | None:
     arch = "amd64" if platform.machine() in ("x86_64", "AMD64") else "arm64"
     url = (
         f"https://github.com/yannh/kubeconform/releases/download/"
-        f"{_KUBECONFORM_VERSION}/kubeconform-linux-{arch}.tar.gz"
+        f"{tool_version('kubeconform')}/kubeconform-linux-{arch}.tar.gz"
     )
     return install_ci_binary(
         "kubeconform",
         url,
         tar_member="kubeconform",
-        expected_sha256=_KUBECONFORM_SHA256[arch],
+        expected_sha256=tool_sha256("kubeconform", arch),
     )
 
 

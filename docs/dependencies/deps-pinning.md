@@ -18,8 +18,8 @@ read as "the surfaces are covered" (see [the blind spots](#what-renovate-never-s
 
 | Dependency | Owner | How | Cooldown |
 |---|---|---|---|
-| GitHub Actions (on hyperi-ci) | `/deps` script (`scripts/update-versions.py`) + `config/versions.yaml` | SHA-pinned at commit time via the pre-commit hook | 7 days, enforced by the script |
-| **External CLI tools** (gitleaks, osv-scanner) | same script + `config/versions.yaml` `tools:` | **tag-pinned** (see the exemption below), mirrored into source via a `# hyperi-ci:pin` marker | 7 days, enforced by the script |
+| GitHub Actions (on hyperi-ci) | `/deps` script (`scripts/update-versions.py`) + `src/hyperi_ci/config/versions.yaml` | SHA-pinned at commit time via the pre-commit hook | 7 days, enforced by the script |
+| **External CLI tools** (gitleaks, osv-scanner) | same script + `src/hyperi_ci/config/versions.yaml` `tools:` | **tag-pinned** (see the exemption below), mirrored into source via a `# hyperi-ci:pin` marker | 7 days, enforced by the script |
 | GitHub Actions (other repos) | Renovate org preset | SHA digest pin (`helpers:pinGitHubActionDigests`) | 7 days |
 | **hyperi-ci reusable-workflow caller** (other repos) | **nobody - floats `@main`** | **NOT pinned. Carved out of digest pinning in the org preset** (`hyperi-io/renovate-config`) | n/a |
 | cargo / pip / npm / docker (all repos) | Renovate org preset | version PRs | 7 days |
@@ -78,7 +78,7 @@ flowchart TD
       GAPS --> YOU
     end
     subgraph SCRIPT["ENFORCEMENT — hyperi-ci Actions, at commit time"]
-      V["config/versions.yaml<br/>version + sha"] --> H["pre-commit hook<br/>update-versions.py --fix"]
+      V["src/hyperi_ci/config/versions.yaml<br/>version + sha"] --> H["pre-commit hook<br/>update-versions.py --fix"]
       H --> W["workflows + composites<br/>pinned @sha # version"]
       L["--stable / --auto-update"] -->|newest release 7+ days old| V
     end
@@ -94,7 +94,7 @@ flowchart TD
 ## `hyperi-ci deps` - the preventative half
 
 `scripts/update-versions.py` enforces THIS repo's pipeline against
-`config/versions.yaml`. `hyperi-ci deps` is that idea generalised: any repo,
+`src/hyperi_ci/config/versions.yaml`. `hyperi-ci deps` is that idea generalised: any repo,
 any surface, discovering what is there instead of reading a hardcoded SSOT. It
 runs locally and makes no network calls, so it is safe to run on every branch.
 
@@ -190,7 +190,7 @@ _CLICKHOUSE_IMAGE = "clickhouse/clickhouse-server:25.3.1"
 ```
 
 `hyperi-ci deps` DISCOVERS marked pins in any repo (the `pin-marker` surface);
-`update-versions.py` ENFORCES them against `config/versions.yaml` here. Both
+`update-versions.py` ENFORCES them against `src/hyperi_ci/config/versions.yaml` here. Both
 read the same lines through `src/hyperi_ci/pin_marker.py`, so the convention
 has one definition and the two cannot drift apart.
 
@@ -213,7 +213,7 @@ the full pipeline, not just top-level workflows.
 `--latest`, which read backwards: `@latest` in an installer means the edge, the
 opposite of what this resolves. `--latest` still works as a silent alias.
 
-`config/versions.yaml` is the SSOT. Two maps matter here:
+`src/hyperi_ci/config/versions.yaml` is the SSOT. Two maps matter here:
 
 - `actions: {name: {version, sha}}` - rewritten into `uses:` refs.
 - `tools: {name: {version, repo, pin}}` - external CLI tools we install.

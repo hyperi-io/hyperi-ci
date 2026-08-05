@@ -29,7 +29,7 @@ readonly ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 staged_pipeline=$(git diff --cached --name-only -- \
     '.github/workflows/*.yml' '.github/workflows/*.yaml' \
     '.github/actions/**/action.yml' '.github/actions/**/action.yaml' \
-    'config/versions.yaml' 2>/dev/null || true)
+    'src/hyperi_ci/config/versions.yaml' 2>/dev/null || true)
 
 # Pin files come from the SSOT's own `pin:` entries, NOT from grepping staged
 # files for the marker. Grepping for the marker is self-referential: delete the
@@ -39,7 +39,7 @@ staged_pipeline=$(git diff --cached --name-only -- \
 # must stay cheap enough to run on every commit.)
 staged_all=$(git diff --cached --name-only 2>/dev/null || true)
 pin_paths=$(sed -n 's/^[[:space:]]*pin:[[:space:]]*//p' \
-    "${ROOT_DIR}/config/versions.yaml" 2>/dev/null || true)
+    "${ROOT_DIR}/src/hyperi_ci/config/versions.yaml" 2>/dev/null || true)
 
 staged_pins=""
 if [[ -n "${staged_all}" && -n "${pin_paths}" ]]; then

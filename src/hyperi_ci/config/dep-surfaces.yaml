@@ -91,7 +91,7 @@ surfaces:
       The second pattern is the commonly missed one: a COMPOSITE action's own
       action.yml pins actions too, lives anywhere in the tree, and is the same
       Renovate manager. scripts/update-versions.py already scans both for THIS
-      repo against config/versions.yaml; this surface is the generalisation of
+      repo against the versions SSOT; this surface is the generalisation of
       that discovery to any repo, with no SSOT to read.
 
   - id: hyperi-ci-config

@@ -45,19 +45,7 @@ from hyperi_ci.quality import findings as fdg
 from hyperi_ci.quality.install import install_ci_binary
 from hyperi_ci.quality.targets import discover_dockerfiles
 from hyperi_ci.tools import missing_tool_notice
-
-# Mirrors `tools.hadolint` in config/versions.yaml (the SSoT). config/ ships
-# outside the wheel, so the value is copied here; update-versions.py --fix keeps
-# them in sync via the marker below. Do not hand-edit.
-# hyperi-ci:pin tools.hadolint
-_HADOLINT_VERSION = "v2.14.0"
-
-# sha256 pinned from hadolint v2.14.0 Linux release, verified before exec.
-# Keyed by the arch token in the asset name; the raw binary is hashed as-is.
-_HADOLINT_SHA256 = {
-    "x86_64": "6bf226944684f56c84dd014e8b979d27425c0148f61b3bd99bcc6f39e9dc5a47",
-    "arm64": "331f1d3511b84a4f1e3d18d52fec284723e4019552f4f47b19322a53ce9a40ed",
-}
+from hyperi_ci.versions import tool_sha256, tool_version
 
 
 def _install_hadolint() -> str | None:
@@ -71,9 +59,11 @@ def _install_hadolint() -> str | None:
     arch = "x86_64" if platform.machine() in ("x86_64", "AMD64") else "arm64"
     url = (
         f"https://github.com/hadolint/hadolint/releases/download/"
-        f"{_HADOLINT_VERSION}/hadolint-Linux-{arch}"
+        f"{tool_version('hadolint')}/hadolint-Linux-{arch}"
     )
-    return install_ci_binary("hadolint", url, expected_sha256=_HADOLINT_SHA256[arch])
+    return install_ci_binary(
+        "hadolint", url, expected_sha256=tool_sha256("hadolint", arch)
+    )
 
 
 def _rule_url(code: str) -> str:

@@ -57,7 +57,9 @@ import yaml
 from hyperi_ci import pin_marker
 
 _ROOT = Path(__file__).resolve().parent.parent
-_VERSIONS_FILE = _ROOT / "config" / "versions.yaml"
+# Inside the package, so it ships in the wheel and runtime reads the SSOT
+# itself (hyperi_ci.versions) instead of a constant copied into source.
+_VERSIONS_FILE = _ROOT / "src" / "hyperi_ci" / "config" / "versions.yaml"
 _WORKFLOWS_DIR = _ROOT / ".github" / "workflows"
 _ACTIONS_DIR = _ROOT / ".github" / "actions"
 # Relative to _ROOT, resolved per call rather than at import: _check() reports
@@ -123,9 +125,11 @@ def _tool_pins(
 ) -> tuple[list[tuple[Path, re.Pattern[str], str, str]], list[str]]:
     """Resolve `tools:` to ([(path, pattern, wanted version, name)], problems).
 
-    External CLI tools are consumed from Python / composite-action source
-    rather than a `uses:` line, so each pin is rewritten only in the one file
-    its `pin:` key names.
+    Only tools with a `pin:` are returned. A pin exists for a value GitHub
+    parses before our code runs - a composite action's `default:` - which is
+    the one place a copy is unavoidable. Python reads the SSOT at runtime via
+    :mod:`hyperi_ci.versions`, so a Python-only tool has no `pin:`, no copy and
+    nothing here to enforce.
 
     A malformed entry is RETURNED AS A REASON, never merely warned about and
     never reduced to a bare count. Two reasons:
@@ -143,10 +147,10 @@ def _tool_pins(
             problems.append(f"  tools.{name}: not a mapping [{_UNFIXABLE}]")
             continue
         version, pin = spec.get("version"), spec.get("pin")
-        if not version or not pin:
-            problems.append(
-                f"  tools.{name}: needs both `version:` and `pin:` [{_UNFIXABLE}]"
-            )
+        if not version:
+            problems.append(f"  tools.{name}: needs a `version:` [{_UNFIXABLE}]")
+            continue
+        if not pin:
             continue
         path = _ROOT / pin
         if not path.is_file():

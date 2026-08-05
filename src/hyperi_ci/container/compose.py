@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 
 from hyperi_ci.container.manifest import ContainerManifest
+from hyperi_ci.versions import tool_version
 
 
 def compose_contract_dockerfile(
@@ -40,11 +41,6 @@ def compose_contract_dockerfile(
         _runtime_stage(manifest),
     ]
     return "\n".join(sections)
-
-
-# Mirrors `tools.cargo-chef` in config/versions.yaml - the SSoT.
-# hyperi-ci:pin tools.cargo-chef
-_CARGO_CHEF_VERSION = "v0.1.77"
 
 
 # rustup channel names. Docker Hub's `rust` image publishes NO tag for any of
@@ -97,7 +93,7 @@ def _chef_stage(rust_version: str) -> str:
     # this RUN executes on the target platform under buildx.
     return f"""\
 FROM rust:{_rust_slim_tag(rust_version)} AS chef
-ARG CARGO_CHEF_VERSION={_CARGO_CHEF_VERSION}
+ARG CARGO_CHEF_VERSION={tool_version("cargo-chef")}
 RUN set -eux; \\
     apt-get update; \\
     apt-get install -y --no-install-recommends curl xz-utils ca-certificates; \\

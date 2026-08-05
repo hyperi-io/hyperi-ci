@@ -26,6 +26,8 @@ from pathlib import Path
 import yaml
 from scalo import logger
 
+from hyperi_ci.versions import runtime_version
+
 # Codenames to try as fallbacks when a given APT repo doesn't ship
 # packages for the current OS codename. Ordered by preference (newest
 # Ubuntu LTS first, then older LTS, then Debian stable). Resolute
@@ -105,9 +107,6 @@ class DepGroup:
     bake: bool = True
 
 
-_DEFAULT_LLVM_VERSION = "22"
-
-
 def _expand_template_vars(text: str) -> str:
     """Expand ${VAR} placeholders in YAML configs.
 
@@ -126,7 +125,7 @@ def _expand_template_vars(text: str) -> str:
     surfaces a clear "package not found" error instead of a silent
     mis-resolve.
     """
-    llvm_version = os.environ.get("HYPERCI_LLVM_VERSION", _DEFAULT_LLVM_VERSION)
+    llvm_version = os.environ.get("HYPERCI_LLVM_VERSION") or runtime_version("llvm")
     os_codename = os.environ.get("OS_CODENAME") or _get_os_codename() or "noble"
     return text.replace("${HYPERCI_LLVM_VERSION}", llvm_version).replace(
         "${OS_CODENAME}", os_codename

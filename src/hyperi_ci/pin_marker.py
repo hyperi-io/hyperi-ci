@@ -24,7 +24,7 @@ to the same version.
 Two callers, one definition:
 
 - ``scripts/update-versions.py`` ENFORCES a marked pin against
-  ``config/versions.yaml`` for this repo, and rewrites it on drift.
+  ``the versions SSOT`` for this repo, and rewrites it on drift.
 - ``hyperi_ci.deps`` DISCOVERS marked pins in any repo, with no SSOT to compare
   against -- it only reports what the marker declares.
 

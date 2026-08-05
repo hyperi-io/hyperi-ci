@@ -363,15 +363,13 @@ class TestShortCircuits:
         assert not captured
 
 
-def test_pinned_version_matches_versions_yaml() -> None:
-    """The source constant must track the tools SSoT in config/versions.yaml.
+def test_install_url_and_digest_come_from_the_ssot() -> None:
+    """There is no source constant to drift from: the URL is built from the SSOT.
 
-    The pin drifted ~9 months (v8.21.2 vs v8.30.1) precisely because it lived
-    outside the SSoT that update-versions.py maintains. This fails loudly if
-    the two ever diverge again.
+    The pin drifted ~9 months (v8.21.2 vs v8.30.1) because it lived in a copy.
+    The copy is gone, so this asserts the install reads the real thing.
     """
-    import yaml
+    from hyperi_ci import versions as ssot
 
-    root = Path(__file__).resolve().parents[2]
-    versions = yaml.safe_load((root / "config" / "versions.yaml").read_text("utf-8"))
-    assert versions["tools"]["gitleaks"]["version"] == gitleaks._GITLEAKS_VERSION
+    assert ssot.tool_version("gitleaks") == "v8.30.1"
+    assert len(ssot.tool_sha256("gitleaks", "x64")) == 64

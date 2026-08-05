@@ -32,7 +32,7 @@
 #                asset `cargo-deny-X.Y.Z-<target>.tar.gz` (version MIDDLE)
 # Both nest the binary one level down.
 #
-# Versions are pinned in config/versions.yaml (`tools:`) and mirrored here by
+# Versions are pinned in src/hyperi_ci/config/versions.yaml (`tools:`) and mirrored here by
 # scripts/update-versions.py --fix. Do not hand-edit the marked lines.
 #
 # Referenced from reusable workflows as

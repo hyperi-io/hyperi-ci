@@ -578,12 +578,28 @@ class TestToolPins:
         assert len(problems) == 1
         assert update_versions._UNFIXABLE in problems[0]
 
-    def test_missing_pin_key_is_unenforceable(
+    def test_no_pin_key_means_nothing_to_enforce(
         self, tmp_path: Path, monkeypatch
     ) -> None:
+        """A Python-only tool reads the SSOT at runtime, so it has no copy.
+
+        `pin:` exists for a value GitHub parses before our code runs; its
+        absence is the normal case, not a fault.
+        """
         _pin_tree(tmp_path, monkeypatch)
         pins, problems = update_versions._tool_pins(
             {"tools": {"gitleaks": {"version": "v8.30.1"}}}
+        )
+        assert pins == []
+        assert problems == []
+
+    def test_missing_version_is_still_unenforceable(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A tool with no version at all is a broken entry either way."""
+        _pin_tree(tmp_path, monkeypatch)
+        pins, problems = update_versions._tool_pins(
+            {"tools": {"gitleaks": {"pin": "pin.py"}}}
         )
         assert pins == []
         assert len(problems) == 1
@@ -619,7 +635,7 @@ class TestToolPins:
         pins, problems = update_versions._tool_pins(
             {
                 "tools": {
-                    "broken": {"version": "v1.0.0"},
+                    "broken": {"pin": "pin.py"},
                     "gitleaks": {"version": "v8.30.1", "pin": "pin.py"},
                 }
             }
@@ -664,7 +680,7 @@ class TestToolMismatches:
         # that --apply cannot repair it.
         _pin_tree(tmp_path, monkeypatch)
         problems = update_versions._tool_mismatches(
-            {"tools": {"gitleaks": {"version": "v8.30.1"}}}
+            {"tools": {"gitleaks": {"pin": "pin.py"}}}
         )
         assert len(problems) == 1
         assert "gitleaks" in problems[0]

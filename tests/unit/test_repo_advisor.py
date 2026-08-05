@@ -278,23 +278,42 @@ def test_install_linux_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 def test_install_download_failure_returns_none(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """None from fetch_verified covers both a failed download AND a bad digest.
+
+    Either way nothing unverified reaches disk, so the advisory skips.
+    """
     monkeypatch.setattr(repo_advisor, "is_ci", lambda: True)
     monkeypatch.setattr(repo_advisor.sys, "platform", "linux")
-    _stub_run(monkeypatch, rc=1)  # curl fails
+    monkeypatch.setattr(repo_advisor, "fetch_verified", lambda *_a: None)
     assert repo_advisor._install_alint(tmp_path) is None
+
+
+def test_install_verifies_before_writing_anything(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A refused digest must not leave a tarball behind to be picked up later."""
+    monkeypatch.setattr(repo_advisor, "is_ci", lambda: True)
+    monkeypatch.setattr(repo_advisor.sys, "platform", "linux")
+    monkeypatch.setattr(repo_advisor, "fetch_verified", lambda *_a: None)
+    repo_advisor._install_alint(tmp_path)
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_install_happy_path_returns_pinned_binary(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from hyperi_ci import versions as ssot
+
     monkeypatch.setattr(repo_advisor, "is_ci", lambda: True)
     monkeypatch.setattr(repo_advisor.sys, "platform", "linux")
     monkeypatch.setattr(repo_advisor.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(repo_advisor, "fetch_verified", lambda *_a: b"tarball")
+
+    version = ssot.tool_version("alint")
 
     def fake_run_cmd(cmd, *, check=True, cwd=None, **_kw):
         if cmd[0] == "tar":  # "extract" the expected layout
-            stem = f"alint-{repo_advisor._ALINT_VERSION}-x86_64-unknown-linux-musl"
-            binary = tmp_path / stem / "alint"
+            binary = tmp_path / f"alint-{version}-x86_64-unknown-linux-musl" / "alint"
             binary.parent.mkdir(parents=True)
             binary.write_bytes(b"#!fake")
         return subprocess.CompletedProcess(cmd, 0, "", "")
@@ -303,7 +322,7 @@ def test_install_happy_path_returns_pinned_binary(
     got = repo_advisor._install_alint(tmp_path)
     assert got is not None
     assert got.endswith("alint")
-    assert repo_advisor._ALINT_VERSION in got
+    assert version in got
     assert Path(got).stat().st_mode & 0o111  # executable
 
 
@@ -319,13 +338,12 @@ def test_run_uses_ci_installed_binary(
     assert cmd[0] == "/dl/alint"
 
 
-def test_pin_matches_versions_yaml() -> None:
-    """The mirrored constant must track config/versions.yaml (the SSoT)."""
-    import yaml
+def test_pin_and_digest_come_from_the_ssot() -> None:
+    """No mirrored constant to track: the installer reads the SSOT directly."""
+    from hyperi_ci import versions as ssot
 
-    versions = Path(__file__).resolve().parents[2] / "config" / "versions.yaml"
-    data = yaml.safe_load(versions.read_text(encoding="utf-8"))
-    assert data["tools"]["alint"]["version"] == repo_advisor._ALINT_VERSION
+    assert ssot.tool_version("alint").startswith("v")
+    assert len(ssot.tool_sha256("alint", "x86_64")) == 64
 
 
 @pytest.mark.skipif(shutil.which("alint") is None, reason="alint not installed")

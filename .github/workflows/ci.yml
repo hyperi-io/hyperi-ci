@@ -161,7 +161,7 @@ jobs:
         run: uv run --no-sources python scripts/check-workflow-interfaces.py
 
       - name: Version SSOT gate
-        # config/versions.yaml is the SSOT for pinned actions AND external CLI
+        # src/hyperi_ci/config/versions.yaml is the SSOT for pinned actions AND external CLI
         # tools, but until now NOTHING enforced it in CI: the only wired caller
         # was a .git/hooks/pre-commit symlink, which a fresh clone (and every
         # runner) simply does not have. That is how the gitleaks pin sat 9

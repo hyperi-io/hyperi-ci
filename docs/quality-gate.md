@@ -364,6 +364,6 @@ they surface a recommendation and carry on.
   info-skip; `enabled` = warn if missing; `disabled` = off). alint is not a
   hyperi-ci dependency; locally it info-skips (with an install hint) when
   absent, while in CI a missing alint is fetched as the pinned prebuilt
-  binary (`tools.alint` in `config/versions.yaml`, static musl, exec'd by
+  binary (`tools.alint` in `src/hyperi_ci/config/versions.yaml`, static musl, exec'd by
   path - no sudo) so the advisory actually runs on vanilla runners.
   Driver: `src/hyperi_ci/quality/repo_advisor.py`.

@@ -56,20 +56,15 @@ from pathlib import Path
 from hyperi_ci.common import info, is_ci, run_cmd, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.detect import LANGUAGE_MARKERS
+from hyperi_ci.quality.install import fetch_verified
 from hyperi_ci.tools import find_tool
+from hyperi_ci.versions import tool_sha256, tool_version
 
 # Shipped opinionated default (packaged under hyperi_ci/config/, so it travels
 # in the wheel). config/ is a sibling of quality/ inside the package.
 _DEFAULT_CONFIG = (
     Path(__file__).resolve().parents[1] / "config" / "alint" / "hyperi.alint.yml"
 )
-
-# Mirrors `tools.alint` in config/versions.yaml - the SSoT. The pre-commit
-# hook (scripts/update-versions.py --fix) rewrites the marked line, so do not
-# hand-edit it. It lives here rather than being read from the YAML because
-# config/ ships outside the wheel (pyproject packages = ["src/hyperi_ci"]).
-# hyperi-ci:pin tools.alint
-_ALINT_VERSION = "v0.14.1"
 
 
 def _install_alint(dest_dir: Path) -> str | None:
@@ -87,22 +82,20 @@ def _install_alint(dest_dir: Path) -> str | None:
         return None
 
     machine = "x86_64" if platform.machine() in ("x86_64", "AMD64") else "aarch64"
-    target = f"{machine}-unknown-linux-musl"
-    stem = f"alint-{_ALINT_VERSION}-{target}"
-    url = (
-        f"https://github.com/asamarts/alint/releases/download/"
-        f"{_ALINT_VERSION}/{stem}.tar.gz"
-    )
+    version = tool_version("alint")
+    stem = f"alint-{version}-{machine}-unknown-linux-musl"
+    url = f"https://github.com/asamarts/alint/releases/download/{version}/{stem}.tar.gz"
 
-    info(f"  Installing alint {_ALINT_VERSION}...")
-    tarball = dest_dir / "alint.tar.gz"
-    # -f: without it curl exits 0 on a 404 and writes the error page to the
-    # file, so a missing asset surfaces as a confusing unpack failure below
-    # rather than as the download failure it is.
-    fetched = run_cmd(["curl", "-fsSL", url, "-o", str(tarball)], check=False)
-    if fetched.returncode != 0:
+    info(f"  Installing alint {version}...")
+    # Verified bytes, then our own placement - fetch_verified does not sudo or
+    # touch PATH, which is what keeps this working on an ARC pod.
+    payload = fetch_verified("alint", url, tool_sha256("alint", machine))
+    if payload is None:
         warn("  Failed to download alint - advisory skipped.")
         return None
+
+    tarball = dest_dir / "alint.tar.gz"
+    tarball.write_bytes(payload)
     unpacked = run_cmd(["tar", "xzf", str(tarball), "-C", str(dest_dir)], check=False)
     binary = dest_dir / stem / "alint"
     if unpacked.returncode != 0 or not binary.exists():
