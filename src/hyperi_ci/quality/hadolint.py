@@ -57,9 +57,12 @@ def _install_hadolint() -> str | None:
     missing tool. Returns None off-CI / non-Linux (the caller warn-skips locally).
     """
     arch = "x86_64" if platform.machine() in ("x86_64", "AMD64") else "arm64"
+    # Lower-case `linux` is the published asset name. The capitalised form
+    # resolved only because GitHub matches an asset case-insensitively, which
+    # is undocumented.
     url = (
         f"https://github.com/hadolint/hadolint/releases/download/"
-        f"{tool_version('hadolint')}/hadolint-Linux-{arch}"
+        f"{tool_version('hadolint')}/hadolint-linux-{arch}"
     )
     return install_ci_binary(
         "hadolint", url, expected_sha256=tool_sha256("hadolint", arch)
