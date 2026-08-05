@@ -776,6 +776,45 @@ def test_release_tail_mints_a_bot_token() -> None:
     assert "app-id" not in with_, "app-id is deprecated — use client-id"
 
 
+def _app_token_steps() -> list[tuple[str, str, dict]]:
+    """Every create-github-app-token step in every workflow here.
+
+    Found by CONTENT rather than by naming the files that mint one today, so a
+    workflow added later is covered without anyone remembering to list it
+    (the #98 lesson).
+    """
+    found = []
+    for path in sorted(WORKFLOW_DIR.glob("*.yml")):
+        wf = yaml.safe_load(path.read_text(encoding="utf-8"))
+        for job_name, job in (wf.get("jobs") or {}).items():
+            for step in job.get("steps") or []:
+                if "create-github-app-token" in str(step.get("uses", "")):
+                    found.append((path.name, job_name, step))
+    return found
+
+
+def test_some_workflow_mints_an_app_token() -> None:
+    # Guards the guard: if the discovery ever returns nothing, the assertions
+    # below become vacuous and would pass forever.
+    assert _app_token_steps(), "no workflow mints an App token — discovery broke"
+
+
+def test_no_workflow_mints_an_app_token_from_the_app_id() -> None:
+    """`app-id` is deprecated in actions/create-github-app-token (issue #100).
+
+    The numeric App ID is not deprecated at the platform level, but the INPUT
+    is, and it warns on every run. The Client ID is a different value rather
+    than a rename, so a swap back fails at mint time rather than at review.
+    """
+    for workflow, job, step in _app_token_steps():
+        with_ = step.get("with", {})
+        assert "app-id" not in with_, (
+            f"{workflow}.{job}: mints an App token from the deprecated `app-id` "
+            f"input. Use `client-id: ${{{{ vars.GH_APP_CLIENT_ID }}}}`."
+        )
+        assert "client-id" in with_, (
+            f"{workflow}.{job}: App token step has neither client-id nor app-id"
+        )
 
 
 @pytest.mark.parametrize("step_name", _PUSHING_STEPS)
