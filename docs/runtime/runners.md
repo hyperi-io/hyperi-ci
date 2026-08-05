@@ -27,7 +27,66 @@ flowchart TD
     R -->|else| S["inputs.runner-&lt;job&gt; →<br/>vars.GH_RUNNER_&lt;LANG&gt; →<br/>vars.GH_RUNNER_DEFAULT →<br/>ubuntu-latest"]
 ```
 
-`config/runners.yaml` is the runner SSOT (labels per architecture).
+**The org variables are the SSoT for runner selection.** `GH_RUNNER_DEFAULT`,
+`GH_RUNNER_<LANG>`, `GH_RUNNER_ARM64` and friends hold the actual values, and
+they are the only thing that can hold them: GitHub evaluates `runs-on` before
+any of our code runs, so a YAML file in this repo could never be consulted at
+selection time. Change a runner with `gh variable set`, not a commit.
+
+```bash
+gh variable list --org hyperi-io          # what is set now
+gh variable set GH_RUNNER_RUST --org hyperi-io --body arc-native-16cpu
+```
+
+A repo overrides the org default with a repo-level variable of the same name,
+or per job with the `runner-quality` / `runner-build` workflow inputs.
+
+### The runner vocabulary
+
+The self-hosted fleet is ARC scale sets carrying two axes:
+
+| Axis | Value | Meaning |
+|---|---|---|
+| type | `vanilla` | stock runner + internal CA + docker CLI + uv. Fast start. |
+| type | `native` | vanilla plus the compiler estate - rustup stable and nightly, the cargo tools, Go, Node, LLVM/GCC, the aarch64 cross toolchain, and the shared sccache/crate cache. |
+| type | `debian` | vanilla, on Debian Trixie. For .deb builds, which have to happen on the distro they target. No toolchain. |
+| size | `4cpu` | matches the stock GitHub ubuntu runner |
+| size | `16cpu` | the step up |
+
+**A job addresses a scale set by NAME, and the name states both axes:**
+
+| Name | Use |
+|---|---|
+| `arc-vanilla-4cpu` | what a repo gets when it asks for nothing |
+| `arc-vanilla-16cpu` | grunt without the compiler estate |
+| `arc-native-4cpu` | a hyperi-ci project that is not Rust or C++: it wants the pre-baked toolchain, not sixteen cores to run ruff |
+| `arc-native-16cpu` | Rust and C++ |
+| `arc-debian-4cpu` | .deb packaging |
+| `arc-debian-16cpu` | .deb packaging that needs the cores |
+
+Not by label, and that is measured rather than assumed: a `runs-on` naming a
+LABEL queues forever with the listener reporting `assigned job=0`, while the
+same job naming the scale set spawns runner pods in seconds. GitHub holds the
+scale set registration server-side and the listener reconnects to it, so the
+labels on the Kubernetes resource are not what a job matches against.
+
+The practical consequence: a `runs-on` value must be one of the names above,
+exactly. **Anything else matches nothing and the job queues SILENTLY** - it does
+not fail, it waits, which is a far worse thing to debug. The full deployed
+matrix lives in hyperi-infra `ansible/playbooks/k8s-arc-runners.yml`.
+
+The native image is ~21 GB either way, so prefer a vanilla set when nothing in
+the compiler estate is actually needed.
+
+`GH_RUNNER_CPP` is set org-wide to `arc-native-16cpu`. Nothing reads it yet -
+there is no C++ reusable workflow, only the LLVM and GCC toolchains the native
+image bakes - so a C++ job names it in `runs-on` directly. It is declared now so
+the answer is already agreed when that workflow lands, rather than someone
+picking a runner ad hoc.
+
+`ubuntu-latest` is the last-resort literal in every expression. It is only
+reached when the org variable is unset; with `GH_RUNNER_DEFAULT` set, every repo
+gets a self-hosted runner without asking.
 
 ### Self-hosted runner tiers
 

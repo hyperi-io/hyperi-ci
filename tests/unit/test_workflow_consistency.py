@@ -623,6 +623,98 @@ def test_release_tail_uses_shared_workflow(workflow_name: str) -> None:
     )
 
 
+class TestRunnerSelection:
+    """The `runs-on` expression is duplicated per language, so it drifts.
+
+    Runner NAMES are not asserted here and must not be: they live in the
+    `GH_RUNNER_*` org variables, which is the only place that can hold them --
+    GitHub evaluates `runs-on` before any of our code runs (issue #99). What is
+    duplicated, and therefore what this guards, is the fallback chain.
+    """
+
+    # Every gated runs-on ends the same way, so an unset variable always lands
+    # somewhere real.
+    TAIL = "vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"
+
+    # `free` mode is what lets an org with no self-hosted fleet use these
+    # workflows; losing it strands them on a runner that never answers.
+    FREE_MODE = (
+        "(inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest'"
+    )
+
+    RENOVATE = "startsWith(github.head_ref || github.ref_name, 'renovate/')"
+
+    LANG_VAR = {
+        "rust-ci.yml": "GH_RUNNER_RUST",
+        "python-ci.yml": "GH_RUNNER_PYTHON",
+        "go-ci.yml": "GH_RUNNER_GOLANG",
+        "ts-ci.yml": "GH_RUNNER_TYPESCRIPT",
+    }
+
+    @staticmethod
+    def _gated_runs_on(workflow_name: str) -> list[tuple[str, str]]:
+        """Every (job, runs-on) that resolves through an org variable."""
+        wf = _load_workflow(workflow_name)
+        found = []
+        for name, job in wf.get("jobs", {}).items():
+            runs_on = str(job.get("runs-on", ""))
+            if "GH_RUNNER" in runs_on:
+                found.append((name, runs_on))
+        return found
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_every_language_gates_at_least_one_job(self, workflow_name: str) -> None:
+        assert self._gated_runs_on(workflow_name), (
+            f"{workflow_name}: no job resolves its runner through GH_RUNNER_* — "
+            "the org variables are the SSoT and something now bypasses them"
+        )
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_the_fallback_chain_always_terminates(self, workflow_name: str) -> None:
+        for job, runs_on in self._gated_runs_on(workflow_name):
+            assert self.TAIL in runs_on, (
+                f"{workflow_name}.{job}: runs-on must end with "
+                f"{self.TAIL!r} so an unset variable still lands on a real "
+                f"runner.\n  actual: {runs_on}"
+            )
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_free_mode_escape_is_present(self, workflow_name: str) -> None:
+        for job, runs_on in self._gated_runs_on(workflow_name):
+            assert self.FREE_MODE in runs_on, (
+                f"{workflow_name}.{job}: runs-on lost the `free` mode escape, "
+                f"so an org with no self-hosted fleet queues forever.\n"
+                f"  actual: {runs_on}"
+            )
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_renovate_carveout_is_present(self, workflow_name: str) -> None:
+        for job, runs_on in self._gated_runs_on(workflow_name):
+            assert self.RENOVATE in runs_on, (
+                f"{workflow_name}.{job}: runs-on lost the renovate carve-out "
+                f"(issue #91).\n  actual: {runs_on}"
+            )
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_each_language_uses_its_own_variable(self, workflow_name: str) -> None:
+        # Copy-paste between the four workflows is the drift mode: a python job
+        # resolving through GH_RUNNER_RUST lands on the wrong image and the
+        # symptom is a missing toolchain, not a wrong-runner error.
+        mine = self.LANG_VAR[workflow_name]
+        theirs = {v for k, v in self.LANG_VAR.items() if k != workflow_name}
+        for job, runs_on in self._gated_runs_on(workflow_name):
+            assert mine in runs_on, (
+                f"{workflow_name}.{job}: runs-on does not reference {mine}"
+            )
+            for other in theirs:
+                # GH_RUNNER_RUST is a substring of GH_RUNNER_RENOVATE_RUST, so
+                # match the variable reference rather than the bare name.
+                assert f"vars.{other}" not in runs_on, (
+                    f"{workflow_name}.{job}: runs-on references {other}, which "
+                    f"belongs to another language.\n  actual: {runs_on}"
+                )
+
+
 def test_rust_renovate_carveout_never_lands_on_a_toolchainless_runner() -> None:
     """issue #91: renovate/ branches must resolve to a runner with cargo.
 
@@ -682,6 +774,8 @@ def test_release_tail_mints_a_bot_token() -> None:
     with_ = mint[0].get("with", {})
     assert "client-id" in with_, "the bot token must be minted from client-id"
     assert "app-id" not in with_, "app-id is deprecated — use client-id"
+
+
 
 
 @pytest.mark.parametrize("step_name", _PUSHING_STEPS)
