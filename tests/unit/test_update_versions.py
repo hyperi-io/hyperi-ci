@@ -12,6 +12,8 @@ import importlib.util
 import re
 from pathlib import Path
 
+import pytest
+
 _SPEC = importlib.util.spec_from_file_location(
     "update_versions",
     Path(__file__).resolve().parents[2] / "scripts" / "update-versions.py",
@@ -138,6 +140,51 @@ class TestCooldownSelection:
 
     def test_none_when_empty(self) -> None:
         assert update_versions._select_pinned_release([], self.NOW, 7) is None
+
+    def test_default_applies_the_seven_day_soak(self) -> None:
+        # Callers that pass nothing must still get the cooldown, or waiving it
+        # becomes the accidental default.
+        releases = [_rel("v8.1.0", 2), _rel("v8.0.0", 10)]
+        sel = update_versions._select_pinned_release(releases, self.NOW)
+        assert sel["tag_name"] == "v8.0.0"
+
+
+class TestNowWaivesTheSoak:
+    """`--now` means as-of-now; the soak stays the default."""
+
+    NOW = datetime(2026, 5, 28, tzinfo=UTC)
+
+    @pytest.fixture(autouse=True)
+    def _restore(self):
+        original = update_versions._COOLDOWN_OVERRIDE
+        yield
+        update_versions._COOLDOWN_OVERRIDE = original
+
+    def test_override_takes_a_release_published_today(self) -> None:
+        releases = [_rel("v9.0.0", 0), _rel("v8.0.0", 30)]
+        assert update_versions._select_pinned_release(releases, self.NOW) is not None
+        update_versions._COOLDOWN_OVERRIDE = 0
+        sel = update_versions._select_pinned_release(releases, self.NOW)
+        assert sel["tag_name"] == "v9.0.0"
+
+    def test_without_the_override_that_release_is_held(self) -> None:
+        releases = [_rel("v9.0.0", 0), _rel("v8.0.0", 30)]
+        sel = update_versions._select_pinned_release(releases, self.NOW)
+        assert sel["tag_name"] == "v8.0.0", "a same-day release must not be taken"
+
+    def test_an_explicit_argument_still_wins(self) -> None:
+        # The override must not silently outrank a caller that asked for a
+        # specific window.
+        update_versions._COOLDOWN_OVERRIDE = 0
+        releases = [_rel("v9.0.0", 1), _rel("v8.0.0", 30)]
+        sel = update_versions._select_pinned_release(releases, self.NOW, 7)
+        assert sel["tag_name"] == "v8.0.0"
+
+    def test_branch_pins_honour_the_override_too(self) -> None:
+        # rust-toolchain pins a branch head, which has its own cooldown path.
+        assert update_versions._cooldown() == update_versions._COOLDOWN_DAYS
+        update_versions._COOLDOWN_OVERRIDE = 0
+        assert update_versions._cooldown() == 0
 
     def test_missing_timestamp_skipped(self) -> None:
         # timestamp-required posture: no published_at → not eligible
@@ -990,7 +1037,9 @@ class TestStableFlagAndItsAlias:
         called: list[str] = []
         monkeypatch.setattr(update_versions, "_load_versions", lambda: {})
         monkeypatch.setattr(
-            update_versions, verb, lambda _versions: called.append(verb) or 0
+            update_versions,
+            verb,
+            lambda _versions, **_kwargs: called.append(verb) or 0,
         )
         monkeypatch.setattr("sys.argv", ["update-versions.py", *argv])
         assert update_versions.main() == 0

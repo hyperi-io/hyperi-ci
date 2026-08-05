@@ -17,7 +17,17 @@ Usage:
     uv run scripts/update-versions.py --check        # show drift (dry run)
     uv run scripts/update-versions.py --apply        # rewrite pipeline to SSOT
     uv run scripts/update-versions.py --stable       # report newest release >=7d old
+    uv run scripts/update-versions.py --stable --now # ... as of now, soak waived
     uv run scripts/update-versions.py --auto-update  # bump SSOT, test via CI, commit/revert
+
+`--check` proves the MIRRORS match the SSOT; it never asks upstream whether the
+SSOT itself is behind. `--stable` is that half, and `--fail-on-drift` turns its
+report into an exit code so a schedule can act on it (.github/workflows/
+versions-audit.yml). Without one, a pin sits stale while every check stays
+green.
+
+`--now` waives the soak for a supervised update. The schedule keeps the
+cooldown: the soak is the supply-chain control, not a formality.
 
 `--stable` reports the SOAKED release, matching the `stable` channel in
 `hyperi-ci autoupdate`. It was spelled `--latest`, which read backwards: in the
@@ -71,6 +81,19 @@ _TEMPLATES_SUBDIR = Path("src") / "hyperi_ci" / "gitops_templates" / "workflows"
 # Renovate preset's `minimumReleaseAge` — a release sitting untouched for a
 # week is far less likely to be a compromised/yanked supply-chain attack.
 _COOLDOWN_DAYS = 7
+
+# Waived by --now for a supervised update. Deliberately a per-run override
+# rather than a config value: the soak is the supply-chain control, so skipping
+# it is a decision a human takes each time, not a default anyone inherits.
+_COOLDOWN_OVERRIDE: int | None = None
+
+
+def _cooldown(explicit: int | None = None) -> int:
+    """Days a release must have soaked before it counts as a candidate."""
+    if explicit is not None:
+        return explicit
+    return _COOLDOWN_DAYS if _COOLDOWN_OVERRIDE is None else _COOLDOWN_OVERRIDE
+
 
 # Maps action short names in versions.yaml to their full GitHub owner/repo
 _ACTION_OWNERS: dict[str, str] = {
@@ -261,7 +284,7 @@ def _parse_semver(tag: str) -> tuple[int, int, int] | None:
 def _select_pinned_release(
     releases: list[dict[str, Any]],
     now: datetime,
-    cooldown_days: int = _COOLDOWN_DAYS,
+    cooldown_days: int | None = None,
     major: int | None = None,
     minor: int | None = None,
 ) -> dict[str, Any] | None:
@@ -276,7 +299,7 @@ def _select_pinned_release(
     breaking bump is caught by CI on the PR rather than blocked here.
     Returns the chosen release dict or None.
     """
-    cutoff = now - timedelta(days=cooldown_days)
+    cutoff = now - timedelta(days=_cooldown(cooldown_days))
     best: dict[str, Any] | None = None
     best_ver: tuple[int, int, int] | None = None
     for rel in releases:
@@ -338,7 +361,7 @@ def _resolve_tag_sha(owner_repo: str, tag: str) -> str | None:
 
 
 def _resolve_branch_sha(
-    owner_repo: str, branch: str, now: datetime, cooldown_days: int = _COOLDOWN_DAYS
+    owner_repo: str, branch: str, now: datetime, cooldown_days: int | None = None
 ) -> str | None:
     """Pin a branch ref (e.g. rust-toolchain@master) to its newest commit
     that is older than the cooldown — no releases to gate on, so use the
@@ -346,7 +369,7 @@ def _resolve_branch_sha(
     commits = _gh_json(f"/repos/{owner_repo}/commits?sha={branch}&per_page=50")
     if not isinstance(commits, list):
         return None
-    cutoff = now - timedelta(days=cooldown_days)
+    cutoff = now - timedelta(days=_cooldown(cooldown_days))
     for commit in cast("list[dict[str, Any]]", commits):
         date_str = commit.get("commit", {}).get("committer", {}).get("date")
         if not date_str:
@@ -643,7 +666,7 @@ def _fix(versions: dict) -> int:
     return 1
 
 
-def _stable(versions: dict) -> int:
+def _stable(versions: dict, *, fail_on_drift: bool = False) -> int:
     """Report the newest soaked release of each pinned Action and tool.
 
     Soaked, not newest: a release inside the cooldown is reported as held, so
@@ -653,7 +676,16 @@ def _stable(versions: dict) -> int:
     updates_available = 0
     lookup_failures = 0
 
-    print(f"Checking stable versions (>= {_COOLDOWN_DAYS}-day cooldown)...\n")
+    window = _cooldown()
+    print(
+        "Checking stable versions "
+        + (
+            "(--now: cooldown WAIVED, taking releases as of now)"
+            if window == 0
+            else f"(>= {window}-day cooldown)"
+        )
+        + "...\n"
+    )
     now = datetime.now(UTC)
 
     for short_name, current in actions.items():
@@ -740,7 +772,7 @@ def _stable(versions: dict) -> int:
 
     if updates_available:
         print(f"\n{updates_available} update(s) available.")
-        print("Edit config/versions.yaml then run --apply.")
+        print(f"Edit {_VERSIONS_FILE.relative_to(_ROOT)} then run --apply.")
     elif not lookup_failures:
         print("\nAll versions up to date.")
     if lookup_failures:
@@ -750,6 +782,10 @@ def _stable(versions: dict) -> int:
             " limit?) — their status is unknown, not current. Re-run before"
             " trusting this report."
         )
+    # A scheduled caller needs a signal, but a human running this wants the
+    # report without a non-zero exit, so the failure is opt-in.
+    if fail_on_drift and (updates_available or lookup_failures):
+        return 1
     return 0
 
 
@@ -1127,14 +1163,30 @@ def main() -> int:
         action="store_true",
         help="Apply fixes and exit 1 if changes were made (for pre-commit hooks)",
     )
+    # Not in the mutually-exclusive group: it MODIFIES --stable rather than
+    # replacing it.
+    parser.add_argument(
+        "--fail-on-drift",
+        action="store_true",
+        help="With --stable, exit 1 when a pin is behind or could not be checked",
+    )
+    parser.add_argument(
+        "--now",
+        action="store_true",
+        help="Waive the soak: take releases as of now (supervised updates only)",
+    )
     args = parser.parse_args()
+
+    if args.now:
+        global _COOLDOWN_OVERRIDE
+        _COOLDOWN_OVERRIDE = 0
 
     versions = _load_versions()
 
     if args.auto_update:
         return _auto_update(versions)
     if args.stable:
-        return _stable(versions)
+        return _stable(versions, fail_on_drift=args.fail_on_drift)
     if args.fix:
         return _fix(versions)
     if args.apply:
