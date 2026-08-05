@@ -183,9 +183,12 @@ def mask(value: str) -> None:
     ``::add-mask::`` is the redaction primitive, not a log line — the runner
     consumes the command and replaces every later occurrence of the value with
     ``***``. CodeQL reads the write as clear-text logging of a secret
-    (``py/clear-text-logging-sensitive-data``, alert 52) and the taint it
-    traces is real — the one caller passes an R2 secret key — but this is the
-    mitigation for that taint, not an instance of it.
+    (``py/clear-text-logging-sensitive-data``) and the taint it traces is real —
+    the one caller passes an R2 secret key — but this is the mitigation for that
+    taint, not an instance of it, so the alert is dismissed as a false positive.
+
+    Editing this function re-raises it under a NEW alert number, because the
+    dismissal is keyed to the code fingerprint rather than the rule.
 
     The value is escaped rather than split on newlines: an unescaped ``%``
     registers a different string and leaves the real secret unmasked, and the
