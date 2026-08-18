@@ -44,6 +44,66 @@ class TestSemanticReleasePin:
         assert out == ref
 
 
+class TestSemanticReleasePluginMajors:
+    """A plugin pin in the install line must be driven from the SSOT.
+
+    An unpinned plugin takes whatever npm serves that morning:
+    conventional-changelog-conventionalcommits v10 landed needing
+    conventional-changelog-writer@9, which core 25 does not bring, and the
+    dry-run broke in every repo at once. A pin fixes that only if the SSOT
+    owns the number -- a literal typed into the action drifts silently.
+    """
+
+    VERSIONS = {
+        "semantic_release": {
+            "core": "25",
+            "plugin_majors": {"conventional-changelog-conventionalcommits": "9"},
+        }
+    }
+
+    def test_pins_the_plugin_major(self) -> None:
+        out = _apply("  conventional-changelog-conventionalcommits@7", self.VERSIONS)
+        assert "conventional-changelog-conventionalcommits@9" in out
+
+    def test_rewrites_a_drifted_pin_back_to_the_ssot(self) -> None:
+        out = _apply("  conventional-changelog-conventionalcommits@10", self.VERSIONS)
+        assert "conventional-changelog-conventionalcommits@9" in out
+        assert "@10" not in out
+
+    def test_leaves_an_unlisted_plugin_alone(self) -> None:
+        line = "  @semantic-release/changelog"
+        assert _apply(line, self.VERSIONS) == line
+
+    def test_absent_plugin_majors_is_not_an_error(self) -> None:
+        line = "  conventional-changelog-conventionalcommits@9"
+        assert _apply(line, {"semantic_release": {"core": "25"}}) == line
+
+    def test_the_shipped_action_matches_the_shipped_ssot(self) -> None:
+        """The real files, so a hand-edited pin fails here rather than in CI."""
+        import yaml
+
+        root = Path(__file__).resolve().parents[2]
+        versions = yaml.safe_load(
+            (root / "src" / "hyperi_ci" / "config" / "versions.yaml").read_text(
+                encoding="utf-8", errors="replace"
+            )
+        )
+        action = (
+            root / ".github" / "actions" / "setup-semantic-release" / "action.yml"
+        ).read_text(encoding="utf-8", errors="replace")
+
+        majors = versions["semantic_release"].get("plugin_majors") or {}
+        assert majors, "the SSOT records no plugin pins; this guard would test nothing"
+        for pkg, major in majors.items():
+            assert f"{pkg}@{major}" in action, (
+                f"{pkg} is pinned to {major} in versions.yaml but the action "
+                f"install line disagrees"
+            )
+        assert _apply(action, versions) == action, (
+            "applying the SSOT replacements changed the action -- it has drifted"
+        )
+
+
 def _sha_versions(sha: str = "abc123", version: str = "v6.0.2") -> dict:
     return {"actions": {"checkout": {"version": version, "sha": sha}}}
 

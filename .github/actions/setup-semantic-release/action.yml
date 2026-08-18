@@ -44,6 +44,8 @@ runs:
 
     - name: Install semantic-release + plugins (pinned)
       shell: bash
+      # Every version literal below is driven from config/versions.yaml by
+      # scripts/update-versions.py -- edit it there, not here.
       run: |
         npm install -g \
           semantic-release@25 \
@@ -53,7 +55,7 @@ runs:
           @semantic-release/exec \
           @semantic-release/git \
           @semantic-release/github \
-          conventional-changelog-conventionalcommits
+          conventional-changelog-conventionalcommits@9
 
     - name: Provide the release config (central default, never the #37 plugins)
       shell: bash
