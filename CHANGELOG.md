@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.9.21](https://github.com/hyperi-io/hyperi-ci/compare/v2.9.20...v2.9.21) (2026-08-18)
+
+### Bug Fixes
+
+* **release:** drive the changelog-preset pin from versions.yaml ([88435a9](https://github.com/hyperi-io/hyperi-ci/commit/88435a98d32ce1b064b99863c9ca9fff66a83a52))
+
 ## [2.9.20](https://github.com/hyperi-io/hyperi-ci/compare/v2.9.19...v2.9.20) (2026-08-18)
 
 ## [2.9.19](https://github.com/hyperi-io/hyperi-ci/compare/v2.9.18...v2.9.19) (2026-08-05)
