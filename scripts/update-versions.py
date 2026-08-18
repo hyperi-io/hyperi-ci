@@ -514,6 +514,13 @@ def _build_replacements(versions: dict) -> list[tuple[re.Pattern, str, str]]:
         replacement = rf"\g<1>{sr_core}"
         replacements.append((pattern, replacement, f"semantic-release@{sr_core}"))
 
+    # Plugin majors, driven from the SSOT exactly as `core` is, so a pin in the
+    # install line cannot drift from the value recorded here.
+    for pkg, major in (sr.get("plugin_majors") or {}).items():
+        pattern = re.compile(rf"(?<![\w-])({re.escape(pkg)}@)\S+")
+        replacement = rf"\g<1>{major}"
+        replacements.append((pattern, replacement, f"{pkg}@{major}"))
+
     return replacements
 
 

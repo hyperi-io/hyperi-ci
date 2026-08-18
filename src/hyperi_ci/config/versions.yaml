@@ -254,3 +254,10 @@ semantic_release:
     - "@semantic-release/git"
     - "@semantic-release/github"
     - "conventional-changelog-conventionalcommits"
+  # Plugins whose MAJOR is pinned in the install line, driven from here the same
+  # way `core` is. A plugin listed above but absent here floats to latest.
+  plugin_majors:
+    # v10 requires conventional-changelog-writer@9, which core 25 does not
+    # bring; unpinned, v10 broke the dry-run in every repo at once. Lifting this
+    # means moving `core` with it.
+    conventional-changelog-conventionalcommits: "9"
