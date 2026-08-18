@@ -151,6 +151,24 @@ class TestFromHeadThreading:
         wc = on.get("workflow_call", {}).get("inputs", {})
         assert "from-head" in wc and "bump" in wc
 
+    def test_release_tail_blocks_the_tag_when_a_shipped_container_fails(self) -> None:
+        # A container-shipping project must not cut a tag/release its image
+        # does not back (issue #102): dfe-loader v1.18.19 advertised a version
+        # GHCR never had. A library keeps the issue-#33 decoupling.
+        wf = _load_workflow("_release-tail.yml")
+        container = wf["jobs"]["container"]
+        assert container.get("outputs", {}).get("ships-container"), (
+            "container job must expose ships-container so tag-and-publish can "
+            "tell a failed deliverable from a project that ships no container"
+        )
+        ifc = " ".join(str(wf["jobs"]["tag-and-publish"]["if"]).split())
+        assert "needs.container.result == 'success'" in ifc, (
+            "tag-and-publish must require a successful container..."
+        )
+        assert "needs.container.outputs.ships-container != 'true'" in ifc, (
+            "...unless the project ships no container (issue #33 decoupling)"
+        )
+
     def test_release_tail_tags_head_on_dispatch_auto(self) -> None:
         # semantic-release tags HEAD on from-head + bump=auto (re-uses the
         # push tagger). Forced bumps use tag-head instead.

@@ -117,6 +117,10 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      # Whether this project ships a container at all, so tag-and-publish can
+      # tell "the deliverable failed" from "there was never a container".
+      ships-container: ${{ steps.resolve.outputs.build }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -206,16 +210,27 @@ jobs:
   tag-and-publish:
     name: Tag & Publish
     needs: [container]
-    # Runs iff a release is being published — and DECOUPLED from the
-    # container outcome (issue #33). `always()` means a failed or skipped
-    # Container job does not block the primary publish: a transient
-    # container/registry hiccup (e.g. a flaky Docker Hub buildkit pull)
-    # must never lose the crate/PyPI/npm + GitHub Release or skip the tag.
-    # The container failure still surfaces as a red run for follow-up.
+    # Runs iff a release is being published, and is DECOUPLED from the
+    # container outcome (issue #33) for projects that do not ship a
+    # container: a transient container/registry hiccup must never lose the
+    # crate/PyPI/npm + GitHub Release or skip the tag.
+    #
+    # For a project that DOES ship a container the container IS the
+    # deliverable, so the same decoupling published a lie: dfe-loader
+    # v1.18.19 cut its tag and GitHub Release while a Docker Hub 502 failed
+    # the build, leaving `latest` advertising a version GHCR never had, and
+    # anything pinning from the release page got an image that did not exist
+    # (issue #102). Those projects skip the crate registry anyway (a binary
+    # application has no crate to publish), so blocking here loses nothing
+    # that #33 set out to protect.
+    #
     # On push events this creates the git tag (semantic-release) AND
     # uploads artefacts. On workflow_dispatch (retroactive) the tag
     # already exists; only the upload runs.
-    if: ${{ always() && inputs.will-publish == 'true' }}
+    if: >-
+      ${{ always() && inputs.will-publish == 'true'
+          && (needs.container.result == 'success'
+              || needs.container.outputs.ships-container != 'true') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
