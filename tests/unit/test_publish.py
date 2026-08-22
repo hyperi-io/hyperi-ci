@@ -14,6 +14,7 @@ and is tested via integration tests against test projects.
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -230,3 +231,100 @@ class TestCargoVersionSync:
         from hyperi_ci.languages.rust.publish import _sync_cargo_toml_version
 
         assert _sync_cargo_toml_version("1.0.0") is False
+
+
+class TestPythonDistExclusion:
+    """destinations_oss.python: false must also stop the wheel reaching R2
+    via the generic binary publisher (issue #105 BUG 2)."""
+
+    def test_wheel_and_sdist_are_python_artifacts(self) -> None:
+        from hyperi_ci.publish.binaries import _is_python_dist_artifact
+
+        assert _is_python_dist_artifact(Path("dfe_engine-1.17.0-py3-none-any.whl"))
+        assert _is_python_dist_artifact(Path("dfe_engine-1.17.0.tar.gz"))
+        assert _is_python_dist_artifact(Path("dfe_engine-1.17.0.zip"))
+
+    def test_binary_is_not_python_artifact(self) -> None:
+        from hyperi_ci.publish.binaries import _is_python_dist_artifact
+
+        assert not _is_python_dist_artifact(Path("dfe-receiver"))
+        assert not _is_python_dist_artifact(Path("dfe-receiver-x86_64-unknown-linux"))
+
+    def test_collect_excludes_python_when_flagged(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        dist = tmp_path / "dist"
+        dist.mkdir()
+        (dist / "dfe_engine-1.17.0-py3-none-any.whl").write_text("wheel")
+        (dist / "dfe_engine-1.17.0.tar.gz").write_text("sdist")
+        (dist / "dfe-receiver").write_text("binary")
+        from hyperi_ci.publish.binaries import _collect_artifacts
+
+        kept = {p.name for p in _collect_artifacts(exclude_python=True)}
+        assert kept == {"dfe-receiver"}
+        # Default (no exclusion) still sweeps in everything.
+        assert "dfe_engine-1.17.0-py3-none-any.whl" in {
+            p.name for p in _collect_artifacts()
+        }
+
+    def test_python_false_opts_out_but_keeps_binaries(self) -> None:
+        # The dfe-engine shape: python opted out, binaries still defaulted on.
+        config = CIConfig(
+            publish_target="oss",
+            _raw={
+                "publish": {
+                    "destinations_oss": {"python": False, "binaries": "r2-binaries"}
+                }
+            },
+        )
+        assert config.destination_for("python") == []
+        assert config.destination_for("binaries") == ["r2-binaries"]
+        # publish_binaries derives exclude_python from exactly this.
+        assert bool(config.destination_for("python")) is False
+
+
+class TestReleaseTargetsHead:
+    """Refuse to overwrite a release whose tag is not HEAD (issue #105)."""
+
+    @staticmethod
+    def _git(cwd: Path, *args: str) -> None:
+        subprocess.run(
+            ["git", "-c", "user.email=t@t", "-c", "user.name=t", *args],
+            cwd=cwd,
+            check=True,
+            capture_output=True,
+        )
+
+    def test_tag_at_head_is_true(self, tmp_path, monkeypatch) -> None:
+        self._git(tmp_path, "init")
+        (tmp_path / "f").write_text("a")
+        self._git(tmp_path, "add", "-A")
+        self._git(tmp_path, "commit", "-m", "one")
+        self._git(tmp_path, "tag", "v1.0.0")
+        monkeypatch.chdir(tmp_path)
+        from hyperi_ci.publish.binaries import _release_targets_head
+
+        assert _release_targets_head("v1.0.0") is True
+
+    def test_tag_off_head_is_false(self, tmp_path, monkeypatch) -> None:
+        self._git(tmp_path, "init")
+        (tmp_path / "f").write_text("a")
+        self._git(tmp_path, "add", "-A")
+        self._git(tmp_path, "commit", "-m", "one")
+        self._git(tmp_path, "tag", "v1.0.0")
+        (tmp_path / "f").write_text("b")
+        self._git(tmp_path, "add", "-A")
+        self._git(tmp_path, "commit", "-m", "two")
+        monkeypatch.chdir(tmp_path)
+        from hyperi_ci.publish.binaries import _release_targets_head
+
+        assert _release_targets_head("v1.0.0") is False
+
+    def test_missing_tag_is_false(self, tmp_path, monkeypatch) -> None:
+        self._git(tmp_path, "init")
+        (tmp_path / "f").write_text("a")
+        self._git(tmp_path, "add", "-A")
+        self._git(tmp_path, "commit", "-m", "one")
+        monkeypatch.chdir(tmp_path)
+        from hyperi_ci.publish.binaries import _release_targets_head
+
+        assert _release_targets_head("v9.9.9") is False

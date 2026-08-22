@@ -21,6 +21,10 @@ inputs:
   github-token:
     description: GitHub token (for semantic-release dry-run)
     required: true
+  tag:
+    description: "Tag to re-publish on a workflow_dispatch (retroactive). Empty on a from-head or push run."
+    required: false
+    default: ""
   from-head:
     description: "'true' on a from-head dispatch (issue #35): resolve version for tagging HEAD"
     required: false
@@ -62,6 +66,18 @@ runs:
       shell: bash
       run: |
         if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          # A dispatch publishes in exactly one of two modes, each of which
+          # resolves a real version: `tag=vX.Y.Z` re-publishes an existing
+          # release (version = the tag), and `from-head=true` releases HEAD
+          # (the CI computes + cuts the tag). A BARE dispatch (neither) resolves
+          # no version, so every downstream consumer falls back to the committed
+          # manifest seed — how a four-month-old version was rebuilt from
+          # today's HEAD and clobbered `latest` on GHCR + R2 (issue #105).
+          # Refuse it HERE, before the container job can build and push it.
+          if [[ -z "${{ inputs.tag }}" && "${{ inputs.from-head }}" != "true" ]]; then
+            echo "::error::workflow_dispatch with neither 'tag' nor 'from-head: true' — refusing to publish (issue #105). A bare dispatch resolves no version and would name the release from the committed manifest. Re-run with from-head=true (bump=auto|patch|minor|X.Y.Z) to release HEAD, or set tag=vX.Y.Z to re-publish an existing release."
+            exit 1
+          fi
           echo "will-publish=true" >> "$GITHUB_OUTPUT"
           echo "::notice::Triggered by workflow_dispatch — publish run"
           exit 0

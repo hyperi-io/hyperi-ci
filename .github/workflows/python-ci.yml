@@ -161,6 +161,7 @@ jobs:
         uses: hyperi-io/hyperi-ci/.github/actions/predict-version@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ inputs.tag }}
           from-head: ${{ inputs.from-head }}
           bump: ${{ inputs.bump }}
           branch-build: ${{ inputs.branch-build || vars.HYPERCI_BRANCH_BUILD }}
