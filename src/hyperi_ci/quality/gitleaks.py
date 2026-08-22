@@ -64,6 +64,44 @@ def _install_gitleaks() -> bool:
     )
 
 
+def _supports_git_subcommand() -> bool:
+    """Whether the gitleaks on PATH understands the `git` subcommand.
+
+    Probed rather than parsed from `gitleaks version`, which prints
+    "version is set by build process" on a distro build - no number to compare.
+    """
+    try:
+        probe = run_cmd(["gitleaks", "git", "--help"], check=False, capture=True)
+    except OSError:
+        return False
+    return probe.returncode == 0
+
+
+def _report_unusable(mode: str) -> int:
+    """Report a gitleaks that cannot run this scan, and never as a finding.
+
+    gitleaks exits non-zero for a usage error as well as for a leak, so the
+    exit code alone cannot tell "no scan ran" from "your repo has a secret".
+    Returns what the scan-failure path returns for this mode, so the outcome is
+    unchanged and only the reason differs.
+    """
+    notice = "\n".join(
+        (
+            "gitleaks: no scan ran - the installed build has no `git` "
+            "subcommand. This is a tool problem, not a finding.",
+            "  needed: 8.19.0 or newer, which replaced `detect` with `git`;"
+            f" hyperi-ci pins {tool_version('gitleaks')}.",
+            "  Ubuntu universe ships 8.16.0, below that floor.",
+            f"  {missing_tool_notice('gitleaks', head='`gitleaks` is installed but too old')}",
+        )
+    )
+    if mode == "warn":
+        warn(f"  {notice}")
+        return 0
+    error(f"  {notice}")
+    return 1
+
+
 def _find_config() -> str | None:
     """Find gitleaks config file in project."""
     for path in (".gitleaks.toml", "ci/.gitleaks.toml"):
@@ -203,6 +241,11 @@ def run(config: CIConfig) -> int:
         warn("  gitleaks: skipping secret scanning")
         warn(f"  {missing_tool_notice('gitleaks')}")
         return 0
+
+    # `_install_gitleaks` is satisfied by anything named gitleaks on PATH, so
+    # the build still has to be checked before the scan is built around `git`.
+    if not _supports_git_subcommand():
+        return _report_unusable(mode)
 
     # Scan git history. `git` supersedes the deprecated `detect` subcommand
     # (gone from --help as of 8.30.1, still honoured for back-compat); the repo

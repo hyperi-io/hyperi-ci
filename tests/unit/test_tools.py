@@ -35,6 +35,23 @@ def test_notice_for_unknown_tool_is_generic_but_safe() -> None:
     assert "docs:" not in notice
 
 
+def test_head_override_replaces_the_not_installed_opening() -> None:
+    """A present-but-unusable tool must not be described as missing.
+
+    gitleaks 8.16.0 is installed and on PATH; it simply cannot run the scan.
+    Saying "is not installed" there sends the reader to fix the wrong thing.
+    """
+    notice = tools.missing_tool_notice(
+        "gitleaks", head="`gitleaks` is installed but too old"
+    )
+    assert "is not installed" not in notice
+    assert notice.startswith("`gitleaks` is installed but too old")
+    # The whole reason for the parameter: keep the registry's install guidance
+    # rather than restating it locally to avoid the false opening.
+    assert "help: install it with one of:" in notice
+    assert "hyperi-ci needs it for secret scanning" in notice
+
+
 def test_notice_overrides_win() -> None:
     notice = tools.missing_tool_notice(
         "alint",
