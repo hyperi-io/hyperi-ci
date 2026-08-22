@@ -408,8 +408,31 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: ${{ env.HYPERCI_INSTALL }} run publish
 
+      - name: Stamp the released version
+        # release-commit reads VERSION off this job's disk, and this job checks
+        # out the TAG, whose VERSION is by definition the pre-release value.
+        # The build's stamp runs on a different runner and only dist/ + ci-tmp/
+        # travel between them, so without this VERSION never moves.
+        #
+        # Non-fatal, like the commit below: a failure leaves VERSION where it
+        # already was rather than reddening a shipped release.
+        if: steps.publish.outcome == 'success'
+        continue-on-error: true
+        env:
+          # Via env, not interpolated into the script, so the value cannot be
+          # read as shell.
+          RELEASE_VERSION: ${{ steps.forcedtag.outputs.version || inputs.next-version }}
+        run: |
+          # Guarded like the build's own stamp: a repo with no VERSION file has
+          # opted out, and creating one here would commit a file it never had.
+          if [[ -f VERSION ]]; then
+            ${{ env.HYPERCI_INSTALL }} stamp-version "$RELEASE_VERSION"
+          else
+            echo "No VERSION file - nothing to stamp"
+          fi
+
       - name: Commit rendered release artefacts
-        # VERSION (stamped by the build) and CHANGELOG.md (rendered by
+        # VERSION (stamped just above) and CHANGELOG.md (rendered by
         # @semantic-release/changelog) have had no owner since
         # @semantic-release/git was dropped (issue #85).
         #
