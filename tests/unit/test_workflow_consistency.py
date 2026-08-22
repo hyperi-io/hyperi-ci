@@ -190,6 +190,50 @@ class TestFromHeadThreading:
             "forced-tag step must skip when bump == 'auto' (auto uses semantic-release)"
         )
 
+    def test_release_tail_restamps_before_committing_artefacts(self) -> None:
+        """VERSION must be stamped in the job that commits it.
+
+        release-commit lists VERSION in RELEASE_ARTEFACTS and reads it off
+        disk, but tag-and-publish checks out the TAG, whose VERSION is the
+        pre-release value. The build's stamp runs on another runner and only
+        dist/ + ci-tmp/ are passed between them, so without a stamp here the
+        uploaded blob matches the branch, the tree is unchanged for that path,
+        and VERSION never moves in any repo on this pipeline.
+        """
+        steps = _load_workflow("_release-tail.yml")["jobs"]["tag-and-publish"]["steps"]
+        names = [s.get("name") for s in steps]
+
+        assert "Stamp the released version" in names, (
+            "_release-tail.tag-and-publish: no stamp step before release-commit, "
+            "so VERSION can never move"
+        )
+        stamp_at = names.index("Stamp the released version")
+        commit_at = names.index("Commit rendered release artefacts")
+        assert stamp_at < commit_at, (
+            "the stamp must precede release-commit, which reads VERSION off disk"
+        )
+
+        stamp = steps[stamp_at]
+        commit = steps[commit_at]
+        # Same gate as the commit it feeds: stamping a release that did not
+        # publish would leave a version on disk nothing shipped.
+        assert str(stamp["if"]) == str(commit["if"]), (
+            "stamp and release-commit must share a condition"
+        )
+        assert stamp["continue-on-error"] is True, (
+            "bookkeeping after a shipped release must not turn it red"
+        )
+        # The version arrives by env so it is never read as shell.
+        assert "RELEASE_VERSION" in stamp["env"]
+        assert stamp["env"]["RELEASE_VERSION"] == commit["run"].split('"')[1], (
+            "stamp and release-commit must stamp and commit the SAME version"
+        )
+        # A repo with no VERSION file has opted out; stamp_version would create
+        # one, and release-commit would then commit a file it never had.
+        assert "-f VERSION" in stamp["run"], (
+            "stamp step must not create a VERSION file where none exists"
+        )
+
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
     def test_build_stamps_on_from_head_dispatch(self, workflow_name: str) -> None:
         # The from-head build-stamp gap (issue #37 / #27): HEAD's committed tree
