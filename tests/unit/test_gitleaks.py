@@ -76,6 +76,10 @@ def _fake_gitleaks(
         return subprocess.CompletedProcess(cmd, scan_rc, "", "")
 
     monkeypatch.setattr(gitleaks, "_install_gitleaks", lambda: True)
+    # Stubbed alongside the install check, and for the same reason: the probe
+    # shells out to `gitleaks git --help`, which would otherwise be recorded as
+    # the first gitleaks call and stand in for the scan in _scan_cmd.
+    monkeypatch.setattr(gitleaks, "_supports_git_subcommand", lambda: True)
     monkeypatch.setattr(gitleaks, "run_cmd", fake_run_cmd)
     monkeypatch.setattr(gitleaks.subprocess, "run", fake_run)
     return calls
@@ -250,6 +254,84 @@ class TestLeaksFound:
         monkeypatch.setenv("HYPERCI_QUALITY_STRICT", "1")
         cfg = _cfg({"quality": {"gitleaks": "warn"}})
         assert gitleaks.run(cfg) == 1
+
+
+class TestUnusableBuild:
+    """An installed gitleaks too old to run the scan is a TOOL fault.
+
+    Ubuntu universe ships 8.16.0, which predates the 8.19.0 split of `detect`
+    into `git`/`dir`/`stdin`. `_install_gitleaks` accepts anything called
+    gitleaks on PATH, so that build reached the scan, failed with
+    `unknown command "git"`, and the non-zero exit was reported as
+    "secrets detected in repository!".
+    """
+
+    @staticmethod
+    def _too_old(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        """Installed, but the `git` probe fails. Returns the messages emitted."""
+        _fake_gitleaks(monkeypatch)
+        monkeypatch.setattr(gitleaks, "_supports_git_subcommand", lambda: False)
+        messages: list[str] = []
+        monkeypatch.setattr(gitleaks, "error", messages.append)
+        monkeypatch.setattr(gitleaks, "warn", messages.append)
+        return messages
+
+    def test_never_reported_as_a_finding(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The whole point: do not send anyone hunting a secret that is not there."""
+        messages = self._too_old(monkeypatch)
+        gitleaks.run(_cfg({"quality": {"gitleaks": "blocking"}}))
+
+        assert not any("secrets detected" in m for m in messages), messages
+        assert any("no scan ran" in m for m in messages), messages
+
+    def test_blocking_mode_still_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Exit code is unchanged from the old behaviour - only the reason moved."""
+        self._too_old(monkeypatch)
+        assert gitleaks.run(_cfg({"quality": {"gitleaks": "blocking"}})) == 1
+
+    def test_warn_mode_still_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._too_old(monkeypatch)
+        assert gitleaks.run(_cfg({"quality": {"gitleaks": "warn"}})) == 0
+
+    def test_no_scan_is_attempted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Bailing before the scan is what keeps the exit code meaningful."""
+        calls = _fake_gitleaks(monkeypatch)
+        monkeypatch.setattr(gitleaks, "_supports_git_subcommand", lambda: False)
+        gitleaks.run(_cfg({"quality": {"gitleaks": "blocking"}}))
+
+        assert not [c for c in calls if c and c[0] == "gitleaks"], calls
+
+
+class TestGitSubcommandProbe:
+    """The probe itself, against the two exit codes real builds produce."""
+
+    @pytest.mark.parametrize(
+        ("returncode", "supported"),
+        [(0, True), (1, False)],
+        ids=["8.30.1-prints-help", "8.16.0-unknown-command"],
+    )
+    def test_probe_follows_the_exit_code(
+        self, monkeypatch: pytest.MonkeyPatch, returncode: int, supported: bool
+    ) -> None:
+        def fake_run_cmd(
+            cmd: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess:
+            assert cmd == ["gitleaks", "git", "--help"]
+            return subprocess.CompletedProcess(cmd, returncode, "", "")
+
+        monkeypatch.setattr(gitleaks, "run_cmd", fake_run_cmd)
+        assert gitleaks._supports_git_subcommand() is supported
+
+    def test_missing_binary_is_not_supported(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """run_cmd does not catch OSError, and a probe must not raise out of run()."""
+
+        def boom(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+            raise FileNotFoundError(cmd[0])
+
+        monkeypatch.setattr(gitleaks, "run_cmd", boom)
+        assert gitleaks._supports_git_subcommand() is False
 
 
 class TestDetachedHead:
