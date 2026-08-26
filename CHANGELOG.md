@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.9.23](https://github.com/hyperi-io/hyperi-ci/compare/v2.9.22...v2.9.23) (2026-08-26)
+
+### Bug Fixes
+
+* **deps:** read yarn.lock, so a yarn repo is audited ([#110](https://github.com/hyperi-io/hyperi-ci/issues/110)) ([d287312](https://github.com/hyperi-io/hyperi-ci/commit/d287312ec2fe30ba1ee4a6ac6793e776b4ba2795))
+
 ## [2.9.21](https://github.com/hyperi-io/hyperi-ci/compare/v2.9.20...v2.9.21) (2026-08-18)
 
 ### Bug Fixes
