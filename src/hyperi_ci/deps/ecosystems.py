@@ -42,6 +42,8 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import yaml
+
 from hyperi_ci.deps import versions as ver
 from hyperi_ci.deps.surfaces import Surface, load, repo_files
 
@@ -64,6 +66,9 @@ class Ecosystem:
     groups: list[dict] = field(default_factory=list)
     declared: int = 0
     compared: int = 0
+    # Why this ecosystem compared nothing, when a lock was found but not read.
+    # Empty is the normal case; a value here is surfaced in the report's notes.
+    note: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +202,66 @@ def packages_from_npm_lock(path: Path) -> dict[str, str]:
         if current is None or depth < current[0]:
             best[name] = (depth, version)
     return {name: version for name, (_, version) in best.items()}
+
+
+def _yarn_descriptor_name(descriptor: str) -> str:
+    """``@scope/pkg@npm:^1.2.3`` -> ``@scope/pkg``.
+
+    The range is everything after the LAST ``@``, except for the leading one a
+    scoped name starts with -- so the split has to skip index 0 rather than
+    take the first separator.
+    """
+    descriptor = descriptor.strip().strip('"')
+    cut = descriptor.rfind("@")
+    return descriptor[:cut] if cut > 0 else descriptor
+
+
+def packages_from_yarn_lock(path: Path) -> dict[str, str]:
+    """Yarn Berry ``yarn.lock`` -> name -> version.
+
+    Berry's lockfile is YAML: one entry per resolved descriptor, keyed by a
+    comma-joined descriptor list, with the resolved ``version`` inside. Only
+    the name matters here, and every descriptor in one key resolves to the same
+    version, so the first is enough.
+
+    Where a name appears under several keys (two majors of a transitive dep),
+    keep the HIGHEST -- same rule as the toml locks, and for the same reason:
+    that is the copy a floor has to cover.
+
+    Yarn Classic (v1) is NOT valid YAML and yields nothing here. It has been
+    superseded since 2020 and no HyperI repo runs it; a v1 lockfile therefore
+    reports as an unparsed lock rather than as a silent clean.
+    """
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (yaml.YAMLError, OSError, UnicodeDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+
+    out: dict[str, str] = {}
+    for key, meta in data.items():
+        if key == "__metadata" or not isinstance(meta, dict):
+            continue
+        version = meta.get("version")
+        if not isinstance(version, str):
+            continue
+        name = _yarn_descriptor_name(str(key).split(",")[0])
+        if not name:
+            continue
+        current = out.get(name)
+        if current is None or (ver.parse(version) or ()) > (ver.parse(current) or ()):
+            out[name] = version
+    return out
+
+
+# Lock filename -> parser. A lock this map does not cover is reported as
+# unparsed rather than yielding an empty dict, because "found the lock and read
+# nothing from it" is indistinguishable from "no drift" in the output.
+NODE_LOCK_PARSERS: dict[str, Callable[[Path], dict[str, str]]] = {
+    "package-lock.json": packages_from_npm_lock,
+    "yarn.lock": packages_from_yarn_lock,
+}
 
 
 def find_lock(start: Path, root: Path, names: tuple[str, ...]) -> Path | None:
@@ -432,11 +497,17 @@ def rust_ecosystem(root: Path, rel: str, by_id: dict[str, Surface]) -> Ecosystem
 
 
 def node_ecosystem(root: Path, rel: str, by_id: dict[str, Surface]) -> Ecosystem:
-    """package.json against package-lock.json (plus npm ls, when installed)."""
+    """package.json against whichever lock the catalogue names for it.
+
+    Lock names come from the surface catalogue, as the python and rust builders
+    already do, so a yarn or pnpm repo is compared rather than reported clean
+    for want of a ``package-lock.json``.
+    """
     manifest = root / rel
     data = _load_json(manifest)
-    lock = find_lock(manifest.parent, root, ("package-lock.json",))
-    parsed = packages_from_npm_lock(lock) if lock is not None else {}
+    lock = find_lock(manifest.parent, root, tuple(by_id["npm"].lock))
+    parser = NODE_LOCK_PARSERS.get(lock.name) if lock is not None else None
+    parsed = parser(lock) if (parser is not None and lock is not None) else {}
     locked = _locked_map(parsed, enrich_npm(manifest.parent), "npm", ver.norm_npm)
 
     eco = Ecosystem(
@@ -444,6 +515,11 @@ def node_ecosystem(root: Path, rel: str, by_id: dict[str, Surface]) -> Ecosystem
         manifest=rel,
         lock=lock.relative_to(root).as_posix() if lock is not None else "",
     )
+    if lock is not None and parser is None:
+        eco.note = (
+            f"{lock.name} has no parser, so {rel} was compared against an "
+            "empty lock. Reported rather than passed silently."
+        )
     for group_path in by_id["npm"].groups:
         for concrete, value in walk_groups(data, group_path):
             _compare(eco, concrete, group_entries(value), locked, ver.norm_npm)
@@ -491,7 +567,7 @@ def drift(
         if Path(rel).name in _BUILDERS
     ]
 
-    notes: list[str] = []
+    notes: list[str] = [eco.note for eco in ecosystems if eco.note]
     if any(Path(rel).name == "go.mod" for rel in files):
         notes.append(
             "go.mod records an exact version per module, so there is no "

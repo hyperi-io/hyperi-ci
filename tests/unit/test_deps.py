@@ -327,6 +327,95 @@ version = "1.9.0"
         assert by_dep["criterion"]["drift"] == "minor"  # 0.4 -> 0.7 on the 0.x axis
 
 
+_BERRY_LOCK = """\
+__metadata:
+  version: 8
+  cacheKey: 10c0
+
+"typescript@npm:^4.9.0":
+  version: 5.9.2
+  resolution: "typescript@npm:5.9.2"
+  languageName: node
+  linkType: hard
+
+"@scope/widget@npm:^1.0.0, @scope/widget@npm:^1.2.0":
+  version: 1.4.0
+  resolution: "@scope/widget@npm:1.4.0"
+  languageName: node
+  linkType: hard
+
+"lodash@npm:^4.17.0":
+  version: 4.17.21
+  resolution: "lodash@npm:4.17.21"
+  languageName: node
+  linkType: hard
+"""
+
+
+def _yarn_repo(root: Path) -> None:
+    _write(
+        root,
+        "package.json",
+        json.dumps(
+            {
+                "name": "demo",
+                "dependencies": {"@scope/widget": "^1.0.0", "lodash": "^4.17.0"},
+                "devDependencies": {"typescript": "^4.9.0"},
+            }
+        ),
+    )
+    _write(root, "yarn.lock", _BERRY_LOCK)
+    _git_init(root)
+
+
+class TestYarnDrift:
+    """Yarn Berry is the lockfile most HyperI TypeScript repos carry."""
+
+    def test_berry_lock_parses(self, tmp_path: Path) -> None:
+        _yarn_repo(tmp_path)
+        parsed = ecosystems.packages_from_yarn_lock(tmp_path / "yarn.lock")
+        assert parsed == {
+            "typescript": "5.9.2",
+            "@scope/widget": "1.4.0",
+            "lodash": "4.17.21",
+        }
+
+    def test_scoped_name_survives_the_range_split(self, tmp_path: Path) -> None:
+        # Splitting a scoped descriptor on its FIRST `@` loses the scope, and
+        # the dependency then matches no manifest entry.
+        _yarn_repo(tmp_path)
+        parsed = ecosystems.packages_from_yarn_lock(tmp_path / "yarn.lock")
+        assert "@scope/widget" in parsed
+
+    def test_drift_is_found_against_a_yarn_lock(self, tmp_path: Path) -> None:
+        _yarn_repo(tmp_path)
+        result = ecosystems.drift(tmp_path)
+        node = next(eco for eco in result["ecosystems"] if eco["name"] == "node")
+        assert node["lock"] == "yarn.lock"
+        assert node["compared"] == 3
+        # ^4.9.0 declared, 5.9.2 locked -- a whole major behind its own lock.
+        assert any(
+            row["dep"] == "typescript" and row["ecosystem"] == "node"
+            for row in result["drift"]
+        )
+
+    def test_an_unparsed_lock_is_reported_not_passed(self, tmp_path: Path) -> None:
+        # A lock found but not read must not look identical to no drift.
+        _write(
+            tmp_path,
+            "package.json",
+            json.dumps({"name": "demo", "dependencies": {"lodash": "^4.17.0"}}),
+        )
+        _write(tmp_path, "pnpm-lock.yaml", "lockfileVersion: '9.0'\n")
+        _git_init(tmp_path)
+
+        result = ecosystems.drift(tmp_path)
+        node = next(eco for eco in result["ecosystems"] if eco["name"] == "node")
+        assert node["lock"] == "pnpm-lock.yaml"
+        assert node["compared"] == 0
+        assert any("pnpm-lock.yaml" in note for note in result["notes"])
+
+
 class TestMultiLanguage:
     def test_python_and_rust_and_node_in_one_pass(self, tmp_path: Path) -> None:
         # The assumption we cannot make is "this is a Python repo". A polyglot
