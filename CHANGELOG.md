@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.9.24](https://github.com/hyperi-io/hyperi-ci/compare/v2.9.23...v2.9.24) (2026-08-27)
+
+### Bug Fixes
+
+* **release:** let a bare dispatch run the pipeline without releasing ([#111](https://github.com/hyperi-io/hyperi-ci/issues/111)) ([#112](https://github.com/hyperi-io/hyperi-ci/issues/112)) ([027e40d](https://github.com/hyperi-io/hyperi-ci/commit/027e40d4e5e579aec10bbaaeba90963eb062ba3c)), closes [#105](https://github.com/hyperi-io/hyperi-ci/issues/105) [#105](https://github.com/hyperi-io/hyperi-ci/issues/105) [#96](https://github.com/hyperi-io/hyperi-ci/issues/96) [hyperi-infra#150](https://github.com/hyperi-io/hyperi-infra/issues/150) [#105](https://github.com/hyperi-io/hyperi-ci/issues/105)
+
 ## [2.9.23](https://github.com/hyperi-io/hyperi-ci/compare/v2.9.22...v2.9.23) (2026-08-26)
 
 ### Bug Fixes
