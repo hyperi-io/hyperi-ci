@@ -166,12 +166,12 @@ tools:
       amd64: 15314940c10d26af9c6649f150b8a47c1262e8fc7e17b1d1029b0e479e8ed8a0
       arm64: 44e580752910f0ff36ec99aff59af20f65df1e859aa31e5605a8f0d055b496e9
   golangci-lint:
-    version: v2.12.2
+    version: v2.13.1
     repo: golangci/golangci-lint
     pin: .github/actions/setup-go-tools/action.yml
     sha256:
-      amd64: 8df580d2670fed8fa984aac0507099af8df275e665215f5c7a2ae3943893a553
-      arm64: 44cd40a8c76c86755375adfeea52cfd3533cb43d7bd647771e0ae065e166df3a
+      amd64: b17bfbc9d4aaa48be7f4f1ce3240bc3d8200c870c072bacf15c26219e2cfb9cc
+      arm64: 908317c23db18448f924e853b3d8a659fd919614cd438f224810a4053daa2607
   gosec:
     version: v2.28.0
     repo: securego/gosec
