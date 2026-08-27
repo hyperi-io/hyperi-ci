@@ -101,9 +101,9 @@ local `hyperi-ci check` runs the same validation over `origin/main..HEAD`.
 
 | Output | True when | Effect |
 |---|---|---|
-| `will-publish` | push to **main** with `Publish: true` trailer, OR `workflow_dispatch` | The underlying release signal. A trailer on a non-main ref is ignored LOUDLY (`::warning::`) - main is the sole publish path (branch-mode decision 1) |
-| `run-checks` | `will-publish` OR `pull_request` | Run quality + test |
-| `run-build` | `will-publish`, OR `pull_request` with the `branch-build` opt-in | Run build + container (publish stays `will-publish`-only) |
+| `will-publish` | push to **main** with `Publish: true` trailer, OR `workflow_dispatch` carrying `tag` or `from-head: true` | The underlying release signal. A trailer on a non-main ref is ignored LOUDLY (`::warning::`) - main is the sole publish path (branch-mode decision 1). A dispatch carrying neither is validate-only and warns that nothing was published |
+| `run-checks` | `will-publish`, OR `pull_request`, OR `workflow_dispatch` | Run quality + test |
+| `run-build` | `will-publish`, OR `workflow_dispatch`, OR `pull_request` with the `branch-build` opt-in | Run build + container (publish stays `will-publish`-only) |
 | `next-version` | `will-publish` AND push | Predicted semver from semantic-release dry-run |
 | `build-matrix` | always | Single-arch unless `will-publish` - PR branch-mode builds stay single-arch |
 
@@ -150,7 +150,8 @@ flowchart LR
 | `feat:`/`fix:` to main + `Publish: true` | yes | yes | yes | yes | yes | yes | yes |
 | Pull request | yes | yes advisory | yes | yes | no | no | no |
 | Pull request + `branch-build` opt-in | yes | yes advisory | yes | yes | yes | yes validate / dev push | no |
-| `workflow_dispatch` (retroactive publish) | yes | no | yes | yes | yes | yes | yes |
+| `workflow_dispatch` with `tag` / `from-head` (publish) | yes | no | yes | yes | yes | yes | yes |
+| `workflow_dispatch`, bare (validate-only) | yes | no | yes | yes | yes | yes validate | no |
 | push to a feature branch | yes | no | no | no | no | no | no |
 
 Tag-on-publish doctrine: a commit landing on main produces no tag and no
