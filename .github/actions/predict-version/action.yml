@@ -59,9 +59,10 @@ runs:
       # Gate the entire publish flow on one signal: `will-publish`.
       #
       # - workflow_dispatch with a tag input → always publish (retroactive).
+      # - workflow_dispatch with from-head: true → publish HEAD.
       # - push to main with `Publish: true` trailer in HEAD commit → publish.
-      # - everything else → validate-only (no version stamp, no tag, no
-      #   container push, no registry uploads).
+      # - everything else, a bare workflow_dispatch included → validate-only
+      #   (no version stamp, no tag, no container push, no registry uploads).
       id: gate
       shell: bash
       run: |
@@ -69,14 +70,18 @@ runs:
           # A dispatch publishes in exactly one of two modes, each of which
           # resolves a real version: `tag=vX.Y.Z` re-publishes an existing
           # release (version = the tag), and `from-head=true` releases HEAD
-          # (the CI computes + cuts the tag). A BARE dispatch (neither) resolves
-          # no version, so every downstream consumer falls back to the committed
-          # manifest seed — how a four-month-old version was rebuilt from
-          # today's HEAD and clobbered `latest` on GHCR + R2 (issue #105).
-          # Refuse it HERE, before the container job can build and push it.
+          # (the CI computes + cuts the tag). A bare dispatch resolves neither,
+          # and publishing one named from the committed manifest seed rebuilt a
+          # four-month-old version and clobbered `latest` (issue #105).
+          #
+          # So a bare dispatch runs the pipeline and publishes nothing (issue
+          # #111): tag-and-publish is gated on `will-publish` and the container
+          # stage reads HYPERCI_PUBLISH_MODE from it, so false reaches no
+          # registry.
           if [[ -z "${{ inputs.tag }}" && "${{ inputs.from-head }}" != "true" ]]; then
-            echo "::error::workflow_dispatch with neither 'tag' nor 'from-head: true' — refusing to publish (issue #105). A bare dispatch resolves no version and would name the release from the committed manifest. Re-run with from-head=true (bump=auto|patch|minor|X.Y.Z) to release HEAD, or set tag=vX.Y.Z to re-publish an existing release."
-            exit 1
+            echo "will-publish=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Bare workflow_dispatch — validate-only run. Quality, test and build run; NOTHING is tagged or published. To release, re-run with from-head=true (bump=auto|patch|minor|X.Y.Z), or tag=vX.Y.Z to re-publish an existing release."
+            exit 0
           fi
           echo "will-publish=true" >> "$GITHUB_OUTPUT"
           echo "::notice::Triggered by workflow_dispatch — publish run"
@@ -259,7 +264,14 @@ runs:
         # image is the container stage's own dev_push decision). Raw
         # branch pushes never build — the gate doctrine (non-shipping
         # commits compile nothing) is unchanged.
+        #
+        # A validate-only dispatch builds too: someone with actions:write
+        # asked for this run, and a verification run that compiles nothing
+        # verifies nothing (issue #111). By here that is the only dispatch
+        # left, since both publishing modes set will-publish=true.
         if [[ "$will_publish" == "true" ]]; then
+          run_build=true
+        elif [[ "$event_name" == "workflow_dispatch" ]]; then
           run_build=true
         elif [[ "$event_name" == "pull_request" && "$branch_build" == "true" ]]; then
           run_build=true
@@ -267,7 +279,7 @@ runs:
           run_build=false
         fi
 
-        if [[ "$will_publish" == "true" || "$event_name" == "pull_request" ]]; then
+        if [[ "$will_publish" == "true" || "$event_name" == "pull_request" || "$event_name" == "workflow_dispatch" ]]; then
           run_checks=true
         else
           run_checks=false

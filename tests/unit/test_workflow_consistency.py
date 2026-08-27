@@ -317,14 +317,49 @@ class TestMainOnlyPublishGate:
             "ignored trailer on a non-main ref must warn loudly"
         )
 
-    def test_dispatch_stays_explicit_publish(self) -> None:
-        # workflow_dispatch remains an explicit publish trigger (a deliberate
-        # act by someone with actions:write). It is checked FIRST, before the
-        # ref guard - rehearsal dispatches on fixture branches rely on this.
+    def test_dispatch_is_resolved_before_the_ref_guard(self) -> None:
+        # A dispatch is resolved FIRST, before the ref guard - rehearsal
+        # dispatches on fixture branches rely on this.
         run = str(self._gate_step()["run"])
         dispatch = run.index("workflow_dispatch")
         guard = run.index('!= "refs/heads/main"')
         assert dispatch < guard, "dispatch bypass must precede the non-main ref guard"
+
+    def test_bare_dispatch_is_validate_only_not_a_refusal(self) -> None:
+        # will-publish=false is what keeps a versionless dispatch off the
+        # registry (issue #105), and it leaves an on-demand run that publishes
+        # nothing expressible (issue #111) where a refusal did not.
+        run = str(self._gate_step()["run"])
+        block = run[run.index("workflow_dispatch") : run.index("push to main")]
+        assert "will-publish=false" in block, (
+            "a bare dispatch must resolve validate-only"
+        )
+        assert "exit 1" not in block, "a bare dispatch must not fail the run"
+
+    def test_bare_dispatch_warns_loudly(self) -> None:
+        # No silent no-ops: someone who meant to release must be told that
+        # nothing was published.
+        run = str(self._gate_step()["run"])
+        block = run[run.index("workflow_dispatch") : run.index("push to main")]
+        assert "::warning::" in block, (
+            "a validate-only dispatch must say nothing was published"
+        )
+
+    def test_validate_only_dispatch_still_runs_the_gates(self) -> None:
+        # A verification run that compiles nothing verifies nothing, and a
+        # skipped gate reads as a pass (issue #96), so run-checks and run-build
+        # must both cover a dispatch that is not publishing.
+        path = ACTIONS_DIR / "predict-version" / "action.yml"
+        action = yaml.safe_load(path.read_text(encoding="utf-8"))
+        derive = next(s for s in action["runs"]["steps"] if s.get("id") == "derive")
+        run = str(derive["run"])
+        split = run.index("run_build=false")
+        assert '"$event_name" == "workflow_dispatch"' in run[:split], (
+            "derive must set run_build for a validate-only dispatch"
+        )
+        assert '"$event_name" == "workflow_dispatch"' in run[split:], (
+            "derive must set run_checks for a validate-only dispatch"
+        )
 
 
 class TestBranchModeThreading:
