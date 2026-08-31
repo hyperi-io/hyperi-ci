@@ -367,6 +367,9 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Setup cargo-nextest
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-nextest@main
+
       - name: Init submodules
         if: ${{ inputs.submodules != '' }}
         env:

@@ -212,6 +212,29 @@ tools:
     sha256:
       amd64: 9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f
       arm64: 995c82be0defc7a025cae49a2aa2644ce8245c9a3318fc4103907c6a285e8c7d
+  # Fetched by a composite action like the tools above, but for the TEST job
+  # rather than quality. The ARC image bakes nextest in and a hosted/free runner
+  # does not, so without this the runner chosen depends on where the job landed
+  # - and nextest and cargo test are not interchangeable (see
+  # `test.rust.nextest` in defaults.yaml).
+  #
+  # MONOREPO like rustsec: nextest-runner and nextest-filtering tag from the
+  # same repo, so tag_prefix is what stops the release scan picking one of them.
+  # Tags carry no leading `v`; the asset spells the version in the MIDDLE.
+  #
+  # Upstream publishes a `.sha256` per asset - these were cross-checked against
+  # it at pin time.
+  cargo-nextest:
+    version: 0.9.143
+    repo: nextest-rs/nextest
+    tag_prefix: cargo-nextest-
+    pin: .github/actions/setup-nextest/action.yml
+    sha256:
+      # Linux is musl (static) on both arches; macOS ships one universal build,
+      # so `macos` is a platform key here rather than an arch.
+      amd64: 6d891c18105ec2d33f6e441a4f92b7ccab47ba263e22055c8bb66884243f3389
+      arm64: 0560ce0ce017f368c54b5db86588370fc03b470985490fa81200e62a657dda05
+      macos: 4830d430411148d17602a75cc880bfb4dc8dac153dea59a48a2ef4cc93577f07
   # Baked into the generated cargo-chef Dockerfile by container/compose.py,
   # which reads it from here.
   cargo-chef:

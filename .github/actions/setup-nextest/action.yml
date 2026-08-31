@@ -1,0 +1,147 @@
+# Project:   HyperI CI
+# File:      .github/actions/setup-nextest/action.yml
+# Purpose:   Install the pinned cargo-nextest for the Rust test job
+#
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# The Rust test stage picks its runner from what is on PATH, and cargo nextest
+# and cargo test are NOT interchangeable: nextest isolates each test in its own
+# process, cargo test shares one across threads. The ARC image bakes nextest in
+# (bootstrap.yaml `rust.cargo_tools`) and a hosted/free runner does not, so
+# without this step the semantics of the suite followed the runner it landed on.
+#
+# NO `command -v` SHORT-CIRCUIT, DELIBERATELY - same reasoning as
+# setup-rust-tools: ARC bakes an UNPINNED nextest and hosted runners restore
+# ~/.cargo/bin from the cargo cache, so a skip-if-present guard makes the pin
+# inert on both paths we actually use. Downloading unconditionally costs
+# seconds; GITHUB_PATH PREPENDS, so the pinned copy wins.
+#
+# Asset shape (differs from the other Rust tools, hence no shared loop):
+#   tag     `cargo-nextest-X.Y.Z`  - monorepo prefix, no leading `v`
+#   asset   `cargo-nextest-X.Y.Z-<target>.tar.gz`  - version MIDDLE
+#   layout  the binary sits at the tarball ROOT, no --strip-components
+#   macOS   one `universal-apple-darwin` build covers both arches
+#
+# Version AND per-platform sha256 digests are pinned in
+# src/hyperi_ci/config/versions.yaml (`tools.cargo-nextest`) and mirrored here
+# by scripts/update-versions.py --fix. Do not hand-edit the marked lines.
+#
+# The digest is the pin that matters: a release asset can be deleted and
+# re-uploaded under the same tag, so a tag alone is not integrity (issue #66).
+# A mismatch fails the step rather than installing. Upstream publishes a
+# `.sha256` per asset, so these were cross-checked at pin time.
+#
+# Referenced from reusable workflows as
+#   hyperi-io/hyperi-ci/.github/actions/setup-nextest@main
+
+name: Setup cargo-nextest
+description: Install the pinned cargo-nextest (Linux and macOS runners)
+
+inputs:
+  version:
+    description: cargo-nextest release to pin (upstream tags carry no `v`)
+    required: false
+    # hyperi-ci:pin tools.cargo-nextest
+    default: 0.9.143
+  sha256-amd64:
+    description: sha256 of the x86_64-unknown-linux-musl tarball
+    required: false
+    # hyperi-ci:pin tools.cargo-nextest.sha256.amd64
+    default: 6d891c18105ec2d33f6e441a4f92b7ccab47ba263e22055c8bb66884243f3389
+  sha256-arm64:
+    description: sha256 of the aarch64-unknown-linux-musl tarball
+    required: false
+    # hyperi-ci:pin tools.cargo-nextest.sha256.arm64
+    default: 0560ce0ce017f368c54b5db86588370fc03b470985490fa81200e62a657dda05
+  sha256-macos:
+    description: sha256 of the universal-apple-darwin tarball
+    required: false
+    # hyperi-ci:pin tools.cargo-nextest.sha256.macos
+    default: 4830d430411148d17602a75cc880bfb4dc8dac153dea59a48a2ef4cc93577f07
+
+runs:
+  using: composite
+  steps:
+    - name: Install cargo-nextest
+      # No `|| true`: the test stage resolves its runner from PATH, so a silent
+      # absence here degrades the suite to cargo test semantics.
+      shell: bash
+      run: |
+        set -euo pipefail
+        case "$(uname -s)/$(uname -m)" in
+          Linux/x86_64)
+            TARGET=x86_64-unknown-linux-musl
+            WANT_SHA="${{ inputs.sha256-amd64 }}"
+            ;;
+          Linux/aarch64 | Linux/arm64)
+            TARGET=aarch64-unknown-linux-musl
+            WANT_SHA="${{ inputs.sha256-arm64 }}"
+            ;;
+          Darwin/*)
+            TARGET=universal-apple-darwin
+            WANT_SHA="${{ inputs.sha256-macos }}"
+            ;;
+          *)
+            echo "::error::unsupported platform $(uname -s)/$(uname -m) for cargo-nextest"
+            exit 1
+            ;;
+        esac
+
+        mkdir -p "$HOME/.local/bin"
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+        # macOS ships `shasum` rather than `sha256sum`; both take the same
+        # `-c` form over a "<digest>  <file>" line.
+        check_sha() {  # $1=expected  $2=file
+          if command -v sha256sum >/dev/null 2>&1; then
+            echo "$1  $2" | sha256sum -c - >/dev/null
+          else
+            echo "$1  $2" | shasum -a 256 -c - >/dev/null
+          fi
+        }
+        show_sha() {  # $1=file
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$1" | cut -d' ' -f1
+          else
+            shasum -a 256 "$1" | cut -d' ' -f1
+          fi
+        }
+
+        TMP="$(mktemp -d)"
+        trap 'rm -rf "$TMP"' EXIT
+
+        VERSION="${{ inputs.version }}"
+        URL="https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-${VERSION}/cargo-nextest-${VERSION}-${TARGET}.tar.gz"
+
+        # Verification needs the whole file, so the download cannot pipe
+        # straight into tar.
+        curl -fsSL --connect-timeout 10 --max-time 300 -o "$TMP/nextest.tar.gz" "$URL"
+        check_sha "$WANT_SHA" "$TMP/nextest.tar.gz" || {
+          echo "::error::$URL failed its sha256 check - refusing to install"
+          echo "  expected $WANT_SHA"
+          echo "  got      $(show_sha "$TMP/nextest.tar.gz")"
+          exit 1
+        }
+
+        # Flat tarball: the binary is at the root.
+        tar xz -C "$HOME/.local/bin" -f "$TMP/nextest.tar.gz" cargo-nextest
+
+    - name: Verify cargo-nextest matches the pin
+      # ASSERT, don't just print - see the note in setup-go-tools. Separate step
+      # so the install step's GITHUB_PATH prepend is live, which is what makes
+      # the pinned copy shadow a baked or cache-restored one.
+      shell: bash
+      env:
+        WANT: ${{ inputs.version }}
+      run: |
+        set -uo pipefail
+        # cargo-nextest is a cargo subcommand: it needs the `nextest` argument
+        # to report its own version.
+        GOT="$(cargo-nextest nextest --version 2>&1 | head -n1)"
+        if printf '%s' "$GOT" | grep -qF -- "$WANT"; then
+          echo "ok   cargo-nextest: $WANT"
+        else
+          echo "::error::cargo-nextest: expected version $WANT, got: $GOT"
+          exit 1
+        fi

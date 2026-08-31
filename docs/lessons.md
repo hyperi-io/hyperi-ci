@@ -101,8 +101,15 @@ Source: `hyperi-io/ci` (to be archived once cutover is complete).
 ### Testing
 
 - Integration tests: default to 1 test thread (port conflicts with parallelism)
-- Prefer `cargo nextest` over `cargo test` (faster, better output)
-- Coverage: tarpaulin > llvm-cov, both optional
+- `cargo nextest` and `cargo test` are NOT interchangeable: nextest gives each
+  test its own process, cargo test shares one, so process-global state
+  (a metrics recorder, a `OnceLock`) behaves differently and doctests run only
+  under cargo test. Picking by what is installed silently changes semantics -
+  the ARC image bakes nextest in, a hosted/free runner does not. Resolved via
+  the `test.rust.nextest` tri-state, which announces the choice, annotates an
+  `auto` degradation, and fails the stage on `true` with nextest absent
+- Coverage: tarpaulin > llvm-cov, both optional - and both drive cargo's test
+  harness, so coverage overrides a resolved nextest runner
 - Feature combinations: builds use FIRST set only (`${FEATURES%%|*}`)
 
 ### Workspace Support

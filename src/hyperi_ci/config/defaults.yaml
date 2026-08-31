@@ -207,6 +207,21 @@ test:
   rust:
     tier: all
     features: all
+    # Test runner. `auto` takes cargo-nextest when installed and cargo test
+    # when not; `true` REQUIRES nextest and fails the stage without it;
+    # `false` pins cargo test.
+    #
+    # The two are not interchangeable. nextest runs each test in its own
+    # process, cargo test runs them as threads in one, so process-global state
+    # (a metrics recorder, a OnceLock, an env var a test sets) is fresh per
+    # test under nextest and shared under cargo test - a suite passes under one
+    # and fails under the other. Doctests run only under cargo test.
+    #
+    # The ARC runner image bakes nextest in (bootstrap.yaml
+    # `rust.cargo_tools`); a hosted/free runner does not. `auto` therefore
+    # varies test semantics by runner, and warns loudly when it degrades. Set
+    # `true` in a repo whose suite depends on process isolation.
+    nextest: auto
 
 # Build
 build:
