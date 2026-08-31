@@ -3,6 +3,14 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.9.26](https://github.com/hyperi-io/hyperi-ci/compare/v2.9.25...v2.9.26) (2026-08-31)
+
+### Bug Fixes
+
+* **release:** uv is installed before the tagging steps, not after ([bfa1792](https://github.com/hyperi-io/hyperi-ci/commit/bfa1792402f759daab0389a362345160256ddb70))
+* **rust-ci:** sibling-checkouts input clones repos beside the workspace for tests ([07f27aa](https://github.com/hyperi-io/hyperi-ci/commit/07f27aab68299c425ccc92251f4d79b4ba2a3216))
+* **rust:** pick the test runner explicitly, and install nextest everywhere ([8ae69fa](https://github.com/hyperi-io/hyperi-ci/commit/8ae69fa78a71e15c1b7d414168428f323cf67069))
+
 ## [2.9.25](https://github.com/hyperi-io/hyperi-ci/compare/v2.9.24...v2.9.25) (2026-08-31)
 
 ### Bug Fixes
