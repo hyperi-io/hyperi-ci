@@ -56,33 +56,72 @@ def _corepack_enable() -> bool:
     return False
 
 
-def ensure_pm_available(pm: str) -> bool:
-    """Ensure the package manager binary is available on PATH.
+def pinned_package_manager(project_dir: Path | None = None) -> str | None:
+    """Return the package manager pinned by package.json, or None.
 
-    For non-npm package managers (yarn, pnpm), tries in order:
-      1. Already on PATH (e.g. pre-installed or corepack already ran) — done
-      2. User corepack bin directory already exists — add to PATH
-      3. ``corepack enable`` to activate the PM via Node's built-in Corepack
+    The ``packageManager`` field is Corepack's contract: when present, only a
+    Corepack shim honours the pinned version.
+
+    Args:
+        project_dir: Project root. Defaults to cwd.
+
+    Returns:
+        One of pnpm/yarn/npm, or None when nothing valid is pinned.
+
+    """
+    pkg = (project_dir or Path.cwd()) / "package.json"
+    if not pkg.exists():
+        return None
+    try:
+        pm_raw = json.loads(pkg.read_text()).get("packageManager")
+    except json.JSONDecodeError:
+        return None
+    if isinstance(pm_raw, str) and pm_raw:
+        name = pm_raw.split("@")[0].strip().lower()
+        if name in ("pnpm", "yarn", "npm"):
+            return name
+    return None
+
+
+def ensure_pm_available(pm: str, project_dir: Path | None = None) -> bool:
+    """Ensure a package manager usable by THIS project is on PATH.
+
+    A ``packageManager`` pin in package.json means a bare global binary of the
+    same name refuses to run the project ("the current global version of Yarn
+    is 1.22.22"), so a pinned project must resolve its PM through Corepack —
+    a binary merely being on PATH is not enough. Unpinned projects keep the
+    old ladder: any binary on PATH wins.
 
     Args:
         pm: Package manager name (npm, yarn, pnpm).
+        project_dir: Project root, used to read the packageManager pin.
 
     Returns:
-        True if the PM is available, False if all attempts failed.
+        True if a usable PM is available, False if all attempts failed.
 
     """
-    if pm == "npm" or shutil.which(pm):
+    pinned = pinned_package_manager(project_dir) == pm
+    if pm == "npm" and not pinned:
+        return True
+    if not pinned and shutil.which(pm):
         return True
 
-    # Check if corepack bin dir exists from a previous step (install-deps)
+    # A corepack bin dir from an earlier step already holds pin-safe shims.
     user_dir = Path.home() / ".corepack" / "bin"
     if user_dir.is_dir():
         os.environ["PATH"] = str(user_dir) + os.pathsep + os.environ.get("PATH", "")
-        if shutil.which(pm):
+        found = shutil.which(pm)
+        if found and (not pinned or found.startswith(str(user_dir))):
             info(f"  {pm} found in {user_dir}")
             return True
 
-    return _corepack_enable()
+    if _corepack_enable():
+        return True
+
+    # Corepack unavailable: a global binary beats nothing, even for a pin —
+    # the install then fails loudly with the version mismatch, which is the
+    # honest error.
+    return shutil.which(pm) is not None
 
 
 def detect_package_manager(project_dir: Path | None = None) -> str:
@@ -101,18 +140,10 @@ def detect_package_manager(project_dir: Path | None = None) -> str:
 
     """
     root = project_dir or Path.cwd()
-    pkg = root / "package.json"
 
-    if pkg.exists():
-        try:
-            data = json.loads(pkg.read_text())
-            pm_raw = data.get("packageManager")
-            if isinstance(pm_raw, str) and pm_raw:
-                name = pm_raw.split("@")[0].strip().lower()
-                if name in ("pnpm", "yarn", "npm"):
-                    return name
-        except (json.JSONDecodeError, KeyError):
-            pass
+    pinned = pinned_package_manager(root)
+    if pinned:
+        return pinned
 
     if (root / "pnpm-lock.yaml").exists():
         return "pnpm"
