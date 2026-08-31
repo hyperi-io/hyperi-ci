@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.9.25](https://github.com/hyperi-io/hyperi-ci/compare/v2.9.24...v2.9.25) (2026-08-31)
+
+### Bug Fixes
+
+* **golang:** bump golangci-lint to v2.13.1 so it can read the Go 1.27 stdlib ([#113](https://github.com/hyperi-io/hyperi-ci/issues/113)) ([06b9fdb](https://github.com/hyperi-io/hyperi-ci/commit/06b9fdb00f3b16b65b3033c48f9edfd834550c6a)), closes [#6642](https://github.com/hyperi-io/hyperi-ci/issues/6642)
+* **typescript:** a packageManager pin resolves through Corepack, not the global binary ([5546f9e](https://github.com/hyperi-io/hyperi-ci/commit/5546f9e48df0131e35e7e2418043554577b78792))
+
 ## [2.9.24](https://github.com/hyperi-io/hyperi-ci/compare/v2.9.23...v2.9.24) (2026-08-27)
 
 ### Bug Fixes
