@@ -59,6 +59,10 @@ on:
         type: string
         default: ""
         description: "Space-separated submodule paths to init after checkout (e.g. 'schemas'). Empty (default) inits nothing. The submodule must be reachable by the job token - public, or a token with cross-repo read access."
+      sibling-checkouts:
+        type: string
+        default: ""
+        description: "Space-separated repos to clone BESIDE the workspace before tests (e.g. 'hyperi-io/dfe-transform-vrl' or 'owner/repo@ref'), for suites that read a sibling checkout. Same reachability rule as submodules: public, or a token with cross-repo read access."
       branch-build:
         type: string
         default: ""
@@ -368,6 +372,21 @@ jobs:
         env:
           SUBMODULES: ${{ inputs.submodules }}
         run: git submodule update --init --depth 1 $SUBMODULES
+
+      - name: Clone sibling checkouts
+        if: ${{ inputs.sibling-checkouts != '' }}
+        env:
+          SIBLINGS: ${{ inputs.sibling-checkouts }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for spec in $SIBLINGS; do
+            repo="${spec%@*}"
+            ref="${spec#*@}"
+            [ "$ref" = "$spec" ] && ref=""
+            git clone --depth 1 ${ref:+--branch "$ref"} \
+              "https://x-access-token:${GH_TOKEN}@github.com/${repo}.git" \
+              "../$(basename "$repo")"
+          done
 
       - name: Run tests
         run: ${{ env.HYPERCI_INSTALL }} run test
