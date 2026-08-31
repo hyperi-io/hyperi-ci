@@ -39,7 +39,7 @@ def run(project_dir: Path | None = None) -> int:
     pm = detect_package_manager(root)
     info(f"Using {pm} (detected from package.json or lock file)")
 
-    if not ensure_pm_available(pm):
+    if not ensure_pm_available(pm, root):
         error(f"{pm} is not available and could not be installed")
         return 1
 
