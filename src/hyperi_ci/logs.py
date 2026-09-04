@@ -34,33 +34,28 @@ def _download_logs(run_id: str) -> Path | None:
 
     """
     tmp_dir = Path(tempfile.mkdtemp(prefix="hyperi-ci-logs-"))
+    zip_path = tmp_dir / "logs.zip"
 
+    # The logs endpoint answers with a redirect to a zip; gh follows it and
+    # streams the archive to stdout, which has to land in a file to be opened.
+    # (`gh run download` fetches ARTIFACTS, never logs, so it is no fallback.)
     try:
-        gh_run(
-            ["run", "download", run_id, "--dir", str(tmp_dir)],
-            capture=True,
-            check=True,
-        )
+        with zip_path.open("wb") as fh:
+            subprocess.run(
+                ["gh", "api", f"repos/{{owner}}/{{repo}}/actions/runs/{run_id}/logs"],
+                stdout=fh,
+                stderr=subprocess.PIPE,
+                check=True,
+            )
+        with zipfile.ZipFile(zip_path) as zf:
+            zf.extractall(tmp_dir)
+        zip_path.unlink()
         return tmp_dir
-    except subprocess.CalledProcessError:
-        pass
-
-    try:
-        zip_path = tmp_dir / "logs.zip"
-        gh_run(
-            ["api", f"repos/{{owner}}/{{repo}}/actions/runs/{run_id}/logs"],
-            capture=True,
-            check=True,
-        )
-        if zip_path.exists():
-            with zipfile.ZipFile(zip_path) as zf:
-                zf.extractall(tmp_dir)
-            zip_path.unlink()
-            return tmp_dir
-    except (subprocess.CalledProcessError, zipfile.BadZipFile):
-        pass
-
-    error(f"Failed to download logs for run {run_id}")
+    except subprocess.CalledProcessError as exc:
+        detail = exc.stderr.decode(errors="replace").strip() if exc.stderr else ""
+        error(f"Failed to download logs for run {run_id}: {detail or 'gh api failed'}")
+    except zipfile.BadZipFile:
+        error(f"Failed to download logs for run {run_id}: the response was not a zip")
     return None
 
 
