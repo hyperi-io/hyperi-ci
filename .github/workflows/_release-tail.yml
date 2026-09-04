@@ -192,6 +192,13 @@ jobs:
         if: steps.resolve.outputs.build == 'true'
         run: uv python install ${{ inputs.python-version }}
 
+      - name: Stamp predicted version
+        # This job checks out HEAD on its own runner, so the Build job's stamp
+        # never reaches the tree the Dockerfile copies (issue dfe-engine#271).
+        # A `tag` dispatch checks out a tree that already carries its version.
+        if: steps.resolve.outputs.build == 'true' && inputs.will-publish == 'true' && inputs.tag == '' && inputs.next-version != ''
+        run: ${{ env.HYPERCI_INSTALL }} stamp-version "${{ inputs.next-version }}"
+
       - name: Build container
         # Handler decides validate-only vs push based on HYPERCI_PUBLISH_MODE:
         # unset/false → docker build only, no registry push;
