@@ -179,6 +179,17 @@ class TestFromHeadThreading:
             "Tag (semantic-release) if: must extend to from-head + bump=auto"
         )
 
+    def test_release_tail_installs_uv_before_anything_can_fail(self) -> None:
+        # The failure notice runs `uvx`; with uv installed after checkout, a
+        # checkout failure left the notice with `command not found`.
+        steps = _load_workflow("_release-tail.yml")["jobs"]["tag-and-publish"]["steps"]
+        assert steps[0].get("name") == "Install uv", (
+            "_release-tail.tag-and-publish: 'Install uv' must be the first step so "
+            "the failure notice can run whatever fails after it"
+        )
+        names = [s.get("name") for s in steps]
+        assert names.count("Install uv") == 1, "one uv install per job"
+
     def test_release_tail_has_forced_tag_step(self) -> None:
         steps = _load_workflow("_release-tail.yml")["jobs"]["tag-and-publish"]["steps"]
         forced = [s for s in steps if s.get("id") == "forcedtag"]

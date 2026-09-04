@@ -251,6 +251,15 @@ jobs:
       # a reusable workflow -- `secrets: inherit` resolves in the CALLER).
       RELEASE_APP_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
     steps:
+      - name: Install uv
+        # First, before anything that can fail: every later step, including the
+        # failure notice, runs the HYPERCI_INSTALL uvx command, and hosted
+        # runners ship no uv. A checkout failure used to leave the notice with
+        # `uvx: command not found` and the failed release unrecorded.
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: false
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # On push OR a from-head dispatch (issue #35), check out main HEAD
@@ -296,13 +305,6 @@ jobs:
         # version from commits). Forced bumps use tag-head instead.
         if: ${{ github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto') }}
         uses: hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@main
-
-      - name: Install uv
-        # Before the tagging steps: the first-release branch runs the
-        # HYPERCI_INSTALL uvx command, and hosted runners ship no uv.
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          enable-cache: false
 
       - name: Set up Python
         run: uv python install ${{ inputs.python-version }}
