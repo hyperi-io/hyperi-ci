@@ -256,6 +256,33 @@ class TestFromHeadThreading:
             f"{workflow_name}.build: stamp must still run on push."
         )
 
+    def test_container_stamps_predicted_version_before_the_build(self) -> None:
+        # The container job checks out HEAD on its own runner, so the Build job's
+        # stamp never reaches the tree the Dockerfile copies (dfe-engine#271).
+        steps = _load_workflow("_release-tail.yml")["jobs"]["container"]["steps"]
+        names = [s.get("name") for s in steps]
+        assert "Stamp predicted version" in names, (
+            "_release-tail.container: no 'Stamp predicted version' step -- the "
+            "image is built from the committed placeholder version."
+        )
+        assert names.index("Stamp predicted version") < names.index(
+            "Build container"
+        ), "_release-tail.container: the stamp must run before 'Build container'."
+        stamp = steps[names.index("Stamp predicted version")]
+        ifc = str(stamp["if"])
+        assert "steps.resolve.outputs.build" in ifc, (
+            "container stamp must gate on the resolve step, like every Docker step"
+        )
+        assert "inputs.will-publish == 'true'" in ifc, (
+            "container stamp must only rewrite the tree on a publish run"
+        )
+        assert "inputs.tag == ''" in ifc, (
+            "a tag dispatch checks out a tree that already carries its version"
+        )
+        assert "stamp-version" in str(stamp["run"]), (
+            "container stamp must use the shared `hyperi-ci stamp-version` command"
+        )
+
 
 ACTIONS_DIR = Path(__file__).parent.parent.parent / ".github" / "actions"
 
