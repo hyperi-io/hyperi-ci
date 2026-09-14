@@ -268,6 +268,12 @@ event/channel-driven (there is no `release` branch under single-versioning).
 | push to `main`, no `Publish:` trailer | x64 | validate-only |
 | GA publish (`Publish: true`, `release` channel) | x64 + arm64 | GA release |
 
+A Rust project narrows that with `build.rust.targets` in `.hyperi-ci.yaml`: the
+publish matrix carries a leg only for a listed target, so a project whose
+release build does not fit `ubuntu-24.04-arm` lists `x86_64-unknown-linux-gnu`
+alone and ships amd64. The build legs do not fail fast, so a leg that dies on
+its runner leaves the other's artefact in place.
+
 Applies across languages: Rust/Go build native per arch. Python wheels and
 TypeScript are arch-independent (single runner). Python Nuitka builds native.
 

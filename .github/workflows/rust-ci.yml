@@ -213,6 +213,11 @@ jobs:
         # shared runners and wasteful when nothing's being shipped, so
         # arch breadth keys off will-publish, NOT run-build.
         #
+        # A project that lists `build.rust.targets` in .hyperi-ci.yaml ships
+        # only those arches, so one whose release build does not fit the
+        # arm64 runner can still release amd64 (issue #127). A project that
+        # lists none keeps both.
+        #
         # The renovate/ carve-out must land on a runner with cargo: Rust does
         # not bootstrap its toolchain at job time, and GH_RUNNER_RENOVATE /
         # GH_RUNNER_DEFAULT point at vanilla sets that carry none (issue #91).
@@ -225,11 +230,18 @@ jobs:
           set -euo pipefail
           AMD64_RUNNER="${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE_RUST || vars.GH_RUNNER_RUST || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"
           ARM64_RUNNER="${{ vars.GH_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}"
-          if [[ "${{ steps.predict.outputs.will-publish }}" == "true" ]]; then
-            matrix='{"include":[{"target":"x86_64-unknown-linux-gnu","runner":"'"$AMD64_RUNNER"'","os_arch":"linux-amd64"},{"target":"aarch64-unknown-linux-gnu","runner":"'"$ARM64_RUNNER"'","os_arch":"linux-arm64"}]}'
-          else
-            matrix='{"include":[{"target":"x86_64-unknown-linux-gnu","runner":"'"$AMD64_RUNNER"'","os_arch":"linux-amd64"}]}'
+          wanted=""
+          if [[ -f .hyperi-ci.yaml ]]; then
+            wanted="$(yq -r '.build.rust.targets // [] | .[]' .hyperi-ci.yaml 2>/dev/null | tr '\n' ' ' || true)"
           fi
+          want() { [[ -z "$wanted" || " $wanted" == *" $1 "* ]]; }
+          amd64='{"target":"x86_64-unknown-linux-gnu","runner":"'"$AMD64_RUNNER"'","os_arch":"linux-amd64"}'
+          arm64='{"target":"aarch64-unknown-linux-gnu","runner":"'"$ARM64_RUNNER"'","os_arch":"linux-arm64"}'
+          legs=()
+          if want x86_64-unknown-linux-gnu; then legs+=("$amd64"); fi
+          if [[ "${{ steps.predict.outputs.will-publish }}" == "true" ]] && want aarch64-unknown-linux-gnu; then legs+=("$arm64"); fi
+          if [[ ${#legs[@]} -eq 0 ]]; then legs=("$amd64"); fi
+          matrix="{\"include\":[$(IFS=,; echo "${legs[*]}")]}"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   commit-check:
@@ -409,6 +421,9 @@ jobs:
     if: needs.plan.outputs.run-build == 'true'
     runs-on: ${{ matrix.runner }}
     strategy:
+      # A leg that dies on its runner must not cancel a leg that finished:
+      # the amd64 binary is worth keeping when the arm64 runner starves.
+      fail-fast: false
       matrix: ${{ fromJson(needs.plan.outputs.build-matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

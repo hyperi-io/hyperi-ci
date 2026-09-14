@@ -105,7 +105,7 @@ local `hyperi-ci check` runs the same validation over `origin/main..HEAD`.
 | `run-checks` | `will-publish`, OR `pull_request`, OR `workflow_dispatch` | Run quality + test |
 | `run-build` | `will-publish`, OR `workflow_dispatch`, OR `pull_request` with the `branch-build` opt-in | Run build + container (publish stays `will-publish`-only) |
 | `next-version` | `will-publish` AND push | Predicted semver from semantic-release dry-run |
-| `build-matrix` | always | Single-arch unless `will-publish` - PR branch-mode builds stay single-arch |
+| `build-matrix` | always | Single-arch unless `will-publish` - PR branch-mode builds stay single-arch. A project that lists `build.rust.targets` in `.hyperi-ci.yaml` gets legs for those targets only, so one that cannot build arm64 still releases amd64 |
 
 **Two derived gates** because PR runs need quality+test (review feedback) but
 never build/publish, and `chore:`/`docs:` pushes to main need no heavy compute.
