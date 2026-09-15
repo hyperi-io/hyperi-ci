@@ -797,7 +797,7 @@ def _stable(versions: dict, *, fail_on_drift: bool = False) -> int:
 
 
 # Auto-update skip list: these require explicit human decision
-_AUTO_UPDATE_SKIP = {"python", "node", "rust"}
+_AUTO_UPDATE_SKIP = {"python", "node", "rust", "llvm"}
 
 
 def _get_latest_npm_major(package: str) -> str | None:
@@ -1049,6 +1049,11 @@ def _auto_update(versions: dict) -> int:
     tool_updates: dict[str, str] = {}
     for name, spec in (versions.get("tools") or {}).items():
         if not isinstance(spec, dict):
+            continue
+        if spec.get("sha256"):
+            # A stale digest fails the install closed and this path cannot
+            # refresh one, so a digest-pinned tool is bumped by hand.
+            print(f"  {name}: {spec.get('version')} (digest-pinned -- bump by hand)")
             continue
         latest, status = _latest_tool_release(spec, now)
         if status == "ok" and latest:

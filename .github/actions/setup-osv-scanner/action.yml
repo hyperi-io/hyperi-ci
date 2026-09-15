@@ -30,17 +30,17 @@ inputs:
     # Mirrors `tools.osv-scanner` in src/hyperi_ci/config/versions.yaml - the SSoT. Kept in
     # step by scripts/update-versions.py --fix; do not hand-edit.
     # hyperi-ci:pin tools.osv-scanner
-    default: v2.4.0
+    default: v2.5.1
   sha256-amd64:
     description: sha256 of the linux-amd64 osv-scanner binary
     required: false
     # hyperi-ci:pin tools.osv-scanner.sha256.amd64
-    default: 15314940c10d26af9c6649f150b8a47c1262e8fc7e17b1d1029b0e479e8ed8a0
+    default: f9f25499a2c8cc367b3af45df2ea7eeca7fbccceab9c35079968f4b3652194be
   sha256-arm64:
     description: sha256 of the linux-arm64 osv-scanner binary
     required: false
     # hyperi-ci:pin tools.osv-scanner.sha256.arm64
-    default: 44e580752910f0ff36ec99aff59af20f65df1e859aa31e5605a8f0d055b496e9
+    default: 3d0f5aa5a6baa8eb32bcef247388e149ef6030a6634ccae6fa0d62681fb27a6d
 
 runs:
   using: composite

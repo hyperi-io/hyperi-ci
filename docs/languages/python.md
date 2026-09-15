@@ -40,18 +40,21 @@ versions found". We're OSS-only (a single public index), so this can't bite
 today, but it's why the reusable workflows carry an in-code warning against
 adding `UV_EXTRA_INDEX_URL` that mixes a private index with the public one.
 
-### hyperi-ci pins scalo exactly
+### hyperi-ci floors scalo
 
 hyperi-ci is the CI tool for every repo, so a broken scalo would break CI
-everywhere. hyperi-ci pins `scalo==<exact>` in its `pyproject.toml`. scalo
-is on public PyPI; hyperi-ci's own CI uses `uv sync --no-sources` to resolve from
-PyPI rather than a local editable path.
+everywhere. hyperi-ci declares `scalo>=<floor>` in its `pyproject.toml` and
+commits `uv.lock`, so the lock holds the exact version and the floor only
+moves when a new scalo API is adopted. scalo is on public PyPI, and
+hyperi-ci's own CI uses `uv sync --no-sources` to resolve from PyPI rather
+than a local editable path.
 
-### Eager imports gate extras
+### The `[metrics]` extra is the service default
 
-scalo eager-imports optional native deps (e.g. psutil) in some paths - a bare
-`scalo` install can fail at import. Consumers needing those paths declare
-the relevant extra (e.g. `scalo[metrics]`) until scalo lazy-imports.
+Since scalo 2.29.15 the `[metrics]` extra carries both prometheus_client and
+the OTel SDK, and a service without it reports `backend=prometheus` while
+`/metrics` returns 404. Services declare it. hyperi-ci is a CLI and takes
+the opt-out: a bare `scalo` imports cleanly on 2.30.0 with no extras.
 
 ## Self-hosting
 

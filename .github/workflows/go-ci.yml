@@ -63,6 +63,10 @@ on:
         type: string
         default: ""
         description: "'true' to run build + container on pull_request events (branch-mode). Also settable repo-wide via the HYPERCI_BRANCH_BUILD variable. Dev-image push is the separate publish.container.dev_push opt-in."
+      skip-optimize:
+        type: string
+        default: ""
+        description: "'true' to skip the optimisation stage for this run. No-op for Go today, kept for parity. Empty = optimisation on."
     secrets:
       JFROG_TOKEN:
         required: false
@@ -102,6 +106,11 @@ on:
       publish-target:
         type: string
         default: "oss"
+      skip-optimize:
+        type: string
+        required: false
+        default: ""
+        description: "'true' to skip the optimisation stage for this release. No-op for Go today, kept for parity. Empty = optimisation on."
 
 concurrency:
   group: ${{ github.workflow }}-${{ inputs.tag || github.ref }}
@@ -118,6 +127,9 @@ env:
   # variable (e.g. "semgrep") to force-skip a quality tool whose false
   # positive is halting CI, until the real fix lands. Empty when unset.
   HYPERCI_QUALITY_SKIP: ${{ vars.HYPERCI_QUALITY_SKIP }}
+  # Skip the optimisation stage: per-run via the input, repo-wide via the
+  # variable. No-op for Go today, kept for parity. Empty = optimisation on.
+  HYPERCI_SKIP_OPTIMIZE: ${{ inputs.skip-optimize || vars.HYPERCI_SKIP_OPTIMIZE }}
 
 # Least-privilege GITHUB_TOKEN default for every job (CodeQL
 # actions/missing-workflow-permissions). Two jobs elevate: release-tail
@@ -167,7 +179,7 @@ jobs:
 
       - name: Install uv (preflight)
         if: steps.predict.outputs.will-publish == 'true'
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: false
 
@@ -222,7 +234,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Install uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: false
       - name: Validate commit messages
@@ -256,7 +268,7 @@ jobs:
 
       - name: Install uv
         if: ${{ runner.environment != 'self-hosted' }}
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: false
 
@@ -309,7 +321,7 @@ jobs:
 
       - name: Install uv
         if: ${{ runner.environment != 'self-hosted' }}
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: false
 
@@ -379,7 +391,7 @@ jobs:
 
       - name: Install uv
         if: ${{ runner.environment != 'self-hosted' }}
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: false
 
