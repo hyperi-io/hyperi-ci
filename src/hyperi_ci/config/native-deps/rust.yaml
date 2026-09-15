@@ -20,9 +20,15 @@
 # mold: fast linker for native x86_64 builds (5-10x faster linking).
 # Only used when .cargo/config.toml sets -fuse-ld=mold.
 # Does NOT affect C++ builds — this is Rust-only config.
+#
+# A virtual workspace root has only `[workspace]` and no `[package]`, so
+# matching `[package]` alone skipped the install for a repo that does set
+# -fuse-ld=mold in .cargo/config.toml and would fail to link on a runner
+# image that does not already carry mold.
 - name: mold linker
   patterns:
     - "[package]"
+    - "[workspace]"
   manifest_files:
     - Cargo.toml
   dpkg_check: mold
@@ -33,6 +39,7 @@
 - name: clang linker
   patterns:
     - "[package]"
+    - "[workspace]"
   manifest_files:
     - Cargo.toml
   dpkg_check: clang
