@@ -198,7 +198,7 @@ def _ensure_llvm_bolt_available() -> bool:
     """Check BOLT toolchain is discoverable; shim versioned binaries onto PATH.
 
     Ubuntu's `bolt-NN` apt package installs version-suffixed binaries
-    (e.g. `/usr/bin/llvm-bolt-22`, `/usr/bin/merge-fdata-22`) but NO
+    (e.g. `/usr/bin/llvm-bolt-23`, `/usr/bin/merge-fdata-23`) but NO
     unversioned symlinks — and cargo-pgo's BOLT flow invokes the
     unversioned names (`llvm-bolt` AND `merge-fdata`, the latter to
     merge BOLT profile fragments before applying them).

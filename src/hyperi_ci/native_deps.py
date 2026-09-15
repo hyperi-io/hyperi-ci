@@ -115,8 +115,8 @@ def _expand_template_vars(text: str) -> str:
     editing code.
 
     Recognised variables:
-      HYPERCI_LLVM_VERSION  — LLVM/BOLT major version (default: 22)
-      OS_CODENAME           — current OS codename from lsb_release -cs
+      HYPERCI_LLVM_VERSION  -- LLVM/BOLT major (default: versions.yaml `llvm`)
+      OS_CODENAME           -- current OS codename from lsb_release -cs
                               (e.g. noble, trixie, resolute). Lets a single
                               YAML reference distro-specific apt.llvm.org
                               subpaths (https://apt.llvm.org/${OS_CODENAME}/).

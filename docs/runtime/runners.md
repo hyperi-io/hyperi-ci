@@ -143,7 +143,7 @@ Shared across `config/native-deps/*.yaml` (per-language conditional deps) and
 ```yaml
 - name: <label for log lines>
   bake: true                        # optional, default true; see below
-  versions: [19, 20, 21, 22]        # optional; expands {V} into N entries
+  versions: [19, 20, 21, 22, 23]    # optional; expands {V} into N entries
   patterns:                         # substrings searched in manifest_files
     - "Cargo.toml"
     - "CMakeLists.txt"
@@ -165,9 +165,9 @@ Shared across `config/native-deps/*.yaml` (per-language conditional deps) and
 
 | Placeholder | Source | Example |
 |---|---|---|
-| `{V}` | per-version expansion (when `versions:` is set) | `19`, `20`, `21`, `22` |
+| `{V}` | per-version expansion (when `versions:` is set) | `19`, `20`, `21`, `22`, `23` |
 | `${OS_CODENAME}` | `lsb_release -cs` or `OS_CODENAME` env var | `noble`, `trixie`, `resolute` |
-| `${HYPERCI_LLVM_VERSION}` | `HYPERCI_LLVM_VERSION` env var (default `22`) | used by native-deps/rust.yaml for the BOLT version pin |
+| `${HYPERCI_LLVM_VERSION}` | `HYPERCI_LLVM_VERSION` env var (default `23`) | used by native-deps/rust.yaml for the BOLT version pin |
 
 ### The `bake: false` flag - non-coinstallable toolsets
 
@@ -211,7 +211,7 @@ RUN pip install --no-cache-dir --break-system-packages 'hyperi-ci>=X.Y' && \
 
 This produces the following pre-baked toolchains per the shipped YAML.
 
-### LLVM (coinstallable v19/20/21/22)
+### LLVM (coinstallable v19/20/21/22/23)
 
 `clang-N`, `clang-tools-N`, `clangd-N`, `lld-N`, `llvm-N`, `llvm-N-dev`,
 `llvm-N-tools`, `libclang-N-dev`, `libclang-rt-N-dev`, `bolt-N`

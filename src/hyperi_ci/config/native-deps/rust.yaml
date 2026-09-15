@@ -46,10 +46,10 @@
 #
 # We pull from apt.llvm.org (LLVM's official upstream repo) so we
 # always get the latest BOLT regardless of what the base Ubuntu
-# release ships. The LLVM major version is templated via the
-# `${HYPERCI_LLVM_VERSION}` placeholder — default is 22 (latest), set
-# via env var to override. C++/ClickHouse fork uses its own pinned
-# toolchain separately (no conflict — all binaries are version-suffixed).
+# release ships. The LLVM major is the `${HYPERCI_LLVM_VERSION}`
+# placeholder, which falls back to versions.yaml `llvm`. C++/ClickHouse
+# fork uses its own pinned toolchain (no conflict, every binary is
+# version-suffixed).
 #
 # Idempotency: hyperi-ci's _add_apt_repo scans ALL files in
 # /etc/apt/sources.list{,.d} before writing, so if the runner image

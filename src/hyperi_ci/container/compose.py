@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 
 from hyperi_ci.container.manifest import ContainerManifest
-from hyperi_ci.versions import tool_version
+from hyperi_ci.versions import tool_sha256, tool_version
 
 
 def compose_contract_dockerfile(
@@ -99,14 +99,16 @@ RUN set -eux; \\
     apt-get install -y --no-install-recommends curl xz-utils ca-certificates; \\
     rm -rf /var/lib/apt/lists/*; \\
     case "$(uname -m)" in \\
-      x86_64)  chef_target=x86_64-unknown-linux-musl ;; \\
-      aarch64) chef_target=aarch64-unknown-linux-musl ;; \\
+      x86_64)  chef_target=x86_64-unknown-linux-musl; chef_sha={tool_sha256("cargo-chef", "x86_64")} ;; \\
+      aarch64) chef_target=aarch64-unknown-linux-musl; chef_sha={tool_sha256("cargo-chef", "aarch64")} ;; \\
       *) echo "unsupported arch $(uname -m) for cargo-chef" >&2; exit 1 ;; \\
     esac; \\
-    curl -sSfL \\
-      "https://github.com/LukeMathWalker/cargo-chef/releases/download/${{CARGO_CHEF_VERSION}}/cargo-chef-${{chef_target}}.tar.xz" \\
-      | tar -xJ -C "$CARGO_HOME/bin" --strip-components=1 \\
+    curl -sSfLo /tmp/cargo-chef.tar.xz \\
+      "https://github.com/LukeMathWalker/cargo-chef/releases/download/${{CARGO_CHEF_VERSION}}/cargo-chef-${{chef_target}}.tar.xz"; \\
+    echo "${{chef_sha}}  /tmp/cargo-chef.tar.xz" | sha256sum -c -; \\
+    tar -xJf /tmp/cargo-chef.tar.xz -C "$CARGO_HOME/bin" --strip-components=1 \\
         "cargo-chef-${{chef_target}}/cargo-chef"; \\
+    rm /tmp/cargo-chef.tar.xz; \\
     cargo chef --version
 {_rust_channel_switch(rust_version)}WORKDIR /app"""
 

@@ -77,7 +77,14 @@ class TestReader:
 class TestEveryDownloadedToolIsPinnedAndVerifiable:
     """A tool we fetch ourselves needs a version AND a digest, or it is a hole."""
 
-    DOWNLOADED = ("gitleaks", "alint", "hadolint", "kubeconform", "kube-linter")
+    DOWNLOADED = (
+        "gitleaks",
+        "alint",
+        "hadolint",
+        "kubeconform",
+        "kube-linter",
+        "cargo-chef",
+    )
 
     @pytest.mark.parametrize("tool", DOWNLOADED)
     def test_has_a_version(self, tool: str) -> None:

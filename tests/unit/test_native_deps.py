@@ -68,10 +68,10 @@ def _patch_apt_paths(
 class TestTemplateExpansion:
     """${HYPERCI_LLVM_VERSION} expansion in native-deps YAML."""
 
-    def test_default_version_is_22(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_default_version_is_23(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("HYPERCI_LLVM_VERSION", raising=False)
         result = _expand_template_vars("bolt-${HYPERCI_LLVM_VERSION}")
-        assert result == "bolt-22"
+        assert result == "bolt-23"
 
     def test_env_var_overrides(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("HYPERCI_LLVM_VERSION", "19")
@@ -388,7 +388,7 @@ class TestSudoPrefix:
 class TestDepGroupLoading:
     """End-to-end: native-deps YAML loads with env-var templating."""
 
-    def test_rust_yaml_bolt_version_defaults_to_22(
+    def test_rust_yaml_bolt_version_defaults_to_23(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.delenv("HYPERCI_LLVM_VERSION", raising=False)
@@ -396,9 +396,9 @@ class TestDepGroupLoading:
         bolt_groups = [g for g in groups if g.name == "llvm-bolt"]
         assert len(bolt_groups) == 1
         bolt = bolt_groups[0]
-        assert bolt.dpkg_check == "bolt-22"
-        assert "bolt-22" in bolt.apt_packages
-        assert bolt.apt_repos[0].codename == "llvm-toolchain-noble-22"
+        assert bolt.dpkg_check == "bolt-23"
+        assert "bolt-23" in bolt.apt_packages
+        assert bolt.apt_repos[0].codename == "llvm-toolchain-noble-23"
 
     def test_rust_yaml_bolt_version_override(
         self, monkeypatch: pytest.MonkeyPatch
@@ -425,8 +425,8 @@ class TestMultiVersionToolchains:
     ) -> None:
         monkeypatch.setenv("OS_CODENAME", "noble")
         groups = _load_dep_groups("llvm", category="toolchains")
-        # LLVM YAML: versions [19,20,21,22] expand to 4 coinstallable groups
-        # plus 1 non-coinstallable singleton (bake: false) = 5 total.
+        # LLVM YAML: versions [19,20,21,22,23] expand to 5 coinstallable
+        # groups plus 1 non-coinstallable singleton (bake: false) = 6 total.
         multi_names = [g.name for g in groups if g.name.startswith("llvm-toolchain v")]
         singleton_names = [g.name for g in groups if g.name == "llvm-non-coinstallable"]
         assert multi_names == [
@@ -434,9 +434,10 @@ class TestMultiVersionToolchains:
             "llvm-toolchain v20",
             "llvm-toolchain v21",
             "llvm-toolchain v22",
+            "llvm-toolchain v23",
         ]
         assert singleton_names == ["llvm-non-coinstallable"]
-        assert len(groups) == 5
+        assert len(groups) == 6
 
     def test_llvm_non_coinstallable_entry_is_install_on_demand(
         self, monkeypatch: pytest.MonkeyPatch
@@ -741,6 +742,12 @@ class TestLanguageToolInstallerAbsent:
     a missing executable raises FileNotFoundError before the process starts.
     Rust reaches this before the workflow installs rustup.
     """
+
+    @pytest.fixture(autouse=True)
+    def _empty_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        # The probe also checks ~/<bin_dir>/<binary>, so a host that already
+        # has the tool would skip the install and never reach these paths.
+        monkeypatch.setenv("HOME", str(tmp_path))
 
     def test_missing_installer_binary_warns_and_continues(
         self,

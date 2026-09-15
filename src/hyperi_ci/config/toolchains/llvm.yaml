@@ -13,10 +13,10 @@
 #   apt_repos:      APT repos to add before installing.
 #   apt_packages:   Packages to install.
 #
-# Per LLVM/Clang standards (C++ 22 stable, 21 for ClickHouse fork CI, 19
-# for ClickHouse OSS compatibility, 20 as intermediate). BOLT (post-link
-# optimiser) bundled per-version; ld.lld linker required for BOLT's
-# `--emit-relocs` flow.
+# Per LLVM/Clang standards (23 BOLT/lld default, 22 C++ stable, 21 for
+# ClickHouse fork CI, 20 as intermediate, 19 for ClickHouse OSS
+# compatibility). BOLT (post-link optimiser) bundled per-version, ld.lld
+# linker required for BOLT's `--emit-relocs` flow.
 #
 # apt.llvm.org provides llvm-toolchain-{noble,trixie,resolute}-NN repos
 # for each version. The `${OS_CODENAME}` placeholder (used in apt_repos
@@ -24,7 +24,7 @@
 # `lsb_release -cs`.
 
 - name: llvm-toolchain
-  versions: [19, 20, 21, 22]
+  versions: [19, 20, 21, 22, 23]
   # Conditional triggers (ignored in --all): any C/C++/Rust/CMake project
   patterns:
     - "Cargo.toml"                   # Rust workspace marker
