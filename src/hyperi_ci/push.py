@@ -25,7 +25,15 @@ import os
 import subprocess
 from pathlib import Path
 
-from hyperi_ci.common import error, explicit_version, info, run_cmd, success, warn
+from hyperi_ci.common import (
+    env_true,
+    error,
+    explicit_version,
+    info,
+    run_cmd,
+    success,
+    warn,
+)
 from hyperi_ci.gh import get_current_branch, require_gh
 from hyperi_ci.version_source import seed_version
 
@@ -655,11 +663,6 @@ def _run_check(*, cwd: str | None) -> int:
 _BUMP_RANK = {"none": 0, "patch": 1, "minor": 2, "major": 3}
 
 
-def _env_true(name: str) -> bool:
-    """Return True when env var ``name`` holds a truthy opt-in value."""
-    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes")
-
-
 def _bump_gate(*, cwd: str | None, forced_bump: str | None) -> int:
     """Fail closed when the publish would ship an unintended minor/major (#26).
 
@@ -694,9 +697,9 @@ def _bump_gate(*, cwd: str | None, forced_bump: str | None) -> int:
     # get the commit through shouldn't be re-blocked here for the very
     # bump they declared.
     authorised = _BUMP_RANK.get(forced_bump or "none", 0)
-    if _env_true("HYPERCI_ALLOW_MAJOR_BUMP") or _env_true("HYPERCI_ALLOW_BREAKING"):
+    if env_true("HYPERCI_ALLOW_MAJOR_BUMP") or env_true("HYPERCI_ALLOW_BREAKING"):
         authorised = max(authorised, _BUMP_RANK["major"])
-    elif _env_true("HYPERCI_ALLOW_MINOR_BUMP") or _env_true("HYPERCI_ALLOW_FEAT"):
+    elif env_true("HYPERCI_ALLOW_MINOR_BUMP") or env_true("HYPERCI_ALLOW_FEAT"):
         authorised = max(authorised, _BUMP_RANK["minor"])
 
     predicted_rank = _BUMP_RANK.get(prediction.bump, 0)

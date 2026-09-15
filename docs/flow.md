@@ -133,6 +133,9 @@ flowchart LR
 - Channel is set by `publish.channel` in `.hyperi-ci.yaml`, not by a branch.
   semantic-release runs only on `main` and produces real versions (`1.3.0`, not
   `1.3.0-dev.8`) - there is no `release` branch and no dev pre-release track.
+- Rust build-opt is skippable for a single run with the `skip-optimize`
+  dispatch input, for when a fast pre-GA image beats an optimised one.
+  See [languages/rust.md](languages/rust.md) - *Skipping optimisation for one run*.
 - GA vs prerelease and the arch set follow the channel: `spike`/`alpha`/`beta`
   are GitHub prereleases (x64, fast feedback); `release` is GA (x64 + arm64).
   Tier detail: [languages/rust.md](languages/rust.md).

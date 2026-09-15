@@ -23,7 +23,7 @@ build profile when compiling from crates.io source.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +64,7 @@ class OptimizationProfile:
     pgo_workload_cmd: str | None = None
     pgo_duration_secs: int = 300
     bolt_enabled: bool = False
+    optimize_skipped: bool = False
     warnings: list[str] = field(default_factory=list)
 
     def cargo_features(self) -> list[str]:
@@ -92,12 +93,16 @@ class OptimizationProfile:
             parts.append("pgo=on")
         if self.bolt_enabled:
             parts.append("bolt=on")
+        if self.optimize_skipped:
+            parts.append("optimize=skipped")
         return ", ".join(parts)
 
 
 def resolve_optimization_profile(
     channel: str,
     user_optimize: dict[str, Any] | None,
+    *,
+    skip_optimize: bool = False,
 ) -> OptimizationProfile:
     """Resolve an optimisation profile from channel + user config.
 
@@ -110,6 +115,11 @@ def resolve_optimization_profile(
                  channels are treated as spike (safest default).
         user_optimize: Dict from `build.rust.optimize` in .hyperi-ci.yaml,
                        or None/empty if not configured.
+        skip_optimize: Drop the optimisation stage for this run. For Rust
+                       that means no PGO and no BOLT; Tier 1 (allocator
+                       and LTO) still applies, so the result is a plain
+                       release build. Resolved by
+                       `hyperi_ci.common.skip_optimize`.
 
     Returns:
         Resolved `OptimizationProfile`. Never raises.
@@ -122,7 +132,11 @@ def resolve_optimization_profile(
     lto = _normalise_lto(user.get("lto") or defaults["lto"])
 
     pgo_cfg = user.get("pgo") or {}
-    pgo_enabled = bool(pgo_cfg.get("enabled", False)) and channel == "release"
+    pgo_enabled = (
+        bool(pgo_cfg.get("enabled", False))
+        and channel == "release"
+        and not skip_optimize
+    )
 
     bolt_cfg = user.get("bolt") or {}
     bolt_enabled = (
@@ -137,6 +151,7 @@ def resolve_optimization_profile(
         pgo_workload_cmd=pgo_cfg.get("workload_cmd") or None,
         pgo_duration_secs=int(pgo_cfg.get("duration_secs", 300)),
         bolt_enabled=bolt_enabled,
+        optimize_skipped=skip_optimize,
     )
 
 
@@ -200,13 +215,10 @@ def validate_profile(
     # Keep existing warnings from prior validation passes
     combined = list(profile.warnings) + warnings
 
-    return OptimizationProfile(
-        channel=profile.channel,
+    return replace(
+        profile,
         allocator=allocator,
-        lto=profile.lto,
         pgo_enabled=pgo_enabled,
-        pgo_workload_cmd=profile.pgo_workload_cmd,
-        pgo_duration_secs=profile.pgo_duration_secs,
         bolt_enabled=bolt_enabled,
         warnings=combined,
     )

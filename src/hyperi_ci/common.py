@@ -19,12 +19,15 @@ import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from scalo.logger import logger
 
 # Initialise logger for CI use (auto-detects GH Actions, CI, terminal)
 from scalo.logger import setup as _setup_logger
+
+if TYPE_CHECKING:
+    from hyperi_ci.config import CIConfig
 
 _setup_logger(ci_mode=None, mask_sensitive=True)
 
@@ -119,6 +122,37 @@ def is_macos() -> bool:
 def is_linux() -> bool:
     """Detect if running on Linux."""
     return sys.platform.startswith("linux")
+
+
+_TRUTHY = frozenset({"1", "true", "yes", "on"})
+_FALSY = frozenset({"0", "false", "no", "off"})
+
+
+def env_true(name: str) -> bool:
+    """Return True when env var ``name`` holds an opt-in value (1/true/yes/on)."""
+    return os.environ.get(name, "").strip().lower() in _TRUTHY
+
+
+def skip_optimize(config: CIConfig | None = None) -> bool:
+    """Whether this run drops the optimisation stage.
+
+    Language-agnostic: Rust reads it as no PGO and no BOLT with Tier 1
+    (allocator + LTO) still applied, and a language with no optimisation
+    stage ignores it. ``HYPERCI_SKIP_OPTIMIZE``, set by the reusable
+    workflows from their ``skip-optimize`` input, beats ``build.skip_optimize``.
+    It is read here rather than through the ``HYPERCI_*`` config mapping,
+    which splits on underscores and would land it at ``skip.optimize``.
+    """
+    raw = os.environ.get("HYPERCI_SKIP_OPTIMIZE", "").strip().lower()
+    if raw in _TRUTHY or raw in _FALSY:
+        return raw in _TRUTHY
+    if raw:
+        warn(
+            f"HYPERCI_SKIP_OPTIMIZE={raw!r} is not a boolean -- using build.skip_optimize"
+        )
+    if config is None:
+        return False
+    return str(config.get("build.skip_optimize", False)).strip().lower() in _TRUTHY
 
 
 def info(msg: str) -> None:

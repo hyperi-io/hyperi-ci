@@ -16,7 +16,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from hyperi_ci.common import error, info, is_ci, success, warn
+from hyperi_ci.common import env_true, error, info, is_ci, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.release_rules import load_type_bump
 
@@ -225,7 +225,7 @@ def validate_message(msg: str) -> ValidationResult:
     #
     # =========================================================================
 
-    if commit_type == "feat" and not _env_bypass("HYPERCI_ALLOW_FEAT"):
+    if commit_type == "feat" and not env_true("HYPERCI_ALLOW_FEAT"):
         return ValidationResult(
             valid=False,
             reason=(
@@ -239,7 +239,7 @@ def validate_message(msg: str) -> ValidationResult:
             error_type="feat_without_opt_in",
         )
 
-    if _has_breaking_change_marker(msg) and not _env_bypass("HYPERCI_ALLOW_BREAKING"):
+    if _has_breaking_change_marker(msg) and not env_true("HYPERCI_ALLOW_BREAKING"):
         return ValidationResult(
             valid=False,
             reason=(
@@ -274,12 +274,6 @@ def _has_breaking_change_marker(msg: str) -> bool:
     than under-block (accidental major release).
     """
     return bool(_BREAKING_CHANGE_RE.search(msg))
-
-
-def _env_bypass(name: str) -> bool:
-    """Return True when env var ``name`` is set to a truthy value."""
-    val = os.environ.get(name, "").strip().lower()
-    return val in ("1", "true", "yes")
 
 
 # ---------------------------------------------------------------------------

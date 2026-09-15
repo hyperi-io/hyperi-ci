@@ -37,6 +37,10 @@ the compiler and produces measurably slower code.
 For the CI contract, see [`rust.md`](../languages/rust.md) -> *Tier 2 - PGO + BOLT*.
 For copy-paste starting points, see `templates/pgo-workload/`.
 
+`skip-optimize` drops PGO and BOLT for a single run, for a pre-GA iteration
+that does not need them. See
+[`rust.md`](../languages/rust.md) -> *Skipping optimisation for one run*.
+
 ## The Four Rules
 
 ### Rule 1 - Exercise data-processing hot paths, not startup

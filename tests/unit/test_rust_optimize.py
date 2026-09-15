@@ -142,6 +142,60 @@ class TestBOLTGating:
         assert p.bolt_enabled is False  # not release channel
 
 
+class TestSkipOptimize:
+    """issue #132: a per-run switch drops the optimisation stage.
+
+    For Rust that is PGO + BOLT. Tier 1 (allocator + LTO) is untouched, so
+    the result is a plain release build rather than an unoptimised one.
+    """
+
+    @staticmethod
+    def _opted_in() -> dict:
+        return {
+            "pgo": {"enabled": True, "workload_cmd": "bash x.sh"},
+            "bolt": {"enabled": True},
+        }
+
+    @classmethod
+    def _skipped(cls, channel: str = "release"):
+        return resolve_optimization_profile(
+            channel, cls._opted_in(), skip_optimize=True
+        )
+
+    def test_default_keeps_pgo_and_bolt_on(self) -> None:
+        # Upgrading hyperi-ci must not change any existing repo's build.
+        p = resolve_optimization_profile("release", self._opted_in())
+        assert p.pgo_enabled is True
+        assert p.bolt_enabled is True
+        assert p.optimize_skipped is False
+
+    def test_skip_disables_pgo_and_bolt(self) -> None:
+        p = self._skipped()
+        assert p.pgo_enabled is False
+        assert p.bolt_enabled is False
+
+    def test_skip_keeps_tier_one(self) -> None:
+        p = self._skipped()
+        assert p.allocator == "jemalloc"
+        assert p.lto == "fat"
+
+    def test_skip_is_marked_even_where_tier_two_never_ran(self) -> None:
+        # spike has no PGO or BOLT to drop, and the log line still says why.
+        assert self._skipped("spike").optimize_skipped is True
+
+    def test_describe_names_the_skip(self) -> None:
+        # The run log is where an unoptimised binary announces itself.
+        described = self._skipped().describe()
+        assert "optimize=skipped" in described
+        assert "pgo=on" not in described
+        assert "bolt=on" not in described
+
+    def test_validate_preserves_the_skip_flag(self) -> None:
+        validated = validate_profile(self._skipped(), cargo_features={"jemalloc"})
+        assert validated.optimize_skipped is True
+        assert "optimize=skipped" in validated.describe()
+
+
 class TestCargoFeatures:
     """`cargo_features()` returns the feature list for `--features` flag."""
 
