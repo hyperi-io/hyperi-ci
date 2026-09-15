@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 from unittest.mock import MagicMock, patch
 
-from hyperi_ci.languages.rust.optimize import OptimizationProfile
+from hyperi_ci.languages.rust.optimize import OptimizationOutcome, OptimizationProfile
 from hyperi_ci.languages.rust.pgo import (
     _ensure_cargo_pgo_installed,
     _ensure_llvm_bolt_available,
@@ -793,6 +793,97 @@ class TestRunPgoBuildOrchestration:
         for call in mock_cargo.call_args_list:
             args = call[0][0]
             assert "--features" not in args
+
+
+class TestOutcomeRecording:
+    """The outcome records stages that completed, not stages that were asked for.
+
+    Every BOLT skip below returns 0, so the return code cannot distinguish an
+    optimised binary from a fallback — only the outcome can.
+    """
+
+    @staticmethod
+    def _seed(tmp_path, *, bolt_instrumented: bool):
+        bin_dir = tmp_path / "target" / "x86_64-unknown-linux-gnu" / "release"
+        bin_dir.mkdir(parents=True)
+        (bin_dir / "my-bin").touch()
+        if bolt_instrumented:
+            (bin_dir / "my-bin-bolt-instrumented").touch()
+
+    def test_bolt_applied_when_the_whole_pipeline_runs(self, tmp_path) -> None:
+        self._seed(tmp_path, bolt_instrumented=True)
+        outcome = OptimizationOutcome(allocator="jemalloc")
+        with (
+            patch(
+                "hyperi_ci.languages.rust.pgo._ensure_cargo_pgo_installed",
+                return_value=True,
+            ),
+            patch(
+                "hyperi_ci.languages.rust.pgo._ensure_llvm_bolt_available",
+                return_value=True,
+            ),
+            patch("hyperi_ci.languages.rust.pgo._run_cargo_pgo", return_value=0),
+            patch("hyperi_ci.languages.rust.pgo._run_workload", return_value=0),
+        ):
+            rc = run_pgo_build(
+                target="x86_64-unknown-linux-gnu",
+                profile=_make_profile(bolt_enabled=True),
+                binary_name="my-bin",
+                cwd=tmp_path,
+                outcome=outcome,
+            )
+        assert rc == 0
+        assert outcome.describe() == "optimised: pgo=yes bolt=yes allocator=jemalloc"
+
+    def test_missing_bolt_toolchain_leaves_bolt_unapplied(self, tmp_path) -> None:
+        self._seed(tmp_path, bolt_instrumented=False)
+        outcome = OptimizationOutcome(allocator="jemalloc")
+        with (
+            patch(
+                "hyperi_ci.languages.rust.pgo._ensure_cargo_pgo_installed",
+                return_value=True,
+            ),
+            patch(
+                "hyperi_ci.languages.rust.pgo._ensure_llvm_bolt_available",
+                return_value=False,
+            ),
+            patch("hyperi_ci.languages.rust.pgo._run_cargo_pgo", return_value=0),
+            patch("hyperi_ci.languages.rust.pgo._run_workload", return_value=0),
+        ):
+            rc = run_pgo_build(
+                target="x86_64-unknown-linux-gnu",
+                profile=_make_profile(bolt_enabled=True),
+                binary_name="my-bin",
+                cwd=tmp_path,
+                outcome=outcome,
+            )
+        assert rc == 0
+        assert outcome.describe() == "optimised: pgo=yes bolt=no allocator=jemalloc"
+
+    def test_failed_bolt_workload_leaves_bolt_unapplied(self, tmp_path) -> None:
+        self._seed(tmp_path, bolt_instrumented=True)
+        outcome = OptimizationOutcome(allocator="jemalloc")
+        with (
+            patch(
+                "hyperi_ci.languages.rust.pgo._ensure_cargo_pgo_installed",
+                return_value=True,
+            ),
+            patch(
+                "hyperi_ci.languages.rust.pgo._ensure_llvm_bolt_available",
+                return_value=True,
+            ),
+            patch("hyperi_ci.languages.rust.pgo._run_cargo_pgo", return_value=0),
+            patch("hyperi_ci.languages.rust.pgo._run_workload", side_effect=[0, 3]),
+        ):
+            rc = run_pgo_build(
+                target="x86_64-unknown-linux-gnu",
+                profile=_make_profile(bolt_enabled=True),
+                binary_name="my-bin",
+                cwd=tmp_path,
+                outcome=outcome,
+            )
+        assert rc == 0
+        assert outcome.describe() == "optimised: pgo=yes bolt=no allocator=jemalloc"
 
 
 class TestBuildHandsFeaturesToPgo:

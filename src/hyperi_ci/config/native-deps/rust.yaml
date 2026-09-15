@@ -66,9 +66,14 @@
 # only — pgo.py's _ensure_llvm_bolt_available() falls back to versioned
 # names and shims ~/.local/bin/llvm-bolt → the versioned binary).
 # Linux only (apt); non-Linux runners skip this whole file.
+#
+# A virtual workspace root has only `[workspace]` (the binary lives in a
+# member crate), so matching `[package]` alone left the hosted arm64 leg
+# without bolt/lld and the BOLT step silently skipped.
 - name: llvm-bolt
   patterns:
     - "[package]"
+    - "[workspace]"
   manifest_files:
     - Cargo.toml
   dpkg_check: bolt-${HYPERCI_LLVM_VERSION}

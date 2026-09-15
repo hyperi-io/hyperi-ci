@@ -10,11 +10,14 @@ from __future__ import annotations
 import pytest
 
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages.rust import optimize
 from hyperi_ci.languages.rust.build import _resolve_build_channel
 from hyperi_ci.languages.rust.optimize import (
+    OptimizationOutcome,
     OptimizationProfile,
     _parse_features_from_text,
     cargo_feature_args,
+    log_outcome,
     parse_cargo_features,
     resolve_optimization_profile,
     validate_profile,
@@ -520,3 +523,33 @@ class TestDescribe:
         s = p.describe()
         assert "pgo=on" in s
         assert "bolt=on" in s
+
+
+class TestOutcomeDescribe:
+    """The Tier 2 summary reports what ran, not what was requested."""
+
+    def test_fully_optimised(self) -> None:
+        o = OptimizationOutcome(
+            allocator="jemalloc", pgo_applied=True, bolt_applied=True
+        )
+        assert o.describe() == "optimised: pgo=yes bolt=yes allocator=jemalloc"
+
+    def test_bolt_skipped(self) -> None:
+        o = OptimizationOutcome(allocator="jemalloc", pgo_applied=True)
+        assert o.describe() == "optimised: pgo=yes bolt=no allocator=jemalloc"
+
+    def test_nothing_applied_defaults_to_system_allocator(self) -> None:
+        assert (
+            OptimizationOutcome().describe()
+            == "optimised: pgo=no bolt=no allocator=system"
+        )
+
+    def test_log_outcome_emits_the_line_verbatim(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        lines: list[str] = []
+        monkeypatch.setattr(optimize, "info", lines.append)
+
+        log_outcome(OptimizationOutcome(allocator="mimalloc", pgo_applied=True))
+
+        assert lines == ["optimised: pgo=yes bolt=no allocator=mimalloc"]

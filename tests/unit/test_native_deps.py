@@ -505,6 +505,17 @@ class TestDepGroupLoading:
         assert "bolt-19" in bolt.apt_packages
         assert bolt.apt_repos[0].codename == "llvm-toolchain-noble-19"
 
+    def test_rust_yaml_bolt_matches_a_plain_package_root(self) -> None:
+        bolt = next(g for g in _load_dep_groups("rust") if g.name == "llvm-bolt")
+        manifest = '[package]\nname = "app"\nversion = "1.0.0"\n'
+        assert native_deps._patterns_match(manifest, bolt.patterns)
+
+    def test_rust_yaml_bolt_matches_a_virtual_workspace_root(self) -> None:
+        """No [package] in a virtual workspace root — it still needs bolt/lld."""
+        bolt = next(g for g in _load_dep_groups("rust") if g.name == "llvm-bolt")
+        manifest = '[workspace]\nmembers = ["crates/archiver"]\nresolver = "2"\n'
+        assert native_deps._patterns_match(manifest, bolt.patterns)
+
 
 class TestMultiVersionToolchains:
     """Toolchains category expands `versions:` list into N DepGroups.

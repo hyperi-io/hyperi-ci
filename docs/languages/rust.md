@@ -192,6 +192,23 @@ producer/consumer, multi-protocol) live in
   compiled arm64 from amd64 cannot collect arm64-native PGO profiles
   (no way to execute the instrumented binary on the wrong host).
 
+### Reading the result in the log
+
+Every Tier 2 skip is warn-only, so a green run does not prove the pass ran.
+Each arch's build group ends with one line stating what that arch got:
+
+```
+optimised: pgo=yes bolt=no allocator=jemalloc
+```
+
+`bolt=no` means the toolchain was incomplete or its workload failed;
+`allocator=system` means the feature is declared nowhere in the workspace.
+A warn line earlier in the group names the reason.
+
+A virtual workspace root (only `[workspace]`) counts as a Rust project for
+the `bolt-NN` / `lld-NN` install, and the allocator check reads the root
+manifest's `[features]` unioned with every member's.
+
 ### LLVM version
 
 `HYPERCI_LLVM_VERSION` (default `23`) controls which `bolt-NN` +

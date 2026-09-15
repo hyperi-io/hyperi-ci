@@ -27,7 +27,11 @@ import subprocess
 from pathlib import Path
 
 from hyperi_ci.common import error, info, warn
-from hyperi_ci.languages.rust.optimize import OptimizationProfile, cargo_feature_args
+from hyperi_ci.languages.rust.optimize import (
+    OptimizationOutcome,
+    OptimizationProfile,
+    cargo_feature_args,
+)
 
 
 def run_pgo_build(
@@ -36,6 +40,7 @@ def run_pgo_build(
     binary_name: str,
     cwd: Path,
     extra_env: dict[str, str] | None = None,
+    outcome: OptimizationOutcome | None = None,
 ) -> int:
     """Run the PGO (and optionally BOLT) pipeline for one target.
 
@@ -50,6 +55,9 @@ def run_pgo_build(
         extra_env: Additional env vars merged into the cargo/workload env.
                    RUST_FEATURES / RUST_ALL_FEATURES also carry the
                    project's declared `build.rust.features`.
+        outcome: Filled in with the stages that actually completed, so the
+                 caller can report a skip that this function warns about
+                 but does not fail on.
 
     Returns:
         0 on success, non-zero on failure.
@@ -110,10 +118,14 @@ def run_pgo_build(
     if rc != 0:
         error(f"PGO optimised build failed for {target}")
         return rc
+    if outcome:
+        outcome.pgo_applied = True
 
     # 4. BOLT (optional, Linux-only)
     if profile.bolt_enabled:
-        rc = _run_bolt(target, feature_args, binary_name, profile, cwd, extra_env)
+        rc = _run_bolt(
+            target, feature_args, binary_name, profile, cwd, extra_env, outcome
+        )
         if rc != 0:
             warn("BOLT step failed — continuing with PGO-only optimised binary")
             # BOLT failure is non-fatal; PGO binary is already built
@@ -449,6 +461,7 @@ def _attempt_bolt(
     extra_env: dict[str, str] | None,
     *,
     no_split: bool,
+    outcome: OptimizationOutcome | None = None,
 ) -> int:
     """Run one BOLT pass: instrument → workload → optimise.
 
@@ -506,11 +519,16 @@ def _attempt_bolt(
     info(
         f"BOLT: optimising binary for {target} (using PGO + BOLT profiles, linker=lld){label}"
     )
-    return _run_cargo_pgo(
+    rc = _run_cargo_pgo(
         ["bolt", "optimize", "--with-pgo", "--", "--target", target, *feature_args],
         cwd=cwd,
         extra_env=bolt_env,
     )
+    # Only this branch produces a BOLT-optimised binary — the returns above
+    # are non-fatal skips that also report 0.
+    if rc == 0 and outcome:
+        outcome.bolt_applied = True
+    return rc
 
 
 def _run_bolt(
@@ -520,6 +538,7 @@ def _run_bolt(
     profile: OptimizationProfile,
     cwd: Path,
     extra_env: dict[str, str] | None,
+    outcome: OptimizationOutcome | None = None,
 ) -> int:
     """Run BOLT, retrying once with compiler function-splitting disabled.
 
@@ -543,7 +562,14 @@ def _run_bolt(
         return 0  # Non-fatal
 
     rc = _attempt_bolt(
-        target, feature_args, binary_name, profile, cwd, extra_env, no_split=False
+        target,
+        feature_args,
+        binary_name,
+        profile,
+        cwd,
+        extra_env,
+        no_split=False,
+        outcome=outcome,
     )
     if rc == 0:
         return 0
@@ -557,5 +583,12 @@ def _run_bolt(
         f"disabled ({no_split_flags})"
     )
     return _attempt_bolt(
-        target, feature_args, binary_name, profile, cwd, extra_env, no_split=True
+        target,
+        feature_args,
+        binary_name,
+        profile,
+        cwd,
+        extra_env,
+        no_split=True,
+        outcome=outcome,
     )
