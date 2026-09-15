@@ -16,7 +16,6 @@ design says must always be sufficient.
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -1082,6 +1081,16 @@ edition = "2021"
     return root
 
 
+def _cargo_usable() -> bool:
+    """A cargo on PATH is not enough -- rustup also needs its toolchain dir."""
+    try:
+        return (
+            subprocess.run(["cargo", "--version"], capture_output=True).returncode == 0
+        )
+    except OSError:
+        return False
+
+
 class TestEnrichmentWithoutLock:
     """The path that only runs when a lockfile cannot answer.
 
@@ -1102,27 +1111,18 @@ class TestEnrichmentWithoutLock:
         assert ecosystems.enrich_cargo(tmp_path) == {}
         assert ecosystems.enrich_npm(tmp_path) == {}
 
-    @pytest.mark.skipif(
-        shutil.which("cargo") is None,
-        reason="enrichment is optional by design; without cargo there is "
-        "nothing to enrich from",
-    )
+    @pytest.mark.skipif(not _cargo_usable(), reason="needs a working cargo toolchain")
     def test_cargo_resolves_a_version_with_no_lock_on_disk(
         self, tmp_path: Path
     ) -> None:
-        """The path dependency keeps this offline.
+        """The path dependency keeps this off the registry.
 
-        No registry access, so the result does not depend on whatever happens
-        to be in the host's cargo cache.
+        It still needs a working cargo, so it is skipped where there is none.
         """
         _lockless_cargo_workspace(tmp_path)
         assert ecosystems.enrich_cargo(tmp_path).get("member") == "0.4.2"
 
-    @pytest.mark.skipif(
-        shutil.which("cargo") is None,
-        reason="enrichment is optional by design; without cargo there is "
-        "nothing to enrich from",
-    )
+    @pytest.mark.skipif(not _cargo_usable(), reason="needs a working cargo toolchain")
     def test_drift_attributes_the_version_to_cargo_when_the_lock_is_absent(
         self, tmp_path: Path
     ) -> None:
