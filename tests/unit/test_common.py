@@ -10,7 +10,13 @@ from __future__ import annotations
 import pytest
 
 from hyperi_ci import common
-from hyperi_ci.common import normalise_tristate, run_cmd, sanitize_ref_name
+from hyperi_ci.common import (
+    normalise_tristate,
+    run_cmd,
+    sanitize_ref_name,
+    skip_optimize,
+)
+from hyperi_ci.config import CIConfig
 
 
 class TestNormaliseTristate:
@@ -47,6 +53,56 @@ class TestNormaliseTristate:
         monkeypatch.setattr(common, "warn", warnings.append)
         normalise_tristate("auto", key="deployment.producer")
         assert not warnings
+
+
+class TestSkipOptimize:
+    """issue #132: the language-agnostic "skip the optimisation stage" switch.
+
+    Precedence is the config cascade — the env var the reusable workflows set
+    beats the project's own config key, and both default off so optimisation
+    stays on for a repo that asks for nothing.
+    """
+
+    @staticmethod
+    def _config(value: object) -> CIConfig:
+        return CIConfig(_raw={"build": {"skip_optimize": value}})
+
+    def test_default_is_off(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("HYPERCI_SKIP_OPTIMIZE", raising=False)
+        assert skip_optimize() is False
+
+    def test_config_key_opts_in(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("HYPERCI_SKIP_OPTIMIZE", raising=False)
+        assert skip_optimize(self._config(True)) is True
+
+    def test_config_key_absent_is_off(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("HYPERCI_SKIP_OPTIMIZE", raising=False)
+        assert skip_optimize(CIConfig(_raw={})) is False
+
+    @pytest.mark.parametrize("raw", ["true", "TRUE", "1", "yes", "on"])
+    def test_env_opts_in(self, monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
+        monkeypatch.setenv("HYPERCI_SKIP_OPTIMIZE", raw)
+        assert skip_optimize() is True
+
+    @pytest.mark.parametrize("raw", ["false", "0", "no", "off"])
+    def test_env_opts_out(self, monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
+        monkeypatch.setenv("HYPERCI_SKIP_OPTIMIZE", raw)
+        assert skip_optimize() is False
+
+    def test_env_beats_the_config_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # A run that explicitly asks for optimisation gets it even in a repo
+        # whose config skips by default.
+        monkeypatch.setenv("HYPERCI_SKIP_OPTIMIZE", "false")
+        assert skip_optimize(self._config(True)) is False
+
+    def test_empty_env_falls_through_to_config(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The workflows always export the var, and it is empty when neither the
+        # dispatch input nor the repo variable is set. An empty value must not
+        # mask the project's own config.
+        monkeypatch.setenv("HYPERCI_SKIP_OPTIMIZE", "")
+        assert skip_optimize(self._config(True)) is True
 
 
 class TestSanitizeRefName:

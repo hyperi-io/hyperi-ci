@@ -189,7 +189,7 @@ producer/consumer, multi-protocol) live in
 
 ### LLVM version
 
-`HYPERCI_LLVM_VERSION` (default `22`) controls which `bolt-NN` +
+`HYPERCI_LLVM_VERSION` (default `23`) controls which `bolt-NN` +
 `llvm-bolt-NN` + `merge-fdata-NN` + `ld.lld-NN` get used. Bump it in your project only
 if you need a specific LLVM major - otherwise trust the default.
 
@@ -199,7 +199,7 @@ if you need a specific LLVM major - otherwise trust the default.
 
 ```
 0:00  Setup: runners claimed (arc-runner-16cpu on amd64, ubuntu-24.04-arm on arm64)
-0:30  Native deps install — bolt-22, binutils via apt.llvm.org
+0:30  Native deps install — bolt-23, binutils via apt.llvm.org
 1:00  cargo install cargo-pgo --locked
 2:00  Cargo build deps (cached after first run)
 2:00  hyperi-ci: "Rust build optimisation: channel=release, allocator=jemalloc, lto=fat, pgo=on, bolt=on"
@@ -209,7 +209,7 @@ if you need a specific LLVM major - otherwise trust the default.
 12:00 Workload complete, profile data: ~5 MiB collected
 12:00 PGO: building optimised binary (fresh compile with profile data)
 16:00 PGO-optimised build complete
-16:00 llvm-bolt + merge-fdata + ld.lld shim: ~/.local/bin/* -> /usr/bin/*-22
+16:00 llvm-bolt + merge-fdata + ld.lld shim: ~/.local/bin/* -> /usr/bin/*-23
 16:00 BOLT: building instrumented binary
 18:00 BOLT: applying profile, emitting final binary
 18:00 Artifact upload
@@ -253,9 +253,9 @@ PGO instrumentation build finished successfully
 Found 1 PGO profile file with total size X.XX MiB
 PGO: building optimised binary
 PGO-optimized binary <name> built successfully
-llvm-bolt shim: ~/.local/bin/llvm-bolt -> /usr/bin/llvm-bolt-22
-merge-fdata shim: ~/.local/bin/merge-fdata -> /usr/bin/merge-fdata-22
-ld.lld shim: ~/.local/bin/ld.lld -> /usr/bin/ld.lld-22
+llvm-bolt shim: ~/.local/bin/llvm-bolt -> /usr/bin/llvm-bolt-23
+merge-fdata shim: ~/.local/bin/merge-fdata -> /usr/bin/merge-fdata-23
+ld.lld shim: ~/.local/bin/ld.lld -> /usr/bin/ld.lld-23
 BOLT: building instrumented binary for <triple> (linker forced to lld)
 BOLT: building instrumented binary
 cargo pgo bolt build -- --target <triple> --features <declared features>,jemalloc
@@ -263,6 +263,42 @@ BOLT: optimising binary
 ```
 
 If any are missing, a tier wasn't applied. See [Troubleshooting](#troubleshooting).
+
+---
+
+## Skipping optimisation for one run
+
+Tier 2 is four sequential cargo passes plus two workload runs, and a failed
+BOLT attempt retries all three BOLT steps -- 35-45 minutes with both
+architectures in parallel, as observed on the dfe-loader v1.17.5 and
+v1.18.0 publishes. `skip-optimize` drops the optimisation stage for one run
+without editing `.hyperi-ci.yaml`. For Rust that means no PGO and no BOLT.
+Tier 1 (allocator + LTO) still applies. A language with no optimisation
+stage ignores it.
+
+Three ways in, highest wins:
+
+| Where | Key | Scope |
+|---|---|---|
+| Dispatch input / workflow env | `skip-optimize` | this run |
+| Repo or org variable | `HYPERCI_SKIP_OPTIMIZE` | every run in the repo |
+| `.hyperi-ci.yaml` | `build.skip_optimize` | the project |
+
+```bash
+gh workflow run ci.yml -f from-head=true -f bump=patch -f skip-optimize=true
+```
+
+`hyperi-ci init` writes the dispatch input into the consumer `ci.yml`. A
+repo scaffolded earlier adds it by hand or uses the repo variable.
+Optimisation is on unless something asks otherwise.
+
+A skipped run publishes like any other, release channel included. The build
+emits a `::warning::` annotation on the run and `optimize=skipped` in the
+profile line:
+
+```
+Rust build optimisation: channel=release, allocator=jemalloc, lto=fat, optimize=skipped
+```
 
 ---
 
@@ -426,7 +462,7 @@ Weekly cron or on-demand.
 | Symptom | Fix |
 |---|---|
 | "BOLT skipped - not a Linux target" | Expected on macOS/Windows targets. Non-fatal |
-| "llvm-bolt not installed - skipping BOLT step" | `bolt-NN` apt package didn't install. Check runner egress to apt.llvm.org, GPG key fetch succeeded, `dpkg -l bolt-22` on the runner |
+| "llvm-bolt not installed - skipping BOLT step" | `bolt-NN` apt package didn't install. Check runner egress to apt.llvm.org, GPG key fetch succeeded, `dpkg -l bolt-23` on the runner |
 | "Cannot find merge-fdata: cannot find binary path" | The `bolt-NN` package ships both binaries; missing merge-fdata means the package didn't install. Same root cause as above. Fixed in hyperi-ci v1.10.4+ |
 | "linking with `cc` failed: ld terminated with signal 11" (mold segfault) OR "ld: final link failed: invalid operation" (BFD) during `cargo pgo bolt build` | BOLT's `-Wl,-q` (`--emit-relocs`) isn't supported by mold/BFD. hyperi-ci v1.10.7+ forces `-fuse-ld=lld` for BOLT steps via `CARGO_TARGET_<TRIPLE>_RUSTFLAGS` (lld-NN shipped by the `lld-NN` apt package). On older versions, strip `-fuse-ld=mold` from the project's `[target.*] rustflags` to unblock |
 
@@ -469,7 +505,7 @@ You benefit from the fix already being in hyperi-ci v1.10.4+; knowing
    pre-provision trigger our scheme-agnostic dedup and are left alone.
 
 6. **LLVM version is a parameter.** `HYPERCI_LLVM_VERSION` env var
-   (default `22`) controls which bolt-NN gets used. Consumer projects
+   (default `23`) controls which bolt-NN gets used. Consumer projects
    don't override unless they need a specific LLVM major.
 
 ---

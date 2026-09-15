@@ -485,6 +485,50 @@ class TestBranchModeThreading:
         )
 
 
+SKIP_OPTIMIZE_ENV = "${{ inputs.skip-optimize || vars.HYPERCI_SKIP_OPTIMIZE }}"
+
+
+class TestSkipOptimizeThreading:
+    """issue #132: the skip-optimize switch reaches the build stage in every
+    language workflow, so a consumer writes the same input whatever it builds."""
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_workflow_call_accepts_skip_optimize(self, workflow_name: str) -> None:
+        wf = _load_workflow(workflow_name)
+        on = wf.get("on") or wf.get(True, {})
+        spec = on.get("workflow_call", {}).get("inputs", {}).get("skip-optimize")
+        assert spec is not None, f"{workflow_name}: workflow_call missing skip-optimize"
+        # A string input is "" when unset, so `inputs.x || vars.X` falls
+        # through to the variable; a boolean false would not.
+        assert spec.get("type") == "string"
+        assert spec.get("default") == "", (
+            f"{workflow_name}: skip-optimize must default to '' -- optimisation "
+            "stays ON unless a run asks otherwise"
+        )
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_dispatch_accepts_skip_optimize(self, workflow_name: str) -> None:
+        wf = _load_workflow(workflow_name)
+        on = wf.get("on") or wf.get(True, {})
+        spec = on.get("workflow_dispatch", {}).get("inputs", {}).get("skip-optimize")
+        assert spec is not None, (
+            f"{workflow_name}: workflow_dispatch missing skip-optimize"
+        )
+        assert spec.get("type") == "string"
+        assert spec.get("required") is not True, (
+            f"{workflow_name}: skip-optimize must be optional"
+        )
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_env_carries_skip_optimize_to_every_stage(self, workflow_name: str) -> None:
+        # Workflow-level env: the build stage reads it through
+        # hyperi_ci.common.skip_optimize and a later stage inherits it.
+        wf = _load_workflow(workflow_name)
+        assert wf.get("env", {}).get("HYPERCI_SKIP_OPTIMIZE") == SKIP_OPTIMIZE_ENV, (
+            f"{workflow_name}: HYPERCI_SKIP_OPTIMIZE must be exactly {SKIP_OPTIMIZE_ENV}"
+        )
+
+
 class TestFirstReleaseAndOrphanGuards:
     """issue #37 follow-up: tag-less repos declare their starting version
     via VERSION (shipped verbatim); orphaned-tag repos fail loud at plan

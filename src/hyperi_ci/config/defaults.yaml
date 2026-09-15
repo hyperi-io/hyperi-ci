@@ -42,8 +42,8 @@ project:
 # Minimum Python version for CI scripts themselves
 ci_min_python_version: "3.9"
 
-# LLVM/BOLT version is NOT configured here either. `native_deps` resolves it
-# from HYPERCI_LLVM_VERSION, falling back to its own _DEFAULT_LLVM_VERSION.
+# LLVM/BOLT version is NOT configured here either: `native_deps` reads
+# HYPERCI_LLVM_VERSION, falling back to versions.yaml `llvm`.
 
 # Quality Checks
 quality:
@@ -226,6 +226,11 @@ test:
 # Build
 build:
   enabled: true
+
+  # Skip the optimisation stage (Rust: no PGO, no BOLT, Tier 1 stays).
+  # HYPERCI_SKIP_OPTIMIZE, set by the workflows' skip-optimize input, beats it.
+  skip_optimize: false
+
   strategies:
     - native
 

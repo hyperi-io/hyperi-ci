@@ -19,12 +19,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from hyperi_ci.common import is_ci, warn
+from hyperi_ci.common import env_true, is_ci, warn
 from hyperi_ci.config import CIConfig
 
 DEFAULT_TEST_PATHS = ["tests/"]
-
-_STRICT_TRUTHY = {"1", "true", "yes", "on"}
 
 # The only valid quality-tool modes. An out-of-vocabulary value is a typo, not a
 # silent request to disable the gate (see resolve_cross_tool_mode).
@@ -40,9 +38,7 @@ def strict_quality() -> bool:
     ``hyperi-ci check --strict`` (which exports ``HYPERCI_QUALITY_STRICT``)
     or by exporting that env var directly.
     """
-    return (
-        os.environ.get("HYPERCI_QUALITY_STRICT", "").strip().lower() in _STRICT_TRUTHY
-    )
+    return env_true("HYPERCI_QUALITY_STRICT")
 
 
 def apply_strict(mode: str) -> str:

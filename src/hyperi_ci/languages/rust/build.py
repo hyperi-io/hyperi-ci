@@ -26,9 +26,11 @@ from hyperi_ci.common import (
     error,
     group,
     info,
+    is_ci,
     is_linux,
     is_macos,
     sanitize_ref_name,
+    skip_optimize,
     success,
     warn,
 )
@@ -1264,7 +1266,21 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if binary_names_for_profile:
         channel = _resolve_build_channel(config)
         user_optimize = config.get("build.rust.optimize") or {}
-        base_profile = resolve_optimization_profile(channel, user_optimize)
+        skip = skip_optimize(config)
+        if skip:
+            # An unoptimised binary looks identical until someone benchmarks it.
+            msg = (
+                "Optimisation stage skipped for this build -- no PGO, no BOLT. "
+                "Tier 1 (allocator + LTO) still applies. Unset "
+                "HYPERCI_SKIP_OPTIMIZE / build.skip_optimize for a fully "
+                "optimised binary."
+            )
+            warn(msg)
+            if is_ci():
+                print(f"::warning title=hyperi-ci optimisation skipped::{msg}")
+        base_profile = resolve_optimization_profile(
+            channel, user_optimize, skip_optimize=skip
+        )
         cargo_features = parse_cargo_features(Path.cwd() / "Cargo.toml")
         # Target-specific validation happens per-target (BOLT is Linux-only)
 

@@ -318,6 +318,11 @@ def _render_workflow(
         "        required: false\n"
         '        default: "auto"\n'
         '        description: "Version resolution for from-head: auto | patch | minor (forced — release even with no release-worthy commit) | X.Y.Z (exact version)."\n'
+        "      skip-optimize:\n"
+        "        type: string\n"
+        "        required: false\n"
+        '        default: ""\n'
+        "        description: \"'true' to skip the optimisation stage for this run (Rust: no PGO, no BOLT). Empty = optimisation on.\"\n"
         "\n"
         "jobs:\n"
         "  ci:\n"
@@ -327,6 +332,7 @@ def _render_workflow(
         "      tag: ${{ inputs.tag || '' }}\n"
         "      from-head: ${{ inputs.from-head || '' }}\n"
         "      bump: ${{ inputs.bump || 'auto' }}\n"
+        "      skip-optimize: ${{ inputs.skip-optimize || '' }}\n"
     )
 
     if publish_target != "internal":
