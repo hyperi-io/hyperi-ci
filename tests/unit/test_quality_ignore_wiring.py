@@ -1,19 +1,22 @@
 # Project:   HyperI CI
 # File:      tests/unit/test_quality_ignore_wiring.py
-# Purpose:   Per-language wiring tests for the generic quality.ignore list
+# Purpose:   Command-builder tests for the Python quality handler
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Per-language wiring tests for ``quality.ignore``.
+"""Command-builder tests for the Python quality handler.
 
-Verifies each language's command builder picks up the right entries
-(filtered by tool slug) and translates ``id`` into the tool's native
-CLI flag.
+Verifies the argv each builder hands to its tool: ``quality.ignore``
+entries translated to the tool's native flag, and the excludes the
+format gate carries.
 """
 
 from __future__ import annotations
 
-from hyperi_ci.languages.python.quality import _build_pip_audit_cmd
+from hyperi_ci.languages.python.quality import (
+    _build_pip_audit_cmd,
+    _build_ruff_format_cmd,
+)
 from hyperi_ci.quality.ignores import IgnoreEntry
 
 
@@ -44,3 +47,25 @@ class TestPipAuditCommand:
         # Both ids appear after their respective flags
         assert "PYSEC-A" in cmd
         assert "PYSEC-B" in cmd
+
+
+class TestRuffFormatCommand:
+    """ruff format adds Markdown to the repo's excludes rather than replacing them."""
+
+    def test_markdown_only(self) -> None:
+        assert _build_ruff_format_cmd([]) == [
+            "ruff",
+            "format",
+            "--check",
+            ".",
+            "--extend-exclude=*.md",
+        ]
+
+    def test_handler_excludes_are_preserved(self) -> None:
+        assert _build_ruff_format_cmd(["vendor"]) == [
+            "ruff",
+            "format",
+            "--check",
+            ".",
+            "--extend-exclude=vendor,*.md",
+        ]

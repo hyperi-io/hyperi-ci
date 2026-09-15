@@ -61,7 +61,8 @@ def _get_tool_mode(tool: str, config: CIConfig) -> str:
 def _build_exclude_args(tool: str, excludes: list[str]) -> list[str]:
     """Build exclusion arguments for a quality tool."""
     if tool == "ruff":
-        return [f"--exclude={','.join(excludes)}"] if excludes else []
+        # --exclude replaces the repo's own ruff excludes, --extend-exclude adds.
+        return [f"--extend-exclude={','.join(excludes)}"] if excludes else []
     if tool == "bandit":
         return [f"--exclude={','.join(excludes)}"] if excludes else []
     if tool == "vulture":
@@ -149,7 +150,9 @@ def _run_tool(
         warn(f"  {tool_name}: not installed (skipping locally)")
         return True
 
-    result = subprocess.run(resolved, capture_output=True, text=True)
+    result = subprocess.run(
+        resolved, capture_output=True, text=True, encoding="utf-8", errors="replace"
+    )
 
     if result.returncode == 0:
         success(f"  {tool_name}: passed")
@@ -167,6 +170,21 @@ def _run_tool(
     if result.stderr:
         print(result.stderr)
     return False
+
+
+def _build_ruff_format_cmd(excludes: list[str]) -> list[str]:
+    """Build the ruff format command.
+
+    Markdown is excluded because ruff 0.16 formats it, which would otherwise
+    drag every consumer repo's docs into a gate that has only covered Python.
+    """
+    return [
+        "ruff",
+        "format",
+        "--check",
+        ".",
+        f"--extend-exclude={','.join([*excludes, '*.md'])}",
+    ]
 
 
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
@@ -227,7 +245,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # relax the real lint gate to defer it.
     if not _run_tool(
         "ruff format",
-        ["ruff", "format", "--check", "."] + exclude_args,
+        _build_ruff_format_cmd(excludes),
         _get_tool_mode("ruff_format", config),
     ):
         had_failure = True
