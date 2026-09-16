@@ -189,6 +189,8 @@ footer.
 
 ## See also
 
+- [versioning-and-the-suite.md](versioning-and-the-suite.md) -- how this
+  per-repo line relates to a DFE stack version, and which ladder owns `rc`
 - [architecture.md](architecture.md) -- the job graph these versions flow through
 - [flow.md](flow.md) -- the publish sequence end to end
 - [migration/onboarding.md](migration/onboarding.md) -- adopting hyperi-ci

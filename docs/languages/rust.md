@@ -15,14 +15,14 @@ HTTP/gRPC/OTLP/Kafka):
 
 | Build | Binary size | vs baseline | Channel that applies |
 |---|---|---|---|
-| System allocator, thin LTO | ~14 MB | baseline | `spike`, `alpha` |
+| System allocator, thin LTO | ~14 MB | baseline | none -- measurement baseline |
 | jemalloc + fat LTO (Tier 1) | ~12 MB | -14% size, +10-20% throughput | `beta` |
 | + PGO (Tier 2 partial) | ~9 MB | -36% size, +25-40% throughput | `release` (opt-in) |
 | + BOLT (Tier 2 full) | ~9 MB | -36% size, +30-50% throughput | `release` (opt-in) |
 
 **Build time cost**: Tier 2 adds roughly +14 min per arch per release
 (PGO instrument ~5 min, workload ~5 min, PGO optimise ~4 min, BOLT ~2 min).
-Not applied on `spike/alpha/beta` - release channel only.
+Not applied on `alpha/beta` - release channel only.
 
 Both amd64 AND arm64 runners support full Tier 2. BOLT has supported
 aarch64 since LLVM 16 and the runner image provides everything for both
@@ -37,19 +37,18 @@ individual keys):
 
 | Channel | Allocator | LTO | PGO | BOLT |
 |---------|-----------|------|------|------|
-| `spike` | jemalloc | thin | - | - |
 | `alpha` | jemalloc | thin | - | - |
 | `beta` | jemalloc | fat | - | - |
 | `release` | jemalloc | fat | opt-in | opt-in (Linux only) |
 
 **Allocator is jemalloc at every channel, no exceptions.** Rationale:
-consistent allocator across spike/alpha/beta/release means fragmentation
+consistent allocator across alpha/beta/release means fragmentation
 patterns, `jeprof` profiles, and crash dumps all look the same regardless
 of where a binary came from. ~10s extra compile per build, cached after
 first run.
 
-**LTO ramp**: thin at spike/alpha (fast feedback), fat at beta+. Fat LTO
-adds 5-10 min per CI run - meaningful friction for rapid spike iteration,
+**LTO ramp**: thin at alpha (fast feedback), fat at beta+. Fat LTO
+adds 5-10 min per CI run - meaningful friction for rapid alpha iteration,
 worth the cost for beta/release.
 
 **Tier 2 is release-only, opt-in**: PGO/BOLT add ~20 min per arch. Also, a

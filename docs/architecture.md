@@ -277,7 +277,7 @@ value routes to the same OSS destination map (`config.publish_destinations()`).
 | Go module | go-proxy (by tag) |
 
 `publish.channel` controls **prerelease vs GA**, not destination:
-`spike`/`alpha`/`beta` ship as GitHub prereleases (and gate the Rust build-opt
+`alpha`/`beta` ship as GitHub prereleases (and gate the Rust build-opt
 tiers - see [languages/RUST.md](languages/rust.md)); `release` is GA. Detail +
 mermaid: [flow.md](flow.md) section 5-6. JFrog history: [migration/JFROG.md](migration/jfrog.md).
 

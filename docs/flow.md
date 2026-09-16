@@ -119,14 +119,14 @@ it does **not** change publish destination (all channels publish OSS).
 
 ```mermaid
 flowchart LR
-    S[spike] --> A[alpha] --> B[beta] --> R[release]
-    S & A & B -->|GitHub prerelease| PRE["OSS registries<br/>+ /{project}/&lt;channel&gt;/vX/"]
+    A[alpha] --> B[beta] --> R[release]
+    A & B -->|GitHub prerelease| PRE["OSS registries<br/>+ /{project}/&lt;channel&gt;/vX/"]
     R -->|GA| GA["OSS registries<br/>+ /{project}/vX/ + latest"]
 ```
 
 | Channel | Release kind | Rust build-opt | R2 path |
 |---|---|---|---|
-| `spike` / `alpha` | GitHub prerelease | none (fast feedback) | `/{project}/<channel>/vX/` |
+| `alpha` | GitHub prerelease | jemalloc + thin LTO (fast feedback) | `/{project}/<channel>/vX/` |
 | `beta` | GitHub prerelease | jemalloc + fat LTO | `/{project}/<channel>/vX/` |
 | `release` | GA | + PGO/BOLT (opt-in) | `/{project}/vX/` + `latest` |
 
@@ -136,7 +136,7 @@ flowchart LR
 - Rust build-opt is skippable for a single run with the `skip-optimize`
   dispatch input, for when a fast pre-GA image beats an optimised one.
   See [languages/rust.md](languages/rust.md) - *Skipping optimisation for one run*.
-- GA vs prerelease and the arch set follow the channel: `spike`/`alpha`/`beta`
+- GA vs prerelease and the arch set follow the channel: `alpha`/`beta`
   are GitHub prereleases (x64, fast feedback); `release` is GA (x64 + arm64).
   Tier detail: [languages/rust.md](languages/rust.md).
 

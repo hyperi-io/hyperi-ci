@@ -12,7 +12,7 @@ The tiers and their config keys are [rust.md](rust.md). The log markers that say
 |---|---|
 | "allocator 'jemalloc' requested but feature not declared" | Add `jemalloc = ["dep:tikv-jemallocator"]` to your Cargo.toml `[features]` |
 | jemalloc symbols absent from published binary | Check `cargo tree --features jemalloc` resolves correctly. Check your `#[cfg(feature = "jemalloc")]` allocator wiring actually compiled in |
-| Build log says `channel=spike` on a release dispatch | You dispatched via the wrong path - use `hyperi-ci release <tag>`, not `gh workflow run` |
+| Build log says `channel=alpha` on a release dispatch | You dispatched via the wrong path - use `hyperi-ci release <tag>`, not `gh workflow run` |
 
 ## Tier 2 / PGO
 

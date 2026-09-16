@@ -75,6 +75,8 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
   one semantic-release computation driving every stage
 - [versioning.md](versioning.md) - the git tag is the only truth; VERSION and
   CHANGELOG are outputs; how a tag-less repo gets its first version
+- [versioning-and-the-suite.md](versioning-and-the-suite.md) - per-repo versions
+  vs DFE stack versions, and which ladder owns `rc`
 - [description.md](description.md) - the one-line description every registry
   duplicates, resolved from the manifest; `[workspace.package]` for a workspace
 - [migration/ONBOARDING.md](migration/onboarding.md) - put a repo on hyperi-ci

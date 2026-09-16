@@ -203,7 +203,7 @@ Control where artifacts go with one line in `.hyperi-ci.yaml`:
 
 ```yaml
 publish:
-  channel: release    # spike | alpha | beta | release
+  channel: release    # alpha | beta | release
 ```
 
 ### Publish targets
@@ -229,12 +229,11 @@ themselves public on GitHub.
 
 ### Channel behaviour
 
-Pre-release channels (`spike`, `alpha`, `beta`) flag GH Releases as
+Pre-release channels (`alpha`, `beta`) flag GH Releases as
 prerelease and prefix R2 paths. Stable releases require `channel: release`.
 
 | Channel | GH Release | R2 path |
 |---|---|---|
-| `spike` | Prerelease | `/{project}/spike/v1.3.0/` |
 | `alpha` | Prerelease | `/{project}/alpha/v1.3.0/` |
 | `beta`  | Prerelease | `/{project}/beta/v1.3.0/` |
 | `release` | GA | `/{project}/v1.3.0/` + `/{project}/latest/` |
@@ -242,7 +241,7 @@ prerelease and prefix R2 paths. Stable releases require `channel: release`.
 ### Graduating to GA
 
 ```
-spike → alpha → beta → release
+alpha -> beta -> release
 ```
 
 Each step is a one-line change to `publish.channel` in `.hyperi-ci.yaml`.
@@ -343,7 +342,7 @@ language: rust              # Auto-detected if omitted
 publish:
   enabled: true
   target: oss               # oss (default) | internal | both
-  channel: release          # spike | alpha | beta | release
+  channel: release          # alpha | beta | release
 build:
   strategies: [native]
   rust:
