@@ -87,11 +87,21 @@ runs:
     - name: Install Go quality tools
       # No `|| true`: the quality stage runs these and silent absence would mask
       # supply-chain risks.
+      #
+      # Versions and digests arrive via env, not `${{ }}` inline, so a value can
+      # never be interpolated into the script body.
       shell: bash
+      env:
+        GCL_VERSION: ${{ inputs.golangci-lint-version }}
+        GOSEC_VERSION: ${{ inputs.gosec-version }}
+        GOVULN_VERSION: ${{ inputs.govulncheck-version }}
+        GCL_SHA_AMD64: ${{ inputs.golangci-lint-sha256-amd64 }}
+        GCL_SHA_ARM64: ${{ inputs.golangci-lint-sha256-arm64 }}
+        GOSEC_SHA_AMD64: ${{ inputs.gosec-sha256-amd64 }}
+        GOSEC_SHA_ARM64: ${{ inputs.gosec-sha256-arm64 }}
       run: |
         set -euo pipefail
-        for v in "${{ inputs.golangci-lint-version }}" "${{ inputs.gosec-version }}" \
-                 "${{ inputs.govulncheck-version }}"; do
+        for v in "$GCL_VERSION" "$GOSEC_VERSION" "$GOVULN_VERSION"; do
           case "$v" in
             v*) ;;
             *) echo "::error::tool version '$v' must start with 'v'"; exit 1 ;;
@@ -107,12 +117,12 @@ runs:
 
         case "$GOARCH" in
           amd64)
-            GCL_SHA="${{ inputs.golangci-lint-sha256-amd64 }}"
-            GOSEC_SHA="${{ inputs.gosec-sha256-amd64 }}"
+            GCL_SHA="$GCL_SHA_AMD64"
+            GOSEC_SHA="$GOSEC_SHA_AMD64"
             ;;
           arm64)
-            GCL_SHA="${{ inputs.golangci-lint-sha256-arm64 }}"
-            GOSEC_SHA="${{ inputs.gosec-sha256-arm64 }}"
+            GCL_SHA="$GCL_SHA_ARM64"
+            GOSEC_SHA="$GOSEC_SHA_ARM64"
             ;;
         esac
 
@@ -133,7 +143,7 @@ runs:
         trap 'rm -rf "$TMP"' EXIT
 
         # golangci-lint: binary nested one level down, hence --strip-components.
-        GCL="${{ inputs.golangci-lint-version }}"
+        GCL="$GCL_VERSION"
         fetch \
           "https://github.com/golangci/golangci-lint/releases/download/${GCL}/golangci-lint-${GCL#v}-linux-${GOARCH}.tar.gz" \
           "$GCL_SHA" "$TMP/golangci-lint.tar.gz"
@@ -142,7 +152,7 @@ runs:
           "golangci-lint-${GCL#v}-linux-${GOARCH}/golangci-lint"
 
         # gosec: binary at the tarball ROOT, so no --strip-components here.
-        GOSEC="${{ inputs.gosec-version }}"
+        GOSEC="$GOSEC_VERSION"
         fetch \
           "https://github.com/securego/gosec/releases/download/${GOSEC}/gosec_${GOSEC#v}_linux_${GOARCH}.tar.gz" \
           "$GOSEC_SHA" "$TMP/gosec.tar.gz"
@@ -152,7 +162,7 @@ runs:
         # and with GOBIN forced into our dir so it cannot silently resolve to a
         # baked copy on PATH.
         GOBIN="$HOME/.local/bin" \
-          go install "golang.org/x/vuln/cmd/govulncheck@${{ inputs.govulncheck-version }}"
+          go install "golang.org/x/vuln/cmd/govulncheck@${GOVULN_VERSION}"
 
     - name: Verify Go tools match the pin
       # ASSERT, don't just print. A version echoed into a log is a version

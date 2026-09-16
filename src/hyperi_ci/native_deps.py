@@ -72,6 +72,9 @@ class AptRepo:
 
     If codename is "auto" (default), the current OS codename is tried first.
     If the repo doesn't support it, LTS codenames are tried in reverse order.
+
+    `key_fingerprint` is the primary-key fingerprint the download must carry
+    (spaces optional, case-insensitive); empty means no check.
     """
 
     key_url: str
@@ -79,6 +82,7 @@ class AptRepo:
     url: str
     codename: str = "auto"
     components: str = "main"
+    key_fingerprint: str = ""
 
 
 @dataclass
@@ -170,6 +174,7 @@ def _dep_group_from_entry(entry: dict, version: str | None = None) -> DepGroup:
                 url=r["url"],
                 codename=sub(r.get("codename", "auto")),
                 components=r.get("components", "main"),
+                key_fingerprint=r.get("key_fingerprint", ""),
             )
             for r in entry.get("apt_repos", [])
         ],
@@ -340,8 +345,54 @@ def _repo_already_configured(repo_url: str, codename: str) -> Path | None:
     return None
 
 
+def _key_fingerprints(key_bytes: bytes) -> list[str]:
+    """Return the primary-key fingerprints gpg reads out of an armoured key."""
+    result = subprocess.run(
+        ["gpg", "--show-keys", "--with-fingerprint", "--with-colons"],
+        input=key_bytes,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        return []
+
+    found: list[str] = []
+    expect_fpr = False
+    for line in result.stdout.decode("utf-8", errors="replace").splitlines():
+        if line.startswith("pub:"):
+            expect_fpr = True
+        elif expect_fpr and line.startswith("fpr:"):
+            found.append(line.split(":")[9].upper())
+            expect_fpr = False
+    return found
+
+
+def _verify_apt_key(key_bytes: bytes, expected: str) -> bool:
+    """Check a downloaded APT key is the one the YAML declares.
+
+    HTTPS proves who served the key, not which key it is — without this a
+    swapped or hijacked upstream key installs silently and then signs every
+    package apt pulls from that repo.
+    """
+    wanted = expected.replace(" ", "").upper()
+    found = _key_fingerprints(key_bytes)
+    if not found:
+        logger.error("Could not read a key fingerprint from the downloaded APT key")
+        return False
+    if wanted not in found:
+        logger.error(
+            f"APT key fingerprint mismatch: expected {wanted}, got {', '.join(found)}"
+        )
+        return False
+    logger.info(f"APT key fingerprint verified: {wanted}")
+    return True
+
+
 def _add_apt_repo(repo: AptRepo) -> int:
     """Add a GPG key and APT sources entry for a repo. Returns exit code.
+
+    A declared ``key_fingerprint`` is checked before the key reaches the
+    keyring, so a swapped upstream key fails the install rather than signing
+    everything apt pulls afterwards.
 
     Idempotent on three levels:
       1. GPG keyring: skips download if keyring file already present.
@@ -372,6 +423,12 @@ def _add_apt_repo(repo: AptRepo) -> int:
         if dl.returncode != 0:
             logger.error(f"Failed to download APT key from {repo.key_url}")
             return dl.returncode
+
+        if repo.key_fingerprint and not _verify_apt_key(
+            dl.stdout, repo.key_fingerprint
+        ):
+            logger.error(f"Refusing to install the APT key from {repo.key_url}")
+            return 1
 
         dearmor = subprocess.run(
             [

@@ -361,6 +361,95 @@ class TestAddAptRepoIdempotency:
         assert target_file.read_text().count("llvm-toolchain-noble-22") == 1
 
 
+class TestAptKeyFingerprint:
+    """A declared `key_fingerprint` gates the key before it reaches the keyring.
+
+    HTTPS says who served the key, not which key it is. Without the check a
+    swapped apt.llvm.org key installs silently and signs every package after.
+    """
+
+    # gpg --with-colons output: primary key first, then its encryption subkey.
+    _COLONS = (
+        b"pub:-:4096:1:15CF4D18AF4F7421:1362990124:::-:::scESC::::::23::0:\n"
+        b"fpr:::::::::6084F3CF814B57C1CF12EFD515CF4D18AF4F7421:\n"
+        b"sub:-:4096:1:5B3D8846AF9463CE:1362990124::::::e::::::23:\n"
+        b"fpr:::::::::56E1477F57BAB5ECF37818045B3D8846AF9463CE:\n"
+    )
+    _PRIMARY = "6084F3CF814B57C1CF12EFD515CF4D18AF4F7421"
+    _SUBKEY = "56E1477F57BAB5ECF37818045B3D8846AF9463CE"
+
+    def _install(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        fingerprint: str,
+    ) -> tuple[int, list[list[str]]]:
+        """Run _add_apt_repo against a fake gpg; return (rc, commands invoked)."""
+        sources_list, sources_dir = _seed_apt_tree(tmp_path, {})
+        _patch_apt_paths(monkeypatch, sources_list, sources_dir)
+        monkeypatch.setattr(native_deps, "_sudo_prefix", lambda: [])
+
+        invoked: list[list[str]] = []
+
+        def fake_run(cmd, **kwargs):
+            invoked.append(list(cmd))
+            if cmd[0] == "curl":
+                return subprocess.CompletedProcess(cmd, 0, stdout=b"ARMOURED-KEY")
+            if cmd[:2] == ["gpg", "--show-keys"]:
+                return subprocess.CompletedProcess(cmd, 0, stdout=self._COLONS)
+            if cmd[:2] == ["dpkg", "--print-architecture"]:
+                return subprocess.CompletedProcess(cmd, 0, stdout="amd64\n", stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+
+        monkeypatch.setattr(native_deps.subprocess, "run", fake_run)
+
+        repo = AptRepo(
+            key_url="https://apt.llvm.org/llvm-snapshot.gpg.key",
+            keyring=str(tmp_path / "llvm.gpg"),
+            url="https://apt.llvm.org/noble/",
+            codename="llvm-toolchain-noble-23",
+            key_fingerprint=fingerprint,
+        )
+        return _add_apt_repo(repo), invoked
+
+    def test_matching_fingerprint_installs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        rc, invoked = self._install(tmp_path, monkeypatch, self._PRIMARY)
+        assert rc == 0
+        assert any("--dearmor" in cmd for cmd in invoked)
+
+    def test_spaced_lowercase_fingerprint_still_matches(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The value is copied off apt.llvm.org, which prints it spaced."""
+        spaced = "6084 f3cf 814b 57c1 cf12 efd5 15cf 4d18 af4f 7421"
+        rc, _ = self._install(tmp_path, monkeypatch, spaced)
+        assert rc == 0
+
+    def test_mismatch_refuses_before_the_keyring_is_written(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        rc, invoked = self._install(tmp_path, monkeypatch, "DEADBEEF" * 5)
+        assert rc != 0
+        assert not any("--dearmor" in cmd for cmd in invoked)
+
+    def test_subkey_fingerprint_is_not_accepted(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Only the primary key counts — a subkey match would weaken the pin."""
+        rc, invoked = self._install(tmp_path, monkeypatch, self._SUBKEY)
+        assert rc != 0
+        assert not any("--dearmor" in cmd for cmd in invoked)
+
+    def test_no_fingerprint_declared_skips_the_check(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        rc, invoked = self._install(tmp_path, monkeypatch, "")
+        assert rc == 0
+        assert not any(cmd[:2] == ["gpg", "--show-keys"] for cmd in invoked)
+
+
 class TestSudoPrefix:
     """`_sudo_prefix()` skips sudo when already root.
 
@@ -392,6 +481,7 @@ class TestDepGroupLoading:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.delenv("HYPERCI_LLVM_VERSION", raising=False)
+        monkeypatch.setenv("OS_CODENAME", "noble")
         groups = _load_dep_groups("rust")
         bolt_groups = [g for g in groups if g.name == "llvm-bolt"]
         assert len(bolt_groups) == 1
@@ -399,11 +489,16 @@ class TestDepGroupLoading:
         assert bolt.dpkg_check == "bolt-23"
         assert "bolt-23" in bolt.apt_packages
         assert bolt.apt_repos[0].codename == "llvm-toolchain-noble-23"
+        assert (
+            bolt.apt_repos[0].key_fingerprint
+            == "6084F3CF814B57C1CF12EFD515CF4D18AF4F7421"
+        )
 
     def test_rust_yaml_bolt_version_override(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("HYPERCI_LLVM_VERSION", "19")
+        monkeypatch.setenv("OS_CODENAME", "noble")
         groups = _load_dep_groups("rust")
         bolt = next(g for g in groups if g.name == "llvm-bolt")
         assert bolt.dpkg_check == "bolt-19"
