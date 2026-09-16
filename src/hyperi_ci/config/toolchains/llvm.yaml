@@ -10,7 +10,9 @@
 #                   mode. Ignored in `--all` mode (runner image bake).
 #   manifest_files: Files to search for patterns.
 #   dpkg_check:     dpkg package name — skips install if present.
-#   apt_repos:      APT repos to add before installing.
+#   apt_repos:      APT repos to add before installing. An entry may carry
+#                   key_fingerprint: the primary-key fingerprint the downloaded
+#                   key must match, else the install is refused.
 #   apt_packages:   Packages to install.
 #
 # Per LLVM/Clang standards (23 BOLT/lld default, 22 C++ stable, 21 for
@@ -44,6 +46,8 @@
   apt_repos:
     - key_url: https://apt.llvm.org/llvm-snapshot.gpg.key
       keyring: /usr/share/keyrings/llvm.gpg
+      # Published at https://apt.llvm.org/ — a mismatch refuses the install.
+      key_fingerprint: 6084F3CF814B57C1CF12EFD515CF4D18AF4F7421
       # ${OS_CODENAME} is substituted at load time from lsb_release -cs,
       # so the same YAML works on noble, trixie, and resolute. {V} is
       # substituted per-version by the multi-version expander.
@@ -105,6 +109,8 @@
   apt_repos:
     - key_url: https://apt.llvm.org/llvm-snapshot.gpg.key
       keyring: /usr/share/keyrings/llvm.gpg
+      # Published at https://apt.llvm.org/ — a mismatch refuses the install.
+      key_fingerprint: 6084F3CF814B57C1CF12EFD515CF4D18AF4F7421
       url: https://apt.llvm.org/${OS_CODENAME}/
       codename: llvm-toolchain-${OS_CODENAME}-22
   apt_packages:
