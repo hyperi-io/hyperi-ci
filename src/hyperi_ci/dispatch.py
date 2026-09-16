@@ -415,8 +415,6 @@ def stage_argocd(language: str, config: CIConfig) -> int:
 def stage_generate(
     language: str,
     config: CIConfig,
-    *,
-    project_dir: Path | None = None,
 ) -> int:
     """Deployment-artefact generation — cross-tier stage.
 
@@ -436,7 +434,7 @@ def stage_generate(
     del language  # unused — see docstring
     from hyperi_ci.deployment.stage import run as generate_run
 
-    return generate_run(project_dir=project_dir, config=config)
+    return generate_run(config=config)
 
 
 _STAGE_HANDLERS = {
@@ -474,7 +472,10 @@ def run_stage(
         error(f"Valid stages: {', '.join(VALID_STAGES)}")
         return 1
 
-    project_dir = project_dir or Path.cwd()
+    # Handlers run their tools in the process cwd, so `-C` only reaches
+    # cargo/uv/npm by moving the process to the resolved root (issue #109).
+    project_dir = (project_dir or Path.cwd()).resolve()
+    os.chdir(project_dir)
     info(f"HyperI CI — {stage}")
 
     language = detect_language(project_dir)
@@ -506,12 +507,6 @@ def run_stage(
         # check`). _STAGE_HANDLERS is typed to the common (no-local)
         # signature, so cast for this branch.
         rc = cast("Any", handler)(language, config, local=local)
-    elif stage == "generate":
-        # generate reads the project's manifests to pick a producer
-        # tier, so it needs the resolved root — the other handlers work
-        # off cwd, but here a wrong root means dispatching a DIFFERENT
-        # repo's producer under `hyperi-ci run generate -C <dir>`.
-        rc = cast("Any", handler)(language, config, project_dir=project_dir)
     else:
         rc = handler(language, config)
 
