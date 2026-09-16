@@ -37,6 +37,9 @@ from hyperi_ci.config import CIConfig
 # `#123`, but not a colour literal (`#abc`) or a trailing digit of a word.
 _ISSUE_REF = re.compile(r"(?:^|[\s(\[,])#(\d+)\b")
 
+# Plain vX.Y.Z only -- a prerelease sorts above its own release under -v:refname.
+_RELEASE_TAG_RE = re.compile(r"^v\d+\.\d+\.\d+$")
+
 # Marks our own comments so a re-run recognises them. Invisible when rendered.
 _MARKER = "<!-- hyperi-ci:release-notify -->"
 
@@ -68,7 +71,13 @@ def _api(args: list[str], *, body: dict | None = None) -> dict | list | None:
 
 
 def _previous_tag(version: str, *, cwd: str | None = None) -> str | None:
-    """Find the tag before ``v{version}``, which bounds the release's commits."""
+    """Find the release tag before ``v{version}``, which bounds the release's commits.
+
+    Only a plain ``vX.Y.Z`` can bound the range: a prerelease sorts above its own
+    release under ``-v:refname``, so an unfiltered list hands the changelog the
+    wrong span. ``v{version}`` itself stays a candidate whatever its shape, so a
+    prerelease being notified can still find its own position in the list.
+    """
     result = run_cmd(
         ["git", "tag", "--list", "v[0-9]*", "--sort=-v:refname"],
         capture=True,
@@ -79,10 +88,11 @@ def _previous_tag(version: str, *, cwd: str | None = None) -> str | None:
         return None
     tags = [line.strip() for line in result.stdout.splitlines() if line.strip()]
     current = f"v{version}"
-    if current in tags:
-        after = tags[tags.index(current) + 1 :]
+    candidates = [tag for tag in tags if _RELEASE_TAG_RE.match(tag) or tag == current]
+    if current in candidates:
+        after = candidates[candidates.index(current) + 1 :]
         return after[0] if after else None
-    return tags[0] if tags else None
+    return candidates[0] if candidates else None
 
 
 def referenced_issues(version: str, *, cwd: str | None = None) -> list[int]:

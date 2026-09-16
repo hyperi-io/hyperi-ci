@@ -20,6 +20,7 @@ import pytest
 
 from hyperi_ci.config import CIConfig
 from hyperi_ci.release_notify import (
+    _previous_tag,
     notify_failure,
     notify_slack,
     notify_success,
@@ -29,6 +30,26 @@ from hyperi_ci.release_notify import (
 
 def _git(stdout: str, returncode: int = 0) -> MagicMock:
     return MagicMock(stdout=stdout, returncode=returncode)
+
+
+class TestPreviousTag:
+    """The previous tag bounds the commit range the release notes are built from."""
+
+    def test_a_prerelease_does_not_bound_the_range(self) -> None:
+        tags = "v1.1.2-beta.1\nv1.1.1\n"
+        with patch("hyperi_ci.release_notify.run_cmd", return_value=_git(tags)):
+            assert _previous_tag("1.1.2") == "v1.1.1"
+
+    def test_a_prerelease_only_repo_has_no_previous_tag(self) -> None:
+        tags = "v1.1.2-beta.1\n"
+        with patch("hyperi_ci.release_notify.run_cmd", return_value=_git(tags)):
+            assert _previous_tag("1.1.2") is None
+
+    def test_a_prerelease_being_notified_finds_its_own_predecessor(self) -> None:
+        """The tag being released stays a candidate whatever its shape."""
+        tags = "v1.2.0\nv1.1.2-beta.1\nv1.1.1\n"
+        with patch("hyperi_ci.release_notify.run_cmd", return_value=_git(tags)):
+            assert _previous_tag("1.1.2-beta.1") == "v1.1.1"
 
 
 class TestReferencedIssues:

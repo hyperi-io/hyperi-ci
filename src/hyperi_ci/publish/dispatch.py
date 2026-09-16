@@ -20,7 +20,14 @@ from __future__ import annotations
 
 import subprocess
 
-from hyperi_ci.common import error, explicit_version, info, success, warn
+from hyperi_ci.common import (
+    error,
+    explicit_version,
+    info,
+    latest_version_tag,
+    success,
+    warn,
+)
 
 # Every input this module can send on a workflow_dispatch. A consumer's
 # `on.workflow_dispatch.inputs` must declare and forward all of these, or the
@@ -130,9 +137,14 @@ def _detect_workflow_file() -> str:
 
 
 def resolve_latest_tag() -> str | None:
-    """Resolve the latest version tag."""
-    tags = _get_version_tags()
-    return tags[0] if tags else None
+    """Highest final-release tag, or None when the repo carries none.
+
+    A prerelease sorts above its own release under ``-v:refname``, so the
+    raw top line would dispatch a publish for ``v1.1.2-beta.1`` over the
+    released ``v1.1.1``.
+    """
+    version = latest_version_tag()
+    return f"v{version}" if version else None
 
 
 def _head_in_sync_with_origin() -> bool:

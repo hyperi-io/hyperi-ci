@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -26,8 +27,26 @@ from hyperi_ci.version_source import (
     DEFAULT_SEED_VERSION,
     build_version,
     declared_version,
+    latest_tag_version,
     seed_version,
 )
+
+
+def _git(cwd: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _init_repo(tmp_path: Path) -> None:
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.email", "t@t.io")
+    _git(tmp_path, "config", "user.name", "t")
+    _git(tmp_path, "commit", "--allow-empty", "-m", "chore: seed")
 
 
 class TestPythonManifest:
@@ -168,6 +187,21 @@ class TestSeedVersion:
             '[project]\nname = "thing"\nversion = "2.29.12"\n', encoding="utf-8"
         )
         assert seed_version(tmp_path) == ("2.29.12", "pyproject.toml")
+
+
+class TestLatestTagVersion:
+    """A wrong answer here is the version hatchling stamps into the wheel."""
+
+    def test_a_release_wins_over_a_higher_prerelease(self, tmp_path: Path) -> None:
+        _init_repo(tmp_path)
+        _git(tmp_path, "tag", "v1.1.1")
+        _git(tmp_path, "tag", "v1.1.2-beta.1")
+        assert latest_tag_version(tmp_path) == "1.1.1"
+
+    def test_a_prerelease_only_repo_resolves_to_none(self, tmp_path: Path) -> None:
+        _init_repo(tmp_path)
+        _git(tmp_path, "tag", "v1.1.2-beta.1")
+        assert latest_tag_version(tmp_path) is None
 
 
 class TestBuildVersion:

@@ -165,7 +165,7 @@ def seed_version(root: Path | None = None) -> tuple[str, str]:
 
 
 def latest_tag_version(root: Path | None = None) -> str | None:
-    """Read the highest ``v*`` git tag as a bare version, or None.
+    """Read the highest final-release ``vX.Y.Z`` git tag as a bare version, or None.
 
     The released version, so one behind mid-release. Anything resolving the
     version being released reads ``HYPERCI_VERSION`` instead.
@@ -184,7 +184,12 @@ def latest_tag_version(root: Path | None = None) -> str | None:
         return None
     if result.returncode != 0 or not result.stdout.strip():
         return None
-    return _usable(result.stdout.splitlines()[0].strip())
+    # Plain vX.Y.Z only -- a prerelease sorts above its own release under -v:refname.
+    for line in result.stdout.splitlines():
+        candidate = _usable(line)
+        if candidate:
+            return candidate
+    return None
 
 
 def build_version(root: Path | None = None, *, allow_env: bool = True) -> str:
@@ -198,7 +203,7 @@ def build_version(root: Path | None = None, *, allow_env: bool = True) -> str:
        every other stage in the run agrees on.
     2. ``VERSION`` — written moments earlier by the stamp step, and carried in
        the sdist so a wheel built from one gets the released number.
-    3. The latest ``v*`` tag — a developer building a checkout with no stamp.
+    3. The latest release tag — a developer building a checkout with no stamp.
     4. The seed version — a tag-less repo, which has nothing else to offer.
 
     Args:

@@ -22,13 +22,38 @@ import pytest
 import typer
 
 import hyperi_ci.publish as publish_pkg
-from hyperi_ci import push
+from hyperi_ci import common, push
 from hyperi_ci.cli import _publish_impl
 from hyperi_ci.publish import dispatch as d
 
 
 def _ok() -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+
+class TestResolveLatestTag:
+    """`publish latest` must not dispatch a publish for a prerelease tag."""
+
+    def _tags(self, monkeypatch: pytest.MonkeyPatch, listing: str) -> None:
+        monkeypatch.setattr(
+            common,
+            "run_cmd",
+            lambda cmd, **k: subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout=listing, stderr=""
+            ),
+        )
+
+    def test_a_release_wins_over_a_higher_prerelease(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._tags(monkeypatch, "v1.1.2-beta.1\nv1.1.1\n")
+        assert d.resolve_latest_tag() == "v1.1.1"
+
+    def test_a_prerelease_only_repo_resolves_to_none(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._tags(monkeypatch, "v1.1.2-beta.1\n")
+        assert d.resolve_latest_tag() is None
 
 
 class TestDispatchFromHead:
