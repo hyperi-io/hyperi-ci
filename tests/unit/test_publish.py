@@ -328,3 +328,99 @@ class TestReleaseTargetsHead:
         from hyperi_ci.publish.binaries import _release_targets_head
 
         assert _release_targets_head("v9.9.9") is False
+
+
+_THREE_ENTRIES = """\
+# Changelog
+
+Rendered by CI and committed back -- do not edit by hand.
+
+## [2.9.26](https://example.invalid/compare/v2.9.25...v2.9.26) (2026-08-31)
+
+### Bug Fixes
+
+* **release:** uv is installed before the tagging steps
+
+### Release notes
+
+* LLVM 23 is the BOLT default for every Rust release build.
+
+# [2.9.0](https://example.invalid/compare/v2.8.4...v2.9.0) (2026-08-01)
+
+### Features
+
+* a minor release is rendered as a level-one heading
+
+## [2.8.4](https://example.invalid/compare/v2.8.3...v2.8.4) (2026-07-30)
+
+### Bug Fixes
+
+* **deps:** read yarn.lock, so a yarn repo is audited
+"""
+
+
+class TestChangelogEntryExtraction:
+    """The GitHub Release body comes from the rendered changelog entry."""
+
+    def test_top_entry_stops_at_the_next_release(self) -> None:
+        from hyperi_ci.publish.binaries import _top_changelog_entry
+
+        entry = _top_changelog_entry("2.9.26", _THREE_ENTRIES)
+        assert entry is not None
+        assert entry.startswith("## [2.9.26]")
+        assert "LLVM 23" in entry
+        assert "2.9.0" not in entry
+
+    def test_a_minor_entry_is_a_level_one_heading(self) -> None:
+        # conventional-changelog renders a minor or major as `# [x.y.z]`, so
+        # the terminator cannot be the heading level.
+        from hyperi_ci.publish.binaries import _top_changelog_entry
+
+        tail = _THREE_ENTRIES[_THREE_ENTRIES.index("# [2.9.0]") :]
+        entry = _top_changelog_entry("2.9.0", tail)
+        assert entry is not None
+        assert "level-one heading" in entry
+        assert "yarn.lock" not in entry
+
+    def test_a_different_top_entry_is_refused(self) -> None:
+        """A retroactive publish checks out a tag with older notes."""
+        from hyperi_ci.publish.binaries import _top_changelog_entry
+
+        assert _top_changelog_entry("2.9.0", _THREE_ENTRIES) is None
+
+    def test_a_changelog_with_no_entries(self) -> None:
+        from hyperi_ci.publish.binaries import _top_changelog_entry
+
+        assert _top_changelog_entry("2.9.26", "# Changelog\n\nNothing yet.\n") is None
+
+
+class TestReleaseNotesFlags:
+    """gh gets --notes-file only when the changelog names this version."""
+
+    def test_no_changelog_adds_no_flags(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        from hyperi_ci.publish.binaries import _release_notes_flags
+
+        with _release_notes_flags("2.9.26") as flags:
+            assert flags == []
+
+    def test_a_stale_top_entry_adds_no_flags(self, tmp_path, monkeypatch) -> None:
+        (tmp_path / "CHANGELOG.md").write_text(_THREE_ENTRIES, encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        from hyperi_ci.publish.binaries import _release_notes_flags
+
+        with _release_notes_flags("1.0.0") as flags:
+            assert flags == []
+
+    def test_the_entry_reaches_gh_and_the_file_is_cleaned_up(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        (tmp_path / "CHANGELOG.md").write_text(_THREE_ENTRIES, encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        from hyperi_ci.publish.binaries import _release_notes_flags
+
+        with _release_notes_flags("2.9.26") as flags:
+            assert flags[0] == "--notes-file"
+            notes = Path(flags[1])
+            assert "LLVM 23" in notes.read_text(encoding="utf-8")
+        assert not notes.exists()

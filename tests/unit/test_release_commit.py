@@ -21,27 +21,40 @@ from unittest.mock import patch
 
 import pytest
 
-from hyperi_ci.release_commit import commit_release_artefacts
+from hyperi_ci.release_commit import SUPPLEMENT, commit_release_artefacts
 
 
 @pytest.fixture
 def project(tmp_path: Path) -> Path:
     (tmp_path / "VERSION").write_text("3.1.0\n", encoding="utf-8")
-    (tmp_path / "CHANGELOG.md").write_text("# Changelog\n", encoding="utf-8")
+    (tmp_path / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## [3.1.0](https://example.invalid/compare/v3.0.9...v3.1.0)"
+        " (2026-09-16)\n",
+        encoding="utf-8",
+    )
     return tmp_path
 
 
 class _Api:
     """Records every gh api call and answers with a happy-path response."""
 
-    def __init__(self, *, new_tree: str = "tree-new", ref_update: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        new_tree: str = "tree-new",
+        ref_update: bool = True,
+        supplement_on_branch: bool = True,
+    ) -> None:
         self.calls: list[tuple[list[str], dict | None]] = []
         self.new_tree = new_tree
         self.ref_update = ref_update
+        self.supplement_on_branch = supplement_on_branch
 
     def __call__(self, args: list[str], *, body: dict | None = None) -> dict | None:
         self.calls.append((args, body))
         endpoint = args[-1]
+        if "/contents/" in endpoint:
+            return {"sha": "supplement-sha"} if self.supplement_on_branch else None
         if endpoint.endswith("/git/ref/heads/main"):
             return {"object": {"sha": "tip-sha"}}
         if "/git/commits/" in endpoint:
@@ -124,6 +137,51 @@ class TestHappyPath:
         commit_release_artefacts(version="3.1.0", project_dir=tmp_path)
         paths = {e["path"] for e in api.bodies_for("/git/trees")[0]["tree"]}
         assert paths == {"VERSION"}
+
+
+class TestTheNotesSupplement:
+    """One hand-written supplement reaches exactly one release."""
+
+    @staticmethod
+    def _write(project: Path) -> None:
+        path = project / SUPPLEMENT
+        path.parent.mkdir(parents=True)
+        path.write_text("### Release notes\n\n- a thing\n", encoding="utf-8")
+
+    def test_a_consumed_supplement_is_deleted(self, api: _Api, project: Path) -> None:
+        self._write(project)
+        commit_release_artefacts(version="3.1.0", project_dir=project)
+        tree = api.bodies_for("/git/trees")[0]["tree"]
+        removal = [entry for entry in tree if entry["path"] == SUPPLEMENT]
+        assert removal == [
+            {"path": SUPPLEMENT, "mode": "100644", "type": "blob", "sha": None}
+        ]
+
+    def test_without_one_the_tree_is_unchanged(self, api: _Api, project: Path) -> None:
+        commit_release_artefacts(version="3.1.0", project_dir=project)
+        tree = api.bodies_for("/git/trees")[0]["tree"]
+        assert {entry["path"] for entry in tree} == {"VERSION", "CHANGELOG.md"}
+        assert not [e for e in api.endpoints() if "/contents/" in e]
+
+    def test_an_unrendered_release_keeps_it(self, api: _Api, project: Path) -> None:
+        """A forced bump skips semantic-release, so the notes went nowhere."""
+        self._write(project)
+        (project / "CHANGELOG.md").write_text("# Changelog\n", encoding="utf-8")
+        commit_release_artefacts(version="3.1.0", project_dir=project)
+        tree = api.bodies_for("/git/trees")[0]["tree"]
+        assert SUPPLEMENT not in {entry["path"] for entry in tree}
+
+    def test_one_missing_from_the_branch_is_left_alone(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A retroactive publish checks out a tag that still carries it."""
+        monkeypatch.setenv("GITHUB_REPOSITORY", "hyperi-io/hyperi-ci")
+        self._write(project)
+        stub = _Api(supplement_on_branch=False)
+        with patch("hyperi_ci.release_commit._api", stub):
+            assert commit_release_artefacts(version="3.1.0", project_dir=project) == 0
+        tree = stub.bodies_for("/git/trees")[0]["tree"]
+        assert SUPPLEMENT not in {entry["path"] for entry in tree}
 
 
 class TestNoOps:
