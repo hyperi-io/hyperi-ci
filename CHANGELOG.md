@@ -3,6 +3,15 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.9.28](https://github.com/hyperi-io/hyperi-ci/compare/v2.9.27...v2.9.28) (2026-09-16)
+
+### Bug Fixes
+
+* **channels:** drop the spike channel ([cacbef7](https://github.com/hyperi-io/hyperi-ci/commit/cacbef7e76c19e07bfe4a8f4dfd4fe21db33f804))
+* **release:** declare a beta prerelease branch in the central config ([bfa6d45](https://github.com/hyperi-io/hyperi-ci/commit/bfa6d450b0efaf0906a5a1e2440ce3120e9b9d24))
+* **version:** skip prerelease tags in the remaining version readers ([d1f39a8](https://github.com/hyperi-io/hyperi-ci/commit/d1f39a8558c3139672441343c9b114018bc47e7d))
+* **version:** skip prerelease tags when resolving the latest version ([eed072b](https://github.com/hyperi-io/hyperi-ci/commit/eed072b55aa49c76332d734d342ef5f94abf20d3))
+
 ## [2.9.27](https://github.com/hyperi-io/hyperi-ci/compare/v2.9.26...v2.9.27) (2026-09-16)
 
 ### Bug Fixes
