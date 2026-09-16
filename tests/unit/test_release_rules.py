@@ -139,14 +139,8 @@ def test_releaserc_without_analyzer_block_uses_defaults(tmp_path: Path) -> None:
 # --- drift guard on the central injected default ------------------------------
 
 
-def test_central_default_carries_no_custom_release_rules() -> None:
-    """The injected default MUST rely on semantic-release's own rules.
-
-    If someone re-adds a hand-maintained releaseRules list to the central
-    default.releaserc.json, the whole 'use semantic-release defaults' SSoT
-    silently regresses. Pin it: the commit-analyzer plugin carries no
-    releaseRules.
-    """
+def _central_default() -> dict[str, object]:
+    """Load the config the setup-semantic-release composite injects."""
     repo_root = Path(__file__).resolve().parents[2]
     default_rc = (
         repo_root
@@ -155,7 +149,34 @@ def test_central_default_carries_no_custom_release_rules() -> None:
         / "setup-semantic-release"
         / "default.releaserc.json"
     )
-    data = json.loads(default_rc.read_text(encoding="utf-8"))
+    return json.loads(default_rc.read_text(encoding="utf-8"))
+
+
+def test_central_default_declares_only_main_and_beta_prerelease() -> None:
+    """Pin the release branches -- main plus a beta prerelease, nothing else.
+
+    Every repo without its own .releaserc inherits this file, so a branch
+    added here starts cutting releases across the fleet with no opt-in.
+    beta carries channel false: with no npm or github plugin loaded, a
+    derived dist-tag does nothing. Issue #37 is why this config stays
+    minimal -- the git/github plugins once destroyed every tag on
+    dfe-receiver.
+    """
+    assert _central_default()["branches"] == [
+        "main",
+        {"name": "beta", "prerelease": True, "channel": False},
+    ]
+
+
+def test_central_default_carries_no_custom_release_rules() -> None:
+    """The injected default MUST rely on semantic-release's own rules.
+
+    If someone re-adds a hand-maintained releaseRules list to the central
+    default.releaserc.json, the whole 'use semantic-release defaults' SSoT
+    silently regresses. Pin it: the commit-analyzer plugin carries no
+    releaseRules.
+    """
+    data = _central_default()
     analyzer = next(
         p
         for p in data["plugins"]
