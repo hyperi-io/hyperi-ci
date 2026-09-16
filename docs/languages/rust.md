@@ -20,6 +20,8 @@ HTTP/gRPC/OTLP/Kafka):
 | + PGO (Tier 2 partial) | ~9 MB | -36% size, +25-40% throughput | `release` (opt-in) |
 | + BOLT (Tier 2 full) | ~9 MB | -36% size, +30-50% throughput | `release` (opt-in) |
 
+`alpha` sits between the first two rows, jemalloc with thin LTO, so it gets the allocator gain without the LTO one -- not separately measured.
+
 **Build time cost**: Tier 2 adds roughly +14 min per arch per release
 (PGO instrument ~5 min, workload ~5 min, PGO optimise ~4 min, BOLT ~2 min).
 Not applied on `alpha/beta` - release channel only.
@@ -257,8 +259,8 @@ overrides or PGO.
 
 ## References
 
-- [`rust-release-verification.md`](rust-release-verification.md) - the dispatch timeline and the grep markers that prove a tier applied
-- [`rust-troubleshooting.md`](rust-troubleshooting.md) - symptom-to-fix tables, the canary lessons, and what a release costs
+- [`rust-release-verification.md`](rust-release-verification.md) - the dispatch timeline, the grep markers that prove a tier applied, and what a release costs
+- [`rust-troubleshooting.md`](rust-troubleshooting.md) - symptom-to-fix tables and the canary lessons
 - [`rust-local-dev.md`](rust-local-dev.md) - per-project target dirs, sccache, mold, parallelism on your own machine
 - [`pgo-bolt.md`](../runtime/pgo-bolt.md) - how to write a good PGO workload script
 - [`templates/pgo-workload/`](../../templates/pgo-workload/) - reusable workload skeletons

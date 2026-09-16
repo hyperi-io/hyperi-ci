@@ -79,19 +79,3 @@ You benefit from the fix already being in hyperi-ci v1.10.4+; knowing
    (default `23`) controls which bolt-NN gets used. Consumer projects
    don't override unless they need a specific LLVM major.
 
----
-
-## Release cost
-
-GitHub Actions minutes per release dispatch (private repo):
-
-| Stage | Runtime | Runner | Cost |
-|---|---|---|---|
-| Quality | ~2 min | self-hosted ARC | $0 (fixed VM cost) |
-| Test | ~5 min | self-hosted ARC | $0 (fixed VM cost) |
-| Build amd64 (Tier 2) | ~16 min | GH-hosted amd64 @ $0.008/min | ~$0.13 |
-| Build arm64 (Tier 2) | ~16 min | GH-hosted arm64 @ $0.005/min | ~$0.08 |
-| Container + Publish | ~2 min | self-hosted ARC + network | ~$0.02 |
-
-**Total per release: ~$0.23.** Weekly releases = ~$12/year per project.
-Don't optimise this line - it's trivial.
