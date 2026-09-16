@@ -93,7 +93,10 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 ### Languages
 
 - [languages/RUST.md](languages/rust.md) - channel-gated optimisation (jemalloc
-  + LTO, PGO, BOLT), local hygiene, troubleshooting
+  + LTO, PGO, BOLT), the `.hyperi-ci.yaml` keys, skip-optimize
+- [languages/RUST-RELEASE-VERIFICATION.md](languages/rust-release-verification.md) - the Tier 2 dispatch timeline, binary and log markers
+- [languages/RUST-TROUBLESHOOTING.md](languages/rust-troubleshooting.md) - symptom-to-fix tables, canary lessons, release cost
+- [languages/RUST-LOCAL-DEV.md](languages/rust-local-dev.md) - per-project target dirs, sccache, mold, parallelism
 - [languages/PYTHON.md](languages/python.md) - uv, wheel/sdist, Nuitka, PyPI
   publish, the eager-import and sdist-exclude gotchas
 - [languages/TYPESCRIPT.md](languages/typescript.md) - npm/yarn/pnpm detection,
@@ -103,9 +106,11 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 
 ### Runtime & build environment
 
-- [runtime/RUNNERS.md](runtime/runners.md) - ARC vs free mode, runner tiers,
-  the dep-install SSOT (`install-toolchains` / `install-native-deps`), the
-  NFS sccache/ccache cache, split-runner multi-arch, cross-compile (dormant)
+- [runtime/RUNNERS.md](runtime/runners.md) - ARC vs free mode, scale-set names,
+  runner tiers, the NFS sccache/ccache cache, split-runner multi-arch,
+  cross-compile (dormant)
+- [runtime/RUNNER-IMAGE.md](runtime/runner-image.md) - the dep-install SSOT (`install-toolchains` / `install-native-deps`), the YAML schema, `bake: false`
+- [runtime/ARC-OPERATIONS.md](runtime/arc-operations.md) - rebuild the image, redeploy the scale sets, roll a change to the fleet
 - [runtime/PGO-BOLT.md](runtime/pgo-bolt.md) - how to write a PGO workload script
 - [runtime/TESTENV.md](runtime/testenv.md) - Redpanda / ClickHouse compose
   patterns for integration tests inside the 4 GB CI deck

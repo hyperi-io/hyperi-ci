@@ -320,8 +320,9 @@ Resolved highest-wins: workflow input `runner-mode` -> var `GH_RUNNER_MODE` ->
 `GH_RUNNER_*` labels -> `ubuntu-latest`. `free` mode lets any org use the
 workflows with no self-hosted infra. Multi-arch uses **native runners per arch**
 (amd64 on ARC, arm64 on `ubuntu-24.04-arm`), not cross-compilation. Full
-detail - tiers, cache, dep-install SSOT, cross-compile (dormant):
-[runtime/RUNNERS.md](runtime/runners.md).
+detail - tiers, cache, cross-compile (dormant) - is
+[runtime/runners.md](runtime/runners.md), and the dep-install SSOT is
+[runtime/runner-image.md](runtime/runner-image.md).
 
 ## Design principles
 
