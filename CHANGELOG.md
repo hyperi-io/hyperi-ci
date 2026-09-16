@@ -3,6 +3,46 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.9.27](https://github.com/hyperi-io/hyperi-ci/compare/v2.9.26...v2.9.27) (2026-09-16)
+
+### Bug Fixes
+
+* **build:** add a skip-optimize switch ([6fe399d](https://github.com/hyperi-io/hyperi-ci/commit/6fe399d05a1a415946de591478d713b25f3996a3))
+* **deps:** enforce runtime, Helm and Python tool pins from the SSoT ([3521937](https://github.com/hyperi-io/hyperi-ci/commit/35219371b00cfd675bc9336197b46ad412d762a3))
+* **deps:** update dependencies, CI pins and the LLVM toolchain ([7a76637](https://github.com/hyperi-io/hyperi-ci/commit/7a766373839ebf759114f428bad641a7eb716128))
+* **dispatch:** honour --project-dir for every stage ([6240c28](https://github.com/hyperi-io/hyperi-ci/commit/6240c287022871e62a7bf024637c871cf288b30c)), closes [#109](https://github.com/hyperi-io/hyperi-ci/issues/109)
+* **logs:** download the run's log archive instead of its artefacts, and say why when it fails ([#119](https://github.com/hyperi-io/hyperi-ci/issues/119)) ([fe6b385](https://github.com/hyperi-io/hyperi-ci/commit/fe6b385fc2e83ca9c77f1b0d35a571902498d073))
+* **quality:** allowlist PGP key fingerprints in gitleaks ([36437f4](https://github.com/hyperi-io/hyperi-ci/commit/36437f423f714bf14d5f6d810903118c3ee22799))
+* **quality:** keep Markdown out of the ruff format gate ([9568822](https://github.com/hyperi-io/hyperi-ci/commit/95688227faabe3b6f8c156cd6c1147aa792a883f))
+* **release-tail:** install uv before the checkout so a failed release is still recorded ([#118](https://github.com/hyperi-io/hyperi-ci/issues/118)) ([8f61b7a](https://github.com/hyperi-io/hyperi-ci/commit/8f61b7aebacf9e7a0c014030a83d673fcfcacf0b))
+* **release-tail:** stamp the predicted version before the container build ([#117](https://github.com/hyperi-io/hyperi-ci/issues/117)) ([5deb050](https://github.com/hyperi-io/hyperi-ci/commit/5deb050966d01f50efc104944feadbda452d5c2e))
+* **release:** carry supplementary notes into the changelog and the GitHub release ([27dd32f](https://github.com/hyperi-io/hyperi-ci/commit/27dd32fd249c2c4123b7003d9a64bc45718dae40))
+* **rust-ci:** honour build.rust.targets in the publish matrix and stop failing fast ([bee75da](https://github.com/hyperi-io/hyperi-ci/commit/bee75da53c381c2383dd090a62d4d015f5a105d6))
+* **rust:** carry build.rust.features through the PGO release path ([4ae0d06](https://github.com/hyperi-io/hyperi-ci/commit/4ae0d06cf534938d8f9d7e937a043ae9acf30482)), closes [dfe-fetcher#124](https://github.com/hyperi-io/dfe-fetcher/issues/124) [#130](https://github.com/hyperi-io/hyperi-ci/issues/130)
+* **security:** verify the apt.llvm.org key and keep inputs out of shell bodies ([6d4aa68](https://github.com/hyperi-io/hyperi-ci/commit/6d4aa6862cf537182e21d515f3ce1f8f126c2ba6))
+* **tests:** restore PATH after the pgo tests and drop a dead ty directive ([60d37db](https://github.com/hyperi-io/hyperi-ci/commit/60d37dbff5c64a5a1f7f768c12723e691f6e63d5))
+* **tests:** skip cargo enrichment tests without a working toolchain ([41fdbdc](https://github.com/hyperi-io/hyperi-ci/commit/41fdbdc2806633f59cd6b970cd8eb0ccbecb2199))
+
+
+### Upgrade notes
+
+- LLVM 23 is now the BOLT and lld default for every Rust release build.
+  - No repo in the fleet pins an LLVM major, so the whole fleet moves together on its next release.
+  - A BOLT failure degrades to PGO-only and the build still passes.
+  - Check the first dfe-receiver release on this version for `.bolt` and `.text.hot` sections -- `docs/languages/rust-release-verification.md`, under Verification, has the commands.
+- Developer machines are unaffected.
+  - hyperi-developer's Rust role installs no apt LLVM, only cargo-llvm-cov and rustup's llvm-tools-preview.
+  - Running PGO or BOLT locally is the one case that needs `bolt-23` and `lld-23` from apt.llvm.org.
+- `skip-optimize` drops the optimisation stage for a single run.
+  - `hyperi-ci update` picks up the CLI half.
+  - A repo scaffolded before this release has no dispatch input in its ci.yml: copy the block out of a fresh `hyperi-ci init`, or set the `HYPERCI_SKIP_OPTIMIZE` repo variable.
+- Four tool digests that an automated bump had left stale are corrected.
+  - A Go quality job or an osv-scanner step that failed at install today is fixed by this release.
+- Markdown is out of the `ruff format` gate, and a project's own `[tool.ruff] exclude` list is honoured again.
+- Node 24 and Helm v4 land in this release, for the TypeScript workflow and the gitops templates.
+- Four Python quality tools are pinned in this release.
+- The two cargo enrichment tests skip when rustup has no toolchain, rather than failing on a box that has only cargo on PATH.
+
 ## [2.9.26](https://github.com/hyperi-io/hyperi-ci/compare/v2.9.25...v2.9.26) (2026-08-31)
 
 ### Bug Fixes
