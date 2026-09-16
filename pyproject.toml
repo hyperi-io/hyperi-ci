@@ -64,7 +64,7 @@ Documentation = "https://github.com/hyperi-io/hyperi-ci/blob/main/docs/README.md
 Changelog = "https://github.com/hyperi-io/hyperi-ci/blob/main/CHANGELOG.md"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.32.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.version]

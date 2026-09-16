@@ -132,11 +132,20 @@ def action_ref(name: str) -> str:
 def runtime_version(name: str) -> str:
     """Return a language runtime pin (``python``, ``node``, ``rust``).
 
+    An entry is a bare value, or a mapping that also lists the files mirroring
+    it - both answer the same question.
+
     Raises:
-        KeyError: No such runtime.
+        KeyError: No such runtime, or no version on it.
 
     """
     runtimes = _data().get("runtimes") or {}
     if name not in runtimes:
         raise KeyError(f"`runtimes.{name}` is missing from {VERSIONS_FILE.name}")
-    return str(runtimes[name])
+    spec = runtimes[name]
+    version = spec.get("version") if isinstance(spec, dict) else spec
+    if not version:
+        raise KeyError(
+            f"`runtimes.{name}.version` is missing from {VERSIONS_FILE.name}"
+        )
+    return str(version)

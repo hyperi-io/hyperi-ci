@@ -9,10 +9,12 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import re
 from pathlib import Path
 
 import pytest
+import yaml
 
 _SPEC = importlib.util.spec_from_file_location(
     "update_versions",
@@ -214,16 +216,12 @@ class TestNowWaivesTheSoak:
 
     NOW = datetime(2026, 5, 28, tzinfo=UTC)
 
-    @pytest.fixture(autouse=True)
-    def _restore(self):
-        original = update_versions._COOLDOWN_OVERRIDE
-        yield
-        update_versions._COOLDOWN_OVERRIDE = original
-
-    def test_override_takes_a_release_published_today(self) -> None:
+    def test_override_takes_a_release_published_today(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         releases = [_rel("v9.0.0", 0), _rel("v8.0.0", 30)]
         assert update_versions._select_pinned_release(releases, self.NOW) is not None
-        update_versions._COOLDOWN_OVERRIDE = 0
+        monkeypatch.setattr(update_versions, "_COOLDOWN_OVERRIDE", 0)
         sel = update_versions._select_pinned_release(releases, self.NOW)
         assert sel["tag_name"] == "v9.0.0"
 
@@ -232,22 +230,26 @@ class TestNowWaivesTheSoak:
         sel = update_versions._select_pinned_release(releases, self.NOW)
         assert sel["tag_name"] == "v8.0.0", "a same-day release must not be taken"
 
-    def test_an_explicit_argument_still_wins(self) -> None:
+    def test_an_explicit_argument_still_wins(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         # The override must not silently outrank a caller that asked for a
         # specific window.
-        update_versions._COOLDOWN_OVERRIDE = 0
+        monkeypatch.setattr(update_versions, "_COOLDOWN_OVERRIDE", 0)
         releases = [_rel("v9.0.0", 1), _rel("v8.0.0", 30)]
         sel = update_versions._select_pinned_release(releases, self.NOW, 7)
         assert sel["tag_name"] == "v8.0.0"
 
-    def test_branch_pins_honour_the_override_too(self) -> None:
+    def test_branch_pins_honour_the_override_too(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         # rust-toolchain pins a branch head, which has its own cooldown path.
         assert update_versions._cooldown() == update_versions._COOLDOWN_DAYS
-        update_versions._COOLDOWN_OVERRIDE = 0
+        monkeypatch.setattr(update_versions, "_COOLDOWN_OVERRIDE", 0)
         assert update_versions._cooldown() == 0
 
     def test_missing_timestamp_skipped(self) -> None:
-        # timestamp-required posture: no published_at → not eligible
+        # timestamp-required rule: no published_at -> not eligible
         bad = {
             "tag_name": "v9",
             "published_at": None,
@@ -551,7 +553,7 @@ class TestToolPinPattern:
 
     def test_matches_yaml_default_line(self) -> None:
         text = "    # hyperi-ci:pin tools.osv-scanner\n    default: v2.4.0\n"
-        match = update_versions._tool_pin_pattern("osv-scanner").search(text)
+        match = update_versions._pin_pattern("tools.osv-scanner").search(text)
         assert match is not None
         assert match.group(2) == "v2.4.0"
 
@@ -559,7 +561,7 @@ class TestToolPinPattern:
         # Same marker, different language: one pattern must read both shapes
         # or each file would need its own bespoke regex.
         text = '# hyperi-ci:pin tools.gitleaks\n_GITLEAKS_VERSION = "v8.30.1"\n'
-        match = update_versions._tool_pin_pattern("gitleaks").search(text)
+        match = update_versions._pin_pattern("tools.gitleaks").search(text)
         assert match is not None
         assert match.group(2) == "v8.30.1"
 
@@ -568,19 +570,19 @@ class TestToolPinPattern:
         # anyway is what a bare `default:`/`_VERSION =` regex would do, and
         # that rewrites every tool in a shared file to the same version.
         text = '_GITLEAKS_VERSION = "v8.30.1"\n'
-        assert update_versions._tool_pin_pattern("gitleaks").search(text) is None
+        assert update_versions._pin_pattern("tools.gitleaks").search(text) is None
 
     def test_no_match_on_another_tools_marker(self) -> None:
         # setup-go-tools/action.yml carries three tools with identical
         # `default:` lines - a pattern must only ever answer to its own name.
         text = "    # hyperi-ci:pin tools.gosec\n    default: v2.27.1\n"
-        assert update_versions._tool_pin_pattern("golangci-lint").search(text) is None
+        assert update_versions._pin_pattern("tools.golangci-lint").search(text) is None
 
     def test_digit_inside_identifier_is_not_the_version(self) -> None:
         # Requiring a `=`/`:` before the token is what stops the rewrite
         # landing inside `_SHA256` and corrupting the identifier.
         text = '# hyperi-ci:pin tools.gitleaks\n_SHA256 = "v1.2.3"\n'
-        match = update_versions._tool_pin_pattern("gitleaks").search(text)
+        match = update_versions._pin_pattern("tools.gitleaks").search(text)
         assert match is not None
         assert match.group(2) == "v1.2.3"
 
@@ -588,7 +590,7 @@ class TestToolPinPattern:
         # The token must end at the version: swallowing the trailing comment
         # would silently delete the note explaining the pin.
         text = "# hyperi-ci:pin tools.gitleaks\n    default: v1.2.3  # note\n"
-        out = update_versions._tool_pin_pattern("gitleaks").sub(
+        out = update_versions._pin_pattern("tools.gitleaks").sub(
             update_versions._pin_replacement("v9.9.9"), text
         )
         assert out == "# hyperi-ci:pin tools.gitleaks\n    default: v9.9.9  # note\n"
@@ -602,12 +604,12 @@ class TestToolPinPattern:
             "    # hyperi-ci:pin tools.govulncheck\n"
             "    default: v1.1.4\n"
         )
-        gosec = update_versions._tool_pin_pattern("gosec").search(text)
-        govulncheck = update_versions._tool_pin_pattern("govulncheck").search(text)
+        gosec = update_versions._pin_pattern("tools.gosec").search(text)
+        govulncheck = update_versions._pin_pattern("tools.govulncheck").search(text)
         assert gosec is not None and gosec.group(2) == "v2.27.1"
         assert govulncheck is not None and govulncheck.group(2) == "v1.1.4"
 
-        out = update_versions._tool_pin_pattern("gosec").sub(
+        out = update_versions._pin_pattern("tools.gosec").sub(
             update_versions._pin_replacement("v2.28.0"), text
         )
         assert "    default: v2.28.0\n" in out
@@ -625,7 +627,7 @@ class TestPinReplacement:
         # group 2 (the OLD version) instead of landing literally; re.escape
         # would be the opposite error and emit a literal `v2\.4\.0`.
         text = "# hyperi-ci:pin tools.gitleaks\n    default: v1.0.0\n"
-        out = update_versions._tool_pin_pattern("gitleaks").sub(
+        out = update_versions._pin_pattern("tools.gitleaks").sub(
             update_versions._pin_replacement(r"v1\2"), text
         )
         assert "    default: v1\\2\n" in out
@@ -652,6 +654,78 @@ def _pin_tree(tmp_path: Path, monkeypatch, body: str | None = _PIN_BODY) -> Path
     return pin
 
 
+class TestRuntimePins:
+    """A runtime literal in a workflow is enforced the same way a tool pin is.
+
+    Before the markers went in, `runtimes.python` was read by nothing: the
+    `default: "3.12"` lines agreed with the SSOT by coincidence, and --check
+    could neither see a drift nor --apply repair one.
+    """
+
+    WORKFLOW = (
+        "on:\n"
+        "  workflow_call:\n"
+        "    inputs:\n"
+        "      python-version:\n"
+        "        type: string\n"
+        "        # hyperi-ci:pin runtimes.python\n"
+        '        default: "3.11"\n'
+    )
+
+    @staticmethod
+    def _versions() -> dict:
+        return {"runtimes": {"python": {"version": "3.12", "pin": "wf.yml"}}}
+
+    def _tree(self, tmp_path: Path, monkeypatch, body: str) -> Path:
+        workflow = tmp_path / "wf.yml"
+        workflow.write_text(body, encoding="utf-8")
+        (tmp_path / "workflows").mkdir()
+        monkeypatch.setattr(update_versions, "_ROOT", tmp_path)
+        monkeypatch.setattr(update_versions, "_WORKFLOWS_DIR", tmp_path / "workflows")
+        monkeypatch.setattr(update_versions, "_ACTIONS_DIR", tmp_path / "none")
+        return workflow
+
+    def test_a_drifted_literal_is_reported(self, tmp_path: Path, monkeypatch) -> None:
+        self._tree(tmp_path, monkeypatch, self.WORKFLOW)
+        problems = update_versions._pin_mismatches(self._versions())
+        assert len(problems) == 1
+        assert "wf.yml:7:" in problems[0]
+        assert "runtimes.python 3.11 → 3.12" in problems[0]
+
+    def test_apply_rewrites_it(self, tmp_path: Path, monkeypatch) -> None:
+        workflow = self._tree(tmp_path, monkeypatch, self.WORKFLOW)
+        monkeypatch.setattr(update_versions, "_load_versions", self._versions)
+        assert update_versions._apply(self._versions()) == 0
+        assert '        default: "3.12"\n' in workflow.read_text(encoding="utf-8")
+        assert update_versions._pin_mismatches(self._versions()) == []
+
+    def test_a_deleted_marker_is_unenforceable(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # The failure the declared `pin:` list exists to catch: drop the marker
+        # and nothing holds the literal, so --check has to say so.
+        self._tree(
+            tmp_path,
+            monkeypatch,
+            self.WORKFLOW.replace("        # hyperi-ci:pin runtimes.python\n", ""),
+        )
+        problems = update_versions._pin_mismatches(self._versions())
+        assert len(problems) == 1
+        assert "no `# hyperi-ci:pin runtimes.python` marker found" in problems[0]
+        assert update_versions._UNFIXABLE in problems[0]
+
+    def test_a_bare_runtime_is_not_a_malformed_entry(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # `rust: stable` and `llvm: "23"` are mirrored nowhere, so a scalar is
+        # the normal shape rather than a broken one.
+        self._tree(tmp_path, monkeypatch, self.WORKFLOW)
+        pins, problems = update_versions._marker_pins(
+            {"runtimes": {"rust": "stable", "llvm": "23"}}, "runtimes"
+        )
+        assert (pins, problems) == ([], [])
+
+
 class TestToolPins:
     """Every malformed entry must yield a REASON, never be warned past.
 
@@ -667,18 +741,18 @@ class TestToolPins:
 
     def test_good_entry_resolves(self, tmp_path: Path, monkeypatch) -> None:
         _pin_tree(tmp_path, monkeypatch)
-        pins, problems = update_versions._tool_pins(_pin_versions())
+        pins, problems = update_versions._marker_pins(_pin_versions())
         assert problems == []
         assert len(pins) == 1
         path, _pattern, version, name = pins[0]
         assert path == tmp_path / "pin.py"
-        assert (version, name) == ("v8.30.1", "gitleaks")
+        assert (version, name) == ("v8.30.1", "tools.gitleaks")
 
     def test_missing_version_is_unenforceable(
         self, tmp_path: Path, monkeypatch
     ) -> None:
         _pin_tree(tmp_path, monkeypatch)
-        pins, problems = update_versions._tool_pins(
+        pins, problems = update_versions._marker_pins(
             {"tools": {"gitleaks": {"pin": "pin.py"}}}
         )
         assert pins == []
@@ -694,7 +768,7 @@ class TestToolPins:
         absence is the normal case, not a fault.
         """
         _pin_tree(tmp_path, monkeypatch)
-        pins, problems = update_versions._tool_pins(
+        pins, problems = update_versions._marker_pins(
             {"tools": {"gitleaks": {"version": "v8.30.1"}}}
         )
         assert pins == []
@@ -705,7 +779,7 @@ class TestToolPins:
     ) -> None:
         """A tool with no version at all is a broken entry either way."""
         _pin_tree(tmp_path, monkeypatch)
-        pins, problems = update_versions._tool_pins(
+        pins, problems = update_versions._marker_pins(
             {"tools": {"gitleaks": {"pin": "pin.py"}}}
         )
         assert pins == []
@@ -718,7 +792,7 @@ class TestToolPins:
         # Renaming a pin file without updating `pin:` is the live failure:
         # nothing holds the version, and nothing says so.
         _pin_tree(tmp_path, monkeypatch)
-        pins, problems = update_versions._tool_pins(_pin_versions(pin="gone.py"))
+        pins, problems = update_versions._marker_pins(_pin_versions(pin="gone.py"))
         assert pins == []
         assert len(problems) == 1
         # Name the offending path: "1 entry malformed" sends nobody anywhere.
@@ -729,7 +803,9 @@ class TestToolPins:
         self, tmp_path: Path, monkeypatch
     ) -> None:
         _pin_tree(tmp_path, monkeypatch)
-        pins, problems = update_versions._tool_pins({"tools": {"gitleaks": "v8.30.1"}})
+        pins, problems = update_versions._marker_pins(
+            {"tools": {"gitleaks": "v8.30.1"}}
+        )
         assert pins == []
         assert len(problems) == 1
         assert update_versions._UNFIXABLE in problems[0]
@@ -739,7 +815,7 @@ class TestToolPins:
     ) -> None:
         # One bad entry must not abort the scan - the rest still get enforced.
         _pin_tree(tmp_path, monkeypatch)
-        pins, problems = update_versions._tool_pins(
+        pins, problems = update_versions._marker_pins(
             {
                 "tools": {
                     "broken": {"pin": "pin.py"},
@@ -749,19 +825,19 @@ class TestToolPins:
         )
         assert len(problems) == 1
         assert "broken" in problems[0]
-        assert [p[3] for p in pins] == ["gitleaks"]
+        assert [p[3] for p in pins] == ["tools.gitleaks"]
 
 
 class TestToolMismatches:
     def test_in_step_pin_reports_nothing(self, tmp_path: Path, monkeypatch) -> None:
         _pin_tree(tmp_path, monkeypatch)
-        assert update_versions._tool_mismatches(_pin_versions()) == []
+        assert update_versions._pin_mismatches(_pin_versions()) == []
 
     def test_drift_reports_token_and_the_pin_line(
         self, tmp_path: Path, monkeypatch
     ) -> None:
         _pin_tree(tmp_path, monkeypatch, _DRIFTED_BODY)
-        problems = update_versions._tool_mismatches(_pin_versions())
+        problems = update_versions._pin_mismatches(_pin_versions())
         assert len(problems) == 1
         # The match SPANS the marker, so reporting match.start() would point
         # the reader at line 2 (the marker) rather than line 3 (the pin).
@@ -778,7 +854,7 @@ class TestToolMismatches:
         # Rewriting zero lines and staying green is how a pin drifts for nine
         # months unnoticed.
         _pin_tree(tmp_path, monkeypatch, '_VERSION = "v8.30.1"\n')
-        problems = update_versions._tool_mismatches(_pin_versions())
+        problems = update_versions._pin_mismatches(_pin_versions())
         assert len(problems) == 1
         assert "no `# hyperi-ci:pin tools.gitleaks` marker found" in problems[0]
 
@@ -786,7 +862,7 @@ class TestToolMismatches:
         # The reason travels through to --check, naming the tool and flagging
         # that --apply cannot repair it.
         _pin_tree(tmp_path, monkeypatch)
-        problems = update_versions._tool_mismatches(
+        problems = update_versions._pin_mismatches(
             {"tools": {"gitleaks": {"pin": "pin.py"}}}
         )
         assert len(problems) == 1
@@ -924,6 +1000,138 @@ class TestLatestToolRelease:
         ) == (None, "no-candidate")
 
 
+class TestTagReleaseSource:
+    """`release_source: tags` for a repo that stopped cutting GitHub Releases.
+
+    golang/vuln's last release is v1.1.4 (2025-01), so the releases API reports
+    govulncheck current forever while the tags carry four more minors.
+    """
+
+    NOW = datetime(2026, 5, 28, tzinfo=UTC)
+
+    @staticmethod
+    def _api(monkeypatch, tags: object, dates: dict[str, str]) -> None:
+        def _fake(path: str) -> object:
+            if path.startswith("/repos/golang/vuln/tags"):
+                return tags
+            tag = path.rsplit("/", 1)[-1]
+            if tag not in dates:
+                return None
+            return {"commit": {"committer": {"date": dates[tag]}}}
+
+        monkeypatch.setattr(update_versions, "_gh_json", _fake)
+
+    def test_highest_aged_tag_wins(self, monkeypatch) -> None:
+        self._api(
+            monkeypatch,
+            [{"name": "v1.8.0"}, {"name": "v1.1.4"}],
+            {"v1.8.0": "2026-05-01T00:00:00Z", "v1.1.4": "2025-01-01T00:00:00Z"},
+        )
+        assert update_versions._latest_tool_release(
+            {"repo": "golang/vuln", "version": "v1.1.4", "release_source": "tags"},
+            self.NOW,
+        ) == ("v1.8.0", "ok")
+
+    def test_the_cooldown_still_applies(self, monkeypatch) -> None:
+        self._api(
+            monkeypatch,
+            [{"name": "v1.9.0"}, {"name": "v1.8.0"}],
+            {"v1.9.0": "2026-05-27T00:00:00Z", "v1.8.0": "2026-05-01T00:00:00Z"},
+        )
+        assert update_versions._latest_tool_release(
+            {"repo": "golang/vuln", "version": "v1.8.0", "release_source": "tags"},
+            self.NOW,
+        ) == (None, "current")
+
+    def test_without_the_key_the_releases_api_reports_it_frozen(
+        self, monkeypatch
+    ) -> None:
+        # Proves release_source is load-bearing: the same repo read through
+        # releases/ has nothing past v1.1.4 to find.
+        monkeypatch.setattr(update_versions, "_gh_json", lambda _path: [])
+        assert update_versions._latest_tool_release(
+            {"repo": "golang/vuln", "version": "v1.1.4"}, self.NOW
+        ) == (None, "no-candidate")
+
+    def test_unreachable_tags_api_is_a_lookup_failure(self, monkeypatch) -> None:
+        self._api(monkeypatch, None, {})
+        assert update_versions._latest_tool_release(
+            {"repo": "golang/vuln", "version": "v1.1.4", "release_source": "tags"},
+            self.NOW,
+        ) == (None, "lookup-failed")
+
+
+class TestPypiReleaseSource:
+    """`pypi:` for a quality tool uvx resolves, which has no GitHub release."""
+
+    NOW = datetime(2026, 5, 28, tzinfo=UTC)
+
+    @staticmethod
+    def _pypi(monkeypatch, releases: object) -> None:
+        monkeypatch.setattr(
+            update_versions,
+            "_pypi_releases",
+            lambda _package: releases,
+        )
+
+    def test_newest_soaked_version_wins(self, monkeypatch) -> None:
+        self._pypi(
+            monkeypatch,
+            [
+                {"tag_name": "1.176.1", "published_at": "2026-05-01T00:00:00Z"},
+                {"tag_name": "1.177.0", "published_at": "2026-05-27T00:00:00Z"},
+            ],
+        )
+        assert update_versions._latest_tool_release(
+            {"pypi": "semgrep", "version": "1.175.0"}, self.NOW
+        ) == ("1.176.1", "ok")
+
+    def test_a_two_component_version_is_not_skipped(self, monkeypatch) -> None:
+        # vulture ships `2.16`; a three-component-only parse left it unmanaged.
+        self._pypi(
+            monkeypatch,
+            [{"tag_name": "2.16", "published_at": "2026-05-01T00:00:00Z"}],
+        )
+        assert update_versions._latest_tool_release(
+            {"pypi": "vulture", "version": "2.15"}, self.NOW
+        ) == ("2.16", "ok")
+
+    def test_unreachable_pypi_is_a_lookup_failure(self, monkeypatch) -> None:
+        self._pypi(monkeypatch, None)
+        assert update_versions._latest_tool_release(
+            {"pypi": "semgrep", "version": "1.175.0"}, self.NOW
+        ) == (None, "lookup-failed")
+
+    def test_yanked_files_are_dropped(self, monkeypatch) -> None:
+        payload = {
+            "releases": {
+                "1.0.0": [
+                    {"upload_time_iso_8601": "2026-01-01T00:00:00Z", "yanked": False}
+                ],
+                "1.1.0": [
+                    {"upload_time_iso_8601": "2026-02-01T00:00:00Z", "yanked": True}
+                ],
+            }
+        }
+
+        class _Response:
+            def __enter__(self) -> object:
+                return self
+
+            def __exit__(self, *_exc: object) -> bool:
+                return False
+
+            def read(self) -> bytes:
+                return json.dumps(payload).encode()
+
+        monkeypatch.setattr(
+            update_versions.urllib.request, "urlopen", lambda *_a, **_k: _Response()
+        )
+        assert update_versions._pypi_releases("thing") == [
+            {"tag_name": "1.0.0", "published_at": "2026-01-01T00:00:00Z"}
+        ]
+
+
 class TestSetToolVersionInYaml:
     """Block-scoped AND `tools:`-anchored rewrite of one tool's version."""
 
@@ -955,8 +1163,15 @@ class TestSetToolVersionInYaml:
         out = update_versions._set_tool_version_in_yaml(
             self.YAML, "gitleaks", "v8.31.0"
         )
-        assert "  gitleaks:\n    version: v8.31.0\n" in out
+        assert '  gitleaks:\n    version: "v8.31.0"\n' in out
         assert "  osv-scanner:\n    version: v2.4.0\n" in out
+
+    def test_a_two_component_version_is_quoted(self) -> None:
+        # Unquoted, `version: 2.20` reads back as the float 2.2 and the pin
+        # silently becomes a version that was never released.
+        out = update_versions._set_tool_version_in_yaml(self.YAML, "gitleaks", "2.20")
+        assert '    version: "2.20"\n' in out
+        assert yaml.safe_load(out)["tools"]["gitleaks"]["version"] == "2.20"
 
     def test_a_name_shared_with_actions_only_touches_tools(self) -> None:
         # An action and a tool can share a short name; anchoring to `tools:`

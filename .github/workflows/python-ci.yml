@@ -25,6 +25,7 @@ on:
         description: "Publish destination (legacy field, ignored — every publish goes to OSS registries)"
       python-version:
         type: string
+        # hyperi-ci:pin runtimes.python
         default: "3.12"
         description: "Python version to use"
       runner-quality:
@@ -109,6 +110,7 @@ on:
         default: "oss"
       python-version:
         type: string
+        # hyperi-ci:pin runtimes.python
         default: "3.12"
       skip-optimize:
         type: string

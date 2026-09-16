@@ -32,7 +32,8 @@ inputs:
   node-version:
     description: Node.js version for the semantic-release runtime
     required: false
-    default: "22"
+    # hyperi-ci:pin runtimes.node
+    default: "24"
 
 runs:
   using: composite

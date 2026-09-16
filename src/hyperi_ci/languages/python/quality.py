@@ -29,6 +29,7 @@ from hyperi_ci.languages.quality_common import (
     resolve_tool_mode,
 )
 from hyperi_ci.quality.ignores import IgnoreEntry, for_tool, load_ignores
+from hyperi_ci.versions import tool_version
 
 _DEFAULT_PYTHON_TEST_IGNORE = [
     "S101",
@@ -74,6 +75,7 @@ def _resolve_tool_cmd(
     cmd: list[str],
     use_uvx: bool = False,
     use_uv_with: bool = False,
+    spec: str | None = None,
 ) -> list[str]:
     """Resolve tool command, using uv run if tool isn't on PATH.
 
@@ -89,15 +91,21 @@ def _resolve_tool_cmd(
             the tool temporarily and run it within the project's
             venv. Use for tools that scan installed packages
             (e.g. pip-audit) and must see the project's deps.
+        spec: Requirement to install, e.g. ``bandit==1.9.4`` from the
+            versions SSOT. Defaults to the bare command name, which lets
+            the resolver take whatever PyPI serves that morning.
 
     """
+    spec = spec or cmd[0]
     if shutil.which(cmd[0]):
         return cmd
     if shutil.which("uv"):
         if use_uv_with:
-            return ["uv", "run", "--with", cmd[0], "--", *cmd]
+            return ["uv", "run", "--with", spec, "--", *cmd]
         if use_uvx:
-            return ["uvx", *cmd]
+            # --from, not `uvx <spec>`: the package to install and the command
+            # to run are different strings once the version is pinned on.
+            return ["uvx", "--from", spec, *cmd]
         return ["uv", "run", *cmd]
     return cmd
 
@@ -118,7 +126,8 @@ def _build_pip_audit_cmd(ignores: list[IgnoreEntry]) -> list[str]:
     for entry in ignores:
         base.extend(["--ignore-vuln", entry.id])
     if shutil.which("uv"):
-        return ["uv", "run", "--with", "pip-audit", "--", *base]
+        spec = f"pip-audit=={tool_version('pip-audit')}"
+        return ["uv", "run", "--with", spec, "--", *base]
     return base
 
 
@@ -128,6 +137,7 @@ def _run_tool(
     mode: str,
     use_uvx: bool = False,
     use_uv_with: bool = False,
+    spec: str | None = None,
 ) -> bool:
     """Run a quality tool and handle its result based on mode.
 
@@ -137,7 +147,9 @@ def _run_tool(
         info(f"  {tool_name}: disabled")
         return True
 
-    resolved = _resolve_tool_cmd(cmd, use_uvx=use_uvx, use_uv_with=use_uv_with)
+    resolved = _resolve_tool_cmd(
+        cmd, use_uvx=use_uvx, use_uv_with=use_uv_with, spec=spec
+    )
     if resolved == cmd and not shutil.which(cmd[0]):
         # A missing tool fails the gate only in CI, where every tool MUST
         # be present - a silent skip would mask a coverage gap. Locally it
@@ -271,7 +283,8 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     bandit_ignores = for_tool(ignores, "bandit")
     if bandit_ignores:
         bandit_cmd.extend(["--skip", ",".join(e.id for e in bandit_ignores)])
-    if not _run_tool("bandit", bandit_cmd, mode, use_uvx=True):
+    bandit_spec = f"bandit=={tool_version('bandit')}"
+    if not _run_tool("bandit", bandit_cmd, mode, use_uvx=True, spec=bandit_spec):
         had_failure = True
 
     # pip-audit vulnerability scanning
@@ -293,7 +306,8 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # Vulture dead code detection
     mode = _get_tool_mode("vulture", config)
     vulture_cmd = ["vulture", "src/"] + _build_exclude_args("vulture", excludes)
-    if not _run_tool("vulture", vulture_cmd, mode, use_uvx=True):
+    vulture_spec = f"vulture=={tool_version('vulture')}"
+    if not _run_tool("vulture", vulture_cmd, mode, use_uvx=True, spec=vulture_spec):
         had_failure = True
 
     return 1 if had_failure else 0

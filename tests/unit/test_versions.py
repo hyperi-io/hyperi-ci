@@ -159,9 +159,9 @@ class TestEveryCompositeActionDownloadIsVerified:
 class TestCompositeToolsPinDigestsInTheSSOT:
     """The digests those actions mirror have to exist here first."""
 
-    # go install resolves through the Go module proxy and is verified against
-    # the sum.golang.org transparency log, so it needs no digest of ours.
-    DELEGATED = {"govulncheck"}
+    # Fetched and vouched for by someone else: govulncheck via the Go module
+    # proxy and sum.golang.org, helm by azure/setup-helm.
+    DELEGATED = {"govulncheck", "helm"}
 
     def test_every_action_pinned_tool_pins_a_digest(self) -> None:
         data = yaml.safe_load(versions.VERSIONS_FILE.read_text(encoding="utf-8"))
@@ -228,20 +228,35 @@ class TestNoVersionLiteralsInSource:
 class TestCopiesOnlyWhereGitHubParsesThem:
     """The one legitimate exception, bounded and asserted."""
 
-    def test_every_remaining_pin_targets_a_github_parsed_file(self) -> None:
+    # The scaffold's workflows land in a generated repo's .github/, so GitHub
+    # parses them there for exactly the same reason.
+    PARSED_BY_GITHUB = (".github/", "src/hyperi_ci/gitops_templates/workflows/")
+
+    @staticmethod
+    def _pins() -> list[tuple[str, str]]:
+        """(key, path) for every `pin:` in the SSOT, one row per file."""
         data = yaml.safe_load(versions.VERSIONS_FILE.read_text(encoding="utf-8"))
-        for name, spec in (data.get("tools") or {}).items():
-            pin = spec.get("pin")
-            if not pin:
-                continue
-            assert pin.startswith(".github/"), (
-                f"tools.{name} pins {pin}: a copy is only justified where GitHub "
+        rows = []
+        for section in ("tools", "runtimes"):
+            for name, spec in (data.get(section) or {}).items():
+                pin = spec.get("pin") if isinstance(spec, dict) else None
+                if not pin:
+                    continue
+                for path in [pin] if isinstance(pin, str) else pin:
+                    rows.append((f"{section}.{name}", path))
+        return rows
+
+    def test_discovery_finds_the_pins(self) -> None:
+        # Guards the guard: an empty sweep makes both assertions below vacuous.
+        assert self._pins(), "no `pin:` found in the SSOT - discovery broke"
+
+    def test_every_remaining_pin_targets_a_github_parsed_file(self) -> None:
+        for key, pin in self._pins():
+            assert pin.startswith(self.PARSED_BY_GITHUB), (
+                f"{key} pins {pin}: a copy is only justified where GitHub "
                 "parses the file before our code runs"
             )
 
     def test_pinned_files_exist(self) -> None:
-        data = yaml.safe_load(versions.VERSIONS_FILE.read_text(encoding="utf-8"))
-        for name, spec in (data.get("tools") or {}).items():
-            pin = spec.get("pin")
-            if pin:
-                assert (_ROOT / pin).is_file(), f"tools.{name}: {pin} is missing"
+        for key, pin in self._pins():
+            assert (_ROOT / pin).is_file(), f"{key}: {pin} is missing"

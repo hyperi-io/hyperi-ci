@@ -58,6 +58,7 @@ import json
 import re
 import subprocess
 import sys
+import urllib.request
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
@@ -125,18 +126,27 @@ _UNFIXABLE = "NOT-AUTO-FIXABLE"
 _SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
 
-def _tool_pin_pattern(name: str) -> re.Pattern[str]:
-    """Match the version token on the line following this tool's pin marker.
+def _pin_pattern(key: str) -> re.Pattern[str]:
+    """Match the version token on the line following this pin's marker.
 
     The `# hyperi-ci:pin <key>` convention itself lives in
     src/hyperi_ci/pin_marker.py, because `hyperi-ci deps` reads the same lines
     to DISCOVER marked pins in any repo while this script ENFORCES them against
     config/versions.yaml here. One definition, so the two cannot drift apart.
 
-    This script's keys are namespaced `tools.<name>`; the shared builder takes
-    the whole key.
+    `key` is the full dotted path into the SSOT - `tools.gitleaks`,
+    `runtimes.node` - so one marker vocabulary covers both sections.
     """
-    return pin_marker.pin_pattern(f"tools.{name}")
+    return pin_marker.pin_pattern(key)
+
+
+def _runtime_value(spec: object) -> object:
+    """The version out of a `runtimes:` entry, which may carry its mirrors too.
+
+    A runtime nothing mirrors is a bare value; one that is copied into files
+    GitHub parses is a mapping with the version and a `pin:` list.
+    """
+    return spec.get("version") if isinstance(spec, dict) else spec
 
 
 def _load_versions() -> dict[str, Any]:
@@ -147,20 +157,24 @@ def _load_versions() -> dict[str, Any]:
         return yaml.safe_load(f)
 
 
-def _tool_pins(
-    versions: dict,
+def _marker_pins(
+    versions: dict, section: str = "tools"
 ) -> tuple[list[tuple[Path, re.Pattern[str], str, str]], list[str]]:
-    """Resolve `tools:` to ([(path, pattern, wanted version, name)], problems).
+    """Resolve one SSOT section to ([(path, pattern, wanted version, key)], problems).
 
-    Only tools with a `pin:` are returned. A pin exists for a value GitHub
-    parses before our code runs - a composite action's `default:` - which is
-    the one place a copy is unavoidable. Python reads the SSOT at runtime via
-    :mod:`hyperi_ci.versions`, so a Python-only tool has no `pin:`, no copy and
-    nothing here to enforce.
+    Only entries with a `pin:` are returned. A pin exists for a value GitHub
+    parses before our code runs - a composite action's `default:`, a workflow
+    input's - which is the one place a copy is unavoidable. Python reads the
+    SSOT at runtime via :mod:`hyperi_ci.versions`, so a Python-only entry has
+    no `pin:`, no copy and nothing here to enforce.
+
+    `pin:` is one path or a list of them: a tool's version is mirrored into a
+    single composite action, a runtime's into every workflow that takes it as
+    an input default.
 
     A malformed entry is RETURNED AS A REASON, never merely warned about and
     never reduced to a bare count. Two reasons:
-      - warn-and-continue dropped the tool out of every downstream check, so
+      - warn-and-continue dropped the entry out of every downstream check, so
         renaming a pin file without updating `pin:` left the gate green while
         the pin stopped being enforced;
       - a count cannot tell a caller WHICH failure it was, so --check could not
@@ -169,45 +183,63 @@ def _tool_pins(
     """
     out: list[tuple[Path, re.Pattern[str], str, str]] = []
     problems: list[str] = []
-    for name, spec in (versions.get("tools") or {}).items():
+    for name, spec in (versions.get(section) or {}).items():
+        key = f"{section}.{name}"
         if not isinstance(spec, dict):
-            problems.append(f"  tools.{name}: not a mapping [{_UNFIXABLE}]")
+            # A runtime nothing mirrors stays a bare value (`rust: stable`),
+            # so a scalar there is the normal case. A tool is always a mapping,
+            # so a scalar there is a malformed entry.
+            if section == "tools":
+                problems.append(f"  {key}: not a mapping [{_UNFIXABLE}]")
             continue
         version, pin = spec.get("version"), spec.get("pin")
         if not version:
-            problems.append(f"  tools.{name}: needs a `version:` [{_UNFIXABLE}]")
+            problems.append(f"  {key}: needs a `version:` [{_UNFIXABLE}]")
             continue
         if not pin:
             continue
-        path = _ROOT / pin
-        if not path.is_file():
-            problems.append(
-                f"  tools.{name}: `pin:` file does not exist: {pin} [{_UNFIXABLE}]"
-            )
-            continue
-        out.append((path, _tool_pin_pattern(name), str(version), name))
-
-        # A pinned tool fetched by a composite action also mirrors its per-arch
-        # digest there: the action runs before hyperi-ci exists, so it cannot
-        # read the SSOT, and a tag alone is not integrity - a release asset can
-        # be deleted and re-uploaded under the same tag (issue #66).
-        digests = spec.get("sha256")
-        if digests is None:
-            continue
-        if not isinstance(digests, dict):
-            problems.append(f"  tools.{name}.sha256: not a mapping [{_UNFIXABLE}]")
-            continue
-        for arch, digest in digests.items():
-            key = f"{name}.sha256.{arch}"
-            if not isinstance(digest, str) or not _SHA256_RE.fullmatch(digest):
+        for rel in [pin] if isinstance(pin, str) else pin:
+            path = _ROOT / rel
+            if not path.is_file():
                 problems.append(
-                    f"  tools.{key}: not a sha256 hex digest [{_UNFIXABLE}]"
+                    f"  {key}: `pin:` file does not exist: {rel} [{_UNFIXABLE}]"
                 )
                 continue
-            out.append(
-                (path, pin_marker.digest_pin_pattern(f"tools.{key}"), digest, key)
-            )
+            out.append((path, _pin_pattern(key), str(version), key))
+
+            # The composite runs before hyperi-ci exists, so the digest is
+            # mirrored there too (issue #66).
+            digests = spec.get("sha256")
+            if digests is None:
+                continue
+            if not isinstance(digests, dict):
+                problems.append(f"  {key}.sha256: not a mapping [{_UNFIXABLE}]")
+                continue
+            for arch, digest in digests.items():
+                digest_key = f"{key}.sha256.{arch}"
+                if not isinstance(digest, str) or not _SHA256_RE.fullmatch(digest):
+                    problems.append(
+                        f"  {digest_key}: not a sha256 hex digest [{_UNFIXABLE}]"
+                    )
+                    continue
+                out.append(
+                    (
+                        path,
+                        pin_marker.digest_pin_pattern(digest_key),
+                        digest,
+                        digest_key,
+                    )
+                )
     return out, problems
+
+
+def _all_pins(
+    versions: dict,
+) -> tuple[list[tuple[Path, re.Pattern[str], str, str]], list[str]]:
+    """Every marked pin the SSOT declares, across both sections it can pin."""
+    pins, problems = _marker_pins(versions, "tools")
+    runtime_pins, runtime_problems = _marker_pins(versions, "runtimes")
+    return pins + runtime_pins, problems + runtime_problems
 
 
 def _pin_replacement(version: str) -> str:
@@ -219,21 +251,21 @@ def _pin_replacement(version: str) -> str:
     return r"\g<1>" + version.replace("\\", "\\\\")
 
 
-def _tool_mismatches(versions: dict) -> list[str]:
-    """Report tool pins that disagree with the SSOT, or that we can't find.
+def _pin_mismatches(versions: dict) -> list[str]:
+    """Report marked pins that disagree with the SSOT, or that we can't find.
 
     A pattern matching NOTHING is reported, not ignored: silently rewriting
     zero lines is how a pin drifts for nine months while the check stays green.
     """
-    pins, problems = _tool_pins(versions)
-    for path, pattern, version, name in pins:
+    pins, problems = _all_pins(versions)
+    for path, pattern, version, key in pins:
         content = path.read_text(encoding="utf-8")
         rel_path = path.relative_to(_ROOT)
         matches = list(pattern.finditer(content))
         if not matches:
             problems.append(
-                f"  {rel_path}: no `# hyperi-ci:pin tools.{name}` marker found - "
-                f"{name} is no longer being kept in step [{_UNFIXABLE}]"
+                f"  {rel_path}: no `# hyperi-ci:pin {key}` marker found - "
+                f"{key} is no longer being kept in step [{_UNFIXABLE}]"
             )
             continue
         for match in matches:
@@ -243,7 +275,7 @@ def _tool_mismatches(versions: dict) -> list[str]:
             if match.group(2) != version:
                 line_num = content[: match.start(2)].count("\n") + 1
                 problems.append(
-                    f"  {rel_path}:{line_num}: {name} {match.group(2)} → {version}"
+                    f"  {rel_path}:{line_num}: {key} {match.group(2)} → {version}"
                 )
     return problems
 
@@ -275,10 +307,12 @@ def _parse_semver(tag: str) -> tuple[int, int, int] | None:
     """Parse `v1.2.3` / `1.2.3` to a tuple. None for anything else.
 
     Rejects suffixed tags like `v3.1.0-node20` — those are backports, not
-    the canonical latest, and must never win selection.
+    the canonical latest, and must never win selection. The patch is optional
+    because PyPI does not require one: vulture ships `2.16`, and rejecting it
+    would leave that pin unmanaged rather than merely unsorted.
     """
-    m = re.match(r"^v?(\d+)\.(\d+)\.(\d+)$", tag.strip())
-    return (int(m[1]), int(m[2]), int(m[3])) if m else None
+    m = re.match(r"^v?(\d+)\.(\d+)(?:\.(\d+))?$", tag.strip())
+    return (int(m[1]), int(m[2]), int(m[3] or 0)) if m else None
 
 
 def _select_pinned_release(
@@ -475,7 +509,7 @@ def _build_replacements(versions: dict) -> list[tuple[re.Pattern, str, str]]:
 
     runtimes = versions.get("runtimes", {})
 
-    python_ver = runtimes.get("python")
+    python_ver = _runtime_value(runtimes.get("python"))
     if python_ver:
         # Only match literal versions, not ${{ template expressions }}
         pattern = re.compile(r"(uv python install )(\d[\d.]*)")
@@ -487,7 +521,7 @@ def _build_replacements(versions: dict) -> list[tuple[re.Pattern, str, str]]:
         replacement = rf'\g<1>"{python_ver}"'
         replacements.append((pattern, replacement, f"Python default {python_ver}"))
 
-    node_ver = runtimes.get("node")
+    node_ver = _runtime_value(runtimes.get("node"))
     if node_ver:
         # Only match literal versions, not ${{ template expressions }}
         pattern = re.compile(r"(node-version: )(\d[\d.]*)")
@@ -499,7 +533,7 @@ def _build_replacements(versions: dict) -> list[tuple[re.Pattern, str, str]]:
         replacement = rf'\g<1>"{node_ver}"'
         replacements.append((pattern, replacement, f"Node.js default {node_ver}"))
 
-    rust_ver = runtimes.get("rust")
+    rust_ver = _runtime_value(runtimes.get("rust"))
     if rust_ver:
         pattern = re.compile(r"(rust-toolchain.*\n\s+default:\s*)\S+")
         replacement = rf"\g<1>{rust_ver}"
@@ -542,7 +576,7 @@ def _check(versions: dict) -> int:
                     print(f"  {rel_path}:{line_num}: {match.group(0)} → {expected}")
                     mismatches += 1
 
-    tool_problems = _tool_mismatches(versions)
+    tool_problems = _pin_mismatches(versions)
     for problem in tool_problems:
         print(problem)
     mismatches += len(tool_problems)
@@ -557,9 +591,9 @@ def _check(versions: dict) -> int:
     # anchor the rewrite to. Sending someone to a command that cannot help is
     # how a real problem gets mistaken for a flaky tool.
     #
-    # Keyed off _UNFIXABLE, not off prose: the first cut matched substrings that
-    # `_tool_pins` never actually emitted downstream, so the branch was dead and
-    # every malformed entry got the "run --apply" advice this comment exists to
+    # Keyed off _UNFIXABLE, not off prose: matching substrings of `_marker_pins`
+    # messages leaves the branch dead the moment one is reworded, and every
+    # malformed entry then gets the "run --apply" advice this comment exists to
     # prevent. A marker in the data beats pattern-matching your own messages.
     if any(_UNFIXABLE in p for p in tool_problems):
         print("  Version drift: run --apply.")
@@ -603,16 +637,16 @@ def _rewrite_to_ssot(versions: dict, *, verb: str) -> tuple[int, int]:
             content = pattern.sub(replacement, content)
         total_changes += _write(wf_file, original, content)
 
-    pins, problems = _tool_pins(versions)
+    pins, problems = _all_pins(versions)
     unenforceable = len(problems)
     for problem in problems:
         print(f"  error:{problem.lstrip()}")
-    for path, pattern, version, name in pins:
+    for path, pattern, version, key in pins:
         original = path.read_text(encoding="utf-8")
         if not pattern.search(original):
             print(
                 f"  error: {path.relative_to(_ROOT)}: no `# hyperi-ci:pin"
-                f" tools.{name}` marker found - {name} is not being kept in step"
+                f" {key}` marker found - {key} is not being kept in step"
             )
             unenforceable += 1
             continue
@@ -720,9 +754,10 @@ def _stable(versions: dict, *, fail_on_drift: bool = False) -> int:
     for name, spec in tools.items():
         if not isinstance(spec, dict):
             continue
-        cur_version, repo = spec.get("version"), spec.get("repo")
-        if not repo:
-            print(f"  {name}: {cur_version} (no `repo:` — cannot check)")
+        cur_version = spec.get("version")
+        source = spec.get("repo") or spec.get("pypi")
+        if not source:
+            print(f"  {name}: {cur_version} (no `repo:`/`pypi:` — cannot check)")
             continue
         # Resolve through the SAME helper --auto-update uses. Reporting and
         # bumping must never drift apart: when this loop had its own copy of the
@@ -731,7 +766,9 @@ def _stable(versions: dict, *, fail_on_drift: bool = False) -> int:
         latest_tag, status = _latest_tool_release(spec, now)
         # Name the TOOL, not the repo: rustsec/rustsec hosts four pinned crates,
         # so "rustsec/rustsec: v0.22.2" is ambiguous.
-        label = f"{name} ({repo})" if str(spec.get("tag_prefix") or "") else repo
+        label = (
+            f"{name} ({source})" if str(spec.get("tag_prefix") or "") else str(source)
+        )
         if status == "ok":
             print(f"  {label}: {cur_version} → {latest_tag}")
             updates_available += 1
@@ -747,8 +784,8 @@ def _stable(versions: dict, *, fail_on_drift: bool = False) -> int:
 
     runtimes = versions.get("runtimes", {})
     print()
-    for name, ver in runtimes.items():
-        print(f"  {name}: {ver} (manual — check release notes)")
+    for name, spec in runtimes.items():
+        print(f"  {name}: {_runtime_value(spec)} (manual — check release notes)")
 
     _report_watchlist(versions)
 
@@ -907,6 +944,68 @@ def _tool_releases(spec: dict, releases: list[dict[str, Any]]) -> list[dict[str,
     return out
 
 
+def _tag_releases(repo: str, now: datetime) -> list[dict[str, Any]] | None:
+    """Tags as pseudo-releases, for a repo that publishes no GitHub Releases.
+
+    golang/vuln stopped cutting releases in 2025-01, so the releases API
+    answers v1.1.4 forever and --stable read the pin as current across four
+    minors. A tag's date is the date of the commit it points at, and the walk
+    stops at the first tag past the cooldown, so the normal case costs one
+    extra call rather than one per tag.
+    """
+    tags = _gh_json(f"/repos/{repo}/tags?per_page=100")
+    if not isinstance(tags, list):
+        return None
+    parsed = [
+        (ver, str(tag.get("name")))
+        for tag in cast("list[dict[str, Any]]", tags)
+        if (ver := _parse_semver(str(tag.get("name") or "")))
+    ]
+    cutoff = now - timedelta(days=_cooldown())
+    out: list[dict[str, Any]] = []
+    for _ver, name in sorted(parsed, reverse=True):
+        commit = _gh_json(f"/repos/{repo}/commits/{name}")
+        if not isinstance(commit, dict):
+            continue
+        date = commit.get("commit", {}).get("committer", {}).get("date")
+        if not date:
+            continue
+        out.append({"tag_name": name, "published_at": date})
+        if datetime.fromisoformat(date.replace("Z", "+00:00")) <= cutoff:
+            break
+    return out
+
+
+def _pypi_releases(package: str) -> list[dict[str, Any]] | None:
+    """PyPI versions as pseudo-releases, dated by each version's upload time.
+
+    A tool resolved by uvx has no GitHub release to read, and PyPI's own JSON
+    carries the two facts the cooldown needs. Yanked files are dropped, because
+    a yanked release is one upstream has withdrawn.
+    """
+    # A PyPI name cannot carry a scheme or a slash, so the URL stays on pypi.org.
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", package):
+        return None
+    try:
+        with urllib.request.urlopen(  # noqa: S310  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+            f"https://pypi.org/pypi/{package}/json", timeout=15
+        ) as response:
+            data = json.load(response)
+    except (OSError, json.JSONDecodeError):
+        return None
+    out: list[dict[str, Any]] = []
+    for version, files in (data.get("releases") or {}).items():
+        live = [f for f in files if not f.get("yanked")]
+        if live:
+            out.append(
+                {
+                    "tag_name": version,
+                    "published_at": min(f["upload_time_iso_8601"] for f in live),
+                }
+            )
+    return out
+
+
 def _report_watchlist(versions: dict) -> None:
     """Print `watch:` - upstream capabilities we want but that are not ready.
 
@@ -944,13 +1043,19 @@ def _latest_tool_release(spec: dict, now: datetime) -> tuple[str | None, str]:
     reported every tool green, which is the same silent-skip shape as a pin that
     nobody enforces.
     """
-    repo, cur_version = spec.get("repo"), spec.get("version")
-    if not repo or not cur_version:
+    cur_version = spec.get("version")
+    repo, pypi = spec.get("repo"), spec.get("pypi")
+    if not cur_version or not (repo or pypi):
         return None, "lookup-failed"
-    releases = _gh_json(f"/repos/{repo}/releases?per_page=100")
+    if pypi:
+        releases = _pypi_releases(str(pypi))
+    elif spec.get("release_source") == "tags":
+        releases = _tag_releases(str(repo), now)
+    else:
+        releases = _gh_json(f"/repos/{repo}/releases?per_page=100")
     if not isinstance(releases, list):
         return None, "lookup-failed"
-    releases = _tool_releases(spec, releases)
+    releases = _tool_releases(spec, cast("list[dict[str, Any]]", releases))
     cur = _parse_semver(str(cur_version))
     # No compatibility clamp. Same reasoning as actions: the cooldown still
     # gates freshness, and a tool whose flags changed across a major shows up
@@ -1002,7 +1107,9 @@ def _set_tool_version_in_yaml(text: str, name: str, version: str) -> str:
                 continue
             if in_block:
                 if re.match(r"^    version:\s", line):
-                    out.append(f"    version: {version}\n")
+                    # Quoted: a two-component version (vulture 2.16) reads back
+                    # as a YAML float, so 2.20 would return as "2.2".
+                    out.append(f'    version: "{version}"\n')
                     continue
                 if re.match(r"^  \S", line):  # next tool entry
                     in_block = False
@@ -1066,7 +1173,7 @@ def _auto_update(versions: dict) -> int:
     runtimes = versions.get("runtimes", {})
     for name in _AUTO_UPDATE_SKIP:
         if runtimes.get(name):
-            print(f"  {name}: {runtimes[name]} (manual — skipped)")
+            print(f"  {name}: {_runtime_value(runtimes[name])} (manual — skipped)")
 
     if not action_updates and not sr_update and not tool_updates:
         print("\nNo auto-updates available.")
@@ -1082,7 +1189,7 @@ def _auto_update(versions: dict) -> int:
     # very path whose job is to restore safety.
     original_files = {
         str(p): p.read_text(encoding="utf-8")
-        for p in {*_find_workflow_files(), *(pin[0] for pin in _tool_pins(versions)[0])}
+        for p in {*_find_workflow_files(), *(pin[0] for pin in _all_pins(versions)[0])}
     }
 
     yaml_content = original_yaml

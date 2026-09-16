@@ -9,8 +9,6 @@
 Semgrep's auto ruleset spans languages (python, go, ts, rust, yaml,
 Dockerfiles, ...), so it runs ONCE at the dispatch level - like
 gitleaks - rather than being re-invoked inside each language handler.
-Centralising it also fixes a drift: only the Python handler passed the
-shared exclude-dirs to semgrep; go / ts / rust did not.
 
 Mode comes from ``quality.semgrep`` (default ``warn``). A consumer's
 legacy per-language ``quality.<lang>.semgrep`` override is still honoured
@@ -28,16 +26,11 @@ from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import apply_strict, is_skipped
 from hyperi_ci.quality.ignores import for_tool, load_ignores
 from hyperi_ci.tools import missing_tool_notice
+from hyperi_ci.versions import tool_version
 
 
 def _resolve_mode(config: CIConfig, language: str | None) -> str:
-    """Resolve semgrep's mode, honouring a legacy per-language override.
-
-    ``quality.semgrep`` is the current key. A consumer that still sets
-    ``quality.<language>.semgrep`` (the pre-centralisation location) wins
-    for back-compat - defaults.yaml no longer carries the per-language
-    entries, so a per-language value can only come from the consumer.
-    """
+    """Resolve semgrep's mode, with a legacy ``quality.<language>.semgrep`` winning."""
     if is_skipped("semgrep"):
         return "disabled"
     mode = str(config.get("quality.semgrep", "warn"))
@@ -68,12 +61,10 @@ def run(config: CIConfig, *, language: str | None = None) -> int:
     if shutil.which("semgrep"):
         cmd = ["semgrep"]
     elif shutil.which("uvx"):
-        cmd = ["uvx", "semgrep"]
+        # Pinned from the SSOT, else uvx takes whatever PyPI serves that morning.
+        cmd = ["uvx", "--from", f"semgrep=={tool_version('semgrep')}", "semgrep"]
     else:
-        # Not installed and no uvx fallback: fail only in CI (where every
-        # tool MUST be present - a silent skip masks a coverage gap);
-        # warn-skip locally. Matches the gitleaks + language _run_tool
-        # local-vs-CI handling.
+        # Fail only in CI, where every tool must be present, and warn-skip locally.
         notice = missing_tool_notice("semgrep")
         if mode == "blocking" and is_ci():
             error(notice)
