@@ -67,7 +67,7 @@ def resolve_release_version() -> str | None:
 
 
 def latest_version_tag() -> str | None:
-    """Highest ``v*`` git tag as a bare version, or None outside a repo.
+    """Highest final-release ``vX.Y.Z`` tag as a bare version, or None outside a repo.
 
     Last-resort fallback for a checkout with no ``VERSION`` file (issue #85 —
     the file is an artefact, so a repo may legitimately not carry one). The
@@ -81,7 +81,14 @@ def latest_version_tag() -> str | None:
     )
     if result.returncode != 0 or not result.stdout.strip():
         return None
-    return result.stdout.splitlines()[0].strip().removeprefix("v")
+    # Plain vX.Y.Z only -- a prerelease sorts above its own release under
+    # -v:refname, so the raw top line resolves 1.1.2-beta.1 over the
+    # released 1.1.1.
+    for line in result.stdout.splitlines():
+        candidate = line.strip().removeprefix("v")
+        if _SEMVER_RE.match(candidate):
+            return candidate
+    return None
 
 
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")

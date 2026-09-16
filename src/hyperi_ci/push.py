@@ -414,7 +414,7 @@ def _compute_next_version(*, bump: str, cwd: str | None) -> str | None:
 
     Returns ``None`` only when the resolved starting version is unparseable.
     """
-    # Latest v* tag, sorted by semver
+    # Latest final-release tag, sorted by semver
     result = run_cmd(
         ["git", "tag", "--list", "v*", "--sort=-v:refname"],
         capture=True,
@@ -423,13 +423,18 @@ def _compute_next_version(*, bump: str, cwd: str | None) -> str | None:
     )
     latest: str | None = None
     if result.returncode == 0 and result.stdout.strip():
-        latest = result.stdout.splitlines()[0].strip().lstrip("v")
+        # Plain vX.Y.Z only -- a prerelease sorts above its own release.
+        for line in result.stdout.splitlines():
+            candidate = explicit_version(line)
+            if candidate:
+                latest = candidate
+                break
 
     # Fallback: what the project declares about itself (initial-release case).
     if not latest:
         cwd_path = Path(cwd) if cwd else Path.cwd()
         latest, source = seed_version(cwd_path)
-        info(f"No v* tags — bumping from {latest} ({source})")
+        info(f"No release tags — bumping from {latest} ({source})")
 
     parts = latest.split(".")
     while len(parts) < 3:

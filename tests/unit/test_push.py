@@ -418,6 +418,27 @@ class TestComputeNextVersion:
 
             assert _compute_next_version(bump="minor", cwd=None) == "1.6.0"
 
+    def test_prerelease_tag_is_not_a_bump_anchor(self) -> None:
+        """A prerelease sorts above its own release under -v:refname."""
+        result = MagicMock(stdout="v1.1.2-beta.1\nv1.1.1\n", returncode=0)
+        with patch("hyperi_ci.push.run_cmd", return_value=result):
+            from hyperi_ci.push import _compute_next_version
+
+            assert _compute_next_version(bump="patch", cwd=None) == "1.1.2"
+
+    def test_prerelease_only_repo_bumps_from_the_declared_version(
+        self, tmp_path: Path
+    ) -> None:
+        """No final-release tag is the initial-release case, prereleases or not."""
+        (tmp_path / "Cargo.toml").write_text(
+            '[package]\nname = "thing"\nversion = "1.4.2"\n', encoding="utf-8"
+        )
+        result = MagicMock(stdout="v1.1.2-beta.1\n", returncode=0)
+        with patch("hyperi_ci.push.run_cmd", return_value=result):
+            from hyperi_ci.push import _compute_next_version
+
+            assert _compute_next_version(bump="patch", cwd=str(tmp_path)) == "1.4.3"
+
     def test_no_tags_bumps_from_the_declared_version(self, tmp_path: Path) -> None:
         """A tag-less repo bumps from what its manifest declares (issue #85)."""
         (tmp_path / "Cargo.toml").write_text(

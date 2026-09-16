@@ -10,9 +10,34 @@ VERSION file, which is stale once stamping is central (#27 + zero-config)."""
 
 from __future__ import annotations
 
+import subprocess
+from pathlib import Path
+
 import pytest
 
-from hyperi_ci.common import explicit_version, resolve_release_version
+from hyperi_ci.common import (
+    explicit_version,
+    latest_version_tag,
+    resolve_release_version,
+)
+
+
+def _git(cwd: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _init_repo(tmp_path: Path) -> Path:
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.email", "t@t.io")
+    _git(tmp_path, "config", "user.name", "t")
+    _git(tmp_path, "commit", "--allow-empty", "-m", "chore: seed")
+    return tmp_path
 
 
 def test_hyperci_version_wins_and_strips_v(monkeypatch, tmp_path) -> None:
@@ -40,6 +65,28 @@ def test_empty_hyperci_version_ignored(monkeypatch, tmp_path) -> None:
     (tmp_path / "VERSION").write_text("7.0.0\n")
     monkeypatch.chdir(tmp_path)
     assert resolve_release_version() == "7.0.0"
+
+
+class TestLatestVersionTag:
+    """The last-resort fallback in `resolve_release_version` must never hand a
+    build a prerelease as the version to stamp."""
+
+    def test_release_tag_wins_over_a_higher_prerelease(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        _init_repo(tmp_path)
+        _git(tmp_path, "tag", "v1.1.1")
+        _git(tmp_path, "tag", "v1.1.2-beta.1")
+        monkeypatch.chdir(tmp_path)
+        assert latest_version_tag() == "1.1.1"
+
+    def test_prerelease_only_repo_resolves_to_none(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        _init_repo(tmp_path)
+        _git(tmp_path, "tag", "v1.1.2-beta.1")
+        monkeypatch.chdir(tmp_path)
+        assert latest_version_tag() is None
 
 
 class TestExplicitVersion:
