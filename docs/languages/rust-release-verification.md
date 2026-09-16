@@ -65,6 +65,7 @@ merge-fdata shim: ~/.local/bin/merge-fdata -> /usr/bin/merge-fdata-23
 ld.lld shim: ~/.local/bin/ld.lld -> /usr/bin/ld.lld-23
 BOLT: building instrumented binary for <triple> (linker forced to lld)
 BOLT: optimising binary for <triple> (using PGO + BOLT profiles, linker=lld)
+optimised: pgo=yes bolt=yes allocator=jemalloc
 ```
 
 Your workload's own output appears between the two PGO lines, prefixed
@@ -78,6 +79,11 @@ free to reword them.
 
 If one of OUR lines is missing, a tier wasn't applied. See
 [rust-troubleshooting.md](rust-troubleshooting.md).
+
+The last line closes each arch's build group and is the one to read first.
+Every Tier 2 skip is warn-only, so a green run proves nothing by itself - a
+`bolt=no` or `allocator=system` there says that arch shipped unoptimised, and
+a warn line earlier in the same group names the reason.
 
 ---
 

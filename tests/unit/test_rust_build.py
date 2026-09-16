@@ -15,7 +15,12 @@ import pytest
 
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.rust import build
-from hyperi_ci.languages.rust.optimize import OptimizationOutcome
+from hyperi_ci.languages.rust.optimize import (
+    OptimizationOutcome,
+    OptimizationProfile,
+    cargo_feature_args,
+    validate_profile,
+)
 
 
 def _metadata_runner(manifest_paths: list[Path], returncode: int = 0):
@@ -77,6 +82,70 @@ class TestDetectCargoFeatures:
         assert build._detect_cargo_features() == {"jemalloc"}
 
 
+class TestWorkspaceFeaturesReachTheCargoLine:
+    """A member's allocator feature has to survive as far as the cargo line.
+
+    Detection reads the members, validation decides whether the allocator
+    survives, and `cargo_feature_args()` renders it. dfe-archiver shipped
+    without jemalloc because the first step stopped at the root manifest.
+    """
+
+    @staticmethod
+    def _virtual_workspace(tmp_path: Path) -> Path:
+        (tmp_path / "Cargo.toml").write_text(
+            '[workspace]\nmembers = ["crates/archiver"]\nresolver = "2"\n'
+        )
+        member = tmp_path / "crates" / "archiver"
+        member.mkdir(parents=True)
+        member_manifest = member / "Cargo.toml"
+        member_manifest.write_text(
+            '[package]\nname = "archiver"\n\n'
+            '[features]\njemalloc = ["dep:tikv-jemallocator"]\n'
+        )
+        return member_manifest
+
+    def test_member_declared_allocator_is_rendered(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        member_manifest = self._virtual_workspace(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(
+            build.subprocess, "run", _metadata_runner([member_manifest])
+        )
+
+        profile = validate_profile(
+            OptimizationProfile(channel="release", allocator="jemalloc"),
+            cargo_features=build._detect_cargo_features(),
+            target="x86_64-unknown-linux-gnu",
+        )
+
+        assert profile.allocator == "jemalloc"
+        assert cargo_feature_args(profile, "db-clickhouse") == [
+            "--features",
+            "db-clickhouse,jemalloc",
+        ]
+
+    def test_root_only_detection_drops_the_allocator(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The dfe-archiver symptom: no member read, so the cargo line loses it."""
+        self._virtual_workspace(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(build.subprocess, "run", _metadata_runner([]))
+
+        profile = validate_profile(
+            OptimizationProfile(channel="release", allocator="jemalloc"),
+            cargo_features=build._detect_cargo_features(),
+            target="x86_64-unknown-linux-gnu",
+        )
+
+        assert profile.allocator == "system"
+        assert cargo_feature_args(profile, "db-clickhouse") == [
+            "--features",
+            "db-clickhouse",
+        ]
+
+
 class TestTier2Summary:
     """A Tier 2 build reports, once per target, what actually ran."""
 
@@ -111,7 +180,15 @@ class TestTier2Summary:
     def test_arm64_bolt_skip_is_reported_per_arch(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        def on_build(target, _features, _all, _extra=None, profile=None, outcome=None):
+        def on_build(
+            target,
+            _features,
+            _all,
+            _extra=None,
+            profile=None,
+            *,
+            outcome: OptimizationOutcome,
+        ):
             outcome.pgo_applied = True
             outcome.bolt_applied = target.startswith("x86_64")
             return 0
@@ -135,7 +212,15 @@ class TestTier2Summary:
     def test_undeclared_allocator_shows_in_the_summary(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        def on_build(_target, _features, _all, _extra=None, profile=None, outcome=None):
+        def on_build(
+            _target,
+            _features,
+            _all,
+            _extra=None,
+            profile=None,
+            *,
+            outcome: OptimizationOutcome,
+        ):
             outcome.pgo_applied = True
             outcome.bolt_applied = True
             return 0
