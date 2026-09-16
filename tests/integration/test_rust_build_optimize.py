@@ -264,7 +264,7 @@ class TestTier1LTOEffect:
             wire_global_allocator=False,
         )
         profile = OptimizationProfile(
-            channel="spike",
+            channel="alpha",
             allocator="system",
             lto="thin",
         )
@@ -309,10 +309,10 @@ class TestChannelToBinaryFlow:
         binary = tmp_path / "target" / "release" / "fixture-bin"
         assert _nm_has_symbol(binary, "je_")
 
-    def test_spike_channel_default_uses_jemalloc(self, tmp_path) -> None:
+    def test_alpha_channel_default_uses_jemalloc(self, tmp_path) -> None:
         # standards/rules/RUST.md "Allocator Policy" — DFE Rust binaries
         # use jemalloc at EVERY channel for tooling consistency
-        # (jeprof works on every binary from day one). spike still gets
+        # (jeprof works on every binary from day one). alpha still gets
         # thin LTO, but allocator is jemalloc.
         _write_fixture_crate(
             tmp_path,
@@ -320,7 +320,7 @@ class TestChannelToBinaryFlow:
             wire_global_allocator=True,
         )
 
-        profile = resolve_optimization_profile("spike", None)
+        profile = resolve_optimization_profile("alpha", None)
         assert profile.allocator == "jemalloc"
 
         result = _run_cargo_build(tmp_path, profile)

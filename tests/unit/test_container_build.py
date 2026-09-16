@@ -140,16 +140,16 @@ def test_resolve_tags_multi_registry_pre_ga():
     ]
 
 
-def test_resolve_tags_spike_and_beta_channels():
-    spike = resolve_tags(
+def test_resolve_tags_alpha_and_beta_channels():
+    alpha = resolve_tags(
         registry_bases=["ghcr.io/hyperi-io"],
         image_name="dfe-loader",
         version="1.0.0",
         sha="def5678",
-        channel="spike",
+        channel="alpha",
     )
-    assert spike == [
-        "ghcr.io/hyperi-io/dfe-loader:v1.0.0-spike",
+    assert alpha == [
+        "ghcr.io/hyperi-io/dfe-loader:v1.0.0-alpha",
         "ghcr.io/hyperi-io/dfe-loader:sha-def5678",
     ]
 

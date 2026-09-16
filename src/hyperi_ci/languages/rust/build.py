@@ -798,7 +798,7 @@ def _resolve_build_channel(config: CIConfig) -> str:
       2. Tag-ref inference: `GITHUB_REF_TYPE == "tag"` → "release"
       3. `RUST_VERSION` / `CI_COMMIT_TAG` env vars (semantic-release-
          style tagged builds set these when checking out the tag)
-      4. "spike" (default for push-event CI)
+      4. "alpha" (default for push-event CI)
 
     **Rationale for not falling back to `publish.channel`:** Tier 2
     (PGO + BOLT) adds 30-60 min per build and a bad workload causes
@@ -824,7 +824,7 @@ def _resolve_build_channel(config: CIConfig) -> str:
         if os.environ.get(var, "").strip():
             return "release"
 
-    return "spike"
+    return "alpha"
 
 
 def _detect_binary_names() -> list[str]:

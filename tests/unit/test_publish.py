@@ -162,12 +162,6 @@ class TestChannelRouting:
         flags = _resolve_gh_release_flags("alpha")
         assert "--prerelease" in flags
 
-    def test_spike_channel_prerelease(self) -> None:
-        from hyperi_ci.publish.binaries import _resolve_gh_release_flags
-
-        flags = _resolve_gh_release_flags("spike")
-        assert "--prerelease" in flags
-
     def test_beta_channel_prerelease(self) -> None:
         from hyperi_ci.publish.binaries import _resolve_gh_release_flags
 
@@ -195,13 +189,6 @@ class TestChannelRouting:
         versioned, latest = _resolve_r2_paths("dfe-receiver", "1.3.0", "beta")
         assert "/beta/" in versioned
         assert "/beta/" in latest
-
-    def test_spike_r2_path(self) -> None:
-        from hyperi_ci.publish.binaries import _resolve_r2_paths
-
-        versioned, latest = _resolve_r2_paths("dfe-receiver", "1.3.0", "spike")
-        assert "/spike/" in versioned
-        assert "/spike/" in latest
 
 
 class TestCargoVersionSync:

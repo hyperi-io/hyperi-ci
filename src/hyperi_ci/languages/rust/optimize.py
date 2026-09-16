@@ -9,9 +9,9 @@
 Resolves the optimisation profile for a Rust build based on the project's
 publish channel and user config. Channel gating:
 
-    spike / alpha -> no optimisations (fast feedback cycles)
-    beta          -> jemalloc allocator + fat LTO
-    release       -> jemalloc + fat LTO + optional PGO + optional BOLT
+    alpha   -> jemalloc allocator + thin LTO (fast feedback cycles)
+    beta    -> jemalloc allocator + fat LTO
+    release -> jemalloc + fat LTO + optional PGO + optional BOLT
 
 User config in `.hyperi-ci.yaml` under `build.rust.optimize` overrides
 the channel defaults. Each key is optional; omitted keys use the default
@@ -29,19 +29,9 @@ from typing import Any
 
 from hyperi_ci.common import info, warn
 
-# Allocator + LTO defaults per channel.
-#
-# Allocator: jemalloc at ALL channels. Consistency wins — spike/alpha
-# binaries behave like production (same fragmentation patterns, same
-# memory profile, same perf-trace symbols). The ~10s extra compile
-# cost is trivial and cached after first build.
-#
-# LTO: thin at spike/alpha, fat at beta+. Different tradeoff — fat LTO
-# adds 5-10 min per CI run, meaningful friction for spike iteration.
-# Thin vs fat LTO binaries behave identically, just run at different
-# speeds, so gating fat LTO at beta+ preserves fast spike feedback.
+# jemalloc at every channel, so an alpha binary profiles like a release one.
+# Fat LTO costs 5-10 min per CI run, so it starts at beta.
 _CHANNEL_DEFAULTS: dict[str, dict[str, str]] = {
-    "spike": {"allocator": "jemalloc", "lto": "thin"},
     "alpha": {"allocator": "jemalloc", "lto": "thin"},
     "beta": {"allocator": "jemalloc", "lto": "fat"},
     "release": {"allocator": "jemalloc", "lto": "fat"},
@@ -154,13 +144,13 @@ def resolve_optimization_profile(
 ) -> OptimizationProfile:
     """Resolve an optimisation profile from channel + user config.
 
-    Priority: explicit user value > channel default. `spike` / `alpha`
-    channels never enable optimisations by default; users can still opt
-    in explicitly via the `optimize:` config.
+    Priority: explicit user value > channel default. The `alpha` channel
+    never enables PGO or BOLT by default -- a user can still opt in
+    explicitly via the `optimize:` config.
 
     Args:
-        channel: Publish channel (spike/alpha/beta/release). Unknown
-                 channels are treated as spike (safest default).
+        channel: Publish channel (alpha/beta/release). An unrecognised
+                 channel resolves to the alpha tier.
         user_optimize: Dict from `build.rust.optimize` in .hyperi-ci.yaml,
                        or None/empty if not configured.
         skip_optimize: Drop the optimisation stage for this run. For Rust
@@ -173,7 +163,9 @@ def resolve_optimization_profile(
         Resolved `OptimizationProfile`. Never raises.
 
     """
-    defaults = _CHANNEL_DEFAULTS.get(channel, _CHANNEL_DEFAULTS["spike"])
+    # An unrecognised channel, such as a legacy `spike` still in a repo
+    # config, resolves to the lowest tier rather than failing the build.
+    defaults = _CHANNEL_DEFAULTS.get(channel, _CHANNEL_DEFAULTS["alpha"])
     user = user_optimize or {}
 
     allocator = _normalise_allocator(user.get("allocator") or defaults["allocator"])

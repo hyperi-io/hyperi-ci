@@ -240,7 +240,7 @@ class TestPrereleaseIsExempt:
         monkeypatch.setattr(gate_audit, "repo_channel", lambda _full: channel)
         return gate_audit.is_prerelease("o/r")
 
-    @pytest.mark.parametrize("channel", ["spike", "alpha", "beta"])
+    @pytest.mark.parametrize("channel", ["alpha", "beta"])
     def test_pre_ga_channels_are_exempt(
         self, monkeypatch: pytest.MonkeyPatch, channel: str
     ) -> None:
@@ -265,7 +265,7 @@ class TestPrereleaseIsExempt:
         assert not self._declaring(monkeypatch, None)
 
     def test_the_exempt_set_is_the_pre_ga_channels(self) -> None:
-        assert PRERELEASE_CHANNELS == {"spike", "alpha", "beta"}
+        assert PRERELEASE_CHANNELS == {"alpha", "beta"}
 
 
 class TestChannelParsing:

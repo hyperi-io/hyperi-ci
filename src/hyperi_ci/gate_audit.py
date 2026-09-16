@@ -327,7 +327,7 @@ def audit_repo(
 
 
 # Channels that make a dormant gate expected rather than a fault.
-PRERELEASE_CHANNELS = frozenset({"spike", "alpha", "beta"})
+PRERELEASE_CHANNELS = frozenset({"alpha", "beta"})
 
 
 def repo_channel(full_name: str) -> str | None:

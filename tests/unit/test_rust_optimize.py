@@ -21,11 +21,6 @@ class TestChannelDefaults:
     """Channel-tiered defaults. Allocator is jemalloc everywhere for
     consistency; LTO tiers at beta+ for CI speed."""
 
-    def test_spike_uses_jemalloc_and_thin_lto(self) -> None:
-        p = resolve_optimization_profile("spike", None)
-        assert p.allocator == "jemalloc"
-        assert p.lto == "thin"
-
     def test_alpha_uses_jemalloc_and_thin_lto(self) -> None:
         p = resolve_optimization_profile("alpha", None)
         assert p.allocator == "jemalloc"
@@ -41,10 +36,19 @@ class TestChannelDefaults:
         assert p.allocator == "jemalloc"
         assert p.lto == "fat"
 
-    def test_unknown_channel_falls_back_to_spike_defaults(self) -> None:
+    def test_unknown_channel_falls_back_to_alpha_defaults(self) -> None:
         p = resolve_optimization_profile("random-channel-name", None)
         assert p.allocator == "jemalloc"
         assert p.lto == "thin"
+
+    def test_retired_spike_channel_resolves_to_the_alpha_tier(self) -> None:
+        # A repo config still naming the removed spike channel degrades to
+        # the lowest tier instead of breaking the build.
+        p = resolve_optimization_profile("spike", None)
+        assert p.allocator == "jemalloc"
+        assert p.lto == "thin"
+        assert p.pgo_enabled is False
+        assert p.bolt_enabled is False
 
 
 class TestUserOverrides:
@@ -181,8 +185,8 @@ class TestSkipOptimize:
         assert p.lto == "fat"
 
     def test_skip_is_marked_even_where_tier_two_never_ran(self) -> None:
-        # spike has no PGO or BOLT to drop, and the log line still says why.
-        assert self._skipped("spike").optimize_skipped is True
+        # alpha has no PGO or BOLT to drop, and the log line still says why.
+        assert self._skipped("alpha").optimize_skipped is True
 
     def test_describe_names_the_skip(self) -> None:
         # The run log is where an unoptimised binary announces itself.
@@ -201,7 +205,7 @@ class TestCargoFeatures:
     """`cargo_features()` returns the feature list for `--features` flag."""
 
     def test_system_allocator_returns_empty_list(self) -> None:
-        p = OptimizationProfile(channel="spike", allocator="system")
+        p = OptimizationProfile(channel="alpha", allocator="system")
         assert p.cargo_features() == []
 
     def test_jemalloc_returns_jemalloc_feature(self) -> None:
@@ -273,7 +277,7 @@ class TestEnvOverrides:
         assert p.env_overrides() == {"CARGO_PROFILE_RELEASE_LTO": "fat"}
 
     def test_thin_lto_sets_env_var(self) -> None:
-        p = OptimizationProfile(channel="spike", lto="thin")
+        p = OptimizationProfile(channel="alpha", lto="thin")
         assert p.env_overrides() == {"CARGO_PROFILE_RELEASE_LTO": "thin"}
 
 

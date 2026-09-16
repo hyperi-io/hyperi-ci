@@ -131,8 +131,7 @@ def resolve_tags(
         version: Semantic version with no leading ``v``
             (e.g. ``"1.13.5"``).
         sha: Short git SHA.
-        channel: Publish channel (``spike`` | ``alpha`` | ``beta`` |
-            ``release``).
+        channel: Publish channel (``alpha`` | ``beta`` | ``release``).
         mode: Push mode — ``publish`` | ``dev`` | ``validate``.
         branch_slug: Docker-tag-safe branch slug for dev mode
             (:func:`hyperi_ci.publish_mode.dev_branch_slug`). Empty →

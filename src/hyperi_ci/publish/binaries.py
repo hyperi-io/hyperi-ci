@@ -44,7 +44,7 @@ R2_ACCOUNT_ID = "98d20454e2af7a9397ad9366a1641659"
 R2_ENDPOINT = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
 R2_PUBLIC_URL = "https://downloads.hyperi.io"
 
-VALID_CHANNELS = ("spike", "alpha", "beta", "release")
+VALID_CHANNELS = ("alpha", "beta", "release")
 
 CHANGELOG_FILE = "CHANGELOG.md"
 
@@ -255,7 +255,7 @@ def _upload_binaries_github(
     """Create GitHub Release and upload built binaries.
 
     Creates a GH Release for the tag (from VERSION file). For non-release
-    channels (spike, alpha, beta), the release is marked as prerelease.
+    channels (alpha, beta), the release is marked as prerelease.
     Falls back to upload if the release already exists at HEAD (idempotent
     re-runs); refuses to clobber a release at a different commit (#105).
 
