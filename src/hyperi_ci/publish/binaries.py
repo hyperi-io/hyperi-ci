@@ -17,8 +17,12 @@ Any language that packages binaries to dist/ gets this for free.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from hyperi_ci.common import (
@@ -41,6 +45,13 @@ R2_ENDPOINT = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
 R2_PUBLIC_URL = "https://downloads.hyperi.io"
 
 VALID_CHANNELS = ("spike", "alpha", "beta", "release")
+
+CHANGELOG_FILE = "CHANGELOG.md"
+
+# A rendered release heading: `## [1.2.3](compare-url) (date)` for a patch,
+# `# [1.3.0](...)` for a minor or major. A `### Bug Fixes` sub-heading inside
+# an entry does not match, so the next match is the next release.
+_ENTRY_HEADING = re.compile(r"^#{1,3}\s+\[?v?(\d+\.\d+\.\d+[^\]\s]*)\]?")
 
 
 def _resolve_gh_release_flags(channel: str) -> list[str]:
@@ -73,7 +84,7 @@ _PYTHON_DIST_SUFFIXES = (".whl", ".tar.gz", ".zip")
 
 
 def _is_python_dist_artifact(path: Path) -> bool:
-    """True for a Python packaging artefact (wheel or sdist).
+    """Return True for a Python packaging artefact (wheel or sdist).
 
     Used to honour ``destinations_oss.python: false``: a project that ships
     no Python distribution must not leak its wheel/sdist to R2 or a GitHub
@@ -88,7 +99,7 @@ def _is_python_dist_artifact(path: Path) -> bool:
 
 
 def _release_targets_head(tag: str) -> bool:
-    """True iff the git tag for an existing release points at HEAD.
+    """Return True iff the git tag for an existing release points at HEAD.
 
     An existing release AT HEAD is an idempotent re-run (safe to proceed);
     one at a DIFFERENT commit means a stale version was resolved, and
@@ -112,6 +123,59 @@ def _release_targets_head(tag: str) -> bool:
     if head_commit.returncode != 0 or not head_commit.stdout.strip():
         return False
     return tag_commit.stdout.strip() == head_commit.stdout.strip()
+
+
+def _top_changelog_entry(version: str, changelog: str) -> str | None:
+    """Return the topmost changelog entry, heading included.
+
+    Returns None unless that heading names ``version``. A retroactive
+    publish checks out a tag whose CHANGELOG.md stops at the previous
+    release, and those notes describe that release, not this one.
+    """
+    lines = changelog.splitlines()
+    start: int | None = None
+    for index, line in enumerate(lines):
+        match = _ENTRY_HEADING.match(line)
+        if match is None:
+            continue
+        if start is None:
+            if match.group(1) != version:
+                return None
+            start = index
+            continue
+        return "\n".join(lines[start:index]).strip() or None
+    if start is None:
+        return None
+    return "\n".join(lines[start:]).strip() or None
+
+
+@contextmanager
+def _release_notes_flags(version: str) -> Iterator[list[str]]:
+    """Yield gh flags carrying the rendered changelog entry as the body.
+
+    GitHub puts the body above its own generated notes, so the release page
+    gets the curated entry and the commit list. Yields no flags when there
+    is no CHANGELOG.md or its top entry is a different version, which leaves
+    the generated notes on their own.
+    """
+    changelog = Path(CHANGELOG_FILE)
+    entry = None
+    if changelog.is_file():
+        entry = _top_changelog_entry(
+            version, changelog.read_text(encoding="utf-8", errors="replace")
+        )
+    if entry is None:
+        yield []
+        return
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".md", delete=False, encoding="utf-8", newline="\n"
+    ) as handle:
+        handle.write(f"{entry}\n")
+        notes_file = handle.name
+    try:
+        yield ["--notes-file", notes_file]
+    finally:
+        Path(notes_file).unlink(missing_ok=True)
 
 
 def _collect_artifacts(exclude_python: bool = False) -> list[Path]:
@@ -152,11 +216,12 @@ def create_github_release(config: CIConfig) -> int:
     channel = config.get("publish.channel", "release")
     tag = f"v{version}"
 
-    cmd = ["gh", "release", "create", tag, "--title", tag, "--generate-notes"]
-    cmd.extend(_resolve_gh_release_flags(channel))
-
     info(f"Creating GitHub Release {tag}")
-    result = run_cmd(cmd, check=False, capture=True)
+    with _release_notes_flags(version) as notes_flags:
+        cmd = ["gh", "release", "create", tag, "--title", tag, "--generate-notes"]
+        cmd.extend(notes_flags)
+        cmd.extend(_resolve_gh_release_flags(channel))
+        result = run_cmd(cmd, check=False, capture=True)
     if result.returncode != 0:
         if "already exists" in result.stderr:
             # A release for this tag already exists. Allow an idempotent
@@ -211,11 +276,12 @@ def _upload_binaries_github(
     tag = f"v{version}"
     info(f"Publishing {len(artifacts)} artifact(s) to GitHub Release {tag}")
 
-    cmd = ["gh", "release", "create", tag, "--title", tag, "--generate-notes"]
-    cmd.extend(_resolve_gh_release_flags(channel))
-    cmd.extend(str(f) for f in artifacts)
-
-    result = run_cmd(cmd, check=False, capture=True)
+    with _release_notes_flags(version) as notes_flags:
+        cmd = ["gh", "release", "create", tag, "--title", tag, "--generate-notes"]
+        cmd.extend(notes_flags)
+        cmd.extend(_resolve_gh_release_flags(channel))
+        cmd.extend(str(f) for f in artifacts)
+        result = run_cmd(cmd, check=False, capture=True)
     if result.returncode != 0:
         if "already exists" in result.stderr:
             # Only clobber a release that ships from HEAD (idempotent re-run);

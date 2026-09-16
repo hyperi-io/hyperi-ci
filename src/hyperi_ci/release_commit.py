@@ -37,7 +37,13 @@ from hyperi_ci.common import error, info, run_cmd, success, warn
 
 # The rendered artefacts. Both are outputs: VERSION is written by
 # `stamp-version`, CHANGELOG.md by @semantic-release/changelog.
-RELEASE_ARTEFACTS = ("VERSION", "CHANGELOG.md")
+CHANGELOG = "CHANGELOG.md"
+RELEASE_ARTEFACTS = ("VERSION", CHANGELOG)
+
+# Hand-written notes for the version being cut, printed into the release notes
+# by @semantic-release/exec. Removed in the same commit, so one supplement
+# reaches one release.
+SUPPLEMENT = ".github/release-notes/NEXT.md"
 
 # `[skip ci]` keeps the commit from triggering another run. Without it the
 # push retriggers CI, which finds no `Publish: true` trailer and validates
@@ -72,13 +78,13 @@ def _api(args: list[str], *, body: dict | None = None) -> dict | None:
         return None
 
 
-def _blob_entries(repo: str, root: Path) -> list[dict[str, str]] | None:
+def _blob_entries(repo: str, root: Path) -> list[dict[str, str | None]] | None:
     """Upload each artefact as a blob, returning tree entries by sha.
 
     Content goes up base64-encoded so a file that is not valid UTF-8 (or
     carries a stray CR) survives the round trip intact.
     """
-    entries: list[dict[str, str]] = []
+    entries: list[dict[str, str | None]] = []
     for name in RELEASE_ARTEFACTS:
         path = root / name
         if not path.is_file():
@@ -97,6 +103,35 @@ def _blob_entries(repo: str, root: Path) -> list[dict[str, str]] | None:
     return entries
 
 
+def _supplement_entry(
+    *, repo: str, root: Path, branch: str, version: str
+) -> list[dict[str, str | None]]:
+    """Return the tree entry that deletes a consumed supplement, if any.
+
+    A null sha is how the tree API removes a path. Two things gate it. The
+    rendered changelog must name the version, because a forced bump skips
+    semantic-release and prints the supplement into nothing. The branch must
+    still carry the file, because a retroactive publish checks out a tag whose
+    tree predates the removal, and the API rejects deleting a path the base
+    tree does not have.
+    """
+    if not (root / SUPPLEMENT).is_file():
+        return []
+    changelog = root / CHANGELOG
+    rendered = (
+        changelog.read_text(encoding="utf-8", errors="replace")
+        if changelog.is_file()
+        else ""
+    )
+    if version not in rendered:
+        info(f"release-commit: no v{version} entry in {CHANGELOG} — {SUPPLEMENT} kept")
+        return []
+    if _api([f"repos/{repo}/contents/{SUPPLEMENT}?ref={branch}"]) is None:
+        info(f"release-commit: {SUPPLEMENT} is not on {branch} — leaving it alone")
+        return []
+    return [{"path": SUPPLEMENT, "mode": "100644", "type": "blob", "sha": None}]
+
+
 def commit_release_artefacts(
     *,
     version: str,
@@ -105,6 +140,9 @@ def commit_release_artefacts(
     dry_run: bool = False,
 ) -> int:
     """Commit the rendered release artefacts onto ``branch``, untagged.
+
+    The same commit deletes ``.github/release-notes/NEXT.md`` when the
+    release consumed one.
 
     Args:
         version: Version just released, used in the commit subject.
@@ -129,12 +167,16 @@ def commit_release_artefacts(
         return 1
 
     present = [name for name in RELEASE_ARTEFACTS if (root / name).is_file()]
-    if not present:
+    consumed = [SUPPLEMENT] if (root / SUPPLEMENT).is_file() else []
+    if not present and not consumed:
         info("release-commit: no release artefacts on disk — nothing to commit")
         return 0
 
     if dry_run:
-        info(f"release-commit: would commit {', '.join(present)} to {branch}")
+        plan = f"commit {', '.join(present)}" if present else "commit nothing"
+        if consumed:
+            plan += f" and remove {SUPPLEMENT}"
+        info(f"release-commit: would {plan} on {branch}")
         return 0
 
     for attempt in range(1, _RETRIES + 1):
@@ -167,6 +209,10 @@ def _attempt(*, repo: str, root: Path, version: str, branch: str) -> str:
     entries = _blob_entries(repo, root)
     if entries is None:
         return "fail"
+    entries += _supplement_entry(repo=repo, root=root, branch=branch, version=version)
+    if not entries:
+        info("release-commit: nothing to write")
+        return "ok"
 
     tree = _api(
         ["-X", "POST", f"repos/{repo}/git/trees"],

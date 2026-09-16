@@ -125,6 +125,20 @@ Entries below 2.4.0 predate the plugin removal; the gap between 2.3.10 and the
 version that restored this is not recoverable from the file, only from the
 Releases page.
 
+### Supplementary notes
+
+A repo adds hand-written notes to a release by committing
+`.github/release-notes/NEXT.md` before the publish. `@semantic-release/exec`
+prints the file during `generateNotes`, and semantic-release joins every
+plugin's notes, so the text lands under the version heading alongside the
+generated commit list. The GitHub Release body carries the same rendered entry:
+`publish` reads the top entry out of `CHANGELOG.md` and passes it to
+`gh release create --notes-file`, above GitHub's own generated notes.
+
+`release-commit` deletes `NEXT.md` in the same commit that lands the changelog,
+so one supplement reaches one release. Write the next one when there is
+something to say. An absent file changes nothing.
+
 ## After the release lands
 
 Two steps close the loop, both idempotent and both `continue-on-error` -- a
