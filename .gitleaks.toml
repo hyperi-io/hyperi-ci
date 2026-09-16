@@ -1,0 +1,17 @@
+# Project:   HyperI CI
+# File:      .gitleaks.toml
+# Purpose:   gitleaks allowlist layered on the default rules
+#
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "PGP key fingerprints are public identifiers, not secrets"
+regexTarget = "line"
+regexes = [
+  '''key_fingerprint: [0-9A-Fa-f]{40}''',
+  '''_SUBKEY = "[0-9A-Fa-f]{40}"''',
+]
