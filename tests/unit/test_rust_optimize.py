@@ -10,6 +10,7 @@ from __future__ import annotations
 from hyperi_ci.languages.rust.optimize import (
     OptimizationProfile,
     _parse_features_from_text,
+    cargo_feature_args,
     parse_cargo_features,
     resolve_optimization_profile,
     validate_profile,
@@ -156,6 +157,58 @@ class TestCargoFeatures:
     def test_mimalloc_returns_mimalloc_feature(self) -> None:
         p = OptimizationProfile(channel="release", allocator="mimalloc")
         assert p.cargo_features() == ["mimalloc"]
+
+
+class TestCargoFeatureArgs:
+    """`cargo_feature_args()` is the one renderer every cargo line uses.
+
+    The allocator is ADDED to what `build.rust.features` declares -- a
+    release image that drops the declared features refuses at load every
+    engine it was configured with (#130).
+    """
+
+    _RELEASE = OptimizationProfile(channel="release", allocator="jemalloc")
+
+    def test_declared_features_keep_the_allocator(self) -> None:
+        args = cargo_feature_args(self._RELEASE, "db-clickhouse,file-tail")
+        assert args == ["--features", "db-clickhouse,file-tail,jemalloc"]
+
+    def test_pipe_joined_list_becomes_one_comma_separated_set(self) -> None:
+        """The dispatcher joins a YAML features list with a pipe character."""
+        args = cargo_feature_args(
+            self._RELEASE, "jemalloc|db-clickhouse|db-mongodb|file-tail"
+        )
+        assert args == [
+            "--features",
+            "jemalloc,db-clickhouse,db-mongodb,file-tail",
+        ]
+
+    def test_allocator_is_not_repeated(self) -> None:
+        args = cargo_feature_args(self._RELEASE, "jemalloc,db-clickhouse")
+        assert args == ["--features", "jemalloc,db-clickhouse"]
+
+    def test_system_allocator_passes_only_declared_features(self) -> None:
+        p = OptimizationProfile(channel="release", allocator="system")
+        assert cargo_feature_args(p, "db-clickhouse") == [
+            "--features",
+            "db-clickhouse",
+        ]
+
+    def test_no_profile_and_no_features_renders_nothing(self) -> None:
+        assert cargo_feature_args(None, "") == []
+
+    def test_sentinels_are_not_cargo_features(self) -> None:
+        """The words all and default name a stage feature set, not a crate's."""
+        assert cargo_feature_args(None, "all") == []
+        assert cargo_feature_args(None, "default") == []
+        assert cargo_feature_args(self._RELEASE, "default|db-clickhouse") == [
+            "--features",
+            "db-clickhouse,jemalloc",
+        ]
+
+    def test_all_features_supersedes_the_list(self) -> None:
+        args = cargo_feature_args(self._RELEASE, "db-clickhouse", all_features=True)
+        assert args == ["--all-features"]
 
 
 class TestEnvOverrides:

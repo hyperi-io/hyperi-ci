@@ -27,7 +27,7 @@ import subprocess
 from pathlib import Path
 
 from hyperi_ci.common import error, info, warn
-from hyperi_ci.languages.rust.optimize import OptimizationProfile
+from hyperi_ci.languages.rust.optimize import OptimizationProfile, cargo_feature_args
 
 
 def run_pgo_build(
@@ -48,13 +48,21 @@ def run_pgo_build(
                      instrumented binary after `cargo pgo build`).
         cwd: Working directory (project root).
         extra_env: Additional env vars merged into the cargo/workload env.
+                   RUST_FEATURES / RUST_ALL_FEATURES also carry the
+                   project's declared `build.rust.features`.
 
     Returns:
         0 on success, non-zero on failure.
 
     """
-    features = profile.cargo_features()
-    feature_args = ["--features", ",".join(features)] if features else []
+    # Same renderer as the plain release build, so an optimised binary
+    # ships the declared features and not only the allocator.
+    env_features = extra_env or {}
+    feature_args = cargo_feature_args(
+        profile,
+        env_features.get("RUST_FEATURES", ""),
+        all_features=env_features.get("RUST_ALL_FEATURES") == "true",
+    )
 
     if not _ensure_cargo_pgo_installed():
         warn(

@@ -41,6 +41,7 @@ from hyperi_ci.languages._build_common import (
 )
 from hyperi_ci.languages.rust.optimize import (
     OptimizationProfile,
+    cargo_feature_args,
     log_profile,
     parse_cargo_features,
     resolve_optimization_profile,
@@ -1145,28 +1146,13 @@ def _build_for_target(
     pipeline (instrument -> workload -> optimise, optionally followed
     by BOLT) is used instead of a plain `cargo build`.
 
-    Otherwise, the profile's allocator features are merged with
-    user-supplied `features` and `env_overrides()` (CARGO_PROFILE_RELEASE_LTO)
-    are injected into the build environment.
+    Either path renders its cargo lines with `cargo_feature_args()`, so
+    `features` and the profile's allocator reach the binary whichever one
+    runs, and `env_overrides()` (CARGO_PROFILE_RELEASE_LTO) is injected
+    into the build environment.
     """
     if not _ensure_target_installed(target):
         return 1
-
-    # Merge profile allocator features with user-supplied features
-    if profile:
-        profile_features = profile.cargo_features()
-        if profile_features:
-            user_features = (
-                [f for f in features.split(",") if f.strip()] if features else []
-            )
-            # Deduplicate while preserving order
-            seen: set[str] = set()
-            merged: list[str] = []
-            for f in [*user_features, *profile_features]:
-                if f and f not in seen:
-                    seen.add(f)
-                    merged.append(f)
-            features = ",".join(merged)
 
     # Merge profile env overrides (LTO) into extra_env
     if profile:
@@ -1190,15 +1176,17 @@ def _build_for_target(
                 profile=profile,
                 binary_name=binary_names[0],
                 cwd=Path.cwd(),
-                extra_env=extra_env,
+                # RUST_FEATURES / RUST_ALL_FEATURES are where the PGO path
+                # reads the declared features for its own cargo lines.
+                extra_env={
+                    **(extra_env or {}),
+                    "RUST_FEATURES": features,
+                    "RUST_ALL_FEATURES": "true" if all_features else "false",
+                },
             )
 
-    cmd = ["cargo", "build", "--release", "--target", target]
-
-    if all_features:
-        cmd.append("--all-features")
-    elif features and features not in ("all", "default"):
-        cmd.extend(["--features", features])
+    feature_args = cargo_feature_args(profile, features, all_features=all_features)
+    cmd = ["cargo", "build", "--release", "--target", target, *feature_args]
 
     env = dict(os.environ)
     if extra_env:

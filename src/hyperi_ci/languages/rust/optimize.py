@@ -95,6 +95,54 @@ class OptimizationProfile:
         return ", ".join(parts)
 
 
+# "all" and "default" are stage sentinels the dispatcher passes through, not
+# cargo feature names: "all" arrives as RUST_ALL_FEATURES and cargo applies the
+# default set unless --no-default-features.
+_FEATURE_SENTINELS = frozenset({"", "all", "default"})
+
+
+def cargo_feature_args(
+    profile: OptimizationProfile | None,
+    features: str,
+    *,
+    all_features: bool = False,
+) -> list[str]:
+    """Render the cargo feature flags for one build of one target.
+
+    Every cargo line a target's build issues -- plain release, PGO
+    instrument, PGO optimise, BOLT -- renders its features here, so an
+    optimised binary carries the features the project declared and not
+    just the allocator.
+
+    Args:
+        profile: Resolved optimisation profile, or None to add no
+                 allocator feature.
+        features: `build.rust.features` as the dispatcher encodes it --
+                  one string separated by "," or "|", or a sentinel.
+        all_features: True for `--all-features`, which already covers the
+                      allocator feature.
+
+    Returns:
+        Flags to append to a cargo command line, empty when the build
+        selects no features.
+
+    """
+    if all_features:
+        return ["--all-features"]
+
+    # A YAML list reaches us "|"-joined, a single entry ","-separated.
+    declared = features.strip().replace("|", ",").split(",")
+    allocator = profile.cargo_features() if profile else []
+
+    merged: list[str] = []
+    for feature in (*declared, *allocator):
+        name = feature.strip()
+        if name not in _FEATURE_SENTINELS and name not in merged:
+            merged.append(name)
+
+    return ["--features", ",".join(merged)] if merged else []
+
+
 def resolve_optimization_profile(
     channel: str,
     user_optimize: dict[str, Any] | None,
