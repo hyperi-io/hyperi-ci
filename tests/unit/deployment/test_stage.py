@@ -13,6 +13,8 @@ import os
 import stat
 from pathlib import Path
 
+import pytest
+
 from hyperi_ci.config import CIConfig
 from hyperi_ci.deployment.cli import EXIT_NOT_IMPLEMENTED
 from hyperi_ci.deployment.stage import (
@@ -569,12 +571,16 @@ class TestDispatchIntegration:
         assert stage_generate("python", config) == 0
         assert seen["config"] is config
 
-    def test_project_dir_reaches_the_generate_stage(self, tmp_path: Path) -> None:
+    def test_project_dir_reaches_the_generate_stage(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         # `hyperi-ci run generate -C <dir>` resolved the root for
         # language detection but not for tier detection, so the stage
         # read the CURRENT repo's manifests and dispatched its producer
         # against a different project.
         from hyperi_ci.dispatch import run_stage
 
+        # run_stage chdirs for the process, so restore pytest's cwd afterwards.
+        monkeypatch.chdir(tmp_path)
         _write_scalo_library_consumer(tmp_path)
         assert run_stage("generate", project_dir=tmp_path) == EXIT_OK
