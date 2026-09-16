@@ -60,3 +60,34 @@ jobs:
         run: |
           uv run --no-sources python scripts/update-versions.py \
             --stable --fail-on-drift ${{ inputs.now && '--now' || '' }}
+
+  digests:
+    # `--stable` compares VERSIONS. A release asset re-uploaded under the same
+    # tag changes the sha256 and nothing above notices, so run the composites
+    # that verify a digest and let `sha256sum -c` be the signal (#66).
+    name: Digest audit
+    # Not the vars-driven runner: the ARC image bakes these tools, and this job
+    # is here to exercise the download-and-verify path on a clean machine.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        # setup-go-tools compiles govulncheck with `go install`.
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+
+      - name: Verify the osv-scanner digest
+        uses: ./.github/actions/setup-osv-scanner
+
+      - name: Verify the Go tool digests
+        uses: ./.github/actions/setup-go-tools
+
+      - name: Verify the Rust tool digests
+        uses: ./.github/actions/setup-rust-tools
+
+      - name: Verify the cargo-nextest digest
+        uses: ./.github/actions/setup-nextest

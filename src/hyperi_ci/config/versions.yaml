@@ -182,9 +182,15 @@ tools:
   # No prebuilt binaries upstream (golang/vuln releases carry no assets), so
   # this one is still `go install` - but pinned, not @latest. Small pure-Go
   # module, so the compile costs seconds.
+  #
+  # `release_source: tags` because golang/vuln stopped cutting GitHub Releases
+  # in 2025-01. The releases API answers v1.1.4 forever, so --stable reported
+  # this pin current across four minors. The tags carry the truth; each one's
+  # date comes from the commit it points at.
   govulncheck:
     version: v1.8.0
     repo: golang/vuln
+    release_source: tags
     pin: .github/actions/setup-go-tools/action.yml
   # rustsec is a MONOREPO: every crate tags as `<crate>/vX.Y.Z`, so without
   # tag_prefix the release scan sees `platforms/v4.0.0` et al and either picks
@@ -243,6 +249,37 @@ tools:
     sha256:
       x86_64: aca691abfbfbbe00d482e0ed2249eec3091b65e96a0ce92947fb5b254d48b16d
       aarch64: cd59b90fce5fa84c4189648fec33404ec5491791eebdb812df5e7fca8336408d
+  # Helm itself, not the action that installs it: azure/setup-helm takes the
+  # binary version as a `with:` input, so the value is a literal in the
+  # gitops scaffold's workflows and drifted there unpinned. No digest of ours
+  # because the action does the fetching - ours is the version it fetches.
+  helm:
+    version: v4.2.4
+    repo: helm/helm
+    pin:
+      - src/hyperi_ci/gitops_templates/workflows/validate.yaml
+      - src/hyperi_ci/gitops_templates/workflows/stitch-and-publish.yaml
+
+  # Quality tools resolved at JOB TIME through uvx / `uv run --with`. Unpinned,
+  # each job took whatever PyPI served that morning, so a bad release could
+  # break the gate in every repo at once with nothing in any diff to show for
+  # it. `pypi:` names the package in place of a GitHub repo - the release scan
+  # reads PyPI's own upload times and applies the same 7-day cooldown. Python
+  # reads these through hyperi_ci.versions, so there is no `pin:` and no copy.
+  semgrep:
+    version: 1.176.1
+    pypi: semgrep
+  bandit:
+    version: 1.9.4
+    pypi: bandit
+  pip-audit:
+    version: 2.10.1
+    pypi: pip-audit
+  # Quoted: bare 2.16 reads as a YAML float, and a later 2.20 would come back
+  # as "2.2".
+  vulture:
+    version: "2.16"
+    pypi: vulture
 
 # Upstream capabilities we WANT but that are not ready yet.
 #
@@ -261,9 +298,30 @@ watch:
     issue: 68
 
 # Language runtimes (default versions in workflow inputs)
+#
+# python and node carry a `pin:` list because their value is spelled as a
+# literal in files GitHub parses before our code runs - a workflow input's
+# `default:`, a `with:` value. Those literals matched this file only by
+# coincidence until the markers went in: nothing read them, so nothing could
+# report drift. rust and llvm have no such copy, so they stay bare values.
+#
+# None of them auto-bump (_AUTO_UPDATE_SKIP in scripts/update-versions.py):
+# a runtime major is a decision, not a dependency refresh.
 runtimes:
-  python: "3.12"
-  node: "22"
+  python:
+    version: "3.12"
+    pin:
+      - .github/workflows/python-ci.yml
+      - .github/workflows/_release-tail.yml
+      - .github/workflows/ci.yml
+      - .github/actions/setup-runtime/action.yml
+  # 24 is Active LTS. 22 dropped to Maintenance on 2025-10-21, and 26 does not
+  # reach LTS until 2026-10-28 (nodejs/Release schedule.json).
+  node:
+    version: "24"
+    pin:
+      - .github/workflows/ts-ci.yml
+      - .github/actions/setup-semantic-release/action.yml
   rust: stable
   # LLVM major every Rust job installs bolt-NN and lld-NN from.
   # HYPERCI_LLVM_VERSION overrides it per run.

@@ -64,6 +64,7 @@ on:
         description: "Publish destination: internal, oss, or both"
       python-version:
         type: string
+        # hyperi-ci:pin runtimes.python
         default: "3.12"
         description: "Python runtime (used by container/publish toolchain)"
       rust-toolchain:

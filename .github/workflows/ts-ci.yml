@@ -25,7 +25,8 @@ on:
         description: "Publish destination (legacy field, ignored — every publish goes to OSS registries)"
       node-version:
         type: string
-        default: "22"
+        # hyperi-ci:pin runtimes.node
+        default: "24"
         description: "Node.js version"
       runner-quality:
         type: string
@@ -107,7 +108,8 @@ on:
         default: "oss"
       node-version:
         type: string
-        default: "22"
+        # hyperi-ci:pin runtimes.node
+        default: "24"
       skip-optimize:
         type: string
         required: false
