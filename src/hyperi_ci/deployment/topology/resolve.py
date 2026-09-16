@@ -33,7 +33,7 @@ from scalo.deployment.topology.errors import VersionResolutionError
 try:
     from oras.client import OrasClient as _OrasClient
 except ImportError:  # pragma: no cover
-    _OrasClient = None  # type: ignore[assignment,misc]  # ty: ignore[invalid-assignment]
+    _OrasClient = None  # type: ignore[assignment,misc]
 
 
 @dataclass

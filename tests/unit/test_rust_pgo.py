@@ -40,7 +40,13 @@ def _make_profile(
 
 
 class TestCargoPgoInstallGate:
-    """cargo-pgo auto-install logic."""
+    """cargo-pgo auto-install logic.
+
+    The helper prepends ~/.cargo/bin to ``os.environ["PATH"]`` and never puts
+    it back (production wants cargo on PATH for the rest of the run), so every
+    test reaching that branch reassigns PATH through monkeypatch and lets
+    pytest restore it instead of leaking into the rest of the suite.
+    """
 
     def test_already_installed_returns_true_no_install(self) -> None:
         with (
@@ -53,7 +59,8 @@ class TestCargoPgoInstallGate:
             assert _ensure_cargo_pgo_installed() is True
             mock_run.assert_not_called()
 
-    def test_not_installed_triggers_install_command(self) -> None:
+    def test_not_installed_triggers_install_command(self, monkeypatch) -> None:
+        monkeypatch.setenv("PATH", os.environ["PATH"])
         which_responses = iter(
             [None, "/bin/cargo-pgo"]
         )  # before install, after install
@@ -73,7 +80,8 @@ class TestCargoPgoInstallGate:
         cmd = mock_run.call_args[0][0]
         assert cmd == ["cargo", "install", "cargo-pgo", "--locked"]
 
-    def test_install_failure_returns_false(self) -> None:
+    def test_install_failure_returns_false(self, monkeypatch) -> None:
+        monkeypatch.setenv("PATH", os.environ["PATH"])
         with (
             patch("hyperi_ci.languages.rust.pgo.shutil.which", return_value=None),
             patch(
@@ -92,6 +100,9 @@ class TestBoltAvailabilityCheck:
     invokes BOTH `llvm-bolt` and `merge-fdata` unversioned, so the shim must
     cover both and they must come from the SAME LLVM version for internal
     consistency.
+
+    Shimming writes ~/.local/bin into ``os.environ["PATH"]``, so a test that
+    reaches it reassigns PATH through monkeypatch and lets pytest restore it.
     """
 
     # BOLT toolchain = llvm-bolt + merge-fdata + ld.lld (all three must
@@ -117,6 +128,7 @@ class TestBoltAvailabilityCheck:
         self, tmp_path, monkeypatch
     ) -> None:
         """Only /usr/bin/*-22 present → shim llvm-bolt, merge-fdata, AND ld.lld."""
+        monkeypatch.setenv("PATH", os.environ["PATH"])
         versioned_binaries = {
             f"{name}-22": tmp_path / f"{name}-22" for name in self._BOLT_TOOLS
         }
@@ -175,6 +187,7 @@ class TestBoltAvailabilityCheck:
         self, tmp_path, monkeypatch
     ) -> None:
         """v21 has only llvm-bolt; v22 has full trio — must pick v22 consistently."""
+        monkeypatch.setenv("PATH", os.environ["PATH"])
         # v21: only llvm-bolt-21 (no merge-fdata-21, no ld.lld-21)
         v21_bolt = tmp_path / "llvm-bolt-21"
         v21_bolt.touch()
