@@ -104,9 +104,11 @@ panic = "abort"
 opt-level = 3
 ```
 
-**Critical**: `jemalloc` must NOT be in `default` features. hyperi-ci
-injects `--features jemalloc` per channel; if it's already on by default
-you lose the ability to opt out for debugging or canary comparisons.
+**Critical**: `jemalloc` must NOT be in `default` features. hyperi-ci adds
+the allocator to whatever `build.rust.features` declares and passes that one
+set on every cargo line for the target - plain release, PGO instrument, PGO
+optimise and BOLT alike; if it's already on by default you lose the ability
+to opt out for debugging or canary comparisons.
 
 **LTO source-level default stays `thin`** - hyperi-ci overrides to `fat`
 on beta+ via `CARGO_PROFILE_RELEASE_LTO=fat`, so local `cargo build
@@ -245,7 +247,7 @@ Grep the Build job log for these exact markers:
 ```
 Rust build optimisation: channel=release, allocator=jemalloc, lto=fat, pgo=on, bolt=on
 PGO: building instrumented binary for <triple>
-cargo pgo build -- --target <triple> --features jemalloc
+cargo pgo build -- --target <triple> --features <declared features>,jemalloc
 PGO instrumentation build finished successfully
 <your workload output — pgo-workload: ...>
 Found 1 PGO profile file with total size X.XX MiB
@@ -256,7 +258,7 @@ merge-fdata shim: ~/.local/bin/merge-fdata -> /usr/bin/merge-fdata-22
 ld.lld shim: ~/.local/bin/ld.lld -> /usr/bin/ld.lld-22
 BOLT: building instrumented binary for <triple> (linker forced to lld)
 BOLT: building instrumented binary
-cargo pgo bolt build -- --target <triple> --features jemalloc
+cargo pgo bolt build -- --target <triple> --features <declared features>,jemalloc
 BOLT: optimising binary
 ```
 

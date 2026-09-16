@@ -703,6 +703,56 @@ class TestRunPgoBuildOrchestration:
             assert "--features" in args
             assert "jemalloc" in args
 
+    def test_declared_features_reach_every_cargo_line(self, tmp_path) -> None:
+        """A PGO+BOLT release carries `build.rust.features` on all four builds.
+
+        The PGO path used to render the allocator alone, so a release image
+        was compiled without the engines its config declared and refused
+        them at load (#130).
+        """
+        bin_dir = tmp_path / "target" / "x86_64-unknown-linux-gnu" / "release"
+        bin_dir.mkdir(parents=True)
+        (bin_dir / "my-bin").touch()
+        (bin_dir / "my-bin-bolt-instrumented").touch()
+
+        declared = ("db-clickhouse", "db-mongodb", "file-tail")
+        profile = _make_profile(allocator="jemalloc", bolt_enabled=True)
+        with (
+            patch(
+                "hyperi_ci.languages.rust.pgo._ensure_cargo_pgo_installed",
+                return_value=True,
+            ),
+            patch(
+                "hyperi_ci.languages.rust.pgo._ensure_llvm_bolt_available",
+                return_value=True,
+            ),
+            patch(
+                "hyperi_ci.languages.rust.pgo._run_cargo_pgo",
+                return_value=0,
+            ) as mock_cargo,
+            patch("hyperi_ci.languages.rust.pgo._run_workload", return_value=0),
+        ):
+            rc = run_pgo_build(
+                target="x86_64-unknown-linux-gnu",
+                profile=profile,
+                binary_name="my-bin",
+                cwd=tmp_path,
+                # Exactly what the dispatcher passes for a YAML features list.
+                extra_env={
+                    "RUST_FEATURES": "jemalloc|db-clickhouse|db-mongodb|file-tail",
+                    "RUST_ALL_FEATURES": "false",
+                },
+            )
+        assert rc == 0
+        # PGO build + PGO optimize + BOLT build + BOLT optimize
+        assert mock_cargo.call_count == 4
+        for call in mock_cargo.call_args_list:
+            args = call[0][0]
+            selected = args[args.index("--features") + 1].split(",")
+            assert "jemalloc" in selected, args
+            for feature in declared:
+                assert feature in selected, args
+
     def test_system_allocator_no_features_flag(self, tmp_path) -> None:
         bin_dir = tmp_path / "target" / "x86_64-unknown-linux-gnu" / "release"
         bin_dir.mkdir(parents=True)
@@ -730,6 +780,51 @@ class TestRunPgoBuildOrchestration:
         for call in mock_cargo.call_args_list:
             args = call[0][0]
             assert "--features" not in args
+
+
+class TestBuildHandsFeaturesToPgo:
+    """`_build_for_target` gives the PGO path the features it was handed.
+
+    The PGO path renders its own cargo lines, so the features have to
+    survive the handoff and not just the plain-build branch.
+    """
+
+    def test_declared_features_reach_the_pgo_path(self, tmp_path, monkeypatch) -> None:
+        from hyperi_ci.languages.rust import build
+
+        monkeypatch.chdir(tmp_path)
+        bin_dir = tmp_path / "target" / "x86_64-unknown-linux-gnu" / "release"
+        bin_dir.mkdir(parents=True)
+        (bin_dir / "my-bin").touch()
+
+        monkeypatch.setattr(build, "_ensure_target_installed", lambda _target: True)
+        monkeypatch.setattr(build, "_detect_binary_names", lambda: ["my-bin"])
+
+        with (
+            patch(
+                "hyperi_ci.languages.rust.pgo._ensure_cargo_pgo_installed",
+                return_value=True,
+            ),
+            patch(
+                "hyperi_ci.languages.rust.pgo._run_cargo_pgo",
+                return_value=0,
+            ) as mock_cargo,
+            patch("hyperi_ci.languages.rust.pgo._run_workload", return_value=0),
+        ):
+            rc = build._build_for_target(
+                "x86_64-unknown-linux-gnu",
+                "db-clickhouse|file-tail",
+                False,
+                {},
+                profile=_make_profile(),
+            )
+
+        assert rc == 0
+        assert mock_cargo.call_count == 2
+        for call in mock_cargo.call_args_list:
+            args = call[0][0]
+            selected = args[args.index("--features") + 1].split(",")
+            assert selected == ["db-clickhouse", "file-tail", "jemalloc"], args
 
 
 class TestMissingInstrumentedBinary:
