@@ -21,6 +21,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from packaging.version import InvalidVersion, Version
+
 from hyperi_ci.common import error, get_exclude_dirs, info, is_ci, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import (
@@ -52,6 +54,19 @@ _DEFAULT_PYTHON_TEST_IGNORE = [
     "RUF015",
     "RUF043",
 ]
+
+# `ruff format` accepts --extend-exclude from 0.16, the same version that first
+# walks Markdown: below it the flag is rejected and there is nothing to exclude.
+_RUFF_FORMAT_EXTEND_EXCLUDE_MIN = Version("0.16")
+
+# clap (ruff), argparse (bandit, vulture) and getopt each reject an unknown flag
+# with one of these, having checked nothing.
+_ARGV_REJECTION = (
+    "unexpected argument",
+    "unrecognized arguments",
+    "unrecognized argument",
+    "no such option",
+)
 
 
 def _get_tool_mode(tool: str, config: CIConfig) -> str:
@@ -170,6 +185,22 @@ def _run_tool(
         success(f"  {tool_name}: passed")
         return True
 
+    # A flag the tool refuses means it never ran, so the result is a version
+    # mismatch rather than a quality finding. Reporting it as a plain failure
+    # sends the reader hunting for an unformatted file (issue #146).
+    if any(marker in (result.stderr or "").lower() for marker in _ARGV_REJECTION):
+        note = (
+            f"  {tool_name}: rejected the command line and checked nothing "
+            f"— tool-version mismatch, not a finding"
+        )
+        if mode == "warn":
+            warn(note)
+        else:
+            error(note)
+        if result.stderr:
+            print(result.stderr)
+        return mode == "warn"
+
     if mode == "warn":
         warn(f"  {tool_name}: issues found (non-blocking)")
         if result.stdout:
@@ -184,19 +215,51 @@ def _run_tool(
     return False
 
 
-def _build_ruff_format_cmd(excludes: list[str]) -> list[str]:
+def _ruff_format_takes_extend_exclude() -> bool:
+    """Whether the project's ruff accepts --extend-exclude on `format`.
+
+    hyperi-ci pins no ruff for consumers, so this asks the RESOLVED command
+    rather than assuming a version. An unreadable answer keeps the flag: the
+    argument-rejection path in `_run_tool` then names the mismatch plainly.
+    """
+    try:
+        result = subprocess.run(
+            _resolve_tool_cmd(["ruff", "--version"]),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except OSError:
+        return True
+    if result.returncode != 0:
+        return True
+
+    parts = result.stdout.split()
+    if len(parts) < 2:
+        return True
+    try:
+        return Version(parts[1]) >= _RUFF_FORMAT_EXTEND_EXCLUDE_MIN
+    except InvalidVersion:
+        return True
+
+
+def _build_ruff_format_cmd(
+    excludes: list[str], *, extend_exclude: bool = True
+) -> list[str]:
     """Build the ruff format command.
 
     Markdown is excluded because ruff 0.16 formats it, which would otherwise
     drag every consumer repo's docs into a gate that has only covered Python.
+
+    `extend_exclude` is False for a ruff below 0.16, which rejects the flag.
+    That ruff never walks Markdown either, so only the project's own excludes
+    are lost and the caller says so.
     """
-    return [
-        "ruff",
-        "format",
-        "--check",
-        ".",
-        f"--extend-exclude={','.join([*excludes, '*.md'])}",
-    ]
+    cmd = ["ruff", "format", "--check", "."]
+    if extend_exclude:
+        cmd.append(f"--extend-exclude={','.join([*excludes, '*.md'])}")
+    return cmd
 
 
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
@@ -255,9 +318,16 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # Its own mode, not ruff check's: adopting the formatter on an established
     # tree is a whole-repo decision, and sharing the key forces a project to
     # relax the real lint gate to defer it.
+    format_extend_exclude = _ruff_format_takes_extend_exclude()
+    if not format_extend_exclude and excludes:
+        warn(
+            f"  ruff format: this ruff predates {_RUFF_FORMAT_EXTEND_EXCLUDE_MIN} and "
+            f"rejects --extend-exclude, so {', '.join(excludes)} stays in the format "
+            f"check. Raise the project's ruff to honour it."
+        )
     if not _run_tool(
         "ruff format",
-        _build_ruff_format_cmd(excludes),
+        _build_ruff_format_cmd(excludes, extend_exclude=format_extend_exclude),
         _get_tool_mode("ruff_format", config),
     ):
         had_failure = True
