@@ -1004,30 +1004,49 @@ class TestRunnerSelection:
                 )
 
 
-def test_the_release_tail_resolves_its_runner_through_the_org_variables() -> None:
-    """issue #80: both tail jobs hardcoded ubuntu-latest, so GH_RUNNER_PUBLISH
-    was set org-wide and read by nothing while the multi-arch container build
-    paid for hosted minutes. TestRunnerSelection only covers the four language
-    workflows, which is why this went unseen.
+def test_the_container_build_resolves_its_runner_through_the_org_variables() -> None:
+    """issue #80: the tail hardcoded ubuntu-latest, so GH_RUNNER_PUBLISH was set
+    org-wide and read by nothing while the multi-arch container build paid for
+    hosted minutes. TestRunnerSelection only covers the four language workflows,
+    which is why this went unseen.
+
+    The container build is the whole saving, so it is the only job asserted
+    here; tag-and-release cannot run there at all (next test).
 
     No renovate carve-out here on purpose: the tail gates on will-publish and
     push-to-main, so it never runs on a renovate/ branch.
     """
-    jobs = _load_workflow("_release-tail.yml")["jobs"]
-    for name in ("container", "tag-and-release"):
-        runs_on = str(jobs[name]["runs-on"])
-        assert "vars.GH_RUNNER_PUBLISH" in runs_on, (
-            f"_release-tail.{name}: runs-on must resolve through "
-            f"GH_RUNNER_PUBLISH.\n  actual: {runs_on}"
-        )
-        assert "vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}" in runs_on, (
-            f"_release-tail.{name}: the fallback chain must terminate on a real "
-            f"runner.\n  actual: {runs_on}"
-        )
-        assert "vars.GH_RUNNER_MODE == 'free' && 'ubuntu-latest'" in runs_on, (
-            f"_release-tail.{name}: lost the free-mode escape, so an org with "
-            f"no self-hosted fleet queues forever.\n  actual: {runs_on}"
-        )
+    runs_on = str(_load_workflow("_release-tail.yml")["jobs"]["container"]["runs-on"])
+    assert "vars.GH_RUNNER_PUBLISH" in runs_on, (
+        f"_release-tail.container: runs-on must resolve through "
+        f"GH_RUNNER_PUBLISH.\n  actual: {runs_on}"
+    )
+    assert "vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}" in runs_on, (
+        f"_release-tail.container: the fallback chain must terminate on a real "
+        f"runner.\n  actual: {runs_on}"
+    )
+    assert "vars.GH_RUNNER_MODE == 'free' && 'ubuntu-latest'" in runs_on, (
+        f"_release-tail.container: lost the free-mode escape, so an org with "
+        f"no self-hosted fleet queues forever.\n  actual: {runs_on}"
+    )
+
+
+def test_the_publish_job_stays_on_a_hosted_runner() -> None:
+    """The R2 upload shells out to the aws CLI, which the ARC images do not
+    carry: v2.10.2 published to PyPI and cut its GitHub Release, then failed the
+    upload.
+
+    uvx cannot stand in, so this is not a fallback that can be added later:
+    PyPI ships only AWS CLI v1, in maintenance mode since 2026-08-05. Issue #155
+    tracks putting v2 in the image, #156 removing the binary entirely.
+    """
+    runs_on = str(
+        _load_workflow("_release-tail.yml")["jobs"]["tag-and-release"]["runs-on"]
+    )
+    assert runs_on == "ubuntu-latest", (
+        f"_release-tail.tag-and-release: the R2 upload needs the aws CLI, which "
+        f"only the hosted images carry.\n  actual: {runs_on}"
+    )
 
 
 def test_rust_renovate_carveout_never_lands_on_a_toolchainless_runner() -> None:

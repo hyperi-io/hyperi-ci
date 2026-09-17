@@ -236,7 +236,10 @@ jobs:
       ${{ always() && inputs.will-publish == 'true'
           && (needs.container.result == 'success'
               || needs.container.outputs.ships-container != 'true') }}
-    runs-on: ${{ vars.GH_RUNNER_MODE == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    # Hosted, not ARC: this job needs the aws CLI to upload to R2 and the ARC
+    # images do not carry it. uvx is no substitute -- PyPI has only AWS CLI v1,
+    # in maintenance mode since 2026-08-05.
+    runs-on: ubuntu-latest
     permissions:
       contents: write
       issues: write
