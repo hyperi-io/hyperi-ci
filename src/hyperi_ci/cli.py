@@ -14,9 +14,9 @@ Usage:
     hyperi-ci detect                    Detect project language
     hyperi-ci config                    Show merged configuration
     hyperi-ci trigger                   Trigger a GitHub Actions workflow run
-    hyperi-ci watch [RUN_ID]            Watch a GitHub Actions run to completion
-    hyperi-ci logs [RUN_ID]             Fetch and filter GitHub Actions run logs
-    hyperi-ci publish [<tag>]           Release/retry HEAD, or re-publish a tag
+    hyperi-ci watch [RUN_ID] [-w NAME]  Watch a GitHub Actions run to completion
+    hyperi-ci logs [RUN_ID] [-w NAME]   Fetch and filter GitHub Actions run logs
+    hyperi-ci release [<tag>]           Release/retry HEAD, or re-release a tag
     hyperi-ci update                    Update to the channel's release
     hyperi-ci autoupdate                Show/set self-update channel + freeze
     hyperi-ci check-commit              Validate commit message format
@@ -1087,7 +1087,19 @@ def trigger(
 def watch(
     run_id: Annotated[
         str | None,
-        typer.Argument(help="Run ID (auto-detects latest if omitted)"),
+        typer.Argument(help="Run ID (resolves HEAD's own run if omitted)"),
+    ] = None,
+    workflow: Annotated[
+        str | None,
+        typer.Option(
+            "--workflow",
+            "-w",
+            help=(
+                "Workflow name to pin on (e.g. 'Test'). Defaults to the "
+                "name this project's .github/workflows/ci.yml declares; "
+                "an ambiguous choice is refused, never guessed."
+            ),
+        ),
     ] = None,
     timeout: Annotated[
         int,
@@ -1112,15 +1124,26 @@ def watch(
             help=(
                 "Target repo as owner/name (e.g. hyperi-io/dfe-loader). "
                 "Defaults to the cwd's git remote — set this when watching "
-                "a run in a different repo than your cwd."
+                "a run in a different repo than your cwd; it needs a run ID."
             ),
         ),
     ] = None,
 ) -> None:
-    """Watch a GitHub Actions run to completion."""
+    """Watch a GitHub Actions run to completion.
+
+    With no run ID, watches the run built from the commit at HEAD, pinned
+    to the workflow this project declares in ci.yml. Name another with
+    --workflow; an ambiguous choice is refused rather than guessed.
+    """
     from hyperi_ci.watch import watch_run
 
-    rc = watch_run(run_id=run_id, timeout=timeout, interval=interval, repo=repo)
+    rc = watch_run(
+        run_id=run_id,
+        workflow=workflow,
+        timeout=timeout,
+        interval=interval,
+        repo=repo,
+    )
     raise typer.Exit(rc)
 
 
@@ -1128,7 +1151,19 @@ def watch(
 def logs(
     run_id: Annotated[
         str | None,
-        typer.Argument(help="Run ID (auto-detects latest if omitted)"),
+        typer.Argument(help="Run ID (resolves HEAD's own run if omitted)"),
+    ] = None,
+    workflow: Annotated[
+        str | None,
+        typer.Option(
+            "--workflow",
+            "-w",
+            help=(
+                "Workflow name to pin on (e.g. 'Test'). Defaults to the "
+                "name this project's .github/workflows/ci.yml declares; "
+                "an ambiguous choice is refused, never guessed."
+            ),
+        ),
     ] = None,
     job: Annotated[
         str | None,
@@ -1151,11 +1186,19 @@ def logs(
         typer.Option("--failed", help="Show only failed job logs"),
     ] = False,
 ) -> None:
-    """Fetch and filter GitHub Actions run logs."""
+    """Fetch and filter GitHub Actions run logs.
+
+    With no run ID, reads the run built from the commit at HEAD, pinned
+    to the workflow this project declares in ci.yml. Name another with
+    --workflow; an ambiguous choice is refused rather than guessed.
+    --failed always names the run it read, so an empty result cannot
+    pass for a green build.
+    """
     from hyperi_ci.logs import fetch_logs
 
     rc = fetch_logs(
         run_id=run_id,
+        workflow=workflow,
         job_filter=job,
         step_filter=step,
         grep_pattern=grep,

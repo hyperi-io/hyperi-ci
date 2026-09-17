@@ -9,6 +9,14 @@
 Polls a workflow run with exponential backoff until it reaches a terminal
 status, then reports the result with job-level detail.
 
+Pinned selection (issue #101): with no run id, the run is resolved from
+the commit at HEAD and the workflow the project declares in its ci.yml,
+``--workflow`` names any other, and the watch refuses when several runs
+still match. The old "newest run on the branch" lookup reported green
+off a Dependency Graph run while the Test run for the same commit was
+still going, and off the previous commit's run in the seconds before the
+new one registered.
+
 Early-fail-on-red (issue #58): the poll exits non-zero the instant ANY
 job concludes failure/cancelled/timed_out, rather than waiting for the
 whole run to finish. A fleet watcher polling N runs in sequence must not
@@ -33,7 +41,14 @@ from datetime import UTC, datetime
 
 from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.gate_audit import NO_VERDICT, gate_of
-from hyperi_ci.gh import get_current_branch, get_latest_run, gh_run, require_gh
+from hyperi_ci.gh import (
+    RunSelectionError,
+    describe_run,
+    gh_run,
+    head_run_candidates,
+    require_gh,
+    select_run_for_head,
+)
 
 _TERMINAL_STATUSES = frozenset(
     {
@@ -61,6 +76,14 @@ _MAX_CONSECUTIVE_FETCH_FAILURES = 10
 # builds for both archs in parallel, which routinely take 35-45 min.
 # Pass 0 (`--timeout 0` on the CLI) to disable timeout entirely.
 _DEFAULT_TIMEOUT = 3600
+
+# GitHub registers a run seconds after the push, so wait for HEAD's own
+# run rather than watching the previous commit's.
+_RUN_APPEAR_TIMEOUT = 90
+_RUN_APPEAR_POLL = 5.0
+
+# Headroom over the handful of runs one commit produces.
+_RUN_LIST_LIMIT = 30
 
 
 def _poll_interval(base: int, attempt: int) -> float:
@@ -198,9 +221,41 @@ def _print_summary(run_data: dict) -> None:
         info(f"  {url}")
 
 
+def _resolve_head_run(*, workflow: str | None, repo: str | None) -> dict:
+    """Resolve the run for the commit at HEAD, waiting for it to register.
+
+    Args:
+        workflow: Workflow name to narrow on. With none, the project's
+            declared CI workflow is the pin.
+        repo: Optional ``owner/name`` - rejected here, since HEAD says
+            nothing about another repo's runs.
+
+    Returns:
+        The single run matching HEAD (and the workflow, when given).
+
+    Raises:
+        RunSelectionError: nothing registered inside the appearance
+            budget, or several runs match and the choice is ambiguous.
+
+    """
+    deadline = time.monotonic() + _RUN_APPEAR_TIMEOUT
+    while True:
+        head_sha, runs = head_run_candidates(repo=repo, limit=_RUN_LIST_LIMIT)
+        if runs:
+            return select_run_for_head(runs, head_sha=head_sha, workflow=workflow)
+        if time.monotonic() >= deadline:
+            raise RunSelectionError(
+                f"No run registered for commit {head_sha[:8]} after "
+                f"{_RUN_APPEAR_TIMEOUT}s - has it been pushed?"
+            )
+        info(f"  no run registered for {head_sha[:8]} yet - waiting...")
+        time.sleep(_RUN_APPEAR_POLL)
+
+
 def watch_run(
     *,
     run_id: str | None = None,
+    workflow: str | None = None,
     timeout: int = _DEFAULT_TIMEOUT,
     interval: int = 30,
     repo: str | None = None,
@@ -208,14 +263,20 @@ def watch_run(
     """Watch a GitHub Actions run to completion.
 
     Args:
-        run_id: Run ID to watch. Auto-detects latest on current branch if None.
+        run_id: Run ID to watch. With none, the run built from the commit
+            at HEAD is used, and an ambiguous choice is refused rather
+            than guessed (issue #101).
+        workflow: Workflow name to pin on, matched case-insensitively,
+            exact before substring. Defaults to the name declared in the
+            project's ci.yml. Ignored when a run id is given.
         timeout: Maximum seconds to wait. Pass `0` to disable timeout
             (poll until the run reaches a terminal state). Default is
             sized for Tier 2 Rust builds (3600 s = 60 min).
         interval: Base poll interval in seconds.
         repo: Optional ``owner/name`` — when set, all gh calls target
             this repo instead of the cwd's git remote. Use this when
-            watching a run in a different repo than your cwd.
+            watching a run in a different repo than your cwd; it needs
+            an explicit run id.
 
     Returns:
         Exit code: 0=success, 1=failed/cancelled/unreachable, 2=timeout.
@@ -225,17 +286,13 @@ def watch_run(
         return 1
 
     if not run_id:
-        branch = get_current_branch()
-        if not branch:
-            error("Could not detect branch — provide a run ID")
+        try:
+            run = _resolve_head_run(workflow=workflow, repo=repo)
+        except RunSelectionError as exc:
+            error(str(exc))
             return 1
-
-        info(f"Finding latest run on {branch}...")
-        latest = get_latest_run(branch=branch, repo=repo)
-        if not latest:
-            error(f"No runs found on {branch}")
-            return 1
-        run_id = str(latest["databaseId"])
+        run_id = str(run["databaseId"])
+        info(f"Pinned to run {describe_run(run)}")
 
     repo_label = f" in {repo}" if repo else ""
     if timeout == 0:

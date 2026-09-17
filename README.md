@@ -278,11 +278,16 @@ No code changes, no workflow changes.
 | `hyperi-ci detect` | Show detected language |
 | `hyperi-ci config` | Show merged config |
 | `hyperi-ci trigger [--watch]` | Trigger CI workflow |
-| `hyperi-ci watch [--timeout SEC]` | Watch latest CI run (default 3600s; `--timeout 0` disables) |
-| `hyperi-ci logs [--failed]` | Show CI run logs |
+| `hyperi-ci watch [RUN_ID] [--workflow NAME]` | Watch HEAD's own CI run (default 3600s; `--timeout 0` disables) |
+| `hyperi-ci logs [RUN_ID] [--workflow NAME] [--failed]` | Show CI run logs for HEAD's own run |
 | `hyperi-ci init` | Scaffold a new project |
 | `hyperi-ci update` | Update to the channel's release (see `autoupdate`) |
 | `hyperi-ci autoupdate [status\|channel live\|stable\|freeze\|unfreeze]` | Show/set how the CLI updates itself |
+
+`watch` and `logs` resolve the run built from the commit at HEAD, pinned
+to the workflow declared in the project's `.github/workflows/ci.yml` -
+never "whichever ran last". Name another with `--workflow`; where the
+choice is still ambiguous they refuse and list the candidates.
 
 `hyperi-ci release` is the canonical verb. `hyperi-ci publish` still works and
 warns. An earlier notice deprecated `release` for removal; that was the wrong

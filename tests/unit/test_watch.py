@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 import pytest
 
+from hyperi_ci.gh import RunSelectionError
 from hyperi_ci.watch import (
     _DEFAULT_TIMEOUT,
     _MAX_CONSECUTIVE_FETCH_FAILURES,
@@ -20,9 +21,39 @@ from hyperi_ci.watch import (
     _get_run_status,
     _poll_interval,
     _print_summary,
+    _resolve_head_run,
     _resume_command,
     watch_run,
 )
+
+_SHA = "c" * 40
+
+
+@pytest.fixture(autouse=True)
+def _no_declared_workflow():
+    """Pin these cases explicitly, not off whatever ci.yml the cwd holds."""
+    with patch("hyperi_ci.gh.project_ci_workflow", return_value=None):
+        yield
+
+
+def _listed_run(
+    run_id: int,
+    workflow: str,
+    *,
+    status: str = "completed",
+    conclusion: str | None = "success",
+) -> dict:
+    """One entry as `gh run list --json` returns it."""
+    return {
+        "databaseId": run_id,
+        "workflowName": workflow,
+        "headSha": _SHA,
+        "headBranch": "main",
+        "event": "push",
+        "status": status,
+        "conclusion": conclusion,
+        "url": f"https://github.com/hyperi-io/hyperi-ci/actions/runs/{run_id}",
+    }
 
 
 class TestPollInterval:
@@ -440,6 +471,133 @@ class TestSkippedGateIsNotRenderedGreen:
         with patch("hyperi_ci.watch.success") as ok:
             _print_summary(data)
         assert any("CI on main: success" in c.args[0] for c in ok.call_args_list)
+
+
+class TestResolveHeadRun:
+    """With no run id, watch pins on the commit at HEAD (issue #101)."""
+
+    def test_picks_the_run_for_head(self) -> None:
+        with patch(
+            "hyperi_ci.watch.head_run_candidates",
+            return_value=(_SHA, [_listed_run(11, "CI")]),
+        ):
+            run = _resolve_head_run(workflow=None, repo=None)
+        assert run["databaseId"] == 11
+
+    def test_refuses_two_runs_on_the_same_commit(self) -> None:
+        candidates = [
+            _listed_run(11, "Dependency Graph"),
+            _listed_run(12, "Test", status="in_progress", conclusion=None),
+        ]
+        with (
+            patch(
+                "hyperi_ci.watch.head_run_candidates",
+                return_value=(_SHA, candidates),
+            ),
+            pytest.raises(RunSelectionError, match="refusing to guess"),
+        ):
+            _resolve_head_run(workflow=None, repo=None)
+
+    def test_workflow_pins_the_one_asked_about(self) -> None:
+        candidates = [
+            _listed_run(11, "Dependency Graph"),
+            _listed_run(12, "Test", status="in_progress", conclusion=None),
+        ]
+        with patch(
+            "hyperi_ci.watch.head_run_candidates",
+            return_value=(_SHA, candidates),
+        ):
+            run = _resolve_head_run(workflow="Test", repo=None)
+        assert run["databaseId"] == 12
+
+    def test_waits_for_the_run_to_register(self) -> None:
+        # GitHub had not created the run yet on the first look; the old
+        # code fell back to the branch's newest run, which is the
+        # previous commit's.
+        with (
+            patch(
+                "hyperi_ci.watch.head_run_candidates",
+                side_effect=[(_SHA, []), (_SHA, [_listed_run(11, "CI")])],
+            ),
+            patch("hyperi_ci.watch.time.sleep") as mock_sleep,
+        ):
+            run = _resolve_head_run(workflow=None, repo=None)
+        assert run["databaseId"] == 11
+        mock_sleep.assert_called_once()
+
+    def test_gives_up_when_no_run_ever_registers(self) -> None:
+        with (
+            patch("hyperi_ci.watch.head_run_candidates", return_value=(_SHA, [])),
+            patch("hyperi_ci.watch.time.sleep"),
+            patch(
+                "hyperi_ci.watch.time.monotonic",
+                # Start, then past the appearance budget.
+                side_effect=[0.0, 1000.0],
+            ),
+            pytest.raises(RunSelectionError, match="No run registered for commit"),
+        ):
+            _resolve_head_run(workflow=None, repo=None)
+
+
+class TestWatchRunPinning:
+    """`watch_run` exits non-zero on a refusal instead of watching."""
+
+    def test_ambiguous_head_run_returns_one_without_polling(self) -> None:
+        candidates = [
+            _listed_run(11, "Dependency Graph"),
+            _listed_run(12, "Test", status="in_progress", conclusion=None),
+        ]
+        with (
+            patch("hyperi_ci.watch.require_gh", return_value=True),
+            patch(
+                "hyperi_ci.watch.head_run_candidates",
+                return_value=(_SHA, candidates),
+            ),
+            patch("hyperi_ci.watch._get_run_status") as mock_status,
+        ):
+            rc = watch_run(timeout=0, interval=1)
+        assert rc == 1
+        # Nothing was watched, so no conclusion can be reported.
+        mock_status.assert_not_called()
+
+    def test_workflow_pins_the_run_that_is_polled(self) -> None:
+        candidates = [
+            _listed_run(11, "Dependency Graph"),
+            _listed_run(12, "Test", status="in_progress", conclusion=None),
+        ]
+        terminal = {
+            "status": "completed",
+            "conclusion": "failure",
+            "jobs": [],
+            "url": "",
+            "workflowName": "Test",
+            "headBranch": "main",
+        }
+        with (
+            patch("hyperi_ci.watch.require_gh", return_value=True),
+            patch(
+                "hyperi_ci.watch.head_run_candidates",
+                return_value=(_SHA, candidates),
+            ),
+            patch(
+                "hyperi_ci.watch._get_run_status", return_value=terminal
+            ) as mock_status,
+            patch("hyperi_ci.watch.time.sleep"),
+        ):
+            rc = watch_run(workflow="Test", timeout=0, interval=1)
+        # The Test run failed; the green Dependency Graph run beside it
+        # must not be what gets reported.
+        assert rc == 1
+        assert mock_status.call_args[0][0] == "12"
+
+    def test_another_repo_needs_a_run_id(self) -> None:
+        with (
+            patch("hyperi_ci.watch.require_gh", return_value=True),
+            patch("hyperi_ci.watch._get_run_status") as mock_status,
+        ):
+            rc = watch_run(repo="hyperi-io/dfe-loader", timeout=0, interval=1)
+        assert rc == 1
+        mock_status.assert_not_called()
 
 
 class TestFirstFailedJob:

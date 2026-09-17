@@ -8,6 +8,13 @@
 
 Provides common utilities for interacting with GitHub Actions via the `gh` CLI.
 All commands require `gh` to be installed and authenticated.
+
+Run selection (issue #101): `watch` and `logs` pin on the run they were
+asked about - the commit at HEAD, narrowed by the project's declared CI
+workflow or the one named on the command line - and refuse when the
+choice is ambiguous. Falling back to "the newest run on the branch" is
+how a watch reported green off a Dependency Graph run while the Test run
+was still going.
 """
 
 from __future__ import annotations
@@ -15,9 +22,42 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from pathlib import Path
+
+import yaml
 
 from hyperi_ci.common import error, run_cmd
 from hyperi_ci.tools import missing_tool_notice
+
+# The workflow a project declares as its own CI, and the default pin for
+# `watch` and `logs` when the caller names none.
+_CI_WORKFLOW_FILE = Path(".github/workflows/ci.yml")
+
+
+class RunSelectionError(Exception):
+    """A pinned run lookup did not resolve to exactly one run.
+
+    Carries the message the caller prints before exiting non-zero. Every
+    path that raises this has a candidate list or a next command in the
+    message - a refusal the user cannot act on is no better than a guess.
+    """
+
+
+# Fields every run-selection decision reads. `headSha` is the pin,
+# `workflowName` the narrowing filter, and the rest identify the run in
+# the message a refusal prints.
+RUN_LIST_FIELDS = [
+    "databaseId",
+    "status",
+    "conclusion",
+    "headBranch",
+    "headSha",
+    "event",
+    "workflowName",
+    "createdAt",
+    "updatedAt",
+    "url",
+]
 
 
 def require_gh() -> bool:
@@ -143,6 +183,249 @@ def get_latest_run(
     if not runs:
         return None
     return runs[0]
+
+
+def get_head_sha(*, cwd: str | None = None) -> str | None:
+    """Get the full commit sha at HEAD.
+
+    Args:
+        cwd: Repository directory (default: process cwd).
+
+    Returns:
+        The 40-character sha, or None outside a git repo.
+
+    """
+    try:
+        result = run_cmd(
+            ["git", "rev-parse", "HEAD"],
+            capture=True,
+            check=True,
+            cwd=cwd,
+        )
+    except subprocess.CalledProcessError:
+        return None
+    return result.stdout.strip() or None
+
+
+def list_runs(
+    *,
+    branch: str | None = None,
+    commit: str | None = None,
+    repo: str | None = None,
+    limit: int = 30,
+) -> list[dict]:
+    """List workflow runs, newest first.
+
+    The workflow filter is deliberately NOT passed to `gh`: `gh run list
+    --workflow` accepts a name or a filename, and mixing that with the
+    name matching in :func:`select_run` would silently drop runs. One
+    matcher owns the decision.
+
+    Args:
+        branch: Filter by branch name.
+        commit: Filter by the sha the run was built from.
+        repo: Optional ``owner/name`` - defaults to the cwd's git remote.
+        limit: Maximum runs to fetch.
+
+    Returns:
+        List of run dicts carrying :data:`RUN_LIST_FIELDS`.
+
+    """
+    args = ["run", "list", "--limit", str(limit)]
+    if repo:
+        args.extend(["--repo", repo])
+    if branch:
+        args.extend(["--branch", branch])
+    if commit:
+        args.extend(["--commit", commit])
+
+    return gh_json(args, RUN_LIST_FIELDS)
+
+
+def describe_run(run: dict) -> str:
+    """Format one run for a refusal message or a "watching X" line."""
+    return (
+        f"{run.get('databaseId', '?')}  {run.get('workflowName', '?')}"
+        f"  [{run.get('event', '?')}]"
+        f"  {run.get('status', '?')}/{run.get('conclusion') or 'pending'}"
+        f"  {run.get('url', '')}"
+    ).rstrip()
+
+
+def _workflow_candidates(runs: list[dict], workflow: str) -> list[dict]:
+    """Narrow runs to a workflow name, exact match before substring."""
+    wanted = workflow.strip().lower()
+    names = [(run, (run.get("workflowName") or "").strip().lower()) for run in runs]
+    exact = [run for run, name in names if name == wanted]
+    return exact or [run for run, name in names if wanted and wanted in name]
+
+
+def select_run(
+    runs: list[dict],
+    *,
+    head_sha: str | None = None,
+    workflow: str | None = None,
+) -> dict:
+    """Pick the one run the caller asked about.
+
+    Args:
+        runs: Candidate runs, as returned by :func:`list_runs`.
+        head_sha: When set, only runs built from this commit qualify.
+        workflow: When set, only runs whose workflow name matches
+            (case-insensitive, exact before substring) qualify.
+
+    Returns:
+        The single matching run.
+
+    Raises:
+        RunSelectionError: nothing matched, or several runs did. Picking
+            the newest of several is the issue #101 bug - a conclusion
+            reported for a run nobody asked about.
+
+    """
+    candidates = list(runs)
+
+    if head_sha:
+        pin = head_sha.lower()
+        candidates = [
+            run for run in candidates if (run.get("headSha") or "").lower() == pin
+        ]
+
+    if not candidates:
+        pinned = f" for commit {head_sha[:8]}" if head_sha else ""
+        raise RunSelectionError(f"No runs found{pinned}")
+
+    if workflow:
+        matched = _workflow_candidates(candidates, workflow)
+        if not matched:
+            names = ", ".join(
+                sorted({run.get("workflowName") or "?" for run in candidates})
+            )
+            raise RunSelectionError(
+                f"No run matches workflow '{workflow}'. Workflows on this "
+                f"commit: {names}"
+            )
+        candidates = matched
+
+    if len(candidates) > 1:
+        listing = "\n".join(f"  {describe_run(run)}" for run in candidates)
+        narrow = (
+            "Narrow it with --workflow '<name>', or pass one of the run ids above."
+            if not workflow
+            else "Pass one of the run ids above."
+        )
+        raise RunSelectionError(
+            f"{len(candidates)} runs match - refusing to guess which one you "
+            f"meant.\n{listing}\n{narrow}"
+        )
+
+    return candidates[0]
+
+
+def project_ci_workflow(*, cwd: Path | None = None) -> str | None:
+    """Read the workflow name this project declares in its ci.yml.
+
+    Args:
+        cwd: Project root (default: process cwd).
+
+    Returns:
+        The declared workflow name, or None when the file is absent or
+        names nothing.
+
+    """
+    path = (cwd or Path.cwd()) / _CI_WORKFLOW_FILE
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return None
+    name = data.get("name") if isinstance(data, dict) else None
+    if isinstance(name, str) and name.strip():
+        return name.strip()
+    return None
+
+
+def select_run_for_head(
+    runs: list[dict],
+    *,
+    head_sha: str,
+    workflow: str | None = None,
+) -> dict:
+    """Pick HEAD's run, defaulting the pin to the project's own CI workflow.
+
+    A commit carries every workflow that fired on it - CodeQL, Dependency
+    Graph, the scheduled audits - so without a default pin the plain
+    `watch` would refuse on most repos.
+
+    Args:
+        runs: Candidate runs, as returned by :func:`list_runs`.
+        head_sha: The commit the runs must have been built from.
+        workflow: Workflow name the caller asked for. With none, the name
+            declared in the project's ci.yml is tried, and the full
+            candidate list is refused when that does not resolve one run.
+
+    Returns:
+        The single matching run.
+
+    Raises:
+        RunSelectionError: nothing matched, or the choice is ambiguous.
+
+    """
+    if workflow:
+        return select_run(runs, head_sha=head_sha, workflow=workflow)
+
+    declared = project_ci_workflow()
+    if declared:
+        try:
+            return select_run(runs, head_sha=head_sha, workflow=declared)
+        except RunSelectionError:
+            # The declared workflow did not resolve one run either, so
+            # refuse against every candidate rather than only its own.
+            pass
+
+    return select_run(runs, head_sha=head_sha)
+
+
+def head_run_candidates(
+    *,
+    repo: str | None = None,
+    limit: int = 30,
+) -> tuple[str, list[dict]]:
+    """Read HEAD's sha and the runs GitHub has registered against it.
+
+    Args:
+        repo: Optional ``owner/name``. A foreign repo has no relationship
+            to the local HEAD, so pinning is impossible there and this
+            refuses instead of watching whatever ran last.
+        limit: Maximum runs to fetch.
+
+    Returns:
+        Tuple of (head sha, runs for that sha - possibly empty because
+        GitHub has not registered the run yet).
+
+    Raises:
+        RunSelectionError: the sha is unreadable, `repo` was set, or the
+            run list could not be fetched.
+
+    """
+    if repo:
+        raise RunSelectionError(
+            f"--repo {repo} needs a run id: the local HEAD commit does not "
+            f"identify a run in another repo. "
+            f"List them with: gh run list --repo {repo}"
+        )
+
+    head_sha = get_head_sha()
+    if not head_sha:
+        raise RunSelectionError("Could not read HEAD - pass a run id")
+
+    try:
+        runs = list_runs(commit=head_sha, limit=limit)
+    except subprocess.CalledProcessError as exc:
+        raise RunSelectionError(
+            f"Could not list runs for commit {head_sha[:8]} - pass a run id"
+        ) from exc
+
+    return head_sha, runs
 
 
 def get_run_jobs(run_id: str) -> list[dict]:
