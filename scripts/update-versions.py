@@ -521,6 +521,13 @@ def _build_replacements(versions: dict) -> list[tuple[re.Pattern, str, str]]:
         replacement = rf'\g<1>"{python_ver}"'
         replacements.append((pattern, replacement, f"Python default {python_ver}"))
 
+        # The interpreter the CLI itself runs on. Left to drift, uvx takes the
+        # project's Python and silently installs an older hyperi-ci that
+        # allowed it (issue #157).
+        pattern = re.compile(r"(uvx --python )(\d[\d.]*)")
+        replacement = rf"\g<1>{python_ver}"
+        replacements.append((pattern, replacement, f"CLI Python {python_ver}"))
+
     node_ver = _runtime_value(runtimes.get("node"))
     if node_ver:
         # Only match literal versions, not ${{ template expressions }}

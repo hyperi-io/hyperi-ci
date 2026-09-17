@@ -328,6 +328,10 @@ runtimes:
       - .github/workflows/python-ci.yml
       - .github/workflows/_release-tail.yml
       - .github/workflows/ci.yml
+    # Every workflow also carries a `uvx --python` that pins the CLI's own
+    # interpreter (issue #157). That one takes no marker: it sits inside a
+    # `${{ }}` expression, and pin_pattern needs a `:` or `=` immediately
+    # before the version. test_workflow_consistency enforces it instead.
       - .github/actions/setup-runtime/action.yml
       - .github/actions/predict-version/action.yml
   # 24 is Active LTS. 22 dropped to Maintenance on 2025-10-21, and 26 does not

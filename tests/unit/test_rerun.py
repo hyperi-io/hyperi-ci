@@ -35,12 +35,16 @@ class TestRerunArgv:
 
     @staticmethod
     def _capture(
-        monkeypatch: pytest.MonkeyPatch, **kwargs: object
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        run_id: str | None = None,
+        failed_only: bool = True,
+        repo: str | None = None,
     ) -> tuple[int, list[str]]:
         sent: list[str] = []
         monkeypatch.setattr(rerun, "require_gh", lambda: True)
         monkeypatch.setattr(rerun, "gh_run", _recorder(sent))
-        rc = rerun.rerun_run(**kwargs)  # type: ignore[arg-type]
+        rc = rerun.rerun_run(run_id=run_id, failed_only=failed_only, repo=repo)
         return rc, sent
 
     def test_failed_only_is_the_default(self, monkeypatch: pytest.MonkeyPatch) -> None:

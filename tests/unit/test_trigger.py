@@ -56,7 +56,12 @@ class TestTriggerArgv:
     """Each input reaches gh as its own -f flag."""
 
     @staticmethod
-    def _capture(monkeypatch: pytest.MonkeyPatch, **kwargs: object) -> list[str]:
+    def _capture(
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        workflow: str = "ci.yml",
+        inputs: dict[str, str] | None = None,
+    ) -> list[str]:
         sent: list[str] = []
 
         def fake_gh_run(args: list[str], **_kw: object) -> subprocess.CompletedProcess:
@@ -66,7 +71,7 @@ class TestTriggerArgv:
         monkeypatch.setattr(trigger, "require_gh", lambda: True)
         monkeypatch.setattr(trigger, "get_current_branch", lambda: "main")
         monkeypatch.setattr(trigger, "gh_run", fake_gh_run)
-        trigger.trigger_workflow(**kwargs)  # type: ignore[arg-type]
+        trigger.trigger_workflow(workflow=workflow, inputs=inputs)
         return sent
 
     def test_no_inputs_sends_only_the_ref(

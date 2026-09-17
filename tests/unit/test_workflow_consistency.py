@@ -1049,6 +1049,31 @@ def test_the_publish_job_stays_on_a_hosted_runner() -> None:
     )
 
 
+def test_every_workflow_pins_the_cli_interpreter() -> None:
+    """issue #157: with nothing pinning it, uvx hands the CLI the project's
+    Python and silently installs an older hyperi-ci that allowed that version
+    instead of failing.
+
+    ci-test-python-lib (floor >=3.12) ran 2.9.28 while main was on 2.10.2, and
+    its quality gate failed on a bug that had already been fixed.
+    """
+    from hyperi_ci.versions import runtime_version
+
+    expected = f"--python {runtime_version('python')}"
+    for name in (
+        "python-ci.yml",
+        "rust-ci.yml",
+        "go-ci.yml",
+        "ts-ci.yml",
+        "_release-tail.yml",
+    ):
+        install = str(_load_workflow(name)["env"]["HYPERCI_INSTALL"])
+        assert expected in install, (
+            f"{name}: HYPERCI_INSTALL must pin the CLI's own interpreter with "
+            f"`{expected}`.\n  actual: {install}"
+        )
+
+
 def test_rust_renovate_carveout_never_lands_on_a_toolchainless_runner() -> None:
     """issue #91: renovate/ branches must resolve to a runner with cargo.
 
