@@ -120,6 +120,35 @@ class TestReleaseTrailer:
         assert vocabulary.has_release_trailer(message) is False
 
 
+class TestTrailerValues:
+    """One reader for every trailer, so the release trailer has no private parser."""
+
+    @staticmethod
+    def _read(message: str, key: str = "Release") -> list[str]:
+        return vocabulary.trailer_values(message, key)
+
+    def test_absent_is_empty(self) -> None:
+        assert self._read("fix: thing\n") == []
+
+    def test_the_value_comes_back(self) -> None:
+        assert self._read("fix: thing\n\nRelease: true\n") == ["true"]
+
+    def test_the_key_is_case_insensitive(self) -> None:
+        assert self._read("fix: x\n\nrELEASE: true\n") == ["true"]
+
+    def test_surrounding_whitespace_is_stripped(self) -> None:
+        assert self._read("fix: x\n\n  Release:   true  \n") == ["true"]
+
+    def test_every_occurrence_in_order(self) -> None:
+        assert self._read("fix: x\n\nRelease: false\n\nRelease: true\n") == [
+            "false",
+            "true",
+        ]
+
+    def test_a_longer_key_is_not_a_match(self) -> None:
+        assert self._read("fix: x\n\nReleased-by: someone\n") == []
+
+
 class TestDeprecationMessage:
     """A renamed key and a removed key have different futures; say so."""
 

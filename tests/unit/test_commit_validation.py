@@ -355,6 +355,55 @@ class TestFeatGate:
         assert result.valid is True
 
 
+class TestFeatTrailerSurvivesTheSquash:
+    """The env var dies at the squash button; the trailer rides the message (#131)."""
+
+    def test_trailer_confirms_without_the_env_var(self, monkeypatch) -> None:
+        monkeypatch.delenv("HYPERCI_ALLOW_FEAT", raising=False)
+        msg = "feat: add daemon mode\n\nWhy it exists.\n\nAllow-Feat: true\n"
+        assert validate_message(msg).valid is True
+
+    def test_the_squashed_shape_still_confirms(self, monkeypatch) -> None:
+        # What the squash button writes: the branch commits concatenated.
+        monkeypatch.delenv("HYPERCI_ALLOW_FEAT", raising=False)
+        msg = (
+            "feat: add daemon mode (#209)\n\n"
+            "* feat: add daemon mode\n\n"
+            "Allow-Feat: true\n\n"
+            "* fix: tidy the helper\n"
+        )
+        assert validate_message(msg).valid is True
+
+    def test_case_and_spacing_are_forgiven(self, monkeypatch) -> None:
+        monkeypatch.delenv("HYPERCI_ALLOW_FEAT", raising=False)
+        msg = "feat: add daemon mode\n\nallow-feat:   TRUE\n"
+        assert validate_message(msg).valid is True
+
+    @pytest.mark.parametrize("value", ["yes", "1"])
+    def test_the_other_truthy_spellings(self, monkeypatch, value: str) -> None:
+        monkeypatch.delenv("HYPERCI_ALLOW_FEAT", raising=False)
+        assert validate_message(f"feat: add daemon mode\n\nAllow-Feat: {value}\n").valid
+
+    def test_a_falsy_trailer_does_not_confirm(self, monkeypatch) -> None:
+        monkeypatch.delenv("HYPERCI_ALLOW_FEAT", raising=False)
+        result = validate_message("feat: add daemon mode\n\nAllow-Feat: false\n")
+        assert result.valid is False
+        assert result.error_type == "feat_without_opt_in"
+
+    def test_the_rejection_names_the_trailer(self, monkeypatch) -> None:
+        monkeypatch.delenv("HYPERCI_ALLOW_FEAT", raising=False)
+        assert "Allow-Feat" in validate_message("feat: add daemon mode").reason
+
+    def test_it_does_not_unlock_a_breaking_change(self, monkeypatch) -> None:
+        # Major bumps stay human-only -- the trailer confirms `feat:` and nothing else.
+        monkeypatch.delenv("HYPERCI_ALLOW_FEAT", raising=False)
+        monkeypatch.delenv("HYPERCI_ALLOW_BREAKING", raising=False)
+        msg = "feat: add daemon mode\n\nBREAKING CHANGE: drops v1\n\nAllow-Feat: true\n"
+        result = validate_message(msg)
+        assert result.valid is False
+        assert result.error_type == "breaking_change_without_opt_in"
+
+
 class TestBreakingChangeGate:
     """`BREAKING CHANGE:` in body is gated behind HYPERCI_ALLOW_BREAKING.
 

@@ -18,6 +18,7 @@ from hyperi_ci.commit_range import commits_in_range, git_log
 from hyperi_ci.common import env_true, error, info, is_ci, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.release_rules import load_type_bump
+from hyperi_ci.vocabulary import trailer_values
 
 # ---------------------------------------------------------------------------
 # Commit-type allowlist (message-shape policy)
@@ -69,6 +70,11 @@ _AI_ATTRIBUTION_PATTERNS = [
 _MIN_DESCRIPTION_LENGTH = 3
 _MAX_DESCRIPTION_LENGTH = 100
 
+# An env var lives only in the committer's shell, so a `feat:` confirmed on a
+# branch fails once the squash button rewrites it away (issue #131).
+_ALLOW_FEAT_TRAILER = "Allow-Feat"
+_TRUTHY_TRAILER = frozenset({"true", "1", "yes"})
+
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -102,6 +108,20 @@ def _should_skip(msg: str) -> bool:
         if pattern.search(msg.strip()):
             return True
     return False
+
+
+def _feat_confirmed(msg: str) -> bool:
+    """Whether a deliberate ``feat:`` carries its confirmation.
+
+    The trailer rides in the message, so it reaches the commit that lands;
+    the env var only ever existed where the commit was authored.
+    """
+    if env_true("HYPERCI_ALLOW_FEAT"):
+        return True
+    return any(
+        value.lower() in _TRUTHY_TRAILER
+        for value in trailer_values(msg, _ALLOW_FEAT_TRAILER)
+    )
 
 
 def validate_message(msg: str) -> ValidationResult:
@@ -224,7 +244,7 @@ def validate_message(msg: str) -> ValidationResult:
     #
     # =========================================================================
 
-    if commit_type == "feat" and not env_true("HYPERCI_ALLOW_FEAT"):
+    if commit_type == "feat" and not _feat_confirmed(msg):
         return ValidationResult(
             valid=False,
             reason=(
@@ -233,7 +253,9 @@ def validate_message(msg: str) -> ValidationResult:
                 "Adding a CLI flag, config knob, helper, or refinement is "
                 "`fix:`, not `feat:`. If this commit IS a genuinely new "
                 "feature (not just an improvement), set HYPERCI_ALLOW_FEAT=1 "
-                "to confirm: `HYPERCI_ALLOW_FEAT=1 git commit ...`"
+                "to confirm: `HYPERCI_ALLOW_FEAT=1 git commit ...`, or write "
+                f"`{_ALLOW_FEAT_TRAILER}: true` as a trailer in the commit "
+                "body, which survives a squash merge where the env var cannot"
             ),
             error_type="feat_without_opt_in",
         )

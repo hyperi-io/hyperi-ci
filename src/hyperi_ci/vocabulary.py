@@ -131,6 +131,25 @@ def key_candidates(key: str) -> list[str]:
     return seen
 
 
+def trailer_values(message: str, key: str) -> list[str]:
+    """Return every value ``key`` carries in ``message``, in order.
+
+    A list rather than one value: a trailer repeated with different values has
+    no single answer, so the caller decides whether any occurrence counts.
+    Key matching is case-insensitive.
+    """
+    wanted = key.strip().lower()
+    values: list[str] = []
+    for line in message.splitlines():
+        stripped = line.strip()
+        if not stripped or ":" not in stripped:
+            continue
+        name, _, value = stripped.partition(":")
+        if name.strip().lower() == wanted:
+            values.append(value.strip())
+    return values
+
+
 def has_release_trailer(message: str) -> bool:
     """Report whether a commit message carries the release trailer.
 
@@ -138,15 +157,11 @@ def has_release_trailer(message: str) -> bool:
     predict-version composite, which runs where hyperi-ci is not installed --
     the two must accept the same set.
     """
-    keys = {TRAILER_KEY.lower(), LEGACY_TRAILER_KEY.lower()}
-    for line in message.splitlines():
-        stripped = line.strip()
-        if not stripped or ":" not in stripped:
-            continue
-        key, _, value = stripped.partition(":")
-        if key.strip().lower() in keys and value.strip().lower() == TRAILER_VALUE:
-            return True
-    return False
+    return any(
+        value.lower() == TRAILER_VALUE
+        for key in (TRAILER_KEY, LEGACY_TRAILER_KEY)
+        for value in trailer_values(message, key)
+    )
 
 
 # These keys are removed rather than carried indefinitely: they name a
