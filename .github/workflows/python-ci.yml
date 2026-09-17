@@ -26,7 +26,7 @@ on:
       python-version:
         type: string
         # hyperi-ci:pin runtimes.python
-        default: "3.12"
+        default: "3.14"
         description: "Python version to use"
       runner-quality:
         type: string
@@ -111,7 +111,7 @@ on:
       python-version:
         type: string
         # hyperi-ci:pin runtimes.python
-        default: "3.12"
+        default: "3.14"
       skip-optimize:
         type: string
         required: false

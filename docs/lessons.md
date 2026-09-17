@@ -257,7 +257,7 @@ explicitly passed through in `env:` on the publish step.
 
 ### uv Patterns
 
-- CI uses Python 3.12 (has `tomllib` built-in)
+- CI uses Python 3.14 (has `tomllib` built-in)
 - Build: `uv build` (replaces `python -m build`)
 - Publish: `uv publish --publish-url` with explicit `--username` / `--password`
 

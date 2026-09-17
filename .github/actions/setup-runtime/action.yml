@@ -26,7 +26,7 @@ inputs:
     description: Python version for the hyperi-ci CLI runtime
     required: false
     # hyperi-ci:pin runtimes.python
-    default: "3.12"
+    default: "3.14"
   enable-uv-cache:
     description: setup-uv cache — true for Python (deps dominate), false for Rust (cargo cache dominates)
     required: false

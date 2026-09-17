@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 
 # nosemgrep: python.lang.compatibility.python36.python36-compatibility-importlib2
-# hyperi-ci pins requires-python = ">=3.12"; backport importlib_resources is
+# hyperi-ci pins requires-python = ">=3.14"; backport importlib_resources is
 # unnecessary and not in our deps.
 from importlib.resources import files
 from pathlib import Path

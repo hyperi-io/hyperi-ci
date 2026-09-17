@@ -308,8 +308,11 @@ watch:
 # None of them auto-bump (_AUTO_UPDATE_SKIP in scripts/update-versions.py):
 # a runtime major is a decision, not a dependency refresh.
 runtimes:
+  # 3.14 is the baseline -- the fleet moved 3.12 -> 3.14 and skipped 3.13.
+  # 3.12 went security-only on 2025-04-02, so it kept taking CVE fixes but no
+  # compatibility work for newer libraries.
   python:
-    version: "3.12"
+    version: "3.14"
     pin:
       - .github/workflows/python-ci.yml
       - .github/workflows/_release-tail.yml

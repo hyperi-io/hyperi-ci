@@ -121,7 +121,7 @@ jobs:
         with:
           enable-cache: true
       - name: Set up Python
-        run: uv python install 3.12
+        run: uv python install 3.14
       - name: Install dependencies
         run: uv sync --no-sources
       - name: Validate commit messages
@@ -144,7 +144,7 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install 3.12
+        run: uv python install 3.14
 
       - name: Install dependencies
         run: uv sync --no-sources
@@ -189,7 +189,7 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install 3.12
+        run: uv python install 3.14
 
       - name: Install dependencies
         run: uv sync --no-sources
@@ -236,7 +236,7 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install 3.12
+        run: uv python install 3.14
 
       - name: Build wheel + sdist
         run: uv build
@@ -282,5 +282,5 @@ jobs:
       bump: ${{ inputs.bump }}
       publish-target: oss
       # hyperi-ci:pin runtimes.python
-      python-version: "3.12"
+      python-version: "3.14"
     secrets: inherit

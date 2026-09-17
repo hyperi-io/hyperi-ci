@@ -275,7 +275,7 @@ jobs:
       - name: Set up Python
         run: |
           command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
-          command -v python3 || uv python install 3.12
+          command -v python3 || uv python install 3.14
 
       - name: Install native dependencies
         run: ${{ env.HYPERCI_INSTALL }} install-native-deps golang
@@ -328,7 +328,7 @@ jobs:
       - name: Set up Python
         run: |
           command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
-          command -v python3 || uv python install 3.12
+          command -v python3 || uv python install 3.14
 
       - name: Install native dependencies
         run: ${{ env.HYPERCI_INSTALL }} install-native-deps golang
@@ -398,7 +398,7 @@ jobs:
       - name: Set up Python
         run: |
           command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
-          command -v python3 || uv python install 3.12
+          command -v python3 || uv python install 3.14
 
       - name: Install native dependencies
         run: ${{ env.HYPERCI_INSTALL }} install-native-deps golang

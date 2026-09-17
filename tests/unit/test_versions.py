@@ -68,7 +68,7 @@ class TestReader:
         assert re.fullmatch(r"[0-9a-f]{40} # v[\d.]+", ref)
 
     def test_runtime_version(self) -> None:
-        assert versions.runtime_version("python") == "3.12"
+        assert versions.runtime_version("python") == "3.14"
 
     def test_cached_parse_is_shared(self) -> None:
         assert versions._data() is versions._data()

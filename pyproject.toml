@@ -10,7 +10,7 @@ name = "hyperi-ci"
 dynamic = ["version"]
 description = "HyperI CI/CD CLI tool - multi-language build, test, and publish automation"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 license = "LicenseRef-BUSL-1.1-HyperI"
 authors = [{ name = "HyperI Team", email = "dev@hyperi.io" }]
 maintainers = [{ name = "HyperI Team", email = "dev@hyperi.io" }]
@@ -80,6 +80,10 @@ packages = ["src/hyperi_ci"]
 
 [tool.ruff]
 line-length = 88
+# Held below requires-python on purpose: at py314 the formatter strips the
+# parentheses from multi-exception `except` clauses (PEP 758), which would stop
+# version_source.py parsing on an older python3 -- and predict-version loads
+# that file by path before any install.
 target-version = "py312"
 extend-exclude = [
     "test-projects",                             # vendored fixture trees (node_modules, .venv etc.)
