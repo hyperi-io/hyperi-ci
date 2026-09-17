@@ -364,7 +364,7 @@ def _build_template(
 
     if language == "python":
         dockerfile_content = render_python_template(
-            python_version=container_cfg.get("python_version", "3.12"),
+            python_version=container_cfg.get("python_version", "3.14"),
             port=container_cfg.get("port", 8080),
             health_path=container_cfg.get("health_path", "/healthz"),
             entrypoint=container_cfg.get("entrypoint", Path.cwd().name),

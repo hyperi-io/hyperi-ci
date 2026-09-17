@@ -13,7 +13,7 @@ from hyperi_ci.container.templates import render_node_template, render_python_te
 
 def test_python_template_defaults() -> None:
     result = render_python_template()
-    assert "FROM python:3.12-slim" in result
+    assert "FROM python:3.14-slim" in result
     assert "COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv" in result
     assert "EXPOSE 8000" in result
     assert 'ENTRYPOINT ["app"]' in result

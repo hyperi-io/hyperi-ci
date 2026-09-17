@@ -65,7 +65,7 @@ CMD ["dist/server.js"]
 
 def render_python_template(
     *,
-    python_version: str = "3.12",
+    python_version: str = "3.14",
     port: int = 8000,
     health_path: str = "/healthz",
     entrypoint: str = "app",
