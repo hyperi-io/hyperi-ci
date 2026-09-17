@@ -1064,18 +1064,34 @@ def trigger(
         int,
         typer.Option("--interval", "-i", help="Poll interval in seconds"),
     ] = 30,
+    inputs: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--input",
+            help="workflow_dispatch input as key=value (repeatable)",
+        ),
+    ] = None,
 ) -> None:
     """Trigger a GitHub Actions workflow run.
 
     Dispatches the workflow via `gh workflow run`. Use --watch to block
     until the run completes — equivalent to running `hyperi-ci trigger`
     then `hyperi-ci watch` as separate commands.
+
+    Pass `--input key=value` once per workflow_dispatch input; a workflow
+    declaring required inputs cannot be dispatched without them.
     """
-    from hyperi_ci.trigger import trigger_workflow
+    from hyperi_ci.trigger import parse_inputs, trigger_workflow
+
+    try:
+        dispatch_inputs = parse_inputs(inputs)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
     rc = trigger_workflow(
         workflow=workflow,
         ref=ref,
+        inputs=dispatch_inputs,
         watch=watch_run,
         timeout=timeout,
         interval=interval,
@@ -1143,6 +1159,55 @@ def watch(
         timeout=timeout,
         interval=interval,
         repo=repo,
+    )
+    raise typer.Exit(rc)
+
+
+@app.command()
+def rerun(
+    run_id: Annotated[
+        str | None,
+        typer.Argument(help="Run ID (resolves HEAD's own run if omitted)"),
+    ] = None,
+    workflow: Annotated[
+        str | None,
+        typer.Option(
+            "--workflow",
+            "-w",
+            help=(
+                "Workflow name to pin on when resolving HEAD's run. "
+                "Ignored when a run ID is given."
+            ),
+        ),
+    ] = None,
+    all_jobs: Annotated[
+        bool,
+        typer.Option("--all", help="Re-run every job, not just the failed ones"),
+    ] = False,
+    repo: Annotated[
+        str | None,
+        typer.Option(
+            "--repo",
+            "-R",
+            help=(
+                "Target repo as owner/name. Needs an explicit run ID, since "
+                "HEAD says nothing about another repo's runs."
+            ),
+        ),
+    ] = None,
+) -> None:
+    """Re-run a GitHub Actions run, failed jobs only by default.
+
+    For genuine infra incidents — a GitHub outage, a registry 5xx. A flaky
+    test this project owns is a race to fix, not a run to repeat.
+    """
+    from hyperi_ci.rerun import rerun_run
+
+    rc = rerun_run(
+        run_id=run_id,
+        workflow=workflow,
+        repo=repo,
+        failed_only=not all_jobs,
     )
     raise typer.Exit(rc)
 

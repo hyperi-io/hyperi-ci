@@ -277,8 +277,9 @@ No code changes, no workflow changes.
 | `hyperi-ci check-commit --list` | Show all accepted commit types |
 | `hyperi-ci detect` | Show detected language |
 | `hyperi-ci config` | Show merged config |
-| `hyperi-ci trigger [--watch]` | Trigger CI workflow |
+| `hyperi-ci trigger [--watch] [--input K=V]` | Trigger CI workflow; `--input` once per `workflow_dispatch` input |
 | `hyperi-ci watch [RUN_ID] [--workflow NAME]` | Watch HEAD's own CI run (default 3600s; `--timeout 0` disables) |
+| `hyperi-ci rerun [RUN_ID] [--all]` | Re-run a run's failed jobs — for infra incidents, not for repeating a flake |
 | `hyperi-ci logs [RUN_ID] [--workflow NAME] [--failed]` | Show CI run logs for HEAD's own run |
 | `hyperi-ci init` | Scaffold a new project |
 | `hyperi-ci update` | Update to the channel's release (see `autoupdate`) |

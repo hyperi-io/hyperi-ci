@@ -64,10 +64,30 @@ def _wait_for_run(
     return None
 
 
+def parse_inputs(pairs: list[str] | None) -> dict[str, str]:
+    """Parse ``key=value`` dispatch inputs, keeping the order given.
+
+    A value may itself contain ``=``; only the first one separates.
+
+    Raises:
+        ValueError: An entry carries no ``=`` or an empty key, which gh would
+            otherwise take as a positional argument and ignore.
+
+    """
+    parsed: dict[str, str] = {}
+    for pair in pairs or []:
+        key, sep, value = pair.partition("=")
+        if not sep or not key.strip():
+            raise ValueError(f"--input must be key=value, got: {pair!r}")
+        parsed[key.strip()] = value
+    return parsed
+
+
 def trigger_workflow(
     *,
     workflow: str = "ci.yml",
     ref: str | None = None,
+    inputs: dict[str, str] | None = None,
     watch: bool = False,
     timeout: int = 1800,
     interval: int = 30,
@@ -77,6 +97,9 @@ def trigger_workflow(
     Args:
         workflow: Workflow filename (e.g. "ci.yml").
         ref: Branch or tag to run on. Defaults to current branch.
+        inputs: workflow_dispatch inputs, each sent as ``-f key=value``.
+            A workflow declaring required inputs cannot be dispatched
+            without them (issue #97).
         watch: If True, watch the run to completion after triggering.
         timeout: Watch timeout in seconds.
         interval: Watch poll interval in seconds.
@@ -93,14 +116,18 @@ def trigger_workflow(
         error("Could not detect current branch — use --ref to specify")
         return 1
 
-    info(f"Triggering {workflow} on {branch}")
+    cmd = ["workflow", "run", workflow, "--ref", branch]
+    for key, value in (inputs or {}).items():
+        cmd.extend(["-f", f"{key}={value}"])
+
+    if inputs:
+        rendered = ", ".join(f"{k}={v}" for k, v in inputs.items())
+        info(f"Triggering {workflow} on {branch} with {rendered}")
+    else:
+        info(f"Triggering {workflow} on {branch}")
 
     try:
-        gh_run(
-            ["workflow", "run", workflow, "--ref", branch],
-            capture=False,
-            check=True,
-        )
+        gh_run(cmd, capture=False, check=True)
     except subprocess.CalledProcessError:
         error(f"Failed to trigger workflow {workflow}")
         return 1

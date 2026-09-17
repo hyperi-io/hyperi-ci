@@ -231,7 +231,7 @@ hyperi-ci release [<tag>]          release/retry HEAD, or re-release an existing
 hyperi-ci stamp-version <v>        write VERSION + manifest (central)
 hyperi-ci init                     scaffold ci.yml, .hyperi-ci.yaml, Makefile, githooks
 hyperi-ci detect | config          show detected language / merged config
-hyperi-ci trigger | watch | logs   drive GitHub Actions from the terminal
+hyperi-ci trigger | watch | rerun | logs   drive GitHub Actions from the terminal
 hyperi-ci install-toolchains | install-native-deps | install-deps   runner/CI dep install
 hyperi-ci init-contract | emit-artefacts | overlay-render | stitch | init-gitops | init-topology   deployment artefacts
 hyperi-ci update                  self-upgrade the installed tool

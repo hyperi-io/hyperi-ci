@@ -221,7 +221,7 @@ def _print_summary(run_data: dict) -> None:
         info(f"  {url}")
 
 
-def _resolve_head_run(*, workflow: str | None, repo: str | None) -> dict:
+def resolve_head_run(*, workflow: str | None, repo: str | None) -> dict:
     """Resolve the run for the commit at HEAD, waiting for it to register.
 
     Args:
@@ -287,7 +287,7 @@ def watch_run(
 
     if not run_id:
         try:
-            run = _resolve_head_run(workflow=workflow, repo=repo)
+            run = resolve_head_run(workflow=workflow, repo=repo)
         except RunSelectionError as exc:
             error(str(exc))
             return 1

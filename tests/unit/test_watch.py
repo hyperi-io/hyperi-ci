@@ -21,8 +21,8 @@ from hyperi_ci.watch import (
     _get_run_status,
     _poll_interval,
     _print_summary,
-    _resolve_head_run,
     _resume_command,
+    resolve_head_run,
     watch_run,
 )
 
@@ -481,7 +481,7 @@ class TestResolveHeadRun:
             "hyperi_ci.watch.head_run_candidates",
             return_value=(_SHA, [_listed_run(11, "CI")]),
         ):
-            run = _resolve_head_run(workflow=None, repo=None)
+            run = resolve_head_run(workflow=None, repo=None)
         assert run["databaseId"] == 11
 
     def test_refuses_two_runs_on_the_same_commit(self) -> None:
@@ -496,7 +496,7 @@ class TestResolveHeadRun:
             ),
             pytest.raises(RunSelectionError, match="refusing to guess"),
         ):
-            _resolve_head_run(workflow=None, repo=None)
+            resolve_head_run(workflow=None, repo=None)
 
     def test_workflow_pins_the_one_asked_about(self) -> None:
         candidates = [
@@ -507,7 +507,7 @@ class TestResolveHeadRun:
             "hyperi_ci.watch.head_run_candidates",
             return_value=(_SHA, candidates),
         ):
-            run = _resolve_head_run(workflow="Test", repo=None)
+            run = resolve_head_run(workflow="Test", repo=None)
         assert run["databaseId"] == 12
 
     def test_waits_for_the_run_to_register(self) -> None:
@@ -521,7 +521,7 @@ class TestResolveHeadRun:
             ),
             patch("hyperi_ci.watch.time.sleep") as mock_sleep,
         ):
-            run = _resolve_head_run(workflow=None, repo=None)
+            run = resolve_head_run(workflow=None, repo=None)
         assert run["databaseId"] == 11
         mock_sleep.assert_called_once()
 
@@ -536,7 +536,7 @@ class TestResolveHeadRun:
             ),
             pytest.raises(RunSelectionError, match="No run registered for commit"),
         ):
-            _resolve_head_run(workflow=None, repo=None)
+            resolve_head_run(workflow=None, repo=None)
 
 
 class TestWatchRunPinning:
