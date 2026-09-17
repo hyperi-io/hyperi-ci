@@ -113,21 +113,21 @@ openssl) needs a private sysroot with transitive dependency resolution - fragile
 each new native dep breaks differently. Native arm64 runners eliminate the whole
 problem class.
 
-**When does arm64 build?** Only on a run that publishes. The arm64 leg is added
-when `will-publish` is true (`rust-ci.yml`, *Generate build matrix*) - the
-publish channel plays no part. Every other run that builds stays x64, so the
+**When does arm64 build?** Only on a run that releases. The arm64 leg is added
+when `will-release` is true (`rust-ci.yml`, *Generate build matrix*) - the
+release channel plays no part. Every other run that builds stays x64, so the
 dev cycle stays fast and skips the arm64 runner cost.
 
 | Run | Architectures |
 |---|---|
 | PR with `branch-build`, or a validate-only dispatch | x64 |
-| publish run (`Publish: true` trailer, or a `publish` dispatch) | x64 + arm64 |
+| release run (`Release: true` trailer, or a release dispatch) | x64 + arm64 |
 
 A push to main with no trailer builds nothing at all - `run-build` is
-publish-only, so no leg runs whatever the matrix says.
+release-only, so no leg runs whatever the matrix says.
 
 A Rust project narrows that with `build.rust.targets` in `.hyperi-ci.yaml`: the
-publish matrix carries a leg only for a listed target, so a project whose
+release matrix carries a leg only for a listed target, so a project whose
 release build does not fit `ubuntu-24.04-arm` lists `x86_64-unknown-linux-gnu`
 alone and ships amd64. The build legs do not fail fast, so a leg that dies on
 its runner leaves the other's artefact in place.

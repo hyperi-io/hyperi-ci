@@ -1,0 +1,173 @@
+# Project:   HyperI CI
+# File:      tests/unit/test_vocabulary.py
+# Purpose:   One word for the release event, and the old spellings still working
+#
+# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+"""issue #149: `release` is the one word, and nothing written before it breaks.
+
+Back-compat is the whole point of the rename, so most of this file is about the
+old spellings continuing to work.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from hyperi_ci import vocabulary
+from hyperi_ci.config import CIConfig
+
+
+class TestFoldLegacyConfig:
+    """`publish:` folds into `release:` before the defaults merge."""
+
+    def test_a_legacy_block_becomes_the_canonical_one(self) -> None:
+        doc, keys = vocabulary.fold_legacy_config(
+            {"publish": {"channel": "beta", "enabled": True}}
+        )
+        assert doc["release"] == {"channel": "beta", "enabled": True}
+        assert "publish" not in doc
+        assert keys == ["publish.channel", "publish.enabled"]
+
+    def test_the_canonical_spelling_wins_a_conflict(self) -> None:
+        # One file, both spellings: the author has already said which they mean.
+        doc, _ = vocabulary.fold_legacy_config(
+            {"publish": {"channel": "alpha"}, "release": {"channel": "beta"}}
+        )
+        assert doc["release"]["channel"] == "beta"
+
+    def test_the_fold_is_deep(self) -> None:
+        doc, _ = vocabulary.fold_legacy_config(
+            {
+                "publish": {"container": {"enabled": True, "port": 8080}},
+                "release": {"container": {"port": 9000}},
+            }
+        )
+        assert doc["release"]["container"] == {"enabled": True, "port": 9000}
+
+    def test_no_legacy_block_changes_nothing(self) -> None:
+        original = {"release": {"channel": "release"}}
+        doc, keys = vocabulary.fold_legacy_config(original)
+        assert doc == original
+        assert keys == []
+
+    def test_a_non_mapping_is_returned_untouched(self) -> None:
+        assert vocabulary.fold_legacy_config(None) == (None, [])
+
+
+class TestKeyAliasing:
+    """Both directions, because a config reaches a reader folded or raw."""
+
+    @pytest.mark.parametrize(
+        "key,expected",
+        [
+            ("publish.channel", "release.channel"),
+            ("publish", "release"),
+            ("release.channel", "release.channel"),
+            ("quality.ruff", "quality.ruff"),
+        ],
+    )
+    def test_canonical_key(self, key: str, expected: str) -> None:
+        assert vocabulary.canonical_key(key) == expected
+
+    @pytest.mark.parametrize(
+        "key,expected",
+        [
+            ("release.channel", "publish.channel"),
+            ("release", "publish"),
+            ("quality.ruff", "quality.ruff"),
+        ],
+    )
+    def test_legacy_key(self, key: str, expected: str) -> None:
+        assert vocabulary.legacy_key(key) == expected
+
+    def test_candidates_try_the_asked_for_spelling_first(self) -> None:
+        # A caller holding an unfolded dict must get its own value, not a
+        # default, so the literal key is tried before any rewrite.
+        assert vocabulary.key_candidates("publish.channel")[0] == "publish.channel"
+        assert "release.channel" in vocabulary.key_candidates("publish.channel")
+
+    def test_candidates_are_deduplicated(self) -> None:
+        assert vocabulary.key_candidates("quality.ruff") == ["quality.ruff"]
+
+
+class TestReleaseTrailer:
+    """The composite matches the same set in shell; these must agree."""
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "fix: thing\n\nRelease: true\n",
+            "fix: thing\n\nPublish: true\n",
+            "fix: thing\n\nrelease: true\n",
+            "fix: thing\n\nRELEASE: TRUE\n",
+            "fix: thing\n\n  Release:   true  \n",
+        ],
+    )
+    def test_accepted(self, message: str) -> None:
+        assert vocabulary.has_release_trailer(message) is True
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "fix: thing\n",
+            "fix: thing\n\nRelease: false\n",
+            "fix: thing\n\nReleased-by: someone\n",
+            "fix: thing\n\nPublished-by: someone\n",
+        ],
+    )
+    def test_rejected(self, message: str) -> None:
+        assert vocabulary.has_release_trailer(message) is False
+
+
+class TestDeprecationMessage:
+    """A renamed key and a removed key have different futures; say so."""
+
+    def test_a_renamed_key_names_its_replacement(self) -> None:
+        message = vocabulary.deprecated_config_message(["publish.channel"])
+        assert "publish.channel -> release.channel" in message
+        assert "keeps working" in message
+        assert "REMOVED" not in message
+
+    def test_a_legacy_destination_key_names_the_removal_date(self) -> None:
+        message = vocabulary.deprecated_config_message(["publish.destinations_oss"])
+        assert "REMOVED" in message
+        assert vocabulary.REMOVAL_DATE in message
+
+    def test_both_tiers_are_reported_separately(self) -> None:
+        message = vocabulary.deprecated_config_message(
+            ["publish.channel", "publish.target"]
+        )
+        assert "publish.channel -> release.channel" in message
+        assert "REMOVED" in message
+
+    def test_the_reversal_is_stated_rather_than_left_to_look_like_a_flip_flop(
+        self,
+    ) -> None:
+        assert "withdrawn" in vocabulary.REVERSAL_NOTE
+        assert "release" in vocabulary.REVERSAL_NOTE
+
+
+class TestConfigReadsBothSpellings:
+    """A raw config was never folded, so `get` must still answer it."""
+
+    def test_a_legacy_raw_config_resolves_through_the_new_name(self) -> None:
+        config = CIConfig(_raw={"publish": {"channel": "beta"}})
+        assert config.get("release.channel") == "beta"
+
+    def test_a_folded_config_still_answers_the_old_name(self) -> None:
+        config = CIConfig(_raw={"release": {"channel": "beta"}})
+        assert config.get("publish.channel") == "beta"
+
+    def test_an_unrelated_key_is_untouched(self) -> None:
+        config = CIConfig(_raw={"quality": {"ruff": "blocking"}})
+        assert config.get("quality.ruff") == "blocking"
+        assert config.get("quality.missing", "fallback") == "fallback"
+
+    def test_destinations_resolves_under_either_key(self) -> None:
+        # `destinations_oss` folds to `release.destinations_oss`, which is not
+        # the canonical `release.destinations` -- the fallback covers it.
+        legacy = CIConfig(_raw={"publish": {"destinations_oss": {"python": "pypi"}}})
+        assert legacy.destination_for("python") == ["pypi"]
+        current = CIConfig(_raw={"release": {"destinations": {"python": "pypi"}}})
+        assert current.destination_for("python") == ["pypi"]

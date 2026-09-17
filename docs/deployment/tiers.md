@@ -157,7 +157,7 @@ a release.
 Add `.hyperi-ci.yaml` (or update the existing one):
 
 ```yaml
-publish:
+release:
   container:
     enabled: auto    # detection picks Tier 3 because ci/deployment-contract.json exists
     platforms:
@@ -187,7 +187,7 @@ once Tier 3 is in place - `docker build .` from the root then uses
 `ci/Dockerfile` via the `dockerfile:` field in `.hyperi-ci.yaml`:
 
 ```yaml
-publish:
+release:
   container:
     dockerfile: ci/Dockerfile
 ```

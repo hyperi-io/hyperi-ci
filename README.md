@@ -5,7 +5,7 @@ and in GitHub Actions. No bash scripts, no composite actions, no submodules.
 
 ## What's New in v2.0
 
-**Version-first single-run pipeline.** A `Publish: true` git trailer on
+**Version-first single-run pipeline.** A `Release: true` git trailer on
 your head commit is the single signal that a push is a release. The CI
 run predicts the next version up front, stamps it into Cargo.toml /
 VERSION / pyproject.toml / package.json **before** the build, then tags
@@ -36,7 +36,7 @@ only — those code paths have been removed.
 - One command before every push: `hyperi-ci check`
 - Same quality / test / build runs locally as in CI — no "works on my machine"
 - Automatic versioning via semantic-release (just use conventional commits)
-- One-shot publish: `hyperi-ci push --publish` (single CI run, single tag, single registry upload)
+- One-shot release: `hyperi-ci push --release` (single CI run, single tag, single registry upload)
 - Commit message validation that actually helps ("Computer says no.")
 
 **Your repo gets:**
@@ -89,28 +89,28 @@ hyperi-ci check --strict                # Also fail on warn-tier findings (zero 
 # 3. Commit (hook validates your message format)
 git commit -m "fix: resolve timeout in auth handler"
 
-# 4. Push (ships nothing -- no tag, no publish)
+# 4. Push (ships nothing -- no tag, no release)
 hyperi-ci push
 
 # That's it. Quality and test run if the pushed range is release-worthy.
 # Nothing compiles, no image is built, no tag, no registry is touched.
 ```
 
-## Publishing a Release
+## Releasing
 
 You opt in to a release explicitly. Two ways:
 
-### Primary: `hyperi-ci push --publish`
+### Primary: `hyperi-ci push --release`
 
 ```bash
 git commit -m "fix: handle empty tenant id"
-hyperi-ci push --publish        # alias: --release
+hyperi-ci push --release        # --publish still works
 ```
 
-This amends your head commit with the `Publish: true` git trailer, then
+This amends your head commit with the `Release: true` git trailer, then
 pushes. The single CI run:
 
-1. Reads the trailer in setup → declares this a publish run
+1. Reads the trailer in setup → declares this a release run
 2. Runs `npx semantic-release --dry-run` to predict the next version (e.g. v1.5.4)
 3. Stamps that version into Cargo.toml + VERSION before build
 4. Builds (binary now embeds CARGO_PKG_VERSION = 1.5.4)
@@ -118,7 +118,7 @@ pushes. The single CI run:
 6. Runs `npx semantic-release` for real → creates tag, CHANGELOG commit
 7. Uploads binaries to GitHub Release + R2; publishes to crates.io / PyPI / npm
 
-One workflow run, one tag, one publish.
+One workflow run, one tag, one release.
 
 ### Forced bump: ship a release with no release-worthy commits
 
@@ -132,41 +132,41 @@ hyperi-ci push --bump-patch        # +0.0.1 even with docs:/chore: commits
 hyperi-ci push --bump-minor        # +0.1.0
 ```
 
-Either flag implies `--publish`. Under the hood, the tool adds an empty
+Either flag implies `--release`. Under the hood, the tool adds an empty
 `fix(release): force patch bump` (or `feat(release): force minor bump`)
-commit on top of HEAD with the `Publish: true` trailer. semantic-release
+commit on top of HEAD with the `Release: true` trailer. semantic-release
 sees that and cuts the version. Honest git history: the marker commit
 explicitly states "this is a forced bump."
 
 Major bumps are deliberately excluded from this flag — they require a
 human-written `BREAKING CHANGE:` footer per HyperI commit-type discipline.
 
-### Secondary: re-publish an existing tag
+### Secondary: re-release an existing tag
 
-If a previous publish run failed mid-way (e.g. registry timeout) and you
+If a previous release run failed mid-way (e.g. registry timeout) and you
 want to retry without re-tagging:
 
 ```bash
-hyperi-ci publish v1.5.4         # alias: release v1.5.4
+hyperi-ci release v1.5.4         # `publish` still works
 ```
 
 This dispatches a `workflow_dispatch` event for the tag and runs
 build → container → publish from the existing tagged source.
 
 ```bash
-hyperi-ci publish --list         # see unpublished tags
+hyperi-ci release --list         # see unreleased tags
 ```
 
-### What pushes WITHOUT `--publish`
+### What pushes WITHOUT `--release`
 
 A plain `hyperi-ci push` ships nothing and builds nothing -- `run-build` is
-publish-only, so no cargo compile and no container job runs at all. Quality
+release-only, so no cargo compile and no container job runs at all. Quality
 and test run when the pushed range is release-worthy (it carries a `feat:`,
 `fix:` or `perf:`), and skip entirely when it is not.
 
 So the default state of `main` is "landed, and tested if it was
 release-worthy" -- not "built and ready to ship". You release explicitly by
-running `hyperi-ci push --publish` on the next conventional commit.
+running `hyperi-ci push --release` on the next conventional commit.
 
 ## Commit Messages
 
@@ -198,16 +198,20 @@ Computer says no.
 
 Full list: `hyperi-ci check-commit --list`
 
-## Publish Channels
+## Release Channels
 
 Control where artifacts go with one line in `.hyperi-ci.yaml`:
 
 ```yaml
-publish:
+release:
   channel: release    # alpha | beta | release
 ```
 
-### Publish targets
+The namespace was `publish:` and still works -- a `publish:` block folds into
+`release:` at load time and names each key it moved. Nothing has to change to
+keep building.
+
+### Release destinations
 
 Every artefact publishes to the OSS registry stack:
 
@@ -221,10 +225,11 @@ Every artefact publishes to the OSS registry stack:
 | Binaries (web-downloadable) | Cloudflare R2 (`downloads.hyperi.io`) |
 | Helm charts | OCI under GHCR |
 
-The `publish.target` field is still accepted in `.hyperi-ci.yaml` for
+The `publish.target` config field is still accepted in `.hyperi-ci.yaml` for
 backward compatibility — values like `internal` or `both` are read,
 preserved on the `CIConfig` object, and **silently routed to the OSS
-destination map**. JFrog publishing was removed in v2.1.4. The only
+destination map**. JFrog publishing was removed in v2.1.4. It is a different
+thing from the `publish-target` workflow input, which is still live. The only
 remaining toggle for full FOSS visibility is making the source repos
 themselves public on GitHub.
 
@@ -245,7 +250,7 @@ prerelease and prefix R2 paths. Stable releases require `channel: release`.
 alpha -> beta -> release
 ```
 
-Each step is a one-line change to `publish.channel` in `.hyperi-ci.yaml`.
+Each step is a one-line change to `release.channel` in `.hyperi-ci.yaml`.
 No code changes, no workflow changes.
 
 ## Commands
@@ -257,12 +262,12 @@ No code changes, no workflow changes.
 | `hyperi-ci check --full` | Quality + test + build |
 | `hyperi-ci check --strict` | Also fail on warn-tier findings - see [docs/quality-gate.md](docs/quality-gate.md) |
 | `hyperi-ci push` | Push -- ships nothing, quality + test if release-worthy |
-| `hyperi-ci push --publish` | Stamp `Publish: true` trailer, push, single-run publish |
+| `hyperi-ci push --release` | Stamp `Release: true` trailer, push, single-run release |
 | `hyperi-ci push --bump-patch` | Force +0.0.1 release even with no-bump commits |
 | `hyperi-ci push --bump-minor` | Force +0.1.0 release even with no-bump commits |
 | `hyperi-ci push --no-ci` | Push with `[skip ci]` (skip CI entirely) |
-| `hyperi-ci publish <tag>` | Retroactive: dispatch publish on existing tag |
-| `hyperi-ci publish --list` | List unpublished version tags |
+| `hyperi-ci release <tag>` | Retroactive: dispatch a release on an existing tag |
+| `hyperi-ci release --list` | List unreleased version tags |
 | `hyperi-ci run quality\|test\|build\|generate\|container\|publish` | Run a single stage locally |
 | `hyperi-ci init-contract --app-name <name>` | Scaffold `ci/deployment-contract.json` (Tier 3) |
 | `hyperi-ci emit-artefacts <output-dir>` | Generate Dockerfile + chart + ArgoCD app from contract |
@@ -279,8 +284,13 @@ No code changes, no workflow changes.
 | `hyperi-ci update` | Update to the channel's release (see `autoupdate`) |
 | `hyperi-ci autoupdate [status\|channel live\|stable\|freeze\|unfreeze]` | Show/set how the CLI updates itself |
 
-`hyperi-ci release` is kept as a deprecated alias of `hyperi-ci publish`
-and will be removed in v3.0.
+`hyperi-ci release` is the canonical verb. `hyperi-ci publish` still works and
+warns. An earlier notice deprecated `release` for removal; that was the wrong
+way round and is withdrawn -- `release` is the name that stays.
+
+Every old spelling keeps working: the `Publish: true` trailer, a `publish:`
+config block, `push --publish`, and `hyperi-ci publish`. Each warns and names
+its replacement. No project has to change anything to keep building.
 
 ## How It Works
 
@@ -298,14 +308,14 @@ Your Project                          hyperi-ci
                                       └── src/hyperi_ci/
                                           ├── cli.py                  (entry point)
                                           ├── dispatch.py             (stage router)
-                                          ├── push.py                 (push --publish)
+                                          ├── push.py                 (push --release)
                                           ├── publish/                (binaries + retro dispatch)
                                           ├── container/              (docker build/push)
                                           ├── deployment/             (contract / artefact gen)
                                           └── languages/              (per-language stage handlers)
 ```
 
-### Pipeline (push to main, no `Publish: true` trailer)
+### Pipeline (push to main, no `Release: true` trailer)
 
 ```mermaid
 flowchart LR
@@ -315,10 +325,10 @@ flowchart LR
 ```
 
 No build, no container, no tag, no registry upload. A release-worthy merge is
-TESTED, not shipped -- `run-build` is publish-only, so nothing compiles and no
+TESTED, not shipped -- `run-build` is release-only, so nothing compiles and no
 image is produced until you release.
 
-### Pipeline (push to main with `Publish: true` trailer, OR workflow_dispatch)
+### Pipeline (push to main with `Release: true` trailer, OR workflow_dispatch)
 
 ```mermaid
 flowchart LR
@@ -329,7 +339,7 @@ flowchart LR
     C --> TP["tag-and-publish<br/>(semantic-release + run publish)"]
 ```
 
-One workflow, one tag, one publish.
+One workflow, one tag, one release.
 
 ## Config
 
@@ -341,9 +351,9 @@ CLI flags -> ENV vars (HYPERCI_*) -> .hyperi-ci.yaml -> defaults.yaml -> hardcod
 
 ```yaml
 language: rust              # Auto-detected if omitted
-publish:
+release:                    # was `publish:` -- still accepted, warns
   enabled: true
-  target: oss               # oss (default) | internal | both
+  target: oss               # legacy no-op, any value routes to OSS
   channel: release          # alpha | beta | release
 build:
   strategies: [native]
@@ -383,13 +393,13 @@ user guide.
 
 Images push to GHCR (`ghcr.io/hyperi-io/<app>`). Tags:
 
-- Push to main with `Publish: true`: `:vX.Y.Z` + `:latest` + `:sha-abc1234`
+- Push to main with `Release: true`: `:vX.Y.Z` + `:latest` + `:sha-abc1234`
 - workflow_dispatch on tag: same tag set on the existing tagged source
 
 Enable in `.hyperi-ci.yaml`:
 
 ```yaml
-publish:
+release:
   container:
     enabled: auto    # auto | true | false
     platforms: [linux/amd64, linux/arm64]
@@ -408,7 +418,7 @@ publish:
 > degree as Rust, Python, and TypeScript. Verify results carefully on
 > production pipelines.
 
-Per-language version stamping (publish runs only):
+Per-language version stamping (release runs only):
 
 | Language | Stamps |
 |---|---|
@@ -453,8 +463,8 @@ build:
       - aarch64-unknown-linux-gnu
 ```
 
-Push to main without `Publish: true` builds amd64 only (validation).
-Publish runs build the full matrix.
+Push to main without `Release: true` builds amd64 only (validation).
+Release runs build the full matrix.
 
 ## Design Principles
 
@@ -462,7 +472,7 @@ Publish runs build the full matrix.
 2. **Tag-on-publish** — git tags exist iff the artefact is in the registry.
 3. **No silent skips** — fail loud on broken handoffs (missing artefacts, missing handlers, etc.).
 4. **No bash** — all CI logic is Python. `subprocess.run()` with list args.
-5. **Semantic release** — push to main with `Publish: true` triggers a single-run release.
+5. **Semantic release** — push to main with `Release: true` triggers a single-run release.
 6. **uv for everything** — venv, sync, lock, tool install, build.
 7. **Cross-platform** — Linux (CI) and macOS (dev).
 8. **Self-hosting** — hyperi-ci uses itself for its own CI.

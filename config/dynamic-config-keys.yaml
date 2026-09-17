@@ -38,9 +38,6 @@ keys:
   # Read off the raw config dict by chained .get(), not by dotted path.
   quality.exclude_paths: src/hyperi_ci/common.py
 
-  # destination_for() builds `publish.<artefact>`.
-  publish.binaries: src/hyperi_ci/config.py
-
   # Deliberate mirror of the Python constant, declared so an operator can see
   # the supported schema version in `hyperi-ci config` output.
   deployment.max_supported_schema_version: src/hyperi_ci/config.py

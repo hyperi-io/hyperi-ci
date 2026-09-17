@@ -162,7 +162,7 @@ jobs:
     outputs:
       run-checks: ${{ steps.predict.outputs.run-checks }}
       run-build: ${{ steps.predict.outputs.run-build }}
-      will-publish: ${{ steps.predict.outputs.will-publish }}
+      will-release: ${{ steps.predict.outputs.will-release }}
       next-version: ${{ steps.predict.outputs.version }}
       # The project's own floor, not the fleet default -- resolved once here so
       # every job below builds on the interpreter the project declares (#150).
@@ -185,7 +185,7 @@ jobs:
           python-version: ${{ inputs.python-version }}
 
       - name: Install uv (preflight)
-        if: steps.predict.outputs.will-publish == 'true'
+        if: steps.predict.outputs.will-release == 'true'
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: false
@@ -196,7 +196,7 @@ jobs:
         # otherwise surfaces at the publish stage, after a full build.
         # Blocks only where the publish handler hard-fails without the
         # credential; PyPI (OIDC fallback) and R2 warn.
-        if: steps.predict.outputs.will-publish == 'true'
+        if: steps.predict.outputs.will-release == 'true'
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -377,7 +377,7 @@ jobs:
         # at runtime. Runs on push AND on a from-head dispatch (issue #35):
         # both release HEAD, whose committed tree is stale (tagger-only).
         # A plain `tag` dispatch is skipped (the tag's tree is correct).
-        if: needs.plan.outputs.will-publish == 'true' && (github.event_name == 'push' || inputs.from-head == 'true')
+        if: needs.plan.outputs.will-release == 'true' && (github.event_name == 'push' || inputs.from-head == 'true')
         run: |
           version="${{ needs.plan.outputs.next-version }}"
           if [[ -z "$version" ]]; then
@@ -464,7 +464,7 @@ jobs:
     uses: hyperi-io/hyperi-ci/.github/workflows/_release-tail.yml@main
     with:
       language: python
-      will-publish: ${{ needs.plan.outputs.will-publish }}
+      will-publish: ${{ needs.plan.outputs.will-release }}
       next-version: ${{ needs.plan.outputs.next-version }}
       tag: ${{ inputs.tag }}
       from-head: ${{ inputs.from-head }}

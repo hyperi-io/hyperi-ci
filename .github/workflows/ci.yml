@@ -12,7 +12,7 @@
 # the predict-version action and _release-tail.yml so a workflow change is
 # caught here before it reaches a consumer.
 #
-# Publish trigger: a push to main whose HEAD commit carries a `Publish: true`
+# Publish trigger: a push to main whose HEAD commit carries a `Release: true`
 # trailer (written by `hyperi-ci push --publish`) tags HEAD and publishes;
 # every other push validates only. This replaces the old bespoke jobs that
 # tagged EVERY push but only published on a manual workflow_dispatch - the
@@ -67,7 +67,7 @@ jobs:
     outputs:
       run-checks: ${{ steps.predict.outputs.run-checks }}
       run-build: ${{ steps.predict.outputs.run-build }}
-      will-publish: ${{ steps.predict.outputs.will-publish }}
+      will-release: ${{ steps.predict.outputs.will-release }}
       next-version: ${{ steps.predict.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -84,7 +84,7 @@ jobs:
           branch-build: ${{ vars.HYPERCI_BRANCH_BUILD }}
 
       - name: Install uv (preflight)
-        if: steps.predict.outputs.will-publish == 'true'
+        if: steps.predict.outputs.will-release == 'true'
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: false
@@ -93,7 +93,7 @@ jobs:
         # semantic-release's verifyConditions equivalent: prove the tokens
         # exist before anything compiles. Runs the LOCAL branch code, so this
         # repo's own PRs exercise the change.
-        if: steps.predict.outputs.will-publish == 'true'
+        if: steps.predict.outputs.will-release == 'true'
         env:
           PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -275,7 +275,7 @@ jobs:
     uses: ./.github/workflows/_release-tail.yml
     with:
       language: python
-      will-publish: ${{ needs.plan.outputs.will-publish }}
+      will-publish: ${{ needs.plan.outputs.will-release }}
       next-version: ${{ needs.plan.outputs.next-version }}
       tag: ${{ inputs.tag }}
       from-head: ${{ inputs.from-head }}

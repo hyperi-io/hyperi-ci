@@ -21,8 +21,8 @@ flowchart LR
 
 ## Notes
 
-- **No registry push.** The Go module proxy serves modules by git tag - tagging
-  a release is the publish. The handler additionally uploads compiled binaries to
+- **No registry push.** The Go module proxy serves modules by git tag - the tag
+  is the release. The handler additionally uploads compiled binaries to
   GitHub Releases (and R2 for GA binaries), same as Rust.
 - **Cross-compile is native, not `GOOS`/`GOARCH` from one host.** Multi-arch
   builds run on native runners per architecture (see

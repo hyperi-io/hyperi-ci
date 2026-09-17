@@ -56,11 +56,16 @@ class TestLicenseConfig:
         content = _render_hyperi_ci_yaml("python", "p", tmp_path)
         assert "license: BUSL-1.1" in content
 
-    def test_scaffold_publish_target_is_oss(self, tmp_path: Path) -> None:
-        # JFrog removed in v2.1.4 — new projects scaffold to oss, not internal.
+    def test_scaffold_uses_the_release_namespace(self, tmp_path: Path) -> None:
         content = _render_hyperi_ci_yaml("python", "p", tmp_path)
-        assert "target: oss" in content
-        assert "target: internal" not in content
+        assert "release:" in content
+        assert "publish:" not in content
+
+    def test_scaffold_omits_the_removed_target_key(self, tmp_path: Path) -> None:
+        # `target` is inert and is removed in December 2026 (#151) -- a new
+        # project must not start with a key we are deleting.
+        content = _render_hyperi_ci_yaml("python", "p", tmp_path)
+        assert "target:" not in content
 
 
 class TestRenderTemplates:

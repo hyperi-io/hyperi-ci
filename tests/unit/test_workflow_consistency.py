@@ -491,8 +491,8 @@ class TestBuildChannelIsNotProxied:
             s for s in wf["jobs"]["build"]["steps"] if s.get("name") == "Run build"
         )
         channel = str(build.get("env", {}).get("HYPERCI_CHANNEL", ""))
-        assert "needs.plan.outputs.will-publish" in channel, (
-            "the build channel must follow the publish decision, not a legacy "
+        assert "needs.plan.outputs.will-release" in channel, (
+            "the build channel must follow the release decision, not a legacy "
             "publish-target proxy"
         )
         assert "publish-target" not in channel, (
@@ -566,8 +566,8 @@ class TestBranchModeThreading:
         plan = wf["jobs"]["plan"]["steps"]
         matrix = next(s for s in plan if s.get("id") == "matrix")
         run = str(matrix["run"])
-        assert "steps.predict.outputs.will-publish" in run, (
-            f"{workflow_name}: matrix arch breadth must key off will-publish"
+        assert "steps.predict.outputs.will-release" in run, (
+            f"{workflow_name}: matrix arch breadth must key off will-release"
         )
         assert "steps.predict.outputs.run-build" not in run, (
             f"{workflow_name}: matrix must NOT key off run-build (PR builds "

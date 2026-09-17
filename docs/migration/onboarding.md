@@ -38,7 +38,7 @@ semantics. The biggest user-visible changes:
 | Concept | v1 | v2 |
 |---|---|---|
 | Push triggers release | Every `fix:`/`feat:` push tags a version | Push ships nothing by default |
-| Release trigger | `hyperi-ci release vX.Y.Z` (separate dispatch) | `hyperi-ci push --publish` (single CI run) |
+| Release trigger | `hyperi-ci release vX.Y.Z` (separate dispatch) | `hyperi-ci push --release` (single CI run) |
 | Tag semantics | Tags accumulate; some published, some not | Tag = "this artefact is in a registry" |
 | Build runs per release | 2 (push run + dispatch run) | 1 |
 | Version stamping | Post-build (binary lags one release) | Pre-build (binary embeds correct version) |
@@ -50,7 +50,7 @@ semantics. The biggest user-visible changes:
    in v2.1.4; every value routes to OSS), but flip to `oss` for clarity:
 
    ```yaml
-   publish:
+   release:        # was `publish:` -- a `publish:` block still works, and warns
      target: oss   # internal/both still accepted, both go to OSS
    ```
 
@@ -75,20 +75,21 @@ semantics. The biggest user-visible changes:
 
 4. **Adopt the new release flow:**
 
-   - Drop `hyperi-ci release vX.Y.Z` (still works as a deprecated alias)
-     for routine releases.
-   - Use `hyperi-ci push --publish` instead - it amends your commit
-     with the `Publish: true` trailer and triggers a single CI run that
-     tags + publishes.
+   - Drop `hyperi-ci release vX.Y.Z` as the routine path - it still
+     works, but it is the retroactive escape hatch, not the daily verb.
+   - Use `hyperi-ci push --release` instead - it amends your commit
+     with the `Release: true` trailer and triggers a single CI run that
+     tags + publishes. `--publish` and the `Publish: true` trailer still
+     work and warn.
    - For **forced bumps** when commits aren't release-worthy: use
      `hyperi-ci push --bump-patch` or `--bump-minor`. Adds a real
      `fix(release):` / `feat(release):` marker commit (with VERSION
      write) that semantic-release picks up and consumer `paths-ignore`
      won't filter. Major bumps need a human-written breaking-change
      footer.
-   - Use `hyperi-ci publish vX.Y.Z` (canonical) for retroactive
-     re-publishes against existing tags.
-   - To release or retry the **current HEAD**: run `hyperi-ci publish`
+   - Use `hyperi-ci release vX.Y.Z` (canonical) for retroactive
+     re-releases against existing tags.
+   - To release or retry the **current HEAD**: run `hyperi-ci release`
      with no tag, or dispatch with `from-head: true` (optionally
      `bump: patch | minor | X.Y.Z`) from the Actions UI. The CI cuts the
      tag and publishes in one run (issue #35).
@@ -101,23 +102,23 @@ semantics. The biggest user-visible changes:
   else none). A legacy `.releaserc.yaml` is deprecated (the deprecated-file
   check flags it); a repo `.releaserc.json` is only for a rare exception.
 - **No `Cargo.toml` / `pyproject.toml` changes.** Version stamping
-  happens transparently at build time on publish runs.
+  happens transparently at build time on release runs.
 - **Existing tags are unchanged.** Old "orphan" tags from v1 stay in
-  git history. New tags from your first v2 publish onwards follow the
+  git history. New tags from your first v2 release onwards follow the
   tag-on-publish contract.
 
 ### Edge cases
 
 - **PR -> merge to main**: a normal merge ships nothing - no tag, no
-  publish. A release-worthy merge still runs quality + test; a
-  `chore:` / `docs:` merge runs neither. Add `Publish: true` to your
+  release. A release-worthy merge still runs quality + test; a
+  `chore:` / `docs:` merge runs neither. Add `Release: true` to your
   final commit to ship.
 - **Release on main with no `fix:`/`feat:`**: setup hard-fails - the
-  `Publish: true` trailer requires at least one release-worthy commit
+  `Release: true` trailer requires at least one release-worthy commit
   since the last tag. Add a `fix:` / `feat:` commit, or remove the
   trailer.
 - **JFrog removed in v2.1.4**: the `internal` and `both` target values
-  are still accepted in `.hyperi-ci.yaml` but ignored - every publish
+  are still accepted in `.hyperi-ci.yaml` but ignored - every release
   goes to the OSS registry stack. No action required for projects
   already using `target: oss`.
 
@@ -200,5 +201,5 @@ semantic-release will create the next tag (e.g. `v1.5.2`) automatically.
 Then publish it:
 
 ```bash
-hyperi-ci publish v1.5.2     # was: hyperi-ci release v1.5.2
+hyperi-ci release v1.5.2     # `hyperi-ci publish` still works
 ```

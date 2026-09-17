@@ -11,7 +11,7 @@ Wraps git push with:
 - Pre-push validation (``hyperi-ci check``)
 - Auto-rebase to sync semantic-release commits
 - ``--publish`` (alias ``--release``): amend HEAD with the
-  ``Publish: true`` git trailer before pushing. The single CI run
+  ``Release: true`` git trailer before pushing. The single CI run
   triggered by the push runs through the version-first pipeline and
   produces the tag + registry uploads in one shot.
 - ``--no-ci``: amend last commit with ``[skip ci]`` marker
@@ -36,9 +36,20 @@ from hyperi_ci.common import (
 )
 from hyperi_ci.gh import get_current_branch, require_gh
 from hyperi_ci.version_source import seed_version
+from hyperi_ci.vocabulary import (
+    LEGACY_TRAILER_KEY,
+    TRAILER_KEY,
+    TRAILER_VALUE,
+    has_release_trailer,
+)
 
-PUBLISH_TRAILER_KEY = "Publish"
-PUBLISH_TRAILER_VALUE = "true"
+RELEASE_TRAILER_KEY = TRAILER_KEY
+RELEASE_TRAILER_VALUE = TRAILER_VALUE
+
+# The old spelling, kept so an out-of-tree caller importing it still reads a
+# trailer this repo accepts. New commits are stamped `Release: true`.
+PUBLISH_TRAILER_KEY = LEGACY_TRAILER_KEY
+PUBLISH_TRAILER_VALUE = TRAILER_VALUE
 
 # Lockfile basenames we auto-stage into the release-marker commit when
 # they show up modified in the working tree at commit time. Cargo
@@ -80,7 +91,7 @@ def push(
     """Push with pre-checks and optional meta-operations.
 
     Args:
-        publish: Stamp the head commit with the ``Publish: true``
+        publish: Stamp the head commit with the ``Release: true``
             trailer (justified amend) and push. The CI run sees the
             trailer, predicts the next version, stamps it into
             Cargo.toml/VERSION before build, then tags + publishes in
@@ -155,14 +166,14 @@ def _publish_push(
 
     - Default (``bump=None``): the user's HEAD commit IS release-worthy
       (a ``fix:``/``feat:``/``perf:``/``hotfix:``/``security:`` commit).
-      We amend HEAD with the ``Publish: true`` trailer to signal the
+      We amend HEAD with the ``Release: true`` trailer to signal the
       workflow to tag + publish.
 
     - Forced bump (``bump="patch"`` or ``"minor"``): the user's HEAD
       commits are NOT release-worthy (e.g. docs-only) but they want a
       release anyway. We add a NEW empty commit on top with a
       conventional-commit message that semantic-release will analyse
-      as a patch/minor — plus the ``Publish: true`` trailer. Honest
+      as a patch/minor — plus the ``Release: true`` trailer. Honest
       git history: the marker commit explicitly states "this is a
       forced release" rather than smuggling a fake fix into source.
 
@@ -220,7 +231,7 @@ def _publish_push(
             f"under conventional-commits rules; this marker commit records\n"
             f"the operator's explicit decision to publish anyway.\n"
             f"\n"
-            f"{PUBLISH_TRAILER_KEY}: {PUBLISH_TRAILER_VALUE}\n"
+            f"{RELEASE_TRAILER_KEY}: {RELEASE_TRAILER_VALUE}\n"
         )
         if dry_run:
             info(
@@ -244,11 +255,11 @@ def _publish_push(
             return 1
 
         if _has_publish_trailer(head_msg):
-            info("HEAD already carries Publish: true trailer — pushing as-is")
+            info("HEAD already carries the release trailer — pushing as-is")
         else:
             if dry_run:
                 info(
-                    "Dry run: would amend HEAD to add 'Publish: true' trailer, "
+                    "Dry run: would amend HEAD to add 'Release: true' trailer, "
                     "then push"
                 )
                 return 0
@@ -529,23 +540,16 @@ def _stage_modified_lockfiles(*, cwd: str | None) -> None:
 
 
 def _has_publish_trailer(message: str) -> bool:
-    """Return True if the commit message already has ``Publish: true``."""
-    for line in message.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if ":" in stripped:
-            key, _, value = stripped.partition(":")
-            if (
-                key.strip().lower() == PUBLISH_TRAILER_KEY.lower()
-                and value.strip().lower() == PUBLISH_TRAILER_VALUE
-            ):
-                return True
-    return False
+    """Return True if the message carries the release trailer, either spelling.
+
+    One matcher, in :mod:`hyperi_ci.vocabulary`, so this and the shell check in
+    the predict-version composite accept the same set.
+    """
+    return has_release_trailer(message)
 
 
 def _amend_publish_trailer(*, cwd: str | None) -> int:
-    """Amend HEAD to add the Publish: true trailer (no message change)."""
+    """Amend HEAD to add the Release: true trailer (no message change)."""
     # `--allow-empty` covers the edge case where HEAD is already an empty
     # commit (e.g. an empty `chore: trigger` marker) — git refuses to
     # amend an empty commit by default. The trailer-only amend doesn't
@@ -560,15 +564,15 @@ def _amend_publish_trailer(*, cwd: str | None) -> int:
                 "--no-edit",
                 "--allow-empty",
                 "--trailer",
-                f"{PUBLISH_TRAILER_KEY}: {PUBLISH_TRAILER_VALUE}",
+                f"{RELEASE_TRAILER_KEY}: {RELEASE_TRAILER_VALUE}",
             ],
             cwd=cwd,
             capture=True,
         )
     except subprocess.CalledProcessError as exc:
-        error(f"Failed to amend HEAD with Publish: true trailer: {exc}")
+        error(f"Failed to amend HEAD with Release: true trailer: {exc}")
         return 1
-    info(f"Amended HEAD with `{PUBLISH_TRAILER_KEY}: {PUBLISH_TRAILER_VALUE}` trailer")
+    info(f"Amended HEAD with `{RELEASE_TRAILER_KEY}: {RELEASE_TRAILER_VALUE}` trailer")
     return 0
 
 

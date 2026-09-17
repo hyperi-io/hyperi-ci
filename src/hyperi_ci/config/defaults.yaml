@@ -251,23 +251,24 @@ build:
     garble: false
     container: false
 
-# Publishing
+# Releasing
 #
-# All artefacts are published to OSS registries (PyPI / npm / crates.io /
-# GHCR / GitHub Releases / Cloudflare R2). The legacy `target` config key
-# is accepted for backward compatibility with downstream `.hyperi-ci.yaml`
-# files but is ignored at runtime — every publish goes to OSS.
-publish:
+# One word for the event that ships an artefact. A project's `publish:` block
+# still works: it folds into this one at load time and names its replacement.
+#
+# All artefacts go to OSS registries (PyPI / npm / crates.io / GHCR / GitHub
+# Releases / Cloudflare R2). The legacy `target` key is accepted from downstream
+# `.hyperi-ci.yaml` files but ignored at runtime.
+release:
   enabled: true
   target: oss
-  binaries: both
 
-  # Destination mapping (OSS only).
+  # Destination mapping (OSS only). Was `destinations_oss`, which still works.
   #
   # Set any artefact to `false` in a project's .hyperi-ci.yaml to opt out
   # of publishing it while keeping the rest — e.g. a private Python service
   # that ships only its GHCR container sets `python: false`.
-  destinations_oss:
+  destinations:
     python: pypi               # pypi.org (OIDC Trusted Publishing)
     npm: npmjs                 # npmjs.com @hyperi/* (OIDC)
     cargo: crates-io           # crates.io (API token)

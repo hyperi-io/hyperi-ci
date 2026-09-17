@@ -44,8 +44,11 @@ inputs:
     default: "3.14"
 
 outputs:
+  will-release:
+    description: "'true' iff this run should tag + release"
+    value: ${{ steps.gate.outputs.will-publish }}
   will-publish:
-    description: "'true' iff this run should tag + publish"
+    description: "Deprecated spelling of will-release, same value. Kept because a reusable workflow cannot warn about an output a caller reads."
     value: ${{ steps.gate.outputs.will-publish }}
   version:
     description: "Predicted next version (without 'v' prefix); set on push and on from-head dispatch"
@@ -88,7 +91,7 @@ runs:
       #
       # - workflow_dispatch with a tag input → always publish (retroactive).
       # - workflow_dispatch with from-head: true → publish HEAD.
-      # - push to main with `Publish: true` trailer in HEAD commit → publish.
+      # - push to main with `Release: true` trailer in HEAD commit → release.
       # - everything else, a bare workflow_dispatch included → validate-only
       #   (no version stamp, no tag, no container push, no registry uploads).
       id: gate
@@ -124,21 +127,23 @@ runs:
         if [[ "${{ github.ref }}" != "refs/heads/main" ]]; then
           echo "will-publish=false" >> "$GITHUB_OUTPUT"
           msg=$(git log -1 --format=%B HEAD)
-          if printf '%s' "$msg" | grep -qiE '^[[:space:]]*Publish:[[:space:]]*true[[:space:]]*$'; then
-            echo "::warning::'Publish: true' trailer on non-main ref '${{ github.ref }}' — ignored. Publishing only happens from main; merge first."
+          if printf '%s' "$msg" | grep -qiE '^[[:space:]]*(Release|Publish):[[:space:]]*true[[:space:]]*$'; then
+            echo "::warning::Release trailer on non-main ref '${{ github.ref }}' — ignored. Releasing only happens from main; merge first."
           fi
           echo "Non-main ref — validate-only run (no tag, no publish)"
           exit 0
         fi
 
-        # push to main — match Publish: true trailer (case-insensitive on key)
+        # push to main — match the release trailer, either spelling
+        # (case-insensitive on key). hyperi_ci.vocabulary matches the same set
+        # in Python; this runs where hyperi-ci is not installed.
         msg=$(git log -1 --format=%B HEAD)
-        if printf '%s' "$msg" | grep -qiE '^[[:space:]]*Publish:[[:space:]]*true[[:space:]]*$'; then
+        if printf '%s' "$msg" | grep -qiE '^[[:space:]]*(Release|Publish):[[:space:]]*true[[:space:]]*$'; then
           echo "will-publish=true" >> "$GITHUB_OUTPUT"
-          echo "::notice::'Publish: true' trailer detected — this is a publish run"
+          echo "::notice::Release trailer detected — this run tags and publishes"
         else
           echo "will-publish=false" >> "$GITHUB_OUTPUT"
-          echo "No 'Publish: true' trailer — validate-only run (no tag, no publish)"
+          echo "No release trailer — validate-only run (no tag, no publish)"
         fi
 
     - name: Setup semantic-release (shared toolchain — single source of truth)
@@ -156,7 +161,7 @@ runs:
       # AppMetrics, --version flags, log output) matches the published
       # tag.
       #
-      # Hard fail if `Publish: true` was set but no release-worthy
+      # Hard fail if `Release: true` was set but no release-worthy
       # commits exist — silent skip violates "nothing should say it
       # worked if it didn't."
       #
@@ -183,7 +188,7 @@ runs:
         version=$(printf '%s\n' "$dry_output" | grep -oE 'next release version is [0-9]+\.[0-9]+\.[0-9]+' | head -1 | awk '{print $5}')
 
         if [[ -z "$version" ]]; then
-          echo "::error::No release-worthy commits since last tag. On a push, drop the 'Publish: true' trailer (this is a non-release commit) or land a fix:/feat:/perf: commit. On a from-head dispatch, re-run with --bump patch (or minor) to force a release."
+          echo "::error::No release-worthy commits since last tag. On a push, drop the 'Release: true' trailer (this is a non-release commit) or land a fix:/feat:/perf: commit. On a from-head dispatch, re-run with --bump patch (or minor) to force a release."
           exit 1
         fi
 
@@ -276,7 +281,7 @@ runs:
 
     - name: Detect a release-worthy push
       # The doctrine runs checks on PR review and RELEASE-WORTHY pushes, but
-      # the code only ever asked for the `Publish: true` trailer -- which marks
+      # the code only ever asked for the release trailer -- which marks
       # a push that PUBLISHES, a strictly smaller set. So an ordinary squash
       # merge of a fix: to main compiled nothing, tested nothing and reported
       # green (issue #124). Ask the bump SSoT what the pushed range holds.

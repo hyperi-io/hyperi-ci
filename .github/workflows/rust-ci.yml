@@ -175,7 +175,7 @@ jobs:
     outputs:
       run-checks: ${{ steps.predict.outputs.run-checks }}
       run-build: ${{ steps.predict.outputs.run-build }}
-      will-publish: ${{ steps.predict.outputs.will-publish }}
+      will-release: ${{ steps.predict.outputs.will-release }}
       next-version: ${{ steps.predict.outputs.version }}
       build-matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
@@ -195,7 +195,7 @@ jobs:
           branch-build: ${{ inputs.branch-build || vars.HYPERCI_BRANCH_BUILD }}
 
       - name: Install uv (preflight)
-        if: steps.predict.outputs.will-publish == 'true'
+        if: steps.predict.outputs.will-release == 'true'
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: false
@@ -206,7 +206,7 @@ jobs:
         # otherwise surfaces at the publish stage, after a full build.
         # Blocks only where the publish handler hard-fails without the
         # credential; PyPI (OIDC fallback) and R2 warn.
-        if: steps.predict.outputs.will-publish == 'true'
+        if: steps.predict.outputs.will-release == 'true'
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -219,7 +219,7 @@ jobs:
         # Multi-arch (amd64 + arm64) on publish runs; single-arch on
         # validate-only AND branch-mode PR builds — arm64 is slow on
         # shared runners and wasteful when nothing's being shipped, so
-        # arch breadth keys off will-publish, NOT run-build.
+        # arch breadth keys off will-release, NOT run-build.
         #
         # A project that lists `build.rust.targets` in .hyperi-ci.yaml ships
         # only those arches, so one whose release build does not fit the
@@ -247,7 +247,7 @@ jobs:
           arm64='{"target":"aarch64-unknown-linux-gnu","runner":"'"$ARM64_RUNNER"'","os_arch":"linux-arm64"}'
           legs=()
           if want x86_64-unknown-linux-gnu; then legs+=("$amd64"); fi
-          if [[ "${{ steps.predict.outputs.will-publish }}" == "true" ]] && want aarch64-unknown-linux-gnu; then legs+=("$arm64"); fi
+          if [[ "${{ steps.predict.outputs.will-release }}" == "true" ]] && want aarch64-unknown-linux-gnu; then legs+=("$arm64"); fi
           if [[ ${#legs[@]} -eq 0 ]]; then legs=("$amd64"); fi
           matrix="{\"include\":[$(IFS=,; echo "${legs[*]}")]}"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
@@ -452,7 +452,7 @@ jobs:
         # patch/minor, or the explicit X.Y.Z override). A plain `tag`
         # dispatch is skipped: it checks out the tag's own tree, already
         # correct. Validate-only runs are skipped too (nothing ships).
-        if: needs.plan.outputs.will-publish == 'true' && (github.event_name == 'push' || inputs.from-head == 'true')
+        if: needs.plan.outputs.will-release == 'true' && (github.event_name == 'push' || inputs.from-head == 'true')
         run: |
           version="${{ needs.plan.outputs.next-version }}"
           if [[ -z "$version" ]]; then
@@ -505,7 +505,7 @@ jobs:
           RUST_BUILD_TARGETS: ${{ matrix.target }}
           # Tier 2 (PGO + BOLT) adds 30-60 min, so it runs only for a build
           # that ships -- the same signal that gates the stamp step above.
-          HYPERCI_CHANNEL: ${{ needs.plan.outputs.will-publish == 'true' && 'release' || '' }}
+          HYPERCI_CHANNEL: ${{ needs.plan.outputs.will-release == 'true' && 'release' || '' }}
         run: ${{ env.HYPERCI_INSTALL }} run build
 
       - name: Generate deployment artefacts
@@ -540,7 +540,7 @@ jobs:
     uses: hyperi-io/hyperi-ci/.github/workflows/_release-tail.yml@main
     with:
       language: rust
-      will-publish: ${{ needs.plan.outputs.will-publish }}
+      will-publish: ${{ needs.plan.outputs.will-release }}
       next-version: ${{ needs.plan.outputs.next-version }}
       tag: ${{ inputs.tag }}
       from-head: ${{ inputs.from-head }}

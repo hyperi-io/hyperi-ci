@@ -16,15 +16,15 @@ HTTP/gRPC/OTLP/Kafka):
 | Build | Binary size | vs baseline | When it applies |
 |---|---|---|---|
 | System allocator, thin LTO | ~14 MB | baseline | none -- measurement baseline |
-| jemalloc + fat LTO (Tier 1) | ~12 MB | -14% size, +10-20% throughput | a publish run |
-| + PGO (Tier 2 partial) | ~9 MB | -36% size, +25-40% throughput | a publish run, opt-in |
-| + BOLT (Tier 2 full) | ~9 MB | -36% size, +30-50% throughput | a publish run, opt-in |
+| jemalloc + fat LTO (Tier 1) | ~12 MB | -14% size, +10-20% throughput | a release run |
+| + PGO (Tier 2 partial) | ~9 MB | -36% size, +25-40% throughput | a release run, opt-in |
+| + BOLT (Tier 2 full) | ~9 MB | -36% size, +30-50% throughput | a release run, opt-in |
 
-A non-publish run sits between the first two rows, jemalloc with thin LTO, so it gets the allocator gain without the LTO one -- not separately measured.
+A non-release run sits between the first two rows, jemalloc with thin LTO, so it gets the allocator gain without the LTO one -- not separately measured.
 
 **Build time cost**: Tier 2 adds roughly +14 min per arch per release
 (PGO instrument ~5 min, workload ~5 min, PGO optimise ~4 min, BOLT ~2 min).
-Publish runs only.
+Release runs only.
 
 Both amd64 AND arm64 runners support full Tier 2. BOLT has supported
 aarch64 since LLVM 16 and the runner image provides everything for both
@@ -34,17 +34,17 @@ architectures.
 
 ## Build channel x tier matrix
 
-The **build** channel is resolved per run, not from `publish.channel`
+The **build** channel is resolved per run, not from `release.channel`
 (`_resolve_build_channel` in `languages/rust/build.py` never reads it): a run
-that publishes builds at `release`, every other run builds at `alpha`.
+that releases builds at `release`, every other run builds at `alpha`.
 `HYPERCI_CHANNEL` in the workflow env forces one. Defaults per build channel
 (your `.hyperi-ci.yaml` can override individual keys):
 
 | Build channel | When | Allocator | LTO | PGO | BOLT |
 |---|---|---|---|---|---|
-| `alpha` | any non-publish run | jemalloc | thin | - | - |
+| `alpha` | any non-release run | jemalloc | thin | - | - |
 | `beta` | `HYPERCI_CHANNEL=beta` only | jemalloc | fat | - | - |
-| `release` | a publish run | jemalloc | fat | opt-in | opt-in (Linux only) |
+| `release` | a release run | jemalloc | fat | opt-in | opt-in (Linux only) |
 
 **Allocator is jemalloc at every channel, no exceptions.** Rationale:
 consistent allocator across alpha/beta/release means fragmentation
@@ -56,9 +56,9 @@ first run.
 adds 5-10 min per CI run - meaningful friction on an ordinary push,
 worth the cost on a release.
 
-**Tier 2 is publish-only, opt-in**: PGO/BOLT add ~20 min per arch, and a bad
-workload produces *negative* gains. They fire only on a run that publishes -
-`hyperi-ci push --publish`, `hyperi-ci publish`, or a tag / from-head
+**Tier 2 is release-only, opt-in**: PGO/BOLT add ~20 min per arch, and a bad
+workload produces *negative* gains. They fire only on a run that releases -
+`hyperi-ci push --release`, `hyperi-ci release`, or a tag / from-head
 dispatch - never on an ordinary push to main.
 
 ---
@@ -74,7 +74,7 @@ below cover each step.
 - [ ] `scripts/pgo-workload.sh`: exercises real hot paths, takes `$1` as binary path, self-terminates at `duration_secs`
 - [ ] Workload driver binary (if Rust): declared as `[[bin]]` with `required-features`
 - [ ] `.hyperi-ci.yaml`: `build.rust.optimize` stanza with pgo + bolt enabled
-- [ ] Release through a publish run - `hyperi-ci push --publish` or `hyperi-ci publish`; Tier 2 never fires on an ordinary push
+- [ ] Release through a release run - `hyperi-ci push --release` or `hyperi-ci release`; Tier 2 never fires on an ordinary push
 - [ ] Runner has network egress to `apt.llvm.org` and `crates.io`
 - [ ] Local validation: `cargo build --release --features jemalloc && strings target/release/<bin> | grep -i jemalloc` shows symbols
 - [ ] Local PGO smoke: `cargo install cargo-pgo && cargo pgo build && ./scripts/pgo-workload.sh <path> && cargo pgo optimize` round-trips cleanly
@@ -102,7 +102,7 @@ default = []  # MUST NOT include jemalloc — hyperi-ci opts in per channel
 jemalloc = ["dep:tikv-jemallocator"]
 
 [profile.release]
-lto = "thin"        # hyperi-ci overrides to "fat" on a publish run
+lto = "thin"        # hyperi-ci overrides to "fat" on a release run
 codegen-units = 1
 strip = true
 panic = "abort"
@@ -116,7 +116,7 @@ optimise and BOLT alike; if it's already on by default you lose the ability
 to opt out for debugging or canary comparisons.
 
 **LTO source-level default stays `thin`** - hyperi-ci overrides to `fat`
-on a publish run via `CARGO_PROFILE_RELEASE_LTO=fat`, so local `cargo build
+on a release run via `CARGO_PROFILE_RELEASE_LTO=fat`, so local `cargo build
 --release` remains fast while release builds get the fat-LTO benefit.
 
 ### main.rs wiring
@@ -205,7 +205,7 @@ if you need a specific LLVM major - otherwise trust the default.
 Tier 2 is four sequential cargo passes plus two workload runs, and a failed
 BOLT attempt retries all three BOLT steps -- 35-45 minutes with both
 architectures in parallel, as observed on the dfe-loader v1.17.5 and
-v1.18.0 publishes. `skip-optimize` drops the optimisation stage for one run
+v1.18.0 releases. `skip-optimize` drops the optimisation stage for one run
 without editing `.hyperi-ci.yaml`. For Rust that means no PGO and no BOLT.
 Tier 1 (allocator + LTO) still applies. A language with no optimisation
 stage ignores it.
@@ -226,7 +226,7 @@ gh workflow run ci.yml -f from-head=true -f bump=patch -f skip-optimize=true
 repo scaffolded earlier adds it by hand or uses the repo variable.
 Optimisation is on unless something asks otherwise.
 
-A skipped run publishes like any other, release channel included. The build
+A skipped run releases like any other, release channel included. The build
 emits a `::warning::` annotation on the run and `optimize=skipped` in the
 profile line:
 

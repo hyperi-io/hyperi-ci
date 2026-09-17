@@ -98,7 +98,7 @@ The CLI is shot through with `gh` invocations:
 | `hyperi-ci watch` | `gh run list`, `gh run view` |
 | `hyperi-ci logs` | `gh run download`, `gh run view --log-failed` |
 | `hyperi-ci trigger` | `gh workflow run` |
-| `hyperi-ci publish <tag>` | `gh release create`, `gh release upload` |
+| `hyperi-ci release <tag>` | `gh release create`, `gh release upload` |
 | Container/Helm/binary publish handlers | `gh release upload`, asset URLs |
 
 Replacing `gh` means either:

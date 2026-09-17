@@ -18,7 +18,7 @@ test:
 # both wrong here and fails (uv sync in the generated Dockerfile). The
 # version-first pipeline (adopted in ci.yml) routes through _release-tail,
 # which includes the container job -- so opt out explicitly.
-publish:
+release:
   container:
     enabled: false
 

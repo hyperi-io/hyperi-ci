@@ -167,7 +167,7 @@ def should_build_container(config: CIConfig, *, language: str = "") -> tuple[boo
 
     Returns ``(build, reason)``.
     """
-    container_cfg = config.get("publish.container", {})
+    container_cfg = config.get("release.container", {})
     if not isinstance(container_cfg, dict):
         container_cfg = {}
     enabled = normalise_tristate(
@@ -208,7 +208,7 @@ def run(config: CIConfig, *, language: str = "") -> int:
                 fh.write(f"build={'true' if build else 'false'}\n")
         return 0
 
-    container_cfg = config.get("publish.container", {})
+    container_cfg = config.get("release.container", {})
     if not isinstance(container_cfg, dict):
         container_cfg = {}
 
@@ -262,7 +262,7 @@ def run(config: CIConfig, *, language: str = "") -> int:
 
     info(f"Container build will run — {decision.reason}")
 
-    target = config.get("publish.target", "internal")
+    target = config.get("release.target", "internal")
     org = load_org_config()
     try:
         registry_bases = resolve_registry_bases(target=target, org=org)
@@ -533,7 +533,7 @@ def _dispatch_build(
     image_name = Path.cwd().name
     version = _read_version()
     sha = _read_sha()
-    channel = config.get("publish.channel", "release")
+    channel = config.get("release.channel", "release")
 
     tags = resolve_tags(
         registry_bases=registry_bases,

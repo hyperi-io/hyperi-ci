@@ -6,7 +6,7 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """ArgoCD stage handler.
 
-Reads ``publish.argocd`` from ``.hyperi-ci.yaml``:
+Reads ``release.argocd`` from ``.hyperi-ci.yaml`` (``publish.argocd`` still works):
 
 * ``enabled`` (bool, default false) — gate the stage.
 * ``repo`` (str, default ``hyperi-io/gitops``) — central gitops repo.
@@ -42,11 +42,11 @@ _DEFAULT_NONPROD_PUSH_MODE = "direct"
 
 def run(config: CIConfig) -> int:
     """Run the ArgoCD stage. Returns process exit code."""
-    argocd_cfg = config.get("publish.argocd", {})
+    argocd_cfg = config.get("release.argocd", {})
     if not isinstance(argocd_cfg, dict):
         argocd_cfg = {}
     if not argocd_cfg.get("enabled"):
-        info("ArgoCD publish disabled (publish.argocd.enabled: false) — skipping")
+        info("ArgoCD release disabled (release.argocd.enabled: false) — skipping")
         return 0
 
     project_dir = Path.cwd()
@@ -149,7 +149,7 @@ def _push_to_gitops(
     from hyperi_ci.argocd.gitops_push import GitopsPushConfig, push
 
     if not envs:
-        warn("publish.argocd.enabled: true but no envs declared — nothing to push")
+        warn("release.argocd.enabled: true but no envs declared — nothing to push")
         return 0
 
     app = Path.cwd().name
@@ -171,7 +171,7 @@ def _push_to_gitops(
 
 
 def _resolve_envs(argocd_cfg: dict) -> list[tuple[str, str]]:
-    """Read ``publish.argocd.envs`` into ``[(env_name, push_mode), ...]``.
+    """Read ``release.argocd.envs`` into ``[(env_name, push_mode), ...]``.
 
     Defaults: prod → pr, others → direct. If a single string env name
     is given, treat as direct unless its name is "prod".

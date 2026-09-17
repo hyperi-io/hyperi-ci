@@ -7,7 +7,7 @@
 """Predict the semver bump a publish would cut, from the commit range.
 
 The commit-msg hook checks what an agent *composes* (a single message +
-``Publish: true`` trailer). It cannot see what a merge or cherry-pick
+``Release: true`` trailer). It cannot see what a merge or cherry-pick
 brings into *reachability*: a reconcile merge whose second parent carries
 old ``feat!:`` / ``BREAKING CHANGE:`` commits imports a MAJOR bump the
 agent never authored. That is exactly how hyperi-rustlib shipped an

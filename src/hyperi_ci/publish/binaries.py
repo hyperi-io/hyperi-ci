@@ -213,7 +213,7 @@ def create_github_release(config: CIConfig) -> int:
         error("No VERSION file — cannot determine release tag")
         return 1
 
-    channel = config.get("publish.channel", "release")
+    channel = config.get("release.channel", "release")
     tag = f"v{version}"
 
     info(f"Creating GitHub Release {tag}")
@@ -429,7 +429,7 @@ def publish_binaries(config: CIConfig) -> int:
         info("No dist/ artifacts — skipping binary publish")
         return 0
 
-    channel = config.get("publish.channel", "release")
+    channel = config.get("release.channel", "release")
     info(f"Binary publish destinations: {', '.join(destinations)}")
     if channel != "release":
         info(f"Channel: {channel} (prerelease)")

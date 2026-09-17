@@ -22,7 +22,7 @@ Everything else that carries a version number is an **output**:
 | `VERSION` | `hyperi-ci stamp-version`, at build time | No |
 | `CHANGELOG.md` | `@semantic-release/changelog`, at release time | No |
 | `Cargo.toml` / `pyproject.toml` / `package.json` version | `stamp-version`, at build time | Only to seed a tag-less repo |
-| The git tag | `tag-head` / semantic-release, at publish time | **Yes** |
+| The git tag | `tag-head` / semantic-release, at release time | **Yes** |
 
 Reading an output as an input is what issue #85 was about: `VERSION` froze at
 `2.3.10` in May 2026 across 14 repos, and every code path that fell back to it
@@ -68,7 +68,7 @@ idempotent: a repo with any `v*` tag already has its truth, and seeding declines
 rather than adding a second opinion.
 
 The seed tag is a **starting marker, not a release** -- its message says so.
-The first publish bumps from it, so tag-on-publish stays honest: no seed tag
+The first release bumps from it, so tag-on-publish stays honest: no seed tag
 ever claims an artefact.
 
 The same value feeds the first release. On a tag-less repo `predict-version`
@@ -82,7 +82,7 @@ A generated artefact. `hyperi-ci stamp-version <version>` writes it before the
 build so the compiled binary embeds the right number (`CARGO_PKG_VERSION`, Go's
 `-ldflags -X`, `importlib.metadata.version`).
 
-It **is** committed back, by CI, at the end of a successful publish -- the
+It **is** committed back, by CI, at the end of a successful release -- the
 `Commit rendered release artefacts` step in `_release-tail.yml`, which runs
 `hyperi-ci release-commit`. Never edit it by hand; the next release overwrites
 whatever you write.
@@ -128,7 +128,7 @@ Releases page.
 ### Supplementary notes
 
 A repo adds hand-written notes to a release by committing
-`.github/release-notes/NEXT.md` before the publish. `@semantic-release/exec`
+`.github/release-notes/NEXT.md` before the release. `@semantic-release/exec`
 prints the file during `generateNotes`, and semantic-release joins every
 plugin's notes, so the text lands under the version heading alongside the
 generated commit list. The GitHub Release body carries the same rendered entry:
@@ -157,7 +157,7 @@ holding a webhook URL. The URL never goes in config -- config is committed.
 
 ## Before the release starts
 
-`hyperi-ci preflight` runs in the plan job on a publish run: semantic-release's
+`hyperi-ci preflight` runs in the plan job on a release run: semantic-release's
 `verifyConditions` equivalent. It checks only the destinations the project
 actually publishes to, and blocks only where the handler hard-fails without the
 credential.
@@ -170,7 +170,8 @@ credential.
 | Cloudflare R2 | warns -- binaries reach GitHub Releases but not downloads.hyperi.io |
 
 A Rust binary app is never asked for a crates.io token: its publish handler
-returns early whatever `destinations_oss.cargo` says. Outside CI the whole check
+returns early whatever `release.destinations.cargo` says (the old
+`publish.destinations_oss.cargo` still resolves). Outside CI the whole check
 is a no-op.
 
 ## Forcing a release
@@ -181,7 +182,7 @@ sometimes need to ship (a docs-only PR, a forced rebuild):
 ```bash
 hyperi-ci push --bump-patch    # +0.0.1 from the latest tag
 hyperi-ci push --bump-minor    # +0.1.0 from the latest tag
-hyperi-ci publish --version 2.9.10   # explicit, to step past a taken tag
+hyperi-ci release --version 2.9.10   # explicit, to step past a taken tag
 ```
 
 Major bumps are excluded on purpose -- they need a human-written breaking-change
@@ -192,5 +193,5 @@ footer.
 - [versioning-and-the-suite.md](versioning-and-the-suite.md) -- how this
   per-repo line relates to a DFE stack version, and which ladder owns `rc`
 - [architecture.md](architecture.md) -- the job graph these versions flow through
-- [flow.md](flow.md) -- the publish sequence end to end
+- [flow.md](flow.md) -- the release sequence, trigger to registry
 - [migration/onboarding.md](migration/onboarding.md) -- adopting hyperi-ci

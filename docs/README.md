@@ -17,7 +17,7 @@ sides fit, [flow.md](flow.md) for how a push becomes a release, and
 | Add this to a repo | And you get | Without |
 |---|---|---|
 | `ci.yml` calling `<lang>-ci.yml@main` (+ `secrets: inherit`) | plan-and-gate, quality, test, multi-arch build, container, tag, publish | Writing any pipeline YAML beyond a few lines |
-| `.hyperi-ci.yaml` | language detection, publish routing, build tiers, container mode | A bespoke CI config schema per repo |
+| `.hyperi-ci.yaml` | language detection, release routing, build tiers, container mode | A bespoke CI config schema per repo |
 | nothing else | semantic-release tagging, version stamping, SHA-pinned deps, fork safety, ARC/free runner choice | Wiring semantic-release, Renovate, runner labels yourself |
 | `hyperi-ci check` locally | the same quality+test path CI runs - ~95% confidence pre-push | "works locally, fails in CI" |
 

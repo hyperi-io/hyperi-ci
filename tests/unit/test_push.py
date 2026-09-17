@@ -318,7 +318,7 @@ class TestForcedBumpPush:
             assert kwargs["next_version"] == "1.5.5"
             msg = kwargs["message"]
             assert msg.startswith("fix(release): force patch bump v1.5.5\n")
-            assert "Publish: true" in msg
+            assert "Release: true" in msg
             mock_push.assert_called_once()
 
     def test_bump_minor_creates_feat_marker(self) -> None:
@@ -343,7 +343,7 @@ class TestForcedBumpPush:
             assert kwargs["next_version"] == "1.6.0"
             msg = kwargs["message"]
             assert msg.startswith("feat(release): force minor bump v1.6.0\n")
-            assert "Publish: true" in msg
+            assert "Release: true" in msg
 
     def test_bump_dry_run_no_commit_no_push(self) -> None:
         with (

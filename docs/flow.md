@@ -5,24 +5,25 @@ semantic-release computation drives every stage.
 
 ## 1. Trigger and gate
 
-One signal - `will-publish` - gates the whole pipeline.
+One signal - `will-release` - gates the whole pipeline.
 
 ```mermaid
 flowchart TD
     A[push to main / workflow_dispatch] --> B[Plan job<br/>predict-version action]
-    B --> C{Publish: true trailer<br/>or dispatch?}
-    C -->|no| V[no tag, no publish<br/>quality + test on a PR or a<br/>release-worthy push to main]
+    B --> C{Release: true trailer<br/>or dispatch?}
+    C -->|no| V[no tag, no release<br/>quality + test on a PR or a<br/>release-worthy push to main]
     C -->|yes| D[semantic-release --dry-run]
     D --> E{release-worthy<br/>commits?}
     E -->|no| F[hard fail<br/>remove trailer or land fix:]
-    E -->|yes| G[next-version + will-publish=true]
+    E -->|yes| G[next-version + will-release=true]
     G --> H[run-checks=true<br/>run-build=true]
 ```
 
-- `will-publish` = dispatch, or a `Publish: true` trailer on HEAD.
+- `will-release` = dispatch, or a `Release: true` trailer on HEAD. The
+  `Publish: true` trailer still counts, and warns.
 - `next-version` comes from `semantic-release --dry-run` - same config the real
   tag step uses, so they cannot disagree.
-- No trailer on a push to main -> no tag, no publish. A release-worthy pushed
+- No trailer on a push to main -> no tag, no release. A release-worthy pushed
   range still runs quality + test; a `chore:` / `docs:` push runs neither.
 
 ## 2. Pipeline and job dependencies
@@ -42,7 +43,7 @@ flowchart LR
 ```
 
 - Quality / Test / Build run in parallel after Plan.
-- Release tail runs only when `will-publish=true`; Container before Tag & Publish.
+- Release tail runs only when `will-release=true`; Container before Tag & Publish.
 
 ## 3. Version - one oracle, used everywhere
 
@@ -91,11 +92,12 @@ flowchart TB
 Rule: shared pieces must help the SME, never hobble them. Anything needing a
 per-language carve-out stays in the SME's domain.
 
-## 5. Publish routing
+## 5. Release routing
 
 Everything goes to the OSS registry stack. **JFrog was removed in v2.1.4** - the
-legacy `publish.target` field (`internal`/`oss`/`both`) is still read for
-back-compat but every value routes to the same OSS destination map.
+legacy `publish.target` config field (`internal`/`oss`/`both`) is still read for
+back-compat but every value routes to the same OSS destination map. It is not the
+`publish-target` workflow input, which is live.
 
 ```mermaid
 flowchart LR
@@ -110,15 +112,16 @@ flowchart LR
 ```
 
 - One artefact type -> one destination; there is no private/internal path.
-- `publish.channel` controls prerelease vs GA (next section), not destination.
+- `release.channel` controls prerelease vs GA (next section), not destination.
+  The key was `publish.channel` and still works, with a warning.
 
 ## 6. Release channels
 
-One-branch model. `publish.channel` graduates a project by one line in
+One-branch model. `release.channel` graduates a project by one line in
 `.hyperi-ci.yaml`; it sets prerelease-vs-GA and the R2 path. It does **not**
-change publish destination (all channels publish OSS), and it does **not** gate
+change destination (all channels publish OSS), and it does **not** gate
 the Rust build tier - `build.py` never reads it. The tier follows whether the
-run publishes: [languages/rust.md](languages/rust.md).
+run releases: [languages/rust.md](languages/rust.md).
 
 ```mermaid
 flowchart LR
@@ -133,7 +136,9 @@ flowchart LR
 | `beta` | GitHub prerelease | `/{project}/<channel>/vX/` |
 | `release` | GA | `/{project}/vX/` + `latest` |
 
-- Channel is set by `publish.channel` in `.hyperi-ci.yaml`, not by a branch.
+- `alpha` and `beta` publish: a GitHub prerelease plus an R2 channel path. That
+  is a narrower destination set, not the absence of a release.
+- Channel is set by `release.channel` in `.hyperi-ci.yaml`, not by a branch.
   semantic-release runs only on `main` and produces real versions (`1.3.0`, not
   `1.3.0-dev.8`) - there is no `release` branch and no dev pre-release track.
 - Rust build-opt is skippable for a single run with the `skip-optimize`
@@ -141,7 +146,7 @@ flowchart LR
   See [languages/rust.md](languages/rust.md) - *Skipping optimisation for one run*.
 - GA vs prerelease follows the channel: `alpha` / `beta` are GitHub
   prereleases, `release` is GA. The arch set does not - the arm64 leg is added
-  when `will-publish` is true, whatever the channel.
+  when `will-release` is true, whatever the channel.
 
 ## 7. Binary publish - what's uploaded and how it's named
 
@@ -176,26 +181,26 @@ combined one.
 
 ## 8. Release / retry on demand (no junk `fix:`)
 
-`hyperi-ci push --publish` is the **primary** release path - one CI run, one
-tag, one publish, gated by the `Publish: true` trailer. It assumes you have a
+`hyperi-ci push --release` is the **primary** release path - one CI run, one
+tag, one release, gated by the `Release: true` trailer. It assumes you have a
 release-worthy commit on HEAD. Two situations break that assumption, and have
 historically driven the "edit a single file and fake a `fix:` commit" workaround:
 
 1. **"Jeez I need to retry this"** - a release run died before Tag & Publish
    (transient hiccup, container flake, etc.). No tag was cut, so `hyperi-ci
-   publish vX` can't help (the tag doesn't exist) and `push --bump-patch`
+   release vX` can't help (the tag doesn't exist) and `push --bump-patch`
    no-ops because VERSION on `main` already equals the target (#25 + #35).
 2. **"Man I needed to release that"** - you want to release HEAD on demand
-   (re-publish docs/refactor-only work, or release a fresh HEAD without an
-   intervening `Publish: true` push).
+   (re-release docs/refactor-only work, or release a fresh HEAD without an
+   intervening `Release: true` push).
 
-The fix: **`hyperi-ci publish` is now first-class for both** (#35). The CLI
+The fix: **`hyperi-ci release` covers both** (#35). The CLI
 is a thin trigger; the CI does the tagging and publishing, so it works under
 branch protection and from the Actions UI too.
 
 ```mermaid
 flowchart LR
-    CLI[hyperi-ci publish] -->|gh workflow run<br/>-f from-head=true -f bump=auto| WD[workflow_dispatch]
+    CLI[hyperi-ci release] -->|gh workflow run<br/>-f from-head=true -f bump=auto| WD[workflow_dispatch]
     BUTTON[Actions: Run workflow<br/>from-head=true bump=auto/patch/minor] --> WD
     WD --> PLAN[plan: predict-version<br/>resolves version on dispatch too]
     PLAN --> TAIL[Tag & Publish]
@@ -206,9 +211,9 @@ flowchart LR
 
 | Command | Action | When |
 |---|---|---|
-| `hyperi-ci publish` | dispatch from-head + bump=auto - the CI resolves the version (semantic-release), tags HEAD, publishes | Finish a stuck release; release HEAD when there are release-worthy commits |
-| `hyperi-ci publish --bump patch\|minor` | dispatch from-head + forced bump - `tag-head` computes `last + bump`, tags HEAD via `gh api`, publishes | Release HEAD with no release-worthy commit (kills the junk-`fix:` ritual) |
-| `hyperi-ci publish <tag>` | dispatch existing tag - **idempotent retry** (publish handlers skip artefacts already in their registry; a GH Release no longer hard-blocks) | A partial publish where the tag is cut but some registries missed |
+| `hyperi-ci release` | dispatch from-head + bump=auto - the CI resolves the version (semantic-release), tags HEAD, publishes | Finish a stuck release; release HEAD when there are release-worthy commits |
+| `hyperi-ci release --bump patch\|minor` | dispatch from-head + forced bump - `tag-head` computes `last + bump`, tags HEAD via `gh api`, publishes | Release HEAD with no release-worthy commit (kills the junk-`fix:` ritual) |
+| `hyperi-ci release <tag>` | dispatch existing tag - **idempotent retry** (publish handlers skip artefacts already in their registry; a GH Release no longer hard-blocks) | A partial release where the tag is cut but some registries missed |
 | Actions UI -> Run workflow | same three modes via `tag` / `from-head` / `bump` inputs | No local checkout; one-click from the GitHub UI |
 
 **Why the CI does the tagging:** one source of truth (the workflow), the
@@ -218,5 +223,7 @@ on dispatch too (`predict-version` runs semantic-release for `auto` or
 last+bump for forced) so the build stamps the same version Tag & Publish
 will tag - no artefact-version drift.
 
-> Caveat: `hyperi-ci push --publish` (the primary path) still pre-flights via
-> the same trailer/gate. `publish` is the escape hatch, not a replacement.
+> Caveat: `hyperi-ci push --release` (the primary path) still pre-flights via
+> the same trailer/gate. `release <tag>` is the escape hatch, not a replacement.
+> The old spellings -- `push --publish` and `hyperi-ci publish` -- still work and
+> warn.

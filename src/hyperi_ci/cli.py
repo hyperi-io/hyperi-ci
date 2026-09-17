@@ -368,12 +368,12 @@ def push(
     publish: Annotated[
         bool,
         typer.Option(
-            "--publish",
-            "--release",  # back-compat alias
+            "--release",
+            "--publish",  # deprecated spelling, still accepted
             help=(
-                "Stamp HEAD with `Publish: true` trailer before pushing — "
-                "the single CI run will tag + publish via the version-first "
-                "pipeline. (--release is a deprecated alias for --publish.)"
+                "Stamp HEAD with the `Release: true` trailer before pushing — "
+                "the single CI run tags and publishes via the version-first "
+                "pipeline. (--publish is the deprecated spelling.)"
             ),
         ),
     ] = False,
@@ -385,7 +385,7 @@ def push(
                 "Force a +0.0.1 patch release even when HEAD commits "
                 "aren't release-worthy (e.g. docs-only). Adds an empty "
                 "`fix(release): force patch bump` marker commit and "
-                "publishes. Implies --publish."
+                "publishes. Implies --release."
             ),
         ),
     ] = False,
@@ -397,7 +397,7 @@ def push(
                 "Force a +0.1.0 minor release even when HEAD commits "
                 "aren't release-worthy. Adds an empty "
                 "`feat(release): force minor bump` marker commit and "
-                "publishes. Implies --publish. (Major bumps require a "
+                "publishes. Implies --release. (Major bumps require a "
                 "human-written BREAKING CHANGE: footer per HyperI "
                 "commit-type discipline.)"
             ),
@@ -414,7 +414,7 @@ def push(
             help=(
                 "Equivalent to setting HYPERCI_ALLOW_FEAT=1 — opts in to a "
                 "feat: commit (MINOR bump). Required when HEAD is a feat: "
-                "commit and you're using --publish, since the trailer "
+                "commit and you're using --release, since the trailer "
                 "amend re-invokes the commit-msg hook gate."
             ),
         ),
@@ -427,7 +427,7 @@ def push(
                 "Equivalent to setting HYPERCI_ALLOW_BREAKING=1 — opts in "
                 "to a commit containing the BREAKING-CHANGE marker (MAJOR "
                 "bump). Required when HEAD has the marker and you're "
-                "using --publish."
+                "using --release."
             ),
         ),
     ] = False,
@@ -450,18 +450,18 @@ def push(
 
     Default flow: runs quality + test checks, rebases, then pushes.
 
-    Without ``--publish`` nothing ships: the CI run builds, tags and
+    Without ``--release`` nothing ships: the CI run builds, tags and
     publishes nothing, and runs quality + test only when the pushed
     range is release-worthy.
 
-    With ``--publish`` (canonical) or ``--release`` (alias): amends the
-    head commit with the ``Publish: true`` trailer, then pushes. The
+    With ``--release`` (canonical) or ``--publish`` (deprecated): amends
+    the head commit with the ``Release: true`` trailer, then pushes. The
     resulting CI run goes through the version-first pipeline — predicts
     the next version, stamps it into Cargo.toml/VERSION before build,
     creates the tag, and publishes to all configured registries — all
     in one workflow.
 
-    With ``--bump-patch`` or ``--bump-minor``: same as ``--publish`` but
+    With ``--bump-patch`` or ``--bump-minor``: same as ``--release`` but
     adds an empty release-marker commit on top of HEAD. Use this when
     you want to ship a release whose actual commits are no-bump types
     (``docs:``, ``chore:``, etc.) — saves you from inventing a fake
@@ -481,7 +481,7 @@ def push(
     # CLI flag → env var: the commit-msg hook (which fires during the
     # trailer amend inside _publish_push) reads HYPERCI_ALLOW_FEAT /
     # HYPERCI_ALLOW_BREAKING. Setting them here means a single
-    # `hyperi-ci push --publish --allow-feat` works without exporting
+    # `hyperi-ci push --release --allow-feat` works without exporting
     # the env var manually.
     if allow_feat:
         os.environ["HYPERCI_ALLOW_FEAT"] = "1"
@@ -1513,10 +1513,10 @@ def _publish_impl(
 
 
 @app.command()
-def publish(
+def release(
     tag: Annotated[
         str | None,
-        typer.Argument(help="Existing tag to re-publish (e.g. v1.3.0 or 'latest')"),
+        typer.Argument(help="Existing tag to re-release (e.g. v1.3.0 or 'latest')"),
     ] = None,
     bump: Annotated[
         str | None,
@@ -1536,7 +1536,7 @@ def publish(
     ] = None,
     list_tags: Annotated[
         bool,
-        typer.Option("--list", help="List unpublished version tags"),
+        typer.Option("--list", help="List unreleased version tags"),
     ] = False,
     dry_run: Annotated[
         bool,
@@ -1545,20 +1545,20 @@ def publish(
 ) -> None:
     """Release or retry a release — the CI creates the tag (issue #35).
 
-    The primary release path is ``hyperi-ci push --publish`` (version-first
-    single run, gated by the ``Publish: true`` trailer). This command is the
-    "I need to release/retry that" escape hatch — no artificial ``fix:`` commit:
+    The primary path is ``hyperi-ci push --release`` (version-first single run,
+    gated by the ``Release: true`` trailer). This command is the "I need to
+    release/retry that" escape hatch — no artificial ``fix:`` commit:
 
-    - ``hyperi-ci publish`` — release the current ``main`` HEAD. Dispatches a
+    - ``hyperi-ci release`` — release the current ``main`` HEAD. Dispatches a
       from-head run; the CI resolves the version (semantic-release), tags HEAD,
       and publishes. Also finishes a release that died before the tag was cut.
-    - ``hyperi-ci publish --bump patch|minor`` — force a release of HEAD even
+    - ``hyperi-ci release --bump patch|minor`` — force a release of HEAD even
       with no release-worthy commit since the last tag.
-    - ``hyperi-ci publish --version X.Y.Z`` — release HEAD at an exact version.
+    - ``hyperi-ci release --version X.Y.Z`` — release HEAD at an exact version.
       Tags HEAD directly, skipping a taken/orphaned tag the auto tagger would
       otherwise collide with (issue #37).
-    - ``hyperi-ci publish <tag>`` — re-dispatch an existing tag (idempotent
-      retry of a partial publish; fills in registries that were missed).
+    - ``hyperi-ci release <tag>`` — re-dispatch an existing tag (idempotent
+      retry of a partial release; fills in registries that were missed).
 
     The CLI only triggers the workflow; the runner does the tagging and
     publishing, so it works under branch protection and from the Actions UI too.
@@ -1569,29 +1569,36 @@ def publish(
 
 
 @app.command()
-def release(
+def publish(
     tag: Annotated[
         str | None,
-        typer.Argument(help="Tag to publish (e.g. v1.3.0) or 'latest'"),
+        typer.Argument(help="Existing tag to re-release (e.g. v1.3.0 or 'latest')"),
+    ] = None,
+    bump: Annotated[
+        str | None,
+        typer.Option("--bump", help="Forced bump: patch | minor."),
+    ] = None,
+    version: Annotated[
+        str | None,
+        typer.Option("--version", help="Release HEAD at an exact X.Y.Z version."),
     ] = None,
     list_tags: Annotated[
         bool,
-        typer.Option("--list", help="List unpublished version tags"),
+        typer.Option("--list", help="List unreleased version tags"),
     ] = False,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", "-n", help="Show what would be dispatched"),
     ] = False,
 ) -> None:
-    """Dispatch a publish run (deprecated alias of ``publish``; will be removed in v3.0)."""
-    import warnings
+    """Deprecated alias of ``release``. Same behaviour, every option included."""
+    from hyperi_ci.common import warn
+    from hyperi_ci.vocabulary import REVERSAL_NOTE
 
-    warnings.warn(
-        "`hyperi-ci release` is deprecated; use `hyperi-ci publish`.",
-        DeprecationWarning,
-        stacklevel=2,
+    warn(f"`hyperi-ci publish` is deprecated; use `hyperi-ci release`. {REVERSAL_NOTE}")
+    _publish_impl(
+        tag=tag, list_tags=list_tags, dry_run=dry_run, bump=bump, version=version
     )
-    _publish_impl(tag=tag, list_tags=list_tags, dry_run=dry_run)
 
 
 @app.command(name="tag-head", hidden=True)

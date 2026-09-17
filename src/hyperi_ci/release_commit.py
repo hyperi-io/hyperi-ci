@@ -46,7 +46,7 @@ RELEASE_ARTEFACTS = ("VERSION", CHANGELOG)
 SUPPLEMENT = ".github/release-notes/NEXT.md"
 
 # `[skip ci]` keeps the commit from triggering another run. Without it the
-# push retriggers CI, which finds no `Publish: true` trailer and validates
+# push retriggers CI, which finds no `Release: true` trailer and validates
 # for nothing.
 _MESSAGE = "chore(release): v{version} [skip ci]"
 

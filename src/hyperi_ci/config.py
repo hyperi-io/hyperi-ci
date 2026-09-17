@@ -74,18 +74,34 @@ class CIConfig:
     # publish_destinations(). JFrog publishing was removed in v2.1.4.
     publish_target: str = "oss"
 
+    # Legacy `publish.*` keys found in the project's own config, so
+    # `hyperi-ci check` can name them before a push rather than only in CI.
+    deprecated_keys: list[str] = field(default_factory=list)
+
     # Raw merged dict for accessing nested language-specific config
     _raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     def get(self, key: str, default: Any = None) -> Any:
-        """Get config value by dot-notation key."""
-        value: Any = self._raw
-        for k in key.split("."):
-            if isinstance(value, dict) and k in value:
-                value = value[k]
-            else:
-                return default
-        return value
+        """Get config value by dot-notation key.
+
+        A ``publish.*`` key resolves to its ``release.*`` equivalent: the
+        namespaces were merged, and an out-of-tree caller still asking the old
+        way gets the right answer rather than the default.
+        """
+        from hyperi_ci.vocabulary import key_candidates
+
+        missing = object()
+        for candidate in key_candidates(key):
+            value: Any = self._raw
+            for part in candidate.split("."):
+                if isinstance(value, dict) and part in value:
+                    value = value[part]
+                else:
+                    value = missing
+                    break
+            if value is not missing:
+                return value
+        return default
 
     def publish_destinations(self) -> list[dict[str, str]]:
         """Return the destination map to publish to (OSS only).
@@ -96,7 +112,11 @@ class CIConfig:
         routes to the OSS destination map. JFrog publishing was removed
         in v2.1.4.
         """
-        dest = self.get("publish.destinations_oss", {})
+        dest = self.get("release.destinations", {})
+        if not dest:
+            # A folded legacy config carries the old key name inside the new
+            # namespace: `publish.destinations_oss` -> `release.destinations_oss`.
+            dest = self.get("release.destinations_oss", {})
         return [dest] if isinstance(dest, dict) and dest else []
 
     def destination_for(self, artifact_type: str) -> list[str]:
@@ -223,6 +243,14 @@ def load_config(
                 config = loaded
 
     # Load project config
+    from hyperi_ci.vocabulary import (
+        CONFIG_NAMESPACE,
+        LEGACY_CONFIG_NAMESPACE,
+        fold_legacy_config,
+        report_deprecated_config,
+    )
+
+    deprecated_keys: list[str] = []
     for name in (
         ".hyperi-ci.yaml",
         ".hyperi-ci.yml",
@@ -234,6 +262,10 @@ def load_config(
             with open(config_file, encoding="utf-8") as f:
                 loaded = yaml.safe_load(f)
                 if loaded:
+                    # Folded BEFORE the merge: the two namespaces cannot coexist
+                    # in the merged config, because a shipped `release.x` default
+                    # would outrank a project's `publish.x` and never apply.
+                    loaded, deprecated_keys = fold_legacy_config(loaded)
                     config = _merge_deep(config, loaded)
             break
 
@@ -241,11 +273,18 @@ def load_config(
     for key, value in os.environ.items():
         if key.startswith("HYPERCI_"):
             path = key[8:].lower().split("_")
+            # Env beats the file, so a legacy path is rewritten rather than
+            # folded -- folding makes the canonical side win, which is right for
+            # one file and backwards for an override.
+            if path and path[0] == LEGACY_CONFIG_NAMESPACE:
+                path = [CONFIG_NAMESPACE, *path[1:]]
             _set_nested(config, path, _parse_env_value(value))
 
-    publish = config.get("publish", {})
+    report_deprecated_config(deprecated_keys)
+
+    release = config.get(CONFIG_NAMESPACE, {})
     publish_target = (
-        publish.get("target", "oss") if isinstance(publish, dict) else "oss"
+        release.get("target", "oss") if isinstance(release, dict) else "oss"
     )
 
     # Validate project.status if set. Warn on unknown values rather than
@@ -294,6 +333,7 @@ def load_config(
         language=config.get("language", "none"),
         ci_min_python_version=config.get("ci_min_python_version", "3.9"),
         publish_target=publish_target,
+        deprecated_keys=deprecated_keys,
         _raw=config,
     )
     return _config_cache

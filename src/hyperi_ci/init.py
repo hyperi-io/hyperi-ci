@@ -189,9 +189,9 @@ def _render_hyperi_ci_yaml(
         "quality": {"enabled": True},
         "test": {"enabled": True},
         "build": {"enabled": True, "strategies": ["native"]},
-        # JFrog removed in v2.1.4 — all publishing is OSS. `target` is a
-        # legacy no-op kept for back-compat; oss is the only meaningful value.
-        "publish": {"enabled": True, "target": "oss"},
+        # No `target`: it is inert and is removed in December 2026 (#151), so a
+        # new project should not be scaffolded with it.
+        "release": {"enabled": True},
     }
 
     # Widen the build section to Any: ty narrows config["build"] to the literal
@@ -465,8 +465,8 @@ def _render_contributing(project_name: str) -> str:
         "2. `hyperi-ci push` instead of `git push`. The pre-push hook\n"
         "   enforces this; bypass with `HYPERCI_PUSH=1 git push` if you\n"
         "   know what you are doing.\n"
-        "3. `hyperi-ci push --publish` when you want to ship a release.\n"
-        "   Amends a `Publish: true` trailer to HEAD; the CI pipeline\n"
+        "3. `hyperi-ci push --release` when you want to ship a release.\n"
+        "   Amends a `Release: true` trailer to HEAD; the CI pipeline\n"
         "   picks that up, predicts the next version, stamps it, and\n"
         "   publishes.\n"
         "\n"

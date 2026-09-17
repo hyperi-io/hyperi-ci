@@ -81,7 +81,7 @@ the single place language divergence is allowed.
 
 | Job | needs | if | Purpose |
 |---|---|---|---|
-| `plan` | - | always | Decide if this run is publish-worthy; emit gate outputs |
+| `plan` | - | always | Decide whether this run is a release; emit gate outputs |
 | `commit-check` | - | push-to-main OR `pull_request` | Conventional-commit **landing gate** - fatal on push to main (validates what lands), advisory on PRs. NOT `run-checks`-gated (see below) |
 | `quality` | `[plan]` | `run-checks` | Lint / typecheck / security scan |
 | `test` | `[plan]` | `run-checks` | Unit + integration tests |
@@ -101,21 +101,26 @@ local `hyperi-ci check` runs the same validation over `origin/main..HEAD`.
 
 | Output | True when | Effect |
 |---|---|---|
-| `will-publish` | push to **main** with `Publish: true` trailer, OR `workflow_dispatch` carrying `tag` or `from-head: true` | The underlying release signal. A trailer on a non-main ref is ignored LOUDLY (`::warning::`) - main is the sole publish path (branch-mode decision 1). A dispatch carrying neither is validate-only and warns that nothing was published |
-| `run-checks` | `will-publish`, OR a **release-worthy push to main** (the pushed range carries a `feat:` / `fix:` / `perf:`; a range that cannot be resolved counts as worthy, so the gate fails open), OR `pull_request`, OR `workflow_dispatch` | Run quality + test. A release-worthy merge is TESTED, never shipped - `run-build` stays publish-only |
-| `run-build` | `will-publish`, OR `workflow_dispatch`, OR `pull_request` with the `branch-build` opt-in | Run build + container (publish stays `will-publish`-only) |
-| `next-version` | `will-publish` AND push | Predicted semver from semantic-release dry-run |
+| `will-release` | push to **main** with `Release: true` trailer, OR `workflow_dispatch` carrying `tag` or `from-head: true` | The underlying release signal. A trailer on a non-main ref is ignored LOUDLY (`::warning::`) - main is the sole release path (branch-mode decision 1). A dispatch carrying neither is validate-only and warns that nothing was released |
+| `run-checks` | `will-release`, OR a **release-worthy push to main** (the pushed range carries a `feat:` / `fix:` / `perf:`; a range that cannot be resolved counts as worthy, so the gate fails open), OR `pull_request`, OR `workflow_dispatch` | Run quality + test. A release-worthy merge is TESTED, never shipped - `run-build` stays release-only |
+| `run-build` | `will-release`, OR `workflow_dispatch`, OR `pull_request` with the `branch-build` opt-in | Run build + container (the release tail stays `will-release`-only) |
+| `next-version` | `will-release` AND push | Predicted semver from semantic-release dry-run |
 | `python-version` | always | The interpreter every job builds and tests on: a pegged `.python-version`, else the `requires-python` FLOOR, else the `versions.yaml` default. The floor, because testing above it hides the bug it exists to catch - a 3.14-only feature in a repo that promises 3.12 |
-| `build-matrix` | always | Single-arch unless `will-publish` - PR branch-mode builds stay single-arch. A project that lists `build.rust.targets` in `.hyperi-ci.yaml` gets legs for those targets only, so one that cannot build arm64 still releases amd64 |
+| `build-matrix` | always | Single-arch unless `will-release` - PR branch-mode builds stay single-arch. A project that lists `build.rust.targets` in `.hyperi-ci.yaml` gets legs for those targets only, so one that cannot build arm64 still releases amd64 |
+
+The `_release-tail.yml` **input** is still named `will-publish`, as is the
+`publish-target` input on each `<lang>-ci.yml`. GitHub validates reusable-workflow
+inputs before any of our code runs and hard-errors on an undeclared one, so a
+deprecation warning can never reach them. They keep their names.
 
 **Two derived gates** because PR runs need quality+test (review feedback) but
-never build/publish, and `chore:`/`docs:` pushes to main need no heavy compute.
+never build or release, and `chore:`/`docs:` pushes to main need no heavy compute.
 
 ### Branch-mode (opt-in PR build + dev images)
 
 `branch-build: "true"` (workflow input, or the `HYPERCI_BRANCH_BUILD` repo
 variable) makes pull_request runs also build + container-validate - the FULL
-pipeline short of publishing. Separately, `publish.container.dev_push: true`
+pipeline short of publishing. Separately, `release.container.dev_push: true`
 in `.hyperi-ci.yaml` makes that PR container push a **dev image**: mutable
 `branch-<slug>` (pointer) + immutable `branch-<slug>-sha-<short>` (pin),
 GHCR only, never a version tag, `latest`, or a bare `sha-<short>` - the GA
@@ -123,16 +128,16 @@ namespace stays untouched, which is what makes pruning safe. Dev images are
 ephemeral: projects with `dev_push` add a tiny cron workflow calling the
 shared `_ghcr-prune.yml` (dataaxiom/ghcr-cleanup-action, multi-arch-safe),
 which globs `branch-*` / `dev-sha-*` plus untagged layers. Dev images are a
-different artifact class from a GA publish - main + explicit publish remains
+different artifact class from a GA release - main + an explicit release remains
 the ONLY path to PyPI / crates.io / R2 / GA container tags. Mode resolution
-(publish / dev / validate) is one SSOT: `hyperi_ci.publish_mode`, shared by
+(release / dev / validate) is one SSOT: `hyperi_ci.publish_mode`, shared by
 the container, helm, and argocd stages (helm/argocd treat dev as validate).
 Design: `docs/plans/2026-07-branch-mode/PLAN.md`.
 
 ```mermaid
 flowchart LR
     E["GitHub event"] --> P["plan"]
-    P --> WP{will-publish?}
+    P --> WP{will-release?}
     WP -->|true| RB["run-build=true<br/>run-checks=true"]
     WP -->|false| PR{pull_request?}
     PR -->|true| RC["run-checks=true<br/>run-build=false"]
@@ -149,17 +154,17 @@ flowchart LR
 | Push type | plan | commit-check | quality | test | build | container | tag+publish |
 |---|---|---|---|---|---|---|---|
 | `chore:` / `docs:` to main | yes | yes | no | no | no | no | no |
-| `feat:`/`fix:` to main, no `Publish:` trailer | yes | yes | yes | yes | no | no | no |
-| `feat:`/`fix:` to main + `Publish: true` | yes | yes | yes | yes | yes | yes | yes |
+| `feat:`/`fix:` to main, no `Release:` trailer | yes | yes | yes | yes | no | no | no |
+| `feat:`/`fix:` to main + `Release: true` | yes | yes | yes | yes | yes | yes | yes |
 | Pull request | yes | yes advisory | yes | yes | no | no | no |
 | Pull request + `branch-build` opt-in | yes | yes advisory | yes | yes | yes | yes validate / dev push | no |
-| `workflow_dispatch` with `tag` / `from-head` (publish) | yes | no | yes | yes | yes | yes | yes |
+| `workflow_dispatch` with `tag` / `from-head` (release) | yes | no | yes | yes | yes | yes | yes |
 | `workflow_dispatch`, bare (validate-only) | yes | no | yes | yes | yes | yes validate | no |
 | push to a feature branch | yes | no | no | no | no | no | no |
 
 Tag-on-publish doctrine: a commit landing on main produces no tag and no
-artefacts. The operator opts in with `hyperi-ci push --publish` (adds the
-`Publish: true` trailer). See [flow.md](flow.md).
+artefacts. The operator opts in with `hyperi-ci push --release` (adds the
+`Release: true` trailer). See [flow.md](flow.md).
 
 ## What's shared vs duplicated - and the rule
 
@@ -221,8 +226,8 @@ Third-party pinning policy: [dependencies/DEPS-PINNING.md](dependencies/deps-pin
 ```
 hyperi-ci run <stage>      quality | test | build | publish
 hyperi-ci check [--quick|--full|--strict]  pre-push: quality(+test)(+build); --strict fails on warn-tier findings
-hyperi-ci push [--publish]         commit + push, opt-in Publish: true trailer
-hyperi-ci publish [<tag>]          release/retry HEAD, or re-publish an existing tag
+hyperi-ci push [--release]         commit + push, opt-in Release: true trailer
+hyperi-ci release [<tag>]          release/retry HEAD, or re-release an existing tag
 hyperi-ci stamp-version <v>        write VERSION + manifest (central)
 hyperi-ci init                     scaffold ci.yml, .hyperi-ci.yaml, Makefile, githooks
 hyperi-ci detect | config          show detected language / merged config
@@ -250,7 +255,7 @@ src/hyperi_ci/languages/<lang>/{quality,test,build,publish}.py
 CLI flags → ENV (HYPERCI_*) → .hyperi-ci.yaml → config/defaults.yaml → hardcoded
 ```
 
-`.hyperi-ci.yaml` is the per-project SSOT (language, build targets, publish).
+`.hyperi-ci.yaml` is the per-project SSOT (language, build targets, release).
 Three config homes with non-overlapping boundaries:
 
 | Home | Holds | Managed by |
@@ -262,12 +267,17 @@ Three config homes with non-overlapping boundaries:
 Rule: affects CI logic/routing -> `config/`. Platform infra -> Vars. Credential ->
 Secrets.
 
-## Publish routing
+## Release routing
 
 Everything publishes to the OSS registry stack. **JFrog was removed in v2.1.4**:
-the legacy `publish.target` field (`internal` / `oss` / `both`) is still accepted
-in downstream `.hyperi-ci.yaml` for back-compat but ignored at runtime - every
-value routes to the same OSS destination map (`config.publish_destinations()`).
+the legacy `publish.target` config field (`internal` / `oss` / `both`) is still
+accepted in downstream `.hyperi-ci.yaml` for back-compat but ignored at runtime -
+every value routes to the same OSS destination map
+(`config.publish_destinations()`). It is a different thing from the
+`publish-target` workflow input, which is live and still read.
+
+The config namespace is `release:`. A `publish:` block still works: it folds into
+`release:` at load time and each moved key is named in a warning.
 
 | Artefact | Destination |
 |---|---|
@@ -278,10 +288,12 @@ value routes to the same OSS destination map (`config.publish_destinations()`).
 | Binaries (Rust/Go) | GitHub Releases + Cloudflare R2 (`downloads.hyperi.io`) for GA |
 | Go module | go-proxy (by tag) |
 
-`publish.channel` controls **prerelease vs GA**, not destination:
-`alpha`/`beta` ship as GitHub prereleases (and gate the Rust build-opt
-tiers - see [languages/RUST.md](languages/rust.md)); `release` is GA. Detail +
-mermaid: [flow.md](flow.md) section 5-6. JFrog history: [migration/JFROG.md](migration/jfrog.md).
+`release.channel` controls **prerelease vs GA**, not destination:
+`alpha`/`beta` ship as GitHub prereleases; `release` is GA. It does NOT gate the
+Rust build-opt tiers - `_resolve_build_channel` in `languages/rust/build.py`
+never reads it, and the tier follows whether the run releases
+([languages/RUST.md](languages/rust.md)). Detail + mermaid: [flow.md](flow.md)
+section 5-6. JFrog history: [migration/JFROG.md](migration/jfrog.md).
 
 ## Container builds
 
@@ -294,18 +306,18 @@ auto-detected modes:
 | **template** | Python, TypeScript | built-in uv / pnpm templates |
 | **custom** | any | repo's own `Dockerfile` + injected OCI labels |
 
-Push-to-main builds single-arch (`:sha-…`); publish builds multi-arch
+Push-to-main builds single-arch (`:sha-…`); a release builds multi-arch
 (`:vX` + `:latest`). Auth via the `hyperi-container-mgt` GitHub App. Artefact
 generation from the contract: [deployment/CONTRACT.md](deployment/contract.md).
 
-**App-only, resolved before Docker (issue #33).** `publish.container.enabled` is
+**App-only, resolved before Docker (issue #33).** `release.container.enabled` is
 `auto` (default) | `true` | `false`. Under `auto` the stage builds only when it
 finds a signal - a Dockerfile, or a Rust binary using scalo's contract.
 **Libraries (a Rust crate, a Python package) have no signal and ship no
 container.** The decision is resolved *before* Docker Buildx boots, so a library
 never pulls buildkit from Docker Hub nor logs in to GHCR.
 
-**Container failure never blocks the publish (issue #33).** Tag & Publish is
+**Container failure never blocks the release (issue #33).** Tag & Publish is
 decoupled from the Container job (`always()`): a transient container/registry
 hiccup surfaces as a red run but the crate/PyPI/npm + GitHub Release still ships
 and the tag is still cut. The container image is a secondary artefact; the

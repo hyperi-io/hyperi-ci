@@ -134,7 +134,7 @@ bursts, the gate already *alarms* - any interface regression turns Quality red o
 *barrier* (branch protection) only earns its keep when **more people push to
 hyperi-ci**, or **consumers start running unattended / on a schedule we're not
 watching**. Flip it on (PR-only + Quality-required + 0 approvals) at that point.
-The one cost of turning it on: `hyperi-ci push --publish` direct-to-main becomes
+The one cost of turning it on: `hyperi-ci push --release` direct-to-main becomes
 push-branch -> open PR -> self-merge.
 
 ## The caller floats `@main` too (not just the internals)

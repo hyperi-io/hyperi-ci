@@ -6,8 +6,8 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Retroactive publish: workflow_dispatch on an existing tag.
 
-The primary publish path is now `hyperi-ci push --publish` (single CI
-run, version-first pipeline gated by the ``Publish: true`` commit
+The primary release path is now `hyperi-ci push --release` (single CI
+run, version-first pipeline gated by the ``Release: true`` commit
 trailer). This module covers the secondary "I want to re-publish an
 existing tag" use case — e.g. a previous publish run failed mid-way and
 needs retrying without re-tagging.

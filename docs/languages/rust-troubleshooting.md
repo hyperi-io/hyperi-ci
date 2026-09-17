@@ -12,7 +12,7 @@ The tiers and their config keys are [rust.md](rust.md). The log markers that say
 |---|---|
 | "allocator 'jemalloc' requested but feature not declared" | Add `jemalloc = ["dep:tikv-jemallocator"]` to your Cargo.toml `[features]` |
 | jemalloc symbols absent from published binary | Check `cargo tree --features jemalloc` resolves correctly. Check your `#[cfg(feature = "jemalloc")]` allocator wiring actually compiled in |
-| Build log says `channel=alpha` when you expected a release build | The run is not publishing - `channel=alpha` is correct for every non-publish run. Release with `hyperi-ci push --publish` or `hyperi-ci publish` |
+| Build log says `channel=alpha` when you expected a release build | The run is not a release - `channel=alpha` is correct for every non-release run. Release with `hyperi-ci push --release` or `hyperi-ci release` |
 
 ## Tier 2 / PGO
 
@@ -55,7 +55,7 @@ You benefit from the fix already being in hyperi-ci v1.10.4+; knowing
 
 1. **Tier 2 runs only on a build that ships, not every push.** Gated on
    `HYPERCI_CHANNEL=release`, which rust-ci.yml sets on the build step when
-   `plan.outputs.will-publish` is true. Validate-only builds use plain
+   `plan.outputs.will-release` is true. Validate-only builds use plain
    release + Tier 1 only.
 
 2. **Workload must self-terminate.** The `duration_secs + 600s` absolute

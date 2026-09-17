@@ -7,7 +7,7 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Helm stage handler.
 
-Reads ``publish.helm`` from ``.hyperi-ci.yaml``:
+Reads ``release.helm`` from ``.hyperi-ci.yaml`` (``publish.helm`` still works):
 
 * ``enabled`` (bool, default false) — gate the whole stage.
 * ``registry`` (str, default ``oci://ghcr.io/hyperi-io/helm-charts``)
@@ -40,11 +40,11 @@ def run(config: CIConfig) -> int:
 
     Returns process exit code (0 = success or skipped).
     """
-    helm_cfg = config.get("publish.helm", {})
+    helm_cfg = config.get("release.helm", {})
     if not isinstance(helm_cfg, dict):
         helm_cfg = {}
     if not helm_cfg.get("enabled"):
-        info("Helm publish disabled (publish.helm.enabled: false) — skipping")
+        info("Helm release disabled (release.helm.enabled: false) — skipping")
         return 0
 
     if helm_cfg.get("topology_mode"):
@@ -140,7 +140,7 @@ def _apply_adds(
     chart_dir: Path,
     project_dir: Path,
 ) -> int:
-    """Apply ``publish.helm.overlays.adds`` to the chart dir."""
+    """Apply ``release.helm.overlays.adds`` to the chart dir."""
     overlays_raw = helm_cfg.get("overlays")
     if not overlays_raw:
         return 0
@@ -352,7 +352,7 @@ def _helm_push(*, tgz_path: Path, registry: str) -> int:
 def _run_topology_mode(helm_cfg: dict, config: CIConfig) -> int:
     """Run helm stage in 'gitops topology' mode.
 
-    Reads ``publish.helm.topology`` (a path under the current repo) and
+    Reads ``release.helm.topology`` (a path under the current repo) and
     invokes the stitcher to compose the umbrella chart instead of the
     per-app ``emit-chart`` subprocess.
 
@@ -365,7 +365,7 @@ def _run_topology_mode(helm_cfg: dict, config: CIConfig) -> int:
     """
     topology_path = helm_cfg.get("topology")
     if not topology_path:
-        error("publish.helm.topology_mode requires publish.helm.topology to be set")
+        error("release.helm.topology_mode requires release.helm.topology to be set")
         return 1
 
     topo_dir = Path(topology_path).resolve()

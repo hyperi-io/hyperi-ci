@@ -348,11 +348,11 @@ def stage_publish(language: str, config: CIConfig) -> int:
         info("To publish: commit, push, and let semantic-release handle it")
         return 1
 
-    if not config.get("publish.enabled", False):
-        info("Publish disabled in configuration")
+    if not config.get("release.enabled", False):
+        info("Release disabled in configuration")
         return 0
 
-    channel = config.get("publish.channel", "release")
+    channel = config.get("release.channel", "release")
     if channel != "release":
         info(
             f"Channel '{channel}' — non-release channels currently publish "
