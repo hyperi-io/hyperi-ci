@@ -53,27 +53,31 @@ llvm-readelf --sections ./<binary> | grep -E '\.bolt|\.text.hot'
 
 ### In the CI build log
 
-Grep the Build job log for these exact markers:
+Grep the Build job log for these. hyperi-ci emits each one itself, so a
+missing line here does mean the stage did not run:
 
 ```
 Rust build optimisation: channel=release, allocator=jemalloc, lto=fat, pgo=on, bolt=on
 PGO: building instrumented binary for <triple>
-cargo pgo build -- --target <triple> --features <declared features>,jemalloc
-PGO instrumentation build finished successfully
-<your workload output — pgo-workload: ...>
-Found 1 PGO profile file with total size X.XX MiB
-PGO: building optimised binary
-PGO-optimized binary <name> built successfully
+PGO: building optimised binary for <triple>
 llvm-bolt shim: ~/.local/bin/llvm-bolt -> /usr/bin/llvm-bolt-23
 merge-fdata shim: ~/.local/bin/merge-fdata -> /usr/bin/merge-fdata-23
 ld.lld shim: ~/.local/bin/ld.lld -> /usr/bin/ld.lld-23
 BOLT: building instrumented binary for <triple> (linker forced to lld)
-BOLT: building instrumented binary
-cargo pgo bolt build -- --target <triple> --features <declared features>,jemalloc
-BOLT: optimising binary
+BOLT: optimising binary for <triple> (using PGO + BOLT profiles, linker=lld)
 ```
 
-If any are missing, a tier wasn't applied. See [rust-troubleshooting.md](rust-troubleshooting.md).
+Your workload's own output appears between the two PGO lines, prefixed
+`pgo-workload:`.
+
+cargo-pgo prints its own progress alongside ours -- lines such as
+`PGO instrumentation build finished successfully` and `Found 1 PGO profile
+file with total size X.XX MiB`. Those are useful to read but they belong to
+the tool, not to us, so do not treat one as a required marker: cargo-pgo is
+free to reword them.
+
+If one of OUR lines is missing, a tier wasn't applied. See
+[rust-troubleshooting.md](rust-troubleshooting.md).
 
 ---
 

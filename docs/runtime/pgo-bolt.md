@@ -102,8 +102,10 @@ noisy, startup-dominated data. 300s is the recommended default. Longer
 helps marginally but with diminishing returns - past 10 minutes the
 profile stops changing.
 
-hyperi-ci enforces the 60s floor: workloads shorter than that fail
-the build with an error.
+The floor is on the workload AUTHOR, not on hyperi-ci. Nothing in the PGO
+stage measures how long your workload ran, so a bespoke script that exits
+after 10s produces a poor profile and ships anyway. The bundled templates
+hold themselves to the floor; a script you write does not inherit that.
 
 ### Rule 4 - Deterministic and self-contained
 
@@ -118,18 +120,18 @@ Clean everything up on EXIT trap.
 
 ## Profile quality metrics
 
-hyperi-ci validates profile data after your workload runs. If any of
-these fail, the build errors out:
+What a good profile looks like. hyperi-ci does NOT check the first two
+today -- issue #133 covers making a half-optimised release fail instead of
+passing quietly.
 
-| Check | Threshold | Rationale |
+| Property | Target | Rationale |
 |---|---|---|
 | Workload duration | >= 60s | Shorter = biased toward startup |
-| `.profraw` total size | >= 1 MB (default) | Too little = workload didn't hit hot path |
+| `.profraw` total size | >= 1 MB | Too little = workload didn't hit hot path |
 | cargo-pgo merge succeeds | yes | Corrupt profile = abort |
 
-Threshold is configurable via
-`build.rust.optimize.pgo.min_profile_bytes`. Raise it if your workload
-generates lots of profile data (more coverage = more confidence).
+Only the merge fails loudly, because cargo-pgo errors on a corrupt profile.
+The other two pass silently whatever the workload did.
 
 ## Anti-patterns
 
