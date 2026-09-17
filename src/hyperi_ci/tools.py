@@ -177,22 +177,28 @@ def missing_tool_notice(
     purpose: str | None = None,
     install: tuple[str, ...] | list[str] | None = None,
     url: str | None = None,
+    head: str | None = None,
 ) -> str:
     """Render the actionable 'here is how to fix it' notice for a missing tool.
 
     Uses the registry as the default and lets a caller override any field
     (a one-off tool, or a context-specific purpose). Multi-line, safe to pass
     straight to :func:`info` / :func:`warn` / :func:`error`.
+
+    ``head`` replaces the "is not installed" opening for a tool that IS present
+    but unusable - an unsupported version, say. The install guidance is the same
+    either way, and this keeps a caller from restating it to avoid saying
+    something false.
     """
     reg = _REGISTRY.get(name)
     purpose = purpose if purpose is not None else (reg.purpose if reg else None)
     installs = tuple(install) if install is not None else (reg.install if reg else ())
     url = url if url is not None else (reg.url if reg else "")
 
-    head = f"`{name}` is not installed"
+    opening = head if head is not None else f"`{name}` is not installed"
     if purpose:
-        head += f" - hyperi-ci needs it for {purpose}"
-    lines = [head + "."]
+        opening += f" - hyperi-ci needs it for {purpose}"
+    lines = [opening + "."]
     if installs:
         lines.append("  help: install it with one of:")
         lines.extend(f"    {cmd}" for cmd in installs)
