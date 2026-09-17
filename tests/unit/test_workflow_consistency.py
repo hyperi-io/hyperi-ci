@@ -51,7 +51,7 @@ def _load_workflow(name: str) -> dict:
 class TestFromHeadThreading:
     """issue #35: from-head + bump inputs must thread through every layer —
     consumer ci.yml -> <lang>-ci.yml workflow_call -> predict-version (plan) ->
-    _release-tail.yml -> Tag & Publish. Otherwise `hyperi-ci publish` dispatches
+    _release-tail.yml -> Tag & Release. Otherwise `hyperi-ci release` dispatches
     inputs the CI silently ignores."""
 
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
@@ -158,12 +158,12 @@ class TestFromHeadThreading:
         wf = _load_workflow("_release-tail.yml")
         container = wf["jobs"]["container"]
         assert container.get("outputs", {}).get("ships-container"), (
-            "container job must expose ships-container so tag-and-publish can "
+            "container job must expose ships-container so tag-and-release can "
             "tell a failed deliverable from a project that ships no container"
         )
-        ifc = " ".join(str(wf["jobs"]["tag-and-publish"]["if"]).split())
+        ifc = " ".join(str(wf["jobs"]["tag-and-release"]["if"]).split())
         assert "needs.container.result == 'success'" in ifc, (
-            "tag-and-publish must require a successful container..."
+            "tag-and-release must require a successful container..."
         )
         assert "needs.container.outputs.ships-container != 'true'" in ifc, (
             "...unless the project ships no container (issue #33 decoupling)"
@@ -172,7 +172,7 @@ class TestFromHeadThreading:
     def test_release_tail_tags_head_on_dispatch_auto(self) -> None:
         # semantic-release tags HEAD on from-head + bump=auto (re-uses the
         # push tagger). Forced bumps use tag-head instead.
-        steps = _load_workflow("_release-tail.yml")["jobs"]["tag-and-publish"]["steps"]
+        steps = _load_workflow("_release-tail.yml")["jobs"]["tag-and-release"]["steps"]
         sr = next(s for s in steps if s.get("name") == "Tag (semantic-release)")
         ifc = str(sr["if"])
         assert "from-head" in ifc and "bump" in ifc and "auto" in ifc, (
@@ -182,16 +182,16 @@ class TestFromHeadThreading:
     def test_release_tail_installs_uv_before_anything_can_fail(self) -> None:
         # The failure notice runs `uvx`; with uv installed after checkout, a
         # checkout failure left the notice with `command not found`.
-        steps = _load_workflow("_release-tail.yml")["jobs"]["tag-and-publish"]["steps"]
+        steps = _load_workflow("_release-tail.yml")["jobs"]["tag-and-release"]["steps"]
         assert steps[0].get("name") == "Install uv", (
-            "_release-tail.tag-and-publish: 'Install uv' must be the first step so "
+            "_release-tail.tag-and-release: 'Install uv' must be the first step so "
             "the failure notice can run whatever fails after it"
         )
         names = [s.get("name") for s in steps]
         assert names.count("Install uv") == 1, "one uv install per job"
 
     def test_release_tail_has_forced_tag_step(self) -> None:
-        steps = _load_workflow("_release-tail.yml")["jobs"]["tag-and-publish"]["steps"]
+        steps = _load_workflow("_release-tail.yml")["jobs"]["tag-and-release"]["steps"]
         forced = [s for s in steps if s.get("id") == "forcedtag"]
         assert forced, "missing forced-bump tag step (tag-head) for from-head"
         ifc = str(forced[0]["if"])
@@ -205,17 +205,17 @@ class TestFromHeadThreading:
         """VERSION must be stamped in the job that commits it.
 
         release-commit lists VERSION in RELEASE_ARTEFACTS and reads it off
-        disk, but tag-and-publish checks out the TAG, whose VERSION is the
+        disk, but tag-and-release checks out the TAG, whose VERSION is the
         pre-release value. The build's stamp runs on another runner and only
         dist/ + ci-tmp/ are passed between them, so without a stamp here the
         uploaded blob matches the branch, the tree is unchanged for that path,
         and VERSION never moves in any repo on this pipeline.
         """
-        steps = _load_workflow("_release-tail.yml")["jobs"]["tag-and-publish"]["steps"]
+        steps = _load_workflow("_release-tail.yml")["jobs"]["tag-and-release"]["steps"]
         names = [s.get("name") for s in steps]
 
         assert "Stamp the released version" in names, (
-            "_release-tail.tag-and-publish: no stamp step before release-commit, "
+            "_release-tail.tag-and-release: no stamp step before release-commit, "
             "so VERSION can never move"
         )
         stamp_at = names.index("Stamp the released version")
@@ -500,7 +500,7 @@ class TestBuildChannelIsNotProxied:
         )
 
     def test_the_release_tail_declares_no_channel(self) -> None:
-        # Dead there: the tail runs only `run container` and `run publish`,
+        # Dead there: the tail runs only `run container` and `run release`,
         # and HYPERCI_CHANNEL is read in exactly one place -- the Rust BUILD
         # stage, which the tail never runs.
         wf = _load_workflow("_release-tail.yml")
@@ -586,12 +586,12 @@ class TestBranchModeThreading:
         )
 
     def test_release_tail_publish_still_gated_on_will_publish(self) -> None:
-        # The GA publish gate is untouched by branch-mode: tag-and-publish
+        # The GA publish gate is untouched by branch-mode: tag-and-release
         # fires ONLY on will-publish, never for a PR dev build.
         wf = _load_workflow("_release-tail.yml")
-        ifc = str(wf["jobs"]["tag-and-publish"]["if"])
+        ifc = str(wf["jobs"]["tag-and-release"]["if"])
         assert "inputs.will-publish == 'true'" in ifc, (
-            "tag-and-publish must stay gated on will-publish"
+            "tag-and-release must stay gated on will-publish"
         )
 
 
@@ -727,7 +727,7 @@ class TestFirstReleaseAndOrphanGuards:
         # version. The tail must materialise the plan's next-version via
         # tag-head instead — one version oracle.
         wf = _load_workflow("_release-tail.yml")
-        steps = wf["jobs"]["tag-and-publish"]["steps"]
+        steps = wf["jobs"]["tag-and-release"]["steps"]
         sr = next(s for s in steps if s.get("name") == "Tag (semantic-release)")
         run = str(sr["run"])
         # Polarity: the -z (tag-less) branch runs tag-head; the else
@@ -757,13 +757,13 @@ class TestReleaseTailDecoupling:
     def _tail(self) -> dict:
         return _load_workflow("_release-tail.yml")
 
-    def test_tag_and_publish_decoupled_from_container(self) -> None:
-        # `always()` ensures Tag & Publish runs even when Container fails
+    def test_tag_and_release_decoupled_from_container(self) -> None:
+        # `always()` ensures Tag & Release runs even when Container fails
         # or is skipped — the crate/GH release is never lost to a
         # transient container hiccup.
-        job = self._tail()["jobs"]["tag-and-publish"]
+        job = self._tail()["jobs"]["tag-and-release"]
         assert "always()" in str(job["if"]), (
-            "tag-and-publish must use always() so a failed/skipped Container "
+            "tag-and-release must use always() so a failed/skipped Container "
             "job does not block the publish (issue #33)."
         )
 
@@ -907,7 +907,7 @@ def test_release_tail_uses_shared_workflow(workflow_name: str) -> None:
     ]
     assert tail_calls, (
         f"{workflow_name}: no job uses _release-tail.yml. "
-        f"Every language workflow must delegate container + tag-and-publish "
+        f"Every language workflow must delegate container + tag-and-release "
         f"to the shared release-tail workflow."
     )
 
@@ -1041,9 +1041,9 @@ _PUSHING_STEPS = (
 _BOT_TOKEN = "${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}"
 
 
-def _tag_and_publish_steps() -> list[dict]:
+def _tag_and_release_steps() -> list[dict]:
     wf = _load_workflow("_release-tail.yml")
-    return wf["jobs"]["tag-and-publish"]["steps"]
+    return wf["jobs"]["tag-and-release"]["steps"]
 
 
 def test_release_tail_mints_a_bot_token() -> None:
@@ -1053,10 +1053,10 @@ def test_release_tail_mints_a_bot_token() -> None:
     ID is a different value rather than a rename, so a swap back would fail at
     token-mint time instead of at review.
     """
-    steps = _tag_and_publish_steps()
+    steps = _tag_and_release_steps()
     mint = [s for s in steps if s.get("id") == "bot"]
     assert mint, (
-        "_release-tail.tag-and-publish: no `bot` step minting an App token. "
+        "_release-tail.tag-and-release: no `bot` step minting an App token. "
         "Pushes made as github-actions cannot be excepted from a branch "
         "ruleset and trigger no workflows (issue #86)."
     )
@@ -1114,7 +1114,7 @@ def test_pushing_steps_use_the_bot_token(step_name: str) -> None:
     issue #86: the push lands as github-actions, which no ruleset can grant a
     bypass to, so the repo cannot carry required status checks.
     """
-    steps = _tag_and_publish_steps()
+    steps = _tag_and_release_steps()
     matching = [s for s in steps if s.get("name") == step_name]
     assert matching, f"_release-tail: step {step_name!r} has gone or been renamed"
     env = matching[0].get("env", {})

@@ -6,7 +6,7 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # Python-specific stages: quality, test, setup, build (with version stamp).
-# Container + tag-and-publish are delegated to the shared
+# Container + tag-and-release are delegated to the shared
 # _release-tail.yml workflow. Setup uses the shared predict-version
 # composite action.
 
@@ -453,7 +453,7 @@ jobs:
   release-tail:
     name: Release tail
     needs: [plan, build]
-    # Elevated + passed to _release-tail.yml: its tag-and-publish job commits +
+    # Elevated + passed to _release-tail.yml: its tag-and-release job commits +
     # tags (contents), pushes GHCR (packages) and runs the semantic-release GH
     # plugin (issues + pull-requests). Capped by the caller's grant.
     permissions:

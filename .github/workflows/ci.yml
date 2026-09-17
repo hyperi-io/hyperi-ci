@@ -260,7 +260,7 @@ jobs:
   release-tail:
     name: Release tail
     needs: [plan, build]
-    # Elevated + passed to _release-tail.yml: its tag-and-publish job commits +
+    # Elevated + passed to _release-tail.yml: its tag-and-release job commits +
     # tags (contents), pushes GHCR (packages) and runs the semantic-release GH
     # plugin (issues + pull-requests). Capped by the caller's grant.
     permissions:
@@ -270,7 +270,7 @@ jobs:
       pull-requests: write
     # Local ref (dogfood): a change to the shared release tail is exercised
     # on hyperi-ci's own CI before any consumer pins it. The tail's own
-    # tag-and-publish job is gated on will-publish == 'true', so a non-publish
+    # tag-and-release job is gated on will-publish == 'true', so a non-release
     # run reaches here only when build ran (run-build == will-publish).
     uses: ./.github/workflows/_release-tail.yml
     with:

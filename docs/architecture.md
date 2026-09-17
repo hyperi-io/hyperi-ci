@@ -86,7 +86,7 @@ the single place language divergence is allowed.
 | `quality` | `[plan]` | `run-checks` | Lint / typecheck / security scan |
 | `test` | `[plan]` | `run-checks` | Unit + integration tests |
 | `build` | `[plan, quality, test]` | `run-build` | Compile binaries / wheels / packages, stamp version, upload `dist/` |
-| `release-tail` | `[plan, build]` | own gates | Container + tag-and-publish, via shared `_release-tail.yml` |
+| `release-tail` | `[plan, build]` | own gates | Container + tag-and-release, via shared `_release-tail.yml` |
 
 `commit-check` is deliberately **independent of `plan` / `run-checks`**: that
 gate skips the quality job on non-release-worthy merges to main, so a bad
@@ -317,7 +317,7 @@ finds a signal - a Dockerfile, or a Rust binary using scalo's contract.
 container.** The decision is resolved *before* Docker Buildx boots, so a library
 never pulls buildkit from Docker Hub nor logs in to GHCR.
 
-**Container failure never blocks the release (issue #33).** Tag & Publish is
+**Container failure never blocks the release (issue #33).** Tag & Release is
 decoupled from the Container job (`always()`): a transient container/registry
 hiccup surfaces as a red run but the crate/PyPI/npm + GitHub Release still ships
 and the tag is still cut. The container image is a secondary artefact; the

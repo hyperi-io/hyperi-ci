@@ -37,13 +37,13 @@ flowchart LR
     test --> rt
     build --> rt
     subgraph rt[Release tail — shared _release-tail.yml]
-      container[Container<br/>build + push GHCR] --> tagpub[Tag & Publish]
+      container[Container<br/>build + push GHCR] --> tagpub[Tag & Release]
     end
     tagpub --> reg[(registries)]
 ```
 
 - Quality / Test / Build run in parallel after Plan.
-- Release tail runs only when `will-release=true`; Container before Tag & Publish.
+- Release tail runs only when `will-release=true`; Container before Tag & Release.
 
 ## 3. Version - one oracle, used everywhere
 
@@ -52,12 +52,12 @@ flowchart TD
     SR[semantic-release dry-run<br/>Plan] --> NV[next-version]
     NV --> BS[Build: stamp Cargo.toml + VERSION]
     NV --> CV[Container: HYPERCI_VERSION = tag]
-    NV --> R[Tag & Publish: semantic-release real]
+    NV --> R[Tag & Release: semantic-release real]
     R --> T[tag vX on HEAD<br/>always reachable]
     T --> GH[GH release / R2 / GHCR : vX]
 ```
 
-- Build stamps the binary, Container tags the image, Tag & Publish creates the
+- Build stamps the binary, Container tags the image, Tag & Release creates the
   git tag - all the same `next-version`.
 - semantic-release tags **HEAD** (not a CI-authored commit), so the tag is
   always reachable and the next run computes the correct next version.
@@ -186,7 +186,7 @@ tag, one release, gated by the `Release: true` trailer. It assumes you have a
 release-worthy commit on HEAD. Two situations break that assumption, and have
 historically driven the "edit a single file and fake a `fix:` commit" workaround:
 
-1. **"Jeez I need to retry this"** - a release run died before Tag & Publish
+1. **"Jeez I need to retry this"** - a release run died before Tag & Release
    (transient hiccup, container flake, etc.). No tag was cut, so `hyperi-ci
    release vX` can't help (the tag doesn't exist) and `push --bump-patch`
    no-ops because VERSION on `main` already equals the target (#25 + #35).
@@ -203,7 +203,7 @@ flowchart LR
     CLI[hyperi-ci release] -->|gh workflow run<br/>-f from-head=true -f bump=auto| WD[workflow_dispatch]
     BUTTON[Actions: Run workflow<br/>from-head=true bump=auto/patch/minor] --> WD
     WD --> PLAN[plan: predict-version<br/>resolves version on dispatch too]
-    PLAN --> TAIL[Tag & Publish]
+    PLAN --> TAIL[Tag & Release]
     TAIL -->|auto: semantic-release| TAG[tag HEAD]
     TAIL -->|patch/minor: tag-head| TAG
     TAG --> PUB[publish to registries]
@@ -220,7 +220,7 @@ flowchart LR
 `GITHUB_TOKEN` cuts the tag (works under branch protection), and the CLI +
 UI button are byte-identical operations. The plan job resolves the version
 on dispatch too (`predict-version` runs semantic-release for `auto` or
-last+bump for forced) so the build stamps the same version Tag & Publish
+last+bump for forced) so the build stamps the same version Tag & Release
 will tag - no artefact-version drift.
 
 > Caveat: `hyperi-ci push --release` (the primary path) still pre-flights via

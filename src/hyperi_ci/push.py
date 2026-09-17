@@ -352,7 +352,7 @@ def tag_head(*, bump: str, dry_run: bool = False, cwd: str | None = None) -> int
     # would publish a fresh artefact under a tag pointing at old history
     # (issue #37). A forced patch/minor always lands above the highest tag so
     # can't collide; an explicit version can, so guard it. Tags are local in
-    # the Tag & Publish job (fetch-depth: 0); if the tag isn't found locally
+    # the Tag & Release job (fetch-depth: 0); if the tag isn't found locally
     # the gh-api create below is the authoritative check.
     if explicit is not None:
         peeled = run_cmd(
@@ -376,7 +376,7 @@ def tag_head(*, bump: str, dry_run: bool = False, cwd: str | None = None) -> int
             return 0
 
     # Create the tag ref remotely via the GitHub API. Uses GITHUB_TOKEN, so
-    # it works even though the Tag & Publish checkout sets
+    # it works even though the Tag & Release checkout sets
     # persist-credentials: false (no git push creds). Idempotent: a ref that
     # already exists (HTTP 422) is fine — we're converging to "tag exists".
     created = run_cmd(

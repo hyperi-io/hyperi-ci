@@ -106,8 +106,8 @@ runs:
           # four-month-old version and clobbered `latest` (issue #105).
           #
           # So a bare dispatch runs the pipeline and publishes nothing (issue
-          # #111): tag-and-publish is gated on `will-publish` and the container
-          # stage reads HYPERCI_PUBLISH_MODE from it, so false reaches no
+          # #111): tag-and-release is gated on `will-publish` and the container
+          # stage reads HYPERCI_RELEASE_MODE from it, so false reaches no
           # registry.
           if [[ -z "${{ inputs.tag }}" && "${{ inputs.from-head }}" != "true" ]]; then
             echo "will-publish=false" >> "$GITHUB_OUTPUT"
@@ -155,7 +155,7 @@ runs:
 
     - name: Predict next version
       # Run semantic-release in --dry-run to determine the version that
-      # the tag-and-publish job will eventually create. The build job
+      # the tag-and-release job will eventually create. The build job
       # in the calling workflow stamps Cargo.toml + VERSION to this
       # value BEFORE compiling, so CARGO_PKG_VERSION (used in
       # AppMetrics, --version flags, log output) matches the published
@@ -241,10 +241,10 @@ runs:
       # from-head dispatch with a non-auto bump (issue #35). The `bump`
       # channel carries either a bump level (patch|minor — release HEAD even
       # with no release-worthy commit, computed as `last v* tag + bump`) or an
-      # explicit X.Y.Z (the `hyperi-ci publish --version` override, used
+      # explicit X.Y.Z (the `hyperi-ci release --version` override, used
       # verbatim to step past a taken/orphaned tag — the issue #37 case). Runs
       # for any non-auto, non-empty bump so plan + build stamp the same value
-      # tag-head later creates in Tag & Publish. Trivial glue: semver math +
+      # tag-head later creates in Tag & Release. Trivial glue: semver math +
       # a regex; the same computation lives in push.tag_head for the real tag.
       id: forced
       if: ${{ steps.gate.outputs.will-publish == 'true' && github.event_name == 'workflow_dispatch' && inputs.from-head == 'true' && inputs.bump != 'auto' && inputs.bump != '' }}

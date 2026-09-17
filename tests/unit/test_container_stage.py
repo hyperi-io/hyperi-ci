@@ -287,10 +287,10 @@ def test_run_custom_mode_invokes_build_with_resolved_tags(
     monkeypatch.setenv("GITHUB_SHA", "abc12345abc12345abc")
     monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
     monkeypatch.delenv("GITHUB_REF", raising=False)
-    # New (post version-first refactor): publish mode is opt-in via
-    # HYPERCI_PUBLISH_MODE. The workflow's container job sets this from
-    # setup.outputs.will-publish; tests must set it explicitly.
-    monkeypatch.setenv("HYPERCI_PUBLISH_MODE", "true")
+    # Release mode is opt-in via HYPERCI_RELEASE_MODE, which the workflow's
+    # container job sets from the plan's will-release output; tests set it
+    # explicitly.
+    monkeypatch.setenv("HYPERCI_RELEASE_MODE", "true")
 
     cfg = _ci_config(container={"enabled": "auto"}, target="oss")
 
@@ -540,7 +540,7 @@ def test_run_python_service_opts_in_via_enabled_true(
     monkeypatch.setenv("GITHUB_SHA", "abc12345abc12345abc")
     monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
     monkeypatch.delenv("GITHUB_REF", raising=False)
-    monkeypatch.setenv("HYPERCI_PUBLISH_MODE", "true")
+    monkeypatch.setenv("HYPERCI_RELEASE_MODE", "true")
 
     cfg = _ci_config(container={"enabled": True}, target="oss")
 
@@ -571,7 +571,7 @@ def test_run_template_validate_needs_no_dist_binaries(
     monkeypatch.setenv("GITHUB_SHA", "abc12345abc12345abc")
     monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
     monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
-    monkeypatch.setenv("HYPERCI_PUBLISH_MODE", "false")
+    monkeypatch.setenv("HYPERCI_RELEASE_MODE", "false")
 
     cfg = _ci_config(
         container={
@@ -609,7 +609,7 @@ def test_run_custom_python_dockerfile_needs_no_dist(
     monkeypatch.setenv("GITHUB_SHA", "abc12345abc12345abc")
     monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
     monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
-    monkeypatch.setenv("HYPERCI_PUBLISH_MODE", "false")
+    monkeypatch.setenv("HYPERCI_RELEASE_MODE", "false")
 
     cfg = _ci_config(
         container={
@@ -647,7 +647,7 @@ def test_run_custom_ts_multistage_dist_is_not_binary_backed(
     monkeypatch.setenv("GITHUB_SHA", "abc12345abc12345abc")
     monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
     monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
-    monkeypatch.setenv("HYPERCI_PUBLISH_MODE", "false")
+    monkeypatch.setenv("HYPERCI_RELEASE_MODE", "false")
 
     cfg = _ci_config(
         container={
@@ -710,7 +710,7 @@ def test_run_legacy_target_both_routes_to_ghcr_only(
     monkeypatch.setenv("GITHUB_SHA", "abc12345abc12345abc")
     monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
     monkeypatch.delenv("GITHUB_REF", raising=False)
-    monkeypatch.setenv("HYPERCI_PUBLISH_MODE", "true")
+    monkeypatch.setenv("HYPERCI_RELEASE_MODE", "true")
 
     cfg = _ci_config(container={"enabled": "auto"}, target="both")
 

@@ -1,6 +1,6 @@
 # Project:   HyperI CI
 # File:      .github/workflows/_release-tail.yml
-# Purpose:   Shared release tail — container + tag-and-publish jobs
+# Purpose:   Shared release tail — container + tag-and-release jobs
 #
 # License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
@@ -15,8 +15,8 @@
 #
 #   (here)    container         ← docker build (validate or push, gated
 #                                  on will-publish)
-#   (here)    tag-and-publish   ← npx semantic-release real → tag +
-#                                  CHANGELOG; then hyperi-ci run publish
+#   (here)    tag-and-release   ← npx semantic-release real → tag +
+#                                  CHANGELOG; then hyperi-ci run release
 #                                  → artefacts to crates.io / PyPI / npm /
 #                                  GHCR / GitHub Releases / Cloudflare R2
 #
@@ -103,8 +103,8 @@ jobs:
     #   publish.container.dev_push — else validate-only. Fork PRs are
     #   excluded outright (first clause; no secrets, no pushes).
     #
-    # The publish/dev/validate decision lives in hyperi_ci.publish_mode
-    # (the SSOT), keyed off HYPERCI_PUBLISH_MODE + the event context.
+    # The release/dev/validate decision lives in hyperi_ci.release_mode
+    # (the SSOT), keyed off HYPERCI_RELEASE_MODE + the event context.
     if: |
       github.event.pull_request.head.repo.fork != true && (
         (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
@@ -116,7 +116,7 @@ jobs:
       contents: read
       packages: write
     outputs:
-      # Whether this project ships a container at all, so tag-and-publish can
+      # Whether this project ships a container at all, so tag-and-release can
       # tell "the deliverable failed" from "there was never a container".
       ships-container: ${{ steps.resolve.outputs.build }}
     steps:
@@ -198,22 +198,22 @@ jobs:
         run: ${{ env.HYPERCI_INSTALL }} stamp-version "${{ inputs.next-version }}"
 
       - name: Build container
-        # Handler decides validate-only vs push based on HYPERCI_PUBLISH_MODE:
+        # Handler decides validate-only vs push based on HYPERCI_RELEASE_MODE:
         # unset/false → docker build only, no registry push;
         # true        → docker build + push to all configured registries.
         if: steps.resolve.outputs.build == 'true'
         env:
           HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
-          HYPERCI_PUBLISH_MODE: ${{ inputs.will-publish }}
+          HYPERCI_RELEASE_MODE: ${{ inputs.will-publish }}
           # Authoritative version for the image tag — same value Build
-          # stamps and Tag-and-Publish releases. Without this the stage
+          # stamps and Tag-and-Release releases. Without this the stage
           # falls back to the checked-out VERSION file, which is stale on
           # a shallow/tagless container checkout (issue #27).
           HYPERCI_VERSION: ${{ inputs.next-version }}
         run: ${{ env.HYPERCI_INSTALL }} run container
 
-  tag-and-publish:
-    name: Tag & Publish
+  tag-and-release:
+    name: Tag & Release
     needs: [container]
     # Runs iff a release is being published, and is DECOUPLED from the
     # container outcome (issue #33) for projects that do not ship a
@@ -415,7 +415,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: ${{ env.HYPERCI_INSTALL }} run publish
+        run: ${{ env.HYPERCI_INSTALL }} run release
 
       - name: Stamp the released version
         # release-commit reads VERSION off this job's disk, and this job checks
