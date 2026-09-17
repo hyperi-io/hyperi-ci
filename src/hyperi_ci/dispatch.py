@@ -392,7 +392,8 @@ def stage_release(language: str, config: CIConfig) -> int:
     if rc != 0:
         return rc
 
-    # Upload binary artifacts to GH Release + R2 (if any exist in dist/)
+    # Last on purpose: a binary-upload failure must not cost the registry
+    # publish or the GitHub Release, both of which are done by here.
     return publish_binaries(config)
 
 
