@@ -164,6 +164,9 @@ jobs:
       run-build: ${{ steps.predict.outputs.run-build }}
       will-publish: ${{ steps.predict.outputs.will-publish }}
       next-version: ${{ steps.predict.outputs.version }}
+      # The project's own floor, not the fleet default -- resolved once here so
+      # every job below builds on the interpreter the project declares (#150).
+      python-version: ${{ steps.predict.outputs.python-version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -179,6 +182,7 @@ jobs:
           from-head: ${{ inputs.from-head }}
           bump: ${{ inputs.bump }}
           branch-build: ${{ inputs.branch-build || vars.HYPERCI_BRANCH_BUILD }}
+          python-version: ${{ inputs.python-version }}
 
       - name: Install uv (preflight)
         if: steps.predict.outputs.will-publish == 'true'
@@ -249,14 +253,26 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
+        # Installed unconditionally, not behind `command -v python3`: every
+        # runner already ships SOME python3, so that guard skipped the install
+        # and left the project on whatever the image happened to carry.
+        env:
+          PROJECT_PYTHON: ${{ needs.plan.outputs.python-version }}
         run: |
           command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
-          command -v python3 || uv python install ${{ inputs.python-version }}
+          uv python install "$PROJECT_PYTHON"
 
       - name: Install native dependencies
         run: ${{ env.HYPERCI_INSTALL }} install-native-deps python
 
       - name: Install dependencies
+        # UV_PYTHON is scoped to this step ON PURPOSE. It picks the interpreter
+        # for the PROJECT venv, which every later `uv run` inherits. At workflow
+        # level it would also capture `uvx hyperi-ci`, forcing the CLI onto the
+        # project's interpreter -- which fails outright once the CLI's own
+        # requires-python floor is above it.
+        env:
+          UV_PYTHON: ${{ needs.plan.outputs.python-version }}
         run: uv sync --frozen --all-extras
 
       - name: Deepen history for secret scan
@@ -304,14 +320,26 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
+        # Installed unconditionally, not behind `command -v python3`: every
+        # runner already ships SOME python3, so that guard skipped the install
+        # and left the project on whatever the image happened to carry.
+        env:
+          PROJECT_PYTHON: ${{ needs.plan.outputs.python-version }}
         run: |
           command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
-          command -v python3 || uv python install ${{ inputs.python-version }}
+          uv python install "$PROJECT_PYTHON"
 
       - name: Install native dependencies
         run: ${{ env.HYPERCI_INSTALL }} install-native-deps python
 
       - name: Install dependencies
+        # UV_PYTHON is scoped to this step ON PURPOSE. It picks the interpreter
+        # for the PROJECT venv, which every later `uv run` inherits. At workflow
+        # level it would also capture `uvx hyperi-ci`, forcing the CLI onto the
+        # project's interpreter -- which fails outright once the CLI's own
+        # requires-python floor is above it.
+        env:
+          UV_PYTHON: ${{ needs.plan.outputs.python-version }}
         run: uv sync --frozen --all-extras
 
       - name: Init submodules
@@ -381,14 +409,26 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
+        # Installed unconditionally, not behind `command -v python3`: every
+        # runner already ships SOME python3, so that guard skipped the install
+        # and left the project on whatever the image happened to carry.
+        env:
+          PROJECT_PYTHON: ${{ needs.plan.outputs.python-version }}
         run: |
           command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
-          command -v python3 || uv python install ${{ inputs.python-version }}
+          uv python install "$PROJECT_PYTHON"
 
       - name: Install native dependencies
         run: ${{ env.HYPERCI_INSTALL }} install-native-deps python
 
       - name: Install dependencies
+        # UV_PYTHON is scoped to this step ON PURPOSE. It picks the interpreter
+        # for the PROJECT venv, which every later `uv run` inherits. At workflow
+        # level it would also capture `uvx hyperi-ci`, forcing the CLI onto the
+        # project's interpreter -- which fails outright once the CLI's own
+        # requires-python floor is above it.
+        env:
+          UV_PYTHON: ${{ needs.plan.outputs.python-version }}
         run: uv sync --frozen --all-extras
 
       - name: Run build
@@ -430,6 +470,6 @@ jobs:
       from-head: ${{ inputs.from-head }}
       bump: ${{ inputs.bump }}
       publish-target: ${{ inputs.publish-target }}
-      python-version: ${{ inputs.python-version }}
+      python-version: ${{ needs.plan.outputs.python-version }}
       submodules: ${{ inputs.submodules }}
     secrets: inherit

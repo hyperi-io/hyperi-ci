@@ -9,11 +9,12 @@
 from __future__ import annotations
 
 from hyperi_ci.container.templates import render_node_template, render_python_template
+from hyperi_ci.versions import runtime_version
 
 
 def test_python_template_defaults() -> None:
     result = render_python_template()
-    assert "FROM python:3.14-slim" in result
+    assert f"FROM python:{runtime_version('python')}-slim" in result
     assert "COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv" in result
     assert "EXPOSE 8000" in result
     assert 'ENTRYPOINT ["app"]' in result
@@ -53,11 +54,15 @@ def test_python_template_custom_port() -> None:
 
 
 def test_node_template_defaults() -> None:
+    # The default follows versions.yaml, so this asserts against the SSOT
+    # rather than a second copy of the number. The literal it replaced had
+    # drifted a major behind (22, Maintenance since 2025-10-21, vs 24 LTS).
+    node = runtime_version("node")
     result = render_node_template()
-    assert "FROM node:22-slim" in result
+    assert f"FROM node:{node}-slim" in result
     assert "corepack enable" in result
     assert "pnpm install" in result
-    assert "gcr.io/distroless/nodejs22-debian12" in result
+    assert f"gcr.io/distroless/nodejs{node}-debian12" in result
     assert "EXPOSE 3000" in result
 
 

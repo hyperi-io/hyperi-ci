@@ -273,6 +273,9 @@ jobs:
           enable-cache: false
 
       - name: Set up Python
+        # The fleet default on purpose: this interpreter runs the hyperi-ci
+        # CLI, and a Go project has no Python of its own to follow. Only
+        # python-ci.yml resolves the version from the project (issue #150).
         run: |
           command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
           command -v python3 || uv python install 3.14
@@ -326,6 +329,9 @@ jobs:
           enable-cache: false
 
       - name: Set up Python
+        # The fleet default on purpose: this interpreter runs the hyperi-ci
+        # CLI, and a Go project has no Python of its own to follow. Only
+        # python-ci.yml resolves the version from the project (issue #150).
         run: |
           command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
           command -v python3 || uv python install 3.14
@@ -396,6 +402,9 @@ jobs:
           enable-cache: false
 
       - name: Set up Python
+        # The fleet default on purpose: this interpreter runs the hyperi-ci
+        # CLI, and a Go project has no Python of its own to follow. Only
+        # python-ci.yml resolves the version from the project (issue #150).
         run: |
           command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
           command -v python3 || uv python install 3.14

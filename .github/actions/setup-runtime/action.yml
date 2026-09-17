@@ -25,6 +25,9 @@ inputs:
   python-version:
     description: Python version for the hyperi-ci CLI runtime
     required: false
+    # The CLI runtime, not the project's interpreter. Rust/Go/TS repos have no
+    # Python of their own, so the fleet default is the right answer here;
+    # python-ci.yml resolves its version from the project instead (issue #150).
     # hyperi-ci:pin runtimes.python
     default: "3.14"
   enable-uv-cache:

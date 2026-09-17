@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from hyperi_ci.versions import runtime_version
+
 PYTHON_DOCKERFILE_TEMPLATE = """\
 FROM python:{python_version}-slim AS builder
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
@@ -65,15 +67,20 @@ CMD ["dist/server.js"]
 
 def render_python_template(
     *,
-    python_version: str = "3.14",
+    python_version: str | None = None,
     port: int = 8000,
     health_path: str = "/healthz",
     entrypoint: str = "app",
     cmd: str = "run",
 ) -> str:
-    """Render the Python Dockerfile template with the given parameters."""
+    """Render the Python Dockerfile template with the given parameters.
+
+    ``python_version`` unset falls back to the fleet default. The container
+    stage passes the PROJECT's version instead, so an image is built on the
+    interpreter its own manifest declares (issue #150).
+    """
     return PYTHON_DOCKERFILE_TEMPLATE.format(
-        python_version=python_version,
+        python_version=python_version or runtime_version("python"),
         port=port,
         health_path=health_path,
         entrypoint=entrypoint,
@@ -83,10 +90,16 @@ def render_python_template(
 
 def render_node_template(
     *,
-    node_version: str = "22",
+    node_version: str | None = None,
     port: int = 3000,
 ) -> str:
-    """Render the Node Dockerfile template with the given parameters."""
+    """Render the Node Dockerfile template with the given parameters.
+
+    ``node_version`` unset follows the SSOT rather than a literal here, which
+    had drifted a major behind it (the templates shipped 22 while the fleet
+    moved to 24, Active LTS since 22 went to Maintenance on 2025-10-21).
+    """
+    node_version = node_version or runtime_version("node")
     node_major = node_version.split(".")[0]
     return NODE_DOCKERFILE_TEMPLATE.format(
         node_version=node_version,

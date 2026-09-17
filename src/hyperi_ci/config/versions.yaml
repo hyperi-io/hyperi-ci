@@ -311,6 +311,11 @@ runtimes:
   # 3.14 is the baseline -- the fleet moved 3.12 -> 3.14 and skipped 3.13.
   # 3.12 went security-only on 2025-04-02, so it kept taking CVE fixes but no
   # compatibility work for newer libraries.
+  #
+  # This is the DEFAULT for a project that declares nothing, not a version every
+  # project is held to. A repo declaring `requires-python = ">=3.12"` is built
+  # and tested on 3.12 -- a wheel whose own advertised floor never ran would
+  # otherwise publish green (issue #150). hyperi_ci.python_version resolves it.
   python:
     version: "3.14"
     pin:
@@ -318,6 +323,7 @@ runtimes:
       - .github/workflows/_release-tail.yml
       - .github/workflows/ci.yml
       - .github/actions/setup-runtime/action.yml
+      - .github/actions/predict-version/action.yml
   # 24 is Active LTS. 22 dropped to Maintenance on 2025-10-21, and 26 does not
   # reach LTS until 2026-10-28 (nodejs/Release schedule.json).
   node:

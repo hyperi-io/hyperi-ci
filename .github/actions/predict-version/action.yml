@@ -37,6 +37,11 @@ inputs:
     description: "'true' to run build + container on pull_request events (branch-mode: PRs validate the full pipeline; whether the container also pushes a dev image is the separate publish.container.dev_push opt-in in .hyperi-ci.yaml)"
     required: false
     default: ""
+  python-version:
+    description: "Fallback Python version. The project's own declaration wins over it -- a pegged .python-version, else the requires-python floor."
+    required: false
+    # hyperi-ci:pin runtimes.python
+    default: "3.14"
 
 outputs:
   will-publish:
@@ -51,10 +56,33 @@ outputs:
   run-build:
     description: "'true' iff build + container + publish should run (publish-worthy only)"
     value: ${{ steps.derive.outputs.run-build }}
+  python-version:
+    description: "Python version this project is built and tested on"
+    value: ${{ steps.python.outputs.python-version }}
 
 runs:
   using: composite
   steps:
+    - name: Resolve the project's Python version
+      # The fleet default answers "what does a project that declares nothing
+      # get?" -- it is not a version every project is held to. A repo declaring
+      # `requires-python = ">=3.12"` built on 3.14 publishes a wheel whose own
+      # advertised floor never ran (issue #150).
+      #
+      # uv honours a pegged `.python-version` natively, but resolves a floor to
+      # the NEWEST satisfying interpreter -- so the FLOOR is computed here and
+      # handed to the jobs explicitly. Testing above the floor hides the exact
+      # bug this catches: a 3.14-only feature in a repo that promises 3.12.
+      id: python
+      shell: bash
+      env:
+        DEFAULT_PYTHON: ${{ inputs.python-version }}
+      run: |
+        set -euo pipefail
+        resolved=$(python3 "$GITHUB_ACTION_PATH/python_version.py")
+        echo "python-version=$resolved" >> "$GITHUB_OUTPUT"
+        echo "::notice::Python $resolved"
+
     - name: Detect publish trigger
       # Gate the entire publish flow on one signal: `will-publish`.
       #

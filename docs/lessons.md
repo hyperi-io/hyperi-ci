@@ -257,7 +257,9 @@ explicitly passed through in `env:` on the publish step.
 
 ### uv Patterns
 
-- CI uses Python 3.14 (has `tomllib` built-in)
+- CI builds on the version the PROJECT declares, not a fleet-wide one - see
+  [python.md](languages/python.md). `versions.yaml` names the default for a
+  project that declares nothing
 - Build: `uv build` (replaces `python -m build`)
 - Publish: `uv publish --publish-url` with explicit `--username` / `--password`
 

@@ -105,6 +105,7 @@ local `hyperi-ci check` runs the same validation over `origin/main..HEAD`.
 | `run-checks` | `will-publish`, OR a **release-worthy push to main** (the pushed range carries a `feat:` / `fix:` / `perf:`; a range that cannot be resolved counts as worthy, so the gate fails open), OR `pull_request`, OR `workflow_dispatch` | Run quality + test. A release-worthy merge is TESTED, never shipped - `run-build` stays publish-only |
 | `run-build` | `will-publish`, OR `workflow_dispatch`, OR `pull_request` with the `branch-build` opt-in | Run build + container (publish stays `will-publish`-only) |
 | `next-version` | `will-publish` AND push | Predicted semver from semantic-release dry-run |
+| `python-version` | always | The interpreter every job builds and tests on: a pegged `.python-version`, else the `requires-python` FLOOR, else the `versions.yaml` default. The floor, because testing above it hides the bug it exists to catch - a 3.14-only feature in a repo that promises 3.12 |
 | `build-matrix` | always | Single-arch unless `will-publish` - PR branch-mode builds stay single-arch. A project that lists `build.rust.targets` in `.hyperi-ci.yaml` gets legs for those targets only, so one that cannot build arm64 still releases amd64 |
 
 **Two derived gates** because PR runs need quality+test (review feedback) but

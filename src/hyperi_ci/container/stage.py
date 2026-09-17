@@ -63,6 +63,8 @@ from hyperi_ci.publish_mode import (
     dev_branch_slug,
     resolve_push_mode,
 )
+from hyperi_ci.python_version import resolve as resolve_python
+from hyperi_ci.versions import runtime_version
 
 _TEMPLATE_LANGUAGES = {"python", "typescript"}
 _CONTRACT_LANGUAGES = {"rust"}
@@ -348,6 +350,18 @@ def _build_custom(
     )
 
 
+def _project_python() -> str:
+    """The Python version this project declares, else the fleet default.
+
+    A generated image has to run the version the project promises: building a
+    repo that declares ``>=3.12`` on 3.14 ships an image its own manifest does
+    not support (issue #150). ``publish.container.python_version`` overrides it
+    for an image that deliberately differs from the project.
+    """
+    version, _source = resolve_python(Path.cwd(), default=runtime_version("python"))
+    return version
+
+
 def _build_template(
     *,
     language: str,
@@ -364,15 +378,17 @@ def _build_template(
 
     if language == "python":
         dockerfile_content = render_python_template(
-            python_version=container_cfg.get("python_version", "3.14"),
+            python_version=container_cfg.get("python_version") or _project_python(),
             port=container_cfg.get("port", 8080),
             health_path=container_cfg.get("health_path", "/healthz"),
             entrypoint=container_cfg.get("entrypoint", Path.cwd().name),
             cmd=container_cfg.get("cmd", "run"),
         )
     elif language == "typescript":
+        # Unset follows the SSOT rather than a literal that had drifted a major
+        # behind it.
         dockerfile_content = render_node_template(
-            node_version=container_cfg.get("node_version", "22"),
+            node_version=container_cfg.get("node_version"),
             port=container_cfg.get("port", 3000),
         )
     else:

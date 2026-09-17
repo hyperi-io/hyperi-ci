@@ -23,6 +23,41 @@ flowchart LR
 JFrog publishing was removed in v2.1.4 - Python publishes to public PyPI only.
 A legacy `publish.target` in `.hyperi-ci.yaml` is read but ignored.
 
+## Which Python version CI uses
+
+The project's own declaration, resolved once in the `plan` job and used by every
+job after it:
+
+| Order | Source | Notes |
+|---|---|---|
+| 1 | `.python-version` | A pegged file is someone writing the version down |
+| 2 | `requires-python` in `pyproject.toml` | The **floor**, not the newest version satisfying it |
+| 3 | The `python-version` workflow input | Only reached when the project declares neither |
+| 4 | `runtimes.python` in `versions.yaml` | The fleet default |
+
+The floor is the point. A repo declaring `>=3.12` that gets tested on 3.14 is
+tested on an interpreter it does not support, and publishes a wheel whose own
+advertised floor never ran. uv honours a pegged `.python-version` by itself but
+resolves a floor to the NEWEST satisfying interpreter, so hyperi-ci computes the
+floor and hands it over (`hyperi_ci.python_version`).
+
+Nothing to set: declare `requires-python` and CI follows it.
+
+**`ruff` needs no configuration either.** Ruff reads `requires-python` and
+targets it, so a project that declares its floor gets lint and formatting for
+that floor for free. An explicit `target-version` OVERRIDES it - set one only
+to hold ruff BELOW the floor deliberately, as this repo does.
+
+**`UV_PYTHON` is set on the dependency-install step only**, never workflow-wide.
+It picks the interpreter for the project venv, which every later `uv run`
+inherits. Workflow-wide it would also capture `uvx hyperi-ci` and force the CLI
+onto the project's interpreter, which fails outright when the CLI's own
+`requires-python` floor is higher.
+
+Rust, Go and TypeScript workflows install the fleet default instead. The
+interpreter there runs the hyperi-ci CLI; those projects have no Python of their
+own to follow.
+
 ## Gotchas - read before debugging CI
 
 ### Publish must go through `hyperi-ci run build`, not raw `uv build`
