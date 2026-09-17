@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.10.1](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.0...v2.10.1) (2026-09-17)
+
+### Bug Fixes
+
+* **release:** honour a destination opt-out written the old way ([559fe67](https://github.com/hyperi-io/hyperi-ci/commit/559fe670cb37bc933af4951c69187fd9410e4ce3))
+* **release:** run the release stage and name the job for it ([809db18](https://github.com/hyperi-io/hyperi-ci/commit/809db185dd8c91cc8b14c147f265e1f497433e9d)), closes [#151](https://github.com/hyperi-io/hyperi-ci/issues/151)
+
 ## [2.10.0](https://github.com/hyperi-io/hyperi-ci/compare/v2.9.28...v2.10.0) (2026-09-17)
 
 ### Features
