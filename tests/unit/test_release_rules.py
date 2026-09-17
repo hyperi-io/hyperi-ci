@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -139,7 +140,7 @@ def test_releaserc_without_analyzer_block_uses_defaults(tmp_path: Path) -> None:
 # --- drift guard on the central injected default ------------------------------
 
 
-def _central_default() -> dict[str, object]:
+def _central_default() -> dict[str, Any]:
     """Load the config the setup-semantic-release composite injects."""
     repo_root = Path(__file__).resolve().parents[2]
     default_rc = (
