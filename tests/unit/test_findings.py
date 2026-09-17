@@ -281,6 +281,34 @@ class TestSurface:
         assert (tmp_path / "s.md").exists()
         assert sarif.exists()
 
+    @staticmethod
+    def _captured_logs(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        """Collect what findings logs. Loguru bypasses capsys/capfd/caplog."""
+        lines: list[str] = []
+        for level in ("error", "warn", "info"):
+            monkeypatch.setattr(findings, level, lines.append)
+        return lines
+
+    def test_findings_reach_the_log_off_ci(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """issue #72: off CI both GitHub surfaces are inert, so a blocking run
+        failed the gate having printed a count and nothing to act on."""
+        monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+        monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+        lines = self._captured_logs(monkeypatch)
+        findings.surface("hadolint", [_f("error", rule="DL3000")])
+        rendered = "\n".join(lines)
+        assert "DL3000" in rendered
+        assert "Dockerfile:1" in rendered
+
+    def test_the_log_stays_quiet_on_ci(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Annotations already carry them there; two copies is noise."""
+        monkeypatch.setenv("GITHUB_ACTIONS", "true")
+        lines = self._captured_logs(monkeypatch)
+        findings.surface("hadolint", [_f("error", rule="DL3000")])
+        assert lines == []
+
     def test_summary_write_failure_does_not_raise(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:

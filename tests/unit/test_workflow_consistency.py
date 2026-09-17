@@ -1004,6 +1004,32 @@ class TestRunnerSelection:
                 )
 
 
+def test_the_release_tail_resolves_its_runner_through_the_org_variables() -> None:
+    """issue #80: both tail jobs hardcoded ubuntu-latest, so GH_RUNNER_PUBLISH
+    was set org-wide and read by nothing while the multi-arch container build
+    paid for hosted minutes. TestRunnerSelection only covers the four language
+    workflows, which is why this went unseen.
+
+    No renovate carve-out here on purpose: the tail gates on will-publish and
+    push-to-main, so it never runs on a renovate/ branch.
+    """
+    jobs = _load_workflow("_release-tail.yml")["jobs"]
+    for name in ("container", "tag-and-release"):
+        runs_on = str(jobs[name]["runs-on"])
+        assert "vars.GH_RUNNER_PUBLISH" in runs_on, (
+            f"_release-tail.{name}: runs-on must resolve through "
+            f"GH_RUNNER_PUBLISH.\n  actual: {runs_on}"
+        )
+        assert "vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}" in runs_on, (
+            f"_release-tail.{name}: the fallback chain must terminate on a real "
+            f"runner.\n  actual: {runs_on}"
+        )
+        assert "vars.GH_RUNNER_MODE == 'free' && 'ubuntu-latest'" in runs_on, (
+            f"_release-tail.{name}: lost the free-mode escape, so an org with "
+            f"no self-hosted fleet queues forever.\n  actual: {runs_on}"
+        )
+
+
 def test_rust_renovate_carveout_never_lands_on_a_toolchainless_runner() -> None:
     """issue #91: renovate/ branches must resolve to a runner with cargo.
 

@@ -111,7 +111,7 @@ jobs:
         github.event_name == 'workflow_dispatch' ||
         github.event_name == 'pull_request'
       )
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.GH_RUNNER_MODE == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     permissions:
       contents: read
       packages: write
@@ -236,7 +236,7 @@ jobs:
       ${{ always() && inputs.will-publish == 'true'
           && (needs.container.result == 'success'
               || needs.container.outputs.ships-container != 'true') }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.GH_RUNNER_MODE == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     permissions:
       contents: write
       issues: write

@@ -47,7 +47,13 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from hyperi_ci.common import escape_command_data, is_github_actions, warn
+from hyperi_ci.common import (
+    error,
+    escape_command_data,
+    info,
+    is_github_actions,
+    warn,
+)
 
 # Cap the rows written to one job-summary section. GitHub truncates a step
 # summary at 1 MiB; a bounded table plus a "truncated" note keeps a pathological
@@ -179,8 +185,7 @@ def emit_annotations(findings: list[Finding]) -> int:
     Returns the number of findings that could NOT be annotated because the
     step-global budget was exhausted - the caller notes "+N more, see summary"
     so an exhausted budget is visible rather than a silent drop. Outside GitHub
-    Actions this is a no-op (returns 0); the job summary and log carry the
-    findings there.
+    Actions this is a no-op (returns 0); :func:`log_findings` carries them there.
     """
     if not is_github_actions():
         return 0
@@ -357,17 +362,42 @@ def parse_sarif(text: str, tool: str) -> list[Finding]:
     return out
 
 
+def log_findings(tool: str, findings: list[Finding]) -> None:
+    """Print the findings to the log where no GitHub surface will carry them.
+
+    Annotations and the job summary are both no-ops off CI, and SARIF is opt-in,
+    so a local run failed the gate while printing only a count (issue #72).
+    Bounded like the summary, because the reason to cap there applies here too.
+    """
+    if not findings or is_github_actions():
+        return
+    shown = findings[:_MAX_SUMMARY_ROWS]
+    for f in shown:
+        loc = f.path + (f":{f.line}" if f.line is not None else "")
+        line = f"  {tool}: {f.level} {f.rule} {loc} {f.message}".rstrip()
+        if f.level == "error":
+            error(line)
+        elif f.level == "warning":
+            warn(line)
+        else:
+            info(line)
+    if len(findings) > len(shown):
+        info(f"  {tool}: +{len(findings) - len(shown)} more finding(s) not shown")
+
+
 def surface(
     tool: str, findings: list[Finding], *, sarif_path: str | Path | None = None
 ) -> int:
-    """Surface ``findings`` across all layers: annotations, summary, optional SARIF.
+    """Surface ``findings`` across all layers: annotations, summary, log, SARIF.
 
     Returns the count of findings that overflowed the annotation budget (so the
     caller can log "+N more, see summary"). The full list is always in the job
-    summary and, when ``sarif_path`` is set, in the SARIF file.
+    summary and, when ``sarif_path`` is set, in the SARIF file. Off CI, where
+    neither GitHub surface exists, the findings go to the log instead.
     """
     dropped = emit_annotations(findings)
     append_job_summary(tool, findings)
+    log_findings(tool, findings)
     if sarif_path is not None:
         write_sarif(tool, findings, sarif_path)
     return dropped
