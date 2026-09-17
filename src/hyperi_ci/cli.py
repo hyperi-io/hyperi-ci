@@ -1591,7 +1591,7 @@ def publish(
         typer.Option("--dry-run", "-n", help="Show what would be dispatched"),
     ] = False,
 ) -> None:
-    """Deprecated alias of ``release``. Same behaviour, every option included."""
+    """Run ``release`` under its deprecated name, with every option included."""
     from hyperi_ci.common import warn
     from hyperi_ci.vocabulary import REVERSAL_NOTE
 

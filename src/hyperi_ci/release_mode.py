@@ -127,7 +127,7 @@ def is_release_mode(*, env: Mapping[str, str] | None = None) -> bool:
 
 
 def is_publish_mode(*, env: Mapping[str, str] | None = None) -> bool:
-    """Deprecated spelling of :func:`is_release_mode`."""
+    """Return :func:`is_release_mode` under its deprecated spelling."""
     return is_release_mode(env=env)
 
 

@@ -351,7 +351,7 @@ def _build_custom(
 
 
 def _project_python() -> str:
-    """The Python version this project declares, else the fleet default.
+    """Return the Python version this project declares, else the fleet default.
 
     A generated image has to run the version the project promises: building a
     repo that declares ``>=3.12`` on 3.14 ships an image its own manifest does
