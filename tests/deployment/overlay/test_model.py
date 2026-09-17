@@ -62,7 +62,7 @@ class TestSimpleOverlayParsing:
         with pytest.raises(OverlayValidationError) as exc:
             parse_simple_overlays(raw, artefact="container")
         assert "exactly one of" in str(exc.value)
-        assert "publish.container.overlays[0]" in str(exc.value)
+        assert "release.container.overlays[0]" in str(exc.value)
 
     def test_rejects_neither_content_nor_file(self) -> None:
         raw = [{"anchor": "before-user"}]
@@ -75,7 +75,7 @@ class TestSimpleOverlayParsing:
         with pytest.raises(OverlayValidationError) as exc:
             parse_simple_overlays(raw, artefact="argocd")
         assert "missing required string `anchor`" in str(exc.value)
-        assert "publish.argocd.overlays[0]" in str(exc.value)
+        assert "release.argocd.overlays[0]" in str(exc.value)
 
     def test_rejects_non_list(self) -> None:
         with pytest.raises(OverlayValidationError) as exc:
@@ -94,7 +94,7 @@ class TestSimpleOverlayParsing:
         with pytest.raises(OverlayValidationError) as exc:
             parse_simple_overlays(raw, artefact="container")
         # Index in the error message should be 2, not 0 or 1.
-        assert "publish.container.overlays[2]" in str(exc.value)
+        assert "release.container.overlays[2]" in str(exc.value)
 
 
 class TestOverlayResolve:
@@ -125,7 +125,7 @@ class TestOverlayResolve:
             o.resolve(base_dir=tmp_path, artefact="container", index=3)
         assert exc.value.path == tmp_path / "does-not-exist.df"
         assert exc.value.overlay_index == 3
-        assert "publish.container.overlays[3]" in str(exc.value)
+        assert "release.container.overlays[3]" in str(exc.value)
 
     def test_unresolvable_neither_raises(self, tmp_path: Path) -> None:
         o = Overlay(anchor="before-user")

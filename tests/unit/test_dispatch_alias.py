@@ -31,9 +31,9 @@ class TestJavascriptAliasesToTypescript:
         assert js_mod is not None
         assert js_mod is ts_mod
 
-    def test_publish_stage_maps_to_typescript_publish_module(self) -> None:
-        js_mod = _find_handler_module("javascript", "publish")
-        ts_mod = _find_handler_module("typescript", "publish")
+    def test_release_stage_maps_to_typescript_release_module(self) -> None:
+        js_mod = _find_handler_module("javascript", "release")
+        ts_mod = _find_handler_module("typescript", "release")
         assert js_mod is not None
         assert js_mod is ts_mod
 

@@ -1,6 +1,6 @@
 # Project:   HyperI CI
-# File:      src/hyperi_ci/languages/rust/publish.py
-# Purpose:   Rust publish handler (crates.io)
+# File:      src/hyperi_ci/languages/rust/release.py
+# Purpose:   Rust release handler (crates.io)
 #
 # License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED

@@ -95,13 +95,13 @@ per-language carve-out stays in the SME's domain.
 ## 5. Release routing
 
 Everything goes to the OSS registry stack. **JFrog was removed in v2.1.4** - the
-legacy `publish.target` config field (`internal`/`oss`/`both`) is still read for
+legacy `release.target` config field (`internal`/`oss`/`both`) is still read for
 back-compat but every value routes to the same OSS destination map. It is not the
 `publish-target` workflow input, which is live.
 
 ```mermaid
 flowchart LR
-    PUB[hyperi-ci run publish] --> M["OSS destination map<br/>(publish.target ignored)"]
+    PUB[hyperi-ci run release] --> M["OSS destination map<br/>(release.target ignored)"]
     M --> PY[pypi.org]
     M --> CR[crates.io]
     M --> NPM[npmjs.com]

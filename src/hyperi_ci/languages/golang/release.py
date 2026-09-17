@@ -1,6 +1,6 @@
 # Project:   HyperI CI
-# File:      src/hyperi_ci/languages/golang/publish.py
-# Purpose:   Golang publish handler (Go proxy)
+# File:      src/hyperi_ci/languages/golang/release.py
+# Purpose:   Golang release handler (Go proxy)
 #
 # License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED

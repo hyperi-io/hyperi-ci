@@ -1,13 +1,13 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/container/registry.py
-# Purpose:   Resolve publish.target into concrete container registry bases
+# Purpose:   Resolve release.target into concrete container registry bases
 #
 # License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Container registry resolution.
 
 Every container publishes to GHCR (``ghcr.io/<github-org>``). The legacy
-``publish.target`` config key is accepted for backward compatibility with
+``release.target`` config key is accepted for backward compatibility with
 downstream ``.hyperi-ci.yaml`` files but ignored at runtime — JFrog
 publishing was removed in v2.1.4.
 
@@ -26,7 +26,7 @@ def resolve_registry_bases(*, target: str, org: OrgConfig) -> list[str]:
     """Return the list of registry bases to push to.
 
     Args:
-        target: Legacy ``publish.target`` value, accepted but ignored.
+        target: Legacy ``release.target`` value, accepted but ignored.
         org: Loaded organisation config.
 
     Returns:

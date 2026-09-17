@@ -155,8 +155,8 @@ def _emit_subprocess(
     return 0, proc.stdout
 
 
-def _load_publish_block(project_dir: Path) -> dict:
-    """Load `publish:` from .hyperi-ci.yaml. Empty dict if missing.
+def _load_release_block(project_dir: Path) -> dict:
+    """Load `release:` from .hyperi-ci.yaml. Empty dict if missing.
 
     Uses ``reload=True`` because a single CLI invocation may render
     across multiple project_dirs (e.g. the all-three default path) and
@@ -164,8 +164,8 @@ def _load_publish_block(project_dir: Path) -> dict:
     call returns the first project's config.
     """
     cfg = load_config(project_dir=project_dir, reload=True)
-    publish = cfg.get("publish", {})
-    return publish if isinstance(publish, dict) else {}
+    release = cfg.get("release", {})
+    return release if isinstance(release, dict) else {}
 
 
 # ---- per-kind handlers -----------------------------------------------------
@@ -189,9 +189,9 @@ def _render_dockerfile(
     if rc != 0:
         return rc
 
-    publish = _load_publish_block(project_dir)
-    overlay_cfg = parse_overlay_config(publish)
-    binary_name = publish.get("container", {}).get("binary_name") or project_dir.name
+    release = _load_release_block(project_dir)
+    overlay_cfg = parse_overlay_config(release)
+    binary_name = release.get("container", {}).get("binary_name") or project_dir.name
     resolver = DockerfileAnchorResolver(binary_name=binary_name)
     final = apply_overlays(
         base=base,
@@ -237,8 +237,8 @@ def _render_helm(*, project_dir: Path, output: Path | None, binary: str | None) 
                 error(proc.stderr.rstrip())
             return proc.returncode
 
-        publish = _load_publish_block(project_dir)
-        overlay_cfg = parse_overlay_config(publish)
+        release = _load_release_block(project_dir)
+        overlay_cfg = parse_overlay_config(release)
         resolver = HelmAnchorResolver()
         if overlay_cfg.helm.adds:
             written = resolver.apply_adds(
@@ -292,8 +292,8 @@ def _render_argocd(
     if rc != 0:
         return rc
 
-    publish = _load_publish_block(project_dir)
-    overlay_cfg = parse_overlay_config(publish)
+    release = _load_release_block(project_dir)
+    overlay_cfg = parse_overlay_config(release)
     resolver = ArgoCDAnchorResolver()
     final = apply_overlays(
         base=base,

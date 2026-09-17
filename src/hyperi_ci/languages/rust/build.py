@@ -800,14 +800,14 @@ def _resolve_build_channel(config: CIConfig) -> str:
          style tagged builds set these when checking out the tag)
       4. "alpha" (default for push-event CI)
 
-    **Rationale for not falling back to `publish.channel`:** Tier 2
+    **Rationale for not falling back to `release.channel`:** Tier 2
     (PGO + BOLT) adds 30-60 min per build and a bad workload causes
     NEGATIVE gains. It MUST only run on explicit release dispatches
-    (artifact publishing), NOT on every push to main. `publish.channel`
+    (artifact publishing), NOT on every push to main. `release.channel`
     in `.hyperi-ci.yaml` describes *where artifacts are published*
     (GHCR, PyPI, crates.io, etc.) — a project that ships to "release"
     still gets push-event CI on every commit, which must NOT trigger
-    Tier 2. The build channel is orthogonal to the publish channel.
+    Tier 2. The build channel is orthogonal to the release channel.
 
     An operator who explicitly wants a one-off release-style build on
     a non-tag ref can set `HYPERCI_CHANNEL=release` in the workflow

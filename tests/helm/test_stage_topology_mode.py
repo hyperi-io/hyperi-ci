@@ -224,10 +224,10 @@ class TestTopologyModeStitchAndPackage:
     def test_validate_mode_succeeds_without_push(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Validate mode (no HYPERCI_PUBLISH_MODE): stitch + package, no push."""
+        """Validate mode (no HYPERCI_RELEASE_MODE): stitch + package, no push."""
         topo_dir = _make_topo_dir(tmp_path)
         monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("HYPERCI_PUBLISH_MODE", raising=False)
+        monkeypatch.delenv("HYPERCI_RELEASE_MODE", raising=False)
         monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
 
         cfg = _cfg(topo_dir)
@@ -256,13 +256,13 @@ class TestTopologyModeStitchAndPackage:
 
         assert rc == 0
 
-    def test_publish_mode_calls_helm_push(
+    def test_release_mode_calls_helm_push(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Publish mode: stitch + package + push → exit 0."""
+        """Release mode: stitch + package + push → exit 0."""
         topo_dir = _make_topo_dir(tmp_path)
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setenv("HYPERCI_PUBLISH_MODE", "true")
+        monkeypatch.setenv("HYPERCI_RELEASE_MODE", "true")
 
         cfg = _cfg(topo_dir)
 
@@ -315,7 +315,7 @@ class TestTopologyModeStitchAndPackage:
             tmp_path, name="full", content=_TOPOLOGY_YAML_WITH_THIRD_PARTY
         )
         monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("HYPERCI_PUBLISH_MODE", raising=False)
+        monkeypatch.delenv("HYPERCI_RELEASE_MODE", raising=False)
 
         cfg = _cfg(topo_dir)
 

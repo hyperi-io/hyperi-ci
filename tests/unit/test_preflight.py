@@ -83,7 +83,7 @@ class TestMustNotBlock:
     """The false-block cases, which are the expensive kind of wrong."""
 
     def test_a_rust_binary_app_needs_no_crates_token(self, tmp_path: Path) -> None:
-        """rust.publish.run returns early for a crate with [[bin]] targets."""
+        """rust.release.run returns early for a crate with [[bin]] targets."""
         with patch("hyperi_ci.preflight._publishes_a_crate", return_value=False):
             rc = check_publish_credentials(
                 _config(cargo="crates-io", binaries="r2-binaries"),

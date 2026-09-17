@@ -1,10 +1,10 @@
 # Project:   HyperI CI
-# File:      tests/unit/test_publish.py
-# Purpose:   Tests for publish destination routing (no mocks)
+# File:      tests/unit/test_release.py
+# Purpose:   Tests for release destination routing (no mocks)
 #
 # License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Publish destination routing tests.
+"""Release destination routing tests.
 
 Tests the config-level routing logic that determines WHERE artifacts
 are published based on publish_target. Does NOT test actual publishing
@@ -151,25 +151,25 @@ class TestChannelRouting:
     """Channel determines GH Release flags and R2 paths."""
 
     def test_release_channel_no_prerelease(self) -> None:
-        from hyperi_ci.publish.binaries import _resolve_gh_release_flags
+        from hyperi_ci.release.binaries import _resolve_gh_release_flags
 
         flags = _resolve_gh_release_flags("release")
         assert "--prerelease" not in flags
 
     def test_alpha_channel_prerelease(self) -> None:
-        from hyperi_ci.publish.binaries import _resolve_gh_release_flags
+        from hyperi_ci.release.binaries import _resolve_gh_release_flags
 
         flags = _resolve_gh_release_flags("alpha")
         assert "--prerelease" in flags
 
     def test_beta_channel_prerelease(self) -> None:
-        from hyperi_ci.publish.binaries import _resolve_gh_release_flags
+        from hyperi_ci.release.binaries import _resolve_gh_release_flags
 
         flags = _resolve_gh_release_flags("beta")
         assert "--prerelease" in flags
 
     def test_release_r2_path(self) -> None:
-        from hyperi_ci.publish.binaries import _resolve_r2_paths
+        from hyperi_ci.release.binaries import _resolve_r2_paths
 
         versioned, latest = _resolve_r2_paths("dfe-receiver", "1.3.0", "release")
         assert versioned.endswith("/dfe-receiver/v1.3.0/")
@@ -177,14 +177,14 @@ class TestChannelRouting:
         assert "/release/" not in versioned
 
     def test_alpha_r2_path(self) -> None:
-        from hyperi_ci.publish.binaries import _resolve_r2_paths
+        from hyperi_ci.release.binaries import _resolve_r2_paths
 
         versioned, latest = _resolve_r2_paths("dfe-receiver", "1.3.0", "alpha")
         assert "/alpha/" in versioned
         assert "/alpha/" in latest
 
     def test_beta_r2_path(self) -> None:
-        from hyperi_ci.publish.binaries import _resolve_r2_paths
+        from hyperi_ci.release.binaries import _resolve_r2_paths
 
         versioned, latest = _resolve_r2_paths("dfe-receiver", "1.3.0", "beta")
         assert "/beta/" in versioned
@@ -206,7 +206,7 @@ class TestCargoVersionSync:
             '[dependencies.tokio]\nversion = "1.35"\n\n'
             '[package]\nname = "x"\nversion = "0.0.0"\n'
         )
-        from hyperi_ci.languages.rust.publish import _sync_cargo_toml_version
+        from hyperi_ci.languages.rust.release import _sync_cargo_toml_version
 
         assert _sync_cargo_toml_version("9.9.9") is True
         txt = (tmp_path / "Cargo.toml").read_text()
@@ -215,7 +215,7 @@ class TestCargoVersionSync:
 
     def test_missing_cargo_toml_is_error(self, tmp_path, monkeypatch) -> None:
         monkeypatch.chdir(tmp_path)
-        from hyperi_ci.languages.rust.publish import _sync_cargo_toml_version
+        from hyperi_ci.languages.rust.release import _sync_cargo_toml_version
 
         assert _sync_cargo_toml_version("1.0.0") is False
 
@@ -225,14 +225,14 @@ class TestPythonDistExclusion:
     via the generic binary publisher (issue #105 BUG 2)."""
 
     def test_wheel_and_sdist_are_python_artifacts(self) -> None:
-        from hyperi_ci.publish.binaries import _is_python_dist_artifact
+        from hyperi_ci.release.binaries import _is_python_dist_artifact
 
         assert _is_python_dist_artifact(Path("dfe_engine-1.17.0-py3-none-any.whl"))
         assert _is_python_dist_artifact(Path("dfe_engine-1.17.0.tar.gz"))
         assert _is_python_dist_artifact(Path("dfe_engine-1.17.0.zip"))
 
     def test_binary_is_not_python_artifact(self) -> None:
-        from hyperi_ci.publish.binaries import _is_python_dist_artifact
+        from hyperi_ci.release.binaries import _is_python_dist_artifact
 
         assert not _is_python_dist_artifact(Path("dfe-receiver"))
         assert not _is_python_dist_artifact(Path("dfe-receiver-x86_64-unknown-linux"))
@@ -244,7 +244,7 @@ class TestPythonDistExclusion:
         (dist / "dfe_engine-1.17.0-py3-none-any.whl").write_text("wheel")
         (dist / "dfe_engine-1.17.0.tar.gz").write_text("sdist")
         (dist / "dfe-receiver").write_text("binary")
-        from hyperi_ci.publish.binaries import _collect_artifacts
+        from hyperi_ci.release.binaries import _collect_artifacts
 
         kept = {p.name for p in _collect_artifacts(exclude_python=True)}
         assert kept == {"dfe-receiver"}
@@ -288,7 +288,7 @@ class TestReleaseTargetsHead:
         self._git(tmp_path, "commit", "-m", "one")
         self._git(tmp_path, "tag", "v1.0.0")
         monkeypatch.chdir(tmp_path)
-        from hyperi_ci.publish.binaries import _release_targets_head
+        from hyperi_ci.release.binaries import _release_targets_head
 
         assert _release_targets_head("v1.0.0") is True
 
@@ -302,7 +302,7 @@ class TestReleaseTargetsHead:
         self._git(tmp_path, "add", "-A")
         self._git(tmp_path, "commit", "-m", "two")
         monkeypatch.chdir(tmp_path)
-        from hyperi_ci.publish.binaries import _release_targets_head
+        from hyperi_ci.release.binaries import _release_targets_head
 
         assert _release_targets_head("v1.0.0") is False
 
@@ -312,7 +312,7 @@ class TestReleaseTargetsHead:
         self._git(tmp_path, "add", "-A")
         self._git(tmp_path, "commit", "-m", "one")
         monkeypatch.chdir(tmp_path)
-        from hyperi_ci.publish.binaries import _release_targets_head
+        from hyperi_ci.release.binaries import _release_targets_head
 
         assert _release_targets_head("v9.9.9") is False
 
@@ -350,7 +350,7 @@ class TestChangelogEntryExtraction:
     """The GitHub Release body comes from the rendered changelog entry."""
 
     def test_top_entry_stops_at_the_next_release(self) -> None:
-        from hyperi_ci.publish.binaries import _top_changelog_entry
+        from hyperi_ci.release.binaries import _top_changelog_entry
 
         entry = _top_changelog_entry("2.9.26", _THREE_ENTRIES)
         assert entry is not None
@@ -361,7 +361,7 @@ class TestChangelogEntryExtraction:
     def test_a_minor_entry_is_a_level_one_heading(self) -> None:
         # conventional-changelog renders a minor or major as `# [x.y.z]`, so
         # the terminator cannot be the heading level.
-        from hyperi_ci.publish.binaries import _top_changelog_entry
+        from hyperi_ci.release.binaries import _top_changelog_entry
 
         tail = _THREE_ENTRIES[_THREE_ENTRIES.index("# [2.9.0]") :]
         entry = _top_changelog_entry("2.9.0", tail)
@@ -371,12 +371,12 @@ class TestChangelogEntryExtraction:
 
     def test_a_different_top_entry_is_refused(self) -> None:
         """A retroactive publish checks out a tag with older notes."""
-        from hyperi_ci.publish.binaries import _top_changelog_entry
+        from hyperi_ci.release.binaries import _top_changelog_entry
 
         assert _top_changelog_entry("2.9.0", _THREE_ENTRIES) is None
 
     def test_a_changelog_with_no_entries(self) -> None:
-        from hyperi_ci.publish.binaries import _top_changelog_entry
+        from hyperi_ci.release.binaries import _top_changelog_entry
 
         assert _top_changelog_entry("2.9.26", "# Changelog\n\nNothing yet.\n") is None
 
@@ -386,7 +386,7 @@ class TestReleaseNotesFlags:
 
     def test_no_changelog_adds_no_flags(self, tmp_path, monkeypatch) -> None:
         monkeypatch.chdir(tmp_path)
-        from hyperi_ci.publish.binaries import _release_notes_flags
+        from hyperi_ci.release.binaries import _release_notes_flags
 
         with _release_notes_flags("2.9.26") as flags:
             assert flags == []
@@ -394,7 +394,7 @@ class TestReleaseNotesFlags:
     def test_a_stale_top_entry_adds_no_flags(self, tmp_path, monkeypatch) -> None:
         (tmp_path / "CHANGELOG.md").write_text(_THREE_ENTRIES, encoding="utf-8")
         monkeypatch.chdir(tmp_path)
-        from hyperi_ci.publish.binaries import _release_notes_flags
+        from hyperi_ci.release.binaries import _release_notes_flags
 
         with _release_notes_flags("1.0.0") as flags:
             assert flags == []
@@ -404,7 +404,7 @@ class TestReleaseNotesFlags:
     ) -> None:
         (tmp_path / "CHANGELOG.md").write_text(_THREE_ENTRIES, encoding="utf-8")
         monkeypatch.chdir(tmp_path)
-        from hyperi_ci.publish.binaries import _release_notes_flags
+        from hyperi_ci.release.binaries import _release_notes_flags
 
         with _release_notes_flags("2.9.26") as flags:
             assert flags[0] == "--notes-file"

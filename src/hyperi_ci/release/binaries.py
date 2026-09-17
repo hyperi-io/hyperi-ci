@@ -1,5 +1,5 @@
 # Project:   HyperI CI
-# File:      src/hyperi_ci/publish/binaries.py
+# File:      src/hyperi_ci/release/binaries.py
 # Purpose:   Language-agnostic binary artifact publishing
 #
 # License:   BUSL-1.1 — HYPERI PTY LIMITED
@@ -10,7 +10,7 @@ Uploads pre-built binaries from dist/ to:
 - GitHub Releases (per-tag artefacts)
 - Cloudflare R2 (``downloads.hyperi.io/<project>/<version|latest>/``)
 
-Called from dispatch.py after the language-specific publish handler.
+Called from dispatch.py after the language-specific release handler.
 Any language that packages binaries to dist/ gets this for free.
 """
 

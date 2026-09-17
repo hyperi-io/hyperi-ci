@@ -144,8 +144,8 @@ class TestHelmStage:
         self, tmp_path: Path, monkeypatch
     ) -> None:
         monkeypatch.chdir(tmp_path)
-        # No publish-mode env vars → validate mode by default
-        monkeypatch.delenv("HYPERCI_PUBLISH_MODE", raising=False)
+        # No release-mode env vars → validate mode by default
+        monkeypatch.delenv("HYPERCI_RELEASE_MODE", raising=False)
         monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
 
         cfg = _config()
@@ -155,9 +155,9 @@ class TestHelmStage:
                 rc = helm_run(cfg)
         assert rc == 0  # validate succeeds without push
 
-    def test_publish_mode_pushes_to_oci(self, tmp_path: Path, monkeypatch) -> None:
+    def test_release_mode_pushes_to_oci(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setenv("HYPERCI_PUBLISH_MODE", "true")
+        monkeypatch.setenv("HYPERCI_RELEASE_MODE", "true")
 
         cfg = _config()
         recorded_calls: list = []
@@ -181,7 +181,7 @@ class TestHelmStage:
         self, tmp_path: Path, monkeypatch
     ) -> None:
         monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("HYPERCI_PUBLISH_MODE", raising=False)
+        monkeypatch.delenv("HYPERCI_RELEASE_MODE", raising=False)
 
         cfg = _config(
             overlays={

@@ -52,7 +52,7 @@ DEFAULT_OUTPUT_DIR = Path("ci-tmp")
 DEFAULT_DRIFT_DIR = Path(".tmp/drift")
 
 # Cascade key gating the whole stage. Tri-state, same shape as
-# `publish.container.enabled` — see :func:`run`.
+# `release.container.enabled` — see :func:`run`.
 PRODUCER_KEY = "deployment.producer"
 
 # Exit codes layered on top of `emit_artefacts`'s set. EXIT_PRODUCER_MISSING

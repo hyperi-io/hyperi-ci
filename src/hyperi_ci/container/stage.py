@@ -6,7 +6,7 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Container build stage.
 
-Three-state ``publish.container.enabled`` gate:
+Three-state ``release.container.enabled`` gate:
 
 * ``auto`` (default): build when a container artefact is detected
   (Dockerfile in repo, or scalo contract source). Library projects
@@ -19,17 +19,17 @@ Three-state ``publish.container.enabled`` gate:
   regression where a project lost its containerisable artefact.
 * ``false``: explicit skip.
 
-Every container is built and (in publish mode) pushed to GHCR. The
-legacy ``publish.target`` field is accepted for back-compat but ignored
+Every container is built and (in release mode) pushed to GHCR. The
+legacy ``release.target`` field is accepted for back-compat but ignored
 — JFrog publishing was removed in v2.1.4.
 
-Push modes (resolved by :mod:`hyperi_ci.publish_mode` — the SSOT):
+Push modes (resolved by :mod:`hyperi_ci.release_mode` — the SSOT):
 
-* ``publish``  — release dispatch / Publish-trailer push to main: full
+* ``release``  — release dispatch / Release-trailer push to main: full
   tag set, pushed.
 * ``dev``      — branch-mode dev image (plan decision 3): mutable
   ``branch-<slug>`` + ``sha-<short>`` tags to GHCR only, behind the
-  ``publish.container.dev_push`` opt-in on pull_request / branch CI
+  ``release.container.dev_push`` opt-in on pull_request / branch CI
   runs. Never version tags, never ``latest``.
 * ``validate`` — push-to-main and local runs: build, no push.
 """
@@ -56,14 +56,14 @@ from hyperi_ci.container.build import build_and_push, resolve_tags
 from hyperi_ci.container.detect import Decision, detect
 from hyperi_ci.container.labels import build_oci_labels
 from hyperi_ci.container.registry import resolve_registry_bases
-from hyperi_ci.publish_mode import (
+from hyperi_ci.python_version import resolve as resolve_python
+from hyperi_ci.release_mode import (
     DEV,
-    PUBLISH,
+    RELEASE,
     VALIDATE,
     dev_branch_slug,
     resolve_push_mode,
 )
-from hyperi_ci.python_version import resolve as resolve_python
 from hyperi_ci.versions import runtime_version
 
 _TEMPLATE_LANGUAGES = {"python", "typescript"}
@@ -104,26 +104,26 @@ def _read_sha() -> str:
     return result.stdout.strip() if result.returncode == 0 else "unknown"
 
 
-def _is_publish_mode() -> bool:
-    """Return the DEPRECATED bool view (delegates to :mod:`hyperi_ci.publish_mode`).
+def _is_release_mode() -> bool:
+    """Return the DEPRECATED bool view (delegates to :mod:`hyperi_ci.release_mode`).
 
     Kept for out-of-tree callers; in-tree code uses the tri-state
-    :func:`hyperi_ci.publish_mode.resolve_push_mode` (branch-mode).
+    :func:`hyperi_ci.release_mode.resolve_push_mode` (branch-mode).
     """
-    return resolve_push_mode() == PUBLISH
+    return resolve_push_mode() == RELEASE
 
 
 def _is_push_to_main() -> bool:
-    """Return ``not _is_publish_mode()`` (deprecated alias for out-of-tree callers).
+    """Return ``not _is_release_mode()`` (deprecated alias for out-of-tree callers).
 
     The legacy ``push_to_main`` flag was the validate-only signal,
     named confusingly. Will be removed once consumers update.
     """
-    return not _is_publish_mode()
+    return not _is_release_mode()
 
 
 def _dev_push_opt_in(container_cfg: dict) -> bool:
-    """Return the ``publish.container.dev_push`` opt-in, coerced to bool."""
+    """Return the ``release.container.dev_push`` opt-in, coerced to bool."""
     raw = container_cfg.get("dev_push", False)
     if isinstance(raw, str):
         return raw.strip().lower() in ("true", "1", "yes")
@@ -171,12 +171,12 @@ def should_build_container(config: CIConfig, *, language: str = "") -> tuple[boo
     if not isinstance(container_cfg, dict):
         container_cfg = {}
     enabled = normalise_tristate(
-        container_cfg.get("enabled", "auto"), key="publish.container.enabled"
+        container_cfg.get("enabled", "auto"), key="release.container.enabled"
     )
     if enabled == "false":
-        return False, "publish.container.enabled: false"
+        return False, "release.container.enabled: false"
     if enabled == "true":
-        return True, "publish.container.enabled: true"
+        return True, "release.container.enabled: true"
     decision = detect(
         language=language,
         project_dir=Path.cwd(),
@@ -213,11 +213,11 @@ def run(config: CIConfig, *, language: str = "") -> int:
         container_cfg = {}
 
     enabled = normalise_tristate(
-        container_cfg.get("enabled", "auto"), key="publish.container.enabled"
+        container_cfg.get("enabled", "auto"), key="release.container.enabled"
     )
 
     if enabled == "false":
-        info("Container build disabled (publish.container.enabled: false) — skipping")
+        info("Container build disabled (release.container.enabled: false) — skipping")
         return 0
 
     project_dir = Path.cwd()
@@ -239,20 +239,20 @@ def run(config: CIConfig, *, language: str = "") -> int:
             # nothing to ship, so a required build is a hard fail.
             if language in _TEMPLATE_LANGUAGES:
                 info(
-                    "publish.container.enabled: true — building "
+                    "release.container.enabled: true — building "
                     f"{language} via template despite: {decision.reason}"
                 )
                 decision = Decision(
                     build=True,
                     reason=(
-                        f"forced by publish.container.enabled: true "
+                        f"forced by release.container.enabled: true "
                         f"({language} template)"
                     ),
                     mode="template",
                 )
             else:
                 error(
-                    "publish.container.enabled: true but no container artefact "
+                    "release.container.enabled: true but no container artefact "
                     f"detected — {decision.reason}",
                 )
                 return 1
@@ -355,7 +355,7 @@ def _project_python() -> str:
 
     A generated image has to run the version the project promises: building a
     repo that declares ``>=3.12`` on 3.14 ships an image its own manifest does
-    not support (issue #150). ``publish.container.python_version`` overrides it
+    not support (issue #150). ``release.container.python_version`` overrides it
     for an image that deliberately differs from the project.
     """
     version, _source = resolve_python(Path.cwd(), default=runtime_version("python"))
@@ -486,7 +486,7 @@ def _build_from_content(
 ) -> int:
     """Write ``dockerfile_content`` to a temp file then build.
 
-    Before writing, splice any ``publish.container.overlays:`` declared
+    Before writing, splice any ``release.container.overlays:`` declared
     in ``.hyperi-ci.yaml`` into the Dockerfile content. See
     ``deployment/overlay/`` and the framework spec.
     """
@@ -595,7 +595,7 @@ def _dispatch_build(
     # container path could never succeed). Constrain them to a single
     # arch instead — same only-shipping-runs-pay-for-arm64 doctrine,
     # decided explicitly rather than via dist contents.
-    if push_mode != PUBLISH:
+    if push_mode != RELEASE:
         configured_platforms = list(platforms)
         if binary_backed:
             platforms = _filter_platforms_to_available_binaries(
@@ -621,7 +621,7 @@ def _dispatch_build(
             if platforms != configured_platforms:
                 info(
                     f"  Container: template {push_mode} build constrained "
-                    f"to {platforms} (multi-arch only on publish)"
+                    f"to {platforms} (multi-arch only on release)"
                 )
 
     # Bare `COPY <app> ...` lines in the Dockerfile reference a file in
@@ -718,7 +718,7 @@ def _splice_dockerfile_overlays(
     dockerfile_content: str,
     container_cfg: dict,
 ) -> str:
-    """Apply ``publish.container.overlays`` to ``dockerfile_content``.
+    """Apply ``release.container.overlays`` to ``dockerfile_content``.
 
     No-op when no overlays are declared. Imports the overlay module
     lazily so projects without overlays don't pay the import cost.

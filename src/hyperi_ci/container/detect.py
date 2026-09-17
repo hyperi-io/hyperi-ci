@@ -18,7 +18,7 @@ no ``[[bin]]`` is a library; a Python package is treated as library-only
 regardless of any ``[project.scripts]`` CLI (a console-script is not a
 service — see issue #51); a TypeScript package with no ``bin``/``main`` /
 server entry is a library. A genuine Python/TS service opts in with a
-Dockerfile or ``publish.container.enabled: true``.
+Dockerfile or ``release.container.enabled: true``.
 
 The detector returns a ``Decision`` so callers can both gate the build
 and present a clear reason to the developer.
@@ -176,7 +176,7 @@ def _rust_supports_contract(project_dir: Path) -> bool:
     harness. Presence of ``scalo`` (or the deprecated predecessor
     ``hyperi-rustlib``) in the project's manifest is a sufficient
     signal — projects opting out of contract mode can still set
-    ``publish.container.mode: custom`` explicitly.
+    ``release.container.mode: custom`` explicitly.
     """
     cargo_toml = project_dir / "Cargo.toml"
     if not cargo_toml.exists():
@@ -204,7 +204,7 @@ def _python_is_library(project_dir: Path) -> bool:
     There is no reliable pyproject signal for "this is a deployable
     service", so Python defaults to library-only. A genuine Python
     service opts in explicitly with a Dockerfile (wins over this
-    heuristic in :func:`detect`) or ``publish.container.enabled: true``
+    heuristic in :func:`detect`) or ``release.container.enabled: true``
     (forces the template build in the stage handler). This mirrors the
     rust/golang behaviour - a container needs a bin/main target or a
     Dockerfile, not merely "has a CLI".

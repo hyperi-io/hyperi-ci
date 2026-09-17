@@ -1,6 +1,6 @@
 # Project:   HyperI CI
-# File:      src/hyperi_ci/languages/typescript/publish.py
-# Purpose:   TypeScript/Node publish handler (npm + GitHub Packages)
+# File:      src/hyperi_ci/languages/typescript/release.py
+# Purpose:   TypeScript/Node release handler (npm + GitHub Packages)
 #
 # License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED

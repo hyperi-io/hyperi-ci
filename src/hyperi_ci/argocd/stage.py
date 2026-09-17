@@ -54,9 +54,9 @@ def run(config: CIConfig) -> int:
     repo = argocd_cfg.get("repo") or _DEFAULT_REPO
     path_template = argocd_cfg.get("path") or _DEFAULT_PATH_TEMPLATE
     envs = _resolve_envs(argocd_cfg)
-    publish_mode = _is_publish_mode()
+    release_mode = _is_release_mode()
 
-    with group(f"ArgoCD Stage ({'push' if publish_mode else 'validate'})"):
+    with group(f"ArgoCD Stage ({'push' if release_mode else 'validate'})"):
         # Generate base Application YAML once (env-specific differences
         # are typically values-only and handled inside the chart, not in
         # the Application YAML; if a consumer needs per-env Application
@@ -71,7 +71,7 @@ def run(config: CIConfig) -> int:
         if rc != 0:
             return rc
 
-        if not publish_mode:
+        if not release_mode:
             success(
                 "ArgoCD Application YAML generated and validated "
                 "(no push on validate mode)"
@@ -199,12 +199,12 @@ def _resolve_envs(argocd_cfg: dict) -> list[tuple[str, str]]:
     return out
 
 
-def _is_publish_mode() -> bool:
-    """Publish or not — delegates to :mod:`hyperi_ci.publish_mode` (SSOT).
+def _is_release_mode() -> bool:
+    """Release or not — delegates to :mod:`hyperi_ci.release_mode` (SSOT).
 
     ArgoCD has no dev mode: a branch-mode dev run behaves as validate
     here (dev artifacts are container images only — plan decision 3).
     """
-    from hyperi_ci.publish_mode import is_publish_mode
+    from hyperi_ci.release_mode import is_release_mode
 
-    return is_publish_mode()
+    return is_release_mode()

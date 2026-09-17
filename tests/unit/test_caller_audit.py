@@ -16,7 +16,7 @@ from __future__ import annotations
 import pytest
 
 from hyperi_ci.caller_audit import audit_local, audit_text
-from hyperi_ci.publish.dispatch import DISPATCH_INPUTS, _dispatch_cmd
+from hyperi_ci.release.dispatch import DISPATCH_INPUTS, _dispatch_cmd
 
 COMPLIANT = """
 name: CI

@@ -51,7 +51,7 @@ def _labels_from_dispatch(config: CIConfig) -> dict[str, str]:
                     config=config,
                     org=org,
                     registry_bases=["ghcr.io/hyperi-io"],
-                    push_mode="publish",
+                    push_mode="release",
                 )
     return pushed.call_args.kwargs["labels"]
 

@@ -18,7 +18,7 @@ language: none
 # project.status: lifecycle stage of THIS PROJECT (not of any given release).
 # Information-only field — surfaced in `hyperi-ci config` and at stage
 # startup in CI logs so consumers can immediately see "oh, it's not GA".
-# Does not affect publish behaviour (that's `publish.channel`).
+# Does not affect release behaviour (that's `release.channel`).
 #
 # Values:
 #   experimental — early R&D, no API commitment, expect anything

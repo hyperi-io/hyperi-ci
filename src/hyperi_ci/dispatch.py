@@ -67,6 +67,7 @@ VALID_STAGES = (
     "build",
     "generate",
     "container",
+    "release",
     "publish",
 )
 
@@ -92,6 +93,12 @@ _LANGUAGE_ALIASES = {
     "javascript": "typescript",
 }
 
+# `publish` stays accepted because hyperi-io/vector-vrl invokes
+# `hyperi-ci run publish` directly from a hand-rolled workflow.
+_STAGE_ALIASES = {
+    "publish": "release",
+}
+
 
 def _find_handler_module(language: str, stage: str) -> Any | None:
     """Import a language-specific handler module if it exists.
@@ -107,6 +114,7 @@ def _find_handler_module(language: str, stage: str) -> Any | None:
     silently returning None, so :func:`_dispatch_to_handler` produces
     a clear error instead of mistaking it for "no handler".
     """
+    stage = _STAGE_ALIASES.get(stage, stage)
     canonical = _LANGUAGE_ALIASES.get(language, language)
     if canonical != language:
         info(f"Using {canonical} handler for {language} project")
@@ -341,11 +349,11 @@ def stage_build(language: str, config: CIConfig, *, local: bool = False) -> int:
     return 0
 
 
-def stage_publish(language: str, config: CIConfig) -> int:
-    """Publish — CI-only, dispatch to language-specific handler + binary upload."""
+def stage_release(language: str, config: CIConfig) -> int:
+    """Release — CI-only, dispatch to language-specific handler + binary upload."""
     if not is_ci():
-        error("Publishing can ONLY be done in GitHub Actions")
-        info("To publish: commit, push, and let semantic-release handle it")
+        error("Releasing can ONLY be done in GitHub Actions")
+        info("To release: commit, push, and let semantic-release handle it")
         return 1
 
     if not config.get("release.enabled", False):
@@ -360,15 +368,15 @@ def stage_publish(language: str, config: CIConfig) -> int:
             "private registries was retired with the JFrog removal in v2.1.4."
         )
 
-    rc = _dispatch_to_handler(language, "publish", config)
+    rc = _dispatch_to_handler(language, "release", config)
     if rc == -1:
-        error(f"Publish handler not found for {language}")
+        error(f"Release handler not found for {language}")
         return 1
     if rc != 0:
         return rc
 
     # Always create the GH Release (even for libraries with no binaries)
-    from hyperi_ci.publish import create_github_release, publish_binaries
+    from hyperi_ci.release import create_github_release, publish_binaries
 
     rc = create_github_release(config)
     if rc != 0:
@@ -389,7 +397,7 @@ def stage_helm(language: str, config: CIConfig) -> int:
     """Helm stage — package + push (oci://ghcr.io/hyperi-io/helm-charts).
 
     Cross-language: subprocesses into the consumer's ``emit-chart``
-    subcommand, applies overlays per ``publish.helm.overlays``, lints,
+    subcommand, applies overlays per ``release.helm.overlays``, lints,
     packages, pushes to GHCR OCI Helm.
     """
     del language  # unused — helm is language-agnostic
@@ -402,7 +410,7 @@ def stage_argocd(language: str, config: CIConfig) -> int:
     """ArgoCD stage — generate Application + push to central GitOps repo.
 
     Cross-language: subprocesses into the consumer's ``emit-argocd``,
-    applies overlays per ``publish.argocd.overlays``, pushes resulting
+    applies overlays per ``release.argocd.overlays``, pushes resulting
     YAML into ``hyperi-io/gitops`` per the env push policy
     (direct for dev/staging, PR for prod).
     """
@@ -446,7 +454,7 @@ _STAGE_HANDLERS = {
     "container": stage_container,
     "helm": stage_helm,
     "argocd": stage_argocd,
-    "publish": stage_publish,
+    "release": stage_release,
 }
 
 
@@ -459,7 +467,7 @@ def run_stage(
     """Run a CI stage.
 
     Args:
-        stage: Stage name (setup, quality, test, build, publish).
+        stage: Stage name (setup, quality, test, build, release).
         project_dir: Project root directory. Defaults to cwd.
         local: If True, skip cross-compilation targets (native build only).
 
@@ -467,6 +475,7 @@ def run_stage(
         Exit code (0 = success).
 
     """
+    stage = _STAGE_ALIASES.get(stage, stage)
     if stage not in _STAGE_HANDLERS:
         error(f"Unknown stage: {stage}")
         error(f"Valid stages: {', '.join(VALID_STAGES)}")

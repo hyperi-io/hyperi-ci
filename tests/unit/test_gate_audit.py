@@ -269,7 +269,11 @@ class TestPrereleaseIsExempt:
 
 
 class TestChannelParsing:
-    """`publish.channel` is read from the repo's own config, not guessed."""
+    """The channel is read from the repo's own config, not guessed.
+
+    Both namespaces are tried here: this YAML is fetched raw over `gh api`, so
+    the fold `load_config` applies to a local file never runs on it.
+    """
 
     @staticmethod
     def _parse(monkeypatch: pytest.MonkeyPatch, body: str) -> str | None:
@@ -281,6 +285,19 @@ class TestChannelParsing:
 
     def test_reads_a_declared_channel(self, monkeypatch: pytest.MonkeyPatch) -> None:
         assert self._parse(monkeypatch, "publish:\n  channel: beta\n") == "beta"
+
+    def test_reads_the_canonical_namespace(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A repo that has done the rename must not read as declaring nothing,
+        # which would audit a pre-GA repo as GA.
+        assert self._parse(monkeypatch, "release:\n  channel: beta\n") == "beta"
+
+    def test_the_canonical_namespace_wins_over_the_legacy_one(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        body = "publish:\n  channel: alpha\nrelease:\n  channel: beta\n"
+        assert self._parse(monkeypatch, body) == "beta"
 
     def test_a_config_without_publish_declares_nothing(
         self, monkeypatch: pytest.MonkeyPatch

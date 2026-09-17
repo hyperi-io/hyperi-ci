@@ -331,7 +331,7 @@ PRERELEASE_CHANNELS = frozenset({"alpha", "beta"})
 
 
 def repo_channel(full_name: str) -> str | None:
-    """Return a repo's declared `publish.channel`, or None if it declares none.
+    """Return a repo's declared `release.channel`, or None if it declares none.
 
     A repo that declares no channel is treated as GA: silence must not buy an
     exemption.
@@ -357,11 +357,18 @@ def repo_channel(full_name: str) -> str | None:
         return None
     if not isinstance(doc, dict):
         return None
-    publish = doc.get("publish")
-    if not isinstance(publish, dict):
-        return None
-    channel = publish.get("channel")
-    return channel if isinstance(channel, str) else None
+    # Read straight off the fetched YAML, so the namespace fold that
+    # `load_config` applies to a local file never runs here.
+    from hyperi_ci.vocabulary import CONFIG_NAMESPACE, LEGACY_CONFIG_NAMESPACE
+
+    for namespace in (CONFIG_NAMESPACE, LEGACY_CONFIG_NAMESPACE):
+        block = doc.get(namespace)
+        if not isinstance(block, dict):
+            continue
+        channel = block.get("channel")
+        if isinstance(channel, str):
+            return channel
+    return None
 
 
 def is_prerelease(full_name: str) -> bool:

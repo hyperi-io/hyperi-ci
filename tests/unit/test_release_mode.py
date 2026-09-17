@@ -1,6 +1,6 @@
 # Project:   HyperI CI
-# File:      tests/unit/test_publish_mode.py
-# Purpose:   Tests for the publish-mode SSOT (branch-mode tri-state)
+# File:      tests/unit/test_release_mode.py
+# Purpose:   Tests for the release-mode SSOT (branch-mode tri-state)
 #
 # License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
@@ -12,13 +12,13 @@ the matrix is exact regardless of what CI env the test itself runs in.
 
 from __future__ import annotations
 
-from hyperi_ci.publish_mode import (
+from hyperi_ci.release_mode import (
     DEV,
-    PUBLISH,
+    RELEASE,
     VALIDATE,
     dev_branch_slug,
     is_branch_ci_context,
-    is_publish_mode,
+    is_release_mode,
     resolve_push_mode,
 )
 
@@ -44,48 +44,48 @@ _MAIN_PUSH_ENV = {
 
 class TestResolvePushMode:
     def test_flag_true_wins(self) -> None:
-        env = {**_PR_ENV, "HYPERCI_PUBLISH_MODE": "true"}
-        assert resolve_push_mode(dev_push=True, env=env) == PUBLISH
+        env = {**_PR_ENV, "HYPERCI_RELEASE_MODE": "true"}
+        assert resolve_push_mode(dev_push=True, env=env) == RELEASE
 
     def test_flag_dev_forces_dev_even_locally(self) -> None:
         # Explicit escape hatch for local / rehearsal use.
-        assert resolve_push_mode(env={"HYPERCI_PUBLISH_MODE": "dev"}) == DEV
+        assert resolve_push_mode(env={"HYPERCI_RELEASE_MODE": "dev"}) == DEV
 
     def test_pr_with_opt_in_is_dev(self) -> None:
-        env = {**_PR_ENV, "HYPERCI_PUBLISH_MODE": "false"}
+        env = {**_PR_ENV, "HYPERCI_RELEASE_MODE": "false"}
         assert resolve_push_mode(dev_push=True, env=env) == DEV
 
     def test_pr_without_opt_in_is_validate(self) -> None:
-        env = {**_PR_ENV, "HYPERCI_PUBLISH_MODE": "false"}
+        env = {**_PR_ENV, "HYPERCI_RELEASE_MODE": "false"}
         assert resolve_push_mode(dev_push=False, env=env) == VALIDATE
 
     def test_branch_push_with_opt_in_is_dev(self) -> None:
-        env = {**_BRANCH_PUSH_ENV, "HYPERCI_PUBLISH_MODE": "false"}
+        env = {**_BRANCH_PUSH_ENV, "HYPERCI_RELEASE_MODE": "false"}
         assert resolve_push_mode(dev_push=True, env=env) == DEV
 
     def test_main_push_never_dev(self) -> None:
         # Validate-only main pushes stay validate even with the opt-in —
-        # main's only pushing artifact class is the GA publish.
-        env = {**_MAIN_PUSH_ENV, "HYPERCI_PUBLISH_MODE": "false"}
+        # main's only pushing artifact class is the GA release.
+        env = {**_MAIN_PUSH_ENV, "HYPERCI_RELEASE_MODE": "false"}
         assert resolve_push_mode(dev_push=True, env=env) == VALIDATE
 
     def test_local_run_never_auto_dev(self) -> None:
         # No GITHUB_ACTIONS: a laptop run must not push dev images unless
-        # HYPERCI_PUBLISH_MODE=dev is set explicitly.
+        # the mode is set to dev explicitly.
         env = {"GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/x"}
         assert resolve_push_mode(dev_push=True, env=env) == VALIDATE
 
-    def test_legacy_fallback_dispatch_is_publish(self) -> None:
-        # No flag at all (older workflows): workflow_dispatch == publish.
+    def test_legacy_fallback_dispatch_is_release(self) -> None:
+        # No flag at all (older workflows): workflow_dispatch == release.
         env = {"GITHUB_EVENT_NAME": "workflow_dispatch"}
-        assert resolve_push_mode(env=env) == PUBLISH
+        assert resolve_push_mode(env=env) == RELEASE
 
-    def test_explicit_false_dispatch_is_not_publish(self) -> None:
+    def test_explicit_false_dispatch_is_not_release(self) -> None:
         # An explicit false must NOT fall through to the dispatch legacy
         # rule (pre-existing semantics, preserved).
         env = {
             "GITHUB_EVENT_NAME": "workflow_dispatch",
-            "HYPERCI_PUBLISH_MODE": "false",
+            "HYPERCI_RELEASE_MODE": "false",
         }
         assert resolve_push_mode(env=env) == VALIDATE
 
@@ -93,13 +93,48 @@ class TestResolvePushMode:
         assert resolve_push_mode(env={}) == VALIDATE
 
 
-class TestBoolView:
-    def test_is_publish_mode_true(self) -> None:
-        assert is_publish_mode(env={"HYPERCI_PUBLISH_MODE": "true"}) is True
+class TestLegacyModeVariable:
+    """Workflows and the CLI ship independently, so a consumer pinned at
+    `@main` can set the old variable against a newer CLI."""
 
-    def test_is_publish_mode_dev_is_not_publish(self) -> None:
-        # helm / argocd treat dev as validate — never a publish.
-        assert is_publish_mode(env={"HYPERCI_PUBLISH_MODE": "dev"}) is False
+    def test_legacy_variable_still_decides(self) -> None:
+        assert resolve_push_mode(env={"HYPERCI_PUBLISH_MODE": "true"}) == RELEASE
+
+    def test_canonical_variable_wins_over_legacy(self) -> None:
+        env = {"HYPERCI_RELEASE_MODE": "false", "HYPERCI_PUBLISH_MODE": "true"}
+        assert resolve_push_mode(env=env) == VALIDATE
+
+    def test_empty_canonical_falls_through_rather_than_winning(self) -> None:
+        env = {"HYPERCI_RELEASE_MODE": "", "HYPERCI_PUBLISH_MODE": "true"}
+        assert resolve_push_mode(env=env) == RELEASE
+
+    def test_legacy_dev_is_honoured(self) -> None:
+        assert resolve_push_mode(env={"HYPERCI_PUBLISH_MODE": "dev"}) == DEV
+
+
+class TestBoolView:
+    def test_is_release_mode_true(self) -> None:
+        assert is_release_mode(env={"HYPERCI_RELEASE_MODE": "true"}) is True
+
+    def test_is_release_mode_dev_is_not_release(self) -> None:
+        # helm / argocd treat dev as validate — never a release.
+        assert is_release_mode(env={"HYPERCI_RELEASE_MODE": "dev"}) is False
+
+
+class TestDeprecatedSpellings:
+    """The old module path and the old bool name keep resolving."""
+
+    def test_shim_module_re_exports(self) -> None:
+        from hyperi_ci.publish_mode import PUBLISH, is_publish_mode
+
+        assert PUBLISH == RELEASE
+        assert is_publish_mode(env={"HYPERCI_RELEASE_MODE": "true"}) is True
+
+    def test_is_publish_mode_matches_is_release_mode(self) -> None:
+        from hyperi_ci.release_mode import is_publish_mode
+
+        env = {"HYPERCI_RELEASE_MODE": "dev"}
+        assert is_publish_mode(env=env) == is_release_mode(env=env)
 
 
 class TestBranchCiContext:

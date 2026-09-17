@@ -1,30 +1,31 @@
 # Project:   HyperI CI
-# File:      tests/unit/test_publish_dispatch.py
+# File:      tests/unit/test_release_dispatch.py
 # Purpose:   Tests for release/retry-from-HEAD dispatch + idempotent retry (#35)
 #
 # License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Release/retry dispatch (issue #35).
 
-`hyperi-ci publish` (no tag) dispatches a from-head run — the CI creates the
-tag and publishes, so there's no artificial `fix:` commit. `publish <tag>`
-re-dispatches an existing tag idempotently (a partial publish can be retried
+`hyperi-ci release` (no tag) dispatches a from-head run — the CI creates the
+tag and publishes, so there's no artificial `fix:` commit. `release <tag>`
+re-dispatches an existing tag idempotently (a partial release can be retried
 even when a GH Release already exists). The CLI only triggers; the runner does
 the tagging + publishing.
 """
 
 from __future__ import annotations
 
+import importlib
 import subprocess
 from pathlib import Path
 
 import pytest
 import typer
 
-import hyperi_ci.publish as publish_pkg
+import hyperi_ci.release as release_pkg
 from hyperi_ci import common, push
-from hyperi_ci.cli import _publish_impl
-from hyperi_ci.publish import dispatch as d
+from hyperi_ci.cli import _release_impl
+from hyperi_ci.release import dispatch as d
 
 
 def _ok() -> subprocess.CompletedProcess:
@@ -32,7 +33,7 @@ def _ok() -> subprocess.CompletedProcess:
 
 
 class TestResolveLatestTag:
-    """`publish latest` must not dispatch a publish for a prerelease tag."""
+    """`release latest` must not dispatch a release for a prerelease tag."""
 
     def _tags(self, monkeypatch: pytest.MonkeyPatch, listing: str) -> None:
         monkeypatch.setattr(
@@ -123,7 +124,7 @@ class TestIdempotentRetry:
     def test_existing_tag_redispatches_even_with_release(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # A GH Release already existing must NOT block the retry — publish
+        # A GH Release already existing must NOT block the retry — release
         # handlers skip artefacts already in their registry (issue #35).
         monkeypatch.setattr(d, "_get_version_tags", lambda: ["v1.2.3"])
         monkeypatch.setattr(d, "_tag_has_release", lambda t: True)
@@ -141,8 +142,8 @@ class TestIdempotentRetry:
         assert d.dispatch_publish("v9.9.9") == 1
 
 
-class TestPublishCliVersionFlag:
-    """`hyperi-ci publish --version X.Y.Z` routes to a from-head release at the
+class TestReleaseCliVersionFlag:
+    """`hyperi-ci release --version X.Y.Z` routes to a from-head release at the
     exact version, mutually exclusive with a TAG and --bump (issue #37)."""
 
     def _capture_from_head(self, monkeypatch) -> list[str]:
@@ -152,7 +153,7 @@ class TestPublishCliVersionFlag:
             seen.append(bump)
             return 0
 
-        monkeypatch.setattr(publish_pkg, "dispatch_from_head", fake_from_head)
+        monkeypatch.setattr(release_pkg, "dispatch_from_head", fake_from_head)
         return seen
 
     def test_version_routes_to_from_head_normalised(
@@ -160,7 +161,7 @@ class TestPublishCliVersionFlag:
     ) -> None:
         seen = self._capture_from_head(monkeypatch)
         with pytest.raises(typer.Exit) as exc:
-            _publish_impl(
+            _release_impl(
                 tag=None, list_tags=False, dry_run=False, bump=None, version="v1.18.4"
             )
         assert exc.value.exit_code == 0
@@ -169,7 +170,7 @@ class TestPublishCliVersionFlag:
     def test_version_with_tag_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         seen = self._capture_from_head(monkeypatch)
         with pytest.raises(typer.Exit) as exc:
-            _publish_impl(
+            _release_impl(
                 tag="v1.0.0",
                 list_tags=False,
                 dry_run=False,
@@ -182,7 +183,7 @@ class TestPublishCliVersionFlag:
     def test_version_with_bump_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         seen = self._capture_from_head(monkeypatch)
         with pytest.raises(typer.Exit) as exc:
-            _publish_impl(
+            _release_impl(
                 tag=None,
                 list_tags=False,
                 dry_run=False,
@@ -197,7 +198,7 @@ class TestPublishCliVersionFlag:
     ) -> None:
         seen = self._capture_from_head(monkeypatch)
         with pytest.raises(typer.Exit) as exc:
-            _publish_impl(
+            _release_impl(
                 tag=None, list_tags=False, dry_run=False, bump=None, version="1.2"
             )
         assert exc.value.exit_code == 1
@@ -315,3 +316,34 @@ class TestTagHead:
 
         monkeypatch.setattr(push, "run_cmd", fake_run_cmd)
         assert push.tag_head(bump="patch") == 0
+
+
+class TestDeprecatedImportPaths:
+    """The package moved to `hyperi_ci.release`, and the old dotted paths
+    still resolve — submodules included, not just the top-level names."""
+
+    def test_package_shim_re_exports(self) -> None:
+        from hyperi_ci.publish import dispatch_from_head, publish_binaries
+
+        assert callable(dispatch_from_head)
+        assert callable(publish_binaries)
+
+    def test_binaries_submodule_path_still_imports(self) -> None:
+        # The old dotted path resolves through a sys.modules alias, so
+        # import_module is what exercises it — a static import would not.
+        shimmed = importlib.import_module("hyperi_ci.publish.binaries")
+        canonical = importlib.import_module("hyperi_ci.release.binaries")
+
+        assert shimmed is canonical
+
+    def test_dispatch_submodule_path_still_imports(self) -> None:
+        shimmed = importlib.import_module("hyperi_ci.publish.dispatch")
+        canonical = importlib.import_module("hyperi_ci.release.dispatch")
+
+        assert shimmed is canonical
+
+    def test_publish_binaries_module_shim_still_imports(self) -> None:
+        from hyperi_ci.publish_binaries import publish_binaries as shimmed
+        from hyperi_ci.release.binaries import publish_binaries as canonical
+
+        assert shimmed is canonical

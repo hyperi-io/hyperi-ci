@@ -12,6 +12,31 @@ from pathlib import Path
 import pytest
 
 from hyperi_ci import dispatch
+from hyperi_ci.dispatch import _find_handler_module
+
+
+class TestPublishIsAnAliasForRelease:
+    """hyperi-io/vector-vrl calls `hyperi-ci run publish` from its own
+    workflow, so the old stage name resolves to the release handler."""
+
+    def test_the_alias_reaches_the_same_handler_module(self) -> None:
+        assert _find_handler_module("python", "publish") is _find_handler_module(
+            "python", "release"
+        )
+
+    def test_both_names_are_accepted_stages(self) -> None:
+        assert {"release", "publish"} <= set(dispatch.VALID_STAGES)
+
+    def test_the_alias_is_not_rejected_as_unknown(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # An unknown stage returns before the chdir, so reaching it proves
+        # `publish` resolved rather than being rejected.
+        seen: list[Path] = []
+        monkeypatch.setattr("os.chdir", lambda path: seen.append(Path(path)))
+        monkeypatch.setattr(dispatch, "detect_language", lambda _dir: None)
+        assert dispatch.run_stage("publish", project_dir=tmp_path) == 1
+        assert seen == [tmp_path.resolve()]
 
 
 class TestProjectDirReachesTheHandlers:

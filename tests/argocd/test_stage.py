@@ -72,7 +72,7 @@ class TestArgoCDStage:
 
     def test_validate_mode_runs_emit_only(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("HYPERCI_PUBLISH_MODE", raising=False)
+        monkeypatch.delenv("HYPERCI_RELEASE_MODE", raising=False)
         monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
         cfg = _config()
         with patch(
@@ -86,7 +86,7 @@ class TestArgoCDStage:
         self, tmp_path: Path, monkeypatch
     ) -> None:
         monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("HYPERCI_PUBLISH_MODE", raising=False)
+        monkeypatch.delenv("HYPERCI_RELEASE_MODE", raising=False)
         cfg = _config(
             overlays=[
                 {
@@ -102,9 +102,9 @@ class TestArgoCDStage:
             rc = argocd_run(cfg)
         assert rc == 0
 
-    def test_publish_mode_pushes_to_gitops(self, tmp_path: Path, monkeypatch) -> None:
+    def test_release_mode_pushes_to_gitops(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setenv("HYPERCI_PUBLISH_MODE", "true")
+        monkeypatch.setenv("HYPERCI_RELEASE_MODE", "true")
         monkeypatch.setenv("GITOPS_TOKEN", "fake-token")
         cfg = _config(envs=["dev"])
 
@@ -128,7 +128,7 @@ class TestArgoCDStage:
 
     def test_prod_env_defaults_to_pr_mode(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setenv("HYPERCI_PUBLISH_MODE", "true")
+        monkeypatch.setenv("HYPERCI_RELEASE_MODE", "true")
         monkeypatch.setenv("GITOPS_TOKEN", "fake-token")
         cfg = _config(envs=["dev", "prod"])
 

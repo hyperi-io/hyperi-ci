@@ -101,13 +101,13 @@ def resolve_tags(
     version: str,
     sha: str,
     channel: str = "release",
-    mode: str = "publish",
+    mode: str = "release",
     branch_slug: str = "",
 ) -> list[str]:
     """Generate image tags spanning all configured registries.
 
     Tag matrix per registry base, by push mode
-    (:mod:`hyperi_ci.publish_mode`):
+    (:mod:`hyperi_ci.release_mode`):
 
     * ``validate``                 → no tags (build-and-discard)
     * ``dev``                      → ``:branch-<slug>`` (mutable pointer) +
@@ -117,8 +117,8 @@ def resolve_tags(
       belongs to the GA publish, and the distinct ``branch-*`` /
       ``dev-sha-*`` prefixes are what lets the scheduled GHCR pruner
       (``_ghcr-prune.yml``) glob dev tags without ever touching GA pins.
-    * ``publish``, release channel → ``:vX.Y.Z``, ``:latest``, ``:sha-<short>``
-    * ``publish``, pre-GA channel  → ``:vX.Y.Z-{channel}``, ``:sha-<short>``
+    * ``release``, release channel → ``:vX.Y.Z``, ``:latest``, ``:sha-<short>``
+    * ``release``, pre-GA channel  → ``:vX.Y.Z-{channel}``, ``:sha-<short>``
 
     The SHA tag is included on every pushed build to give consumers an
     immutable-by-content pin alongside the human-readable tag.
@@ -131,10 +131,10 @@ def resolve_tags(
         version: Semantic version with no leading ``v``
             (e.g. ``"1.13.5"``).
         sha: Short git SHA.
-        channel: Publish channel (``alpha`` | ``beta`` | ``release``).
-        mode: Push mode — ``publish`` | ``dev`` | ``validate``.
+        channel: Release channel (``alpha`` | ``beta`` | ``release``).
+        mode: Push mode — ``release`` | ``dev`` | ``validate``.
         branch_slug: Docker-tag-safe branch slug for dev mode
-            (:func:`hyperi_ci.publish_mode.dev_branch_slug`). Empty →
+            (:func:`hyperi_ci.release_mode.dev_branch_slug`). Empty →
             the dev image gets a ``dev-sha-<short>`` tag only.
 
     Returns:

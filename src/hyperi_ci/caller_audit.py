@@ -15,7 +15,7 @@ Nothing reports the gap on its own. It surfaces as an HTTP 422 at dispatch
 time, and only when someone tries to release that way -- four of eight Rust
 repos were undriveable for months before anyone needed the path.
 
-The contract is :data:`hyperi_ci.publish.dispatch.DISPATCH_INPUTS`, which is
+The contract is :data:`hyperi_ci.release.dispatch.DISPATCH_INPUTS`, which is
 what the CLI actually sends, rather than the reusable workflow's full
 `workflow_call.inputs`. A `workflow_call` input nobody dispatches (say
 `rust-toolchain`) has no business in a consumer's dispatch schema.
@@ -41,7 +41,7 @@ from pathlib import Path
 
 import yaml
 
-from hyperi_ci.publish.dispatch import DISPATCH_INPUTS
+from hyperi_ci.release.dispatch import DISPATCH_INPUTS
 
 # Reusable workflows this project publishes. A job calling one of these is a
 # release caller and is held to the dispatch contract.

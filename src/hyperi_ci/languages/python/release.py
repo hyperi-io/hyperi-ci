@@ -1,6 +1,6 @@
 # Project:   HyperI CI
-# File:      src/hyperi_ci/languages/python/publish.py
-# Purpose:   Python publish handler (PyPI)
+# File:      src/hyperi_ci/languages/python/release.py
+# Purpose:   Python release handler (PyPI)
 #
 # License:   BUSL-1.1 — HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED

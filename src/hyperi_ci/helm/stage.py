@@ -57,9 +57,9 @@ def run(config: CIConfig) -> int:
     project_dir = Path.cwd()
     binary_name = helm_cfg.get("binary_name") or project_dir.name
     registry = helm_cfg.get("registry") or "oci://ghcr.io/hyperi-io/helm-charts"
-    publish_mode = _is_publish_mode()
+    release_mode = _is_release_mode()
 
-    with group(f"Helm Stage ({'push' if publish_mode else 'validate'})"):
+    with group(f"Helm Stage ({'push' if release_mode else 'validate'})"):
         with tempfile.TemporaryDirectory(prefix="hyperi-helm-") as tmpdir:
             workspace = Path(tmpdir)
             chart_dir = workspace / "chart"
@@ -96,7 +96,7 @@ def run(config: CIConfig) -> int:
             if rc != 0:
                 return rc
 
-            if not publish_mode:
+            if not release_mode:
                 success(
                     f"Helm chart built and validated at {tgz_path.name} "
                     "(no push on validate mode)"
@@ -389,9 +389,9 @@ def _run_topology_mode(helm_cfg: dict, config: CIConfig) -> int:
         return 1
 
     registry = helm_cfg.get("registry") or "oci://ghcr.io/hyperi-io/helm-charts"
-    publish_mode = _is_publish_mode()
+    release_mode = _is_release_mode()
 
-    with group(f"Helm Topology Stage ({'push' if publish_mode else 'validate'})"):
+    with group(f"Helm Topology Stage ({'push' if release_mode else 'validate'})"):
         try:
             topology = load_topology(topo_dir)
         except (TopologyValidationError, TopologyError) as exc:
@@ -447,7 +447,7 @@ def _run_topology_mode(helm_cfg: dict, config: CIConfig) -> int:
             if rc != 0:
                 return rc
 
-            if not publish_mode:
+            if not release_mode:
                 success(
                     f"Umbrella chart built and validated at {tgz_path.name} "
                     "(no push on validate mode)"
@@ -457,12 +457,12 @@ def _run_topology_mode(helm_cfg: dict, config: CIConfig) -> int:
             return _helm_push(tgz_path=tgz_path, registry=registry)
 
 
-def _is_publish_mode() -> bool:
-    """Publish or not — delegates to :mod:`hyperi_ci.publish_mode` (SSOT).
+def _is_release_mode() -> bool:
+    """Release or not — delegates to :mod:`hyperi_ci.release_mode` (SSOT).
 
     Helm has no dev mode: a branch-mode dev run behaves as validate here
     (dev artifacts are container images only — plan decision 3).
     """
-    from hyperi_ci.publish_mode import is_publish_mode
+    from hyperi_ci.release_mode import is_release_mode
 
-    return is_publish_mode()
+    return is_release_mode()

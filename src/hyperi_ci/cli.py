@@ -168,7 +168,7 @@ def run(
         typer.Option("--project-dir", "-C", help="Project root directory"),
     ] = None,
 ) -> None:
-    """Run a CI stage (setup, quality, test, build, publish)."""
+    """Run a CI stage (setup, quality, test, build, release)."""
     if stage not in VALID_STAGES:
         typer.echo(f"Invalid stage: {stage}", err=True)
         typer.echo(f"Valid stages: {', '.join(VALID_STAGES)}", err=True)
@@ -764,7 +764,7 @@ def audit_gates(
     repo as red, and pre-GA repos are expected to be red. Only the invisible
     fault is reported: a gate that never ran.
 
-    Repos declaring a pre-GA `publish.channel` are skipped, since a dormant
+    Repos declaring a pre-GA `release.channel` are skipped, since a dormant
     gate is expected there; `--include-prerelease` audits them anyway. What was
     skipped is always named, never dropped silently.
 
@@ -1451,16 +1451,16 @@ def check_commits_cmd() -> None:
     raise typer.Exit(run())
 
 
-def _publish_impl(
+def _release_impl(
     tag: str | None,
     list_tags: bool,
     dry_run: bool,
     bump: str | None = None,
     version: str | None = None,
 ) -> None:
-    """Shared implementation for the ``publish`` and ``release`` commands."""
+    """Shared implementation for the ``release`` command and its ``publish`` alias."""
     from hyperi_ci.common import explicit_version
-    from hyperi_ci.publish import (
+    from hyperi_ci.release import (
         dispatch_from_head,
         dispatch_publish,
         list_unpublished,
@@ -1563,7 +1563,7 @@ def release(
     The CLI only triggers the workflow; the runner does the tagging and
     publishing, so it works under branch protection and from the Actions UI too.
     """
-    _publish_impl(
+    _release_impl(
         tag=tag, list_tags=list_tags, dry_run=dry_run, bump=bump, version=version
     )
 
@@ -1596,7 +1596,7 @@ def publish(
     from hyperi_ci.vocabulary import REVERSAL_NOTE
 
     warn(f"`hyperi-ci publish` is deprecated; use `hyperi-ci release`. {REVERSAL_NOTE}")
-    _publish_impl(
+    _release_impl(
         tag=tag, list_tags=list_tags, dry_run=dry_run, bump=bump, version=version
     )
 
@@ -1616,7 +1616,7 @@ def tag_head_cmd(
 
     Run by the from-head dispatch path in `_release-tail.yml` when
     `bump` is patch/minor. Not a routine command — operators use
-    `hyperi-ci publish` instead.
+    `hyperi-ci release` instead.
     """
     from hyperi_ci.push import tag_head
 

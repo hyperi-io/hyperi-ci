@@ -42,9 +42,9 @@ class OverlayValidationError(OverlayError):
     def __str__(self) -> str:  # noqa: D105
         loc = ""
         if self.artefact and self.overlay_index >= 0:
-            loc = f" (publish.{self.artefact}.overlays[{self.overlay_index}])"
+            loc = f" (release.{self.artefact}.overlays[{self.overlay_index}])"
         elif self.artefact:
-            loc = f" (publish.{self.artefact}.overlays)"
+            loc = f" (release.{self.artefact}.overlays)"
         return f"{self.message}{loc}"
 
 
@@ -61,7 +61,7 @@ class OverlayFileMissing(OverlayError):  # noqa: N818 — name reads naturally; 
 
     def __str__(self) -> str:  # noqa: D105
         loc = (
-            f" (publish.{self.artefact}.overlays[{self.overlay_index}])"
+            f" (release.{self.artefact}.overlays[{self.overlay_index}])"
             if self.artefact and self.overlay_index >= 0
             else ""
         )

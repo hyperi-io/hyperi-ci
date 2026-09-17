@@ -44,7 +44,7 @@ class Requirement:
     consequence: str
 
 
-# Keyed by the destination identifier in `publish.destinations_oss`.
+# Keyed by the destination identifier in `release.destinations_oss`.
 _REQUIREMENTS: dict[str, Requirement] = {
     "crates-io": Requirement(
         destination="crates.io",
@@ -88,7 +88,7 @@ _ALWAYS_CHECKED = ("binaries",)
 def _publishes_a_crate(project_dir: Path | None) -> bool:
     """Report whether this project publishes a crate at all.
 
-    ``languages.rust.publish.run`` returns early for a crate with ``[[bin]]``
+    ``languages.rust.release.run`` returns early for a crate with ``[[bin]]``
     targets, whatever ``destinations_oss.cargo`` says -- its artefacts go to
     GitHub Releases and R2 instead. Asking a binary app for a
     ``CARGO_REGISTRY_TOKEN`` would block a release that never needed one.
@@ -166,7 +166,7 @@ def check_publish_credentials(
         error(
             f"Publish would fail on missing credentials: {names}. "
             "Set them as repository or organisation secrets, or opt out of the "
-            "destination with `publish.destinations_oss.<artefact>: false`."
+            "destination with `release.destinations_oss.<artefact>: false`."
         )
         return 1
 

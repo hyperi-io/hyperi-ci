@@ -130,7 +130,7 @@ shared `_ghcr-prune.yml` (dataaxiom/ghcr-cleanup-action, multi-arch-safe),
 which globs `branch-*` / `dev-sha-*` plus untagged layers. Dev images are a
 different artifact class from a GA release - main + an explicit release remains
 the ONLY path to PyPI / crates.io / R2 / GA container tags. Mode resolution
-(release / dev / validate) is one SSOT: `hyperi_ci.publish_mode`, shared by
+(release / dev / validate) is one SSOT: `hyperi_ci.release_mode`, shared by
 the container, helm, and argocd stages (helm/argocd treat dev as validate).
 Design: `docs/plans/2026-07-branch-mode/PLAN.md`.
 
@@ -224,7 +224,7 @@ Third-party pinning policy: [dependencies/DEPS-PINNING.md](dependencies/deps-pin
 ## CLI surface
 
 ```
-hyperi-ci run <stage>      quality | test | build | publish
+hyperi-ci run <stage>      quality | test | build | release
 hyperi-ci check [--quick|--full|--strict]  pre-push: quality(+test)(+build); --strict fails on warn-tier findings
 hyperi-ci push [--release]         commit + push, opt-in Release: true trailer
 hyperi-ci release [<tag>]          release/retry HEAD, or re-release an existing tag
@@ -246,7 +246,7 @@ hyperi-ci autoupdate               channel (live|stable) / enable / freeze -- se
 `run(config, extra_env) -> int`.
 
 ```
-src/hyperi_ci/languages/<lang>/{quality,test,build,publish}.py
+src/hyperi_ci/languages/<lang>/{quality,test,build,release}.py
 ```
 
 ### Configuration cascade
@@ -270,7 +270,7 @@ Secrets.
 ## Release routing
 
 Everything publishes to the OSS registry stack. **JFrog was removed in v2.1.4**:
-the legacy `publish.target` config field (`internal` / `oss` / `both`) is still
+the legacy `release.target` config field (`internal` / `oss` / `both`) is still
 accepted in downstream `.hyperi-ci.yaml` for back-compat but ignored at runtime -
 every value routes to the same OSS destination map
 (`config.publish_destinations()`). It is a different thing from the
@@ -362,7 +362,7 @@ detail - tiers, cache, cross-compile (dormant) - is
 src/hyperi_ci/
   cli.py · dispatch.py · detect.py · config.py · common.py · stamp.py · init.py
   container/   stage · labels · templates · manifest · compose · build
-  languages/   python · rust · typescript · golang   (quality|test|build|publish)
+  languages/   python · rust · typescript · golang   (quality|test|build|release)
 config/        defaults · org · runners · versions · toolchains/ · native-deps/
 scripts/       update-versions.py (/deps) · check-workflow-interfaces.py (#31 gate)
 templates/     pgo-workload/ · testenv/

@@ -9,7 +9,7 @@
 Stage flow (per overlay-framework spec section 10.5):
 
   1. Invoke consumer's ``emit-argocd`` subcommand
-  2. Apply ``publish.argocd.overlays`` to the YAML
+  2. Apply ``release.argocd.overlays`` to the YAML
   3. Clone the GitOps repo into a temp dir
   4. Write the Application YAML to ``applications/<app>/<env>.yaml``
   5. git commit + push (or open a PR per env policy)
