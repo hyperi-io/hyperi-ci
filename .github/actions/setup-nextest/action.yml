@@ -43,22 +43,22 @@ inputs:
     description: cargo-nextest release to pin (upstream tags carry no `v`)
     required: false
     # hyperi-ci:pin tools.cargo-nextest
-    default: 0.9.143
+    default: 0.9.145
   sha256-amd64:
     description: sha256 of the x86_64-unknown-linux-musl tarball
     required: false
     # hyperi-ci:pin tools.cargo-nextest.sha256.amd64
-    default: 6d891c18105ec2d33f6e441a4f92b7ccab47ba263e22055c8bb66884243f3389
+    default: cd3c85194e8b28ad26676d287f41f0d6b4d456cef5bd94700def5dea8e328883
   sha256-arm64:
     description: sha256 of the aarch64-unknown-linux-musl tarball
     required: false
     # hyperi-ci:pin tools.cargo-nextest.sha256.arm64
-    default: 0560ce0ce017f368c54b5db86588370fc03b470985490fa81200e62a657dda05
+    default: 103a8f68b20fb01ee5daf2eb4c037b54ace550a04a288ee35761c5e7b0351311
   sha256-macos:
     description: sha256 of the universal-apple-darwin tarball
     required: false
     # hyperi-ci:pin tools.cargo-nextest.sha256.macos
-    default: 4830d430411148d17602a75cc880bfb4dc8dac153dea59a48a2ef4cc93577f07
+    default: 52ecaedb4f5af9267ef7ed02bc937d2a15a94ff96cb663080e81311f798c9905
 
 runs:
   using: composite

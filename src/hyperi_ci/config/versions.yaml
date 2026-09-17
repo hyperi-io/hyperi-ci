@@ -34,17 +34,23 @@ actions:
     version: v7.0.0
     sha: b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
   setup-uv:
-    version: v10.0.1
-    sha: 20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+    version: v10.1.0
+    sha: bec219d24cd3e171d82865faccec33120bb574f4
   cache:
     version: v6.1.0
     sha: 55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-  # Branch ref (dtolnay/rust-toolchain has no semver releases): pinned to
-  # the newest master commit >= 7 days old. The toolchain itself is chosen
-  # by the `with: toolchain:` input, not by the ref.
+  # Branch ref (dtolnay/rust-toolchain has no semver releases): pinned to the
+  # newest master commit past the cooldown. The toolchain itself is chosen by
+  # the `with: toolchain:` input, not by the ref.
+  #
+  # This SHA was taken inside the cooldown deliberately: it passes
+  # `--force-non-host` to `rustup toolchain install` and `rustup default`, a
+  # flag rustup has accepted since 1.24 and has REQUIRED for a non-host
+  # toolchain since 1.28, so it is a no-op for the host toolchain every Rust
+  # job builds.
   rust-toolchain:
     version: master
-    sha: d1031067263f94b142dd6c0ce24c5eb9d02d52a0
+    sha: 02cb101ec7c40f2c49e1d9714d64511d8e1b74de
   upload-artifact:
     version: v7.0.1
     sha: 043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -73,8 +79,8 @@ actions:
     version: v4.6.0
     sha: dbcb813823bdd20940b903addbd779551569679f
   docker-setup-buildx:
-    version: v4.3.0
-    sha: 37fe631027851001ddb9b187196cc803df7f5f0e
+    version: v4.4.1
+    sha: f87e5991a6d7451dcb8d9637bfbc97413f497069
   # Prunes branch-mode dev images (_ghcr-prune.yml). Chosen over
   # snok/container-retention-policy: dataaxiom handles multi-arch
   # packages + attestation referrers safely (snok's README warns
@@ -159,12 +165,12 @@ tools:
   # code runs, so it cannot read this file. update-versions.py writes those
   # mirrors; never hand-edit a marked line.
   osv-scanner:
-    version: v2.5.1
+    version: v2.6.0
     repo: google/osv-scanner
     pin: .github/actions/setup-osv-scanner/action.yml
     sha256:
-      amd64: f9f25499a2c8cc367b3af45df2ea7eeca7fbccceab9c35079968f4b3652194be
-      arm64: 3d0f5aa5a6baa8eb32bcef247388e149ef6030a6634ccae6fa0d62681fb27a6d
+      amd64: ca69b3d3cd08f889a49dc0a383122f71cc528b83803671df5fd874d97485b108
+      arm64: 2c71403eb443d05891c4f268c3ad771cf4f16e5443463fd7851ef8f454d3c7e4
   golangci-lint:
     version: v2.13.2
     repo: golangci/golangci-lint
@@ -231,16 +237,16 @@ tools:
   # Upstream publishes a `.sha256` per asset - these were cross-checked against
   # it at pin time.
   cargo-nextest:
-    version: 0.9.143
+    version: 0.9.145
     repo: nextest-rs/nextest
     tag_prefix: cargo-nextest-
     pin: .github/actions/setup-nextest/action.yml
     sha256:
       # Linux is musl (static) on both arches; macOS ships one universal build,
       # so `macos` is a platform key here rather than an arch.
-      amd64: 6d891c18105ec2d33f6e441a4f92b7ccab47ba263e22055c8bb66884243f3389
-      arm64: 0560ce0ce017f368c54b5db86588370fc03b470985490fa81200e62a657dda05
-      macos: 4830d430411148d17602a75cc880bfb4dc8dac153dea59a48a2ef4cc93577f07
+      amd64: cd3c85194e8b28ad26676d287f41f0d6b4d456cef5bd94700def5dea8e328883
+      arm64: 103a8f68b20fb01ee5daf2eb4c037b54ace550a04a288ee35761c5e7b0351311
+      macos: 52ecaedb4f5af9267ef7ed02bc937d2a15a94ff96cb663080e81311f798c9905
   # Baked into the generated cargo-chef Dockerfile by container/compose.py,
   # which reads it from here.
   cargo-chef:
@@ -267,7 +273,7 @@ tools:
   # reads PyPI's own upload times and applies the same 7-day cooldown. Python
   # reads these through hyperi_ci.versions, so there is no `pin:` and no copy.
   semgrep:
-    version: 1.176.1
+    version: "1.177.0"
     pypi: semgrep
   bandit:
     version: 1.9.4

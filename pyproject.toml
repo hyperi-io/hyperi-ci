@@ -50,7 +50,7 @@ dependencies = [
     # explicitly rather than relying on the transitive pull from
     # scalo's CLI infra. If scalo ever drops typer, this
     # keeps us pinned to a known surface.
-    "typer>=0.25",
+    "typer>=0.27",
 ]
 
 [project.scripts]

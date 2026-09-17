@@ -133,7 +133,7 @@ jobs:
       - name: Install uv
         # Needed to run the resolve step below. Cheap, no Docker Hub —
         # so a library never pays the Buildx/Docker-Hub cost (issue #33).
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: false
 
@@ -171,7 +171,7 @@ jobs:
 
       - name: Set up Docker Buildx
         if: steps.resolve.outputs.build == 'true'
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Download build artifacts
         # The build-dist-* artifact carries both dist/ (binaries) and
@@ -254,7 +254,7 @@ jobs:
         # failure notice, runs the HYPERCI_INSTALL uvx command, and hosted
         # runners ship no uv. A checkout failure used to leave the notice with
         # `uvx: command not found` and the failed release unrecorded.
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: false
 
@@ -381,7 +381,7 @@ jobs:
 
       - name: Install Rust toolchain
         if: inputs.language == 'rust'
-        uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
 
