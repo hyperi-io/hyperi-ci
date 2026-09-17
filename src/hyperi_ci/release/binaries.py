@@ -16,6 +16,7 @@ Any language that packages binaries to dist/ gets this for free.
 
 from __future__ import annotations
 
+import filecmp
 import os
 import re
 import shutil
@@ -195,6 +196,51 @@ def _collect_artifacts(exclude_python: bool = False) -> list[Path]:
     if exclude_python:
         files = [f for f in files if not _is_python_dist_artifact(f)]
     return files
+
+
+def stage_release_assets(config: CIConfig) -> int:
+    """Copy `release.assets` entries into dist/ so they ship with the release.
+
+    Every destination collects from dist/, so a listed file reaches the GitHub
+    Release and R2 without the manual `gh release upload` step that nobody
+    remembers. A missing file fails the release: a catalogue pin against an
+    absent asset is the breakage this exists to prevent (issue #125).
+
+    Returns:
+        Exit code (0 = success).
+
+    """
+    assets = config.get("release.assets", []) or []
+    if isinstance(assets, str):
+        assets = [assets]
+    if not assets:
+        return 0
+
+    dist = Path("dist")
+    dist.mkdir(parents=True, exist_ok=True)
+
+    for entry in assets:
+        source = Path(str(entry))
+        if not source.exists():
+            error(f"release.assets: {source} does not exist — refusing to release")
+            return 1
+        if not source.is_file():
+            error(f"release.assets: {source} is not a file — refusing to release")
+            return 1
+
+        target = dist / source.name
+        if target.exists() and not filecmp.cmp(source, target, shallow=False):
+            error(
+                f"release.assets: dist/{source.name} already exists with different "
+                f"content — rename the asset rather than clobbering a built artefact"
+            )
+            return 1
+
+        shutil.copy2(source, target)
+        info(f"  staged {source} → dist/{source.name}")
+
+    success(f"Staged {len(assets)} release asset(s) into dist/")
+    return 0
 
 
 def create_github_release(config: CIConfig) -> int:

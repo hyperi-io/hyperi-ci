@@ -26,6 +26,7 @@ The CLI ``hyperi-ci release <tag>`` command, and the deprecated
 from hyperi_ci.release.binaries import (
     create_github_release,
     publish_binaries,
+    stage_release_assets,
 )
 from hyperi_ci.release.dispatch import (
     dispatch_from_head,
@@ -41,4 +42,5 @@ __all__ = [
     "list_unpublished",
     "publish_binaries",
     "resolve_latest_tag",
+    "stage_release_assets",
 ]

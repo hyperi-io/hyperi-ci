@@ -281,6 +281,11 @@ release:
   # destinations map above is what routes a publish, and the R2 bucket is a
   # constant in publish/binaries.py. Those keys routed nothing.
 
+  # Extra files to ship with the release, copied into dist/ before upload so
+  # they reach the same destinations as the built artefacts. A listed file
+  # that is missing fails the release rather than shipping a broken pin.
+  assets: []
+
   # Container build & publish.
   #
   # `enabled` is three-state:

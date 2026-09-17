@@ -297,6 +297,87 @@ class TestOptOutSurvivesTheDefaultsMerge:
         assert cfg.destination_for("container") == ["ghcr"]
 
 
+class TestReleaseAssets:
+    """`release.assets` rides into dist/, which every destination collects from."""
+
+    @staticmethod
+    def _config(assets: object) -> CIConfig:
+        return CIConfig(publish_target="oss", _raw={"release": {"assets": assets}})
+
+    def test_no_assets_configured_is_a_no_op(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        from hyperi_ci.release.binaries import stage_release_assets
+
+        assert stage_release_assets(self._config([])) == 0
+        assert not (tmp_path / "dist").exists()
+
+    def test_a_listed_file_lands_in_dist(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "sources.yaml").write_text("kind: asset\n")
+        from hyperi_ci.release.binaries import stage_release_assets
+
+        assert stage_release_assets(self._config(["sources.yaml"])) == 0
+        assert (tmp_path / "dist" / "sources.yaml").read_text() == "kind: asset\n"
+
+    def test_a_nested_path_flattens_to_its_name(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "catalogue").mkdir()
+        (tmp_path / "catalogue" / "sources.yaml").write_text("nested\n")
+        from hyperi_ci.release.binaries import stage_release_assets
+
+        assert stage_release_assets(self._config(["catalogue/sources.yaml"])) == 0
+        assert (tmp_path / "dist" / "sources.yaml").read_text() == "nested\n"
+
+    def test_a_missing_file_fails_the_release(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        from hyperi_ci.release.binaries import stage_release_assets
+
+        assert stage_release_assets(self._config(["sources.yaml"])) == 1
+
+    def test_a_directory_is_refused(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "catalogue").mkdir()
+        from hyperi_ci.release.binaries import stage_release_assets
+
+        assert stage_release_assets(self._config(["catalogue"])) == 1
+
+    def test_it_refuses_to_clobber_a_built_artefact(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "sources.yaml").write_text("the asset\n")
+        dist = tmp_path / "dist"
+        dist.mkdir()
+        (dist / "sources.yaml").write_text("the built artefact\n")
+        from hyperi_ci.release.binaries import stage_release_assets
+
+        assert stage_release_assets(self._config(["sources.yaml"])) == 1
+        assert (dist / "sources.yaml").read_text() == "the built artefact\n"
+
+    def test_an_identical_restage_succeeds(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "sources.yaml").write_text("same\n")
+        from hyperi_ci.release.binaries import stage_release_assets
+
+        assert stage_release_assets(self._config(["sources.yaml"])) == 0
+        assert stage_release_assets(self._config(["sources.yaml"])) == 0
+
+    def test_a_bare_string_is_taken_as_one_asset(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "sources.yaml").write_text("one\n")
+        from hyperi_ci.release.binaries import stage_release_assets
+
+        assert stage_release_assets(self._config("sources.yaml")) == 0
+        assert (tmp_path / "dist" / "sources.yaml").exists()
+
+    def test_the_shipped_default_lists_none(self, tmp_path: Path) -> None:
+        (tmp_path / ".hyperi-ci.yaml").write_text(
+            "language: python\n", encoding="utf-8"
+        )
+        cfg = load_config(project_dir=tmp_path, reload=True)
+        assert cfg.get("release.assets", None) == []
+
+
 class TestReleaseTargetsHead:
     """Refuse to overwrite a release whose tag is not HEAD (issue #105)."""
 

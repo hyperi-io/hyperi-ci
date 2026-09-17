@@ -376,7 +376,17 @@ def stage_release(language: str, config: CIConfig) -> int:
         return rc
 
     # Always create the GH Release (even for libraries with no binaries)
-    from hyperi_ci.release import create_github_release, publish_binaries
+    from hyperi_ci.release import (
+        create_github_release,
+        publish_binaries,
+        stage_release_assets,
+    )
+
+    # Staged before the release exists, so a missing asset fails with nothing
+    # published rather than leaving a release short of what pins it.
+    rc = stage_release_assets(config)
+    if rc != 0:
+        return rc
 
     rc = create_github_release(config)
     if rc != 0:
