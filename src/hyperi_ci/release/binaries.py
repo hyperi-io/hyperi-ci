@@ -37,6 +37,7 @@ from hyperi_ci.common import (
     warn,
 )
 from hyperi_ci.config import CIConfig
+from hyperi_ci.native_deps import ensure_aws_cli
 from hyperi_ci.tools import missing_tool_notice
 
 # R2 bucket and endpoint configuration
@@ -429,7 +430,9 @@ def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False)
 
     mask(secret_key)
 
-    if not shutil.which("aws"):
+    # Installed here rather than baked into the runner image: the trigger is
+    # this run reaching R2, which no manifest pattern can express.
+    if not ensure_aws_cli():
         error(missing_tool_notice("aws"))
         return 1
 

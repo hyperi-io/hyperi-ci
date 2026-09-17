@@ -13,13 +13,16 @@ apt packages on Linux. No-ops on non-Linux platforms.
 
 from __future__ import annotations
 
+import io
 import os
 import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -529,6 +532,186 @@ def _apt_install(packages: list[str]) -> int:
         ]
     )
     return install.returncode
+
+
+# ---------------------------------------------------------------------------
+# Signed-archive install: AWS CLI v2
+# ---------------------------------------------------------------------------
+#
+# AWS runs no apt repository and Ubuntu noble ships no awscli package, so the
+# signed zip bundle is the only route to v2 on a runner.
+#
+# The URL carries no version, so there is no digest to pin: the detached
+# signature is the integrity anchor, checked against a key shipped in this
+# package that expires 2027-07-01 (versions.yaml `watch:`).
+
+_AWS_CLI_ZIP_URL = "https://awscli.amazonaws.com/awscli-exe-linux-{arch}.zip"
+_AWS_CLI_KEY_FILE = _CONFIG_ROOT / "aws-cli-team.asc"
+_AWS_CLI_KEY_FPR = "FB5DB77FD5C118B80511ADA8A6310ACC4672475C"
+_AWS_CLI_INSTALL_DIR = "/usr/local/aws-cli"
+_AWS_CLI_BIN_DIR = "/usr/local/bin"
+
+# platform.machine() spelling -> the spelling AWS's asset names use.
+_AWS_CLI_ARCHES = {"x86_64": "x86_64", "aarch64": "aarch64", "arm64": "aarch64"}
+
+
+def _download(name: str, url: str) -> bytes | None:
+    """Fetch a URL into memory, or say why it failed.
+
+    ``-f`` so an HTTP error is an error rather than a saved 404 page, and the
+    timeouts put a ceiling on a stalled mirror.
+    """
+    try:
+        dl = subprocess.run(
+            ["curl", "-fsSL", "--connect-timeout", "10", "--max-time", "180", url],
+            capture_output=True,
+            timeout=200,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        logger.error(f"Failed to download {name} (network error / timeout)")
+        return None
+    if dl.returncode != 0 or not dl.stdout:
+        logger.error(f"Failed to download {name} (curl exit {dl.returncode})")
+        return None
+    return dl.stdout
+
+
+def _verify_detached_signature(payload: bytes, signature: bytes, key: bytes) -> bool:
+    """Check ``signature`` covers ``payload`` under the shipped AWS CLI key.
+
+    The key is imported into a throwaway GNUPGHOME so verification never reads
+    or writes the runner's own keyring, and its fingerprint is checked before
+    it is trusted - importing a key and then verifying against whatever was
+    imported proves only that the archive is self-consistent.
+    """
+    found = _key_fingerprints(key)
+    if _AWS_CLI_KEY_FPR not in found:
+        logger.error(
+            f"Shipped AWS CLI key is not {_AWS_CLI_KEY_FPR} "
+            f"(got {', '.join(found) or 'nothing readable'})"
+        )
+        return False
+
+    with tempfile.TemporaryDirectory() as home:
+        base = ["gpg", "--homedir", home, "--batch", "--no-tty"]
+        if subprocess.run(
+            [*base, "--import"], input=key, capture_output=True
+        ).returncode:
+            logger.error("Could not import the AWS CLI signing key")
+            return False
+
+        tmp = Path(home)
+        zip_path, sig_path = tmp / "awscliv2.zip", tmp / "awscliv2.sig"
+        zip_path.write_bytes(payload)
+        sig_path.write_bytes(signature)
+
+        result = subprocess.run(
+            [*base, "--verify", str(sig_path), str(zip_path)], capture_output=True
+        )
+
+    if result.returncode != 0:
+        logger.error("AWS CLI archive failed signature verification - refusing it")
+        return False
+    logger.info(f"AWS CLI archive signature verified against {_AWS_CLI_KEY_FPR}")
+    return True
+
+
+def _extract_zip(payload: bytes, dest: Path) -> bool:
+    """Unpack a zip, keeping the Unix mode each entry recorded.
+
+    ``ZipFile.extract`` drops permissions, which would leave AWS's own
+    ``install`` script and the ``aws`` binary non-executable.
+    """
+    try:
+        with zipfile.ZipFile(io.BytesIO(payload)) as zf:
+            for member in zf.infolist():
+                target = zf.extract(member, dest)
+                mode = member.external_attr >> 16
+                if mode:
+                    Path(target).chmod(mode & 0o777)
+    except (zipfile.BadZipFile, OSError) as exc:
+        logger.error(f"Could not unpack the AWS CLI archive: {exc}")
+        return False
+    return True
+
+
+def ensure_aws_cli() -> str | None:
+    """Return a path to ``aws``, installing AWS CLI v2 on Linux if it is absent.
+
+    Called at the point of use rather than declared as a dep group: the trigger
+    is a runtime fact (this run is uploading to R2), not a manifest pattern, so
+    no YAML entry could express it. Same shape as
+    ``pgo._ensure_llvm_bolt_available``.
+
+    Returns None when it cannot install - off Linux (dev machines get the
+    ``brew install awscli`` notice instead) or on any download, signature or
+    install failure. The caller decides whether that is fatal.
+    """
+    exe = shutil.which("aws")
+    if exe:
+        return exe
+
+    if platform.system() != "Linux":
+        return None
+
+    arch = _AWS_CLI_ARCHES.get(platform.machine())
+    if not arch:
+        logger.error(f"No AWS CLI v2 build for {platform.machine()}")
+        return None
+
+    url = _AWS_CLI_ZIP_URL.format(arch=arch)
+    logger.info(f"aws not found - installing AWS CLI v2 from {url}")
+
+    payload = _download("AWS CLI", url)
+    signature = _download("AWS CLI signature", f"{url}.sig")
+    if payload is None or signature is None:
+        return None
+
+    try:
+        key = _AWS_CLI_KEY_FILE.read_bytes()
+    except OSError as exc:
+        logger.error(f"Cannot read the shipped AWS CLI signing key: {exc}")
+        return None
+
+    if not _verify_detached_signature(payload, signature, key):
+        return None
+
+    with tempfile.TemporaryDirectory() as workdir:
+        if not _extract_zip(payload, Path(workdir)):
+            return None
+
+        installer = Path(workdir) / "aws" / "install"
+        if not installer.is_file():
+            logger.error("AWS CLI archive carried no `aws/install`")
+            return None
+
+        # --update so a re-run over an existing install succeeds instead of
+        # failing on the directory it wrote last time.
+        result = subprocess.run(
+            [
+                *_sudo_prefix(),
+                str(installer),
+                "--update",
+                "-i",
+                _AWS_CLI_INSTALL_DIR,
+                "-b",
+                _AWS_CLI_BIN_DIR,
+            ],
+            capture_output=True,
+        )
+
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        logger.error(f"AWS CLI install failed (exit {result.returncode}): {detail}")
+        return None
+
+    installed = shutil.which("aws")
+    if not installed:
+        logger.error(f"AWS CLI installed but `aws` is not on PATH ({_AWS_CLI_BIN_DIR})")
+        return None
+
+    logger.info(f"AWS CLI v2 installed at {installed}")
+    return installed
 
 
 def install_native_deps(

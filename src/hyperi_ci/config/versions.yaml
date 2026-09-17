@@ -302,6 +302,14 @@ watch:
       repos; it does not ride on a preview command.
     gate: "`uv audit` runs with no experimental warning and no --preview-features"
     issue: 68
+  aws-cli-signing-key:
+    what: rotate the AWS CLI signing key shipped at config/aws-cli-team.asc
+    blocked_by: >-
+      nothing upstream - the key is current. It expires 2027-07-01, and after
+      that every signature check in native_deps.ensure_aws_cli fails closed, so
+      no release can upload binaries to R2.
+    gate: "AWS publishes a successor key - replace the .asc and _AWS_CLI_KEY_FPR"
+    issue: 155
 
 # Language runtimes (default versions in workflow inputs)
 #

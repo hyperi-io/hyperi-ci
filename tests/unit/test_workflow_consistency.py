@@ -1031,21 +1031,28 @@ def test_the_container_build_resolves_its_runner_through_the_org_variables() -> 
     )
 
 
-def test_the_publish_job_stays_on_a_hosted_runner() -> None:
-    """The R2 upload shells out to the aws CLI, which the ARC images do not
-    carry: v2.10.2 published to PyPI and cut its GitHub Release, then failed the
-    upload.
+def test_the_publish_job_resolves_a_runner_like_the_container_job() -> None:
+    """Both tail jobs pick a runner the same way.
 
-    uvx cannot stand in, so this is not a fallback that can be added later:
-    PyPI ships only AWS CLI v1, in maintenance mode since 2026-08-05. Issue #155
-    tracks putting v2 in the image, #156 removing the binary entirely.
+    This job was pinned to `ubuntu-latest` while the ARC images carried no aws
+    CLI and the R2 upload needed one. `native_deps.ensure_aws_cli` installs
+    AWS's signed v2 bundle on demand, so the pin is gone; apt cannot supply it,
+    since noble offers no awscli candidate.
     """
     runs_on = str(
         _load_workflow("_release-tail.yml")["jobs"]["tag-and-release"]["runs-on"]
     )
-    assert runs_on == "ubuntu-latest", (
-        f"_release-tail.tag-and-release: the R2 upload needs the aws CLI, which "
-        f"only the hosted images carry.\n  actual: {runs_on}"
+    assert "vars.GH_RUNNER_PUBLISH" in runs_on, (
+        f"_release-tail.tag-and-release: runs-on must resolve through "
+        f"GH_RUNNER_PUBLISH.\n  actual: {runs_on}"
+    )
+    assert "vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}" in runs_on, (
+        f"_release-tail.tag-and-release: the fallback chain must terminate on a "
+        f"real runner.\n  actual: {runs_on}"
+    )
+    assert "vars.GH_RUNNER_MODE == 'free' && 'ubuntu-latest'" in runs_on, (
+        f"_release-tail.tag-and-release: lost the free-mode escape, so an org "
+        f"with no self-hosted fleet queues forever.\n  actual: {runs_on}"
     )
 
 

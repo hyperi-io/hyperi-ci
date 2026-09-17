@@ -297,6 +297,37 @@ class TestOptOutSurvivesTheDefaultsMerge:
         assert cfg.destination_for("container") == ["ghcr"]
 
 
+class TestR2InstallsTheAwsCliOnDemand:
+    """#155: the runner images carry no aws, so the R2 path installs it.
+
+    Noble offers no awscli candidate, so this is the only route to v2 there.
+    """
+
+    @staticmethod
+    def _with_r2_creds(monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("R2_ACCESS_KEY_ID", "test-key")
+        monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "test-secret")
+
+    def test_a_failed_install_fails_the_upload(self, tmp_path, monkeypatch) -> None:
+        from hyperi_ci.release import binaries
+
+        self._with_r2_creds(monkeypatch)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(binaries, "ensure_aws_cli", lambda: None)
+        assert binaries._publish_r2_binaries() == 1
+
+    def test_an_installed_aws_gets_past_the_tool_gate(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """No dist/ means it stops at 'nothing to upload', which is past the gate."""
+        from hyperi_ci.release import binaries
+
+        self._with_r2_creds(monkeypatch)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(binaries, "ensure_aws_cli", lambda: "/usr/local/bin/aws")
+        assert binaries._publish_r2_binaries() == 0
+
+
 class TestReleaseAssetsReachTheRelease:
     """#125: assets attach to the Release itself, not via the binaries map.
 

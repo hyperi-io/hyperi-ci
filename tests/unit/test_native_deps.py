@@ -7,7 +7,10 @@
 
 from __future__ import annotations
 
+import io
+import shutil
 import subprocess
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -901,3 +904,89 @@ class TestLanguageToolInstallerAbsent:
         assert native_deps._install_language_tools("rust") == 0
         assert calls, "a present cargo must still be invoked"
         assert calls[0][0] == "cargo"
+
+
+class TestEnsureAwsCli:
+    """AWS CLI v2 arrives as a signed zip, because apt cannot supply it."""
+
+    @pytest.mark.skipif(shutil.which("gpg") is None, reason="gpg not installed")
+    def test_shipped_key_carries_the_pinned_fingerprint(self) -> None:
+        """The .asc in the package is the key the code claims to trust.
+
+        A transcription slip or an unannounced rotation both land here rather
+        than as a signature failure on a release runner.
+        """
+        key = native_deps._AWS_CLI_KEY_FILE.read_bytes()
+        assert native_deps._AWS_CLI_KEY_FPR in native_deps._key_fingerprints(key)
+
+    def test_existing_aws_is_returned_without_downloading(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(native_deps.shutil, "which", lambda _c: "/usr/bin/aws")
+
+        def explode(*_a: object, **_k: object) -> None:
+            raise AssertionError("must not download when aws is already present")
+
+        monkeypatch.setattr(native_deps, "_download", explode)
+        assert native_deps.ensure_aws_cli() == "/usr/bin/aws"
+
+    def test_non_linux_declines_rather_than_installing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A dev machine gets the brew notice, not a system-wide install."""
+        monkeypatch.setattr(native_deps.shutil, "which", lambda _c: None)
+        monkeypatch.setattr(native_deps.platform, "system", lambda: "Darwin")
+        assert native_deps.ensure_aws_cli() is None
+
+    def test_unsupported_arch_declines(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(native_deps.shutil, "which", lambda _c: None)
+        monkeypatch.setattr(native_deps.platform, "system", lambda: "Linux")
+        monkeypatch.setattr(native_deps.platform, "machine", lambda: "riscv64")
+        assert native_deps.ensure_aws_cli() is None
+
+    def test_a_bad_signature_installs_nothing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verification is the gate, so a failure stops before extraction."""
+        monkeypatch.setattr(native_deps.shutil, "which", lambda _c: None)
+        monkeypatch.setattr(native_deps.platform, "system", lambda: "Linux")
+        monkeypatch.setattr(native_deps.platform, "machine", lambda: "x86_64")
+        monkeypatch.setattr(native_deps, "_download", lambda _n, _u: b"not-a-zip")
+        monkeypatch.setattr(
+            native_deps, "_verify_detached_signature", lambda *_a: False
+        )
+
+        def explode(*_a: object, **_k: object) -> None:
+            raise AssertionError("must not extract an unverified archive")
+
+        monkeypatch.setattr(native_deps, "_extract_zip", explode)
+        assert native_deps.ensure_aws_cli() is None
+
+    def test_a_failed_download_installs_nothing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(native_deps.shutil, "which", lambda _c: None)
+        monkeypatch.setattr(native_deps.platform, "system", lambda: "Linux")
+        monkeypatch.setattr(native_deps.platform, "machine", lambda: "x86_64")
+        monkeypatch.setattr(native_deps, "_download", lambda _n, _u: None)
+
+        def explode(*_a: object, **_k: object) -> None:
+            raise AssertionError("must not verify a download that never arrived")
+
+        monkeypatch.setattr(native_deps, "_verify_detached_signature", explode)
+        assert native_deps.ensure_aws_cli() is None
+
+    def test_extract_preserves_the_executable_bit(self, tmp_path: Path) -> None:
+        """ZipFile.extract drops the mode, which would leave `install` unrunnable."""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            info = zipfile.ZipInfo("aws/install")
+            info.external_attr = 0o755 << 16
+            zf.writestr(info, "#!/bin/sh\n")
+
+        assert native_deps._extract_zip(buf.getvalue(), tmp_path) is True
+        extracted = tmp_path / "aws" / "install"
+        assert extracted.stat().st_mode & 0o111, "install script is not executable"
+
+    def test_a_corrupt_archive_is_reported_not_raised(self, tmp_path: Path) -> None:
+        assert native_deps._extract_zip(b"not-a-zip", tmp_path) is False
