@@ -3,6 +3,21 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.10.0](https://github.com/hyperi-io/hyperi-ci/compare/v2.9.28...v2.10.0) (2026-09-17)
+
+### Features
+
+* **release:** standardise on release, keeping every old spelling working ([d5f168a](https://github.com/hyperi-io/hyperi-ci/commit/d5f168a50758bda1b74d61b4990c735af80d3d63)), closes [#151](https://github.com/hyperi-io/hyperi-ci/issues/151) [#149](https://github.com/hyperi-io/hyperi-ci/issues/149)
+
+### Bug Fixes
+
+* **ci:** build and test on the version the project declares ([6952598](https://github.com/hyperi-io/hyperi-ci/commit/69525983f9f894ab722cdb51fa1b3c9fbea395da)), closes [#150](https://github.com/hyperi-io/hyperi-ci/issues/150)
+* **ci:** run checks on release-worthy pushes and key the build tier off will-publish ([ca09b1f](https://github.com/hyperi-io/hyperi-ci/commit/ca09b1fcd69da83b46c412d8fd16260c40b85644))
+* **container:** default generated Dockerfiles to python 3.14 ([58650ff](https://github.com/hyperi-io/hyperi-ci/commit/58650ff7b46b9a8fe2edee6a849c9c7cbdb9dd4f))
+* **python:** move the baseline to 3.14 ([661457d](https://github.com/hyperi-io/hyperi-ci/commit/661457d4fd957b9bd1f0fba44497b27cdde853cf))
+* **release:** move the internals off the publish spelling ([8da570c](https://github.com/hyperi-io/hyperi-ci/commit/8da570c499e26e45e3eac9ea33f8abef2c919cf2))
+* **tests:** widen the central-default helper's return type ([1d1157e](https://github.com/hyperi-io/hyperi-ci/commit/1d1157e5536d35bf0836166e3e102fce68ce4ed5))
+
 ## [2.9.28](https://github.com/hyperi-io/hyperi-ci/compare/v2.9.27...v2.9.28) (2026-09-16)
 
 ### Bug Fixes
