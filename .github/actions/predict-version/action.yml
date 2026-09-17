@@ -246,6 +246,24 @@ runs:
         echo "version=$version" >> "$GITHUB_OUTPUT"
         echo "::notice::Forced from-head bump ($bump): v$version (was v$latest)"
 
+    - name: Detect a release-worthy push
+      # The doctrine runs checks on PR review and RELEASE-WORTHY pushes, but
+      # the code only ever asked for the `Publish: true` trailer -- which marks
+      # a push that PUBLISHES, a strictly smaller set. So an ordinary squash
+      # merge of a fix: to main compiled nothing, tested nothing and reported
+      # green (issue #124). Ask the bump SSoT what the pushed range holds.
+      #
+      # The range comes from the push event payload, never origin/main..HEAD,
+      # which is EMPTY right after a push to main (issue #52). The helper reads
+      # the payload itself, so no commit message is ever read as shell.
+      id: worthy
+      if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        worthy=$(python3 "$GITHUB_ACTION_PATH/release_worthy.py")
+        echo "release-worthy=$worthy" >> "$GITHUB_OUTPUT"
+
     - name: Derive gate outputs
       # Single source of truth for the run-checks / run-build conditions.
       # Language workflows read these outputs and never re-implement the
@@ -258,6 +276,8 @@ runs:
         will_publish='${{ steps.gate.outputs.will-publish }}'
         event_name='${{ github.event_name }}'
         branch_build='${{ inputs.branch-build }}'
+        git_ref='${{ github.ref }}'
+        release_worthy='${{ steps.worthy.outputs.release-worthy }}'
 
         # run-build: publish runs always; an opted-in pull_request also
         # builds (branch-mode decision 2 — PRs validate the FULL pipeline
@@ -280,7 +300,11 @@ runs:
           run_build=false
         fi
 
-        if [[ "$will_publish" == "true" || "$event_name" == "pull_request" || "$event_name" == "workflow_dispatch" ]]; then
+        # run-checks: a publish run, a PR, a dispatch -- and a merge to main
+        # that CARRIES a release, whether or not this run is the one that
+        # ships it (issue #124). run-build deliberately stays publish-only:
+        # compiling a commit nothing ships is the red line the doctrine draws.
+        if [[ "$will_publish" == "true" || "$event_name" == "pull_request" || "$event_name" == "workflow_dispatch" || "$release_worthy" == "true" ]]; then
           run_checks=true
         else
           run_checks=false
@@ -288,4 +312,11 @@ runs:
 
         echo "run-build=$run_build" >> "$GITHUB_OUTPUT"
         echo "run-checks=$run_checks" >> "$GITHUB_OUTPUT"
-        echo "::notice::run-checks=$run_checks run-build=$run_build (will-publish=$will_publish event=$event_name branch-build=$branch_build)"
+        summary="run-checks=$run_checks run-build=$run_build (will-publish=$will_publish event=$event_name branch-build=$branch_build release-worthy=$release_worthy)"
+        # A gate that skipped reads exactly like a gate that passed, which is
+        # the whole of issue #96 -- so say so where it lands, on main.
+        if [[ "$run_checks" != "true" && "$event_name" == "push" && "$git_ref" == "refs/heads/main" ]]; then
+          echo "::warning::$summary -- quality and test did NOT run on this merge to main. A skipped gate is not a passing gate."
+        else
+          echo "::notice::$summary"
+        fi

@@ -7,6 +7,10 @@
 
 from __future__ import annotations
 
+import pytest
+
+from hyperi_ci.config import CIConfig
+from hyperi_ci.languages.rust.build import _resolve_build_channel
 from hyperi_ci.languages.rust.optimize import (
     OptimizationProfile,
     _parse_features_from_text,
@@ -15,6 +19,78 @@ from hyperi_ci.languages.rust.optimize import (
     resolve_optimization_profile,
     validate_profile,
 )
+
+
+class TestBuildChannelResolution:
+    """`_resolve_build_channel` carries the whole Tier-2 policy.
+
+    PGO + BOLT add 30-60 min per build and a bad workload makes them
+    NEGATIVE, so only a build that actually ships may resolve to `release`.
+    """
+
+    _VARS = ("HYPERCI_CHANNEL", "GITHUB_REF_TYPE", "RUST_VERSION", "CI_COMMIT_TAG")
+
+    def _clean(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        for var in self._VARS:
+            monkeypatch.delenv(var, raising=False)
+
+    def test_a_plain_push_build_is_alpha(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._clean(monkeypatch)
+        assert _resolve_build_channel(CIConfig()) == "alpha"
+
+    def test_the_env_override_wins(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._clean(monkeypatch)
+        monkeypatch.setenv("HYPERCI_CHANNEL", "release")
+        assert _resolve_build_channel(CIConfig()) == "release"
+
+    def test_the_override_is_normalised(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The workflow interpolates it, so whitespace and case arrive as typed.
+        self._clean(monkeypatch)
+        monkeypatch.setenv("HYPERCI_CHANNEL", "  Release  ")
+        assert _resolve_build_channel(CIConfig()) == "release"
+
+    def test_an_empty_override_does_not_count(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The workflow sets it to '' on a validate-only run, which must fall
+        # through to the inference rather than resolve to an empty channel.
+        self._clean(monkeypatch)
+        monkeypatch.setenv("HYPERCI_CHANNEL", "")
+        assert _resolve_build_channel(CIConfig()) == "alpha"
+
+    def test_a_tag_ref_infers_release(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._clean(monkeypatch)
+        monkeypatch.setenv("GITHUB_REF_TYPE", "tag")
+        assert _resolve_build_channel(CIConfig()) == "release"
+
+    @pytest.mark.parametrize("var", ["RUST_VERSION", "CI_COMMIT_TAG"])
+    def test_a_tagged_build_marker_infers_release(
+        self, monkeypatch: pytest.MonkeyPatch, var: str
+    ) -> None:
+        self._clean(monkeypatch)
+        monkeypatch.setenv(var, "1.2.3")
+        assert _resolve_build_channel(CIConfig()) == "release"
+
+    def test_the_override_beats_the_ref_type(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Priority, not just presence: an operator pinning alpha on a tag ref
+        # must not silently get a 60-minute build.
+        self._clean(monkeypatch)
+        monkeypatch.setenv("GITHUB_REF_TYPE", "tag")
+        monkeypatch.setenv("HYPERCI_CHANNEL", "alpha")
+        assert _resolve_build_channel(CIConfig()) == "alpha"
+
+    def test_the_publish_channel_config_does_not_leak_in(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # `publish.channel` says WHERE artefacts go. A project that ships to
+        # `release` still gets push-event CI on every commit, which must not
+        # trigger Tier 2 -- the build channel is orthogonal.
+        self._clean(monkeypatch)
+        config = CIConfig()
+        monkeypatch.setattr(config, "get", lambda *_a, **_k: "release")
+        assert _resolve_build_channel(config) == "alpha"
 
 
 class TestChannelDefaults:

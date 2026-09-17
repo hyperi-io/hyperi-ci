@@ -32,6 +32,7 @@ import time
 from datetime import UTC, datetime
 
 from hyperi_ci.common import error, info, success, warn
+from hyperi_ci.gate_audit import NO_VERDICT, gate_of
 from hyperi_ci.gh import get_current_branch, get_latest_run, gh_run, require_gh
 
 _TERMINAL_STATUSES = frozenset(
@@ -141,6 +142,18 @@ def _resume_command(run_id: str, timeout: int, repo: str | None = None) -> str:
     return f"hyperi-ci watch {run_id}{repo_arg} --timeout {timeout}"
 
 
+def _gates_unrun(run_data: dict) -> bool:
+    """Return True when the run has gate jobs and none of them reached a verdict.
+
+    Shares `gate_of` and `NO_VERDICT` with the gate audit so the two reports
+    cannot disagree about what counts as a gate having answered.
+    """
+    gates = [j for j in run_data.get("jobs", []) if gate_of(j.get("name", ""))]
+    if not gates:
+        return False
+    return all(job.get("conclusion") in NO_VERDICT for job in gates)
+
+
 def _print_summary(run_data: dict) -> None:
     """Print a human-readable run summary with job statuses."""
     conclusion = run_data.get("conclusion", "unknown")
@@ -149,7 +162,11 @@ def _print_summary(run_data: dict) -> None:
     url = run_data.get("url", "")
 
     header = f"{workflow} on {branch}: {conclusion}"
-    if conclusion == "success":
+    if conclusion == "success" and _gates_unrun(run_data):
+        # Green over a gate that never ran is the lie in issue #96, and the
+        # watcher is where a human reads the verdict.
+        warn(f"{header} -- quality + test did NOT run; nothing was verified")
+    elif conclusion == "success":
         success(header)
     elif conclusion in ("failure", "cancelled"):
         error(header)
@@ -171,6 +188,9 @@ def _print_summary(run_data: dict) -> None:
             for step_data in steps:
                 if step_data.get("conclusion") == "failure":
                     error(f"    failed step: {step_data.get('name', 'unknown')}")
+        elif gate_of(name):
+            # Rendered neutral, a skipped gate reads as one that passed.
+            warn(line)
         else:
             info(line)
 

@@ -19,6 +19,7 @@ from hyperi_ci.watch import (
     _first_failed_job,
     _get_run_status,
     _poll_interval,
+    _print_summary,
     _resume_command,
     watch_run,
 )
@@ -364,6 +365,81 @@ class TestWatchRunEarlyFail:
         ):
             rc = watch_run(run_id="1", timeout=0, interval=1)
         assert rc == 0
+
+
+class TestSkippedGateIsNotRenderedGreen:
+    """issue #96: a run whose gate jobs all skipped still concludes `success`.
+    The watcher is where a human reads that verdict, so it must not show a
+    gate that never ran as a pass."""
+
+    @staticmethod
+    def _run(quality: str | None, test: str | None, **extra: str | None) -> dict:
+        jobs = [
+            {"name": "ci / Quality", "conclusion": quality},
+            {"name": "ci / Test (arc-native-16cpu)", "conclusion": test},
+        ]
+        jobs.extend({"name": n, "conclusion": c} for n, c in extra.items())
+        return {
+            "status": "completed",
+            "conclusion": "success",
+            "url": "",
+            "workflowName": "CI",
+            "headBranch": "main",
+            "jobs": jobs,
+        }
+
+    def test_an_all_skipped_gate_run_is_not_green(self) -> None:
+        with (
+            patch("hyperi_ci.watch.success") as ok,
+            patch("hyperi_ci.watch.warn") as warned,
+        ):
+            _print_summary(self._run("skipped", "skipped"))
+        assert not any("CI on main" in c.args[0] for c in ok.call_args_list), (
+            "an all-skipped gate run must not render its header as success"
+        )
+        assert any("did NOT run" in c.args[0] for c in warned.call_args_list), (
+            "the header must say the gate did not run"
+        )
+
+    def test_an_executed_gate_still_renders_green(self) -> None:
+        with patch("hyperi_ci.watch.success") as ok:
+            _print_summary(self._run("success", "success"))
+        assert any("CI on main: success" in c.args[0] for c in ok.call_args_list)
+
+    def test_one_executed_leg_is_enough_to_stay_green(self) -> None:
+        # A matrixed Test with one skipped leg still answered the question.
+        with patch("hyperi_ci.watch.success") as ok:
+            _print_summary(self._run("success", "skipped"))
+        assert any("CI on main: success" in c.args[0] for c in ok.call_args_list)
+
+    def test_a_skipped_gate_job_line_warns(self) -> None:
+        with patch("hyperi_ci.watch.warn") as warned:
+            _print_summary(self._run("skipped", "success"))
+        assert any("Quality" in c.args[0] for c in warned.call_args_list), (
+            "a skipped gate job must render as warn, not neutral info"
+        )
+
+    def test_a_skipped_non_gate_job_stays_neutral(self) -> None:
+        # Container skips legitimately for a library; only the gates matter.
+        with patch("hyperi_ci.watch.info") as noted:
+            _print_summary(
+                self._run("success", "success", **{"ci / Container": "skipped"})
+            )
+        assert any("Container" in c.args[0] for c in noted.call_args_list)
+
+    def test_a_run_with_no_gate_jobs_is_not_accused(self) -> None:
+        # A different workflow shape is not a lie.
+        data = {
+            "status": "completed",
+            "conclusion": "success",
+            "url": "",
+            "workflowName": "CI",
+            "headBranch": "main",
+            "jobs": [{"name": "ci / Plan", "conclusion": "success"}],
+        }
+        with patch("hyperi_ci.watch.success") as ok:
+            _print_summary(data)
+        assert any("CI on main: success" in c.args[0] for c in ok.call_args_list)
 
 
 class TestFirstFailedJob:

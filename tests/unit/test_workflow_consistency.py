@@ -400,6 +400,116 @@ class TestMainOnlyPublishGate:
         )
 
 
+class TestReleaseWorthyGate:
+    """issue #124: the doctrine runs checks on PR review and RELEASE-WORTHY
+    pushes, but the code only ever asked for the `Publish: true` trailer --
+    which marks a push that PUBLISHES, a strictly smaller set. An ordinary
+    squash merge of a `fix:` to main ran no quality, no test, and went green."""
+
+    def _step(self, step_id: str) -> dict:
+        path = ACTIONS_DIR / "predict-version" / "action.yml"
+        action = yaml.safe_load(path.read_text(encoding="utf-8"))
+        return next(s for s in action["runs"]["steps"] if s.get("id") == step_id)
+
+    def _derive_halves(self) -> tuple[str, str]:
+        """The run_build block and everything after it (the run_checks half)."""
+        run = str(self._step("derive")["run"])
+        start = run.index('if [[ "$will_publish" == "true" ]]; then')
+        split = run.index("run_build=false")
+        return run[start:split], run[split:]
+
+    def test_run_checks_covers_a_release_worthy_push(self) -> None:
+        _build, checks = self._derive_halves()
+        assert '"$release_worthy" == "true"' in checks, (
+            "derive must set run_checks for a release-worthy push to main"
+        )
+
+    def test_run_build_ignores_release_worthiness(self) -> None:
+        # The red line in the doctrine: a commit that ships nothing must
+        # still compile nothing. Only run_checks widens.
+        build, _checks = self._derive_halves()
+        assert "release_worthy" not in build, (
+            "run_build must NOT key off release-worthiness -- a non-publishing "
+            "commit compiles nothing (CI gate doctrine)"
+        )
+
+    def test_the_probe_only_runs_on_a_push_to_main(self) -> None:
+        # A PR already runs the checks, and a feature-branch push must keep
+        # the chore-skip fast path.
+        ifc = str(self._step("worthy")["if"])
+        assert "github.event_name == 'push'" in ifc, (
+            "the worthiness probe must be gated to push events"
+        )
+        assert "refs/heads/main" in ifc, "the worthiness probe must be gated to main"
+
+    def test_the_probe_does_not_resolve_its_own_range(self) -> None:
+        # origin/main..HEAD is EMPTY right after a push to main (issue #52),
+        # so a second range resolver here would validate nothing. One resolver,
+        # in commit_range, reached through the shipped helper.
+        run = str(self._step("worthy")["run"])
+        assert "release_worthy.py" in run, "the probe must call the shipped helper"
+        assert "git log" not in run, (
+            "the probe must not derive a range in shell -- commit_range owns it"
+        )
+
+    def test_the_probe_ships_with_the_action(self) -> None:
+        # The composite loads it by path out of its own checkout; a rename
+        # would leave the step calling a file that is not there.
+        path = (
+            Path(__file__).resolve().parents[2]
+            / ".github/actions/predict-version/release_worthy.py"
+        )
+        assert path.is_file(), f"{path} is referenced by action.yml but missing"
+
+    def test_a_skipped_gate_on_main_warns_rather_than_notices(self) -> None:
+        # A ::notice:: saying nothing ran reads as a pass (issue #96).
+        run = str(self._step("derive")["run"])
+        assert "::warning::" in run, (
+            "derive must warn when run-checks is false on a push to main"
+        )
+
+
+class TestBuildChannelIsNotProxied:
+    """The Tier 2 (PGO + BOLT) switch keys off the publish decision itself.
+
+    `publish-target` was a proxy for it until v2.1.4 hollowed that input out
+    (it is documented in the same file as 'legacy field, ignored'), leaving
+    the workflow contradicting itself."""
+
+    def test_no_workflow_level_channel_in_rust_ci(self) -> None:
+        # A workflow-level default would apply to every job and put the proxy
+        # back without anyone noticing.
+        wf = _load_workflow("rust-ci.yml")
+        assert "HYPERCI_CHANNEL" not in wf.get("env", {}), (
+            "rust-ci.yml must not set HYPERCI_CHANNEL at workflow level -- the "
+            "build step owns it, keyed off will-publish"
+        )
+
+    def test_the_build_step_keys_the_channel_off_will_publish(self) -> None:
+        wf = _load_workflow("rust-ci.yml")
+        build = next(
+            s for s in wf["jobs"]["build"]["steps"] if s.get("name") == "Run build"
+        )
+        channel = str(build.get("env", {}).get("HYPERCI_CHANNEL", ""))
+        assert "needs.plan.outputs.will-publish" in channel, (
+            "the build channel must follow the publish decision, not a legacy "
+            "publish-target proxy"
+        )
+        assert "publish-target" not in channel, (
+            "publish-target is a legacy no-op -- it must not gate Tier 2"
+        )
+
+    def test_the_release_tail_declares_no_channel(self) -> None:
+        # Dead there: the tail runs only `run container` and `run publish`,
+        # and HYPERCI_CHANNEL is read in exactly one place -- the Rust BUILD
+        # stage, which the tail never runs.
+        wf = _load_workflow("_release-tail.yml")
+        assert "HYPERCI_CHANNEL" not in wf.get("env", {}), (
+            "_release-tail.yml sets HYPERCI_CHANNEL but runs no build stage, "
+            "so nothing reads it"
+        )
+
+
 class TestBranchModeThreading:
     """Branch-mode decision 2 (docs/plans/2026-07-branch-mode): an opted-in
     pull_request runs build + container. The opt-in threads consumer ci.yml

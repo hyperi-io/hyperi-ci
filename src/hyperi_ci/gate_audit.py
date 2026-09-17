@@ -68,7 +68,7 @@ _MATRIX_SUFFIX = re.compile(r"\s*\(.*\)$")
 
 # Conclusions that answer nothing: a skipped gate, a superseded run, one still
 # going.
-_NO_VERDICT = frozenset({"skipped", "cancelled", None})
+NO_VERDICT = frozenset({"skipped", "cancelled", None})
 
 
 def gate_of(job_name: str) -> str | None:
@@ -245,7 +245,7 @@ def scan_runs(runs: list[dict], jobs_for: JobsLookup) -> dict[str, GateStatus]:
                 # No such job in this run: a different workflow shape, not a
                 # skip.
                 continue
-            executed = [j for j in found if j.get("conclusion") not in _NO_VERDICT]
+            executed = [j for j in found if j.get("conclusion") not in NO_VERDICT]
             if not executed:
                 statuses[gate].skipped_before += 1
                 continue

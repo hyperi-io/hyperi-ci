@@ -83,9 +83,6 @@ env:
   # the repo to a known-good `uvx hyperi-ci==X.Y.Z`. Unset = latest PyPI.
   HYPERCI_INSTALL: ${{ vars.HYPERCI_INSTALL_OVERRIDE || 'uvx --no-cache --refresh hyperi-ci' }}
   HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
-  # When dispatched with a tag, this is a release-channel build —
-  # enables Tier 2 (PGO + BOLT) build optimisation.
-  HYPERCI_CHANNEL: ${{ inputs.tag && 'release' || '' }}
 
 jobs:
   container:

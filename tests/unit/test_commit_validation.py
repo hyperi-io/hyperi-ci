@@ -540,7 +540,10 @@ class TestValidationResult:
 
 
 # ---------------------------------------------------------------------------
-# Commit-range resolution + degraded backstop (issue #52)
+# Degraded backstop, advisory-vs-fatal (issue #52)
+#
+# Resolving the range itself is tested in test_commit_range.py, where the
+# resolver lives.
 # ---------------------------------------------------------------------------
 
 
@@ -566,71 +569,6 @@ def _write_push_event(tmp_path: Path, before: str, after: str) -> Path:
     payload = tmp_path / "event.json"
     payload.write_text(json.dumps({"before": before, "after": after}))
     return payload
-
-
-class TestGetCommitsToValidate:
-    def test_push_range_uses_before_after(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        repo = _repo(tmp_path)
-        base = _commit(repo, "chore: seed")
-        _commit(repo, "fix: one")
-        head = _commit(repo, "feat: two")
-        payload = _write_push_event(tmp_path, base, head)
-
-        monkeypatch.chdir(repo)
-        monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
-        monkeypatch.setenv("GITHUB_EVENT_PATH", str(payload))
-
-        commits, resolved = cv._get_commits_to_validate()
-        assert resolved is True
-        subjects = [m.splitlines()[0] for _, m in commits]
-        assert subjects == ["feat: two", "fix: one"]  # not the seed before `base`
-
-    def test_push_empty_range_is_resolved_not_degraded(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        # before == after (e.g. a re-run): a legit "no new commits", resolved.
-        repo = _repo(tmp_path)
-        head = _commit(repo, "fix: only")
-        payload = _write_push_event(tmp_path, head, head)
-        monkeypatch.chdir(repo)
-        monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
-        monkeypatch.setenv("GITHUB_EVENT_PATH", str(payload))
-
-        commits, resolved = cv._get_commits_to_validate()
-        assert resolved is True
-        assert commits == []
-
-    def test_push_new_branch_zero_before_is_unresolved(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        # A branch-creation push has an all-zeros `before` -> range can't be
-        # derived from it -> unresolved (caller must not treat as success).
-        repo = _repo(tmp_path)
-        head = _commit(repo, "fix: first")
-        payload = _write_push_event(tmp_path, "0" * 40, head)
-        monkeypatch.chdir(repo)
-        monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
-        monkeypatch.setenv("GITHUB_EVENT_PATH", str(payload))
-        # No origin/main and shallow-style: force fallbacks to miss.
-        commits, resolved = cv._get_commits_to_validate()
-        assert resolved is False
-
-    def test_missing_before_commit_is_unresolved(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        # `before` names a SHA not in the (shallow) clone -> git errors -> the
-        # push path can't resolve, and with no origin/main it stays unresolved.
-        repo = _repo(tmp_path)
-        _commit(repo, "fix: a")
-        head = _commit(repo, "fix: b")
-        payload = _write_push_event(tmp_path, "deadbeef" * 5, head)
-        monkeypatch.chdir(repo)
-        monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
-        monkeypatch.setenv("GITHUB_EVENT_PATH", str(payload))
-        commits, resolved = cv._get_commits_to_validate()
-        assert resolved is False
 
 
 class TestRunDegraded:
@@ -765,10 +703,3 @@ class TestRunLocal:
 
         rc = cv.run()  # no local, not CI -> skip entirely
         assert rc == 0
-
-
-def test_is_zero_sha() -> None:
-    assert cv._is_zero_sha("0" * 40) is True
-    assert cv._is_zero_sha("0" * 7) is True
-    assert cv._is_zero_sha("deadbeef") is False
-    assert cv._is_zero_sha("000000") is False  # too short to be the sentinel
