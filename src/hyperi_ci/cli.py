@@ -16,7 +16,7 @@ Usage:
     hyperi-ci trigger                   Trigger a GitHub Actions workflow run
     hyperi-ci watch [RUN_ID]            Watch a GitHub Actions run to completion
     hyperi-ci logs [RUN_ID]             Fetch and filter GitHub Actions run logs
-    hyperi-ci release <tag>             Trigger publish for a version tag
+    hyperi-ci publish [<tag>]           Release/retry HEAD, or re-publish a tag
     hyperi-ci update                    Update to the channel's release
     hyperi-ci autoupdate                Show/set self-update channel + freeze
     hyperi-ci check-commit              Validate commit message format
@@ -206,6 +206,9 @@ def check(
     ] = False,
 ) -> None:
     """Run local pre-push checks (quality + test by default).
+
+    A merge to main whose pushed range is not release-worthy runs no
+    quality or test job in CI, so this local run is the only gate it gets.
 
     With ``--strict``, warn-tier quality findings (which CI tolerates but
     still prints) are treated as failures, so nothing is carried into a
@@ -446,6 +449,10 @@ def push(
     """Push with pre-checks. Replaces bare ``git push``.
 
     Default flow: runs quality + test checks, rebases, then pushes.
+
+    Without ``--publish`` nothing ships: the CI run builds, tags and
+    publishes nothing, and runs quality + test only when the pushed
+    range is release-worthy.
 
     With ``--publish`` (canonical) or ``--release`` (alias): amends the
     head commit with the ``Publish: true`` trailer, then pushes. The
@@ -1432,14 +1439,14 @@ def check_commits_cmd() -> None:
     commit, and is FATAL on push but ADVISORY on pull_request (branch
     commits may be squashed away). CI-only; a no-op locally. Driven by the
     dedicated `commit-check` workflow job, NOT the run-checks-gated quality
-    job - so a merge to main is validated even when it is not a publish.
+    job - so a merge to main is validated even when it is not release-worthy.
     """
     from hyperi_ci.quality import deprecated_files
     from hyperi_ci.quality.commit_validation import run
 
     # The always-on `commit-check` CI job is the cheapest run that fires on
     # every push/PR, so surface the deprecated-file nudge here too (the
-    # run-checks-gated quality job is skipped on non-publish pushes).
+    # run-checks-gated quality job is skipped on non-release-worthy pushes).
     deprecated_files.scan()
     raise typer.Exit(run())
 

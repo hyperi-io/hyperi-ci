@@ -11,7 +11,7 @@ One signal - `will-publish` - gates the whole pipeline.
 flowchart TD
     A[push to main / workflow_dispatch] --> B[Plan job<br/>predict-version action]
     B --> C{Publish: true trailer<br/>or dispatch?}
-    C -->|no| V[validate-only<br/>quality + test only on PRs]
+    C -->|no| V[no tag, no publish<br/>quality + test on a PR or a<br/>release-worthy push to main]
     C -->|yes| D[semantic-release --dry-run]
     D --> E{release-worthy<br/>commits?}
     E -->|no| F[hard fail<br/>remove trailer or land fix:]
@@ -22,7 +22,8 @@ flowchart TD
 - `will-publish` = dispatch, or a `Publish: true` trailer on HEAD.
 - `next-version` comes from `semantic-release --dry-run` - same config the real
   tag step uses, so they cannot disagree.
-- No trailer on a push to main -> validate-only (no tag, no publish).
+- No trailer on a push to main -> no tag, no publish. A release-worthy pushed
+  range still runs quality + test; a `chore:` / `docs:` push runs neither.
 
 ## 2. Pipeline and job dependencies
 
@@ -114,8 +115,10 @@ flowchart LR
 ## 6. Release channels
 
 One-branch model. `publish.channel` graduates a project by one line in
-`.hyperi-ci.yaml`; it sets prerelease-vs-GA and gates the Rust build-opt tiers -
-it does **not** change publish destination (all channels publish OSS).
+`.hyperi-ci.yaml`; it sets prerelease-vs-GA and the R2 path. It does **not**
+change publish destination (all channels publish OSS), and it does **not** gate
+the Rust build tier - `build.py` never reads it. The tier follows whether the
+run publishes: [languages/rust.md](languages/rust.md).
 
 ```mermaid
 flowchart LR
@@ -124,11 +127,11 @@ flowchart LR
     R -->|GA| GA["OSS registries<br/>+ /{project}/vX/ + latest"]
 ```
 
-| Channel | Release kind | Rust build-opt | R2 path |
-|---|---|---|---|
-| `alpha` | GitHub prerelease | jemalloc + thin LTO (fast feedback) | `/{project}/<channel>/vX/` |
-| `beta` | GitHub prerelease | jemalloc + fat LTO | `/{project}/<channel>/vX/` |
-| `release` | GA | + PGO/BOLT (opt-in) | `/{project}/vX/` + `latest` |
+| Channel | Release kind | R2 path |
+|---|---|---|
+| `alpha` | GitHub prerelease | `/{project}/<channel>/vX/` |
+| `beta` | GitHub prerelease | `/{project}/<channel>/vX/` |
+| `release` | GA | `/{project}/vX/` + `latest` |
 
 - Channel is set by `publish.channel` in `.hyperi-ci.yaml`, not by a branch.
   semantic-release runs only on `main` and produces real versions (`1.3.0`, not
@@ -136,9 +139,9 @@ flowchart LR
 - Rust build-opt is skippable for a single run with the `skip-optimize`
   dispatch input, for when a fast pre-GA image beats an optimised one.
   See [languages/rust.md](languages/rust.md) - *Skipping optimisation for one run*.
-- GA vs prerelease and the arch set follow the channel: `alpha`/`beta`
-  are GitHub prereleases (x64, fast feedback); `release` is GA (x64 + arm64).
-  Tier detail: [languages/rust.md](languages/rust.md).
+- GA vs prerelease follows the channel: `alpha` / `beta` are GitHub
+  prereleases, `release` is GA. The arch set does not - the arm64 leg is added
+  when `will-publish` is true, whatever the channel.
 
 ## 7. Binary publish - what's uploaded and how it's named
 

@@ -89,11 +89,11 @@ hyperi-ci check --strict                # Also fail on warn-tier findings (zero 
 # 3. Commit (hook validates your message format)
 git commit -m "fix: resolve timeout in auth handler"
 
-# 4. Push (validate-only — no tag, no publish)
+# 4. Push (ships nothing -- no tag, no publish)
 hyperi-ci push
 
-# That's it. CI runs quality, test, build, and validates the container
-# Dockerfile. No tag is created. No registry is touched.
+# That's it. Quality and test run if the pushed range is release-worthy.
+# Nothing compiles, no image is built, no tag, no registry is touched.
 ```
 
 ## Publishing a Release
@@ -159,13 +159,14 @@ hyperi-ci publish --list         # see unpublished tags
 
 ### What pushes WITHOUT `--publish`
 
-A plain `hyperi-ci push` runs the full pipeline through the build stage
-in **validate-only** mode. Container builds (to catch Dockerfile
-breakages) but does not push. No tag, no registry upload.
+A plain `hyperi-ci push` ships nothing and builds nothing -- `run-build` is
+publish-only, so no cargo compile and no container job runs at all. Quality
+and test run when the pushed range is release-worthy (it carries a `feat:`,
+`fix:` or `perf:`), and skip entirely when it is not.
 
-This means the default state of `main` is "all green, ready to ship."
-You can release any time by running `hyperi-ci push --publish` on the
-next conventional commit.
+So the default state of `main` is "landed, and tested if it was
+release-worthy" -- not "built and ready to ship". You release explicitly by
+running `hyperi-ci push --publish` on the next conventional commit.
 
 ## Commit Messages
 
@@ -255,7 +256,7 @@ No code changes, no workflow changes.
 | `hyperi-ci check --quick` | Quality only |
 | `hyperi-ci check --full` | Quality + test + build |
 | `hyperi-ci check --strict` | Also fail on warn-tier findings - see [docs/quality-gate.md](docs/quality-gate.md) |
-| `hyperi-ci push` | Push (validate-only — no tag, no publish) |
+| `hyperi-ci push` | Push -- ships nothing, quality + test if release-worthy |
 | `hyperi-ci push --publish` | Stamp `Publish: true` trailer, push, single-run publish |
 | `hyperi-ci push --bump-patch` | Force +0.0.1 release even with no-bump commits |
 | `hyperi-ci push --bump-minor` | Force +0.1.0 release even with no-bump commits |
@@ -308,13 +309,14 @@ Your Project                          hyperi-ci
 
 ```mermaid
 flowchart LR
-    Q[quality] --> S[setup]
-    T[test] --> S
-    S --> B[build]
-    B --> C["container<br/>(validate-only)"]
+    P[plan] -->|release-worthy| Q[quality]
+    P -->|release-worthy| T[test]
+    P -->|not release-worthy| S[everything skips]
 ```
 
-No tag, no registry upload. Default state of main = "validated, ready to ship."
+No build, no container, no tag, no registry upload. A release-worthy merge is
+TESTED, not shipped -- `run-build` is publish-only, so nothing compiles and no
+image is produced until you release.
 
 ### Pipeline (push to main with `Publish: true` trailer, OR workflow_dispatch)
 

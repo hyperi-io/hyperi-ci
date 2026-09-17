@@ -37,7 +37,7 @@ semantics. The biggest user-visible changes:
 
 | Concept | v1 | v2 |
 |---|---|---|
-| Push triggers release | Every `fix:`/`feat:` push tags a version | Push is validate-only by default |
+| Push triggers release | Every `fix:`/`feat:` push tags a version | Push ships nothing by default |
 | Release trigger | `hyperi-ci release vX.Y.Z` (separate dispatch) | `hyperi-ci push --publish` (single CI run) |
 | Tag semantics | Tags accumulate; some published, some not | Tag = "this artefact is in a registry" |
 | Build runs per release | 2 (push run + dispatch run) | 1 |
@@ -46,13 +46,12 @@ semantics. The biggest user-visible changes:
 
 ### What you have to do
 
-1. **Update `.hyperi-ci.yaml`** - `target` no longer matters (JFrog was
-   removed in v2.1.4 and every value routes to OSS), but you can flip
-   to `oss` for clarity:
+1. **Update `.hyperi-ci.yaml`** - `target` no longer matters (JFrog went
+   in v2.1.4; every value routes to OSS), but flip to `oss` for clarity:
 
    ```yaml
    publish:
-     target: oss   # was: internal or both — both still accepted, both go to OSS
+     target: oss   # internal/both still accepted, both go to OSS
    ```
 
 2. **Bump `hyperi-ci` to >= 2.0.0** in any local install:
@@ -61,10 +60,9 @@ semantics. The biggest user-visible changes:
    uv tool install --force --refresh hyperi-ci@latest
    ```
 
-   Not `uv tool upgrade` -- it exits 0 without doing anything if the install was
-   ever pinned to an exact version. `--refresh` matters too: `@latest` resolves
-   against uv's cached index, so without it you can install the previous version
-   of something released minutes ago.
+   Not `uv tool upgrade` -- it exits 0 without doing anything on an install
+   pinned to an exact version. `--refresh` matters too: `@latest` otherwise
+   resolves against uv's cached index.
 
 3. **Update reusable workflow ref** in your `.github/workflows/ci.yml`:
 
@@ -82,20 +80,18 @@ semantics. The biggest user-visible changes:
    - Use `hyperi-ci push --publish` instead - it amends your commit
      with the `Publish: true` trailer and triggers a single CI run that
      tags + publishes.
-   - For **forced bumps** when commits aren't release-worthy (docs-only,
-     refactor-only, force-rebuild): use `hyperi-ci push --bump-patch`
-     or `--bump-minor`. Adds a real `fix(release):` / `feat(release):`
-     marker commit (with VERSION write) that semantic-release picks up
-     and that won't be filtered by consumer `paths-ignore`. Major bumps
-     are deliberately excluded - they require a human-written breaking-
-     change footer.
+   - For **forced bumps** when commits aren't release-worthy: use
+     `hyperi-ci push --bump-patch` or `--bump-minor`. Adds a real
+     `fix(release):` / `feat(release):` marker commit (with VERSION
+     write) that semantic-release picks up and consumer `paths-ignore`
+     won't filter. Major bumps need a human-written breaking-change
+     footer.
    - Use `hyperi-ci publish vX.Y.Z` (canonical) for retroactive
      re-publishes against existing tags.
-   - To release or retry the **current HEAD** without inventing a
-     release-worthy commit: dispatch the workflow with `from-head: true`
-     (optionally `bump: patch | minor | X.Y.Z`) from the Actions UI, or
-     run `hyperi-ci publish` with no tag. The CI creates the tag and
-     publishes in a single run (issue #35).
+   - To release or retry the **current HEAD**: run `hyperi-ci publish`
+     with no tag, or dispatch with `from-head: true` (optionally
+     `bump: patch | minor | X.Y.Z`) from the Actions UI. The CI cuts the
+     tag and publishes in one run (issue #35).
 
 ### What you don't have to do
 
@@ -112,10 +108,10 @@ semantics. The biggest user-visible changes:
 
 ### Edge cases
 
-- **PR -> merge to main**: a normal merge is now validate-only (no
-  tag, no publish). Add `Publish: true` to your final commit in the
-  PR (or merge then run `hyperi-ci push --publish` with an empty
-  marker commit) to ship.
+- **PR -> merge to main**: a normal merge ships nothing - no tag, no
+  publish. A release-worthy merge still runs quality + test; a
+  `chore:` / `docs:` merge runs neither. Add `Publish: true` to your
+  final commit to ship.
 - **Release on main with no `fix:`/`feat:`**: setup hard-fails - the
   `Publish: true` trailer requires at least one release-worthy commit
   since the last tag. Add a `fix:` / `feat:` commit, or remove the

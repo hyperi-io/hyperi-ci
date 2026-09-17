@@ -113,16 +113,18 @@ openssl) needs a private sysroot with transitive dependency resolution - fragile
 each new native dep breaks differently. Native arm64 runners eliminate the whole
 problem class.
 
-**When does arm64 build?** Only on a GA publish run (a `release`-channel
-publish). Validate-only pushes, PRs, and prerelease channels build x64 only -
-dev-cycle builds stay fast and avoid arm64 runner cost. The selection is
-event/channel-driven (there is no `release` branch under single-versioning).
+**When does arm64 build?** Only on a run that publishes. The arm64 leg is added
+when `will-publish` is true (`rust-ci.yml`, *Generate build matrix*) - the
+publish channel plays no part. Every other run that builds stays x64, so the
+dev cycle stays fast and skips the arm64 runner cost.
 
-| Run | Architectures | Purpose |
-|---|---|---|
-| PR / feature-branch push | x64 | development, PR validation |
-| push to `main`, no `Publish:` trailer | x64 | validate-only |
-| GA publish (`Publish: true`, `release` channel) | x64 + arm64 | GA release |
+| Run | Architectures |
+|---|---|
+| PR with `branch-build`, or a validate-only dispatch | x64 |
+| publish run (`Publish: true` trailer, or a `publish` dispatch) | x64 + arm64 |
+
+A push to main with no trailer builds nothing at all - `run-build` is
+publish-only, so no leg runs whatever the matrix says.
 
 A Rust project narrows that with `build.rust.targets` in `.hyperi-ci.yaml`: the
 publish matrix carries a leg only for a listed target, so a project whose

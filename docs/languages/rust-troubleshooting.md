@@ -12,7 +12,7 @@ The tiers and their config keys are [rust.md](rust.md). The log markers that say
 |---|---|
 | "allocator 'jemalloc' requested but feature not declared" | Add `jemalloc = ["dep:tikv-jemallocator"]` to your Cargo.toml `[features]` |
 | jemalloc symbols absent from published binary | Check `cargo tree --features jemalloc` resolves correctly. Check your `#[cfg(feature = "jemalloc")]` allocator wiring actually compiled in |
-| Build log says `channel=alpha` on a release dispatch | You dispatched via the wrong path - use `hyperi-ci release <tag>`, not `gh workflow run` |
+| Build log says `channel=alpha` when you expected a release build | The run is not publishing - `channel=alpha` is correct for every non-publish run. Release with `hyperi-ci push --publish` or `hyperi-ci publish` |
 
 ## Tier 2 / PGO
 
@@ -53,9 +53,10 @@ Every one of these cost a re-dispatch during the dfe-receiver canary.
 You benefit from the fix already being in hyperi-ci v1.10.4+; knowing
 *why* helps debugging.
 
-1. **Tier 2 runs only on `release` dispatch, not every push.** Gated on
-   `HYPERCI_CHANNEL=release` which the workflow sets when `inputs.tag`
-   is non-empty. Push-to-main builds use plain release + Tier 1 only.
+1. **Tier 2 runs only on a build that ships, not every push.** Gated on
+   `HYPERCI_CHANNEL=release`, which rust-ci.yml sets on the build step when
+   `plan.outputs.will-publish` is true. Validate-only builds use plain
+   release + Tier 1 only.
 
 2. **Workload must self-terminate.** The `duration_secs + 600s` absolute
    timeout is a safety net, not extra runtime. If your workload hangs,

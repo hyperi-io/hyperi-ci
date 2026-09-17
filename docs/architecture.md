@@ -89,7 +89,7 @@ the single place language divergence is allowed.
 | `release-tail` | `[plan, build]` | own gates | Container + tag-and-publish, via shared `_release-tail.yml` |
 
 `commit-check` is deliberately **independent of `plan` / `run-checks`**: that
-gate skips the quality job on ordinary (non-publish) merges to main, so a bad
+gate skips the quality job on non-release-worthy merges to main, so a bad
 conventional-commit message could otherwise land unvalidated. It is a cheap
 git-log + regex check (no compile/publish), fatal on the push that actually
 reaches main and advisory on PRs (branch commits may be squashed away - only
@@ -102,7 +102,7 @@ local `hyperi-ci check` runs the same validation over `origin/main..HEAD`.
 | Output | True when | Effect |
 |---|---|---|
 | `will-publish` | push to **main** with `Publish: true` trailer, OR `workflow_dispatch` carrying `tag` or `from-head: true` | The underlying release signal. A trailer on a non-main ref is ignored LOUDLY (`::warning::`) - main is the sole publish path (branch-mode decision 1). A dispatch carrying neither is validate-only and warns that nothing was published |
-| `run-checks` | `will-publish`, OR `pull_request`, OR `workflow_dispatch` | Run quality + test |
+| `run-checks` | `will-publish`, OR a **release-worthy push to main** (the pushed range carries a `feat:` / `fix:` / `perf:`; a range that cannot be resolved counts as worthy, so the gate fails open), OR `pull_request`, OR `workflow_dispatch` | Run quality + test. A release-worthy merge is TESTED, never shipped - `run-build` stays publish-only |
 | `run-build` | `will-publish`, OR `workflow_dispatch`, OR `pull_request` with the `branch-build` opt-in | Run build + container (publish stays `will-publish`-only) |
 | `next-version` | `will-publish` AND push | Predicted semver from semantic-release dry-run |
 | `build-matrix` | always | Single-arch unless `will-publish` - PR branch-mode builds stay single-arch. A project that lists `build.rust.targets` in `.hyperi-ci.yaml` gets legs for those targets only, so one that cannot build arm64 still releases amd64 |
@@ -135,7 +135,9 @@ flowchart LR
     WP -->|true| RB["run-build=true<br/>run-checks=true"]
     WP -->|false| PR{pull_request?}
     PR -->|true| RC["run-checks=true<br/>run-build=false"]
-    PR -->|false| SK["everything skips<br/>(plan only)"]
+    PR -->|false| RW{release-worthy<br/>push to main?}
+    RW -->|true| RC
+    RW -->|false| SK["everything skips<br/>(plan only)"]
     style RB fill:#dcfce7,color:#000
     style RC fill:#fef3c7,color:#000
     style SK fill:#fee2e2,color:#000
@@ -146,7 +148,7 @@ flowchart LR
 | Push type | plan | commit-check | quality | test | build | container | tag+publish |
 |---|---|---|---|---|---|---|---|
 | `chore:` / `docs:` to main | yes | yes | no | no | no | no | no |
-| `feat:`/`fix:` to main, no `Publish:` trailer | yes | yes | no | no | no | no | no |
+| `feat:`/`fix:` to main, no `Publish:` trailer | yes | yes | yes | yes | no | no | no |
 | `feat:`/`fix:` to main + `Publish: true` | yes | yes | yes | yes | yes | yes | yes |
 | Pull request | yes | yes advisory | yes | yes | no | no | no |
 | Pull request + `branch-build` opt-in | yes | yes advisory | yes | yes | yes | yes validate / dev push | no |
@@ -219,8 +221,7 @@ Third-party pinning policy: [dependencies/DEPS-PINNING.md](dependencies/deps-pin
 hyperi-ci run <stage>      quality | test | build | publish
 hyperi-ci check [--quick|--full|--strict]  pre-push: quality(+test)(+build); --strict fails on warn-tier findings
 hyperi-ci push [--publish]         commit + push, opt-in Publish: true trailer
-hyperi-ci release <tag>            dispatch a GA/optimised release run
-hyperi-ci publish                  run the publish stage
+hyperi-ci publish [<tag>]          release/retry HEAD, or re-publish an existing tag
 hyperi-ci stamp-version <v>        write VERSION + manifest (central)
 hyperi-ci init                     scaffold ci.yml, .hyperi-ci.yaml, Makefile, githooks
 hyperi-ci detect | config          show detected language / merged config
@@ -334,7 +335,7 @@ detail - tiers, cache, cross-compile (dormant) - is
 4. **Cross-platform** - `pathlib`, `shutil.which`, `sys.platform`; Linux (CI)
    and macOS (dev).
 5. **Self-hosting** - hyperi-ci runs its own pipeline through its own workflow.
-6. **KISS** - a battle-tested tool that's good enough beats bespoke CI code.
+6. **KISS** - a maintained third-party tool that's good enough beats bespoke CI code.
    Over-engineered CI kills small teams; we reject custom machinery (see #31).
 
 ## Repo layout
