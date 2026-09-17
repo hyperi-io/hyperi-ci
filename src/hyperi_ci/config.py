@@ -113,11 +113,14 @@ class CIConfig:
         in v2.1.4.
         """
         dest = self.get("release.destinations", {})
-        if not dest:
-            # A folded legacy config carries the old key name inside the new
-            # namespace: `publish.destinations_oss` -> `release.destinations_oss`.
-            dest = self.get("release.destinations_oss", {})
-        return [dest] if isinstance(dest, dict) and dest else []
+        dest = dict(dest) if isinstance(dest, dict) else {}
+        # Merged, not a fallback: the defaults always populate `destinations`,
+        # so a fallback can never fire. Only a project sets `destinations_oss`
+        # (the old spelling, folded from `publish.`), so its entry wins.
+        legacy = self.get("release.destinations_oss", {})
+        if isinstance(legacy, dict):
+            dest.update(legacy)
+        return [dest] if dest else []
 
     def destination_for(self, artifact_type: str) -> list[str]:
         """Get publish destination(s) for a specific artifact type.
@@ -126,7 +129,8 @@ class CIConfig:
         opt-out and skipped, so a project can drop one artefact from
         publishing while keeping the rest — e.g. a private Python service
         that ships only its GHCR container sets
-        ``publish.destinations_oss.python: false``.
+        ``release.destinations.python: false``. The older
+        ``publish.destinations_oss`` spelling still works.
 
         Args:
             artifact_type: One of python, npm, cargo, container, helm, binaries, go.

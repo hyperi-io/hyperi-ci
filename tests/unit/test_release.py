@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from hyperi_ci.config import CIConfig
+from hyperi_ci.config import CIConfig, load_config
 
 
 def _make_config(publish_target: str = "oss") -> CIConfig:
@@ -267,6 +267,34 @@ class TestPythonDistExclusion:
         assert config.destination_for("binaries") == ["r2-binaries"]
         # publish_binaries derives exclude_python from exactly this.
         assert bool(config.destination_for("python")) is False
+
+
+class TestOptOutSurvivesTheDefaultsMerge:
+    """Through the real loader, because a raw CIConfig carries no defaults.
+
+    The defaults populate `release.destinations`, so a project's opt-out has to
+    merge OVER them; as a fallback it never fires and the artefact ships anyway.
+    dfe-engine declares `python: false` in the legacy spelling and is private.
+    """
+
+    @staticmethod
+    def _loaded(body: str, root: Path) -> CIConfig:
+        (root / ".hyperi-ci.yaml").write_text(body, encoding="utf-8")
+        return load_config(project_dir=root, reload=True)
+
+    _LEGACY = "language: python\npublish:\n  destinations_oss:\n    python: false\n"
+    _CANONICAL = "language: python\nrelease:\n  destinations:\n    python: false\n"
+
+    def test_legacy_spelling_opts_out(self, tmp_path: Path) -> None:
+        assert self._loaded(self._LEGACY, tmp_path).destination_for("python") == []
+
+    def test_canonical_spelling_opts_out(self, tmp_path: Path) -> None:
+        assert self._loaded(self._CANONICAL, tmp_path).destination_for("python") == []
+
+    def test_unnamed_artefacts_keep_their_default(self, tmp_path: Path) -> None:
+        cfg = self._loaded(self._LEGACY, tmp_path)
+        assert cfg.destination_for("binaries") == ["r2-binaries"]
+        assert cfg.destination_for("container") == ["ghcr"]
 
 
 class TestReleaseTargetsHead:
