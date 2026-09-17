@@ -42,8 +42,10 @@ from hyperi_ci.languages._build_common import (
     human_size as _human_size,
 )
 from hyperi_ci.languages.rust.optimize import (
+    OptimizationOutcome,
     OptimizationProfile,
     cargo_feature_args,
+    log_outcome,
     log_profile,
     parse_cargo_features,
     resolve_optimization_profile,
@@ -827,6 +829,47 @@ def _resolve_build_channel(config: CIConfig) -> str:
     return "alpha"
 
 
+def _cargo_metadata() -> dict | None:
+    """Parse `cargo metadata --no-deps`; None when cargo or the manifest fails.
+
+    `--no-deps` limits `packages` to the workspace members, which is the
+    crate list both binary detection and feature detection need.
+    """
+    result = subprocess.run(
+        ["cargo", "metadata", "--format-version", "1", "--no-deps"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+
+
+def _detect_cargo_features() -> set[str]:
+    """Union the `[features]` tables of the root manifest and every member.
+
+    A virtual workspace root declares no features of its own, so reading it
+    alone hid a member crate's allocator feature and the build fell back to
+    the system allocator.
+    """
+    features = parse_cargo_features(Path.cwd() / "Cargo.toml")
+
+    meta = _cargo_metadata()
+    if meta is None:
+        return features
+
+    for package in meta.get("packages", []):
+        manifest = package.get("manifest_path")
+        if manifest:
+            features |= parse_cargo_features(Path(manifest))
+    return features
+
+
 def _detect_binary_names() -> list[str]:
     """Detect binary target names from Cargo metadata.
 
@@ -839,18 +882,8 @@ def _detect_binary_names() -> list[str]:
     and forcing them into the publish path breaks the default build
     when the feature isn't enabled.
     """
-    result = subprocess.run(
-        ["cargo", "metadata", "--format-version", "1", "--no-deps"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        return [Path.cwd().name]
-
-    try:
-        meta = json.loads(result.stdout)
-    except json.JSONDecodeError:
+    meta = _cargo_metadata()
+    if meta is None:
         return [Path.cwd().name]
 
     names: list[str] = []
@@ -1141,6 +1174,7 @@ def _build_for_target(
     all_features: bool,
     extra_env: dict[str, str] | None = None,
     profile: OptimizationProfile | None = None,
+    outcome: OptimizationOutcome | None = None,
 ) -> int:
     """Build for a specific target triple.
 
@@ -1185,6 +1219,7 @@ def _build_for_target(
                     "RUST_FEATURES": features,
                     "RUST_ALL_FEATURES": "true" if all_features else "false",
                 },
+                outcome=outcome,
             )
 
     feature_args = cargo_feature_args(profile, features, all_features=all_features)
@@ -1281,12 +1316,18 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         base_profile = resolve_optimization_profile(
             channel, user_optimize, skip_optimize=skip
         )
-        cargo_features = parse_cargo_features(Path.cwd() / "Cargo.toml")
+        cargo_features = _detect_cargo_features()
         # Target-specific validation happens per-target (BOLT is Linux-only)
+
+    # Tier 2 was asked for, so every target owes a summary saying what ran.
+    tier2 = bool(
+        base_profile and (base_profile.pgo_enabled or base_profile.bolt_enabled)
+    )
 
     for target in targets:
         with group(f"Build: {target}"):
             profile = None
+            outcome = None
             if base_profile:
                 profile = validate_profile(
                     base_profile,
@@ -1294,12 +1335,15 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
                     target=target,
                 )
                 log_profile(profile)
+                outcome = OptimizationOutcome(allocator=profile.allocator)
             rc = _build_for_target(
-                target, features, all_features, extra, profile=profile
+                target, features, all_features, extra, profile=profile, outcome=outcome
             )
             if rc != 0:
                 error(f"Build failed for target: {target}")
                 return rc
+            if tier2 and outcome:
+                log_outcome(outcome)
             success(f"Built: {target}")
 
     with group("Binary packaging"):

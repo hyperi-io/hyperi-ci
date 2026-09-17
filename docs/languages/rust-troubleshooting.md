@@ -10,7 +10,7 @@ The tiers and their config keys are [rust.md](rust.md). The log markers that say
 
 | Symptom | Fix |
 |---|---|
-| "allocator 'jemalloc' requested but feature not declared" | Add `jemalloc = ["dep:tikv-jemallocator"]` to your Cargo.toml `[features]` |
+| "allocator 'jemalloc' requested but feature not declared" | Add `jemalloc = ["dep:tikv-jemallocator"]` to your Cargo.toml `[features]`. In a workspace the root manifest and every member are read, so this means no crate in the workspace declares it |
 | jemalloc symbols absent from published binary | Check `cargo tree --features jemalloc` resolves correctly. Check your `#[cfg(feature = "jemalloc")]` allocator wiring actually compiled in |
 | Build log says `channel=alpha` when you expected a release build | The run is not a release - `channel=alpha` is correct for every non-release run. Release with `hyperi-ci push --release` or `hyperi-ci release` |
 
@@ -32,6 +32,7 @@ The tiers and their config keys are [rust.md](rust.md). The log markers that say
 |---|---|
 | "BOLT skipped - not a Linux target" | Expected on macOS/Windows targets. Non-fatal |
 | "llvm-bolt not installed - skipping BOLT step" | `bolt-NN` apt package didn't install. Check runner egress to apt.llvm.org, GPG key fetch succeeded, `dpkg -l bolt-23` on the runner |
+| "BOLT toolchain not complete (llvm-bolt / merge-fdata / ld.lld) - skipping BOLT step" on one arch only | The other arch's runner image ships the toolchain already, so only the hosted leg skips. A virtual workspace root (`[workspace]`, no `[package]`) now matches the bolt, mold and clang install groups - on an older hyperi-ci only a root `[package]` did |
 | "Cannot find merge-fdata: cannot find binary path" | The `bolt-NN` package ships both binaries; missing merge-fdata means the package didn't install. Same root cause as above. Fixed in hyperi-ci v1.10.4+ |
 | "linking with `cc` failed: ld terminated with signal 11" (mold segfault) OR "ld: final link failed: invalid operation" (BFD) during `cargo pgo bolt build` | BOLT's `-Wl,-q` (`--emit-relocs`) isn't supported by mold/BFD. hyperi-ci v1.10.7+ forces `-fuse-ld=lld` for BOLT steps via `CARGO_TARGET_<TRIPLE>_RUSTFLAGS` (lld-NN shipped by the `lld-NN` apt package). On older versions, strip `-fuse-ld=mold` from the project's `[target.*] rustflags` to unblock |
 

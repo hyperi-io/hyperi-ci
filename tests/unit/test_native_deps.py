@@ -505,6 +505,26 @@ class TestDepGroupLoading:
         assert "bolt-19" in bolt.apt_packages
         assert bolt.apt_repos[0].codename == "llvm-toolchain-noble-19"
 
+    # The three groups every Rust project gets regardless of its dependencies.
+    _ALWAYS_ON = ("mold linker", "clang linker", "llvm-bolt")
+
+    @pytest.mark.parametrize("group_name", _ALWAYS_ON)
+    def test_rust_yaml_always_on_group_matches_a_plain_package_root(
+        self, group_name: str
+    ) -> None:
+        group = next(g for g in _load_dep_groups("rust") if g.name == group_name)
+        manifest = '[package]\nname = "app"\nversion = "1.0.0"\n'
+        assert native_deps._patterns_match(manifest, group.patterns)
+
+    @pytest.mark.parametrize("group_name", _ALWAYS_ON)
+    def test_rust_yaml_always_on_group_matches_a_virtual_workspace_root(
+        self, group_name: str
+    ) -> None:
+        """A virtual workspace root has no [package] and still needs all three."""
+        group = next(g for g in _load_dep_groups("rust") if g.name == group_name)
+        manifest = '[workspace]\nmembers = ["crates/archiver"]\nresolver = "2"\n'
+        assert native_deps._patterns_match(manifest, group.patterns)
+
 
 class TestMultiVersionToolchains:
     """Toolchains category expands `versions:` list into N DepGroups.

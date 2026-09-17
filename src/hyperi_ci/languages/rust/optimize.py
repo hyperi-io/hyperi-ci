@@ -88,6 +88,27 @@ class OptimizationProfile:
         return ", ".join(parts)
 
 
+@dataclass
+class OptimizationOutcome:
+    """What the Tier 2 pipeline actually did for one target.
+
+    `OptimizationProfile.describe()` reports the request; this reports the
+    result. Every Tier 2 skip is warn-only, so without this line a log
+    reader cannot tell an optimised arch from one that quietly fell back.
+    Mutable: the pipeline fills it in as each stage completes.
+    """
+
+    allocator: str = "system"
+    pgo_applied: bool = False
+    bolt_applied: bool = False
+
+    def describe(self) -> str:
+        """Human-readable one-line summary for CI logs."""
+        pgo = "yes" if self.pgo_applied else "no"
+        bolt = "yes" if self.bolt_applied else "no"
+        return f"optimised: pgo={pgo} bolt={bolt} allocator={self.allocator}"
+
+
 # "all" and "default" are stage sentinels the dispatcher passes through, not
 # cargo feature names: "all" arrives as RUST_ALL_FEATURES and cargo applies the
 # default set unless --no-default-features.
@@ -267,6 +288,11 @@ def validate_profile(
 def log_profile(profile: OptimizationProfile) -> None:
     """Emit an INFO line describing the profile (for CI log visibility)."""
     info(f"Rust build optimisation: {profile.describe()}")
+
+
+def log_outcome(outcome: OptimizationOutcome) -> None:
+    """Emit an INFO line describing what the Tier 2 pipeline actually ran."""
+    info(outcome.describe())
 
 
 def parse_cargo_features(cargo_toml_path: Path) -> set[str]:
