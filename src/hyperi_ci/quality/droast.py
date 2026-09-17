@@ -12,8 +12,8 @@ killer), ``.dockerignore`` effectiveness (DF033), and ``npm install`` where
 ``npm ci`` belongs (DF031) - which map onto the container standard's headline
 lessons.
 
-**Advisory only, always.** The project is young (created 2026-04-12, one
-maintainer), so it NEVER fails a build regardless of config - it surfaces
+**Advisory only, always.** The project is young (first published 2026-07-18,
+one maintainer), so it NEVER fails a build regardless of config - it surfaces
 recommendations and returns 0, like the alint advisory. ``quality.droast:
 disabled`` turns it off entirely.
 

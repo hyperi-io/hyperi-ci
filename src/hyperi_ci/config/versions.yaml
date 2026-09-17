@@ -254,7 +254,7 @@ tools:
   # gitops scaffold's workflows and drifted there unpinned. No digest of ours
   # because the action does the fetching - ours is the version it fetches.
   helm:
-    version: v4.2.4
+    version: v4.3.0
     repo: helm/helm
     pin:
       - src/hyperi_ci/gitops_templates/workflows/validate.yaml

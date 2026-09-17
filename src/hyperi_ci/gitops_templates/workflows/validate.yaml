@@ -32,7 +32,7 @@ jobs:
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           # hyperi-ci:pin tools.helm
-          version: v4.2.4
+          version: v4.3.0
       # kubeconform (schema GATE) + kube-linter (best-practice ADVISORY) +
       # checkov (IaC security ADVISORY over k8s/helm/kustomize/terraform).
       # kubeconform + kube-linter auto-install on Linux CI; checkov runs via uvx.
@@ -58,7 +58,7 @@ jobs:
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           # hyperi-ci:pin tools.helm
-          version: v4.2.4
+          version: v4.3.0
       # Verify each topology composes into a valid umbrella chart. Per-topology
       # by nature; the stitch/lint logic lives in the hyperi-ci CLI, the shell
       # only iterates the directories.
