@@ -157,10 +157,12 @@ semantic-release populates the release description. `_collect_artifacts()` reads
 everything from `dist/`, so build handlers place only binaries + checksums there.
 
 A project that needs one more file on the release lists it under
-`release.assets`, and the release stage copies it into `dist/` before anything
-uploads. Use it for a file something downstream pins, such as a catalogue
-reading `sources.yaml` off the release; a listed file that is missing fails the
-release rather than shipping a broken pin.
+`release.assets`. Those attach to the GitHub Release itself, so they arrive
+whatever `release.destinations.binaries` is — the binaries map routes built
+artefacts, and a release asset is not one. They are also copied into `dist/`,
+so the binary destinations carry them too. Use it for a file something
+downstream pins, such as a catalogue reading `sources.yaml` off the release; a
+listed file that is missing fails the release rather than shipping a broken pin.
 
 ```yaml
 release:

@@ -297,8 +297,82 @@ class TestOptOutSurvivesTheDefaultsMerge:
         assert cfg.destination_for("container") == ["ghcr"]
 
 
+class TestReleaseAssetsReachTheRelease:
+    """#125: assets attach to the Release itself, not via the binaries map.
+
+    Staging into dist/ alone left v1.0.4 of ci-test-python-lib with
+    `assets: []` -- `publish_binaries` only attaches when the destination is
+    `github-releases`, and the shipped default is `r2-binaries`.
+    """
+
+    @staticmethod
+    def _config(assets: object) -> CIConfig:
+        return CIConfig(publish_target="oss", _raw={"release": {"assets": assets}})
+
+    @staticmethod
+    def _patched(
+        monkeypatch: pytest.MonkeyPatch, sent: list[list[str]], *, exists: bool
+    ):
+        from hyperi_ci.release import binaries
+
+        def fake_run_cmd(cmd: list[str], **_kw: object) -> subprocess.CompletedProcess:
+            sent.append(cmd)
+            if exists and cmd[:3] == ["gh", "release", "create"]:
+                return subprocess.CompletedProcess(cmd, 1, "", "release already exists")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        monkeypatch.setattr(binaries, "run_cmd", fake_run_cmd)
+        monkeypatch.setattr(binaries, "_read_version", lambda: "1.2.3")
+        monkeypatch.setattr(binaries, "_release_targets_head", lambda _tag: True)
+        return binaries
+
+    def test_assets_are_appended_to_gh_release_create(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "sources.yaml").write_text("kind: asset\n")
+        sent: list[list[str]] = []
+        binaries = self._patched(monkeypatch, sent, exists=False)
+
+        assert binaries.create_github_release(self._config(["sources.yaml"])) == 0
+        assert sent[0][:3] == ["gh", "release", "create"]
+        assert "sources.yaml" in sent[0]
+
+    def test_an_existing_release_still_gets_its_assets(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        # The idempotent re-run returned 0 early, which would leave the
+        # release without the asset it was re-run to deliver.
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "sources.yaml").write_text("kind: asset\n")
+        sent: list[list[str]] = []
+        binaries = self._patched(monkeypatch, sent, exists=True)
+
+        assert binaries.create_github_release(self._config(["sources.yaml"])) == 0
+        uploads = [cmd for cmd in sent if cmd[:3] == ["gh", "release", "upload"]]
+        assert uploads, "an existing release must still receive release.assets"
+        assert "--clobber" in uploads[0]
+        assert "sources.yaml" in uploads[0]
+
+    def test_no_assets_adds_no_file_arguments(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        sent: list[list[str]] = []
+        binaries = self._patched(monkeypatch, sent, exists=False)
+
+        assert binaries.create_github_release(self._config([])) == 0
+        assert sent[0][-1] == "--generate-notes"
+
+    def test_a_missing_asset_stops_the_release(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        sent: list[list[str]] = []
+        binaries = self._patched(monkeypatch, sent, exists=False)
+
+        assert binaries.create_github_release(self._config(["gone.yaml"])) == 1
+        assert sent == [], "a missing asset must fail before the release is created"
+
+
 class TestReleaseAssets:
-    """`release.assets` rides into dist/, which every destination collects from."""
+    """`release.assets` also ride into dist/, so the binary destinations carry them."""
 
     @staticmethod
     def _config(assets: object) -> CIConfig:

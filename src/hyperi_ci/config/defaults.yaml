@@ -274,16 +274,19 @@ release:
     cargo: crates-io           # crates.io (API token)
     container: ghcr            # ghcr.io/hyperi-io/*
     helm: ghcr-charts          # oci://ghcr.io/hyperi-io/charts
-    binaries: r2-binaries      # downloads.hyperi.io (Cloudflare R2) + GitHub Releases
+    binaries: r2-binaries      # downloads.hyperi.io (Cloudflare R2) ONLY — set
+                               # `github-releases` to attach built binaries to
+                               # the Release instead (`release.assets` always do)
     go: go-proxy               # proxy.golang.org (automatic)
 
   # No per-language `repository`/`registry` keys and no `s3:` block: the
   # destinations map above is what routes a publish, and the R2 bucket is a
   # constant in publish/binaries.py. Those keys routed nothing.
 
-  # Extra files to ship with the release, copied into dist/ before upload so
-  # they reach the same destinations as the built artefacts. A listed file
-  # that is missing fails the release rather than shipping a broken pin.
+  # Extra files to ship with the release. They are attached to the GitHub
+  # Release directly, so they arrive whatever `destinations.binaries` is, and
+  # are also copied into dist/ so the binary destinations carry them. A listed
+  # file that is missing fails the release rather than shipping a broken pin.
   assets: []
 
   # Container build & publish.

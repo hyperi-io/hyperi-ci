@@ -198,36 +198,79 @@ def _collect_artifacts(exclude_python: bool = False) -> list[Path]:
     return files
 
 
-def stage_release_assets(config: CIConfig) -> int:
-    """Copy `release.assets` entries into dist/ so they ship with the release.
+def _release_asset_paths(config: CIConfig) -> tuple[list[Path], str | None]:
+    """Resolve `release.assets` to real files, or name what is wrong.
 
-    Every destination collects from dist/, so a listed file reaches the GitHub
-    Release and R2 without the manual `gh release upload` step that nobody
-    remembers. A missing file fails the release: a catalogue pin against an
+    One reader for the two places that need them: the GitHub Release attaches
+    them directly, and staging copies them into dist/ so the binary
+    destinations pick them up too.
+
+    Returns:
+        ``(paths, problem)``. ``problem`` is None when every listed file exists;
+        otherwise it names the first offender and ``paths`` is empty.
+
+    """
+    assets = config.get("release.assets", []) or []
+    if isinstance(assets, str):
+        assets = [assets]
+
+    paths: list[Path] = []
+    for entry in assets:
+        source = Path(str(entry))
+        if not source.exists():
+            return [], f"release.assets: {source} does not exist"
+        if not source.is_file():
+            return [], f"release.assets: {source} is not a file"
+        paths.append(source)
+    return paths, None
+
+
+def _upload_release_assets(tag: str, assets: list[Path]) -> int:
+    """Attach assets to a release that already exists.
+
+    `gh release create` carries them on the first run; this covers the
+    idempotent re-run, which returns early and would otherwise leave the
+    release without them.
+    """
+    if not assets:
+        return 0
+
+    cmd = ["gh", "release", "upload", tag, "--clobber"]
+    cmd.extend(str(path) for path in assets)
+    result = run_cmd(cmd, check=False, capture=True)
+    if result.returncode != 0:
+        error(f"Failed to attach release.assets to {tag}")
+        if result.stderr:
+            error(result.stderr)
+        return result.returncode
+
+    success(f"Attached {len(assets)} release asset(s) to {tag}")
+    return 0
+
+
+def stage_release_assets(config: CIConfig) -> int:
+    """Copy `release.assets` entries into dist/ so they also reach R2.
+
+    The GitHub Release gets them from :func:`create_github_release` directly.
+    This copy is what carries them to the binary destinations, which collect
+    from dist/. A missing file fails the release: a catalogue pin against an
     absent asset is the breakage this exists to prevent (issue #125).
 
     Returns:
         Exit code (0 = success).
 
     """
-    assets = config.get("release.assets", []) or []
-    if isinstance(assets, str):
-        assets = [assets]
-    if not assets:
+    paths, problem = _release_asset_paths(config)
+    if problem:
+        error(f"{problem} — refusing to release")
+        return 1
+    if not paths:
         return 0
 
     dist = Path("dist")
     dist.mkdir(parents=True, exist_ok=True)
 
-    for entry in assets:
-        source = Path(str(entry))
-        if not source.exists():
-            error(f"release.assets: {source} does not exist — refusing to release")
-            return 1
-        if not source.is_file():
-            error(f"release.assets: {source} is not a file — refusing to release")
-            return 1
-
+    for source in paths:
         target = dist / source.name
         if target.exists() and not filecmp.cmp(source, target, shallow=False):
             error(
@@ -239,7 +282,7 @@ def stage_release_assets(config: CIConfig) -> int:
         shutil.copy2(source, target)
         info(f"  staged {source} → dist/{source.name}")
 
-    success(f"Staged {len(assets)} release asset(s) into dist/")
+    success(f"Staged {len(paths)} release asset(s) into dist/")
     return 0
 
 
@@ -247,8 +290,10 @@ def create_github_release(config: CIConfig) -> int:
     """Create a GitHub Release for the current version.
 
     Always called during publish, regardless of whether there are binary
-    artifacts. Libraries get a GH Release without attachments; binaries
-    get artifacts uploaded separately by publish_binaries().
+    artifacts. Binaries are uploaded separately by publish_binaries(), which
+    routes them by the `binaries` destination; `release.assets` are attached
+    HERE instead, so they ride the release whatever that destination is
+    (issue #125).
 
     Returns:
         Exit code (0 = success).
@@ -259,6 +304,11 @@ def create_github_release(config: CIConfig) -> int:
         error("No VERSION file — cannot determine release tag")
         return 1
 
+    assets, problem = _release_asset_paths(config)
+    if problem:
+        error(f"{problem} — refusing to release")
+        return 1
+
     channel = config.get("release.channel", "release")
     tag = f"v{version}"
 
@@ -267,6 +317,7 @@ def create_github_release(config: CIConfig) -> int:
         cmd = ["gh", "release", "create", tag, "--title", tag, "--generate-notes"]
         cmd.extend(notes_flags)
         cmd.extend(_resolve_gh_release_flags(channel))
+        cmd.extend(str(path) for path in assets)
         result = run_cmd(cmd, check=False, capture=True)
     if result.returncode != 0:
         if "already exists" in result.stderr:
@@ -278,7 +329,7 @@ def create_github_release(config: CIConfig) -> int:
             # the release shipped from.
             if _release_targets_head(tag):
                 info(f"  GH Release {tag} already exists at HEAD — idempotent re-run")
-                return 0
+                return _upload_release_assets(tag, assets)
             error(
                 f"GH Release {tag} already exists at a commit other than HEAD — "
                 f"refusing to overwrite a shipped release (issue #105). A bare "
