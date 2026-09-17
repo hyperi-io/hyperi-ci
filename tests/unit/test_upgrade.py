@@ -701,13 +701,27 @@ class TestAutoupdateStatus:
         """Conflating the two is what #82 was: a self-upgrade cannot see itself."""
         with patch("hyperi_ci.upgrade._fetch_releases", return_value={}):
             with patch("hyperi_ci.upgrade.TIMESTAMP_FILE", tmp_path / "none"):
-                with patch("hyperi_ci.upgrade.__version__", "2.9.3"):
-                    with patch(
-                        "hyperi_ci.upgrade._installed_version", return_value="2.9.6"
-                    ):
-                        status = autoupdate_status()
+                with patch("hyperi_ci.cli._source_checkout", return_value=None):
+                    with patch("hyperi_ci.upgrade.__version__", "2.9.3"):
+                        with patch(
+                            "hyperi_ci.upgrade._installed_version", return_value="2.9.6"
+                        ):
+                            status = autoupdate_status()
         assert status["running"] == "2.9.3"
         assert status["installed"] == "2.9.6"
+
+    def test_running_follows_the_tree_on_an_editable_checkout(
+        self, tmp_path: Path
+    ) -> None:
+        """#148: an editable install freezes .dist-info, so `__version__` is
+        stale and `running` reported a version that was not running."""
+        with patch("hyperi_ci.upgrade._fetch_releases", return_value={}):
+            with patch("hyperi_ci.upgrade.TIMESTAMP_FILE", tmp_path / "none"):
+                with patch("hyperi_ci.cli._source_checkout", return_value="/checkout"):
+                    with patch("hyperi_ci.cli._checkout_version", return_value="9.9.9"):
+                        with patch("hyperi_ci.upgrade.__version__", "2.9.3"):
+                            status = autoupdate_status()
+        assert status["running"] == "9.9.9"
 
     def test_names_the_freeze_holder(self, tmp_path: Path) -> None:
         channel.freeze()

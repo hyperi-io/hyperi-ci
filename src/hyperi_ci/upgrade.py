@@ -471,8 +471,10 @@ def _blocking_gate(*, ignore_invocation: bool = False) -> str | None:
     if not ignore_invocation:
         if os.environ.get("_HYPERCI_UPGRADING") == "1":
             return "recursion-guard"
-        # The user is running "upgrade" or managing auto-update explicitly
-        if len(sys.argv) >= 2 and sys.argv[1] in ("upgrade", "autoupdate"):
+        # The user is updating or managing auto-update explicitly. `upgrade` is
+        # the deprecated alias of `update`; both are listed so the live command
+        # takes the exemption rather than racing a background update (#147).
+        if len(sys.argv) >= 2 and sys.argv[1] in ("update", "upgrade", "autoupdate"):
             return "explicit-command"
 
     # The freeze kill-switch outranks every opt-in below it, including
@@ -744,16 +746,29 @@ def maybe_auto_update() -> None:
         logger.warning(f"Auto-update check failed: {exc}")
 
 
+def _running_version() -> str:
+    """Return the version this invocation would report as ``--version`` (#148).
+
+    An editable install freezes its version into ``.dist-info`` at sync time, so
+    ``__version__`` drifts from the tree on every release; the imported one is
+    right for an ordinary install. Deferred import because ``cli`` imports this
+    module.
+    """
+    from hyperi_ci.cli import _checkout_version, _source_checkout
+
+    checkout = _source_checkout()
+    return _checkout_version(checkout) if checkout else __version__
+
+
 def autoupdate_status() -> dict:
     """Report what auto-update would do, for ``hyperi-ci autoupdate status``.
 
     Makes one PyPI request so the report names the actual target, not just the
     channel. Network keys come back None when PyPI cannot be read.
 
-    ``running`` and ``installed`` differ when the command came from a source
-    checkout, and again for one invocation after an upgrade -- the running
-    process still has the old ``__version__`` imported. The decisions use the
-    newer of the two.
+    ``running`` and ``installed`` differ for one invocation after an upgrade --
+    the running process still has the old ``__version__`` imported. The
+    decisions use the newer of the two.
 
     Returns:
         Mapping of the channel state, the resolved target, and the gates.
@@ -766,7 +781,7 @@ def autoupdate_status() -> dict:
     latest, _ = _parse_latest_version(releases)
     resolved = _resolve_target(releases, channel_name=channel_name)
     return {
-        "running": __version__,
+        "running": _running_version(),
         "installed": _installed_version(shutil.which("uv")),
         "channel": channel_name,
         "channel_source": source,
