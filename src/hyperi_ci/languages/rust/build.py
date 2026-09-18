@@ -29,6 +29,7 @@ from hyperi_ci.common import (
     is_ci,
     is_linux,
     is_macos,
+    release_unoptimized,
     sanitize_ref_name,
     skip_optimize,
     success,
@@ -49,6 +50,7 @@ from hyperi_ci.languages.rust.optimize import (
     log_profile,
     parse_cargo_features,
     resolve_optimization_profile,
+    unoptimized_release_refusal,
     validate_profile,
 )
 
@@ -1302,6 +1304,26 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         channel = _resolve_build_channel(config)
         user_optimize = config.get("build.rust.optimize") or {}
         skip = skip_optimize(config)
+        consented = release_unoptimized()
+        refusal = unoptimized_release_refusal(
+            channel,
+            user_optimize,
+            skip_optimize=skip,
+            release_unoptimized=consented,
+        )
+        if refusal:
+            error(refusal)
+            if is_ci():
+                print(f"::error title=hyperi-ci unoptimised release refused::{refusal}")
+            return 1
+        if skip and channel == "release" and consented:
+            msg = (
+                "Shipping a release with the optimisation stage skipped, by "
+                "explicit consent (release-unoptimized=true)."
+            )
+            warn(msg)
+            if is_ci():
+                print(f"::warning title=hyperi-ci unoptimised release::{msg}")
         if skip:
             # An unoptimised binary looks identical until someone benchmarks it.
             msg = (
