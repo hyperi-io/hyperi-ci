@@ -247,6 +247,12 @@ tools:
       amd64: cd3c85194e8b28ad26676d287f41f0d6b4d456cef5bd94700def5dea8e328883
       arm64: 103a8f68b20fb01ee5daf2eb4c037b54ace550a04a288ee35761c5e7b0351311
       macos: 52ecaedb4f5af9267ef7ed02bc937d2a15a94ff96cb663080e81311f798c9905
+  # Source-built on the release runner by `cargo install --locked` and then run
+  # over the binary we ship, so it is pinned like any other release tool.
+  cargo-pgo:
+    version: 0.3.0
+    repo: Kobzol/cargo-pgo
+    tag_prefix: v
   # Baked into the generated cargo-chef Dockerfile by container/compose.py,
   # which reads it from here.
   cargo-chef:

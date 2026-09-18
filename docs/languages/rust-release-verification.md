@@ -42,14 +42,43 @@ strings /path/to/binary | grep -iE 'jemalloc|je_mallctl' | head
 # Expect: jemalloc_bg_thd, jemalloc, <jemalloc>: %s: %.*s:%.*s
 ```
 
-For BOLT - strip removes section markers, so the CI build log is the
-authoritative source (next section). If you need binary-level proof,
-build with `strip = false` locally (`cargo pgo bolt optimize` on your
-machine), then:
+For BOLT, read the note llvm-bolt writes into every binary it rewrites.
+`strip` keeps it, so it is there in the file that shipped:
 
 ```bash
-llvm-readelf --sections ./<binary> | grep -E '\.bolt|\.text.hot'
+readelf -p .note.bolt_info ./<binary>
+# Expect: BOLT revision: <...>
 ```
+
+No note means the shipped file is not BOLT output, whatever the log says.
+hyperi-ci runs the same check on the packaged file and fails the build when an
+arch it reported as BOLT-optimised carries no note.
+
+For `-C target-cpu=x86-64-v3` on amd64, compare VEX-encoded SSE against legacy
+SSE. With AVX enabled the compiler encodes ordinary SSE as VEX, so the ratio
+inverts wholesale - and a ratio inside one binary needs no size-matched control:
+
+```bash
+objdump -d --no-show-raw-insn -M intel ./<binary> | grep -cE '\sv[a-z0-9]+\s+xmm'
+objdump -d --no-show-raw-insn -M intel ./<binary> | grep -cE '\s(movups|movaps|movdqu|movdqa|pxor)\s+xmm'
+```
+
+VEX several times legacy means v3; legacy larger means baseline. One program
+built both ways (dfe-transform-vector v1.0.41, each arm forced through
+`RUSTFLAGS`): baseline 20,617 VEX against 108,947 legacy, v3 75,168 against
+17,471.
+
+Back it with mnemonics a compiler emits and hand-written asm does not - `blsr`
+and `bzhi` are the sharpest, zero in a baseline build:
+
+```bash
+objdump -d --no-show-raw-insn -M intel ./<binary> | grep -cE '\s(shlx|sarx|shrx|bzhi|blsr|andn)\s'
+```
+
+Do NOT count BMI2 as a whole. `mulx`, `adcx`, `adox` and `rorx` arrive with
+dependency asm: aws-lc's bignum code gives dfe-loader and dfe-fetcher the same
+4,210 `adcx` to the instruction, one built v3 and one not. `ymm` proves nothing
+either - memchr and friends dispatch AVX2 at run time.
 
 ### In the CI build log
 
@@ -65,8 +94,14 @@ merge-fdata shim: ~/.local/bin/merge-fdata -> /usr/bin/merge-fdata-23
 ld.lld shim: ~/.local/bin/ld.lld -> /usr/bin/ld.lld-23
 BOLT: building instrumented binary for <triple> (linker forced to lld)
 BOLT: optimising binary for <triple> (using PGO + BOLT profiles, linker=lld)
+BOLT: <bin>-bolt-optimized installed as <bin> for packaging
 optimised: pgo=yes bolt=yes allocator=jemalloc
+BOLT verified in <bin>-linux-<arch> (.note.bolt_info)
 ```
+
+The last two BOLT lines are the ones that matter. cargo-pgo leaves its result
+beside the cargo output rather than in place of it, so "BOLT optimized build
+finished successfully" from the tool says nothing about the file that ships.
 
 Your workload's own output appears between the two PGO lines, prefixed
 `pgo-workload:`.
@@ -80,7 +115,8 @@ free to reword them.
 If one of OUR lines is missing, a tier wasn't applied. See
 [rust-troubleshooting.md](rust-troubleshooting.md).
 
-The last line closes each arch's build group and is the one to read first.
+The `optimised:` line closes each arch's build group and is the one to read
+first; the `BOLT verified` lines follow in the packaging group.
 Every Tier 2 skip is warn-only, so a green run proves nothing by itself - a
 `bolt=no` or `allocator=system` there says that arch shipped unoptimised, and
 a warn line earlier in the same group names the reason.
