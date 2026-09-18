@@ -19,6 +19,7 @@ from hyperi_ci.languages.rust.optimize import (
     OptimizationOutcome,
     OptimizationProfile,
     cargo_feature_args,
+    tier2_shortfall,
     validate_profile,
 )
 from hyperi_ci.languages.rust.pgo import BOLT_NOTE_SECTION
@@ -201,6 +202,7 @@ class TestTier2Summary:
             {
                 "pgo": {"enabled": True, "workload_cmd": "bash scripts/w.sh"},
                 "bolt": {"enabled": True},
+                "strict": False,
             }
         )
 
@@ -286,6 +288,45 @@ class TestTier2Summary:
         rc = build.run(config, {"RUST_BUILD_TARGETS": "x86_64-unknown-linux-gnu"})
 
         assert rc == 1
+
+
+class TestTier2SkipFailsARelease:
+    """issue #133: a release that asked for Tier 2 does not ship without it."""
+
+    def test_a_bolt_skip_fails_the_release_and_names_the_stage(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def on_build(target, *_args, outcome: OptimizationOutcome, **_kwargs):
+            outcome.pgo_applied = True
+            outcome.bolt_applied = target.startswith("x86_64")
+            return 0
+
+        errors: list[str] = []
+        TestTier2Summary._patch_build(monkeypatch, on_build)
+        monkeypatch.setattr(build, "error", errors.append)
+        config = TestTier2Summary._config(
+            {
+                "pgo": {"enabled": True, "workload_cmd": "bash scripts/w.sh"},
+                "bolt": {"enabled": True},
+            }
+        )
+
+        rc = build.run(config, {"RUST_BUILD_TARGETS": TestTier2Summary._TARGETS})
+
+        assert rc == 1
+        assert any("aarch64" in e and "BOLT" in e for e in errors), errors
+
+    def test_shortfall_names_each_missing_stage(self) -> None:
+        profile = OptimizationProfile(
+            channel="release", pgo_enabled=True, bolt_enabled=True
+        )
+        assert tier2_shortfall(profile, OptimizationOutcome()) == ["PGO", "BOLT"]
+        done = OptimizationOutcome(pgo_applied=True, bolt_applied=True)
+        assert tier2_shortfall(profile, done) == []
+
+    def test_a_stage_never_asked_for_is_not_a_shortfall(self) -> None:
+        profile = OptimizationProfile(channel="release", pgo_enabled=True)
+        assert tier2_shortfall(profile, OptimizationOutcome(pgo_applied=True)) == []
 
 
 class TestVerifyBoltShipped:
