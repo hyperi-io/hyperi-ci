@@ -52,6 +52,7 @@ class OptimizationProfile:
     lto: str = "thin"  # "thin" | "fat"
     pgo_enabled: bool = False
     pgo_workload_cmd: str | None = None
+    pgo_workload_setup_cmd: str | None = None
     pgo_duration_secs: int = 300
     bolt_enabled: bool = False
     optimize_skipped: bool = False
@@ -210,6 +211,7 @@ def resolve_optimization_profile(
         lto=lto,
         pgo_enabled=pgo_enabled,
         pgo_workload_cmd=pgo_cfg.get("workload_cmd") or None,
+        pgo_workload_setup_cmd=pgo_cfg.get("workload_setup_cmd") or None,
         pgo_duration_secs=int(pgo_cfg.get("duration_secs", 300)),
         bolt_enabled=bolt_enabled,
         optimize_skipped=skip_optimize,

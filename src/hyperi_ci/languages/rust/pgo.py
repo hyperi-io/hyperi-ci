@@ -105,6 +105,12 @@ def run_pgo_build(
         error(f"Instrumented binary not found at {instrumented_bin}")
         return 1
 
+    if profile.pgo_workload_setup_cmd:
+        rc = _run_workload_setup(profile.pgo_workload_setup_cmd, cwd)
+        if rc != 0:
+            error("PGO workload setup failed — aborting before profiling")
+            return rc
+
     rc = _run_workload(
         profile.pgo_workload_cmd or "",
         profile.pgo_duration_secs,
@@ -324,6 +330,34 @@ def _run_cargo_pgo(
     return result.returncode
 
 
+# Bounds the setup step on its own clock, separate from the workload's grace:
+# building a load driver can take far longer than the profiling run.
+_WORKLOAD_SETUP_TIMEOUT_SECS = 3600
+
+
+def _run_workload_setup(setup_cmd: str, cwd: Path) -> int:
+    """Run the project's workload setup before the workload clock starts.
+
+    `build.rust.optimize.pgo.workload_setup_cmd` is for work that must finish
+    before profiling and would not fit in the workload's grace -- building a
+    load driver, pulling images. It runs once per target with its own timeout.
+    """
+    info(f"  $ {setup_cmd}  (workload setup, timeout={_WORKLOAD_SETUP_TIMEOUT_SECS}s)")
+    try:
+        result = subprocess.run(
+            setup_cmd,
+            shell=True,  # noqa: S602  # nosemgrep: subprocess-shell-true — project-owned config, run in controlled CI env
+            cwd=cwd,
+            env=dict(os.environ),
+            check=False,
+            timeout=_WORKLOAD_SETUP_TIMEOUT_SECS,
+        )
+        return result.returncode
+    except subprocess.TimeoutExpired:
+        error(f"PGO workload setup exceeded {_WORKLOAD_SETUP_TIMEOUT_SECS}s")
+        return 1
+
+
 def _run_workload(
     workload_cmd: str,
     duration_secs: int,
@@ -338,6 +372,8 @@ def _run_workload(
         `hyperi-ci/templates/pgo-workload/`.
       * `HYPERCI_PGO_INSTRUMENTED_BINARY` env var is ALSO exported as a
         convenience for scripts that prefer to read it from env.
+      * `PGO_WORKLOAD_DURATION_SECS` carries `duration_secs`, the variable
+        every workload template reads for how long to drive the binary.
 
     Enforces a hard timeout at `duration_secs + 600` (10-minute absolute
     grace for setup overhead: spinning up testcontainers, cargo-building
@@ -352,6 +388,7 @@ def _run_workload(
 
     env = dict(os.environ)
     env["HYPERCI_PGO_INSTRUMENTED_BINARY"] = str(instrumented_binary)
+    env["PGO_WORKLOAD_DURATION_SECS"] = str(duration_secs)
 
     # Append the binary path as the first positional argument. Shell
     # quoting handled by shlex.quote so paths with spaces don't break.
