@@ -20,6 +20,7 @@ from hyperi_ci.languages.rust.optimize import (
 from hyperi_ci.languages.rust.pgo import (
     BOLT_NOTE_SECTION,
     _ensure_cargo_pgo_installed,
+    _ensure_ld_lld_available,
     _ensure_llvm_bolt_available,
     _install_bolt_output,
     _instrumented_binary_path,
@@ -30,6 +31,20 @@ from hyperi_ci.languages.rust.pgo import (
     run_pgo_build,
 )
 from hyperi_ci.versions import tool_version
+
+
+@pytest.fixture(autouse=True)
+def isolated_tool_home(tmp_path, monkeypatch):
+    """Keep toolchain shims out of the real home and PATH changes out of the suite.
+
+    The PGO pipeline symlinks versioned LLVM tools into ``~/.local/bin`` and
+    prepends it to PATH, which on a developer box would rewrite what
+    ``-fuse-ld=lld`` resolves to outside the test run.
+    """
+    monkeypatch.setattr(
+        "hyperi_ci.languages.rust.pgo.Path.home", lambda: tmp_path / "home"
+    )
+    monkeypatch.setenv("PATH", os.environ["PATH"])
 
 
 def _make_profile(
@@ -621,6 +636,70 @@ class TestInstrumentedBinaryPath:
         )
         assert p.name == "dfe-receiver"
         assert "aarch64-unknown-linux-gnu" in str(p)
+
+
+def _executable(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("#!/bin/sh\nexit 0\n")
+    path.chmod(0o755)
+    return path
+
+
+class TestLinkerForThePgoSteps:
+    """issue #142: lld resolves in every stage; a big aarch64 link gets mold."""
+
+    def test_a_versioned_ld_lld_is_shimmed_unversioned(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        versioned = _executable(tmp_path / "usr-bin" / "ld.lld-19")
+        monkeypatch.setenv("PATH", str(versioned.parent))
+        assert _ensure_ld_lld_available() is True
+        shim = tmp_path / "home" / ".local" / "bin" / "ld.lld"
+        assert shim.resolve() == versioned.resolve()
+
+    def test_no_lld_at_all_is_reported(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+        assert _ensure_ld_lld_available() is False
+
+    @staticmethod
+    def _run(tmp_path, target: str, results: list[int]):
+        with (
+            patch(
+                "hyperi_ci.languages.rust.pgo._ensure_cargo_pgo_installed",
+                return_value=True,
+            ),
+            patch(
+                "hyperi_ci.languages.rust.pgo._run_cargo_pgo", side_effect=results
+            ) as cargo,
+        ):
+            rc = run_pgo_build(
+                target=target,
+                profile=_make_profile(),
+                binary_name="my-bin",
+                cwd=tmp_path,
+            )
+        return rc, cargo
+
+    def test_a_failed_aarch64_instrument_link_retries_with_mold(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        mold = _executable(tmp_path / "tools" / "mold")
+        monkeypatch.setenv("PATH", str(mold.parent))
+        rc, cargo = self._run(tmp_path, "aarch64-unknown-linux-gnu", [1, 1])
+        assert rc == 1
+        assert cargo.call_count == 2
+        retry_env = cargo.call_args_list[1].kwargs["extra_env"]
+        key = "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS"
+        assert retry_env[key] == "-C link-arg=-fuse-ld=mold"
+
+    def test_an_x86_64_instrument_failure_is_not_retried(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        mold = _executable(tmp_path / "tools" / "mold")
+        monkeypatch.setenv("PATH", str(mold.parent))
+        rc, cargo = self._run(tmp_path, "x86_64-unknown-linux-gnu", [1])
+        assert rc == 1
+        assert cargo.call_count == 1
 
 
 class TestReleaseDir:
