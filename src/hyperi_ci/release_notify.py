@@ -14,7 +14,8 @@ lost: a failed release was visible only as a red run somebody had to notice.
 Two notifications, both idempotent because a re-run is normal:
 
 * **success** -- one comment per issue or PR referenced by the commits in the
-  release, saying which version carries it.
+  release, saying which version carries it, and the version's own failure
+  issue closed when a retry is what shipped it.
 * **failure** -- one open issue per broken version, so a release that dies at
   3am is waiting in the tracker rather than buried in a run log.
 
@@ -125,10 +126,79 @@ def _already_commented(repo: str, number: int, version: str) -> bool:
     )
 
 
+def failure_issue_numbers(issues: object, version: str) -> list[int]:
+    """Numbers of the open failure issues that belong to ``version``.
+
+    Args:
+        issues: The decoded `GET /issues` response, or anything else when the
+            call failed.
+        version: Bare version, without the leading ``v``.
+
+    Returns:
+        Matching issue numbers, empty when ``issues`` is not a list.
+
+    """
+    if not isinstance(issues, list):
+        return []
+    title = _FAILURE_TITLE.format(version=version)
+    numbers: list[int] = []
+    for issue in issues:
+        if not isinstance(issue, dict) or "number" not in issue:
+            continue
+        if str(issue.get("title", "")) == title:
+            numbers.append(int(issue["number"]))
+    return numbers
+
+
+def _open_failure_issues(repo: str) -> object:
+    """Open issues carrying the release-failure label, or None on an API error."""
+    return _api(
+        [
+            "-X",
+            "GET",
+            f"repos/{repo}/issues",
+            "-f",
+            "state=open",
+            "-f",
+            "labels=release-failure",
+        ]
+    )
+
+
+def _close_resolved_failures(repo: str, version: str) -> None:
+    """Close the failure issue a successful retry of ``version`` has resolved.
+
+    A failed attempt opens the issue and a re-run that ships the same version
+    never touches it again, so without this the tracker keeps reporting a
+    release that is in fact on the registry.
+    """
+    numbers = failure_issue_numbers(_open_failure_issues(repo), version)
+    for number in numbers:
+        comment = (
+            f"{_MARKER}\nA later run shipped **v{version}** — "
+            f"https://github.com/{repo}/releases/tag/v{version}"
+        )
+        _api(
+            ["-X", "POST", f"repos/{repo}/issues/{number}/comments"],
+            body={"body": comment},
+        )
+        closed = _api(
+            ["-X", "PATCH", f"repos/{repo}/issues/{number}"],
+            body={"state": "closed", "state_reason": "completed"},
+        )
+        if closed:
+            info(f"release-notify: closed #{number}, v{version} shipped on a retry")
+        else:
+            warn(f"release-notify: could not close #{number} — close it by hand")
+
+
 def notify_success(
     *, version: str, repo: str | None = None, cwd: str | None = None
 ) -> int:
     """Comment on every issue and PR carried by this release.
+
+    Also closes this version's own failure issue, when an earlier attempt
+    opened one and a retry is what shipped it.
 
     Returns:
         0 always -- a notification that fails must never fail a release that
@@ -140,6 +210,8 @@ def notify_success(
     if not repo:
         warn("release-notify: GITHUB_REPOSITORY not set — skipping")
         return 0
+
+    _close_resolved_failures(repo, version)
 
     numbers = referenced_issues(version, cwd=cwd)
     if not numbers:
@@ -170,21 +242,9 @@ def notify_success(
 def _open_failure_issue(repo: str, version: str, run_url: str) -> int | None:
     """Existing open failure issue for this version, or a newly created one."""
     title = _FAILURE_TITLE.format(version=version)
-    found = _api(
-        [
-            "-X",
-            "GET",
-            f"repos/{repo}/issues",
-            "-f",
-            "state=open",
-            "-f",
-            "labels=release-failure",
-        ]
-    )
-    if isinstance(found, list):
-        for issue in found:
-            if str(issue.get("title", "")) == title:
-                return int(issue["number"])
+    existing = failure_issue_numbers(_open_failure_issues(repo), version)
+    if existing:
+        return existing[0]
 
     body = (
         f"{_MARKER}\n"

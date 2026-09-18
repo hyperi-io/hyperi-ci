@@ -21,6 +21,7 @@ import pytest
 from hyperi_ci.config import CIConfig
 from hyperi_ci.release_notify import (
     _previous_tag,
+    failure_issue_numbers,
     notify_failure,
     notify_slack,
     notify_success,
@@ -88,7 +89,7 @@ class TestNotifySuccess:
                     "hyperi_ci.release_notify._api", return_value={"id": 1}
                 ) as api:
                     assert notify_success(version="1.2.3") == 0
-        posts = [c for c in api.call_args_list if "-X" in c.args[0]]
+        posts = [c for c in api.call_args_list if "POST" in c.args[0]]
         assert len(posts) == 2
 
     def test_skips_an_issue_already_announced(self) -> None:
@@ -97,9 +98,10 @@ class TestNotifySuccess:
             with patch(
                 "hyperi_ci.release_notify._already_commented", return_value=True
             ):
-                with patch("hyperi_ci.release_notify._api") as api:
+                with patch("hyperi_ci.release_notify._api", return_value=[]) as api:
                     assert notify_success(version="1.2.3") == 0
-        api.assert_not_called()
+        posts = [c for c in api.call_args_list if "POST" in c.args[0]]
+        assert posts == []
 
     def test_no_references_is_not_a_failure(self) -> None:
         with patch("hyperi_ci.release_notify.referenced_issues", return_value=[]):
@@ -119,6 +121,31 @@ class TestNotifySuccess:
     ) -> None:
         monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
         assert notify_success(version="1.2.3") == 0
+
+
+class TestFailureIssueNumbers:
+    """A retry that ships closes exactly its own version's failure issue."""
+
+    def test_matches_the_version_exactly(self) -> None:
+        issues = [
+            {"number": 160, "title": "Release v2.10.3 failed"},
+            {"number": 161, "title": "Release v2.10.30 failed"},
+            {"number": 162, "title": "Release v2.10.2 failed"},
+        ]
+        assert failure_issue_numbers(issues, "2.10.3") == [160]
+
+    def test_ignores_an_unrelated_issue_with_the_label(self) -> None:
+        issues = [{"number": 7, "title": "flaky release tail"}]
+        assert failure_issue_numbers(issues, "2.10.3") == []
+
+    def test_an_api_error_matches_nothing(self) -> None:
+        """`_api` returns None on failure; that must not close anything."""
+        assert failure_issue_numbers(None, "2.10.3") == []
+        assert failure_issue_numbers({"message": "Not Found"}, "2.10.3") == []
+
+    def test_skips_malformed_entries(self) -> None:
+        issues = ["not-a-dict", {"title": "Release v2.10.3 failed"}]
+        assert failure_issue_numbers(issues, "2.10.3") == []
 
 
 class TestNotifyFailure:
