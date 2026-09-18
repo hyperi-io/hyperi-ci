@@ -216,6 +216,46 @@ def resolve_optimization_profile(
     )
 
 
+RELEASE_UNOPTIMIZED_INPUT = "release-unoptimized"
+
+
+def unoptimized_release_refusal(
+    channel: str,
+    user_optimize: dict[str, Any] | None,
+    *,
+    skip_optimize: bool,
+    release_unoptimized: bool,
+) -> str | None:
+    """Say why a skipped-optimisation build may not ship on the release channel.
+
+    Skipping only costs something when the release would otherwise have run
+    PGO or BOLT, so a project with no Tier 2 configured is never refused.
+
+    Args:
+        channel: Resolved build channel.
+        user_optimize: `build.rust.optimize` from .hyperi-ci.yaml.
+        skip_optimize: Whether this run skips the optimisation stage.
+        release_unoptimized: Whether this run carries the explicit consent.
+
+    Returns:
+        The refusal message, or None when the build may go ahead.
+
+    """
+    if not skip_optimize or channel != "release" or release_unoptimized:
+        return None
+    full = resolve_optimization_profile(channel, user_optimize)
+    if not (full.pgo_enabled or full.bolt_enabled):
+        return None
+    return (
+        "Refusing to build a release with the optimisation stage skipped: this "
+        "project's release runs PGO/BOLT and the build would ship without them "
+        "under a release tag. Re-run with the "
+        f"'{RELEASE_UNOPTIMIZED_INPUT}: true' dispatch input "
+        "(HYPERCI_RELEASE_UNOPTIMIZED=true) to ship it anyway, or drop "
+        "skip-optimize for a fully optimised release."
+    )
+
+
 def validate_profile(
     profile: OptimizationProfile,
     cargo_features: set[str],

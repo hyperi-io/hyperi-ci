@@ -162,6 +162,18 @@ def skip_optimize(config: CIConfig | None = None) -> bool:
     return str(config.get("build.skip_optimize", False)).strip().lower() in _TRUTHY
 
 
+def release_unoptimized() -> bool:
+    """Whether this run consents to shipping a skipped-optimisation build as a release.
+
+    A separate consent from ``skip_optimize``: skipping gets a build out fast,
+    and publishing that build under a release tag is its own deliberate act.
+    Read from ``HYPERCI_RELEASE_UNOPTIMIZED`` only, which the reusable
+    workflows set from their per-run ``release-unoptimized`` input. There is
+    no repo variable and no config key, so the consent never outlives the run.
+    """
+    return env_true("HYPERCI_RELEASE_UNOPTIMIZED")
+
+
 def info(msg: str) -> None:
     """Info message — delegates to scalo logger."""
     logger.info(msg)

@@ -243,9 +243,30 @@ gh workflow run ci.yml -f from-head=true -f bump=patch -f skip-optimize=true
 repo scaffolded earlier adds it by hand or uses the repo variable.
 Optimisation is on unless something asks otherwise.
 
-A skipped run releases like any other, release channel included. The build
-emits a `::warning::` annotation on the run and `optimize=skipped` in the
-profile line:
+Skipping optimisation and shipping a release are two separate consents. On
+`alpha` and `beta` a skipped run builds and publishes like any other. On
+`release`, where the project would otherwise run PGO or BOLT, the build
+refuses before compiling anything:
+
+```
+Refusing to build a release with the optimisation stage skipped: ...
+Re-run with the 'release-unoptimized: true' dispatch input ...
+```
+
+To ship a fast unoptimised release anyway, set BOTH inputs on the one run:
+
+```bash
+gh workflow run ci.yml -f from-head=true -f bump=patch \
+  -f skip-optimize=true -f release-unoptimized=true
+```
+
+`release-unoptimized` is a per-run input only, with no repo variable and no
+`.hyperi-ci.yaml` key, so the consent never outlives the run it was given
+for. A release with no Tier 2 configured loses nothing by skipping and is
+never refused.
+
+Either way the build emits a `::warning::` annotation on the run and
+`optimize=skipped` in the profile line:
 
 ```
 Rust build optimisation: channel=release, allocator=jemalloc, lto=fat, optimize=skipped

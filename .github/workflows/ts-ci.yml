@@ -65,6 +65,10 @@ on:
         type: string
         default: ""
         description: "'true' to skip the optimisation stage for this run. No-op for TypeScript today, kept for parity. Empty = optimisation on."
+      release-unoptimized:
+        type: string
+        default: ""
+        description: "'true' to consent, for this run only, to shipping a skipped-optimisation build under a release tag. No-op for TypeScript today, kept for parity."
     secrets:
       JFROG_TOKEN:
         required: false
@@ -115,6 +119,11 @@ on:
         required: false
         default: ""
         description: "'true' to skip the optimisation stage for this release. No-op for TypeScript today, kept for parity. Empty = optimisation on."
+      release-unoptimized:
+        type: string
+        required: false
+        default: ""
+        description: "'true' to consent, for this run only, to shipping a skipped-optimisation build under a release tag. No-op for TypeScript today, kept for parity."
 
 concurrency:
   group: ${{ github.workflow }}-${{ inputs.tag || github.ref }}
@@ -137,6 +146,9 @@ env:
   # Skip the optimisation stage: per-run via the input, repo-wide via the
   # variable. No-op for TypeScript today, kept for parity. Empty = optimisation on.
   HYPERCI_SKIP_OPTIMIZE: ${{ inputs.skip-optimize || vars.HYPERCI_SKIP_OPTIMIZE }}
+  # Consent to release a skipped-optimisation build: per-run input only, never
+  # a repo variable, so the consent cannot outlive the run.
+  HYPERCI_RELEASE_UNOPTIMIZED: ${{ inputs.release-unoptimized }}
 
 # Least-privilege GITHUB_TOKEN default for every job (CodeQL
 # actions/missing-workflow-permissions). Two jobs elevate: release-tail
