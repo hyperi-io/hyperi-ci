@@ -86,13 +86,24 @@ def run_pgo_build(
         )
         return _run_plain_release_build(target, feature_args, cwd, extra_env)
 
+    _ensure_ld_lld_available()
+
     # 1. Instrumented build
     info(f"PGO: building instrumented binary for {target}")
-    rc = _run_cargo_pgo(
-        ["build", "--", "--target", target, *feature_args],
-        cwd=cwd,
-        extra_env=extra_env,
-    )
+    instrument_args = ["build", "--", "--target", target, *feature_args]
+    rc = _run_cargo_pgo(instrument_args, cwd=cwd, extra_env=extra_env)
+    if rc != 0 and target.startswith("aarch64") and shutil.which("mold"):
+        # Profile counters push a large binary's text past the +/-128 MB
+        # R_AARCH64_CALL26 branch, which bfd cannot bridge; mold inserts thunks.
+        warn(
+            "PGO instrumented build failed on aarch64 -- retrying once with mold, "
+            "which bridges branches past the 128 MB limit"
+        )
+        mold_env = {
+            **(extra_env or {}),
+            _target_rustflags_key(target): "-C link-arg=-fuse-ld=mold",
+        }
+        rc = _run_cargo_pgo(instrument_args, cwd=cwd, extra_env=mold_env)
     if rc != 0:
         error(f"PGO instrumented build failed for {target}")
         return rc
@@ -263,8 +274,28 @@ def _ensure_llvm_bolt_available() -> bool:
     partial toolchain — all-or-nothing is the safer contract.
     No auto-install — the apt package is added by native_deps.py.
     """
+    return _shim_llvm_tools(_BOLT_TOOLCHAIN_BINARIES)
+
+
+def _ensure_ld_lld_available() -> bool:
+    """Put an unversioned `ld.lld` on PATH when only `ld.lld-NN` is installed.
+
+    gcc's `-fuse-ld=lld` looks for a binary named exactly `ld.lld`, and the
+    `lld-NN` apt package ships only the suffixed one. Run before the PGO steps,
+    so a project that selects lld in its own cargo config links in every
+    stage, not only the BOLT ones that shimmed it before.
+    """
+    return _shim_llvm_tools(("ld.lld",))
+
+
+def _shim_llvm_tools(names: tuple[str, ...]) -> bool:
+    """Make every tool in ``names`` resolvable unversioned, from ONE LLVM version.
+
+    Returns True when all of them resolve, directly or through a symlink in
+    `~/.local/bin` to the version-suffixed binary.
+    """
     # Fast path: all unversioned binaries already on PATH.
-    if all(shutil.which(name) for name in _BOLT_TOOLCHAIN_BINARIES):
+    if all(shutil.which(name) for name in names):
         return True
 
     # Prefer the version pinned in HYPERCI_LLVM_VERSION (matches the
@@ -288,12 +319,12 @@ def _ensure_llvm_bolt_available() -> bool:
         # Require that THIS version provides every needed binary so the
         # shimmed toolchain is internally consistent.
         resolved: dict[str, str] = {}
-        for name in _BOLT_TOOLCHAIN_BINARIES:
+        for name in names:
             versioned = shutil.which(f"{name}-{version}")
             if versioned:
                 resolved[name] = versioned
 
-        if len(resolved) != len(_BOLT_TOOLCHAIN_BINARIES):
+        if len(resolved) != len(names):
             continue
 
         shim_dir.mkdir(parents=True, exist_ok=True)
@@ -507,6 +538,17 @@ def _bolt_no_split_rustflags() -> str:
     return _DEFAULT_BOLT_NO_SPLIT_RUSTFLAGS if val is None else val.strip()
 
 
+def _target_rustflags_key(target: str) -> str:
+    """Cargo's env name for `target.<triple>.rustflags`.
+
+    UPPERCASE with hyphens and dots as underscores, so
+    x86_64-unknown-linux-gnu becomes CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS.
+    """
+    return (
+        f"CARGO_TARGET_{target.upper().replace('-', '_').replace('.', '_')}_RUSTFLAGS"
+    )
+
+
 def _bolt_build_env(target: str, *, no_split: bool = False) -> dict[str, str]:
     """Env overrides for cargo-pgo BOLT build and optimize steps.
 
@@ -535,12 +577,7 @@ def _bolt_build_env(target: str, *, no_split: bool = False) -> dict[str, str]:
     live only in `build.rustflags` loses them for these steps: cargo reads
     `build.rustflags` only when no target rustflags exist.
     """
-    # Cargo env var for target-specific rustflags uses UPPERCASE with
-    # hyphens and dots replaced by underscores (e.g. x86_64-unknown-linux-gnu
-    # → X86_64_UNKNOWN_LINUX_GNU).
-    target_rustflags_key = (
-        f"CARGO_TARGET_{target.upper().replace('-', '_').replace('.', '_')}_RUSTFLAGS"
-    )
+    target_rustflags_key = _target_rustflags_key(target)
     # Base BOLT rustflags (lld for --emit-relocs). On the no-split retry, append
     # the splitter-disabling flags (see _bolt_no_split_rustflags / _run_bolt).
     bolt_rustflags = "-C link-arg=-fuse-ld=lld"
