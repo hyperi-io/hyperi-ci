@@ -117,9 +117,11 @@ If one of OUR lines is missing, a tier wasn't applied. See
 
 The `optimised:` line closes each arch's build group and is the one to read
 first; the `BOLT verified` lines follow in the packaging group.
-Every Tier 2 skip is warn-only, so a green run proves nothing by itself - a
-`bolt=no` or `allocator=system` there says that arch shipped unoptimised, and
-a warn line earlier in the same group names the reason.
+On the release channel a Tier 2 skip fails the build: an arch whose `pgo=no`
+or `bolt=no` contradicts what the project asked for stops the release, naming
+the stage, and a warn line earlier in the same group names the cause.
+`build.rust.optimize.strict: false` downgrades that to the summary line alone.
+An allocator fallback (`allocator=system`) stays a warning.
 
 ---
 

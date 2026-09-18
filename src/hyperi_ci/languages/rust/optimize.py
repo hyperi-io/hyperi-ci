@@ -218,6 +218,22 @@ def resolve_optimization_profile(
     )
 
 
+def tier2_shortfall(
+    profile: OptimizationProfile, outcome: OptimizationOutcome
+) -> list[str]:
+    """Name the Tier 2 stages ``profile`` asked for that did not reach the binary.
+
+    Compare against the profile after `validate_profile`, which already drops
+    stages a target cannot run (BOLT off Linux), so only a real skip counts.
+    """
+    missing: list[str] = []
+    if profile.pgo_enabled and not outcome.pgo_applied:
+        missing.append("PGO")
+    if profile.bolt_enabled and not outcome.bolt_applied:
+        missing.append("BOLT")
+    return missing
+
+
 RELEASE_UNOPTIMIZED_INPUT = "release-unoptimized"
 
 

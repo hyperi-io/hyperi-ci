@@ -33,6 +33,7 @@ from hyperi_ci.common import (
     sanitize_ref_name,
     skip_optimize,
     success,
+    truthy,
     warn,
 )
 from hyperi_ci.config import CIConfig
@@ -53,6 +54,7 @@ from hyperi_ci.languages.rust.optimize import (
     log_profile,
     parse_cargo_features,
     resolve_optimization_profile,
+    tier2_shortfall,
     unoptimized_release_refusal,
     validate_profile,
 )
@@ -1380,6 +1382,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         base_profile and (base_profile.pgo_enabled or base_profile.bolt_enabled)
     )
 
+    # A release that asked for Tier 2 fails when a stage is skipped, rather than
+    # shipping a half-optimised binary under a green run.
+    strict = truthy(config.get("build.rust.optimize.strict", True))
     bolt_targets: list[str] = []
     for target in targets:
         with group(f"Build: {target}"):
@@ -1401,6 +1406,16 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
                 return rc
             if tier2 and outcome:
                 log_outcome(outcome)
+            if profile and outcome and profile.channel == "release" and strict:
+                missing = tier2_shortfall(profile, outcome)
+                if missing:
+                    error(
+                        f"{target}: {' and '.join(missing)} was requested for this "
+                        "release and did not reach the binary. Refusing to ship a "
+                        "half-optimised release -- the warnings above name the cause. "
+                        "Set build.rust.optimize.strict: false to ship it anyway."
+                    )
+                    return 1
             if outcome and outcome.bolt_applied:
                 bolt_targets.append(target)
             success(f"Built: {target}")

@@ -135,9 +135,14 @@ _TRUTHY = frozenset({"1", "true", "yes", "on"})
 _FALSY = frozenset({"0", "false", "no", "off"})
 
 
+def truthy(value: object) -> bool:
+    """Return True when a config value reads as on (1/true/yes/on, any case)."""
+    return str(value).strip().lower() in _TRUTHY
+
+
 def env_true(name: str) -> bool:
     """Return True when env var ``name`` holds an opt-in value (1/true/yes/on)."""
-    return os.environ.get(name, "").strip().lower() in _TRUTHY
+    return truthy(os.environ.get(name, ""))
 
 
 def skip_optimize(config: CIConfig | None = None) -> bool:
@@ -159,7 +164,7 @@ def skip_optimize(config: CIConfig | None = None) -> bool:
         )
     if config is None:
         return False
-    return str(config.get("build.skip_optimize", False)).strip().lower() in _TRUTHY
+    return truthy(config.get("build.skip_optimize", False))
 
 
 def release_unoptimized() -> bool:

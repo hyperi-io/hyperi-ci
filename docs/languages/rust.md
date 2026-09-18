@@ -156,6 +156,7 @@ build:
         workload_setup_cmd: "cargo build --release -p pgo-driver"
       bolt:
         enabled: true        # Linux only; skipped on macOS/Windows
+      # strict: false        # default true: a release whose PGO/BOLT is skipped fails
 ```
 
 The workload gets `duration_secs` as `PGO_WORKLOAD_DURATION_SECS` and must stop
