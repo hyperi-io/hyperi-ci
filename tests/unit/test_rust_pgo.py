@@ -10,14 +10,41 @@ from __future__ import annotations
 import os
 from unittest.mock import MagicMock, patch
 
-from hyperi_ci.languages.rust.optimize import OptimizationOutcome, OptimizationProfile
+import pytest
+
+from hyperi_ci.languages.rust.optimize import (
+    OptimizationOutcome,
+    OptimizationProfile,
+    resolve_optimization_profile,
+)
 from hyperi_ci.languages.rust.pgo import (
+    BOLT_NOTE_SECTION,
     _ensure_cargo_pgo_installed,
+    _ensure_ld_lld_available,
     _ensure_llvm_bolt_available,
+    _install_bolt_output,
     _instrumented_binary_path,
+    _release_dir,
     _run_workload,
+    _run_workload_setup,
+    cargo_pgo_version_from,
     run_pgo_build,
 )
+from hyperi_ci.versions import tool_version
+
+
+@pytest.fixture(autouse=True)
+def isolated_tool_home(tmp_path, monkeypatch):
+    """Keep toolchain shims out of the real home and PATH changes out of the suite.
+
+    The PGO pipeline symlinks versioned LLVM tools into ``~/.local/bin`` and
+    prepends it to PATH, which on a developer box would rewrite what
+    ``-fuse-ld=lld`` resolves to outside the test run.
+    """
+    monkeypatch.setattr(
+        "hyperi_ci.languages.rust.pgo.Path.home", lambda: tmp_path / "home"
+    )
+    monkeypatch.setenv("PATH", os.environ["PATH"])
 
 
 def _make_profile(
@@ -51,13 +78,36 @@ class TestCargoPgoInstallGate:
     def test_already_installed_returns_true_no_install(self) -> None:
         with (
             patch(
-                "hyperi_ci.languages.rust.pgo.shutil.which",
-                return_value="/bin/cargo-pgo",
+                "hyperi_ci.languages.rust.pgo._installed_cargo_pgo_version",
+                return_value=tool_version("cargo-pgo"),
             ),
             patch("hyperi_ci.languages.rust.pgo.subprocess.run") as mock_run,
         ):
             assert _ensure_cargo_pgo_installed() is True
             mock_run.assert_not_called()
+
+    def test_a_different_installed_version_is_replaced_by_the_pin(
+        self, monkeypatch
+    ) -> None:
+        # issue #137: a persistent runner home can carry an older build.
+        monkeypatch.setenv("PATH", os.environ["PATH"])
+        with (
+            patch(
+                "hyperi_ci.languages.rust.pgo._installed_cargo_pgo_version",
+                return_value="0.2.9",
+            ),
+            patch(
+                "hyperi_ci.languages.rust.pgo.shutil.which",
+                return_value="/bin/cargo-pgo",
+            ),
+            patch(
+                "hyperi_ci.languages.rust.pgo.subprocess.run",
+                return_value=MagicMock(returncode=0),
+            ) as mock_run,
+        ):
+            assert _ensure_cargo_pgo_installed() is True
+        cmd = mock_run.call_args[0][0]
+        assert cmd[cmd.index("--version") + 1] == tool_version("cargo-pgo")
 
     def test_not_installed_triggers_install_command(self, monkeypatch) -> None:
         monkeypatch.setenv("PATH", os.environ["PATH"])
@@ -78,7 +128,8 @@ class TestCargoPgoInstallGate:
         assert result is True
         mock_run.assert_called_once()
         cmd = mock_run.call_args[0][0]
-        assert cmd == ["cargo", "install", "cargo-pgo", "--locked"]
+        pinned = tool_version("cargo-pgo")
+        assert cmd == ["cargo", "install", "cargo-pgo", "--version", pinned, "--locked"]
 
     def test_install_failure_returns_false(self, monkeypatch) -> None:
         monkeypatch.setenv("PATH", os.environ["PATH"])
@@ -90,6 +141,28 @@ class TestCargoPgoInstallGate:
             ),
         ):
             assert _ensure_cargo_pgo_installed() is False
+
+
+class TestCargoPgoVersion:
+    """issue #137: the installed version is read, not assumed."""
+
+    @pytest.mark.parametrize(
+        ("output", "expected"),
+        [
+            ("cargo-pgo 0.3.0\n", "0.3.0"),
+            ("cargo-pgo-pgo 0.2.9", "0.2.9"),
+            ("", None),
+            ("error: no such command: `pgo`", None),
+        ],
+    )
+    def test_parses_the_version(self, output: str, expected: str | None) -> None:
+        assert cargo_pgo_version_from(output) == expected
+
+    def test_the_pin_is_a_plain_semver(self) -> None:
+        # `cargo install --version` takes it verbatim; a leading v would fail.
+        assert cargo_pgo_version_from(tool_version("cargo-pgo")) == tool_version(
+            "cargo-pgo"
+        )
 
 
 class TestBoltAvailabilityCheck:
@@ -397,6 +470,69 @@ class TestRunBoltRetry:
         assert calls == []  # never attempted
 
 
+class TestWorkloadDurationAndSetup:
+    """issue #135: duration_secs reaches the workload; setup runs off its clock.
+
+    Real shell commands, so the variable the script sees is the one asserted.
+    """
+
+    def test_the_workload_sees_the_configured_duration(self, tmp_path) -> None:
+        out = tmp_path / "seen"
+        # `sh -c '...' --` takes the appended binary path as $1 and ignores it.
+        cmd = f"sh -c 'printf %s \"$PGO_WORKLOAD_DURATION_SECS\" > {out}' --"
+        rc = _run_workload(cmd, 600, tmp_path / "bin", cwd=tmp_path)
+        assert rc == 0
+        assert out.read_text() == "600"
+
+    def test_setup_runs_in_the_project_directory(self, tmp_path) -> None:
+        rc = _run_workload_setup("touch built-driver", tmp_path)
+        assert rc == 0
+        assert (tmp_path / "built-driver").exists()
+
+    def test_a_failed_setup_is_reported(self, tmp_path) -> None:
+        assert _run_workload_setup("exit 7", tmp_path) == 7
+
+    def test_setup_comes_from_config(self) -> None:
+        profile = resolve_optimization_profile(
+            "release",
+            {
+                "pgo": {
+                    "enabled": True,
+                    "workload_cmd": "bash w.sh",
+                    "workload_setup_cmd": "cargo build -p driver",
+                }
+            },
+        )
+        assert profile.pgo_workload_setup_cmd == "cargo build -p driver"
+
+    def test_a_failed_setup_stops_before_profiling(self, tmp_path) -> None:
+        bin_dir = tmp_path / "target" / "x86_64-unknown-linux-gnu" / "release"
+        bin_dir.mkdir(parents=True)
+        (bin_dir / "my-bin").touch()
+        profile = OptimizationProfile(
+            channel="release",
+            pgo_enabled=True,
+            pgo_workload_cmd="bash w.sh",
+            pgo_workload_setup_cmd="exit 3",
+        )
+        with (
+            patch(
+                "hyperi_ci.languages.rust.pgo._ensure_cargo_pgo_installed",
+                return_value=True,
+            ),
+            patch("hyperi_ci.languages.rust.pgo._run_cargo_pgo", return_value=0),
+            patch("hyperi_ci.languages.rust.pgo._run_workload") as workload,
+        ):
+            rc = run_pgo_build(
+                target="x86_64-unknown-linux-gnu",
+                profile=profile,
+                binary_name="my-bin",
+                cwd=tmp_path,
+            )
+        assert rc == 3
+        workload.assert_not_called()
+
+
 class TestWorkloadExecution:
     """Workload command runs with HYPERCI_PGO_INSTRUMENTED_BINARY env and timeout."""
 
@@ -500,6 +636,136 @@ class TestInstrumentedBinaryPath:
         )
         assert p.name == "dfe-receiver"
         assert "aarch64-unknown-linux-gnu" in str(p)
+
+
+def _executable(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("#!/bin/sh\nexit 0\n")
+    path.chmod(0o755)
+    return path
+
+
+class TestLinkerForThePgoSteps:
+    """issue #142: lld resolves in every stage; a big aarch64 link gets mold."""
+
+    def test_a_versioned_ld_lld_is_shimmed_unversioned(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        versioned = _executable(tmp_path / "usr-bin" / "ld.lld-19")
+        monkeypatch.setenv("PATH", str(versioned.parent))
+        assert _ensure_ld_lld_available() is True
+        shim = tmp_path / "home" / ".local" / "bin" / "ld.lld"
+        assert shim.resolve() == versioned.resolve()
+
+    def test_no_lld_at_all_is_reported(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+        assert _ensure_ld_lld_available() is False
+
+    @staticmethod
+    def _run(tmp_path, target: str, results: list[int]):
+        with (
+            patch(
+                "hyperi_ci.languages.rust.pgo._ensure_cargo_pgo_installed",
+                return_value=True,
+            ),
+            patch(
+                "hyperi_ci.languages.rust.pgo._run_cargo_pgo", side_effect=results
+            ) as cargo,
+        ):
+            rc = run_pgo_build(
+                target=target,
+                profile=_make_profile(),
+                binary_name="my-bin",
+                cwd=tmp_path,
+            )
+        return rc, cargo
+
+    def test_a_failed_aarch64_instrument_link_retries_with_mold(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        mold = _executable(tmp_path / "tools" / "mold")
+        monkeypatch.setenv("PATH", str(mold.parent))
+        rc, cargo = self._run(tmp_path, "aarch64-unknown-linux-gnu", [1, 1])
+        assert rc == 1
+        assert cargo.call_count == 2
+        retry_env = cargo.call_args_list[1].kwargs["extra_env"]
+        key = "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS"
+        assert retry_env[key] == "-C link-arg=-fuse-ld=mold"
+
+    def test_an_x86_64_instrument_failure_is_not_retried(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        mold = _executable(tmp_path / "tools" / "mold")
+        monkeypatch.setenv("PATH", str(mold.parent))
+        rc, cargo = self._run(tmp_path, "x86_64-unknown-linux-gnu", [1])
+        assert rc == 1
+        assert cargo.call_count == 1
+
+
+class TestReleaseDir:
+    """issue #135: PGO and BOLT look where packaging copies from."""
+
+    TARGET = "x86_64-unknown-linux-gnu"
+
+    def test_defaults_to_target_under_the_project(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.delenv("CARGO_TARGET_DIR", raising=False)
+        assert _release_dir(tmp_path, self.TARGET) == (
+            tmp_path / "target" / self.TARGET / "release"
+        )
+
+    def test_honours_an_absolute_cargo_target_dir(self, tmp_path, monkeypatch) -> None:
+        elsewhere = tmp_path / "shared-target"
+        monkeypatch.setenv("CARGO_TARGET_DIR", str(elsewhere))
+        assert _release_dir(tmp_path / "project", self.TARGET) == (
+            elsewhere / self.TARGET / "release"
+        )
+
+    def test_a_relative_cargo_target_dir_is_under_the_project(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("CARGO_TARGET_DIR", "build-out")
+        assert _release_dir(tmp_path, self.TARGET) == (
+            tmp_path / "build-out" / self.TARGET / "release"
+        )
+
+    def test_the_instrumented_binary_follows_it(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setenv("CARGO_TARGET_DIR", str(tmp_path / "t"))
+        path = _instrumented_binary_path(tmp_path, self.TARGET, "app", variant="bolt")
+        assert (
+            path == tmp_path / "t" / self.TARGET / "release" / "app-bolt-instrumented"
+        )
+
+
+class TestInstallBoltOutput:
+    """issue #136: BOLT's file, not the PGO-only one, is what packaging ships."""
+
+    TARGET = "x86_64-unknown-linux-gnu"
+
+    @pytest.fixture
+    def release(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("CARGO_TARGET_DIR", raising=False)
+        release = tmp_path / "target" / self.TARGET / "release"
+        release.mkdir(parents=True)
+        (release / "app").write_bytes(b"pgo-only cargo output")
+        return release
+
+    def test_installs_the_bolt_file_over_the_packaged_name(
+        self, tmp_path, release, make_elf
+    ) -> None:
+        bolt = make_elf(release / "app-bolt-optimized", [".text", BOLT_NOTE_SECTION])
+        assert _install_bolt_output(tmp_path, self.TARGET, "app") is True
+        assert (release / "app").read_bytes() == bolt.read_bytes()
+
+    def test_no_bolt_file_leaves_the_pgo_binary(self, tmp_path, release) -> None:
+        assert _install_bolt_output(tmp_path, self.TARGET, "app") is False
+        assert (release / "app").read_bytes() == b"pgo-only cargo output"
+
+    def test_a_file_without_the_bolt_note_is_refused(
+        self, tmp_path, release, make_elf
+    ) -> None:
+        make_elf(release / "app-bolt-optimized", [".text"])
+        assert _install_bolt_output(tmp_path, self.TARGET, "app") is False
+        assert (release / "app").read_bytes() == b"pgo-only cargo output"
 
 
 class TestRunPgoBuildOrchestration:
@@ -803,15 +1069,21 @@ class TestOutcomeRecording:
     """
 
     @staticmethod
-    def _seed(tmp_path, *, bolt_instrumented: bool):
+    def _seed(tmp_path, make_elf=None, *, bolt_instrumented: bool):
         bin_dir = tmp_path / "target" / "x86_64-unknown-linux-gnu" / "release"
         bin_dir.mkdir(parents=True)
         (bin_dir / "my-bin").touch()
         if bolt_instrumented:
             (bin_dir / "my-bin-bolt-instrumented").touch()
+        if make_elf:
+            # What `cargo pgo bolt optimize` leaves beside the cargo output.
+            make_elf(bin_dir / "my-bin-bolt-optimized", [".text", BOLT_NOTE_SECTION])
+        return bin_dir
 
-    def test_bolt_applied_when_the_whole_pipeline_runs(self, tmp_path) -> None:
-        self._seed(tmp_path, bolt_instrumented=True)
+    def test_bolt_applied_when_the_whole_pipeline_runs(
+        self, tmp_path, make_elf
+    ) -> None:
+        bin_dir = self._seed(tmp_path, make_elf, bolt_instrumented=True)
         outcome = OptimizationOutcome(allocator="jemalloc")
         with (
             patch(
@@ -834,6 +1106,39 @@ class TestOutcomeRecording:
             )
         assert rc == 0
         assert outcome.describe() == "optimised: pgo=yes bolt=yes allocator=jemalloc"
+        # Packaging copies the unsuffixed name, so the BOLT file must now be it.
+        assert (bin_dir / "my-bin").read_bytes() == (
+            bin_dir / "my-bin-bolt-optimized"
+        ).read_bytes()
+
+    def test_bolt_success_without_its_output_leaves_bolt_unapplied(
+        self, tmp_path
+    ) -> None:
+        # cargo-pgo exits 0 but no -bolt-optimized file exists: the PGO-only
+        # binary ships, and the outcome must say so.
+        self._seed(tmp_path, bolt_instrumented=True)
+        outcome = OptimizationOutcome(allocator="jemalloc")
+        with (
+            patch(
+                "hyperi_ci.languages.rust.pgo._ensure_cargo_pgo_installed",
+                return_value=True,
+            ),
+            patch(
+                "hyperi_ci.languages.rust.pgo._ensure_llvm_bolt_available",
+                return_value=True,
+            ),
+            patch("hyperi_ci.languages.rust.pgo._run_cargo_pgo", return_value=0),
+            patch("hyperi_ci.languages.rust.pgo._run_workload", return_value=0),
+        ):
+            rc = run_pgo_build(
+                target="x86_64-unknown-linux-gnu",
+                profile=_make_profile(bolt_enabled=True),
+                binary_name="my-bin",
+                cwd=tmp_path,
+                outcome=outcome,
+            )
+        assert rc == 0
+        assert outcome.describe() == "optimised: pgo=yes bolt=no allocator=jemalloc"
 
     def test_missing_bolt_toolchain_leaves_bolt_unapplied(self, tmp_path) -> None:
         self._seed(tmp_path, bolt_instrumented=False)

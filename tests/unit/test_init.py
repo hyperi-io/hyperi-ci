@@ -107,7 +107,7 @@ class TestRenderTemplates:
         # must declare each and forward it, else the dispatch errors.
         for workflow_file in ("python-ci.yml", "rust-ci.yml", "ts-ci.yml", "go-ci.yml"):
             content = _render_workflow("my-project", workflow_file)
-            for name in ("from-head", "bump", "skip-optimize"):
+            for name in ("from-head", "bump", "skip-optimize", "release-unoptimized"):
                 assert f"{name}:" in content, f"{workflow_file}: missing {name} input"
                 assert f"{name}: ${{{{ inputs.{name}" in content, (
                     f"{workflow_file}: {name} not forwarded"

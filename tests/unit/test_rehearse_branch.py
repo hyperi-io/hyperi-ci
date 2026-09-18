@@ -70,3 +70,34 @@ class TestRehearseSlug:
 
     def test_length_capped(self) -> None:
         assert len(rehearse_branch.rehearse_slug("x" * 200)) == 80
+
+
+class TestSummariseJobs:
+    """The rehearsal verdict is read job by job, never from the run status."""
+
+    # The shape of a real fixture PR run: the tag job skips on a PR.
+    PR_RUN = [
+        {"name": "ci / Quality", "conclusion": "success"},
+        {"name": "ci / Build (linux-amd64)", "conclusion": "success"},
+        {"name": "ci / Release tail / Tag & Release", "conclusion": "skipped"},
+    ]
+
+    def test_a_green_pr_run_passes(self) -> None:
+        passed, lines = rehearse_branch.summarise_jobs(self.PR_RUN)
+        assert passed is True
+        assert len(lines) == 3
+
+    def test_one_failed_job_fails_the_rehearsal(self) -> None:
+        jobs = [*self.PR_RUN, {"name": "ci / Test", "conclusion": "failure"}]
+        passed, lines = rehearse_branch.summarise_jobs(jobs)
+        assert passed is False
+        assert any("failure" in line and "ci / Test" in line for line in lines)
+
+    def test_a_run_with_no_jobs_proves_nothing(self) -> None:
+        assert rehearse_branch.summarise_jobs([]) == (False, [])
+
+    def test_an_unfinished_job_is_not_a_pass(self) -> None:
+        passed, _ = rehearse_branch.summarise_jobs(
+            [{"name": "ci / Build", "conclusion": ""}]
+        )
+        assert passed is False

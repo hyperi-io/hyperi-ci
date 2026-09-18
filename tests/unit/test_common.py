@@ -12,6 +12,7 @@ import pytest
 from hyperi_ci import common
 from hyperi_ci.common import (
     normalise_tristate,
+    release_unoptimized,
     run_cmd,
     sanitize_ref_name,
     skip_optimize,
@@ -103,6 +104,23 @@ class TestSkipOptimize:
         # mask the project's own config.
         monkeypatch.setenv("HYPERCI_SKIP_OPTIMIZE", "")
         assert skip_optimize(self._config(True)) is True
+
+
+class TestReleaseUnoptimized:
+    """issue #158: consent to release a skipped build is per-run, env only."""
+
+    def test_default_is_no_consent(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("HYPERCI_RELEASE_UNOPTIMIZED", raising=False)
+        assert release_unoptimized() is False
+
+    def test_empty_env_is_no_consent(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The workflows always export it, empty when the input is unset.
+        monkeypatch.setenv("HYPERCI_RELEASE_UNOPTIMIZED", "")
+        assert release_unoptimized() is False
+
+    def test_true_is_consent(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("HYPERCI_RELEASE_UNOPTIMIZED", "true")
+        assert release_unoptimized() is True
 
 
 class TestSanitizeRefName:

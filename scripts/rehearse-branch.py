@@ -113,44 +113,91 @@ def _gh_var(repo: str, action: str, value: str = "") -> bool:
     return result.returncode == 0
 
 
+_PASSING_CONCLUSIONS = frozenset({"success", "skipped", "neutral"})
+
+
+def summarise_jobs(jobs: list[dict]) -> tuple[bool, list[str]]:
+    """Per-job verdict for a finished run: (every job passed, one line per job).
+
+    Pure function -- unit-tested. A run with no jobs has proven nothing, so it
+    does not pass.
+    """
+    lines = [
+        f"  {str(job.get('conclusion') or 'pending'):<9} {job.get('name')}"
+        for job in jobs
+    ]
+    passed = bool(jobs) and all(
+        job.get("conclusion") in _PASSING_CONCLUSIONS for job in jobs
+    )
+    return passed, lines
+
+
 def _watch_pr_run(
-    repo: str, pr_number: int, timeout_minutes: int
-) -> tuple[bool, list[str]]:
-    """Poll the PR's checks until all complete. Returns (all_green, lines)."""
+    repo: str, rehearse_ref: str, timeout_minutes: int
+) -> tuple[str, list[str]]:
+    """Wait for the rehearsal's pull_request run and read it job by job.
+
+    Uses `gh run list` / `gh run view`, which every supported gh has, rather
+    than `gh pr checks --json`, which older gh rejects outright.
+
+    Returns:
+        ("pass" | "fail" | "timeout", lines). A timeout is no verdict at all.
+
+    """
     deadline = time.time() + timeout_minutes * 60
-    lines: list[str] = []
+    last_error = ""
     while time.time() < deadline:
-        result = _run(
+        listed = _run(
             [
                 "gh",
-                "pr",
-                "checks",
-                str(pr_number),
+                "run",
+                "list",
                 "-R",
                 repo,
+                "--branch",
+                rehearse_ref,
+                "--event",
+                "pull_request",
                 "--json",
-                "name,state",
+                "databaseId,status",
+                "--limit",
+                "1",
             ],
             timeout=60,
         )
-        if result.returncode not in (0, 8):  # 8 = checks still pending
-            time.sleep(20)
-            continue
-        try:
-            checks = json.loads(result.stdout or "[]")
-        except json.JSONDecodeError:
-            checks = []
-        if checks and all(
-            c.get("state") not in ("PENDING", "QUEUED", "IN_PROGRESS", "")
-            for c in checks
-        ):
-            lines = [f"  {c.get('state'):<9} {c.get('name')}" for c in checks]
-            ok = all(
-                c.get("state") in ("SUCCESS", "SKIPPED", "NEUTRAL") for c in checks
+        runs: list[dict] = []
+        if listed.returncode == 0:
+            try:
+                runs = json.loads(listed.stdout or "[]")
+            except json.JSONDecodeError:
+                last_error = "unreadable gh run list output"
+        else:
+            stderr_lines = listed.stderr.strip().splitlines()
+            last_error = (
+                stderr_lines[-1] if stderr_lines else f"gh exited {listed.returncode}"
             )
-            return ok, lines
+        if runs and runs[0].get("status") == "completed":
+            viewed = _run(
+                [
+                    "gh",
+                    "run",
+                    "view",
+                    str(runs[0]["databaseId"]),
+                    "-R",
+                    repo,
+                    "--json",
+                    "jobs",
+                ],
+                timeout=60,
+            )
+            if viewed.returncode == 0:
+                jobs = json.loads(viewed.stdout or "{}").get("jobs", [])
+                passed, lines = summarise_jobs(jobs)
+                return ("pass" if passed else "fail"), lines
+            last_error = viewed.stderr.strip()
         time.sleep(30)
-    return False, ["  TIMEOUT waiting for PR checks"]
+    note = f" (last gh error: {last_error})" if last_error else ""
+    return "timeout", [f"  no PR run finished within {timeout_minutes} min{note}"]
 
 
 def main() -> int:
@@ -254,7 +301,7 @@ def main() -> int:
         pr_number = int(pr_url.rstrip("/").rsplit("/", 1)[-1])
         print(f"Rehearsal PR: {pr_url}")
 
-        ok, lines = _watch_pr_run(repo, pr_number, args.timeout_minutes)
+        verdict, lines = _watch_pr_run(repo, rehearse_ref, args.timeout_minutes)
         print("Rehearsal run results:")
         for line in lines:
             print(line)
@@ -282,9 +329,15 @@ def main() -> int:
                     "— delete manually"
                 )
 
-    if ok:
+    if verdict == "pass":
         print(f"REHEARSAL PASSED: {branch} is safe against {repo}")
         return 0
+    if verdict == "timeout":
+        print(
+            f"REHEARSAL INCONCLUSIVE: no verdict on {branch} against {repo} -- "
+            "read the fixture's PR run by hand before merging"
+        )
+        return 2
     print(f"REHEARSAL FAILED: {branch} broke {repo} — fix before merging to main")
     return 1
 

@@ -323,6 +323,11 @@ def _render_workflow(
         "        required: false\n"
         '        default: ""\n'
         "        description: \"'true' to skip the optimisation stage for this run (Rust: no PGO, no BOLT). Empty = optimisation on.\"\n"
+        "      release-unoptimized:\n"
+        "        type: string\n"
+        "        required: false\n"
+        '        default: ""\n'
+        "        description: \"'true' to consent, for this run only, to shipping a skipped-optimisation build under a release tag.\"\n"
         "\n"
         "jobs:\n"
         "  ci:\n"
@@ -333,6 +338,7 @@ def _render_workflow(
         "      from-head: ${{ inputs.from-head || '' }}\n"
         "      bump: ${{ inputs.bump || 'auto' }}\n"
         "      skip-optimize: ${{ inputs.skip-optimize || '' }}\n"
+        "      release-unoptimized: ${{ inputs.release-unoptimized || '' }}\n"
     )
 
     if publish_target != "internal":

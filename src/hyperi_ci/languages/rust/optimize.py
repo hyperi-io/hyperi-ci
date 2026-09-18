@@ -52,6 +52,7 @@ class OptimizationProfile:
     lto: str = "thin"  # "thin" | "fat"
     pgo_enabled: bool = False
     pgo_workload_cmd: str | None = None
+    pgo_workload_setup_cmd: str | None = None
     pgo_duration_secs: int = 300
     bolt_enabled: bool = False
     optimize_skipped: bool = False
@@ -210,9 +211,66 @@ def resolve_optimization_profile(
         lto=lto,
         pgo_enabled=pgo_enabled,
         pgo_workload_cmd=pgo_cfg.get("workload_cmd") or None,
+        pgo_workload_setup_cmd=pgo_cfg.get("workload_setup_cmd") or None,
         pgo_duration_secs=int(pgo_cfg.get("duration_secs", 300)),
         bolt_enabled=bolt_enabled,
         optimize_skipped=skip_optimize,
+    )
+
+
+def tier2_shortfall(
+    profile: OptimizationProfile, outcome: OptimizationOutcome
+) -> list[str]:
+    """Name the Tier 2 stages ``profile`` asked for that did not reach the binary.
+
+    Compare against the profile after `validate_profile`, which already drops
+    stages a target cannot run (BOLT off Linux), so only a real skip counts.
+    """
+    missing: list[str] = []
+    if profile.pgo_enabled and not outcome.pgo_applied:
+        missing.append("PGO")
+    if profile.bolt_enabled and not outcome.bolt_applied:
+        missing.append("BOLT")
+    return missing
+
+
+RELEASE_UNOPTIMIZED_INPUT = "release-unoptimized"
+
+
+def unoptimized_release_refusal(
+    channel: str,
+    user_optimize: dict[str, Any] | None,
+    *,
+    skip_optimize: bool,
+    release_unoptimized: bool,
+) -> str | None:
+    """Say why a skipped-optimisation build may not ship on the release channel.
+
+    Skipping only costs something when the release would otherwise have run
+    PGO or BOLT, so a project with no Tier 2 configured is never refused.
+
+    Args:
+        channel: Resolved build channel.
+        user_optimize: `build.rust.optimize` from .hyperi-ci.yaml.
+        skip_optimize: Whether this run skips the optimisation stage.
+        release_unoptimized: Whether this run carries the explicit consent.
+
+    Returns:
+        The refusal message, or None when the build may go ahead.
+
+    """
+    if not skip_optimize or channel != "release" or release_unoptimized:
+        return None
+    full = resolve_optimization_profile(channel, user_optimize)
+    if not (full.pgo_enabled or full.bolt_enabled):
+        return None
+    return (
+        "Refusing to build a release with the optimisation stage skipped: this "
+        "project's release runs PGO/BOLT and the build would ship without them "
+        "under a release tag. Re-run with the "
+        f"'{RELEASE_UNOPTIMIZED_INPUT}: true' dispatch input "
+        "(HYPERCI_RELEASE_UNOPTIMIZED=true) to ship it anyway, or drop "
+        "skip-optimize for a fully optimised release."
     )
 
 

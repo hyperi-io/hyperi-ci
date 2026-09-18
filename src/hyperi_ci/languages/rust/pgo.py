@@ -22,16 +22,23 @@ Graceful degradation:
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
 
-from hyperi_ci.common import error, info, warn
+from hyperi_ci.common import error, info, run_cmd, warn
+from hyperi_ci.languages._build_common import elf_section_names
 from hyperi_ci.languages.rust.optimize import (
     OptimizationOutcome,
     OptimizationProfile,
     cargo_feature_args,
 )
+from hyperi_ci.versions import tool_version
+
+# llvm-bolt writes this note into every binary it rewrites, and strip keeps it,
+# so it survives packaging and marks a shipped file as BOLT output.
+BOLT_NOTE_SECTION = ".note.bolt_info"
 
 
 def run_pgo_build(
@@ -79,13 +86,24 @@ def run_pgo_build(
         )
         return _run_plain_release_build(target, feature_args, cwd, extra_env)
 
+    _ensure_ld_lld_available()
+
     # 1. Instrumented build
     info(f"PGO: building instrumented binary for {target}")
-    rc = _run_cargo_pgo(
-        ["build", "--", "--target", target, *feature_args],
-        cwd=cwd,
-        extra_env=extra_env,
-    )
+    instrument_args = ["build", "--", "--target", target, *feature_args]
+    rc = _run_cargo_pgo(instrument_args, cwd=cwd, extra_env=extra_env)
+    if rc != 0 and target.startswith("aarch64") and shutil.which("mold"):
+        # Profile counters push a large binary's text past the +/-128 MB
+        # R_AARCH64_CALL26 branch, which bfd cannot bridge; mold inserts thunks.
+        warn(
+            "PGO instrumented build failed on aarch64 -- retrying once with mold, "
+            "which bridges branches past the 128 MB limit"
+        )
+        mold_env = {
+            **(extra_env or {}),
+            _target_rustflags_key(target): "-C link-arg=-fuse-ld=mold",
+        }
+        rc = _run_cargo_pgo(instrument_args, cwd=cwd, extra_env=mold_env)
     if rc != 0:
         error(f"PGO instrumented build failed for {target}")
         return rc
@@ -97,6 +115,12 @@ def run_pgo_build(
     if not instrumented_bin.exists():
         error(f"Instrumented binary not found at {instrumented_bin}")
         return 1
+
+    if profile.pgo_workload_setup_cmd:
+        rc = _run_workload_setup(profile.pgo_workload_setup_cmd, cwd)
+        if rc != 0:
+            error("PGO workload setup failed — aborting before profiling")
+            return rc
 
     rc = _run_workload(
         profile.pgo_workload_cmd or "",
@@ -159,8 +183,29 @@ def _run_plain_release_build(
     return result.returncode
 
 
+def cargo_pgo_version_from(output: str) -> str | None:
+    """Pull the version out of `cargo pgo --version` output, or None."""
+    match = re.search(r"\b(\d+\.\d+\.\d+)\b", output)
+    return match.group(1) if match else None
+
+
+def _installed_cargo_pgo_version() -> str | None:
+    """Version of the cargo-pgo on PATH, or None when absent or unreadable."""
+    if not shutil.which("cargo-pgo"):
+        return None
+    result = run_cmd(["cargo", "pgo", "--version"], capture=True, check=False)
+    if result.returncode != 0:
+        return None
+    return cargo_pgo_version_from(result.stdout)
+
+
 def _ensure_cargo_pgo_installed() -> bool:
-    """Check cargo-pgo is installed; auto-install if not.
+    """Make the pinned cargo-pgo available, installing it when absent or different.
+
+    The version comes from `tools.cargo-pgo` in versions.yaml, so the tool that
+    instruments and rewrites the release binary is the one we reviewed, not
+    whatever crates.io serves on the day. A persistent runner home can carry an
+    older build, so a version mismatch reinstalls too.
 
     Returns True if cargo-pgo is available after this call. Ensures
     `~/.cargo/bin` is on PATH so subsequent `cargo pgo` subprocess
@@ -168,7 +213,9 @@ def _ensure_cargo_pgo_installed() -> bool:
     with `~/.cargo/bin` absent from PATH even though it's the cargo
     install default.
     """
-    if shutil.which("cargo-pgo"):
+    pinned = tool_version("cargo-pgo")
+    installed = _installed_cargo_pgo_version()
+    if installed == pinned:
         return True
 
     # Ensure ~/.cargo/bin is on PATH before install — cargo writes there
@@ -177,11 +224,10 @@ def _ensure_cargo_pgo_installed() -> bool:
     if str(cargo_bin) not in current_path.split(os.pathsep):
         os.environ["PATH"] = f"{cargo_bin}{os.pathsep}{current_path}"
 
-    info("cargo-pgo not found — installing with 'cargo install cargo-pgo --locked'")
-    result = subprocess.run(
-        ["cargo", "install", "cargo-pgo", "--locked"],
-        check=False,
-    )
+    install = ["cargo", "install", "cargo-pgo", "--version", pinned, "--locked"]
+    found = f"found {installed}" if installed else "not found"
+    info(f"cargo-pgo {found}, pinned {pinned} — installing with '{' '.join(install)}'")
+    result = subprocess.run(install, check=False)
     if result.returncode != 0:
         warn("cargo-pgo install failed")
         return False
@@ -228,8 +274,28 @@ def _ensure_llvm_bolt_available() -> bool:
     partial toolchain — all-or-nothing is the safer contract.
     No auto-install — the apt package is added by native_deps.py.
     """
+    return _shim_llvm_tools(_BOLT_TOOLCHAIN_BINARIES)
+
+
+def _ensure_ld_lld_available() -> bool:
+    """Put an unversioned `ld.lld` on PATH when only `ld.lld-NN` is installed.
+
+    gcc's `-fuse-ld=lld` looks for a binary named exactly `ld.lld`, and the
+    `lld-NN` apt package ships only the suffixed one. Run before the PGO steps,
+    so a project that selects lld in its own cargo config links in every
+    stage, not only the BOLT ones that shimmed it before.
+    """
+    return _shim_llvm_tools(("ld.lld",))
+
+
+def _shim_llvm_tools(names: tuple[str, ...]) -> bool:
+    """Make every tool in ``names`` resolvable unversioned, from ONE LLVM version.
+
+    Returns True when all of them resolve, directly or through a symlink in
+    `~/.local/bin` to the version-suffixed binary.
+    """
     # Fast path: all unversioned binaries already on PATH.
-    if all(shutil.which(name) for name in _BOLT_TOOLCHAIN_BINARIES):
+    if all(shutil.which(name) for name in names):
         return True
 
     # Prefer the version pinned in HYPERCI_LLVM_VERSION (matches the
@@ -253,12 +319,12 @@ def _ensure_llvm_bolt_available() -> bool:
         # Require that THIS version provides every needed binary so the
         # shimmed toolchain is internally consistent.
         resolved: dict[str, str] = {}
-        for name in _BOLT_TOOLCHAIN_BINARIES:
+        for name in names:
             versioned = shutil.which(f"{name}-{version}")
             if versioned:
                 resolved[name] = versioned
 
-        if len(resolved) != len(_BOLT_TOOLCHAIN_BINARIES):
+        if len(resolved) != len(names):
             continue
 
         shim_dir.mkdir(parents=True, exist_ok=True)
@@ -295,6 +361,34 @@ def _run_cargo_pgo(
     return result.returncode
 
 
+# Bounds the setup step on its own clock, separate from the workload's grace:
+# building a load driver can take far longer than the profiling run.
+_WORKLOAD_SETUP_TIMEOUT_SECS = 3600
+
+
+def _run_workload_setup(setup_cmd: str, cwd: Path) -> int:
+    """Run the project's workload setup before the workload clock starts.
+
+    `build.rust.optimize.pgo.workload_setup_cmd` is for work that must finish
+    before profiling and would not fit in the workload's grace -- building a
+    load driver, pulling images. It runs once per target with its own timeout.
+    """
+    info(f"  $ {setup_cmd}  (workload setup, timeout={_WORKLOAD_SETUP_TIMEOUT_SECS}s)")
+    try:
+        result = subprocess.run(
+            setup_cmd,
+            shell=True,  # noqa: S602  # nosemgrep: subprocess-shell-true — project-owned config, run in controlled CI env
+            cwd=cwd,
+            env=dict(os.environ),
+            check=False,
+            timeout=_WORKLOAD_SETUP_TIMEOUT_SECS,
+        )
+        return result.returncode
+    except subprocess.TimeoutExpired:
+        error(f"PGO workload setup exceeded {_WORKLOAD_SETUP_TIMEOUT_SECS}s")
+        return 1
+
+
 def _run_workload(
     workload_cmd: str,
     duration_secs: int,
@@ -309,6 +403,8 @@ def _run_workload(
         `hyperi-ci/templates/pgo-workload/`.
       * `HYPERCI_PGO_INSTRUMENTED_BINARY` env var is ALSO exported as a
         convenience for scripts that prefer to read it from env.
+      * `PGO_WORKLOAD_DURATION_SECS` carries `duration_secs`, the variable
+        every workload template reads for how long to drive the binary.
 
     Enforces a hard timeout at `duration_secs + 600` (10-minute absolute
     grace for setup overhead: spinning up testcontainers, cargo-building
@@ -323,6 +419,7 @@ def _run_workload(
 
     env = dict(os.environ)
     env["HYPERCI_PGO_INSTRUMENTED_BINARY"] = str(instrumented_binary)
+    env["PGO_WORKLOAD_DURATION_SECS"] = str(duration_secs)
 
     # Append the binary path as the first positional argument. Shell
     # quoting handled by shlex.quote so paths with spaces don't break.
@@ -350,6 +447,18 @@ def _run_workload(
         return 1
 
 
+def _release_dir(cwd: Path, target: str) -> Path:
+    """Directory cargo writes `--release --target <target>` output to.
+
+    Honours CARGO_TARGET_DIR the same way packaging does, so every PGO and
+    BOLT step looks where the packager later copies from.
+    """
+    target_dir = Path(os.environ.get("CARGO_TARGET_DIR") or "target")
+    if not target_dir.is_absolute():
+        target_dir = cwd / target_dir
+    return target_dir / target / "release"
+
+
 def _instrumented_binary_path(
     cwd: Path,
     target: str,
@@ -358,13 +467,44 @@ def _instrumented_binary_path(
 ) -> Path:
     """Locate the instrumented binary produced by cargo pgo.
 
-    Both phases build under target/<triple>/release/. The PGO instrument
+    Both phases build under the release directory. The PGO instrument
     build keeps the plain binary name; the BOLT instrument build suffixes
     it `-bolt-instrumented` (cargo-pgo convention). Profile data goes into
     target/pgo-profiles/ (handled by cargo-pgo, not this code).
     """
     name = f"{binary_name}-bolt-instrumented" if variant == "bolt" else binary_name
-    return cwd / "target" / target / "release" / name
+    return _release_dir(cwd, target) / name
+
+
+def _install_bolt_output(cwd: Path, target: str, binary_name: str) -> bool:
+    """Put BOLT's rewritten binary where packaging copies from.
+
+    `cargo pgo bolt optimize` leaves the BOLT result beside the cargo output
+    as `<bin>-bolt-optimized`; the unsuffixed file is the PGO-only build of
+    the same pass, and packaging ships the unsuffixed name.
+
+    Returns:
+        True only when the BOLT file exists, carries llvm-bolt's note, and
+        now sits at the unsuffixed path.
+
+    """
+    release = _release_dir(cwd, target)
+    optimized = release / f"{binary_name}-bolt-optimized"
+    if not optimized.is_file():
+        warn(
+            f"BOLT optimise reported success but {optimized} does not exist -- "
+            "shipping the PGO-only binary"
+        )
+        return False
+    if BOLT_NOTE_SECTION not in elf_section_names(optimized):
+        warn(
+            f"{optimized} carries no {BOLT_NOTE_SECTION}, so it is not BOLT "
+            "output -- shipping the PGO-only binary"
+        )
+        return False
+    shutil.copy2(optimized, release / binary_name)
+    info(f"BOLT: {optimized.name} installed as {binary_name} for packaging")
+    return True
 
 
 # RUSTFLAGS used on the no-split BOLT RETRY (see _run_bolt). BOLT in relocation
@@ -398,6 +538,17 @@ def _bolt_no_split_rustflags() -> str:
     return _DEFAULT_BOLT_NO_SPLIT_RUSTFLAGS if val is None else val.strip()
 
 
+def _target_rustflags_key(target: str) -> str:
+    """Cargo's env name for `target.<triple>.rustflags`.
+
+    UPPERCASE with hyphens and dots as underscores, so
+    x86_64-unknown-linux-gnu becomes CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS.
+    """
+    return (
+        f"CARGO_TARGET_{target.upper().replace('-', '_').replace('.', '_')}_RUSTFLAGS"
+    )
+
+
 def _bolt_build_env(target: str, *, no_split: bool = False) -> dict[str, str]:
     """Env overrides for cargo-pgo BOLT build and optimize steps.
 
@@ -420,19 +571,13 @@ def _bolt_build_env(target: str, *, no_split: bool = False) -> dict[str, str]:
     These overrides apply to both the instrumented build (used only
     for profile collection) and the final BOLT-optimized build.
 
-    The per-target `rustflags` override replaces the project's own
-    target-specific flags during BOLT steps only — flags like
-    `-C target-cpu=x86-64-v3` are lost for the instrumented build,
-    which is acceptable because that binary only runs the workload to
-    collect profile data (branch profile correctness is independent of
-    codegen target-cpu).
+    Cargo joins the env value onto the project's `target.<triple>.rustflags`,
+    so flags declared there (`-C target-cpu=x86-64-v3`) survive and the later
+    `-fuse-ld=lld` wins over a project `-fuse-ld=mold`. A project whose flags
+    live only in `build.rustflags` loses them for these steps: cargo reads
+    `build.rustflags` only when no target rustflags exist.
     """
-    # Cargo env var for target-specific rustflags uses UPPERCASE with
-    # hyphens and dots replaced by underscores (e.g. x86_64-unknown-linux-gnu
-    # → X86_64_UNKNOWN_LINUX_GNU).
-    target_rustflags_key = (
-        f"CARGO_TARGET_{target.upper().replace('-', '_').replace('.', '_')}_RUSTFLAGS"
-    )
+    target_rustflags_key = _target_rustflags_key(target)
     # Base BOLT rustflags (lld for --emit-relocs). On the no-split retry, append
     # the splitter-disabling flags (see _bolt_no_split_rustflags / _run_bolt).
     bolt_rustflags = "-C link-arg=-fuse-ld=lld"
@@ -524,9 +669,10 @@ def _attempt_bolt(
         cwd=cwd,
         extra_env=bolt_env,
     )
-    # Only this branch produces a BOLT-optimised binary — the returns above
-    # are non-fatal skips that also report 0.
-    if rc == 0 and outcome:
+    # Only this branch can produce a BOLT-optimised binary -- the returns above
+    # are non-fatal skips that also report 0 -- and it counts only once the
+    # BOLT file is where packaging will pick it up.
+    if rc == 0 and _install_bolt_output(cwd, target, binary_name) and outcome:
         outcome.bolt_applied = True
     return rc
 

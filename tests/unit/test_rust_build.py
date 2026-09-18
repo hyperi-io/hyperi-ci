@@ -19,8 +19,10 @@ from hyperi_ci.languages.rust.optimize import (
     OptimizationOutcome,
     OptimizationProfile,
     cargo_feature_args,
+    tier2_shortfall,
     validate_profile,
 )
+from hyperi_ci.languages.rust.pgo import BOLT_NOTE_SECTION
 
 
 def _metadata_runner(manifest_paths: list[Path], returncode: int = 0):
@@ -173,6 +175,8 @@ class TestTier2Summary:
         monkeypatch.setattr(build, "_resolve_build_channel", lambda _cfg: "release")
         monkeypatch.setattr(build, "_detect_version", lambda: "v1.0.0")
         monkeypatch.setattr(build, "_package_binaries", lambda *_args, **_kwargs: 0)
+        # Packaging is stubbed, so there is no packaged file to inspect.
+        monkeypatch.setattr(build, "_verify_bolt_shipped", lambda *_args: 0)
         monkeypatch.setattr(build, "_build_for_target", on_build)
         monkeypatch.setattr(build, "log_outcome", logged.append)
         return logged
@@ -198,6 +202,7 @@ class TestTier2Summary:
             {
                 "pgo": {"enabled": True, "workload_cmd": "bash scripts/w.sh"},
                 "bolt": {"enabled": True},
+                "strict": False,
             }
         )
 
@@ -253,3 +258,96 @@ class TestTier2Summary:
 
         assert rc == 0
         assert logged == []
+
+    def test_a_bolt_target_whose_packaged_file_is_pgo_only_fails(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, make_elf
+    ) -> None:
+        # The log said BOLT; the file that ships says otherwise. Fail the build.
+        def on_build(*_args, outcome: OptimizationOutcome, **_kwargs):
+            outcome.pgo_applied = True
+            outcome.bolt_applied = True
+            return 0
+
+        def package(*_args, **_kwargs):
+            (tmp_path / "dist").mkdir()
+            make_elf(tmp_path / "dist" / "app-linux-amd64", [".text"])
+            return 0
+
+        real_verify = build._verify_bolt_shipped
+        self._patch_build(monkeypatch, on_build)
+        monkeypatch.setattr(build, "_package_binaries", package)
+        monkeypatch.setattr(build, "_verify_bolt_shipped", real_verify)
+        monkeypatch.chdir(tmp_path)
+        config = self._config(
+            {
+                "pgo": {"enabled": True, "workload_cmd": "bash scripts/w.sh"},
+                "bolt": {"enabled": True},
+            }
+        )
+
+        rc = build.run(config, {"RUST_BUILD_TARGETS": "x86_64-unknown-linux-gnu"})
+
+        assert rc == 1
+
+
+class TestTier2SkipFailsARelease:
+    """issue #133: a release that asked for Tier 2 does not ship without it."""
+
+    def test_a_bolt_skip_fails_the_release_and_names_the_stage(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def on_build(target, *_args, outcome: OptimizationOutcome, **_kwargs):
+            outcome.pgo_applied = True
+            outcome.bolt_applied = target.startswith("x86_64")
+            return 0
+
+        errors: list[str] = []
+        TestTier2Summary._patch_build(monkeypatch, on_build)
+        monkeypatch.setattr(build, "error", errors.append)
+        config = TestTier2Summary._config(
+            {
+                "pgo": {"enabled": True, "workload_cmd": "bash scripts/w.sh"},
+                "bolt": {"enabled": True},
+            }
+        )
+
+        rc = build.run(config, {"RUST_BUILD_TARGETS": TestTier2Summary._TARGETS})
+
+        assert rc == 1
+        assert any("aarch64" in e and "BOLT" in e for e in errors), errors
+
+    def test_shortfall_names_each_missing_stage(self) -> None:
+        profile = OptimizationProfile(
+            channel="release", pgo_enabled=True, bolt_enabled=True
+        )
+        assert tier2_shortfall(profile, OptimizationOutcome()) == ["PGO", "BOLT"]
+        done = OptimizationOutcome(pgo_applied=True, bolt_applied=True)
+        assert tier2_shortfall(profile, done) == []
+
+    def test_a_stage_never_asked_for_is_not_a_shortfall(self) -> None:
+        profile = OptimizationProfile(channel="release", pgo_enabled=True)
+        assert tier2_shortfall(profile, OptimizationOutcome(pgo_applied=True)) == []
+
+
+class TestVerifyBoltShipped:
+    """issue #136: the packaged file, not the log, proves BOLT shipped."""
+
+    TARGET = "x86_64-unknown-linux-gnu"
+
+    def test_passes_when_the_packaged_file_carries_the_note(
+        self, tmp_path: Path, make_elf
+    ) -> None:
+        make_elf(tmp_path / "app-linux-amd64", [".text", BOLT_NOTE_SECTION])
+        assert build._verify_bolt_shipped([self.TARGET], "app", tmp_path) == 0
+
+    def test_fails_when_the_packaged_file_is_pgo_only(
+        self, tmp_path: Path, make_elf
+    ) -> None:
+        make_elf(tmp_path / "app-linux-amd64", [".text"])
+        assert build._verify_bolt_shipped([self.TARGET], "app", tmp_path) == 1
+
+    def test_fails_when_the_packaged_file_is_missing(self, tmp_path: Path) -> None:
+        assert build._verify_bolt_shipped([self.TARGET], "app", tmp_path) == 1
+
+    def test_no_bolt_targets_checks_nothing(self, tmp_path: Path) -> None:
+        assert build._verify_bolt_shipped([], "app", tmp_path) == 0

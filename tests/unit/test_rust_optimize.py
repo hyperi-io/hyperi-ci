@@ -20,6 +20,7 @@ from hyperi_ci.languages.rust.optimize import (
     log_outcome,
     parse_cargo_features,
     resolve_optimization_profile,
+    unoptimized_release_refusal,
     validate_profile,
 )
 
@@ -278,6 +279,53 @@ class TestSkipOptimize:
         validated = validate_profile(self._skipped(), cargo_features={"jemalloc"})
         assert validated.optimize_skipped is True
         assert "optimize=skipped" in validated.describe()
+
+
+class TestUnoptimizedReleaseRefusal:
+    """issue #158: skipping optimisation and releasing are two consents."""
+
+    OPTED_IN = {"pgo": {"enabled": True, "workload_cmd": "bash x.sh"}}
+
+    def test_refuses_a_skipped_release_without_consent(self) -> None:
+        msg = unoptimized_release_refusal(
+            "release", self.OPTED_IN, skip_optimize=True, release_unoptimized=False
+        )
+        assert msg is not None
+        assert "release-unoptimized" in msg, "the refusal must name the override"
+
+    def test_consent_lets_it_through(self) -> None:
+        assert (
+            unoptimized_release_refusal(
+                "release", self.OPTED_IN, skip_optimize=True, release_unoptimized=True
+            )
+            is None
+        )
+
+    def test_an_optimised_release_is_never_refused(self) -> None:
+        assert (
+            unoptimized_release_refusal(
+                "release", self.OPTED_IN, skip_optimize=False, release_unoptimized=False
+            )
+            is None
+        )
+
+    @pytest.mark.parametrize("channel", ["alpha", "beta"])
+    def test_prerelease_channels_may_skip_freely(self, channel: str) -> None:
+        assert (
+            unoptimized_release_refusal(
+                channel, self.OPTED_IN, skip_optimize=True, release_unoptimized=False
+            )
+            is None
+        )
+
+    def test_a_release_with_no_tier_two_loses_nothing(self) -> None:
+        # Nothing to skip, so nothing to consent to.
+        assert (
+            unoptimized_release_refusal(
+                "release", {}, skip_optimize=True, release_unoptimized=False
+            )
+            is None
+        )
 
 
 class TestCargoFeatures:

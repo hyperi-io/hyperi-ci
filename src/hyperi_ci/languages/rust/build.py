@@ -29,12 +29,17 @@ from hyperi_ci.common import (
     is_ci,
     is_linux,
     is_macos,
+    release_unoptimized,
     sanitize_ref_name,
     skip_optimize,
     success,
+    truthy,
     warn,
 )
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages._build_common import (
+    elf_section_names,
+)
 from hyperi_ci.languages._build_common import (
     generate_checksums as _generate_checksums,
 )
@@ -49,8 +54,11 @@ from hyperi_ci.languages.rust.optimize import (
     log_profile,
     parse_cargo_features,
     resolve_optimization_profile,
+    tier2_shortfall,
+    unoptimized_release_refusal,
     validate_profile,
 )
+from hyperi_ci.languages.rust.pgo import BOLT_NOTE_SECTION
 
 _TARGET_MAP = {
     "x86_64-unknown-linux-gnu": ("linux", "amd64"),
@@ -1030,6 +1038,36 @@ def _package_binaries(
     return 0
 
 
+def _verify_bolt_shipped(
+    targets: list[str], binary_name: str, output_dir: Path = Path("dist")
+) -> int:
+    """Check each BOLT-optimised target's packaged file is the BOLT output.
+
+    The build log reports BOLT success from cargo-pgo; this reads the file
+    that ships, so a packaging slip cannot pass as an optimised release.
+
+    Args:
+        targets: Targets whose outcome recorded BOLT as applied.
+        binary_name: The binary PGO and BOLT ran on.
+        output_dir: Where packaging wrote the artefacts.
+
+    Returns:
+        0 when every file carries llvm-bolt's note, 1 on the first that does not.
+
+    """
+    for target in targets:
+        shipped = output_dir / f"{binary_name}-{_target_to_os_arch(target)}"
+        if BOLT_NOTE_SECTION in elf_section_names(shipped):
+            info(f"  BOLT verified in {shipped.name} ({BOLT_NOTE_SECTION})")
+            continue
+        error(
+            f"{shipped} was reported BOLT-optimised but carries no "
+            f"{BOLT_NOTE_SECTION}: the packaged file is not the BOLT output"
+        )
+        return 1
+    return 0
+
+
 def _expected_elf_machine(target: str) -> str | None:
     """Return the `file` command arch substring for a Rust target triple.
 
@@ -1302,6 +1340,26 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         channel = _resolve_build_channel(config)
         user_optimize = config.get("build.rust.optimize") or {}
         skip = skip_optimize(config)
+        consented = release_unoptimized()
+        refusal = unoptimized_release_refusal(
+            channel,
+            user_optimize,
+            skip_optimize=skip,
+            release_unoptimized=consented,
+        )
+        if refusal:
+            error(refusal)
+            if is_ci():
+                print(f"::error title=hyperi-ci unoptimised release refused::{refusal}")
+            return 1
+        if skip and channel == "release" and consented:
+            msg = (
+                "Shipping a release with the optimisation stage skipped, by "
+                "explicit consent (release-unoptimized=true)."
+            )
+            warn(msg)
+            if is_ci():
+                print(f"::warning title=hyperi-ci unoptimised release::{msg}")
         if skip:
             # An unoptimised binary looks identical until someone benchmarks it.
             msg = (
@@ -1324,6 +1382,10 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         base_profile and (base_profile.pgo_enabled or base_profile.bolt_enabled)
     )
 
+    # A release that asked for Tier 2 fails when a stage is skipped, rather than
+    # shipping a half-optimised binary under a green run.
+    strict = truthy(config.get("build.rust.optimize.strict", True))
+    bolt_targets: list[str] = []
     for target in targets:
         with group(f"Build: {target}"):
             profile = None
@@ -1344,6 +1406,18 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
                 return rc
             if tier2 and outcome:
                 log_outcome(outcome)
+            if profile and outcome and profile.channel == "release" and strict:
+                missing = tier2_shortfall(profile, outcome)
+                if missing:
+                    error(
+                        f"{target}: {' and '.join(missing)} was requested for this "
+                        "release and did not reach the binary. Refusing to ship a "
+                        "half-optimised release -- the warnings above name the cause. "
+                        "Set build.rust.optimize.strict: false to ship it anyway."
+                    )
+                    return 1
+            if outcome and outcome.bolt_applied:
+                bolt_targets.append(target)
             success(f"Built: {target}")
 
     with group("Binary packaging"):
@@ -1353,6 +1427,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         else:
             version = _detect_version()
             rc = _package_binaries(targets, binary_names, version, native)
+            if rc != 0:
+                return rc
+            rc = _verify_bolt_shipped(bolt_targets, binary_names[0])
             if rc != 0:
                 return rc
 

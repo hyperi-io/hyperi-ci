@@ -639,6 +639,38 @@ class TestSkipOptimizeThreading:
         )
 
 
+RELEASE_UNOPTIMIZED_ENV = "${{ inputs.release-unoptimized }}"
+
+
+class TestReleaseUnoptimizedThreading:
+    """issue #158: releasing a skipped-optimisation build is its own per-run
+    consent, threaded through every language workflow like skip-optimize."""
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    @pytest.mark.parametrize("trigger", ["workflow_call", "workflow_dispatch"])
+    def test_accepts_the_input(self, workflow_name: str, trigger: str) -> None:
+        wf = _load_workflow(workflow_name)
+        on = wf.get("on") or wf.get(True, {})
+        spec = on.get(trigger, {}).get("inputs", {}).get("release-unoptimized")
+        assert spec is not None, (
+            f"{workflow_name}: {trigger} missing release-unoptimized"
+        )
+        assert spec.get("type") == "string"
+        assert spec.get("default") == "", "consent must be off unless a run asks"
+        assert spec.get("required") is not True
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_env_reads_the_input_and_no_variable(self, workflow_name: str) -> None:
+        # A repo variable would make the consent permanent, which is the
+        # implicit release this switch exists to prevent.
+        wf = _load_workflow(workflow_name)
+        value = wf.get("env", {}).get("HYPERCI_RELEASE_UNOPTIMIZED")
+        assert value == RELEASE_UNOPTIMIZED_ENV, (
+            f"{workflow_name}: HYPERCI_RELEASE_UNOPTIMIZED must be exactly "
+            f"{RELEASE_UNOPTIMIZED_ENV}"
+        )
+
+
 class TestFirstReleaseAndOrphanGuards:
     """issue #37 follow-up: tag-less repos declare their starting version
     via VERSION (shipped verbatim); orphaned-tag repos fail loud at plan

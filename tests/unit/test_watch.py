@@ -22,6 +22,7 @@ from hyperi_ci.watch import (
     _poll_interval,
     _print_summary,
     _resume_command,
+    job_lines,
     resolve_head_run,
     watch_run,
 )
@@ -396,6 +397,54 @@ class TestWatchRunEarlyFail:
         ):
             rc = watch_run(run_id="1", timeout=0, interval=1)
         assert rc == 0
+
+
+class TestSkippedJobsListSeparately:
+    """issue #71: a skipped job is never listed among the jobs that passed."""
+
+    JOBS = [
+        {"name": "ci / Plan", "conclusion": "success"},
+        {"name": "ci / Release tail", "conclusion": "skipped"},
+        {"name": "ci / Quality", "conclusion": "success"},
+        {"name": "ci / Test (ubuntu-latest)", "conclusion": "skipped"},
+    ]
+
+    def test_skipped_jobs_follow_every_job_that_ran(self) -> None:
+        texts = [text for _, text in job_lines(self.JOBS)]
+        heading = texts.index("  did not run (2):")
+        ran = texts[:heading]
+        assert ran == ["  pass: ci / Plan", "  pass: ci / Quality"]
+        assert texts[heading + 1 :] == [
+            "    skipped: ci / Release tail",
+            "    skipped: ci / Test (ubuntu-latest)",
+        ]
+
+    def test_a_skipped_gate_warns_and_a_skipped_tail_does_not(self) -> None:
+        levels = dict((text, level) for level, text in job_lines(self.JOBS))
+        assert levels["    skipped: ci / Test (ubuntu-latest)"] == "warn"
+        assert levels["    skipped: ci / Release tail"] == "info"
+
+    def test_no_heading_when_nothing_skipped(self) -> None:
+        texts = [text for _, text in job_lines(self.JOBS[:1])]
+        assert texts == ["  pass: ci / Plan"]
+
+    def test_a_pending_job_renders_as_pending(self) -> None:
+        # gh reports conclusion "" for a job that has not finished.
+        lines = job_lines([{"name": "ci / Build", "conclusion": ""}])
+        assert lines == [("info", "  pending: ci / Build")]
+
+    def test_a_failed_job_names_its_failed_step(self) -> None:
+        jobs = [
+            {
+                "name": "ci / Test",
+                "conclusion": "failure",
+                "steps": [{"name": "Run tests", "conclusion": "failure"}],
+            }
+        ]
+        assert job_lines(jobs) == [
+            ("error", "  failure: ci / Test"),
+            ("error", "    failed step: Run tests"),
+        ]
 
 
 class TestSkippedGateIsNotRenderedGreen:
