@@ -151,9 +151,17 @@ build:
         enabled: true
         workload_cmd: "bash scripts/pgo-workload.sh"
         duration_secs: 300   # minimum 60 — shorter produces bad profiles
+        # Optional: runs once before the workload, off the workload's clock
+        # (1h timeout of its own). For building a load driver or pulling images.
+        workload_setup_cmd: "cargo build --release -p pgo-driver"
       bolt:
         enabled: true        # Linux only; skipped on macOS/Windows
 ```
+
+The workload gets `duration_secs` as `PGO_WORKLOAD_DURATION_SECS` and must stop
+by then. The wrapper allows `duration_secs + 600` before killing it, and a
+timeout fails the release, so anything slow that happens before profiling
+belongs in `workload_setup_cmd`.
 
 Nothing to configure in hyperi-ci itself - these keys control per-project
 Tier 2 behaviour.
@@ -167,6 +175,7 @@ summary:
 #!/usr/bin/env bash
 # $1 = path to the instrumented binary (canonical contract)
 # Also exported as HYPERCI_PGO_INSTRUMENTED_BINARY for convenience.
+# PGO_WORKLOAD_DURATION_SECS carries duration_secs.
 # Must exercise real data-processing hot paths for >= 60s (300s recommended).
 # Must self-terminate at duration_secs — the wrapper timeout is safety, not runtime.
 # Must exit 0 on success; non-zero aborts the build (bad profile > no profile).

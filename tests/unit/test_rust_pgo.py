@@ -12,7 +12,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from hyperi_ci.languages.rust.optimize import OptimizationOutcome, OptimizationProfile
+from hyperi_ci.languages.rust.optimize import (
+    OptimizationOutcome,
+    OptimizationProfile,
+    resolve_optimization_profile,
+)
 from hyperi_ci.languages.rust.pgo import (
     BOLT_NOTE_SECTION,
     _ensure_cargo_pgo_installed,
@@ -21,6 +25,7 @@ from hyperi_ci.languages.rust.pgo import (
     _instrumented_binary_path,
     _release_dir,
     _run_workload,
+    _run_workload_setup,
     cargo_pgo_version_from,
     run_pgo_build,
 )
@@ -448,6 +453,69 @@ class TestRunBoltRetry:
         rc = pgo._run_bolt("t", [], "bin", self._profile(), tmp_path, None)
         assert rc == 0  # non-fatal skip
         assert calls == []  # never attempted
+
+
+class TestWorkloadDurationAndSetup:
+    """issue #135: duration_secs reaches the workload; setup runs off its clock.
+
+    Real shell commands, so the variable the script sees is the one asserted.
+    """
+
+    def test_the_workload_sees_the_configured_duration(self, tmp_path) -> None:
+        out = tmp_path / "seen"
+        # `sh -c '...' --` takes the appended binary path as $1 and ignores it.
+        cmd = f"sh -c 'printf %s \"$PGO_WORKLOAD_DURATION_SECS\" > {out}' --"
+        rc = _run_workload(cmd, 600, tmp_path / "bin", cwd=tmp_path)
+        assert rc == 0
+        assert out.read_text() == "600"
+
+    def test_setup_runs_in_the_project_directory(self, tmp_path) -> None:
+        rc = _run_workload_setup("touch built-driver", tmp_path)
+        assert rc == 0
+        assert (tmp_path / "built-driver").exists()
+
+    def test_a_failed_setup_is_reported(self, tmp_path) -> None:
+        assert _run_workload_setup("exit 7", tmp_path) == 7
+
+    def test_setup_comes_from_config(self) -> None:
+        profile = resolve_optimization_profile(
+            "release",
+            {
+                "pgo": {
+                    "enabled": True,
+                    "workload_cmd": "bash w.sh",
+                    "workload_setup_cmd": "cargo build -p driver",
+                }
+            },
+        )
+        assert profile.pgo_workload_setup_cmd == "cargo build -p driver"
+
+    def test_a_failed_setup_stops_before_profiling(self, tmp_path) -> None:
+        bin_dir = tmp_path / "target" / "x86_64-unknown-linux-gnu" / "release"
+        bin_dir.mkdir(parents=True)
+        (bin_dir / "my-bin").touch()
+        profile = OptimizationProfile(
+            channel="release",
+            pgo_enabled=True,
+            pgo_workload_cmd="bash w.sh",
+            pgo_workload_setup_cmd="exit 3",
+        )
+        with (
+            patch(
+                "hyperi_ci.languages.rust.pgo._ensure_cargo_pgo_installed",
+                return_value=True,
+            ),
+            patch("hyperi_ci.languages.rust.pgo._run_cargo_pgo", return_value=0),
+            patch("hyperi_ci.languages.rust.pgo._run_workload") as workload,
+        ):
+            rc = run_pgo_build(
+                target="x86_64-unknown-linux-gnu",
+                profile=profile,
+                binary_name="my-bin",
+                cwd=tmp_path,
+            )
+        assert rc == 3
+        workload.assert_not_called()
 
 
 class TestWorkloadExecution:
