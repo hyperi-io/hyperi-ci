@@ -10,14 +10,21 @@ from __future__ import annotations
 import os
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from hyperi_ci.languages.rust.optimize import OptimizationOutcome, OptimizationProfile
 from hyperi_ci.languages.rust.pgo import (
+    BOLT_NOTE_SECTION,
     _ensure_cargo_pgo_installed,
     _ensure_llvm_bolt_available,
+    _install_bolt_output,
     _instrumented_binary_path,
+    _release_dir,
     _run_workload,
+    cargo_pgo_version_from,
     run_pgo_build,
 )
+from hyperi_ci.versions import tool_version
 
 
 def _make_profile(
@@ -51,13 +58,36 @@ class TestCargoPgoInstallGate:
     def test_already_installed_returns_true_no_install(self) -> None:
         with (
             patch(
-                "hyperi_ci.languages.rust.pgo.shutil.which",
-                return_value="/bin/cargo-pgo",
+                "hyperi_ci.languages.rust.pgo._installed_cargo_pgo_version",
+                return_value=tool_version("cargo-pgo"),
             ),
             patch("hyperi_ci.languages.rust.pgo.subprocess.run") as mock_run,
         ):
             assert _ensure_cargo_pgo_installed() is True
             mock_run.assert_not_called()
+
+    def test_a_different_installed_version_is_replaced_by_the_pin(
+        self, monkeypatch
+    ) -> None:
+        # issue #137: a persistent runner home can carry an older build.
+        monkeypatch.setenv("PATH", os.environ["PATH"])
+        with (
+            patch(
+                "hyperi_ci.languages.rust.pgo._installed_cargo_pgo_version",
+                return_value="0.2.9",
+            ),
+            patch(
+                "hyperi_ci.languages.rust.pgo.shutil.which",
+                return_value="/bin/cargo-pgo",
+            ),
+            patch(
+                "hyperi_ci.languages.rust.pgo.subprocess.run",
+                return_value=MagicMock(returncode=0),
+            ) as mock_run,
+        ):
+            assert _ensure_cargo_pgo_installed() is True
+        cmd = mock_run.call_args[0][0]
+        assert cmd[cmd.index("--version") + 1] == tool_version("cargo-pgo")
 
     def test_not_installed_triggers_install_command(self, monkeypatch) -> None:
         monkeypatch.setenv("PATH", os.environ["PATH"])
@@ -78,7 +108,8 @@ class TestCargoPgoInstallGate:
         assert result is True
         mock_run.assert_called_once()
         cmd = mock_run.call_args[0][0]
-        assert cmd == ["cargo", "install", "cargo-pgo", "--locked"]
+        pinned = tool_version("cargo-pgo")
+        assert cmd == ["cargo", "install", "cargo-pgo", "--version", pinned, "--locked"]
 
     def test_install_failure_returns_false(self, monkeypatch) -> None:
         monkeypatch.setenv("PATH", os.environ["PATH"])
@@ -90,6 +121,28 @@ class TestCargoPgoInstallGate:
             ),
         ):
             assert _ensure_cargo_pgo_installed() is False
+
+
+class TestCargoPgoVersion:
+    """issue #137: the installed version is read, not assumed."""
+
+    @pytest.mark.parametrize(
+        ("output", "expected"),
+        [
+            ("cargo-pgo 0.3.0\n", "0.3.0"),
+            ("cargo-pgo-pgo 0.2.9", "0.2.9"),
+            ("", None),
+            ("error: no such command: `pgo`", None),
+        ],
+    )
+    def test_parses_the_version(self, output: str, expected: str | None) -> None:
+        assert cargo_pgo_version_from(output) == expected
+
+    def test_the_pin_is_a_plain_semver(self) -> None:
+        # `cargo install --version` takes it verbatim; a leading v would fail.
+        assert cargo_pgo_version_from(tool_version("cargo-pgo")) == tool_version(
+            "cargo-pgo"
+        )
 
 
 class TestBoltAvailabilityCheck:
@@ -502,6 +555,72 @@ class TestInstrumentedBinaryPath:
         assert "aarch64-unknown-linux-gnu" in str(p)
 
 
+class TestReleaseDir:
+    """issue #135: PGO and BOLT look where packaging copies from."""
+
+    TARGET = "x86_64-unknown-linux-gnu"
+
+    def test_defaults_to_target_under_the_project(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.delenv("CARGO_TARGET_DIR", raising=False)
+        assert _release_dir(tmp_path, self.TARGET) == (
+            tmp_path / "target" / self.TARGET / "release"
+        )
+
+    def test_honours_an_absolute_cargo_target_dir(self, tmp_path, monkeypatch) -> None:
+        elsewhere = tmp_path / "shared-target"
+        monkeypatch.setenv("CARGO_TARGET_DIR", str(elsewhere))
+        assert _release_dir(tmp_path / "project", self.TARGET) == (
+            elsewhere / self.TARGET / "release"
+        )
+
+    def test_a_relative_cargo_target_dir_is_under_the_project(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("CARGO_TARGET_DIR", "build-out")
+        assert _release_dir(tmp_path, self.TARGET) == (
+            tmp_path / "build-out" / self.TARGET / "release"
+        )
+
+    def test_the_instrumented_binary_follows_it(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setenv("CARGO_TARGET_DIR", str(tmp_path / "t"))
+        path = _instrumented_binary_path(tmp_path, self.TARGET, "app", variant="bolt")
+        assert (
+            path == tmp_path / "t" / self.TARGET / "release" / "app-bolt-instrumented"
+        )
+
+
+class TestInstallBoltOutput:
+    """issue #136: BOLT's file, not the PGO-only one, is what packaging ships."""
+
+    TARGET = "x86_64-unknown-linux-gnu"
+
+    @pytest.fixture
+    def release(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("CARGO_TARGET_DIR", raising=False)
+        release = tmp_path / "target" / self.TARGET / "release"
+        release.mkdir(parents=True)
+        (release / "app").write_bytes(b"pgo-only cargo output")
+        return release
+
+    def test_installs_the_bolt_file_over_the_packaged_name(
+        self, tmp_path, release, make_elf
+    ) -> None:
+        bolt = make_elf(release / "app-bolt-optimized", [".text", BOLT_NOTE_SECTION])
+        assert _install_bolt_output(tmp_path, self.TARGET, "app") is True
+        assert (release / "app").read_bytes() == bolt.read_bytes()
+
+    def test_no_bolt_file_leaves_the_pgo_binary(self, tmp_path, release) -> None:
+        assert _install_bolt_output(tmp_path, self.TARGET, "app") is False
+        assert (release / "app").read_bytes() == b"pgo-only cargo output"
+
+    def test_a_file_without_the_bolt_note_is_refused(
+        self, tmp_path, release, make_elf
+    ) -> None:
+        make_elf(release / "app-bolt-optimized", [".text"])
+        assert _install_bolt_output(tmp_path, self.TARGET, "app") is False
+        assert (release / "app").read_bytes() == b"pgo-only cargo output"
+
+
 class TestRunPgoBuildOrchestration:
     """Full PGO pipeline: instrument → workload → optimise (→ BOLT)."""
 
@@ -803,15 +922,21 @@ class TestOutcomeRecording:
     """
 
     @staticmethod
-    def _seed(tmp_path, *, bolt_instrumented: bool):
+    def _seed(tmp_path, make_elf=None, *, bolt_instrumented: bool):
         bin_dir = tmp_path / "target" / "x86_64-unknown-linux-gnu" / "release"
         bin_dir.mkdir(parents=True)
         (bin_dir / "my-bin").touch()
         if bolt_instrumented:
             (bin_dir / "my-bin-bolt-instrumented").touch()
+        if make_elf:
+            # What `cargo pgo bolt optimize` leaves beside the cargo output.
+            make_elf(bin_dir / "my-bin-bolt-optimized", [".text", BOLT_NOTE_SECTION])
+        return bin_dir
 
-    def test_bolt_applied_when_the_whole_pipeline_runs(self, tmp_path) -> None:
-        self._seed(tmp_path, bolt_instrumented=True)
+    def test_bolt_applied_when_the_whole_pipeline_runs(
+        self, tmp_path, make_elf
+    ) -> None:
+        bin_dir = self._seed(tmp_path, make_elf, bolt_instrumented=True)
         outcome = OptimizationOutcome(allocator="jemalloc")
         with (
             patch(
@@ -834,6 +959,39 @@ class TestOutcomeRecording:
             )
         assert rc == 0
         assert outcome.describe() == "optimised: pgo=yes bolt=yes allocator=jemalloc"
+        # Packaging copies the unsuffixed name, so the BOLT file must now be it.
+        assert (bin_dir / "my-bin").read_bytes() == (
+            bin_dir / "my-bin-bolt-optimized"
+        ).read_bytes()
+
+    def test_bolt_success_without_its_output_leaves_bolt_unapplied(
+        self, tmp_path
+    ) -> None:
+        # cargo-pgo exits 0 but no -bolt-optimized file exists: the PGO-only
+        # binary ships, and the outcome must say so.
+        self._seed(tmp_path, bolt_instrumented=True)
+        outcome = OptimizationOutcome(allocator="jemalloc")
+        with (
+            patch(
+                "hyperi_ci.languages.rust.pgo._ensure_cargo_pgo_installed",
+                return_value=True,
+            ),
+            patch(
+                "hyperi_ci.languages.rust.pgo._ensure_llvm_bolt_available",
+                return_value=True,
+            ),
+            patch("hyperi_ci.languages.rust.pgo._run_cargo_pgo", return_value=0),
+            patch("hyperi_ci.languages.rust.pgo._run_workload", return_value=0),
+        ):
+            rc = run_pgo_build(
+                target="x86_64-unknown-linux-gnu",
+                profile=_make_profile(bolt_enabled=True),
+                binary_name="my-bin",
+                cwd=tmp_path,
+                outcome=outcome,
+            )
+        assert rc == 0
+        assert outcome.describe() == "optimised: pgo=yes bolt=no allocator=jemalloc"
 
     def test_missing_bolt_toolchain_leaves_bolt_unapplied(self, tmp_path) -> None:
         self._seed(tmp_path, bolt_instrumented=False)
