@@ -177,6 +177,49 @@ def _gates_unrun(run_data: dict) -> bool:
     return all(job.get("conclusion") in NO_VERDICT for job in gates)
 
 
+def job_lines(jobs: list[dict]) -> list[tuple[str, str]]:
+    """Render the per-job summary lines as ``(level, text)`` pairs.
+
+    Jobs that reached a verdict come first; skipped jobs follow under their
+    own count, so a skipped job is never read as one of the passes above it.
+
+    Args:
+        jobs: The ``jobs`` list from ``gh run view --json jobs``.
+
+    Returns:
+        Pairs whose level is ``success``, ``error``, ``warn`` or ``info``.
+
+    """
+    lines: list[tuple[str, str]] = []
+    skipped: list[str] = []
+    for job in jobs:
+        name = job.get("name", "unknown")
+        job_conclusion = job.get("conclusion") or "pending"
+        if job_conclusion == "skipped":
+            skipped.append(name)
+            continue
+        marker = "pass" if job_conclusion == "success" else job_conclusion
+        line = f"  {marker}: {name}"
+        if job_conclusion == "success":
+            lines.append(("success", line))
+        elif job_conclusion == "failure":
+            lines.append(("error", line))
+            for step_data in job.get("steps", []):
+                if step_data.get("conclusion") == "failure":
+                    step = step_data.get("name", "unknown")
+                    lines.append(("error", f"    failed step: {step}"))
+        else:
+            lines.append(("info", line))
+
+    if skipped:
+        lines.append(("info", f"  did not run ({len(skipped)}):"))
+        for name in skipped:
+            # Rendered neutral, a skipped gate reads as one that passed.
+            level = "warn" if gate_of(name) else "info"
+            lines.append((level, f"    skipped: {name}"))
+    return lines
+
+
 def _print_summary(run_data: dict) -> None:
     """Print a human-readable run summary with job statuses."""
     conclusion = run_data.get("conclusion", "unknown")
@@ -196,26 +239,9 @@ def _print_summary(run_data: dict) -> None:
     else:
         warn(header)
 
-    jobs = run_data.get("jobs", [])
-    for job in jobs:
-        name = job.get("name", "unknown")
-        job_conclusion = job.get("conclusion", "pending")
-        marker = "pass" if job_conclusion == "success" else job_conclusion
-        line = f"  {marker}: {name}"
-
-        if job_conclusion == "success":
-            success(line)
-        elif job_conclusion == "failure":
-            error(line)
-            steps = job.get("steps", [])
-            for step_data in steps:
-                if step_data.get("conclusion") == "failure":
-                    error(f"    failed step: {step_data.get('name', 'unknown')}")
-        elif gate_of(name):
-            # Rendered neutral, a skipped gate reads as one that passed.
-            warn(line)
-        else:
-            info(line)
+    emit = {"success": success, "error": error, "warn": warn, "info": info}
+    for level, text in job_lines(run_data.get("jobs", [])):
+        emit[level](text)
 
     if url:
         info(f"  {url}")
