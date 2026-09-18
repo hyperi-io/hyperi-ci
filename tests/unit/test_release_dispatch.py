@@ -318,6 +318,9 @@ class TestTagHead:
         assert push.tag_head(bump="patch") == 0
 
 
+# These tests import the deprecated paths on purpose; their warning is the
+# expected behaviour, not a finding.
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 class TestDeprecatedImportPaths:
     """The package moved to `hyperi_ci.release`, and the old dotted paths
     still resolve — submodules included, not just the top-level names."""

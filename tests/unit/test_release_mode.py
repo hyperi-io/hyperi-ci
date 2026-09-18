@@ -12,6 +12,8 @@ the matrix is exact regardless of what CI env the test itself runs in.
 
 from __future__ import annotations
 
+import pytest
+
 from hyperi_ci.release_mode import (
     DEV,
     RELEASE,
@@ -121,6 +123,9 @@ class TestBoolView:
         assert is_release_mode(env={"HYPERCI_RELEASE_MODE": "dev"}) is False
 
 
+# These tests import the deprecated module on purpose; its warning is the
+# expected behaviour, not a finding.
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 class TestDeprecatedSpellings:
     """The old module path and the old bool name keep resolving."""
 
