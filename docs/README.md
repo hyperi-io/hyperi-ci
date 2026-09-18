@@ -117,6 +117,12 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 - [runtime/TESTENV.md](runtime/testenv.md) - Redpanda / ClickHouse compose
   patterns for integration tests inside the 4 GB CI deck
 
+### Testing a change before it ships
+
+- [testing/FIXTURE-GIT.md](testing/fixture-git.md) - the fixture fleet and
+  `scripts/rehearse-branch.py`, the canary: it runs a branch's workflows and
+  CLI against a fixture through a draft PR, which always runs checks
+
 ### Deployment artefacts
 
 - [deployment/CONTRACT.md](deployment/contract.md) - the deployment contract a
