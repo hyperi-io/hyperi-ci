@@ -13,6 +13,13 @@ publish channel and user config. Channel gating:
     beta    -> jemalloc allocator + fat LTO
     release -> jemalloc + fat LTO + optional PGO + optional BOLT
 
+The channel here names an optimisation TIER, not which version sequence the
+artefact belongs to. Those are independent: a `1.2.0-beta.1` cut from a
+prerelease branch is built at the release tier by default, which is how the
+full PGO/BOLT path gets rehearsed without spending a stable version
+(issue #144). `common.is_prerelease_build` answers the identity question;
+`_resolve_build_channel` answers this one.
+
 User config in `.hyperi-ci.yaml` under `build.rust.optimize` overrides
 the channel defaults. Each key is optional; omitted keys use the default
 for the channel.
@@ -278,26 +285,43 @@ def unoptimized_release_refusal(
     skip_optimize: bool,
     release_unoptimized: bool,
     project_root: Path | None = None,
+    prerelease: bool = False,
 ) -> str | None:
-    """Say why a skipped-optimisation build may not ship on the release channel.
+    """Say why a skipped-optimisation build may not ship as a stable release.
 
     Skipping only costs something when the release would otherwise have run
-    PGO or BOLT, so a project with no Tier 2 configured is never refused.
+    PGO or BOLT, so a project that would run neither -- by config or by the
+    conventional-workload default -- is never refused.
+
+    A prerelease is never refused either. What the consent protects is the
+    stable version users install, and a prerelease spends no stable version --
+    it is the artefact you cut precisely to test the code fast (issue #144).
+    Keying the refusal on the optimisation tier instead would make the fast
+    prerelease unreachable, because a release-tier build is what a release
+    branch asks for.
+
+    The two questions are independent and both are asked: ``project_root``
+    decides whether Tier 2 would have run at all, ``prerelease`` decides
+    whether the version losing it is one users install.
 
     Args:
-        channel: Resolved build channel.
+        channel: Resolved build channel -- the optimisation tier.
         user_optimize: `build.rust.optimize` from .hyperi-ci.yaml.
         skip_optimize: Whether this run skips the optimisation stage.
         release_unoptimized: Whether this run carries the explicit consent.
         project_root: Project root, so a project relying on the conventional
                       workload is recognised as running Tier 2. Without it a
                       defaulted project reads as having nothing to skip.
+        prerelease: Whether the version being built carries a prerelease
+                    component, from `common.is_prerelease_build`.
 
     Returns:
         The refusal message, or None when the build may go ahead.
 
     """
     if not skip_optimize or channel != "release" or release_unoptimized:
+        return None
+    if prerelease:
         return None
     full = resolve_optimization_profile(
         channel, user_optimize, project_root=project_root

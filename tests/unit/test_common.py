@@ -11,6 +11,7 @@ import pytest
 
 from hyperi_ci import common
 from hyperi_ci.common import (
+    is_prerelease_build,
     normalise_tristate,
     release_unoptimized,
     run_cmd,
@@ -121,6 +122,35 @@ class TestReleaseUnoptimized:
     def test_true_is_consent(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("HYPERCI_RELEASE_UNOPTIMIZED", "true")
         assert release_unoptimized() is True
+
+
+class TestIsPrereleaseBuild:
+    """issue #144: version identity, independent of the optimisation tier."""
+
+    def test_env_says_prerelease(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("HYPERCI_PRERELEASE", "true")
+        assert is_prerelease_build() is True
+
+    def test_env_says_stable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("HYPERCI_PRERELEASE", "false")
+        monkeypatch.setenv("HYPERCI_VERSION", "1.2.0-beta.1")
+        assert is_prerelease_build() is False
+
+    def test_empty_env_falls_back_to_the_version(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The workflows always export it, empty when the plan produced no
+        # version -- a local run then answers from the version itself.
+        monkeypatch.setenv("HYPERCI_PRERELEASE", "")
+        monkeypatch.setenv("HYPERCI_VERSION", "1.2.0-beta.1")
+        assert is_prerelease_build() is True
+
+    def test_a_stable_version_is_not_a_prerelease(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("HYPERCI_PRERELEASE", raising=False)
+        monkeypatch.setenv("HYPERCI_VERSION", "1.2.0")
+        assert is_prerelease_build() is False
 
 
 class TestSanitizeRefName:

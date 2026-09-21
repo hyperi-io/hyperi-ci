@@ -171,14 +171,48 @@ class TestDefaultPush:
 class TestPublishPush:
     """Test --publish flow (trailer-amend, single CI run)."""
 
-    def test_not_on_main_aborts(self) -> None:
+    def test_not_on_main_aborts(self, tmp_path: Path) -> None:
         with (
             patch("hyperi_ci.push.require_gh", return_value=True),
             patch("hyperi_ci.push.get_current_branch", return_value="feat/thing"),
         ):
             from hyperi_ci.push import _publish_push
 
-            rc = _publish_push(dry_run=False, force=False, bump=None, cwd=None)
+            rc = _publish_push(dry_run=False, force=False, bump=None, cwd=str(tmp_path))
+            assert rc == 1
+
+    def test_a_declared_prerelease_branch_is_allowed(self, tmp_path: Path) -> None:
+        # issue #144: a beta cut off a prerelease branch is a release, so the
+        # CLI must not refuse the push the CI gate is ready to act on.
+        with (
+            patch("hyperi_ci.push.require_gh", return_value=True),
+            patch("hyperi_ci.push.get_current_branch", return_value="beta"),
+            patch("hyperi_ci.push._check_dirty_tree", return_value=0),
+            patch("hyperi_ci.push._bump_gate", return_value=0),
+            patch(
+                "hyperi_ci.push._get_last_commit_message", return_value="fix: a thing"
+            ),
+        ):
+            from hyperi_ci.push import _publish_push
+
+            rc = _publish_push(dry_run=True, force=True, bump=None, cwd=str(tmp_path))
+            assert rc == 0
+
+    def test_a_repo_that_declares_no_prerelease_branch_still_refuses(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / ".releaserc.json").write_text(
+            '{"branches": ["main"], "plugins": ["@semantic-release/exec"]}',
+            encoding="utf-8",
+            newline="\n",
+        )
+        with (
+            patch("hyperi_ci.push.require_gh", return_value=True),
+            patch("hyperi_ci.push.get_current_branch", return_value="beta"),
+        ):
+            from hyperi_ci.push import _publish_push
+
+            rc = _publish_push(dry_run=False, force=False, bump=None, cwd=str(tmp_path))
             assert rc == 1
 
     def test_no_gh_cli_aborts(self) -> None:

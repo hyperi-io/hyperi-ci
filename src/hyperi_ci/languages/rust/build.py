@@ -29,6 +29,7 @@ from hyperi_ci.common import (
     is_ci,
     is_linux,
     is_macos,
+    is_prerelease_build,
     release_unoptimized,
     sanitize_ref_name,
     skip_optimize,
@@ -1342,12 +1343,14 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         skip = skip_optimize(config)
         consented = release_unoptimized()
         project_root = Path.cwd()
+        prerelease = is_prerelease_build()
         refusal = unoptimized_release_refusal(
             channel,
             user_optimize,
             skip_optimize=skip,
             release_unoptimized=consented,
             project_root=project_root,
+            prerelease=prerelease,
         )
         if refusal:
             error(refusal)

@@ -77,6 +77,8 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
   CHANGELOG are outputs; how a tag-less repo gets its first version
 - [versioning-and-the-suite.md](versioning-and-the-suite.md) - per-repo versions
   vs DFE stack versions, and which ladder owns `rc`
+- [prereleases.md](prereleases.md) - cut `1.2.0-beta.1` off a branch, stable
+  sequence untouched; tier and version identity as separate knobs
 - [description.md](description.md) - the one-line description every registry
   duplicates, resolved from the manifest; `[workspace.package]` for a workspace
 - [migration/ONBOARDING.md](migration/onboarding.md) - put a repo on hyperi-ci

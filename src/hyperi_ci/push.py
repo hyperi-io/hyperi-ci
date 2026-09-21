@@ -35,6 +35,7 @@ from hyperi_ci.common import (
     warn,
 )
 from hyperi_ci.gh import get_current_branch, require_gh
+from hyperi_ci.release_branches import repo_prerelease_branches
 from hyperi_ci.version_source import seed_version
 from hyperi_ci.vocabulary import (
     LEGACY_TRAILER_KEY,
@@ -162,6 +163,11 @@ def _publish_push(
 ) -> int:
     """Mark HEAD as a publish run, then push.
 
+    Runs from ``main``, or from a branch the release config declares
+    ``prerelease`` -- that cuts ``1.2.0-beta.1`` on its own sequence and
+    leaves the stable numbers alone (issue #144). Any other branch is
+    refused, matching the CI gate.
+
     Two paths:
 
     - Default (``bump=None``): the user's HEAD commit IS release-worthy
@@ -184,8 +190,11 @@ def _publish_push(
         return 1
 
     branch = get_current_branch(cwd=cwd)
-    if branch != "main":
-        error("--publish only works from main")
+    if branch != "main" and not _is_prerelease_branch(branch, cwd=cwd):
+        error(
+            "--publish only works from main, or from a branch declared "
+            "'prerelease' in the release config"
+        )
         return 1
 
     if rc := _check_dirty_tree(cwd=cwd):
@@ -276,7 +285,10 @@ def _publish_push(
     # reconcile merge already on origin/main gets imported by the pull
     # and shipped un-analysed — the rustlib v3.0.0 shape, arriving via
     # the sync instead of the local worktree.
-    if rc := _pull_rebase(branch="main", cwd=cwd):
+    # Rebase onto the branch being pushed, which is `main` for a stable
+    # release and the prerelease branch otherwise -- rebasing a prerelease
+    # branch onto main would import commits the release was not cut from.
+    if rc := _pull_rebase(branch=branch, cwd=cwd):
         return rc
 
     # Predicted-bump gate (issue #26): fail closed if the commit range
@@ -616,6 +628,26 @@ def _skip_ci_push(*, dry_run: bool, cwd: str | None) -> int:
 
 
 # --- helpers ---
+
+
+def _is_prerelease_branch(branch: str | None, *, cwd: str | None) -> bool:
+    """Report whether ``branch`` is declared a prerelease branch for this repo.
+
+    The same declaration the CI gate reads, so a push the CLI accepts is one
+    the gate will release rather than silently validate.
+
+    Args:
+        branch: Current branch name, or None when it cannot be resolved.
+        cwd: Repository root, or None for the process working directory.
+
+    Returns:
+        True when the branch releases on its own version sequence.
+
+    """
+    if not branch:
+        return False
+    workspace = Path(cwd) if cwd else Path.cwd()
+    return branch in repo_prerelease_branches(workspace)
 
 
 def _check_dirty_tree(*, cwd: str | None) -> int:

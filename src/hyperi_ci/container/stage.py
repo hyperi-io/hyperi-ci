@@ -57,6 +57,7 @@ from hyperi_ci.container.detect import Decision, detect
 from hyperi_ci.container.labels import build_oci_labels
 from hyperi_ci.container.registry import resolve_registry_bases
 from hyperi_ci.python_version import resolve as resolve_python
+from hyperi_ci.release_branches import effective_release_channel
 from hyperi_ci.release_mode import (
     DEV,
     RELEASE,
@@ -533,7 +534,11 @@ def _dispatch_build(
     image_name = Path.cwd().name
     version = _read_version()
     sha = _read_sha()
-    channel = config.get("release.channel", "release")
+    # `release.channel` states where STABLE artefacts go; a prerelease version
+    # ships on the channel its own label names (issue #144).
+    channel = effective_release_channel(
+        config.get("release.channel", "release"), version
+    )
 
     tags = resolve_tags(
         registry_bases=registry_bases,

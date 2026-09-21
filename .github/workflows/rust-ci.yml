@@ -192,6 +192,7 @@ jobs:
       run-build: ${{ steps.predict.outputs.run-build }}
       will-release: ${{ steps.predict.outputs.will-release }}
       next-version: ${{ steps.predict.outputs.version }}
+      prerelease: ${{ steps.predict.outputs.prerelease }}
       build-matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -518,9 +519,15 @@ jobs:
       - name: Run build
         env:
           RUST_BUILD_TARGETS: ${{ matrix.target }}
-          # Tier 2 (PGO + BOLT) adds 30-60 min, so it runs only for a build
-          # that ships -- the same signal that gates the stamp step above.
+          # Optimisation TIER. Tier 2 (PGO + BOLT) adds ~14 min per arch, so it
+          # runs only for a build that ships -- the same signal that gates the
+          # stamp step above. A prerelease ships, so it is built at the release
+          # tier by default: that is the release rehearsal (issue #144).
           HYPERCI_CHANNEL: ${{ needs.plan.outputs.will-release == 'true' && 'release' || '' }}
+          # Version IDENTITY, independent of the tier above. True when the
+          # build spends no stable version, which is what lets `skip-optimize`
+          # cut a fast prerelease without the release-unoptimized consent.
+          HYPERCI_PRERELEASE: ${{ needs.plan.outputs.prerelease }}
         run: ${{ env.HYPERCI_INSTALL }} run build
 
       - name: Generate deployment artefacts
