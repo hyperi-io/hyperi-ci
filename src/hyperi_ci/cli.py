@@ -1117,6 +1117,18 @@ def trigger(
             help="workflow_dispatch input as key=value (repeatable)",
         ),
     ] = None,
+    repo: Annotated[
+        str | None,
+        typer.Option(
+            "--repo",
+            "-R",
+            help=("Target repo as owner/name. Defaults to the cwd's git remote."),
+        ),
+    ] = None,
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
 ) -> None:
     """Trigger a GitHub Actions workflow run.
 
@@ -1124,8 +1136,11 @@ def trigger(
     until the run completes — equivalent to running `hyperi-ci trigger`
     then `hyperi-ci watch` as separate commands.
 
-    Pass `--input key=value` once per workflow_dispatch input; a workflow
-    declaring required inputs cannot be dispatched without them.
+    --workflow takes any workflow the repo carries, not only the ci.yml
+    hyperi-ci scaffolds, and accepts a filename, a bare stem or the
+    display name. Pass `--input key=value` once per workflow_dispatch
+    input; a workflow declaring required inputs cannot be dispatched
+    without them.
     """
     from hyperi_ci.trigger import parse_inputs, trigger_workflow
 
@@ -1141,6 +1156,8 @@ def trigger(
         watch=watch_run,
         timeout=timeout,
         interval=interval,
+        repo=repo,
+        project_dir=Path(project_dir) if project_dir else None,
     )
     raise typer.Exit(rc)
 
@@ -1186,9 +1203,34 @@ def watch(
             help=(
                 "Target repo as owner/name (e.g. hyperi-io/dfe-loader). "
                 "Defaults to the cwd's git remote — set this when watching "
-                "a run in a different repo than your cwd; it needs a run ID."
+                "a run in a different repo than your cwd."
             ),
         ),
+    ] = None,
+    pr: Annotated[
+        int | None,
+        typer.Option(
+            "--pr",
+            help=(
+                "Pin to this pull request's head commit -- the anchor for a "
+                "run that fired on pull_request rather than on HEAD."
+            ),
+        ),
+    ] = None,
+    branch: Annotated[
+        str | None,
+        typer.Option(
+            "--branch",
+            help="Pin to the newest commit on this branch that has runs.",
+        ),
+    ] = None,
+    commit: Annotated[
+        str | None,
+        typer.Option("--commit", help="Pin to this commit instead of HEAD."),
+    ] = None,
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
     ] = None,
 ) -> None:
     """Watch a GitHub Actions run to completion.
@@ -1196,15 +1238,23 @@ def watch(
     With no run ID, watches the run built from the commit at HEAD, pinned
     to the workflow this project declares in ci.yml. Name another with
     --workflow; an ambiguous choice is refused rather than guessed.
+
+    --pr, --branch and --commit reach a run that is not on the current
+    branch head. Where nothing resolves, the refusal lists the runs
+    GitHub does hold rather than reporting "no runs found".
     """
     from hyperi_ci.watch import watch_run
 
     rc = watch_run(
         run_id=run_id,
         workflow=workflow,
+        branch=branch,
+        commit=commit,
+        pr=pr,
         timeout=timeout,
         interval=interval,
         repo=repo,
+        project_dir=Path(project_dir) if project_dir else None,
     )
     raise typer.Exit(rc)
 
@@ -1235,24 +1285,47 @@ def rerun(
         typer.Option(
             "--repo",
             "-R",
-            help=(
-                "Target repo as owner/name. Needs an explicit run ID, since "
-                "HEAD says nothing about another repo's runs."
-            ),
+            help="Target repo as owner/name. Defaults to the cwd's git remote.",
         ),
+    ] = None,
+    pr: Annotated[
+        int | None,
+        typer.Option("--pr", help="Pin to this pull request's head commit."),
+    ] = None,
+    branch: Annotated[
+        str | None,
+        typer.Option(
+            "--branch",
+            help="Pin to the newest commit on this branch that has runs.",
+        ),
+    ] = None,
+    commit: Annotated[
+        str | None,
+        typer.Option("--commit", help="Pin to this commit instead of HEAD."),
+    ] = None,
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
     ] = None,
 ) -> None:
     """Re-run a GitHub Actions run, failed jobs only by default.
 
     For genuine infra incidents — a GitHub outage, a registry 5xx. A flaky
     test this project owns is a race to fix, not a run to repeat.
+
+    --pr, --branch and --commit reach a run that is not on the current
+    branch head.
     """
     from hyperi_ci.rerun import rerun_run
 
     rc = rerun_run(
         run_id=run_id,
         workflow=workflow,
+        branch=branch,
+        commit=commit,
+        pr=pr,
         repo=repo,
+        project_dir=Path(project_dir) if project_dir else None,
         failed_only=not all_jobs,
     )
     raise typer.Exit(rc)
@@ -1296,6 +1369,33 @@ def logs(
         bool,
         typer.Option("--failed", help="Show only failed job logs"),
     ] = False,
+    repo: Annotated[
+        str | None,
+        typer.Option(
+            "--repo",
+            "-R",
+            help="Target repo as owner/name. Defaults to the cwd's git remote.",
+        ),
+    ] = None,
+    pr: Annotated[
+        int | None,
+        typer.Option("--pr", help="Pin to this pull request's head commit."),
+    ] = None,
+    branch: Annotated[
+        str | None,
+        typer.Option(
+            "--branch",
+            help="Pin to the newest commit on this branch that has runs.",
+        ),
+    ] = None,
+    commit: Annotated[
+        str | None,
+        typer.Option("--commit", help="Pin to this commit instead of HEAD."),
+    ] = None,
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
 ) -> None:
     """Fetch and filter GitHub Actions run logs.
 
@@ -1304,12 +1404,20 @@ def logs(
     --workflow; an ambiguous choice is refused rather than guessed.
     --failed always names the run it read, so an empty result cannot
     pass for a green build.
+
+    --pr, --branch and --commit reach a run that is not on the current
+    branch head; --repo reads one in another repo.
     """
     from hyperi_ci.logs import fetch_logs
 
     rc = fetch_logs(
         run_id=run_id,
         workflow=workflow,
+        branch=branch,
+        commit=commit,
+        pr=pr,
+        repo=repo,
+        project_dir=Path(project_dir) if project_dir else None,
         job_filter=job,
         step_filter=step,
         grep_pattern=grep,

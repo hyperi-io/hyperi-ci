@@ -17,6 +17,12 @@ off a Dependency Graph run while the Test run for the same commit was
 still going, and off the previous commit's run in the seconds before the
 new one registered.
 
+Anchors (issue #97): HEAD is the default pin, not the only one.
+``--pr``, ``--branch`` and ``--commit`` reach a run that is not on the
+current branch head -- a ``pull_request`` run after a local amend, a
+``schedule`` run on main from a feature branch -- which the HEAD-only
+lookup reported as "No runs found" while the run sat there.
+
 Early-fail-on-red (issue #58): the poll exits non-zero the instant ANY
 job concludes failure/cancelled/timed_out, rather than waiting for the
 whole run to finish. A fleet watcher polling N runs in sequence must not
@@ -38,17 +44,12 @@ import json
 import subprocess
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 
+from hyperi_ci import runs as run_lookup
 from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.gate_audit import NO_VERDICT, gate_of
-from hyperi_ci.gh import (
-    RunSelectionError,
-    describe_run,
-    gh_run,
-    head_run_candidates,
-    require_gh,
-    select_run_for_head,
-)
+from hyperi_ci.gh import RunSelectionError, describe_run, gh_run, require_gh
 
 _TERMINAL_STATUSES = frozenset(
     {
@@ -247,62 +248,112 @@ def _print_summary(run_data: dict) -> None:
         info(f"  {url}")
 
 
-def resolve_head_run(*, workflow: str | None, repo: str | None) -> dict:
-    """Resolve the run for the commit at HEAD, waiting for it to register.
+def resolve_target_run(
+    *,
+    workflow: str | None = None,
+    branch: str | None = None,
+    commit: str | None = None,
+    pr: int | None = None,
+    repo: str | None = None,
+    project_dir: Path | None = None,
+    command: str = "watch",
+) -> dict:
+    """Resolve the run the caller meant, waiting for a fresh push to register.
+
+    The anchor is HEAD unless ``branch``, ``commit`` or ``pr`` names
+    another. Only a HEAD anchor waits: a push registers its run seconds
+    later, whereas a run the caller named by PR or commit either exists
+    already or never will.
 
     Args:
         workflow: Workflow name to narrow on. With none, the project's
-            declared CI workflow is the pin.
-        repo: Optional ``owner/name`` - rejected here, since HEAD says
-            nothing about another repo's runs.
+            own scaffolded CI workflow is the pin.
+        branch: Pin to the newest commit on this branch that has runs.
+        commit: Pin to this commit.
+        pr: Pin to this pull request's head commit.
+        repo: Optional ``owner/name``.
+        project_dir: Repo root, for the default pin and the inventory a
+            stand-down reads.
+        command: The hyperi-ci command, named in the stand-down.
 
     Returns:
-        The single run matching HEAD (and the workflow, when given).
+        The single matching run.
 
     Raises:
         RunSelectionError: nothing registered inside the appearance
-            budget, or several runs match and the choice is ambiguous.
+            budget, or the choice is ambiguous. The message lists the
+            runs that do exist.
 
     """
+    anchor = run_lookup.resolve_anchor(branch=branch, commit=commit, pr=pr, repo=repo)
+    run_lookup.require_sha(anchor, command=command, project_dir=project_dir)
+
     deadline = time.monotonic() + _RUN_APPEAR_TIMEOUT
     while True:
-        head_sha, runs = head_run_candidates(repo=repo, limit=_RUN_LIST_LIMIT)
-        if runs:
-            return select_run_for_head(runs, head_sha=head_sha, workflow=workflow)
+        candidates = run_lookup.anchor_runs(anchor, limit=_RUN_LIST_LIMIT)
+        if candidates:
+            break
+        if not anchor.head:
+            break
         if time.monotonic() >= deadline:
             raise RunSelectionError(
-                f"No run registered for commit {head_sha[:8]} after "
-                f"{_RUN_APPEAR_TIMEOUT}s - has it been pushed?"
+                run_lookup.stand_down(
+                    anchor,
+                    reason=(
+                        f"No run registered for {anchor.label} after "
+                        f"{_RUN_APPEAR_TIMEOUT}s - has it been pushed?"
+                    ),
+                    command=command,
+                    project_dir=project_dir,
+                )
             )
-        info(f"  no run registered for {head_sha[:8]} yet - waiting...")
+        short = (anchor.sha or "")[:8]
+        info(f"  no run registered for {short} yet - waiting...")
         time.sleep(_RUN_APPEAR_POLL)
+
+    return run_lookup.pick(
+        anchor,
+        candidates,
+        workflow=workflow,
+        project_dir=project_dir,
+        command=command,
+    )
 
 
 def watch_run(
     *,
     run_id: str | None = None,
     workflow: str | None = None,
+    branch: str | None = None,
+    commit: str | None = None,
+    pr: int | None = None,
     timeout: int = _DEFAULT_TIMEOUT,
     interval: int = 30,
     repo: str | None = None,
+    project_dir: Path | None = None,
 ) -> int:
     """Watch a GitHub Actions run to completion.
 
     Args:
-        run_id: Run ID to watch. With none, the run built from the commit
-            at HEAD is used, and an ambiguous choice is refused rather
-            than guessed (issue #101).
+        run_id: Run ID to watch. With none, the run is resolved from the
+            anchor, and an ambiguous choice is refused rather than
+            guessed (issue #101).
         workflow: Workflow name to pin on, matched case-insensitively,
             exact before substring. Defaults to the name declared in the
-            project's ci.yml. Ignored when a run id is given.
+            project's ci.yml, and only where hyperi-ci scaffolded it.
+            Ignored when a run id is given.
+        branch: Pin to the newest commit on this branch that has runs.
+        commit: Pin to this commit.
+        pr: Pin to this pull request's head commit -- the anchor for a
+            run that fired on `pull_request` rather than on HEAD.
         timeout: Maximum seconds to wait. Pass `0` to disable timeout
             (poll until the run reaches a terminal state). Default is
             sized for Tier 2 Rust builds (3600 s = 60 min).
         interval: Base poll interval in seconds.
         repo: Optional ``owner/name`` — when set, all gh calls target
-            this repo instead of the cwd's git remote. Use this when
-            watching a run in a different repo than your cwd; it needs
-            an explicit run id.
+            this repo instead of the cwd's git remote.
+        project_dir: Repo root, for the default pin and the inventory a
+            stand-down reads.
 
     Returns:
         Exit code: 0=success, 1=failed/cancelled/unreachable, 2=timeout.
@@ -313,7 +364,15 @@ def watch_run(
 
     if not run_id:
         try:
-            run = resolve_head_run(workflow=workflow, repo=repo)
+            run = resolve_target_run(
+                workflow=workflow,
+                branch=branch,
+                commit=commit,
+                pr=pr,
+                repo=repo,
+                project_dir=project_dir,
+                command="watch",
+            )
         except RunSelectionError as exc:
             error(str(exc))
             return 1

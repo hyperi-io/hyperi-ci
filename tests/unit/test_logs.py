@@ -18,7 +18,13 @@ from unittest.mock import patch
 
 import pytest
 
-from hyperi_ci.logs import _download_logs, _failed_job_names, _get_run, fetch_logs
+from hyperi_ci.logs import (
+    _download_logs,
+    _failed_job_names,
+    _get_run,
+    fetch_logs,
+    logs_api_path,
+)
 
 _SHA = "d" * 40
 
@@ -43,12 +49,13 @@ def _listed_run(
     *,
     status: str = "completed",
     conclusion: str | None = "success",
+    sha: str = _SHA,
 ) -> dict:
     """One entry as `gh run list --json` returns it."""
     return {
         "databaseId": run_id,
         "workflowName": workflow,
-        "headSha": _SHA,
+        "headSha": sha,
         "headBranch": "main",
         "event": "push",
         "status": status,
@@ -221,8 +228,54 @@ class TestFetchLogsFailedOnly:
         assert mock_print.call_args.kwargs["failed_jobs"] == {"test"}
 
 
+class TestLogsApiPath:
+    """The logs endpoint has no --repo flag, so the slug goes in the path."""
+
+    def test_defaults_to_ghs_own_placeholders(self) -> None:
+        assert logs_api_path("123") == "repos/{owner}/{repo}/actions/runs/123/logs"
+
+    def test_a_named_repo_is_substituted(self) -> None:
+        assert (
+            logs_api_path("123", "hyperi-io/dfe-hyperdx")
+            == "repos/hyperi-io/dfe-hyperdx/actions/runs/123/logs"
+        )
+
+    def test_the_download_uses_it(self) -> None:
+        sent: list[str] = []
+
+        def fake_run(cmd, **kwargs):
+            sent.extend(cmd)
+            kwargs["stdout"].write(_zip_bytes())
+            return subprocess.CompletedProcess(cmd, 0)
+
+        with patch("hyperi_ci.logs.subprocess.run", side_effect=fake_run):
+            _download_logs("456", "hyperi-io/dfe-hyperdx")
+        assert "repos/hyperi-io/dfe-hyperdx/actions/runs/456/logs" in sent
+
+
 class TestFetchLogsPinning:
     """With no run id, logs pins on the commit at HEAD."""
+
+    def test_a_pr_reaches_a_run_that_is_not_on_head(self, tmp_path: Path) -> None:
+        failing = _viewed_run(
+            "CI",
+            conclusion="failure",
+            jobs=[{"name": "Test", "conclusion": "failure"}],
+        )
+        with (
+            patch("hyperi_ci.logs.require_gh", return_value=True),
+            patch("hyperi_ci.runs.pr_head", return_value=("f" * 40, "fix/x")),
+            patch(
+                "hyperi_ci.runs.list_runs",
+                return_value=[_listed_run(44, "CI", sha="f" * 40)],
+            ),
+            patch("hyperi_ci.logs._get_run", return_value=failing) as mock_get,
+            patch("hyperi_ci.logs._download_logs", return_value=tmp_path),
+            patch("hyperi_ci.logs._filter_and_print"),
+        ):
+            rc = fetch_logs(pr=18, failed_only=True)
+        assert rc == 0
+        assert mock_get.call_args[0][0] == "44"
 
     def test_refuses_an_ambiguous_commit(self) -> None:
         candidates = [
@@ -231,10 +284,10 @@ class TestFetchLogsPinning:
         ]
         with (
             patch("hyperi_ci.logs.require_gh", return_value=True),
-            patch(
-                "hyperi_ci.logs.head_run_candidates",
-                return_value=(_SHA, candidates),
-            ),
+            patch("hyperi_ci.runs.get_head_sha", return_value=_SHA),
+            patch("hyperi_ci.runs.list_runs", return_value=candidates),
+            patch("hyperi_ci.runs.project_ci_workflow", return_value=None),
+            patch("hyperi_ci.workflows.inventory", return_value=[]),
             patch("hyperi_ci.logs._download_logs") as mock_download,
         ):
             rc = fetch_logs(failed_only=True)
@@ -253,10 +306,10 @@ class TestFetchLogsPinning:
         )
         with (
             patch("hyperi_ci.logs.require_gh", return_value=True),
-            patch(
-                "hyperi_ci.logs.head_run_candidates",
-                return_value=(_SHA, candidates),
-            ),
+            patch("hyperi_ci.runs.get_head_sha", return_value=_SHA),
+            patch("hyperi_ci.runs.list_runs", return_value=candidates),
+            patch("hyperi_ci.runs.project_ci_workflow", return_value=None),
+            patch("hyperi_ci.workflows.inventory", return_value=[]),
             patch("hyperi_ci.logs._get_run", return_value=failing) as mock_get,
             patch("hyperi_ci.logs._download_logs", return_value=tmp_path),
             patch("hyperi_ci.logs._filter_and_print"),

@@ -10,11 +10,12 @@ Provides common utilities for interacting with GitHub Actions via the `gh` CLI.
 All commands require `gh` to be installed and authenticated.
 
 Run selection (issue #101): `watch` and `logs` pin on the run they were
-asked about - the commit at HEAD, narrowed by the project's declared CI
-workflow or the one named on the command line - and refuse when the
-choice is ambiguous. Falling back to "the newest run on the branch" is
-how a watch reported green off a Dependency Graph run while the Test run
-was still going.
+asked about - a commit, narrowed by the project's declared CI workflow
+or the one named on the command line - and refuse when the choice is
+ambiguous. Falling back to "the newest run on the branch" is how a watch
+reported green off a Dependency Graph run while the Test run was still
+going. :func:`select_run` is the single matcher; which commit to pin on
+is :mod:`hyperi_ci.runs`.
 """
 
 from __future__ import annotations
@@ -342,90 +343,6 @@ def project_ci_workflow(*, cwd: Path | None = None) -> str | None:
     if isinstance(name, str) and name.strip():
         return name.strip()
     return None
-
-
-def select_run_for_head(
-    runs: list[dict],
-    *,
-    head_sha: str,
-    workflow: str | None = None,
-) -> dict:
-    """Pick HEAD's run, defaulting the pin to the project's own CI workflow.
-
-    A commit carries every workflow that fired on it - CodeQL, Dependency
-    Graph, the scheduled audits - so without a default pin the plain
-    `watch` would refuse on most repos.
-
-    Args:
-        runs: Candidate runs, as returned by :func:`list_runs`.
-        head_sha: The commit the runs must have been built from.
-        workflow: Workflow name the caller asked for. With none, the name
-            declared in the project's ci.yml is tried, and the full
-            candidate list is refused when that does not resolve one run.
-
-    Returns:
-        The single matching run.
-
-    Raises:
-        RunSelectionError: nothing matched, or the choice is ambiguous.
-
-    """
-    if workflow:
-        return select_run(runs, head_sha=head_sha, workflow=workflow)
-
-    declared = project_ci_workflow()
-    if declared:
-        try:
-            return select_run(runs, head_sha=head_sha, workflow=declared)
-        except RunSelectionError:
-            # The declared workflow did not resolve one run either, so
-            # refuse against every candidate rather than only its own.
-            pass
-
-    return select_run(runs, head_sha=head_sha)
-
-
-def head_run_candidates(
-    *,
-    repo: str | None = None,
-    limit: int = 30,
-) -> tuple[str, list[dict]]:
-    """Read HEAD's sha and the runs GitHub has registered against it.
-
-    Args:
-        repo: Optional ``owner/name``. A foreign repo has no relationship
-            to the local HEAD, so pinning is impossible there and this
-            refuses instead of watching whatever ran last.
-        limit: Maximum runs to fetch.
-
-    Returns:
-        Tuple of (head sha, runs for that sha - possibly empty because
-        GitHub has not registered the run yet).
-
-    Raises:
-        RunSelectionError: the sha is unreadable, `repo` was set, or the
-            run list could not be fetched.
-
-    """
-    if repo:
-        raise RunSelectionError(
-            f"--repo {repo} needs a run id: the local HEAD commit does not "
-            f"identify a run in another repo. "
-            f"List them with: gh run list --repo {repo}"
-        )
-
-    head_sha = get_head_sha()
-    if not head_sha:
-        raise RunSelectionError("Could not read HEAD - pass a run id")
-
-    try:
-        runs = list_runs(commit=head_sha, limit=limit)
-    except subprocess.CalledProcessError as exc:
-        raise RunSelectionError(
-            f"Could not list runs for commit {head_sha[:8]} - pass a run id"
-        ) from exc
-
-    return head_sha, runs
 
 
 def get_run_jobs(run_id: str) -> list[dict]:
