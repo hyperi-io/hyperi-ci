@@ -77,7 +77,7 @@ class TestRuffFormatCommand:
 
 
 class TestRuffFormatBelowTheFlagVersion:
-    """ruff under 0.16 rejects --extend-exclude, and never walks Markdown."""
+    """ruff under 0.15.21 rejects --extend-exclude, and never walks Markdown."""
 
     def test_the_flag_is_dropped_entirely(self) -> None:
         assert _build_ruff_format_cmd([], extend_exclude=False) == [
@@ -114,7 +114,19 @@ class TestRuffVersionProbe:
     ) -> None:
         assert self._probe(monkeypatch, "ruff 0.15.12\n") is False
 
+    def test_the_last_version_that_rejected_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The flag landed in 0.15.21, Markdown formatting in 0.16 -- reading
+        # the two as one release drops a project's excludes on 0.15.21-0.15.22.
+        assert self._probe(monkeypatch, "ruff 0.15.20\n") is False
+
     def test_the_first_version_that_takes_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert self._probe(monkeypatch, "ruff 0.15.21\n") is True
+
+    def test_the_version_that_also_walks_markdown(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         assert self._probe(monkeypatch, "ruff 0.16.0\n") is True
