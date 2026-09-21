@@ -148,4 +148,5 @@ dev = [
     # Pulled transitively via pytest+rich+typer; pin minimum to dodge CVE-2026-4539.
     "pygments>=2.20.0",
     "ruff>=0.16.7",
+    "pytest-xdist>=3.8.0",
 ]

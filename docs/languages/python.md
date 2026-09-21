@@ -58,6 +58,47 @@ Rust, Go and TypeScript workflows install the fleet default instead. The
 interpreter there runs the hyperi-ci CLI; those projects have no Python of their
 own to follow.
 
+## Test parallelism
+
+A hardcoded worker count is right on exactly one machine. `test.python.parallel`
+opts a project into a count hyperi-ci derives from the host instead:
+
+```yaml
+test:
+  python:
+    parallel: true      # false (default) | true | auto | a worker count
+```
+
+`true` takes the smaller of the process affinity mask and the cgroup CPU quota,
+capped at 16. The quota is the half that matters in CI: a 4-CPU ARC pod on a
+32-core node reports 32 cores to `os.cpu_count()`, and pytest-xdist's own
+`-n auto` reads that number, not the limit. On hyperi-ci's own 2598-test suite
+this is 23.6s against 74.2s serial.
+
+Off by default. A suite that binds a fixed port or writes a shared file is not
+parallel-safe, and a CLI upgrade must not turn one red without a repo saying so.
+
+- **Opt in:** `parallel: true`.
+- **Opt back out:** `parallel: false` - the way a project with a parallel-unsafe
+  suite records that it stays serial.
+- **This run only:** `HYPERCI_TEST_WORKERS=4`, or `0` to force serial.
+- **Already parallel:** a project that passes its own `-n` (in
+  `test.python.args`, in `addopts` in `pyproject.toml` / `pytest.ini` /
+  `tox.ini` / `setup.cfg`, or in `PYTEST_ADDOPTS`) keeps its own number, and so
+  does one that sets `-p no:xdist`.
+
+pytest-xdist must be in the project's dev dependencies. hyperi-ci probes the
+resolved pytest for it (`pytest -VV`) and runs serial with a warning when it is
+absent, so a project without the plugin is unaffected.
+
+Coverage survives the split: pytest-cov collects each worker's data and combines
+it before reporting, so `--cov-fail-under` measures the same thing it did
+serially. Nothing extra goes in `.coveragerc`.
+
+A single unsafe test does not cost a project the whole feature - mark the tests
+that must share a worker with xdist's own `@pytest.mark.xdist_group` and run
+`--dist loadgroup`.
+
 ## Gotchas - read before debugging CI
 
 ### Publish must go through `hyperi-ci run build`, not raw `uv build`

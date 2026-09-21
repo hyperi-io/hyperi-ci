@@ -210,6 +210,11 @@ test:
       - "-v"
       - "--tb=short"
     coverage_format: xml
+    # false | true | auto | a worker count. Opt in with `true` and the count
+    # comes from the host CPU budget, so it is right on a runner and on a
+    # developer box alike. Off by default because a suite with a shared
+    # fixed port or file is not parallel-safe and would turn red on upgrade.
+    parallel: false
 
   typescript:
     runner: auto
