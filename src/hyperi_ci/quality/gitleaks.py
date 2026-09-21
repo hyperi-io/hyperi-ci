@@ -254,7 +254,10 @@ def _canary_rules_found(cfg: str | None) -> set[str] | None:
 
     """
     with tempfile.TemporaryDirectory(prefix="hyperi-ci-gitleaks-") as tmp:
-        (Path(tmp) / _CANARY_FILENAME).write_text(
+        fixture = Path(tmp) / _CANARY_FILENAME
+        # The planted secret is synthetic and exists to be found by a scanner, so
+        # writing it in the clear is the behaviour under test rather than a leak.
+        fixture.write_text(  # codeql[py/clear-text-storage-sensitive-data]
             _canary_body(), encoding="utf-8", newline="\n"
         )
         report = Path(tmp) / "canary-report.json"
