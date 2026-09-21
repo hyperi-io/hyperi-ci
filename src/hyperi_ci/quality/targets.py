@@ -21,8 +21,11 @@ from __future__ import annotations
 import os
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 import yaml
+
+from hyperi_ci.deps import surfaces
 
 # Always pruned, regardless of config: VCS internals, worktree duplicate trees
 # (dfe-infra keeps two full checkouts under .worktrees/ - scanning them doubles
@@ -78,6 +81,81 @@ def discover_dockerfiles(
 
 def _prune(exclude_dirs: Iterable[str]) -> set[str]:
     return _ALWAYS_PRUNE | {str(d).strip("/") for d in exclude_dirs if d}
+
+
+class _TolerantLoader(yaml.SafeLoader):
+    """SafeLoader that reads a custom YAML tag as its underlying value.
+
+    Compose's merge directives (``!reset``, ``!override``) are unknown tags that
+    abort ``yaml.safe_load``, and an overlay fragment carrying one would then be
+    dropped from discovery with no explanation.
+    """
+
+
+def _any_tag(loader: yaml.SafeLoader, suffix: str, node: yaml.Node) -> Any:  # noqa: ARG001
+    """Construct an unknown-tag node from its plain YAML value."""
+    if isinstance(node, yaml.SequenceNode):
+        return loader.construct_sequence(node)
+    if isinstance(node, yaml.MappingNode):
+        return loader.construct_mapping(node)
+    return loader.construct_scalar(node)
+
+
+_TolerantLoader.add_multi_constructor("!", _any_tag)
+
+
+def compose_document(path: Path) -> dict | None:
+    """Return the parsed compose document at ``path``, or None if it is not one.
+
+    A compose file is identified by a top-level ``services`` mapping, which is
+    what separates it from the other YAML a repo keeps under a compose-shaped
+    name.
+    """
+    try:
+        data = yaml.load(path.read_text(encoding="utf-8"), Loader=_TolerantLoader)  # noqa: S506
+    except (OSError, yaml.YAMLError):
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("services"), dict):
+        return None
+    return data
+
+
+def _compose_surface() -> surfaces.Surface | None:
+    """Return the ``docker-compose`` entry from the dependency-surface catalogue."""
+    return next((s for s in surfaces.load() if s.id == "docker-compose"), None)
+
+
+def discover_compose_files(
+    root: Path | str, *, exclude_dirs: Iterable[str] = ()
+) -> list[Path]:
+    """Return every docker-compose file under ``root``, pruned + sorted.
+
+    Naming comes from the ``docker-compose`` surface in
+    ``config/dep-surfaces.yaml`` - the one catalogue that already knows a
+    ``<service>.compose.yaml`` counts, so the two never disagree about what a
+    compose file is called. A claimed file still has to hold a top-level
+    ``services`` mapping to be returned.
+
+    Walks the tree rather than asking git, so a compose file added and not yet
+    committed is linted like any other.
+    """
+    root = Path(root)
+    surface = _compose_surface()
+    if surface is None:
+        return []
+    prune = _prune(exclude_dirs)
+    out: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in prune]
+        here = Path(dirpath)
+        for fn in filenames:
+            rel = (here / fn).relative_to(root).as_posix()
+            if not surfaces.matches(surface, rel):
+                continue
+            path = here / fn
+            if compose_document(path) is not None:
+                out.append(path)
+    return sorted(out)
 
 
 def discover_helm_charts(
