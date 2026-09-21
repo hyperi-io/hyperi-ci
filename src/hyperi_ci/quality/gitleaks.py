@@ -14,11 +14,13 @@ Ported from old CI: ci/scripts/core/gitleaks.sh
 
 from __future__ import annotations
 
+import json
 import os
 import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 import tomllib
 from pathlib import Path
 
@@ -134,10 +136,10 @@ def _declares_no_ruleset(cfg_path: str) -> bool:
         paths = ['''.*''']          # or regexes, or a broad disabledRules
 
     all of which keep a ruleset but allowlist every hit, and all of which
-    report "no leaks found". Catching those needs evaluating the allowlist
-    against the repo, not reading the TOML - see #67. Claiming more than the
-    check delivers would be its own silent failure, so the notice only speaks
-    about the rule SOURCE.
+    report "no leaks found". Those are the canary's job (`_canary_rules_found`),
+    which measures the config against a planted secret instead of reading the
+    TOML. Claiming more than this check delivers would be its own silent
+    failure, so the notice only speaks about the rule SOURCE.
 
     Unparseable/unreadable configs return False: gitleaks itself will complain
     with a better message than we can, and we must not turn a malformed file
@@ -187,6 +189,150 @@ def _report_no_ruleset(cfg: str, mode: str) -> int:
     if mode == "blocking":
         error(f"  {notice}")
         error("  Refusing to report success from a rule-less scan.")
+        return 1
+    warn(f"  {notice}")
+    return 0
+
+
+# A bare filename, no directory part and no extension: a `paths` allowlist aimed
+# at real repo content (`testdata/`, `vendor/`, `\.lock$`) cannot reach it
+# without being a catch-all.
+_CANARY_FILENAME = "hyperi-ci-secret-scan-canary"
+
+# One planted secret per default rule, drawn from credential types a repo has no
+# cause to put in `disabledRules`. Every value is synthetic and every one is
+# re-proved against the installed binary by tests/unit/test_gitleaks.py.
+#
+# The set is two rules rather than ten because a planted value has to SURVIVE
+# living in a git repo: a well-formed Slack or Stripe token is rejected outright
+# by GitHub push protection, and the fix for that would be to structure the
+# source so a scanner cannot read it - the very thing this guard exists to
+# catch. A GitHub PAT and an AWS key id pass because a real one of either needs
+# a checksum or a paired secret that these do not carry.
+#
+# `gitleaks:allow nosemgrep` keeps the planted values out of this repo's own
+# secret gate. The marker stays in the Python comment - inside the string it
+# would travel into the fixture and suppress the canary itself.
+_CANARY_SECRETS: dict[str, str] = {
+    "github-pat": 'github_pat = "ghp_CANARYnotARealTokenR7kQ2xVm9Zb4Ld812"',  # gitleaks:allow nosemgrep
+    "aws-access-token": 'aws_access_token = "AKIA2XVM5QZ7KDFT3WYB"',  # gitleaks:allow nosemgrep
+}
+
+_CANARY_HEADER = (
+    "# Synthetic credentials planted by hyperi-ci to prove this gitleaks config\n"
+    "# can still report a secret. Every value below is fake.\n"
+)
+
+
+def _canary_body() -> str:
+    """Build the fixture: the header plus one planted secret per canary rule."""
+    return _CANARY_HEADER + "".join(f"{line}\n" for line in _CANARY_SECRETS.values())
+
+
+def _canary_rules_found(cfg: str | None) -> set[str] | None:
+    """Report which planted canary secrets this config still finds.
+
+    Answers what reading the TOML cannot: would this config, as gitleaks applies
+    it, report a secret at all? A catch-all `[allowlist] paths`, a catch-all
+    `regexes`, a `disabledRules` entry, a stopword list and every future spelling
+    of the same mistake all surface identically - the planted secret goes
+    unreported - so no pattern has to be enumerated in advance.
+
+    The fixture is scanned with `dir` from its own temporary directory, which
+    makes the path an allowlist is matched against the bare filename and leaves
+    the repo's `.gitleaksignore` out of scope. Config selection mirrors the real
+    scan: `--config` where the repo has one, gitleaks' own precedence otherwise.
+
+    Args:
+        cfg: Repo config path to scan through, or None to leave the choice to
+            gitleaks' precedence (GITLEAKS_CONFIG*, else the built-in defaults).
+
+    Returns:
+        The rule ids reported against the fixture, or None when the canary could
+        not run. A gitleaks that errors out proves nothing about the config, so
+        it must not become a "your gate is blind" claim.
+
+    """
+    with tempfile.TemporaryDirectory(prefix="hyperi-ci-gitleaks-") as tmp:
+        (Path(tmp) / _CANARY_FILENAME).write_text(
+            _canary_body(), encoding="utf-8", newline="\n"
+        )
+        report = Path(tmp) / "canary-report.json"
+        cmd = [
+            "gitleaks",
+            "dir",
+            _CANARY_FILENAME,
+            "--no-banner",
+            # Findings are the expected outcome, so `--exit-code 0` keeps a leak
+            # from reading as a failed run - the report file carries the answer.
+            "--exit-code",
+            "0",
+            "--report-format",
+            "json",
+            "--report-path",
+            report.name,
+        ]
+        if cfg:
+            cmd.extend(["--config", str(Path(cfg).resolve())])
+        try:
+            probe = run_cmd(cmd, check=False, capture=True, cwd=tmp)
+        except OSError:
+            return None
+        if probe.returncode != 0 or not report.exists():
+            return None
+        try:
+            findings = json.loads(report.read_text(encoding="utf-8") or "[]")
+        except (OSError, json.JSONDecodeError):
+            return None
+
+    if not isinstance(findings, list):
+        return None
+    return {str(f.get("RuleID")) for f in findings if isinstance(f, dict)}
+
+
+def _report_canary(cfg: str | None, mode: str) -> int:
+    """Emit the canary notice. Returns 1 when it must block.
+
+    Severity follows the gate's own mode, as the rule-less notice does: a repo
+    that asked for `blocking` and hands gitleaks a config that cannot report a
+    planted GitHub PAT is not a passing repo, it is an unscanned one.
+    """
+    source = cfg or _env_config_override() or "the default gitleaks ruleset"
+    found = _canary_rules_found(cfg)
+    if found is None:
+        warn(
+            f"  gitleaks: the canary did not run against {source} - "
+            "the scan below is unverified."
+        )
+        return 0
+
+    missing = sorted(set(_CANARY_SECRETS) - found)
+    if not missing:
+        return 0
+
+    suppressed = ", ".join(missing)
+    headline = (
+        f"gitleaks: {source} suppresses every planted canary secret - a scan "
+        "under it cannot report ANY secret."
+        if len(missing) == len(_CANARY_SECRETS)
+        else (
+            f"gitleaks: {source} suppresses part of the canary - a scan under "
+            f"it cannot report {suppressed}."
+        )
+    )
+    notice = "\n".join(
+        (
+            headline,
+            "  The canary is a synthetic fixture carrying one planted secret per "
+            "rule - a config that scans reports all of them.",
+            "  help: narrow `[allowlist] paths` / `regexes` to the real false "
+            f"positives, and drop any `disabledRules` entry covering {suppressed}.",
+            "  docs: docs/quality-gate.md#gitleaks-config",
+        )
+    )
+    if mode == "blocking":
+        error(f"  {notice}")
+        error("  Refusing to report success from a blinded scan.")
         return 1
     warn(f"  {notice}")
     return 0
@@ -265,8 +411,10 @@ def run(config: CIConfig) -> int:
     # `(target path)/.gitleaks.toml`, so the same repo scans differently
     # depending on the path you point it at.
     cfg = _find_config()
+    rule_less = False
     if cfg:
-        if _declares_no_ruleset(cfg) and _report_no_ruleset(cfg, mode) != 0:
+        rule_less = _declares_no_ruleset(cfg)
+        if rule_less and _report_no_ruleset(cfg, mode) != 0:
             return 1
         cmd.extend(["--config", cfg])
     elif env_var := _env_config_override():
@@ -281,6 +429,13 @@ def run(config: CIConfig) -> int:
             "the scan is running with a config hyperi-ci did not vet."
         )
         warn("  Prefer a committed .gitleaks.toml so the config is reviewable.")
+
+    # The canary measures what reading the TOML cannot: whether this config, as
+    # gitleaks applies it, still reports a planted secret. It runs with no repo
+    # config too, where it proves the binary's own default ruleset works. A
+    # config already named rule-less is skipped - that notice is more precise.
+    if not rule_less and _report_canary(cfg, mode) != 0:
+        return 1
 
     env = dict(os.environ)
     # GITLEAKS_LICENSE key if available (org secret)
