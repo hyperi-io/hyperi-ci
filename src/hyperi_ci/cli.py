@@ -309,6 +309,44 @@ def lint_compose_cmd(
     raise typer.Exit(rc)
 
 
+@app.command(name="lint-docs")
+def lint_docs_cmd(
+    directory: Annotated[
+        str,
+        typer.Argument(help="Directory to lint (markdown documentation)"),
+    ] = ".",
+    sarif: Annotated[
+        str | None,
+        typer.Option(
+            "--sarif",
+            help=(
+                "Write combined SARIF here (opt-in). The workflow uploads it to "
+                "code scanning only where GitHub Code Security is enabled."
+            ),
+        ),
+    ] = None,
+) -> None:
+    """Check the markdown documentation in this repo.
+
+    Runs five checks: doc-paths (a doc naming a file the repo no longer has),
+    doc-links (lychee over internal links and anchors, offline), mermaid-parse
+    (every fenced block against mermaid's own grammar), markdownlint (mechanical
+    syntax) and the docs-untouched nudge.
+
+    All five start at ``warn`` and gate only where a repo has promoted them, so
+    adopting this does not turn an existing docs tree red. The same checks run
+    inside ``hyperi-ci run quality``; this verb is for a docs repo that has no
+    language pipeline to hang them off.
+    """
+    from hyperi_ci.config import load_config
+    from hyperi_ci.quality import lint_docs
+
+    root = Path(directory)
+    config = load_config(project_dir=root)
+    rc = lint_docs.run(root, config, sarif_path=sarif)
+    raise typer.Exit(rc)
+
+
 @app.command()
 def deps(
     action: Annotated[

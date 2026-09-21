@@ -39,7 +39,7 @@ graph LR
     Releases[Releases API<br/>tag → prerelease → assets] --> GH
     OrgSec[Org Secrets + Visibility Rules] --> GH
     GhCli[gh CLI<br/>used pervasively in hyperi-ci] --> GH
-    Sem[semantic-release<br/>@semantic-release/github plugin] --> GH
+    Sem["semantic-release<br/>@semantic-release/github plugin"] --> GH
     Issues[Issues + PRs + Branch Protection] --> GH
     Audit[Audit log + SSO + SAML] --> GH
 ```

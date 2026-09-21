@@ -1,0 +1,33 @@
+# Project:   HyperI CI
+# File:      src/hyperi_ci/config/markdownlint.yaml
+# Purpose:   Default markdownlint rules for a repo that declares none
+#
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# Used ONLY when the repo has no markdownlint config of its own. A repo that
+# ships `.markdownlint.yaml` (or any of cli2's other config names) owns its
+# rules outright and this file is not passed.
+#
+# Everything not listed keeps markdownlint's default, which is enabled.
+
+default: true
+
+# Markdown has NO width limit in the house style: a paragraph is written as one
+# line and the editor soft-wraps it. Hard-wrapping prose to a column produces
+# whitespace-only diffs over someone else's history, so the rule that asks for
+# it is off rather than merely widened.
+MD013: false
+
+# Docs embed raw HTML deliberately - <details> blocks, <img> with sizing, and
+# the anchor spans a generated docs site needs.
+MD033: false
+
+# A CHANGELOG-shaped or reference-shaped doc repeats a heading under different
+# parents on purpose. Only a repeat under the SAME parent is ambiguous.
+MD024:
+  siblings_only: true
+
+# A doc may open with a licence header comment, a badge row or front matter
+# rather than its title.
+MD041: false

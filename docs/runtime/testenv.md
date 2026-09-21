@@ -4,7 +4,7 @@
 > (dfe-archiver / dfe-transform-vector / dfe-transform-vrl). Will be folded
 > into the docs rewrite. The canonical docker patterns now live as copyable
 > references in `templates/testenv/` (see
-> [SSoT - reference patterns](#ssot--reference-patterns-not-a-dependency)).
+> [SSoT - reference patterns](#ssot---reference-patterns-not-a-dependency)).
 
 Kafka is core to most of DFE, so its CI test-broker story matters everywhere.
 This documents why CI uses **Redpanda** (not Apache Kafka), the exact setup,

@@ -89,6 +89,17 @@ quality:
   compose_config: blocking   # `docker compose config` resolution GATE
   compose_pins: blocking     # image-pin GATE - an image resolving to `latest` fails
 
+  # Documentation linting (`hyperi-ci lint-docs`, and inside the quality stage).
+  # ALL start at `warn` deliberately: a new lint introduced as blocking on an
+  # existing tree fails every PR until the backlog clears. Promote a check to
+  # `blocking` in a repo once that repo's count reaches zero - the first three
+  # are deterministic and carry no style opinion, so they are ready first.
+  doc_paths: warn            # Docs naming a file the repo no longer has
+  doc_links: warn            # lychee over internal links + anchors, offline only
+  mermaid_parse: warn        # Every fenced mermaid block, against mermaid's own grammar
+  markdownlint: warn         # Mechanical markdown syntax (markdownlint-cli2)
+  docs_touched: warn         # Source changed and no doc did. NEVER gates, in any mode
+
   alint: auto                # Repo-hygiene advisory via external `alint` (profile-aware,
                              # NON-BLOCKING). auto = run if installed else info-skip;
                              # enabled = warn if missing; disabled = never run. Ships an
