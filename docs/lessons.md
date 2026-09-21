@@ -340,8 +340,8 @@ Priority (highest wins):
 1. CLI flags / function arguments
 2. Environment variables (`HYPERCI_*`)
 3. `.hyperi-ci.yaml` project config
-4. `config/org.yaml` org defaults
-5. `config/defaults.yaml`
+4. `src/hyperi_ci/config/org.yaml` org defaults
+5. `src/hyperi_ci/config/defaults.yaml`
 6. Hardcoded in code
 
 ### Tool Mode System

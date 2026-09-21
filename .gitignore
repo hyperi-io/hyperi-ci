@@ -33,6 +33,10 @@ Thumbs.db
 .env
 .env.*
 
+# Node, for the mermaid parse check -- it asks for an npm install at the repo
+# root, and nothing else here brings node in.
+node_modules/
+
 # Local working files (not committed)
 docs/superpowers/
 .claude/
