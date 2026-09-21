@@ -149,6 +149,24 @@ out of digest pinning** so it is never re-pinned (see
 [deps-pinning.md](deps-pinning.md)). A deliberate `@vN`/`@sha` pin is still
 allowed - the carve-out only stops Renovate *imposing* one.
 
+### The credential axis (issue #126)
+
+The sections above are about a bad `main` BREAKING a consumer. The sharper
+version is that it also runs WITH that consumer's credentials: every consumer
+calls `<lang>-ci.yml@main` with contents, packages, issues and pull-requests
+write and passes the org secrets the job needs, so anything landing here runs
+with all of that on their next push. **Decision: keep `@main`** -
+`standards/universal/ci.md` names this workflow as the explicit exception to
+digest pinning, pinning re-creates the frozen-off-CI-fixes problem above, and
+the moving-major alternative (#32) was deferred on 2026-05-29.
+
+What actually guards `main` is the `profile-general-oss-integrity` ruleset, and
+it carries exactly two rules: `deletion` and `non_fast_forward`. The org's PR
+profile keys on the `ci: hyperi-ci` custom property and this repo declares
+`ci: custom`, so it never applied here. The trade is therefore not "float
+`@main`, and a merge is the gate" - it is "float `@main`, and a direct push to
+`main` reaches every consumer's credentials", on the same trigger as above.
+
 ## What we consciously accept
 
 - Consumers run hyperi-ci's **latest** `main` (caller and internals both float);
@@ -156,6 +174,9 @@ allowed - the carve-out only stops Renovate *imposing* one.
   fixtures + fast fix-forward. This is the deliberate trade for always-latest CI.
 - The gate catches **structural/interface** breaks, not behavioural; there is no
   tamper-proof audit graph for the orchestration.
+- A direct push to `main` here inherits every consumer's write scopes and org
+  secrets, and nothing currently blocks such a push (see the credential axis
+  above).
 
 ## Consequences
 
