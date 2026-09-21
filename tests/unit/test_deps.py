@@ -596,6 +596,37 @@ COPY --from=builder /app /app
         assert record["state"] == surfaces.FOUND
         assert record["pins"][0]["dep"] == "debian"
 
+    def test_a_service_prefixed_compose_file_matches(self, tmp_path: Path) -> None:
+        # Renovate's vendored pattern anchors on a name STARTING with
+        # `compose`, so this naming matched nothing and the surface reported
+        # `absent` -- indistinguishable from a repo that runs no compose stack.
+        _write(
+            tmp_path,
+            "templates/testenv/clickhouse.compose.yaml",
+            "services:\n  ch:\n    image: clickhouse/clickhouse-server:24.8\n",
+        )
+        _git_init(tmp_path)
+
+        result = surfaces.scan(tmp_path)
+        record = next(r for r in result["surfaces"] if r["id"] == "docker-compose")
+        assert record["state"] == surfaces.FOUND
+        assert [(p["dep"], p["version"]) for p in record["pins"]] == [
+            ("clickhouse/clickhouse-server", "24.8")
+        ]
+
+    def test_the_conventional_compose_names_still_match(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "docker-compose.yml",
+            "services:\n  rp:\n    image: redpandadata/redpanda:v26.1.9\n",
+        )
+        _git_init(tmp_path)
+
+        result = surfaces.scan(tmp_path)
+        record = next(r for r in result["surfaces"] if r["id"] == "docker-compose")
+        assert record["state"] == surfaces.FOUND
+        assert record["pins"][0]["dep"] == "redpandadata/redpanda"
+
 
 class TestScanStates:
     def test_inert_when_files_match_but_nothing_extracts(self, tmp_path: Path) -> None:

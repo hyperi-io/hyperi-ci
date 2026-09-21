@@ -8,10 +8,23 @@
       "/(^|/)gitops_templates/workflows/.+\\.ya?ml$/"
     ]
   },
+  "docker-compose": {
+    "description": "The testenv fixtures are named <service>.compose.yaml, and the manager's default patterns anchor on a name STARTING with compose, so they matched nothing and the surface read as absent rather than unwatched. $default keeps the defaults and adds that naming.",
+    "managerFilePatterns": [
+      "$default",
+      "/(^|/)[^/]+\\.compose\\.ya?ml$/"
+    ]
+  },
   "packageRules": [
     {
       "description": "GitHub Actions on hyperi-ci are pinned by scripts/update-versions.py (the /deps SSOT in config/versions.yaml): SHA-pinned, 7-day cooldown, enforced at commit time by the pre-commit hook. Renovate stays a PASSIVE WATCHDOG here — it still detects action updates and lists them on the Dependency Dashboard (an independent second opinion), but raises no PR unless a human ticks the box, so it never fights the script's pins. Everything else (cargo/pip/npm) follows the org preset.",
       "matchManagers": ["github-actions"],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "A test fixture's image tracks what production DEPLOYS, not whatever is newest — a fixture running a version no cluster runs tests nothing anyone ships. So these are WATCHED, not auto-bumped: Renovate lists them on the Dependency Dashboard and raises a PR only when a human ticks the box, because which line to track is a DFE deployment fact this repo cannot see.",
+      "matchManagers": ["docker-compose"],
+      "matchFileNames": ["templates/testenv/**"],
       "dependencyDashboardApproval": true
     }
   ]
