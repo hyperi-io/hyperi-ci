@@ -20,6 +20,8 @@ from typing import Any
 
 import yaml
 
+from hyperi_ci import classification
+
 _CONFIG_DIR = Path(__file__).resolve().parent / "config"
 
 # Lifecycle stages a project can declare via `project.status` in
@@ -69,6 +71,14 @@ class CIConfig:
 
     language: str = "none"
     ci_min_python_version: str = "3.9"
+
+    # Declared repo category, "" when no marker declares one. Read
+    # `classification_effective` to decide anything: an undeclared repo
+    # is the most restrictive category, never general-oss.
+    classification: str = ""
+    classification_source: str = "undeclared"
+    classification_effective: str = "internal"
+
     # Kept for backwards compatibility with downstream .hyperi-ci.yaml files
     # that still set `publish.target`. Ignored at runtime — see
     # publish_destinations(). JFrog publishing was removed in v2.1.4.
@@ -333,11 +343,59 @@ def load_config(
                     f"check the `license:` field in .hyperi-ci.yaml."
                 )
 
+    resolved = _resolve_classification(config, project_dir)
+
+    # Written back so `hyperi-ci config` (and its --json form, which hooks
+    # and CI steps read) shows the resolved category and which marker
+    # answered, not just what the project file happened to carry. Popped
+    # first so the three keys print as one group.
+    config.pop("classification", None)
+    config["classification"] = resolved.value
+    config["classification_source"] = resolved.source
+    config["classification_effective"] = resolved.effective
+
     _config_cache = CIConfig(
         language=config.get("language", "none"),
         ci_min_python_version=config.get("ci_min_python_version", "3.9"),
+        classification=resolved.value,
+        classification_source=resolved.source,
+        classification_effective=resolved.effective,
         publish_target=publish_target,
         deprecated_keys=deprecated_keys,
         _raw=config,
     )
     return _config_cache
+
+
+def _resolve_classification(
+    config: dict[str, Any],
+    project_dir: Path,
+) -> classification.Resolution:
+    """Resolve the declared repo category, warning on an unusable marker.
+
+    An invalid or unreadable marker is reported and then treated as no
+    declaration at all, so a typo downgrades to the most restrictive
+    category instead of asserting one the repo never declared.
+
+    Args:
+        config: The merged config dict.
+        project_dir: Repo root to look for the dotfile in.
+
+    Returns:
+        The resolved classification.
+
+    """
+    try:
+        return classification.resolve(config, project_dir)
+    except (ValueError, OSError) as exc:
+        from hyperi_ci.common import warn
+
+        warn(
+            f"{exc} Treating this repo as '{classification.MOST_RESTRICTIVE}' "
+            f"until the marker is fixed."
+        )
+        return classification.Resolution(
+            "",
+            classification.SOURCE_UNDECLARED,
+            classification.MOST_RESTRICTIVE,
+        )

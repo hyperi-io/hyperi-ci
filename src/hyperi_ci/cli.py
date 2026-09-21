@@ -52,7 +52,7 @@ from typing import Annotated
 import typer
 
 from hyperi_ci import __version__
-from hyperi_ci.config import load_config
+from hyperi_ci.config import CIConfig, load_config
 from hyperi_ci.detect import detect_language
 from hyperi_ci.dispatch import VALID_STAGES, run_stage
 from hyperi_ci.version_source import build_version
@@ -996,6 +996,35 @@ def seed_tag_cmd(
     raise typer.Exit(seed_tag(project_dir=dir_path, dry_run=dry_run))
 
 
+def _apply_org_classification(cfg: CIConfig, project_dir: Path | None) -> None:
+    """Fill an undeclared classification from the GitHub org property.
+
+    The org property is the standard's third rung. It is opt-in rather
+    than part of the config load because it costs a network round-trip
+    and an outside contributor's clone cannot read it at all.
+
+    Args:
+        cfg: The loaded config, mutated in place when the org answers.
+        project_dir: Repo root, used to resolve the repo slug.
+
+    """
+    from hyperi_ci import classification
+    from hyperi_ci.description_source import repo_slug
+
+    repo = repo_slug(project_dir)
+    if not repo:
+        return
+    value = classification.from_org_property(repo)
+    if not value:
+        return
+    cfg.classification = value
+    cfg.classification_source = classification.SOURCE_ORG
+    cfg.classification_effective = value
+    cfg._raw["classification"] = value
+    cfg._raw["classification_source"] = classification.SOURCE_ORG
+    cfg._raw["classification_effective"] = value
+
+
 @app.command()
 def config(
     project_dir: Annotated[
@@ -1006,12 +1035,29 @@ def config(
         bool,
         typer.Option("--json", help="Output as JSON instead of YAML"),
     ] = False,
+    org_classification: Annotated[
+        bool,
+        typer.Option(
+            "--org-classification",
+            help="Ask the GitHub org for the classification when no in-repo "
+            "marker declares one (needs org API access)",
+        ),
+    ] = False,
 ) -> None:
-    """Show merged configuration (YAML by default, --json for scripts)."""
+    """Show merged configuration (YAML by default, --json for scripts).
+
+    `classification` reports the declared repo category, with
+    `classification_source` naming the marker that answered and
+    `classification_effective` the category to act on -- `internal` when
+    nothing declares one.
+    """
     import yaml
 
     dir_path = Path(project_dir) if project_dir else None
     cfg = load_config(reload=True, project_dir=dir_path)
+
+    if org_classification and not cfg.classification:
+        _apply_org_classification(cfg, dir_path)
 
     if as_json:
         typer.echo(json.dumps(cfg._raw, indent=2, default=str))
