@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/cli.py
 # Purpose:   CLI entry point for hyperi-ci tool (Typer via scalo)
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """CLI entry point for HyperI CI.
 
@@ -2299,6 +2299,13 @@ def main() -> int:
         reconfigure = getattr(stream, "reconfigure", None)
         if callable(reconfigure):
             reconfigure(encoding="utf-8", errors="replace")
+
+    # Here rather than in the Typer callback so `--version` warns too -- its
+    # eager callback exits before the callback body runs (#163).
+    from hyperi_ci.staleness import warn_if_stale
+
+    warn_if_stale()
+
     app()
     return 0
 
