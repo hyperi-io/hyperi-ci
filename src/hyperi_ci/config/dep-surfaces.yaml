@@ -160,8 +160,22 @@ surfaces:
     renovate_manager: docker-compose
     patterns:
       - '(^|/)(?:docker-)?compose[^/]*\.ya?ml$'
+      - '(^|/)[^/]+\.compose\.ya?ml$'
     pins:
       - 'image:\s*["'']?(?P<dep>[^:"''\s]+):(?P<ver>[^"''\s]+)'
+    caveat: >-
+      Renovate's vendored pattern (the first one) anchors on a name STARTING
+      with `compose`, so a `<service>.compose.yaml` matches nothing and the
+      surface reads `absent` -- which says "nothing to see" rather than "nobody
+      is looking". The second pattern is OURS and covers that naming. Renovate
+      still needs a managerFilePatterns entry to see the same files; this repo
+      carries one in renovate.json, and a consumer using the naming needs its
+      own.
+    notes: >-
+      A test fixture's image tracks what production DEPLOYS, not whatever is
+      newest. That is the one surface here where the newest release is the
+      wrong answer, so a drifted tag is a deliberate decision to record rather
+      than a bump to take.
 
   - id: devcontainer
     label: "Dev container image"
