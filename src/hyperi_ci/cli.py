@@ -272,6 +272,43 @@ def lint_manifests_cmd(
     raise typer.Exit(rc)
 
 
+@app.command(name="lint-compose")
+def lint_compose_cmd(
+    directory: Annotated[
+        str,
+        typer.Argument(help="Directory to lint (docker-compose files)"),
+    ] = ".",
+    sarif: Annotated[
+        str | None,
+        typer.Option(
+            "--sarif",
+            help=(
+                "Write combined SARIF here (opt-in). The workflow uploads it to "
+                "code scanning only where GitHub Code Security is enabled."
+            ),
+        ),
+    ] = None,
+) -> None:
+    """Lint the docker-compose files in a compose packaging repo.
+
+    Runs compose-config (``docker compose config`` resolution GATE) and
+    compose-pins (image-pin GATE). An image with no tag, or one resolving to
+    ``latest`` when nothing is set, fails: compose is a deploy target, so which
+    image runs must not be the registry's call.
+
+    Built for a repo whose deliverable IS the compose stack (no
+    ``.hyperi-ci.yaml``, no language pipeline, no Helm chart) - call it from the
+    existing workflow beside ``lint-manifests``.
+    """
+    from hyperi_ci.config import load_config
+    from hyperi_ci.quality import lint_compose
+
+    root = Path(directory)
+    config = load_config(project_dir=root)
+    rc = lint_compose.run(root, config, sarif_path=sarif)
+    raise typer.Exit(rc)
+
+
 @app.command()
 def deps(
     action: Annotated[

@@ -63,6 +63,10 @@ quality:
   kube_linter: warn          # k8s best-practice ADVISORY; never gates
   checkov: warn              # IaC security ADVISORY (k8s/helm/kustomize/terraform); never gates by default
 
+  # docker-compose linting (Path C - `hyperi-ci lint-compose`, compose packaging repos).
+  compose_config: blocking   # `docker compose config` resolution GATE
+  compose_pins: blocking     # image-pin GATE - an image resolving to `latest` fails
+
   alint: auto                # Repo-hygiene advisory via external `alint` (profile-aware,
                              # NON-BLOCKING). auto = run if installed else info-skip;
                              # enabled = warn if missing; disabled = never run. Ships an

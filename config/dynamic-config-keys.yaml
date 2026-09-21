@@ -34,6 +34,8 @@ keys:
   quality.hadolint: src/hyperi_ci/quality/hadolint.py
   quality.droast: src/hyperi_ci/quality/droast.py
   quality.kube_linter: src/hyperi_ci/quality/kube_linter.py
+  quality.compose_config: src/hyperi_ci/quality/compose_config.py
+  quality.compose_pins: src/hyperi_ci/quality/compose_pins.py
 
   # Read off the raw config dict by chained .get(), not by dotted path.
   quality.exclude_paths: src/hyperi_ci/common.py

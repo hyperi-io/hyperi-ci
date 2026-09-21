@@ -151,6 +151,18 @@ _REGISTRY: dict[str, ToolInfo] = {
         install=("brew install gh",),
         url="https://cli.github.com/",
     ),
+    "docker compose": ToolInfo(
+        name="docker compose",
+        purpose="compose file resolution (`docker compose config`) - no daemon needed",
+        # The v2 compose plugin ships inside Docker Desktop and inside the
+        # `docker-compose-plugin` package; the standalone v1 `docker-compose`
+        # binary is end-of-life and is NOT what this calls.
+        install=(
+            "brew install docker docker-compose",
+            "apt-get install docker-compose-plugin",
+        ),
+        url="https://docs.docker.com/compose/install/",
+    ),
     "helm": ToolInfo(
         name="helm",
         purpose="Helm chart packaging / topology stitching",

@@ -67,6 +67,8 @@ Set per project in `.hyperi-ci.yaml` under `quality.<lang>.<tool>` (or
 | kubeconform | k8s manifest schema GATE | `lint-manifests` verb (`quality/kubeconform.py`) |
 | kube-linter | k8s best-practice ADVISORY | `lint-manifests` verb (`quality/kube_linter.py`) |
 | checkov | IaC security ADVISORY (k8s/helm/tf) | `lint-manifests` verb (`quality/checkov.py`) |
+| compose-config | compose resolution GATE | `lint-compose` verb (`quality/compose_config.py`) |
+| compose-pins | compose image-pin GATE | `lint-compose` verb (`quality/compose_pins.py`) |
 | ruff (lint, format, docstrings) | Python | `languages/python/quality.py` |
 | ty | Python types | Python handler |
 | pip-audit, bandit, vulture | Python | Python handler |
@@ -142,6 +144,13 @@ They deliver through two paths, because the target repos differ in kind:
   existing workflow calls the verb instead of adopting the whole pipeline. It
   renders Helm charts (`helm template`) for kubeconform, which validates
   RENDERED manifests.
+- **Path C - the `lint-compose` verb.** `hyperi-ci lint-compose <dir>` runs
+  compose-config + compose-pins over a repo whose deliverable IS the compose
+  stack - no language pipeline for Path A, no chart or manifest for Path B.
+  compose-config resolves each standalone file (placeholders injected for the
+  keys the file declares mandatory, so the check stays hermetic); compose-pins
+  reads every file statically and fails an `image:` that resolves to `latest`
+  with nothing set.
 
 ### Gate semantics
 
