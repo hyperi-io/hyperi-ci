@@ -23,7 +23,7 @@ from hyperi_ci.watch import (
     _print_summary,
     _resume_command,
     job_lines,
-    resolve_head_run,
+    resolve_target_run,
     watch_run,
 )
 
@@ -32,8 +32,11 @@ _SHA = "c" * 40
 
 @pytest.fixture(autouse=True)
 def _no_declared_workflow():
-    """Pin these cases explicitly, not off whatever ci.yml the cwd holds."""
-    with patch("hyperi_ci.gh.project_ci_workflow", return_value=None):
+    """Pin these cases explicitly, not off whatever repo the cwd holds."""
+    with (
+        patch("hyperi_ci.runs.project_ci_workflow", return_value=None),
+        patch("hyperi_ci.workflows.inventory", return_value=[]),
+    ):
         yield
 
 
@@ -43,12 +46,13 @@ def _listed_run(
     *,
     status: str = "completed",
     conclusion: str | None = "success",
+    sha: str = _SHA,
 ) -> dict:
     """One entry as `gh run list --json` returns it."""
     return {
         "databaseId": run_id,
         "workflowName": workflow,
-        "headSha": _SHA,
+        "headSha": sha,
         "headBranch": "main",
         "event": "push",
         "status": status,
@@ -522,15 +526,15 @@ class TestSkippedGateIsNotRenderedGreen:
         assert any("CI on main: success" in c.args[0] for c in ok.call_args_list)
 
 
-class TestResolveHeadRun:
+class TestResolveTargetRun:
     """With no run id, watch pins on the commit at HEAD (issue #101)."""
 
     def test_picks_the_run_for_head(self) -> None:
-        with patch(
-            "hyperi_ci.watch.head_run_candidates",
-            return_value=(_SHA, [_listed_run(11, "CI")]),
+        with (
+            patch("hyperi_ci.runs.get_head_sha", return_value=_SHA),
+            patch("hyperi_ci.runs.list_runs", return_value=[_listed_run(11, "CI")]),
         ):
-            run = resolve_head_run(workflow=None, repo=None)
+            run = resolve_target_run()
         assert run["databaseId"] == 11
 
     def test_refuses_two_runs_on_the_same_commit(self) -> None:
@@ -539,24 +543,22 @@ class TestResolveHeadRun:
             _listed_run(12, "Test", status="in_progress", conclusion=None),
         ]
         with (
-            patch(
-                "hyperi_ci.watch.head_run_candidates",
-                return_value=(_SHA, candidates),
-            ),
+            patch("hyperi_ci.runs.get_head_sha", return_value=_SHA),
+            patch("hyperi_ci.runs.list_runs", return_value=candidates),
             pytest.raises(RunSelectionError, match="refusing to guess"),
         ):
-            resolve_head_run(workflow=None, repo=None)
+            resolve_target_run()
 
     def test_workflow_pins_the_one_asked_about(self) -> None:
         candidates = [
             _listed_run(11, "Dependency Graph"),
             _listed_run(12, "Test", status="in_progress", conclusion=None),
         ]
-        with patch(
-            "hyperi_ci.watch.head_run_candidates",
-            return_value=(_SHA, candidates),
+        with (
+            patch("hyperi_ci.runs.get_head_sha", return_value=_SHA),
+            patch("hyperi_ci.runs.list_runs", return_value=candidates),
         ):
-            run = resolve_head_run(workflow="Test", repo=None)
+            run = resolve_target_run(workflow="Test")
         assert run["databaseId"] == 12
 
     def test_waits_for_the_run_to_register(self) -> None:
@@ -564,28 +566,57 @@ class TestResolveHeadRun:
         # code fell back to the branch's newest run, which is the
         # previous commit's.
         with (
+            patch("hyperi_ci.runs.get_head_sha", return_value=_SHA),
             patch(
-                "hyperi_ci.watch.head_run_candidates",
-                side_effect=[(_SHA, []), (_SHA, [_listed_run(11, "CI")])],
+                "hyperi_ci.runs.list_runs",
+                side_effect=[[], [_listed_run(11, "CI")]],
             ),
             patch("hyperi_ci.watch.time.sleep") as mock_sleep,
         ):
-            run = resolve_head_run(workflow=None, repo=None)
+            run = resolve_target_run()
         assert run["databaseId"] == 11
         mock_sleep.assert_called_once()
 
     def test_gives_up_when_no_run_ever_registers(self) -> None:
         with (
-            patch("hyperi_ci.watch.head_run_candidates", return_value=(_SHA, [])),
+            patch("hyperi_ci.runs.get_head_sha", return_value=_SHA),
+            patch("hyperi_ci.runs.list_runs", return_value=[]),
             patch("hyperi_ci.watch.time.sleep"),
             patch(
                 "hyperi_ci.watch.time.monotonic",
                 # Start, then past the appearance budget.
                 side_effect=[0.0, 1000.0],
             ),
-            pytest.raises(RunSelectionError, match="No run registered for commit"),
+            pytest.raises(RunSelectionError, match="No run registered for"),
         ):
-            resolve_head_run(workflow=None, repo=None)
+            resolve_target_run()
+
+    def test_a_pr_anchors_on_its_head_commit(self) -> None:
+        # The run that matters fired on pull_request and is not on HEAD.
+        pr_sha = "d" * 40
+        with (
+            patch("hyperi_ci.runs.pr_head", return_value=(pr_sha, "fix/thing")),
+            patch(
+                "hyperi_ci.runs.list_runs",
+                return_value=[_listed_run(21, "CI", sha=pr_sha)],
+            ) as mock_list,
+        ):
+            run = resolve_target_run(pr=18)
+        assert run["databaseId"] == 21
+        assert mock_list.call_args.kwargs["commit"] == pr_sha
+
+    def test_a_commit_anchor_never_reads_head(self) -> None:
+        other = "e" * 40
+        with (
+            patch("hyperi_ci.runs.get_head_sha") as mock_head,
+            patch(
+                "hyperi_ci.runs.list_runs",
+                return_value=[_listed_run(22, "CI", sha=other)],
+            ),
+        ):
+            run = resolve_target_run(commit=other)
+        assert run["databaseId"] == 22
+        mock_head.assert_not_called()
 
 
 class TestWatchRunPinning:
@@ -598,10 +629,8 @@ class TestWatchRunPinning:
         ]
         with (
             patch("hyperi_ci.watch.require_gh", return_value=True),
-            patch(
-                "hyperi_ci.watch.head_run_candidates",
-                return_value=(_SHA, candidates),
-            ),
+            patch("hyperi_ci.runs.get_head_sha", return_value=_SHA),
+            patch("hyperi_ci.runs.list_runs", return_value=candidates),
             patch("hyperi_ci.watch._get_run_status") as mock_status,
         ):
             rc = watch_run(timeout=0, interval=1)
@@ -624,10 +653,8 @@ class TestWatchRunPinning:
         }
         with (
             patch("hyperi_ci.watch.require_gh", return_value=True),
-            patch(
-                "hyperi_ci.watch.head_run_candidates",
-                return_value=(_SHA, candidates),
-            ),
+            patch("hyperi_ci.runs.get_head_sha", return_value=_SHA),
+            patch("hyperi_ci.runs.list_runs", return_value=candidates),
             patch(
                 "hyperi_ci.watch._get_run_status", return_value=terminal
             ) as mock_status,
@@ -639,14 +666,20 @@ class TestWatchRunPinning:
         assert rc == 1
         assert mock_status.call_args[0][0] == "12"
 
-    def test_another_repo_needs_a_run_id(self) -> None:
+    def test_another_repo_with_no_anchor_stands_down(self) -> None:
+        # A local HEAD says nothing about another repo, so the refusal
+        # lists what is there instead of watching whatever ran last.
         with (
             patch("hyperi_ci.watch.require_gh", return_value=True),
+            patch("hyperi_ci.runs.list_runs", return_value=[_listed_run(31, "CI")]),
             patch("hyperi_ci.watch._get_run_status") as mock_status,
+            patch("hyperi_ci.watch.error") as mock_error,
         ):
             rc = watch_run(repo="hyperi-io/dfe-loader", timeout=0, interval=1)
         assert rc == 1
         mock_status.assert_not_called()
+        message = mock_error.call_args[0][0]
+        assert "hyperi-ci watch 31 --repo hyperi-io/dfe-loader" in message
 
 
 class TestFirstFailedJob:

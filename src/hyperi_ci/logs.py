@@ -14,6 +14,12 @@ the commit at HEAD and the workflow the project declares in its ci.yml,
 and an ambiguous choice is refused. Every ``--failed`` message names the
 run it read, so "no failed jobs" can never be mistaken for "the build is
 fine" when the failing run was a different one.
+
+Anchors and ``--repo`` (issue #97): ``--pr``, ``--branch`` and
+``--commit`` reach a run that is not on the current branch head, and
+``--repo`` reads a run in another repo. The log archive has no
+``--repo`` flag of its own, so the owner and name are substituted into
+the API path instead.
 """
 
 from __future__ import annotations
@@ -26,24 +32,26 @@ import zipfile
 from pathlib import Path
 
 from hyperi_ci.common import error, info, warn
-from hyperi_ci.gh import (
-    RunSelectionError,
-    describe_run,
-    gh_run,
-    head_run_candidates,
-    require_gh,
-    select_run_for_head,
-)
-
-# Headroom over the handful of runs one commit produces.
-_RUN_LIST_LIMIT = 30
+from hyperi_ci.gh import RunSelectionError, describe_run, gh_run, require_gh
 
 
-def _download_logs(run_id: str) -> Path | None:
+def logs_api_path(run_id: str, repo: str | None = None) -> str:
+    """Build the API path a run's log archive is served from.
+
+    ``{owner}``/``{repo}`` are gh's own placeholders for the cwd's git
+    remote; a caller naming another repo needs them substituted, since
+    the logs endpoint has no ``--repo`` flag of its own.
+    """
+    target = repo or "{owner}/{repo}"
+    return f"repos/{target}/actions/runs/{run_id}/logs"
+
+
+def _download_logs(run_id: str, repo: str | None = None) -> Path | None:
     """Download run logs to a temporary directory.
 
     Args:
         run_id: Workflow run ID.
+        repo: Optional ``owner/name``.
 
     Returns:
         Path to the directory containing log files, or None on error.
@@ -58,7 +66,7 @@ def _download_logs(run_id: str) -> Path | None:
     try:
         with zip_path.open("wb") as fh:
             subprocess.run(
-                ["gh", "api", f"repos/{{owner}}/{{repo}}/actions/runs/{run_id}/logs"],
+                ["gh", "api", logs_api_path(run_id, repo)],
                 stdout=fh,
                 stderr=subprocess.PIPE,
                 check=True,
@@ -75,11 +83,12 @@ def _download_logs(run_id: str) -> Path | None:
     return None
 
 
-def _get_run(run_id: str) -> dict | None:
+def _get_run(run_id: str, repo: str | None = None) -> dict | None:
     """Fetch a run's identity and its jobs.
 
     Args:
         run_id: Workflow run ID.
+        repo: Optional ``owner/name``.
 
     Returns:
         Run dict, or None when it could not be read - which is NOT the
@@ -87,16 +96,17 @@ def _get_run(run_id: str) -> dict | None:
         reported as one.
 
     """
+    args = [
+        "run",
+        "view",
+        run_id,
+        "--json",
+        "status,conclusion,jobs,url,workflowName,headBranch,headSha,event",
+    ]
+    if repo:
+        args.extend(["--repo", repo])
     try:
-        result = gh_run(
-            [
-                "run",
-                "view",
-                run_id,
-                "--json",
-                "status,conclusion,jobs,url,workflowName,headBranch,headSha,event",
-            ]
-        )
+        result = gh_run(args)
         return json.loads(result.stdout)
     except (subprocess.CalledProcessError, json.JSONDecodeError):
         return None
@@ -206,6 +216,11 @@ def fetch_logs(
     *,
     run_id: str | None = None,
     workflow: str | None = None,
+    branch: str | None = None,
+    commit: str | None = None,
+    pr: int | None = None,
+    repo: str | None = None,
+    project_dir: Path | None = None,
     job_filter: str | None = None,
     step_filter: str | None = None,
     grep_pattern: str | None = None,
@@ -215,12 +230,19 @@ def fetch_logs(
     """Fetch and filter GitHub Actions run logs.
 
     Args:
-        run_id: Run ID. With none, the run built from the commit at HEAD
-            is used, and an ambiguous choice is refused rather than
-            guessed (issue #101).
+        run_id: Run ID. With none, the run is resolved from the anchor,
+            and an ambiguous choice is refused rather than guessed
+            (issue #101).
         workflow: Workflow name to pin on, matched case-insensitively,
             exact before substring. Defaults to the name declared in the
-            project's ci.yml. Ignored when a run id is given.
+            project's ci.yml, and only where hyperi-ci scaffolded it.
+            Ignored when a run id is given.
+        branch: Pin to the newest commit on this branch that has runs.
+        commit: Pin to this commit.
+        pr: Pin to this pull request's head commit.
+        repo: Optional ``owner/name``.
+        project_dir: Repo root, for the default pin and the inventory a
+            stand-down reads.
         job_filter: Substring filter for job names.
         step_filter: Substring filter for step names.
         grep_pattern: Regex pattern to filter lines.
@@ -235,9 +257,18 @@ def fetch_logs(
         return 1
 
     if not run_id:
+        from hyperi_ci import runs as run_lookup
+
         try:
-            head_sha, runs = head_run_candidates(limit=_RUN_LIST_LIMIT)
-            run = select_run_for_head(runs, head_sha=head_sha, workflow=workflow)
+            run = run_lookup.resolve(
+                workflow=workflow,
+                branch=branch,
+                commit=commit,
+                pr=pr,
+                repo=repo,
+                project_dir=project_dir,
+                command="logs",
+            )
         except RunSelectionError as exc:
             error(str(exc))
             return 1
@@ -248,7 +279,7 @@ def fetch_logs(
 
     failed_jobs: set[str] | None = None
     if failed_only:
-        run_data = _get_run(run_id)
+        run_data = _get_run(run_id, repo)
         if run_data is None:
             error(
                 f"Could not read run {run_id} - cannot tell which jobs failed. "
@@ -270,7 +301,7 @@ def fetch_logs(
                 )
             return 0
 
-    log_dir = _download_logs(run_id)
+    log_dir = _download_logs(run_id, repo)
     if not log_dir:
         return 1
 

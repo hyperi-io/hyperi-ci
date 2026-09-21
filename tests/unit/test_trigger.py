@@ -13,10 +13,27 @@ could not be dispatched through the wrapper at all.
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 import pytest
 
 from hyperi_ci import trigger
+
+# dfe-hyperdx's shape: our scaffolded ci.yml beside a workflow it wrote.
+_SCAFFOLDED = (
+    "name: CI\n'on':\n  push:\njobs:\n  ci:\n"
+    "    uses: hyperi-io/hyperi-ci/.github/workflows/ts-ci.yml@main\n"
+)
+_BESPOKE = "name: upstream-sync\n'on':\n  workflow_dispatch:\n"
+
+
+def _repo(root: Path) -> Path:
+    """Write a .github/workflows tree and return the repo root."""
+    directory = root / ".github" / "workflows"
+    directory.mkdir(parents=True)
+    (directory / "ci.yml").write_text(_SCAFFOLDED, encoding="utf-8")
+    (directory / "upstream-sync.yml").write_text(_BESPOKE, encoding="utf-8")
+    return root
 
 
 class TestParseInputs:
@@ -61,6 +78,8 @@ class TestTriggerArgv:
         *,
         workflow: str = "ci.yml",
         inputs: dict[str, str] | None = None,
+        repo: str | None = None,
+        project_dir: Path | None = None,
     ) -> list[str]:
         sent: list[str] = []
 
@@ -71,7 +90,12 @@ class TestTriggerArgv:
         monkeypatch.setattr(trigger, "require_gh", lambda: True)
         monkeypatch.setattr(trigger, "get_current_branch", lambda: "main")
         monkeypatch.setattr(trigger, "gh_run", fake_gh_run)
-        trigger.trigger_workflow(workflow=workflow, inputs=inputs)
+        trigger.trigger_workflow(
+            workflow=workflow,
+            inputs=inputs,
+            repo=repo,
+            project_dir=project_dir,
+        )
         return sent
 
     def test_no_inputs_sends_only_the_ref(
@@ -95,3 +119,70 @@ class TestTriggerArgv:
     def test_the_ref_still_leads(self, monkeypatch: pytest.MonkeyPatch) -> None:
         sent = self._capture(monkeypatch, inputs={"a": "b"})
         assert sent[:5] == ["workflow", "run", "ci.yml", "--ref", "main"]
+
+    def test_repo_is_forwarded(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        sent = self._capture(monkeypatch, repo="hyperi-io/ci-test-python-lib")
+        assert sent[sent.index("--repo") + 1] == "hyperi-io/ci-test-python-lib"
+
+
+class TestWorkflowResolution:
+    """Any workflow the repo carries, named however the caller has it."""
+
+    def test_a_bespoke_stem_resolves_to_its_file(self, tmp_path: Path) -> None:
+        # `-w upstream-sync` is what a run listing shows, not the filename.
+        root = _repo(tmp_path)
+        assert (
+            trigger.resolve_workflow_file("upstream-sync", root) == "upstream-sync.yml"
+        )
+
+    def test_a_display_name_resolves(self, tmp_path: Path) -> None:
+        assert trigger.resolve_workflow_file("CI", _repo(tmp_path)) == "ci.yml"
+
+    def test_a_filename_is_kept(self, tmp_path: Path) -> None:
+        root = _repo(tmp_path)
+        assert (
+            trigger.resolve_workflow_file("upstream-sync.yml", root)
+            == "upstream-sync.yml"
+        )
+
+    def test_an_unknown_token_passes_through(self, tmp_path: Path) -> None:
+        # Refusing off a local listing would fail closed on a checkout
+        # that lags the remote; gh answers instead.
+        root = _repo(tmp_path)
+        assert trigger.resolve_workflow_file("release.yml", root) == "release.yml"
+
+    def test_no_workflows_directory_passes_through(self, tmp_path: Path) -> None:
+        assert trigger.resolve_workflow_file("ci.yml", tmp_path) == "ci.yml"
+
+    def test_a_bespoke_workflow_reaches_gh(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        # The dfe-hyperdx case, end to end: three inputs on a workflow
+        # hyperi-ci did not scaffold.
+        sent = TestTriggerArgv._capture(
+            monkeypatch,
+            workflow="upstream-sync",
+            inputs={
+                "upstream_ref": "v2.4.0",
+                "base_ref": "main",
+                "open_pr": "true",
+            },
+            project_dir=_repo(tmp_path),
+        )
+        assert sent[:5] == ["workflow", "run", "upstream-sync.yml", "--ref", "main"]
+        assert sent.count("-f") == 3
+        assert "upstream_ref=v2.4.0" in sent
+        assert "base_ref=main" in sent
+        assert "open_pr=true" in sent
+
+    def test_a_named_repo_skips_the_local_inventory(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        # This checkout's workflow names say nothing about another repo.
+        sent = TestTriggerArgv._capture(
+            monkeypatch,
+            workflow="CI",
+            repo="hyperi-io/dfe-hyperdx",
+            project_dir=_repo(tmp_path),
+        )
+        assert sent[2] == "CI"

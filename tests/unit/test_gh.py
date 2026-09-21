@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -17,12 +16,10 @@ import pytest
 from hyperi_ci.gh import (
     RunSelectionError,
     describe_run,
-    head_run_candidates,
     list_runs,
     project_ci_workflow,
     require_gh,
     select_run,
-    select_run_for_head,
 )
 
 _SHA = "a" * 40
@@ -224,96 +221,3 @@ class TestProjectCiWorkflow:
     def test_none_on_unparseable_yaml(self, tmp_path: Path) -> None:
         self._write(tmp_path, "name: [unclosed\n")
         assert project_ci_workflow(cwd=tmp_path) is None
-
-
-class TestSelectRunForHead:
-    """Default pin: the project's own CI run, never the newest run."""
-
-    def test_defaults_to_the_declared_workflow(self) -> None:
-        # A commit carries every workflow that fired on it.
-        runs = [
-            _run(1, "CodeQL", event="dynamic"),
-            _run(2, "CI"),
-            _run(3, "Dependency Graph", event="dynamic"),
-        ]
-        with patch("hyperi_ci.gh.project_ci_workflow", return_value="CI"):
-            assert select_run_for_head(runs, head_sha=_SHA)["databaseId"] == 2
-
-    def test_an_explicit_workflow_wins(self) -> None:
-        runs = [_run(1, "CodeQL", event="dynamic"), _run(2, "CI")]
-        with patch("hyperi_ci.gh.project_ci_workflow", return_value="CI"):
-            chosen = select_run_for_head(runs, head_sha=_SHA, workflow="CodeQL")
-        assert chosen["databaseId"] == 1
-
-    def test_refuses_against_every_candidate_when_the_default_misses(self) -> None:
-        runs = [_run(1, "CodeQL", event="dynamic"), _run(2, "Dependency Graph")]
-        with (
-            patch("hyperi_ci.gh.project_ci_workflow", return_value="CI"),
-            pytest.raises(RunSelectionError) as exc,
-        ):
-            select_run_for_head(runs, head_sha=_SHA)
-        message = str(exc.value)
-        assert "CodeQL" in message
-        assert "Dependency Graph" in message
-
-    def test_refuses_when_the_project_declares_no_ci_workflow(self) -> None:
-        runs = [_run(1, "CodeQL", event="dynamic"), _run(2, "CI")]
-        with (
-            patch("hyperi_ci.gh.project_ci_workflow", return_value=None),
-            pytest.raises(RunSelectionError, match="refusing to guess"),
-        ):
-            select_run_for_head(runs, head_sha=_SHA)
-
-    def test_declared_workflow_still_honours_the_sha_pin(self) -> None:
-        runs = [_run(1, "CI", sha=_OTHER_SHA)]
-        with (
-            patch("hyperi_ci.gh.project_ci_workflow", return_value="CI"),
-            pytest.raises(RunSelectionError, match="No runs found for commit"),
-        ):
-            select_run_for_head(runs, head_sha=_SHA)
-
-
-class TestHeadRunCandidates:
-    """Reading HEAD's sha and the runs GitHub holds against it."""
-
-    def test_returns_sha_and_runs(self) -> None:
-        with (
-            patch("hyperi_ci.gh.get_head_sha", return_value=_SHA),
-            patch("hyperi_ci.gh.list_runs", return_value=[_run(1, "CI")]) as mock_list,
-        ):
-            sha, runs = head_run_candidates()
-        assert sha == _SHA
-        assert [r["databaseId"] for r in runs] == [1]
-        assert mock_list.call_args.kwargs["commit"] == _SHA
-
-    def test_empty_list_is_not_an_error(self) -> None:
-        # The run may not have registered yet; the caller waits.
-        with (
-            patch("hyperi_ci.gh.get_head_sha", return_value=_SHA),
-            patch("hyperi_ci.gh.list_runs", return_value=[]),
-        ):
-            sha, runs = head_run_candidates()
-        assert (sha, runs) == (_SHA, [])
-
-    def test_refuses_for_another_repo(self) -> None:
-        # HEAD says nothing about runs in a repo that is not this one.
-        with pytest.raises(RunSelectionError, match="needs a run id"):
-            head_run_candidates(repo="hyperi-io/dfe-loader")
-
-    def test_refuses_when_head_is_unreadable(self) -> None:
-        with (
-            patch("hyperi_ci.gh.get_head_sha", return_value=None),
-            pytest.raises(RunSelectionError, match="Could not read HEAD"),
-        ):
-            head_run_candidates()
-
-    def test_refuses_when_the_run_list_fails(self) -> None:
-        with (
-            patch("hyperi_ci.gh.get_head_sha", return_value=_SHA),
-            patch(
-                "hyperi_ci.gh.list_runs",
-                side_effect=subprocess.CalledProcessError(1, "gh"),
-            ),
-            pytest.raises(RunSelectionError, match="Could not list runs"),
-        ):
-            head_run_candidates()
