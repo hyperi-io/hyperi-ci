@@ -1341,11 +1341,13 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         user_optimize = config.get("build.rust.optimize") or {}
         skip = skip_optimize(config)
         consented = release_unoptimized()
+        project_root = Path.cwd()
         refusal = unoptimized_release_refusal(
             channel,
             user_optimize,
             skip_optimize=skip,
             release_unoptimized=consented,
+            project_root=project_root,
         )
         if refusal:
             error(refusal)
@@ -1372,7 +1374,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             if is_ci():
                 print(f"::warning title=hyperi-ci optimisation skipped::{msg}")
         base_profile = resolve_optimization_profile(
-            channel, user_optimize, skip_optimize=skip
+            channel, user_optimize, skip_optimize=skip, project_root=project_root
         )
         cargo_features = _detect_cargo_features()
         # Target-specific validation happens per-target (BOLT is Linux-only)

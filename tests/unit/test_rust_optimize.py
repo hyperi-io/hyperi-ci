@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from hyperi_ci.config import CIConfig
@@ -323,6 +325,97 @@ class TestUnoptimizedReleaseRefusal:
         assert (
             unoptimized_release_refusal(
                 "release", {}, skip_optimize=True, release_unoptimized=False
+            )
+            is None
+        )
+
+
+class TestConventionalWorkloadDefault:
+    """issue #143: a release profiles itself when the project ships a workload."""
+
+    @staticmethod
+    def _with_script(root: Path) -> Path:
+        script = root / optimize.CONVENTIONAL_WORKLOAD_SCRIPT
+        script.parent.mkdir(parents=True, exist_ok=True)
+        script.write_text("#!/usr/bin/env bash\n", encoding="utf-8", newline="\n")
+        return script
+
+    def test_no_workload_means_no_pgo(self, tmp_path: Path) -> None:
+        profile = resolve_optimization_profile("release", None, project_root=tmp_path)
+        assert profile.pgo_enabled is False
+        assert profile.bolt_enabled is False
+
+    def test_the_conventional_script_turns_it_on(self, tmp_path: Path) -> None:
+        self._with_script(tmp_path)
+        profile = resolve_optimization_profile("release", None, project_root=tmp_path)
+        assert profile.pgo_enabled is True
+        assert profile.bolt_enabled is True
+        assert profile.pgo_workload_cmd == optimize.CONVENTIONAL_WORKLOAD_CMD
+
+    def test_an_explicit_opt_out_still_wins(self, tmp_path: Path) -> None:
+        self._with_script(tmp_path)
+        profile = resolve_optimization_profile(
+            "release", {"pgo": {"enabled": False}}, project_root=tmp_path
+        )
+        assert profile.pgo_enabled is False
+
+    def test_bolt_can_be_declined_on_its_own(self, tmp_path: Path) -> None:
+        self._with_script(tmp_path)
+        profile = resolve_optimization_profile(
+            "release", {"bolt": {"enabled": False}}, project_root=tmp_path
+        )
+        assert profile.pgo_enabled is True
+        assert profile.bolt_enabled is False
+
+    @pytest.mark.parametrize("channel", ["alpha", "beta"])
+    def test_a_prerelease_never_profiles(self, channel: str, tmp_path: Path) -> None:
+        self._with_script(tmp_path)
+        profile = resolve_optimization_profile(channel, None, project_root=tmp_path)
+        assert profile.pgo_enabled is False
+
+    def test_no_root_does_no_lookup(self, tmp_path: Path) -> None:
+        # The caller with no tree on disk keeps the explicit-opt-in behaviour,
+        # which is what every existing caller and test relies on.
+        self._with_script(tmp_path)
+        profile = resolve_optimization_profile("release", None)
+        assert profile.pgo_enabled is False
+
+    def test_skip_optimize_still_beats_the_default(self, tmp_path: Path) -> None:
+        self._with_script(tmp_path)
+        profile = resolve_optimization_profile(
+            "release", None, skip_optimize=True, project_root=tmp_path
+        )
+        assert profile.pgo_enabled is False
+
+
+class TestRefusalSeesTheDefault:
+    """issue #143 + #158: a defaulted project must not lose its consent gate."""
+
+    def test_a_defaulted_project_is_refused(self, tmp_path: Path) -> None:
+        # Without the root the refusal resolves pgo off and waves the build
+        # through, which is how a skipped release would ship unannounced once
+        # the per-project stanzas go.
+        script = tmp_path / optimize.CONVENTIONAL_WORKLOAD_SCRIPT
+        script.parent.mkdir(parents=True, exist_ok=True)
+        script.write_text("#!/usr/bin/env bash\n", encoding="utf-8", newline="\n")
+        msg = unoptimized_release_refusal(
+            "release",
+            None,
+            skip_optimize=True,
+            release_unoptimized=False,
+            project_root=tmp_path,
+        )
+        assert msg is not None
+        assert "release-unoptimized" in msg
+
+    def test_a_project_with_no_workload_is_not_refused(self, tmp_path: Path) -> None:
+        assert (
+            unoptimized_release_refusal(
+                "release",
+                None,
+                skip_optimize=True,
+                release_unoptimized=False,
+                project_root=tmp_path,
             )
             is None
         )
