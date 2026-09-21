@@ -12,6 +12,7 @@ import subprocess
 from pathlib import Path
 
 from hyperi_ci.common import error, info, success
+from hyperi_ci.release_branches import is_prerelease_version
 
 
 def build_and_push(
@@ -119,6 +120,8 @@ def resolve_tags(
       (``_ghcr-prune.yml``) glob dev tags without ever touching GA pins.
     * ``release``, release channel → ``:vX.Y.Z``, ``:latest``, ``:sha-<short>``
     * ``release``, pre-GA channel  → ``:vX.Y.Z-{channel}``, ``:sha-<short>``
+    * ``release``, prerelease version → ``:vX.Y.Z-beta.N``, ``:sha-<short>``
+      — a version off a prerelease branch never moves ``latest``.
 
     The SHA tag is included on every pushed build to give consumers an
     immutable-by-content pin alongside the human-readable tag.
@@ -164,6 +167,10 @@ def resolve_tags(
 
 
 def _tag_suffixes(*, version: str, sha: str, channel: str) -> list[str]:
+    # A prerelease version discriminates itself: `latest` belongs to the stable
+    # sequence, and a channel suffix would render `v1.2.0-beta.1-beta`.
+    if is_prerelease_version(version):
+        return [f"v{version}", f"sha-{sha}"]
     if channel == "release":
         return [f"v{version}", "latest", f"sha-{sha}"]
     return [f"v{version}-{channel}", f"sha-{sha}"]

@@ -38,6 +38,7 @@ from hyperi_ci.common import (
 )
 from hyperi_ci.config import CIConfig
 from hyperi_ci.native_deps import ensure_aws_cli
+from hyperi_ci.release_branches import effective_release_channel
 from hyperi_ci.tools import missing_tool_notice
 
 # R2 bucket and endpoint configuration
@@ -61,6 +62,22 @@ def _resolve_gh_release_flags(channel: str) -> list[str]:
     if channel != "release":
         return ["--prerelease"]
     return []
+
+
+def _resolve_channel(config: CIConfig, version: str | None) -> str:
+    """Return the channel this version actually ships on.
+
+    ``release.channel`` states where a project's STABLE artefacts go, so a
+    prerelease version overrides it with its own label: the GitHub Release is
+    marked prerelease and R2 gets the channel prefix instead of the GA one.
+    Without the override a ``1.2.0-beta.1`` cut off a prerelease branch would
+    overwrite the GA ``latest/`` a stable release published (issue #144).
+    """
+    configured = config.get("release.channel", "release")
+    resolved = effective_release_channel(configured, version)
+    if resolved != configured:
+        info(f"Prerelease version {version} — publishing on channel {resolved}")
+    return resolved
 
 
 def _resolve_r2_paths(project_name: str, version: str, channel: str) -> tuple[str, str]:
@@ -310,7 +327,7 @@ def create_github_release(config: CIConfig) -> int:
         error(f"{problem} — refusing to release")
         return 1
 
-    channel = config.get("release.channel", "release")
+    channel = _resolve_channel(config, version)
     tag = f"v{version}"
 
     info(f"Creating GitHub Release {tag}")
@@ -529,7 +546,7 @@ def publish_binaries(config: CIConfig) -> int:
         info("No dist/ artifacts — skipping binary publish")
         return 0
 
-    channel = config.get("release.channel", "release")
+    channel = _resolve_channel(config, _read_version())
     info(f"Binary publish destinations: {', '.join(destinations)}")
     if channel != "release":
         info(f"Channel: {channel} (prerelease)")

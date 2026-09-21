@@ -86,6 +86,33 @@ def test_resolve_tags_release_channel_includes_sha():
     ]
 
 
+def test_resolve_tags_prerelease_version_never_moves_latest():
+    # issue #144: a beta cut off a prerelease branch must not repoint `latest`
+    # at itself, and must not render `v1.14.0-beta.1-beta`.
+    tags = resolve_tags(
+        registry_bases=["ghcr.io/hyperi-io"],
+        image_name="dfe-loader",
+        version="1.14.0-beta.1",
+        sha="abc1234",
+        channel="beta",
+    )
+    assert tags == [
+        "ghcr.io/hyperi-io/dfe-loader:v1.14.0-beta.1",
+        "ghcr.io/hyperi-io/dfe-loader:sha-abc1234",
+    ]
+
+
+def test_resolve_tags_prerelease_version_beats_a_release_channel():
+    tags = resolve_tags(
+        registry_bases=["ghcr.io/hyperi-io"],
+        image_name="dfe-loader",
+        version="1.14.0-beta.1",
+        sha="abc1234",
+        channel="release",
+    )
+    assert "ghcr.io/hyperi-io/dfe-loader:latest" not in tags
+
+
 def test_resolve_tags_pre_ga_channel_includes_sha():
     tags = resolve_tags(
         registry_bases=["ghcr.io/hyperi-io"],

@@ -320,6 +320,33 @@ class TestUnoptimizedReleaseRefusal:
             is None
         )
 
+    def test_a_prerelease_may_skip_at_the_release_tier(self) -> None:
+        # issue #144: the consent protects the stable version users install.
+        # A prerelease spends none, so the fast path needs no consent even
+        # though a release branch asks for the release tier.
+        assert (
+            unoptimized_release_refusal(
+                "release",
+                self.OPTED_IN,
+                skip_optimize=True,
+                release_unoptimized=False,
+                prerelease=True,
+            )
+            is None
+        )
+
+    def test_a_stable_release_still_needs_consent(self) -> None:
+        assert (
+            unoptimized_release_refusal(
+                "release",
+                self.OPTED_IN,
+                skip_optimize=True,
+                release_unoptimized=False,
+                prerelease=False,
+            )
+            is not None
+        )
+
     def test_a_release_with_no_tier_two_loses_nothing(self) -> None:
         # Nothing to skip, so nothing to consent to.
         assert (
@@ -328,6 +355,74 @@ class TestUnoptimizedReleaseRefusal:
             )
             is None
         )
+
+
+class TestRefusalComposesWorkloadAndIdentity:
+    """The refusal asks two independent questions, and needs both answers.
+
+    #143 gave it `project_root`, so a project relying on the conventional
+    workload is recognised as running Tier 2. #144 gave it `prerelease`, so
+    the consent guards only the version users install. Each test here fails
+    if either half is dropped, which a rebase across the two is well placed
+    to do.
+    """
+
+    @staticmethod
+    def _project_with_conventional_workload(root: Path) -> Path:
+        script = root / optimize.CONVENTIONAL_WORKLOAD_SCRIPT
+        script.parent.mkdir(parents=True, exist_ok=True)
+        script.write_text("#!/usr/bin/env bash\n", encoding="utf-8", newline="\n")
+        return root
+
+    def test_a_defaulted_project_still_refuses_a_skipped_stable_release(
+        self, tmp_path: Path
+    ) -> None:
+        # No optimize config at all -- Tier 2 comes from the workload being
+        # on disk. Drop project_root and this reads as nothing to skip, which
+        # is the consent hole #143 closed.
+        root = self._project_with_conventional_workload(tmp_path)
+        msg = unoptimized_release_refusal(
+            "release",
+            None,
+            skip_optimize=True,
+            release_unoptimized=False,
+            project_root=root,
+            prerelease=False,
+        )
+        assert msg is not None
+        assert "release-unoptimized" in msg
+
+    def test_the_same_project_may_skip_for_a_prerelease(self, tmp_path: Path) -> None:
+        # Same project, same tier, same skip -- only the version identity
+        # differs, and that is what decides. Drop `prerelease` and the fast
+        # prerelease becomes unreachable.
+        root = self._project_with_conventional_workload(tmp_path)
+        assert (
+            unoptimized_release_refusal(
+                "release",
+                None,
+                skip_optimize=True,
+                release_unoptimized=False,
+                project_root=root,
+                prerelease=True,
+            )
+            is None
+        )
+
+    def test_a_project_with_no_workload_is_never_refused(self, tmp_path: Path) -> None:
+        # Nothing to lose, so neither answer matters.
+        for prerelease in (False, True):
+            assert (
+                unoptimized_release_refusal(
+                    "release",
+                    None,
+                    skip_optimize=True,
+                    release_unoptimized=False,
+                    project_root=tmp_path,
+                    prerelease=prerelease,
+                )
+                is None
+            )
 
 
 class TestConventionalWorkloadDefault:

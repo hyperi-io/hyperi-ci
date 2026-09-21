@@ -190,6 +190,8 @@ footer.
 
 ## See also
 
+- [prereleases.md](prereleases.md) -- cutting `1.2.0-beta.1` off a branch so a
+  release can be rehearsed without the stable sequence moving
 - [versioning-and-the-suite.md](versioning-and-the-suite.md) -- how this
   per-repo line relates to a DFE stack version, and which ladder owns `rc`
 - [architecture.md](architecture.md) -- the job graph these versions flow through

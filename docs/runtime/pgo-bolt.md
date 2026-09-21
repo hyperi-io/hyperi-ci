@@ -41,6 +41,10 @@ For copy-paste starting points, see `templates/pgo-workload/`.
 that does not need them. See
 [`rust.md`](../languages/rust.md) -> *Skipping optimisation for one run*.
 
+To prove a workload end to end without spending a stable version, cut a
+prerelease off a branch and leave optimisation on -- see
+[`prereleases.md`](../prereleases.md).
+
 ## The Four Rules
 
 ### Rule 1 - Exercise data-processing hot paths, not startup

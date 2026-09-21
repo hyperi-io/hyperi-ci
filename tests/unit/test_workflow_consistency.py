@@ -318,41 +318,67 @@ def test_predict_version_forced_step_handles_explicit_version() -> None:
 
 
 class TestMainOnlyPublishGate:
-    """Branch-mode decision 1 (docs/plans/2026-07-branch-mode): a push can
-    only ever publish from main. The rule lives HERE, in the gate SSOT -
-    not in downstream job `if:` conditions. A `Publish: true` trailer on a
+    """Branch-mode decision 1 (docs/plans/2026-07-branch-mode) as amended by
+    issue #144: a push publishes from main, or from a branch the release
+    config declares `prerelease` - which spends no stable version. Every
+    other ref validates only. The rule lives HERE, in the gate SSOT - not in
+    downstream job `if:` conditions. A `Publish: true` trailer on any other
     branch push is ignored LOUDLY (::warning::), never silently."""
+
+    # The comment landmark that opens the trailer decision. Named once so a
+    # reword updates one line rather than four ordering assertions.
+    TRAILER_DECISION = "push to a release branch"
 
     def _gate_step(self) -> dict:
         path = ACTIONS_DIR / "predict-version" / "action.yml"
         action = yaml.safe_load(path.read_text(encoding="utf-8"))
         return next(s for s in action["runs"]["steps"] if s.get("id") == "gate")
 
-    def test_push_publish_requires_main_ref(self) -> None:
+    def test_push_publish_requires_a_release_ref(self) -> None:
         run = str(self._gate_step()["run"])
         assert 'github.ref }}" != "refs/heads/main"' in run, (
-            "gate must reject non-main refs on push before any trailer match"
+            "gate must test the ref on push before any trailer match"
         )
-        # Ordering: the non-main guard must EXIT before the main trailer
-        # match that can set will-publish=true. Substring presence alone
-        # would stay green if a refactor moved the guard after the match.
+        # Ordering: the ref guard must EXIT before the trailer match that can
+        # set will-publish=true. Substring presence alone would stay green if
+        # a refactor moved the guard after the match.
         guard = run.index('!= "refs/heads/main"')
-        main_trailer = run.index("push to main")
-        assert guard < main_trailer, (
-            "non-main guard must precede the main trailer publish decision"
-        )
+        trailer = run.index(self.TRAILER_DECISION)
+        assert guard < trailer, "ref guard must precede the trailer publish decision"
         # The guard block must exit 0 (validate-only), not fall through.
-        assert "exit 0" in run[guard:main_trailer], (
-            "non-main guard block must exit before the trailer decision"
+        assert "exit 0" in run[guard:trailer], (
+            "ref guard block must exit before the trailer decision"
         )
 
-    def test_nonmain_trailer_warns_loudly(self) -> None:
-        # No silent skips: a trailer on a branch must emit ::warning::.
+    def test_a_declared_prerelease_branch_reaches_the_trailer_decision(self) -> None:
+        # issue #144: the whole point. A non-main ref that the release config
+        # declares prerelease must fall THROUGH the guard, not exit in it.
         run = str(self._gate_step()["run"])
-        nonmain_block_start = run.index('!= "refs/heads/main"')
-        nonmain_block = run[nonmain_block_start:]
-        assert "::warning::" in nonmain_block, (
-            "ignored trailer on a non-main ref must warn loudly"
+        guard = run.index('!= "refs/heads/main"')
+        trailer = run.index(self.TRAILER_DECISION)
+        block = run[guard:trailer]
+        assert "prerelease_branch.py" in block, (
+            "the ref guard must ask the prerelease-branch helper, not "
+            "hard-code the branch set"
+        )
+        assert '"$prerelease" != "true"' in block, (
+            "only a ref that is NOT a declared prerelease branch may exit the "
+            "guard as validate-only"
+        )
+
+    def test_the_prerelease_helper_ships_beside_the_action(self) -> None:
+        # The composite loads it by path on a runner with no hyperi-ci
+        # installed, so it must live in the action directory.
+        helper = ACTIONS_DIR / "predict-version" / "prerelease_branch.py"
+        assert helper.is_file(), f"{helper} must exist for the gate to call"
+
+    def test_ignored_trailer_warns_loudly(self) -> None:
+        # No silent skips: a trailer on a non-release branch must emit
+        # ::warning::.
+        run = str(self._gate_step()["run"])
+        guard = run.index('!= "refs/heads/main"')
+        assert "::warning::" in run[guard:], (
+            "ignored trailer on a non-release ref must warn loudly"
         )
 
     def test_dispatch_is_resolved_before_the_ref_guard(self) -> None:
@@ -368,7 +394,7 @@ class TestMainOnlyPublishGate:
         # registry (issue #105), and it leaves an on-demand run that publishes
         # nothing expressible (issue #111) where a refusal did not.
         run = str(self._gate_step()["run"])
-        block = run[run.index("workflow_dispatch") : run.index("push to main")]
+        block = run[run.index("workflow_dispatch") : run.index(self.TRAILER_DECISION)]
         assert "will-publish=false" in block, (
             "a bare dispatch must resolve validate-only"
         )
@@ -378,7 +404,7 @@ class TestMainOnlyPublishGate:
         # No silent no-ops: someone who meant to release must be told that
         # nothing was published.
         run = str(self._gate_step()["run"])
-        block = run[run.index("workflow_dispatch") : run.index("push to main")]
+        block = run[run.index("workflow_dispatch") : run.index(self.TRAILER_DECISION)]
         assert "::warning::" in block, (
             "a validate-only dispatch must say nothing was published"
         )
@@ -497,6 +523,22 @@ class TestBuildChannelIsNotProxied:
         )
         assert "publish-target" not in channel, (
             "publish-target is a legacy no-op -- it must not gate Tier 2"
+        )
+
+    def test_the_build_step_carries_version_identity_separately(self) -> None:
+        # issue #144: tier and identity are independent, so the build needs
+        # both. Deriving identity from HYPERCI_CHANNEL would make a fast
+        # prerelease unreachable -- a release branch asks for the release tier.
+        wf = _load_workflow("rust-ci.yml")
+        build = next(
+            s for s in wf["jobs"]["build"]["steps"] if s.get("name") == "Run build"
+        )
+        prerelease = str(build.get("env", {}).get("HYPERCI_PRERELEASE", ""))
+        assert "needs.plan.outputs.prerelease" in prerelease, (
+            "the build must read version identity from the plan job's prerelease output"
+        )
+        assert wf["jobs"]["plan"]["outputs"].get("prerelease"), (
+            "the plan job must publish the prerelease output the build reads"
         )
 
     def test_the_release_tail_declares_no_channel(self) -> None:
