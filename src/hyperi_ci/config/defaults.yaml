@@ -34,6 +34,28 @@ language: none
 project:
   status: ""
 
+# Declared repo category — DECLARED, never inferred from the repo name.
+# Decides visibility, licence, publish policy and branding.
+#
+# Values:
+#   internal     — company-wide HyperI tooling; private, never published
+#   product      — shipped product; private until a human flips it public
+#   fork         — long-running fork; inherits upstream licence and conventions
+#   general-oss  — HyperI-controlled, for general use; public, Apache-2.0
+#
+# `hyperi`, `oss` and the category numbers 1-4 are accepted as input
+# aliases and normalise to the canonical spellings above.
+#
+# Resolution order: this key (or HYPERCI_CLASSIFICATION, which lands on
+# it), then the `.hyperi-classification` one-token dotfile at repo root,
+# then — only via `hyperi-ci config --org-classification` — the GitHub
+# org custom property.
+#
+# Unset = "not declared". `hyperi-ci config` then reports
+# `classification_effective: internal`, the most restrictive category —
+# an undeclared repo is never read as public OSS.
+classification: ""
+
 # Runner selection is NOT configured here. The reusable workflows resolve it
 # from the GH_RUNNER_* org variables and their own `runner-*` inputs; ARC vs
 # free is a workflow-level decision. A `runners:` block in .hyperi-ci.yaml is
