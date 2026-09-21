@@ -55,9 +55,10 @@ _DEFAULT_PYTHON_TEST_IGNORE = [
     "RUF043",
 ]
 
-# `ruff format` accepts --extend-exclude from 0.16, the same version that first
-# walks Markdown: below it the flag is rejected and there is nothing to exclude.
-_RUFF_FORMAT_EXTEND_EXCLUDE_MIN = Version("0.16")
+# `ruff format` accepts --extend-exclude from 0.15.21. Markdown formatting
+# arrived separately in 0.16, so a 0.15.21 or 0.15.22 project still honours its
+# own excludes here even though the `*.md` entry buys it nothing.
+_RUFF_FORMAT_EXTEND_EXCLUDE_MIN = Version("0.15.21")
 
 # clap (ruff), argparse (bandit, vulture) and getopt each reject an unknown flag
 # with one of these, having checked nothing.
@@ -252,7 +253,7 @@ def _build_ruff_format_cmd(
     Markdown is excluded because ruff 0.16 formats it, which would otherwise
     drag every consumer repo's docs into a gate that has only covered Python.
 
-    `extend_exclude` is False for a ruff below 0.16, which rejects the flag.
+    `extend_exclude` is False for a ruff below 0.15.21, which rejects the flag.
     That ruff never walks Markdown either, so only the project's own excludes
     are lost and the caller says so.
     """
