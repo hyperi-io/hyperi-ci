@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/python_version.py
 # Purpose:   Resolve the Python version a project is built and tested on
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Resolve the Python version a project is built and tested on.
 
@@ -77,6 +77,28 @@ def pegged_version(root: Path) -> str | None:
     return None
 
 
+def floor_from_specifier(spec: str) -> str | None:
+    """Return the lowest version a ``requires-python`` specifier allows, or None.
+
+    Several lower bounds can appear across a specifier set, so the lowest wins:
+    that is the oldest interpreter the specifier promises to run on.
+
+    Args:
+        spec: A PEP 440 specifier set, such as ``">=3.12,<4.0"``. PyPI publishes
+            one per release file, which is how a caller reads the floor of a
+            release it is not running.
+
+    Returns:
+        ``major.minor``, or None when the specifier names no lower bound.
+
+    """
+    bounds = [(int(a), int(b)) for a, b in _LOWER_BOUND_RE.findall(spec)]
+    if not bounds:
+        return None
+    major, minor = min(bounds)
+    return _as_major_minor(str(major), str(minor))
+
+
 def requires_python_floor(root: Path) -> str | None:
     """Return the lowest version ``requires-python`` allows, or None.
 
@@ -96,11 +118,7 @@ def requires_python_floor(root: Path) -> str | None:
     spec = project.get("requires-python")
     if not isinstance(spec, str):
         return None
-    bounds = [(int(a), int(b)) for a, b in _LOWER_BOUND_RE.findall(spec)]
-    if not bounds:
-        return None
-    major, minor = min(bounds)
-    return _as_major_minor(str(major), str(minor))
+    return floor_from_specifier(spec)
 
 
 def resolve(
