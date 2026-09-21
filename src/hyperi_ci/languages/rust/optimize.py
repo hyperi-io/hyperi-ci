@@ -158,11 +158,36 @@ def cargo_feature_args(
     return ["--features", ",".join(merged)] if merged else []
 
 
+# Every Rust app on the fleet that profiles keeps its workload at this path, so
+# a release can find one without the project naming it.
+CONVENTIONAL_WORKLOAD_SCRIPT = "scripts/pgo-workload.sh"
+CONVENTIONAL_WORKLOAD_CMD = f"bash {CONVENTIONAL_WORKLOAD_SCRIPT}"
+
+
+def conventional_workload_cmd(project_root: Path | None) -> str | None:
+    """Name the default PGO workload command for a project tree.
+
+    Args:
+        project_root: Project root to look in. None skips the lookup, which is
+                      what a caller with no tree on disk wants.
+
+    Returns:
+        The command to run, or None when the project ships no script at the
+        conventional path.
+
+    """
+    if project_root is None:
+        return None
+    script = project_root / CONVENTIONAL_WORKLOAD_SCRIPT
+    return CONVENTIONAL_WORKLOAD_CMD if script.is_file() else None
+
+
 def resolve_optimization_profile(
     channel: str,
     user_optimize: dict[str, Any] | None,
     *,
     skip_optimize: bool = False,
+    project_root: Path | None = None,
 ) -> OptimizationProfile:
     """Resolve an optimisation profile from channel + user config.
 
@@ -180,6 +205,9 @@ def resolve_optimization_profile(
                        and LTO) still applies, so the result is a plain
                        release build. Resolved by
                        `hyperi_ci.common.skip_optimize`.
+        project_root: Project root, used to find a workload at the
+                      conventional path when the config names none. None
+                      skips that lookup entirely.
 
     Returns:
         Resolved `OptimizationProfile`. Never raises.
@@ -194,15 +222,21 @@ def resolve_optimization_profile(
     lto = _normalise_lto(user.get("lto") or defaults["lto"])
 
     pgo_cfg = user.get("pgo") or {}
+    workload_cmd = pgo_cfg.get("workload_cmd") or conventional_workload_cmd(
+        project_root
+    )
+    # A release profiles itself unless the project opts out; with no workload
+    # there is nothing to profile, so the default stays off rather than failing
+    # a project that never had one.
     pgo_enabled = (
-        bool(pgo_cfg.get("enabled", False))
+        bool(pgo_cfg.get("enabled", workload_cmd is not None))
         and channel == "release"
         and not skip_optimize
     )
 
     bolt_cfg = user.get("bolt") or {}
     bolt_enabled = (
-        bool(bolt_cfg.get("enabled", False)) and pgo_enabled and channel == "release"
+        bool(bolt_cfg.get("enabled", True)) and pgo_enabled and channel == "release"
     )
 
     return OptimizationProfile(
@@ -210,7 +244,7 @@ def resolve_optimization_profile(
         allocator=allocator,
         lto=lto,
         pgo_enabled=pgo_enabled,
-        pgo_workload_cmd=pgo_cfg.get("workload_cmd") or None,
+        pgo_workload_cmd=workload_cmd,
         pgo_workload_setup_cmd=pgo_cfg.get("workload_setup_cmd") or None,
         pgo_duration_secs=int(pgo_cfg.get("duration_secs", 300)),
         bolt_enabled=bolt_enabled,
@@ -243,6 +277,7 @@ def unoptimized_release_refusal(
     *,
     skip_optimize: bool,
     release_unoptimized: bool,
+    project_root: Path | None = None,
 ) -> str | None:
     """Say why a skipped-optimisation build may not ship on the release channel.
 
@@ -254,6 +289,9 @@ def unoptimized_release_refusal(
         user_optimize: `build.rust.optimize` from .hyperi-ci.yaml.
         skip_optimize: Whether this run skips the optimisation stage.
         release_unoptimized: Whether this run carries the explicit consent.
+        project_root: Project root, so a project relying on the conventional
+                      workload is recognised as running Tier 2. Without it a
+                      defaulted project reads as having nothing to skip.
 
     Returns:
         The refusal message, or None when the build may go ahead.
@@ -261,7 +299,9 @@ def unoptimized_release_refusal(
     """
     if not skip_optimize or channel != "release" or release_unoptimized:
         return None
-    full = resolve_optimization_profile(channel, user_optimize)
+    full = resolve_optimization_profile(
+        channel, user_optimize, project_root=project_root
+    )
     if not (full.pgo_enabled or full.bolt_enabled):
         return None
     return (
