@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/classification.py
 # Purpose:   Repo-classification vocabulary, marker readers and resolution
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Repo classification: the declared category a repo belongs to.
 
@@ -58,7 +58,7 @@ SOURCE_ORG: str = "github-org-property"
 SOURCE_UNDECLARED: str = "undeclared"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Resolution:
     """The outcome of resolving a repo's classification.
 
