@@ -139,6 +139,40 @@ _REGISTRY: dict[str, ToolInfo] = {
         ),
         url="https://www.checkov.io/2.Basics/Installing%20Checkov.html",
     ),
+    "lychee": ToolInfo(
+        name="lychee",
+        purpose="repo-internal doc link + anchor checking (offline, no network)",
+        # Prebuilt binaries first: `cargo install` compiles it from source
+        # (minutes), everything above fetches a release artefact (seconds).
+        install=(
+            "brew install lychee",
+            "cargo binstall lychee",
+            "download a release binary: https://github.com/lycheeverse/lychee/releases/latest",
+            "cargo install lychee  # from source - slowest, last resort",
+        ),
+        url="https://github.com/lycheeverse/lychee#installation",
+    ),
+    "markdownlint-cli2": ToolInfo(
+        name="markdownlint-cli2",
+        purpose="mechanical markdown syntax linting",
+        install=(
+            "npm install -g markdownlint-cli2",
+            "brew install markdownlint-cli2",
+        ),
+        url="https://github.com/DavidAnson/markdownlint-cli2#install",
+    ),
+    "mermaid": ToolInfo(
+        name="mermaid",
+        purpose="mermaid diagram parse checking (the grammar, not a render)",
+        # Node packages, resolved from the repo's own node_modules. linkedom
+        # supplies the browser globals mermaid's bundle reaches for - without it
+        # a VALID flowchart throws, so both are needed or neither works.
+        install=(
+            "npm install --no-save mermaid linkedom",
+            "add mermaid + linkedom to the project's devDependencies",
+        ),
+        url="https://mermaid.js.org/config/usage.html",
+    ),
     "osv-scanner": ToolInfo(
         name="osv-scanner",
         purpose="dependency vulnerability scanning (OSV)",

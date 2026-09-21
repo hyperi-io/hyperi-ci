@@ -69,6 +69,11 @@ Set per project in `.hyperi-ci.yaml` under `quality.<lang>.<tool>` (or
 | checkov | IaC security ADVISORY (k8s/helm/tf) | `lint-manifests` verb (`quality/checkov.py`) |
 | compose-config | compose resolution GATE | `lint-compose` verb (`quality/compose_config.py`) |
 | compose-pins | compose image-pin GATE | `lint-compose` verb (`quality/compose_pins.py`) |
+| doc-paths | docs naming a file that is gone | dispatch + `lint-docs` (`quality/doc_paths.py`) |
+| lychee | internal doc links + anchors, offline | dispatch + `lint-docs` (`quality/doc_links.py`) |
+| mermaid-parse | fenced mermaid blocks, real grammar | dispatch + `lint-docs` (`quality/mermaid_parse.py`) |
+| markdownlint-cli2 | mechanical markdown syntax | dispatch + `lint-docs` (`quality/markdownlint.py`) |
+| docs-touched | source changed, no doc did (NEVER gates) | dispatch + `lint-docs` (`quality/docs_touched.py`) |
 | ruff (lint, format, docstrings) | Python | `languages/python/quality.py` |
 | ty | Python types | Python handler |
 | pip-audit, bandit, vulture | Python | Python handler |
@@ -151,6 +156,31 @@ They deliver through two paths, because the target repos differ in kind:
   keys the file declares mandatory, so the check stays hermetic); compose-pins
   reads every file statically and fails an `image:` that resolves to `latest`
   with nothing set.
+
+## Documentation linting
+
+`hyperi-ci lint-docs <dir>`, and the same five checks inside the quality stage.
+All five default to `warn` and gate only where a repo has promoted one: a new
+lint introduced as blocking on an existing tree fails every PR until the
+backlog clears, so it lands at warn and is promoted per repo at zero
+violations. doc-paths, lychee and mermaid-parse are deterministic and carry no
+style opinion, so they are the ones ready to promote first.
+
+lychee runs `--offline`, so it answers about THIS repo only. External links
+fail for rate limits and outages that have nothing to do with the commit, and
+that check is deliberately NOT built here - it belongs on a schedule.
+mermaid-parse uses `mermaid.parse` via Node (`mermaid` + `linkedom`), never
+`mmdc`, which needs headless Chrome and has exited 0 on syntax it could not
+draw. Without Node the structural half still runs; a repo that has promoted the
+check to blocking fails in CI rather than passing unproven.
+
+**Vale is not adopted.** The reasons recorded in hyperi-ai's
+`standards/universal/documentation-structure.md` hold here: it is a string
+matcher aimed at an intent problem, its Google/Microsoft packages encode
+American English against a house style that is Australian, and a second prose
+vocabulary is the drift that standard exists to prevent. General English usage
+remains the one thing it would be right for, as its own build with a
+maintained rule package - not a module of this dimension.
 
 ### Gate semantics
 

@@ -37,6 +37,7 @@ from hyperi_ci.quality import (
     droast,
     gitleaks,
     hadolint,
+    lint_docs,
     repo_advisor,
     semgrep,
 )
@@ -227,6 +228,13 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
             return rc
     with group("droast Dockerfile advisory"):
         droast.run(config)
+
+    # Documentation linting is cross-language too, and every check defaults to
+    # `warn` - a repo gets a report rather than a red build until it promotes
+    # one. Auto-detects markdown and clean-skips a repo with none.
+    docs_rc = lint_docs.run(Path.cwd(), config)
+    if docs_rc != 0:
+        return docs_rc
 
     # Commit-message validation. In CI this is the dedicated `commit-check`
     # workflow job - it runs on every merge to main (not just the

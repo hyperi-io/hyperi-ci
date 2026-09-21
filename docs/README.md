@@ -142,8 +142,8 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 
 ### Workflow artefacts (not user docs)
 
-- [superpowers/](superpowers/) - in-flight design specs and execution plans
-  (gitignored; never published)
+- `superpowers/` - in-flight design specs and execution plans
+  (gitignored; never published, so it is absent from a fresh checkout)
 
 ---
 
