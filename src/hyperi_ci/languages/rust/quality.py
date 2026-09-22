@@ -338,7 +338,13 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # cargo deny (requires deny.toml — useless without project-specific config)
     mode = _get_tool_mode("deny", config)
     if not Path("deny.toml").exists():
-        info("  cargo deny: skipped (no deny.toml found)")
+        # A bare "skipped" under a blocking mode reads as though advisories
+        # went unchecked; cargo audit above covers them from the same DB.
+        info(
+            "  cargo deny: skipped (no deny.toml). Advisories are still "
+            "gated by cargo audit; a deny.toml would add licence, ban and "
+            "source checks."
+        )
     elif not _run_tool("cargo deny", ["cargo", "deny", "check"], mode):
         had_failure = True
 

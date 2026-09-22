@@ -168,7 +168,9 @@ quality:
     govet: blocking
     golangci_lint: blocking
     gosec: blocking
-    govulncheck: warn
+    # CVE gate, blocking to match the other languages -- see the note on
+    # `rust.audit`. Go was in the same state as Rust and nobody had looked.
+    govulncheck: blocking
     test_ignore:
       - errcheck
       - gosec
@@ -179,9 +181,13 @@ quality:
     # Public-API break detector for library crates, on the release path only
     # (issue #186). `warn` first per the ratchet; promote at zero violations.
     semver_checks: warn
-    audit: warn
+    # CVE gates, blocking to match Python and TypeScript. The ratchet does not
+    # apply: it introduces a new LINT at warn against an existing backlog,
+    # whereas a known advisory is the reason to gate rather than the reason to
+    # wait. `warn` here let RUSTSEC-2026-0258 and -0285 ship green (issue #185).
+    audit: blocking
     osv_scanner: warn          # malicious-package (MAL-*) scan; OSV feed not in RustSec
-    deny: warn
+    deny: blocking
     features: all
     # Feature-matrix check: catches feature-gating bugs where a module behind
     # feature X uses a crate only declared by feature Y. Without this check,
