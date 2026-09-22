@@ -154,12 +154,24 @@ def _rust_is_library(project_dir: Path) -> bool:
 
 
 def _cargo_metadata(project_dir: Path) -> dict | None:
-    result = subprocess.run(
-        ["cargo", "metadata", "--no-deps", "--format-version=1"],
-        cwd=project_dir,
-        capture_output=True,
-        text=True,
-    )
+    """Cargo's own answer, or None when it cannot be had.
+
+    None covers cargo being ABSENT as well as failing. The container job
+    installs no Rust toolchain, so `cargo` is genuinely missing there and
+    `subprocess.run` raises rather than returning a code -- which crashed the
+    resolve-only path instead of taking the filesystem fallback (issue #207).
+    """
+    try:
+        result = subprocess.run(
+            ["cargo", "metadata", "--no-deps", "--format-version=1"],
+            cwd=project_dir,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except OSError:
+        return None
     if result.returncode != 0:
         return None
     try:
