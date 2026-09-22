@@ -403,6 +403,15 @@ jobs:
         with:
           toolchain: ${{ inputs.rust-toolchain }}
 
+      - name: Setup Rust tools
+        # `run release` calls cargo-semver-checks between stamp-version and the
+        # crates.io push, and this is the only job that reaches that path. The
+        # quality job installs the same action, but the check cannot run there:
+        # before the stamp the manifest holds the LAST released version, so the
+        # comparison is a release against itself (issues #186, #199).
+        if: inputs.language == 'rust'
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-rust-tools@main
+
       - name: Tag HEAD (forced bump / explicit version)
         # from-head dispatch with a non-auto bump (issue #35): force a release
         # of HEAD. semantic-release can't force a version, so tag-head resolves

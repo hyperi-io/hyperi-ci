@@ -28,7 +28,12 @@ before the stamp reintroduces the bug it was written to catch.
 
 A binary-only crate has no public API to break and is SKIPPED with a distinct
 line -- "no library target" must never read the same as "ran and found
-nothing", which is the ambiguity the whole issue family is about.
+nothing", which is the ambiguity the whole issue family is about. A crate not
+yet on crates.io is skipped for the same reason: there is no baseline, so there
+is nothing it could have broken.
+
+Only exit 100 is a verdict. 101 is cargo's error code and says the comparison
+never happened, so it is reported as an unreached verdict rather than a break.
 """
 
 import shutil
@@ -39,6 +44,16 @@ from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
 
 _TOOL = "cargo-semver-checks"
+
+# The only exit code that means the API broke. 101 is cargo's error code and
+# carries no verdict -- an unpublished crate, a failed rustdoc build and a
+# registry error all land there.
+_BREAKING = 100
+
+# Upstream's wording when the crate has never been published. A reworded
+# message falls through to "could not check", which fails loudly rather than
+# passing.
+_NO_BASELINE = "not found in registry"
 
 
 def run(config: CIConfig, *, project_root: Path | None = None) -> int:
@@ -99,15 +114,31 @@ def run(config: CIConfig, *, project_root: Path | None = None) -> int:
         return 0
 
     combined = (result.stdout or "") + (result.stderr or "")
-    detail = combined.strip().splitlines()
-    for line in detail[-20:]:
+
+    # A crate with no published baseline has no API to break. Skipped rather
+    # than failed, and named, so a first release does not read as a violation.
+    if _NO_BASELINE in combined:
+        info(f"  {_TOOL}: not published yet -- no baseline to compare against")
+        return 0
+
+    for line in combined.strip().splitlines()[-20:]:
         info(f"    {line}")
 
-    message = (
-        "the public API changed in a way semver says needs a major bump. "
-        "Either restore compatibility, or release it as a major -- which is a "
-        "human decision, not a CI one."
-    )
+    if result.returncode == _BREAKING:
+        message = (
+            "the public API changed in a way semver says needs a major bump. "
+            "Either restore compatibility, or release it as a major -- which "
+            "is a human decision, not a CI one."
+        )
+    else:
+        # Blocking fails here too: publishing on an unreached verdict is the
+        # "returned 0 having compared nothing" failure this module exists for.
+        message = (
+            f"the check could not reach a verdict (exit {result.returncode}). "
+            f"A failed rustdoc build or a registry error lands here, and the "
+            f"public API was NOT compared. Fix the error above and re-run; do "
+            f"not read this as a clean result."
+        )
     if mode == "blocking":
         error(f"  {_TOOL}: {message}")
         return 1
