@@ -39,6 +39,12 @@ deployment:
 # whole python3x-compat rule class is noise here. Suppress both the py36 and py37
 # variants (the ruleset has surfaced different IDs across versions).
 quality:
+  # Agent working artefacts, never committed (AGENT-RULES 4) and never
+  # shipped. Linting them puts eight broken-link errors from a May plan file
+  # into every local check, which is how a check stops being read.
+  exclude_paths:
+    - docs/superpowers
+
   # Gates that run as their own CI JOB, repeated here so a local
   # `hyperi-ci check` green actually predicts a CI green. Both are blocking in
   # ci.yml and neither had any local path, so touching versions.yaml or a

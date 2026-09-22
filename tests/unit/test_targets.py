@@ -14,6 +14,7 @@ from hyperi_ci.quality.targets import (
     discover_dockerfiles,
     discover_helm_charts,
     discover_manifests,
+    discover_markdown_files,
 )
 
 
@@ -153,3 +154,42 @@ class TestDiscoverManifests:
     def test_chart_at_root_is_discovered_as_chart(self, tmp_path: Path) -> None:
         _chart(tmp_path)
         assert discover_helm_charts(tmp_path) == [tmp_path]
+
+
+class TestANestedExcludeActuallyPrunes:
+    """`quality.exclude_paths` takes PATHS, and the pruner compared bare
+    directory NAMES. So `docs/superpowers` was accepted and pruned nothing --
+    a setting that parses and does not work, which is worse than one that
+    rejects you."""
+
+    @staticmethod
+    def _tree(root: Path) -> None:
+        nested = root / "docs" / "superpowers" / "plans"
+        nested.mkdir(parents=True)
+        (nested / "old-plan.md").write_text("# old\n", encoding="utf-8")
+        (root / "docs").mkdir(exist_ok=True)
+        (root / "docs" / "real.md").write_text("# real\n", encoding="utf-8")
+
+    def test_a_nested_path_is_pruned(self, tmp_path: Path) -> None:
+        self._tree(tmp_path)
+        found = discover_markdown_files(tmp_path, exclude_dirs=["docs/superpowers"])
+        names = {p.name for p in found}
+        assert names == {"real.md"}
+
+    def test_a_bare_name_still_prunes(self, tmp_path: Path) -> None:
+        """The old behaviour must not regress -- every caller relies on it."""
+        self._tree(tmp_path)
+        found = discover_markdown_files(tmp_path, exclude_dirs=["superpowers"])
+        assert {p.name for p in found} == {"real.md"}
+
+    def test_nothing_excluded_finds_everything(self, tmp_path: Path) -> None:
+        """Proves the pruning is what removed the file, not the walk."""
+        self._tree(tmp_path)
+        found = discover_markdown_files(tmp_path)
+        assert {p.name for p in found} == {"real.md", "old-plan.md"}
+
+    def test_a_partial_path_does_not_prune(self, tmp_path: Path) -> None:
+        """`docs/super` must not swallow `docs/superpowers` by prefix."""
+        self._tree(tmp_path)
+        found = discover_markdown_files(tmp_path, exclude_dirs=["docs/super"])
+        assert {p.name for p in found} == {"real.md", "old-plan.md"}
