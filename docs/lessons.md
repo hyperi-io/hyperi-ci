@@ -35,7 +35,7 @@ Source: `hyperi-io/ci` (to be archived once cutover is complete).
 - Many `-dev` packages (e.g. `libsasl2-dev`) are NOT `Multi-Arch: same` -
   installing arm64 replaces amd64, breaking native builds
 - **Solution:** Download cross-arch `.deb` files, extract to private sysroot
-  (`/tmp/cross-sysroot/<arch>/`), point `PKG_CONFIG_PATH` and linker at it
+  (`.tmp/cross-sysroot/` in the workspace), point `PKG_CONFIG_PATH` and linker at it
 - Only install cross-compilers system-wide (they ARE Multi-Arch safe):
   `gcc-aarch64-linux-gnu`, `g++-aarch64-linux-gnu`
 - Also install `libc6-dev:arm64` (provides dynamic linker and standard libs)
