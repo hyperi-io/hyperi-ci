@@ -378,6 +378,22 @@ not a passed stage, a requested-but-unrun step is an error. Then test the
 NEGATIVE path -- a test that only ever sees the tool present proves nothing
 about the branch that ships.
 
+That question catches four of the five. It does not catch the subcommand gate,
+which printed a finding rather than a pass -- it did not miss a problem, it
+invented one, because a cached index answered where PyPI should have. So the
+underlying rule is wider than absence:
+
+**A check has THREE outcomes, and collapsing the third is the defect.** Pass,
+fail, and "could not determine". Four of these folded "could not run" into
+pass; the fifth folded "could not resolve" into fail. Both directions destroy
+the same information, and the second is worse in one respect -- a false pass
+gets found eventually by the bug shipping, a false failure trains people to
+ignore the check.
+
+So ask it in both directions: what does this print when it could not run, and
+what does it print when it could not get a trustworthy answer? If either
+matches pass or fail rather than saying which, wire the third outcome.
+
 Knowing the rule is not enough on its own. Two of those five were in code its
 author had merged and self-reviewed the same day. Ask the question of the
 artefact, not of yourself.
