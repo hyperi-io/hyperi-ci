@@ -164,3 +164,79 @@ class TestTheHappyPath:
         assert verdict.ok
         assert "quality" in verdict.reason
         assert "build" in verdict.reason
+
+
+class TestAPlanThatDidNotSucceed:
+    """Only a SUCCEEDED plan computes a gate. Anything else verified nothing.
+
+    An earlier version guarded on `plan == "skipped"` alone, so a plan that
+    FAILED fell through to the doctrine-skip branch and the run passed -- with
+    branch protection pointed at this context and nothing else.
+    """
+
+    def test_a_failed_plan_fails(self) -> None:
+        verdict = evaluate(
+            run_checks=False,
+            run_build=False,
+            plan="failure",
+            checks={"quality": "skipped", "test": "skipped"},
+            build={"build": "skipped"},
+        )
+        assert not verdict.ok
+        assert "failure" in verdict.reason
+
+    def test_a_cancelled_plan_fails(self) -> None:
+        verdict = evaluate(
+            run_checks=False,
+            run_build=False,
+            plan="cancelled",
+            checks={"quality": "skipped"},
+        )
+        assert not verdict.ok
+
+    def test_an_absent_plan_result_fails(self) -> None:
+        """An unset env var reads as empty, and empty is not success."""
+        verdict = evaluate(
+            run_checks=False,
+            run_build=False,
+            plan="",
+            checks={"quality": "skipped"},
+        )
+        assert not verdict.ok
+        assert "nothing" in verdict.reason
+
+
+class TestAMisconfiguredGateJob:
+    """No results at all is a wiring fault, not a clean run."""
+
+    def test_required_checks_with_no_results_fails(self) -> None:
+        verdict = evaluate(
+            run_checks=True, run_build=False, plan="success", checks={}, build={}
+        )
+        assert not verdict.ok
+        assert "env:" in verdict.reason
+
+    def test_required_build_with_no_result_fails(self) -> None:
+        verdict = evaluate(
+            run_checks=True,
+            run_build=True,
+            plan="success",
+            checks={"quality": "success", "test": "success"},
+            build={},
+        )
+        assert not verdict.ok
+        assert "build" in verdict.reason
+
+
+class TestAnUnknownResultString:
+    """A result the code does not know must not read as a pass."""
+
+    def test_an_unknown_result_is_not_a_pass(self) -> None:
+        verdict = evaluate(
+            run_checks=True,
+            run_build=False,
+            plan="success",
+            checks={"quality": "neutral", "test": "success"},
+        )
+        assert not verdict.ok
+        assert "quality" in verdict.reason
