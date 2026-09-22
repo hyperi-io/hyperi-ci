@@ -58,10 +58,12 @@ permissions:
 jobs:
   plan:
     name: Plan
-    if: github.event.pull_request.head.repo.fork != true
     runs-on: ubuntu-latest
     # predict-version runs semantic-release, whose git plugin verifies push
     # access (a `git push --dry-run`) on a publish predict - needs write.
+    # A fork PR never reaches that: will-publish is false off main, so both
+    # semantic-release steps skip and the read-only token a fork gets is
+    # enough to resolve the gates.
     permissions:
       contents: write
     outputs:

@@ -48,6 +48,7 @@ from hyperi_ci.common import (
     info,
     normalise_tristate,
     resolve_release_version,
+    skip_optimize,
     success,
     warn,
 )
@@ -575,6 +576,7 @@ def _dispatch_build(
         title=image_name,
         description=description,
         licenses=detect_license(Path.cwd()),
+        optimized=not skip_optimize(config),
     )
     if extra_labels:
         labels.update(extra_labels)

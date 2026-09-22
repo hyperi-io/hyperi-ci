@@ -625,3 +625,48 @@ class TestReleaseNotesFlags:
             notes = Path(flags[1])
             assert "LLVM 23" in notes.read_text(encoding="utf-8")
         assert not notes.exists()
+
+
+class TestUnoptimizedReleaseBanner:
+    """A release built with the optimisation stage skipped must say so."""
+
+    def test_the_banner_leads_the_body(self, tmp_path, monkeypatch) -> None:
+        (tmp_path / "CHANGELOG.md").write_text(_THREE_ENTRIES, encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("HYPERCI_SKIP_OPTIMIZE", "true")
+        from hyperi_ci.release.binaries import (
+            UNOPTIMIZED_RELEASE_BANNER,
+            _release_notes_flags,
+        )
+
+        with _release_notes_flags("2.9.26") as flags:
+            body = Path(flags[1]).read_text(encoding="utf-8")
+        assert body.startswith(UNOPTIMIZED_RELEASE_BANNER)
+        assert "LLVM 23" in body
+
+    def test_the_banner_stands_alone_without_a_changelog(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("HYPERCI_SKIP_OPTIMIZE", "true")
+        from hyperi_ci.release.binaries import (
+            UNOPTIMIZED_RELEASE_BANNER,
+            _release_notes_flags,
+        )
+
+        with _release_notes_flags("2.9.26") as flags:
+            assert flags[0] == "--notes-file"
+            assert (
+                Path(flags[1]).read_text(encoding="utf-8").strip()
+                == UNOPTIMIZED_RELEASE_BANNER
+            )
+
+    def test_an_optimised_release_carries_no_banner(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("HYPERCI_SKIP_OPTIMIZE", raising=False)
+        from hyperi_ci.release.binaries import _release_notes_flags
+
+        with _release_notes_flags("2.9.26") as flags:
+            assert flags == []

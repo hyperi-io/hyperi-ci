@@ -1276,3 +1276,50 @@ def test_pushing_steps_use_the_bot_token(step_name: str) -> None:
             f"{step_name}: {key} is {value!r}, expected the bot token with a "
             f"GITHUB_TOKEN fallback ({_BOT_TOKEN!r})."
         )
+
+
+# Every workflow whose plan job feeds the checks gate, hyperi-ci's own
+# included -- a fork PR must reach `plan` in all of them.
+_PLAN_WORKFLOWS = (*LANGUAGE_WORKFLOWS, "ci.yml")
+
+
+@pytest.mark.parametrize("workflow_name", _PLAN_WORKFLOWS)
+def test_plan_job_runs_on_a_fork_pr(workflow_name: str) -> None:
+    """The plan job must not exclude fork PRs (issue #176).
+
+    Every downstream gate reads `needs.plan.outputs.run-checks`, which is
+    empty when plan skips, so a fork PR that cannot reach plan runs no
+    quality and no test -- and a skipped required check still satisfies
+    branch protection, so it merges green.
+    """
+    wf = _load_workflow(workflow_name)
+    plan = wf["jobs"]["plan"]
+    condition = str(plan.get("if", ""))
+    assert "fork" not in condition, (
+        f"{workflow_name}: the plan job gates on {condition!r}, so a fork PR "
+        f"skips it and every check downstream. predict-version only needs "
+        f"write access on a push or dispatch, never on a PR."
+    )
+
+
+@pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+def test_docker_hub_login_is_fork_guarded(workflow_name: str) -> None:
+    """A Docker Hub login step must skip on a fork PR.
+
+    `vars` are readable by a fork PR and `secrets` are not, so a step gated
+    only on `vars.DOCKERHUB_USERNAME` authenticates with an empty password
+    and fails the job it sits in.
+    """
+    wf = _load_workflow(workflow_name)
+    seen = 0
+    for job_name, job in wf["jobs"].items():
+        for step in job.get("steps", []):
+            if "DOCKERHUB_USERNAME" not in str(step.get("if", "")):
+                continue
+            seen += 1
+            assert "fork" in str(step["if"]), (
+                f"{workflow_name}.{job_name}: Docker Hub login gates only on "
+                f"the var, which a fork PR can read while the secret stays "
+                f"empty -- the login fails and takes the job with it."
+            )
+    assert seen, f"{workflow_name}: no Docker Hub login step found to check"
