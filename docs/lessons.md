@@ -425,6 +425,30 @@ artefact, not of yourself.
 Full treatment: `standards/universal/testing.md`, "A green check that never
 ran".
 
+### Decoration by construction, and the weaker check that covers for it
+
+Three doc checks -- lychee, markdownlint, the mermaid grammar layer -- warned
+on every run of every repo for months. Each message was honest and said the
+tool was missing. What made them decoration rather than a gap is that there
+was no install path ANYWHERE: not in `versions.yaml`, not in the installer,
+not baked into a runner image. A check that cannot run in any environment we
+have is not warn-tier, and a permanent warning teaches people to stop reading
+warnings.
+
+The part that hid it for months is worth more than the fix. `doc-paths` is
+DELIBERATELY disabled whenever lychee would run -- so the weaker check stood
+in for the stronger one, permanently, and caught enough to look like coverage.
+From outside, the system appeared to be working. A fallback that silently
+becomes the only path produces a signal indistinguishable from the real one.
+
+So when one check defers to another, ask which one is actually running. If the
+answer is always the fallback, the primary is not a check.
+
+The generic question this raises, which is bigger than three binaries: what
+gate lets a check ship with no install path at all? Three did. The fix for
+each is an afternoon of pinning; the fix for the class is asking, when a check
+is added, where the tool comes from on a runner.
+
 ### Configuration Cascade
 
 Priority (highest wins):
