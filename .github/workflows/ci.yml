@@ -286,3 +286,41 @@ jobs:
       # hyperi-ci:pin runtimes.python
       python-version: "3.14"
     secrets: inherit
+
+  # ---------------------------------------------------------------------------
+  # gate — the terminal context branch protection should require.
+  #
+  # Requiring `ci / Quality` does not work: GitHub counts a SKIPPED required
+  # check as satisfied, so the doctrine's deliberate skip and a gate that never
+  # fired are the same green tick from outside. This job ALWAYS runs, so the
+  # context it publishes cannot be satisfied by a skip (issue #177).
+  #
+  # Runs the LOCAL branch code, like every other job here, so this repo's own
+  # PRs exercise the change rather than the published CLI.
+  # ---------------------------------------------------------------------------
+  gate:
+    name: Gate
+    if: always()
+    # commit-check is deliberately absent: it is not run-checks-gated, so it
+    # already fires on every push and works as a required context by itself.
+    needs: [plan, quality, test, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.14
+      - name: Install dependencies
+        run: uv sync --no-sources
+      - name: Report what actually ran
+        env:
+          HYPERCI_GATE_RUN_CHECKS: ${{ needs.plan.outputs.run-checks }}
+          HYPERCI_GATE_RUN_BUILD: ${{ needs.plan.outputs.run-build }}
+          HYPERCI_GATE_PLAN: ${{ needs.plan.result }}
+          HYPERCI_GATE_QUALITY: ${{ needs.quality.result }}
+          HYPERCI_GATE_TEST: ${{ needs.test.result }}
+          HYPERCI_GATE_BUILD: ${{ needs.build.result }}
+        run: uv run --no-sources hyperi-ci gate-check
