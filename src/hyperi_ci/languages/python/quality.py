@@ -147,6 +147,34 @@ def _build_pip_audit_cmd(ignores: list[IgnoreEntry]) -> list[str]:
     return base
 
 
+# A non-blocking tool gets this many lines inline before the rest is counted.
+# vulture alone emits 111 at 60 percent confidence, which buried the real
+# cause of a failed `push` under ~130 lines of advisory noise (issue #212).
+_WARN_OUTPUT_CAP = 25
+
+
+def _emit_tool_output(
+    tool_name: str, output: str | None, *, cap: int | None = None
+) -> None:
+    """Print a tool's output through the logger, in order, optionally capped.
+
+    `print()` writes to stdout while every surrounding message goes through
+    loguru to stderr, so the two interleave and a tool's output can land AFTER
+    the verdict that follows it. One stream keeps the reading order honest.
+    """
+    if not output or not output.strip():
+        return
+    lines = output.rstrip().splitlines()
+    shown = lines if cap is None else lines[:cap]
+    for line in shown:
+        info(f"    {line}")
+    dropped = len(lines) - len(shown)
+    if dropped:
+        info(
+            f"    ... +{dropped} more from {tool_name}; raise its mode to see them all"
+        )
+
+
 def _run_tool(
     tool_name: str,
     cmd: list[str],
@@ -198,21 +226,18 @@ def _run_tool(
             warn(note)
         else:
             error(note)
-        if result.stderr:
-            print(result.stderr)
+        _emit_tool_output(tool_name, result.stderr)
         return mode == "warn"
 
     if mode == "warn":
         warn(f"  {tool_name}: issues found (non-blocking)")
-        if result.stdout:
-            print(result.stdout)
+        _emit_tool_output(tool_name, result.stdout, cap=_WARN_OUTPUT_CAP)
         return True
 
     error(f"  {tool_name}: failed")
-    if result.stdout:
-        print(result.stdout)
-    if result.stderr:
-        print(result.stderr)
+    # No cap on a blocking failure: this is the output someone has to act on.
+    _emit_tool_output(tool_name, result.stdout)
+    _emit_tool_output(tool_name, result.stderr)
     return False
 
 
