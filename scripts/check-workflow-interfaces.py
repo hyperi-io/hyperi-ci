@@ -246,14 +246,11 @@ def main() -> int:
                 "from PyPI, so both halves of one commit do not arrive together. "
                 "Release the CLI first, then land the caller."
             )
-            # Advisory until this reports nothing: a hard gate here blocks every
-            # unrelated PR until the next publish. Promote to `return 1` at zero.
-            print("  (advisory for now -- promote to a hard gate at zero)")
-        else:
-            print(
-                f"\nEvery invoked subcommand exists in the published CLI "
-                f"({len(published)})."
-            )
+            return 1
+        print(
+            f"\nEvery invoked subcommand exists in the published CLI "
+            f"({len(published)})."
+        )
 
     print("\nAll interfaces backward-compatible.")
     return 0

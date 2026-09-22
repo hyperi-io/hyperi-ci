@@ -18,6 +18,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 _SPEC = importlib.util.spec_from_file_location(
     "check_workflow_interfaces",
     Path(__file__).resolve().parents[2] / "scripts" / "check-workflow-interfaces.py",
@@ -187,3 +189,55 @@ class TestTheCliSubcommandGate:
     def test_a_hidden_command_counts_as_published(self) -> None:
         """`--help` hides some commands, so the enumeration must not scrape it."""
         assert cwi.cli_command_gaps({"a.yml": {"tag-head"}}, {"tag-head"}) == []
+
+
+class TestWhatCountsAsPublished:
+    """uv answers "what is the latest" from a cached index, PyPI does not."""
+
+    def test_an_unreachable_pypi_returns_none(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """None is the skip path; a wrong version would fail a clean PR."""
+
+        def _boom(*args: object, **kwargs: object) -> None:
+            raise OSError("no route to host")
+
+        monkeypatch.setattr(cwi.urllib.request, "urlopen", _boom)
+        assert cwi.latest_published_version() is None
+
+    def test_a_malformed_payload_returns_none(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            cwi.urllib.request, "urlopen", lambda *a, **k: _FakeResponse(b"{}")
+        )
+        assert cwi.latest_published_version() is None
+
+    def test_the_version_comes_from_pypi(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        payload = b'{"info": {"version": "9.9.9"}}'
+        monkeypatch.setattr(
+            cwi.urllib.request, "urlopen", lambda *a, **k: _FakeResponse(payload)
+        )
+        assert cwi.latest_published_version() == "9.9.9"
+
+    def test_an_unresolvable_version_skips_rather_than_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(cwi, "latest_published_version", lambda: None)
+        assert cwi.published_cli_commands() is None
+
+
+class _FakeResponse:
+    """Context-manager stand-in for what `urlopen` returns."""
+
+    def __init__(self, body: bytes) -> None:
+        self._body = body
+
+    def __enter__(self) -> _FakeResponse:
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+    def read(self) -> bytes:
+        return self._body
