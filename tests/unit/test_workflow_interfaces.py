@@ -161,3 +161,29 @@ class TestRemovedPipelineFiles:
         old = {".github/workflows/rust-ci.yml"}
         cur = {".github/workflows/rust-ci.yml", ".github/workflows/new.yml"}
         assert cwi.removed_pipeline_files(old, cur) == []
+
+
+class TestTheCliSubcommandGate:
+    """A workflow may only call a subcommand the PUBLISHED CLI already has.
+
+    Workflows float `@main` and reach a consumer instantly; the CLI arrives
+    only on a release. A subcommand added in the same commit as its caller is
+    therefore missing on every runner until the next publish (issue #181).
+    """
+
+    def test_a_missing_subcommand_is_reported(self) -> None:
+        gaps = cwi.cli_command_gaps({"a.yml": {"run", "gate-check"}}, {"run"})
+        assert len(gaps) == 1
+        assert "gate-check" in gaps[0]
+        assert "a.yml" in gaps[0]
+
+    def test_a_published_subcommand_is_not_reported(self) -> None:
+        assert cwi.cli_command_gaps({"a.yml": {"run", "watch"}}, {"run", "watch"}) == []
+
+    def test_every_workflow_is_named(self) -> None:
+        gaps = cwi.cli_command_gaps({"a.yml": {"new"}, "b.yml": {"new"}}, set())
+        assert len(gaps) == 2
+
+    def test_a_hidden_command_counts_as_published(self) -> None:
+        """`--help` hides some commands, so the enumeration must not scrape it."""
+        assert cwi.cli_command_gaps({"a.yml": {"tag-head"}}, {"tag-head"}) == []
