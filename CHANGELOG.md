@@ -3,6 +3,24 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.10.5](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.4...v2.10.5) (2026-09-22)
+
+### Bug Fixes
+
+* **ci:** catch a workflow calling a subcommand the published CLI lacks ([#196](https://github.com/hyperi-io/hyperi-ci/issues/196)) ([de297f3](https://github.com/hyperi-io/hyperi-ci/commit/de297f3d808bc63440c3a507fd09a06d8c1d36ac)), closes [#181](https://github.com/hyperi-io/hyperi-ci/issues/181)
+* **ci:** let the release tail see whether optimisation ran ([#180](https://github.com/hyperi-io/hyperi-ci/issues/180)) ([a87e206](https://github.com/hyperi-io/hyperi-ci/commit/a87e206b85baa53c999012d358a2ef9564ecf931))
+* **ci:** publish a gate context a skipped check cannot satisfy ([#191](https://github.com/hyperi-io/hyperi-ci/issues/191)) ([c8bf404](https://github.com/hyperi-io/hyperi-ci/commit/c8bf4048e1409a64062bdc20e4c47846b9c6bbe5)), closes [#177](https://github.com/hyperi-io/hyperi-ci/issues/177)
+* **ci:** refuse the gate when the plan failed or reported nothing ([#197](https://github.com/hyperi-io/hyperi-ci/issues/197)) ([cfb080e](https://github.com/hyperi-io/hyperi-ci/commit/cfb080ec15ed25fd879fefb2097364bc5f857e23)), closes [#191](https://github.com/hyperi-io/hyperi-ci/issues/191) [#177](https://github.com/hyperi-io/hyperi-ci/issues/177)
+* **ci:** run checks on a fork PR, mark an unoptimised release, sweep the header dash ([#182](https://github.com/hyperi-io/hyperi-ci/issues/182)) ([897450c](https://github.com/hyperi-io/hyperi-ci/commit/897450ccac6a940d6b281abb3076ad121583f4f0)), closes [#169](https://github.com/hyperi-io/hyperi-ci/issues/169) [#176](https://github.com/hyperi-io/hyperi-ci/issues/176) [#177](https://github.com/hyperi-io/hyperi-ci/issues/177)
+* **python:** say why five files keep a deferred-annotations import ([#194](https://github.com/hyperi-io/hyperi-ci/issues/194)) ([80110c4](https://github.com/hyperi-io/hyperi-ci/commit/80110c4920e39c4f9adfdc32c42b10bad4fcb275)), closes [#184](https://github.com/hyperi-io/hyperi-ci/issues/184)
+* **quality:** catch a Rust repo that cannot ship its own rustflags ([#190](https://github.com/hyperi-io/hyperi-ci/issues/190)) ([b286c8a](https://github.com/hyperi-io/hyperi-ci/commit/b286c8a43971f2ceabb22c116aa59b4da5f62fd0)), closes [#178](https://github.com/hyperi-io/hyperi-ci/issues/178)
+* **quality:** catch the other forms git excludes a directory by ([#201](https://github.com/hyperi-io/hyperi-ci/issues/201)) ([609b892](https://github.com/hyperi-io/hyperi-ci/commit/609b892cc9d063696aea1045046e26b2fa905d60)), closes [#178](https://github.com/hyperi-io/hyperi-ci/issues/178)
+* **quality:** enforce the ASCII-only rule at last ([#195](https://github.com/hyperi-io/hyperi-ci/issues/195)) ([5a40b57](https://github.com/hyperi-io/hyperi-ci/commit/5a40b578f41e7af28cec067c1be82cefaa186fbd)), closes [#169](https://github.com/hyperi-io/hyperi-ci/issues/169) [#169](https://github.com/hyperi-io/hyperi-ci/issues/169)
+* **quality:** lint our own docstrings, not just everyone else's ([#187](https://github.com/hyperi-io/hyperi-ci/issues/187)) ([4c75593](https://github.com/hyperi-io/hyperi-ci/commit/4c75593d59b005869bc0eddba9c28dd9a8bccfc7))
+* **quality:** scan .github, and skip only this charset module ([#198](https://github.com/hyperi-io/hyperi-ci/issues/198)) ([c38bfac](https://github.com/hyperi-io/hyperi-ci/commit/c38bfac32c1f38964e4b21486f71e32d63b05841)), closes [#169](https://github.com/hyperi-io/hyperi-ci/issues/169)
+* **rust:** check a library release for an unannounced breaking change ([#193](https://github.com/hyperi-io/hyperi-ci/issues/193)) ([19f6918](https://github.com/hyperi-io/hyperi-ci/commit/19f6918e7c55ef37f93e39902fbd40c5b54f566b)), closes [#186](https://github.com/hyperi-io/hyperi-ci/issues/186)
+* **rust:** say loudly when the semver check did not run ([#200](https://github.com/hyperi-io/hyperi-ci/issues/200)) ([4049dcd](https://github.com/hyperi-io/hyperi-ci/commit/4049dcd52dcf8725b92333f07653bfb73d6304f4)), closes [#186](https://github.com/hyperi-io/hyperi-ci/issues/186) [#199](https://github.com/hyperi-io/hyperi-ci/issues/199)
+
 ## [2.10.4](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.3...v2.10.4) (2026-09-22)
 
 ### Bug Fixes
