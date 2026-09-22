@@ -173,6 +173,9 @@ quality:
   rust:
     fmt: blocking
     clippy: blocking
+    # Public-API break detector for library crates, on the release path only
+    # (issue #186). `warn` first per the ratchet; promote at zero violations.
+    semver_checks: warn
     audit: warn
     osv_scanner: warn          # malicious-package (MAL-*) scan; OSV feed not in RustSec
     deny: warn
