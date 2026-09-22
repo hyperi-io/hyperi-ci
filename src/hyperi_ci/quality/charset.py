@@ -96,14 +96,16 @@ def scan(roots: list[Path]) -> list[fdg.Finding]:
     and a check that flags its own dictionary teaches the reader to distrust it.
     """
     out: list[fdg.Finding] = []
-    this_file = Path(__file__).name
+    # Resolved, not by name: matching `charset.py` anywhere would exempt a
+    # consumer's own module of that name, and anyone who wanted the exemption.
+    this_file = Path(__file__).resolve()
     for root in roots:
         if not root.is_dir():
             continue
         for path in sorted(root.rglob("*")):
             if path.suffix not in SUFFIXES or not path.is_file():
                 continue
-            if path.name == this_file:
+            if path.resolve() == this_file:
                 continue
             try:
                 text = path.read_text(encoding="utf-8")
@@ -135,7 +137,9 @@ def run(
         info(f"  {_TOOL}: disabled")
         return 0
 
-    targets = roots or [Path("src"), Path("scripts")]
+    # `.github/` carries the workflow and action headers this check was raised
+    # about, so leaving it out reported clean on the motivating surface.
+    targets = roots or [Path("src"), Path("scripts"), Path(".github")]
     found = scan(targets)
 
     dropped = fdg.surface(_TOOL, found, sarif_path=sarif_path)

@@ -55,3 +55,15 @@ class TestWhatItMustLeaveAlone:
 
     def test_a_maths_glyph_is_left_alone(self) -> None:
         assert scan_text("f.py", "# where n ≥ 2 and x ≠ 0") == []
+
+
+class TestTheSelfSkipIsExactlyThisFile:
+    """Matching by NAME would exempt any consumer module called charset.py."""
+
+    def test_another_charset_py_is_still_scanned(self, tmp_path) -> None:
+        from hyperi_ci.quality.charset import scan
+
+        pkg = tmp_path / "pkg"
+        pkg.mkdir()
+        (pkg / "charset.py").write_text("# a — dash\n", encoding="utf-8")
+        assert [f.rule for f in scan([tmp_path])] == ["charset/banned-typography"]
