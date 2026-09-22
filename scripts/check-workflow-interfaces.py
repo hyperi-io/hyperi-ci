@@ -21,11 +21,11 @@ Usage:  uv run scripts/check-workflow-interfaces.py
 Exit 1 if any interface regressed; 0 otherwise.
 """
 
-from __future__ import annotations
-
+import json
 import re
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
 
 import yaml
@@ -284,6 +284,24 @@ def workflow_cli_commands(root: Path) -> dict[str, set[str]]:
     return out
 
 
+_PYPI_JSON = "https://pypi.org/pypi/hyperi-ci/json"
+
+
+def latest_published_version() -> str | None:
+    """The version PyPI serves, or None when it cannot be reached.
+
+    Asked of PyPI rather than left to uv's resolver, which answers from a
+    cached index: for some time after a release an unpinned `uvx --from
+    hyperi-ci` still runs the PREVIOUS version, even under `--refresh`. This
+    gate would then report a shipped subcommand as missing and block every PR.
+    """
+    try:
+        with urllib.request.urlopen(_PYPI_JSON, timeout=15) as response:
+            return json.load(response)["info"]["version"]
+    except (OSError, ValueError, KeyError):
+        return None
+
+
 def published_cli_commands() -> set[str] | None:
     """Subcommands the LATEST PUBLISHED CLI exposes, or None when unreachable.
 
@@ -293,11 +311,14 @@ def published_cli_commands() -> set[str] | None:
     caller is therefore missing on every runner until the next publish, which
     is how a Gate job went red across the fleet (issue #181).
     """
+    version = latest_published_version()
+    if version is None:
+        return None
     result = subprocess.run(
         [
             "uvx",
             "--from",
-            "hyperi-ci",
+            f"hyperi-ci=={version}",
             "--python",
             "3.14",
             "python",
