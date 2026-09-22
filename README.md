@@ -483,6 +483,16 @@ Release runs build the full matrix.
 7. **Cross-platform** — Linux (CI) and macOS (dev).
 8. **Self-hosting** — hyperi-ci uses itself for its own CI.
 
+## Contributing
+
+[CONTRIBUTING.md](CONTRIBUTING.md) has the commit format, the DCO sign-off, and
+what a local `hyperi-ci check` green does and does not promise.
+
+It also carries a **For coding agents** section, which is binding rather than
+advisory: the boy-scout rule for the `ci-test-*` fixtures, the DO-NOT-FIX
+exception for planted failures, the fixture-git wrapper, and why a green test
+suite does not prove a workflow change. Read it before touching a fixture.
+
 ## Licence
 
 This software is licensed under the Business Source License 1.1 (BUSL-1.1).
