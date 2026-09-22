@@ -1,0 +1,63 @@
+# Project:   HyperI CI
+# File:      config/fixtures.yaml
+# Purpose:   SSoT for the ci-test-* E2E fixture fleet
+#
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# The fleet lived in CLAUDE.md prose, which is untracked here - so the only
+# record of which fixtures exist was a file nobody else could read, and it
+# said 8 when the org had 9. A list in prose also cannot be checked against
+# anything; `scripts/check-fixture-fleet.py` reads THIS and asks the org.
+#
+# `name` is the UPSTREAM repo name, which is what `gh --repo` needs. Local
+# checkout directories have drifted from it and the repo name always wins -
+# `git remote get-url origin` is the authority, never the directory name.
+#
+# Adding a fixture: add it here first. The consistency check fails on a repo
+# the org has and this file does not, and on one this file has and the org
+# does not, so a rename or a deletion surfaces the same day.
+
+fleet:
+  # `negative_cases` marks a fixture carrying a `.ci-negative/` directory:
+  # deliberate planted failures with DO-NOT-FIX headers, which the sweep
+  # asserts fail at a declared stage for a declared reason (issue #219).
+  # NEVER repair one - that is the test.
+  - name: ci-test-go-app
+    language: go
+    covers: four-target build and GHCR dev-push
+    negative_cases: true
+
+  - name: ci-test-manifests
+    language: none
+    covers: container, Kubernetes and IaC linting
+    negative_cases: true
+
+  - name: ci-test-python-app
+    language: python
+    covers: container custom mode on GHCR
+
+  - name: ci-test-python-lib
+    language: python
+    covers: library, container auto-skip
+
+  - name: ci-test-rust-app
+    language: rust
+    covers: container custom mode and native deps
+
+  - name: ci-test-rust-lib
+    language: rust
+    covers: library, container auto-skip
+
+  - name: ci-test-rust-simple
+    language: rust
+    covers: minimal Rust CLI, the baseline pipeline
+    negative_cases: true
+
+  - name: ci-test-rust-workspace
+    language: rust
+    covers: two-crate workspace, version inheritance
+
+  - name: ci-test-ts-app
+    language: typescript
+    covers: container custom mode on GHCR
