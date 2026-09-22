@@ -88,6 +88,12 @@ actions:
   ghcr-cleanup:
     version: v1.2.2
     sha: d52806a0dc70b430571a37da1fde39733ffd640f
+  # One pin for all three sub-actions (init, autobuild, analyze) -- they ship
+  # from the same repo and must not skew. v4 is not optional: v3 is deprecated
+  # from December 2026 and already warns on every run.
+  codeql-action:
+    version: v4.37.9
+    sha: cdf488f595d80d6e07e03d4674febd5ab45fa938
   # The next two appear ONLY in src/hyperi_ci/gitops_templates/workflows/, the
   # pipeline `init-gitops` hands to a scaffolded repo. Pinned here so that repo
   # starts on SHAs rather than the moveable tags it used to ship (issue #98).

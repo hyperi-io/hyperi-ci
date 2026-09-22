@@ -1,0 +1,74 @@
+# Project:   HyperI CI
+# File:      .github/workflows/codeql.yml
+# Purpose:   CodeQL analysis, advanced setup
+#
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# Replaces GitHub's DEFAULT CodeQL setup, which runs from repo settings with
+# no file in the tree. Default setup cannot be configured: it honours neither
+# a `.github/codeql/codeql-config.yml` nor a query filter, so a false positive
+# can only ever be cleared by a human clicking dismiss in the Security tab.
+# Advanced setup puts the analysis under review like any other pipeline change.
+#
+# REQUIRES default setup to be DISABLED first (Settings -> Code security ->
+# Code scanning). GitHub refuses to run this workflow while default setup owns
+# the analysis, and that switch is repo-admin, so it is the human's to flip.
+#
+# The job name is `Analyze (<language>)` to match what default setup produced.
+# Any ruleset requiring one of those contexts keeps working across the swap.
+#
+# NOTE ON SUPPRESSION: an inline `# codeql[rule-id]` comment does NOT dismiss
+# an alert on its own. CodeQL only records it in the SARIF `suppressions[]`
+# array and GitHub does not act on that, so suppressing in source needs an
+# extra step this workflow deliberately does not take yet (issue #67).
+
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, off the hour and off Monday: a fresh CodeQL bundle can turn up
+    # findings in code nobody has touched, and nothing else here would catch
+    # them between pushes.
+    - cron: "37 18 * * 3"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      # Uploading the SARIF is what publishes alerts to the Security tab.
+      security-events: write
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # The three default setup resolved for this repo. `actions` covers the
+        # workflow files themselves, which is how the missing-permissions
+        # findings were caught.
+        language: [actions, javascript-typescript, python]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          languages: ${{ matrix.language }}
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          category: "/language:${{ matrix.language }}"
