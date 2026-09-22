@@ -231,8 +231,18 @@ def _run_coverage(features: str, *, runner: str = "cargo") -> int:
         info(f"  Coverage report: {html_dir}")
         return 0
 
-    warn("  No coverage tool found (cargo-tarpaulin or cargo-llvm-cov)")
-    warn("  Running tests without coverage")
+    # `test.coverage` defaults to true, so a repo that never mentioned coverage
+    # lands here too. Annotated rather than logged because no runner image
+    # carries either tool, which makes this the path every Rust repo takes
+    # (issue #140).
+    missing = (
+        "coverage was requested and did NOT run -- neither cargo-tarpaulin nor "
+        "cargo-llvm-cov is installed, so the tests ran plain and there is no "
+        "report. Install one, or set test.coverage: false to stop asking."
+    )
+    warn(f"  {missing}")
+    if is_ci():
+        print(f"::warning title=hyperi-ci coverage skipped::{missing}")
     return -1
 
 
