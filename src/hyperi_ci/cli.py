@@ -1788,6 +1788,45 @@ def check_commits_cmd() -> None:
     raise typer.Exit(run())
 
 
+@app.command(name="gate-check")
+def gate_check_cmd() -> None:
+    """Fail when the checks the gate required did not actually run.
+
+    The terminal job of every language workflow. GitHub counts a SKIPPED
+    required check as satisfied, so branch protection naming `ci / Quality` is
+    satisfied by Quality not running. This job always runs, so the context it
+    publishes cannot be satisfied by a skip (issue #177).
+
+    Reads the plan job's gate and the results of the jobs it governs from the
+    environment, because only the workflow knows what the runner decided.
+    CI-only; a no-op locally.
+    """
+    import os
+
+    from hyperi_ci.common import error, info, is_ci, success
+    from hyperi_ci.gate_result import evaluate
+
+    if not is_ci():
+        info("gate-check is a CI-only job -- nothing to decide locally.")
+        return
+
+    required = {
+        name: os.environ.get(f"HYPERCI_GATE_{name.upper().replace('-', '_')}", "")
+        for name in ("quality", "test", "build", "commit-check")
+    }
+    verdict = evaluate(
+        run_checks=os.environ.get("HYPERCI_GATE_RUN_CHECKS", "") == "true",
+        plan=os.environ.get("HYPERCI_GATE_PLAN", ""),
+        required={k: v for k, v in required.items() if v},
+    )
+    if verdict.ok:
+        success(verdict.reason)
+        return
+    error(verdict.reason)
+    print(f"::error title=hyperi-ci gate::{verdict.reason}")
+    raise typer.Exit(1)
+
+
 def _release_impl(
     tag: str | None,
     list_tags: bool,

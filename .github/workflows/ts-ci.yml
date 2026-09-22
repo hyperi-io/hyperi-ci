@@ -476,3 +476,32 @@ jobs:
       skip-optimize: ${{ inputs.skip-optimize }}
       release-unoptimized: ${{ inputs.release-unoptimized }}
     secrets: inherit
+
+  # ---------------------------------------------------------------------------
+  # gate — the terminal context branch protection should require.
+  #
+  # Requiring `ci / Quality` does not work: GitHub counts a SKIPPED required
+  # check as satisfied, so the doctrine's deliberate skip and a gate that never
+  # fired are the same green tick from outside. This job ALWAYS runs, so the
+  # context it publishes cannot be satisfied by a skip (issue #177).
+  #
+  # It does not re-implement the gate. It reads what the plan job decided and
+  # what the jobs below actually did; the verdict lives in
+  # hyperi_ci.gate_result so it is testable rather than inline shell.
+  # ---------------------------------------------------------------------------
+  gate:
+    name: Gate
+    if: always()
+    # commit-check is deliberately absent: it is not run-checks-gated, so it
+    # already fires on every push and works as a required context by itself.
+    needs: [plan, quality, test, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report what actually ran
+        env:
+          HYPERCI_GATE_RUN_CHECKS: ${{ needs.plan.outputs.run-checks }}
+          HYPERCI_GATE_PLAN: ${{ needs.plan.result }}
+          HYPERCI_GATE_QUALITY: ${{ needs.quality.result }}
+          HYPERCI_GATE_TEST: ${{ needs.test.result }}
+          HYPERCI_GATE_BUILD: ${{ needs.build.result }}
+        run: ${{ env.HYPERCI_INSTALL }} gate-check
