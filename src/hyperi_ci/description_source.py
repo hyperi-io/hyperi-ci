@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/description_source.py
 # Purpose:   One description, resolved once, for every registry that wants one
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Resolve the one-line project description that every destination duplicates.
 

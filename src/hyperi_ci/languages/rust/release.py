@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/languages/rust/release.py
 # Purpose:   Rust release handler (crates.io)
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Rust publish handler — publishes crates to crates.io."""
 

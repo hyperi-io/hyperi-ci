@@ -3,7 +3,7 @@
 # File:      scripts/audit-config-keys.py
 # Purpose:   Fail when defaults.yaml declares a key nothing reads
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Every key we document as configurable must actually do something.
 

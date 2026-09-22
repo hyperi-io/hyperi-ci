@@ -2,7 +2,7 @@
 # File:      tests/unit/test_description_source.py
 # Purpose:   One description, resolved from the manifest that owns the artefact
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 """The description comes from the manifest, and a workspace has an answer too.

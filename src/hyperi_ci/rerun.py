@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/rerun.py
 # Purpose:   Re-run a GitHub Actions run, failed jobs only by default
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Re-run a GitHub Actions run.
 

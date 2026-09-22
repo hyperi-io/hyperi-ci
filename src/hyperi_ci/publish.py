@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/publish.py
 # Purpose:   Back-compat shim — the package moved to hyperi_ci.release
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """DEPRECATED: this package moved to :mod:`hyperi_ci.release`.
 

@@ -2,7 +2,7 @@
 # File:      tests/unit/test_deprecated_files.py
 # Purpose:   Tests for the config-driven deprecated-file hygiene nudge
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 from __future__ import annotations
 

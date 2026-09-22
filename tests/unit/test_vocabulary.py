@@ -2,7 +2,7 @@
 # File:      tests/unit/test_vocabulary.py
 # Purpose:   One word for the release event, and the old spellings still working
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """issue #149: `release` is the one word, and nothing written before it breaks.
 

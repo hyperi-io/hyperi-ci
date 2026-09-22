@@ -2,7 +2,7 @@
 # File:      tests/unit/test_classification.py
 # Purpose:   Tests for repo-classification parsing, fallback and resolution
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 """The declared repo category decides visibility, licence and publishing.

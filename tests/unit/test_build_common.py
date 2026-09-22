@@ -3,7 +3,7 @@
 #  Purpose:   Tests for languages/_build_common.py helpers
 #  Language:  Python 3
 #
-#  License:   Proprietary — HYPERI PTY LIMITED
+#  License:   Proprietary - HYPERI PTY LIMITED
 #  Copyright: (c) 2026 HYPERI PTY LIMITED
 """Unit tests for the shared build helpers."""
 

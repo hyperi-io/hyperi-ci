@@ -92,3 +92,25 @@ def test_labels_to_build_args() -> None:
         expected.append(f"{key}={labels[key]}")
 
     assert args == expected
+
+
+def test_optimized_defaults_to_true() -> None:
+    labels = build_oci_labels(
+        repo="hyperi-io/app",
+        revision="abc123",
+        version="1.2.3",
+        title="My App",
+    )
+    assert labels["io.hyperi.optimized"] == "true"
+
+
+def test_a_skipped_optimisation_is_stamped_on_the_image() -> None:
+    """A fast deploy-and-test image must be identifiable without benchmarking."""
+    labels = build_oci_labels(
+        repo="hyperi-io/app",
+        revision="abc123",
+        version="1.2.3",
+        title="My App",
+        optimized=False,
+    )
+    assert labels["io.hyperi.optimized"] == "false"

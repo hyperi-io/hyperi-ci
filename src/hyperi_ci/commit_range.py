@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/commit_range.py
 # Purpose:   Resolve the commit range a CI event introduced, and its bump
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Resolve the commits a CI event introduced, and whether they ship a release.
 

@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/version_source.py
 # Purpose:   Where the first version comes from, when there is no tag yet
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Derive a repo's starting version from what the project already declares.
 
