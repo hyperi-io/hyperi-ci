@@ -123,6 +123,7 @@ def audit() -> tuple[list[str], list[str], list[str]]:
 
 
 def main() -> int:
+    """Report config keys the code reads but the defaults never declare."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--list", action="store_true", help="print every key and its verdict"

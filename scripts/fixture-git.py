@@ -109,6 +109,7 @@ def list_fixtures() -> list[Path]:
 
 
 def main(argv: list[str]) -> int:
+    """Run a git command against a ci-test-* fixture, refusing any other repo."""
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
         return 0 if argv else 2

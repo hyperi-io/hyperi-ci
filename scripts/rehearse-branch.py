@@ -201,6 +201,7 @@ def _watch_pr_run(
 
 
 def main() -> int:
+    """Run a hyperi-ci candidate branch against a fixture repo and report."""
     parser = argparse.ArgumentParser(
         description="Rehearse a hyperi-ci branch against a fixture repo"
     )
