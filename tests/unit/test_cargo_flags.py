@@ -79,3 +79,19 @@ class TestScanningARepo:
         cargo.mkdir()
         (cargo / "config.toml").write_text("[build\nrustflags =", encoding="utf-8")
         assert scan(tmp_path) == []
+
+
+class TestTheOtherFormsGitExcludesADirectoryBy:
+    """A trailing slash is not the only way, and the others were missed."""
+
+    def test_a_bare_name_excludes_the_directory(self) -> None:
+        assert _negations_under_excluded_dirs(".cargo\n!.cargo/config.toml\n")
+
+    def test_a_globstar_directory_excludes_it(self) -> None:
+        assert _negations_under_excluded_dirs("**/.cargo/\n!.cargo/config.toml\n")
+
+    def test_the_contents_glob_is_still_the_working_form(self) -> None:
+        assert _negations_under_excluded_dirs(".cargo/*\n!.cargo/config.toml\n") == []
+
+    def test_a_partial_glob_is_not_a_directory_exclude(self) -> None:
+        assert _negations_under_excluded_dirs("car*go/\n!.cargo/config.toml\n") == []
