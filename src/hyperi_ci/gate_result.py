@@ -76,13 +76,36 @@ def evaluate(
 
     """
     build = build or {}
-    if plan == SKIPPED:
+
+    # The plan job must have SUCCEEDED, not merely "not skipped". A plan that
+    # failed or was cancelled computed no gate, so every job under it skipped
+    # and every list below is empty -- which read as nothing-to-check and
+    # passed. Anything other than success is a refusal.
+    if plan != SUCCESS:
         return GateVerdict(
             ok=False,
             reason=(
-                "The plan job did not run, so no gate was computed and every "
-                "check below it skipped. A run that decided nothing cannot "
-                "report success."
+                f"The plan job reported {plan or 'nothing'}, so no gate was "
+                f"computed and the checks below it decided nothing. A run that "
+                f"verified nothing cannot report success."
+            ),
+        )
+
+    # A gate that asked for checks and was handed no results at all is a
+    # misconfigured job, not a clean run -- a renamed job or a missing `env:`
+    # block reaches here and would otherwise pass forever.
+    missing_inputs = [
+        name
+        for name, results in (("quality and test", checks), ("build", build))
+        if not results and (run_checks if name != "build" else run_build)
+    ]
+    if missing_inputs:
+        return GateVerdict(
+            ok=False,
+            reason=(
+                f"The gate required {' and '.join(missing_inputs)} and was given "
+                f"no result for them. The job is wired wrong -- check its `env:` "
+                f"block names every job it needs."
             ),
         )
 
@@ -93,27 +116,27 @@ def evaluate(
 
     absent: list[str] = []
     if run_checks:
-        absent += [n for n, result in checks.items() if result == SKIPPED]
+        absent += [n for n, result in checks.items() if result != SUCCESS]
     if run_build:
-        absent += [n for n, result in build.items() if result == SKIPPED]
+        absent += [n for n, result in build.items() if result != SUCCESS]
     if absent:
         return GateVerdict(
             ok=False,
             reason=(
-                f"The gate required these on this event and they did not run: "
+                f"The gate required these on this event and they did not pass: "
                 f"{', '.join(sorted(absent))}. A skipped check is not a "
                 f"passing check."
             ),
         )
 
     ran = sorted(n for n, result in every.items() if result == SUCCESS)
-    if not ran:
+    if not run_checks and not run_build:
         return GateVerdict(
             ok=True,
             reason=(
-                "The gate resolved run-checks=false, so quality and test were "
-                "skipped by the doctrine -- this commit ships nothing. Skipped "
-                "deliberately, not missed."
+                "The gate resolved run-checks=false and run-build=false, so the "
+                "checks were skipped by the doctrine -- this commit ships "
+                "nothing. Skipped deliberately, not missed."
             ),
         )
     return GateVerdict(ok=True, reason=f"Ran and passed: {', '.join(ran)}.")
