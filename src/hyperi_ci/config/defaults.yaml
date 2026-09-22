@@ -89,6 +89,10 @@ quality:
   compose_config: blocking   # `docker compose config` resolution GATE
   compose_pins: blocking     # image-pin GATE - an image resolving to `latest` fails
 
+  # Rust rustflags a repo declares but cannot ship (issue #178). `warn` first
+  # per the ratchet: promote once the fleet's count is zero.
+  cargo_flags: warn          # inert gitignore negation, or flags under [build]
+
   # Documentation linting (`hyperi-ci lint-docs`, and inside the quality stage).
   # ALL start at `warn` deliberately: a new lint introduced as blocking on an
   # existing tree fails every PR until the backlog clears. Promote a check to
