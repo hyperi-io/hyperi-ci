@@ -73,6 +73,9 @@ quality:
   exclude_paths: []
   gitleaks: blocking
   semgrep: warn              # Semgrep SAST (cross-language) - runs once at dispatch, like gitleaks
+  # The ASCII-only rule, enforced at last (issue #169). `warn` first per the
+  # ratchet: this repo still carries ~900 lines of it. Promote at zero.
+  charset: warn              # Typography a keyboard cannot produce; plus ASCII-art diagrams
 
   # Container linting (cross-language, dispatch-level, auto-detect Dockerfiles).
   hadolint: blocking         # Dockerfile GATE - blocks on ERROR severity only (shellcheck-on-RUN)
