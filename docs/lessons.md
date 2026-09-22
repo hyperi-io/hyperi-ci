@@ -334,6 +334,30 @@ build to ensure fresh artifacts, also via `hyperi-ci run build`.
 
 ## Cross-Language Patterns
 
+### A workflow change is not proven by a green test suite
+
+Three real bugs in one workflow change got past ~3000 local tests and were
+caught by `scripts/rehearse-branch.py` on a real `ci-test-*` fixture. Rehearse
+every change to `.github/workflows/` before merging it.
+
+The reason the suite cannot find them:
+
+- **A wrong model is tested as confidently as a right one.** A gate job treated
+  `build` as governed by `run-checks`; it is governed by `run-build`, which is
+  publish-only, so the job failed every normal PR. Twelve unit tests passed it,
+  because the tests were written to the same wrong model as the code. Unit
+  tests confirm the author's understanding of the contract -- they cannot
+  detect that the understanding is wrong. Only the real workflow can.
+- **The runner is not your machine.** The same job ran `uvx` on a bare
+  `ubuntu-latest` with no `setup-uv` step and exited 127 on a run where every
+  other job was green. Nothing local exercises the runner's PATH.
+
+And a trap in reading the result: a genuine flake can sit on top of a genuine
+failure. A `pip-audit` timeout against pypi.org masked the first of those bugs,
+the re-run looked like the reasonable response, and it cost two rehearsals.
+When a rehearsal fails, read every failing job before deciding any of them is
+transient.
+
 ### Configuration Cascade
 
 Priority (highest wins):
