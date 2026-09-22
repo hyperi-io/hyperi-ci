@@ -73,7 +73,9 @@ def discover_dockerfiles(
     found: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(root):
         # Prune in place so os.walk does not descend into excluded dirs.
-        dirnames[:] = [d for d in dirnames if d not in prune]
+        dirnames[:] = [
+            d for d in dirnames if not _is_pruned(Path(dirpath) / d, root, prune)
+        ]
         for fn in filenames:
             if _is_dockerfile(fn):
                 found.append(Path(dirpath) / fn)
@@ -82,6 +84,22 @@ def discover_dockerfiles(
 
 def _prune(exclude_dirs: Iterable[str]) -> set[str]:
     return _ALWAYS_PRUNE | {str(d).strip("/") for d in exclude_dirs if d}
+
+
+def _is_pruned(candidate: Path, root: Path, prune: set[str]) -> bool:
+    """Whether ``candidate`` is excluded, by bare NAME or by relative PATH.
+
+    `quality.exclude_paths` takes paths, so a nested entry like
+    `docs/superpowers` has to match the path rather than only the basename.
+    Matching the name alone accepted the setting and pruned nothing.
+    """
+    if candidate.name in prune:
+        return True
+    try:
+        relative = candidate.relative_to(root).as_posix()
+    except ValueError:
+        return False
+    return relative in prune
 
 
 class _TolerantLoader(yaml.SafeLoader):
@@ -147,7 +165,9 @@ def discover_compose_files(
     prune = _prune(exclude_dirs)
     out: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in prune]
+        dirnames[:] = [
+            d for d in dirnames if not _is_pruned(Path(dirpath) / d, root, prune)
+        ]
         here = Path(dirpath)
         for fn in filenames:
             rel = (here / fn).relative_to(root).as_posix()
@@ -184,7 +204,9 @@ def discover_markdown_files(
     prune = _prune(exclude_dirs) | _DOC_PRUNE
     found: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in prune]
+        dirnames[:] = [
+            d for d in dirnames if not _is_pruned(Path(dirpath) / d, root, prune)
+        ]
         for fn in filenames:
             if not fn.endswith((".md", ".markdown")):
                 continue
@@ -213,7 +235,9 @@ def discover_helm_charts(
     prune = _prune(exclude_dirs)
     charts: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in prune]
+        dirnames[:] = [
+            d for d in dirnames if not _is_pruned(Path(dirpath) / d, root, prune)
+        ]
         if "Chart.yaml" not in filenames:
             continue
         chart_dir = Path(dirpath)
@@ -287,7 +311,9 @@ def discover_manifests(
     prune = _prune(exclude_dirs)
     out: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in prune]
+        dirnames[:] = [
+            d for d in dirnames if not _is_pruned(Path(dirpath) / d, root, prune)
+        ]
         here = Path(dirpath)
         if _inside_chart(here, root):
             continue
