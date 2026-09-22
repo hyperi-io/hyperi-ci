@@ -28,6 +28,9 @@ of the action checkout, and hatchling imports it as the build back-end's
 version source (:func:`build_version`) — neither has run a ``pip install``.
 """
 
+# KEEP on a 3.14 floor, where this import is otherwise wrong (issue #184).
+# predict-version loads this file BY PATH before any install, on whatever
+# python3 the runner has, which may predate our floor.
 from __future__ import annotations
 
 import json
