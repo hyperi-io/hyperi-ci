@@ -33,6 +33,7 @@ from hyperi_ci.common import (
     mask,
     resolve_release_version,
     run_cmd,
+    skip_optimize,
     success,
     warn,
 )
@@ -168,14 +169,27 @@ def _top_changelog_entry(version: str, changelog: str) -> str | None:
     return "\n".join(lines[start:]).strip() or None
 
 
+UNOPTIMIZED_RELEASE_BANNER = (
+    "> **Built without the optimisation stage.** No PGO and no BOLT ran for "
+    "this release, so its binaries are slower than a standard release of the "
+    "same code. Cut deliberately for a fast deploy-and-test cycle. Do not use "
+    "it to measure performance, and prefer a later optimised release for "
+    "anything long-lived."
+)
+
+
 @contextmanager
 def _release_notes_flags(version: str) -> Iterator[list[str]]:
-    """Yield gh flags carrying the rendered changelog entry as the body.
+    """Yield gh flags carrying the release body.
 
     GitHub puts the body above its own generated notes, so the release page
-    gets the curated entry and the commit list. Yields no flags when there
-    is no CHANGELOG.md or its top entry is a different version, which leaves
-    the generated notes on their own.
+    gets the curated entry and the commit list. An unoptimised build says so
+    first: the artefact is indistinguishable from a full release until
+    someone benchmarks it, and by then it is deployed.
+
+    Yields no flags when there is nothing to add -- no banner, and no
+    CHANGELOG.md whose top entry matches this version -- which leaves the
+    generated notes on their own.
     """
     changelog = Path(CHANGELOG_FILE)
     entry = None
@@ -183,13 +197,16 @@ def _release_notes_flags(version: str) -> Iterator[list[str]]:
         entry = _top_changelog_entry(
             version, changelog.read_text(encoding="utf-8", errors="replace")
         )
-    if entry is None:
+    sections = [
+        s for s in (UNOPTIMIZED_RELEASE_BANNER if skip_optimize() else None, entry) if s
+    ]
+    if not sections:
         yield []
         return
     with tempfile.NamedTemporaryFile(
         "w", suffix=".md", delete=False, encoding="utf-8", newline="\n"
     ) as handle:
-        handle.write(f"{entry}\n")
+        handle.write("\n\n".join(sections) + "\n")
         notes_file = handle.name
     try:
         yield ["--notes-file", notes_file]

@@ -168,10 +168,12 @@ jobs:
   # ---------------------------------------------------------------------------
   plan:
     name: Plan
-    if: github.event.pull_request.head.repo.fork != true
     runs-on: ubuntu-latest
     # predict-version runs semantic-release, whose git plugin verifies push
     # access (a `git push --dry-run`) on a publish predict - needs write.
+    # A fork PR never reaches that: will-publish is false off main, so both
+    # semantic-release steps skip and the read-only token a fork gets is
+    # enough to resolve the gates.
     permissions:
       contents: write
     outputs:
@@ -251,7 +253,9 @@ jobs:
     runs-on: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_PYTHON || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - name: Docker Hub login
-        if: ${{ vars.DOCKERHUB_USERNAME != '' }}
+        # A fork PR can read the var but not the secret, so an unguarded login
+        # would authenticate with an empty password and fail the job.
+        if: ${{ vars.DOCKERHUB_USERNAME != '' && github.event.pull_request.head.repo.fork != true }}
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -318,7 +322,9 @@ jobs:
     # live postgres fixture, so the block was removed.
     steps:
       - name: Docker Hub login
-        if: ${{ vars.DOCKERHUB_USERNAME != '' }}
+        # A fork PR can read the var but not the secret, so an unguarded login
+        # would authenticate with an empty password and fail the job.
+        if: ${{ vars.DOCKERHUB_USERNAME != '' && github.event.pull_request.head.repo.fork != true }}
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -487,4 +493,6 @@ jobs:
       publish-target: ${{ inputs.publish-target }}
       python-version: ${{ needs.plan.outputs.python-version }}
       submodules: ${{ inputs.submodules }}
+      skip-optimize: ${{ inputs.skip-optimize }}
+      release-unoptimized: ${{ inputs.release-unoptimized }}
     secrets: inherit
