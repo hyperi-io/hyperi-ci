@@ -1323,3 +1323,25 @@ def test_docker_hub_login_is_fork_guarded(workflow_name: str) -> None:
                 f"empty -- the login fails and takes the job with it."
             )
     assert seen, f"{workflow_name}: no Docker Hub login step found to check"
+
+
+@pytest.mark.parametrize("workflow_name", _PLAN_WORKFLOWS)
+def test_a_terminal_gate_job_always_runs(workflow_name: str) -> None:
+    """Every workflow publishes a context a skipped check cannot satisfy.
+
+    Branch protection requiring `ci / Quality` is satisfied by Quality
+    skipping, so the doctrine's deliberate skip and a gate that never fired
+    look identical from outside the run (issue #177).
+    """
+    wf = _load_workflow(workflow_name)
+    gate = wf["jobs"].get("gate")
+    assert gate, f"{workflow_name}: no terminal gate job -- a skip can pass the run"
+    assert "always()" in str(gate.get("if", "")), (
+        f"{workflow_name}: the gate job is conditional, so it can skip with "
+        f"everything else and satisfy branch protection by doing nothing."
+    )
+    for upstream in ("plan", "quality", "test", "build"):
+        assert upstream in gate["needs"], (
+            f"{workflow_name}: the gate does not need {upstream!r}, so it "
+            f"cannot see whether it ran."
+        )
