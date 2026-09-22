@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<!--
+  Query-level half of the ClickHouse low-memory profile (pairs with
+  clickhouse-low-mem.xml and mem_limit: 2g).
+
+  Mount at /etc/clickhouse-server/users.d/low-mem.xml. It has to be users.d,
+  not config.d: the image points users_config at users.xml, so a <profiles>
+  block merged into config.d is parsed and then ignored.
+-->
+<clickhouse>
+    <profiles>
+        <default>
+            <!-- Spill big aggregations/sorts to disk instead of failing/OOM. -->
+            <max_bytes_before_external_group_by>536870912</max_bytes_before_external_group_by> <!-- 512MB -->
+            <max_bytes_before_external_sort>536870912</max_bytes_before_external_sort> <!-- 512MB -->
+        </default>
+    </profiles>
+</clickhouse>

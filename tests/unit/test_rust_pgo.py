@@ -386,12 +386,6 @@ class TestBoltBuildEnv:
         env = _bolt_build_env("aarch64-apple-darwin")
         assert "CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS" in env
 
-    def test_legacy_alias_still_works(self) -> None:
-        """_bolt_linker_env is kept as backwards-compat alias for one release."""
-        from hyperi_ci.languages.rust.pgo import _bolt_build_env, _bolt_linker_env
-
-        assert _bolt_linker_env is _bolt_build_env
-
 
 class TestRunBoltRetry:
     """_run_bolt retries once (splitter disabled) on a BOLT build failure.
@@ -691,6 +685,40 @@ class TestLinkerForThePgoSteps:
         retry_env = cargo.call_args_list[1].kwargs["extra_env"]
         key = "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS"
         assert retry_env[key] == "-C link-arg=-fuse-ld=mold"
+
+    def test_the_mold_retry_carries_into_the_optimise_link(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """The optimised binary is no smaller, so it needs the same linker."""
+        target = "aarch64-unknown-linux-gnu"
+        mold = _executable(tmp_path / "tools" / "mold")
+        monkeypatch.setenv("PATH", str(mold.parent))
+        bin_dir = tmp_path / "target" / target / "release"
+        bin_dir.mkdir(parents=True)
+        (bin_dir / "my-bin").touch()
+
+        with (
+            patch(
+                "hyperi_ci.languages.rust.pgo._ensure_cargo_pgo_installed",
+                return_value=True,
+            ),
+            patch("hyperi_ci.languages.rust.pgo._run_workload", return_value=0),
+            patch(
+                "hyperi_ci.languages.rust.pgo._run_cargo_pgo", side_effect=[1, 0, 0]
+            ) as cargo,
+        ):
+            rc = run_pgo_build(
+                target=target,
+                profile=_make_profile(),
+                binary_name="my-bin",
+                cwd=tmp_path,
+            )
+
+        assert rc == 0
+        optimise_call = cargo.call_args_list[2]
+        assert optimise_call.args[0][0] == "optimize"
+        key = "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS"
+        assert optimise_call.kwargs["extra_env"][key] == "-C link-arg=-fuse-ld=mold"
 
     def test_an_x86_64_instrument_failure_is_not_retried(
         self, tmp_path, monkeypatch

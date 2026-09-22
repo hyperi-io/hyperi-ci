@@ -11,7 +11,7 @@
 
 services:
   redpanda:
-    image: redpandadata/redpanda:v26.1.9 # pin a current stable
+    image: redpandadata/redpanda:v26.1.17 # pin a current stable
     command:
       - redpanda
       - start

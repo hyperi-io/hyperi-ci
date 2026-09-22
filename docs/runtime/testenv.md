@@ -30,9 +30,10 @@ unchanged**; only the CI fixture differs.
 
 ```bash
 # Start: dev-container mode, single core, hard 512M cap, advertised on host.
+# TAG: take it from templates/testenv/redpanda.compose.yaml, which pins it once.
 docker run -d --rm \
     -p 19092:9092 \
-    docker.redpanda.com/redpandadata/redpanda:v26.1.9 \
+    docker.redpanda.com/redpandadata/redpanda:<tag> \
     redpanda start \
         --mode dev-container \
         --smp 1 \

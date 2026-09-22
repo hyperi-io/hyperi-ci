@@ -221,6 +221,32 @@ def load_org_config(*, reload: bool = False) -> OrgConfig:
     return _org_cache
 
 
+_packaged_defaults_cache: dict[str, Any] | None = None
+
+
+def packaged_default(key: str, default: Any = None) -> Any:
+    """Value a dotted key carries in the SHIPPED defaults, before any override.
+
+    The merged config cannot distinguish a project's setting from ours, so
+    anything reporting on an override has to read this layer on its own.
+    """
+    global _packaged_defaults_cache
+    if _packaged_defaults_cache is None:
+        defaults_file = _CONFIG_DIR / "defaults.yaml"
+        loaded: dict[str, Any] = {}
+        if defaults_file.exists():
+            with open(defaults_file, encoding="utf-8") as f:
+                loaded = yaml.safe_load(f) or {}
+        _packaged_defaults_cache = loaded
+
+    node: Any = _packaged_defaults_cache
+    for part in key.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return default
+        node = node[part]
+    return node
+
+
 def load_config(
     *,
     reload: bool = False,
