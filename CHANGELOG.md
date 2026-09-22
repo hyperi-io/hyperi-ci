@@ -3,6 +3,30 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.10.4](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.3...v2.10.4) (2026-09-22)
+
+### Bug Fixes
+
+* **cli:** reach runs and workflows the wrapper does not own ([d2dd5fb](https://github.com/hyperi-io/hyperi-ci/commit/d2dd5fbf94df0828e8ef94bde1c153b6716cdb93)), closes [#101](https://github.com/hyperi-io/hyperi-ci/issues/101)
+* **cli:** say so when this build is not the latest release ([c64958b](https://github.com/hyperi-io/hyperi-ci/commit/c64958bfc4dc4c8f788874a9c54104e1c4bd94a1)), closes [#163](https://github.com/hyperi-io/hyperi-ci/issues/163)
+* **config:** read the declared repo classification ([3c0feb5](https://github.com/hyperi-io/hyperi-ci/commit/3c0feb585a60cd32c5e192dabd08db2c483bcc05))
+* **deps:** claim the service-prefixed compose files ([90085af](https://github.com/hyperi-io/hyperi-ci/commit/90085af0a6383363a35cd0a83d7985ef69f811dd)), closes [#153](https://github.com/hyperi-io/hyperi-ci/issues/153)
+* **docs:** point the cascade at where the config actually lives ([#175](https://github.com/hyperi-io/hyperi-ci/issues/175)) ([77573f5](https://github.com/hyperi-io/hyperi-ci/commit/77573f5edbff6423872a21668b87b18f47938db4))
+* **quality:** check the docs the way the code is checked ([88080bd](https://github.com/hyperi-io/hyperi-ci/commit/88080bdc7650ebdbc9414367688f7b19685e3168))
+* **quality:** correct the extend-exclude floor ([ea1d8a0](https://github.com/hyperi-io/hyperi-ci/commit/ea1d8a0c9e5cfdba93ce29cfd250b49a26c9b477)), closes [#162](https://github.com/hyperi-io/hyperi-ci/issues/162)
+* **quality:** give a compose-only repo a linting entry point ([1cbaa89](https://github.com/hyperi-io/hyperi-ci/commit/1cbaa89fd9bf4598c3ad1be0d5f83fa8212dba56))
+* **release:** close a version's failure issue when a retry ships it ([f98e721](https://github.com/hyperi-io/hyperi-ci/commit/f98e721ef8817cf928306f54b30536da2531a82a)), closes [#160](https://github.com/hyperi-io/hyperi-ci/issues/160)
+* **release:** release from a prerelease branch ([1309d4c](https://github.com/hyperi-io/hyperi-ci/commit/1309d4c1ac725a8a7dda87cc4749a86bc9174fe4)), closes [#37](https://github.com/hyperi-io/hyperi-ci/issues/37) [#158](https://github.com/hyperi-io/hyperi-ci/issues/158) [#143](https://github.com/hyperi-io/hyperi-ci/issues/143) [#144](https://github.com/hyperi-io/hyperi-ci/issues/144)
+* **rust:** default a release to PGO and BOLT ([a58a9a8](https://github.com/hyperi-io/hyperi-ci/commit/a58a9a83e4ce668c0d99b22f1cf362c8ed416a68)), closes [#143](https://github.com/hyperi-io/hyperi-ci/issues/143)
+* **rust:** fail a release whose requested PGO or BOLT did not run ([2bf71db](https://github.com/hyperi-io/hyperi-ci/commit/2bf71db39da05d50214369953dc21a9d411a4404)), closes [#133](https://github.com/hyperi-io/hyperi-ci/issues/133)
+* **rust:** give the PGO workload its duration and a setup step off the clock ([22be415](https://github.com/hyperi-io/hyperi-ci/commit/22be4158ef449a156ba2837fcb08c0798806d22a)), closes [#135](https://github.com/hyperi-io/hyperi-ci/issues/135)
+* **rust:** refuse to release a skipped-optimisation build without consent ([d793bd4](https://github.com/hyperi-io/hyperi-ci/commit/d793bd4cf1599654fa1b3e55e140dc33189de172)), closes [#158](https://github.com/hyperi-io/hyperi-ci/issues/158)
+* **rust:** resolve lld in every PGO stage and retry a big aarch64 link with mold ([b87a131](https://github.com/hyperi-io/hyperi-ci/commit/b87a1310fec17ecfd994649a61aaf431ba964cb4)), closes [#142](https://github.com/hyperi-io/hyperi-ci/issues/142)
+* **rust:** ship BOLT's output and pin the cargo-pgo that makes it ([f812aec](https://github.com/hyperi-io/hyperi-ci/commit/f812aec888a9102dab1fb0fadd214eea721274ea)), closes [#136](https://github.com/hyperi-io/hyperi-ci/issues/136) [#136](https://github.com/hyperi-io/hyperi-ci/issues/136) [#137](https://github.com/hyperi-io/hyperi-ci/issues/137) [#135](https://github.com/hyperi-io/hyperi-ci/issues/135)
+* **scripts:** read the rehearsal run job by job, and call a timeout inconclusive ([79863b3](https://github.com/hyperi-io/hyperi-ci/commit/79863b34929affcd831385620eb1bafa1c9ee696))
+* **test:** derive pytest worker count from the host ([49b1b47](https://github.com/hyperi-io/hyperi-ci/commit/49b1b47e743b5617c9036f0e9530abbb1823d3f4)), closes [scalo-py#29](https://github.com/hyperi-io/scalo-py/issues/29)
+* **watch:** list skipped jobs apart from the jobs that ran ([491b6e1](https://github.com/hyperi-io/hyperi-ci/commit/491b6e1c0fe1b30a02e45dd13625aaa7b77557c9)), closes [#71](https://github.com/hyperi-io/hyperi-ci/issues/71)
+
 ## [2.10.1](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.0...v2.10.1) (2026-09-17)
 
 ### Bug Fixes
