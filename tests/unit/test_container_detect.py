@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from hyperi_ci.container import detect as dt
 from hyperi_ci.container.detect import detect
 
 
@@ -304,3 +306,55 @@ def test_dockerfile_at_named_path(tmp_path: Path, dockerfile_name: str) -> None:
     decision = detect(language="rust", project_dir=tmp_path, dockerfile=dockerfile_name)
     assert decision.build is True
     assert decision.mode == "custom"
+
+
+class TestCargoMissingDoesNotCrashTheResolve:
+    """The container job installs no Rust toolchain, so `cargo` is genuinely
+    absent there. `subprocess.run` RAISES on a missing binary rather than
+    returning a code, and the guard only checked the code -- so resolve-only
+    died with FileNotFoundError instead of taking the filesystem fallback that
+    was written for exactly this case (issue #207)."""
+
+    @staticmethod
+    def _rust_lib(tmp_path: Path) -> Path:
+        (tmp_path / "Cargo.toml").write_text(
+            '[package]\nname = "lib"\nversion = "0.1.0"\n', encoding="utf-8"
+        )
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "lib.rs").write_text("pub fn f() {}\n", encoding="utf-8")
+        return tmp_path
+
+    def test_a_missing_cargo_falls_back_rather_than_raising(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def _absent(*args: object, **kwargs: object) -> None:
+            raise FileNotFoundError(2, "No such file or directory: 'cargo'")
+
+        monkeypatch.setattr(dt.subprocess, "run", _absent)
+        root = self._rust_lib(tmp_path)
+        assert dt._cargo_metadata(root) is None
+        assert dt._rust_is_library(root) is True
+
+    def test_a_binary_is_still_recognised_without_cargo(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The fallback has to get the ANSWER right, not just avoid crashing."""
+
+        def _absent(*args: object, **kwargs: object) -> None:
+            raise FileNotFoundError(2, "No such file or directory: 'cargo'")
+
+        monkeypatch.setattr(dt.subprocess, "run", _absent)
+        root = self._rust_lib(tmp_path)
+        (root / "src" / "main.rs").write_text("fn main() {}\n", encoding="utf-8")
+        assert dt._rust_is_library(root) is False
+
+    def test_a_failing_cargo_is_still_handled(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The pre-existing non-zero path must not regress."""
+        monkeypatch.setattr(
+            dt.subprocess,
+            "run",
+            lambda *a, **k: SimpleNamespace(returncode=1, stdout=""),
+        )
+        assert dt._cargo_metadata(tmp_path) is None
