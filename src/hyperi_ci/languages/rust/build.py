@@ -1237,9 +1237,17 @@ def _build_for_target(
     # PGO path takes over the whole build for this target
     if profile and profile.pgo_enabled:
         binary_names = _detect_binary_names()
-        if not binary_names:
+        # The PGO path returns before the cross-compile setup below, so it would
+        # build a foreign target with the host toolchain.
+        cross = target != _get_native_target() and is_linux()
+        if cross:
             warn(
-                "PGO requested but crate has no binaries — falling back to plain build"
+                f"PGO is not wired for a cross build ({target} from "
+                f"{_get_native_target()}) -- building plain, Tier 1 only"
+            )
+        elif not binary_names:
+            warn(
+                "PGO requested but crate has no binaries -- falling back to plain build"
             )
         else:
             # Use the first binary for PGO (projects with multiple bins can

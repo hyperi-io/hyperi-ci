@@ -17,9 +17,10 @@
 # architecture (amd64, arm64) automatically when the package exists for that arch.
 
 # --- Build tools (always installed for Rust) ---
-# mold: fast linker for native x86_64 builds (5-10x faster linking).
-# Only used when .cargo/config.toml sets -fuse-ld=mold.
-# Does NOT affect C++ builds — this is Rust-only config.
+# mold: fast linker (5-10x faster linking). Selected either by a repo's own
+# .cargo/config.toml, or by hyperi-ci itself when a large aarch64 PGO
+# instrument link overflows the R_AARCH64_CALL26 branch and needs thunks.
+# Does NOT affect C++ builds - this is Rust-only config.
 #
 # A virtual workspace root has only `[workspace]` and no `[package]`, so
 # matching `[package]` alone skipped the install for a repo that does set
