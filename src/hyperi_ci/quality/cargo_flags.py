@@ -62,11 +62,26 @@ def _negations_under_excluded_dirs(gitignore: str) -> list[tuple[int, str, str]]
                     out.append((number, directory, negated))
                     break
             continue
-        # A trailing slash and no glob is a directory exclude. `dir/*` globs the
-        # CONTENTS, which is the form a negation can escape, so it is not one.
-        if line.endswith("/") and "*" not in line:
-            excluded_dirs.append(line.lstrip("/"))
+        directory = _excluded_directory(line)
+        if directory:
+            excluded_dirs.append(directory)
     return out
+
+
+def _excluded_directory(line: str) -> str | None:
+    """Return the directory prefix a pattern excludes, or None.
+
+    Git excludes a directory by a trailing slash (``.cargo/``), by a bare name
+    (``.cargo``), and through a globstar (``**/.cargo/``) -- all three make a
+    negation underneath inert. ``dir/*`` globs the CONTENTS instead, which is
+    the form a negation CAN escape, so it is not one.
+    """
+    pattern = line.removeprefix("**/").lstrip("/")
+    if not pattern or pattern.endswith("*"):
+        return None
+    if "*" in pattern.rstrip("/"):
+        return None
+    return pattern if pattern.endswith("/") else f"{pattern}/"
 
 
 def _is_tracked(path: str, project_root: Path) -> bool:
