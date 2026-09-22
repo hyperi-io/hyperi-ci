@@ -358,6 +358,33 @@ the re-run looked like the reasonable response, and it cost two rehearsals.
 When a rehearsal fails, read every failing job before deciding any of them is
 transient.
 
+### A check that reports success over what it never ran
+
+Five of this repo's checks were green over work they had not done: a CI gate
+that read `== skipped` and so passed a plan job that had FAILED; a
+public-API check nothing installed, so every release took the missing-tool
+branch and returned 0; that same check reading cargo's error code 101 as a
+breaking change; `test.coverage` honoured up to the point the tool would run,
+then running the tests plain; and a subcommand gate that asked an unpinned
+`uvx` what was published and got an hour-old answer from a cached index.
+
+The test that finds them, before writing any check:
+
+> ask what the check prints when the thing it measures did not happen at all.
+> If that is the same as success -- 0, silence, "ok" -- the check is decorative.
+
+Make absence LOUD: a missing tool fails rather than skips, a skipped stage is
+not a passed stage, a requested-but-unrun step is an error. Then test the
+NEGATIVE path -- a test that only ever sees the tool present proves nothing
+about the branch that ships.
+
+Knowing the rule is not enough on its own. Two of those five were in code its
+author had merged and self-reviewed the same day. Ask the question of the
+artefact, not of yourself.
+
+Full treatment: `standards/universal/testing.md`, "A green check that never
+ran".
+
 ### Configuration Cascade
 
 Priority (highest wins):
