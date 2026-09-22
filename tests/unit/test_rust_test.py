@@ -5,8 +5,6 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
-from __future__ import annotations
-
 from typing import Any
 
 import pytest
@@ -16,6 +14,7 @@ from hyperi_ci.languages.rust.test import (
     _build_test_cmd,
     _note_coverage_runner,
     _resolve_runner,
+    _run_coverage,
     run,
 )
 
@@ -179,3 +178,33 @@ class TestCommandConstruction:
 
     def test_unit_tier_is_lib_only(self) -> None:
         assert _build_test_cmd("default", tier="unit", runner="nextest")[-1] == "--lib"
+
+
+class TestCoverageSaysWhenItDidNotRun:
+    """No runner image carries a coverage tool, so this is the live path."""
+
+    def test_in_ci_it_annotates_rather_than_logs(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Any,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(f"{MODULE}.shutil.which", lambda _: None)
+        monkeypatch.setattr(f"{MODULE}.is_ci", lambda: True)
+        assert _run_coverage("default") == -1
+        out = capsys.readouterr().out
+        assert "::warning title=hyperi-ci coverage skipped::" in out
+        assert "did NOT run" in out
+
+    def test_locally_there_is_no_annotation(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Any,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(f"{MODULE}.shutil.which", lambda _: None)
+        monkeypatch.setattr(f"{MODULE}.is_ci", lambda: False)
+        assert _run_coverage("default") == -1
+        assert "::warning" not in capsys.readouterr().out
