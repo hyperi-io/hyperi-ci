@@ -97,6 +97,17 @@ the squash subject lands). Feature-branch pushes skip it, preserving the
 chore-skip fast path. Logic: `hyperi_ci.quality.commit_validation.run`; the
 local `hyperi-ci check` runs the same validation over `origin/main..HEAD`.
 
+What drove the split: dfe-ui#81 red-flagged nine `feat:` WIP commits on one of
+Kaz's branches, none of which reached main. The gate was right that they were
+mislabelled and wrong about which commits mattered -- it validated throwaway
+branch commits while the squash subject that actually landed went unchecked. A
+second gap sits behind it: a team merging through the GitHub UI never invokes
+`hyperi-ci push`, so the local bump guard never runs and the PR-time check is
+their only one. Validating what LANDS covers both, and is merge-method
+agnostic. The accepted cost is that it is post-hoc -- the bad message is on
+main by the time it fails, so the fix is a follow-up commit rather than a
+rejected push.
+
 ### Gate outputs (computed in `plan`)
 
 | Output | True when | Effect |

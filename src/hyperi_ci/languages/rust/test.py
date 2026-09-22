@@ -155,13 +155,12 @@ def _build_test_cmd(
 def _note_coverage_runner(runner: str, tool: str) -> None:
     """Report when a coverage tool overrides the resolved runner.
 
-    Both coverage tools drive cargo's own test harness, so a repo that resolved
-    to nextest does not get nextest here - the same divergence the fallback
-    warns about, arriving by a different door. (`cargo llvm-cov nextest`
-    composes the two; wiring it needs a run that exercises llvm-cov for real,
-    and no runner image carries a coverage tool today.)
+    tarpaulin drives cargo's own test harness, so a repo that resolved to
+    nextest does not get nextest here - the same divergence the fallback warns
+    about, arriving by a different door. llvm-cov is exempt because
+    `cargo llvm-cov nextest` composes the two and keeps the resolved runner.
     """
-    if runner != "nextest":
+    if runner != "nextest" or tool == "cargo-llvm-cov":
         return
     warn(f"  {tool} drives cargo's test harness, not nextest. {_DIVERGENCE}")
 
@@ -201,7 +200,14 @@ def _run_coverage(features: str, *, runner: str = "cargo") -> int:
     if shutil.which("cargo-llvm-cov"):
         lcov_path = _RESULTS_DIR / "lcov.info"
         html_dir = _RESULTS_DIR / "coverage-html"
-        cmd = ["cargo", "llvm-cov", "--lcov", "--output-path", str(lcov_path)]
+        cmd = ["cargo", "llvm-cov"]
+        # `cargo llvm-cov nextest` keeps the resolved runner instead of
+        # swapping it for cargo's harness, so a repo on nextest measures the
+        # tests it actually ships. This composition is why llvm-cov was chosen
+        # over tarpaulin, which cannot do it (issue #140).
+        if runner == "nextest":
+            cmd.append("nextest")
+        cmd.extend(["--lcov", "--output-path", str(lcov_path)])
         if features == "all":
             cmd.append("--all-features")
         elif features != "default":

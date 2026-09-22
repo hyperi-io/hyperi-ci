@@ -247,6 +247,22 @@ tools:
       amd64: cd3c85194e8b28ad26676d287f41f0d6b4d456cef5bd94700def5dea8e328883
       arm64: 103a8f68b20fb01ee5daf2eb4c037b54ace550a04a288ee35761c5e7b0351311
       macos: 52ecaedb4f5af9267ef7ed02bc937d2a15a94ff96cb663080e81311f798c9905
+  # Coverage for the TEST job, not quality -- `test.coverage` was honoured up
+  # to the point a tool would run and then found none, so coverage had never
+  # run on any repo (issue #140). Chosen over cargo-tarpaulin because
+  # `cargo llvm-cov nextest` composes: a repo that resolved to nextest keeps
+  # it, where tarpaulin drives cargo's own harness and swaps nextest out.
+  #
+  # Publishes no checksum file, so these digests rest on our own download.
+  # Binary sits at the tarball root, so the install strips no component.
+  cargo-llvm-cov:
+    version: v0.9.1
+    repo: taiki-e/cargo-llvm-cov
+    pin: .github/actions/setup-nextest/action.yml
+    sha256:
+      # musl on both arches, static, same as cargo-nextest alongside it.
+      amd64: 3fca950394a3c49457657c158b1619cec8dfd2647ae5b48746734c0ab969a522
+      arm64: 49c0085628392a8d727c4464d91ec417c613c5015f5197cd16d5c05aa3fb5ad1
   # Public-API break detector for library crates (issue #186). Prebuilt gnu
   # binaries, so no `cargo install` on the release path. Unlike the other three
   # cargo tools here the tarball has no directory nesting - the binary is at

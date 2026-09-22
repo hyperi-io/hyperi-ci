@@ -26,6 +26,7 @@ from hyperi_ci.common import (
     group,
     info,
     is_ci,
+    run_cmd,
     success,
     warn,
 )
@@ -187,6 +188,43 @@ def stage_setup(language: str, config: CIConfig) -> int:
     return rc
 
 
+def _run_local_gates(config: CIConfig) -> int:
+    """Run the CI-only gates a repo declares, so a local green means something.
+
+    Some gates exist as their own CI JOB and have no place in the quality
+    stage, so `hyperi-ci check` passes while CI fails on something knowable
+    locally in seconds. A repo lists those commands under
+    `quality.local_gates` and gets them back in its local check.
+
+    Declared per repo rather than named here: which gates a repo runs as
+    separate jobs is the repo's business, and a path baked into this file
+    would be wrong for every consumer that does not have it.
+    """
+    gates = config.get("quality.local_gates", []) or []
+    if not gates:
+        return 0
+
+    for gate in gates:
+        name = gate.get("name") if isinstance(gate, dict) else None
+        command = gate.get("command") if isinstance(gate, dict) else None
+        if not name or not isinstance(command, list) or not command:
+            error(
+                "quality.local_gates entries need a `name` and a `command` "
+                f"list; got: {gate!r}"
+            )
+            return 1
+        with group(f"Local gate: {name}"):
+            result = run_cmd(command, check=False)
+            if result.returncode != 0:
+                error(
+                    f"  {name}: failed locally, and it is a required job in "
+                    f"CI. Fix it here rather than finding it after the push."
+                )
+                return result.returncode
+            success(f"  {name}: ok")
+    return 0
+
+
 def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> int:
     """Quality checks — gitleaks + language-specific checks."""
     # Deprecated-file hygiene nudge runs first and regardless of
@@ -257,6 +295,10 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
             rc = commit_validation.run(config, local=True)
             if rc != 0:
                 return rc
+
+        rc = _run_local_gates(config)
+        if rc != 0:
+            return rc
 
     extra_env: dict[str, str] = {}
     if language == "rust":

@@ -6,6 +6,7 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -178,6 +179,55 @@ class TestCommandConstruction:
 
     def test_unit_tier_is_lib_only(self) -> None:
         assert _build_test_cmd("default", tier="unit", runner="nextest")[-1] == "--lib"
+
+
+class TestCoverageKeepsTheResolvedRunner:
+    """llvm-cov was chosen over tarpaulin BECAUSE it composes with nextest.
+    If the composition is not wired, the choice bought nothing (issue #140)."""
+
+    @staticmethod
+    def _capture(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> list[list[str]]:
+        calls: list[list[str]] = []
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(
+            f"{MODULE}.shutil.which",
+            lambda tool: None if tool == "cargo-tarpaulin" else "/usr/bin/x",
+        )
+        monkeypatch.setattr(
+            f"{MODULE}.subprocess.run",
+            lambda cmd, *a, **k: calls.append(cmd) or MagicMock(returncode=0),
+        )
+        return calls
+
+    def test_nextest_is_composed_not_replaced(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+    ) -> None:
+        calls = self._capture(monkeypatch, tmp_path)
+        _run_coverage("default", runner="nextest")
+        assert calls[0][:3] == ["cargo", "llvm-cov", "nextest"]
+
+    def test_cargo_runner_does_not_get_a_nextest_arg(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+    ) -> None:
+        calls = self._capture(monkeypatch, tmp_path)
+        _run_coverage("default", runner="cargo")
+        assert "nextest" not in calls[0]
+
+    def test_llvm_cov_no_longer_warns_about_a_divergence_it_does_not_cause(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said: list[str] = []
+        monkeypatch.setattr(f"{MODULE}.warn", said.append)
+        _note_coverage_runner("nextest", "cargo-llvm-cov")
+        assert said == []
+
+    def test_tarpaulin_still_warns_because_it_still_swaps_the_harness(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said: list[str] = []
+        monkeypatch.setattr(f"{MODULE}.warn", said.append)
+        _note_coverage_runner("nextest", "cargo-tarpaulin")
+        assert len(said) == 1
 
 
 class TestCoverageSaysWhenItDidNotRun:
