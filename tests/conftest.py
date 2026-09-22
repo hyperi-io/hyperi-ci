@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from hyperi_ci import channel
+from hyperi_ci.common import is_ci
 
 
 def _write_elf(
@@ -105,3 +106,32 @@ def isolated_channel_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> P
     monkeypatch.setattr(channel, "CONFIG_DIR", ci_dir)
     monkeypatch.setattr(channel, "AI_CONFIG_DIR", ai_dir)
     return ci_dir
+
+
+def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
+    """Name every skipped test in CI, where a skip is a coverage gap.
+
+    A skip is invisible in a green run -- "6 skipped" scrolls past and nobody
+    reads which six. In CI that matters: every tool is meant to be present, so
+    a test skipping for a missing one is coverage that silently went away. On
+    a developer's machine it is an environment gap and stays quiet.
+
+    Reported, not failed. Turning these red unattended would break main for a
+    node package nobody asked for; naming them makes the gap knowable, which
+    is the half that was missing.
+    """
+    if not is_ci():
+        return
+    skipped = terminalreporter.stats.get("skipped", [])
+    if not skipped:
+        return
+    print(
+        f"::warning title=hyperi-ci {len(skipped)} test(s) skipped in CI::"
+        f"A skipped test is untested code, not a passing one. "
+        f"Every tool is meant to be present on a runner."
+    )
+    for report in skipped:
+        reason = ""
+        if isinstance(getattr(report, "longrepr", None), tuple):
+            reason = str(report.longrepr[2])
+        print(f"::warning::skipped: {report.nodeid} -- {reason}")
