@@ -247,6 +247,14 @@ tools:
       amd64: cd3c85194e8b28ad26676d287f41f0d6b4d456cef5bd94700def5dea8e328883
       arm64: 103a8f68b20fb01ee5daf2eb4c037b54ace550a04a288ee35761c5e7b0351311
       macos: 52ecaedb4f5af9267ef7ed02bc937d2a15a94ff96cb663080e81311f798c9905
+  # Public-API break detector for library crates (issue #186). Prebuilt gnu
+  # binaries, so no `cargo install` on the release path.
+  cargo-semver-checks:
+    version: v0.50.0
+    repo: obi1kenobi/cargo-semver-checks
+    sha256:
+      x86_64: 52a65dc88dc53fa8b57d6087954eb52cda149ca03bcfca78ce3fdecd23f893c4
+      aarch64: e35f435ea322659381f52e7034bb4f0470108f5b267d29f13cf08152fa4af29b
   # Source-built on the release runner by `cargo install --locked` and then run
   # over the binary we ship, so it is pinned like any other release tool.
   cargo-pgo:

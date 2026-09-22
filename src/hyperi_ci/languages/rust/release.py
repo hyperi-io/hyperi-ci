@@ -21,6 +21,7 @@ from hyperi_ci.common import (
     warn,
 )
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages.rust import semver_checks
 from hyperi_ci.languages.rust.build import stamp_manifest
 
 
@@ -125,6 +126,13 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         warn(
             "No release version resolved — publishing with existing Cargo.toml version"
         )
+
+    # AFTER the stamp and BEFORE the publish, and both halves matter. Before
+    # the stamp the manifest is stale, so semver-checks compares the last
+    # release against itself and passes having checked nothing (issue #186).
+    with group("Public API compatibility"):
+        if semver_checks.run(config) != 0:
+            return 1
 
     info(f"Publishing Rust crate to: {', '.join(destinations)}")
 
