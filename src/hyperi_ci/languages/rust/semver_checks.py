@@ -70,11 +70,21 @@ def run(config: CIConfig, *, project_root: Path | None = None) -> int:
         return 0
 
     if shutil.which("cargo-semver-checks") is None:
-        # Same rule as every other Rust tool: a missing tool is an environment
-        # gap locally and a coverage gap in CI, where it must be installed.
         if mode == "blocking" and is_ci():
             error(f"  {_TOOL}: not installed (required)")
             return 1
+        if is_ci():
+            # Nothing installs it on a runner yet, so this is where every
+            # release currently lands. Annotated rather than logged, because a
+            # check that quietly did not run is the failure it exists to catch.
+            missing = (
+                f"{_TOOL} is not installed on this runner, so the public API "
+                f"was NOT checked. This release is unverified for breaking "
+                f"changes."
+            )
+            warn(f"  {missing}")
+            print(f"::warning title=hyperi-ci semver-checks skipped::{missing}")
+            return 0
         warn(f"  {_TOOL}: not installed (skipping locally)")
         return 0
 
