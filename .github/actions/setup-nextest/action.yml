@@ -195,7 +195,11 @@ runs:
         WANT: ${{ inputs.llvm-cov-version }}
       run: |
         set -uo pipefail
-        GOT="$(cargo-llvm-cov --version 2>&1 | head -n1)"
+        # A cargo SUBCOMMAND needs its own name before a flag, exactly as
+        # cargo-nextest does below. A bare `--version` here exits 1 with
+        # "expected subcommand 'llvm-cov'", which failed the step on an
+        # install that had actually succeeded.
+        GOT="$(cargo-llvm-cov llvm-cov --version 2>&1 | head -n1)"
         if printf '%s' "$GOT" | grep -qF -- "${WANT#v}"; then
           echo "ok   cargo-llvm-cov: ${WANT#v}"
         else
