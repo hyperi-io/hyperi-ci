@@ -75,6 +75,14 @@ on:
         type: string
         default: ""
         description: "Space-separated submodule paths to init before the container build (e.g. 'schemas'), so a Dockerfile can bake submodule content. Empty (default) inits nothing."
+      skip-optimize:
+        type: string
+        default: ""
+        description: "'true' if the build skipped the optimisation stage. The container job stamps io.hyperi.optimized from it, so a deployed image says what it is."
+      release-unoptimized:
+        type: string
+        default: ""
+        description: "'true' if this run carries the consent to ship a skipped-optimisation build under a release tag."
 
 env:
   # Rehearsal / incident escape hatch: the HYPERCI_INSTALL_OVERRIDE repo
@@ -86,6 +94,10 @@ env:
   # an old hyperi-ci that allowed it, rather than failing (issue #157).
   HYPERCI_INSTALL: ${{ vars.HYPERCI_INSTALL_OVERRIDE || 'uvx --python 3.14 --no-cache --refresh hyperi-ci' }}
   HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
+  # The build job resolved these; the container and release jobs need them
+  # too, or an unoptimised image ships with no record that it is one.
+  HYPERCI_SKIP_OPTIMIZE: ${{ inputs.skip-optimize }}
+  HYPERCI_RELEASE_UNOPTIMIZED: ${{ inputs.release-unoptimized }}
 
 jobs:
   container:
