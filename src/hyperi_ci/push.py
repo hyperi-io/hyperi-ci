@@ -143,6 +143,10 @@ def _default_push(*, dry_run: bool, force: bool, cwd: str | None) -> int:
     if rc := _check_dirty_tree(cwd=cwd):
         return rc
 
+    # Before the gates, never after: this answer cannot change while they run.
+    if rc := _check_push_target(cwd=cwd):
+        return rc
+
     if not force:
         if rc := _run_check(cwd=cwd):
             return rc
@@ -198,6 +202,10 @@ def _publish_push(
         return 1
 
     if rc := _check_dirty_tree(cwd=cwd):
+        return rc
+
+    # Before the gates, never after: this answer cannot change while they run.
+    if rc := _check_push_target(cwd=cwd):
         return rc
 
     if not force:
@@ -664,6 +672,54 @@ def _check_dirty_tree(*, cwd: str | None) -> int:
     return 0
 
 
+# `push.default` values that require the upstream's name to match the branch's.
+# `simple` has been git's default since 2.0, so an unset value is this case too.
+_NAME_MATCHED_PUSH = frozenset({"", "simple"})
+
+
+def _check_push_target(*, cwd: str | None) -> int:
+    """Refuse now what git will refuse after the gates. Returns 0 if OK.
+
+    A branch created in a worktree inherits the upstream it was branched from,
+    so `fix/x` can track `main`. Under `push.default=simple` git then refuses
+    the push outright. Nothing the test suite does changes that, which is why
+    this runs before the gates rather than after (issue #210).
+    """
+    branch = get_current_branch(cwd=cwd)
+    if not branch:
+        return 0
+
+    mode = run_cmd(
+        ["git", "config", "--get", "push.default"],
+        capture=True,
+        check=False,
+        cwd=cwd,
+    )
+    if mode.stdout.strip() not in _NAME_MATCHED_PUSH:
+        return 0
+
+    # `branch.<name>.merge` names the upstream BRANCH, so there is no remote
+    # name to strip and no ambiguity when the branch itself contains a slash.
+    tracked = run_cmd(
+        ["git", "config", "--get", f"branch.{branch}.merge"],
+        capture=True,
+        check=False,
+        cwd=cwd,
+    )
+    upstream = tracked.stdout.strip().removeprefix("refs/heads/")
+    if not upstream or upstream == branch:
+        return 0
+
+    error(
+        f"'{branch}' tracks '{upstream}', and push.default=simple refuses a "
+        f"push whose upstream is named differently. git would reject this "
+        f"after the gates, so it is rejected now."
+    )
+    info(f"  Point it at its own branch:  git push -u origin {branch}")
+    info(f"  Or retarget the upstream:    git branch --set-upstream-to=origin/{branch}")
+    return 1
+
+
 def _check_not_ci_commit(*, cwd: str | None) -> int:
     """Check last commit is not a semantic-release version commit. Returns 0 if OK."""
     msg = _get_last_commit_message(cwd=cwd)
@@ -851,7 +907,10 @@ def _push_with_env(
     try:
         run_cmd(cmd, env={"HYPERCI_PUSH": "1"}, cwd=cwd)
     except subprocess.CalledProcessError:
-        error("Push failed")
+        # git's own stderr streamed straight to the terminal rather than
+        # through here, so name where the reason is instead of repeating a
+        # line this function never captured (issue #210).
+        error("Push failed -- git's reason is in its output directly above.")
         return 1
 
     success("Pushed successfully")

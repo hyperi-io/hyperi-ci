@@ -13,9 +13,118 @@ from unittest.mock import MagicMock, patch
 from hyperi_ci.push import (
     _check_dirty_tree,
     _check_not_ci_commit,
+    _check_push_target,
     _has_publish_trailer,
     push,
 )
+
+
+def _git_replies(**by_key: str):
+    """Stand in for `git config --get`, keyed on the setting being read."""
+
+    def _run(cmd: list[str], **kwargs: object) -> MagicMock:
+        key = cmd[-1]
+        return MagicMock(stdout=by_key.get(key, ""), returncode=0)
+
+    return _run
+
+
+class TestPushTargetIsCheckedBeforeTheGates:
+    """A worktree branch tracking `main` cannot push, and the suite cannot
+    change that -- so the answer is taken before 11 minutes of tests, not
+    after (issue #210)."""
+
+    def test_a_mismatched_upstream_is_refused(self) -> None:
+        with (
+            patch("hyperi_ci.push.get_current_branch", return_value="fix/x"),
+            patch(
+                "hyperi_ci.push.run_cmd",
+                side_effect=_git_replies(**{"branch.fix/x.merge": "refs/heads/main"}),
+            ),
+        ):
+            assert _check_push_target(cwd=None) == 1
+
+    def test_a_matching_upstream_passes(self) -> None:
+        with (
+            patch("hyperi_ci.push.get_current_branch", return_value="fix/x"),
+            patch(
+                "hyperi_ci.push.run_cmd",
+                side_effect=_git_replies(**{"branch.fix/x.merge": "refs/heads/fix/x"}),
+            ),
+        ):
+            assert _check_push_target(cwd=None) == 0
+
+    def test_no_upstream_passes_because_first_push_handles_it(self) -> None:
+        """`-u origin <branch>` is the first-push path; this must not pre-empt it."""
+        with (
+            patch("hyperi_ci.push.get_current_branch", return_value="fix/x"),
+            patch("hyperi_ci.push.run_cmd", side_effect=_git_replies()),
+        ):
+            assert _check_push_target(cwd=None) == 0
+
+    def test_a_slash_in_the_branch_name_is_not_mistaken_for_a_remote(self) -> None:
+        """`branch.<n>.merge` names the branch, so there is no remote to strip."""
+        with (
+            patch("hyperi_ci.push.get_current_branch", return_value="feat/a/b"),
+            patch(
+                "hyperi_ci.push.run_cmd",
+                side_effect=_git_replies(
+                    **{"branch.feat/a/b.merge": "refs/heads/feat/a/b"}
+                ),
+            ),
+        ):
+            assert _check_push_target(cwd=None) == 0
+
+    def test_a_push_default_that_ignores_names_is_left_alone(self) -> None:
+        """Under `current` or `upstream` the mismatch is legal -- do not invent
+        a failure git would not raise."""
+        for mode in ("current", "upstream", "matching"):
+            with (
+                patch("hyperi_ci.push.get_current_branch", return_value="fix/x"),
+                patch(
+                    "hyperi_ci.push.run_cmd",
+                    side_effect=_git_replies(
+                        **{
+                            "push.default": mode,
+                            "branch.fix/x.merge": "refs/heads/main",
+                        }
+                    ),
+                ),
+            ):
+                assert _check_push_target(cwd=None) == 0, mode
+
+    def test_a_detached_head_is_not_judged(self) -> None:
+        with patch("hyperi_ci.push.get_current_branch", return_value=None):
+            assert _check_push_target(cwd=None) == 0
+
+    def test_the_suite_never_starts_when_the_push_cannot_happen(self) -> None:
+        """The whole bug: 23 minutes of green tests, then a refusal that was
+        knowable before the first one ran. Checking the probe in isolation
+        does not prove the ordering, so prove the ordering."""
+        from hyperi_ci.push import _default_push
+
+        with (
+            patch("hyperi_ci.push._check_dirty_tree", return_value=0),
+            patch("hyperi_ci.push._check_push_target", return_value=1),
+            patch("hyperi_ci.push._run_check", return_value=0) as suite,
+            patch("hyperi_ci.push._rebase_and_push", return_value=0) as pushed,
+        ):
+            assert _default_push(dry_run=False, force=False, cwd=None) == 1
+        suite.assert_not_called()
+        pushed.assert_not_called()
+
+    def test_publish_push_checks_it_too(self) -> None:
+        from hyperi_ci.push import _publish_push
+
+        with (
+            patch("hyperi_ci.push._is_prerelease_branch", return_value=True),
+            patch("hyperi_ci.push.get_current_branch", return_value="main"),
+            patch("hyperi_ci.push._check_dirty_tree", return_value=0),
+            patch("hyperi_ci.push._check_push_target", return_value=1),
+            patch("hyperi_ci.push._run_check", return_value=0) as suite,
+        ):
+            assert _publish_push(dry_run=False, force=False, bump=None, cwd=None) == 1
+        suite.assert_not_called()
 
 
 class TestPushFlagValidation:
