@@ -32,6 +32,7 @@ from hyperi_ci.common import (
 from hyperi_ci.config import VALID_PROJECT_STATUSES, CIConfig, load_config
 from hyperi_ci.detect import detect_language
 from hyperi_ci.quality import (
+    charset,
     commit_validation,
     deprecated_files,
     droast,
@@ -208,6 +209,14 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
     # Cross-language checks first.
     with group("Gitleaks secret scanning"):
         rc = gitleaks.run(config)
+        if rc != 0:
+            return rc
+
+    # The ASCII-only rule applies to every language, so it runs once here.
+    # 160 licence headers accumulated an em-dash because nothing enforced it
+    # (issue #169).
+    with group("Character policy"):
+        rc = charset.run(config)
         if rc != 0:
             return rc
 
