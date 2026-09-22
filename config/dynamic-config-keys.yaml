@@ -36,6 +36,7 @@ keys:
   quality.kube_linter: src/hyperi_ci/quality/kube_linter.py
   quality.compose_config: src/hyperi_ci/quality/compose_config.py
   quality.compose_pins: src/hyperi_ci/quality/compose_pins.py
+  quality.cargo_flags: src/hyperi_ci/quality/cargo_flags.py
   quality.doc_paths: src/hyperi_ci/quality/doc_paths.py
   quality.doc_links: src/hyperi_ci/quality/doc_links.py
   quality.mermaid_parse: src/hyperi_ci/quality/mermaid_parse.py
