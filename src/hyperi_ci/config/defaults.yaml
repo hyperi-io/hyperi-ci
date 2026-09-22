@@ -71,6 +71,21 @@ ci_min_python_version: "3.9"
 quality:
   enabled: true
   exclude_paths: []
+
+  # Gates a repo runs as their own CI JOB, repeated in the LOCAL check so a
+  # local green predicts a CI green. hyperi-ci's check covers what hyperi-ci
+  # MANAGES; a gate the repo bolted into its own workflow is invisible to it,
+  # and touching the file that gate watches passes locally and goes red on the
+  # runner. Declared per repo because which gates exist is the repo's business.
+  #
+  #   local_gates:
+  #     - name: version SSOT
+  #       command: ["uv", "run", "python", "scripts/update-versions.py", "--check"]
+  #
+  # Runs on `hyperi-ci check` only -- CI already runs them as jobs. A malformed
+  # entry FAILS rather than being skipped: a gate that quietly does not run is
+  # the defect this exists to close.
+  local_gates: []
   gitleaks: blocking
   semgrep: warn              # Semgrep SAST (cross-language) - runs once at dispatch, like gitleaks
   # The ASCII-only rule, enforced at last (issue #169). `warn` first per the
