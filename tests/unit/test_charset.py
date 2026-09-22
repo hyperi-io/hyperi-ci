@@ -11,7 +11,7 @@ fire on. A charset check that flags a name with a diacritic gets disabled
 within a week, and then the rule it enforces decays again.
 """
 
-from hyperi_ci.quality.charset import BANNED, scan_text
+from hyperi_ci.quality.charset import BANNED, INVISIBLE, scan_text
 
 
 class TestItCatchesTheSubstitutions:
@@ -39,6 +39,27 @@ class TestItCatchesTheSubstitutions:
     def test_every_banned_character_is_caught(self) -> None:
         for char in BANNED:
             assert scan_text("f.py", f"x {char} y"), f"{char!r} not reported"
+
+    def test_a_minus_sign_reads_as_a_hyphen_and_is_still_caught(self) -> None:
+        """U+2212 renders as `-`, so only the check tells the two apart."""
+        found = scan_text("f.py", "# range \N{MINUS SIGN}1 to 1")
+        assert [f.rule for f in found] == ["charset/banned-typography"]
+
+
+class TestTheSpacesThatAreNotSpaces:
+    """These change what a parser does, which no other entry in the table has."""
+
+    def test_every_invisible_space_is_caught(self) -> None:
+        for char in INVISIBLE:
+            assert scan_text("f.yaml", f"key:{char}value"), f"{char!r} not reported"
+
+    def test_it_is_its_own_rule_and_names_the_character(self) -> None:
+        found = scan_text("f.yaml", "retries:\N{NO-BREAK SPACE}3")
+        assert [f.rule for f in found] == ["charset/invisible-space"]
+        assert "NO-BREAK SPACE" in found[0].message
+
+    def test_a_real_space_is_clean(self) -> None:
+        assert scan_text("f.yaml", "retries: 3\n") == []
 
 
 class TestWhatItMustLeaveAlone:
