@@ -248,13 +248,20 @@ tools:
       arm64: 103a8f68b20fb01ee5daf2eb4c037b54ace550a04a288ee35761c5e7b0351311
       macos: 52ecaedb4f5af9267ef7ed02bc937d2a15a94ff96cb663080e81311f798c9905
   # Public-API break detector for library crates (issue #186). Prebuilt gnu
-  # binaries, so no `cargo install` on the release path.
+  # binaries, so no `cargo install` on the release path. Unlike the other three
+  # cargo tools here the tarball has no directory nesting - the binary is at
+  # the root, so the install does not strip a component.
+  #
+  # Publishes no checksum file, so like cargo-audit these digests rest on our
+  # own download.
   cargo-semver-checks:
     version: v0.50.0
     repo: obi1kenobi/cargo-semver-checks
+    pin: .github/actions/setup-rust-tools/action.yml
     sha256:
-      x86_64: 52a65dc88dc53fa8b57d6087954eb52cda149ca03bcfca78ce3fdecd23f893c4
-      aarch64: e35f435ea322659381f52e7034bb4f0470108f5b267d29f13cf08152fa4af29b
+      # gnu on both arches; musl is also published but nothing here needs it.
+      amd64: 52a65dc88dc53fa8b57d6087954eb52cda149ca03bcfca78ce3fdecd23f893c4
+      arm64: e35f435ea322659381f52e7034bb4f0470108f5b267d29f13cf08152fa4af29b
   # Source-built on the release runner by `cargo install --locked` and then run
   # over the binary we ship, so it is pinned like any other release tool.
   cargo-pgo:
