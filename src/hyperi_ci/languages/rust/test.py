@@ -11,8 +11,6 @@ which one from ``test.rust.nextest`` and announcing the choice. Supports
 coverage via cargo-tarpaulin or cargo-llvm-cov.
 """
 
-from __future__ import annotations
-
 import shutil
 import subprocess
 from pathlib import Path
