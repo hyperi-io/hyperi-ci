@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/release/dispatch.py
 # Purpose:   Retroactive release via workflow_dispatch on existing tag
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Retroactive publish: workflow_dispatch on an existing tag.
 

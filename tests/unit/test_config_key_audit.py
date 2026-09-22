@@ -2,7 +2,7 @@
 # File:      tests/unit/test_config_key_audit.py
 # Purpose:   A config key that does nothing must fail the build
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 """Gate: every key in defaults.yaml is read by something.

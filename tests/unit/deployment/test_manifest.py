@@ -2,7 +2,7 @@
 # File:      tests/unit/deployment/test_manifest.py
 # Purpose:   Shared Cargo.toml / pyproject.toml reader tests
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for `hyperi_ci.deployment.manifest`.
 

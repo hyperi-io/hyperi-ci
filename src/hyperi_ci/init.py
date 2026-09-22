@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/init.py
 # Purpose:   Project scaffolding — generates config, Makefile, and workflow
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Project initialisation for hyperi-ci.
 
@@ -135,7 +135,7 @@ def _license_header_text(license_id: str) -> str:
     """Return the license line for file headers."""
     if license_id == "BUSL-1.1":
         return "BUSL-1.1"
-    return f"{license_id} — HYPERI PTY LIMITED"
+    return f"{license_id} - HYPERI PTY LIMITED"
 
 
 def _detect_python_build_type(project_dir: Path) -> str:

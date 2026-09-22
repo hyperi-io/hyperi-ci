@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/quality/deprecated_files.py
 # Purpose:   Config-driven hygiene nudge for deprecated project files
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Warn about deprecated project files present in a repo.
 

@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/tools.py
 # Purpose:   External-tool presence checks with actionable, Rust-style guidance
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """External-tool presence checks with actionable, Rust-style guidance.
 

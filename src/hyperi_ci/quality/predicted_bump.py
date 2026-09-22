@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/quality/predicted_bump.py
 # Purpose:   Predict the semver bump a publish would ship, for pre-push gating
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Predict the semver bump a publish would cut, from the commit range.
 

@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/preflight.py
 # Purpose:   Check publish credentials before the build, not after it
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Fail a publish run for a missing credential in seconds, not in an hour.
 

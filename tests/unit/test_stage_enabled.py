@@ -2,7 +2,7 @@
 # File:      tests/unit/test_stage_enabled.py
 # Purpose:   Every stage's `enabled` key is honoured, and the no-tests escape
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 """The stage `enabled` switches, and `test.fail_on_missing`.

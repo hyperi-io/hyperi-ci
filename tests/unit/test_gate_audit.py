@@ -2,7 +2,7 @@
 # File:      tests/unit/test_gate_audit.py
 # Purpose:   A skipped gate must not read as a passing gate (issue #96)
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Gate-audit tests.
 

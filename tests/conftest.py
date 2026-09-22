@@ -2,7 +2,7 @@
 # File:      tests/conftest.py
 # Purpose:   Shared fixtures -- keep the suite off the developer's real config
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 from __future__ import annotations

@@ -2,7 +2,7 @@
 # File:      tests/unit/test_seed_tag.py
 # Purpose:   Seeding a repo's first version tag, against a real git repo
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 """The seed tag is created once, from the manifest, and never a second time.

@@ -2,7 +2,7 @@
 # File:      tests/unit/test_version_source.py
 # Purpose:   The starting version comes from the manifest, never from VERSION
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 """A tag-less repo's first version is derived, not read off a stale file.

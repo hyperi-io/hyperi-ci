@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/config.py
 # Purpose:   Typed configuration schema and loader
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Configuration schema, loading, and validation for HyperI CI.
 

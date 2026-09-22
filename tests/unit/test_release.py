@@ -2,7 +2,7 @@
 # File:      tests/unit/test_release.py
 # Purpose:   Tests for release destination routing (no mocks)
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Release destination routing tests.
 

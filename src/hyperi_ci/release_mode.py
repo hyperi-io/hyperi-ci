@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/release_mode.py
 # Purpose:   Release-mode resolution — SSOT for the push/validate decision
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Release-mode resolution -- the single source of truth.
 

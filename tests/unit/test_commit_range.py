@@ -2,7 +2,7 @@
 # File:      tests/unit/test_commit_range.py
 # Purpose:   Tests for the pushed-range resolver and its release-worthiness
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for `hyperi_ci.commit_range`.
 
