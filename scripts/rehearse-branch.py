@@ -3,7 +3,7 @@
 # File:      scripts/rehearse-branch.py
 # Purpose:   Rehearse a hyperi-ci branch against a real fixture repo
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Rehearse a hyperi-ci BRANCH against a ci-test-* fixture BEFORE merging.
 

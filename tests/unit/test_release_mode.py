@@ -2,7 +2,7 @@
 # File:      tests/unit/test_release_mode.py
 # Purpose:   Tests for the release-mode SSOT (branch-mode tri-state)
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Push-mode resolution matrix.
 

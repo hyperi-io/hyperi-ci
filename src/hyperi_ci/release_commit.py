@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/release_commit.py
 # Purpose:   Commit the rendered release artefacts back, without tagging them
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Put the rendered VERSION and CHANGELOG back on the branch after a release.
 

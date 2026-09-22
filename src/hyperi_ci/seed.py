@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/seed.py
 # Purpose:   Create a repo's first version tag, once, at adoption
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Give a tag-less repo the one thing the whole version pipeline reads.
 

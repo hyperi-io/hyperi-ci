@@ -2,7 +2,7 @@
 # File:      tests/unit/test_release_notify.py
 # Purpose:   A release announces itself, once, and never breaks the release
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 """Notifications must be idempotent and incapable of failing a release.

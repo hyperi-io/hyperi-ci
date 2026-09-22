@@ -2,7 +2,7 @@
 # File:      tests/unit/test_release_commit.py
 # Purpose:   The release commit lands untagged, or not at all
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 """Committing rendered artefacts back must not recreate the #37 failure.

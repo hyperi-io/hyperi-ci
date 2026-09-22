@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/quality/repo_advisor.py
 # Purpose:   Optional, non-blocking repo-hygiene advisory via `alint`
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Optional, non-blocking repo-hygiene advisory via ``alint``.
 

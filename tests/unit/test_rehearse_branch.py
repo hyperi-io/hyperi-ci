@@ -2,7 +2,7 @@
 # File:      tests/unit/test_rehearse_branch.py
 # Purpose:   Tests for the branch-rehearsal ref swap
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for scripts/rehearse-branch.py pure helpers."""
 

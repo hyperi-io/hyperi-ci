@@ -2,7 +2,7 @@
 # File:      tests/unit/test_rust_build.py
 # Purpose:   Unit tests for Rust workspace feature detection and the Tier 2 summary
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 from __future__ import annotations

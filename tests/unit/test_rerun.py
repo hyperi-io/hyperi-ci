@@ -2,7 +2,7 @@
 # File:      tests/unit/test_rerun.py
 # Purpose:   Run selection and the argv rerun hands to gh
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for the rerun wrapper (issue #97).
 

@@ -2,7 +2,7 @@
 # File:      tests/unit/test_build_toolchain_guard.py
 # Purpose:   A missing toolchain reports, it does not raise
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 """A build handler with no toolchain must fail cleanly.

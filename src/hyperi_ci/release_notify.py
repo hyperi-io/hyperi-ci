@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/release_notify.py
 # Purpose:   Tell someone a release shipped, or that it died
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Close the loop after a release, the way semantic-release's github plugin does.
 

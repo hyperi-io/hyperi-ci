@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/languages/python/release.py
 # Purpose:   Python release handler (PyPI)
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Python publish handler — publishes Python packages to PyPI."""
 
