@@ -333,7 +333,7 @@ watch:
   uv-audit:
     what: replace pip-audit with `uv audit` (astral stack consolidation)
     blocked_by: >-
-      experimental as of uv 0.11.29 (latest, 2026-07-15) - the command warns
+      experimental as of uv 0.12.6 (re-checked 2026-09-23) - the command warns
       "may change without warning" and is gated behind
       `--preview-features audit-command`. pip-audit is a BLOCKING gate in 14
       repos; it does not ride on a preview command.
