@@ -243,10 +243,10 @@ def _all_pins(
 
 
 def _pin_replacement(version: str) -> str:
-    """Build the re.sub replacement that swaps in `version`, keeping the prefix.
+    r"""Build the re.sub replacement that swaps in `version`, keeping the prefix.
 
     This is a REPLACEMENT, not a pattern: only a backslash is special here, so
-    re.escape would be the wrong tool (it would insert a literal `v2\\.4\\.0`).
+    re.escape would be the wrong tool (it would insert a literal `v2\.4\.0`).
     """
     return r"\g<1>" + version.replace("\\", "\\\\")
 
@@ -397,9 +397,11 @@ def _resolve_tag_sha(owner_repo: str, tag: str) -> str | None:
 def _resolve_branch_sha(
     owner_repo: str, branch: str, now: datetime, cooldown_days: int | None = None
 ) -> str | None:
-    """Pin a branch ref (e.g. rust-toolchain@master) to its newest commit
-    that is older than the cooldown — no releases to gate on, so use the
-    commit date instead."""
+    """Pin a branch ref to its newest commit older than the cooldown.
+
+    A branch ref (rust-toolchain@master) has no releases to gate on, so the
+    commit date is the only cooldown signal available.
+    """
     commits = _gh_json(f"/repos/{owner_repo}/commits?sha={branch}&per_page=50")
     if not isinstance(commits, list):
         return None

@@ -178,6 +178,7 @@ def _unrecoverable_tags(repo: str, branch: str, planned: set[str]) -> list[str]:
 
 
 def main() -> int:
+    """Restore v* tags a history rewrite orphaned from the current branch."""
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--repo", default=".", help="path to the affected clone")
     ap.add_argument("--branch", default="main", help="branch carrying release commits")

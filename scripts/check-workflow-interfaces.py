@@ -185,6 +185,7 @@ def _pipeline_files_at(tag: str) -> set[str]:
 
 
 def main() -> int:
+    """Fail on a backward-incompatible change to a published call interface."""
     tag = _last_release_tag()
     if not tag:
         print("No release tag to compare against — skipping interface gate.")
