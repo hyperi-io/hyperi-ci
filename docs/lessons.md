@@ -358,6 +358,30 @@ the re-run looked like the reasonable response, and it cost two rehearsals.
 When a rehearsal fails, read every failing job before deciding any of them is
 transient.
 
+And the rehearsal itself can be the thing that lies. A fixture takes its
+WORKFLOW from `@main` the instant it merges, and its CLI from PyPI on a
+release. So a rehearsal that does not pass `HYPERCI_INSTALL_OVERRIDE` runs the
+PUBLISHED CLI against the branch's workflow -- it exercises the half that
+arrived and silently skips the half that has not shipped.
+
+That cost the fleet a broken Rust test leg. A composite action gained a verify
+step; the rehearsal ran the INSTALL against the published CLI, never reached
+the verify, and came back green. The step was wrong in a way a single real run
+would have shown.
+
+A rehearsal that can quietly run the old code is worse than none, because it
+returns a green you believe. Pass the override, or say out loud which half you
+tested.
+
+Two coverage holes in the same family, both structural rather than missed:
+
+- **A composite action's steps only run inside a job for that language.** The
+  Rust verify steps cannot execute in this repo's CI at all, because this repo
+  has no Rust. The green tick was honest about everything it could reach.
+- **The fast channel is the workflow, the slow one is the wheel.** Anything
+  that ships through both in one commit reaches consumers in halves. It turns
+  fixtures RED and consumers falsely GREEN depending on direction.
+
 ### A check that reports success over what it never ran
 
 Five of this repo's checks were green over work they had not done: a CI gate
