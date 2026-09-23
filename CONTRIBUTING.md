@@ -213,6 +213,30 @@ fixture, and pass `HYPERCI_INSTALL_OVERRIDE` when the change is in the CLI --
 without it the rehearsal runs the PUBLISHED CLI against your branch's workflow
 and tests the wrong half. `docs/lessons.md` has the cases.
 
+**The rehearsal is REQUIRED, not advisory.** A PR touching
+`.github/workflows/**` or `.github/actions/**` reaches every consumer through
+`@main` the moment it merges, so the `Fixture rehearsal` job holds it to a real
+run on a real fixture:
+
+```bash
+uv run scripts/rehearse-branch.py --branch <your-branch> --repo hyperi-io/<fixture>
+```
+
+- The rehearsal writes a RECORD into the fixture's rehearsal PR naming the
+  hyperi-ci COMMIT it ran. Push another commit and the gate goes red again.
+- Which fixtures it wants comes from `config/fixtures.yaml`, and the job names
+  them. CI verifies; you run, because starting a rehearsal needs a GitHub App
+  with `workflows: write` that hypersec-ci-bot is not.
+
+**The fleet sweep runs everything against main.** `Fleet sweep` dispatches all
+nine fixtures on a merge touching the consumer surface, and weekly. Ran nothing
+or could not reach a repo is a FAILURE, not a pass. By hand:
+`uv run scripts/sweep-fleet.py --only <fixture>`.
+
+**A fixture switching a hyperi-ci feature off declares it.** Add a `masks:`
+entry to `config/fixtures.yaml` naming the feature, the reason, and the ISSUE
+that removes it. The sweep prints them, so a gap stays visible.
+
 ## CI/CD Workflow
 
 When your pull request is merged to `main`:

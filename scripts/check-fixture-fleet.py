@@ -28,18 +28,19 @@ import subprocess
 import sys
 from pathlib import Path
 
-import yaml
+# The sibling module is a plain file, not a package, so the directory has to be
+# on the path before the import -- importlib-loaded callers get no sys.path[0].
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-_ROOT = Path(__file__).resolve().parent.parent
-_FLEET = _ROOT / "config" / "fixtures.yaml"
-_ORG = "hyperi-io"
+import fixture_fleet  # noqa: E402
+
+_ORG = fixture_fleet.ORG
 _PREFIX = "ci-test-"
 
 
 def declared() -> set[str]:
     """Fixture names this repo claims exist."""
-    data = yaml.safe_load(_FLEET.read_text(encoding="utf-8"))
-    return {entry["name"] for entry in data.get("fleet", [])}
+    return fixture_fleet.declared_names(fixture_fleet.load_fleet())
 
 
 def actual() -> set[str] | None:

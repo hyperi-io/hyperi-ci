@@ -22,8 +22,14 @@ shipped. This script points a throwaway fixture branch at the CANDIDATE:
    run exercises the branch's workflows + CLI through quality / test /
    build / container (a dev push lands in the prunable ``branch-*``
    namespace on an opted-in fixture),
-5. watches the run, reports per-job outcomes, then cleans up (closes the
-   PR, clears the variable, best-effort deletes the branch).
+5. watches the run, reports per-job outcomes, writes the verdict into the
+   fixture PR body as a rehearsal RECORD, then cleans up (closes the PR,
+   restores the variable, best-effort deletes the branch).
+
+The record is what makes the rehearsal a gate rather than a habit: it
+names the hyperi-ci commit that was rehearsed and the run that proved it,
+so ``scripts/rehearse-gate.py`` can refuse a PR whose current head has
+never been run against a fixture (issue #215).
 
 Deliberately NEVER: merges anything, touches the fixture's main, or
 publishes. Known limit (accepted, pinning decision #31 gate-only):
@@ -35,8 +41,6 @@ Usage:
         --repo hyperi-io/ci-test-go-app [--keep] [--no-cli-override] \
         [--timeout-minutes 20]
 """
-
-from __future__ import annotations
 
 import argparse
 import json
@@ -85,28 +89,47 @@ def _fail(msg: str) -> int:
     return 1
 
 
-def _branch_exists(branch: str) -> bool:
+def _branch_head(branch: str) -> str | None:
+    """The branch's head commit on hyperi-ci, or None when it is not pushed."""
     result = _run(
-        ["gh", "api", f"/repos/{_HYPERI_CI_REPO}/branches/{branch}", "--jq", ".name"]
+        [
+            "gh",
+            "api",
+            f"/repos/{_HYPERI_CI_REPO}/branches/{branch}",
+            "--jq",
+            ".commit.sha",
+        ]
     )
-    return result.returncode == 0
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+_OVERRIDE_VAR = "HYPERCI_INSTALL_OVERRIDE"
+
+
+def _read_override(repo: str) -> str | None:
+    """The fixture's current HYPERCI_INSTALL_OVERRIDE, or None when unset."""
+    result = _run(
+        [
+            "gh",
+            "api",
+            f"/repos/{repo}/actions/variables/{_OVERRIDE_VAR}",
+            "--jq",
+            ".value",
+        ]
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
 
 
 def _gh_var(repo: str, action: str, value: str = "") -> bool:
     """Set or delete HYPERCI_INSTALL_OVERRIDE on the fixture. True on success."""
     if action == "set":
-        cmd = [
-            "gh",
-            "variable",
-            "set",
-            "HYPERCI_INSTALL_OVERRIDE",
-            "--body",
-            value,
-            "-R",
-            repo,
-        ]
+        cmd = ["gh", "variable", "set", _OVERRIDE_VAR, "--body", value, "-R", repo]
     else:
-        cmd = ["gh", "variable", "delete", "HYPERCI_INSTALL_OVERRIDE", "-R", repo]
+        cmd = ["gh", "variable", "delete", _OVERRIDE_VAR, "-R", repo]
     result = _run(cmd)
     if result.returncode != 0 and action == "set":
         print(result.stderr, file=sys.stderr)
@@ -132,16 +155,76 @@ def summarise_jobs(jobs: list[dict]) -> tuple[bool, list[str]]:
     return passed, lines
 
 
+RECORD_MARKER = "Rehearsal record"
+_RECORD_FIELD = re.compile(
+    r"^(hyperi-ci-sha|run-id|verdict):\s*(\S+)\s*$", re.MULTILINE
+)
+
+
+def record_block(sha: str, run_id: int, verdict: str) -> str:
+    """The rehearsal record appended to the fixture PR body.
+
+    Args:
+        sha: The hyperi-ci commit that was rehearsed.
+        run_id: The fixture run that proved it.
+        verdict: pass, fail or timeout.
+
+    Returns:
+        A plain-text block the gate parses and a human can read.
+    """
+    return (
+        f"\n\n{RECORD_MARKER}\n"
+        f"hyperi-ci-sha: {sha}\n"
+        f"run-id: {run_id}\n"
+        f"verdict: {verdict}\n"
+    )
+
+
+def parse_record(body: str | None) -> dict[str, str] | None:
+    """Read a rehearsal record out of a fixture PR body.
+
+    Returns:
+        The three fields, or None when the body carries no complete record.
+    """
+    if not body or RECORD_MARKER not in body:
+        return None
+    tail = body[body.rindex(RECORD_MARKER) :]
+    found = dict(_RECORD_FIELD.findall(tail))
+    if {"hyperi-ci-sha", "run-id", "verdict"} - found.keys():
+        return None
+    return found
+
+
+def _write_record(repo: str, pr_number: int, body: str, block: str) -> bool:
+    """Append the record to the fixture PR body. True on success."""
+    result = _run(
+        [
+            "gh",
+            "api",
+            f"/repos/{repo}/pulls/{pr_number}",
+            "-X",
+            "PATCH",
+            "-f",
+            f"body={body}{block}",
+        ],
+        timeout=60,
+    )
+    if result.returncode != 0:
+        print(f"WARNING: could not write the rehearsal record: {result.stderr.strip()}")
+    return result.returncode == 0
+
+
 def _watch_pr_run(
     repo: str, rehearse_ref: str, timeout_minutes: int
-) -> tuple[str, list[str]]:
+) -> tuple[str, list[str], int]:
     """Wait for the rehearsal's pull_request run and read it job by job.
 
     Uses `gh run list` / `gh run view`, which every supported gh has, rather
     than `gh pr checks --json`, which older gh rejects outright.
 
     Returns:
-        ("pass" | "fail" | "timeout", lines). A timeout is no verdict at all.
+        ("pass" | "fail" | "timeout", lines, run id). A timeout is no verdict at
+        all, and carries run id 0.
 
     """
     deadline = time.time() + timeout_minutes * 60
@@ -193,11 +276,11 @@ def _watch_pr_run(
             if viewed.returncode == 0:
                 jobs = json.loads(viewed.stdout or "{}").get("jobs", [])
                 passed, lines = summarise_jobs(jobs)
-                return ("pass" if passed else "fail"), lines
+                return ("pass" if passed else "fail"), lines, int(runs[0]["databaseId"])
             last_error = viewed.stderr.strip()
         time.sleep(30)
     note = f" (last gh error: {last_error})" if last_error else ""
-    return "timeout", [f"  no PR run finished within {timeout_minutes} min{note}"]
+    return "timeout", [f"  no PR run finished within {timeout_minutes} min{note}"], 0
 
 
 def main() -> int:
@@ -226,10 +309,12 @@ def main() -> int:
         return _fail("rehearse against a fixture, not hyperi-ci itself")
     if branch in ("main", "master"):
         return _fail("rehearsing main is meaningless — it is what fixtures already run")
-    if not _branch_exists(branch):
+    head_sha = _branch_head(branch)
+    if head_sha is None:
         return _fail(
             f"branch {branch!r} not found on {_HYPERI_CI_REPO} — push it first"
         )
+    print(f"Rehearsing {branch} at {head_sha[:12]} against {repo}")
 
     slug = rehearse_slug(branch)
     rehearse_ref = f"rehearse/{slug}"
@@ -266,9 +351,15 @@ def main() -> int:
                 return _fail(f"git {git_args[0]} failed: {result.stderr.strip()}")
 
         override_set = False
+        # A fixture may already carry a permanent override (ci-test-manifests
+        # pins @main), so cleanup restores this rather than deleting the key.
+        prior_override = _read_override(repo)
         if not args.no_cli_override:
+            # --no-cache --refresh or uvx resolves the branch to whatever it
+            # built last time, and the record would certify a commit no fixture
+            # ran. --python pins the CLI's interpreter (issue #157).
             value = (
-                "uvx --from "
+                "uvx --python 3.14 --no-cache --refresh --from "
                 f"git+https://github.com/{_HYPERI_CI_REPO}@{branch} hyperi-ci"
             )
             override_set = _gh_var(repo, "set", value)
@@ -276,6 +367,12 @@ def main() -> int:
                 return _fail("could not set HYPERCI_INSTALL_OVERRIDE")
             print(f"HYPERCI_INSTALL_OVERRIDE set on {repo}")
 
+        body = (
+            "Throwaway rehearsal PR created by scripts/rehearse-branch.py. "
+            f"Exercises hyperi-ci@{branch} workflows"
+            + ("" if args.no_cli_override else " + branch CLI")
+            + " against this fixture. Never merged; cleaned up automatically."
+        )
         result = _run(
             [
                 "gh",
@@ -289,10 +386,7 @@ def main() -> int:
                 "--title",
                 f"ci: rehearse hyperi-ci@{branch} [do not merge]",
                 "--body",
-                "Throwaway rehearsal PR created by scripts/rehearse-branch.py. "
-                f"Exercises hyperi-ci@{branch} workflows"
-                + ("" if args.no_cli_override else " + branch CLI")
-                + " against this fixture. Never merged; cleaned up automatically.",
+                body,
             ],
             timeout=60,
         )
@@ -302,17 +396,29 @@ def main() -> int:
         pr_number = int(pr_url.rstrip("/").rsplit("/", 1)[-1])
         print(f"Rehearsal PR: {pr_url}")
 
-        verdict, lines = _watch_pr_run(repo, rehearse_ref, args.timeout_minutes)
+        verdict, lines, run_id = _watch_pr_run(repo, rehearse_ref, args.timeout_minutes)
         print("Rehearsal run results:")
         for line in lines:
             print(line)
+
+        # Written BEFORE cleanup: closing the PR leaves the body readable, and
+        # the gate reads this to decide whether a hyperi-ci commit was proven.
+        if args.no_cli_override:
+            print("--no-cli-override: no record written, the CLI half was not tested")
+        else:
+            _write_record(
+                repo, pr_number, body, record_block(head_sha, run_id, verdict)
+            )
 
         if args.keep:
             print("--keep: leaving PR, branch, and override in place")
         else:
             _run(["gh", "pr", "close", str(pr_number), "-R", repo], timeout=60)
             if override_set:
-                _gh_var(repo, "delete")
+                if prior_override is None:
+                    _gh_var(repo, "delete")
+                else:
+                    _gh_var(repo, "set", prior_override)
             # Branch delete may be policy-blocked (unattended sessions park
             # branch deletes) — best-effort, report either way.
             result = _run(
@@ -321,11 +427,11 @@ def main() -> int:
             )
             if result.returncode == 0:
                 print(
-                    f"Cleaned up: PR closed, override cleared, {rehearse_ref} deleted"
+                    f"Cleaned up: PR closed, override restored, {rehearse_ref} deleted"
                 )
             else:
                 print(
-                    f"PR closed + override cleared; branch {rehearse_ref} NOT "
+                    f"PR closed + override restored; branch {rehearse_ref} NOT "
                     f"deleted ({result.stderr.strip().splitlines()[-1] if result.stderr.strip() else 'unknown'}) "
                     "— delete manually"
                 )

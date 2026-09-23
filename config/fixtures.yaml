@@ -17,47 +17,84 @@
 # Adding a fixture: add it here first. The consistency check fails on a repo
 # the org has and this file does not, and on one this file has and the org
 # does not, so a rename or a deletion surfaces the same day.
+#
+# Fields:
+#   name            upstream repo name under hyperi-io
+#   language        the fixture's own language; `none` where it has no build
+#   workflow        the reusable workflow its ci.yml calls. Drives which
+#                   fixtures a workflow change has to be rehearsed against
+#                   (scripts/rehearse-gate.py), so it is data, not prose.
+#   covers          what this fixture is the fleet's answer for
+#   rehearsal       `canary`  - the shared-surface target, one per fleet
+#                   `default` - its workflow's target, one per workflow
+#                   omitted   - swept, never rehearsed
+#   negative_cases  carries a `.ci-negative/` directory
+#   masks           hyperi-ci features this fixture turns OFF (see below)
 
 fleet:
   # `negative_cases` marks a fixture carrying a `.ci-negative/` directory:
   # deliberate planted failures with DO-NOT-FIX headers, which the sweep
   # asserts fail at a declared stage for a declared reason (issue #219).
   # NEVER repair one - that is the test.
+  #
+  # `masks` is the opposite case and the one that goes quiet: a fixture
+  # switching a hyperi-ci FEATURE off means the fleet stops exercising it,
+  # and nothing says so. Every mask carries the issue that will remove it,
+  # and `scripts/sweep-fleet.py` prints the list on every sweep. The
+  # fleet-wide `destinations_oss` opt-outs are NOT masks - cutting the leg
+  # out to a public registry is standing fleet policy, not a hidden gap.
   - name: ci-test-go-app
     language: go
+    workflow: go-ci.yml
     covers: four-target build and GHCR dev-push
+    rehearsal: canary
     negative_cases: true
 
   - name: ci-test-manifests
     language: none
+    workflow: python-ci.yml
     covers: container, Kubernetes and IaC linting
     negative_cases: true
 
   - name: ci-test-python-app
     language: python
+    workflow: python-ci.yml
     covers: container custom mode on GHCR
+    rehearsal: default
 
   - name: ci-test-python-lib
     language: python
+    workflow: python-ci.yml
     covers: library, container auto-skip
 
   - name: ci-test-rust-app
     language: rust
+    workflow: rust-ci.yml
     covers: container custom mode and native deps
+    rehearsal: default
 
   - name: ci-test-rust-lib
     language: rust
+    workflow: rust-ci.yml
     covers: library, container auto-skip
 
   - name: ci-test-rust-simple
     language: rust
+    workflow: rust-ci.yml
     covers: minimal Rust CLI, the baseline pipeline
     negative_cases: true
 
   - name: ci-test-rust-workspace
     language: rust
+    workflow: rust-ci.yml
     covers: two-crate workspace, version inheritance
+    masks:
+      - feature: quality.rust.feature_matrix
+        issue: 238
+        why: cargo-hack --each-feature check --lib fails on a member with no lib target
 
   - name: ci-test-ts-app
     language: typescript
+    workflow: ts-ci.yml
     covers: container custom mode on GHCR
+    rehearsal: default
