@@ -203,6 +203,24 @@ class TestArgumentRejectionIsNotAFinding:
         assert quality._run_tool("ty", ["ty", "check"], "warn") is True
         assert any("failed to discover a Python environment" in m for m in shown)
 
+    _SPAWN = "error: Failed to spawn: `ty`\n  Caused by: No such file or directory\n"
+
+    def test_a_tool_that_could_not_start_is_not_a_finding(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ok, messages = self._run(monkeypatch, self._SPAWN, "warn")
+        assert ok is True
+        assert any("could not start" in m for m in messages)
+        assert not any("issues found" in m for m in messages)
+
+    def test_a_required_tool_that_could_not_start_fails_in_ci(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(quality, "is_ci", lambda: True)
+        ok, messages = self._run(monkeypatch, self._SPAWN, "blocking")
+        assert ok is False
+        assert any("could not start (required)" in m for m in messages)
+
     def test_a_real_finding_still_reads_as_failed(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

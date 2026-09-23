@@ -69,6 +69,11 @@ _ARGV_REJECTION = (
     "no such option",
 )
 
+# `uv run <tool>` says this when the tool is not in the environment at all. The
+# missing-tool check above the run cannot see it, because the command was
+# rewritten to start with `uv`, which IS on PATH.
+_SPAWN_FAILURE = "failed to spawn"
+
 
 def _get_tool_mode(tool: str, config: CIConfig) -> str:
     """Get quality tool mode: blocking, warn, or disabled."""
@@ -212,6 +217,17 @@ def _run_tool(
 
     if result.returncode == 0:
         success(f"  {tool_name}: passed")
+        return True
+
+    # A tool that could not start checked nothing: that is neither a pass nor
+    # a finding, and reporting it as "issues found" hid it for months.
+    if _SPAWN_FAILURE in (result.stderr or "").lower():
+        if mode == "blocking" and is_ci():
+            error(f"  {tool_name}: could not start (required)")
+            _emit_tool_output(tool_name, result.stderr)
+            return False
+        warn(f"  {tool_name}: could not start, so it checked nothing")
+        _emit_tool_output(tool_name, result.stderr, cap=_WARN_OUTPUT_CAP)
         return True
 
     # A flag the tool refuses means it never ran, so the result is a version
