@@ -45,6 +45,30 @@ To prove a workload end to end without spending a stable version, cut a
 prerelease off a branch and leave optimisation on -- see
 [`prereleases.md`](../prereleases.md).
 
+### aarch64: a BOLTed binary is not safe on Cortex-A53
+
+On an aarch64 target the BOLT steps pass `--drop-cortex-a53-843419-veneers`
+to llvm-bolt. The linker works around Cortex-A53 erratum 843419 by inserting
+branch veneers, and BOLT refuses to rewrite a binary carrying them because
+relaying the binary invalidates the page offsets they were computed from.
+Dropping them is what lets BOLT run at all on an aarch64 binary large enough
+to need veneers.
+
+The trade is the flag's own warning: the BOLTed binary must not run on a
+Cortex-A53. That is accepted because HyperI Rust binaries run on Graviton and
+Ampere-class server cores, not the 2012 in-order A53 little core used in
+phones and embedded parts.
+
+**If a deployment target ever includes Cortex-A53**, remove
+`_DROP_A53_VENEERS` from `src/hyperi_ci/languages/rust/pgo.py` and take
+PGO-only aarch64 builds, or move the `llvm` pin in `versions.yaml` past the
+release carrying https://github.com/llvm/llvm-project/pull/187955, which
+eliminates the veneers rather than dropping them.
+
+amd64 is unaffected and keeps cargo-pgo's own BOLT flags untouched. On
+aarch64 those defaults are restated in `pgo.py`, because cargo-pgo's
+`--bolt-args` replaces its flag set instead of extending it.
+
 ## The Four Rules
 
 ### Rule 1 - Exercise data-processing hot paths, not startup
