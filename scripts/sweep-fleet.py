@@ -51,6 +51,14 @@ PASS = "pass"
 FAIL = "fail"
 TIMEOUT = "timeout"
 UNREACHABLE = "unreachable"
+# A fixture takes its workflows from `@main` on merge and its CLI from PyPI on
+# release, so a case for a merged-but-unreleased gate fails for a reason that
+# says nothing about the gate (issue #248).
+PENDING_RELEASE = "pending-release"
+
+# Answered nothing, as distinct from answered badly - neither is PASS, so a run
+# carrying one can never go green.
+INCONCLUSIVE = (UNREACHABLE, PENDING_RELEASE)
 
 _WORKFLOW = "ci.yml"
 _POLL_SECONDS = 20
@@ -179,7 +187,8 @@ def sweep_verdict(targets: list[str], results: list[Result]) -> tuple[int, list[
 
     Returns:
         (exit code, report lines). 0 all green, 1 a fixture failed, 2 the
-        sweep proved nothing -- it ran none, or could not reach one.
+        sweep proved nothing -- it ran none, could not reach one, or one was
+        waiting on a release.
     """
     lines = [
         f"  {result.state:<11} {result.fixture} - {result.detail}" for result in results
@@ -193,7 +202,7 @@ def sweep_verdict(targets: list[str], results: list[Result]) -> tuple[int, list[
     if unanswered:
         lines.append(f"  NOT RUN: {', '.join(unanswered)}")
         return 2, lines
-    if any(result.state == UNREACHABLE for result in results):
+    if any(result.state in INCONCLUSIVE for result in results):
         return 2, lines
     if any(result.state != PASS for result in results):
         return 1, lines
