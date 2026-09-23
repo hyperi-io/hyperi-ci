@@ -329,6 +329,47 @@ class TestTier2SkipFailsARelease:
         assert tier2_shortfall(profile, OptimizationOutcome(pgo_applied=True)) == []
 
 
+class TestNativeTargetFollowsTheMachine:
+    """An arm64 Linux runner must not read its own target as a cross build.
+
+    `_get_native_target` decides `cross` in `_build_for_target`, which skips
+    PGO, which the Tier 2 strict check then refuses to ship.
+    """
+
+    @pytest.mark.parametrize(
+        ("platform_name", "machine", "expected"),
+        [
+            ("linux", "x86_64", "x86_64-unknown-linux-gnu"),
+            ("linux", "aarch64", "aarch64-unknown-linux-gnu"),
+            ("linux", "arm64", "aarch64-unknown-linux-gnu"),
+            ("darwin", "arm64", "aarch64-apple-darwin"),
+            ("darwin", "x86_64", "x86_64-apple-darwin"),
+        ],
+    )
+    def test_the_triple_matches_the_host(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        platform_name: str,
+        machine: str,
+        expected: str,
+    ) -> None:
+        import platform as platform_module
+
+        monkeypatch.setattr(build.sys, "platform", platform_name)
+        monkeypatch.setattr(platform_module, "machine", lambda: machine)
+        assert build._get_native_target() == expected
+
+    def test_an_arm64_host_builds_its_own_target_natively(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The regression: aarch64 on aarch64 read as cross and lost PGO."""
+        import platform as platform_module
+
+        monkeypatch.setattr(build.sys, "platform", "linux")
+        monkeypatch.setattr(platform_module, "machine", lambda: "aarch64")
+        assert build._get_native_target() == "aarch64-unknown-linux-gnu"
+
+
 class TestPgoAndCrossCompilation:
     """The PGO path returns before the cross setup, so the two cannot combine."""
 
