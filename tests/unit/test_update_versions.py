@@ -418,6 +418,8 @@ class TestDiscoveryIsByContentNotLocation:
         ".git",
         ".venv",
         ".worktrees",
+        # Claude Code's own worktree root, which holds a whole second checkout.
+        ".claude",
         ".hyperi-ai",
         ".tmp",
         ".pytest_cache",

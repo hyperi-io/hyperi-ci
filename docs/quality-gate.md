@@ -49,8 +49,8 @@ is identical everywhere.
 
 A tool may also fail the stage with **zero findings** when the tool itself
 cannot do its job - a `blocking` scanner that is not actually scanning is not a
-pass. Today that means gitleaks with a rule-less config (below); the mode still
-governs severity, so `warn` downgrades it to a warning.
+pass. Today that means gitleaks with a rule-less or canary-blinded config
+(below); the mode still governs severity, so `warn` downgrades it to a warning.
 
 Set per project in `.hyperi-ci.yaml` under `quality.<lang>.<tool>` (or
 `quality.<tool>` for the cross-language `gitleaks` / `semgrep`); defaults live in
@@ -118,10 +118,47 @@ paths = ['''testdata/''']
 ```
 
 hyperi-ci refuses to report success from a rule-less scan: `blocking` fails the
-stage, `warn` warns. This check only inspects where the rules come FROM - it
-cannot tell you a `[allowlist] paths = ['''.*''']` has neutered an otherwise
-valid ruleset (tracked in #67), so a green gitleaks stage is not proof the
-config is sane.
+stage, `warn` warns.
+
+#### The canary
+
+Reading the TOML only says where the rules come FROM. It cannot tell you that
+`[allowlist] paths = ['''.*''']`, `regexes = ['''.*''']` or an `[extend]
+disabledRules` entry has neutered an otherwise valid ruleset - all three report
+"no leaks found" over a planted PAT.
+
+So before the real scan, hyperi-ci runs the config against a **canary**: a
+synthetic fixture carrying one planted secret per rule (`github-pat`,
+`aws-access-token`), scanned with `gitleaks dir` through the config the real
+scan is about to use. Cost is one extra invocation, about 0.6s.
+
+The fixture is a bare filename with no directory part or extension and the
+values are synthetic, so an allowlist aimed at real repo content cannot reach it
+without being a catch-all. Two rules, not ten, because a planted value has to
+survive living in a git repo - a well-formed Slack or Stripe token is rejected
+by GitHub push protection, and working around that would mean hiding a secret
+from a scanner on purpose.
+
+**Three outcomes, not two**, because those two rules are gitleaks' OWN and a
+config need not carry them:
+
+| Canary result | Config's rule source | Outcome |
+|---|---|---|
+| planted secrets come back | any | pass - the config can report a secret |
+| nothing comes back | `[extend] useDefault = true`, or no config at all | **fail** at the mode's severity - the rules were in scope and got suppressed |
+| nothing comes back | own `[[rules]]`, or `[extend] path` | **could not determine** - warns, never blocks |
+
+The third row would otherwise be a lie in either direction. A config bringing
+only its own narrow rules never had `github-pat` in scope, so the canary has
+measured its own fixture rather than the config: failing would hard-fail a repo
+whose scanner is fine, and staying quiet would sell the canary's blind spot as
+a pass. It says which, and leaves the real scan to run. An `[extend] path` is
+not followed, so what the extended file brings is unknown here too.
+
+It proves those two rules survive the config, not that every rule does: a
+`disabledRules` entry naming some other rule still passes. It also says nothing
+about `.gitleaksignore`, which is out of scope - the canary is scanned from its
+own temporary directory.
 
 `GITLEAKS_CONFIG` / `GITLEAKS_CONFIG_TOML` are honoured by gitleaks itself. A
 repo config passed via `--config` beats them, but with no repo config they take
