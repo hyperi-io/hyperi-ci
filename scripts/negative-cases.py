@@ -18,12 +18,21 @@ applies the patch to an ephemeral `expect-fail/<case>` branch, opens a pull
 request, and asserts the run failed at the declared stage for the declared
 reason.
 
-Three outcomes are RED, and the first is the dangerous one:
+Four outcomes are RED, and the first is the dangerous one:
 
 * `leaked`       - the planted failure shipped green, so the gate is off.
 * `wrong-stage`  - something failed, but not the gate under test.
 * `wrong-reason` - the declared stage failed without the declared tool
                    appearing in its log.
+* `stale-patch`  - the patch no longer applies, so the case plants nothing.
+
+A case whose gate is merged but not yet on PyPI declares `pending_release:
+true` and reads INCONCLUSIVE rather than red. Inconclusive is not a pass: the
+verdict refuses anything that is not PASS either way.
+
+`--check-patches` answers the stale-patch half on its own, in seconds, with no
+run dispatched anywhere. The full run does it first as well, so a patch that
+plants nothing costs a clone rather than a pull request and 45 minutes.
 
 A PULL REQUEST, not a bare push. hyperi-ci's plan job sets run-checks=false
 for a push to a non-main branch, so a branch push finishes green in about
@@ -33,6 +42,7 @@ quality job.
 
 Usage:
     uv run scripts/negative-cases.py
+    uv run scripts/negative-cases.py --check-patches
     uv run scripts/negative-cases.py --only ci-test-manifests --dry-run
     uv run scripts/negative-cases.py --case hadolint-error --keep
     uv run scripts/negative-cases.py --cli-branch fix/my-gate
@@ -76,9 +86,11 @@ sweep_fleet = _load("sweep-fleet.py", "sweep_fleet")
 PASS = sweep_fleet.PASS
 TIMEOUT = sweep_fleet.TIMEOUT
 UNREACHABLE = sweep_fleet.UNREACHABLE
+PENDING_RELEASE = sweep_fleet.PENDING_RELEASE
 LEAKED = "leaked"
 WRONG_STAGE = "wrong-stage"
 WRONG_REASON = "wrong-reason"
+STALE_PATCH = "stale-patch"
 
 CASE_DIR = ".ci-negative"
 _POLL_SECONDS = 20
@@ -95,6 +107,7 @@ class Case:
     branch: str
     stage: str
     reason: str
+    pending_release: bool = False
 
     @property
     def case_id(self) -> str:
@@ -172,6 +185,12 @@ def parse_case(fixture: str, name: str, text: str) -> Case | str:
     if expect != "fail":
         return f"expect is {expect!r}; a negative case expects 'fail'"
 
+    # Refused rather than coerced: `pending_release: "no"` is a truthy string,
+    # and a typo that quietly softens a case is the failure this guards.
+    pending = data.get("pending_release", False)
+    if not isinstance(pending, bool):
+        return f"pending_release must be true or false, got {pending!r}"
+
     return Case(
         fixture=fixture,
         name=str(data.get("case") or name),
@@ -179,6 +198,7 @@ def parse_case(fixture: str, name: str, text: str) -> Case | str:
         branch=str(data.get("branch") or f"expect-fail/{name}"),
         stage=str(data["stage"]),
         reason=str(data["reason"]),
+        pending_release=pending,
     )
 
 
@@ -208,6 +228,33 @@ def read_cases(fixture: str, clone: Path) -> tuple[list[Case], list[str]]:
     if not cases and not problems:
         problems.append(f"{fixture}: {CASE_DIR}/ carries no case contract")
     return cases, problems
+
+
+def patch_applies(clone: Path, case: Case) -> str:
+    """Empty string when the case's patch still applies, else why it does not.
+
+    A patch whose context has moved plants nothing, so the run it produces
+    proves no gate while still looking like a case in the catalogue.
+    `rust-cve-advisory.patch` sat that way once the fixture's `src/main.rs`
+    grew a hot path.
+
+    Args:
+        clone: The fixture checked out at its default branch.
+        case: The contract naming the patch.
+
+    Returns:
+        The reason git refused it, or an empty string.
+    """
+    result = _run(
+        ["git", "-C", str(clone), "apply", "--check", f"{CASE_DIR}/{case.patch}"],
+        timeout=60,
+    )
+    if result.returncode == 0:
+        return ""
+    detail = (result.stderr or result.stdout).strip().splitlines()
+    if not detail:
+        return f"git apply --check exited {result.returncode}"
+    return "; ".join(line.strip() for line in detail[-2:])
 
 
 def tokens(text: str) -> set[str]:
@@ -282,9 +329,50 @@ def classify(
     return PASS, f"failed at {case.stage} on {case.reason}"
 
 
-def _clone(repo: str, into: Path) -> str:
-    """Clone a fixture at full depth. Empty string on success, else the reason."""
-    result = _run(["gh", "repo", "clone", repo, str(into)], timeout=300)
+def soften(case: Case, state: str, detail: str) -> tuple[str, str]:
+    """Read a pending-release case's RED verdict as inconclusive instead.
+
+    A fixture takes its workflows from `@main` the instant they merge but its
+    CLI from PyPI on release, so a case for a gate that has landed and not
+    shipped fails for a reason that says nothing about the gate. Softening is
+    never a pass -- PENDING_RELEASE is one of the verdict's inconclusive
+    states, so the run still refuses to go green.
+
+    Pure, so the declaration has a test rather than a release cycle.
+
+    Args:
+        case: The contract the run had to satisfy.
+        state: What ``classify`` concluded.
+        detail: Its reason line.
+
+    Returns:
+        (state, detail), unchanged unless the case declares pending_release.
+    """
+    if not case.pending_release:
+        return state, detail
+    if state == PASS:
+        return PASS, f"{detail} - the gate shipped, drop pending_release"
+    if state in (LEAKED, WRONG_STAGE, WRONG_REASON):
+        return PENDING_RELEASE, f"{detail} - declared pending_release"
+    return state, detail
+
+
+def _clone(repo: str, into: Path, *, depth: int = 0) -> str:
+    """Clone a fixture. Empty string on success, else the reason.
+
+    Args:
+        repo: Upstream `owner/name`.
+        into: Destination directory.
+        depth: Shallow-clone depth. 0 takes the full history the push path
+            needs; the patch check only reads the working tree.
+
+    Returns:
+        The reason the clone failed, or an empty string.
+    """
+    args = ["gh", "repo", "clone", repo, str(into)]
+    if depth:
+        args += ["--", "--depth", str(depth)]
+    result = _run(args, timeout=300)
     if result.returncode != 0:
         return result.stderr.strip().splitlines()[-1] if result.stderr.strip() else "?"
     # Per-clone, because a runner has GH_TOKEN but no git credential helper, and
@@ -424,6 +512,30 @@ def _failed_logs(repo: str, jobs: list[dict]) -> dict[int, str]:
     return found
 
 
+def check_patches(
+    fixtures: dict[str, Fixture], cases: list[Case]
+) -> list[sweep_fleet.Result]:
+    """`git apply --check` every case against its fixture's default branch.
+
+    Args:
+        fixtures: Fixture name -> the clone its cases live in.
+        cases: Contracts to check.
+
+    Returns:
+        One result per case: PASS, or STALE_PATCH naming what git refused.
+    """
+    results: list[sweep_fleet.Result] = []
+    for case in cases:
+        reason = patch_applies(fixtures[case.fixture].clone, case)
+        if reason:
+            results.append(sweep_fleet.Result(case.case_id, STALE_PATCH, reason))
+        else:
+            results.append(
+                sweep_fleet.Result(case.case_id, PASS, f"{case.patch} still applies")
+            )
+    return results
+
+
 def _prepare(
     fixtures: dict[str, Fixture], cases: list[Case]
 ) -> tuple[list[Live], list[sweep_fleet.Result]]:
@@ -491,8 +603,9 @@ def _await_runs(
                     )
                 )
                 continue
-            verdict, detail = classify(
-                item.case, state[1], jobs, _failed_logs(repo, jobs)
+            verdict, detail = soften(
+                item.case,
+                *classify(item.case, state[1], jobs, _failed_logs(repo, jobs)),
             )
             results.append(
                 sweep_fleet.Result(
@@ -547,6 +660,31 @@ def _pin_cli(fixture: Fixture, branch: str) -> str:
     return ""
 
 
+def _report_patches(code: int, lines: list[str]) -> int:
+    """Print the patch-check report and hand its exit code back.
+
+    Args:
+        code: What ``sweep_verdict`` returned.
+        lines: Its report lines.
+
+    Returns:
+        ``code``, so the caller can return the call directly.
+    """
+    print("Patch check:")
+    for line in lines:
+        print(line)
+    if code == 0:
+        print("PATCHES APPLY: every case still plants its defect.")
+    elif code == 1:
+        print(
+            "STALE PATCH: a case plants nothing, so the gate it names is proven "
+            "by nothing. Move the patch context, NEVER the planted defect."
+        )
+    else:
+        print("INCONCLUSIVE: a case could not be read. Read it, do not re-run blind.")
+    return code
+
+
 def main() -> int:
     """Run the fleet's planted failures and report which gates they proved."""
     parser = argparse.ArgumentParser(description="Negative-case runner")
@@ -563,6 +701,11 @@ def main() -> int:
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="name the cases, push nothing"
+    )
+    parser.add_argument(
+        "--check-patches",
+        action="store_true",
+        help="git apply --check every case and stop; dispatches no run",
     )
     args = parser.parse_args()
 
@@ -591,7 +734,7 @@ def main() -> int:
             name = entry["name"]
             repo = f"{fixture_fleet.ORG}/{name}"
             clone = Path(tmp) / name
-            if reason := _clone(repo, clone):
+            if reason := _clone(repo, clone, depth=1 if args.check_patches else 0):
                 problems.append(f"{name}: clone failed: {reason}")
                 continue
             fixtures[name] = Fixture(repo=repo, clone=clone)
@@ -611,6 +754,12 @@ def main() -> int:
         for problem in problems:
             print(f"  PROBLEM: {problem}")
 
+        if args.check_patches:
+            return _report_patches(
+                *sweep_fleet.sweep_verdict(
+                    targets + problems, check_patches(fixtures, cases)
+                )
+            )
         if args.dry_run:
             print("--dry-run: nothing pushed")
             return 0 if targets and not problems else 2
@@ -618,7 +767,18 @@ def main() -> int:
             print("ERROR: no runnable case - the run proved nothing.")
             return 2
 
+        # Cheap first. A patch that no longer applies plants nothing, so it
+        # earns its verdict here instead of a pull request and a 45-minute wait.
+        stale = [
+            result for result in check_patches(fixtures, cases) if result.state != PASS
+        ]
+        for result in stale:
+            print(f"  STALE PATCH: {result.fixture} - {result.detail}", flush=True)
+        skipped = {result.fixture for result in stale}
+        runnable = [case for case in cases if case.case_id not in skipped]
+
         live: list[Live] = []
+        results: list[sweep_fleet.Result] = list(stale)
         try:
             if args.cli_branch:
                 for fixture in fixtures.values():
@@ -626,7 +786,8 @@ def main() -> int:
                         print(f"ERROR: {reason}")
                         return 2
                 print(f"CLI pinned to hyperi-ci@{args.cli_branch}")
-            live, results = _prepare(fixtures, cases)
+            live, prepared = _prepare(fixtures, runnable)
+            results.extend(prepared)
             results.extend(_await_runs(fixtures, live, deadline))
         finally:
             if args.keep:
@@ -644,11 +805,18 @@ def main() -> int:
         print(f"GATES PROVEN: {len(results)} planted failure(s) failed as declared.")
     elif code == 1:
         print(
-            "GATE NOT PROVEN: a planted failure went green or failed elsewhere - "
-            "the gate it tests is not doing its job."
+            "GATE NOT PROVEN: a planted failure went green, failed elsewhere, or "
+            "plants nothing at all - the gate it tests is not doing its job."
         )
     else:
         print("INCONCLUSIVE: it did not prove any gate. Read it, do not re-run blind.")
+    for label, state in (
+        ("patch no longer applies", STALE_PATCH),
+        ("waiting on a CLI release", PENDING_RELEASE),
+    ):
+        named = [result.fixture for result in results if result.state == state]
+        if named:
+            print(f"  {label}: {', '.join(named)}")
     return code
 
 

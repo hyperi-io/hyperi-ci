@@ -24,6 +24,19 @@ stage: quality
 reason: hadolint
 ```
 
+| Key | Meaning |
+|---|---|
+| `case` | the case name; defaults to the file's stem |
+| `patch` | the diff to apply, relative to `.ci-negative/` |
+| `branch` | the ephemeral branch; defaults to `expect-fail/<case>` |
+| `expect` | always `fail` -- a case that expects a pass is refused |
+| `stage` | the job or step whose failure is the pass condition |
+| `reason` | the tool name that has to appear in that job's log |
+| `pending_release` | `true` while the gate is merged but not yet on PyPI |
+
+`pending_release` must be a boolean. `"no"` is a truthy string, so a quoted
+value is refused rather than coerced.
+
 Keeping the defect as a patch means `main` stays clean, so Dependabot never
 opens a PR against a deliberately vulnerable manifest.
 
@@ -37,7 +50,9 @@ not skipped - otherwise the fleet reports a gate as proven by nothing.
 ```mermaid
 flowchart LR
     A[read config/fixtures.yaml] --> B[clone the fixture]
-    B --> C["apply .ci-negative/&lt;case&gt;.patch<br/>on expect-fail/&lt;case&gt;"]
+    B --> P{"git apply --check"}
+    P -->|refused| S[stale-patch]
+    P -->|applies| C["apply .ci-negative/&lt;case&gt;.patch<br/>on expect-fail/&lt;case&gt;"]
     C --> D[open a draft PR]
     D --> E[wait for the pull_request run]
     E --> F{failed at the<br/>declared stage,<br/>for the declared reason?}
@@ -48,10 +63,12 @@ flowchart LR
     G & H & I & J --> K[close the PR, delete the branch]
 ```
 
-`leaked`, `wrong-stage` and `wrong-reason` are all RED through
+`leaked`, `wrong-stage`, `wrong-reason` and `stale-patch` are all RED through
 `sweep-fleet.py`'s `sweep_verdict`, which is the one place a fleet verdict is
-decided. A case that could not be read, or whose run was cancelled, is
-INCONCLUSIVE rather than either.
+decided. A case that could not be read, whose run was cancelled, or that
+declared `pending_release`, is INCONCLUSIVE rather than either -- and
+inconclusive is not a pass, because the verdict refuses anything that is not
+`pass`.
 
 ## A PULL REQUEST, not a push
 
@@ -90,6 +107,28 @@ uv run scripts/negative-cases.py --only ci-test-manifests
 uv run scripts/negative-cases.py --case hadolint-error --keep
 ```
 
+## Does the patch still apply
+
+A patch whose context has moved applies to nothing, so the case plants no
+defect and its run proves no gate -- while the catalogue still lists it as
+covering one. `rust-cve-advisory.patch` sat like that once `src/main.rs` grew a
+hot path, and the only thing that noticed was a weekly sweep, after a CI run.
+
+```bash
+uv run scripts/negative-cases.py --check-patches
+```
+
+`git apply --check` against each fixture's default branch, shallow-cloned.
+Measured at 6.0 seconds for the whole catalogue, and it dispatches nothing. A
+refused patch is `stale-patch`, which is RED.
+
+The full run does the same check FIRST, so a stale case never costs a pull
+request or the wait that follows one: it is reported, held back from the push,
+and the remaining cases still run.
+
+Fix a stale case by moving the patch CONTEXT to match the new source. Never by
+moving the planted defect -- that is the test.
+
 ## Testing a gate that has not shipped yet
 
 A fixture takes its workflows from `@main` the moment they merge, but its CLI
@@ -105,6 +144,19 @@ previous value back afterwards - `ci-test-manifests` carries a permanent one
 pinning `@main`, and deleting it would change what the fixture runs. The sweep's
 own App has no `variables: write`, so `--cli-branch` is a developer command, the
 same split as `scripts/rehearse-branch.py`.
+
+The sweep therefore cannot pin the CLI, so a case for a merged-but-unreleased
+gate declares it in the contract instead:
+
+```yaml
+pending_release: true
+```
+
+Its RED outcomes - `leaked`, `wrong-stage`, `wrong-reason` - then read
+`pending-release`, which `sweep_verdict` treats as INCONCLUSIVE. It is not a
+pass, so a run carrying one cannot go green. A pending case that PASSES keeps
+its pass and says to drop the flag: the gate shipped. A stale patch stays red
+either way - the patch has to apply whatever the CLI is running.
 
 ## Never repair one
 
