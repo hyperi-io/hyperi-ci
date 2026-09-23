@@ -327,6 +327,26 @@ Two coverage holes in the same family, both structural rather than missed:
   that ships through both in one commit reaches consumers in halves. It turns
   fixtures RED and consumers falsely GREEN depending on direction.
 
+### The right idiom sitting in the same file does not propagate
+
+`scan_code_paths` blanked fenced code blocks before scanning. `scan_links`,
+three functions above it in the same file, did not -- so a C++ lambda capture
+and a Python generic parameter were read as markdown links to missing files.
+The constant was declared once and used by one of its two callers.
+
+The same week, four guard rules used a word-boundary anchor that matched
+after a hyphen, denying `make az-delete-report` and `cat docs/find-delete.md`.
+A fifth rule in that file already anchored on command position and carried a
+comment explaining why. Four rules did not copy it.
+
+**Nothing flags a helper that half the code forgot to call.** Coverage does
+not: both callers are exercised and both pass, because the one that skips the
+helper is not wrong in any way a test asserts. A linter sees two functions.
+
+So when adding a sibling to an existing function, read what the existing one
+does FIRST and copy it deliberately, and when fixing a rule of a class, sweep
+the class rather than the instance.
+
 ### Improving a check inside a wrong frame feels exactly like progress
 
 A search for override entries with no rule behind them returned 34 orphans.
