@@ -327,6 +327,42 @@ Two coverage holes in the same family, both structural rather than missed:
   that ships through both in one commit reaches consumers in halves. It turns
   fixtures RED and consumers falsely GREEN depending on direction.
 
+### Improving a check inside a wrong frame feels exactly like progress
+
+A search for override entries with no rule behind them returned 34 orphans.
+Narrowing the method returned 25. Both numbers were wrong: the ids are passed
+positionally and built with suffixes, so no literal search could ever see
+them. The method was refined twice, the number improved each time, and nobody
+asked whether the method could work at all.
+
+That is the shape the two entries below share. A discriminating test refines
+the oracle while the generator stays blind. A narrowed query returns a
+cleaner answer to a question the data cannot answer. **Progress inside the
+frame is the strongest evidence that the frame is right, and it is not
+evidence at all.**
+
+The tell is a number that keeps moving toward what you expected. Before the
+third refinement, ask what result would mean the method itself cannot work,
+and check whether you would recognise it.
+
+### A gate nobody reads costs the same as a gate that is off
+
+`doc_paths: warn` and a bats step masked with `continue-on-error` cost
+identically, because in both cases nothing acts on the output. The tier is
+not the failure. The failure is that the STATED REASON for relaxing it stops
+being true and nothing notices -- because the thing that would have noticed
+is the check that was turned down.
+
+One mask here claimed 68 references to a retired entry point across 7 files.
+There were 4 files and no references. The justification had been false for
+long enough that the code it protected had been deleted, and the gate that
+would have said so was the one it silenced.
+
+So a relaxed gate needs its reason stated where a reader will meet it, and
+re-checked on a schedule -- not because the finding is urgent, but because
+the reason rots silently and the instrument for spotting that is the thing
+switched off.
+
 ### A passing test answers a question only over the inputs it generates
 
 Checking that a test DISCRIMINATES -- that it fails against the broken build
