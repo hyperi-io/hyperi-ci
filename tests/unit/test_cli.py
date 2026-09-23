@@ -298,5 +298,7 @@ class TestTheRunSaysWhichVersionRan:
 
     def test_it_stays_quiet_outside_ci(self, tmp_path) -> None:
         """Local runs keep the banner off; the line is a CI diagnostic."""
+        from hyperi_ci import __version__
+
         combined = self._run({"CI": "", "GITHUB_ACTIONS": ""}, tmp_path)
-        assert "hyperi-ci 2." not in combined
+        assert f"hyperi-ci {__version__}" not in combined

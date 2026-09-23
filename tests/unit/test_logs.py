@@ -114,6 +114,22 @@ class TestDownloadLogs:
             assert _download_logs("424242") is None
         assert "HTTP 404" in err.call_args.args[0]
 
+    def test_a_404_on_an_unfinished_run_says_not_yet(self) -> None:
+        """GitHub serves the archive only once a run ends (issue #254)."""
+
+        def fake_run(cmd, **kwargs):
+            raise subprocess.CalledProcessError(
+                1, cmd, stderr=b"gh: Not Found (HTTP 404)"
+            )
+
+        with (
+            patch("hyperi_ci.logs.subprocess.run", side_effect=fake_run),
+            patch("hyperi_ci.logs._get_run", return_value={"status": "in_progress"}),
+            patch("hyperi_ci.logs.error") as mock_error,
+        ):
+            assert _download_logs("12") is None
+        assert "publishes logs when a run finishes" in mock_error.call_args.args[0]
+
     def test_non_zip_response_returns_none(self) -> None:
         def fake_run(cmd, **kwargs):
             kwargs["stdout"].write(b"<html>not a zip</html>")
