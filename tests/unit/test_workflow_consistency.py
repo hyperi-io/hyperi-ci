@@ -991,6 +991,16 @@ class TestSkipOptimizeThreading:
             f"{workflow_name}: HYPERCI_SKIP_OPTIMIZE must be exactly {SKIP_OPTIMIZE_ENV}"
         )
 
+    def test_release_tail_reads_the_variable_too(self) -> None:
+        # The callers pass the raw input, so a repo-variable skip reaches the
+        # tail only through its own env. Without it the image label and the
+        # release notes call an unoptimised binary optimised.
+        wf = _load_workflow("_release-tail.yml")
+        assert wf.get("env", {}).get("HYPERCI_SKIP_OPTIMIZE") == SKIP_OPTIMIZE_ENV, (
+            f"_release-tail.yml: HYPERCI_SKIP_OPTIMIZE must be exactly "
+            f"{SKIP_OPTIMIZE_ENV}"
+        )
+
 
 RELEASE_UNOPTIMIZED_ENV = "${{ inputs.release-unoptimized }}"
 
