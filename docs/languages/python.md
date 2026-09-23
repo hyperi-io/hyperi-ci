@@ -20,8 +20,8 @@ flowchart LR
     B --> PYPI["pypi.org"]
 ```
 
-JFrog publishing was removed in v2.1.4 - Python publishes to public PyPI only.
-A legacy `publish.target` in `.hyperi-ci.yaml` is read but ignored.
+Python publishes to public PyPI only. A legacy `publish.target` in
+`.hyperi-ci.yaml` is read but ignored.
 
 ## Which Python version CI uses
 
@@ -110,9 +110,9 @@ step **must** call `hyperi-ci run build`, never raw `uv build`.
 
 ### Don't reintroduce a private index (`UV_EXTRA_INDEX_URL`)
 
-uv is first-match-wins across indices: an index that returns an empty `200` for a
-package it doesn't host (the old JFrog behaviour) stops resolution dead - "no
-versions found". We're OSS-only (a single public index), so this can't bite
+uv is first-match-wins across indices: a private index that returns an empty
+`200` for a package it doesn't host stops resolution dead - "no versions
+found". We're OSS-only (a single public index), so this can't bite
 today, but it's why the reusable workflows carry an in-code warning against
 adding `UV_EXTRA_INDEX_URL` that mixes a private index with the public one.
 

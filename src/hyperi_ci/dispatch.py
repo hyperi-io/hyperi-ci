@@ -422,9 +422,9 @@ def stage_release(language: str, config: CIConfig) -> int:
     channel = config.get("release.channel", "release")
     if channel != "release":
         info(
-            f"Channel '{channel}' — non-release channels currently publish "
+            f"Channel '{channel}' -- non-release channels currently publish "
             "to the same OSS destinations as 'release'. Pre-GA staging on "
-            "private registries was retired with the JFrog removal in v2.1.4."
+            "private registries was retired in v2.1.4."
         )
 
     rc = _dispatch_to_handler(language, "release", config)

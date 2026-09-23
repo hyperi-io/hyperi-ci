@@ -20,14 +20,13 @@ more orphan tags from "tag every fix:, publish later" mode.
 crates.io, PyPI, npm, GHCR, GitHub Releases, and Cloudflare R2
 (`downloads.hyperi.io`). The legacy `publish.target` knob is accepted
 in `.hyperi-ci.yaml` for backward compatibility but **ignored at
-runtime** — JFrog publishing was removed in v2.1.4. The only switch
-left to flip for full open-source visibility is making the source
-repos themselves public.
+runtime**. The only switch left to flip for full open-source visibility
+is making the source repos themselves public.
 
-See [docs/migration/onboarding.md](docs/migration/onboarding.md) for the v1 → v2
-migration. Pre-v2.1.4 docs that mention JFrog targets, the
+See [docs/migration/onboarding.md](docs/migration/onboarding.md) for the v1 -> v2
+migration. Pre-v2.1.4 docs that mention private-registry targets, the
 `destinations_internal` block, or `target: internal` are historical
-only — those code paths have been removed.
+only -- those code paths have been removed.
 
 ## Why Use This
 
@@ -228,8 +227,8 @@ Every artefact publishes to the OSS registry stack:
 The `publish.target` config field is still accepted in `.hyperi-ci.yaml` for
 backward compatibility — values like `internal` or `both` are read,
 preserved on the `CIConfig` object, and **silently routed to the OSS
-destination map**. JFrog publishing was removed in v2.1.4. It is a different
-thing from the `publish-target` workflow input, which is still live. The only
+destination map**. It is a different thing from the `publish-target`
+workflow input, which is still live. The only
 remaining toggle for full FOSS visibility is making the source repos
 themselves public on GitHub.
 

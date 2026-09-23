@@ -9,14 +9,6 @@ across 14+ consumer projects.
 
 Source: `hyperi-io/ci` (to be archived once cutover is complete).
 
-> **JFrog sections in this document are historical (pre-v2.1.4).**
-> JFrog publishing was removed entirely in v2.1.4. The JFrog auth
-> patterns, registry URLs, and token handling notes below are kept for
-> archaeological context - they describe how things worked before the
-> 100% OSS pipeline. Do not use them as a current reference. The
-> publish path now goes to crates.io / PyPI / npm / GHCR / GitHub
-> Releases / Cloudflare R2 only.
-
 ---
 
 ## Rust
@@ -71,16 +63,6 @@ Source: `hyperi-io/ci` (to be archived once cutover is complete).
 - Verify ELF format with `file(1)` and machine type with `readelf -h`
 - Native: smoke test with `--version` or `--help`
 - Cross-compiled: skip smoke test (can't execute)
-
-### Cargo Registry Auth (JFrog)
-
-- Credentials in `$CARGO_HOME/credentials.toml`:
-  `[registries.hyperi]\ntoken = "Bearer <TOKEN>"`
-- Config in `$CARGO_HOME/config.toml`:
-  `[registries.hyperi]\nindex = "sparse+https://..."\ncredential-provider = "cargo:token"`
-- `credential-provider = "cargo:token"` required for Cargo 1.74+
-- Respect `CARGO_HOME` env var (ARC runners set it to NFS cache path)
-- Permissions: `chmod 600` on credentials.toml
 
 ### Publishing
 
@@ -155,8 +137,7 @@ Source: `hyperi-io/ci` (to be archived once cutover is complete).
 
 ### Publishing
 
-- Binaries to Artifactory via `curl -T` (PUT)
-- Checksums uploaded as `SHA256SUMS` (not `.sha256`, avoids JFrog checksum API conflict)
+- Checksums uploaded as `SHA256SUMS`, not per-file `.sha256`
 - Latest reference: copy to `/latest/` + `LATEST_VERSION.txt`
 - Skip latest for snapshots (`^snapshot-` prefix)
 - Container: `docker buildx build --platform linux/amd64,linux/arm64`
@@ -172,8 +153,7 @@ Source: `hyperi-io/ci` (to be archived once cutover is complete).
 
 ### Registry Auth
 
-- `.npmrc` with `_authToken` (same pattern as Cargo Bearer token)
-- Fallback: if JFrog fails, retry with public npm (remove `.npmrc`)
+- `.npmrc` with `_authToken`
 
 ### Quality
 
@@ -194,8 +174,6 @@ Source: `hyperi-io/ci` (to be archived once cutover is complete).
 - Auto-generate `.npmignore` if missing AND no `files` in package.json
 - Package size pre-flight check (default max 1MB, configurable)
 - pnpm: `--no-git-checks` flag required for workspace publishing
-- Verification: use Artifactory **storage API** (more reliable than npm API,
-  no indexing delay)
 
 ---
 
@@ -206,9 +184,9 @@ Source: `hyperi-io/ci` (to be archived once cutover is complete).
 **NEVER add `UV_EXTRA_INDEX_URL` to dep install steps in reusable workflows.**
 
 uv does NOT work like pip with mixed public + private indices. By default uv
-uses first-match-wins per package name. If JFrog returns an empty 200 for a
-package it doesn't have (e.g. `hatchling`, `setuptools`), uv stops there and
-reports "no versions found" rather than falling back to PyPI.
+uses first-match-wins per package name. If a private index returns an empty
+200 for a package it doesn't have (e.g. `hatchling`, `setuptools`), uv stops
+there and reports "no versions found" rather than falling back to PyPI.
 
 A workaround exists (`UV_INDEX_STRATEGY=unsafe-best-match`) but is fragile
 and changes resolver semantics across all packages.
@@ -216,44 +194,11 @@ and changes resolver semantics across all packages.
 **Correct approach:**
 - Leave workflow install steps as `uv sync --frozen --all-extras` with NO
   extra index env vars
-- Projects that need private JFrog packages configure `[tool.uv.index]` with
+- Projects that need packages from a private index configure `[tool.uv.index]` with
   `explicit=true` in their own `pyproject.toml` - explicit indices are only
   consulted for packages that name them
 
 This comment is in-code in all four reusable workflows. Do not remove it.
-
-### JFrog PyPI Publish Auth (Critical)
-
-`uv publish` to JFrog Artifactory requires `--username` / `--password`, NOT
-`--token`. JFrog's PyPI upload API does NOT support PyPI's `__token__`
-username convention and rejects it with "Wrong username was used" (401).
-
-**Correct invocation:**
-```python
-cmd = [
-    "uv",
-    "publish",
-    "--publish-url",
-    org.pypi_publish_url,
-    "--username",
-    os.environ.get("JFROG_USERNAME", "_token"),
-    "--password",
-    os.environ["JFROG_TOKEN"],
-]
-```
-
-**Org secrets required (both at org level, `visibility: all`):**
-- `JFROG_TOKEN` - JFrog Artifactory access token (JWT format `eyJ...`)
-- `JFROG_USERNAME` - JFrog account email (`artifactory@hypersec.io`)
-
-Both must be declared in the reusable workflow's `secrets:` block and
-explicitly passed through in `env:` on the publish step.
-
-**Token maintenance:**
-- Generate via: `jf atc <username> --description "..." --grant-admin --expiry 0`
-- Set via: `printf '%s' "$TOKEN" | gh secret set JFROG_TOKEN --org hyperi-io --visibility all`
-- Use `printf '%s'` not `echo` - `echo` adds trailing newline which can corrupt the stored value
-- Verify the stored token is non-empty by triggering a run and checking logs for "JFROG_TOKEN not set"
 
 ### uv Patterns
 
@@ -325,10 +270,10 @@ build to ensure fresh artifacts, also via `hyperi-ci run build`.
 
 ### Publishing
 
-- Verification: query JFrog simple API, check for version in HTML response
+- Verification: query the index's simple API, check for version in HTML response
 - Handle both naming conventions: `package-name-version` and `package_name-version`
-- JFrog indexing takes minutes - retry loop (5 retries, 10s delay)
-- "already exists" error from JFrog or PyPI is non-fatal (idempotent re-runs)
+- Index propagation takes minutes - retry loop (5 retries, 10s delay)
+- "already exists" from PyPI is non-fatal (idempotent re-runs)
 
 ---
 
@@ -505,7 +450,6 @@ Three-layer:
 ### Publish Verification
 
 - All registries: retry loop (5 retries, 10s delay default)
-- JFrog: use storage API (more reliable than package API)
 - Always handle "already exists" as success (idempotent re-runs)
 
 ### CI Detection & Output
@@ -547,11 +491,11 @@ Three-layer:
 ### Go Publish: Binaries, Not Modules
 
 - Go modules publish automatically to proxy.golang.org on tag push
-- "JFrog Go publish" means uploading **built binaries** to JFrog generic
-  repository via `curl -T` (HTTP PUT), NOT running `go mod download`
+- Publishing Go binaries means uploading **built binaries** to a release
+  store, NOT running `go mod download`
 - Binary naming convention: `{binary}-{version}-{goos}-{goarch}[.exe]`
 - Checksums: `checksums.sha256` file alongside binaries (renamed to
-  `SHA256SUMS` on upload to avoid JFrog checksum API conflict)
+  `SHA256SUMS` on upload)
 
 ### npm Config Pollution
 
@@ -564,7 +508,7 @@ Three-layer:
 
 ### Publish Verification Retry Pattern
 
-- JFrog has indexing lag: a just-uploaded artifact may 404 for 5-30 seconds
+- Registries have indexing lag: a just-uploaded artifact may 404 for 5-30 seconds
 - All publish handlers should verify with HTTP HEAD + retry loop
 - Default: 5 retries, 10 second delay (total ~50s worst case)
 - Shared helper in `common.py:verify_publish()` - reusable across all languages

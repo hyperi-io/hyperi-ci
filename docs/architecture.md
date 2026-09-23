@@ -284,8 +284,8 @@ Secrets.
 
 ## Release routing
 
-Everything publishes to the OSS registry stack. **JFrog was removed in v2.1.4**:
-the legacy `release.target` config field (`internal` / `oss` / `both`) is still
+Everything publishes to the OSS registry stack. The legacy
+`release.target` config field (`internal` / `oss` / `both`) is still
 accepted in downstream `.hyperi-ci.yaml` for back-compat but ignored at runtime -
 every value routes to the same OSS destination map
 (`config.publish_destinations()`). It is a different thing from the
@@ -308,7 +308,8 @@ The config namespace is `release:`. A `publish:` block still works: it folds int
 Rust build-opt tiers - `_resolve_build_channel` in `languages/rust/build.py`
 never reads it, and the tier follows whether the run releases
 ([languages/RUST.md](languages/rust.md)). Detail + mermaid: [flow.md](flow.md)
-section 5-6. JFrog history: [migration/JFROG.md](migration/jfrog.md).
+section 5-6. Registry migration record, and the artifact repos still
+serving production: [migration/JFROG.md](migration/jfrog.md).
 
 ## Container builds
 

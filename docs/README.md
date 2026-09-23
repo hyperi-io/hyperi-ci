@@ -135,8 +135,8 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 
 ### Migration & history
 
-- [migration/JFROG.md](migration/jfrog.md) - historical: JFrog removed in v2.1.4;
-  all artefacts now publish to the OSS stack
+- [migration/JFROG.md](migration/jfrog.md) - the registry migration record; also
+  the artifact repos that still serve Telstra production
 - [migration/CODEBERG-SECRETS-AND-CI.md](migration/codeberg-secrets-and-ci.md)
  - Codeberg + Buildkite portability notes (aspirational)
 - [lessons.md](lessons.md) - the war stories: every gotcha that cost a

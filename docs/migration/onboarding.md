@@ -15,17 +15,17 @@ change, and the k8s/IaC tools only run when you explicitly call `lint-manifests`
 On first adoption run `hyperi-ci run quality` locally, or set `quality.hadolint:
 warn` for a migration window, then flip back to `blocking` once clean.
 
-## v2.1.4 - JFrog removed
+## v2.1.4 - private-registry publishing removed
 
-JFrog publishing was removed entirely in v2.1.4. Every artefact now
-publishes to the OSS registry stack: GHCR, crates.io, PyPI, npm,
+Private-registry publishing was removed entirely in v2.1.4. Every artefact
+now publishes to the OSS registry stack: GHCR, crates.io, PyPI, npm,
 GitHub Releases, and Cloudflare R2 (`downloads.hyperi.io`).
 
 If your `.hyperi-ci.yaml` still has `publish.target: internal` or
 `publish.target: both`: **leave it**. The field is read for backward
-compatibility and silently routed to OSS. There is no JFrog code path
-left to enable. New projects should set `target: oss` (or omit the
-field - `oss` is the default).
+compatibility and silently routed to OSS. There is no private-registry
+code path left to enable. New projects should set `target: oss` (or omit
+the field - `oss` is the default).
 
 The only remaining toggle for full open-source visibility is making
 the source repos themselves public on GitHub.
@@ -42,12 +42,13 @@ semantics. The biggest user-visible changes:
 | Tag semantics | Tags accumulate; some published, some not | Tag = "this artefact is in a registry" |
 | Build runs per release | 2 (push run + dispatch run) | 1 |
 | Version stamping | Post-build (binary lags one release) | Pre-build (binary embeds correct version) |
-| Default `publish.target` | `internal` (JFrog) | `oss` (FOSS); JFrog removed in v2.1.4 |
+| Default `publish.target` | `internal` (private registry) | `oss` (FOSS); private publishing removed in v2.1.4 |
 
 ### What you have to do
 
-1. **Update `.hyperi-ci.yaml`** - `target` no longer matters (JFrog went
-   in v2.1.4; every value routes to OSS), but flip to `oss` for clarity:
+1. **Update `.hyperi-ci.yaml`** - `target` no longer matters (private
+   publishing went in v2.1.4; every value routes to OSS), but flip to
+   `oss` for clarity:
 
    ```yaml
    release:        # was `publish:` -- a `publish:` block still works, and warns
@@ -117,7 +118,7 @@ semantics. The biggest user-visible changes:
   `Release: true` trailer requires at least one release-worthy commit
   since the last tag. Add a `fix:` / `feat:` commit, or remove the
   trailer.
-- **JFrog removed in v2.1.4**: the `internal` and `both` target values
+- **Private publishing removed in v2.1.4**: the `internal` and `both` target values
   are still accepted in `.hyperi-ci.yaml` but ignored - every release
   goes to the OSS registry stack. No action required for projects
   already using `target: oss`.

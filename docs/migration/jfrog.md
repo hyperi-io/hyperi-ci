@@ -13,8 +13,11 @@
 > routed to the OSS destination map**. There is no JFrog publishing
 > path in the codebase anymore.
 >
-> Document kept for historical context. Do not treat as a current
-> reference.
+> **The publishing migration is done; the storage is not.** The repos
+> below marked Keep still serve Telstra production and the Nuitka
+> licence, so "Current State", "Active Telstra Pulls" and "What Stays
+> on JFrog" are LIVE operational facts. Read everything else as a
+> record of the v1 -> v2 transition.
 
 Reduce JFrog to two roles: Telstra artifact delivery and private package
 staging (PyPI + Cargo). Move everything else to GitHub (GHCR, GitHub
@@ -106,6 +109,10 @@ flowchart TB
 
 Pulled by Telstra K8s clusters directly from `hypersec.jfrog.io`. Changing
 the pull URL requires Telstra to update deployment manifests. Do not touch.
+
+The Last Pulled column understates current use: hyperi-infra measured 18
+pulls of `hypersec-docker-local/utils/helmfile/` in the 30 days to
+2026-09-23.
 
 ---
 

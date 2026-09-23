@@ -8,8 +8,7 @@
 
 Every container publishes to GHCR (``ghcr.io/<github-org>``). The legacy
 ``release.target`` config key is accepted for backward compatibility with
-downstream ``.hyperi-ci.yaml`` files but ignored at runtime — JFrog
-publishing was removed in v2.1.4.
+downstream ``.hyperi-ci.yaml`` files but ignored at runtime.
 
 Docker Hub is intentionally NOT a target. The Docker Hub login step in
 the reusable workflows remains, gated on ``vars.DOCKERHUB_USERNAME``, so

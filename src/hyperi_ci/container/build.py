@@ -129,7 +129,7 @@ def resolve_tags(
     Args:
         registry_bases: Registry base URLs from
             :func:`hyperi_ci.container.registry.resolve_registry_bases`
-            (always ``["ghcr.io/<org>"]`` since JFrog was removed in v2.1.4).
+            (always ``["ghcr.io/<org>"]``).
         image_name: Image name (typically the repo name, e.g. ``dfe-loader``).
         version: Semantic version with no leading ``v``
             (e.g. ``"1.13.5"``).

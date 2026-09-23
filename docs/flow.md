@@ -94,8 +94,8 @@ per-language carve-out stays in the SME's domain.
 
 ## 5. Release routing
 
-Everything goes to the OSS registry stack. **JFrog was removed in v2.1.4** - the
-legacy `release.target` config field (`internal`/`oss`/`both`) is still read for
+Everything goes to the OSS registry stack. The legacy `release.target`
+config field (`internal`/`oss`/`both`) is still read for
 back-compat but every value routes to the same OSS destination map. It is not the
 `publish-target` workflow input, which is live.
 
