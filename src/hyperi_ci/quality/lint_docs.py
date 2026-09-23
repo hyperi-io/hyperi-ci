@@ -28,11 +28,10 @@ markdownlint will light up an existing tree and docs-touched is advisory by
 construction and cannot be promoted at all.
 
 doc-paths and doc-links overlap on link destinations, so the link half of
-doc-paths is turned off whenever lychee will actually run - one broken link,
-one finding, whichever tool is present.
+doc-paths is turned off whenever lychee will actually run at the same mode or
+stricter - one broken link, one finding. A repo that promoted doc-paths past
+doc-links keeps both, because only doc-paths can then fail on the link.
 """
-
-from __future__ import annotations
 
 from pathlib import Path
 
@@ -64,11 +63,11 @@ def run(
         return 0
 
     info(f"lint-docs: {len(files)} markdown file(s) under {root}")
-    lychee_runs = doc_links.will_run(config)
+    lychee_mode = doc_links.planned_mode(config)
 
     with group("doc path drift"):
         paths_rc = doc_paths.run(
-            files, config, root=root, check_links=not lychee_runs, sarif_path=sarif_path
+            files, config, root=root, lychee_mode=lychee_mode, sarif_path=sarif_path
         )
 
     with group("internal links and anchors (lychee)"):

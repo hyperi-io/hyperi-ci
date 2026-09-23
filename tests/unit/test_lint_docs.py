@@ -13,9 +13,8 @@ fed REAL captured output from lychee 0.24.2 and markdownlint-cli2 0.23.3 rather
 than a mock, so a change in either tool's shape shows up here.
 """
 
-from __future__ import annotations
-
 import json
+import os
 from pathlib import Path
 
 from hyperi_ci.config import CIConfig
@@ -228,6 +227,30 @@ class TestOrchestrator:
         config = _config(doc_paths="blocking", doc_links="blocking")
         assert lint_docs.run(tmp_path, config) == 1
 
+    def test_promoting_doc_paths_alone_still_gates_with_lychee_installed(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """`doc_paths: blocking` beside the default `doc_links: warn`.
+
+        On 2.10.10 this config failed a broken link. Handing the link to a
+        lychee that only warns left nothing able to fail it.
+        """
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        lychee = bin_dir / "lychee"
+        report = json.dumps(
+            {"error_map": {"README.md": [{"url": "docs/nope.md", "span": {}}]}}
+        )
+        lychee.write_text(f"#!/bin/sh\necho '{report}'\nexit 2\n", encoding="utf-8")
+        lychee.chmod(0o755)
+        monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ.get('PATH', '')}")
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "README.md").write_text("[gone](docs/nope.md)\n", encoding="utf-8")
+        assert doc_links.planned_mode(_config(doc_paths="blocking")) == "warn"
+        assert lint_docs.run(repo, _config(doc_paths="blocking")) == 1
+
     def test_every_check_defaults_to_warn(self) -> None:
         # Guards the ratchet at the config layer: a default flipped to blocking
         # would fail consumer CI on adoption.
@@ -266,13 +289,13 @@ class TestLycheeInstall:
         called: list[int] = []
         monkeypatch.setattr(doc_links, "_install_lychee", lambda: called.append(1))
         config = CIConfig(_raw={"quality": {"doc_links": "disabled"}})
-        assert doc_links.will_run(config) is False
+        assert doc_links.planned_mode(config) is None
         assert called == []
 
-    def test_will_run_resolves_the_binary_so_doc_paths_is_not_doubled(
+    def test_planned_mode_resolves_the_binary_so_doc_paths_is_not_doubled(
         self, monkeypatch
     ) -> None:
-        """will_run is asked BEFORE run, so it must install to answer honestly.
+        """planned_mode is asked BEFORE run, so it must install to answer honestly.
 
         Answering "no" and then installing makes doc_paths report every broken
         link a second time.
@@ -282,4 +305,4 @@ class TestLycheeInstall:
             doc_links, "_install_lychee", lambda: "/usr/local/bin/lychee"
         )
         config = CIConfig(_raw={"quality": {"doc_links": "warn"}})
-        assert doc_links.will_run(config) is True
+        assert doc_links.planned_mode(config) == "warn"

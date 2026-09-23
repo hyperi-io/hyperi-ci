@@ -34,18 +34,17 @@ Three conditions, each removing a class of non-path:
   consumer's Rust layout, and this repo's ``src/`` has never held a ``.rs``.
 
 lychee owns link destinations when it is installed (it also resolves anchors,
-which this cannot). The orchestrator turns the link rule off in that case, so
-one broken link is reported once, by whichever tool actually ran.
+which this cannot), so the link rule turns off where lychee runs at the same
+mode or stricter. Where this check is the stricter of the two, it keeps the
+rule, because a gate a repo promoted cannot be decided by one it did not.
 """
-
-from __future__ import annotations
 
 import re
 from pathlib import Path
 
 from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import resolve_cross_tool_mode
+from hyperi_ci.languages.quality_common import resolve_cross_tool_mode, stricter
 from hyperi_ci.quality import findings as fdg
 
 # Inline `[text](dest)` / `![alt](dest)`, plus the `[id]: dest` reference form.
@@ -201,13 +200,15 @@ def run(
     config: CIConfig,
     *,
     root: Path | None = None,
-    check_links: bool = True,
+    lychee_mode: str | None = None,
     sarif_path: str | Path | None = None,
 ) -> int:
     """Report the paths ``files`` name that the repo no longer has.
 
-    ``check_links`` is False when lychee already covered link destinations, so
-    one broken link is never reported twice.
+    ``lychee_mode`` is the mode lychee checks link destinations at this run,
+    or None when it does not run. The link rule is left to lychee unless this
+    check gates harder, so a broken link is reported once where the two agree
+    and still fails a ``doc_paths: blocking`` repo whose lychee only warns.
 
     Returns 0 unless a blocking mode found an error-level finding.
     """
@@ -219,6 +220,7 @@ def run(
         info("  doc-paths: no markdown to check - skipping")
         return 0
 
+    check_links = lychee_mode is None or stricter(mode, than=lychee_mode)
     root = Path(root or Path.cwd())
     found: list[fdg.Finding] = []
     for doc in files:
