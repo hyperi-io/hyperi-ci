@@ -241,3 +241,30 @@ will tag - no artefact-version drift.
 > the same trailer/gate. `release <tag>` is the escape hatch, not a replacement.
 > The old spellings -- `push --publish` and `hyperi-ci publish` -- still work and
 > warn.
+
+## 9. Release operating rules
+
+### Do not dispatch a release while a merge is queued into that repo
+
+A merge to `main` cancels the in-flight release run. The concurrency group is
+`${{ github.workflow }}-${{ inputs.tag || github.ref }}` with
+`cancel-in-progress: true`, so every push to `main` kills whatever the previous
+one started -- the release tail included. Land the merges, then dispatch.
+
+The cancelled run leaves no tag and no artefacts, so recovery is another
+`hyperi-ci release`. The cost is the build time, which on a Tier 2 Rust
+publish is 35-45 minutes per arch.
+
+Issue #228 carries the measurements and the options; this is the operating
+rule until one is chosen.
+
+### `push --release` drops the trailer when HEAD is already upstream
+
+`push --release` amends HEAD with the `Release: true` trailer and then
+rebases. Where that commit is already on the remote, the rebase reports
+`skipped previously applied commit` and takes the upstream copy, which has no
+trailer. The push then says `Everything up-to-date` and no release runs.
+
+Nothing is broken and nothing warns, so the tell is `Build: skipped` and
+`Release tail: skipped` on a run you expected to publish. Use `hyperi-ci
+release` instead, which dispatches from HEAD and needs no trailer commit.
