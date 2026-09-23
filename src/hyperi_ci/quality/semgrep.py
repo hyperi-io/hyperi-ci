@@ -23,8 +23,8 @@ from hyperi_ci.common import error, get_exclude_dirs, info, is_ci, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import (
     apply_strict,
+    checked_mode,
     is_skipped,
-    mode_and_reason,
     note_gate_downgrade,
 )
 from hyperi_ci.quality.ignores import for_tool, load_ignores
@@ -43,7 +43,7 @@ def _resolve_mode(config: CIConfig, language: str | None) -> str:
     if language and (legacy := config.get(f"quality.{language}.semgrep")) is not None:
         key = f"quality.{language}.semgrep"
         raw = legacy
-    mode, reason = mode_and_reason(raw, "warn")
+    mode, reason = checked_mode(key, raw, "warn")
     # The legacy key carries no shipped default of its own, so both spellings
     # are measured against the one semgrep actually ships.
     note_gate_downgrade(key, mode, reason, shipped_key=_SHIPPED_KEY)
