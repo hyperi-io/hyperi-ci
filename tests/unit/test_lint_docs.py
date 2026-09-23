@@ -17,6 +17,8 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 from hyperi_ci.config import CIConfig
 from hyperi_ci.quality import doc_links, docs_touched, lint_docs, markdownlint
 from hyperi_ci.quality.targets import discover_markdown_files
@@ -24,6 +26,12 @@ from hyperi_ci.quality.targets import discover_markdown_files
 
 def _config(**quality: object) -> CIConfig:
     return CIConfig(_raw={"quality": quality})
+
+
+@pytest.fixture(autouse=True)
+def _fresh_lychee_attempt() -> None:
+    """The install attempt is cached per process, so each test starts unasked."""
+    doc_links._install_lychee.cache_clear()
 
 
 class TestDiscovery:
@@ -284,6 +292,24 @@ class TestLycheeInstall:
         assert str(seen["url"]).endswith("-unknown-linux-musl.tar.gz")
         assert seen["member"] == "lychee"
         assert seen["sha"]
+
+    def test_a_failed_install_is_attempted_once_per_run(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """planned_mode and run both need the binary, and one download is enough."""
+        attempts: list[str] = []
+
+        def failing_install(name, url, *, tar_member=None, expected_sha256=None):
+            attempts.append(url)
+
+        monkeypatch.setattr(doc_links.shutil, "which", lambda _n: None)
+        monkeypatch.setattr(doc_links, "install_ci_binary", failing_install)
+        doc = tmp_path / "README.md"
+        doc.write_text("# x\n", encoding="utf-8")
+        config = _config(doc_links="warn")
+        assert doc_links.planned_mode(config) is None
+        assert doc_links.run([doc], config, root=tmp_path) == 0
+        assert len(attempts) == 1, attempts
 
     def test_a_disabled_check_installs_nothing(self, monkeypatch) -> None:
         called: list[int] = []
