@@ -111,6 +111,20 @@ The same rule has governed `quality.rust.feature_matrix`'s opt-out since it
 shipped. Issue #250 closed the gap where dead-code coverage was held to a higher
 standard than CVE scanning.
 
+### Turning the whole stage off
+
+`quality.enabled: false` drops every gate at once, security gates included, so it owes a reason too. It sits beside the switch, as it does for `feature_matrix`:
+
+```yaml
+quality:
+  enabled: false
+  reason: "security gates run in the org-level pipeline for this mirror"
+```
+
+Without one, the stage warns and names the security gates the repo loses: gitleaks, semgrep and its language's own. In CI that is the same `::warning::` a single relaxed gate raises, and it fails the stage once issue #259 stage 2 ships. A stated reason prints on every run.
+
+`quality.reason` is safe to add before your runner reads it. Older versions ignore the key.
+
 ## Tools
 
 | Tool | Scope | Where |
