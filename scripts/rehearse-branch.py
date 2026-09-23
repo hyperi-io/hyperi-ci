@@ -227,6 +227,57 @@ def _write_record(repo: str, pr_number: int, body: str, block: str) -> bool:
     return result.returncode == 0
 
 
+def _wait_for_merge_ref(repo: str, pr_number: int, timeout_secs: int = 120) -> bool:
+    """Wait until GitHub has computed ``refs/pull/N/merge`` for a new PR.
+
+    GitHub computes the merge ref asynchronously, but fires the pull_request
+    workflow on PR creation, so a run can reach checkout before the ref it is
+    told to fetch exists. actions/checkout retries three times over ~20s and
+    then fails the job with "couldn't find remote ref", which reads as the
+    rehearsed branch being broken when nothing was ever fetched.
+
+    Returns True once the ref resolves, False on timeout.
+    """
+    deadline = time.time() + timeout_secs
+    while time.time() < deadline:
+        probe = _run(
+            ["gh", "api", f"repos/{repo}/git/ref/pull/{pr_number}/merge"], timeout=60
+        )
+        if probe.returncode == 0:
+            return True
+        time.sleep(5)
+    return False
+
+
+def _rerun(repo: str, run_id: int, settle_secs: int = 90) -> bool:
+    """Re-run a failed rehearsal run once and wait for it to leave `completed`.
+
+    Without the wait the caller's watcher reads the run's stale conclusion and
+    returns the failure it was asked to retry.
+
+    Returns True once the run is running again.
+    """
+    if (
+        _run(["gh", "run", "rerun", str(run_id), "-R", repo], timeout=60).returncode
+        != 0
+    ):
+        return False
+    deadline = time.time() + settle_secs
+    while time.time() < deadline:
+        viewed = _run(
+            ["gh", "run", "view", str(run_id), "-R", repo, "--json", "status"],
+            timeout=60,
+        )
+        if viewed.returncode == 0:
+            try:
+                if json.loads(viewed.stdout or "{}").get("status") != "completed":
+                    return True
+            except json.JSONDecodeError:
+                pass
+        time.sleep(5)
+    return False
+
+
 def _watch_pr_run(
     repo: str, rehearse_ref: str, timeout_minutes: int
 ) -> tuple[str, list[str], int]:
@@ -402,7 +453,23 @@ def main() -> int:
         pr_number = int(pr_url.rstrip("/").rsplit("/", 1)[-1])
         print(f"Rehearsal PR: {pr_url}")
 
+        if not _wait_for_merge_ref(repo, pr_number):
+            print(
+                f"WARNING: refs/pull/{pr_number}/merge did not appear - the run may "
+                "fail at checkout through no fault of the branch"
+            )
+
         verdict, lines, run_id = _watch_pr_run(repo, rehearse_ref, args.timeout_minutes)
+
+        # A run that started before the merge ref existed failed at checkout, not
+        # on the branch. The ref is there now, so one rerun separates the two: a
+        # branch that is genuinely broken fails again.
+        if verdict == "fail" and run_id and _rerun(repo, run_id):
+            print(f"Re-running {run_id} once - the first attempt raced the merge ref")
+            verdict, lines, run_id = _watch_pr_run(
+                repo, rehearse_ref, args.timeout_minutes
+            )
+
         print("Rehearsal run results:")
         for line in lines:
             print(line)

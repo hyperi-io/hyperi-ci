@@ -113,18 +113,23 @@ openssl) needs a private sysroot with transitive dependency resolution - fragile
 each new native dep breaks differently. Native arm64 runners eliminate the whole
 problem class.
 
-**When does arm64 build?** Only on a run that releases. The arm64 leg is added
-when `will-release` is true (`rust-ci.yml`, *Generate build matrix*) - the
-release channel plays no part. Every other run that builds stays x64, so the
-dev cycle stays fast and skips the arm64 runner cost.
+**When does arm64 build?** On every run that builds at all. The arm64 leg is
+added when `run-build` is true (`rust-ci.yml`, *Generate build matrix*) - the
+release channel plays no part. It keyed off `will-release` until issue #249,
+which meant the first execution of arm64 code was the run meant to ship it.
 
 | Run | Architectures |
 |---|---|
-| PR with `branch-build`, or a validate-only dispatch | x64 |
+| PR with `branch-build`, or a validate-only dispatch | x64 + arm64 |
 | release run (`Release: true` trailer, or a release dispatch) | x64 + arm64 |
+| release-worthy push to main, no trailer | arm64 only |
+| `chore:` / `docs:` push to main | nothing builds |
 
-A push to main with no trailer builds nothing at all - `run-build` is
-release-only, so no leg runs whatever the matrix says.
+The arm64-only row is the parity check (`run-arm64-check`): a merge that WILL
+ship gets its arm64 leg compiled while a regression is still attributable to
+the change that caused it, and nothing is published. A project opts out with
+`build.rust.arm64_on_main: false`. A merge that ships nothing still compiles
+nothing.
 
 A Rust project narrows that with `build.rust.targets` in `.hyperi-ci.yaml`: the
 release matrix carries a leg only for a listed target, so a project whose

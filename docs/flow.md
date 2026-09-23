@@ -25,6 +25,13 @@ flowchart TD
   tag step uses, so they cannot disagree.
 - No trailer on a push to main -> no tag, no release. A release-worthy pushed
   range still runs quality + test; a `chore:` / `docs:` push runs neither.
+- Arch breadth follows `run-build`, not `will-release`, so a validate-only
+  dispatch and a branch-mode PR both build arm64 (issue #249).
+- A release-worthy merge to main also builds the **arm64 leg alone**
+  (`run-arm64-check`), catching an arm64 regression while it is still
+  attributable. Rust only, and a project opts out with
+  `build.rust.arm64_on_main: false`. It ships nothing: the release tail is
+  gated on `run-build`, so a merge that ships nothing still compiles nothing.
 
 ## 2. Pipeline and job dependencies
 
@@ -43,7 +50,9 @@ flowchart LR
 ```
 
 - Quality / Test / Build run in parallel after Plan.
-- Release tail runs only when `will-release=true`; Container before Tag & Release.
+- The release tail runs when `run-build` is true, which keeps the arm64-parity
+  build out of it; inside the tail, Tag & Release is `will-release`-only and
+  runs after Container.
 
 ## 3. Version - one oracle, used everywhere
 

@@ -18,6 +18,11 @@ must match the canonical strings below.
 
 from __future__ import annotations
 
+import json
+import os
+import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -666,23 +671,20 @@ class TestBranchModeThreading:
             "derive must set run_build for opted-in pull_request events"
         )
 
-    @pytest.mark.parametrize("workflow_name", ("rust-ci.yml", "go-ci.yml"))
-    def test_matrix_arch_breadth_keys_off_will_publish(
-        self, workflow_name: str
-    ) -> None:
-        # Branch-mode PR builds must stay single-arch: only shipping runs
-        # pay the arm64 cost. run-build in the matrix condition would make
-        # every opted-in PR build multi-arch.
-        wf = _load_workflow(workflow_name)
+    def test_go_matrix_arch_breadth_keys_off_will_publish(self) -> None:
+        # Go still pays arm64 only on a shipping run. Rust moved to run-build
+        # in issue #249 (see TestArm64Parity); Go did not, so the original
+        # guard stays here rather than being deleted with it.
+        wf = _load_workflow("go-ci.yml")
         plan = wf["jobs"]["plan"]["steps"]
         matrix = next(s for s in plan if s.get("id") == "matrix")
         run = str(matrix["run"])
         assert "steps.predict.outputs.will-release" in run, (
-            f"{workflow_name}: matrix arch breadth must key off will-release"
+            "go-ci.yml: matrix arch breadth must key off will-release"
         )
         assert "steps.predict.outputs.run-build" not in run, (
-            f"{workflow_name}: matrix must NOT key off run-build (PR builds "
-            "would go multi-arch)"
+            "go-ci.yml: matrix must NOT key off run-build (PR builds would go "
+            "multi-arch)"
         )
 
     def test_release_tail_container_accepts_pull_request(self) -> None:
@@ -703,6 +705,246 @@ class TestBranchModeThreading:
         ifc = str(wf["jobs"]["tag-and-release"]["if"])
         assert "inputs.will-publish == 'true'" in ifc, (
             "tag-and-release must stay gated on will-publish"
+        )
+
+
+_GH_EXPRESSION = re.compile(r"\$\{\{.*?\}\}")
+
+# The derive step's inputs, by the expression each is assigned from. Named
+# here so a reworded expression fails the render rather than silently leaving
+# a literal `${{ ... }}` in the script under test.
+_DERIVE_INPUTS = {
+    "${{ steps.gate.outputs.will-publish }}": "will_publish",
+    "${{ github.event_name }}": "event_name",
+    "${{ inputs.branch-build }}": "branch_build",
+    "${{ github.ref }}": "git_ref",
+    "${{ steps.worthy.outputs.release-worthy }}": "release_worthy",
+    "${{ steps.predict.outputs.version || steps.forced.outputs.version }}": "version",
+}
+
+_MATRIX_INPUTS = {
+    "${{ steps.predict.outputs.run-build }}": "run-build",
+    "${{ steps.predict.outputs.run-arm64-check }}": "run-arm64-check",
+}
+
+
+def _composite_step(step_id: str) -> dict:
+    path = ACTIONS_DIR / "predict-version" / "action.yml"
+    action = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return next(s for s in action["runs"]["steps"] if s.get("id") == step_id)
+
+
+def _run_step(script: str, *, cwd: Path, env: dict[str, str]) -> dict[str, str]:
+    """Run a rendered step and return what it wrote to GITHUB_OUTPUT."""
+    output = cwd / "github-output"
+    output.write_text("", encoding="utf-8")
+    result = subprocess.run(
+        ["bash", "-c", script],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        env={**os.environ, **env, "GITHUB_OUTPUT": str(output)},
+    )
+    assert result.returncode == 0, (
+        f"rendered step exited {result.returncode}\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    written: dict[str, str] = {}
+    for line in output.read_text(encoding="utf-8").splitlines():
+        key, _, value = line.partition("=")
+        written[key] = value
+    return written
+
+
+def _render(script: str, substitutions: dict[str, str], *, leftover: str = "") -> str:
+    """Substitute GitHub expressions out of a step body."""
+    for expression, value in substitutions.items():
+        assert expression in script, f"expression gone from the step: {expression}"
+        script = script.replace(expression, value)
+    if leftover:
+        script = _GH_EXPRESSION.sub(leftover, script)
+    assert "${{" not in script, (
+        f"an unrendered GitHub expression is left in the script under test:\n{script}"
+    )
+    return script
+
+
+def _gate_outputs(expression: str) -> set[str]:
+    """The plan outputs whose ``'true'`` makes a job's ``if:`` fire.
+
+    Parsing rather than matching substrings: a clause this cannot read fails
+    the test, so a gate rewritten into a shape the model does not cover can
+    never pass by looking familiar.
+    """
+    names = set()
+    for clause in str(expression).split("||"):
+        match = re.fullmatch(
+            r"needs\.plan\.outputs\.([a-z0-9-]+) == 'true'", clause.strip()
+        )
+        assert match, f"gate clause not in the `outputs.X == 'true'` shape: {clause!r}"
+        names.add(match.group(1))
+    return names
+
+
+class TestArm64Parity:
+    """issue #249: arm64 compiled only on a run that was already publishing.
+
+    So an arm64-only defect first executed during the release meant to ship it,
+    and the fix could not be exercised except by publishing again. A BOLT
+    refusal over Cortex-A53 veneers reached dfe-receiver exactly that way.
+
+    The tests below RENDER the shipped shell and run it, rather than asserting
+    on substrings, because the question is what the matrix actually contains.
+    """
+
+    # will-publish, event, ref, release-worthy -- the four cases, in the terms
+    # the derive step reads them.
+    CASES = {
+        "publish run": ("true", "push", "refs/heads/main", "true"),
+        "validate-only dispatch": ("false", "workflow_dispatch", "refs/heads/main", ""),
+        "release-worthy merge to main": ("false", "push", "refs/heads/main", "true"),
+        "non-bumping merge to main": ("false", "push", "refs/heads/main", "false"),
+    }
+
+    @staticmethod
+    def _rust_project(tmp_path: Path) -> Path:
+        root = tmp_path / "repo"
+        root.mkdir()
+        (root / "Cargo.toml").write_text(
+            '[package]\nname = "thing"\nversion = "0.1.0"\n', encoding="utf-8"
+        )
+        return root
+
+    def _derive(self, case: str, tmp_path: Path) -> dict[str, str]:
+        """Run the composite's derive step for one case."""
+        if not shutil.which("bash") or not shutil.which("python3"):
+            pytest.skip("rendering the step needs bash + python3")
+        will_publish, event, ref, worthy = self.CASES[case]
+        script = _render(
+            str(_composite_step("derive")["run"]),
+            {
+                expression: {
+                    "will_publish": will_publish,
+                    "event_name": event,
+                    "branch_build": "",
+                    "git_ref": ref,
+                    "release_worthy": worthy,
+                    "version": "1.2.3",
+                }[name]
+                for expression, name in _DERIVE_INPUTS.items()
+            },
+        )
+        root = self._rust_project(tmp_path)
+        return _run_step(
+            script,
+            cwd=root,
+            env={
+                "GITHUB_ACTION_PATH": str(ACTIONS_DIR / "predict-version"),
+                "GITHUB_WORKSPACE": str(root),
+            },
+        )
+
+    def _matrix(self, gates: dict[str, str], tmp_path: Path) -> list[str]:
+        """Run rust-ci.yml's matrix step and return the os_arch legs it emits."""
+        plan = _load_workflow("rust-ci.yml")["jobs"]["plan"]["steps"]
+        step = next(s for s in plan if s.get("id") == "matrix")
+        script = _render(
+            str(step["run"]),
+            {expression: gates[name] for expression, name in _MATRIX_INPUTS.items()},
+            leftover="a-runner",
+        )
+        root = tmp_path / "matrix"
+        root.mkdir()
+        written = _run_step(script, cwd=root, env={})
+        return [leg["os_arch"] for leg in json.loads(written["matrix"])["include"]]
+
+    def _build_runs(self, gates: dict[str, str]) -> bool:
+        condition = _load_workflow("rust-ci.yml")["jobs"]["build"]["if"]
+        firing = _gate_outputs(condition)
+        return any(gates.get(name) == "true" for name in firing)
+
+    @pytest.mark.parametrize(
+        "case,expected",
+        [
+            ("publish run", ["linux-amd64", "linux-arm64"]),
+            ("validate-only dispatch", ["linux-amd64", "linux-arm64"]),
+            ("release-worthy merge to main", ["linux-arm64"]),
+        ],
+    )
+    def test_the_matrix_a_case_actually_builds(
+        self, case: str, expected: list[str], tmp_path: Path
+    ) -> None:
+        gates = self._derive(case, tmp_path)
+        assert self._build_runs(gates), f"{case}: the Build job did not fire"
+        assert self._matrix(gates, tmp_path) == expected, (
+            f"{case}: wrong arches for gates {gates}"
+        )
+
+    def test_a_non_bumping_merge_runs_no_build_at_all(self, tmp_path: Path) -> None:
+        # The doctrine's red line: a commit that ships nothing compiles
+        # nothing. Widening run-build here is what this change must NOT do.
+        gates = self._derive("non-bumping merge to main", tmp_path)
+        assert gates["run-build"] == "false"
+        assert gates["run-arm64-check"] == "false"
+        assert not self._build_runs(gates), (
+            "a non-bumping merge to main reached the Build job -- that is the "
+            "gate doctrine's red line, not a widening"
+        )
+
+    def test_run_build_still_ignores_release_worthiness(self, tmp_path: Path) -> None:
+        # The parity build must arrive through run-arm64-check alone. If
+        # run-build itself widened, the merge would build every arch and run
+        # the release tail behind it.
+        gates = self._derive("release-worthy merge to main", tmp_path)
+        assert gates["run-build"] == "false", (
+            "run-build widened to cover a release-worthy merge -- that builds "
+            "amd64 and the container too, which this change does not buy"
+        )
+        assert gates["run-arm64-check"] == "true"
+
+    def test_a_dispatch_owes_no_parity_check(self, tmp_path: Path) -> None:
+        # run-build already covers a dispatch, so the parity signal stays off
+        # and the matrix comes from run-build alone.
+        gates = self._derive("validate-only dispatch", tmp_path)
+        assert gates["run-build"] == "true"
+        assert gates["run-arm64-check"] == "false"
+
+    def test_the_helper_ships_with_the_action(self) -> None:
+        # The composite loads it by path out of its own checkout; a rename
+        # would leave the step calling a file that is not there.
+        helper = ACTIONS_DIR / "predict-version" / "arm64_check.py"
+        assert helper.is_file(), f"{helper} is referenced by action.yml but missing"
+
+    def test_the_composite_publishes_the_output(self) -> None:
+        path = ACTIONS_DIR / "predict-version" / "action.yml"
+        action = yaml.safe_load(path.read_text(encoding="utf-8"))
+        value = str(action["outputs"]["run-arm64-check"]["value"])
+        assert "steps.derive.outputs.run-arm64-check" in value
+
+    def test_only_rust_widens_its_build_gate(self) -> None:
+        # python/ts/go have no arm64 leg to run, so the parity signal must not
+        # reach their build gates -- it would build everything they have.
+        assert "run-arm64-check" in str(
+            _load_workflow("rust-ci.yml")["jobs"]["build"]["if"]
+        )
+        for name in ("python-ci.yml", "go-ci.yml", "ts-ci.yml", "ci.yml"):
+            condition = str(_load_workflow(name)["jobs"]["build"].get("if", ""))
+            assert "run-arm64-check" not in condition, (
+                f"{name}: build gate reads run-arm64-check, which only rust-ci.yml "
+                "has a matrix leg for"
+            )
+
+    def test_the_release_tail_skips_a_parity_build(self) -> None:
+        # The tail used to be reached exactly when Build ran. A parity build
+        # ships nothing, so a container build behind it is cost with no
+        # deliverable.
+        job = _load_workflow("rust-ci.yml")["jobs"]["release-tail"]
+        assert _gate_outputs(job["if"]) == {"run-build"}, (
+            "rust-ci.yml release-tail must gate on run-build alone, else the "
+            "arm64-parity build drags a container build behind it"
         )
 
 

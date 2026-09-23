@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 from pathlib import Path
 
 _SPEC = importlib.util.spec_from_file_location(
@@ -101,3 +102,65 @@ class TestSummariseJobs:
             [{"name": "ci / Build", "conclusion": ""}]
         )
         assert passed is False
+
+
+class TestMergeRefRace:
+    """A rehearsal must not report a GitHub timing artefact as a broken branch.
+
+    GitHub computes ``refs/pull/N/merge`` asynchronously but fires the
+    pull_request workflow on PR creation, so checkout can be told to fetch a
+    ref that does not exist yet. It retries three times over ~20s and fails
+    the job, which reads as the rehearsed branch being broken.
+    """
+
+    @staticmethod
+    def _completed(cmd, **_kwargs):
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    def test_it_waits_until_the_merge_ref_resolves(self, monkeypatch) -> None:
+        attempts = []
+
+        def fake_run(args, **_kwargs):
+            attempts.append(args)
+            rc = 0 if len(attempts) >= 3 else 1
+            return subprocess.CompletedProcess(args, rc, stdout="", stderr="")
+
+        monkeypatch.setattr(rehearse_branch, "_run", fake_run)
+        monkeypatch.setattr(rehearse_branch.time, "sleep", lambda _s: None)
+        assert rehearse_branch._wait_for_merge_ref("o/r", 19) is True
+        assert len(attempts) == 3
+        assert "repos/o/r/git/ref/pull/19/merge" in attempts[0]
+
+    def test_a_ref_that_never_appears_is_reported(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            rehearse_branch,
+            "_run",
+            lambda args, **_k: subprocess.CompletedProcess(args, 1),
+        )
+        monkeypatch.setattr(rehearse_branch.time, "sleep", lambda _s: None)
+        assert rehearse_branch._wait_for_merge_ref("o/r", 19, timeout_secs=0) is False
+
+    def test_the_rerun_waits_for_the_run_to_leave_completed(self, monkeypatch) -> None:
+        """Without this the caller re-reads the stale conclusion it is retrying."""
+        statuses = iter(['{"status":"completed"}', '{"status":"in_progress"}'])
+        polled: list[list[str]] = []
+
+        def fake_run(args, **_kwargs):
+            if "rerun" in args:
+                return subprocess.CompletedProcess(args, 0)
+            polled.append(args)
+            return subprocess.CompletedProcess(args, 0, stdout=next(statuses))
+
+        monkeypatch.setattr(rehearse_branch, "_run", fake_run)
+        monkeypatch.setattr(rehearse_branch.time, "sleep", lambda _s: None)
+        assert rehearse_branch._rerun("o/r", 42) is True
+        # Returning on the first read would hand back the conclusion being retried.
+        assert len(polled) == 2
+
+    def test_a_refused_rerun_is_not_a_restart(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            rehearse_branch,
+            "_run",
+            lambda args, **_k: subprocess.CompletedProcess(args, 1),
+        )
+        assert rehearse_branch._rerun("o/r", 42) is False

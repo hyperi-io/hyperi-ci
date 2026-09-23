@@ -115,9 +115,10 @@ rejected push.
 | `will-release` | push to **main** with `Release: true` trailer, OR `workflow_dispatch` carrying `tag` or `from-head: true` | The underlying release signal. A trailer on a non-main ref is ignored LOUDLY (`::warning::`) - main is the sole release path (branch-mode decision 1). A dispatch carrying neither is validate-only and warns that nothing was released |
 | `run-checks` | `will-release`, OR a **release-worthy push to main** (the pushed range carries a `feat:` / `fix:` / `perf:`; a range that cannot be resolved counts as worthy, so the gate fails open), OR `pull_request`, OR `workflow_dispatch` | Run quality + test. A release-worthy merge is TESTED, never shipped - `run-build` stays release-only |
 | `run-build` | `will-release`, OR `workflow_dispatch`, OR `pull_request` with the `branch-build` opt-in | Run build + container (the release tail stays `will-release`-only) |
+| `run-arm64-check` | a **release-worthy push to main** on a Rust project that ships `aarch64-unknown-linux-gnu` and has not set `build.rust.arm64_on_main: false` | Run the Build job with an arm64-ONLY matrix. Read by `rust-ci.yml` alone; the release tail does not run, so this compiles one leg and ships nothing |
 | `next-version` | `will-release` AND push | Predicted semver from semantic-release dry-run |
 | `python-version` | always | The interpreter every job builds and tests on: a pegged `.python-version`, else the `requires-python` FLOOR, else the `versions.yaml` default. The floor, because testing above it hides the bug it exists to catch - a 3.14-only feature in a repo that promises 3.12 |
-| `build-matrix` | always | Single-arch unless `will-release` - PR branch-mode builds stay single-arch. A project that lists `build.rust.targets` in `.hyperi-ci.yaml` gets legs for those targets only, so one that cannot build arm64 still releases amd64 |
+| `build-matrix` | always | Both arches whenever `run-build` is true, so a validate-only dispatch and a branch-mode PR build arm64 too. `run-arm64-check` alone yields the arm64 leg by itself. A project that lists `build.rust.targets` in `.hyperi-ci.yaml` gets legs for those targets only, so one that cannot build arm64 still releases amd64 |
 
 A push to a release branch with NO trailer is validate-only, which is correct and reads exactly like a release run. The gate asks `unreleased.py` what the last `v*` tag does not include and raises a `::warning::` naming the count, the tag and its age; it stays quiet when nothing releasable is waiting, and says separately when there is no tag to measure against.
 
@@ -155,10 +156,11 @@ flowchart LR
     WP -->|false| PR{pull_request?}
     PR -->|true| RC["run-checks=true<br/>run-build=false"]
     PR -->|false| RW{release-worthy<br/>push to main?}
-    RW -->|true| RC
+    RW -->|true| RCA["run-checks=true<br/>run-build=false<br/>run-arm64-check=true<br/>arm64 leg only"]
     RW -->|false| SK["everything skips<br/>(plan only)"]
     style RB fill:#dcfce7,color:#000
     style RC fill:#fef3c7,color:#000
+    style RCA fill:#fef3c7,color:#000
     style SK fill:#fee2e2,color:#000
 ```
 
@@ -167,7 +169,7 @@ flowchart LR
 | Push type | plan | commit-check | quality | test | build | container | tag+publish |
 |---|---|---|---|---|---|---|---|
 | `chore:` / `docs:` to main | yes | yes | no | no | no | no | no |
-| `feat:`/`fix:` to main, no `Release:` trailer | yes | yes | yes | yes | no | no | no |
+| `feat:`/`fix:` to main, no `Release:` trailer | yes | yes | yes | yes | arm64 only, Rust | no | no |
 | `feat:`/`fix:` to main + `Release: true` | yes | yes | yes | yes | yes | yes | yes |
 | Pull request | yes | yes advisory | yes | yes | no | no | no |
 | Pull request + `branch-build` opt-in | yes | yes advisory | yes | yes | yes | yes validate / dev push | no |
@@ -178,6 +180,17 @@ flowchart LR
 Tag-on-publish doctrine: a commit landing on main produces no tag and no
 artefacts. The operator opts in with `hyperi-ci push --release` (adds the
 `Release: true` trailer). See [flow.md](flow.md).
+
+### arm64 parity
+
+arm64 legs once keyed off `will-release`, so the first execution of arm64 code was the run meant to ship it. A BOLT refusal over Cortex-A53 veneers was found mid-publish on dfe-receiver, and the fix for it could not be exercised except by attempting another release (issue #249). Two changes close that:
+
+- **Arch breadth follows `run-build`.** A validate-only `workflow_dispatch` and a branch-mode PR build both arches, so arm64 is reachable on demand without publishing anything.
+- **`run-arm64-check` builds the arm64 leg alone on a release-worthy merge to main**, where a regression is still attributable to the change that caused it. Rust only; `rust-ci.yml` is the sole reader.
+
+The red line is unchanged: a merge that ships nothing still compiles nothing. `run-build` does not widen, a non-bumping merge runs no build job at all, and the release tail is gated on `run-build` so the parity build runs no container and publishes nothing.
+
+A Rust project opts out with `build.rust.arm64_on_main: false` in `.hyperi-ci.yaml`. The default is on wherever `build.rust.targets` names `aarch64-unknown-linux-gnu` or names nothing (which means every target); it is inert elsewhere.
 
 ## What's shared vs duplicated - and the rule
 
