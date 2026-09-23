@@ -76,8 +76,6 @@ on:
         default: ""
         description: "'true' to consent, for this run only, to shipping a skipped-optimisation build under a release tag. Without it a release that would have run PGO/BOLT refuses skip-optimize."
     secrets:
-      JFROG_TOKEN:
-        required: false
       CARGO_REGISTRY_TOKEN:
         required: false
       GITLEAKS_GH_ACTIONS_KEY:

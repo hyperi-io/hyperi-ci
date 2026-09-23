@@ -70,10 +70,6 @@ on:
         default: ""
         description: "'true' to consent, for this run only, to shipping a skipped-optimisation build under a release tag. No-op for Python today, kept for parity."
     secrets:
-      JFROG_TOKEN:
-        required: false
-      JFROG_USERNAME:
-        required: false
       PYPI_TOKEN:
         required: false
       GITLEAKS_GH_ACTIONS_KEY:

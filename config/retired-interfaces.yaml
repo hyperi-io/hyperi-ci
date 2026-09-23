@@ -1,0 +1,79 @@
+# Project:   HyperI CI
+# File:      config/retired-interfaces.yaml
+# Purpose:   Call-interface members a release may stop declaring, with evidence
+#
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# `scripts/check-workflow-interfaces.py` compares one interface against the
+# other and has no way to express "nothing consumes this", so it reads EVERY
+# removal as a regression. Without this file the only way to delete a dead
+# input, secret or output is a major bump, and an interface nothing consumes
+# survives forever. An entry here clears exactly one removal; the gate prints
+# every entry it honours, so a retirement is visible in the log.
+#
+# `reason` and `checked` are the point of the record. They say HOW it was
+# established that nothing consumes the interface, so the next reader can
+# re-run the check instead of trusting the entry. The gate refuses an entry
+# missing either - an assertion with no evidence is a bypass, not a retirement.
+#
+# Earning an entry means reading each caller's DEFAULT BRANCH. `gh search code`
+# lags it by an unbounded amount and never reports itself as stale.
+#
+# Removing a declared secret is a real break for a caller that passes one:
+# GitHub rejects the workflow with "Invalid input, <name> is not defined in the
+# referenced workflow" rather than ignoring it. A caller using `secrets:
+# inherit` bypasses declaration entirely and is unaffected either way.
+#
+# Prune an entry once a release has shipped without the interface. The gate
+# baselines against the last release tag, so the entry stops clearing anything
+# at that point and reports itself prunable.
+
+retired:
+  - file: .github/workflows/go-ci.yml
+    kind: secret
+    name: JFROG_TOKEN
+    reason: >-
+      JFrog publishing left hyperi-ci in v2.1.4; go-ci.yml declares the secret
+      and no job, step or handler reads it. Of the 34 workflow files across
+      hyperi-io that call a hyperi-ci reusable workflow, none pass it.
+    checked: 2026-09-23
+
+  - file: .github/workflows/python-ci.yml
+    kind: secret
+    name: JFROG_TOKEN
+    reason: >-
+      JFrog publishing left hyperi-ci in v2.1.4; python-ci.yml declares the
+      secret and the Python publish handler targets PyPI only. Of the 34
+      workflow files across hyperi-io that call a hyperi-ci reusable workflow,
+      none pass it.
+    checked: 2026-09-23
+
+  - file: .github/workflows/python-ci.yml
+    kind: secret
+    name: JFROG_USERNAME
+    reason: >-
+      Declared alongside JFROG_TOKEN for the JFrog PyPI username convention,
+      which left with the publish path in v2.1.4. Nothing reads it, and none of
+      the 34 hyperi-ci callers across hyperi-io pass it.
+    checked: 2026-09-23
+
+  - file: .github/workflows/rust-ci.yml
+    kind: secret
+    name: JFROG_TOKEN
+    reason: >-
+      JFrog publishing left hyperi-ci in v2.1.4; rust-ci.yml declares the secret
+      and the Rust publish handler targets crates.io only. Of the 34 workflow
+      files across hyperi-io that call a hyperi-ci reusable workflow, none pass
+      it - dfe-loader names it only in a comment saying it is omitted.
+    checked: 2026-09-23
+
+  - file: .github/workflows/ts-ci.yml
+    kind: secret
+    name: JFROG_TOKEN
+    reason: >-
+      JFrog publishing left hyperi-ci in v2.1.4; ts-ci.yml declares the secret
+      and the TypeScript publish handler targets npmjs only. Of the 34 workflow
+      files across hyperi-io that call a hyperi-ci reusable workflow, none pass
+      it.
+    checked: 2026-09-23

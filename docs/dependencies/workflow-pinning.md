@@ -106,6 +106,7 @@ flowchart TD
     CMP -->|"optional → required"| FAIL
     CMP -->|"removed pipeline file (@main ref would 404)"| FAIL
     CMP -->|"additive only (new optional, relaxed)"| PASS["✓ pass"]
+    CMP -->|"removal listed in<br/>config/retired-interfaces.yaml"| PASS
     FAIL["✗ fail CI — break never reaches a consumer"]
     style FAIL fill:#fee2e2,color:#000
     style PASS fill:#dcfce7,color:#000
@@ -114,6 +115,30 @@ flowchart TD
 Additive changes (new optional input, relaxed required) pass. Tested in
 `tests/unit/test_workflow_interfaces.py`. To make a deliberate major break, cut
 it knowingly - the gate forces the choice to be explicit.
+
+### Retiring an interface nothing consumes
+
+The gate compares one interface against the other, so it cannot tell a break
+from a cleanup: every removal reads as a regression, and an input, secret or
+output nothing consumes would need a major bump to delete. That is the whole
+cost of comparing only the two interfaces, and it is why dead declarations
+accumulate.
+
+`config/retired-interfaces.yaml` clears one removal per entry, keyed by file,
+kind and name. Each carries a `reason` and a `checked` date recording how it was
+established that nothing consumes it - the gate refuses an entry missing either,
+because an assertion with no evidence is a bypass rather than a retirement. It
+prints every entry it honours, so a retirement is visible in the log.
+
+Earning an entry means reading each caller's DEFAULT BRANCH. Removing a declared
+secret is a real break for a caller that passes one: GitHub rejects the workflow
+with "Invalid input, `<name>` is not defined in the referenced workflow" rather
+than ignoring it. A caller using `secrets: inherit` bypasses declaration
+entirely and is unaffected either way.
+
+Prune an entry once a release has shipped without the interface. The gate
+baselines against the last release tag, so the entry stops clearing anything at
+that point and reports itself `prunable` - a warning, not a failure.
 
 ## Precondition - branch protection (deferred, by decision)
 
