@@ -12,8 +12,6 @@ language-specific quality checks on every project.
 Ported from old CI: ci/scripts/core/gitleaks.sh
 """
 
-from __future__ import annotations
-
 import json
 import os
 import platform
@@ -22,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+from enum import StrEnum
 from pathlib import Path
 
 from hyperi_ci.common import error, info, is_ci, run_cmd, success, warn
@@ -112,6 +111,45 @@ def _find_config() -> str | None:
     return None
 
 
+# gitleaks' config precedence: `--config`, then these two, then
+# `(target path)/.gitleaks.toml`. GITLEAKS_CONFIG names a PATH;
+# GITLEAKS_CONFIG_TOML carries the TOML itself.
+_ENV_CONFIG_VARS = ("GITLEAKS_CONFIG", "GITLEAKS_CONFIG_TOML")
+
+
+def _parse_config(text: str) -> dict[str, object] | None:
+    """Parse a gitleaks config, folding the top-level keys the way viper does.
+
+    Case is folded once here rather than per caller: `UseDefault`, `[[Rules]]`
+    and `[Extend]` all work in a real config, and a half-done fold reads a
+    WORKING config as blind. None means the text is not TOML - gitleaks reports
+    that better than we can, and nothing here may turn a syntax error into a
+    claim about the scan.
+    """
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
+        return None
+    return {str(k).lower(): v for k, v in data.items()}
+
+
+def _read_config(cfg_path: str) -> dict[str, object] | None:
+    """Parse the config at ``cfg_path``, or None when it cannot be read."""
+    try:
+        text = Path(cfg_path).read_text(encoding="utf-8")
+    except OSError:
+        return None
+    return _parse_config(text)
+
+
+def _extend_table(folded: dict[str, object]) -> dict[str, object]:
+    """The `[extend]` table with its keys folded, or empty when there is none."""
+    extend = folded.get("extend") or {}
+    if not isinstance(extend, dict):
+        return {}
+    return {str(k).lower(): v for k, v in extend.items()}
+
+
 def _declares_no_ruleset(cfg_path: str) -> bool:
     """Report whether this config gives gitleaks NO SOURCE OF RULES at all.
 
@@ -145,27 +183,17 @@ def _declares_no_ruleset(cfg_path: str) -> bool:
     with a better message than we can, and we must not turn a malformed file
     into a spurious "your gate is blind" claim.
     """
-    try:
-        data = tomllib.loads(Path(cfg_path).read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError):
+    folded = _read_config(cfg_path)
+    if folded is None:
         return False
-
-    # gitleaks loads config through viper, which folds key case completely:
-    # `UseDefault`, `[[Rules]]` and `[Extend]` all work. Fold once rather than
-    # enumerating spellings - a half-done fold reads a WORKING config as blind
-    # and, in `blocking` mode, hard-fails CI on a repo that is scanning fine.
-    folded = {str(k).lower(): v for k, v in data.items()}
     if folded.get("rules"):
         return False
 
-    extend = folded.get("extend") or {}
-    if not isinstance(extend, dict):
-        return True
-    extend = {str(k).lower(): v for k, v in extend.items()}
     # Only `useDefault` and `path` pull in rules. `extend.url` deliberately does
     # NOT count: gitleaks' extendURL() is an empty `// TODO` stub as of 8.30.1
     # and nothing reads Extend.URL, so a url-only extend silently loads zero
     # rules - the very #64 failure this guard exists to catch.
+    extend = _extend_table(folded)
     return not (extend.get("usedefault") or extend.get("path"))
 
 
@@ -293,12 +321,93 @@ def _canary_rules_found(cfg: str | None) -> set[str] | None:
     return {str(f.get("RuleID")) for f in findings if isinstance(f, dict)}
 
 
+class _RuleSource(StrEnum):
+    """Where the rules a scan runs under come from, so far as the TOML says."""
+
+    DEFAULTS = "defaults"
+    OWN = "own"
+    UNKNOWN = "unknown"
+
+
+def _rules_config(cfg: str | None) -> dict[str, object] | None:
+    """The config gitleaks will load for this scan, folded.
+
+    An empty dict means there is no config anywhere, so gitleaks uses its own
+    ruleset. None means a config exists and could not be read. `--config` beats
+    the env vars in gitleaks' precedence, so a repo config answers first; with
+    no repo config the env vars ARE the config and get read rather than written
+    off, or an org-level override could blind every repo and only ever be
+    reported as inconclusive.
+    """
+    if cfg:
+        return _read_config(cfg)
+    if path := os.environ.get("GITLEAKS_CONFIG"):
+        return _read_config(path)
+    if inline := os.environ.get("GITLEAKS_CONFIG_TOML"):
+        return _parse_config(inline)
+    return {}
+
+
+def _canary_rule_source(cfg: str | None) -> _RuleSource:
+    """Report whether the canary's planted rules were ever in this config's scope.
+
+    The canary plants `github-pat` and `aws-access-token`, which are gitleaks'
+    OWN rules. A config extending the defaults therefore carries them, so a miss
+    there means the config suppressed them. A config bringing only its own
+    `[[rules]]`, or extending a path whose contents are not read here, may never
+    have carried them at all - and a miss then measures the canary's choice of
+    fixture, not the config.
+    """
+    folded = _rules_config(cfg)
+    if folded is None:
+        return _RuleSource.UNKNOWN
+    if not folded:
+        return _RuleSource.DEFAULTS
+    if _extend_table(folded).get("usedefault"):
+        return _RuleSource.DEFAULTS
+    return _RuleSource.OWN
+
+
+def _report_inconclusive_canary(
+    source: str, rules_from: _RuleSource, suppressed: str
+) -> int:
+    """Say the canary could not evaluate this config, and why. Never blocks.
+
+    The third outcome. Failing here would hard-fail a repo whose config is fine
+    but narrow; staying silent would report the canary's own blind spot as a
+    pass. Both destroy the same information, so it says which.
+    """
+    reason = (
+        "it brings its own rules instead of extending the defaults"
+        if rules_from is _RuleSource.OWN
+        else "hyperi-ci cannot read which rules it brings"
+    )
+    notice = "\n".join(
+        (
+            f"gitleaks: the canary could not evaluate {source} - {reason}, so a "
+            f"miss on {suppressed} says nothing about the scan.",
+            "  Neither a pass nor a failure: whether a scan under this config can "
+            "report a secret is unknown.",
+            "  help: `[extend] useDefault = true` puts the default ruleset - and "
+            "the canary with it - back in scope.",
+            "  docs: docs/quality-gate.md#gitleaks-config",
+        )
+    )
+    warn(f"  {notice}")
+    return 0
+
+
 def _report_canary(cfg: str | None, mode: str) -> int:
     """Emit the canary notice. Returns 1 when it must block.
 
-    Severity follows the gate's own mode, as the rule-less notice does: a repo
-    that asked for `blocking` and hands gitleaks a config that cannot report a
-    planted GitHub PAT is not a passing repo, it is an unscanned one.
+    Three outcomes, not two. The planted secrets come back and the config can
+    see. They do not come back from a config extending the DEFAULT ruleset,
+    where they live, so it suppressed them - and severity follows the gate's own
+    mode, as the rule-less notice does: a repo that asked for `blocking` and
+    hands gitleaks a config that cannot report a planted GitHub PAT is not a
+    passing repo, it is an unscanned one. Or they do not come back from a config
+    whose rules never carried them, where the canary has learned nothing and
+    must not pass judgement either way.
     """
     source = cfg or _env_config_override() or "the default gitleaks ruleset"
     found = _canary_rules_found(cfg)
@@ -314,6 +423,10 @@ def _report_canary(cfg: str | None, mode: str) -> int:
         return 0
 
     suppressed = ", ".join(missing)
+    rules_from = _canary_rule_source(cfg)
+    if rules_from is not _RuleSource.DEFAULTS:
+        return _report_inconclusive_canary(source, rules_from, suppressed)
+
     headline = (
         f"gitleaks: {source} suppresses every planted canary secret - a scan "
         "under it cannot report ANY secret."
@@ -344,13 +457,12 @@ def _report_canary(cfg: str | None, mode: str) -> int:
 def _env_config_override() -> str | None:
     """Name the GITLEAKS_CONFIG* env var in play, if any.
 
-    gitleaks reads its config from (in precedence order) `--config`, then
-    `GITLEAKS_CONFIG`, then `GITLEAKS_CONFIG_TOML`, then
-    `(target path)/.gitleaks.toml`. We always beat the env vars WHEN the repo
-    has a config to pass. When it does not, they silently take over and can
-    blind the scan - so they must be surfaced rather than ignored.
+    We always beat the env vars WHEN the repo has a config to pass. When it does
+    not, they silently take over and can blind the scan - so they must be
+    surfaced rather than ignored. Precedence is spelled out at
+    :data:`_ENV_CONFIG_VARS`.
     """
-    for name in ("GITLEAKS_CONFIG", "GITLEAKS_CONFIG_TOML"):
+    for name in _ENV_CONFIG_VARS:
         if os.environ.get(name):
             return name
     return None

@@ -23,21 +23,21 @@ Three things are pinned down here:
 
 The canary tests run the REAL gitleaks binary against real files, because the
 thing under test is what gitleaks does with a config, which a stub cannot tell
-us. They skip when it is absent: the binary lives in the quality stage's
-environment, not the test job's, and the gate's own refusal to pass without it
-is enforced in `gitleaks.py` rather than here. Only the severity wiring is
-stubbed, matching how the rule-less guard is tested above it.
+us. On a Linux runner the binary is INSTALLED rather than skipped around - see
+`real_gitleaks` - because these are the only tests that prove the canary detects
+anything. Only the severity wiring is stubbed, matching how the rule-less guard
+is tested above it.
 """
-
-from __future__ import annotations
 
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
+from hyperi_ci.common import is_ci
 from hyperi_ci.config import CIConfig
 from hyperi_ci.quality import gitleaks
 
@@ -46,13 +46,29 @@ _STRICT = "HYPERCI_QUALITY_STRICT"
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def real_gitleaks() -> str:
-    """The gitleaks binary, or a skip when it is not installed."""
-    found = shutil.which("gitleaks")
-    if not found:
-        pytest.skip("gitleaks is not installed")
-    return found
+    """The gitleaks binary, installed on a Linux runner rather than skipped around.
+
+    Every test that proves the canary DETECTS anything needs the real binary, so
+    a CI run that skips them has proved nothing - and a canary planting no
+    secrets at all still goes green. That is not a hypothetical: the 17 tests
+    below were turned into skips to get this branch's first run green.
+
+    `_install_gitleaks` fetches the pinned build with its sha256 verified, so a
+    Linux runner has no reason to be without it and failing is the honest
+    outcome. The skip stands only where there is no install path at all - a
+    developer's machine, or the macOS leg of the matrix.
+    """
+    if gitleaks._install_gitleaks() and (found := shutil.which("gitleaks")):
+        return found
+    if is_ci() and sys.platform == "linux":
+        pytest.fail(
+            "gitleaks did not install on a Linux CI runner. These tests are the "
+            "only evidence the canary detects anything, so skipping them here "
+            "would report success over a gate that never ran."
+        )
+    pytest.skip("gitleaks is not installed and cannot be installed on this host")
 
 
 def _cfg(raw: dict | None = None) -> CIConfig:
@@ -61,9 +77,16 @@ def _cfg(raw: dict | None = None) -> CIConfig:
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Start every test with skip + strict unset, whatever the shell had."""
+    """Start every test with skip, strict and the config overrides unset.
+
+    GITLEAKS_CONFIG* belongs here rather than only in TestEnvConfigOverride: a
+    developer with one exported has a different config in play for every canary
+    test, and the suite would pass or fail on their shell.
+    """
     monkeypatch.delenv(_SKIP, raising=False)
     monkeypatch.delenv(_STRICT, raising=False)
+    for var in gitleaks._ENV_CONFIG_VARS:
+        monkeypatch.delenv(var, raising=False)
 
 
 def _fake_gitleaks(
@@ -375,6 +398,13 @@ _ALLOWLIST_PATHS = "[extend]\nuseDefault = true\n[allowlist]\npaths = ['''.*''']
 _ALLOWLIST_REGEXES = "[extend]\nuseDefault = true\n[allowlist]\nregexes = ['''.*''']\n"
 _DISABLED_RULES = '[extend]\nuseDefault = true\ndisabledRules = ["github-pat"]\n'
 
+# A rule source that is valid and NARROW: the pattern matches nothing the canary
+# plants, so a config built on it never had the planted rules in scope.
+_OWN_RULES_ONLY = (
+    '[[rules]]\nid = "house-token"\ndescription = "house token"\n'
+    "regex = '''HOUSETOKEN-[0-9]{8}'''\n"
+)
+
 # The three shapes #67 measured against gitleaks 8.30.1, each of which reports
 # "no leaks found" over a planted PAT while keeping a rule source.
 _EVASIONS = [
@@ -515,6 +545,124 @@ class TestKnownEvasions:
         assert _canary_misses(cfg) == {"github-pat"}
 
 
+class TestCanaryRuleSource:
+    """Whether the planted rules were ever in a config's scope."""
+
+    def test_no_config_is_the_default_ruleset(self) -> None:
+        assert gitleaks._canary_rule_source(None) is gitleaks._RuleSource.DEFAULTS
+
+    @pytest.mark.parametrize(
+        "body",
+        ["[extend]\nuseDefault = true\n", "[Extend]\nUSEDEFAULT = true\n"],
+    )
+    def test_use_default_is_the_default_ruleset(
+        self, tmp_path: Path, body: str
+    ) -> None:
+        # viper folds key case, so a half-done fold here would read a working
+        # config as narrow and downgrade every evasion below to a warning.
+        source = gitleaks._canary_rule_source(_write_config(tmp_path, body))
+        assert source is gitleaks._RuleSource.DEFAULTS
+
+    def test_own_rules_are_narrow(self, tmp_path: Path) -> None:
+        source = gitleaks._canary_rule_source(_write_config(tmp_path, _OWN_RULES_ONLY))
+        assert source is gitleaks._RuleSource.OWN
+
+    def test_extend_path_is_narrow_because_it_is_not_followed(
+        self, tmp_path: Path
+    ) -> None:
+        # The extended file is not read, so what it brings is not known here.
+        cfg = _write_config(tmp_path, '[extend]\npath = "org-base.toml"\n')
+        assert gitleaks._canary_rule_source(cfg) is gitleaks._RuleSource.OWN
+
+    def test_unreadable_config_is_unknown(self, tmp_path: Path) -> None:
+        cfg = str(tmp_path / "absent.toml")
+        assert gitleaks._canary_rule_source(cfg) is gitleaks._RuleSource.UNKNOWN
+
+    def test_env_config_path_is_read_not_written_off(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # With no repo config the env var IS the config. Calling it unreadable
+        # would let an org-level override that blinds every repo report as
+        # inconclusive instead of failing.
+        monkeypatch.setenv("GITLEAKS_CONFIG", _write_config(tmp_path, _ALLOWLIST_PATHS))
+        assert gitleaks._canary_rule_source(None) is gitleaks._RuleSource.DEFAULTS
+
+    def test_env_inline_toml_is_read(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GITLEAKS_CONFIG_TOML", _ALLOWLIST_REGEXES)
+        assert gitleaks._canary_rule_source(None) is gitleaks._RuleSource.DEFAULTS
+
+    def test_repo_config_beats_the_env_var(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Same precedence gitleaks applies: --config wins, so the env var must
+        # not decide the scope of a scan it is not configuring.
+        monkeypatch.setenv("GITLEAKS_CONFIG_TOML", "[extend]\nuseDefault = true\n")
+        cfg = _write_config(tmp_path, _OWN_RULES_ONLY)
+        assert gitleaks._canary_rule_source(cfg) is gitleaks._RuleSource.OWN
+
+
+class TestNarrowConfigIsInconclusive:
+    """A config whose rules never carried the planted secrets is not a verdict.
+
+    `_declares_no_ruleset` blesses both shapes here as a valid rule source and
+    the canary reports nothing against either, so before the third outcome
+    existed two guards in one file disagreed: one called the config sound, the
+    other hard-failed the build over it. Fleet impact was nil - every real
+    `.gitleaks.toml` measured extends the defaults - which is what made it a
+    trap rather than an outage.
+    """
+
+    @pytest.fixture(params=["own-rules", "extend-path"])
+    def narrow_config(self, request: pytest.FixtureRequest, tmp_path: Path) -> str:
+        if request.param == "own-rules":
+            return _write_config(tmp_path, _OWN_RULES_ONLY)
+        # The extended file must EXIST. Point at a missing one and gitleaks
+        # exits fatally, which lands on the did-not-run branch - the test would
+        # pass while measuring nothing.
+        base = tmp_path / "org-base.toml"
+        base.write_text(_OWN_RULES_ONLY, encoding="utf-8", newline="\n")
+        return _write_config(tmp_path, f'[extend]\npath = "{base}"\n')
+
+    def test_the_rule_source_guard_blesses_it(self, narrow_config: str) -> None:
+        assert gitleaks._declares_no_ruleset(narrow_config) is False
+
+    def test_the_canary_still_finds_nothing(
+        self, real_gitleaks: str, narrow_config: str
+    ) -> None:
+        # Without this the two tests below would pass on a config the canary
+        # sailed through, proving nothing about the inconclusive branch.
+        assert _canary_misses(narrow_config) == set(gitleaks._CANARY_SECRETS)
+
+    def test_blocking_mode_does_not_fail(
+        self, real_gitleaks: str, narrow_config: str
+    ) -> None:
+        assert gitleaks._report_canary(narrow_config, "blocking") == 0
+
+    def test_it_says_the_canary_could_not_evaluate_the_config(
+        self,
+        real_gitleaks: str,
+        narrow_config: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # Not failing is half of it; reading as a silent pass is the other half.
+        warns: list[str] = []
+        errors: list[str] = []
+        monkeypatch.setattr(gitleaks, "warn", warns.append)
+        monkeypatch.setattr(gitleaks, "error", errors.append)
+        gitleaks._report_canary(narrow_config, "blocking")
+
+        assert any("could not evaluate" in w for w in warns), warns
+        assert not errors, errors
+
+    def test_a_broad_config_that_hides_the_canary_still_fails(
+        self, real_gitleaks: str, tmp_path: Path
+    ) -> None:
+        # The other half of the split: extending the defaults puts the planted
+        # rules in scope, so suppressing them IS the verdict the PR exists for.
+        cfg = _write_config(tmp_path, _ALLOWLIST_PATHS)
+        assert gitleaks._report_canary(cfg, "blocking") == 1
+
+
 class TestCanaryWiring:
     """The canary's place in run(): it gates the scan, and mode sets severity."""
 
@@ -543,6 +691,18 @@ class TestCanaryWiring:
         _fake_gitleaks(monkeypatch, canary_found=set())
         monkeypatch.setenv(_STRICT, "1")
         assert gitleaks.run(_cfg({"quality": {"gitleaks": "warn"}})) == 1
+
+    def test_a_narrow_config_does_not_gate_the_scan(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # An inconclusive canary must leave the real scan to run - it is the
+        # canary that could not decide, not the scanner that cannot see.
+        calls = _fake_gitleaks(monkeypatch, canary_found=set())
+        monkeypatch.setattr(
+            gitleaks, "_canary_rule_source", lambda _cfg: gitleaks._RuleSource.OWN
+        )
+        assert gitleaks.run(_cfg({"quality": {"gitleaks": "blocking"}})) == 0
+        assert _scan_cmd(calls)[1] == "git"
 
     def test_rule_less_config_skips_the_canary(
         self, monkeypatch: pytest.MonkeyPatch
