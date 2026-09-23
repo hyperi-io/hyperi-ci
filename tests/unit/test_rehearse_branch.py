@@ -6,9 +6,8 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for scripts/rehearse-branch.py pure helpers."""
 
-from __future__ import annotations
-
 import importlib.util
+import json
 import subprocess
 from pathlib import Path
 
@@ -156,6 +155,34 @@ class TestMergeRefRace:
         assert rehearse_branch._rerun("o/r", 42) is True
         # Returning on the first read would hand back the conclusion being retried.
         assert len(polled) == 2
+
+    def test_the_watcher_reads_the_run_for_this_fixture_commit(
+        self, monkeypatch
+    ) -> None:
+        """A newer run on the reused branch name must not stand in (issue #263).
+
+        pick_run alone is tested elsewhere; this holds the watcher to using it.
+        """
+        listed = json.dumps(
+            [
+                {"databaseId": 99, "status": "completed", "headSha": "stale"},
+                {"databaseId": 42, "status": "completed", "headSha": "mine"},
+            ]
+        )
+        jobs = json.dumps({"jobs": [{"name": "ci / Test", "conclusion": "success"}]})
+        viewed: list[str] = []
+
+        def fake_run(args, **_kwargs):
+            if args[:3] == ["gh", "run", "list"]:
+                return subprocess.CompletedProcess(args, 0, stdout=listed)
+            viewed.append(args[3])
+            return subprocess.CompletedProcess(args, 0, stdout=jobs)
+
+        monkeypatch.setattr(rehearse_branch, "_run", fake_run)
+        verdict, _lines, run_id = rehearse_branch._watch_pr_run(
+            "o/r", "rehearse/x", "mine", 1
+        )
+        assert (verdict, run_id, viewed) == ("pass", 42, ["42"])
 
     def test_a_refused_rerun_is_not_a_restart(self, monkeypatch) -> None:
         monkeypatch.setattr(
