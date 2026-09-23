@@ -669,6 +669,64 @@ class TestWaitingOnTheRun:
         assert len(reads) == negative._RUN_READ_ATTEMPTS
 
 
+class TestPinningTheCli:
+    """ci-test-manifests carries a permanent HYPERCI_INSTALL_OVERRIDE.
+
+    Cleanup deletes the variable when the prior value was None, so a read that
+    FAILED must never be recorded as a read that found nothing.
+    """
+
+    def test_an_unreadable_override_is_never_set_or_deleted(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        class UnreadableError(Exception):
+            """Stand-in for rehearse_branch.OverrideUnreadableError."""
+
+        def read(repo):
+            if repo == "o/manifests":
+                raise UnreadableError("gh: Server Error (HTTP 502)")
+            return None
+
+        calls: list[tuple[str, str]] = []
+
+        def gh_var(repo, action, value=""):
+            calls.append((repo, action))
+            return True
+
+        rehearse = negative.rehearse_branch
+        monkeypatch.setattr(
+            rehearse, "OverrideUnreadableError", UnreadableError, raising=False
+        )
+        monkeypatch.setattr(rehearse, "_read_override", read)
+        monkeypatch.setattr(rehearse, "_gh_var", gh_var)
+        fixtures = {
+            "ci-test-manifests": negative.Fixture(repo="o/manifests", clone=tmp_path),
+            "ci-test-go-app": negative.Fixture(repo="o/go", clone=tmp_path),
+        }
+        go_case = negative.Case(
+            fixture="ci-test-go-app",
+            name="go-cve-govulncheck",
+            patch="p.patch",
+            branch="expect-fail/go-cve-govulncheck",
+            stage="quality",
+            reason="govulncheck",
+        )
+
+        runnable, results, fatal = negative._pin_fixtures(
+            fixtures, [CASE, go_case], "fix/x"
+        )
+        negative._cleanup(fixtures, [])
+
+        assert fatal == ""
+        assert runnable == [go_case]
+        assert [(r.fixture, r.state) for r in results] == [
+            (CASE.case_id, negative.UNREACHABLE)
+        ]
+        assert "HTTP 502" in results[0].detail
+        touched = [action for repo, action in calls if repo == "o/manifests"]
+        assert touched == [], calls
+
+
 class TestJobLogRead:
     """Reading a failed job's log is where this gate has always stopped (#264).
 
