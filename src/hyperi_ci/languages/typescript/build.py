@@ -6,17 +6,15 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """TypeScript build handler."""
 
-from __future__ import annotations
-
 import re
-import subprocess
 from pathlib import Path
 
-from hyperi_ci.common import error, info, success
+from hyperi_ci.common import error, info, run_cmd, success
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.typescript._common import (
     detect_package_manager,
     ensure_pm_available,
+    package_script_env,
 )
 
 
@@ -28,7 +26,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         error(f"{pm} is not available and could not be installed")
         return 1
 
-    result = subprocess.run([pm, "run", "build"])
+    result = run_cmd([pm, "run", "build"], check=False, env=package_script_env())
     if result.returncode != 0:
         error("TypeScript build failed")
         return result.returncode

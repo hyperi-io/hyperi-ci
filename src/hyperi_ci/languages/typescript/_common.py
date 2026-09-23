@@ -6,8 +6,6 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Shared utilities for TypeScript language handlers."""
 
-from __future__ import annotations
-
 import json
 import os
 import shutil
@@ -15,6 +13,23 @@ import subprocess
 from pathlib import Path
 
 from hyperi_ci.common import info, warn
+
+# turbo holds each task's output until the task ends when it detects CI, so a
+# cancelled or hung task leaves nothing in the log (issue #265).
+_STREAM_OUTPUT_ENV = {"TURBO_LOG_ORDER": "stream"}
+
+
+def package_script_env() -> dict[str, str]:
+    """Return the variables to add when running a package script.
+
+    A value the project already exported wins, so a repo that wants turbo's
+    grouped output keeps it.
+
+    Returns:
+        Environment overlay for the package-script subprocess.
+
+    """
+    return {k: v for k, v in _STREAM_OUTPUT_ENV.items() if k not in os.environ}
 
 
 def _corepack_enable() -> bool:
@@ -38,7 +53,7 @@ def _corepack_enable() -> bool:
         return True
 
     stderr = cp.stderr.strip() if cp.stderr else "unknown error"
-    warn(f"corepack enable failed ({stderr}) — retrying with user directory")
+    warn(f"corepack enable failed ({stderr}) -- retrying with user directory")
 
     user_dir = Path.home() / ".corepack" / "bin"
     user_dir.mkdir(parents=True, exist_ok=True)
