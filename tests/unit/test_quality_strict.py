@@ -14,7 +14,7 @@ to blocking so they surface before a push instead of after.
 
 import pytest
 
-from hyperi_ci.config import CIConfig
+from hyperi_ci.config import CIConfig, packaged_default
 from hyperi_ci.languages import quality_common
 from hyperi_ci.languages.quality_common import (
     is_skipped,
@@ -262,6 +262,22 @@ class TestSecurityGateNeedsAReason:
         said = self._warnings(monkeypatch)
         resolve_tool_mode("pip_audit", _config("pip_audit", "warn"), "python")
         assert any("security gate" in w for w in said), said
+
+    @pytest.mark.parametrize("tool", ["gosec", "govulncheck"])
+    def test_the_go_security_gates_need_a_reason(
+        self, monkeypatch: pytest.MonkeyPatch, tool: str
+    ) -> None:
+        # Both ship `blocking`; govulncheck is Go's CVE gate.
+        said = self._warnings(monkeypatch)
+        resolve_tool_mode(tool, _config(tool, "warn", "golang"), "golang")
+        assert any("security gate" in w for w in said), said
+
+    def test_every_security_tool_is_a_key_hyperi_ci_ships(self) -> None:
+        # A name no config key uses guards nothing and hides the gap beside it.
+        scopes = ("python", "typescript", "golang", "rust")
+        for tool in quality_common.SECURITY_TOOLS:
+            keys = [f"quality.{tool}", *(f"quality.{s}.{tool}" for s in scopes)]
+            assert any(packaged_default(k) is not None for k in keys), tool
 
     def test_force_skip_needs_no_reason(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # The incident escape hatch exists for a CI that is already broken.
