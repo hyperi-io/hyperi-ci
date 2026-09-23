@@ -105,6 +105,15 @@ def apply_strict(mode: str) -> str:
     return mode
 
 
+def stricter(mode: str, than: str) -> bool:
+    """Return True when ``mode`` gates harder than ``than``.
+
+    Orders ``disabled`` < ``warn`` < ``blocking``, for two checks that report
+    the same finding and must agree on which one decides whether it fails.
+    """
+    return _MODE_STRENGTH.get(mode, 0) > _MODE_STRENGTH.get(than, 0)
+
+
 def quality_skip() -> frozenset[str]:
     """Tool names to forcibly skip this run (``HYPERCI_QUALITY_SKIP``).
 

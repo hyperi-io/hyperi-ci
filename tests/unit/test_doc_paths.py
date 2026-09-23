@@ -11,8 +11,6 @@ rule is only usable if ``/metrics`` and ``application/json`` stay quiet, so
 those cases carry as much weight as the drift it is meant to catch.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 from hyperi_ci.config import CIConfig
@@ -241,14 +239,28 @@ class TestRun:
         doc.write_text("[x](docs/gone.md)\n", encoding="utf-8")
         assert doc_paths.run([doc], _config(doc_paths="disabled"), root=root) == 0
 
-    def test_check_links_false_leaves_links_to_lychee(self, tmp_path: Path) -> None:
+    def test_lychee_at_the_same_mode_owns_the_link(self, tmp_path: Path) -> None:
+        # Both would gate, so reporting it here as well only doubles the line.
         root = _repo(tmp_path)
         doc = root / "README.md"
         doc.write_text("[x](docs/gone.md)\n", encoding="utf-8")
         rc = doc_paths.run(
-            [doc], _config(doc_paths="blocking"), root=root, check_links=False
+            [doc], _config(doc_paths="blocking"), root=root, lychee_mode="blocking"
         )
         assert rc == 0
+
+    def test_a_promoted_check_keeps_the_link_from_a_warn_only_lychee(
+        self, tmp_path: Path
+    ) -> None:
+        # lychee at `warn` can never fail the run, so handing it the link would
+        # make `doc_paths: blocking` unable to fail on the one finding it gates.
+        root = _repo(tmp_path)
+        doc = root / "README.md"
+        doc.write_text("[x](docs/gone.md)\n", encoding="utf-8")
+        rc = doc_paths.run(
+            [doc], _config(doc_paths="blocking"), root=root, lychee_mode="warn"
+        )
+        assert rc == 1
 
     def test_no_files_is_a_clean_skip(self, tmp_path: Path) -> None:
         assert doc_paths.run([], _config(), root=tmp_path) == 0

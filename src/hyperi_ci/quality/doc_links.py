@@ -26,8 +26,6 @@ A repo silences a known-bad link with a committed ``.lycheeignore``, which
 lychee reads from the directory it runs in.
 """
 
-from __future__ import annotations
-
 import json
 import platform
 import shutil
@@ -72,16 +70,19 @@ def resolve_mode(config: CIConfig) -> str:
     return resolve_cross_tool_mode(config, "doc_links", "warn")
 
 
-def will_run(config: CIConfig) -> bool:
-    """Return True when lychee is enabled AND present, so it will do the work.
+def planned_mode(config: CIConfig) -> str | None:
+    """Return the mode lychee will check links at, or None when it will not run.
 
     The orchestrator asks before running :mod:`doc_paths`, which otherwise
     reports the same broken link a second time. Installs lychee to answer,
     because the answer has to match what :func:`run` does a moment later.
     """
-    if resolve_mode(config) == "disabled":
-        return False
-    return (shutil.which("lychee") or _install_lychee()) is not None
+    mode = resolve_mode(config)
+    if mode == "disabled":
+        return None
+    if (shutil.which("lychee") or _install_lychee()) is None:
+        return None
+    return mode
 
 
 def parse(stdout: str) -> list[fdg.Finding]:
