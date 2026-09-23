@@ -89,8 +89,8 @@ quality:
 
   # Every tool below takes a bare mode (`blocking` / `warn` / `disabled`) or a
   # mapping carrying `mode` plus options. A SECURITY tool (gitleaks, semgrep,
-  # bandit, pip_audit, audit, deny, osv, osv_scanner) set BELOW the default
-  # shipped here needs a `reason` in that mapping or the stage fails:
+  # bandit, pip_audit, audit, deny, osv_scanner, gosec, govulncheck) set BELOW
+  # the default shipped here needs a `reason` in that mapping or the stage fails:
   #
   #   pip_audit:
   #     mode: warn
