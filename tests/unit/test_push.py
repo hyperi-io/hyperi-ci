@@ -5,10 +5,11 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
-from __future__ import annotations
-
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from hyperi_ci.push import (
     _check_dirty_tree,
@@ -231,27 +232,40 @@ class TestHasPublishTrailer:
         assert _has_publish_trailer(msg) is False
 
 
+@pytest.fixture
+def fresh_repo(tmp_path: Path) -> str:
+    """A new repo on `main` with no upstream.
+
+    `_default_push` reads the branch config of the repo it is pointed at, so a
+    test run from a worktree branch tracking `main` would otherwise fail on the
+    push-target check instead of the thing it means to test.
+    """
+    subprocess.run(["git", "init", "-q", "-b", "main", str(tmp_path)], check=True)
+    return str(tmp_path)
+
+
 class TestDefaultPush:
     """Test default push flow."""
 
-    def test_dirty_tree_aborts(self) -> None:
+    def test_dirty_tree_aborts(self, fresh_repo: str) -> None:
         with patch("hyperi_ci.push._check_dirty_tree", return_value=1):
             from hyperi_ci.push import _default_push
 
-            rc = _default_push(dry_run=False, force=False, cwd=None)
+            rc = _default_push(dry_run=False, force=False, cwd=fresh_repo)
             assert rc == 1
 
-    def test_check_failure_aborts(self) -> None:
+    def test_check_failure_aborts(self, fresh_repo: str) -> None:
         with (
             patch("hyperi_ci.push._check_dirty_tree", return_value=0),
-            patch("hyperi_ci.push._run_check", return_value=1),
+            patch("hyperi_ci.push._run_check", return_value=1) as mock_check,
         ):
             from hyperi_ci.push import _default_push
 
-            rc = _default_push(dry_run=False, force=False, cwd=None)
+            rc = _default_push(dry_run=False, force=False, cwd=fresh_repo)
             assert rc == 1
+            mock_check.assert_called_once()
 
-    def test_force_skips_check(self) -> None:
+    def test_force_skips_check(self, fresh_repo: str) -> None:
         with (
             patch("hyperi_ci.push._check_dirty_tree", return_value=0),
             patch("hyperi_ci.push._run_check") as mock_check,
@@ -259,11 +273,11 @@ class TestDefaultPush:
         ):
             from hyperi_ci.push import _default_push
 
-            rc = _default_push(dry_run=False, force=True, cwd=None)
+            rc = _default_push(dry_run=False, force=True, cwd=fresh_repo)
             assert rc == 0
             mock_check.assert_not_called()
 
-    def test_dry_run_no_side_effects(self) -> None:
+    def test_dry_run_no_side_effects(self, fresh_repo: str) -> None:
         with (
             patch("hyperi_ci.push._check_dirty_tree", return_value=0),
             patch("hyperi_ci.push._run_check", return_value=0),
@@ -272,7 +286,7 @@ class TestDefaultPush:
         ):
             from hyperi_ci.push import _default_push
 
-            rc = _default_push(dry_run=True, force=False, cwd=None)
+            rc = _default_push(dry_run=True, force=False, cwd=fresh_repo)
             assert rc == 0
             mock_push.assert_not_called()
 
