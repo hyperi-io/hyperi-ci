@@ -611,3 +611,5 @@ jobs:
           HYPERCI_GATE_TEST: ${{ needs.test.result }}
           HYPERCI_GATE_BUILD: ${{ needs.build.result }}
         run: ${{ env.HYPERCI_INSTALL }} gate-check
+
+# probe: confirm the rehearsal gate can read a private fixture from CI
