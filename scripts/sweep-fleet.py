@@ -190,8 +190,9 @@ def sweep_verdict(targets: list[str], results: list[Result]) -> tuple[int, list[
         sweep proved nothing -- it ran none, could not reach one, or one was
         waiting on a release.
     """
+    # Wide enough for the longest state, so the column stays a column.
     lines = [
-        f"  {result.state:<11} {result.fixture} - {result.detail}" for result in results
+        f"  {result.state:<15} {result.fixture} - {result.detail}" for result in results
     ]
     if not targets:
         return 2, ["ERROR: the sweep selected 0 fixtures - it proved nothing."]

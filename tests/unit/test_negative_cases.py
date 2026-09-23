@@ -410,6 +410,23 @@ class TestACaseWaitingOnARelease:
         assert negative.PENDING_RELEASE in sweep.INCONCLUSIVE
         assert sweep.PASS not in sweep.INCONCLUSIVE
 
+    def test_the_state_column_fits_every_state(self) -> None:
+        """A state wider than the column turns the report into ragged prose."""
+        states = [
+            sweep.PASS,
+            sweep.FAIL,
+            sweep.TIMEOUT,
+            sweep.UNREACHABLE,
+            sweep.PENDING_RELEASE,
+            negative.LEAKED,
+            negative.WRONG_STAGE,
+            negative.WRONG_REASON,
+            negative.STALE_PATCH,
+        ]
+        results = [sweep.Result(f"f/{n}", state, "d") for n, state in enumerate(states)]
+        _, lines = sweep.sweep_verdict([r.fixture for r in results], results)
+        assert len({line.index(" f/") for line in lines}) == 1
+
 
 class TestSelectingFixtures:
     def test_only_the_fixtures_that_declare_cases(self) -> None:
