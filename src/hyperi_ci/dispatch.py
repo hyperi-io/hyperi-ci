@@ -30,7 +30,10 @@ from hyperi_ci.common import (
 )
 from hyperi_ci.config import VALID_PROJECT_STATUSES, CIConfig, load_config
 from hyperi_ci.detect import detect_language
-from hyperi_ci.languages.quality_common import GateReasonRequiredError
+from hyperi_ci.languages.quality_common import (
+    GateReasonRequiredError,
+    note_quality_disabled,
+)
 from hyperi_ci.quality import (
     charset,
     commit_validation,
@@ -233,7 +236,10 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
         deprecated_files.scan()
 
     if not config.get("quality.enabled", True):
-        info("Quality checks disabled in configuration")
+        note_quality_disabled(
+            _LANGUAGE_ALIASES.get(language, language),
+            str(config.get("quality.reason") or ""),
+        )
         return 0
 
     # Repo-hygiene advisory via external `alint` (profile-aware). Non-blocking
@@ -590,8 +596,9 @@ def run_stage(
             rc = handler(language, config)
     except GateReasonRequiredError as exc:
         # Nothing raises this until issue #259 stage 2 restores the raise in
-        # note_gate_downgrade. From then, a relaxed security gate with no
-        # reason ends the stage here rather than running on past it.
+        # note_gate_downgrade and note_quality_disabled. From then, a relaxed
+        # security gate with no reason ends the stage here rather than running
+        # on past it.
         error(str(exc))
         return 1
 
