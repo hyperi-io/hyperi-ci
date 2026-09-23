@@ -156,7 +156,7 @@ def _mapping_example(key: str, mode: str) -> str:
 
 
 def _reason_required_message(key: str, mode: str, shipped: str) -> str:
-    """Build the failure text for a security gate relaxed without a reason."""
+    """Build the message for a security gate relaxed without a reason."""
     tool = key.rsplit(".", 1)[-1]
     return "\n".join(
         (
@@ -181,11 +181,12 @@ def note_gate_downgrade(
 
     A gate a repo relaxed and a gate that passed read the same in the log,
     so the relaxation has to announce itself where the run can be read.
-    For a tool in :data:`SECURITY_TOOLS` the announcement is not enough:
-    turning one below its shipped default with no ``reason`` beside it
-    raises :class:`GateReasonRequiredError` and the stage fails. The
-    comparison is against that tool's OWN shipped default, whatever it is:
-    semgrep ships ``warn``, so ``semgrep: warn`` is not a downgrade.
+    For a tool in :data:`SECURITY_TOOLS`, turning one below its shipped
+    default with no ``reason`` beside it prints a warning naming the fix.
+    Stage 2 of issue #259 turns that warning into
+    :class:`GateReasonRequiredError` and a failed stage. The comparison is
+    against that tool's OWN shipped default, whatever it is: semgrep ships
+    ``warn``, so ``semgrep: warn`` is not a downgrade.
 
     Takes the CONFIGURED mode, not the post-``apply_strict`` one, so
     ``hyperi-ci check --strict`` reports the same config problem CI will.
@@ -196,9 +197,6 @@ def note_gate_downgrade(
         reason: Reason stated beside the setting, empty when none.
         shipped_key: Key carrying the shipped default, where the repo wrote
             its override somewhere else (semgrep's legacy per-language key).
-
-    Raises:
-        GateReasonRequiredError: A security gate is relaxed with no reason.
 
     """
     shipped = packaged_default(shipped_key or key)
@@ -241,10 +239,6 @@ def resolve_cross_tool_mode(
     ``reason`` a relaxed security gate needs) - a bare string keeps the options
     at their defaults. A force-skip wins; otherwise strict upgrades a ``warn``
     to ``blocking``.
-
-    Raises:
-        GateReasonRequiredError: A security gate is relaxed with no reason.
-
     """
     if is_skipped(tool):
         return "disabled"
@@ -263,10 +257,6 @@ def resolve_tool_mode(tool: str, config: CIConfig, language: str) -> str:
     the tool is ``disabled`` for this run. Otherwise, under strict mode
     (:func:`strict_quality`) a ``warn`` tool is upgraded to ``blocking``;
     ``disabled`` is left untouched.
-
-    Raises:
-        GateReasonRequiredError: A security gate is relaxed with no reason.
-
     """
     if is_skipped(tool):
         return "disabled"
