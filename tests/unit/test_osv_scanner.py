@@ -119,6 +119,31 @@ class TestRun:
         assert ok is True
         assert called == []
 
+    def test_a_missing_lockfile_does_not_read_as_a_clean_scan(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Skipped-unscannable and scanned-clean must not look the same.
+
+        A repo osv-scanner cannot read is not a repo it cleared (issue #223).
+        """
+        said: list[str] = []
+        monkeypatch.setattr(osv_scanner, "available", lambda: True)
+        monkeypatch.setattr(osv_scanner, "warn", said.append)
+        osv_scanner.run(tmp_path / "absent.lock", [], "warn", lambda *a: False)
+        logged = "\n".join(said)
+        assert "NOT SCANNED" in logged
+        assert "not a clean result" in logged
+
+    def test_blocking_says_out_loud_that_it_gated_nothing(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+    ) -> None:
+        monkeypatch.setattr(osv_scanner, "available", lambda: True)
+        monkeypatch.setattr(osv_scanner, "is_ci", lambda: True)
+        osv_scanner.run(tmp_path / "absent.lock", [], "blocking", lambda *a: False)
+        assert (
+            "::warning title=osv-scanner scanned nothing::" in capsys.readouterr().out
+        )
+
     def test_no_entries_means_no_config_flag(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:

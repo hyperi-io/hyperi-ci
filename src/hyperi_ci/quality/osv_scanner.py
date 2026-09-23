@@ -27,7 +27,7 @@ import shutil
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
-from hyperi_ci.common import info
+from hyperi_ci.common import info, is_ci, warn
 from hyperi_ci.quality.ignores import IgnoreEntry
 
 SLUG = "osv-scanner"
@@ -114,7 +114,19 @@ def run(
         return True
 
     if not lockfile.exists():
-        info(f"  {SLUG}: no {lockfile.name} found — skipping")
+        # A library legitimately ships no lockfile, so this is not a failure,
+        # but it is not coverage either (issue #223).
+        warn(
+            f"  {SLUG}: NOT SCANNED - no {lockfile.name} in this repo, so no "
+            f"package was examined. This is not a clean result."
+        )
+        if is_ci() and mode == "blocking":
+            print(
+                f"::warning title=osv-scanner scanned nothing::{SLUG} is "
+                f"{mode} but found no {lockfile.name}, so it gated nothing "
+                f"here. A dependency graph exists only in this repo's "
+                f"consumers."
+            )
         return True
 
     entries = list(entries)
