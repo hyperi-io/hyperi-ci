@@ -303,10 +303,13 @@ class TestSecurityGateNeedsAReason:
     def test_the_cross_language_resolver_checks_it_too(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # The generic turned-down warning names the key too, so only the
+        # security-gate text proves the reason rule was applied.
         said = self._warnings(monkeypatch)
         cfg = CIConfig(_raw={"quality": {"gitleaks": "warn"}})
         resolve_cross_tool_mode(cfg, "gitleaks", "blocking")
-        assert any("quality.gitleaks" in w for w in said), said
+        owed = [w for w in said if "security gate" in w]
+        assert any("quality.gitleaks" in w for w in owed), said
 
     def test_strict_does_not_hide_a_missing_reason(
         self, monkeypatch: pytest.MonkeyPatch
