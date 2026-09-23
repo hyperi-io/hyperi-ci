@@ -15,7 +15,11 @@
 # The push filter IS the consumer surface: the reusable workflows the fleet
 # routes through, the shared `_`-prefixed ones, and every composite action.
 # This repo's own CI and its two audits are excluded because no consumer calls
-# them - `tests/unit/test_fleet_sweep.py` holds that list to config/fixtures.yaml.
+# them - `tests/unit/test_fleet_gate.py` holds that list to config/fixtures.yaml.
+#
+# Both app tokens are scoped to the fleet named in config/fixtures.yaml. With
+# `owner` set and `repositories` empty the token action grants the whole org,
+# so the scoping step fails rather than hand it an empty list.
 #
 # Its own concurrency group, and no cancel-in-progress: a sweep cancelled by
 # the next merge is the failure this exists to catch, wearing a green tick.
@@ -80,6 +84,10 @@ jobs:
       - name: Install dependencies
         run: uv sync --no-sources
 
+      - name: Scope the token to the fleet
+        id: fleet
+        run: uv run --no-sources python scripts/fixture_fleet.py >> "$GITHUB_OUTPUT"
+
       - name: Mint a fleet dispatch token
         # GITHUB_TOKEN is scoped to this repo, so it can neither start a run on
         # a fixture nor read one. No fallback to it either: a repo-scoped token
@@ -90,17 +98,21 @@ jobs:
           client-id: ${{ vars.GH_APP_CLIENT_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.fleet.outputs.repos }}
           permission-actions: write
           permission-contents: read
 
       - name: Run the fleet against main
         env:
           GH_TOKEN: ${{ steps.bot.outputs.token }}
+          ONLY: ${{ inputs.only }}
+          LANGUAGE: ${{ inputs.language }}
+          TIMEOUT_MINUTES: ${{ inputs.timeout-minutes || '60' }}
         run: |
           uv run --no-sources python scripts/sweep-fleet.py \
-            --only "${{ inputs.only }}" \
-            --language "${{ inputs.language }}" \
-            --timeout-minutes "${{ inputs.timeout-minutes || '60' }}"
+            --only "$ONLY" \
+            --language "$LANGUAGE" \
+            --timeout-minutes "$TIMEOUT_MINUTES"
 
   # ---------------------------------------------------------------------------
   # negative-cases - the half the sweep above cannot prove.
@@ -109,13 +121,14 @@ jobs:
   # tell a blocking gate from a warn-only one or from one that never ran: all
   # three are the same green tick. These runs carry the defect (issue #219).
   #
-  # `if: always()` because a red sweep is exactly when the question "do the
-  # gates still block" matters most.
+  # `!cancelled()` because a red sweep is exactly when the question "do the
+  # gates still block" matters most, while a cancelled run must not start a job
+  # that pushes branches and opens pull requests.
   # ---------------------------------------------------------------------------
   negative-cases:
     name: Negative cases
     needs: sweep
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ${{ vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     timeout-minutes: 60
     steps:
@@ -134,6 +147,10 @@ jobs:
       - name: Install dependencies
         run: uv sync --no-sources
 
+      - name: Scope the token to the fixtures with negative cases
+        id: fleet
+        run: uv run --no-sources python scripts/fixture_fleet.py --negative-cases >> "$GITHUB_OUTPUT"
+
       - name: Mint a fleet write token
         # Wider than the sweep's: this pushes an ephemeral expect-fail branch
         # and opens the pull request whose run is the evidence. A bare push
@@ -145,6 +162,7 @@ jobs:
           client-id: ${{ vars.GH_APP_CLIENT_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.fleet.outputs.repos }}
           permission-actions: read
           permission-contents: write
           permission-pull-requests: write
@@ -152,7 +170,9 @@ jobs:
       - name: Prove the planted failures still fail
         env:
           GH_TOKEN: ${{ steps.bot.outputs.token }}
+          ONLY: ${{ inputs.only }}
+          TIMEOUT_MINUTES: ${{ inputs.timeout-minutes || '45' }}
         run: |
           uv run --no-sources python scripts/negative-cases.py \
-            --only "${{ inputs.only }}" \
-            --timeout-minutes "${{ inputs.timeout-minutes || '45' }}"
+            --only "$ONLY" \
+            --timeout-minutes "$TIMEOUT_MINUTES"
