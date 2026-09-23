@@ -778,6 +778,11 @@ class TestProfdataReachesCargoPgo:
 
     def test_a_missing_component_is_installed(self, tmp_path, monkeypatch) -> None:
         bin_dir = self._sysroot(tmp_path, monkeypatch, profdata=False)
+        monkeypatch.setattr(
+            pgo.shutil,
+            "which",
+            lambda name: "/usr/bin/rustup" if name == "rustup" else None,
+        )
         calls: list[list[str]] = []
 
         def fake_run(cmd, **_kwargs):
@@ -816,6 +821,23 @@ class TestProfdataReachesCargoPgo:
             pgo, "run_cmd", lambda cmd, **_k: subprocess.CompletedProcess(cmd, 1)
         )
         monkeypatch.setattr(pgo.shutil, "which", lambda _name: "/usr/bin/llvm-profdata")
+        assert pgo._ensure_llvm_profdata_available() is True
+
+    def test_without_rustup_the_path_copy_is_still_found(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """rustc present, rustup absent: the component cannot be added, PATH can."""
+        self._sysroot(tmp_path, monkeypatch, profdata=False)
+
+        def no_rustup(cmd, **_kwargs):
+            raise FileNotFoundError(2, "No such file or directory", cmd[0])
+
+        monkeypatch.setattr(pgo, "run_cmd", no_rustup)
+        monkeypatch.setattr(
+            pgo.shutil,
+            "which",
+            lambda name: "/usr/bin/llvm-profdata" if name == "llvm-profdata" else None,
+        )
         assert pgo._ensure_llvm_profdata_available() is True
 
     def test_the_build_refuses_before_spending_the_workload(
