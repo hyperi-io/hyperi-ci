@@ -7,8 +7,6 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
-from __future__ import annotations
-
 import io
 import json
 import subprocess
@@ -368,6 +366,57 @@ class TestArchiveJobNames:
             patch("hyperi_ci.logs._download_logs", return_value=log_dir),
         ):
             assert fetch_logs(run_id="12", job_filter="Quality") == 1
+
+
+_REUSABLE_JOB = "ci _ Release tail _ Tag & Release"
+
+
+def _reusable_archive(root: Path) -> Path:
+    """A reusable-workflow job as run 35280517591 archived it.
+
+    The whole log is a top-level `N_<job>.txt`, and the job's folder holds
+    only the runner-assignment lines in `system.txt`.
+    """
+    (root / f"0_{_REUSABLE_JOB}.txt").write_text("the real failure\n")
+    (root / _REUSABLE_JOB).mkdir()
+    (root / _REUSABLE_JOB / "system.txt").write_text("Waiting for a runner\n")
+    return root
+
+
+class TestWholeJobLogs:
+    """A job whose folder has no step logs is read from its top-level file."""
+
+    def test_failed_only_reads_the_whole_log(self, tmp_path, capsys) -> None:
+        failed = _failed_job_names(
+            _viewed_run(
+                "CI",
+                jobs=[
+                    {
+                        "name": "ci / Release tail / Tag & Release",
+                        "conclusion": "failure",
+                    }
+                ],
+            )
+        )
+        logs._filter_and_print(_reusable_archive(tmp_path), failed_jobs=failed)
+        assert "the real failure" in capsys.readouterr().out
+
+    def test_a_job_filter_reads_the_whole_log(self, tmp_path, capsys) -> None:
+        logs._filter_and_print(_reusable_archive(tmp_path), job_filter="Tag & Release")
+        out = capsys.readouterr().out
+        assert f"[{_REUSABLE_JOB}] the real failure" in out
+
+    def test_a_job_with_step_logs_is_not_printed_twice(self, tmp_path, capsys) -> None:
+        """The whole log repeats the step logs, as a plain workflow archives it."""
+        (tmp_path / "0_Test.txt").write_text("the step line\n")
+        (tmp_path / "Test").mkdir()
+        (tmp_path / "Test" / "1_Run tests.txt").write_text("the step line\n")
+        (tmp_path / "Test" / "system.txt").write_text("Waiting for a runner\n")
+        matched = logs._filter_and_print(tmp_path, job_filter="Test")
+        out = capsys.readouterr().out
+        assert out.count("the step line") == 1
+        assert "[Test] [Run tests] the step line" in out
+        assert matched == 2
 
 
 class TestJobIdPinsItsRun:
