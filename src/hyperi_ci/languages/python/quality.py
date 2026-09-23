@@ -381,7 +381,11 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     ty_mode = _get_tool_mode("ty", config)
     pyright_mode = _get_tool_mode("pyright", config)
     if ty_mode != "disabled":
-        if not _run_tool("ty", ["ty", "check"], ty_mode):
+        # In the project's environment, so it resolves the project's imports.
+        ty_spec = f"ty=={tool_version('ty')}"
+        if not _run_tool(
+            "ty", ["ty", "check"], ty_mode, use_uv_with=True, spec=ty_spec
+        ):
             had_failure = True
     elif pyright_mode != "disabled":
         if not _run_tool("pyright", ["pyright"], pyright_mode):
