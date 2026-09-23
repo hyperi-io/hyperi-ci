@@ -327,6 +327,40 @@ Two coverage holes in the same family, both structural rather than missed:
   that ships through both in one commit reaches consumers in halves. It turns
   fixtures RED and consumers falsely GREEN depending on direction.
 
+### An empty result answers a question only if the query could have returned something
+
+Absence is evidence of nothing until you know the query was capable of a hit.
+Three separate readings went wrong on this in one day:
+
+- `gh api repos/O/R/branches/main/protection` returns 404 on a branch that IS
+  protected, because ruleset protection lives at `repos/O/R/rules/branches/main`.
+  The 404 reads as "unprotected".
+- Grepping a running job's log returns nothing because the log blob does not
+  exist yet (`BlobNotFound`), not because the section has not run.
+- Searching the mirror for a `.superseded` file returns nothing when no session
+  file ever collided, which is not the same as the newer-wins rule having run
+  and chosen correctly.
+
+Each one has two states behind the same empty output: the thing is absent, or
+the question never reached it. Before reading a negative, confirm the query
+would have found a positive -- point it at a case you know exists.
+
+### A symptom is a class, a cause is an instance
+
+Two jobs that both "stopped early" is one observation repeated, not two
+observations. Cancelled-mid-run looks identical whether a merge did it, a
+concurrency group did it, or the pod was evicted.
+
+That resemblance produced three wrong mechanisms in one day, each built by
+assuming a second instance shared a CAUSE with the first because it shared an
+OUTCOME. The discriminator every time was one grep for the specific error text:
+`##[error]The runner has received a shutdown signal` appears in an evicted job
+and never in a concurrency cancel, so `grep -c` separates them in one command.
+
+The fix is not vigilance. It is that the second instance gets the SAME evidence
+standard as the first, not a lower one because it looks like the case you just
+proved.
+
 ### A comment can be true about the design and false about the observable
 
 Not a stale comment. Each of these was an accurate statement of intent,
