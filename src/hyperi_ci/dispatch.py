@@ -589,8 +589,9 @@ def run_stage(
         else:
             rc = handler(language, config)
     except GateReasonRequiredError as exc:
-        # A relaxed security gate with no reason is a config defect, and a run
-        # that continues past it is the silent skip this check exists to stop.
+        # Nothing raises this until issue #259 stage 2 restores the raise in
+        # note_gate_downgrade. From then, a relaxed security gate with no
+        # reason ends the stage here rather than running on past it.
         error(str(exc))
         return 1
 

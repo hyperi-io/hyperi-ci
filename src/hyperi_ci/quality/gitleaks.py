@@ -477,10 +477,6 @@ def run(config: CIConfig) -> int:
     Returns:
         Exit code (0 = success).
 
-    Raises:
-        GateReasonRequiredError: The gate is turned below the shipped
-            ``blocking`` with no reason beside it.
-
     """
     # The shared resolver applies --strict (warn -> blocking), which the
     # rule-less guard rides on: without it a developer who asked for strict got

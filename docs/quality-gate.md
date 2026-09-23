@@ -30,7 +30,8 @@ flowchart TB
     M --> TD{"weaker than the<br/>shipped default?"}
     TD -->|no| ST
     TD -->|yes| SEC{"a security tool<br/>with no reason?"}
-    SEC -->|yes| F["stage FAILS"]:::fail
+    SEC -->|yes| F["warn: a reason is owed<br/>(fails once #259 stage 2 ships)"]:::fail
+    F --> ST
     SEC -->|no| W["warn: the gate is<br/>turned down here"] --> ST
     ST{"--strict AND<br/>mode is warn?"}
     ST -->|yes| B["blocking"]:::block
@@ -66,7 +67,8 @@ Set per project in `.hyperi-ci.yaml` under `quality.<lang>.<tool>` (or
 ## Relaxing a security gate
 
 A repo may turn any gate down. A SECURITY gate turned down must say what it is
-waiting on, and the stage fails without it:
+waiting on. Today a missing reason prints a warning naming the fix. The stage
+fails on it once stage 2 of issue #259 ships:
 
 ```yaml
 quality:
@@ -89,7 +91,7 @@ justification; `semgrep: disabled` is below the default and does.
 
 | shipped | configured | security tool | outcome |
 |---|---|---|---|
-| blocking | warn / disabled | yes | reason REQUIRED, stage fails without one |
+| blocking | warn / disabled | yes | reason REQUIRED, warns without one (fails from #259 stage 2) |
 | warn | disabled | yes | reason REQUIRED |
 | warn | warn | yes | nothing - it matches the default |
 | disabled | anything | yes | nothing is below `disabled` |
