@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.10.9](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.8...v2.10.9) (2026-09-23)
+
+### Bug Fixes
+
+* **ci:** make the fixture fleet a gate, not a list ([#241](https://github.com/hyperi-io/hyperi-ci/issues/241)) ([ff6fb04](https://github.com/hyperi-io/hyperi-ci/commit/ff6fb0493f03861b068e5d83edf22aca5daec637)), closes [#238](https://github.com/hyperi-io/hyperi-ci/issues/238) [#215](https://github.com/hyperi-io/hyperi-ci/issues/215)
+* **rust:** drop A53 veneers so aarch64 can BOLT ([#242](https://github.com/hyperi-io/hyperi-ci/issues/242)) ([627cb16](https://github.com/hyperi-io/hyperi-ci/commit/627cb168fc8bbe70ac86c98e9adb36af8b01749f)), closes [#240](https://github.com/hyperi-io/hyperi-ci/issues/240)
+
 ## [2.10.8](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.7...v2.10.8) (2026-09-23)
 
 ### Bug Fixes
