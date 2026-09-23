@@ -686,6 +686,11 @@ _DROP_A53_VENEERS = "--drop-cortex-a53-843419-veneers"
 # sent back with the extra flag. They are copied from the pinned cargo-pgo
 # (`tools.cargo-pgo` in versions.yaml), src/bolt/instrument.rs and
 # src/bolt/optimize.rs, and move with that pin.
+#
+# tests/unit/test_rust_pgo.py fails when `tools.cargo-pgo` moves away from the
+# version the two tuples below were read from.
+_CARGO_PGO_FLAGS_VERIFIED_AGAINST = "0.3.0"
+
 _CARGO_PGO_INSTRUMENT_BOLT_ARGS = ("-update-debug-sections",)
 _CARGO_PGO_OPTIMIZE_BOLT_ARGS = (
     "-reorder-blocks=ext-tsp",
@@ -752,6 +757,12 @@ def _attempt_bolt(
     # over project config for the target-specific rustflags — intentional.
     bolt_env = {**(extra_env or {}), **_bolt_build_env(target, no_split=no_split)}
     label = " (no-split)" if no_split else ""
+
+    if target.startswith("aarch64"):
+        info(
+            f"BOLT: dropping Cortex-A53 erratum 843419 veneers for {target} -- "
+            "the shipped binary is not safe on Cortex-A53"
+        )
 
     # 1. BOLT instrument build
     info(
