@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from hyperi_ci.arm64_check import AARCH64, wants_arm64_check
+from hyperi_ci.config import packaged_default
 
 
 def _project(root: Path, *, cargo: bool = True, config: str | None = None) -> Path:
@@ -28,6 +29,13 @@ def test_a_rust_project_with_no_config_is_on(tmp_path: Path) -> None:
     wanted, reason = wants_arm64_check(_project(tmp_path))
     assert wanted is True
     assert AARCH64 in reason
+
+
+def test_the_shipped_default_matches_what_the_code_assumes(tmp_path: Path) -> None:
+    # `hyperi-ci config` reads defaults.yaml, so the key has to be there, with
+    # the value an unset key already gets from wants_arm64_check.
+    assert packaged_default("build.rust.arm64_on_main") is True
+    assert wants_arm64_check(_project(tmp_path))[0] is True
 
 
 def test_a_non_rust_project_is_off(tmp_path: Path) -> None:
