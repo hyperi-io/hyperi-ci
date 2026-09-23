@@ -305,6 +305,35 @@ class TestDowngradeAnnotationIsOneCommand:
         monkeypatch.setattr(quality_common, "is_ci", lambda: True)
         monkeypatch.setattr(quality_common, "warn", lambda _m: None)
 
+    def test_a_missing_reason_is_annotated_in_ci(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # A logger line sits inside a folded group; the annotation reaches the
+        # run summary, which is where a reader sees a relaxed security gate.
+        resolve_tool_mode("pip_audit", _config("pip_audit", "warn"), "python")
+        annotations = self._annotations(capsys)
+        assert len(annotations) == 1, annotations
+        assert annotations[0].startswith(
+            "::warning title=hyperi-ci security gate needs a reason::"
+        )
+        assert "quality.python.pip_audit" in annotations[0]
+
+    def test_a_turned_down_gate_is_annotated_in_ci(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        resolve_tool_mode("vulture", _config("vulture", "disabled"), "python")
+        annotations = self._annotations(capsys)
+        assert len(annotations) == 1, annotations
+        assert annotations[0].startswith("::warning title=hyperi-ci gate turned down::")
+        assert "quality.python.vulture" in annotations[0]
+
+    def test_no_annotation_outside_ci(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(quality_common, "is_ci", lambda: False)
+        resolve_tool_mode("pip_audit", _config("pip_audit", "warn"), "python")
+        assert self._annotations(capsys) == []
+
     def test_the_multi_line_reason_owed_message_stays_one_line(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
