@@ -287,6 +287,19 @@ def _clone(repo: str, into: Path) -> str:
     result = _run(["gh", "repo", "clone", repo, str(into)], timeout=300)
     if result.returncode != 0:
         return result.stderr.strip().splitlines()[-1] if result.stderr.strip() else "?"
+    # Per-clone, because a runner has GH_TOKEN but no git credential helper, and
+    # the push below would ask for a password nobody is there to type. A
+    # workstation already has this globally; setting it again costs nothing.
+    _run(
+        [
+            "git",
+            "-C",
+            str(into),
+            "config",
+            "credential.helper",
+            "!gh auth git-credential",
+        ]
+    )
     return ""
 
 
