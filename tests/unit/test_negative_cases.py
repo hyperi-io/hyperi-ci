@@ -446,6 +446,49 @@ class TestSelectingFixtures:
         assert declared, "no fixture declares negative_cases"
 
 
+_HADOLINT_FAILED = (
+    "##[error][ERROR   ] hyperi_ci.common:error:217 -   "
+    "hadolint: 1 error-severity finding(s) must be fixed"
+)
+
+
+class TestWaitingOnTheRun:
+    """The poll runs for up to 45 minutes, so one bad read cannot end a case."""
+
+    @staticmethod
+    def _wait(monkeypatch, tmp_path, states: list) -> tuple[list, list[int]]:
+        quality = _job("ci / Quality", "failure", [("Run quality checks", "failure")])
+        reads: list[int] = []
+
+        def run_state(_repo, run_id):
+            reads.append(run_id)
+            return states.pop(0) if states else None
+
+        monkeypatch.setattr(negative.sweep_fleet, "_run_state", run_state)
+        monkeypatch.setattr(negative.sweep_fleet, "_read_jobs", lambda *_a: [quality])
+        monkeypatch.setattr(
+            negative, "_failed_logs", lambda *_a: _logs(quality, _HADOLINT_FAILED)
+        )
+        monkeypatch.setattr(negative.time, "sleep", lambda _s: None)
+        fixtures = {CASE.fixture: negative.Fixture(repo="o/r", clone=tmp_path)}
+        live = [negative.Live(case=CASE, clone=tmp_path, head_sha="a" * 40, run_id=7)]
+        deadline = negative.time.time() + 60
+        return negative._await_runs(fixtures, live, deadline), reads
+
+    def test_one_failed_read_is_retried_not_a_verdict(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        results, _ = self._wait(monkeypatch, tmp_path, [None, ("completed", "failure")])
+        assert [r.state for r in results] == [negative.PASS], results
+
+    def test_a_run_that_never_reads_gives_up_after_a_bounded_number(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        results, reads = self._wait(monkeypatch, tmp_path, [])
+        assert [r.state for r in results] == [negative.UNREACHABLE]
+        assert len(reads) == negative._RUN_READ_ATTEMPTS
+
+
 class TestJobLogRead:
     """Reading a failed job's log is where this gate has always stopped (#264).
 

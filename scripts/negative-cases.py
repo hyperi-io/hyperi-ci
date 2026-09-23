@@ -97,6 +97,8 @@ CASE_DIR = ".ci-negative"
 _BOT_NAME = "github-actions[bot]"
 _BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
 _POLL_SECONDS = 20
+# Consecutive failed reads of a run before it counts as unreachable, one per poll.
+_RUN_READ_ATTEMPTS = 4
 _TOKEN = re.compile(r"[a-z0-9]+")
 
 
@@ -127,6 +129,7 @@ class Live:
     head_sha: str = ""
     pr_number: int = 0
     run_id: int = 0
+    read_misses: int = 0
 
 
 @dataclass(slots=True)
@@ -644,13 +647,21 @@ def _await_runs(
                 print(f"  {item.case.case_id} -> run {found}", flush=True)
             state = sweep_fleet._run_state(repo, item.run_id)
             if state is None:
+                # One gh failure in a 45-minute poll is weather, not a verdict.
+                item.read_misses += 1
+                if item.read_misses < _RUN_READ_ATTEMPTS:
+                    continue
                 waiting.remove(item)
                 results.append(
                     sweep_fleet.Result(
-                        item.case.case_id, UNREACHABLE, f"cannot read run {item.run_id}"
+                        item.case.case_id,
+                        UNREACHABLE,
+                        f"cannot read run {item.run_id} "
+                        f"({item.read_misses} reads in a row failed)",
                     )
                 )
                 continue
+            item.read_misses = 0
             if state[0] != "completed":
                 continue
             waiting.remove(item)
