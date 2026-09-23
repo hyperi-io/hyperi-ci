@@ -5,6 +5,8 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
+import subprocess
+import sys
 import time
 
 import pytest
@@ -202,6 +204,20 @@ class TestRunCmdUtf8:
         # exception was raised and the surrounding text is intact.
         assert "before" in result.stdout
         assert "after" in result.stdout
+
+
+class TestRunCmdTimeout:
+    """A caller that cannot wait forever bounds the child."""
+
+    def test_a_child_past_its_timeout_is_killed(self) -> None:
+        started = time.monotonic()
+        with pytest.raises(subprocess.TimeoutExpired):
+            run_cmd(
+                [sys.executable, "-c", "import time; time.sleep(5)"],
+                capture=True,
+                timeout=0.5,
+            )
+        assert time.monotonic() - started < 3
 
 
 class TestStreamCmd:

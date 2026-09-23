@@ -10,6 +10,8 @@
 import io
 import json
 import subprocess
+import sys
+import time
 import zipfile
 from pathlib import Path
 from unittest.mock import patch
@@ -473,3 +475,16 @@ class TestJobIdPinsItsRun:
     def test_gh_failing_to_execute_is_not_a_run(self, monkeypatch) -> None:
         monkeypatch.setattr(logs, "_gh", lambda _a: None)
         assert logs.resolve_job("107204066730", "o/r") is None
+
+    def test_a_gh_that_never_answers_is_given_up_on(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """The lookup runs before any log is fetched, so a hang stalls the command."""
+        gh = tmp_path / "gh"
+        gh.write_text(f"#!{sys.executable}\nimport time\ntime.sleep(5)\n")
+        gh.chmod(0o755)
+        monkeypatch.setenv("PATH", str(tmp_path))
+        monkeypatch.setattr(logs, "_GH_TIMEOUT_SECONDS", 0.5)
+        started = time.monotonic()
+        assert logs._gh(["api", "repos/o/r/actions/jobs/107204066730"]) is None
+        assert time.monotonic() - started < 3

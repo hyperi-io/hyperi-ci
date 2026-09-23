@@ -127,11 +127,16 @@ def resolve_job(job: str, repo: str | None = None) -> tuple[str, str] | None:
     return lines[0].strip(), lines[1].strip()
 
 
+# A job-id lookup runs before any log is fetched, so a gh that never answers
+# would stall the whole command.
+_GH_TIMEOUT_SECONDS = 60
+
+
 def _gh(args: list[str]) -> subprocess.CompletedProcess[str] | None:
-    """Run gh through the shared helper; None when gh could not be executed."""
+    """Run gh through the shared helper; None when gh could not run or answer."""
     try:
-        return gh_run(args, check=False)
-    except OSError:
+        return gh_run(args, check=False, timeout=_GH_TIMEOUT_SECONDS)
+    except (OSError, subprocess.TimeoutExpired):
         return None
 
 

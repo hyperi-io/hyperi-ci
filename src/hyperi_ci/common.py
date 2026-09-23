@@ -326,6 +326,7 @@ def run_cmd(
     capture: bool = False,
     cwd: str | Path | None = None,
     env: dict[str, str] | None = None,
+    timeout: float | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run a subprocess with consistent error handling.
 
@@ -335,6 +336,8 @@ def run_cmd(
         capture: Capture stdout/stderr instead of passing through.
         cwd: Working directory.
         env: Additional env vars (merged with os.environ).
+        timeout: Seconds before the child is killed and
+            ``subprocess.TimeoutExpired`` raised. None waits for it to exit.
 
     Returns:
         CompletedProcess with text output.
@@ -353,6 +356,7 @@ def run_cmd(
         errors="replace",
         cwd=cwd,
         env=run_env,
+        timeout=timeout,
     )
 
 
