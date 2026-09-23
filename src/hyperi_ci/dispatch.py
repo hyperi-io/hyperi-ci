@@ -14,8 +14,6 @@ Usage:
     rc = run_stage("quality")
 """
 
-from __future__ import annotations
-
 import importlib
 import os
 from pathlib import Path
@@ -32,6 +30,7 @@ from hyperi_ci.common import (
 )
 from hyperi_ci.config import VALID_PROJECT_STATUSES, CIConfig, load_config
 from hyperi_ci.detect import detect_language
+from hyperi_ci.languages.quality_common import GateReasonRequiredError
 from hyperi_ci.quality import (
     charset,
     commit_validation,
@@ -580,14 +579,20 @@ def run_stage(
         info(f"Project status: {status}{_STATUS_CLARIFIER.get(status, '')}")
 
     handler = _STAGE_HANDLERS[stage]
-    if stage in ("build", "quality"):
-        # build + quality take `local` (build skips cross-targets; quality
-        # runs the commit-message backstop only for a local `hyperi-ci
-        # check`). _STAGE_HANDLERS is typed to the common (no-local)
-        # signature, so cast for this branch.
-        rc = cast("Any", handler)(language, config, local=local)
-    else:
-        rc = handler(language, config)
+    try:
+        if stage in ("build", "quality"):
+            # build + quality take `local` (build skips cross-targets; quality
+            # runs the commit-message backstop only for a local `hyperi-ci
+            # check`). _STAGE_HANDLERS is typed to the common (no-local)
+            # signature, so cast for this branch.
+            rc = cast("Any", handler)(language, config, local=local)
+        else:
+            rc = handler(language, config)
+    except GateReasonRequiredError as exc:
+        # A relaxed security gate with no reason is a config defect, and a run
+        # that continues past it is the silent skip this check exists to stop.
+        error(str(exc))
+        return 1
 
     if rc == 0:
         success(f"{stage} complete")

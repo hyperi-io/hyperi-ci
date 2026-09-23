@@ -199,7 +199,10 @@ fix it as part of your work. No permission round-trip.
 declared reason, so repairing it breaks the test. They carry DO-NOT-FIX headers;
 believe them. A case is a `<case>.patch` plus a `<case>.yaml` contract -
 [docs/testing/NEGATIVE-CASES.md](docs/testing/negative-cases.md) has the shape,
-and why the runner opens a PR instead of pushing a branch.
+and why the runner opens a PR instead of pushing a branch. Move a fixture's
+source and a patch can stop applying, which plants nothing at all -- run
+`uv run scripts/negative-cases.py --check-patches` after, and fix a stale one
+by moving the patch CONTEXT, never the defect.
 
 **Route fixture git through the wrapper.** `python3 scripts/fixture-git.py <repo>
 <git-args...>`. A bare `git -C <fixture>` prompts for approval on every call and

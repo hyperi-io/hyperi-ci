@@ -10,9 +10,15 @@ A runner that reads a passing run as a passing case certifies that the gate
 works while the gate is off, which is worse than having no runner at all. That
 outcome -- `leaked` -- gets its own tests here, and so does the wrong-stage
 one, because both arrive wearing a green tick from every other angle.
+
+A patch that no longer applies is the same failure one step earlier: the case
+plants nothing, so its run proves nothing while the catalogue still lists it
+(issue #248). The softened `pending_release` verdict is tested against the same
+line -- it must never come out as PASS.
 """
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 
@@ -49,6 +55,16 @@ CASE = negative.Case(
     reason="hadolint",
 )
 
+
+PATCH = """diff --git a/a.txt b/a.txt
+--- a/a.txt
++++ b/a.txt
+@@ -1,3 +1,3 @@
+ one
+-two
++TWO
+ three
+"""
 
 _JOB_IDS = iter(range(1000, 9999))
 
@@ -116,6 +132,21 @@ class TestTheContract:
         cases, problems = negative.read_cases("ci-test-manifests", tmp_path)
         assert [case.case_id for case in cases] == ["ci-test-manifests/hadolint-error"]
         assert problems == []
+
+    def test_a_case_is_not_waiting_on_a_release_unless_it_says_so(self) -> None:
+        case = negative.parse_case("ci-test-manifests", "hadolint-error", CONTRACT)
+        assert isinstance(case, negative.Case)
+        assert case.pending_release is False
+
+    def test_a_case_can_declare_it_is_waiting_on_a_release(self) -> None:
+        case = negative.parse_case("f", "c", CONTRACT + "pending_release: true\n")
+        assert isinstance(case, negative.Case)
+        assert case.pending_release is True
+
+    def test_a_non_boolean_pending_release_is_refused(self) -> None:
+        """`pending_release: "no"` is a truthy string, so it is not coerced."""
+        problem = negative.parse_case("f", "c", CONTRACT + 'pending_release: "no"\n')
+        assert isinstance(problem, str) and "pending_release" in problem
 
 
 class TestMatchingTheDeclaredStage:
@@ -240,6 +271,161 @@ class TestFindingThisCycleSRun:
 
     def test_no_runs_yet_reads_as_not_started(self) -> None:
         assert negative.pick_run([], "a" * 40) is None
+
+
+def _clone(tmp_path: Path, target: str) -> Path:
+    """A clone-shaped tree holding one file and one case patch against it."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / "a.txt").write_text(target, encoding="utf-8")
+    directory = tmp_path / negative.CASE_DIR
+    directory.mkdir()
+    (directory / "x.patch").write_text(PATCH, encoding="utf-8")
+    return tmp_path
+
+
+PATCH_CASE = negative.Case(
+    fixture="ci-test-rust-simple",
+    name="moved-context",
+    patch="x.patch",
+    branch="expect-fail/moved-context",
+    stage="quality",
+    reason="audit",
+)
+
+
+class TestThePatchStillApplies:
+    """A patch whose context has moved plants nothing, and nothing said so.
+
+    `rust-cve-advisory.patch` sat in that state once the fixture's `src/main.rs`
+    grew a hot path, and the catalogue still listed the case as proving the
+    advisory gate.
+    """
+
+    def test_a_patch_that_still_applies_reads_clean(self, tmp_path) -> None:
+        clone = _clone(tmp_path, "one\ntwo\nthree\n")
+        assert negative.patch_applies(clone, PATCH_CASE) == ""
+
+    def test_a_patch_whose_context_moved_names_the_file(self, tmp_path) -> None:
+        clone = _clone(tmp_path, "ONE\ntwo\nthree\n")
+        reason = negative.patch_applies(clone, PATCH_CASE)
+        assert "a.txt" in reason
+        assert "does not apply" in reason
+
+    def test_a_missing_patch_is_not_silently_clean(self, tmp_path) -> None:
+        clone = _clone(tmp_path, "one\ntwo\nthree\n")
+        (clone / negative.CASE_DIR / "x.patch").unlink()
+        assert negative.patch_applies(clone, PATCH_CASE) != ""
+
+    def test_the_checker_reports_a_moved_patch_as_stale(self, tmp_path) -> None:
+        fixtures = {
+            PATCH_CASE.fixture: negative.Fixture(
+                repo=f"hyperi-io/{PATCH_CASE.fixture}",
+                clone=_clone(tmp_path, "ONE\ntwo\nthree\n"),
+            )
+        }
+        results = negative.check_patches(fixtures, [PATCH_CASE])
+        assert [result.state for result in results] == [negative.STALE_PATCH]
+
+    def test_the_checker_reports_a_live_patch_as_a_pass(self, tmp_path) -> None:
+        fixtures = {
+            PATCH_CASE.fixture: negative.Fixture(
+                repo=f"hyperi-io/{PATCH_CASE.fixture}",
+                clone=_clone(tmp_path, "one\ntwo\nthree\n"),
+            )
+        }
+        results = negative.check_patches(fixtures, [PATCH_CASE])
+        assert [result.state for result in results] == [negative.PASS]
+
+    def test_a_stale_patch_is_red_through_the_sweep_verdict(self) -> None:
+        results = [
+            sweep.Result(PATCH_CASE.case_id, negative.STALE_PATCH, "does not apply")
+        ]
+        code, lines = sweep.sweep_verdict([PATCH_CASE.case_id], results)
+        assert code == 1
+        assert any(negative.STALE_PATCH in line for line in lines)
+
+
+class TestACaseWaitingOnARelease:
+    """A fixture takes workflows from @main on merge, the CLI from PyPI on release.
+
+    A case for a gate that has landed and not shipped therefore fails for a
+    reason that says nothing about the gate. It may read INCONCLUSIVE, and it
+    may never read PASS.
+    """
+
+    PENDING = negative.Case(
+        fixture="ci-test-manifests",
+        name="hadolint-error",
+        patch="hadolint-error.patch",
+        branch="expect-fail/hadolint-error",
+        stage="quality",
+        reason="hadolint",
+        pending_release=True,
+    )
+
+    def test_a_leak_softens_to_pending_release(self) -> None:
+        state, detail = negative.soften(self.PENDING, negative.LEAKED, "went green")
+        assert state == negative.PENDING_RELEASE
+        assert "pending_release" in detail
+
+    def test_a_wrong_reason_softens_too(self) -> None:
+        state, _ = negative.soften(self.PENDING, negative.WRONG_REASON, "no tool")
+        assert state == negative.PENDING_RELEASE
+
+    def test_pending_release_is_not_a_pass(self) -> None:
+        """The whole point: inconclusive, never green."""
+        results = [
+            sweep.Result(self.PENDING.case_id, negative.PENDING_RELEASE, "waiting")
+        ]
+        code, lines = sweep.sweep_verdict([self.PENDING.case_id], results)
+        assert code == 2
+        assert any(negative.PENDING_RELEASE in line for line in lines)
+
+    def test_one_pending_case_does_not_green_a_run_that_also_passed(self) -> None:
+        results = [
+            sweep.Result("ci-test-go-app/x", negative.PASS, "failed as declared"),
+            sweep.Result(self.PENDING.case_id, negative.PENDING_RELEASE, "waiting"),
+        ]
+        code, _ = sweep.sweep_verdict(
+            ["ci-test-go-app/x", self.PENDING.case_id], results
+        )
+        assert code == 2
+
+    def test_a_case_that_did_not_declare_it_is_left_red(self) -> None:
+        state, detail = negative.soften(CASE, negative.LEAKED, "went green")
+        assert (state, detail) == (negative.LEAKED, "went green")
+
+    def test_a_pending_case_that_passes_says_to_drop_the_flag(self) -> None:
+        state, detail = negative.soften(
+            self.PENDING, negative.PASS, "failed at quality"
+        )
+        assert state == negative.PASS
+        assert "drop pending_release" in detail
+
+    def test_an_unreadable_run_stays_unreachable(self) -> None:
+        state, _ = negative.soften(self.PENDING, negative.UNREACHABLE, "no log")
+        assert state == negative.UNREACHABLE
+
+    def test_the_inconclusive_set_never_holds_a_pass(self) -> None:
+        assert negative.PENDING_RELEASE in sweep.INCONCLUSIVE
+        assert sweep.PASS not in sweep.INCONCLUSIVE
+
+    def test_the_state_column_fits_every_state(self) -> None:
+        """A state wider than the column turns the report into ragged prose."""
+        states = [
+            sweep.PASS,
+            sweep.FAIL,
+            sweep.TIMEOUT,
+            sweep.UNREACHABLE,
+            sweep.PENDING_RELEASE,
+            negative.LEAKED,
+            negative.WRONG_STAGE,
+            negative.WRONG_REASON,
+            negative.STALE_PATCH,
+        ]
+        results = [sweep.Result(f"f/{n}", state, "d") for n, state in enumerate(states)]
+        _, lines = sweep.sweep_verdict([r.fixture for r in results], results)
+        assert len({line.index(" f/") for line in lines}) == 1
 
 
 class TestSelectingFixtures:

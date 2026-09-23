@@ -97,6 +97,9 @@ def scan_links(doc: Path, root: Path) -> list[fdg.Finding]:
         text = doc.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return []
+    # A C++ lambda capture and a Python generic parameter are both valid
+    # markdown link syntax, so a fenced block reads as links to code.
+    text = _FENCED.sub(lambda m: "\n" * m.group(0).count("\n"), text)
     out: list[fdg.Finding] = []
     seen: set[str] = set()
     for pattern in (_INLINE_LINK, _REF_LINK):

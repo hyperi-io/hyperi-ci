@@ -794,6 +794,30 @@ class TestProfdataReachesCargoPgo:
         monkeypatch.setattr(pgo, "_rustc_sysroot_bin", lambda: None)
         assert pgo._ensure_llvm_profdata_available() is False
 
+    def test_the_sysroot_copy_wins_over_one_already_on_path(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """Which arch we are on must not decide which llvm-profdata merges.
+
+        A self-hosted image may publish an unversioned `llvm-profdata` while
+        the GitHub-hosted arm64 image publishes none, so taking PATH first
+        silently merges with a different LLVM per runner.
+        """
+        bin_dir = self._sysroot(tmp_path, monkeypatch, profdata=True)
+        monkeypatch.setattr(pgo.shutil, "which", lambda _name: "/usr/bin/llvm-profdata")
+        assert pgo._ensure_llvm_profdata_available() is True
+        assert os.environ["PATH"].split(os.pathsep)[0] == str(bin_dir)
+
+    def test_path_is_the_fallback_when_the_component_cannot_be_added(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        self._sysroot(tmp_path, monkeypatch, profdata=False)
+        monkeypatch.setattr(
+            pgo, "run_cmd", lambda cmd, **_k: subprocess.CompletedProcess(cmd, 1)
+        )
+        monkeypatch.setattr(pgo.shutil, "which", lambda _name: "/usr/bin/llvm-profdata")
+        assert pgo._ensure_llvm_profdata_available() is True
+
     def test_the_build_refuses_before_spending_the_workload(
         self, tmp_path, monkeypatch
     ) -> None:

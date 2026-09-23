@@ -327,6 +327,119 @@ Two coverage holes in the same family, both structural rather than missed:
   that ships through both in one commit reaches consumers in halves. It turns
   fixtures RED and consumers falsely GREEN depending on direction.
 
+### The right idiom sitting in the same file does not propagate
+
+`scan_code_paths` blanked fenced code blocks before scanning. `scan_links`,
+three functions above it in the same file, did not -- so a C++ lambda capture
+and a Python generic parameter were read as markdown links to missing files.
+The constant was declared once and used by one of its two callers.
+
+The same week, four guard rules used a word-boundary anchor that matched
+after a hyphen, denying `make az-delete-report` and `cat docs/find-delete.md`.
+A fifth rule in that file already anchored on command position and carried a
+comment explaining why. Four rules did not copy it.
+
+**Nothing flags a helper that half the code forgot to call.** Coverage does
+not: both callers are exercised and both pass, because the one that skips the
+helper is not wrong in any way a test asserts. A linter sees two functions.
+
+So when adding a sibling to an existing function, read what the existing one
+does FIRST and copy it deliberately, and when fixing a rule of a class, sweep
+the class rather than the instance.
+
+### Improving a check inside a wrong frame feels exactly like progress
+
+A search for override entries with no rule behind them returned 34 orphans.
+Narrowing the method returned 25. Both numbers were wrong: the ids are passed
+positionally and built with suffixes, so no literal search could ever see
+them. The method was refined twice, the number improved each time, and nobody
+asked whether the method could work at all.
+
+That is the shape the two entries below share. A discriminating test refines
+the oracle while the generator stays blind. A narrowed query returns a
+cleaner answer to a question the data cannot answer. **Progress inside the
+frame is the strongest evidence that the frame is right, and it is not
+evidence at all.**
+
+The tell is a number that keeps moving toward what you expected. Before the
+third refinement, ask what result would mean the method itself cannot work,
+and check whether you would recognise it.
+
+### A gate nobody reads costs the same as a gate that is off
+
+`doc_paths: warn` and a bats step masked with `continue-on-error` cost
+identically, because in both cases nothing acts on the output. The tier is
+not the failure. The failure is that the STATED REASON for relaxing it stops
+being true and nothing notices -- because the thing that would have noticed
+is the check that was turned down.
+
+One mask here claimed 68 references to a retired entry point across 7 files.
+There were 4 files and no references. The justification had been false for
+long enough that the code it protected had been deleted, and the gate that
+would have said so was the one it silenced.
+
+So a relaxed gate needs its reason stated where a reader will meet it, and
+re-checked on a schedule -- not because the finding is urgent, but because
+the reason rots silently and the instrument for spotting that is the thing
+switched off.
+
+### A passing test answers a question only over the inputs it generates
+
+Checking that a test DISCRIMINATES -- that it fails against the broken build
+and passes against the fix -- proves the ORACLE. It says nothing about the
+GENERATOR.
+
+A property test for a shell-rewriting hook had a correct oracle: is the
+resulting command `env` holding only assignments and no command? Right
+question, right predicate, and it was confirmed to fail on the broken build.
+Its generator only varied SEPARATORS, so every input it built had a separator
+or a command after the assignments. A tail that was ITSELF an assignment --
+`A=1 B=2` -- was outside the generated space, the oracle was never asked about
+it, and the suite passed on a build that still dumped the environment on 185
+inputs out of 640.
+
+**Enumeration failures move.** Catching one in the hand-written cases pushes
+it into the generator, where it looks like coverage. The discriminating check
+is necessary and it is not sufficient: it tells you the test can fail, never
+that you asked it about the case that matters.
+
+Same shape as the entry below, one level up -- a check that returned something
+reassuring about a question it was never asked.
+
+### An empty result answers a question only if the query could have returned something
+
+Absence is evidence of nothing until you know the query was capable of a hit.
+Three separate readings went wrong on this in one day:
+
+- `gh api repos/O/R/branches/main/protection` returns 404 on a branch that IS
+  protected, because ruleset protection lives at `repos/O/R/rules/branches/main`.
+  The 404 reads as "unprotected".
+- Grepping a running job's log returns nothing because the log blob does not
+  exist yet (`BlobNotFound`), not because the section has not run.
+- Searching the mirror for a `.superseded` file returns nothing when no session
+  file ever collided, which is not the same as the newer-wins rule having run
+  and chosen correctly.
+
+Each one has two states behind the same empty output: the thing is absent, or
+the question never reached it. Before reading a negative, confirm the query
+would have found a positive -- point it at a case you know exists.
+
+### A symptom is a class, a cause is an instance
+
+Two jobs that both "stopped early" is one observation repeated, not two
+observations. Cancelled-mid-run looks identical whether a merge did it, a
+concurrency group did it, or the pod was evicted.
+
+That resemblance produced three wrong mechanisms in one day, each built by
+assuming a second instance shared a CAUSE with the first because it shared an
+OUTCOME. The discriminator every time was one grep for the specific error text:
+`##[error]The runner has received a shutdown signal` appears in an evicted job
+and never in a concurrency cancel, so `grep -c` separates them in one command.
+
+The fix is not vigilance. It is that the second instance gets the SAME evidence
+standard as the first, not a lower one because it looks like the case you just
+proved.
+
 ### A comment can be true about the design and false about the observable
 
 Not a stale comment. Each of these was an accurate statement of intent,

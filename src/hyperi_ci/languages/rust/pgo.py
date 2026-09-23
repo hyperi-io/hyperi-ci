@@ -325,37 +325,38 @@ def _rustc_sysroot_bin() -> Path | None:
 def _ensure_llvm_profdata_available() -> bool:
     """Make `llvm-profdata` resolvable so cargo-pgo can merge the profile.
 
-    The `llvm-tools-preview` rustup component installs it under the rustc
-    sysroot and NOT on PATH, and a self-hosted runner skips the setup action
-    that would have added the component at all. The sysroot copy is the one to
-    use rather than a distro build, because merging raw profile data needs the
-    same LLVM version the compiler was built with.
+    The rustc sysroot copy is PREFERRED over whatever is on PATH, so the tool
+    that merges the profile is the one from the LLVM that wrote it. Both work -
+    llvm-profdata 19 merges a profile written by rustc's LLVM 22 - but which
+    one runs would otherwise depend on the runner: the GitHub-hosted arm64
+    image ships no unversioned `llvm-profdata` at all, while a self-hosted
+    image may put any version there. Same binary on every arch beats a choice
+    made by whichever image the job landed on.
+
+    `llvm-tools-preview` is the rustup component that supplies it, under the
+    sysroot rather than on PATH. PATH is the fallback for the case where that
+    component cannot be added.
     """
-    if shutil.which("llvm-profdata"):
+    bin_dir = _rustc_sysroot_bin()
+
+    if bin_dir is not None and not (bin_dir / "llvm-profdata").exists():
+        info("  llvm-profdata missing - adding the llvm-tools-preview component")
+        run_cmd(["rustup", "component", "add", "llvm-tools-preview"], check=False)
+
+    if bin_dir is not None and (bin_dir / "llvm-profdata").exists():
+        current = os.environ.get("PATH", "")
+        if str(bin_dir) not in current.split(os.pathsep):
+            os.environ["PATH"] = f"{bin_dir}{os.pathsep}{current}"
+        info(f"  llvm-profdata: {bin_dir / 'llvm-profdata'} (rustc sysroot)")
         return True
 
-    bin_dir = _rustc_sysroot_bin()
-    if bin_dir is None:
-        warn("  could not resolve the rustc sysroot to look for llvm-profdata")
-        return False
+    found = shutil.which("llvm-profdata")
+    if found:
+        info(f"  llvm-profdata: {found} (on PATH - no sysroot copy)")
+        return True
 
-    if not (bin_dir / "llvm-profdata").exists():
-        info("  llvm-profdata missing - adding the llvm-tools-preview component")
-        added = run_cmd(
-            ["rustup", "component", "add", "llvm-tools-preview"], check=False
-        )
-        if added.returncode != 0:
-            warn("  rustup could not add llvm-tools-preview")
-            return False
-
-    if not (bin_dir / "llvm-profdata").exists():
-        return False
-
-    current = os.environ.get("PATH", "")
-    if str(bin_dir) not in current.split(os.pathsep):
-        os.environ["PATH"] = f"{bin_dir}{os.pathsep}{current}"
-    info(f"  llvm-profdata: {bin_dir / 'llvm-profdata'}")
-    return True
+    warn("  llvm-profdata is not in the rustc sysroot and not on PATH")
+    return False
 
 
 def _ensure_ld_lld_available() -> bool:

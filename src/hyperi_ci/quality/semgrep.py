@@ -16,28 +16,43 @@ for back-compat. Path excludes come from the shared exclude-dirs; rule
 suppressions from the ``quality.ignore`` list (``tool: semgrep``).
 """
 
-from __future__ import annotations
-
 import shutil
 import subprocess
 
 from hyperi_ci.common import error, get_exclude_dirs, info, is_ci, success, warn
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import apply_strict, is_skipped
+from hyperi_ci.languages.quality_common import (
+    apply_strict,
+    is_skipped,
+    mode_and_reason,
+    note_gate_downgrade,
+)
 from hyperi_ci.quality.ignores import for_tool, load_ignores
 from hyperi_ci.tools import missing_tool_notice
 from hyperi_ci.versions import tool_version
 
+_SHIPPED_KEY = "quality.semgrep"
+
 
 def _resolve_mode(config: CIConfig, language: str | None) -> str:
-    """Resolve semgrep's mode, with a legacy ``quality.<language>.semgrep`` winning."""
+    """Resolve semgrep's mode, with a legacy ``quality.<language>.semgrep`` winning.
+
+    Raises:
+        GateReasonRequiredError: The gate is turned below the shipped default
+            with no reason beside it.
+
+    """
     if is_skipped("semgrep"):
         return "disabled"
-    mode = str(config.get("quality.semgrep", "warn"))
-    if language:
-        legacy = config.get(f"quality.{language}.semgrep")
-        if legacy is not None:
-            mode = str(legacy)
+    key = _SHIPPED_KEY
+    raw = config.get(key, "warn")
+    if language and (legacy := config.get(f"quality.{language}.semgrep")) is not None:
+        key = f"quality.{language}.semgrep"
+        raw = legacy
+    mode, reason = mode_and_reason(raw, "warn")
+    # The legacy key carries no shipped default of its own, so both spellings
+    # are measured against the one semgrep actually ships.
+    note_gate_downgrade(key, mode, reason, shipped_key=_SHIPPED_KEY)
     return apply_strict(mode)
 
 
