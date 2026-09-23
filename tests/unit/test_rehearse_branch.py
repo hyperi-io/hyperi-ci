@@ -193,6 +193,57 @@ class TestMergeRefRace:
         assert rehearse_branch._rerun("o/r", 42) is False
 
 
+class TestTeardownLeavesNothingRed:
+    """What the rehearsal leaves on the fixture after it gives up or passes."""
+
+    def test_unfinished_runs_are_cancelled_before_teardown(self, monkeypatch) -> None:
+        """A queued run outliving its PR dies red at checkout (issue #260)."""
+        listed = json.dumps(
+            [
+                {"databaseId": 1, "status": "completed"},
+                {"databaseId": 2, "status": "queued"},
+                {"databaseId": 3, "status": "in_progress"},
+            ]
+        )
+        cancelled: list[str] = []
+
+        def fake_run(args, **_kwargs):
+            if "cancel" in args:
+                cancelled.append(args[3])
+                return subprocess.CompletedProcess(args, 0)
+            return subprocess.CompletedProcess(args, 0, stdout=listed)
+
+        monkeypatch.setattr(rehearse_branch, "_run", fake_run)
+        assert rehearse_branch._cancel_inflight("o/r", "rehearse/x") == [2, 3]
+        assert cancelled == ["2", "3"]
+
+    def test_an_unset_override_reads_as_none(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            rehearse_branch,
+            "_run",
+            lambda a, **_k: subprocess.CompletedProcess(
+                a, 1, stdout="", stderr="gh: Not Found (HTTP 404)"
+            ),
+        )
+        assert rehearse_branch._read_override("o/r") is None
+
+    def test_an_unreadable_override_is_not_read_as_unset(self, monkeypatch) -> None:
+        """Read as unset, cleanup would DELETE a permanent override."""
+        monkeypatch.setattr(
+            rehearse_branch,
+            "_run",
+            lambda a, **_k: subprocess.CompletedProcess(
+                a, 1, stdout="", stderr="gh: Bad credentials (HTTP 401)"
+            ),
+        )
+        try:
+            rehearse_branch._read_override("o/r")
+        except rehearse_branch.OverrideUnreadableError as exc:
+            assert "HTTP 401" in str(exc)
+        else:
+            raise AssertionError("an unreadable override was read as unset")
+
+
 def _job(conclusion: str, *steps: tuple[str, str]) -> dict:
     return {
         "conclusion": conclusion,

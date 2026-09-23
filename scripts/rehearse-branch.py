@@ -108,8 +108,18 @@ def _branch_head(branch: str) -> str | None:
 _OVERRIDE_VAR = "HYPERCI_INSTALL_OVERRIDE"
 
 
+class OverrideUnreadableError(RuntimeError):
+    """The fixture's install override could not be read, so it cannot be restored."""
+
+
 def _read_override(repo: str) -> str | None:
-    """The fixture's current HYPERCI_INSTALL_OVERRIDE, or None when unset."""
+    """The fixture's current HYPERCI_INSTALL_OVERRIDE, or None when it is unset.
+
+    Raises:
+        OverrideUnreadableError: gh failed for any reason other than the
+            variable not existing. Read as "unset", cleanup would DELETE a
+            permanent override it merely failed to read.
+    """
     result = _run(
         [
             "gh",
@@ -119,9 +129,14 @@ def _read_override(repo: str) -> str | None:
             ".value",
         ]
     )
-    if result.returncode != 0:
+    if result.returncode == 0:
+        return result.stdout.strip() or None
+    if "404" in result.stderr or "Not Found" in result.stderr:
         return None
-    return result.stdout.strip() or None
+    detail = result.stderr.strip().splitlines()[-1] if result.stderr.strip() else ""
+    raise OverrideUnreadableError(
+        f"cannot read {_OVERRIDE_VAR} on {repo}: {detail or f'gh exited {result.returncode}'}"
+    )
 
 
 def override_value(branch: str) -> str:
@@ -313,6 +328,47 @@ def _failed_at_checkout(repo: str, run_id: int) -> bool:
     return raced_the_merge_ref(jobs)
 
 
+def _cancel_inflight(repo: str, rehearse_ref: str) -> list[int]:
+    """Cancel every unfinished run on the rehearsal branch; return their ids.
+
+    Closing the PR while a pull_request run is still queued leaves that run to
+    start against a merge ref that no longer exists, so it dies red at checkout
+    with nothing pointing at the teardown -- after a PASS as well as a timeout
+    (issue #260). A cancelled run at least reads as abandoned.
+    """
+    listed = _run(
+        [
+            "gh",
+            "run",
+            "list",
+            "-R",
+            repo,
+            "--branch",
+            rehearse_ref,
+            "--json",
+            "databaseId,status",
+            "--limit",
+            "20",
+        ],
+        timeout=60,
+    )
+    if listed.returncode != 0:
+        return []
+    try:
+        runs = json.loads(listed.stdout or "[]")
+    except json.JSONDecodeError:
+        return []
+    cancelled: list[int] = []
+    for run in runs:
+        if run.get("status") == "completed":
+            continue
+        run_id = int(run["databaseId"])
+        cancel = _run(["gh", "run", "cancel", str(run_id), "-R", repo], timeout=60)
+        if cancel.returncode == 0:
+            cancelled.append(run_id)
+    return cancelled
+
+
 def pick_run(runs: list[dict], fixture_sha: str) -> dict | None:
     """The newest run built from ``fixture_sha``, or None.
 
@@ -439,6 +495,14 @@ def main() -> int:
     slug = rehearse_slug(branch)
     rehearse_ref = f"rehearse/{slug}"
 
+    # A fixture may carry a permanent override (ci-test-manifests pins @main),
+    # which cleanup restores rather than deletes. Read before anything is
+    # pushed, so an unreadable one stops the run with nothing to undo.
+    try:
+        prior_override = _read_override(repo)
+    except OverrideUnreadableError as exc:
+        return _fail(f"{exc} -- not replacing an override this run could not restore")
+
     with tempfile.TemporaryDirectory(prefix="rehearse-") as tmp:
         clone = Path(tmp) / "fixture"
         result = _run(
@@ -479,9 +543,6 @@ def main() -> int:
         print(f"Fixture commit: {fixture_sha[:12]}")
 
         override_set = False
-        # A fixture may already carry a permanent override (ci-test-manifests
-        # pins @main), so cleanup restores this rather than deleting the key.
-        prior_override = _read_override(repo)
         if not args.no_cli_override:
             override_set = _gh_var(repo, "set", override_value(branch))
             if not override_set:
@@ -557,6 +618,9 @@ def main() -> int:
         if args.keep:
             print("--keep: leaving PR, branch, and override in place")
         else:
+            cancelled = _cancel_inflight(repo, rehearse_ref)
+            if cancelled:
+                print(f"Cancelled unfinished run(s) before teardown: {cancelled}")
             _run(["gh", "pr", "close", str(pr_number), "-R", repo], timeout=60)
             if override_set:
                 if prior_override is None:
