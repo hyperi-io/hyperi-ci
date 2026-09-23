@@ -254,3 +254,40 @@ class TestThePushFilterIsTheConsumerSurface:
         paths = self._sweep_workflow()[True]["push"]["paths"]
         assert ".github/workflows/**" in paths
         assert ".github/actions/**" in paths
+
+    def test_every_app_token_is_scoped_to_named_repos(self) -> None:
+        """With `owner` set and no `repositories`, the token reaches the org."""
+        token_steps = [
+            step
+            for job in self._sweep_workflow()["jobs"].values()
+            for step in job["steps"]
+            if "create-github-app-token" in step.get("uses", "")
+        ]
+        assert token_steps
+        for step in token_steps:
+            assert "steps.fleet.outputs.repos" in step["with"].get("repositories", "")
+
+    def test_no_dispatch_input_is_spliced_into_a_shell_script(self) -> None:
+        for job in self._sweep_workflow()["jobs"].values():
+            for step in job["steps"]:
+                assert "${{ inputs." not in step.get("run", ""), step.get("name")
+
+
+class TestTheTokenScope:
+    """Which fixture repos a fleet workflow's app token may reach."""
+
+    def test_the_sweep_reaches_the_whole_fleet(self) -> None:
+        fleet = fixture_fleet.load_fleet()
+        assert fixture_fleet.token_scope(fleet) == [e["name"] for e in fleet]
+
+    def test_negative_cases_reach_only_their_fixtures(self) -> None:
+        fleet = fixture_fleet.load_fleet()
+        scope = fixture_fleet.token_scope(fleet, negative_cases_only=True)
+        assert scope
+        assert set(scope) == {e["name"] for e in fleet if e.get("negative_cases")}
+
+    def test_an_empty_scope_is_refused_not_passed_on(self, monkeypatch, capsys) -> None:
+        monkeypatch.setattr(fixture_fleet, "load_fleet", lambda: [])
+        monkeypatch.setattr(sys, "argv", ["fixture_fleet.py"])
+        assert fixture_fleet.main() == 1
+        assert "repos=" not in capsys.readouterr().out

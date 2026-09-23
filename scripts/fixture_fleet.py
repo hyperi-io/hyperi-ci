@@ -19,7 +19,9 @@ mapping from a changed path to a fixture is data in the SSoT (`workflow`,
 selector.
 """
 
+import argparse
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +55,19 @@ def load_fleet(path: Path | None = None) -> list[Entry]:
 def declared_names(fleet: list[Entry]) -> set[str]:
     """Upstream repo names the fleet claims exist."""
     return {entry["name"] for entry in fleet}
+
+
+def token_scope(fleet: list[Entry], *, negative_cases_only: bool = False) -> list[str]:
+    """The repos a fleet workflow's app token should reach, in fleet order.
+
+    The token action widens an EMPTY list to every repo in the org, so callers
+    must treat an empty answer as an error, never pass it on.
+    """
+    return [
+        entry["name"]
+        for entry in fleet
+        if not negative_cases_only or entry.get("negative_cases")
+    ]
 
 
 def language_workflows(fleet: list[Entry]) -> set[str]:
@@ -200,3 +215,26 @@ def mask_lines(fleet: list[Entry]) -> list[str]:
         f"(hyperi-io/hyperi-ci#{mask.get('issue')})"
         for name, mask in masks(fleet)
     ]
+
+
+def main() -> int:
+    """Print `repos=<a,b,c>` for a workflow step to append to $GITHUB_OUTPUT."""
+    parser = argparse.ArgumentParser(description="Scope a fleet app token")
+    parser.add_argument(
+        "--negative-cases",
+        action="store_true",
+        help="only the fixtures that carry .ci-negative/ cases",
+    )
+    args = parser.parse_args()
+    repos = token_scope(load_fleet(), negative_cases_only=args.negative_cases)
+    if not repos:
+        print(
+            "ERROR: no fixtures matched - refusing an org-wide token", file=sys.stderr
+        )
+        return 1
+    print(f"repos={','.join(repos)}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
