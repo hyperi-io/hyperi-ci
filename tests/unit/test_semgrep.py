@@ -16,7 +16,7 @@ skip short-circuits in ``run`` (which return before any scan).
 import pytest
 
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import GateReasonRequiredError
+from hyperi_ci.languages import quality_common
 from hyperi_ci.quality import semgrep
 
 _STRICT = "HYPERCI_QUALITY_STRICT"
@@ -63,12 +63,16 @@ class TestResolveMode:
         cfg = _cfg({"quality": {"python": {"semgrep": _off("no SAST rules for this")}}})
         assert semgrep._resolve_mode(cfg, "python") == "disabled"
 
-    def test_legacy_key_is_measured_against_the_shipped_default(self) -> None:
+    def test_legacy_key_is_measured_against_the_shipped_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         # quality.python.semgrep carries no default of its own, so without the
         # fallback a repo could disable SAST through it unremarked.
+        said: list[str] = []
+        monkeypatch.setattr(quality_common, "warn", said.append)
         cfg = _cfg({"quality": {"python": {"semgrep": "disabled"}}})
-        with pytest.raises(GateReasonRequiredError, match="quality.python.semgrep"):
-            semgrep._resolve_mode(cfg, "python")
+        semgrep._resolve_mode(cfg, "python")
+        assert any("quality.python.semgrep" in w for w in said), said
 
     def test_strict_upgrades_warn(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(_STRICT, "1")
@@ -92,7 +96,11 @@ class TestRun:
         cfg = _cfg({"quality": {"semgrep": _off("no SAST on this repo")}})
         assert semgrep.run(cfg) == 0
 
-    def test_disabled_without_a_reason_raises(self) -> None:
+    def test_disabled_without_a_reason_is_named(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said: list[str] = []
+        monkeypatch.setattr(quality_common, "warn", said.append)
         cfg = _cfg({"quality": {"semgrep": "disabled"}})
-        with pytest.raises(GateReasonRequiredError, match="security gate"):
-            semgrep.run(cfg)
+        assert semgrep.run(cfg) == 0
+        assert any("security gate" in w for w in said), said

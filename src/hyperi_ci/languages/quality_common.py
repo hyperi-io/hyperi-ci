@@ -206,8 +206,14 @@ def note_gate_downgrade(
     shipped = shipped.strip().lower()
     if _MODE_STRENGTH.get(mode, 2) >= _MODE_STRENGTH.get(shipped, 0):
         return
+    # Warns rather than failing until a wheel that parses the mapping is on
+    # PyPI, because a consumer cannot state a reason before then (issue #259).
     if key.rsplit(".", 1)[-1] in SECURITY_TOOLS and not reason:
-        raise GateReasonRequiredError(_reason_required_message(key, mode, shipped))
+        owed = _reason_required_message(key, mode, shipped)
+        warn(f"  {owed}")
+        if is_ci():
+            print(f"::warning title=hyperi-ci security gate needs a reason::{owed}")
+        return
     msg = (
         f"{key}: this repo sets '{mode}', hyperi-ci ships '{shipped}' - "
         f"the gate is turned down here"
