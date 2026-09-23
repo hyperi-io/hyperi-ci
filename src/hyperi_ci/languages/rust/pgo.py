@@ -340,8 +340,13 @@ def _ensure_llvm_profdata_available() -> bool:
     bin_dir = _rustc_sysroot_bin()
 
     if bin_dir is not None and not (bin_dir / "llvm-profdata").exists():
-        info("  llvm-profdata missing - adding the llvm-tools-preview component")
-        run_cmd(["rustup", "component", "add", "llvm-tools-preview"], check=False)
+        # A rustc without rustup cannot add the component, and run_cmd raises on
+        # a missing binary, which would skip the PATH fallback below.
+        if shutil.which("rustup"):
+            info("  llvm-profdata missing - adding the llvm-tools-preview component")
+            run_cmd(["rustup", "component", "add", "llvm-tools-preview"], check=False)
+        else:
+            info("  llvm-profdata missing and rustup is not on PATH to add it")
 
     if bin_dir is not None and (bin_dir / "llvm-profdata").exists():
         current = os.environ.get("PATH", "")
