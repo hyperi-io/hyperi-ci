@@ -93,6 +93,9 @@ WRONG_REASON = "wrong-reason"
 STALE_PATCH = "stale-patch"
 
 CASE_DIR = ".ci-negative"
+# GitHub's own bot identity, the convention for a commit a workflow authors.
+_BOT_NAME = "github-actions[bot]"
+_BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
 _POLL_SECONDS = 20
 _TOKEN = re.compile(r"[a-z0-9]+")
 
@@ -403,7 +406,17 @@ def _push_case(fixture: Fixture, case: Case) -> tuple[str, str]:
         ["add", "-A"],
         # A non-bumping commit type skips the quality job, which would read as
         # a leak. `fix` is the cheapest release-worthy type.
-        ["commit", "-m", f"fix({case.name}): plant the negative case [do not merge]"],
+        # The identity is passed per-command because a CI runner has no global
+        # git config, and without it every case reports unreachable.
+        [
+            "-c",
+            f"user.email={_BOT_EMAIL}",
+            "-c",
+            f"user.name={_BOT_NAME}",
+            "commit",
+            "-m",
+            f"fix({case.name}): plant the negative case [do not merge]",
+        ],
         ["push", "origin", case.branch],
     ]
     for git_args in steps:
