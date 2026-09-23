@@ -36,13 +36,11 @@ but the dispatch and exit-code contract is already wired so adopters
 can test the local flow against the stub).
 """
 
-from __future__ import annotations
-
+import os
 import shutil
-import subprocess
 from pathlib import Path
 
-from hyperi_ci.common import error, info, normalise_tristate, success
+from hyperi_ci.common import error, info, normalise_tristate, stream_cmd, success
 from hyperi_ci.config import CIConfig, load_config
 from hyperi_ci.deployment.cli import emit_artefacts
 from hyperi_ci.deployment.detect import Tier, resolve_tier
@@ -64,6 +62,21 @@ EXIT_OK = 0
 EXIT_PRODUCER_MISSING = 7
 EXIT_PRODUCER_FAILED = 8
 EXIT_TIER_NOT_YET_IMPLEMENTED = 9
+
+# A producer that runs past this prints a line saying so, with its state and
+# CPU time -- the first step in the pipeline that executes the built binary.
+HEARTBEAT_SECONDS = 30.0
+
+# The one-letter scheduler states in /proc/<pid>/stat.
+_PROC_STATES = {
+    "R": "running",
+    "S": "sleeping",
+    "D": "waiting on I/O",
+    "Z": "zombie",
+    "T": "stopped",
+    "t": "stopped by a tracer",
+    "I": "idle",
+}
 
 
 def run(
@@ -300,7 +313,7 @@ def _run_tier1(output_dir: Path, project_dir: Path) -> int:
 
     info(f"Generate (Tier 1): running {binary} generate-artefacts")
     cmd = [str(binary), "generate-artefacts", "--output-dir", str(output_dir)]
-    return _run_producer_subprocess(cmd, "Rust")
+    return _run_producer_subprocess(cmd, "Rust", output_dir)
 
 
 def _run_tier2(output_dir: Path, project_dir: Path) -> int:
@@ -357,7 +370,7 @@ def _run_tier2(output_dir: Path, project_dir: Path) -> int:
             "--output-dir",
             str(output_dir),
         ]
-        return _run_producer_subprocess(cmd, "Python")
+        return _run_producer_subprocess(cmd, "Python", output_dir)
 
     binary = shutil.which(script_name)
     if binary is None:
@@ -373,7 +386,7 @@ def _run_tier2(output_dir: Path, project_dir: Path) -> int:
 
     info(f"Generate (Tier 2): running {binary} generate-artefacts")
     cmd = [binary, "generate-artefacts", "--output-dir", str(output_dir)]
-    return _run_producer_subprocess(cmd, "Python")
+    return _run_producer_subprocess(cmd, "Python", output_dir)
 
 
 def _run_tier3(
@@ -392,33 +405,61 @@ def _run_tier3(
     return emit_artefacts(output_dir, contract_path)
 
 
-def _run_producer_subprocess(cmd: list[str], tier_label: str) -> int:
-    """Invoke a producer binary and translate its exit code."""
+def _describe_stat(stat: str) -> str:
+    """Summarise a ``/proc/<pid>/stat`` line as its state and CPU seconds.
+
+    CPU climbing between heartbeats means the process is working; flat CPU in
+    state S or D means it is waiting on something. The command name sits in
+    brackets and may itself contain spaces or brackets, so the fields are
+    counted from the LAST closing bracket.
+    """
     try:
-        result = subprocess.run(
-            cmd,
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
+        fields = stat.rsplit(")", 1)[1].split()
+        state = fields[0]
+        ticks = int(fields[11]) + int(fields[12])
+    except (IndexError, ValueError):
+        return ""
+    cpu_seconds = ticks / os.sysconf("SC_CLK_TCK")
+    return (
+        f"state {state} ({_PROC_STATES.get(state, 'unknown')}), {cpu_seconds:.1f}s CPU"
+    )
+
+
+def _describe_process(pid: int) -> str:
+    """State and CPU time of a live process, or "" where there is no /proc."""
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    return _describe_stat(stat)
+
+
+def _run_producer_subprocess(cmd: list[str], tier_label: str, output_dir: Path) -> int:
+    """Invoke a producer binary and translate its exit code.
+
+    Output is logged as the producer writes it, not after it exits, so a
+    producer that never returns still leaves what it printed and a heartbeat
+    line every :data:`HEARTBEAT_SECONDS` (issue #261).
+    """
+
+    def _heartbeat(elapsed: float, pid: int) -> None:
+        detail = _describe_process(pid)
+        suffix = f" -- {detail}" if detail else ""
+        info(f"Generate ({tier_label}): still running after {elapsed:.0f}s{suffix}")
+
+    try:
+        returncode, output = stream_cmd(
+            cmd, on_heartbeat=_heartbeat, heartbeat_seconds=HEARTBEAT_SECONDS
         )
     except FileNotFoundError as exc:
-        error(f"Generate ({tier_label}): producer not executable — {exc}")
+        error(f"Generate ({tier_label}): producer not executable -- {exc}")
         return EXIT_PRODUCER_MISSING
 
-    if result.stdout:
-        for line in result.stdout.splitlines():
-            info(f"  {line}")
-    if result.stderr:
-        for line in result.stderr.splitlines():
-            info(f"  {line}")
-
-    if result.returncode != 0:
-        error(f"Generate ({tier_label}): producer exited with code {result.returncode}")
+    if returncode != 0:
+        error(f"Generate ({tier_label}): producer exited with code {returncode}")
         # Common: the binary doesn't have generate-artefacts yet
         # (scalo crate < 2.7, package < 2.x). Hint at that for actionability.
-        if "generate-artefacts" in (result.stderr or ""):
+        if "generate-artefacts" in output:
             info(
                 "If this is a 'no such subcommand' error, the app "
                 "binary is built against an older library that doesn't "
@@ -427,6 +468,8 @@ def _run_producer_subprocess(cmd: list[str], tier_label: str) -> int:
             )
         return EXIT_PRODUCER_FAILED
 
+    for artefact in sorted(p for p in output_dir.rglob("*") if p.is_file()):
+        info(f"  wrote {artefact} ({artefact.stat().st_size} bytes)")
     success(f"Generate ({tier_label}): producer succeeded")
     return EXIT_OK
 

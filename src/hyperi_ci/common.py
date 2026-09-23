@@ -10,13 +10,13 @@ Uses scalo logger for structured output with automatic environment
 detection (GitHub Actions workflow commands, Solarized terminal, plain CI).
 """
 
-from __future__ import annotations
-
 import os
 import re
 import subprocess
 import sys
-from collections.abc import Iterator
+import threading
+import time
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -354,6 +354,77 @@ def run_cmd(
         cwd=cwd,
         env=run_env,
     )
+
+
+def _log_line(line: str) -> None:
+    info(f"  {line}")
+
+
+def stream_cmd(
+    cmd: list[str],
+    *,
+    on_line: Callable[[str], None] = _log_line,
+    on_heartbeat: Callable[[float, int], None] | None = None,
+    heartbeat_seconds: float = 30.0,
+    cwd: str | Path | None = None,
+) -> tuple[int, str]:
+    """Run a subprocess, handing over each output line as it arrives.
+
+    For a step whose silence is itself the symptom: a process that hangs still
+    leaves every line it printed, and ``on_heartbeat`` fires on an interval
+    while it runs, so the log says how long it has been going (issue #261).
+
+    Args:
+        cmd: Command as list of strings.
+        on_line: Called with each line of combined stdout and stderr.
+        on_heartbeat: Called with elapsed seconds and the child's pid every
+            ``heartbeat_seconds`` until the process exits.
+        heartbeat_seconds: Interval between heartbeats.
+        cwd: Working directory.
+
+    Returns:
+        The exit code and the combined output.
+
+    Raises:
+        FileNotFoundError: The command is not executable.
+
+    """
+    # The python36 compatibility rules cannot apply on the 3.14 floor.
+    # nosemgrep: python.lang.compatibility.python36.python36-compatibility-Popen1, python.lang.compatibility.python36.python36-compatibility-Popen2
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=cwd,
+    )
+    lines: list[str] = []
+
+    def _read() -> None:
+        if proc.stdout is None:
+            return
+        for raw in proc.stdout:
+            line = raw.rstrip("\n")
+            lines.append(line)
+            on_line(line)
+
+    reader = threading.Thread(target=_read, daemon=True)
+    reader.start()
+    started = time.monotonic()
+    while True:
+        try:
+            returncode = proc.wait(timeout=heartbeat_seconds)
+            break
+        except subprocess.TimeoutExpired:
+            if on_heartbeat is not None:
+                on_heartbeat(time.monotonic() - started, proc.pid)
+
+    # Bounded: a grandchild that inherited the pipe can hold it open after the
+    # child exits, and waiting on that would be a new hang.
+    reader.join(timeout=10)
+    return returncode, "\n".join(lines)
 
 
 # Common directories to exclude from quality checks
