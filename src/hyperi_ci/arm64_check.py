@@ -10,7 +10,9 @@ arm64 compiled only on a run that was already publishing, so an arm64-only
 defect first executed during the release meant to ship it, and the fix for one
 could not be exercised except by attempting another release (issue #249). A
 BOLT refusal over Cortex-A53 veneers reached dfe-receiver exactly that way and
-held two security fixes for over a week.
+held two security fixes for over a week. The check builds below the release
+tier, so it runs no PGO or BOLT: it catches compile and link defects, not that
+one.
 
 A release-worthy merge to main WILL ship, so compiling its arm64 leg crosses no
 line in the gate doctrine: a merge that ships nothing still compiles nothing.
