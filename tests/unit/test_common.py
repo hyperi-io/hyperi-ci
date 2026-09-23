@@ -5,7 +5,7 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
-from __future__ import annotations
+import time
 
 import pytest
 
@@ -202,6 +202,22 @@ class TestRunCmdUtf8:
         # exception was raised and the surrounding text is intact.
         assert "before" in result.stdout
         assert "after" in result.stdout
+
+
+class TestStreamCmd:
+    """A streamed step returns when its child exits, whatever inherited the pipe."""
+
+    def test_a_grandchild_holding_the_pipe_does_not_hang_it(self) -> None:
+        """The backgrounded sleep keeps stdout open for 30s after the child exits."""
+        started = time.monotonic()
+        rc, output = common.stream_cmd(
+            ["bash", "-c", "echo parent; (sleep 30; echo late) & exit 3"],
+            on_line=lambda _line: None,
+        )
+        elapsed = time.monotonic() - started
+        assert rc == 3
+        assert output == "parent"
+        assert elapsed < 20
 
 
 class TestMask:
