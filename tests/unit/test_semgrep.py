@@ -13,19 +13,26 @@ strict upgrade, and the force-skip escape hatch - plus the disabled/
 skip short-circuits in ``run`` (which return before any scan).
 """
 
-from __future__ import annotations
-
 import pytest
 
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages.quality_common import GateReasonRequiredError
 from hyperi_ci.quality import semgrep
 
 _STRICT = "HYPERCI_QUALITY_STRICT"
 _SKIP = "HYPERCI_QUALITY_SKIP"
 
+# The legacy per-language key, set to the mode semgrep already ships.
+_WARN = {"semgrep": "warn"}
+
 
 def _cfg(raw: dict | None = None) -> CIConfig:
     return CIConfig(_raw=raw or {})
+
+
+def _off(reason: str) -> dict[str, str]:
+    """A semgrep gate turned below the shipped `warn`, with its stated reason."""
+    return {"mode": "disabled", "reason": reason}
 
 
 @pytest.fixture(autouse=True)
@@ -43,10 +50,25 @@ class TestResolveMode:
         cfg = _cfg({"quality": {"semgrep": "blocking"}})
         assert semgrep._resolve_mode(cfg, None) == "blocking"
 
+    def test_writing_the_shipped_warn_needs_no_reason(self) -> None:
+        # semgrep ships `warn`, so writing it is not a downgrade (issue #250).
+        cfg = _cfg({"quality": {"semgrep": "warn"}})
+        assert semgrep._resolve_mode(cfg, None) == "warn"
+        assert semgrep._resolve_mode(
+            _cfg({"quality": {"python": _WARN}}), "python"
+        ) == ("warn")
+
     def test_legacy_per_language_override_wins(self) -> None:
         # Back-compat: a consumer's old quality.<lang>.semgrep still applies.
-        cfg = _cfg({"quality": {"python": {"semgrep": "disabled"}}})
+        cfg = _cfg({"quality": {"python": {"semgrep": _off("no SAST rules for this")}}})
         assert semgrep._resolve_mode(cfg, "python") == "disabled"
+
+    def test_legacy_key_is_measured_against_the_shipped_default(self) -> None:
+        # quality.python.semgrep carries no default of its own, so without the
+        # fallback a repo could disable SAST through it unremarked.
+        cfg = _cfg({"quality": {"python": {"semgrep": "disabled"}}})
+        with pytest.raises(GateReasonRequiredError, match="quality.python.semgrep"):
+            semgrep._resolve_mode(cfg, "python")
 
     def test_strict_upgrades_warn(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(_STRICT, "1")
@@ -67,5 +89,10 @@ class TestRun:
         assert semgrep.run(_cfg()) == 0
 
     def test_disabled_config_returns_zero(self) -> None:
-        cfg = _cfg({"quality": {"semgrep": "disabled"}})
+        cfg = _cfg({"quality": {"semgrep": _off("no SAST on this repo")}})
         assert semgrep.run(cfg) == 0
+
+    def test_disabled_without_a_reason_raises(self) -> None:
+        cfg = _cfg({"quality": {"semgrep": "disabled"}})
+        with pytest.raises(GateReasonRequiredError, match="security gate"):
+            semgrep.run(cfg)

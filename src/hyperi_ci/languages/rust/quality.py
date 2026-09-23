@@ -435,7 +435,7 @@ def _run_feature_matrix(config: CIConfig) -> bool:
                 "(set quality.rust.feature_matrix.reason)"
             )
             return False
-        info(f"  feature_matrix: disabled — {reason}")
+        info(f"  feature_matrix: disabled - {reason}")
         return True
 
     # Install cargo-hack if missing (scalo-rs-style: idempotent, fail-soft)

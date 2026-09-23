@@ -12,21 +12,22 @@ Covers `hyperi_ci.languages.quality_common.strict_quality` and
 to blocking so they surface before a push instead of after.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages import quality_common
 from hyperi_ci.languages.quality_common import (
+    GateReasonRequiredError,
     is_skipped,
     quality_skip,
+    resolve_cross_tool_mode,
     resolve_tool_mode,
     strict_quality,
 )
 
 _ENV = "HYPERCI_QUALITY_STRICT"
 _SKIP = "HYPERCI_QUALITY_SKIP"
+_REASON = "GHSA-0000 has no patched release; mitigated by pod isolation"
 
 
 @pytest.fixture(autouse=True)
@@ -36,7 +37,8 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(_SKIP, raising=False)
 
 
-def _config(tool: str, mode: str, language: str = "python") -> CIConfig:
+def _config(tool: str, mode: object, language: str = "python") -> CIConfig:
+    """Config with one tool set, as a bare mode string or a mode+reason mapping."""
     return CIConfig(_raw={"quality": {language: {tool: mode}}})
 
 
@@ -111,11 +113,18 @@ class TestGateDowngradeIsAnnounced:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         said = self._warnings(monkeypatch)
-        assert resolve_tool_mode(
-            "pip_audit", _config("pip_audit", "warn"), "python"
-        ) == ("warn")
+        cfg = _config("pip_audit", {"mode": "warn", "reason": _REASON})
+        assert resolve_tool_mode("pip_audit", cfg, "python") == "warn"
         assert any("turned down" in w for w in said), said
         assert any("pip_audit" in w for w in said), said
+
+    def test_the_stated_reason_is_printed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said = self._warnings(monkeypatch)
+        cfg = _config("pip_audit", {"mode": "warn", "reason": _REASON})
+        resolve_tool_mode("pip_audit", cfg, "python")
+        assert any(_REASON in w for w in said), said
 
     def test_matching_the_shipped_default_says_nothing(
         self, monkeypatch: pytest.MonkeyPatch
@@ -141,6 +150,106 @@ class TestGateDowngradeIsAnnounced:
         said = self._warnings(monkeypatch)
         resolve_tool_mode("not_a_tool", _config("not_a_tool", "disabled"), "python")
         assert said == []
+
+
+class TestSecurityGateNeedsAReason:
+    """Turning a CVE/secret/SAST gate down has to say what it is waiting on.
+
+    `feature_matrix` has required a reason for its opt-out since it shipped,
+    while a security gate took any mode with none -- dead-code coverage held to
+    a higher standard than CVE scanning (issue #250).
+    """
+
+    @staticmethod
+    def _warnings(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        said: list[str] = []
+        monkeypatch.setattr(quality_common, "warn", said.append)
+        return said
+
+    def test_bare_warn_on_a_security_tool_fails(self) -> None:
+        with pytest.raises(GateReasonRequiredError) as caught:
+            resolve_tool_mode("pip_audit", _config("pip_audit", "warn"), "python")
+        message = str(caught.value)
+        assert "quality.python.pip_audit" in message
+        assert "security gate" in message
+        # The fix has to be copyable from the message, not looked up in source.
+        assert "mode: warn" in message
+        assert "reason:" in message
+
+    def test_bare_disabled_on_a_security_tool_fails(self) -> None:
+        with pytest.raises(GateReasonRequiredError):
+            resolve_tool_mode("audit", _config("audit", "disabled", "rust"), "rust")
+
+    def test_a_stated_reason_lets_it_through(self) -> None:
+        cfg = _config("audit", {"mode": "warn", "reason": _REASON}, "rust")
+        assert resolve_tool_mode("audit", cfg, "rust") == "warn"
+
+    def test_a_whitespace_only_reason_is_no_reason(self) -> None:
+        cfg = _config("audit", {"mode": "warn", "reason": "   "}, "rust")
+        with pytest.raises(GateReasonRequiredError):
+            resolve_tool_mode("audit", cfg, "rust")
+
+    def test_case_does_not_dodge_the_check(self) -> None:
+        with pytest.raises(GateReasonRequiredError):
+            resolve_tool_mode("deny", _config("deny", " WARN ", "rust"), "rust")
+
+    def test_matching_the_shipped_default_needs_no_reason(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # osv_scanner ships `warn`, so writing it is not a downgrade.
+        said = self._warnings(monkeypatch)
+        cfg = _config("osv_scanner", "warn", "rust")
+        assert resolve_tool_mode("osv_scanner", cfg, "rust") == "warn"
+        assert said == []
+
+    def test_a_security_tool_at_its_shipped_blocking_is_silent(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said = self._warnings(monkeypatch)
+        assert resolve_tool_mode("audit", _config("audit", "blocking", "rust"), "rust")
+        assert said == []
+
+    def test_below_a_shipped_warn_still_needs_a_reason(self) -> None:
+        # Shipped `warn` is not a licence to reach `disabled` unexplained.
+        with pytest.raises(GateReasonRequiredError):
+            resolve_tool_mode(
+                "osv_scanner", _config("osv_scanner", "disabled", "rust"), "rust"
+            )
+
+    def test_a_non_security_tool_only_warns(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said = self._warnings(monkeypatch)
+        cfg = _config("ruff_format", "warn")
+        assert resolve_tool_mode("ruff_format", cfg, "python") == "warn"
+        assert any("turned down" in w for w in said), said
+
+    def test_a_shipped_disabled_tool_has_nothing_below_it(self) -> None:
+        # bandit ships `disabled` (superseded by ruff S rules) -- no downgrade.
+        assert resolve_tool_mode("bandit", _config("bandit", "disabled"), "python") == (
+            "disabled"
+        )
+
+    def test_the_cross_language_resolver_enforces_it_too(self) -> None:
+        cfg = CIConfig(_raw={"quality": {"gitleaks": "warn"}})
+        with pytest.raises(GateReasonRequiredError, match="quality.gitleaks"):
+            resolve_cross_tool_mode(cfg, "gitleaks", "blocking")
+
+    def test_strict_does_not_hide_a_missing_reason(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # --strict upgrades warn to blocking, so checking the post-strict mode
+        # would let a local strict run pass a config CI then fails on.
+        monkeypatch.setenv(_ENV, "1")
+        with pytest.raises(GateReasonRequiredError):
+            resolve_tool_mode("pip_audit", _config("pip_audit", "warn"), "python")
+
+    def test_force_skip_needs_no_reason(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The incident escape hatch exists for a CI that is already broken.
+        monkeypatch.setenv(_SKIP, "pip_audit")
+        assert resolve_tool_mode(
+            "pip_audit", _config("pip_audit", "warn"), "python"
+        ) == ("disabled")
 
 
 class TestRuffFormatHasItsOwnMode:

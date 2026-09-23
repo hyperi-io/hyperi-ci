@@ -75,6 +75,16 @@ def _cfg(raw: dict | None = None) -> CIConfig:
     return CIConfig(_raw=raw or {})
 
 
+def _relaxed(mode: str) -> dict[str, str]:
+    """A gitleaks gate turned below the shipped `blocking`, with its reason.
+
+    gitleaks is a security gate, so the bare `gitleaks: warn` these tests used
+    to pass now fails the stage on its own (issue #250) and would prove nothing
+    about the behaviour each test is actually after.
+    """
+    return {"mode": mode, "reason": "exercising the turned-down path under test"}
+
+
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Start every test with skip, strict and the config overrides unset.
@@ -262,7 +272,7 @@ class TestBlindingGuard:
         assert not [c for c in captured if c and c[0] == "gitleaks"]
 
     def test_warn_mode_proceeds(self, captured: list[list[str]]) -> None:
-        cfg = _cfg({"quality": {"gitleaks": "warn"}})
+        cfg = _cfg({"quality": {"gitleaks": _relaxed("warn")}})
         assert gitleaks.run(cfg) == 0
         assert _scan_cmd(captured)[1] == "git"
 
@@ -289,7 +299,7 @@ class TestLeaksFound:
         # Distinct from a clean scan also returning 0: here gitleaks FOUND a
         # secret (rc=1) and warn mode is what turns that into a pass.
         _fake_gitleaks(monkeypatch, scan_rc=1)
-        cfg = _cfg({"quality": {"gitleaks": "warn"}})
+        cfg = _cfg({"quality": {"gitleaks": _relaxed("warn")}})
         assert gitleaks.run(cfg) == 0
 
     def test_strict_upgrades_warn_to_blocking(
@@ -299,7 +309,7 @@ class TestLeaksFound:
         # who asked for strict gets a green stage out of a real finding.
         _fake_gitleaks(monkeypatch, scan_rc=1)
         monkeypatch.setenv("HYPERCI_QUALITY_STRICT", "1")
-        cfg = _cfg({"quality": {"gitleaks": "warn"}})
+        cfg = _cfg({"quality": {"gitleaks": _relaxed("warn")}})
         assert gitleaks.run(cfg) == 1
 
 
@@ -338,7 +348,7 @@ class TestUnusableBuild:
 
     def test_warn_mode_still_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._too_old(monkeypatch)
-        assert gitleaks.run(_cfg({"quality": {"gitleaks": "warn"}})) == 0
+        assert gitleaks.run(_cfg({"quality": {"gitleaks": _relaxed("warn")}})) == 0
 
     def test_no_scan_is_attempted(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Bailing before the scan is what keeps the exit code meaningful."""
@@ -681,7 +691,7 @@ class TestCanaryWiring:
 
     def test_warn_mode_proceeds(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls = _fake_gitleaks(monkeypatch, canary_found=set())
-        cfg = _cfg({"quality": {"gitleaks": "warn"}})
+        cfg = _cfg({"quality": {"gitleaks": _relaxed("warn")}})
         assert gitleaks.run(cfg) == 0
         assert _scan_cmd(calls)[1] == "git"
 
@@ -690,7 +700,7 @@ class TestCanaryWiring:
     ) -> None:
         _fake_gitleaks(monkeypatch, canary_found=set())
         monkeypatch.setenv(_STRICT, "1")
-        assert gitleaks.run(_cfg({"quality": {"gitleaks": "warn"}})) == 1
+        assert gitleaks.run(_cfg({"quality": {"gitleaks": _relaxed("warn")}})) == 1
 
     def test_a_narrow_config_does_not_gate_the_scan(
         self, monkeypatch: pytest.MonkeyPatch
@@ -713,7 +723,7 @@ class TestCanaryWiring:
         monkeypatch.setattr(gitleaks, "_declares_no_ruleset", lambda _cfg: True)
         warns: list[str] = []
         monkeypatch.setattr(gitleaks, "warn", warns.append)
-        assert gitleaks.run(_cfg({"quality": {"gitleaks": "warn"}})) == 0
+        assert gitleaks.run(_cfg({"quality": {"gitleaks": _relaxed("warn")}})) == 0
         assert not [w for w in warns if "canary" in w], warns
 
 
@@ -762,7 +772,7 @@ class TestEnvConfigOverride:
 
 class TestShortCircuits:
     def test_disabled_returns_early(self, captured: list[list[str]]) -> None:
-        cfg = _cfg({"quality": {"gitleaks": "disabled"}})
+        cfg = _cfg({"quality": {"gitleaks": _relaxed("disabled")}})
         assert gitleaks.run(cfg) == 0
         assert not captured
 

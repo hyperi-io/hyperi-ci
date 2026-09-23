@@ -86,6 +86,18 @@ quality:
   # entry FAILS rather than being skipped: a gate that quietly does not run is
   # the defect this exists to close.
   local_gates: []
+
+  # Every tool below takes a bare mode (`blocking` / `warn` / `disabled`) or a
+  # mapping carrying `mode` plus options. A SECURITY tool (gitleaks, semgrep,
+  # bandit, pip_audit, audit, deny, osv, osv_scanner) set BELOW the default
+  # shipped here needs a `reason` in that mapping or the stage fails:
+  #
+  #   pip_audit:
+  #     mode: warn
+  #     reason: "CVE-2025-69872 has no upstream fix; mitigated by pod isolation"
+  #
+  # Matching the shipped default is not a downgrade and needs nothing.
+  # See docs/quality-gate.md#relaxing-a-security-gate.
   gitleaks: blocking
   semgrep: warn              # Semgrep SAST (cross-language) - runs once at dispatch, like gitleaks
   # The ASCII-only rule, enforced at last (issue #169). `warn` first per the

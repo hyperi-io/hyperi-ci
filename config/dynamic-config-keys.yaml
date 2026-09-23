@@ -31,6 +31,7 @@ keys:
 
   # resolve_cross_tool_mode() builds `quality.<tool>` for the tools that run
   # once at dispatch level rather than per language.
+  quality.gitleaks: src/hyperi_ci/quality/gitleaks.py
   quality.hadolint: src/hyperi_ci/quality/hadolint.py
   quality.droast: src/hyperi_ci/quality/droast.py
   quality.kube_linter: src/hyperi_ci/quality/kube_linter.py
