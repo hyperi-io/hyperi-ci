@@ -90,13 +90,22 @@ def _sysroot_base() -> Path:
 
 
 def _get_native_target() -> str:
-    """Get the native Rust target triple for this platform."""
-    if sys.platform == "darwin":
-        import platform
+    """Get the native Rust target triple for this platform.
 
-        arch = platform.machine()
+    Reads the machine arch on Linux too: an arm64 runner answering
+    `x86_64-unknown-linux-gnu` makes its own target look like a cross build,
+    which skips PGO and then fails the release as half-optimised.
+    """
+    import platform
+
+    arch = platform.machine()
+    if sys.platform == "darwin":
         return "aarch64-apple-darwin" if arch == "arm64" else "x86_64-apple-darwin"
-    return "x86_64-unknown-linux-gnu"
+    return (
+        "aarch64-unknown-linux-gnu"
+        if arch in ("aarch64", "arm64")
+        else "x86_64-unknown-linux-gnu"
+    )
 
 
 def _get_native_triple() -> str:
