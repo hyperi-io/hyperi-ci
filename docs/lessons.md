@@ -327,6 +327,34 @@ Two coverage holes in the same family, both structural rather than missed:
   that ships through both in one commit reaches consumers in halves. It turns
   fixtures RED and consumers falsely GREEN depending on direction.
 
+### A comment can be true about the design and false about the observable
+
+Not a stale comment. Each of these was an accurate statement of intent,
+written by someone who understood the code, and wrong about what actually
+happens:
+
+- `publish-target: both` "resolves to release channel and unlocks Tier 2".
+  It does not. `_resolve_build_channel` reads `HYPERCI_CHANNEL`, then the tag
+  ref, then `RUST_VERSION` / `CI_COMMIT_TAG`, else `alpha`. The input is
+  declared "legacy field, ignored" in the same workflow.
+- `reap_stale` promises that leaving a running container means the start
+  "fails with `name is already in use`, which says what actually happened".
+  What arrives is `WaitContainer(StartupTimeout)` -- testcontainers swallows
+  the Docker error and reports a timeout, pointing at container speed.
+- "Two concurrent runs of this suite on one machine share these names."
+  True on a laptop. False on ARC, where each runner pod has its own dockerd
+  over an `emptyDir` socket, so nothing is shared and nothing outlives a pod.
+
+All three were believed and reasoned from. Two cost a diagnosis each in one
+day, and the third sent two sessions down a mechanism that cannot occur.
+
+Nothing detects this class. A linter sees a comment; a test exercises the
+code, not the sentence beside it. The only thing that catches it is checking
+the claim against the layer that owns it -- the resolver, the error the
+library actually raises, the pod spec -- BEFORE reasoning from it. Where a
+comment asserts what another system will do, it is a hypothesis with good
+provenance, not a fact.
+
 ### A run that predates the fix cannot have tested it
 
 Check the timestamps before reading a verdict. A consumer CI run installs the
