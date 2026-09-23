@@ -18,6 +18,7 @@ line -- it must never come out as PASS.
 """
 
 import importlib.util
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -606,7 +607,9 @@ class TestWaitingOnTheRun:
     """The poll runs for up to 45 minutes, so one bad read cannot end a case."""
 
     @staticmethod
-    def _wait(monkeypatch, tmp_path, states: list) -> tuple[list, list[int]]:
+    def _wait(
+        monkeypatch, tmp_path, states: list, run_id: int = 7
+    ) -> tuple[list, list[int]]:
         quality = _job("ci / Quality", "failure", [("Run quality checks", "failure")])
         reads: list[int] = []
 
@@ -621,7 +624,9 @@ class TestWaitingOnTheRun:
         )
         monkeypatch.setattr(negative.time, "sleep", lambda _s: None)
         fixtures = {CASE.fixture: negative.Fixture(repo="o/r", clone=tmp_path)}
-        live = [negative.Live(case=CASE, clone=tmp_path, head_sha="a" * 40, run_id=7)]
+        live = [
+            negative.Live(case=CASE, clone=tmp_path, head_sha="a" * 40, run_id=run_id)
+        ]
         deadline = negative.time.time() + 60
         return negative._await_runs(fixtures, live, deadline), reads
 
@@ -630,6 +635,31 @@ class TestWaitingOnTheRun:
     ) -> None:
         results, _ = self._wait(monkeypatch, tmp_path, [None, ("completed", "failure")])
         assert [r.state for r in results] == [negative.PASS], results
+
+    def test_the_run_judged_is_the_one_for_the_planted_commit(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The branch is reused every cycle, so its newest run can be stale.
+
+        Goes through _pr_run_id's own gh call rather than pick_run alone: a
+        selection rewired to "newest run on the branch" passes pick_run's
+        tests and certifies a run this invocation never started.
+        """
+        listed = [
+            {"databaseId": 222, "headSha": "b" * 40},
+            {"databaseId": 111, "headSha": "a" * 40},
+        ]
+
+        def gh(args, **_kw):
+            assert args[:3] == ["gh", "run", "list"], args
+            return subprocess.CompletedProcess(args, 0, stdout=json.dumps(listed))
+
+        monkeypatch.setattr(negative, "_run", gh)
+        results, reads = self._wait(
+            monkeypatch, tmp_path, [("completed", "failure")], run_id=0
+        )
+        assert reads == [111]
+        assert results[0].detail.startswith("run 111:"), results
 
     def test_a_run_that_never_reads_gives_up_after_a_bounded_number(
         self, monkeypatch, tmp_path
