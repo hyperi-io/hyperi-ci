@@ -69,6 +69,10 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 
 ### Start here
 
+- [agents.md](agents.md) - binding on coding agents and hand-written patches
+  alike: what to read before editing, the conventions no linter enforces, what
+  counts as evidence. Pairs with CONTRIBUTING.md's "For coding agents", which
+  owns the `ci-test-*` fixture rules
 - [architecture.md](architecture.md) - the two sides (workflows + CLI), the
   two-level workflow model, the job contract, what's shared vs duplicated, why
 - [flow.md](flow.md) - push/dispatch -> gate -> version -> build -> tag -> publish,

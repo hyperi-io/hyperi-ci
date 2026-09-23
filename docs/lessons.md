@@ -394,6 +394,72 @@ gate lets a check ship with no install path at all? Three did. The fix for
 each is an afternoon of pinning; the fix for the class is asking, when a check
 is added, where the tool comes from on a runner.
 
+### A log records that a step ran. Only the artefact records what survived
+
+No DFE binary in production carried BOLT. Four shipped files pulled from
+downloads.hyperi.io and read by ELF section -- `dfe-receiver-linux-{amd64,arm64}`
+and `dfe-loader-linux-{amd64,arm64}` -- and not one of them had
+`.note.bolt_info`.
+
+The release logs reported BOLT success and were not lying. cargo-pgo optimised
+a real binary and named it `<binary>-bolt-optimized`. Packaging then copied the
+unsuffixed PGO-only file sitting beside it. The log was accurate about a file
+that no longer mattered.
+
+That is the shape worth carrying: a step's log can only report what the step
+did. Where one stage writes a file and a later stage decides which file ships,
+nothing the first stage prints is evidence about the release.
+
+The check that closes it reads the packaged file. `_verify_bolt_shipped`
+(`languages/rust/build.py`) opens what packaging wrote and fails the build when
+a target reported as BOLT-optimised carries no `.note.bolt_info`.
+`tier2_shortfall` does the same for the stages a tier promised. Both landed in
+`f812aec`, after the last DFE releases, so neither ran against a real
+application until `ci-test-rust-simple` run 35812543453 printed `BOLT verified
+in ci-test-rust-simple-linux-amd64 (.note.bolt_info)` and the arm64 equivalent.
+
+So for any optimise, strip or sign step: the log line proves the tool ran. Read
+the artefact to find out whether the tool's output is what shipped.
+
+### Ask for the thing you expect, not the wide question you then filter
+
+Two tools answered a wider question than the one put to them, and the wide
+answer read as an answer.
+
+**The unversioned PyPI endpoint is a cache. The versioned one is the fact.**
+`https://pypi.org/pypi/<pkg>/json` served the PREVIOUS release for minutes
+after a successful publish, while `https://pypi.org/pypi/<pkg>/<version>/json`
+already carried the new one. It hit twice in one hour on different packages --
+hyperi-ci 2.10.6, and scalo in a separate workstream, where it nearly got a
+good publish reported as failed. Ask for the version you EXPECT and check it
+exists. Do not ask what the latest is and compare, because that question has a
+cached answer and no way to tell you it is cached.
+
+**A branch filter is not a workflow filter.** `gh run list --branch main
+--limit 2` returns rows from every workflow in the repo. It made a red CI run
+look green on logreducer, and on dfe-schemas it made a chronological Gate
+rollout look like runs with a missing gate. Three instances in one day across
+two workstreams. Pass `--workflow CI --branch main`.
+
+One mistake underneath both: a query whose result set is wider than the
+question. Narrow it at the source, because filtering a wide answer by eye is
+how both of these got read wrong.
+
+### A frozen derived value is harmless until something reads it
+
+`_get_native_target()` returned a hardcoded `x86_64-unknown-linux-gnu` for
+every Linux host, for years, and nothing noticed. A cross-build guard added on
+2026-09-23 began comparing the build target against it, and every arm64 Rust
+release then failed: the runner read its own target as a cross build, skipped
+PGO, and the strict Tier 2 check refused to ship a half-optimised binary.
+
+The freeze was not a defect for the years it sat there, because nothing
+consumed it. The new consumer is what turned it into one.
+
+`platform.machine()` had the answer the whole time. So audit by consumer rather
+than by value: ask what reads the constant now. A value the system can work out
+for itself, written down anyway, is a defect waiting for its first reader.
+
 ### Configuration Cascade
 
 Priority (highest wins):
