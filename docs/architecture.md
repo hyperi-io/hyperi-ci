@@ -119,6 +119,8 @@ rejected push.
 | `python-version` | always | The interpreter every job builds and tests on: a pegged `.python-version`, else the `requires-python` FLOOR, else the `versions.yaml` default. The floor, because testing above it hides the bug it exists to catch - a 3.14-only feature in a repo that promises 3.12 |
 | `build-matrix` | always | Single-arch unless `will-release` - PR branch-mode builds stay single-arch. A project that lists `build.rust.targets` in `.hyperi-ci.yaml` gets legs for those targets only, so one that cannot build arm64 still releases amd64 |
 
+A push to a release branch with NO trailer is validate-only, which is correct and reads exactly like a release run. The gate asks `unreleased.py` what the last `v*` tag does not include and raises a `::warning::` naming the count, the tag and its age; it stays quiet when nothing releasable is waiting, and says separately when there is no tag to measure against.
+
 The `_release-tail.yml` **input** is still named `will-publish`, as is the
 `publish-target` input on each `<lang>-ci.yml`. GitHub validates reusable-workflow
 inputs before any of our code runs and hard-errors on an undeclared one, so a

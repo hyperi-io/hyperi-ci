@@ -9,23 +9,40 @@
 The resolver half moved here with the code it tests (it was in
 test_commit_validation.py). The `is_release_worthy` half is what the
 predict-version gate asks before skipping quality + test on a merge to main
-(issue #124).
+(issue #124). The `unreleased_warning` half is the cumulative question the
+same gate asks on a validate-only run.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
 
-from hyperi_ci.commit_range import commits_in_range, is_release_worthy, is_zero_sha
+from hyperi_ci.commit_range import (
+    commits_in_range,
+    is_release_worthy,
+    is_zero_sha,
+    unreleased_since_tag,
+    unreleased_warning,
+)
+
+_SECONDS_PER_DAY = 86400
 
 
 def _git(cwd: Path, *args: str) -> str:
     return subprocess.run(
-        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
+        ["git", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
     ).stdout.strip()
 
 
@@ -38,6 +55,23 @@ def _repo(tmp_path: Path) -> Path:
 
 def _commit(cwd: Path, msg: str) -> str:
     _git(cwd, "commit", "--allow-empty", "-q", "-m", msg)
+    return _git(cwd, "rev-parse", "HEAD")
+
+
+def _commit_at(cwd: Path, msg: str, days_ago: int) -> str:
+    """Commit dated ``days_ago``, so the age a warning quotes is deterministic."""
+    stamp = f"{int(time.time()) - days_ago * _SECONDS_PER_DAY} +0000"
+    env = dict(os.environ, GIT_AUTHOR_DATE=stamp, GIT_COMMITTER_DATE=stamp)
+    subprocess.run(
+        ["git", "commit", "--allow-empty", "-q", "-m", msg],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+    )
     return _git(cwd, "rev-parse", "HEAD")
 
 
@@ -215,6 +249,152 @@ class TestIsReleaseWorthy:
 
         worthy, _reason = is_release_worthy()
         assert worthy is True
+
+
+class TestUnreleasedWarning:
+    """The scalo-rs shape: main green on every run, 26 days behind crates.io.
+
+    A validate-only push publishes nothing by design and says so in a line
+    that collapses into a folded log group. Nothing distinguished "nothing to
+    ship" from "13 releasable commits waiting", one of them a security floor
+    bump, for 26 days across six downstream consumers.
+    """
+
+    def _repo_at(self, tmp_path: Path, days_ago: int, *subjects: str) -> Path:
+        """A repo tagged v1.2.3 ``days_ago``, with ``subjects`` landed since."""
+        repo = _repo(tmp_path)
+        _commit_at(repo, "chore: seed", days_ago)
+        _git(repo, "tag", "v1.2.3")
+        for subject in subjects:
+            _commit(repo, subject)
+        return repo
+
+    def test_releasable_work_waiting_warns(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The measured case, scaled down: fixes and a feature stacked behind
+        # a tag, every run of which reported success.
+        repo = self._repo_at(
+            tmp_path,
+            26,
+            "fix(deps): raise floors off three live advisories",
+            "fix: an off-by-one",
+            "feat: a new source",
+            "chore: tidy imports",
+        )
+        monkeypatch.chdir(repo)
+
+        warn, message = unreleased_warning()
+        assert warn is True
+        assert "3 releasable commits sit unreleased since v1.2.3" in message
+        assert "1 minor, 2 patch" in message
+        assert "26 days ago" in message
+        assert "hyperi-ci push --publish" in message
+
+    def test_nothing_releasable_stays_quiet(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The other half of the gate. A warning on a run with nothing waiting
+        # is the noise that teaches people to stop reading warnings.
+        repo = self._repo_at(
+            tmp_path, 3, "chore: bump deps", "docs: fix a typo", "test: cover it"
+        )
+        monkeypatch.chdir(repo)
+
+        warn, message = unreleased_warning()
+        assert warn is False
+        assert message == "nothing releasable waiting since v1.2.3"
+
+    def test_head_on_the_tag_is_quiet(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = self._repo_at(tmp_path, 0)
+        monkeypatch.chdir(repo)
+
+        warn, _message = unreleased_warning()
+        assert warn is False
+
+    def test_no_baseline_is_its_own_answer(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The third outcome. A tag-less repo cannot be behind anything, and
+        # folding that into either of the other two destroys the distinction
+        # (docs/lessons.md, "A check has THREE outcomes").
+        repo = _repo(tmp_path)
+        _commit(repo, "fix: the very first commit")
+        monkeypatch.chdir(repo)
+
+        warn, message = unreleased_warning()
+        assert warn is False
+        assert "no released baseline" in message
+        assert "nothing releasable" not in message
+
+    def test_one_commit_reads_as_one(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = self._repo_at(tmp_path, 1, "fix: a lone patch")
+        monkeypatch.chdir(repo)
+
+        _warn, message = unreleased_warning()
+        assert "1 releasable commit sits unreleased" in message
+        assert "tagged 1 day ago" in message
+
+    def test_a_breaking_commit_counts_as_major(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = self._repo_at(
+            tmp_path, 2, "fix: rename the flag\n\nBREAKING CHANGE: callers move"
+        )
+        monkeypatch.chdir(repo)
+
+        _warn, message = unreleased_warning()
+        assert "1 major" in message
+
+    def test_the_bump_map_is_the_release_rules_ssot(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # No second copy of the releasable types: a repo that promotes docs:
+        # in its own .releaserc.json is counted as waiting on a docs commit.
+        repo = _repo(tmp_path)
+        (repo / ".releaserc.json").write_text(
+            json.dumps(
+                {
+                    "plugins": [
+                        [
+                            "@semantic-release/commit-analyzer",
+                            {"releaseRules": [{"type": "docs", "release": "patch"}]},
+                        ]
+                    ]
+                }
+            ),
+            encoding="utf-8",
+            newline="\n",
+        )
+        _git(repo, "add", ".releaserc.json")
+        _commit(repo, "chore: add releaserc")
+        _git(repo, "tag", "v0.1.0")
+        _commit(repo, "docs: rewrite the readme")
+        monkeypatch.chdir(repo)
+
+        warn, message = unreleased_warning()
+        assert warn is True
+        assert "1 patch" in message
+
+    def test_a_non_version_tag_is_not_a_baseline(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Releases are v* tags; a `nightly` or `latest` marker is not one, and
+        # measuring from it would report the backlog as already shipped.
+        repo = _repo(tmp_path)
+        _commit(repo, "fix: shipped long ago")
+        _git(repo, "tag", "v1.0.0")
+        _commit(repo, "fix: waiting")
+        _git(repo, "tag", "nightly")
+        monkeypatch.chdir(repo)
+
+        tag, releasable = unreleased_since_tag()
+        assert tag == "v1.0.0"
+        assert len(releasable) == 1
 
 
 def test_is_zero_sha() -> None:

@@ -495,6 +495,75 @@ class TestReleaseWorthyGate:
         )
 
 
+class TestUnreleasedWorkIsSaidOutLoud:
+    """A validate-only push to main reported success over a release backlog.
+
+    scalo-rs sat 13 releasable commits and 26 days behind crates.io, a
+    security floor bump among them, while every run went green. The gate
+    warned about the strictly less consequential case three lines up -- a
+    trailer on the wrong branch -- and echoed a plain line for this one.
+    """
+
+    # Where the no-trailer half of the gate begins.
+    TRAILER_DETECTED = "Release trailer detected"
+
+    def _gate_run(self) -> str:
+        path = ACTIONS_DIR / "predict-version" / "action.yml"
+        action = yaml.safe_load(path.read_text(encoding="utf-8"))
+        gate = next(s for s in action["runs"]["steps"] if s.get("id") == "gate")
+        return str(gate["run"])
+
+    def _validate_only_half(self) -> str:
+        run = self._gate_run()
+        return run[run.index(self.TRAILER_DETECTED) :]
+
+    def test_the_helper_ships_with_the_action(self) -> None:
+        # The composite loads it by path out of its own checkout; a rename
+        # would leave the step calling a file that is not there.
+        helper = ACTIONS_DIR / "predict-version" / "unreleased.py"
+        assert helper.is_file(), f"{helper} is referenced by action.yml but missing"
+
+    def test_the_validate_only_branch_asks_what_is_waiting(self) -> None:
+        assert "unreleased.py" in self._validate_only_half(), (
+            "a validate-only push to a release branch must report what it left "
+            "unreleased, not only that it published nothing"
+        )
+
+    def test_a_publishing_run_does_not_ask(self) -> None:
+        # A run that IS shipping has nothing waiting by definition, and the
+        # question costs two git calls.
+        run = self._gate_run()
+        assert "unreleased.py" not in run[: run.index(self.TRAILER_DETECTED)], (
+            "the unreleased-work question belongs on the no-trailer path only"
+        )
+
+    def test_waiting_work_warns_rather_than_echoes(self) -> None:
+        # The defect exactly: the same plain echo for "nothing to ship" and
+        # for thirteen fixes waiting.
+        assert "::warning::$unreleased" in self._validate_only_half(), (
+            "unreleased work must be raised as ::warning::, not echoed into a "
+            "folded log group"
+        )
+
+    def test_nothing_waiting_raises_nothing(self) -> None:
+        # The third outcome stays quiet. A warning on every push is a warning
+        # nobody reads, which is how the last three doc checks died.
+        half = self._validate_only_half()
+        assert '[[ -n "$unreleased" ]]' in half, (
+            "the warning must be conditional on the helper finding work"
+        )
+
+    def test_the_gate_does_not_restate_the_releasable_types(self) -> None:
+        # release_rules.py is the bump SSoT, and it honours a repo
+        # .releaserc.json override that a shell copy never would.
+        half = self._validate_only_half()
+        for commit_type in ("feat", "perf", "fix:"):
+            assert commit_type not in half, (
+                f"the gate names '{commit_type}' -- ask release_rules through "
+                "the helper instead of copying the type list into shell"
+            )
+
+
 class TestBuildChannelIsNotProxied:
     """The Tier 2 (PGO + BOLT) switch keys off the publish decision itself.
 
