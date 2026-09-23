@@ -3,7 +3,7 @@ Project:   HyperI CI
 File:      docs/description.md
 Purpose:   Where the one-line project description comes from
 
-License:   BUSL-1.1 — HYPERI PTY LIMITED
+License:   BUSL-1.1 -- HYPERI PTY LIMITED
 Copyright: (c) 2026 HYPERI PTY LIMITED
 -->
 

@@ -1,6 +1,6 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/stamp.py
-# Purpose:   Central version stamping — VERSION file + language manifest
+# Purpose:   Central version stamping -- VERSION file + language manifest
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
@@ -8,8 +8,8 @@
 
 Two layers, split on the central/language rule:
 
-  * VERSION file — identical for every language, always written here.
-  * manifest (Cargo.toml / pyproject.toml / package.json …) — differs per
+  * VERSION file -- identical for every language, always written here.
+  * manifest (Cargo.toml / pyproject.toml / package.json ...) -- differs per
     language, so each language's `stamp_manifest()` owns it in full.
 
 The workflow calls this once (`hyperi-ci stamp-version <version>`) with no
@@ -30,7 +30,7 @@ def replace_toml_table_version(text: str, table: str, version: str) -> str:
 
     Scoped to the named table (e.g. ``package``, ``workspace.package``,
     ``project``): matches from the ``[table]`` header to the next ``[``
-    header. Never inserts — a dynamic-version project with no ``version``
+    header. Never inserts -- a dynamic-version project with no ``version``
     key is left untouched. Generic string op shared by the TOML-based
     language stampers; the choice of which table is the language's call.
     """

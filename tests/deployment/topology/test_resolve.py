@@ -11,7 +11,7 @@ from hyperi_ci.deployment.topology.resolve import (
 
 
 def test_resolver_picks_highest_matching_version():
-    # ^X.Y means >=X.Y, <(X+1).0 — highest within that major band wins
+    # ^X.Y means >=X.Y, <(X+1).0 -- highest within that major band wins
     resolver = ChartVersionResolver(
         registry="oci://ghcr.io/hyperi-io/helm-charts",
         available={"dfe-loader": ["1.18.0", "1.18.3", "1.19.0", "2.0.0"]},

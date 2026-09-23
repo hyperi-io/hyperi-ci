@@ -39,7 +39,7 @@ from hyperi_ci.deployment.contract import (
 def _minimal_contract_dict() -> dict:
     """Return the smallest contract dict that parses (every required field set).
 
-    Used as a fresh starting point in every test that mutates one field —
+    Used as a fresh starting point in every test that mutates one field --
     avoids tests sharing state via a module-level fixture dict.
     """
     return {
@@ -92,7 +92,7 @@ class TestPortContract:
 
 class TestSecretGroup:
     """`SecretGroupContract` requires a non-empty env_vars list at parse-time
-    only when caller passes the wrong shape — empty list is allowed by scalo."""
+    only when caller passes the wrong shape -- empty list is allowed by scalo."""
 
     def test_empty_envs_allowed(self) -> None:
         # scalo's Vec<SecretEnvContract> can be empty; mirror that.

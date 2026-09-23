@@ -22,7 +22,7 @@ KAFKA_IMAGE="${PGO_WORKLOAD_KAFKA_IMAGE:-apache/kafka:3.8.0}"
 TOPIC="${PGO_WORKLOAD_TOPIC:-events_land}"
 
 # TODO: the downstream sink (ClickHouse, Postgres, etc.). Many loaders
-# need a live sink — either spin up a container or disable the sink
+# need a live sink -- either spin up a container or disable the sink
 # write with a config flag so only the consume+parse+route paths are
 # profiled.
 SINK_IMAGE="${PGO_WORKLOAD_SINK_IMAGE:-}"   # e.g. clickhouse/clickhouse-server:latest

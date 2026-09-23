@@ -24,7 +24,7 @@ from hyperi_ci.quality.ignores import IgnoreEntry, for_tool, load_ignores
 
 try:
     import tomllib
-except ModuleNotFoundError:  # pragma: no cover — Python < 3.11
+except ModuleNotFoundError:  # pragma: no cover -- Python < 3.11
     import tomli as tomllib  # type: ignore[no-redef]  # ty: ignore[unresolved-import]
 
 _DEFAULT_RUST_TEST_IGNORE = [
@@ -64,7 +64,7 @@ def _deny_toml_advisory_ignores(project_dir: Path | None = None) -> list[str]:
         return []
     try:
         manifest = tomllib.loads(deny_toml.read_text())
-    except Exception as exc:  # malformed deny.toml — cargo deny will report it
+    except Exception as exc:  # malformed deny.toml -- cargo deny will report it
         warn(f"  cargo deny: could not parse deny.toml for shared ignores: {exc}")
         return []
 
@@ -80,7 +80,7 @@ def _deny_toml_advisory_ignores(project_dir: Path | None = None) -> list[str]:
             ident = str(entry["id"]).strip()
         else:
             continue
-        # Advisory IDs only — cargo-deny's ignore list can also hold crate
+        # Advisory IDs only -- cargo-deny's ignore list can also hold crate
         # names / licence IDs which mean nothing to cargo-audit / osv.
         if ident.startswith(("RUSTSEC-", "CVE-", "GHSA-")):
             ids.append(ident)
@@ -154,7 +154,7 @@ def _has_lib_target(project_dir: Path | None = None) -> bool:
 
     # Fallback: cargo metadata failed (e.g. cargo missing). Treat
     # presence of src/lib.rs as a proxy. Workspace members aren't
-    # explored — this is the conservative path.
+    # explored -- this is the conservative path.
     return (cwd / "src" / "lib.rs").exists()
 
 
@@ -261,7 +261,7 @@ def _run_tool(
         return True
 
     # Transient failures (e.g. cargo audit "error loading advisory database")
-    # should not block CI — treat as warning regardless of mode
+    # should not block CI -- treat as warning regardless of mode
     combined = (result.stdout or "") + (result.stderr or "")
     if "error loading advisory database" in combined.lower():
         warn(f"  {tool_name}: advisory database unavailable (skipping)")
@@ -301,7 +301,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if not _run_tool("cargo fmt", ["cargo", "fmt", "--check"], mode):
         had_failure = True
 
-    # cargo clippy — two-pass: production (strict) + test (relaxed)
+    # cargo clippy -- two-pass: production (strict) + test (relaxed)
     mode = _get_tool_mode("clippy", config)
     features = (extra_env or {}).get("RUST_FEATURES", "all")
     feature_sets = _split_feature_sets(features)
@@ -317,7 +317,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         elif feature_set != "default":
             feature_args.extend(["--features", feature_set])
 
-        # Production pass — lib (when present) + bins, no test/bench targets.
+        # Production pass -- lib (when present) + bins, no test/bench targets.
         # Bin-only crates would fail clippy --lib with "no library targets
         # found", so we only include --lib when the project actually has one.
         target_args = ["--lib", "--bins"] if has_lib else ["--bins"]
@@ -328,7 +328,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         if not _run_tool(f"clippy src ({feature_set})", prod_cmd, mode):
             had_failure = True
 
-        # Test pass — test + bench targets, relaxed
+        # Test pass -- test + bench targets, relaxed
         test_cmd = ["cargo", "clippy", "--tests", "--benches"] + feature_args
         allow_flags = [f"-A{rule}" for rule in test_ignore]
         test_cmd.extend(
@@ -380,7 +380,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     ):
         had_failure = True
 
-    # cargo deny (requires deny.toml — useless without project-specific config)
+    # cargo deny (requires deny.toml -- useless without project-specific config)
     mode = _get_tool_mode("deny", config)
     if not Path("deny.toml").exists():
         # A bare "skipped" under a blocking mode reads as though advisories
@@ -472,14 +472,14 @@ def _run_feature_matrix(config: CIConfig) -> bool:
     else:
         scopes = [([], ["--lib"] if _has_lib_target() else ["--bins"])]
 
-    # Pass 1 — bare crate (no default features). Catches "breaks without defaults" bugs.
+    # Pass 1 -- bare crate (no default features). Catches "breaks without defaults" bugs.
     if fm_config.get("also_check_no_default_features", True):
         for scope_args, target_args in scopes:
             cmd = ["cargo", "check", "--no-default-features", *scope_args, *target_args]
             if not _run_tool("feature_matrix (no-default-features)", cmd, "blocking"):
                 had_failure = True
 
-    # Pass 2 — each feature in isolation
+    # Pass 2 -- each feature in isolation
     tuning: list[str] = []
 
     exclude = fm_config.get("exclude", [])
@@ -533,9 +533,9 @@ def _run_rustdoc_hint(config: CIConfig) -> None:
         return
 
     if not shutil.which("cargo"):
-        return  # cargo not on PATH — quality stage already noted this
+        return  # cargo not on PATH -- quality stage already noted this
 
-    # rustdoc hint only applies to lib targets — bin-only crates have
+    # rustdoc hint only applies to lib targets -- bin-only crates have
     # no public rustdoc surface to lint against.
     if not _has_lib_target():
         return

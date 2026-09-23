@@ -36,7 +36,7 @@ __all__ = [
 ]
 
 # Top-level tables whose ``name`` field is the manifest's own package
-# name. Listed in scan precedence — the first match wins, so a Cargo
+# name. Listed in scan precedence -- the first match wins, so a Cargo
 # manifest's ``[package] name`` beats any later table (unlikely in
 # Cargo, but pyproject.toml can legitimately have both ``[project]``
 # and ``[tool.poetry]`` and we treat them equivalently).
@@ -164,7 +164,7 @@ def extract_workspace_members(text: str) -> list[str]:
     """Extract ``members = [...]`` entries from a ``[workspace]`` table.
 
     Handles single-line and multi-line array forms. Returns the raw
-    strings, globs included — use :func:`resolve_workspace_members` to
+    strings, globs included -- use :func:`resolve_workspace_members` to
     turn them into directories.
     """
     in_workspace = False
@@ -219,28 +219,28 @@ def rust_binary_name(
     Selection order:
 
     1. The ``[package].name`` itself if a ``[[bin]]`` of the same name
-       exists. This is the cargo convention for the "main" binary —
+       exists. This is the cargo convention for the "main" binary --
        a project named ``dfe-receiver`` with multiple ``[[bin]]`` blocks
        (e.g. ``pgo-driver`` for instrumentation, ``dfe-receiver`` for
        the app) wants the package-name-matching one to be the
        generate-artefacts producer.
     2. The ``[package].name`` even without an explicit ``[[bin]]`` block
-       — covers the implicit-bin case.
+       -- covers the implicit-bin case.
     3. The FIRST ``[[bin]]`` block, in declaration order. Last-resort
        fallback for projects that diverge from cargo conventions.
-    4. Workspace fallback — if the root Cargo.toml is ``[workspace]``-only
+    4. Workspace fallback -- if the root Cargo.toml is ``[workspace]``-only
        (no ``[package]``), resolve each ``members = [...]`` entry and apply
        the same selection order. We pick the FIRST member that yields
        a binary; tying members named like the workspace directory wins.
 
-    This answers "what is it called", NOT "does one exist" — step 2
+    This answers "what is it called", NOT "does one exist" -- step 2
     returns the package name for a library crate too. Use
     :func:`produces_rust_binary` for the existence question.
 
     ``_seen`` guards the workspace recursion. Cargo is supposed to
     forbid a member from being a workspace root, but a member path can
     legally point outward (``members = ["../shared"]``) and a malformed
-    manifest only errors at build time — neither is a reason for tier
+    manifest only errors at build time -- neither is a reason for tier
     detection to blow the stack.
     """
     cargo_toml = project_dir / "Cargo.toml"
@@ -305,7 +305,7 @@ def produces_rust_binary(
 
     Deliberately NOT modelled: ``autobins = false``, which suppresses
     the implicit forms. A crate that sets it reads as a producer here
-    and then fails loudly at the binary lookup — the safe direction,
+    and then fails loudly at the binary lookup -- the safe direction,
     since a wrong skip is silent and a wrong dispatch is not.
 
     ``_seen`` bounds the workspace recursion; see
@@ -322,7 +322,7 @@ def produces_rust_binary(
     if text is None:
         return False
 
-    # A [[bin]] table counts even without a name field — cargo defaults
+    # A [[bin]] table counts even without a name field -- cargo defaults
     # the target name to the package name.
     if "[[bin]]" in text:
         return True
@@ -393,7 +393,7 @@ def dep_features(text: str, dep_name: str) -> frozenset[str] | None:
     """Features enabled on a Cargo dependency.
 
     Returns the feature set, or ``None`` when it can't be determined
-    from this manifest alone — an absent dep, or workspace inheritance
+    from this manifest alone -- an absent dep, or workspace inheritance
     (``scalo.workspace = true``) whose real feature list lives in the
     workspace root.
 
@@ -407,13 +407,13 @@ def dep_features(text: str, dep_name: str) -> frozenset[str] | None:
     match = re.search(r"features\s*=\s*\[(.*?)\]", entry, re.DOTALL)
     if match is None:
         # `scalo = { workspace = true }` inherits the workspace's feature
-        # list — unknown from here. Checked BEFORE the plain-string case
+        # list -- unknown from here. Checked BEFORE the plain-string case
         # because a member that ALSO lists features (the common
         # `{ workspace = true, features = [...] }` form) knows its own
         # answer: workspace inheritance there is about the VERSION.
         if re.search(r"workspace\s*=\s*true", entry):
             return None
-        # A plain `scalo = "2.9"` enables default features only — known,
+        # A plain `scalo = "2.9"` enables default features only -- known,
         # and knowably without `deployment`.
         return frozenset()
     return frozenset(

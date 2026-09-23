@@ -366,7 +366,7 @@ class TestMigrateProject:
         assert "python-ci.yml" in wf.read_text()
 
     def test_does_not_generate_releaserc(self, tmp_path: Path) -> None:
-        # issue #37: migrate (like init) no longer scaffolds a .releaserc —
+        # issue #37: migrate (like init) no longer scaffolds a .releaserc --
         # migrated repos use the central tagger-only config too.
         self._setup_old_ci_project(tmp_path, with_submodule_entry=False)
         rc = migrate_project(tmp_path)

@@ -2,7 +2,7 @@
 # File:      .github/workflows/versions-audit.yml
 # Purpose:   Weekly check that the versions SSOT has not fallen behind upstream
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # CI already runs `update-versions.py --check`, but that only proves the

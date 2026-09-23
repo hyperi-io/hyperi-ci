@@ -88,7 +88,7 @@ def ensure_pm_available(pm: str, project_dir: Path | None = None) -> bool:
 
     A ``packageManager`` pin in package.json means a bare global binary of the
     same name refuses to run the project ("the current global version of Yarn
-    is 1.22.22"), so a pinned project must resolve its PM through Corepack —
+    is 1.22.22"), so a pinned project must resolve its PM through Corepack --
     a binary merely being on PATH is not enough. Unpinned projects keep the
     old ladder: any binary on PATH wins.
 
@@ -118,7 +118,7 @@ def ensure_pm_available(pm: str, project_dir: Path | None = None) -> bool:
     if _corepack_enable():
         return True
 
-    # Corepack unavailable: a global binary beats nothing, even for a pin —
+    # Corepack unavailable: a global binary beats nothing, even for a pin --
     # the install then fails loudly with the version mismatch, which is the
     # honest error.
     return shutil.which(pm) is not None

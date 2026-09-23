@@ -1,10 +1,10 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/deployment/stage.py
-# Purpose:   `generate` stage handler — three-tier producer dispatch
+# Purpose:   `generate` stage handler -- three-tier producer dispatch
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""``generate`` CI stage — produces fresh deployment artefacts.
+"""``generate`` CI stage -- produces fresh deployment artefacts.
 
 Sits between Build and Container in the pipeline. Auto-detects the
 producer tier and dispatches:
@@ -25,7 +25,7 @@ The Container stage then reads from ``ci-tmp/Dockerfile.runtime`` and
 ``ci/`` so a stale commit can't poison a build.
 
 ``deployment.producer`` in the config cascade overrides the tier
-auto-detection — ``false`` skips the stage outright (the escape hatch
+auto-detection -- ``false`` skips the stage outright (the escape hatch
 for a scalo library consumer that ships its own Dockerfile), ``true``
 forces dispatch on the marker dep alone.
 
@@ -52,12 +52,12 @@ DEFAULT_OUTPUT_DIR = Path("ci-tmp")
 DEFAULT_DRIFT_DIR = Path(".tmp/drift")
 
 # Cascade key gating the whole stage. Tri-state, same shape as
-# `release.container.enabled` — see :func:`run`.
+# `release.container.enabled` -- see :func:`run`.
 PRODUCER_KEY = "deployment.producer"
 
 # Exit codes layered on top of `emit_artefacts`'s set. EXIT_PRODUCER_MISSING
 # means the tier was detected but the producer isn't present yet (scalo
-# binary not built, scalo entry point not on PATH, etc.) — distinct from
+# binary not built, scalo entry point not on PATH, etc.) -- distinct from
 # EXIT_CONTRACT_MISSING (= 2 from emit_artefacts) which means the JSON
 # contract file isn't there.
 EXIT_OK = 0
@@ -76,16 +76,16 @@ def run(
     """Run the generate stage.
 
     The ``deployment.producer`` cascade key gates the whole stage. Most
-    repos never set it — with no marker dep and no committed contract
+    repos never set it -- with no marker dep and no committed contract
     they resolve to Tier NONE and skip, same as they always have.
 
-    * ``auto`` (default) — dispatch on the detected tier. A repo that
+    * ``auto`` (default) -- dispatch on the detected tier. A repo that
       carries a Tier 1/2 marker dep but produces no binary / console
       script is a library consumer, not a producer, and skips.
-    * ``false`` — skip outright. The escape hatch for a library
+    * ``false`` -- skip outright. The escape hatch for a library
       consumer whose shape DOES look like a producer (it has a CLI of
       its own) but which ships deployment artefacts by hand.
-    * ``true`` — force. The marker dep alone selects the tier, for a
+    * ``true`` -- force. The marker dep alone selects the tier, for a
       genuine producer auto-detection can't see. Hard-fails when no
       tier resolves at all, rather than silently doing nothing.
 
@@ -133,7 +133,7 @@ def _dispatch_tier(
     if tier == Tier.PYTHON:
         return _run_tier2(output_dir, project_dir)
 
-    # Defensive — Tier enum is exhaustive but a compatibility break
+    # Defensive -- Tier enum is exhaustive but a compatibility break
     # in resolve_tier (e.g. a future tier added) shouldn't crash here.
     error(f"Generate: unrecognised tier '{tier.value}'")
     return EXIT_TIER_NOT_YET_IMPLEMENTED
@@ -146,7 +146,7 @@ def _resolve_producer(
     """Apply the ``deployment.producer`` gate and resolve the tier.
 
     Returns ``(tier, exit_code)``. A ``None`` tier means "don't
-    dispatch" and the exit code is the caller's return value —
+    dispatch" and the exit code is the caller's return value --
     ``EXIT_OK`` for a legitimate skip, ``EXIT_PRODUCER_MISSING`` when
     the operator forced a producer that doesn't resolve.
 
@@ -156,7 +156,7 @@ def _resolve_producer(
     """
     if config is None:
         # reload=True because load_config caches globally and ignores
-        # project_dir on a warm cache — without it, `run(project_dir=X)`
+        # project_dir on a warm cache -- without it, `run(project_dir=X)`
         # silently answers from whatever project loaded first. The CI
         # path passes config explicitly and never lands here.
         config = load_config(project_dir=project_dir, reload=True)
@@ -203,7 +203,7 @@ def check_drift(
     """Run the producer to a temp dir and compare against the committed ``ci/``.
 
     Used by the Quality stage. Fails (non-zero) when the regenerated
-    output differs from what the repo committed — that's a signal the
+    output differs from what the repo committed -- that's a signal the
     operator edited the contract without re-running ``generate-artefacts``,
     or the producer's output drifted from the contract.
 
@@ -228,7 +228,7 @@ def check_drift(
     drift = drift_dir or DEFAULT_DRIFT_DIR
 
     # Resolve the gate FIRST. A repo that generates nothing has no
-    # drift to check — regenerating into an empty dir and diffing it
+    # drift to check -- regenerating into an empty dir and diffing it
     # against a committed ci/ would report every file as missing.
     # Dispatching the resolved tier directly (rather than calling run())
     # also keeps the gate from being resolved and logged twice.
@@ -236,7 +236,7 @@ def check_drift(
     if tier is None:
         return rc
 
-    # Ensure a clean drift dir — any leftovers from previous runs would
+    # Ensure a clean drift dir -- any leftovers from previous runs would
     # confuse the diff.
     if drift.exists():
         shutil.rmtree(drift)
@@ -246,9 +246,9 @@ def check_drift(
         return rc
 
     if not committed.is_dir():
-        # No committed ci/ to compare against — the operator hasn't run
+        # No committed ci/ to compare against -- the operator hasn't run
         # generate-artefacts yet, so the drift check has nothing to do.
-        # This is distinct from "drift detected" (a real problem) — log
+        # This is distinct from "drift detected" (a real problem) -- log
         # at info, return success.
         info(
             f"Drift check: no committed {committed} directory — "
@@ -279,7 +279,7 @@ def _run_tier1(output_dir: Path, project_dir: Path) -> int:
       - ``target/debug/<bin>`` (cargo build output)
 
     Falls back through that order. Errors with EXIT_PRODUCER_MISSING if
-    none exist — the caller is expected to run Build (CI) or
+    none exist -- the caller is expected to run Build (CI) or
     ``cargo build`` (local) first.
 
     Until scalo 2.7+ ships and an app actually adopts the
@@ -307,12 +307,12 @@ def _run_tier2(output_dir: Path, project_dir: Path) -> int:
     """Tier 2 (Python + scalo): subprocess into the app entry point.
 
     Looks up the entry point name from ``pyproject.toml``'s
-    ``[project.scripts]`` table — the binary that scalo's
+    ``[project.scripts]`` table -- the binary that scalo's
     ``Application.deployment_contract()`` emits artefacts from. If
     multiple scripts are declared, the first one wins.
 
     The entry point is installed into the project's uv-managed virtualenv
-    (via ``uv sync``), not the global ``PATH`` — so a bare ``PATH`` lookup
+    (via ``uv sync``), not the global ``PATH`` -- so a bare ``PATH`` lookup
     fails under ``uvx hyperi-ci run generate`` in CI, where the venv is
     never activated. When ``uv`` is available we invoke through
     ``uv run``, which resolves the script in the project environment
@@ -329,7 +329,7 @@ def _run_tier2(output_dir: Path, project_dir: Path) -> int:
     """
     script_name = python_entry_point(project_dir)
     if script_name is None:
-        # Only reachable under `deployment.producer: true` — auto
+        # Only reachable under `deployment.producer: true` -- auto
         # detection demotes a scriptless repo to Tier NONE before it
         # gets here (issue #76).
         error(
@@ -383,7 +383,7 @@ def _run_tier3(
     """Tier 3 (other): in-process call into the hyperi-ci templater.
 
     Maps :func:`emit_artefacts`'s exit codes onto our extended set:
-      - EXIT_NOT_IMPLEMENTED (5) is propagated verbatim — Phase 2 not
+      - EXIT_NOT_IMPLEMENTED (5) is propagated verbatim -- Phase 2 not
         yet shipped; the message at the call site is already actionable.
       - All other exit codes are similarly propagated; the spec's
         "exits non-zero if" table covers the meanings.
@@ -438,13 +438,13 @@ def _resolve_rust_binary(project_dir: Path) -> Path | None:
     back to the package name.
 
     Lookup order:
-      1. ``dist/<bin>-linux-<host-arch>`` — preferred when the Build
+      1. ``dist/<bin>-linux-<host-arch>`` -- preferred when the Build
          stage just produced an arch-specific artefact for this runner.
-      2. ``dist/<bin>-linux-*`` glob — fallback when the host arch
+      2. ``dist/<bin>-linux-*`` glob -- fallback when the host arch
          doesn't match a dist/ binary (e.g. cross-compiled on amd64
          host, dist/ contains arm64 only). Used so a cross-compile
          producer can still emit a manifest from any arch.
-      3. ``target/release/<bin>`` then ``target/debug/<bin>`` — local
+      3. ``target/release/<bin>`` then ``target/debug/<bin>`` -- local
          dev builds.
     """
     bin_name = rust_binary_name(project_dir)
@@ -460,7 +460,7 @@ def _resolve_rust_binary(project_dir: Path) -> Path | None:
             return host_specific
 
     if dist_dir.is_dir():
-        # Glob fallback — pick any linux-* binary. The generate-artefacts
+        # Glob fallback -- pick any linux-* binary. The generate-artefacts
         # subcommand emits the same manifest regardless of which binary
         # arch is invoked, so any matching binary works.
         for candidate in sorted(dist_dir.glob(f"{bin_name}-linux-*")):

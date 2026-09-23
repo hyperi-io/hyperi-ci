@@ -138,7 +138,7 @@ def _clean_gitmodules(project_dir: Path) -> None:
     content = gitmodules.read_text()
 
     # git rm of the submodule already removes the entry from .gitmodules
-    # in most git versions — but if it's still there, clean it up
+    # in most git versions -- but if it's still there, clean it up
     if "path = ci" not in content and "path=ci" not in content:
         return
 
@@ -236,14 +236,14 @@ def _find_old_ci_env_refs(project_dir: Path) -> list[str]:
         for f in project_dir.rglob(glob_pattern):
             if ".git" in f.parts:
                 continue
-            # Skip ci/ directory — it's being removed entirely
+            # Skip ci/ directory -- it's being removed entirely
             if ci_dir.is_dir():
                 try:
                     f.relative_to(ci_dir)
                     continue
                 except ValueError:
                     pass
-            # Skip workflow dir — those get replaced separately
+            # Skip workflow dir -- those get replaced separately
             if workflows_dir.is_dir():
                 try:
                     f.relative_to(workflows_dir)
@@ -323,8 +323,8 @@ def _fix_releaserc(
     """Fix an existing .releaserc file for hyperi-ci migration.
 
     Drops the issue #37 tag-rewrite plugins (``@semantic-release/git`` /
-    ``github``) outright — deleting the file entirely when nothing
-    beyond the central-default plugins survives — and replaces old ci/
+    ``github``) outright -- deleting the file entirely when nothing
+    beyond the central-default plugins survives -- and replaces old ci/
     script references in an exec ``prepareCmd`` with a
     language-appropriate Python one-liner.
 

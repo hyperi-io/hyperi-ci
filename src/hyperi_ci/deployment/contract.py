@@ -26,7 +26,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-# Defaults — must match scalo's `default_*()` functions in contract.rs,
+# Defaults -- must match scalo's `default_*()` functions in contract.rs,
 # keda.rs, and native_deps.rs. Bumping any of these requires a coordinated
 # scalo-rs + scalo-py + hyperi-ci release.
 DEFAULT_SCHEMA_VERSION = 2
@@ -39,16 +39,16 @@ DEFAULT_PROTOCOL = "TCP"
 # Highest contract schema version this hyperi-ci can consume. Bumped in
 # lockstep with scalo-rs + scalo-py on shape changes. Mirrored in
 # config/defaults.yaml under `deployment.max_supported_schema_version`
-# for operator visibility — this constant is the strict gate.
+# for operator visibility -- this constant is the strict gate.
 MAX_SUPPORTED_SCHEMA_VERSION = 2
 
 
 class _StrictModel(BaseModel):
-    """Base for all contract types — frozen, extra=forbid for parity safety.
+    """Base for all contract types -- frozen, extra=forbid for parity safety.
 
     `extra=forbid` catches schema drift early: a JSON contract that has a
     field hyperi-ci doesn't know about would silently ignore it without
-    this. Frozen mirrors scalo's #[derive(Clone)] semantics — contracts
+    this. Frozen mirrors scalo's #[derive(Clone)] semantics -- contracts
     are read-once, not mutated.
     """
 
@@ -56,10 +56,10 @@ class _StrictModel(BaseModel):
 
 
 class ImageProfile(StrEnum):
-    """Container image profile — production (minimal) or development (debug tools).
+    """Container image profile -- production (minimal) or development (debug tools).
 
     Mirrors `scalo::deployment::contract::ImageProfile` with
-    ``#[serde(rename_all = "lowercase")]`` — so JSON values are
+    ``#[serde(rename_all = "lowercase")]`` -- so JSON values are
     ``"production"`` and ``"development"``.
     """
 
@@ -180,7 +180,7 @@ class DeploymentContract(_StrictModel):
 
     Mirrors `scalo::deployment::contract::DeploymentContract`.
     Field order, defaults, and serde behaviour MUST track scalo exactly
-    — the parity tests assert byte-identical JSON output for shared
+    -- the parity tests assert byte-identical JSON output for shared
     fixtures.
     """
 
@@ -212,18 +212,18 @@ class DeploymentContract(_StrictModel):
 
         The producer side stamps `schema_version` on every emitted JSON.
         On the consumer side, hyperi-ci loads the JSON and parses it
-        through this model — the validator fires before any artefact
+        through this model -- the validator fires before any artefact
         templating begins, so a newer-schema contract aborts the whole
         emit-artefacts run with a clear error rather than producing
         Dockerfiles that don't match what the producer intended.
 
-        Lower-than-current is fine — newer hyperi-ci is expected to read
+        Lower-than-current is fine -- newer hyperi-ci is expected to read
         older contracts (forward compatibility within the major version).
 
         Note: this constant must be bumped in lockstep with the
         `deployment.max_supported_schema_version` key in
         `config/defaults.yaml` and in scalo-rs + scalo-py at every coordinated
-        release. The yaml entry is for operator visibility only — this
+        release. The yaml entry is for operator visibility only -- this
         constant is the strict gate.
         """
         if v > MAX_SUPPORTED_SCHEMA_VERSION:
@@ -239,7 +239,7 @@ class DeploymentContract(_StrictModel):
         return v
 
     def binary(self) -> str:
-        """Effective binary name — falls back to app_name if binary_name unset.
+        """Effective binary name -- falls back to app_name if binary_name unset.
 
         Mirrors `DeploymentContract::binary` in scalo.
         """

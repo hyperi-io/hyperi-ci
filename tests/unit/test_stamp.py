@@ -69,7 +69,7 @@ class TestPythonManifestStamp:
         assert '[project]\nname = "x"\nversion = "7.8.9"' in txt
 
     def test_dynamic_version_left_untouched(self, tmp_path) -> None:
-        # hatch-vcs / dynamic projects have no [project] version line — never insert.
+        # hatch-vcs / dynamic projects have no [project] version line -- never insert.
         (tmp_path / "pyproject.toml").write_text(
             '[project]\nname = "x"\ndynamic = ["version"]\n'
         )
@@ -96,7 +96,7 @@ class TestTypescriptManifestStamp:
 
 class TestGolangManifestStamp:
     def test_no_manifest_version_just_writes_version_file(self, tmp_path) -> None:
-        # Go versions via ldflags from the VERSION file — no manifest field.
+        # Go versions via ldflags from the VERSION file -- no manifest field.
         (tmp_path / "go.mod").write_text("module example.com/x\n\ngo 1.23\n")
         rc = stamp_version("2.2.2", project_dir=tmp_path)
         assert rc == 0

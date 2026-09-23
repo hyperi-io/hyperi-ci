@@ -8,8 +8,8 @@
 
 All overlay errors derive from :class:`OverlayError` so callers can
 catch broadly. Each subclass carries the structured context needed to
-produce an actionable message — anchor name, candidate landmarks,
-file paths, line numbers — without forcing the caller to re-derive
+produce an actionable message -- anchor name, candidate landmarks,
+file paths, line numbers -- without forcing the caller to re-derive
 them from a stringified message.
 """
 
@@ -49,7 +49,7 @@ class OverlayValidationError(OverlayError):
 
 
 @dataclass
-class OverlayFileMissing(OverlayError):  # noqa: N818 — name reads naturally; suffix would be redundant
+class OverlayFileMissing(OverlayError):  # noqa: N818 -- name reads naturally; suffix would be redundant
     """An overlay's ``file:`` reference doesn't exist on disk."""
 
     path: Path
@@ -69,7 +69,7 @@ class OverlayFileMissing(OverlayError):  # noqa: N818 — name reads naturally; 
 
 
 @dataclass
-class AnchorNotFound(OverlayError):  # noqa: N818 — name reads naturally; suffix would be redundant
+class AnchorNotFound(OverlayError):  # noqa: N818 -- name reads naturally; suffix would be redundant
     """The named anchor doesn't exist in the base artefact."""
 
     anchor: str

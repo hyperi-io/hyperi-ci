@@ -83,7 +83,7 @@ def _detect_version() -> str:
     """Detect version from VERSION file, env vars, or fallback to "dev".
 
     Priority: VERSION file (semantic-release) > explicit env > "dev".
-    GITHUB_REF_NAME is deliberately excluded — during the publish job it is
+    GITHUB_REF_NAME is deliberately excluded -- during the publish job it is
     the branch name (e.g. "release"), not the tag.
     """
     version_file = Path("VERSION")

@@ -30,7 +30,7 @@ def build_and_push(
     When ``push`` is False the image is built but discarded (no
     ``--load``/``--push``). Multi-platform builds cannot ``--load`` into
     the local daemon, so the validate-on-main path relies on buildx's
-    "build and discard" default — every layer still compiles and every
+    "build and discard" default -- every layer still compiles and every
     ``COPY`` / ``RUN`` is still exercised, but nothing leaves the
     runner.
 
@@ -112,7 +112,7 @@ def resolve_tags(
 
     * ``validate``                 → no tags (build-and-discard)
     * ``dev``                      → ``:branch-<slug>`` (mutable pointer) +
-      ``:branch-<slug>-sha-<short>`` (immutable pin) — the branch
+      ``:branch-<slug>-sha-<short>`` (immutable pin) -- the branch
       dev-image artifact class (plan decision 3). NEVER a version tag,
       NEVER ``latest``, and NEVER a bare ``sha-<short>``: that namespace
       belongs to the GA publish, and the distinct ``branch-*`` /
@@ -121,7 +121,7 @@ def resolve_tags(
     * ``release``, release channel → ``:vX.Y.Z``, ``:latest``, ``:sha-<short>``
     * ``release``, pre-GA channel  → ``:vX.Y.Z-{channel}``, ``:sha-<short>``
     * ``release``, prerelease version → ``:vX.Y.Z-beta.N``, ``:sha-<short>``
-      — a version off a prerelease branch never moves ``latest``.
+      -- a version off a prerelease branch never moves ``latest``.
 
     The SHA tag is included on every pushed build to give consumers an
     immutable-by-content pin alongside the human-readable tag.
@@ -135,7 +135,7 @@ def resolve_tags(
             (e.g. ``"1.13.5"``).
         sha: Short git SHA.
         channel: Release channel (``alpha`` | ``beta`` | ``release``).
-        mode: Push mode — ``release`` | ``dev`` | ``validate``.
+        mode: Push mode -- ``release`` | ``dev`` | ``validate``.
         branch_slug: Docker-tag-safe branch slug for dev mode
             (:func:`hyperi_ci.release_mode.dev_branch_slug`). Empty →
             the dev image gets a ``dev-sha-<short>`` tag only.

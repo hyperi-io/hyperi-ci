@@ -4,7 +4,7 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Integration tests — build a real minimal Rust fixture crate and verify
+"""Integration tests -- build a real minimal Rust fixture crate and verify
 the resulting binary has the expected optimisation characteristics.
 
 These tests are SLOW (first compile can take 30-90s for jemalloc).
@@ -36,7 +36,7 @@ CARGO_AVAILABLE = shutil.which("cargo") is not None
 NM_AVAILABLE = shutil.which("nm") is not None
 IS_LINUX = os.uname().sysname == "Linux"
 
-# Sensible time limits — jemalloc compile is slow on first run, cached is fast.
+# Sensible time limits -- jemalloc compile is slow on first run, cached is fast.
 CARGO_BUILD_TIMEOUT = 300  # 5 min
 
 
@@ -201,7 +201,7 @@ class TestTier1AllocatorEffect:
         )
 
     def test_system_allocator_no_jemalloc_symbols(self, tmp_path) -> None:
-        # Same fixture, but build with allocator=system — feature not passed,
+        # Same fixture, but build with allocator=system -- feature not passed,
         # jemalloc dep never compiles in.
         _write_fixture_crate(
             tmp_path,
@@ -222,7 +222,7 @@ class TestTier1AllocatorEffect:
         binary = tmp_path / "target" / "release" / "fixture-bin"
         assert binary.exists()
 
-        # System allocator means no jemalloc pull-in — no je_ symbols
+        # System allocator means no jemalloc pull-in -- no je_ symbols
         assert not _nm_has_symbol(binary, "je_malloc"), (
             "Found jemalloc symbols in binary despite allocator=system — "
             "system allocator path is leaking jemalloc"
@@ -236,7 +236,7 @@ class TestTier1LTOEffect:
     def test_fat_lto_env_var_produces_binary(self, tmp_path) -> None:
         # Smoke test: setting CARGO_PROFILE_RELEASE_LTO=fat at build time
         # doesn't error out and produces a binary. Verifying fat vs thin
-        # requires binary size comparison across two builds — that's
+        # requires binary size comparison across two builds -- that's
         # flaky across rustc versions, so we just verify the env var
         # is accepted.
         _write_fixture_crate(
@@ -282,7 +282,7 @@ class TestChannelToBinaryFlow:
     cargo build → binary with expected optimisation characteristics."""
 
     def test_release_channel_default_links_jemalloc(self, tmp_path) -> None:
-        # No user config — release channel should default to jemalloc.
+        # No user config -- release channel should default to jemalloc.
         _write_fixture_crate(
             tmp_path,
             with_jemalloc_feature=True,
@@ -310,7 +310,7 @@ class TestChannelToBinaryFlow:
         assert _nm_has_symbol(binary, "je_")
 
     def test_alpha_channel_default_uses_jemalloc(self, tmp_path) -> None:
-        # standards/rules/RUST.md "Allocator Policy" — DFE Rust binaries
+        # standards/rules/RUST.md "Allocator Policy" -- DFE Rust binaries
         # use jemalloc at EVERY channel for tooling consistency
         # (jeprof works on every binary from day one). alpha still gets
         # thin LTO, but allocator is jemalloc.
@@ -344,7 +344,7 @@ class TestValidateFallback:
             wire_global_allocator=False,
         )
 
-        # Request jemalloc but it's not declared — validator should fall back
+        # Request jemalloc but it's not declared -- validator should fall back
         raw_profile = OptimizationProfile(
             channel="release",
             allocator="jemalloc",
@@ -358,7 +358,7 @@ class TestValidateFallback:
         assert validated.allocator == "system"
         assert any("jemalloc" in w for w in validated.warnings)
 
-        # Build with the fallback profile — should succeed
+        # Build with the fallback profile -- should succeed
         result = _run_cargo_build(tmp_path, validated)
         assert result.returncode == 0, (
             f"Fallback build failed:\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"

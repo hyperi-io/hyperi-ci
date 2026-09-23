@@ -8,7 +8,7 @@
 
 The git tag is the only truth about a released version (tag-on-publish: a
 tag exists iff the artefact is in the registry). That leaves exactly one
-question a tag cannot answer — what should the FIRST tag be? — and this
+question a tag cannot answer -- what should the FIRST tag be? -- and this
 module is the single place that answers it.
 
 The answer comes from the project's own manifest, because a project adopting
@@ -19,13 +19,13 @@ Python project has no static one) means a greenfield start at
 ``DEFAULT_SEED_VERSION``.
 
 Deliberately NOT read here: the ``VERSION`` file. It is a build-time artefact
-this tool writes, not an input — treating it as one is what let a value frozen
+this tool writes, not an input -- treating it as one is what let a value frozen
 in May 2026 masquerade as the current version across 14 repos (issue #85).
 
 Stdlib only, and no imports from the rest of the package. Two loaders depend
 on that: the ``predict-version`` composite action loads this file BY PATH out
 of the action checkout, and hatchling imports it as the build back-end's
-version source (:func:`build_version`) — neither has run a ``pip install``.
+version source (:func:`build_version`) -- neither has run a ``pip install``.
 """
 
 # KEEP on a 3.14 floor, where this import is otherwise wrong (issue #184).
@@ -71,8 +71,8 @@ def _load_toml(path: Path) -> dict:
 def _pyproject_version(path: Path) -> str | None:
     """PEP 621 ``[project] version``, else Poetry's ``[tool.poetry] version``.
 
-    A ``dynamic = ["version"]`` project has no static version to read — the
-    build back-end computes it — so it is skipped rather than guessed at.
+    A ``dynamic = ["version"]`` project has no static version to read -- the
+    build back-end computes it -- so it is skipped rather than guessed at.
     """
     data = _load_toml(path)
     project = data.get("project")
@@ -159,7 +159,7 @@ def seed_version(root: Path | None = None) -> tuple[str, str]:
 
     Returns:
         ``(version, source)`` where source is a manifest filename or
-        ``"default"``. Always returns a version — a repo with nothing to
+        ``"default"``. Always returns a version -- a repo with nothing to
         declare starts at :data:`DEFAULT_SEED_VERSION`.
 
     """
@@ -202,12 +202,12 @@ def build_version(root: Path | None = None, *, allow_env: bool = True) -> str:
     during the run rather than committed, so the back-end cannot assume a file
     is there, and the fallbacks have to cover every place a build starts:
 
-    1. ``HYPERCI_VERSION`` — the plan job's predicted version, the same value
+    1. ``HYPERCI_VERSION`` -- the plan job's predicted version, the same value
        every other stage in the run agrees on.
-    2. ``VERSION`` — written moments earlier by the stamp step, and carried in
+    2. ``VERSION`` -- written moments earlier by the stamp step, and carried in
        the sdist so a wheel built from one gets the released number.
-    3. The latest release tag — a developer building a checkout with no stamp.
-    4. The seed version — a tag-less repo, which has nothing else to offer.
+    3. The latest release tag -- a developer building a checkout with no stamp.
+    4. The seed version -- a tag-less repo, which has nothing else to offer.
 
     Args:
         root: Project root. Defaults to cwd, which is where the back-end runs.

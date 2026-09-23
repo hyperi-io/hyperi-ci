@@ -25,8 +25,8 @@ from hyperi_ci import classification
 _CONFIG_DIR = Path(__file__).resolve().parent / "config"
 
 # Lifecycle stages a project can declare via `project.status` in
-# `.hyperi-ci.yaml`. Information-only — does not gate any behaviour.
-# Empty string (default) means "not declared" — the field is optional.
+# `.hyperi-ci.yaml`. Information-only -- does not gate any behaviour.
+# Empty string (default) means "not declared" -- the field is optional.
 # See defaults.yaml for what each stage means.
 VALID_PROJECT_STATUSES: tuple[str, ...] = (
     "experimental",
@@ -136,7 +136,7 @@ class CIConfig:
 
         A falsy destination (``false`` / ``null`` / empty) is treated as an
         opt-out and skipped, so a project can drop one artefact from
-        publishing while keeping the rest — e.g. a private Python service
+        publishing while keeping the rest -- e.g. a private Python service
         that ships only its GHCR container sets
         ``release.destinations.python: false``. The older
         ``publish.destinations_oss`` spelling still works.
@@ -327,7 +327,7 @@ def load_config(
     )
 
     # Validate project.status if set. Warn on unknown values rather than
-    # failing — the field is information-only and a typo shouldn't break
+    # failing -- the field is information-only and a typo shouldn't break
     # the build.
     project = config.get("project", {})
     if isinstance(project, dict):

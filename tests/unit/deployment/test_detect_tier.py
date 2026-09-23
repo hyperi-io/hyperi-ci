@@ -15,7 +15,7 @@ import pytest
 from hyperi_ci.deployment.detect import Tier, detect_tier, resolve_tier
 
 # Every Tier 1/2 fixture needs a POSITIVE producer signal alongside the
-# marker dep — a binary target for Rust, a console script for Python.
+# marker dep -- a binary target for Rust, a console script for Python.
 # Without one the repo is a library consumer, not a producer (issue #76,
 # covered in TestProducerSignal below).
 _RUST_BIN = '[[bin]]\nname = "x"\npath = "src/main.rs"\n'
@@ -114,7 +114,7 @@ class TestDetectTier:
 
     def test_rust_wins_over_other(self, tmp_path: Path) -> None:
         # If a repo somehow has both Cargo.toml AND ci/deployment-contract.json,
-        # rust takes precedence — the producer chain is more authoritative
+        # rust takes precedence -- the producer chain is more authoritative
         # than the manually maintained JSON.
         (tmp_path / "Cargo.toml").write_text(
             _RUST_BIN + _rust_dep("hyperi-rustlib"), encoding="utf-8"
@@ -162,7 +162,7 @@ class TestSelfMatchExclusion:
 
     def test_scalo_rust_own_repo_is_not_rust(self, tmp_path: Path) -> None:
         # scalo-rs's own Cargo.toml has `name = "scalo"` in [package] but
-        # no `scalo = ...` dep line — must not self-detect as Tier RUST.
+        # no `scalo = ...` dep line -- must not self-detect as Tier RUST.
         (tmp_path / "Cargo.toml").write_text(
             '[package]\nname = "scalo"\nversion = "2.9.0"\n',
             encoding="utf-8",
@@ -206,7 +206,7 @@ class TestSelfMatchExclusion:
         assert detect_tier(tmp_path) == Tier.NONE
 
     def test_single_quoted_name_excluded(self, tmp_path: Path) -> None:
-        # TOML allows single-quoted strings — must still match.
+        # TOML allows single-quoted strings -- must still match.
         (tmp_path / "Cargo.toml").write_text(
             "[package]\nname = 'hyperi-rustlib'\nversion = '2.7.0'\n",
             encoding="utf-8",
@@ -293,7 +293,7 @@ class TestProducerSignal:
         assert decision.demoted
 
     def test_rust_implicit_main_rs_is_a_producer(self, tmp_path: Path) -> None:
-        # No [[bin]] table — cargo discovers src/main.rs implicitly.
+        # No [[bin]] table -- cargo discovers src/main.rs implicitly.
         (tmp_path / "Cargo.toml").write_text(
             '[package]\nname = "demo-app"\n' + _rust_dep(),
             encoding="utf-8",
@@ -338,7 +338,7 @@ class TestProducerSignal:
         # is nastier than the no-binary case: generate-artefacts EXISTS,
         # runs, and exits 0 having written no contract, so the failure
         # only surfaces in the container stage as "no deployment
-        # artefacts found" — pointing at the wrong cause.
+        # artefacts found" -- pointing at the wrong cause.
         (tmp_path / "Cargo.toml").write_text(
             '[package]\nname = "demo-app"\n'
             + _RUST_BIN
@@ -401,7 +401,7 @@ class TestProducerSignal:
 
     def test_library_consumer_falls_through_to_tier3(self, tmp_path: Path) -> None:
         # A scalo library consumer that ALSO commits a Tier 3 contract
-        # is a legitimate Tier 3 repo — the failed producer check must
+        # is a legitimate Tier 3 repo -- the failed producer check must
         # fall through, not short-circuit the whole detection.
         (tmp_path / "pyproject.toml").write_text(
             '[project]\nname = "culvert"\ndependencies = ["scalo>=2.28"]\n',
@@ -456,7 +456,7 @@ class TestProducerSignal:
 
     def test_no_marker_dep_is_not_demoted(self, tmp_path: Path) -> None:
         # `demoted` marks "has the dep, lacks the producer" specifically
-        # — a plain repo with neither shouldn't be nudged towards
+        # -- a plain repo with neither shouldn't be nudged towards
         # deployment.producer: true.
         decision = resolve_tier(tmp_path)
         assert decision.tier == Tier.NONE

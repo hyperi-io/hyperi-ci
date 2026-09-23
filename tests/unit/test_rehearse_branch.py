@@ -44,7 +44,7 @@ class TestSwapRefs:
         assert out == text
 
     def test_leaves_pinned_refs_alone(self) -> None:
-        # A SHA-pinned or version-pinned hyperi-ci ref is deliberate — only
+        # A SHA-pinned or version-pinned hyperi-ci ref is deliberate -- only
         # the floating @main refs are rehearsal targets.
         text = "uses: hyperi-io/hyperi-ci/.github/workflows/go-ci.yml@abc123\n"
         out, count = rehearse_branch.swap_refs(text, "fix/x")

@@ -81,7 +81,7 @@ def _wait_for_run(
         run = get_latest_run(branch=branch, workflow=workflow, repo=repo)
         if not (run and run.get("databaseId")):
             continue
-        # Filter out the previous run still showing as "latest" — gh's
+        # Filter out the previous run still showing as "latest" -- gh's
         # listing isn't strictly ordered by trigger time, and we need the
         # NEW run, not whatever stale one happens to come back first.
         created = run.get("createdAt")

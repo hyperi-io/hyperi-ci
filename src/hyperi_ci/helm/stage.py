@@ -9,12 +9,12 @@
 
 Reads ``release.helm`` from ``.hyperi-ci.yaml`` (``publish.helm`` still works):
 
-* ``enabled`` (bool, default false) — gate the whole stage.
+* ``enabled`` (bool, default false) -- gate the whole stage.
 * ``registry`` (str, default ``oci://ghcr.io/hyperi-io/helm-charts``)
-  — push target.
-* ``overlays`` (mapping with ``adds`` + ``patches``) — see the overlay
+  -- push target.
+* ``overlays`` (mapping with ``adds`` + ``patches``) -- see the overlay
   framework spec for the schema.
-* ``binary_name`` (str, default ``Path.cwd().name``) — consumer
+* ``binary_name`` (str, default ``Path.cwd().name``) -- consumer
   binary that exposes ``emit-chart``.
 
 The push step is skipped on push-to-main (validate mode) and runs on
@@ -244,7 +244,7 @@ def _helm_template_and_patch(
         return None, 1
 
     # Replace templates/ with the post-rendered single-file output.
-    # NOTE: this changes the chart's value-substitution semantics —
+    # NOTE: this changes the chart's value-substitution semantics --
     # consumers using `--set` at install time will NOT have those values
     # applied to the post-rendered manifest. Document this in CLAUDE.md
     # for any consumer that uses both patches AND install-time values.
@@ -373,7 +373,7 @@ def _run_topology_mode(helm_cfg: dict, config: CIConfig) -> int:
         error(f"no topology.yaml in {topo_dir}")
         return 1
 
-    # Deferred imports — keep scalo subsystem out of module-level import.
+    # Deferred imports -- keep scalo subsystem out of module-level import.
     from hyperi_ci.deployment.topology.resolve import resolve_versions  # noqa: PLC0415
     from hyperi_ci.deployment.topology.stitch import stitch_topology  # noqa: PLC0415
 
@@ -458,10 +458,10 @@ def _run_topology_mode(helm_cfg: dict, config: CIConfig) -> int:
 
 
 def _is_release_mode() -> bool:
-    """Release or not — delegates to :mod:`hyperi_ci.release_mode` (SSOT).
+    """Release or not -- delegates to :mod:`hyperi_ci.release_mode` (SSOT).
 
     Helm has no dev mode: a branch-mode dev run behaves as validate here
-    (dev artifacts are container images only — plan decision 3).
+    (dev artifacts are container images only -- plan decision 3).
     """
     from hyperi_ci.release_mode import is_release_mode
 

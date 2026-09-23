@@ -13,24 +13,24 @@ Three-state ``release.container.enabled`` gate:
   and projects with no signal skip silently.
 * ``true``: build is required. Template languages (python /
   typescript) build from the language template even with no detected
-  artefact — this is how a Python/TS service opts in now that a bare
+  artefact -- this is how a Python/TS service opts in now that a bare
   console-script no longer auto-containerises (issue #51). Contract /
-  custom languages fail loudly if no signal is present — surfaces a
+  custom languages fail loudly if no signal is present -- surfaces a
   regression where a project lost its containerisable artefact.
 * ``false``: explicit skip.
 
 Every container is built and (in release mode) pushed to GHCR. The
 legacy ``release.target`` field is accepted for back-compat but ignored.
 
-Push modes (resolved by :mod:`hyperi_ci.release_mode` — the SSOT):
+Push modes (resolved by :mod:`hyperi_ci.release_mode` -- the SSOT):
 
-* ``release``  — release dispatch / Release-trailer push to main: full
+* ``release``  -- release dispatch / Release-trailer push to main: full
   tag set, pushed.
-* ``dev``      — branch-mode dev image (plan decision 3): mutable
+* ``dev``      -- branch-mode dev image (plan decision 3): mutable
   ``branch-<slug>`` + ``sha-<short>`` tags to GHCR only, behind the
   ``release.container.dev_push`` opt-in on pull_request / branch CI
   runs. Never version tags, never ``latest``.
-* ``validate`` — push-to-main and local runs: build, no push.
+* ``validate`` -- push-to-main and local runs: build, no push.
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ _CONTRACT_LANGUAGES = {"rust"}
 _BINARY_LANGUAGES = {"rust", "golang"}
 
 # A COPY/ADD of dist/ from the BUILD CONTEXT = the Dockerfile consumes CI
-# build artefacts. `COPY --from=<stage> ... dist/` does NOT count — that
+# build artefacts. `COPY --from=<stage> ... dist/` does NOT count -- that
 # is a multi-stage internal path (e.g. tsc compiles to dist/ inside the
 # builder stage, the ci-test-ts-app pattern) and needs no CI artefacts.
 _DIST_CONTEXT_COPY = re.compile(r"(?m)^\s*(?:COPY|ADD)\s+(?!--from[=\s])[^\n]*\bdist/")
@@ -84,7 +84,7 @@ def _read_version() -> str:
     """Resolve the version this container should be tagged with.
 
     Shares the HYPERCI_VERSION-first resolver with the publish stages (one
-    SSoT — common.resolve_release_version, issue #27). Container needs a
+    SSoT -- common.resolve_release_version, issue #27). Container needs a
     concrete tag even with no env/VERSION, so it falls back to the ref then
     "0.0.0".
     """
@@ -155,15 +155,15 @@ def _resolve_mode(*, language: str, decision: Decision, container_cfg: dict) -> 
 
 
 def should_build_container(config: CIConfig, *, language: str = "") -> tuple[bool, str]:
-    """Resolve whether the container stage will build — filesystem only.
+    """Resolve whether the container stage will build -- filesystem only.
 
     Mirrors :func:`run`'s gate so the workflow can decide BEFORE booting
     Docker Buildx (issue #33): ``enabled: false`` never builds;
-    ``enabled: true`` always builds — template languages via the language
+    ``enabled: true`` always builds -- template languages via the language
     template when no artefact is detected (the Python/TS service opt-in,
     issue #51), contract/custom languages then fail loudly in :func:`run`;
     ``enabled: auto`` builds iff :func:`detect` finds a signal. A library
-    (e.g. a Rust crate — no GHCR deployment) has no signal, so the job
+    (e.g. a Rust crate -- no GHCR deployment) has no signal, so the job
     never pulls buildkit from Docker Hub nor logs in to GHCR.
 
     Returns ``(build, reason)``.
@@ -233,7 +233,7 @@ def run(config: CIConfig, *, language: str = "") -> int:
         if enabled == "true":
             # Build is required. Template languages (python / typescript)
             # can always build from the language template with no detected
-            # artefact — this is how a genuine Python service opts in now
+            # artefact -- this is how a genuine Python service opts in now
             # that a bare console-script no longer auto-containerises
             # (issue #51). Contract / custom languages (e.g. a Rust crate
             # with no Dockerfile and no scalo contract) genuinely have
@@ -328,13 +328,13 @@ def _build_custom(
         return 1
 
     # Binary languages (rust/go) conventionally consume dist/ binaries in
-    # custom Dockerfiles — even bare `COPY <app>` lines get rewritten to
-    # dist paths (binary_stage) — so they ALWAYS keep the dist filter and
+    # custom Dockerfiles -- even bare `COPY <app>` lines get rewritten to
+    # dist paths (binary_stage) -- so they ALWAYS keep the dist filter and
     # its loud artefact-handoff failure. For source languages a custom
     # Dockerfile is only binary-backed if it copies dist/ from the BUILD
     # CONTEXT (e.g. shipping a compiled sidecar); a python/node Dockerfile
-    # running pip/npm install — including multi-stage builds whose
-    # internal compile output happens to be named dist/ — has no CI dist
+    # running pip/npm install -- including multi-stage builds whose
+    # internal compile output happens to be named dist/ -- has no CI dist
     # binaries to filter on, same class as a template image.
     binary_backed = language in _BINARY_LANGUAGES or bool(
         _DIST_CONTEXT_COPY.search(dockerfile.read_text(encoding="utf-8"))
@@ -404,7 +404,7 @@ def _build_template(
         registry_bases=registry_bases,
         push_mode=push_mode,
         # Template images (python/node) build from SOURCE inside the
-        # Dockerfile — there are no dist/ binaries to stage or filter on.
+        # Dockerfile -- there are no dist/ binaries to stage or filter on.
         binary_backed=False,
     )
 
@@ -421,16 +421,16 @@ def _build_contract(
     from hyperi_ci.container.manifest import load_manifest
 
     # Lookup order:
-    #   1. ci-tmp/ — produced fresh by the Build stage (`hyperi-ci run
+    #   1. ci-tmp/ -- produced fresh by the Build stage (`hyperi-ci run
     #      generate`). The canonical CI path.
-    #   2. ci/    — committed-and-regenerated artefacts (drift-checked
+    #   2. ci/    -- committed-and-regenerated artefacts (drift-checked
     #      by the Quality stage). Used for local Container builds where
     #      you skip the Build stage.
-    #   3. .ci/   — legacy path from before the Build/Container split.
+    #   3. .ci/   -- legacy path from before the Build/Container split.
     #      Kept for one release for back-compat.
     #
     # We deliberately do NOT fall back to subprocess-invoking the binary
-    # here. The Container runner is bare — it has no Rust toolchain
+    # here. The Container runner is bare -- it has no Rust toolchain
     # installed and so lacks runtime libs (librdkafka, libssl, libgit2,
     # ...) that the binary dynamically links against. The Build runner
     # has all of these via `install-native-deps rust`, which is why
@@ -590,16 +590,16 @@ def _dispatch_build(
     # Outside a GA publish the Build job only produces linux-amd64 (saves
     # CI time on push-to-main validates AND branch dev builds).
     #
-    # Binary-backed images (contract/custom — the Dockerfile COPYs from
+    # Binary-backed images (contract/custom -- the Dockerfile COPYs from
     # dist/<name>-linux-<arch>): constrain to platforms whose binaries are
     # actually present, and fail loud when NONE are (broken Build ->
     # Container artefact handoff).
     #
-    # Template images (python/node — built from SOURCE inside the
+    # Template images (python/node -- built from SOURCE inside the
     # Dockerfile) have no dist/ binaries AT ALL, so the dist filter would
     # always come up empty and hard-fail (the ts-app finding: its
     # container path could never succeed). Constrain them to a single
-    # arch instead — same only-shipping-runs-pay-for-arm64 doctrine,
+    # arch instead -- same only-shipping-runs-pay-for-arm64 doctrine,
     # decided explicitly rather than via dist contents.
     if push_mode != RELEASE:
         configured_platforms = list(platforms)
@@ -609,7 +609,7 @@ def _dispatch_build(
                 image_name=image_name,
             )
             if not platforms:
-                # No silent-success — if the project has container builds
+                # No silent-success -- if the project has container builds
                 # enabled, missing binaries means the Build → Container
                 # artefact handoff is broken. Fail loud so we never report
                 # "container green" without actually producing an image.
@@ -632,7 +632,7 @@ def _dispatch_build(
 
     # Bare `COPY <app> ...` lines in the Dockerfile reference a file in
     # the build context root that the upstream Build stage doesn't put
-    # there — it puts arch-suffixed binaries in `dist/<app>-linux-<arch>`.
+    # there -- it puts arch-suffixed binaries in `dist/<app>-linux-<arch>`.
     # Rewrite the Dockerfile to use ${TARGETARCH} substitution so multi-arch
     # buildx works in a single invocation. No-op for Dockerfiles that
     # already use the parameterised form (ci-test-* / dfe-loader pattern).
@@ -674,7 +674,7 @@ _PLATFORM_TO_OS_ARCH = {
 def _template_platforms(platforms: list[str]) -> list[str]:
     """Single-arch subset for template-image validate/dev builds.
 
-    Prefers linux/amd64 (the runner's native arch — arm64 would go via
+    Prefers linux/amd64 (the runner's native arch -- arm64 would go via
     qemu); falls back to the first configured platform when amd64 isn't
     configured at all. Never empty for a non-empty input.
     """

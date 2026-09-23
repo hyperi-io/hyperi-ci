@@ -21,7 +21,7 @@ import tomli_w
 from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
 
-# Directories/files that are never part of a Python package — AI coding agent dirs,
+# Directories/files that are never part of a Python package -- AI coding agent dirs,
 # org submodules, and tool dirs. Injected into hatchling sdist exclusions at build
 # time so every project gets these for free without repeating them in pyproject.toml.
 #
@@ -126,7 +126,7 @@ def stamp_manifest(version: str, root: Path) -> None:
 
     Static-version projects (PEP 621 `[project] version = "..."`) get the
     rewrite. Dynamic-version projects (hatch-vcs, setuptools-scm, or
-    hatch reading the VERSION file) have no `version` key in [project] —
+    hatch reading the VERSION file) have no `version` key in [project] --
     those are left untouched; the VERSION file is authoritative for them.
     """
     from hyperi_ci.stamp import replace_toml_table_version

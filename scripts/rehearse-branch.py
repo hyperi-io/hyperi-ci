@@ -18,7 +18,7 @@ shipped. This script points a throwaway fixture branch at the CANDIDATE:
 3. sets the fixture's ``HYPERCI_INSTALL_OVERRIDE`` repo variable to
    ``uvx --from git+https://github.com/hyperi-io/hyperi-ci@<branch>
    hyperi-ci`` so the branch's CLI runs too (not the released one),
-4. pushes the branch and opens a DRAFT pull request — the pull_request
+4. pushes the branch and opens a DRAFT pull request -- the pull_request
    run exercises the branch's workflows + CLI through quality / test /
    build / container (a dev push lands in the prunable ``branch-*``
    namespace on an opted-in fixture),
@@ -33,7 +33,7 @@ never been run against a fixture (issue #215).
 
 Deliberately NEVER: merges anything, touches the fixture's main, or
 publishes. Known limit (accepted, pinning decision #31 gate-only):
-composite refs INSIDE the lang workflows stay @main — composite changes
+composite refs INSIDE the lang workflows stay @main -- composite changes
 are covered by hyperi-ci's own local-ref ci.yml instead.
 
 Usage:
@@ -73,7 +73,7 @@ def _run(
 def swap_refs(text: str, branch: str) -> tuple[str, int]:
     """Swap every hyperi-io/hyperi-ci ...@main ref to @<branch>.
 
-    Returns (new_text, swap_count). Pure function — unit-tested.
+    Returns (new_text, swap_count). Pure function -- unit-tested.
     """
     new_text, count = _REF_SWAP.subn(rf"\1@{branch}", text)
     return new_text, count
@@ -426,7 +426,7 @@ def main() -> int:
                 else:
                     _gh_var(repo, "set", prior_override)
             # Branch delete may be policy-blocked (unattended sessions park
-            # branch deletes) — best-effort, report either way.
+            # branch deletes) -- best-effort, report either way.
             result = _run(
                 ["git", "-C", str(clone), "push", "origin", "--delete", rehearse_ref],
                 timeout=60,

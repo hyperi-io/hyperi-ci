@@ -2,7 +2,7 @@
 # File:      config/dynamic-config-keys.yaml
 # Purpose:   Config keys read by a path no literal search can see
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # `scripts/audit-config-keys.py` fails when a key declared in defaults.yaml is

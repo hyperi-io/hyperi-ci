@@ -2,7 +2,7 @@
 # File:      pyproject.toml
 # Purpose:   Package configuration for hyperi-ci CLI tool
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 [project]
@@ -16,8 +16,8 @@ authors = [{ name = "HyperI Team", email = "dev@hyperi.io" }]
 maintainers = [{ name = "HyperI Team", email = "dev@hyperi.io" }]
 # Python version policy (mirrors scalo): requires-python sets the
 # floor; the only version classifier is "Python :: 3 :: Only". Do NOT add
-# per-version classifiers (3.12, 3.13, …) — they churn on every release.
-# No OSI licence classifier — BUSL-1.1 is declared via `license` above.
+# per-version classifiers (3.12, 3.13, ...) -- they churn on every release.
+# No OSI licence classifier -- BUSL-1.1 is declared via `license` above.
 keywords = [
     "ci", "cd", "continuous-integration", "build", "test", "publish",
     "release", "semantic-release", "github-actions", "monorepo",
@@ -46,7 +46,7 @@ dependencies = [
     "pydantic>=2.13",
     "pyyaml>=6.0",
     "tomli-w>=1.2.0",
-    # typer is used directly by src/hyperi_ci/cli.py — declare
+    # typer is used directly by src/hyperi_ci/cli.py -- declare
     # explicitly rather than relying on the transitive pull from
     # scalo's CLI infra. If scalo ever drops typer, this
     # keeps us pinned to a known surface.
@@ -130,7 +130,7 @@ markers = [
 
 [tool.vulture]
 # 60% confidence flags every typer-decorated command (typer registers them
-# at import time via @app.command() — vulture can't see the call site).
+# at import time via @app.command() -- vulture can't see the call site).
 # 100% catches the genuine dead vars we care about without the noise.
 min_confidence = 100
 paths = ["src/"]
@@ -139,7 +139,7 @@ paths = ["src/"]
 source = ["hyperi_ci"]
 
 [tool.coverage.report]
-# Coverage is informational here — ci.yml doesn't pass --cov-fail-under,
+# Coverage is informational here -- ci.yml doesn't pass --cov-fail-under,
 # and unit-covering subprocess-driven CI orchestration is impractical.
 # Keep this low so `pytest --cov` reports without failing the run.
 fail_under = 30
@@ -150,7 +150,7 @@ fail_under = 30
 # (/projects/scalo-py) so dev changes flow through `uv sync`,
 # but that breaks two things:
 #   - Dependabot's update_graph job can't resolve the path inside its
-#     container — fails on every push to main, leaving the dep-graph
+#     container -- fails on every push to main, leaving the dep-graph
 #     stale and GitHub's vulnerability banner inaccurate.
 #   - Reproducibility for anyone whose checkout isn't at that exact
 #     path.

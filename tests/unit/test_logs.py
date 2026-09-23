@@ -1,6 +1,6 @@
 # Project:   HyperI CI
 # File:      tests/unit/test_logs.py
-# Purpose:   Tests for hyperi_ci.logs — the run-log download lands the zip on
+# Purpose:   Tests for hyperi_ci.logs -- the run-log download lands the zip on
 #            disk and extracts it, a failed download says why, and the run a
 #            --failed report read is always named (issue #101).
 #

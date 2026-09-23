@@ -88,13 +88,13 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if not _run_tool("go vet", ["go", "vet", "./..."], mode):
         had_failure = True
 
-    # golangci-lint — two-pass: production (strict) + test (relaxed)
+    # golangci-lint -- two-pass: production (strict) + test (relaxed)
     mode = _get_tool_mode("golangci_lint", config)
     test_ignore = get_test_ignore("golang", config, _DEFAULT_GO_TEST_IGNORE)
     gci_user_ignores = for_tool(ignores, "golangci-lint")
     gci_user_disable = [f"--disable={e.id}" for e in gci_user_ignores]
 
-    # Production pass — skip test files
+    # Production pass -- skip test files
     if not _run_tool(
         "golangci-lint (src)",
         ["golangci-lint", "run", "--tests=false", "--timeout", "5m"] + gci_user_disable,
@@ -102,7 +102,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     ):
         had_failure = True
 
-    # Test pass — include tests, disable specific linters
+    # Test pass -- include tests, disable specific linters
     if test_ignore:
         disable_flags = [f"--disable={linter}" for linter in test_ignore]
         if not _run_tool(

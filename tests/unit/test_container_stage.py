@@ -27,7 +27,7 @@ class TestShouldBuildContainer:
     """Resolve-before-buildx gate (issue #33).
 
     The container job must decide app-vs-library BEFORE booting Docker
-    Buildx, so a library (scalo, a crate — no GHCR deployment) never
+    Buildx, so a library (scalo, a crate -- no GHCR deployment) never
     pulls buildkit from Docker Hub and never logs in to GHCR. This gate
     is the filesystem decision, isolated from `detect`'s heuristics
     (covered in test_container_detect.py) by mocking `detect`.
@@ -59,7 +59,7 @@ class TestShouldBuildContainer:
         assert build is True
 
     def test_enabled_false_never_builds(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # enabled:false short-circuits — detect must not even be consulted.
+        # enabled:false short-circuits -- detect must not even be consulted.
         def _boom(**_):  # pragma: no cover - must not be called
             raise AssertionError("detect() should not run when enabled:false")
 
@@ -68,7 +68,7 @@ class TestShouldBuildContainer:
         assert build is False
 
     def test_enabled_true_forces_build(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # enabled:true means the container is required — gate opens even
+        # enabled:true means the container is required -- gate opens even
         # if detect found no signal (the build step then errors loudly).
         monkeypatch.setattr(
             stage_module,
@@ -81,7 +81,7 @@ class TestShouldBuildContainer:
 
 class TestResolveOnlyEnv:
     """`HYPERCI_CONTAINER_RESOLVE_ONLY` makes `run` emit the decision to
-    GITHUB_OUTPUT and return 0 WITHOUT any Docker work — the workflow
+    GITHUB_OUTPUT and return 0 WITHOUT any Docker work -- the workflow
     gates buildx/login/build on it (issue #33)."""
 
     def test_library_writes_build_false_and_skips_build(
@@ -263,7 +263,7 @@ def test_run_skips_when_auto_and_no_signal(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_run_fails_when_strict_true_and_no_signal(tmp_path: Path, monkeypatch) -> None:
-    """enabled: true is strict — fail loudly when nothing detected."""
+    """enabled: true is strict -- fail loudly when nothing detected."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "Cargo.toml").write_text(
         '[package]\nname = "mylib"\nversion = "0.1.0"\n[lib]\n'
@@ -300,7 +300,7 @@ def test_run_custom_mode_invokes_build_with_resolved_tags(
     assert run(cfg, language="rust") == 0
     fake_build.assert_called_once()
     kwargs = fake_build.call_args.kwargs
-    # 'myapp' is the cwd basename — but when cwd is a tmp_path, the
+    # 'myapp' is the cwd basename -- but when cwd is a tmp_path, the
     # detector uses Path.cwd().name. We use a startswith check rather
     # than asserting the literal name, because pytest's tmp_path picks
     # an arbitrary directory name.
@@ -354,11 +354,11 @@ def test_run_validate_fails_loud_when_no_dist_binaries(
     Regression test for the artefact-handoff bug: when actions/download-artifact
     finds 0 artefacts (e.g., due to upload/download version mismatch, expired
     artefacts, or Build job failure), the Container stage previously returned 0
-    with a warning and never built or pushed an image — silently producing a
+    with a warning and never built or pushed an image -- silently producing a
     "successful" CI run that did no work and pushed nothing to GHCR.
 
     Container is configured (publish.container.enabled != false). Missing
-    binaries means the Build → Container handoff is broken — fail loud so the
+    binaries means the Build → Container handoff is broken -- fail loud so the
     real failure surfaces in CI instead of being masked as success.
     """
     monkeypatch.chdir(tmp_path)
@@ -378,7 +378,7 @@ def test_run_validate_fails_loud_when_no_dist_binaries(
     fake_build = MagicMock(return_value=0)
     monkeypatch.setattr(stage_module, "build_and_push", fake_build)
 
-    # Must fail (return 1) and never call buildx — the missing artefacts
+    # Must fail (return 1) and never call buildx -- the missing artefacts
     # indicate a broken Build → Container handoff that needs surfacing.
     assert run(cfg, language="rust") == 1
     fake_build.assert_not_called()
@@ -435,7 +435,7 @@ def test_build_contract_uses_pre_generated_artefacts(
     cfg = _ci_config(container={"enabled": "auto"}, target="oss")
 
     # Fail the test if Container subprocess-invokes the binary in dist/
-    # — that's the path that previously hit librdkafka.so.1 errors.
+    # -- that's the path that previously hit librdkafka.so.1 errors.
     # Other subprocesses (cargo metadata, git rev-parse) are fine.
     real_run = stage_module.subprocess.run
     binary_path = str(dist / "myapp-linux-amd64")
@@ -460,7 +460,7 @@ def test_build_contract_uses_pre_generated_artefacts(
 def test_build_contract_fails_loud_when_no_artefacts_present(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """Missing artefacts in ci-tmp/, ci/, .ci/ MUST fail loud — never subprocess.
+    """Missing artefacts in ci-tmp/, ci/, .ci/ MUST fail loud -- never subprocess.
 
     Regression: pre-fix, the Container stage fell back to invoking the
     binary directly, which only worked on a runner with the Rust
@@ -478,7 +478,7 @@ def test_build_contract_fails_loud_when_no_artefacts_present(
     (project_root / "src" / "main.rs").write_text("fn main() {}\n")
     (project_root / "VERSION").write_text("0.1.0\n")
 
-    # Binary present but NO ci-tmp/, ci/, .ci/ — exactly the failure
+    # Binary present but NO ci-tmp/, ci/, .ci/ -- exactly the failure
     # mode that previously masqueraded as success.
     dist = project_root / "dist"
     dist.mkdir()
@@ -503,8 +503,8 @@ def test_run_python_library_with_cli_auto_skips(tmp_path: Path, monkeypatch) -> 
 
     logreducer's shape: a uv_build-backend library with
     ``[project.scripts]`` and no Dockerfile. Under ``enabled: auto`` the
-    Container stage must skip silently — a CLI is not a container
-    workload — rather than run a failing template build.
+    Container stage must skip silently -- a CLI is not a container
+    workload -- rather than run a failing template build.
     """
     monkeypatch.chdir(tmp_path)
     (tmp_path / "pyproject.toml").write_text(
@@ -527,7 +527,7 @@ def test_run_python_service_opts_in_via_enabled_true(
 
     Now that a bare console-script no longer auto-containerises, a real
     service sets ``publish.container.enabled: true`` and the stage builds
-    it via the python template even with no Dockerfile detected — it must
+    it via the python template even with no Dockerfile detected -- it must
     NOT hard-fail the way a Rust crate (contract language) would.
     """
     monkeypatch.chdir(tmp_path)
@@ -554,7 +554,7 @@ def test_run_python_service_opts_in_via_enabled_true(
 def test_run_template_validate_needs_no_dist_binaries(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """Template images build from source — a validate/dev run must NOT
+    """Template images build from source -- a validate/dev run must NOT
     demand dist/<name>-linux-<arch> binaries (the ts-app finding: the
     dist filter always came up empty for template mode and hard-failed,
     so a node/python template container could never validate or dev-push).
@@ -594,7 +594,7 @@ def test_run_custom_python_dockerfile_needs_no_dist(
     tmp_path: Path, monkeypatch
 ) -> None:
     """A python app with its OWN Dockerfile (custom mode) that builds from
-    source must not be dist-filtered on validate/dev either — only binary
+    source must not be dist-filtered on validate/dev either -- only binary
     languages (rust/go) and dist-referencing Dockerfiles keep the filter.
     """
     monkeypatch.chdir(tmp_path)
@@ -630,7 +630,7 @@ def test_run_custom_ts_multistage_dist_is_not_binary_backed(
     tmp_path: Path, monkeypatch
 ) -> None:
     """`COPY --from=builder .../dist/` is a multi-stage INTERNAL path (tsc
-    output), not a CI artefact copy — must not trigger the dist filter.
+    output), not a CI artefact copy -- must not trigger the dist filter.
     The ci-test-ts-app pattern, caught live by the branch rehearsal.
     """
     monkeypatch.chdir(tmp_path)

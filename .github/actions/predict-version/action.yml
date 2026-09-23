@@ -1,8 +1,8 @@
 # Project:   HyperI CI
 # File:      .github/actions/predict-version/action.yml
-# Purpose:   Composite action — detect publish trigger + predict next version
+# Purpose:   Composite action -- detect publish trigger + predict next version
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # Used by every language-specific workflow's `setup` job. Encapsulates
@@ -145,7 +145,7 @@ runs:
           fi
         fi
 
-        # push to a release branch — match the release trailer, either
+        # push to a release branch -- match the release trailer, either
         # spelling (case-insensitive on key). hyperi_ci.vocabulary matches the
         # same set in Python; this runs where hyperi-ci is not installed.
         msg=$(git log -1 --format=%B HEAD)
@@ -187,7 +187,7 @@ runs:
       # tag.
       #
       # Hard fail if `Release: true` was set but no release-worthy
-      # commits exist — silent skip violates "nothing should say it
+      # commits exist -- silent skip violates "nothing should say it
       # worked if it didn't."
       #
       # We capture the dry-run exit code separately so a real crash
@@ -223,7 +223,7 @@ runs:
         # Orphaned-tag guard (issue #37): semantic-release only considers
         # tags REACHABLE from HEAD ('No git tag version found on branch
         # main'). If v* tags exist in refs but NONE are reachable, a past
-        # history rewrite orphaned them — semantic-release re-predicts a
+        # history rewrite orphaned them -- semantic-release re-predicts a
         # taken or regressed version. Fail at plan time (the _release-tail
         # off-HEAD guard stays as defence-in-depth) instead of after a
         # full build. Tags are local: the plan checkout is fetch-depth: 0.
@@ -240,7 +240,7 @@ runs:
         # verbatim as the first release. The forced --bump paths bump from
         # the same value; see push._compute_next_version.
         #
-        # Not the committed VERSION file (issue #85) — that is an artefact
+        # Not the committed VERSION file (issue #85) -- that is an artefact
         # this tool writes, not an input.
         #
         # A prerelease keeps semantic-release's own answer: the seed names a
@@ -271,10 +271,10 @@ runs:
 
     - name: Predict next version (forced bump / explicit version)
       # from-head dispatch with a non-auto bump (issue #35). The `bump`
-      # channel carries either a bump level (patch|minor — release HEAD even
+      # channel carries either a bump level (patch|minor -- release HEAD even
       # with no release-worthy commit, computed as `last v* tag + bump`) or an
       # explicit X.Y.Z (the `hyperi-ci release --version` override, used
-      # verbatim to step past a taken/orphaned tag — the issue #37 case). Runs
+      # verbatim to step past a taken/orphaned tag -- the issue #37 case). Runs
       # for any non-auto, non-empty bump so plan + build stamp the same value
       # tag-head later creates in Tag & Release. Trivial glue: semver math +
       # a regex; the same computation lives in push.tag_head for the real tag.
@@ -357,10 +357,10 @@ runs:
         echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
 
         # run-build: publish runs always; an opted-in pull_request also
-        # builds (branch-mode decision 2 — PRs validate the FULL pipeline
+        # builds (branch-mode decision 2 -- PRs validate the FULL pipeline
         # incl. container; whether that container is pushed as a dev
         # image is the container stage's own dev_push decision). Raw
-        # branch pushes never build — the gate doctrine (non-shipping
+        # branch pushes never build -- the gate doctrine (non-shipping
         # commits compile nothing) is unchanged.
         #
         # A validate-only dispatch builds too: someone with actions:write

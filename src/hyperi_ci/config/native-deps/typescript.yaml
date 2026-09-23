@@ -6,7 +6,7 @@
 #   name:           Human-readable label shown in CI output
 #   patterns:       Strings to search for in manifest_files (plain substring match)
 #   manifest_files: Files to search relative to project root
-#   dpkg_check:     dpkg package name — skips apt install if already present
+#   dpkg_check:     dpkg package name -- skips apt install if already present
 #   apt_packages:   Packages to install on Linux (apt-get)
 
 - name: canvas / image processing

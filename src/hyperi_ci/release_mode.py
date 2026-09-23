@@ -1,6 +1,6 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/release_mode.py
-# Purpose:   Release-mode resolution — SSOT for the push/validate decision
+# Purpose:   Release-mode resolution -- SSOT for the push/validate decision
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
@@ -93,7 +93,7 @@ def resolve_push_mode(
     if flag == "dev":
         return DEV
     if flag not in ("false", "0", "no"):
-        # No/unknown flag — legacy event-based fallback (older workflows,
+        # No/unknown flag -- legacy event-based fallback (older workflows,
         # local invocations): workflow_dispatch == release.
         if e.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
             return RELEASE

@@ -317,7 +317,7 @@ def _resolve_cross_packages(
                 if not line.startswith("Depends:"):
                     continue
                 dep = line.split(":", 1)[1].strip()
-                # Keep library packages — most start with lib*, but some
+                # Keep library packages -- most start with lib*, but some
                 # (zlib1g) don't. Filter out non-library packages.
                 dep_name = dep.split(":")[0]
                 if not dep_name.startswith(("lib", "zlib")):
@@ -347,7 +347,7 @@ def _patch_ld_scripts(sysroot: Path, cross_triple: str) -> int:
 
     Some .so files are ASCII linker scripts like:
       GROUP ( /lib/aarch64-linux-gnu/libm.so.6 ... )
-    These absolute paths don't exist on the host — rewrite to sysroot paths.
+    These absolute paths don't exist on the host -- rewrite to sysroot paths.
     """
     lib_dir = sysroot / "usr" / "lib" / cross_triple
     if not lib_dir.exists():
@@ -560,7 +560,7 @@ def _cross_env(target: str, sysroot: Path | None = None) -> dict[str, str]:
 
     # Configure-based -sys crates (e.g. rdkafka-sys when cmake-build feature is
     # absent) run `./configure && make` and read CC/CXX/AR directly from the
-    # environment — they do NOT use the cc crate's CC_<target> lookup.
+    # environment -- they do NOT use the cc crate's CC_<target> lookup.
     # Without CC set, ./configure uses the host gcc (x86_64) even when building
     # for aarch64, producing x86_64 objects that fail at link time with EM:62.
     env["CC"] = cc
@@ -583,7 +583,7 @@ def _cross_env(target: str, sysroot: Path | None = None) -> dict[str, str]:
         # cmake-based -sys crates (e.g. rdkafka-sys).
         # Explicitly set CMAKE_C/CXX_COMPILER so cmake uses the cross-compiler
         # even when cmake-rs's cc crate detection fails. This is belt-and-suspenders
-        # alongside CC_<target> — cmake checks CMAKE_C_COMPILER before CC.
+        # alongside CC_<target> -- cmake checks CMAKE_C_COMPILER before CC.
         env["CMAKE_C_COMPILER"] = cc
         env["CMAKE_CXX_COMPILER"] = toolchain["cxx"]
         env["CMAKE_PREFIX_PATH"] = f"{sysroot}/usr"
@@ -604,7 +604,7 @@ def _cross_env(target: str, sysroot: Path | None = None) -> dict[str, str]:
         env[f"CFLAGS_{target_lower}"] = cross_cflags
         env[f"CXXFLAGS_{target_lower}"] = cross_cflags
     else:
-        # No sysroot — basic cross-compilation (pure Rust or simple C deps)
+        # No sysroot -- basic cross-compilation (pure Rust or simple C deps)
         env[f"CARGO_TARGET_{target_upper}_LINKER"] = cc
         env["PKG_CONFIG_ALLOW_CROSS"] = "1"
         env["PKG_CONFIG_SYSROOT_DIR"] = f"/usr/{cross_triple}"
@@ -825,7 +825,7 @@ def _resolve_build_channel(config: CIConfig) -> str:
     NEGATIVE gains. It MUST only run on explicit release dispatches
     (artifact publishing), NOT on every push to main. `release.channel`
     in `.hyperi-ci.yaml` describes *where artifacts are published*
-    (GHCR, PyPI, crates.io, etc.) — a project that ships to "release"
+    (GHCR, PyPI, crates.io, etc.) -- a project that ships to "release"
     still gets push-event CI on every commit, which must NOT trigger
     Tier 2. The build channel is orthogonal to the release channel.
 
@@ -895,7 +895,7 @@ def _detect_binary_names() -> list[str]:
     Only falls back to directory name when cargo metadata itself fails.
 
     Feature-gated binaries (those with `required-features = [...]` in
-    Cargo.toml) are excluded — they are consumer-selected tools (PGO
+    Cargo.toml) are excluded -- they are consumer-selected tools (PGO
     drivers, benchmarking harnesses, etc.) not production artifacts,
     and forcing them into the publish path breaks the default build
     when the feature isn't enabled.
@@ -909,14 +909,14 @@ def _detect_binary_names() -> list[str]:
         for target in package.get("targets", []):
             if "bin" not in target.get("kind", []):
                 continue
-            # Skip feature-gated binaries — they are consumer tools
+            # Skip feature-gated binaries -- they are consumer tools
             # (benchmark drivers, PGO workload generators, etc.) that
             # shouldn't be part of the default publish payload.
             if target.get("required-features"):
                 continue
             names.append(target["name"])
 
-    # Return empty list for library-only crates — packaging is skipped
+    # Return empty list for library-only crates -- packaging is skipped
     return names
 
 
@@ -924,7 +924,7 @@ def stamp_manifest(version: str, root: Path) -> None:
     """Stamp `version` into Cargo.toml's [package] and [workspace.package].
 
     Covers both the single-crate ([package]) and workspace-inherited
-    ([workspace.package]) layouts. Dependency pins are untouched — only the
+    ([workspace.package]) layouts. Dependency pins are untouched -- only the
     `version` key inside those two tables is rewritten. A multi-crate
     workspace inherits the [workspace.package] version, so the root stamp
     propagates; per-crate Cargo.toml files that pin their own version are
@@ -946,7 +946,7 @@ def _detect_version() -> str:
     """Detect project version from VERSION file, env vars, or Cargo.toml.
 
     Priority: VERSION file (semantic-release) > explicit env > Cargo.toml > "dev".
-    GITHUB_REF_NAME is deliberately excluded — during the publish job it is
+    GITHUB_REF_NAME is deliberately excluded -- during the publish job it is
     the branch name (e.g. "release"), not the tag.
     """
     version_file = Path("VERSION")
@@ -1177,10 +1177,10 @@ def _clean_stale_sys_crates(target: str) -> None:
     (e.g. rdkafka-sys configure build using host gcc instead of cross-gcc),
     the stale rlib persists. Since build.rs scripts don't declare
     cargo:rerun-if-env-changed for CC, cargo reuses the cached x86_64 rlib
-    — causing "Relocations in generic ELF (EM: 62)" on link.
+    -- causing "Relocations in generic ELF (EM: 62)" on link.
 
     Covers both cmake-build crates and configure-based crates (rdkafka-sys,
-    libz-sys, zstd-sys, aws-lc-sys, etc.) — all -sys crates are scanned.
+    libz-sys, zstd-sys, aws-lc-sys, etc.) -- all -sys crates are scanned.
     """
     expected = _expected_elf_machine(target)
     if not expected:
@@ -1350,7 +1350,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     targets.sort(key=lambda t: (0 if t == native else 1, t))
 
     # Resolve release-track optimisation profile (channel-gated).
-    # Libraries (no binaries) skip this entirely — their release profile is
+    # Libraries (no binaries) skip this entirely -- their release profile is
     # irrelevant because consumers recompile from source.
     binary_names_for_profile = _detect_binary_names()
     base_profile: OptimizationProfile | None = None

@@ -4,7 +4,7 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Python publish handler — publishes Python packages to PyPI."""
+"""Python publish handler -- publishes Python packages to PyPI."""
 
 from __future__ import annotations
 

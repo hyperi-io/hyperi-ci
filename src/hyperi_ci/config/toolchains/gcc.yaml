@@ -3,7 +3,7 @@
 # Purpose:   Multi-version GCC toolchain install from distro repos
 #
 # GCC 13 and 14 both ship in current supported distros (Ubuntu noble,
-# Debian trixie, Ubuntu resolute) via their native repos — no PPA needed.
+# Debian trixie, Ubuntu resolute) via their native repos -- no PPA needed.
 # Parallel installs coexist at /usr/bin/gcc-{13,14} / g++-{13,14}.
 # The default `gcc` alternative is whatever the distro ships unchanged.
 
@@ -28,7 +28,7 @@
     - binding.gyp
     - .hyperi-ci.yaml
   dpkg_check: gcc-{V}
-  # No custom apt_repos — distro repos ship gcc-13 and gcc-14 on every
+  # No custom apt_repos -- distro repos ship gcc-13 and gcc-14 on every
   # codename in our supported matrix (noble, trixie, resolute).
   apt_packages:
     - gcc-{V}

@@ -4,7 +4,7 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""TypeScript/Node publish handler — publishes npm packages to npmjs.com or GitHub Packages."""
+"""TypeScript/Node publish handler -- publishes npm packages to npmjs.com or GitHub Packages."""
 
 from __future__ import annotations
 

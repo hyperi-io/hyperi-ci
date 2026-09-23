@@ -1,6 +1,6 @@
 # Project:   HyperI CI
 # File:      tests/unit/test_watch.py
-# Purpose:   Tests for hyperi_ci.watch — exponential backoff, timeout
+# Purpose:   Tests for hyperi_ci.watch -- exponential backoff, timeout
 #            semantics (including --timeout 0), transient-failure
 #            tolerance, status-on-timeout reporting.
 #
@@ -79,7 +79,7 @@ class TestPollInterval:
 
     def test_cap_holds_for_smaller_base(self) -> None:
         # Base 10, attempt enough times: 10 * 1.5^4 = 50.625, capped above
-        # is 120 — but we should never *exceed* 120 even with crazy attempts.
+        # is 120 -- but we should never *exceed* 120 even with crazy attempts.
         assert _poll_interval(10, 100) <= 120.0
 
     def test_minimum_attempt_one(self) -> None:
@@ -149,7 +149,7 @@ class TestDefaultTimeout:
 
 
 class TestWatchRunTimeout:
-    """Timeout semantics — default, zero, message includes status."""
+    """Timeout semantics -- default, zero, message includes status."""
 
     def test_zero_timeout_polls_until_terminal(self) -> None:
         """`--timeout 0` disables timeout entirely; polls until terminal."""
@@ -222,7 +222,7 @@ class TestWatchRunTimeout:
         ):
             watch_run(run_id="42", timeout=0, interval=1)
         # The "no timeout" mode should be visibly distinguished in the
-        # logs (see watch.py — info(f"Watching run {run_id} (no timeout)")).
+        # logs (see watch.py -- info(f"Watching run {run_id} (no timeout)")).
         # We don't assert on exact log capture due to logger plumbing
         # variability; the test_zero_timeout_polls_until_terminal above
         # is the load-bearing behaviour test.
@@ -263,7 +263,7 @@ class TestWatchRunTransientFailures:
         ):
             rc = watch_run(run_id="12345", timeout=600, interval=1)
         # All fetches return None → consecutive_failures hits the cap →
-        # returns 1 (NOT 2 for timeout — we distinguish "remote
+        # returns 1 (NOT 2 for timeout -- we distinguish "remote
         # unreachable" from "timeout while in progress").
         assert rc == 1
 
@@ -292,7 +292,7 @@ class TestWatchRunTransientFailures:
 
 
 class TestWatchRunTerminalStates:
-    """Terminal status handling — success vs failure vs cancellation."""
+    """Terminal status handling -- success vs failure vs cancellation."""
 
     def _terminal(self, conclusion: str) -> dict:
         return {
@@ -361,7 +361,7 @@ class TestWatchRunEarlyFail:
     def test_early_fail_returns_one_before_run_terminal(self, conclusion: str) -> None:
         # Run status is still in_progress, but a job has already gone red.
         # watch must return 1 immediately, without waiting for a terminal
-        # run status (which is never provided here — a single poll suffices).
+        # run status (which is never provided here -- a single poll suffices).
         with (
             patch("hyperi_ci.watch.require_gh", return_value=True),
             patch(

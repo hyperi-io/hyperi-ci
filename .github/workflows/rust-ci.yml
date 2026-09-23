@@ -2,7 +2,7 @@
 # File:      .github/workflows/rust-ci.yml
 # Purpose:   Reusable Rust CI workflow for consumer projects
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # Rust-specific stages: quality, test, setup, build (with version stamp).
@@ -138,7 +138,7 @@ concurrency:
 env:
   HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
   # Rehearsal / incident escape hatch: the HYPERCI_INSTALL_OVERRIDE repo
-  # variable replaces the CLI install command wholesale — a branch rehearsal
+  # variable replaces the CLI install command wholesale -- a branch rehearsal
   # points it at `uvx --from git+...@<branch> hyperi-ci`; an incident pins
   # the repo to a known-good `uvx hyperi-ci==X.Y.Z`. Unset = latest PyPI.
   # `--python` pins the CLI's OWN interpreter. Without it uvx takes whatever
@@ -166,15 +166,15 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # plan — runs FIRST. Computes gate outputs that every downstream job
+  # plan -- runs FIRST. Computes gate outputs that every downstream job
   # reads. See docs/architecture.md for the full contract.
   #
   # Doctrine: a non-bumping commit (chore/docs/test/refactor/style/build/
   # ci/cleanup/...) MUST NOT cause cargo to compile or docker buildx to
   # push. Even quality + test are skipped on push events that won't ship
-  # — only PR review and release-worthy pushes run them. The gate is
+  # -- only PR review and release-worthy pushes run them. The gate is
   # computed ONCE here and consumed by every downstream `if:`; do not
-  # re-implement the condition string elsewhere — a pytest test
+  # re-implement the condition string elsewhere -- a pytest test
   # (tests/unit/test_workflow_consistency.py) enforces this.
   # ---------------------------------------------------------------------------
   plan:
@@ -233,7 +233,7 @@ jobs:
 
       - name: Generate build matrix
         # Multi-arch (amd64 + arm64) on publish runs; single-arch on
-        # validate-only AND branch-mode PR builds — arm64 is slow on
+        # validate-only AND branch-mode PR builds -- arm64 is slow on
         # shared runners and wasteful when nothing's being shipped, so
         # arch breadth keys off will-release, NOT run-build.
         #
@@ -296,7 +296,7 @@ jobs:
     name: Quality
     needs: [plan]
     if: needs.plan.outputs.run-checks == 'true'
-    # Renovate branches use lightweight runners — dependency update PRs don't need 16cpu
+    # Renovate branches use lightweight runners -- dependency update PRs don't need 16cpu
     runs-on: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE_RUST || vars.GH_RUNNER_RUST || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - name: Docker Hub login
@@ -463,9 +463,9 @@ jobs:
         # into Cargo.toml + VERSION before `cargo build`, so the binary
         # has the correct CARGO_PKG_VERSION baked in. Without this we'd
         # publish a v1.18.3 release containing a binary that introspects
-        # itself as 1.18.2 — every metrics dashboard would lie.
+        # itself as 1.18.2 -- every metrics dashboard would lie.
         #
-        # Runs on push AND on a from-head dispatch (issue #35) — both
+        # Runs on push AND on a from-head dispatch (issue #35) -- both
         # release HEAD, whose committed tree is stale under the tagger-only
         # model (the bumped version is never committed). next-version is the
         # resolved value (semantic-release on auto, last+bump on a forced
@@ -579,7 +579,7 @@ jobs:
     secrets: inherit
 
   # ---------------------------------------------------------------------------
-  # gate — the terminal context branch protection should require.
+  # gate -- the terminal context branch protection should require.
   #
   # Requiring `ci / Quality` does not work: GitHub counts a SKIPPED required
   # check as satisfied, so the doctrine's deliberate skip and a gate that never

@@ -1,6 +1,6 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/dispatch.py
-# Purpose:   Stage dispatcher — routes to language-specific handlers
+# Purpose:   Stage dispatcher -- routes to language-specific handlers
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
@@ -77,7 +77,7 @@ VALID_STAGES = (
 # Parenthetical clarifier appended to the "Project status: <X>" log line
 # so a reader of the CI output immediately knows what each value means
 # without having to consult the docs. `ga` and `legacy` defaults are
-# bare — the clarifier carries the signal only where it adds something.
+# bare -- the clarifier carries the signal only where it adds something.
 _STATUS_CLARIFIER: dict[str, str] = {
     "experimental": " — pre-GA, no API commitment",
     "alpha": " — pre-GA, expect breaks",
@@ -88,7 +88,7 @@ _STATUS_CLARIFIER: dict[str, str] = {
 }
 
 # Languages that share a handler package. The left-hand name is what
-# `detect_language()` returns (honest — describes what the project actually
+# `detect_language()` returns (honest -- describes what the project actually
 # is); the right-hand name is the handler module to dispatch to. Keeping
 # the alias in dispatch means log lines like "Detected language: javascript"
 # stay accurate while the TS handler runs the stage.
@@ -113,7 +113,7 @@ def _find_handler_module(language: str, stage: str) -> Any | None:
 
     Returns ``None`` only when the module genuinely doesn't exist
     (ImportError). If the module exists but ``run`` is missing or not
-    callable — a packaging bug — we raise ``TypeError`` rather than
+    callable -- a packaging bug -- we raise ``TypeError`` rather than
     silently returning None, so :func:`_dispatch_to_handler` produces
     a clear error instead of mistaking it for "no handler".
     """
@@ -180,7 +180,7 @@ def _dispatch_to_handler(
 
 
 def stage_setup(language: str, config: CIConfig) -> int:
-    """Environment setup — dispatch to language-specific handler."""
+    """Environment setup -- dispatch to language-specific handler."""
     rc = _dispatch_to_handler(language, "setup", config)
     if rc == -1:
         error(f"Setup handler not found for {language}")
@@ -226,7 +226,7 @@ def _run_local_gates(config: CIConfig) -> int:
 
 
 def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> int:
-    """Quality checks — gitleaks + language-specific checks."""
+    """Quality checks -- gitleaks + language-specific checks."""
     # Deprecated-file hygiene nudge runs first and regardless of
     # quality.enabled - it is a non-fatal tidy-up recommendation, not a
     # gate, and should surface even on repos that disable the quality tools.
@@ -314,7 +314,7 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
 
 
 def stage_test(language: str, config: CIConfig) -> int:
-    """Run tests — dispatch to language-specific handler."""
+    """Run tests -- dispatch to language-specific handler."""
     if not config.get("test.enabled", True):
         info("Tests disabled in configuration")
         return 0
@@ -327,7 +327,7 @@ def stage_test(language: str, config: CIConfig) -> int:
 
     rc = _dispatch_to_handler(language, "test", config, extra_env=extra_env)
     if rc == -1:
-        # No silent skip — a missing handler for a detected language is
+        # No silent skip -- a missing handler for a detected language is
         # a hyperi-ci packaging bug, not "this project doesn't have tests."
         # Projects that genuinely have no tests should set
         # `test.enabled: false` in .hyperi-ci.yaml.
@@ -341,7 +341,7 @@ def stage_test(language: str, config: CIConfig) -> int:
 
 
 def stage_build(language: str, config: CIConfig, *, local: bool = False) -> int:
-    """Build — supports multiple strategies."""
+    """Build -- supports multiple strategies."""
     if not config.get("build.enabled", True):
         info("Build disabled in configuration")
         return 0
@@ -358,7 +358,7 @@ def stage_build(language: str, config: CIConfig, *, local: bool = False) -> int:
                 if language == "rust":
                     features = _normalize_rust_features(config, "build")
                     # Environment override (from workflow matrix) takes
-                    # precedence over config — allows split-runner builds
+                    # precedence over config -- allows split-runner builds
                     # to specify a single target per matrix entry.
                     env_targets = os.environ.get("RUST_BUILD_TARGETS", "")
                     if env_targets:
@@ -409,7 +409,7 @@ def stage_build(language: str, config: CIConfig, *, local: bool = False) -> int:
 
 
 def stage_release(language: str, config: CIConfig) -> int:
-    """Release — CI-only, dispatch to language-specific handler + binary upload."""
+    """Release -- CI-only, dispatch to language-specific handler + binary upload."""
     if not is_ci():
         error("Releasing can ONLY be done in GitHub Actions")
         info("To release: commit, push, and let semantic-release handle it")
@@ -457,34 +457,34 @@ def stage_release(language: str, config: CIConfig) -> int:
 
 
 def stage_container(language: str, config: CIConfig) -> int:
-    """Container build — cross-language stage, delegates to container package."""
+    """Container build -- cross-language stage, delegates to container package."""
     from hyperi_ci.container.stage import run as container_run
 
     return container_run(config, language=language)
 
 
 def stage_helm(language: str, config: CIConfig) -> int:
-    """Helm stage — package + push (oci://ghcr.io/hyperi-io/helm-charts).
+    """Helm stage -- package + push (oci://ghcr.io/hyperi-io/helm-charts).
 
     Cross-language: subprocesses into the consumer's ``emit-chart``
     subcommand, applies overlays per ``release.helm.overlays``, lints,
     packages, pushes to GHCR OCI Helm.
     """
-    del language  # unused — helm is language-agnostic
+    del language  # unused -- helm is language-agnostic
     from hyperi_ci.helm.stage import run as helm_run
 
     return helm_run(config)
 
 
 def stage_argocd(language: str, config: CIConfig) -> int:
-    """ArgoCD stage — generate Application + push to central GitOps repo.
+    """ArgoCD stage -- generate Application + push to central GitOps repo.
 
     Cross-language: subprocesses into the consumer's ``emit-argocd``,
     applies overlays per ``release.argocd.overlays``, pushes resulting
     YAML into ``hyperi-io/gitops`` per the env push policy
     (direct for dev/staging, PR for prod).
     """
-    del language  # unused — argocd is language-agnostic
+    del language  # unused -- argocd is language-agnostic
     from hyperi_ci.argocd.stage import run as argocd_run
 
     return argocd_run(config)
@@ -494,13 +494,13 @@ def stage_generate(
     language: str,
     config: CIConfig,
 ) -> int:
-    """Deployment-artefact generation — cross-tier stage.
+    """Deployment-artefact generation -- cross-tier stage.
 
     Sits between Build and Container in the pipeline. Auto-detects the
     producer tier from the project shape (scalo-rs dep / scalo-py dep /
     bare contract.json) and dispatches to the appropriate producer.
 
-    The ``language`` argument is unused here — tier detection is
+    The ``language`` argument is unused here -- tier detection is
     independent of language detection so a polyglot repo (Rust app
     with a Python tools subdir) routes by which producer framework is
     actually present.
@@ -509,7 +509,7 @@ def stage_generate(
     scalo library consumer can opt out of artefact generation instead
     of failing the Build job (issue #76).
     """
-    del language  # unused — see docstring
+    del language  # unused -- see docstring
     from hyperi_ci.deployment.stage import run as generate_run
 
     return generate_run(config=config)
@@ -571,7 +571,7 @@ def run_stage(
 
     # Surface project lifecycle status so consumers reading CI logs can
     # immediately see "oh, this isn't GA". Skipped silently when the
-    # field is unset — `.hyperi-ci.yaml` need not declare it. Always
+    # field is unset -- `.hyperi-ci.yaml` need not declare it. Always
     # logged as INFO; the parenthetical clarifier on non-ga values
     # carries the signal without elevating log level (a beta project
     # isn't an error, just a fact).

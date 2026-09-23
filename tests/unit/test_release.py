@@ -8,7 +8,7 @@
 
 Tests the config-level routing logic that determines WHERE artifacts
 are published based on publish_target. Does NOT test actual publishing
-(subprocess calls to uv/cargo/npm) — that requires real registries
+(subprocess calls to uv/cargo/npm) -- that requires real registries
 and is tested via integration tests against test projects.
 """
 
@@ -201,7 +201,7 @@ class TestChannelRouting:
 
 
 class TestCargoVersionSync:
-    """Publish's Cargo.toml stamp shares the build's table-scoped stamper —
+    """Publish's Cargo.toml stamp shares the build's table-scoped stamper --
     no duplicate regex, and a dependency `version =` is never clobbered."""
 
     def test_table_scoped_leaves_dependency_version_alone(

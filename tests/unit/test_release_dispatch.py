@@ -6,7 +6,7 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Release/retry dispatch (issue #35).
 
-`hyperi-ci release` (no tag) dispatches a from-head run — the CI creates the
+`hyperi-ci release` (no tag) dispatches a from-head run -- the CI creates the
 tag and publishes, so there's no artificial `fix:` commit. `release <tag>`
 re-dispatches an existing tag idempotently (a partial release can be retried
 even when a GH Release already exists). The CLI only triggers; the runner does
@@ -124,7 +124,7 @@ class TestIdempotentRetry:
     def test_existing_tag_redispatches_even_with_release(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # A GH Release already existing must NOT block the retry — release
+        # A GH Release already existing must NOT block the retry -- release
         # handlers skip artefacts already in their registry (issue #35).
         monkeypatch.setattr(d, "_get_version_tags", lambda: ["v1.2.3"])
         monkeypatch.setattr(d, "_tag_has_release", lambda t: True)
@@ -225,7 +225,7 @@ class TestTagHead:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         # An explicit X.Y.Z (the --version override) is tagged as-is, with no
-        # last-tag math — proven by making _compute_next_version blow up.
+        # last-tag math -- proven by making _compute_next_version blow up.
         def _boom(**k):
             raise AssertionError("must not compute a bump for an explicit version")
 
@@ -275,7 +275,7 @@ class TestTagHead:
         def fake_run_cmd(cmd, **k):
             if cmd[:2] == ["git", "rev-parse"] and "HEAD" in cmd:
                 return subprocess.CompletedProcess(cmd, 0, "headsha0\n", "")
-            if cmd[:2] == ["git", "rev-parse"]:  # the tag peel — points elsewhere
+            if cmd[:2] == ["git", "rev-parse"]:  # the tag peel -- points elsewhere
                 return subprocess.CompletedProcess(cmd, 0, "orphan99\n", "")
             gh_calls.append(cmd)
             return subprocess.CompletedProcess(cmd, 0, "", "")
@@ -323,7 +323,7 @@ class TestTagHead:
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 class TestDeprecatedImportPaths:
     """The package moved to `hyperi_ci.release`, and the old dotted paths
-    still resolve — submodules included, not just the top-level names."""
+    still resolve -- submodules included, not just the top-level names."""
 
     def test_package_shim_re_exports(self) -> None:
         from hyperi_ci.publish import dispatch_from_head, publish_binaries
@@ -333,7 +333,7 @@ class TestDeprecatedImportPaths:
 
     def test_binaries_submodule_path_still_imports(self) -> None:
         # The old dotted path resolves through a sys.modules alias, so
-        # import_module is what exercises it — a static import would not.
+        # import_module is what exercises it -- a static import would not.
         shimmed = importlib.import_module("hyperi_ci.publish.binaries")
         canonical = importlib.import_module("hyperi_ci.release.binaries")
 

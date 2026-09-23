@@ -108,7 +108,7 @@ def _get_run_status(run_id: str, repo: str | None = None) -> dict | None:
 
     Args:
         run_id: Workflow run ID.
-        repo: Optional ``owner/name`` — pass this when watching a run
+        repo: Optional ``owner/name`` -- pass this when watching a run
             in a different repo than the current working directory.
             ``gh run view`` defaults to the cwd's git remote and
             silently 404s when the run isn't there, which the watch
@@ -118,7 +118,7 @@ def _get_run_status(run_id: str, repo: str | None = None) -> dict | None:
         Dict with status/conclusion/jobs, or None on transient error.
 
     Note: returns None on both subprocess and JSON parse errors. The
-    caller treats None as "transient — retry"; only after multiple
+    caller treats None as "transient -- retry"; only after multiple
     consecutive failures should it be considered fatal. See
     `_MAX_CONSECUTIVE_FETCH_FAILURES`.
 
@@ -350,7 +350,7 @@ def watch_run(
             (poll until the run reaches a terminal state). Default is
             sized for Tier 2 Rust builds (3600 s = 60 min).
         interval: Base poll interval in seconds.
-        repo: Optional ``owner/name`` — when set, all gh calls target
+        repo: Optional ``owner/name`` -- when set, all gh calls target
             this repo instead of the cwd's git remote.
         project_dir: Repo root, for the default pin and the inventory a
             stand-down reads.

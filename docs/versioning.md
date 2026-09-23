@@ -3,7 +3,7 @@ Project:   HyperI CI
 File:      docs/versioning.md
 Purpose:   Where a version comes from, and which files are outputs
 
-License:   BUSL-1.1 — HYPERI PTY LIMITED
+License:   BUSL-1.1 -- HYPERI PTY LIMITED
 Copyright: (c) 2026 HYPERI PTY LIMITED
 -->
 

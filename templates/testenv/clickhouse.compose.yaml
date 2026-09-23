@@ -1,13 +1,13 @@
-# ClickHouse — single-node OLAP store for CI/dev integration tests.
+# ClickHouse -- single-node OLAP store for CI/dev integration tests.
 #
 # REFERENCE, NOT A DEPENDENCY. Copy this `clickhouse` service (and the sibling
 # both clickhouse-low-mem*.xml files) into your project and adjust. hyperi-ci keeps the
 # canonical, memory-tuned pattern here.
 #
 # Memory: ClickHouse defaults assume 16GB+. 2g is the reliable single-node
-# floor — it ingests + queries fine (slower than prod). Below ~1.5g it gets
+# floor -- it ingests + queries fine (slower than prod). Below ~1.5g it gets
 # flaky; <1g needs swap + ratio>1 and is NOT CI-reliable. With Redpanda's
-# 512M that's ~2.5GB, leaving ~1.5GB for your app+test on a 4GB runner —
+# 512M that's ~2.5GB, leaving ~1.5GB for your app+test on a 4GB runner --
 # hence testenv is opt-in, copy only what you need.
 
 services:

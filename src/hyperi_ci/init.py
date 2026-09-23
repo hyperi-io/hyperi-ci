@@ -1,6 +1,6 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/init.py
-# Purpose:   Project scaffolding — generates config, Makefile, and workflow
+# Purpose:   Project scaffolding -- generates config, Makefile, and workflow
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
@@ -12,7 +12,7 @@ with CI targets, and generates language-appropriate defaults.
 
 Generated files:
   - .hyperi-ci.yaml (CI configuration, language-specific defaults)
-  - Makefile (quality/test/build targets — skipped if existing)
+  - Makefile (quality/test/build targets -- skipped if existing)
   - .github/workflows/ci.yml (reusable workflow caller)
 
 No .releaserc is generated: hyperi-ci uses a central tagger-only
@@ -182,7 +182,7 @@ def _render_hyperi_ci_yaml(
         "license": license_id,
         # Information-only: lifecycle stage of the project. Surfaced
         # in CI logs and `hyperi-ci config`. Does not gate any
-        # behaviour. New projects default to `experimental` — bump as
+        # behaviour. New projects default to `experimental` -- bump as
         # the project matures. Values: experimental | alpha | beta |
         # ga | legacy | deprecated.
         "project": {"status": "experimental"},

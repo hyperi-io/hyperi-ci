@@ -24,7 +24,7 @@ User config in `.hyperi-ci.yaml` under `build.rust.optimize` overrides
 the channel defaults. Each key is optional; omitted keys use the default
 for the channel.
 
-Library-only crates skip this whole path — consumers choose their own
+Library-only crates skip this whole path -- consumers choose their own
 build profile when compiling from crates.io source.
 """
 
@@ -50,7 +50,7 @@ class OptimizationProfile:
     """Resolved build optimisation settings for a single CI build.
 
     Channel-gated with user overrides applied. Library crates should
-    never have one of these — check `_detect_binary_names()` first and
+    never have one of these -- check `_detect_binary_names()` first and
     skip if empty.
     """
 
@@ -420,7 +420,7 @@ def log_outcome(outcome: OptimizationOutcome) -> None:
 def parse_cargo_features(cargo_toml_path: Path) -> set[str]:
     """Parse feature names from the `[features]` section of a Cargo.toml.
 
-    Returns the set of feature keys. Does NOT resolve feature unions —
+    Returns the set of feature keys. Does NOT resolve feature unions --
     just the top-level feature names. Used for the "is 'jemalloc'
     declared?" check in validate_profile().
 
@@ -444,7 +444,7 @@ def _parse_features_from_text(text: str) -> set[str]:
     """Extract feature keys from a Cargo.toml text blob.
 
     Stdlib-only TOML parse for the `[features]` table. We could use
-    tomllib but this keeps the logic self-contained and dead simple —
+    tomllib but this keeps the logic self-contained and dead simple --
     we only need the left-hand-side keys, not the feature-union arrays.
     """
     features: set[str] = set()

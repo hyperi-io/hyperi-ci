@@ -49,7 +49,7 @@ def _load_workflow(name: str) -> dict:
 
 
 class TestFromHeadThreading:
-    """issue #35: from-head + bump inputs must thread through every layer —
+    """issue #35: from-head + bump inputs must thread through every layer --
     consumer ci.yml -> <lang>-ci.yml workflow_call -> predict-version (plan) ->
     _release-tail.yml -> Tag & Release. Otherwise `hyperi-ci release` dispatches
     inputs the CI silently ignores."""
@@ -249,7 +249,7 @@ class TestFromHeadThreading:
     def test_build_stamps_on_from_head_dispatch(self, workflow_name: str) -> None:
         # The from-head build-stamp gap (issue #37 / #27): HEAD's committed tree
         # is stale under the tagger-only model, so a from-head release MUST
-        # stamp the resolved next-version before building — else the published
+        # stamp the resolved next-version before building -- else the published
         # binary introspects itself as the old version. The stamp step must
         # fire on push AND on a from-head dispatch.
         wf = _load_workflow(workflow_name)
@@ -299,8 +299,8 @@ ACTIONS_DIR = Path(__file__).parent.parent.parent / ".github" / "actions"
 
 
 def test_predict_version_forced_step_handles_explicit_version() -> None:
-    # The forced step resolves ANY non-auto bump — patch/minor OR an explicit
-    # X.Y.Z (the --version override, issue #37) — so plan stamps exactly what
+    # The forced step resolves ANY non-auto bump -- patch/minor OR an explicit
+    # X.Y.Z (the --version override, issue #37) -- so plan stamps exactly what
     # tag-head later tags. Gating only on patch/minor would leave an explicit
     # version unresolved and the build would fail on an empty next-version.
     path = ACTIONS_DIR / "predict-version" / "action.yml"
@@ -812,7 +812,7 @@ class TestFirstReleaseAndOrphanGuards:
     def test_predict_first_release_uses_the_declared_version(self) -> None:
         # Tag-less repo: the starting version comes from the project's own
         # manifest via seed_version.py, never from the committed VERSION file
-        # (issue #85 — that file is an artefact, frozen in every repo).
+        # (issue #85 -- that file is an artefact, frozen in every repo).
         run = str(self._predict_step()["run"])
         # Polarity: only on a genuinely tag-less repo.
         assert '-z "$tags_all"' in run, (
@@ -844,7 +844,7 @@ class TestFirstReleaseAndOrphanGuards:
 
     def test_predict_guard_ordering(self) -> None:
         # The guards and the VERSION override must all run BEFORE the
-        # version is emitted to GITHUB_OUTPUT — substring presence alone
+        # version is emitted to GITHUB_OUTPUT -- substring presence alone
         # would stay green if a refactor moved a guard after the emit,
         # silently disarming it.
         run = str(self._predict_step()["run"])
@@ -868,7 +868,7 @@ class TestFirstReleaseAndOrphanGuards:
         # On a tag-less repo the real semantic-release run would tag its
         # own 1.0.0 default, diverging from the plan's resolved starting
         # version. The tail must materialise the plan's next-version via
-        # tag-head instead — one version oracle.
+        # tag-head instead -- one version oracle.
         wf = _load_workflow("_release-tail.yml")
         steps = wf["jobs"]["tag-and-release"]["steps"]
         sr = next(s for s in steps if s.get("name") == "Tag (semantic-release)")
@@ -887,7 +887,7 @@ class TestFirstReleaseAndOrphanGuards:
             "tag-less branch must be tag-head; the else branch must be "
             "the real semantic-release run"
         )
-        # tag-head goes through `gh api` — the step needs GH_TOKEN.
+        # tag-head goes through `gh api` -- the step needs GH_TOKEN.
         assert "GH_TOKEN" in sr.get("env", {}), (
             "Tag step must export GH_TOKEN for tag-head's gh api call"
         )
@@ -902,7 +902,7 @@ class TestReleaseTailDecoupling:
 
     def test_tag_and_release_decoupled_from_container(self) -> None:
         # `always()` ensures Tag & Release runs even when Container fails
-        # or is skipped — the crate/GH release is never lost to a
+        # or is skipped -- the crate/GH release is never lost to a
         # transient container hiccup.
         job = self._tail()["jobs"]["tag-and-release"]
         assert "always()" in str(job["if"]), (
@@ -1021,7 +1021,7 @@ def test_job_uses_canonical_gate(
 
 @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
 def test_plan_job_uses_predict_version_composite(workflow_name: str) -> None:
-    """Plan job MUST call the predict-version composite action — not a
+    """Plan job MUST call the predict-version composite action -- not a
     re-implementation. This is the single source of truth for the gate
     decision logic.
     """
@@ -1228,7 +1228,7 @@ def test_rust_renovate_carveout_never_lands_on_a_toolchainless_runner() -> None:
     """issue #91: renovate/ branches must resolve to a runner with cargo.
 
     GH_RUNNER_RENOVATE and GH_RUNNER_DEFAULT point at vanilla sets, and Rust
-    does not bootstrap its toolchain at job time — so rust-ci.yml's renovate
+    does not bootstrap its toolchain at job time -- so rust-ci.yml's renovate
     carve-out must chain GH_RUNNER_RENOVATE_RUST -> GH_RUNNER_RUST, never the
     shared GH_RUNNER_RENOVATE.
     """

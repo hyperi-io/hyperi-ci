@@ -4,7 +4,7 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Rust publish handler — publishes crates to crates.io."""
+"""Rust publish handler -- publishes crates to crates.io."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def _sync_cargo_toml_version(version: str) -> bool:
 
     The publish job's checkout is the committed (stale) tree, so Cargo.toml
     must be stamped before `cargo publish`. Delegates to the shared
-    `stamp_manifest` — the SAME table-scoped stamper the build uses, so the
+    `stamp_manifest` -- the SAME table-scoped stamper the build uses, so the
     two can't drift (the old unscoped regex here could clobber a dependency's
     `version =`).
 

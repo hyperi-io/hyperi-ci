@@ -434,7 +434,7 @@ class TestForcedBumpPush:
     When bump is set, _publish_push computes the next version from the
     latest tag, writes it to VERSION, and commits with a conventional
     fix:/feat: marker message + Publish: true trailer. The VERSION
-    write is essential — it makes the commit non-empty so consumer
+    write is essential -- it makes the commit non-empty so consumer
     `paths-ignore` filters don't skip the CI run.
     """
 
@@ -888,7 +888,7 @@ class TestBumpGate:
 
         monkeypatch.delenv("HYPERCI_ALLOW_MINOR_BUMP", raising=False)
         monkeypatch.delenv("HYPERCI_ALLOW_MAJOR_BUMP", raising=False)
-        # HYPERCI_ALLOW_FEAT also satisfies the minor gate — clear it too,
+        # HYPERCI_ALLOW_FEAT also satisfies the minor gate -- clear it too,
         # or running the suite under `hyperi-ci push` of a feat commit
         # (which exports it) fails this test on ambient env.
         monkeypatch.delenv("HYPERCI_ALLOW_FEAT", raising=False)

@@ -142,7 +142,7 @@ class TestBreakingDeltas:
 
 class TestRemovedPipelineFiles:
     """A composite/workflow present at the last release but deleted now breaks
-    a pinned caller's `@main` reference (404 at startup) — flag it."""
+    a pinned caller's `@main` reference (404 at startup) -- flag it."""
 
     def test_flags_deleted_file(self) -> None:
         old = {

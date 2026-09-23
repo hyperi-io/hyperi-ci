@@ -98,7 +98,7 @@ def audit() -> tuple[list[str], list[str], list[str]]:
     """Audit the declared keys.
 
     Returns:
-        ``(unread, stale_allowlist, unused_allowlist)`` — keys nothing reads,
+        ``(unread, stale_allowlist, unused_allowlist)`` -- keys nothing reads,
         allowlist entries naming a file that no longer exists, and allowlist
         entries the audit would have passed anyway.
 

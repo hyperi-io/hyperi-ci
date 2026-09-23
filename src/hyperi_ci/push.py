@@ -70,7 +70,7 @@ _AUTO_STAGE_LOCKFILES: frozenset[str] = frozenset(
 )
 
 # Bump → conventional-commits type that semantic-release will treat as
-# the corresponding semver bump. We deliberately exclude "major" — major
+# the corresponding semver bump. We deliberately exclude "major" -- major
 # bumps require a human to write `BREAKING CHANGE:` in the commit body
 # (per HyperI commit-type discipline). Forcing a major via flag would
 # bypass that gate.
@@ -98,12 +98,12 @@ def push(
             Cargo.toml/VERSION before build, then tags + publishes in
             the same workflow run.
         no_ci: Amend last commit with ``[skip ci]`` and push.
-        bump: ``"patch"`` or ``"minor"`` — force a release-worthy commit
+        bump: ``"patch"`` or ``"minor"`` -- force a release-worthy commit
             on top of HEAD even when the actual commits are no-bump
             (e.g. ``docs:`` only). Implies ``--publish``. Lets you
             release a docs-only or refactor-only PR without manually
             adding a fake ``fix:`` commit. Major bumps are deliberately
-            excluded — they require a human-written ``BREAKING CHANGE:``
+            excluded -- they require a human-written ``BREAKING CHANGE:``
             footer per HyperI commit-type discipline.
         dry_run: Show what would happen without executing.
         force: Skip hyperi-ci check step.
@@ -183,7 +183,7 @@ def _publish_push(
       commits are NOT release-worthy (e.g. docs-only) but they want a
       release anyway. We add a NEW empty commit on top with a
       conventional-commit message that semantic-release will analyse
-      as a patch/minor — plus the ``Release: true`` trailer. Honest
+      as a patch/minor -- plus the ``Release: true`` trailer. Honest
       git history: the marker commit explicitly states "this is a
       forced release" rather than smuggling a fake fix into source.
 
@@ -214,7 +214,7 @@ def _publish_push(
 
     # Predicted-bump gate on dry runs (issue #26): report the verdict on
     # the LOCAL range before the dry-run paths return. The authoritative
-    # gate for a real push runs after the pull-rebase below — the pull can
+    # gate for a real push runs after the pull-rebase below -- the pull can
     # import feat!/BREAKING history from origin that the local range never
     # contained, and that imported history must not escape analysis.
     if dry_run:
@@ -223,7 +223,7 @@ def _publish_push(
 
     if bump:
         # Forced bump: add a release-marker commit that ALSO writes the
-        # next version to VERSION. The VERSION write is essential — it
+        # next version to VERSION. The VERSION write is essential -- it
         # makes the commit non-empty, defeating consumer-project
         # `paths-ignore` filters that would otherwise skip CI for empty
         # commits. semantic-release's prepareCmd will overwrite VERSION
@@ -291,7 +291,7 @@ def _publish_push(
     # Sync BEFORE the gate so the analysis covers exactly what the push
     # will make reachable (issue #26). Gating pre-pull left a hole: a
     # reconcile merge already on origin/main gets imported by the pull
-    # and shipped un-analysed — the rustlib v3.0.0 shape, arriving via
+    # and shipped un-analysed -- the rustlib v3.0.0 shape, arriving via
     # the sync instead of the local worktree.
     # Rebase onto the branch being pushed, which is `main` for a stable
     # release and the prerelease branch otherwise -- rebasing a prerelease
@@ -331,8 +331,8 @@ def tag_head(*, bump: str, dry_run: bool = False, cwd: str | None = None) -> int
 
     The ``bump`` channel carries one of:
 
-    - ``patch`` / ``minor`` — compute ``last-tag + bump`` (forced bump);
-    - an explicit ``X.Y.Z`` — the ``hyperi-ci publish --version`` override,
+    - ``patch`` / ``minor`` -- compute ``last-tag + bump`` (forced bump);
+    - an explicit ``X.Y.Z`` -- the ``hyperi-ci publish --version`` override,
       used verbatim (skips a taken/orphaned tag, e.g. the issue #37 case).
 
     Creates an annotated tag at HEAD, pushes it, and writes ``version=`` +
@@ -368,7 +368,7 @@ def tag_head(*, bump: str, dry_run: bool = False, cwd: str | None = None) -> int
         return 1
 
     # Explicit --version safety: never tag over a tag that points off-HEAD
-    # (e.g. an orphaned tag from a past rewrite, or an operator typo) — that
+    # (e.g. an orphaned tag from a past rewrite, or an operator typo) -- that
     # would publish a fresh artefact under a tag pointing at old history
     # (issue #37). A forced patch/minor always lands above the highest tag so
     # can't collide; an explicit version can, so guard it. Tags are local in
@@ -390,7 +390,7 @@ def tag_head(*, bump: str, dry_run: bool = False, cwd: str | None = None) -> int
                     "Pick a free version with --version, or use --bump patch."
                 )
                 return 1
-            # Already at HEAD — idempotent; nothing to create.
+            # Already at HEAD -- idempotent; nothing to create.
             _emit_gh_output(version=next_version, tag=tag)
             success(f"tag-head: {tag} already at HEAD ({sha[:8]}) — nothing to tag.")
             return 0
@@ -398,7 +398,7 @@ def tag_head(*, bump: str, dry_run: bool = False, cwd: str | None = None) -> int
     # Create the tag ref remotely via the GitHub API. Uses GITHUB_TOKEN, so
     # it works even though the Tag & Release checkout sets
     # persist-credentials: false (no git push creds). Idempotent: a ref that
-    # already exists (HTTP 422) is fine — we're converging to "tag exists".
+    # already exists (HTTP 422) is fine -- we're converging to "tag exists".
     created = run_cmd(
         [
             "gh",
@@ -435,7 +435,7 @@ def _compute_next_version(*, bump: str, cwd: str | None) -> str | None:
 
     Note the deliberate asymmetry with the auto path: on a tag-less repo
     the predict-version composite ships the seed version *verbatim* as the
-    first release, while the forced ``--bump`` paths here bump FROM it —
+    first release, while the forced ``--bump`` paths here bump FROM it --
     a bump is a bump, even against a declared start.
 
     The ``VERSION`` file is deliberately not consulted (issue #85): it is
@@ -481,7 +481,7 @@ def _compute_next_version(*, bump: str, cwd: str | None) -> str | None:
         minor += 1
         patch = 0
     else:
-        # _BUMP_TO_TYPE excludes "major" — defensive
+        # _BUMP_TO_TYPE excludes "major" -- defensive
         return None
 
     return f"{major}.{minor}.{patch}"
@@ -571,7 +571,7 @@ def _has_publish_trailer(message: str) -> bool:
 def _amend_publish_trailer(*, cwd: str | None) -> int:
     """Amend HEAD to add the Release: true trailer (no message change)."""
     # `--allow-empty` covers the edge case where HEAD is already an empty
-    # commit (e.g. an empty `chore: trigger` marker) — git refuses to
+    # commit (e.g. an empty `chore: trigger` marker) -- git refuses to
     # amend an empty commit by default. The trailer-only amend doesn't
     # add content, so without --allow-empty the amend fails. Including
     # the flag is harmless when there IS content.
@@ -767,14 +767,14 @@ def _bump_gate(*, cwd: str | None, forced_bump: str | None) -> int:
     compares the predicted bump against what the operator has authorised:
 
     * a predicted MAJOR needs ``HYPERCI_ALLOW_MAJOR_BUMP=1`` (or
-      ``HYPERCI_ALLOW_BREAKING=1`` — declared breaking intent);
+      ``HYPERCI_ALLOW_BREAKING=1`` -- declared breaking intent);
     * a predicted MINOR needs ``HYPERCI_ALLOW_MINOR_BUMP=1`` (or
-      ``HYPERCI_ALLOW_FEAT=1`` — declared feat intent — or an explicit
+      ``HYPERCI_ALLOW_FEAT=1`` -- declared feat intent -- or an explicit
       ``--bump-minor``);
     * PATCH / none always pass.
 
     In the real publish flow this runs AFTER the pull-rebase, so the
-    analysed range is exactly what the push makes reachable — including
+    analysed range is exactly what the push makes reachable -- including
     history the pull imported from origin. The dry-run call gates the
     local range only (best effort, no mutation).
 
@@ -790,7 +790,7 @@ def _bump_gate(*, cwd: str | None, forced_bump: str | None) -> int:
     # An explicit --bump-* pre-authorises that level. The commit-text
     # opt-ins carry the same intent one level up: HYPERCI_ALLOW_BREAKING
     # ("yes, a breaking change") authorises a major, HYPERCI_ALLOW_FEAT
-    # ("yes, a feat") authorises a minor — an operator who set them to
+    # ("yes, a feat") authorises a minor -- an operator who set them to
     # get the commit through shouldn't be re-blocked here for the very
     # bump they declared.
     authorised = _BUMP_RANK.get(forced_bump or "none", 0)

@@ -174,7 +174,7 @@ class TestNotImplemented:
         """The advertised artefact list covers everything the spec calls for."""
         from hyperi_ci.deployment.cli import ARTEFACT_FILES
 
-        # Spec section "ci/ directory contents" — these are the files
+        # Spec section "ci/ directory contents" -- these are the files
         # every emit-artefacts run produces. Mirroring the order
         # documented in the spec.
         expected = {

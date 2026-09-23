@@ -9,7 +9,7 @@
 # actions. The pre-commit hook (scripts/update-versions.py --fix) keeps the
 # pipeline pinned to these exact SHAs.
 #
-# Actions pin to a commit SHA with a `# <version>` comment — a tag can be
+# Actions pin to a commit SHA with a `# <version>` comment -- a tag can be
 # force-moved, a SHA can't (supply-chain hardening). Policy + the Renovate
 # split: docs/dependencies/deps-pinning.md.
 #
@@ -22,7 +22,7 @@
 #                   does not commit and does not trigger remote CI - the
 #                   ci-test-* fleet validates on the PR.
 
-# GitHub Actions — SHA-pinned, 7-day cooldown (see _select_pinned_release)
+# GitHub Actions -- SHA-pinned, 7-day cooldown (see _select_pinned_release)
 actions:
   checkout:
     version: v7.0.1

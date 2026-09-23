@@ -1,8 +1,8 @@
 # Project:   HyperI CI
 # File:      .github/workflows/_release-tail.yml
-# Purpose:   Shared release tail — container + tag-and-release jobs
+# Purpose:   Shared release tail -- container + tag-and-release jobs
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # Reusable workflow called by language-specific *-ci.yml files. Owns
@@ -86,7 +86,7 @@ on:
 
 env:
   # Rehearsal / incident escape hatch: the HYPERCI_INSTALL_OVERRIDE repo
-  # variable replaces the CLI install command wholesale — a branch rehearsal
+  # variable replaces the CLI install command wholesale -- a branch rehearsal
   # points it at `uvx --from git+...@<branch> hyperi-ci`; an incident pins
   # the repo to a known-good `uvx hyperi-ci==X.Y.Z`. Unset = latest PyPI.
   # `--python` pins the CLI's OWN interpreter. Without it uvx takes whatever
@@ -109,13 +109,13 @@ jobs:
     #
     # - Validate-only (push to main, will-publish == 'false'):
     #   docker build runs to catch Dockerfile breakages, but no push
-    #   to any registry — verifies the Dockerfile is producible
+    #   to any registry -- verifies the Dockerfile is producible
     #   BEFORE we ever try to publish from it.
     # - Publish (will-publish == 'true'): docker build + push to all
     #   configured registries.
     # - pull_request (branch-mode): docker build; pushed as a DEV image
     #   (branch-<slug> + sha tags, GHCR only) iff the project sets
-    #   publish.container.dev_push — else validate-only. Fork PRs are
+    #   publish.container.dev_push -- else validate-only. Fork PRs are
     #   excluded outright (first clause; no secrets, no pushes).
     #
     # The release/dev/validate decision lives in hyperi_ci.release_mode
@@ -146,7 +146,7 @@ jobs:
         run: git submodule update --init --depth 1 $SUBMODULES
 
       - name: Install uv
-        # Needed to run the resolve step below. Cheap, no Docker Hub —
+        # Needed to run the resolve step below. Cheap, no Docker Hub --
         # so a library never pays the Buildx/Docker-Hub cost (issue #33).
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
@@ -157,7 +157,7 @@ jobs:
         # container. enabled:false → no; enabled:true → yes; auto →
         # filesystem signal (Dockerfile or rustlib contract; a crate/
         # library has none). Gating every Docker step on this means a
-        # library (e.g. a Rust crate — no GHCR deployment) never pulls
+        # library (e.g. a Rust crate -- no GHCR deployment) never pulls
         # buildkit from Docker Hub nor logs in to GHCR (issue #33).
         id: resolve
         env:
@@ -165,7 +165,7 @@ jobs:
         run: ${{ env.HYPERCI_INSTALL }} run container
 
       - name: Docker Hub login (authenticated pulls only)
-        # Docker Hub is not a publish target — login is solely to bypass
+        # Docker Hub is not a publish target -- login is solely to bypass
         # anonymous rate limits when the Dockerfile pulls a Hub base
         # image. Conditional on the org var being set; no-op otherwise.
         if: steps.resolve.outputs.build == 'true' && vars.DOCKERHUB_USERNAME != ''
@@ -175,7 +175,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: GHCR login
-        # GITHUB_TOKEN via job-level packages:write permission — can create
+        # GITHUB_TOKEN via job-level packages:write permission -- can create
         # new repo-owned packages on first push.
         if: steps.resolve.outputs.build == 'true'
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -192,7 +192,7 @@ jobs:
         # The build-dist-* artifact carries both dist/ (binaries) and
         # ci-tmp/ (deployment artefacts produced by the Build stage).
         # Download into the project root so both trees land at their
-        # original paths — Container stage looks for dist/<binary> and
+        # original paths -- Container stage looks for dist/<binary> and
         # ci-tmp/container-manifest.json relative to cwd.
         if: steps.resolve.outputs.build == 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -220,7 +220,7 @@ jobs:
         env:
           HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
           HYPERCI_RELEASE_MODE: ${{ inputs.will-publish }}
-          # Authoritative version for the image tag — same value Build
+          # Authoritative version for the image tag -- same value Build
           # stamps and Tag-and-Release releases. Without this the stage
           # falls back to the checked-out VERSION file, which is stale on
           # a shallow/tagless container checkout (issue #27).
@@ -329,7 +329,7 @@ jobs:
         # Defence-in-depth for issue #37: refuse to tag if the predicted
         # version already exists as a tag pointing somewhere other than
         # HEAD. A collision means semantic-release mispredicted (blind to
-        # existing tags) — proceeding would rewrite release history. Fail
+        # existing tags) -- proceeding would rewrite release history. Fail
         # fast and loud instead. Tags are present locally (fetch-depth: 0).
         # Trivial glue: a tag-existence check + SHA compare.
         if: ${{ github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto') }}
@@ -348,7 +348,7 @@ jobs:
           fi
 
       - name: Tag (semantic-release)
-        # Real run (no --dry-run) — analyzes commits, writes Cargo.toml
+        # Real run (no --dry-run) -- analyzes commits, writes Cargo.toml
         # + VERSION + CHANGELOG, commits with [skip ci], pushes commit,
         # creates and pushes the git tag. Same version `next-version`
         # predicted in plan (deterministic). Also handles a from-head
@@ -358,7 +358,7 @@ jobs:
         # semantic-release run would tag its own 1.0.0 default, diverging
         # from the plan's resolved starting version (a committed VERSION
         # file overrides the default at predict time). The plan is the ONE
-        # version oracle — materialise its next-version via tag-head (the
+        # version oracle -- materialise its next-version via tag-head (the
         # explicit-version primitive: idempotent, off-HEAD-guarded, works
         # with persist-credentials: false) instead of re-running the
         # oracle. Once the first tag exists this branch never fires again.
@@ -389,7 +389,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download build artifacts
-        # Build job uploads both dist/ and ci-tmp/ trees — extract at
+        # Build job uploads both dist/ and ci-tmp/ trees -- extract at
         # the project root so paths land where consumers expect them.
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -415,8 +415,8 @@ jobs:
       - name: Tag HEAD (forced bump / explicit version)
         # from-head dispatch with a non-auto bump (issue #35): force a release
         # of HEAD. semantic-release can't force a version, so tag-head resolves
-        # it — `last-tag + bump` for patch/minor, or the explicit X.Y.Z verbatim
-        # (the --version override that steps past a taken/orphaned tag, #37) —
+        # it -- `last-tag + bump` for patch/minor, or the explicit X.Y.Z verbatim
+        # (the --version override that steps past a taken/orphaned tag, #37) --
         # and creates the tag at HEAD via the GitHub API (works with
         # persist-credentials: false). It emits `version` for the Publish step,
         # which re-stamps the manifest to it before pushing to the registry.
@@ -431,7 +431,7 @@ jobs:
         # GHCR / GitHub Releases / Cloudflare R2.
         id: publish
         env:
-          # Version being released — same SSoT as Build (stamp) + Container
+          # Version being released -- same SSoT as Build (stamp) + Container
           # (#27). A forced from-head bump resolves its version from tag-head
           # (the plan's prediction doesn't know the forced bump); otherwise
           # the plan's next-version. publish re-stamps the manifest to this.
@@ -473,7 +473,7 @@ jobs:
         # @semantic-release/git was dropped (issue #85).
         #
         # Runs after the tag exists and adds an untagged commit via the Git
-        # Data API, so no tag points at machine-authored history — the
+        # Data API, so no tag points at machine-authored history -- the
         # property whose absence caused the #37 orphaning.
         #
         # Non-fatal: once the registry has the release, a failure here must

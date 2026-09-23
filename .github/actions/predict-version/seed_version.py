@@ -3,7 +3,7 @@
 # File:      .github/actions/predict-version/seed_version.py
 # Purpose:   Print a tag-less repo's starting version, with no install
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Print the version a tag-less repo starts from, for the composite action.
 

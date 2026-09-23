@@ -171,7 +171,7 @@ class TestSourceCheckoutProvenance:
         assert "rust" in result.stdout
         # YAML output has unquoted keys with colon
         assert "language: rust" in result.stdout
-        # JSON would have quoted keys — YAML does not
+        # JSON would have quoted keys -- YAML does not
         assert '"language"' not in result.stdout
 
     def test_config_json_flag(self, tmp_path) -> None:

@@ -52,7 +52,7 @@ class TestImageRegistryCascade:
         assert image_registry_from_cascade(cfg) == "harbor.devex.hyperi.io:8443/library"
 
     def test_non_string_falls_back(self) -> None:
-        # Operator typo — passing a number — shouldn't crash; defaults are
+        # Operator typo -- passing a number -- shouldn't crash; defaults are
         # the safe choice when the cascade has the wrong type.
         cfg = CIConfig(_raw={"deployment": {"image_registry": 42}})
         assert image_registry_from_cascade(cfg) == DEFAULT_IMAGE_REGISTRY
@@ -85,7 +85,7 @@ class TestArgocdRepoUrlCascade:
     def test_explicit_override_ignores_app_name(self) -> None:
         cfg = _config(**{"argocd.repo_url": "https://gitlab.com/foo/bar"})
         url = argocd_repo_url_from_cascade(cfg, "dfe-loader")
-        # Override wins — app_name is only used as a fallback formatter.
+        # Override wins -- app_name is only used as a fallback formatter.
         assert url == "https://gitlab.com/foo/bar"
 
     def test_empty_falls_back_to_default(self) -> None:

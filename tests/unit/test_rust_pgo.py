@@ -170,7 +170,7 @@ class TestBoltAvailabilityCheck:
     """BOLT toolchain discovery with versioned-binary fallback shim.
 
     Ubuntu ships only version-suffixed binaries (llvm-bolt-NN, merge-fdata-NN)
-    via the bolt-NN package — no unversioned symlinks. cargo-pgo's BOLT flow
+    via the bolt-NN package -- no unversioned symlinks. cargo-pgo's BOLT flow
     invokes BOTH `llvm-bolt` and `merge-fdata` unversioned, so the shim must
     cover both and they must come from the SAME LLVM version for internal
     consistency.
@@ -181,7 +181,7 @@ class TestBoltAvailabilityCheck:
 
     # BOLT toolchain = llvm-bolt + merge-fdata + ld.lld (all three must
     # resolve from the same LLVM version for cargo-pgo's bolt flow to
-    # work — ld.lld is the linker BOLT requires for --emit-relocs metadata).
+    # work -- ld.lld is the linker BOLT requires for --emit-relocs metadata).
     _BOLT_TOOLS = ("llvm-bolt", "merge-fdata", "ld.lld")
 
     def test_all_tools_unversioned_present(self) -> None:
@@ -233,10 +233,10 @@ class TestBoltAvailabilityCheck:
         """llvm-bolt-22 + merge-fdata-22 present but ld.lld-22 missing → refuse.
 
         All three binaries must come from the same LLVM version. Without
-        ld.lld, BOLT-instrumented link will fail — better to return False
+        ld.lld, BOLT-instrumented link will fail -- better to return False
         here and surface a clear 'BOLT skipped' warning.
         """
-        # Two of three present — missing ld.lld
+        # Two of three present -- missing ld.lld
         fake_bolt = tmp_path / "llvm-bolt-22"
         fake_merge = tmp_path / "merge-fdata-22"
         fake_bolt.touch()
@@ -260,7 +260,7 @@ class TestBoltAvailabilityCheck:
     def test_skips_versions_with_incomplete_toolchain(
         self, tmp_path, monkeypatch
     ) -> None:
-        """v21 has only llvm-bolt; v22 has full trio — must pick v22 consistently."""
+        """v21 has only llvm-bolt; v22 has full trio -- must pick v22 consistently."""
         monkeypatch.setenv("PATH", os.environ["PATH"])
         # v21: only llvm-bolt-21 (no merge-fdata-21, no ld.lld-21)
         v21_bolt = tmp_path / "llvm-bolt-21"
@@ -296,10 +296,10 @@ class TestBoltAvailabilityCheck:
 class TestBoltBuildEnv:
     """BOLT steps need TWO env overrides to get a clean linker pass:
 
-    1. `CARGO_TARGET_<TRIPLE>_RUSTFLAGS` with `-C link-arg=-fuse-ld=lld` —
+    1. `CARGO_TARGET_<TRIPLE>_RUSTFLAGS` with `-C link-arg=-fuse-ld=lld` --
        mold segfaults on `--emit-relocs`, GNU BFD rejects it, lld is the
        canonical BOLT-compatible linker.
-    2. `CARGO_PROFILE_RELEASE_STRIP=none` — lld refuses to combine
+    2. `CARGO_PROFILE_RELEASE_STRIP=none` -- lld refuses to combine
        `--strip-all` with `--emit-relocs`, so projects with
        `[profile.release] strip = true` otherwise fail the BOLT build.
        Final binary is stripped by hyperi-ci's post-build packaging.
@@ -366,7 +366,7 @@ class TestBoltBuildEnv:
         )
 
     def test_disables_strip_for_bolt_steps(self) -> None:
-        """strip=true + --emit-relocs is rejected by lld — override to none."""
+        """strip=true + --emit-relocs is rejected by lld -- override to none."""
         from hyperi_ci.languages.rust.pgo import _bolt_build_env
 
         env = _bolt_build_env("x86_64-unknown-linux-gnu")
@@ -380,7 +380,7 @@ class TestBoltBuildEnv:
         assert env["CARGO_PROFILE_RELEASE_STRIP"] == "none"
 
     def test_triple_with_dots_is_sanitised_to_underscores(self) -> None:
-        """Some triples have dots (e.g. Apple targets) — must become underscores."""
+        """Some triples have dots (e.g. Apple targets) -- must become underscores."""
         from hyperi_ci.languages.rust.pgo import _bolt_build_env
 
         # Cargo's env var convention replaces BOTH - and . with _
@@ -677,7 +677,7 @@ class TestWorkloadExecution:
                 cwd=tmp_path,
             )
         # subprocess.run was called with the full shell command as its
-        # first positional argument — binary path appended + properly quoted.
+        # first positional argument -- binary path appended + properly quoted.
         call_cmd = mock_run.call_args.args[0]
         assert call_cmd.startswith("bash scripts/pgo-workload.sh ")
         assert str(binary) in call_cmd
@@ -1034,7 +1034,7 @@ class TestRunPgoBuildOrchestration:
                 cwd=tmp_path,
             )
         assert rc == 1
-        # Only called once (instrument) — pipeline aborted
+        # Only called once (instrument) -- pipeline aborted
         assert mock_cargo.call_count == 1
 
     def test_workload_failure_aborts_pipeline(self, tmp_path) -> None:
@@ -1135,7 +1135,7 @@ class TestRunPgoBuildOrchestration:
         last_call_args = mock_cargo.call_args_list[-1][0][0]
         assert last_call_args[0] == "bolt"
         assert last_call_args[1] == "optimize"
-        # Workload runs TWICE — PGO and BOLT each need their own profile data,
+        # Workload runs TWICE -- PGO and BOLT each need their own profile data,
         # else BOLT optimises against nothing (#29).
         assert mock_workload.call_count == 2
         bolt_workload_bin = str(mock_workload.call_args_list[1][0][2])
@@ -1284,7 +1284,7 @@ class TestOutcomeRecording:
     """The outcome records stages that completed, not stages that were asked for.
 
     Every BOLT skip below returns 0, so the return code cannot distinguish an
-    optimised binary from a fallback — only the outcome can.
+    optimised binary from a fallback -- only the outcome can.
     """
 
     @staticmethod

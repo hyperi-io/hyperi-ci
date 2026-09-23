@@ -3,7 +3,7 @@
 # File:      .github/actions/predict-version/python_version.py
 # Purpose:   Print the Python version a project builds on, with no install
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Print the Python version this project should be built and tested on.
 

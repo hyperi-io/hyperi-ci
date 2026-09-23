@@ -6,7 +6,7 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Push-mode resolution matrix.
 
-The env is injected as a plain dict — no os.environ monkeypatching, so
+The env is injected as a plain dict -- no os.environ monkeypatching, so
 the matrix is exact regardless of what CI env the test itself runs in.
 """
 
@@ -66,7 +66,7 @@ class TestResolvePushMode:
         assert resolve_push_mode(dev_push=True, env=env) == DEV
 
     def test_main_push_never_dev(self) -> None:
-        # Validate-only main pushes stay validate even with the opt-in —
+        # Validate-only main pushes stay validate even with the opt-in --
         # main's only pushing artifact class is the GA release.
         env = {**_MAIN_PUSH_ENV, "HYPERCI_RELEASE_MODE": "false"}
         assert resolve_push_mode(dev_push=True, env=env) == VALIDATE
@@ -119,7 +119,7 @@ class TestBoolView:
         assert is_release_mode(env={"HYPERCI_RELEASE_MODE": "true"}) is True
 
     def test_is_release_mode_dev_is_not_release(self) -> None:
-        # helm / argocd treat dev as validate — never a release.
+        # helm / argocd treat dev as validate -- never a release.
         assert is_release_mode(env={"HYPERCI_RELEASE_MODE": "dev"}) is False
 
 
@@ -158,7 +158,7 @@ class TestBranchCiContext:
 
 class TestDevBranchSlug:
     def test_pr_head_ref_wins_over_merge_ref(self) -> None:
-        # On pull_request GITHUB_REF_NAME is '7/merge' — useless as a tag.
+        # On pull_request GITHUB_REF_NAME is '7/merge' -- useless as a tag.
         env = {**_PR_ENV, "GITHUB_REF_NAME": "7/merge"}
         assert dev_branch_slug(env=env) == "feat-dev-images"
 

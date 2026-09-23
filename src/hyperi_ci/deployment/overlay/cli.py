@@ -50,7 +50,7 @@ def render(
 
     Args:
         kind: ``dockerfile`` | ``helm`` | ``argocd``. ``None`` means
-            "emit all three" (default — mirrors the deployment
+            "emit all three" (default -- mirrors the deployment
             contract's bulk-output behaviour). When emitting all three,
             ``output`` must be a directory; the layout is::
 
@@ -62,7 +62,7 @@ def render(
             the consumer binary.
         output: Where to write the final artefact(s). For single-kind
             renders, stdout if None (only meaningful for single-file
-            artefacts — Helm requires ``--output``). For all-three
+            artefacts -- Helm requires ``--output``). For all-three
             renders, defaults to ``./ci-overlay/`` if None.
         binary: Override the consumer binary path. Defaults to
             ``<project_dir>/<project_name>`` resolved against PATH.
@@ -160,7 +160,7 @@ def _load_release_block(project_dir: Path) -> dict:
 
     Uses ``reload=True`` because a single CLI invocation may render
     across multiple project_dirs (e.g. the all-three default path) and
-    `load_config` caches at module level — without reload, the second
+    `load_config` caches at module level -- without reload, the second
     call returns the first project's config.
     """
     cfg = load_config(project_dir=project_dir, reload=True)

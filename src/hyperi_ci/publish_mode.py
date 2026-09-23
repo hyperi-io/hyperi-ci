@@ -1,6 +1,6 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/publish_mode.py
-# Purpose:   Back-compat shim — moved to hyperi_ci.release_mode
+# Purpose:   Back-compat shim -- moved to hyperi_ci.release_mode
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED

@@ -28,7 +28,7 @@ CONCURRENCY="${PGO_WORKLOAD_CONCURRENCY:-50}"
 BIND_ADDR="127.0.0.1:8080"
 
 # TODO: choose a load generator. `oha` is lightweight and available on PATH.
-#   cargo install oha  (if not installed — takes ~30s)
+#   cargo install oha  (if not installed -- takes ~30s)
 command -v oha >/dev/null 2>&1 || {
     echo "error: oha not found; install with: cargo install oha" >&2
     exit 1
@@ -38,7 +38,7 @@ command -v oha >/dev/null 2>&1 || {
 WORKDIR=$(mktemp -d -t pgo-workload-XXXXXX)
 
 # TODO: if your binary needs a config file, write one here. Keep it
-# minimal — enable only the listeners that will be driven.
+# minimal -- enable only the listeners that will be driven.
 # Example:
 cat > "$WORKDIR/config.yaml" <<YAML
 # TODO: replace with your project's config schema

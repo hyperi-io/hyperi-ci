@@ -88,7 +88,7 @@ class TestIdempotence:
         assert existing_version_tags(repo) == ["v0.1.0"]
 
     def test_a_non_version_tag_does_not_count(self, repo: Path) -> None:
-        """`nightly` or `latest` is not a version — the repo still needs one."""
+        """`nightly` or `latest` is not a version -- the repo still needs one."""
         _git(repo, "tag", "nightly")
         assert seed_tag(project_dir=repo) == 0
         assert existing_version_tags(repo) == ["v0.1.0"]

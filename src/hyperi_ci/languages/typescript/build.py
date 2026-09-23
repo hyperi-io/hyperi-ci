@@ -40,7 +40,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 def stamp_manifest(version: str, root: Path) -> None:
     """Stamp `version` into package.json's top-level "version".
 
-    Regex-rewrites the first `"version": "..."` (the package's own field —
+    Regex-rewrites the first `"version": "..."` (the package's own field --
     dependency specs use `"<name>": "<range>"`, never a bare `"version"`
     key) so the file's formatting is preserved exactly.
     """

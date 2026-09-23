@@ -8,7 +8,7 @@
 
 Mirrors `scalo::deployment::registry`. Org-wide defaults (where
 images go, what they're built FROM, where ArgoCD looks) are not
-per-app concerns — they live in the YAML cascade so ops can flip them
+per-app concerns -- they live in the YAML cascade so ops can flip them
 once for everyone.
 
 Cascade keys (set in defaults.yaml or .hyperi-ci.yaml):
@@ -49,7 +49,7 @@ def image_registry_from_cascade(config: CIConfig) -> str:
     when unset or empty.
 
     Mirrors ``scalo::deployment::registry::image_registry_from_cascade``
-    — same key, same fallback. Apps that delegate to this resolver get the
+    -- same key, same fallback. Apps that delegate to this resolver get the
     same answer in Rust and Python.
 
     Args:
@@ -91,7 +91,7 @@ def argocd_repo_url_from_cascade(config: CIConfig, app_name: str) -> str:
     """Return the git repo URL ArgoCD should track for this app.
 
     Reads ``deployment.argocd.repo_url`` from the cascade. Falls back to
-    ``https://github.com/hyperi-io/{app_name}`` — matches the org
+    ``https://github.com/hyperi-io/{app_name}`` -- matches the org
     convention where each app lives under hyperi-io.
 
     Mirrors ``scalo::deployment::registry::argocd_repo_url_from_cascade``.

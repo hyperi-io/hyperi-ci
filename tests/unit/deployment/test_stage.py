@@ -57,7 +57,7 @@ def _write_tier1_repo(root: Path, *, with_binary: bool = False) -> Path:
         '[[bin]]\nname = "demo-app"\npath = "src/main.rs"\n'
         "[dependencies]\n"
         # The `deployment` feature is what compiles contract emission
-        # into generate-artefacts — without it this isn't Tier 1 at all.
+        # into generate-artefacts -- without it this isn't Tier 1 at all.
         'scalo = { version = "2.5", features = ["cli-service", "deployment"] }\n',
         encoding="utf-8",
     )
@@ -65,7 +65,7 @@ def _write_tier1_repo(root: Path, *, with_binary: bool = False) -> Path:
         target = root / "target" / "release"
         target.mkdir(parents=True)
         binary = target / "demo-app"
-        # A minimal POSIX shell script masquerading as the binary —
+        # A minimal POSIX shell script masquerading as the binary --
         # real binaries are ELF, but for invocation testing the only
         # thing that matters is that it's executable and exits 0/!=0
         # under our control.
@@ -170,7 +170,7 @@ class TestTier1:
         )
         os.chmod(binary, binary.stat().st_mode | stat.S_IXUSR)
 
-        # Force the host-arch detection to claim amd64 — proving the
+        # Force the host-arch detection to claim amd64 -- proving the
         # glob fallback is what found the binary, not the host-specific
         # path. (In CI the arm64 runner reports aarch64 and the
         # host-specific path matches directly; this test exercises the
@@ -186,7 +186,7 @@ class TestTier1:
         self, tmp_path: Path, monkeypatch
     ) -> None:
         """When both ``dist/<bin>-linux-amd64`` and ``target/release/<bin>``
-        exist, the dist/ artefact wins — the Build stage's published
+        exist, the dist/ artefact wins -- the Build stage's published
         artefact is the canonical thing the Container stage will use.
         """
         _write_tier1_repo(tmp_path, with_binary=True)  # populates target/release
@@ -265,7 +265,7 @@ class TestRustBinaryName:
     def test_falls_back_to_first_bin_when_no_package_name(self, tmp_path: Path) -> None:
         from hyperi_ci.deployment.manifest import rust_binary_name
 
-        # No [package] table — last-resort fallback to first [[bin]].
+        # No [package] table -- last-resort fallback to first [[bin]].
         (tmp_path / "Cargo.toml").write_text(
             '[[bin]]\nname = "first-bin"\npath = "src/a.rs"\n'
             '[[bin]]\nname = "second-bin"\npath = "src/b.rs"\n',
@@ -344,7 +344,7 @@ class TestTier2:
 
     def test_uv_run_invoked_when_uv_present(self, tmp_path: Path, monkeypatch) -> None:
         _write_tier2_repo(tmp_path)
-        # Fake `uv` on PATH that succeeds for any args — isolates the test
+        # Fake `uv` on PATH that succeeds for any args -- isolates the test
         # from a real uv/venv while exercising the uv-run producer path.
         bindir = tmp_path / "fakebin"
         bindir.mkdir()
@@ -376,14 +376,14 @@ class TestTier2:
         rc = run(output_dir=out, project_dir=tmp_path, config=_producer_config("auto"))
         assert rc == EXIT_OK
         # Nothing generated, so nothing for the container stage to pick
-        # up from ci-tmp/ — the skip must not leave a half-built dir.
+        # up from ci-tmp/ -- the skip must not leave a half-built dir.
         assert not out.exists()
 
     def test_no_scripts_with_producer_forced_returns_producer_missing(
         self, tmp_path: Path
     ) -> None:
         # `deployment.producer: true` is the operator saying "yes it is
-        # a producer" — then a missing entry point IS an error worth
+        # a producer" -- then a missing entry point IS an error worth
         # failing on, rather than a silent skip.
         _write_scalo_library_consumer(tmp_path)
         rc = run(
@@ -399,7 +399,7 @@ class TestProducerGate:
 
     def test_false_skips_a_real_producer(self, tmp_path: Path) -> None:
         # A repo that WOULD dispatch (Tier 3 contract committed) skips
-        # when the operator opts out — this is the escape hatch for a
+        # when the operator opts out -- this is the escape hatch for a
         # library consumer that ships its deployment artefacts by hand.
         _write_tier3_repo(tmp_path)
         rc = run(
@@ -485,7 +485,7 @@ class TestDriftCheck:
         )
         os.chmod(binary, binary.stat().st_mode | stat.S_IXUSR)
 
-        # Committed ci/ has a different Dockerfile — drift!
+        # Committed ci/ has a different Dockerfile -- drift!
         ci_dir = tmp_path / "ci"
         ci_dir.mkdir()
         (ci_dir / "Dockerfile").write_text("FROM debian:12\n", encoding="utf-8")
@@ -556,7 +556,7 @@ class TestDispatchIntegration:
 
     def test_config_reaches_the_producer_gate(self, monkeypatch) -> None:
         # The gate is only useful if dispatch actually passes the config
-        # down — it used to `del language` and call generate_run() with
+        # down -- it used to `del language` and call generate_run() with
         # no arguments, which is what made `deployment.producer` inert.
         from hyperi_ci.dispatch import stage_generate
 

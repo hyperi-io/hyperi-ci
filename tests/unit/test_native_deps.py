@@ -82,7 +82,7 @@ class TestTemplateExpansion:
         assert result == "apt-19"
 
     def test_unknown_placeholders_pass_through(self) -> None:
-        # Unknown ${VAR} must NOT be silently replaced — surfaces as a
+        # Unknown ${VAR} must NOT be silently replaced -- surfaces as a
         # clear "package not found" error at apt-cache time.
         result = _expand_template_vars("pkg-${UNKNOWN_VAR}")
         assert result == "pkg-${UNKNOWN_VAR}"
@@ -124,7 +124,7 @@ class TestRepoAlreadyConfigured:
     def test_matches_http_when_searching_https(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Runner pre-provisioned with http://; our config uses https:// — must match."""
+        """Runner pre-provisioned with http://; our config uses https:// -- must match."""
         sources_list, sources_dir = _seed_apt_tree(
             tmp_path,
             {
@@ -254,7 +254,7 @@ class TestAddAptRepoIdempotency:
             rc = _add_apt_repo(repo)
 
         assert rc == 0
-        # None of the "expensive/side-effecting" commands were invoked —
+        # None of the "expensive/side-effecting" commands were invoked --
         # no key download, no gpg dearmor, no writing to sources.list.d.
         invoked = [
             call.args[0][0] if call.args and call.args[0] else None
@@ -280,7 +280,7 @@ class TestAddAptRepoIdempotency:
         fake_keyring.write_bytes(b"fake-key")
         sources_list, sources_dir = _seed_apt_tree(tmp_path, {})
         _patch_apt_paths(monkeypatch, sources_list, sources_dir)
-        # Force ``["sudo"]`` prefix regardless of platform/uid — the macOS
+        # Force ``["sudo"]`` prefix regardless of platform/uid -- the macOS
         # CI runner is non-Linux (so _sudo_prefix returns []), Linux CI is
         # non-root. Both cases land in this test; pin to the sudo path.
         monkeypatch.setattr(native_deps, "_sudo_prefix", lambda: ["sudo"])
@@ -288,7 +288,7 @@ class TestAddAptRepoIdempotency:
         target_file = sources_dir / "llvm.list"
 
         def fake_sudo_run(cmd, **kwargs):
-            # dpkg arch probe — return amd64
+            # dpkg arch probe -- return amd64
             if cmd[:2] == ["dpkg", "--print-architecture"]:
                 return subprocess.CompletedProcess(cmd, 0, stdout="amd64\n", stderr="")
             # Simulate sudo tee -a: append stdin to the target file
@@ -440,7 +440,7 @@ class TestAptKeyFingerprint:
     def test_subkey_fingerprint_is_not_accepted(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Only the primary key counts — a subkey match would weaken the pin."""
+        """Only the primary key counts -- a subkey match would weaken the pin."""
         rc, invoked = self._install(tmp_path, monkeypatch, self._SUBKEY)
         assert rc != 0
         assert not any("--dearmor" in cmd for cmd in invoked)
@@ -472,7 +472,7 @@ class TestSudoPrefix:
         assert _sudo_prefix() == []
 
     def test_non_linux_skips_sudo(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # macOS dev path — apt isn't used, but the helper must be safe to call
+        # macOS dev path -- apt isn't used, but the helper must be safe to call
         monkeypatch.setattr(native_deps.platform, "system", lambda: "Darwin")
         assert _sudo_prefix() == []
 
@@ -562,7 +562,7 @@ class TestMultiVersionToolchains:
     ) -> None:
         """The non-coinstallable entry bundles the one-version-only packages.
 
-        Marked bake: false — skipped in --all mode (runner image), installed
+        Marked bake: false -- skipped in --all mode (runner image), installed
         conditionally at CI job time when manifest patterns match.
         """
         monkeypatch.setenv("OS_CODENAME", "noble")
@@ -677,7 +677,7 @@ class TestBakeFlag:
         )
         monkeypatch.setattr(native_deps, "_add_apt_repo", lambda repo: 0)
 
-        # all_mode=False (conditional) — bake flag does NOT affect the decision
+        # all_mode=False (conditional) -- bake flag does NOT affect the decision
         rc = native_deps.install_native_deps(
             "pair", project_dir=tmp_path, category="toolchains", all_mode=False
         )
@@ -708,7 +708,7 @@ class TestBakeFlag:
         assert v21.apt_repos[0].codename == "llvm-toolchain-resolute-21"
 
     def test_gcc_expansion_no_repos(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """GCC uses distro repos — empty apt_repos after expansion."""
+        """GCC uses distro repos -- empty apt_repos after expansion."""
         monkeypatch.setenv("OS_CODENAME", "trixie")
         groups = _load_dep_groups("gcc", category="toolchains")
         assert len(groups) == 2
@@ -723,7 +723,7 @@ class TestBakeFlag:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """An empty `versions: []` is a config bug — warn and skip."""
+        """An empty `versions: []` is a config bug -- warn and skip."""
         # Redirect the toolchains dir to a tmp location we control
         bogus_dir = tmp_path / "toolchains"
         bogus_dir.mkdir()
@@ -737,7 +737,7 @@ class TestBakeFlag:
             "    - 'clang-{V}'\n"
         )
         monkeypatch.setitem(native_deps._CATEGORY_DIRS, "toolchains", bogus_dir)
-        # Loguru bypasses stdlib logging / capsys — capture via .warning patch
+        # Loguru bypasses stdlib logging / capsys -- capture via .warning patch
         warnings: list[str] = []
         monkeypatch.setattr(
             native_deps.logger, "warning", lambda msg: warnings.append(msg)
@@ -775,7 +775,7 @@ class TestExpandTemplateVarsOsCodename:
     def test_get_os_codename_tolerates_missing_lsb_release(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """macOS CI runners have no lsb_release — must return "" not raise."""
+        """macOS CI runners have no lsb_release -- must return "" not raise."""
 
         def _raise_not_found(*_args, **_kwargs):
             raise FileNotFoundError(2, "No such file", "lsb_release")

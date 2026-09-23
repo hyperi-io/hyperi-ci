@@ -115,7 +115,7 @@ class TestCIConfig:
 
     def test_legacy_target_internal_routes_to_oss(self) -> None:
         """Legacy ``target: internal`` is accepted for back-compat but
-        ignored — every publish goes to OSS destinations.
+        ignored -- every publish goes to OSS destinations.
         """
         config = CIConfig(
             publish_target="internal",
@@ -214,7 +214,7 @@ class TestProjectStatus:
         assert config.get("project.status") == "beta"
 
     def test_unset_status_returns_empty_or_none(self, tmp_path: Path) -> None:
-        # Default value in defaults.yaml is "" (empty string) — meaning
+        # Default value in defaults.yaml is "" (empty string) -- meaning
         # "not declared". Skipping the field in `.hyperi-ci.yaml`
         # leaves the default in place.
         (tmp_path / ".hyperi-ci.yaml").write_text("language: rust\n")
@@ -223,7 +223,7 @@ class TestProjectStatus:
         cfg_mod._config_cache = None
         config = load_config(reload=True, project_dir=tmp_path)
         # Either "" (default from defaults.yaml) or None (no key at all)
-        # is acceptable — both mean "not declared".
+        # is acceptable -- both mean "not declared".
         status = config.get("project.status")
         assert status in ("", None)
 
@@ -239,7 +239,7 @@ class TestProjectStatus:
 
         cfg_mod._config_cache = None
         config = load_config(reload=True, project_dir=tmp_path)
-        # Config must still load — typos can't break the build.
+        # Config must still load -- typos can't break the build.
         assert config.language == "rust"
         # The unknown value is preserved in raw config so operators can
         # see what they wrote; only the log line warns.

@@ -79,13 +79,13 @@ def get_current_branch(*, cwd: str | None = None) -> str | None:
 
     Args:
         cwd: Repository directory (default: process cwd). Callers that
-            honour a ``--project-dir`` MUST pass it — otherwise the
+            honour a ``--project-dir`` MUST pass it -- otherwise the
             branch of whatever repo the shell happens to sit in is
             reported (and pushed).
 
     Returns:
         Branch name, or None if not in a git repo or on a detached HEAD
-        (``rev-parse --abbrev-ref`` reports the literal ``HEAD`` there —
+        (``rev-parse --abbrev-ref`` reports the literal ``HEAD`` there --
         not a pushable branch name).
 
     """
@@ -152,7 +152,7 @@ def get_latest_run(
     Args:
         branch: Filter by branch name.
         workflow: Filter by workflow filename.
-        repo: Optional ``owner/name`` — when set, queries this repo
+        repo: Optional ``owner/name`` -- when set, queries this repo
             instead of the cwd's git remote. Use this when looking up
             runs in a different repo than your cwd.
 

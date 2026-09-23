@@ -1,13 +1,13 @@
 # Project:   HyperI CI
 # File:      .github/actions/setup-semantic-release/action.yml
-# Purpose:   Install the pinned semantic-release toolchain — ONE source of truth
+# Purpose:   Install the pinned semantic-release toolchain -- ONE source of truth
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # Consumed by predict-version (dry-run), _release-tail (real tag), ci.yml.
 # Predict and the real run must install identical plugins, else they compute
-# different versions ("tag vX already exists"). One place for that list — here.
+# different versions ("tag vX already exists"). One place for that list -- here.
 #
 # Release config is central by default: when a repo has no .releaserc this
 # composite drops the canonical tagger-only `default.releaserc.json` into the
@@ -18,10 +18,10 @@
 # gate. There is no HyperI-maintained taxonomy file any more. A repo .releaserc
 # that references
 # @semantic-release/git or @semantic-release/github (the issue #37 tag-rewrite
-# plugins — they destroyed every tag on dfe-receiver) is IGNORED in favour of
+# plugins -- they destroyed every tag on dfe-receiver) is IGNORED in favour of
 # the central config. A repo .releaserc WITHOUT those plugins (e.g. an exec-only
 # stamp for a multi-crate workspace) is a legitimate exception and is honoured.
-# semantic-release is a TAGGER only — version stamping is `hyperi-ci
+# semantic-release is a TAGGER only -- version stamping is `hyperi-ci
 # stamp-version`, publishing is hyperi-ci's publish stage. The git/github plugins
 # stay in the install list for back-compat but the central config never uses them.
 
@@ -62,7 +62,7 @@ runs:
       shell: bash
       # A legacy .releaserc carrying @semantic-release/git / @semantic-release/github
       # is the issue #37 root cause: the git plugin commits off-main "chore:
-      # version X" commits and force-rewrites tags — it destroyed every v* tag
+      # version X" commits and force-rewrites tags -- it destroyed every v* tag
       # on dfe-receiver. So those plugins are NEVER honoured: if a repo .releaserc
       # references either, it is ignored and the central tagger-only config is
       # used instead. Combined with the existing-tag guard in _release-tail.yml,
@@ -73,7 +73,7 @@ runs:
       # multi-crate workspace like dfe-archiver, which the central single-root
       # stamp can't cover) is a legitimate exception and is honoured. Repos with
       # no .releaserc get the central tagger-only default. The long-term home for
-      # exceptions is `.hyperi-ci.yaml`, generating a SAFE config — never a raw
+      # exceptions is `.hyperi-ci.yaml`, generating a SAFE config -- never a raw
       # per-repo file, never the destructive plugins.
       run: |
         keep=""

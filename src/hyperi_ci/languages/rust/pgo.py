@@ -188,7 +188,7 @@ def _run_plain_release_build(
     """Fallback plain `cargo build --release` when PGO tooling unavailable.
 
     Tier 1 optimisations (allocator features, LTO env overrides) are still
-    applied via `feature_args` and `extra_env` — only PGO/BOLT are skipped.
+    applied via `feature_args` and `extra_env` -- only PGO/BOLT are skipped.
     """
     env = dict(os.environ)
     if extra_env:
@@ -235,7 +235,7 @@ def _ensure_cargo_pgo_installed() -> bool:
     if installed == pinned:
         return True
 
-    # Ensure ~/.cargo/bin is on PATH before install — cargo writes there
+    # Ensure ~/.cargo/bin is on PATH before install -- cargo writes there
     cargo_bin = Path.home() / ".cargo" / "bin"
     current_path = os.environ.get("PATH", "")
     if str(cargo_bin) not in current_path.split(os.pathsep):
@@ -274,7 +274,7 @@ def _ensure_llvm_bolt_available() -> bool:
 
     Ubuntu's `bolt-NN` apt package installs version-suffixed binaries
     (e.g. `/usr/bin/llvm-bolt-23`, `/usr/bin/merge-fdata-23`) but NO
-    unversioned symlinks — and cargo-pgo's BOLT flow invokes the
+    unversioned symlinks -- and cargo-pgo's BOLT flow invokes the
     unversioned names (`llvm-bolt` AND `merge-fdata`, the latter to
     merge BOLT profile fragments before applying them).
 
@@ -282,14 +282,14 @@ def _ensure_llvm_bolt_available() -> bool:
     find the version-suffixed variant and create a symlink in
     `~/.local/bin` so subsequent subprocess invocations resolve the
     unversioned name. All shimmed binaries must share the same LLVM
-    major version — we pick the version that provides `llvm-bolt`
+    major version -- we pick the version that provides `llvm-bolt`
     (preferring HYPERCI_LLVM_VERSION) and shim `merge-fdata` from the
     same version for consistency.
 
     Returns True only if every required binary is discoverable (either
     directly or via shim). cargo-pgo's BOLT step fails silently on
-    partial toolchain — all-or-nothing is the safer contract.
-    No auto-install — the apt package is added by native_deps.py.
+    partial toolchain -- all-or-nothing is the safer contract.
+    No auto-install -- the apt package is added by native_deps.py.
     """
     return _shim_llvm_tools(_BOLT_TOOLCHAIN_BINARIES)
 
@@ -458,7 +458,7 @@ def _run_workload_setup(setup_cmd: str, cwd: Path) -> int:
     try:
         result = subprocess.run(
             setup_cmd,
-            shell=True,  # noqa: S602  # nosemgrep: subprocess-shell-true — project-owned config, run in controlled CI env
+            shell=True,  # noqa: S602  # nosemgrep: subprocess-shell-true -- project-owned config, run in controlled CI env
             cwd=cwd,
             env=dict(os.environ),
             check=False,
@@ -490,7 +490,7 @@ def _run_workload(
     Enforces a hard timeout at `duration_secs + 600` (10-minute absolute
     grace for setup overhead: spinning up testcontainers, cargo-building
     feature-gated drivers, waiting for readiness, cleaning up). This is
-    generous on purpose — the workload script is trusted and should
+    generous on purpose -- the workload script is trusted and should
     self-terminate at `duration_secs`; the wrapper timeout is a safety
     net that triggers only when the script hangs.
     """
@@ -513,7 +513,7 @@ def _run_workload(
     try:
         result = subprocess.run(
             full_cmd,
-            shell=True,  # noqa: S602  # nosemgrep: subprocess-shell-true — workload_cmd is project-owned config, run in controlled CI env
+            shell=True,  # noqa: S602  # nosemgrep: subprocess-shell-true -- workload_cmd is project-owned config, run in controlled CI env
             cwd=cwd,
             env=env,
             check=False,
@@ -643,7 +643,7 @@ def _bolt_build_env(target: str, *, no_split: bool = False) -> dict[str, str]:
     2. **strip must be disabled.** Rust's `[profile.release] strip = true`
        appends `-Wl,--strip-all` to the link, which lld refuses to
        combine with `--emit-relocs`. We override via
-       `CARGO_PROFILE_RELEASE_STRIP=none` for the BOLT steps only —
+       `CARGO_PROFILE_RELEASE_STRIP=none` for the BOLT steps only --
        the project's regular release build keeps whatever strip
        setting it declared. Final binary is stripped by hyperi-ci's
        post-build packaging separately, so dropping cargo-level strip
@@ -742,19 +742,19 @@ def _attempt_bolt(
     `bolt build` emits `<binary>-bolt-instrumented`; the workload must run
     against THAT binary so BOLT collects its own branch profile. Skipping
     the workload (the old behaviour) left `bolt optimize` with nothing to
-    optimise — see #29.
+    optimise -- see #29.
 
-    Forces lld as the linker and disables strip for both build phases —
+    Forces lld as the linker and disables strip for both build phases --
     see `_bolt_build_env()`. When `no_split` is True, also disables the
     compiler cold-splitter so BOLT can process the binary (see _run_bolt).
 
     Returns 0 on success OR a non-fatal skip (missing instrumented binary or
-    a failed workload — PGO-only result stands). Returns non-zero only on a
+    a failed workload -- PGO-only result stands). Returns non-zero only on a
     BOLT BUILD failure (instrument or optimise), which _run_bolt retries.
     """
     # Merge project env_overrides (LTO etc.) with the BOLT-step build
     # env (fuse-ld=lld + strip=none [+ no-split]). BOLT env takes precedence
-    # over project config for the target-specific rustflags — intentional.
+    # over project config for the target-specific rustflags -- intentional.
     bolt_env = {**(extra_env or {}), **_bolt_build_env(target, no_split=no_split)}
     label = " (no-split)" if no_split else ""
 
@@ -841,8 +841,8 @@ def _run_bolt(
     """Run BOLT, retrying once with compiler function-splitting disabled.
 
     The first attempt mirrors the project's normal build. If the BOLT BUILD
-    fails — most commonly because the compiler pre-split a function into a
-    `.cold` fragment that BOLT can't process in relocation mode — retry once
+    fails -- most commonly because the compiler pre-split a function into a
+    `.cold` fragment that BOLT can't process in relocation mode -- retry once
     with the splitter disabled so BOLT splits the binary itself. Apps whose
     first attempt succeeds never retry, so they are completely unaffected:
     this makes a working BOLT layer the default WITHOUT risking the apps that

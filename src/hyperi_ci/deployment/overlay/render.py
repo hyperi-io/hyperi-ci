@@ -15,7 +15,7 @@ This module is intentionally thin. It:
   3. Returns the spliced output.
 
 Splice mechanics (anchor catalog, insertion semantics) live in the
-resolver — see ``anchors/dockerfile.py``, ``anchors/helm.py``,
+resolver -- see ``anchors/dockerfile.py``, ``anchors/helm.py``,
 ``anchors/argocd.py``.
 """
 

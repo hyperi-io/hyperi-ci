@@ -1,6 +1,6 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/deployment/__init__.py
-# Purpose:   Deployment contract — Tier 3 producer (templater)
+# Purpose:   Deployment contract -- Tier 3 producer (templater)
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
@@ -9,9 +9,9 @@
 Three-tier producer model unified by a single JSON Schema as the
 language-agnostic source of truth:
 
-  Tier 1 — scalo  (Rust apps emit their own contract + artefacts)
-  Tier 2 — scalo    (Python apps emit their own contract + artefacts)
-  Tier 3 — hyperi-ci       (everything else — templates from committed
+  Tier 1 -- scalo  (Rust apps emit their own contract + artefacts)
+  Tier 2 -- scalo    (Python apps emit their own contract + artefacts)
+  Tier 3 -- hyperi-ci       (everything else -- templates from committed
                             ci/deployment-contract.json)
 
 This package provides Tier 3: the templater. Apps without a producer

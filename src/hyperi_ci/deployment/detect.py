@@ -9,24 +9,24 @@
 Used by Quality drift checks and the Generate stage to dispatch to the
 right producer:
 
-  Tier 1 (RUST)   — Cargo.toml depends on scalo (or legacy
+  Tier 1 (RUST)   -- Cargo.toml depends on scalo (or legacy
                     hyperi-rustlib) AND the crate builds a binary; the
                     binary itself emits artefacts via
                     `<app> generate-artefacts`.
-  Tier 2 (PYTHON) — pyproject.toml depends on scalo AND declares a
+  Tier 2 (PYTHON) -- pyproject.toml depends on scalo AND declares a
                     `[project.scripts]` console script; that entry point
                     emits via `<app> generate-artefacts`.
-  Tier 3 (OTHER)  — repo commits ``ci/deployment-contract.json``;
+  Tier 3 (OTHER)  -- repo commits ``ci/deployment-contract.json``;
                     hyperi-ci's own templater emits.
-  NONE            — no contract at all; generate + container stages skip
+  NONE            -- no contract at all; generate + container stages skip
                     silently.
 
-Most repos are none of these and resolve to NONE — that is the normal
+Most repos are none of these and resolve to NONE -- that is the normal
 case, not a failure.
 
 **Carrying the marker dep is not the same as being a producer.** A
-library consumer — a VPN container that uses scalo for
-logging/config/secrets and ships its own Dockerfile, say — has the dep
+library consumer -- a VPN container that uses scalo for
+logging/config/secrets and ships its own Dockerfile, say -- has the dep
 but nothing to invoke ``generate-artefacts`` on. Tier 1/2 detection
 therefore needs a POSITIVE producer signal (a real binary / console
 script) on top of the dep, otherwise the Build job dies on a repo that
@@ -34,10 +34,10 @@ was never a ServiceApp (issue #76). Tier 3 needs no such check: the
 committed contract IS the positive signal.
 
 Where auto-detection still gets it wrong in either direction, the
-``deployment.producer`` cascade key is the override — see
+``deployment.producer`` cascade key is the override -- see
 :func:`hyperi_ci.deployment.stage.run`.
 
-Detection is **cheap and string-based** — we don't fully parse manifests
+Detection is **cheap and string-based** -- we don't fully parse manifests
 because the answer only needs to choose which subprocess to invoke.
 """
 
@@ -59,7 +59,7 @@ __all__ = ["Tier", "TierDecision", "detect_tier", "resolve_tier"]
 
 
 class Tier(StrEnum):
-    """Three-tier producer model — which one this repo uses."""
+    """Three-tier producer model -- which one this repo uses."""
 
     RUST = "rust"
     PYTHON = "python"
@@ -76,7 +76,7 @@ class TierDecision(NamedTuple):
     ``demoted`` marks the one case worth a nudge: a marker dep IS
     present but the producer signal isn't, so the repo reads as a
     library consumer. If that call is wrong, ``deployment.producer:
-    true`` is the override — but only this case should suggest it.
+    true`` is the override -- but only this case should suggest it.
     """
 
     tier: Tier
@@ -172,7 +172,7 @@ def resolve_tier(repo_root: Path, *, require_producer: bool = True) -> TierDecis
         else:
             return TierDecision(Tier.RUST, f"Cargo.toml depends on {rust_dep}")
 
-    # A demoted Rust dep suppresses the Python check — see the
+    # A demoted Rust dep suppresses the Python check -- see the
     # fall-through note above.
     python_dep = (
         None
@@ -191,7 +191,7 @@ def resolve_tier(repo_root: Path, *, require_producer: bool = True) -> TierDecis
         return TierDecision(Tier.OTHER, "ci/deployment-contract.json is committed")
 
     # Nothing matched. When a marker dep WAS present, the repo is a
-    # library consumer rather than a producer — say so, because
+    # library consumer rather than a producer -- say so, because
     # "depends on scalo but the build skipped generate" is otherwise a
     # confusing pair of facts.
     if rust_reason:
@@ -218,7 +218,7 @@ def _enables_deployment_feature(repo_root: Path, dep_name: str) -> bool:
 
     In scalo-rs, ``deployment`` is a cargo feature, so the artefact
     emission inside ``generate-artefacts`` is ``#[cfg]``-compiled out
-    when it's off. The subcommand still EXISTS and still exits 0 — it
+    when it's off. The subcommand still EXISTS and still exits 0 -- it
     just writes no Dockerfile.runtime or container-manifest.json. The
     container stage then fails much later with "no deployment artefacts
     found", pointing at the wrong cause. Detecting it here turns that
@@ -228,7 +228,7 @@ def _enables_deployment_feature(repo_root: Path, dep_name: str) -> bool:
     ``scalo.workspace = true`` inherits the root's feature list, which
     :func:`dep_features` reports as unknown at the member).
 
-    Unknown stays PERMISSIVE — an unparseable manifest dispatches and
+    Unknown stays PERMISSIVE -- an unparseable manifest dispatches and
     fails loudly rather than silently skipping a real producer.
 
     Note this is Rust-only. scalo-py's ``deployment`` extra is just a
@@ -272,18 +272,18 @@ def _read_manifest(manifest: Path) -> str | None:
 def _depends_on(manifest: Path, package_name: str) -> bool:
     """Return True if a manifest's text contains the named dep.
 
-    Substring match against the file contents — sufficient for tier
+    Substring match against the file contents -- sufficient for tier
     detection because we only need a one-shot routing decision.
     Handles all the common forms (string, table, workspace inheritance):
 
-        # Cargo.toml — single line
+        # Cargo.toml -- single line
         scalo = "2.0"
         scalo = { version = "2.0", features = [...] }
 
-        # Cargo.toml — workspace inheritance
+        # Cargo.toml -- workspace inheritance
         scalo.workspace = true
 
-        # pyproject.toml — list
+        # pyproject.toml -- list
         dependencies = ["scalo>=2.28"]
         dependencies = ["scalo[metrics]>=2.28"]
 
@@ -292,7 +292,7 @@ def _depends_on(manifest: Path, package_name: str) -> bool:
     consumer of it), returns False. Without this, the library's own
     repo gets misdispatched as a Tier 1/2 consumer and the
     deployment-artefact producer fails with "no Rust binary found" /
-    equivalent. The check is generic — applies to any marker dep
+    equivalent. The check is generic -- applies to any marker dep
     (scalo, the legacy hyperi-rustlib, future libs) and to consumer
     projects whose own name happens to share a prefix (scalo's own
     repo, for one).
@@ -304,7 +304,7 @@ def _depends_on(manifest: Path, package_name: str) -> bool:
       2. Catches every form (workspace inheritance, extras, comments)
          that a stricter parse would have to handle case by case.
       3. A false positive here no longer reaches a producer on its own
-         — :func:`resolve_tier` still demands the binary / console
+         -- :func:`resolve_tier` still demands the binary / console
          script before it dispatches.
 
     Args:

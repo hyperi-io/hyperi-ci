@@ -108,7 +108,7 @@ def test_manifest_user_as_dict_passes_through():
 
 
 def test_manifest_user_unknown_type_falls_back_to_default():
-    """Defensive — never let a malformed user field propagate as e.g.
+    """Defensive -- never let a malformed user field propagate as e.g.
     a list/None into compose.py.
     """
     data = {

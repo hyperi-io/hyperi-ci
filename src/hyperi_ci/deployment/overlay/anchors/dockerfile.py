@@ -16,7 +16,7 @@ emit explicit marker comments.
 If a future consumer needs a finer-grained anchor that doesn't map to
 a Dockerfile keyword landmark, revisit by either (a) adding a new
 keyword anchor here that the consumer's contract-generator already
-emits, or (b) introducing scalo-side marker comments — but only
+emits, or (b) introducing scalo-side marker comments -- but only
 when at least one consumer actually pulls for it (Rule of Three).
 
 Anchor catalog (order = position-in-file):
@@ -72,7 +72,7 @@ class DockerfileAnchorResolver:
 
     ``binary_name`` is required for the ``after-app-binary`` anchor;
     other anchors ignore it. Default ``""`` means "after-app-binary
-    won't resolve" — that's acceptable when no overlay uses it.
+    won't resolve" -- that's acceptable when no overlay uses it.
     """
 
     binary_name: str = ""
@@ -109,7 +109,7 @@ class DockerfileAnchorResolver:
         for anchor, group in grouped.items():
             line_index, position = self._resolve(anchor, lines)
             text_block = "\n".join(o.content.rstrip("\n") for o in group)
-            # Each spliced block is its own logical paragraph — add a
+            # Each spliced block is its own logical paragraph -- add a
             # trailing newline so the next line keeps its indent.
             block = text_block + ("\n" if not text_block.endswith("\n") else "")
             insertions.append((line_index, position, block))

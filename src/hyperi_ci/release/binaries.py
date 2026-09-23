@@ -108,7 +108,7 @@ def _is_python_dist_artifact(path: Path) -> bool:
 
     Used to honour ``destinations_oss.python: false``: a project that ships
     no Python distribution must not leak its wheel/sdist to R2 or a GitHub
-    Release through the GENERIC binary publisher either (issue #105 BUG 2 —
+    Release through the GENERIC binary publisher either (issue #105 BUG 2 --
     the opt-out was previously honoured only by the python publish handler).
     A ``.whl`` is unambiguously a wheel; the accompanying sdist (``.tar.gz`` /
     ``.zip``) is dropped alongside it. Only ever consulted when the python
@@ -124,7 +124,7 @@ def _release_targets_head(tag: str) -> bool:
     An existing release AT HEAD is an idempotent re-run (safe to proceed);
     one at a DIFFERENT commit means a stale version was resolved, and
     re-publishing would overwrite a shipped release with different contents
-    (issue #105 — a four-month-old tag rebuilt from today's HEAD clobbered
+    (issue #105 -- a four-month-old tag rebuilt from today's HEAD clobbered
     ``latest``). When the tag cannot be resolved locally we cannot prove it
     is HEAD, so we treat it as a mismatch and refuse.
     """
@@ -358,7 +358,7 @@ def create_github_release(config: CIConfig) -> int:
         if "already exists" in result.stderr:
             # A release for this tag already exists. Allow an idempotent
             # re-run (same commit), but REFUSE to publish onto a release that
-            # points at a different commit — logging "already exists" and
+            # points at a different commit -- logging "already exists" and
             # carrying on is how a stale-version dispatch overwrote `latest`
             # (issue #105). The git tag is the source of truth for what commit
             # the release shipped from.
@@ -480,7 +480,7 @@ def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False)
 
     versioned_prefix, latest_prefix = _resolve_r2_paths(project_name, version, channel)
 
-    # Common env for aws CLI — use R2 credentials as AWS credentials
+    # Common env for aws CLI -- use R2 credentials as AWS credentials
     aws_env = {
         **os.environ,
         "AWS_ACCESS_KEY_ID": access_key,
@@ -553,7 +553,7 @@ def publish_binaries(config: CIConfig) -> int:
         return 0
 
     # Honour destinations_oss.python: false for the generic binary publisher
-    # too — otherwise a private, container-only Python service still leaks its
+    # too -- otherwise a private, container-only Python service still leaks its
     # wheel + sdist to R2 on every run (issue #105 BUG 2). A Rust/Go project
     # leaves python at its truthy default, so this never drops a real binary.
     exclude_python = not config.destination_for("python")

@@ -3,7 +3,7 @@
 # File:      .github/actions/predict-version/release_worthy.py
 # Purpose:   Print whether the pushed range ships a release, with no install
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Print ``true`` when the commit range this push introduced is release-worthy.
 

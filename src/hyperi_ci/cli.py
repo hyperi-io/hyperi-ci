@@ -37,7 +37,7 @@ When adding new commands, respect these short-flag conventions so users can
 rely on muscle memory. In particular:
   - Never repurpose -n for anything other than --dry-run
   - Never repurpose -C for anything other than --project-dir
-  - --force semantics vary (overwrite vs skip-checks) — document in each command
+  - --force semantics vary (overwrite vs skip-checks) -- document in each command
 """
 
 from __future__ import annotations
@@ -99,7 +99,7 @@ def _checkout_version(checkout: str) -> str:
 
     An editable install bakes the version into ``.dist-info`` when it is synced
     and never revisits it, so it keeps reporting whatever ``VERSION`` said then
-    — a number that drifts further from the tree on every release, and belongs
+    -- a number that drifts further from the tree on every release, and belongs
     to no release at all. Re-resolving through the same function the build
     back-end uses keeps the report honest without a re-sync.
 
@@ -112,7 +112,7 @@ def _checkout_version(checkout: str) -> str:
 
     Returns:
         A bare ``X.Y.Z``, falling back to the frozen metadata if the checkout
-        can no longer be read — ``--version`` must not be the thing that fails.
+        can no longer be read -- ``--version`` must not be the thing that fails.
 
     """
     try:
@@ -154,7 +154,7 @@ def _main(
         ),
     ] = False,
 ) -> None:
-    """HyperI CI — polyglot CI/CD tool."""
+    """HyperI CI -- polyglot CI/CD tool."""
     from hyperi_ci.upgrade import maybe_auto_update
 
     maybe_auto_update()
@@ -531,15 +531,15 @@ def push(
 
     With ``--release`` (canonical) or ``--publish`` (deprecated): amends
     the head commit with the ``Release: true`` trailer, then pushes. The
-    resulting CI run goes through the version-first pipeline — predicts
+    resulting CI run goes through the version-first pipeline -- predicts
     the next version, stamps it into Cargo.toml/VERSION before build,
-    creates the tag, and publishes to all configured registries — all
+    creates the tag, and publishes to all configured registries -- all
     in one workflow.
 
     With ``--bump-patch`` or ``--bump-minor``: same as ``--release`` but
     adds an empty release-marker commit on top of HEAD. Use this when
     you want to ship a release whose actual commits are no-bump types
-    (``docs:``, ``chore:``, etc.) — saves you from inventing a fake
+    (``docs:``, ``chore:``, etc.) -- saves you from inventing a fake
     ``fix:`` commit. The marker IS a real commit in git history with a
     clear conventional message stating "this is a forced bump."
 
@@ -606,7 +606,7 @@ def init(
     skip). The version pipeline reads tags, so a tag-less repo has nothing
     to release from.
 
-    Note: `--force` here means "overwrite existing files" — different from
+    Note: `--force` here means "overwrite existing files" -- different from
     `push --force` which means "skip pre-push checks". See module docstring
     for the project-wide convention on per-command `--force` semantics.
     """
@@ -835,7 +835,7 @@ def audit_gates(
     this reads job level and asks when each gate last produced a verdict
     (issue #96).
 
-    A FAILING gate is deliberately not reported — GitHub already shows a red
+    A FAILING gate is deliberately not reported -- GitHub already shows a red
     repo as red, and pre-GA repos are expected to be red. Only the invisible
     fault is reported: a gate that never ran.
 
@@ -942,7 +942,7 @@ def release_notify_cmd(
 
     `--outcome success` comments on every issue and PR carried by the release;
     `--outcome failure` opens a tracker issue so a release that dies overnight
-    is waiting in the morning. Both are idempotent, and both always exit 0 — a
+    is waiting in the morning. Both are idempotent, and both always exit 0 -- a
     notification must never be the thing that fails a release.
 
     Slack is off unless `notify.slack.webhook_env` names an env var holding a
@@ -973,7 +973,7 @@ def preflight(
 
     semantic-release's `verifyConditions` equivalent. Checks only the
     destinations this project actually publishes to, and only blocks on the
-    ones whose handler hard-fails without a token — a missing
+    ones whose handler hard-fails without a token -- a missing
     CARGO_REGISTRY_TOKEN otherwise surfaces after a 40-minute Rust build.
     Outside CI it is a no-op.
     """
@@ -1005,7 +1005,7 @@ def release_commit_cmd(
 ) -> None:
     """Commit the rendered VERSION + CHANGELOG.md back to the branch.
 
-    Runs after the tag exists, and only ever adds an UNTAGGED commit — the
+    Runs after the tag exists, and only ever adds an UNTAGGED commit -- the
     property whose absence made `@semantic-release/git` orphan tags (issue
     #37). Uses the GitHub Git Data API, so it works from a checkout with
     `persist-credentials: false`. Idempotent: a branch already matching the
@@ -1036,7 +1036,7 @@ def seed_version_cmd(
 
     Read from the project's own manifest (pyproject.toml, Cargo.toml,
     package.json); a project with nothing to declare starts at 0.1.0.
-    Prints the bare version to stdout so it can be captured — the
+    Prints the bare version to stdout so it can be captured -- the
     predict-version composite uses it to resolve a first release, instead
     of trusting the committed VERSION file (issue #85).
     """
@@ -1062,7 +1062,7 @@ def seed_tag_cmd(
 
     Run once, at adoption: the version pipeline reads git tags, and a repo
     with none has nothing to start from. Refuses (successfully) when a v*
-    tag already exists — the repo already has its truth. The tag is a
+    tag already exists -- the repo already has its truth. The tag is a
     starting marker, not a release; the first publish bumps from it.
     """
     from hyperi_ci.seed import seed_tag
@@ -1208,7 +1208,7 @@ def trigger(
     """Trigger a GitHub Actions workflow run.
 
     Dispatches the workflow via `gh workflow run`. Use --watch to block
-    until the run completes — equivalent to running `hyperi-ci trigger`
+    until the run completes -- equivalent to running `hyperi-ci trigger`
     then `hyperi-ci watch` as separate commands.
 
     --workflow takes any workflow the repo carries, not only the ci.yml
@@ -1385,7 +1385,7 @@ def rerun(
 ) -> None:
     """Re-run a GitHub Actions run, failed jobs only by default.
 
-    For genuine infra incidents — a GitHub outage, a registry 5xx. A flaky
+    For genuine infra incidents -- a GitHub outage, a registry 5xx. A flaky
     test this project owns is a race to fix, not a run to repeat.
 
     --pr, --branch and --commit reach a run that is not on the current
@@ -1882,7 +1882,7 @@ def _release_impl(
         raise typer.Exit(rc)
 
     # No tag → release/retry the current HEAD. The CI resolves the version,
-    # creates the tag, and publishes — no artificial commit, no local tag
+    # creates the tag, and publishes -- no artificial commit, no local tag
     # push (issue #35). `bump` defaults to auto (semantic-release picks the
     # version from commits); --bump patch|minor forces a release; an explicit
     # X.Y.Z (from --version) tags HEAD at exactly that version.
@@ -1921,21 +1921,21 @@ def release(
         typer.Option("--dry-run", "-n", help="Show what would be dispatched"),
     ] = False,
 ) -> None:
-    """Release or retry a release — the CI creates the tag (issue #35).
+    """Release or retry a release -- the CI creates the tag (issue #35).
 
     The primary path is ``hyperi-ci push --release`` (version-first single run,
     gated by the ``Release: true`` trailer). This command is the "I need to
-    release/retry that" escape hatch — no artificial ``fix:`` commit:
+    release/retry that" escape hatch -- no artificial ``fix:`` commit:
 
-    - ``hyperi-ci release`` — release the current ``main`` HEAD. Dispatches a
+    - ``hyperi-ci release`` -- release the current ``main`` HEAD. Dispatches a
       from-head run; the CI resolves the version (semantic-release), tags HEAD,
       and publishes. Also finishes a release that died before the tag was cut.
-    - ``hyperi-ci release --bump patch|minor`` — force a release of HEAD even
+    - ``hyperi-ci release --bump patch|minor`` -- force a release of HEAD even
       with no release-worthy commit since the last tag.
-    - ``hyperi-ci release --version X.Y.Z`` — release HEAD at an exact version.
+    - ``hyperi-ci release --version X.Y.Z`` -- release HEAD at an exact version.
       Tags HEAD directly, skipping a taken/orphaned tag the auto tagger would
       otherwise collide with (issue #37).
-    - ``hyperi-ci release <tag>`` — re-dispatch an existing tag (idempotent
+    - ``hyperi-ci release <tag>`` -- re-dispatch an existing tag (idempotent
       retry of a partial release; fills in registries that were missed).
 
     The CLI only triggers the workflow; the runner does the tagging and
@@ -1993,7 +1993,7 @@ def tag_head_cmd(
     """CI-internal: create the next tag at HEAD for a forced bump (issue #35).
 
     Run by the from-head dispatch path in `_release-tail.yml` when
-    `bump` is patch/minor. Not a routine command — operators use
+    `bump` is patch/minor. Not a routine command -- operators use
     `hyperi-ci release` instead.
     """
     from hyperi_ci.push import tag_head
@@ -2168,7 +2168,7 @@ def init_contract_cmd(
     The file validates against the Pydantic DeploymentContract so
     the very first emit-artefacts run works without manual editing.
 
-    Tier 3 only — Rust apps build their contract via
+    Tier 3 only -- Rust apps build their contract via
     the scalo crate's DeploymentContract source, Python apps via the scalo package's
     Application.deployment_contract(). Calling this in a Tier 1/2 repo
     would create a contract that drifts from the framework's source
@@ -2395,7 +2395,7 @@ def stitch_cmd(
             _error(f"Version resolution failed: {exc}")
             raise typer.Exit(3) from exc
 
-    # Third-party charts — group by repository, resolve each group separately
+    # Third-party charts -- group by repository, resolve each group separately
     by_repo: dict[str, dict[str, str]] = {}
     for tp in topology.spec.thirdParty:
         by_repo.setdefault(tp.repository, {})[tp.name] = tp.version

@@ -366,7 +366,7 @@ jobs:
     secrets: inherit
 
   # ---------------------------------------------------------------------------
-  # gate — the terminal context branch protection should require.
+  # gate -- the terminal context branch protection should require.
   #
   # Requiring `ci / Quality` does not work: GitHub counts a SKIPPED required
   # check as satisfied, so the doctrine's deliberate skip and a gate that never

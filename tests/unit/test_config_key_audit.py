@@ -27,7 +27,7 @@ _SCRIPT = _ROOT / "scripts" / "audit-config-keys.py"
 
 @pytest.fixture(scope="module")
 def audit_module():
-    """The script, loaded by path — its name is not a valid module name."""
+    """The script, loaded by path -- its name is not a valid module name."""
     spec = importlib.util.spec_from_file_location("audit_config_keys", _SCRIPT)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

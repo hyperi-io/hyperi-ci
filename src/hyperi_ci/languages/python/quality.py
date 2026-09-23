@@ -304,7 +304,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     ignores = load_ignores(config._raw)
     had_failure = False
 
-    # Ruff lint — two-pass: production (strict) + test (relaxed)
+    # Ruff lint -- two-pass: production (strict) + test (relaxed)
     mode = _get_tool_mode("ruff", config)
     exclude_args = _build_exclude_args("ruff", excludes)
     # Use GitHub-native annotations in CI for inline PR feedback
@@ -313,7 +313,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     test_paths = get_test_paths(config)
     test_ignore = get_test_ignore("python", config, _DEFAULT_PYTHON_TEST_IGNORE)
 
-    # Production pass — exclude test dirs, full rules
+    # Production pass -- exclude test dirs, full rules
     prod_exclude = exclude_args + [f"--exclude={p}" for p in test_paths]
     ruff_user_ignores = for_tool(ignores, "ruff")
     ruff_user_ignore_flag = (
@@ -328,7 +328,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     ):
         had_failure = True
 
-    # Test pass — relaxed rules, same mode
+    # Test pass -- relaxed rules, same mode
     if test_paths and test_ignore:
         combined_ignore = test_ignore + [e.id for e in ruff_user_ignores]
         ignore_flag = [f"--extend-ignore={','.join(combined_ignore)}"]
@@ -340,7 +340,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             ):
                 had_failure = True
 
-    # Ruff format — single pass (format is rule-agnostic, no split needed).
+    # Ruff format -- single pass (format is rule-agnostic, no split needed).
     # Its own mode, not ruff check's: adopting the formatter on an established
     # tree is a whole-repo decision, and sharing the key forces a project to
     # relax the real lint gate to defer it.

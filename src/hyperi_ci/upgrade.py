@@ -512,7 +512,7 @@ def _fetch_releases() -> dict[str, list]:
     """
     try:
         req = urllib.request.Request(PYPI_URL, headers={"Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=PYPI_TIMEOUT) as resp:  # nosec B310  # nosemgrep: dynamic-urllib-use-detected — hardcoded PyPI HTTPS URL
+        with urllib.request.urlopen(req, timeout=PYPI_TIMEOUT) as resp:  # nosec B310  # nosemgrep: dynamic-urllib-use-detected -- hardcoded PyPI HTTPS URL
             data = json.loads(resp.read())
     except Exception:
         return {}
@@ -693,7 +693,7 @@ def run_upgrade(
 def maybe_auto_update() -> None:
     """Check for updates and auto-upgrade if appropriate.
 
-    Called from the CLI app callback. Never raises — all errors are
+    Called from the CLI app callback. Never raises -- all errors are
     caught and logged as warnings so the original command proceeds.
     """
     try:

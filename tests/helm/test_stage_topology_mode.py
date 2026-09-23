@@ -167,7 +167,7 @@ class TestTopologyModeDetection:
         with patch("hyperi_ci.helm.stage.shutil.which", return_value=None):
             rc = stage.run(cfg)
 
-        assert rc == 1  # helm not found — standard path gate, not topology path
+        assert rc == 1  # helm not found -- standard path gate, not topology path
 
 
 class TestTopologyModeValidation:

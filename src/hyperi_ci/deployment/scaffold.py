@@ -16,7 +16,7 @@ Used by:
     a producer framework).
   - Quick smoke testing of the contract pipeline.
 
-Tier 1 (scalo crate) and Tier 2 (scalo package) apps DO NOT use this — they
+Tier 1 (scalo crate) and Tier 2 (scalo package) apps DO NOT use this -- they
 construct their contract from the app's config cascade, not from a
 template. Calling ``init-contract`` in a scalo repo would produce a
 contract that drifts from the source of truth.
@@ -34,7 +34,7 @@ from hyperi_ci.deployment.contract import (
     HealthContract,
 )
 
-# Exit codes — match the spec's pattern: 0 success, non-zero on every
+# Exit codes -- match the spec's pattern: 0 success, non-zero on every
 # failure mode.
 EXIT_OK = 0
 EXIT_INVALID_NAME = 2
@@ -70,7 +70,7 @@ def init_contract(
             contract and is also used to derive ``binary_name``,
             ``env_prefix``, and ``metric_prefix`` from sensible
             defaults.
-        force: Overwrite an existing file. Default False — onboarding
+        force: Overwrite an existing file. Default False -- onboarding
             should not silently clobber an existing contract.
 
     Returns:
@@ -126,9 +126,9 @@ def _starter_contract(app_name: str) -> DeploymentContract:
         ``MY_APP``). DFE convention.
       - ``metric_prefix`` is the snake form (``my-app`` → ``my_app``).
         Becomes the Prometheus namespace.
-      - ``config_mount_path`` follows ``/etc/<app>/<app>.yaml`` —
+      - ``config_mount_path`` follows ``/etc/<app>/<app>.yaml`` --
         same convention as dfe-loader / dfe-receiver.
-      - ``description`` is empty — the operator should fill this in.
+      - ``description`` is empty -- the operator should fill this in.
         Not auto-generating a placeholder so it shows up cleanly in
         ``ci/`` diffs as a TODO for the human.
     """

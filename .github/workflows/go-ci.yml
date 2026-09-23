@@ -1,11 +1,11 @@
 # Project:   HyperI CI
 # File:      .github/workflows/go-ci.yml
 # Purpose:   Reusable Go CI workflow for consumer projects
-# Status:    BETA — functional but not battle-tested to the same degree
+# Status:    BETA -- functional but not battle-tested to the same degree
 #            as the Rust, Python, and TypeScript workflows. Maintained,
 #            not yet proven at the same scale.
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # Go-specific stages: quality, test, setup, build (with version stamp).
@@ -126,7 +126,7 @@ concurrency:
 env:
   HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
   # Rehearsal / incident escape hatch: the HYPERCI_INSTALL_OVERRIDE repo
-  # variable replaces the CLI install command wholesale — a branch rehearsal
+  # variable replaces the CLI install command wholesale -- a branch rehearsal
   # points it at `uvx --from git+...@<branch> hyperi-ci`; an incident pins
   # the repo to a known-good `uvx hyperi-ci==X.Y.Z`. Unset = latest PyPI.
   # `--python` pins the CLI's OWN interpreter. Without it uvx takes whatever
@@ -154,7 +154,7 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # plan — runs FIRST. Computes gate outputs; downstream jobs read them.
+  # plan -- runs FIRST. Computes gate outputs; downstream jobs read them.
   # See docs/architecture.md.
   # ---------------------------------------------------------------------------
   plan:
@@ -214,7 +214,7 @@ jobs:
         run: ${{ env.HYPERCI_INSTALL }} preflight
 
       - name: Generate build matrix
-        # Go cross-compiles natively (GOOS/GOARCH) — same multi-arch
+        # Go cross-compiles natively (GOOS/GOARCH) -- same multi-arch
         # matrix shape as Rust on publish; single-arch on validate AND
         # branch-mode PR builds (arch breadth keys off will-release,
         # NOT run-build).
@@ -392,7 +392,7 @@ jobs:
         # Version-first pipeline: write the version we're about to tag
         # into VERSION before `go build`. Go binaries pick this up via
         # `-ldflags "-X main.version=$VERSION"` in build.py. Runs on push
-        # AND on a from-head dispatch (issue #35) — both release HEAD,
+        # AND on a from-head dispatch (issue #35) -- both release HEAD,
         # whose committed tree is stale (tagger-only). A plain `tag`
         # dispatch is skipped (the tag's tree is correct).
         if: needs.plan.outputs.will-release == 'true' && (github.event_name == 'push' || inputs.from-head == 'true')
@@ -477,7 +477,7 @@ jobs:
     secrets: inherit
 
   # ---------------------------------------------------------------------------
-  # gate — the terminal context branch protection should require.
+  # gate -- the terminal context branch protection should require.
   #
   # Requiring `ci / Quality` does not work: GitHub counts a SKIPPED required
   # check as satisfied, so the doctrine's deliberate skip and a gate that never

@@ -12,7 +12,7 @@ downstream ``.hyperi-ci.yaml`` files but ignored at runtime.
 
 Docker Hub is intentionally NOT a target. The Docker Hub login step in
 the reusable workflows remains, gated on ``vars.DOCKERHUB_USERNAME``, so
-authenticated pulls bypass anonymous rate limits — but no project
+authenticated pulls bypass anonymous rate limits -- but no project
 publishes to Docker Hub.
 """
 
@@ -33,5 +33,5 @@ def resolve_registry_bases(*, target: str, org: OrgConfig) -> list[str]:
         for back-compat with callers that still pass it.
 
     """
-    del target  # ignored — every publish goes to GHCR
+    del target  # ignored -- every publish goes to GHCR
     return [f"{org.ghcr_registry}/{org.ghcr_org}"]

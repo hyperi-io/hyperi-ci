@@ -7,8 +7,8 @@
 """Shared quality check utilities for two-tier (production/test) rule splitting.
 
 Quality checks run in two passes:
-1. Production pass — full strict rules on all code except test dirs
-2. Test pass — relaxed rules on test directories only
+1. Production pass -- full strict rules on all code except test dirs
+2. Test pass -- relaxed rules on test directories only
 
 Test paths and ignore lists are configurable via defaults.yaml and
 overridable per project in .hyperi-ci.yaml.

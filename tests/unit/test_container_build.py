@@ -11,7 +11,7 @@ from hyperi_ci.container.build import resolve_tags
 
 
 def test_resolve_tags_validate_mode_returns_no_tags():
-    """Validate mode (push-to-main / local) — no tags land in any registry."""
+    """Validate mode (push-to-main / local) -- no tags land in any registry."""
     tags = resolve_tags(
         registry_bases=["ghcr.io/hyperi-io"],
         image_name="dfe-loader",
@@ -25,7 +25,7 @@ def test_resolve_tags_validate_mode_returns_no_tags():
 class TestDevModeTags:
     """Branch-mode dev images (plan decision 3): mutable branch pointer +
     immutable branch-scoped sha pin, and NEVER a version tag, latest, or a
-    bare sha-<short> — those are the GA artifact class, published only
+    bare sha-<short> -- those are the GA artifact class, published only
     from main. The distinct branch-*/dev-sha-* prefixes are load-bearing:
     the scheduled GHCR pruner globs them without touching GA pins."""
 
@@ -55,7 +55,7 @@ class TestDevModeTags:
         )
         joined = " ".join(tags)
         assert "v1.13.5" not in joined and "latest" not in joined
-        # The bare sha-<short> namespace belongs to GA publishes — a dev
+        # The bare sha-<short> namespace belongs to GA publishes -- a dev
         # image emitting it would make prune globs unsafe.
         assert not any(t.endswith(":sha-abc1234") for t in tags)
 

@@ -67,7 +67,7 @@ def _git(args: list[str], cwd: str | None) -> subprocess.CompletedProcess[str]:
 
 # Strict final-release tags only (vX.Y.Z). A broad 'v*' glob lets a
 # non-semver v-tag (vendor-x, v2, a prerelease) win the -v:refname sort
-# and poison the analysis range — the gate would then walk a different
+# and poison the analysis range -- the gate would then walk a different
 # range than semantic-release, which only honours semver tags. Matches
 # the v[0-9]* + X.Y.Z discipline in the predict-version composite and
 # push._compute_next_version.

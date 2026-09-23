@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TEMPLATE: Multi-protocol PGO workload (receiver-style — many listeners).
+# TEMPLATE: Multi-protocol PGO workload (receiver-style -- many listeners).
 #
 # For services that accept multiple ingress protocols (HTTP, gRPC,
 # OTLP, syslog, Prom RW, Splunk HEC, Lumberjack, Fluent, GELF, ...).
@@ -145,7 +145,7 @@ sleep 2   # let Kafka client join
 
 echo "pgo-workload: driving multi-protocol load for ${DURATION}s"
 
-# The driver binary reads PGO_DRIVER_* env vars — see the
+# The driver binary reads PGO_DRIVER_* env vars -- see the
 # dfe-receiver reference for the full list. At minimum set duration.
 PGO_DRIVER_DURATION_SECS="$DURATION" \
     "$PGO_DRIVER_PATH"

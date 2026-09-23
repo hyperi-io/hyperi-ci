@@ -43,7 +43,7 @@ class TestInitContract:
         assert (target / "deployment-contract.json").is_file()
 
     def test_contract_parses_back_via_pydantic(self, tmp_path: Path) -> None:
-        # The whole point of scaffolding — written contract must be
+        # The whole point of scaffolding -- written contract must be
         # immediately consumable by emit-artefacts without editing.
         init_contract(tmp_path, "my-app")
         data = _read_contract(tmp_path)

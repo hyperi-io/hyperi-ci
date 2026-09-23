@@ -14,10 +14,10 @@ project they're looking at. Behaviour locked in here:
 - Known status (any of VALID_PROJECT_STATUSES) → one INFO line with the
   status and a clarifier phrase that explains what the status means.
 - Unknown status (typo) → warned at config-load time and skipped by the
-  dispatcher's status block — verified in `test_config.py`.
+  dispatcher's status block -- verified in `test_config.py`.
 
 The clarifier phrase is what makes non-GA stand out without elevating
-log level. A line that reads `Project status: beta — pre-GA, polishing`
+log level. A line that reads `Project status: beta -- pre-GA, polishing`
 is unmistakable in a wall of INFO without being a WARN.
 """
 
@@ -29,10 +29,10 @@ from hyperi_ci.dispatch import _STATUS_CLARIFIER
 
 
 class TestStatusClarifierMap:
-    """The clarifier map drives the user-visible signal — lock it in."""
+    """The clarifier map drives the user-visible signal -- lock it in."""
 
     def test_ga_has_no_clarifier(self) -> None:
-        # GA is the unmarked default — clarifier adds nothing, so the
+        # GA is the unmarked default -- clarifier adds nothing, so the
         # line reads simply "Project status: ga".
         assert _STATUS_CLARIFIER["ga"] == ""
 
@@ -64,7 +64,7 @@ class TestStatusClarifierMap:
     def test_clarifier_has_no_warn_style_words(self) -> None:
         # The whole point of the redesign: clarifier carries signal
         # without being alarming. Reject "WARNING", "ERROR", "DANGER",
-        # "DO NOT USE" — these elevate tone past the info level the
+        # "DO NOT USE" -- these elevate tone past the info level the
         # value deserves.
         forbidden = ("WARNING", "ERROR", "DANGER", "DO NOT USE")
         for status, phrase in _STATUS_CLARIFIER.items():

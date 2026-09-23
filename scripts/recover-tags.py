@@ -10,14 +10,14 @@
 A legacy `.releaserc` carrying `@semantic-release/git` rewrote every `v*`
 tag on affected consumers (dfe-receiver et al.) to point at fresh off-main
 `chore: version X.Y.Z [skip ci]` commits, so the tags no longer reach
-`main`. The ORIGINAL release commits are still on `main` — each version's
+`main`. The ORIGINAL release commits are still on `main` -- each version's
 `chore: version X.Y.Z` commit. This rebuilds `vX.Y.Z -> that commit`.
 
 Safe by construction:
   - default is a DRY RUN: prints the plan, mutates nothing.
   - --apply moves/creates tags LOCALLY only and prints the exact
     `git push --force` command for you to run by hand. This script never
-    pushes — the remote mutation stays a deliberate human step.
+    pushes -- the remote mutation stays a deliberate human step.
 
 Usage:
     uv run scripts/recover-tags.py --repo /path/to/clone           # dry run
@@ -88,7 +88,7 @@ def _release_commits(
     Default (source_ref="") is branch-model-agnostic: scans commits reachable
     from `origin/*`, so it works for both main-only and release-branch repos.
     Pass an explicit `source_ref` (e.g. "origin/main") to restrict originals to
-    that line — "only recover tags whose original is on current main". Either
+    that line -- "only recover tags whose original is on current main". Either
     way this EXCLUDES the bug's orphaned bot commits (off every branch). `branch`
     is the fallback when no remote refs are present (local-only test repo).
     """
@@ -127,7 +127,7 @@ def build_plans(repo: str, branch: str, source_ref: str = "") -> list[Plan]:
         elif current == target:
             action = "OK"
         elif _git(repo, "branch", "-r", "--contains", current).strip():
-            # Current target is itself ON a branch — a valid commit, not the
+            # Current target is itself ON a branch -- a valid commit, not the
             # bug's orphaned bot commit. Never clobber a healthy tag; only #37
             # damage (tag pointing OFF every branch) is repaired.
             action = "KEEP"
@@ -163,7 +163,7 @@ def _unrecoverable_tags(repo: str, branch: str, planned: set[str]) -> list[str]:
     """v* tags that have no `chore: version` source AND don't reach branch.
 
     These cannot be rebuilt automatically (no original commit to map to) and
-    must be handled by hand — surfaced so nothing is silently dropped.
+    must be handled by hand -- surfaced so nothing is silently dropped.
     """
     all_tags = [t for t in _git(repo, "tag", "-l", "v*").splitlines() if t]
     out = []

@@ -50,7 +50,7 @@ class TestProducesRustBinary:
 
     def test_bin_table_without_name_field(self, tmp_path: Path) -> None:
         # cargo defaults an unnamed [[bin]] to the package name, so the
-        # table alone is the signal — don't require a name.
+        # table alone is the signal -- don't require a name.
         (tmp_path / "Cargo.toml").write_text(
             '[package]\nname = "demo"\n[[bin]]\npath = "src/main.rs"\n',
             encoding="utf-8",
@@ -322,7 +322,7 @@ class TestPythonEntryPoint:
         assert python_entry_point(tmp_path) is None
 
     def test_empty_scripts_table(self, tmp_path: Path) -> None:
-        # Declared but empty, with a following section — must not claim
+        # Declared but empty, with a following section -- must not claim
         # the next table's first key as a script name.
         (tmp_path / "pyproject.toml").write_text(
             '[project]\nname = "demo"\n'

@@ -6,14 +6,14 @@
 #   name:           Human-readable label shown in CI output
 #   patterns:       Strings to search for in manifest_files (plain substring match)
 #   manifest_files: Files to search relative to project root (later entries are fallbacks)
-#   dpkg_check:     dpkg package name — skips apt install if already present
-#   dpkg_min_version: Optional minimum version — upgrades if installed version is too old
+#   dpkg_check:     dpkg package name -- skips apt install if already present
+#   dpkg_min_version: Optional minimum version -- upgrades if installed version is too old
 #   apt_packages:   Packages to install on Linux (apt-get)
 #   apt_repos:      Optional APT repositories to add before installing (for newer versions)
 #                   Each entry may carry key_fingerprint: the primary-key
 #                   fingerprint the downloaded key must match, else refuse
 #
-# All apt_packages are arch-agnostic names — apt resolves them to the correct
+# All apt_packages are arch-agnostic names -- apt resolves them to the correct
 # architecture (amd64, arm64) automatically when the package exists for that arch.
 
 # --- Build tools (always installed for Rust) ---
@@ -51,7 +51,7 @@
 # Tier 2 release-track optimisation. Always installed for Rust projects
 # so Tier 2 Just Works when a project opts in via .hyperi-ci.yaml.
 # Ubuntu ships llvm-bolt in `bolt-NN` (post-link optimizer), NOT in
-# the `llvm` metapackage — that was the silent BOLT-skip cause during
+# the `llvm` metapackage -- that was the silent BOLT-skip cause during
 # the dfe-receiver v1.15.7 canary.
 #
 # We pull from apt.llvm.org (LLVM's official upstream repo) so we
@@ -71,7 +71,7 @@
 # self-hosted runners.
 #
 # Installs /usr/bin/llvm-bolt-${HYPERCI_LLVM_VERSION} (version-suffixed
-# only — pgo.py's _ensure_llvm_bolt_available() falls back to versioned
+# only -- pgo.py's _ensure_llvm_bolt_available() falls back to versioned
 # names and shims ~/.local/bin/llvm-bolt → the versioned binary).
 # Linux only (apt); non-Linux runners skip this whole file.
 #
@@ -88,7 +88,7 @@
   apt_repos:
     - key_url: https://apt.llvm.org/llvm-snapshot.gpg.key
       keyring: /usr/share/keyrings/llvm.gpg
-      # Published at https://apt.llvm.org/ — a mismatch refuses the install.
+      # Published at https://apt.llvm.org/ -- a mismatch refuses the install.
       key_fingerprint: 6084F3CF814B57C1CF12EFD515CF4D18AF4F7421
       url: https://apt.llvm.org/${OS_CODENAME}/
       codename: llvm-toolchain-${OS_CODENAME}-${HYPERCI_LLVM_VERSION}

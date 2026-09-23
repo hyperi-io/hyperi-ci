@@ -52,7 +52,7 @@ class TestNoRewriteCases:
         assert result == df
 
     def test_already_parameterised_copy(self, cwd_tmp: Path) -> None:
-        # ci-test-rust-app / dfe-loader pattern — already uses TARGETARCH.
+        # ci-test-rust-app / dfe-loader pattern -- already uses TARGETARCH.
         # Should NOT be touched.
         _write_dist_artefact(cwd_tmp / "dist", "demo", "amd64")
         df = _write_dockerfile(
@@ -65,7 +65,7 @@ class TestNoRewriteCases:
         assert result == df
 
     def test_copy_from_other_stage(self, cwd_tmp: Path) -> None:
-        # Multi-stage `COPY --from=builder` shouldn't be rewritten —
+        # Multi-stage `COPY --from=builder` shouldn't be rewritten --
         # it copies from another build stage, not the build context.
         _write_dist_artefact(cwd_tmp / "dist", "demo", "amd64")
         df = _write_dockerfile(
@@ -78,7 +78,7 @@ class TestNoRewriteCases:
         assert result == df
 
     def test_copy_with_no_matching_dist_artefact(self, cwd_tmp: Path) -> None:
-        # `COPY config.yaml /etc/app/` — config files, not binaries.
+        # `COPY config.yaml /etc/app/` -- config files, not binaries.
         # No dist/config.yaml-linux-amd64 → don't rewrite.
         df = _write_dockerfile(
             cwd_tmp,
@@ -88,7 +88,7 @@ class TestNoRewriteCases:
         assert result == df
 
     def test_copy_with_path_in_source(self, cwd_tmp: Path) -> None:
-        # Path-form sources like `COPY src/ /app/` are skipped — only
+        # Path-form sources like `COPY src/ /app/` are skipped -- only
         # bare names are rewrite candidates.
         _write_dist_artefact(cwd_tmp / "dist", "demo", "amd64")
         df = _write_dockerfile(
@@ -127,7 +127,7 @@ class TestRewrite:
 
     def test_rewrite_with_only_amd64_artefact(self, cwd_tmp: Path) -> None:
         # Push-to-main produces only amd64. The rewrite should still
-        # fire — TARGETARCH substitution still resolves correctly when
+        # fire -- TARGETARCH substitution still resolves correctly when
         # buildx is invoked with `--platform linux/amd64` only (the
         # platform filter handles arm64 absence upstream).
         _write_dist_artefact(cwd_tmp / "dist", "dfe-receiver", "amd64")
@@ -169,7 +169,7 @@ class TestRewrite:
 
     def test_multiple_bare_copies_share_one_arg(self, cwd_tmp: Path) -> None:
         # If a Dockerfile has multiple bare COPY-binary lines (rare but
-        # possible — e.g. main app + sidecar), one ARG TARGETARCH suffices.
+        # possible -- e.g. main app + sidecar), one ARG TARGETARCH suffices.
         _write_dist_artefact(cwd_tmp / "dist", "main-app", "amd64")
         _write_dist_artefact(cwd_tmp / "dist", "sidecar", "amd64")
         df = _write_dockerfile(
@@ -226,7 +226,7 @@ class TestPreservesNonRewriteContent:
         assert rewritten.endswith("\n")
 
     def test_temp_file_lives_under_cwd(self, cwd_tmp: Path) -> None:
-        # buildx resolves Dockerfile-relative paths against cwd —
+        # buildx resolves Dockerfile-relative paths against cwd --
         # the temp file must be inside cwd.
         _write_dist_artefact(cwd_tmp / "dist", "demo", "amd64")
         df = _write_dockerfile(
@@ -245,7 +245,7 @@ class TestRegressionFromBugSpec:
 
     def test_dfe_archiver_dockerfile(self, cwd_tmp: Path) -> None:
         # Verbatim relevant lines from /projects/dfe-archiver/Dockerfile
-        # — the cause of the production bug.
+        # -- the cause of the production bug.
         _write_dist_artefact(cwd_tmp / "dist", "dfe-archiver", "amd64")
         _write_dist_artefact(cwd_tmp / "dist", "dfe-archiver", "arm64")
         df = _write_dockerfile(
@@ -268,5 +268,5 @@ class TestRegressionFromBugSpec:
             in rewritten
         )
         assert "ARG TARGETARCH" in rewritten
-        # Bare COPY gone — that was the bug.
+        # Bare COPY gone -- that was the bug.
         assert "\nCOPY dfe-archiver " not in rewritten

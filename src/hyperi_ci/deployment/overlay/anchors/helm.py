@@ -9,10 +9,10 @@
 Helm charts are directories of templates. Two distinct overlay
 mechanisms apply:
 
-  * **Adds** — drop additional template files into ``templates/`` of
+  * **Adds** -- drop additional template files into ``templates/`` of
     the contract-generated chart before ``helm package``. Use for
     adding net-new resources (sidecar configs, PVCs, extra secrets).
-  * **Patches** — strategic-merge or JSON 6902 patches applied to the
+  * **Patches** -- strategic-merge or JSON 6902 patches applied to the
     rendered chart output (post-renderer pattern). Use for modifying
     existing resources (add a volume to the Deployment, override a
     container env var).
@@ -68,7 +68,7 @@ class HelmAnchorResolver:
 
         Raises :class:`OverlayValidationError` if an add's destination
         path already exists in the chart (overlays add resources, never
-        silently overwrite generated ones — use ``patches:`` for that).
+        silently overwrite generated ones -- use ``patches:`` for that).
         """
         written: list[Path] = []
         for index, add in enumerate(adds):

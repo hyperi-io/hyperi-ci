@@ -134,7 +134,7 @@ def init_topology(
     (topo_dir / "glue").mkdir()
 
     # topology.yaml
-    import yaml as _yaml  # noqa: PLC0415 — deferred to avoid top-level dep at import
+    import yaml as _yaml  # noqa: PLC0415 -- deferred to avoid top-level dep at import
 
     topology_doc = {
         "apiVersion": "hyperi.io/v1",

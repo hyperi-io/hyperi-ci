@@ -42,7 +42,7 @@ class TestNormaliseTristate:
         assert normalise_tristate(raw, key="publish.container.enabled") == expected
 
     def test_unknown_value_names_the_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # The warning has to be findable — a bare "unknown value" tells
+        # The warning has to be findable -- a bare "unknown value" tells
         # an operator nothing about which key to go fix. Intercept warn
         # itself; the loguru sink doesn't flush to stderr until teardown.
         warnings: list[str] = []
@@ -60,7 +60,7 @@ class TestNormaliseTristate:
 class TestSkipOptimize:
     """issue #132: the language-agnostic "skip the optimisation stage" switch.
 
-    Precedence is the config cascade — the env var the reusable workflows set
+    Precedence is the config cascade -- the env var the reusable workflows set
     beats the project's own config key, and both default off so optimisation
     stays on for a repo that asks for nothing.
     """
@@ -189,7 +189,7 @@ class TestRunCmdUtf8:
         """Invalid UTF-8 bytes (e.g. raw 0xff) must be replaced, not raise."""
         # 0xff is never valid in UTF-8. Without errors="replace" this would
         # raise UnicodeDecodeError when run_cmd tries to decode the captured
-        # bytes — which is exactly what was breaking `hyperi-ci logs`.
+        # bytes -- which is exactly what was breaking `hyperi-ci logs`.
         result = run_cmd(
             [
                 "python3",
@@ -198,7 +198,7 @@ class TestRunCmdUtf8:
             ],
             capture=True,
         )
-        # We don't pin the exact replacement char (�) — just that no
+        # We don't pin the exact replacement char (�) -- just that no
         # exception was raised and the surrounding text is intact.
         assert "before" in result.stdout
         assert "after" in result.stdout

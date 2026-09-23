@@ -42,7 +42,7 @@ class TestJavascriptAliasesToTypescript:
         assert _find_handler_module("typescript", "quality") is not None
 
     def test_unknown_language_still_returns_none(self) -> None:
-        """Only the javascript alias is wired — unknown names still fail."""
+        """Only the javascript alias is wired -- unknown names still fail."""
         assert _find_handler_module("bogus-lang", "quality") is None
 
     def test_unknown_stage_still_returns_none(self) -> None:

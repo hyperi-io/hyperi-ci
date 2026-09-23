@@ -9,7 +9,7 @@
 The primary release path is now `hyperi-ci push --release` (single CI
 run, version-first pipeline gated by the ``Release: true`` commit
 trailer). This module covers the secondary "I want to re-publish an
-existing tag" use case — e.g. a previous publish run failed mid-way and
+existing tag" use case -- e.g. a previous publish run failed mid-way and
 needs retrying without re-tagging.
 
 Lists unpublished version tags and triggers the workflow_dispatch event
@@ -152,29 +152,29 @@ def _head_in_sync_with_origin() -> bool:
 
     from-head dispatch tags `origin/main` HEAD on the runner, not the
     local tree. If the operator's HEAD differs, what gets released is not
-    what they're looking at — warn so there are no surprises.
+    what they're looking at -- warn so there are no surprises.
     """
     local = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True)
     remote = subprocess.run(
         ["git", "rev-parse", "origin/main"], capture_output=True, text=True
     )
     if local.returncode != 0 or remote.returncode != 0:
-        return True  # can't tell — don't block
+        return True  # can't tell -- don't block
     return local.stdout.strip() == remote.stdout.strip()
 
 
 def dispatch_from_head(*, bump: str = "auto", dry_run: bool = False) -> int:
-    """Release/retry the current `main` HEAD — the CI creates the tag.
+    """Release/retry the current `main` HEAD -- the CI creates the tag.
 
     This is the first-class "I need to release/retry that" path (issue #35).
     The CLI only *triggers* the workflow; the runner resolves the version,
-    creates the tag at HEAD, and publishes — so there is no artificial
+    creates the tag at HEAD, and publishes -- so there is no artificial
     `fix:` commit and no local tag push. The `bump` channel carries:
 
-    - ``auto`` — semantic-release picks the version from commits (no-ops if
+    - ``auto`` -- semantic-release picks the version from commits (no-ops if
       nothing is release-worthy);
-    - ``patch`` / ``minor`` — force a release regardless;
-    - an explicit ``X.Y.Z`` — the ``--version`` override: tag HEAD at exactly
+    - ``patch`` / ``minor`` -- force a release regardless;
+    - an explicit ``X.Y.Z`` -- the ``--version`` override: tag HEAD at exactly
       that version (skips a taken/orphaned tag, e.g. the issue #37 case).
     """
     explicit = explicit_version(bump)
@@ -185,7 +185,7 @@ def dispatch_from_head(*, bump: str = "auto", dry_run: bool = False) -> int:
         )
         return 1
     if explicit is not None:
-        bump = explicit  # normalised (no leading 'v') — travels in the bump input
+        bump = explicit  # normalised (no leading 'v') -- travels in the bump input
 
     if not _head_in_sync_with_origin():
         warn(
@@ -219,7 +219,7 @@ def dispatch_publish(tag: str, dry_run: bool = False) -> int:
     """Re-dispatch a publish for an EXISTING tag (idempotent retry).
 
     If tag is "latest", resolves to the most recent version tag. A GH
-    Release that already exists no longer blocks — the publish handlers
+    Release that already exists no longer blocks -- the publish handlers
     skip artefacts already in their registry ("already exists"), so a
     retry safely fills in whatever a partial publish missed (issue #35).
     """

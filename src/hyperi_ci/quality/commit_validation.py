@@ -142,7 +142,7 @@ def validate_message(msg: str) -> ValidationResult:
                 error_type="ai_attribution",
             )
 
-    # Parse the prefix — only look at the subject line (first line)
+    # Parse the prefix -- only look at the subject line (first line)
     subject = msg.split("\n")[0].strip()
     match = _PREFIX_RE.match(subject)
     if not match:
@@ -198,7 +198,7 @@ def validate_message(msg: str) -> ValidationResult:
         )
 
     # =========================================================================
-    # Bump-discipline gates — DO NOT REMOVE without reading this comment.
+    # Bump-discipline gates -- DO NOT REMOVE without reading this comment.
     # =========================================================================
     #
     # These two gates exist for ONE reason: AI coding agents (Claude Code,
@@ -207,9 +207,9 @@ def validate_message(msg: str) -> ValidationResult:
     # accidental bumps and reset main HISTORY *multiple times across
     # multiple sessions* because:
     #
-    #   1. Agents default to `feat:` for any new capability — adding a CLI
+    #   1. Agents default to `feat:` for any new capability -- adding a CLI
     #      flag, a config knob, a helper function, a small new branch in
-    #      existing code. HyperI policy is that `feat:` is RARE — only for
+    #      existing code. HyperI policy is that `feat:` is RARE -- only for
     #      genuinely new user-facing features. Agents do not respect that
     #      policy reliably even when it's documented in CLAUDE.md, in the
     #      universal rules file, in the project STATE.md, in per-session
@@ -218,7 +218,7 @@ def validate_message(msg: str) -> ValidationResult:
     #      failed at least a dozen times.
     #
     #   2. Agents write `BREAKING CHANGE:` in commit body text as a
-    #      *documentation reference* — e.g. "Major bumps require a
+    #      *documentation reference* -- e.g. "Major bumps require a
     #      BREAKING CHANGE: footer". semantic-release's commit-analyzer
     #      cannot distinguish a documentation reference from an actual
     #      breaking-change declaration; the literal string fires the
@@ -231,7 +231,7 @@ def validate_message(msg: str) -> ValidationResult:
     # major/minor bump. This is the price humans now pay for AI agents'
     # inability to follow stated commit-type discipline. The trade is
     # worthwhile because rolling back a semver mistake is FAR more painful
-    # — git history rewrite, force-push, deleted tags, sometimes yanked
+    # -- git history rewrite, force-push, deleted tags, sometimes yanked
     # PyPI/crates packages, downstream consumers that pulled the wrong
     # version.
     #
@@ -239,7 +239,7 @@ def validate_message(msg: str) -> ValidationResult:
     # gates because they slow you down: understand that you are NOT the
     # primary failure mode they exist for. AI agents are. Removing them
     # will reintroduce the regression. Find another way to streamline
-    # your workflow — e.g. set HYPERCI_ALLOW_FEAT=1 in your shell rc on
+    # your workflow -- e.g. set HYPERCI_ALLOW_FEAT=1 in your shell rc on
     # branches where genuine features are expected.
     #
     # =========================================================================
@@ -288,7 +288,7 @@ def _has_breaking_change_marker(msg: str) -> bool:
     text like "breaking change" pass through unblocked, as do other
     hyphenations like "breaking-change footer" used as documentation.
 
-    Match is unanchored deliberately — semantic-release scans for the
+    Match is unanchored deliberately -- semantic-release scans for the
     literal string anywhere in the message body, and agents have
     triggered major bumps with the marker mid-line in body text.
     Better to over-block (operator sets HYPERCI_ALLOW_BREAKING=1 once)

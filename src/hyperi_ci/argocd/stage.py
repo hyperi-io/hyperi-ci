@@ -8,15 +8,15 @@
 
 Reads ``release.argocd`` from ``.hyperi-ci.yaml`` (``publish.argocd`` still works):
 
-* ``enabled`` (bool, default false) — gate the stage.
-* ``repo`` (str, default ``hyperi-io/gitops``) — central gitops repo.
+* ``enabled`` (bool, default false) -- gate the stage.
+* ``repo`` (str, default ``hyperi-io/gitops``) -- central gitops repo.
 * ``path`` (str template, default
-  ``applications/${{ APP }}/${{ ENV }}.yaml``) — destination inside repo.
-* ``envs`` (list of ``{name, push_mode}``) — env-specific settings.
+  ``applications/${{ APP }}/${{ ENV }}.yaml``) -- destination inside repo.
+* ``envs`` (list of ``{name, push_mode}``) -- env-specific settings.
   ``push_mode`` is ``direct`` or ``pr``. dev/staging default direct;
   prod defaults to ``pr``.
 * ``overlays`` (list of overlays per spec section 3.3).
-* ``binary_name`` (str, default ``Path.cwd().name``) — consumer
+* ``binary_name`` (str, default ``Path.cwd().name``) -- consumer
   binary that exposes ``emit-argocd``.
 
 Push happens only in publish mode (workflow_dispatch / publish trailer);
@@ -200,10 +200,10 @@ def _resolve_envs(argocd_cfg: dict) -> list[tuple[str, str]]:
 
 
 def _is_release_mode() -> bool:
-    """Release or not — delegates to :mod:`hyperi_ci.release_mode` (SSOT).
+    """Release or not -- delegates to :mod:`hyperi_ci.release_mode` (SSOT).
 
     ArgoCD has no dev mode: a branch-mode dev run behaves as validate
-    here (dev artifacts are container images only — plan decision 3).
+    here (dev artifacts are container images only -- plan decision 3).
     """
     from hyperi_ci.release_mode import is_release_mode
 

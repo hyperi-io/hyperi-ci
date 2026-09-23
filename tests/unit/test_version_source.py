@@ -65,7 +65,7 @@ class TestPythonManifest:
         assert declared_version(tmp_path) == ("0.3.0", "pyproject.toml")
 
     def test_skips_a_dynamic_version(self, tmp_path: Path) -> None:
-        """A dynamic version is computed by the back-end — there is none to read.
+        """A dynamic version is computed by the back-end -- there is none to read.
 
         hyperi-ci's own pyproject is this shape: `dynamic = ["version"]` with
         hatch reading the VERSION file. Reading the `version` key anyway would
@@ -100,7 +100,7 @@ class TestRustManifest:
         assert declared_version(tmp_path) == ("3.1.4", "Cargo.toml")
 
     def test_reads_a_virtual_manifest(self, tmp_path: Path) -> None:
-        """A workspace root with no [package] — the dfe-archiver shape."""
+        """A workspace root with no [package] -- the dfe-archiver shape."""
         (tmp_path / "Cargo.toml").write_text(
             '[workspace]\nmembers = ["a", "b"]\n\n[workspace.package]\nversion = "5.0.2"\n',
             encoding="utf-8",
@@ -121,7 +121,7 @@ class TestNodeManifest:
 
 
 class TestRejectedVersions:
-    """Only a plain X.Y.Z can seed a tag — the tag format is `v${version}`."""
+    """Only a plain X.Y.Z can seed a tag -- the tag format is `v${version}`."""
 
     def test_rejects_a_pep_440_prerelease(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text(
@@ -154,7 +154,7 @@ class TestRejectedVersions:
 
 
 class TestSeedVersion:
-    """seed_version always answers — that is the point of a default."""
+    """seed_version always answers -- that is the point of a default."""
 
     def test_greenfield_starts_at_the_default(self, tmp_path: Path) -> None:
         assert seed_version(tmp_path) == (DEFAULT_SEED_VERSION, "default")
@@ -175,7 +175,7 @@ class TestSeedVersion:
         assert seed_version(tmp_path) == ("2.0.0", "Cargo.toml")
 
     def test_ignores_the_version_file(self, tmp_path: Path) -> None:
-        """The whole point of issue #85 — VERSION is an output, not an input."""
+        """The whole point of issue #85 -- VERSION is an output, not an input."""
         (tmp_path / "VERSION").write_text("2.3.10\n", encoding="utf-8")
         assert seed_version(tmp_path) == (DEFAULT_SEED_VERSION, "default")
 

@@ -2,7 +2,7 @@
 # File:      .github/workflows/gate-audit.yml
 # Purpose:   Weekly sweep for repos whose quality gate never actually runs
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # The gate doctrine skips quality and test on non-bumping pushes to main, so a
@@ -13,7 +13,7 @@
 #
 # Report-only. It reads other repos and writes to none of them.
 #
-# A FAILING gate is deliberately not reported — GitHub already shows a red repo
+# A FAILING gate is deliberately not reported -- GitHub already shows a red repo
 # as red, and pre-GA repos are expected to be red. Repos declaring a pre-GA
 # `publish.channel` are skipped for the same reason, and what was skipped is
 # always named.
@@ -54,7 +54,7 @@ jobs:
 
       - name: Mint an org-wide read token
         # An org sweep reads workflow runs and jobs across SIBLING repos, which
-        # GITHUB_TOKEN cannot do — it is scoped to this repo alone.
+        # GITHUB_TOKEN cannot do -- it is scoped to this repo alone.
         id: bot
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:

@@ -32,7 +32,7 @@ from hyperi_ci.languages.typescript._common import (
 from hyperi_ci.quality import osv_scanner
 from hyperi_ci.quality.ignores import for_tool, load_ignores
 
-# Lockfile each package manager writes — osv-scanner scans this for
+# Lockfile each package manager writes -- osv-scanner scans this for
 # malicious packages.
 _PM_LOCKFILE = {
     "npm": "package-lock.json",
@@ -41,7 +41,7 @@ _PM_LOCKFILE = {
 }
 
 # Config-file markers that signal a tool is meant to run even without an
-# npm script wrapper — we fall back to direct `npx <tool>` invocation.
+# npm script wrapper -- we fall back to direct `npx <tool>` invocation.
 _ESLINT_CONFIG_MARKERS = (
     "eslint.config.js",
     "eslint.config.mjs",
@@ -179,7 +179,7 @@ def _audit_command(*, audit_level: str, pm: str, yarn_major: int) -> list[str]:
 
     Args:
         audit_level: Minimum severity to fail on (e.g. ``"moderate"``).
-        pm: Package manager — one of ``npm``, ``yarn``, ``pnpm``.
+        pm: Package manager -- one of ``npm``, ``yarn``, ``pnpm``.
         yarn_major: Yarn major version; only consulted when ``pm`` is
             ``yarn``. ``>= 2`` selects the Berry command.
 
@@ -204,7 +204,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
       3. Else skip the tool with a warn-level message.
 
     Skip messages are `warn` (not `info`) so missing tool coverage is
-    visible in CI output — silently degrading a lint step is a worse
+    visible in CI output -- silently degrading a lint step is a worse
     failure mode than a hard error. Projects that genuinely don't want
     a tool can set `quality.typescript.<tool>: disabled`.
     """
@@ -219,7 +219,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # --- eslint ---
     # Prefer the project's `lint` script (respects its own config).
     # Fall back to `npx eslint .` if an eslint config file is present.
-    # Skip with a warning if neither — don't silently drop coverage.
+    # Skip with a warning if neither -- don't silently drop coverage.
     mode = _get_tool_mode("eslint", config)
     if _find_npm_script(["lint"], pm):
         if not _run_tool("eslint", [pm, "run", "lint"], mode):
@@ -264,7 +264,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     else:
         warn("  tsc: no typecheck script and no tsconfig.json — skipping")
 
-    # --- audit + semgrep — run on any JS/TS project; orthogonal to npm scripts ---
+    # --- audit + semgrep -- run on any JS/TS project; orthogonal to npm scripts ---
     mode = _get_tool_mode("audit", config)
     audit_level = config.get("quality.typescript.audit_level", "moderate")
     yarn_major = detect_yarn_version() if pm == "yarn" else 0
@@ -286,9 +286,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if not _run_tool("audit", audit_cmd, mode):
         had_failure = True
 
-    # osv-scanner — malicious-package (MAL-*) scan. npm/pnpm/yarn audit are
+    # osv-scanner -- malicious-package (MAL-*) scan. npm/pnpm/yarn audit are
     # CVE-only (GitHub Advisory DB) and miss the OSSF malicious-packages
-    # feed — where the bulk of typosquat/compromised-maintainer attacks
+    # feed -- where the bulk of typosquat/compromised-maintainer attacks
     # (and ossf/malicious-packages#1276) live. Defence-in-depth behind the
     # 7-day Renovate cooldown.
     mode = _get_tool_mode("osv_scanner", config)

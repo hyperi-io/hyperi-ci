@@ -4,7 +4,7 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""HyperI CI/CD CLI tool — multi-language build, test, and publish automation."""
+"""HyperI CI/CD CLI tool -- multi-language build, test, and publish automation."""
 
 from importlib.metadata import version
 

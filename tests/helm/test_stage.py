@@ -112,7 +112,7 @@ def _mock_run_factory(emit_chart_dir: Path | None):
         if cmd[:2] == ["helm", "push"]:
             return result
 
-        # Unknown subprocess call — fail loudly so the test catches drift.
+        # Unknown subprocess call -- fail loudly so the test catches drift.
         result.returncode = 99
         result.stderr = f"unmocked subprocess call: {cmd!r}"
         return result
@@ -124,7 +124,7 @@ class TestHelmStage:
     def test_disabled_returns_zero(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.chdir(tmp_path)
         cfg = _config(enabled=False)
-        # No subprocess calls expected — failing if any go through the
+        # No subprocess calls expected -- failing if any go through the
         # mock would surface unintended side effects.
         with patch(
             "hyperi_ci.helm.stage.subprocess.run",

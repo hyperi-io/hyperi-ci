@@ -2,18 +2,18 @@
 # File:      .github/workflows/_ghcr-prune.yml
 # Purpose:   Scheduled GHCR prune of branch-mode dev images
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # Reusable workflow for projects that enable branch-mode dev images
 # (publish.container.dev_push). Dev tags are a DIFFERENT artifact class
-# from a GA publish and are deliberately ephemeral — this prunes them so
+# from a GA publish and are deliberately ephemeral -- this prunes them so
 # GHCR never accumulates dead branch images.
 #
 # SAFE BY TAG DESIGN: dev images only ever carry `branch-*` and
 # `dev-sha-*` tags (hyperi_ci.container.build.resolve_tags), so the globs
 # below can NEVER touch the GA namespace (vX.Y.Z / latest / sha-<short>).
-# Untagged layers (superseded mutable branch tags) are cleaned too —
+# Untagged layers (superseded mutable branch tags) are cleaned too --
 # dataaxiom/ghcr-cleanup-action handles multi-arch manifests and
 # attestation referrers safely (why it was chosen over
 # snok/container-retention-policy, whose README warns against
@@ -54,7 +54,7 @@ on:
 # No workflow-level permissions here: a called workflow may only DOWNGRADE
 # what the caller job grants (callers grant packages: write alone), and a
 # workflow-level `contents: read` request above that grant is a startup
-# failure. The prune job needs no checkout — packages: write only.
+# failure. The prune job needs no checkout -- packages: write only.
 
 jobs:
   prune:

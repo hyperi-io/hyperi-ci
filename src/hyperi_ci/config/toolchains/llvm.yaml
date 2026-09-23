@@ -9,7 +9,7 @@
 #   patterns:       Manifest substrings that trigger install in conditional
 #                   mode. Ignored in `--all` mode (runner image bake).
 #   manifest_files: Files to search for patterns.
-#   dpkg_check:     dpkg package name — skips install if present.
+#   dpkg_check:     dpkg package name -- skips install if present.
 #   apt_repos:      APT repos to add before installing. An entry may carry
 #                   key_fingerprint: the primary-key fingerprint the downloaded
 #                   key must match, else the install is refused.
@@ -46,7 +46,7 @@
   apt_repos:
     - key_url: https://apt.llvm.org/llvm-snapshot.gpg.key
       keyring: /usr/share/keyrings/llvm.gpg
-      # Published at https://apt.llvm.org/ — a mismatch refuses the install.
+      # Published at https://apt.llvm.org/ -- a mismatch refuses the install.
       key_fingerprint: 6084F3CF814B57C1CF12EFD515CF4D18AF4F7421
       # ${OS_CODENAME} is substituted at load time from lsb_release -cs,
       # so the same YAML works on noble, trixie, and resolute. {V} is
@@ -77,7 +77,7 @@
 # ---- Non-coinstallable toolset: install-on-demand standard ----
 #
 # lldb-N, libc++-N-dev, libc++abi-N-dev, libomp-N-dev, libunwind-N-dev all
-# declare `Conflicts: <pkg>-x.y` (or via a transitive dep that does) — at most
+# declare `Conflicts: <pkg>-x.y` (or via a transitive dep that does) -- at most
 # one version may be installed concurrently. We cannot bake every version into
 # the runner image.
 #
@@ -109,7 +109,7 @@
   apt_repos:
     - key_url: https://apt.llvm.org/llvm-snapshot.gpg.key
       keyring: /usr/share/keyrings/llvm.gpg
-      # Published at https://apt.llvm.org/ — a mismatch refuses the install.
+      # Published at https://apt.llvm.org/ -- a mismatch refuses the install.
       key_fingerprint: 6084F3CF814B57C1CF12EFD515CF4D18AF4F7421
       url: https://apt.llvm.org/${OS_CODENAME}/
       codename: llvm-toolchain-${OS_CODENAME}-22

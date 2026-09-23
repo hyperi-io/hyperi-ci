@@ -8,13 +8,13 @@
 
 Every version decision here starts from the latest ``v*`` tag. A repo with
 no tags at all has nothing to start from, and the old answer was to read the
-committed ``VERSION`` file — the assumption issue #85 removes. The new answer
+committed ``VERSION`` file -- the assumption issue #85 removes. The new answer
 is to create the tag once, at adoption, from the version the project already
 declares about itself.
 
 The seed tag is a STARTING MARKER, not a release: it says "this is where the
 history begins", and the first published release bumps from it. That keeps
-tag-on-publish honest — no seed tag is ever created for a version this tool
+tag-on-publish honest -- no seed tag is ever created for a version this tool
 published, because the publish path creates its own.
 
 Idempotent by construction: a repo with any ``v*`` tag already has its truth,
@@ -55,7 +55,7 @@ def seed_tag(
 
     Returns:
         0 when the repo ends up with a version tag (created, or already had
-        one), 1 when the repo is not usable — no git repo, or no commit to
+        one), 1 when the repo is not usable -- no git repo, or no commit to
         tag.
 
     """

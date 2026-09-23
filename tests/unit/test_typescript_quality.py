@@ -9,7 +9,7 @@
 
 Covers the three-state resolution for eslint / prettier / tsc, including
 the pure-JS case where a project has no npm scripts and no tsconfig.json
-— routed via the javascript→typescript alias in dispatch.
+-- routed via the javascript→typescript alias in dispatch.
 """
 
 from __future__ import annotations
@@ -104,7 +104,7 @@ class TestPrettierResolution:
     def test_prefers_format_check_script_over_format_check_arg(
         self, in_tmpdir: Path, stub_pm: None
     ) -> None:
-        """`npm run format --check` was a latent footgun — prefer explicit check variant."""
+        """`npm run format --check` was a latent footgun -- prefer explicit check variant."""
         _write_pkg(
             in_tmpdir,
             {"format": "prettier --write .", "format:check": "prettier --check ."},
@@ -163,7 +163,7 @@ class TestTscResolution:
     def test_skips_when_pure_js_project_no_tsconfig(
         self, in_tmpdir: Path, stub_pm: None
     ) -> None:
-        """Pure JS project (no tsconfig, no script) — tsc must skip, not crawl cwd."""
+        """Pure JS project (no tsconfig, no script) -- tsc must skip, not crawl cwd."""
         _write_pkg(in_tmpdir, {})
         with patch("hyperi_ci.languages.typescript.quality.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
@@ -184,7 +184,7 @@ class TestPureJsProjectEndToEnd:
         now a cross-language dispatch-level scan, not a TS-handler step).
         """
         _write_pkg(in_tmpdir, {"test": "echo ok"})
-        # No config files — tool-specific skips expected
+        # No config files -- tool-specific skips expected
 
         with patch("hyperi_ci.languages.typescript.quality.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")

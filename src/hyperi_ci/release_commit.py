@@ -13,7 +13,7 @@ orphaned the tag and the next release recomputed a version that already existed
 
 The tag is created first, at the real commit, by ``tag-head`` or by
 semantic-release. This runs afterwards and only ever adds an untagged commit,
-so no tag can ever point at machine-authored history — the property whose
+so no tag can ever point at machine-authored history -- the property whose
 absence caused #37.
 
 Written through the GitHub Git Data API rather than ``git push``: the
@@ -223,7 +223,7 @@ def _attempt(*, repo: str, root: Path, version: str, branch: str) -> str:
         error("release-commit: cannot create the tree")
         return "fail"
 
-    # An identical tree means the artefacts on disk already match the branch —
+    # An identical tree means the artefacts on disk already match the branch --
     # a re-run, or a release that changed neither file. Committing would add an
     # empty commit for nothing.
     if new_tree == base_tree:

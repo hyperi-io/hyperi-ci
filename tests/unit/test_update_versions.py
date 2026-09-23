@@ -132,7 +132,7 @@ class TestActionShaPin:
         assert "v6.0.1" not in out
 
     def test_consumes_multitoken_comment(self) -> None:
-        # The pre-pin rust-toolchain comment had several tokens — the rewrite
+        # The pre-pin rust-toolchain comment had several tokens -- the rewrite
         # must consume the whole trailing comment, not leave a fragment.
         versions = {
             "actions": {"rust-toolchain": {"version": "master", "sha": "deadbeef"}}
@@ -510,7 +510,7 @@ class TestValidateLocally:
         assert failures == ["SSOT sync: --check found drift after --apply"]
 
     def test_real_repo_passes_all_gates(self) -> None:
-        # Full run against the actual repo — YAML parse, SSOT sync, and the
+        # Full run against the actual repo -- YAML parse, SSOT sync, and the
         # nested workflow pytest gates. Slowish (spawns pytest) but real:
         # no mocks, and it IS the post-apply state --auto-update relies on.
         assert update_versions._validate_locally() == []

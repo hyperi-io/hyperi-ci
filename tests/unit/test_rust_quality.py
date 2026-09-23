@@ -22,7 +22,7 @@ def _make_config(fm: dict[str, Any] | None) -> CIConfig:
 
 
 class TestFeatureMatrixOptOut:
-    """Opt-out validation — must always include a reason."""
+    """Opt-out validation -- must always include a reason."""
 
     def test_opt_out_without_reason_fails(self) -> None:
         config = _make_config({"enabled": False})
@@ -143,7 +143,7 @@ class TestFeatureMatrixCommandConstruction:
         assert _run_feature_matrix(config) is True
 
         each_feature_cmd = captured_cmds[1]
-        # Should appear twice — once per pair
+        # Should appear twice -- once per pair
         assert each_feature_cmd.count("--mutually-exclusive-features") == 2
         flat = " ".join(each_feature_cmd)
         assert "native-tls,rustls" in flat
@@ -251,7 +251,7 @@ class TestRustdocHint:
         config = _make_config(None)
         _run_rustdoc_hint(config)
 
-        # Exactly one summary line — not spam
+        # Exactly one summary line -- not spam
         assert len(warnings_emitted) == 1
         msg = warnings_emitted[0]
         # Contains correct count (2 actual warnings, summary line subtracted)

@@ -93,13 +93,13 @@ class DepGroup:
     """A group of related native packages triggered by manifest patterns.
 
     `bake` controls behaviour in `--all` mode (runner image bake):
-      True  (default): install unconditionally — entry ends up pre-baked
+      True  (default): install unconditionally -- entry ends up pre-baked
                        into the runner image for every matching category.
       False:           SKIP in --all mode. The entry still installs
                        conditionally at CI job time when manifest patterns
                        match. Use for non-coinstallable toolsets (e.g.
                        `libc++-N-dev` and friends declare Conflicts:x.y,
-                       so only one version may be present at a time —
+                       so only one version may be present at a time --
                        baking a default would lock out jobs needing a
                        different version).
     """
@@ -117,7 +117,7 @@ class DepGroup:
 def _expand_template_vars(text: str) -> str:
     """Expand ${VAR} placeholders in YAML configs.
 
-    Supports a small set of hyperi-ci-controlled variables — keeps the
+    Supports a small set of hyperi-ci-controlled variables -- keeps the
     YAML readable while letting ops override per environment without
     editing code.
 
@@ -211,10 +211,10 @@ def _load_dep_groups(language: str, category: str = "native-deps") -> list[DepGr
     for entry in raw:
         versions = entry.get("versions")
         if versions is None:
-            # No versions key — load as-is (backward-compatible native-deps path)
+            # No versions key -- load as-is (backward-compatible native-deps path)
             groups.append(_dep_group_from_entry(entry))
         elif not versions:
-            # Empty list is almost certainly a config bug — {V} would leak
+            # Empty list is almost certainly a config bug -- {V} would leak
             # into the final install command and fail at apt-cache time
             # with a confusing "package not found" message. Warn loudly.
             logger.warning(
@@ -246,7 +246,7 @@ def _patterns_match(content: str, patterns: list[str]) -> bool:
 def _get_os_codename() -> str:
     """Get the current OS codename via lsb_release, or "" if unavailable.
 
-    macOS has no `lsb_release` binary — `FileNotFoundError` propagates up
+    macOS has no `lsb_release` binary -- `FileNotFoundError` propagates up
     from Popen. Swallow it so callers get an empty string (same contract
     as a non-zero exit on Linux); the `_expand_template_vars` fallback
     then defaults `${OS_CODENAME}` to "noble".
@@ -267,7 +267,7 @@ def _repo_has_codename(repo_url: str, codename: str) -> bool:
     url = f"{repo_url.rstrip('/')}/dists/{codename}/Release"
     req = urllib.request.Request(url, method="HEAD")
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310  # nosemgrep: dynamic-urllib-use-detected — URL constructed from known APT repo
+        with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310  # nosemgrep: dynamic-urllib-use-detected -- URL constructed from known APT repo
             return resp.status == 200
     except (urllib.error.URLError, OSError):
         return False
@@ -324,7 +324,7 @@ def _repo_already_configured(repo_url: str, codename: str) -> Path | None:
     `[signed-by=...]` options, arch flags, or components don't cause
     false negatives.
     """
-    # Normalise scheme — pre-provisioned runners often use `http://` for
+    # Normalise scheme -- pre-provisioned runners often use `http://` for
     # apt.llvm.org (their Dockerfile does) while we write `https://`.
     # Match on the scheme-less path so either form is detected.
     url_stripped = repo_url.rstrip("/")
@@ -372,7 +372,7 @@ def _key_fingerprints(key_bytes: bytes) -> list[str]:
 def _verify_apt_key(key_bytes: bytes, expected: str) -> bool:
     """Check a downloaded APT key is the one the YAML declares.
 
-    HTTPS proves who served the key, not which key it is — without this a
+    HTTPS proves who served the key, not which key it is -- without this a
     swapped or hijacked upstream key installs silently and then signs every
     package apt pulls from that repo.
     """
@@ -403,14 +403,14 @@ def _add_apt_repo(repo: AptRepo) -> int:
          the exact same line. Other unrelated lines in the file are
          preserved (append, don't overwrite).
       3. Cross-file duplicate detection: skips write if ANY other apt
-         source file already references the same url + codename — this
+         source file already references the same url + codename -- this
          handles self-hosted runners where admins have pre-configured
          upstream repos under a different filename.
 
     Multi-version note: many entries can share a keyring (e.g. LLVM 19/20/
     21/22 all use `/usr/share/keyrings/llvm.gpg`). The sources filename is
     derived from the keyring stem, so multiple AptRepo writes collide on
-    one file. We APPEND — multiple `deb` lines in the same .list pointing
+    one file. We APPEND -- multiple `deb` lines in the same .list pointing
     at the same keyring is valid apt syntax.
     """
     keyring_path = Path(repo.keyring)
@@ -470,14 +470,14 @@ def _add_apt_repo(repo: AptRepo) -> int:
     sources_path = Path("/etc/apt/sources.list.d") / sources_name
 
     # Skip if the exact `deb` line is already present in the file. Substring
-    # check (not equality) — the file may contain other entries for different
+    # check (not equality) -- the file may contain other entries for different
     # versions of the same toolchain (e.g. llvm.list holds v19/v20/v21/v22).
     if sources_path.exists() and sources_line in sources_path.read_text():
         logger.info(f"APT source already configured: {sources_path}")
         return 0
 
     logger.info(f"Adding APT source: {sources_line}")
-    # Append (don't overwrite) — `tee -a` creates the file if missing.
+    # Append (don't overwrite) -- `tee -a` creates the file if missing.
     # Prepend a newline so subsequent lines don't get concatenated.
     prefix = "" if not sources_path.exists() else "\n"
     result = subprocess.run(
@@ -726,7 +726,7 @@ def install_native_deps(
         language: Language identifier (rust, typescript, golang, python) for
             `native-deps`, or toolchain family (llvm, gcc) for `toolchains`.
         project_dir: Project root. Defaults to cwd.
-        category: Config subdirectory — `native-deps` or `toolchains`.
+        category: Config subdirectory -- `native-deps` or `toolchains`.
         all_mode: If True, bypass the manifest-pattern check and install every
             group unconditionally. Used by runner-image bake (`--all`); CI-time
             invocations on vanilla runners stay conditional (default).
@@ -750,7 +750,7 @@ def install_native_deps(
     for group in dep_groups:
         if all_mode:
             # --all mode bypasses manifest match, but entries marked
-            # `bake: false` are ALWAYS install-on-demand — runner image
+            # `bake: false` are ALWAYS install-on-demand -- runner image
             # bake skips them. Non-coinstallable toolsets (one version
             # at a time) use this; baking a default would lock out jobs
             # that need a different version.
@@ -802,7 +802,7 @@ def install_native_deps(
         return rc
 
     # Universal per-language tooling (cargo / npm / pip / go-install) only
-    # applies to the native-deps category — toolchains have no language tools.
+    # applies to the native-deps category -- toolchains have no language tools.
     if category == "native-deps":
         rc = _install_language_tools(language)
         if rc != 0:
@@ -857,7 +857,7 @@ _LANGUAGE_TOOLS: dict[str, list[LanguageTool]] = {
     ],
     # Populate as concrete needs appear. The abstraction is in place;
     # adding a Python tool (e.g. 'pip-audit' if a stage requires it) is
-    # one entry below. Don't over-populate preemptively — only list tools
+    # one entry below. Don't over-populate preemptively -- only list tools
     # the CI pipeline actually runs.
     "python": [],
     "typescript": [],
@@ -868,14 +868,14 @@ _LANGUAGE_TOOLS: dict[str, list[LanguageTool]] = {
 def _install_language_tools(language: str) -> int:
     """Install per-language tooling (cargo / npm / pip / go-install tools).
 
-    Runs universally (not pattern-gated) — tools listed here may be
+    Runs universally (not pattern-gated) -- tools listed here may be
     required by any CI stage (quality, test, build, release). Gating by
     stage would be fragile on opt-in features like Rust Tier 2 PGO.
 
     Non-fatal: install failure logs a warning and continues. Downstream
     stages that depend on the tool handle missing-tool fallback.
 
-    No-op on non-Linux — CI stages that need these tools only run on
+    No-op on non-Linux -- CI stages that need these tools only run on
     Linux runners in our current pipelines.
     """
     tools = _LANGUAGE_TOOLS.get(language, [])

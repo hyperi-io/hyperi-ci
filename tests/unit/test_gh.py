@@ -1,6 +1,6 @@
 # Project:   HyperI CI
 # File:      tests/unit/test_gh.py
-# Purpose:   Tests for shared GitHub CLI helpers — gh detection, and the
+# Purpose:   Tests for shared GitHub CLI helpers -- gh detection, and the
 #            pinned run selection watch/logs rely on (issue #101)
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED

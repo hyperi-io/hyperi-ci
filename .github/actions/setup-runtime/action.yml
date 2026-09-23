@@ -1,14 +1,14 @@
 # Project:   HyperI CI
 # File:      .github/actions/setup-runtime/action.yml
-# Purpose:   Install the hyperi-ci runtime — uv + Python + native deps
+# Purpose:   Install the hyperi-ci runtime -- uv + Python + native deps
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # The hyperi-ci CLI is Python, so EVERY job (any language) needs uv + Python
 # + the project's native build deps before it can run `hyperi-ci ...`. That
 # trio was copy-pasted into every quality/test/build job of all four language
-# workflows — collapsed here. Language-specific toolchains (rustup, setup-go,
+# workflows -- collapsed here. Language-specific toolchains (rustup, setup-go,
 # setup-node) stay in the SME's workflow, AFTER this step.
 #
 # Referenced from reusable workflows as

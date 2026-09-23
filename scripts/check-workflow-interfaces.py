@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Project:   HyperI CI
 # File:      scripts/check-workflow-interfaces.py
-# Purpose:   Gate — reusable-workflow/composite interfaces stay backward-compatible
+# Purpose:   Gate -- reusable-workflow/composite interfaces stay backward-compatible
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
@@ -10,7 +10,7 @@
 Consumers pin a caller (`python-ci.yml@<sha>`), but its siblings are written
 `@main`, so the transitive graph floats live. If a sibling's `workflow_call`
 or composite interface regresses, the pinned caller's graph fails to compile
-at startup — 0 jobs, no logs, and it breaks consumers RETROACTIVELY.
+at startup -- 0 jobs, no logs, and it breaks consumers RETROACTIVELY.
 
 This gate compares each reusable workflow + composite interface in the working
 tree against the LAST RELEASE TAG and fails on a backward-incompatible delta:
@@ -52,7 +52,7 @@ def parse_interface(yaml_text: str) -> dict:
     composite), or "other" (skip).
     """
     data = yaml.safe_load(yaml_text) or {}
-    # PyYAML parses the bare key `on:` as the boolean True (YAML 1.1) — accept both.
+    # PyYAML parses the bare key `on:` as the boolean True (YAML 1.1) -- accept both.
     on = data.get("on")
     if on is None:
         on = data.get(True, {})

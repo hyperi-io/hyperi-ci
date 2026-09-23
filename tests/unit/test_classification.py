@@ -33,7 +33,7 @@ class TestNormalise:
     """Canonical values and the aliases that normalise to them."""
 
     def test_canonical_vocabulary_is_locked(self) -> None:
-        # The only four values the GitHub org custom property accepts —
+        # The only four values the GitHub org custom property accepts --
         # a rename here silently drifts the repo marker from the org.
         assert classification.CANONICAL == (
             "internal",
@@ -137,7 +137,7 @@ class TestResolve:
         assert result.source == classification.SOURCE_DOTFILE
 
     def test_empty_config_value_falls_through(self, tmp_path: Path) -> None:
-        # defaults.yaml ships `classification: ""` — that is "not declared",
+        # defaults.yaml ships `classification: ""` -- that is "not declared",
         # so it must not shadow the dotfile.
         (tmp_path / ".hyperi-classification").write_text("fork\n", encoding="utf-8")
         assert classification.resolve({"classification": ""}, tmp_path).value == "fork"
@@ -190,7 +190,7 @@ class TestLoadConfigIntegration:
             encoding="utf-8",
         )
         config = _fresh_load(tmp_path)
-        # The config still loads — a typo cannot break the build.
+        # The config still loads -- a typo cannot break the build.
         assert config.language == "rust"
         # But it is not honoured: an unknown category is no declaration.
         assert config.classification == ""

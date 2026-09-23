@@ -16,43 +16,43 @@ language: none
 # Project metadata
 #
 # project.status: lifecycle stage of THIS PROJECT (not of any given release).
-# Information-only field — surfaced in `hyperi-ci config` and at stage
+# Information-only field -- surfaced in `hyperi-ci config` and at stage
 # startup in CI logs so consumers can immediately see "oh, it's not GA".
 # Does not affect release behaviour (that's `release.channel`).
 #
 # Values:
-#   experimental — early R&D, no API commitment, expect anything
-#   alpha        — usable, expect breaks, no semver guarantees
-#   beta         — feature-stable, polishing, mild breaks possible
-#   ga           — semver guarantees apply, breaking only on major bump
-#   legacy       — still works, successor exists, plan migration
-#   deprecated   — active sunset, do not adopt
+#   experimental -- early R&D, no API commitment, expect anything
+#   alpha        -- usable, expect breaks, no semver guarantees
+#   beta         -- feature-stable, polishing, mild breaks possible
+#   ga           -- semver guarantees apply, breaking only on major bump
+#   legacy       -- still works, successor exists, plan migration
+#   deprecated   -- active sunset, do not adopt
 #
-# Unset = "not declared" — the log line says "(status not declared)" which
+# Unset = "not declared" -- the log line says "(status not declared)" which
 # is itself a useful signal. New projects scaffolded by `hyperi-ci init`
 # default to `experimental`.
 project:
   status: ""
 
-# Declared repo category — DECLARED, never inferred from the repo name.
+# Declared repo category -- DECLARED, never inferred from the repo name.
 # Decides visibility, licence, publish policy and branding.
 #
 # Values:
-#   internal     — company-wide HyperI tooling; private, never published
-#   product      — shipped product; private until a human flips it public
-#   fork         — long-running fork; inherits upstream licence and conventions
-#   general-oss  — HyperI-controlled, for general use; public, Apache-2.0
+#   internal     -- company-wide HyperI tooling; private, never published
+#   product      -- shipped product; private until a human flips it public
+#   fork         -- long-running fork; inherits upstream licence and conventions
+#   general-oss  -- HyperI-controlled, for general use; public, Apache-2.0
 #
 # `hyperi`, `oss` and the category numbers 1-4 are accepted as input
 # aliases and normalise to the canonical spellings above.
 #
 # Resolution order: this key (or HYPERCI_CLASSIFICATION, which lands on
 # it), then the `.hyperi-classification` one-token dotfile at repo root,
-# then — only via `hyperi-ci config --org-classification` — the GitHub
+# then -- only via `hyperi-ci config --org-classification` -- the GitHub
 # org custom property.
 #
 # Unset = "not declared". `hyperi-ci config` then reports
-# `classification_effective: internal`, the most restrictive category —
+# `classification_effective: internal`, the most restrictive category --
 # an undeclared repo is never read as public OSS.
 classification: ""
 
@@ -215,7 +215,7 @@ quality:
       exclude: []                      # features to skip entirely (e.g., ["_testing-only"])
       mutually_exclusive: []           # pairs that must not coexist (e.g., [["native-tls", "rustls"]])
       extra_args: []                   # pass-through to `cargo hack` (e.g., ["--workspace"])
-    # Rustdoc compliance hint — single concise warning if doc warnings are
+    # Rustdoc compliance hint -- single concise warning if doc warnings are
     # found. Non-blocking by design (rustdoc hygiene is a ratchet, not a
     # gate). Set enabled=false to silence entirely. References:
     # https://doc.rust-lang.org/rustdoc/ +
@@ -339,7 +339,7 @@ release:
   # Destination mapping (OSS only). Was `destinations_oss`, which still works.
   #
   # Set any artefact to `false` in a project's .hyperi-ci.yaml to opt out
-  # of publishing it while keeping the rest — e.g. a private Python service
+  # of publishing it while keeping the rest -- e.g. a private Python service
   # that ships only its GHCR container sets `python: false`.
   destinations:
     python: pypi               # pypi.org (OIDC Trusted Publishing)
@@ -425,9 +425,9 @@ notify:
 # Deployment Contract
 #
 # Three-tier producer model for app deployment artefacts:
-#   Tier 1 — scalo emits via DeploymentContract + generate_*
-#   Tier 2 — scalo emits via Application.deployment_contract()
-#   Tier 3 — hyperi-ci emit-artefacts templates from ci/deployment-contract.json
+#   Tier 1 -- scalo emits via DeploymentContract + generate_*
+#   Tier 2 -- scalo emits via Application.deployment_contract()
+#   Tier 3 -- hyperi-ci emit-artefacts templates from ci/deployment-contract.json
 #
 # max_supported_schema_version: highest schema version this hyperi-ci can
 # consume. Bumped in lockstep with scalo-rs + scalo-py on shape changes.

@@ -9,14 +9,14 @@
 A project ships a container if:
 
   * it is **not** a library, AND
-  * it has a build signal — either a Dockerfile at the configured path,
+  * it has a build signal -- either a Dockerfile at the configured path,
     or (Rust only) the project's binary supports the scalo contract
     `generate-artefacts` subcommand.
 
-Libraries skip silently — there is nothing to ship. A Rust crate with
+Libraries skip silently -- there is nothing to ship. A Rust crate with
 no ``[[bin]]`` is a library; a Python package is treated as library-only
 regardless of any ``[project.scripts]`` CLI (a console-script is not a
-service — see issue #51); a TypeScript package with no ``bin``/``main`` /
+service -- see issue #51); a TypeScript package with no ``bin``/``main`` /
 server entry is a library. A genuine Python/TS service opts in with a
 Dockerfile or ``release.container.enabled: true``.
 
@@ -33,7 +33,7 @@ from pathlib import Path
 
 try:
     import tomllib
-except ModuleNotFoundError:  # pragma: no cover — Python < 3.11
+except ModuleNotFoundError:  # pragma: no cover -- Python < 3.11
     import tomli as tomllib  # type: ignore[no-redef]  # ty: ignore[unresolved-import]
 
 
@@ -70,7 +70,7 @@ def detect(
 
     """
     # An explicit Dockerfile is an unambiguous "ship a container" signal
-    # and must win over the library heuristic — otherwise a monorepo root
+    # and must win over the library heuristic -- otherwise a monorepo root
     # with a Dockerfile (whose runnable start script lives in a workspace,
     # not the root package.json) is wrongly declared library-only and the
     # Dockerfile is never used.
@@ -187,7 +187,7 @@ def _rust_supports_contract(project_dir: Path) -> bool:
     path, which is exposed by every binary that uses scalo's CLI
     harness. Presence of ``scalo`` (or the deprecated predecessor
     ``hyperi-rustlib``) in the project's manifest is a sufficient
-    signal — projects opting out of contract mode can still set
+    signal -- projects opting out of contract mode can still set
     ``release.container.mode: custom`` explicitly.
     """
     cargo_toml = project_dir / "Cargo.toml"
@@ -249,7 +249,7 @@ def _typescript_is_library(project_dir: Path) -> bool:
         # Heuristic: a ``main`` field that names a server-ish entrypoint
         # is enough to consider this a runnable. Library packages
         # typically point ``main`` at ``dist/index.js`` for consumers,
-        # which also matches — favour build-on-doubt.
+        # which also matches -- favour build-on-doubt.
         return False
     return True
 

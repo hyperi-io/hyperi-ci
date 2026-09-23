@@ -41,12 +41,12 @@ Update behaviour:
     run rather than a silent behaviour change. Holding majors back had its own
     cost: the estate split across majors while nobody made the manual edit.
   - Branch refs (rust-toolchain@master) pin the newest master commit >=7d old.
-  - Runtimes (python, node, rust) require explicit update — never auto-bumped.
+  - Runtimes (python, node, rust) require explicit update -- never auto-bumped.
   - --auto-update applies the bumps then validates LOCALLY (YAML re-parse,
     SSOT sync check, the pytest workflow gates); reverts on local failure.
     It deliberately does NOT trigger remote CI: the ci-test-* projects
     reference the reusable workflows @main, so a remote run validates main,
-    not the unpushed bumps — and it reverted good bumps on unrelated remote
+    not the unpushed bumps -- and it reverted good bumps on unrelated remote
     failures. Real E2E belongs to the branch-mode rehearsal/sweep (see
     docs/plans/2026-07-branch-mode/PLAN.md decisions 4, 5 and 7).
 """
@@ -79,7 +79,7 @@ _ACTIONS_DIR = _ROOT / ".github" / "actions"
 _TEMPLATES_SUBDIR = Path("src") / "hyperi_ci" / "gitops_templates" / "workflows"
 
 # How long a release must have existed before we'll pin it. Mirrors the org
-# Renovate preset's `minimumReleaseAge` — a release sitting untouched for a
+# Renovate preset's `minimumReleaseAge` -- a release sitting untouched for a
 # week is far less likely to be a compromised/yanked supply-chain attack.
 _COOLDOWN_DAYS = 7
 
@@ -281,11 +281,11 @@ def _pin_mismatches(versions: dict) -> list[str]:
 
 
 def _find_workflow_files() -> list[Path]:
-    """Find every pipeline YAML — workflows AND composite actions.
+    """Find every pipeline YAML -- workflows AND composite actions.
 
     Composite actions under `.github/actions/*/action.yml` pin third-party
     actions too (setup-node, etc.), so they must be scanned or they'd drift
-    unpinned — the gap that hid the unpinned refs during the deps review.
+    unpinned -- the gap that hid the unpinned refs during the deps review.
 
     The `init-gitops` templates are scanned for the same reason one step
     removed: they are not our pipeline, they are the pipeline we hand to every
@@ -306,7 +306,7 @@ def _find_workflow_files() -> list[Path]:
 def _parse_semver(tag: str) -> tuple[int, int, int] | None:
     """Parse `v1.2.3` / `1.2.3` to a tuple. None for anything else.
 
-    Rejects suffixed tags like `v3.1.0-node20` — those are backports, not
+    Rejects suffixed tags like `v3.1.0-node20` -- those are backports, not
     the canonical latest, and must never win selection. The patch is optional
     because PyPI does not require one: vulture ships `2.16`, and rejecting it
     would leave that pin unmanaged rather than merely unsorted.
@@ -327,7 +327,7 @@ def _select_pinned_release(
     Highest semver, NOT newest-published: GitHub republishes old backports
     (e.g. download-artifact `v3.1.0-node20`) with recent dates, so ordering
     by publish date picks the wrong one. Skips drafts, prereleases,
-    non-semver tags, and — timestamp-required posture — anything without a
+    non-semver tags, and -- timestamp-required posture -- anything without a
     `published_at`. The optional `major` / `minor` clamps restrict the
     candidate range; callers leave them unset, so majors are eligible and a
     breaking bump is caught by CI on the PR rather than blocked here.
@@ -475,9 +475,9 @@ def _pinned_spec_for(short_name: str, current: object, now: datetime) -> dict | 
 def _action_ref(spec: object) -> tuple[str, str]:
     """Resolve an action spec from versions.yaml to (ref, comment).
 
-    New format — `{version: v6.0.2, sha: <sha>}` — pins the SHA with a
+    New format -- `{version: v6.0.2, sha: <sha>}` -- pins the SHA with a
     `# <version>` comment (supply-chain hardening: a tag can move, a SHA
-    can't). Legacy flat string — `v6` — pins the tag, no comment
+    can't). Legacy flat string -- `v6` -- pins the tag, no comment
     (back-compat; lets a value be migrated incrementally).
     """
     if isinstance(spec, dict):
@@ -866,9 +866,9 @@ def _get_latest_npm_major(package: str) -> str | None:
 def _validate_locally() -> list[str]:
     """Validate the applied bumps with LOCAL gates. Returns failure messages.
 
-    Three gates, cheapest first — all offline apart from nothing:
+    Three gates, cheapest first -- all offline apart from nothing:
       1. every pipeline YAML still parses,
-      2. files match the SSOT (--check clean — a bad regex rewrite shows
+      2. files match the SSOT (--check clean -- a bad regex rewrite shows
          here as drift or a mangled ref),
       3. the pytest workflow gates (consistency + interface tests) pass.
 
@@ -910,7 +910,7 @@ def _validate_locally() -> list[str]:
 def _set_action_spec_in_yaml(text: str, short_name: str, version: str, sha: str) -> str:
     """Rewrite one action's `version:`/`sha:` lines in versions.yaml in place.
 
-    Block-scoped so comments and other actions are untouched — yaml.safe_dump
+    Block-scoped so comments and other actions are untouched -- yaml.safe_dump
     would nuke the file's comments, so we edit the lines directly.
     """
     out: list[str] = []
@@ -1131,7 +1131,7 @@ def _auto_update(versions: dict) -> int:
 
     Actions resolve to the newest release past the 7-day cooldown, majors
     included. Runtimes never auto-bump. Validation is LOCAL (see
-    _validate_locally) — remote E2E is the branch-mode rehearsal's job, not
+    _validate_locally) -- remote E2E is the branch-mode rehearsal's job, not
     this script's, so a major that breaks at RUNTIME is caught by CI on the
     PR, not here.
     """

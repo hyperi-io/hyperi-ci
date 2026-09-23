@@ -2,10 +2,10 @@
 # File:      .hyperi-ci.yaml
 # Purpose:   Self-hosting hyperi-ci configuration overrides
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
-# Coverage is informational here — CI (.github/workflows/ci.yml) runs
+# Coverage is informational here -- CI (.github/workflows/ci.yml) runs
 # pytest without --cov-fail-under, and the codebase is heavy on
 # subprocess-driven CI orchestration that's painful to unit-cover.
 # Lower the local gate so hyperi-ci check matches CI reality.

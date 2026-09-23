@@ -8,7 +8,7 @@
 
 Go modules publish automatically to proxy.golang.org when tagged.
 Binary artifact uploads are handled generically by publish_binaries
-in dispatch.py — not duplicated here.
+in dispatch.py -- not duplicated here.
 """
 
 from __future__ import annotations

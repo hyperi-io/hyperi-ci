@@ -292,7 +292,7 @@ class TestInitProject:
         assert (tmp_path / ".hyperi-ci.yaml").exists()
         assert (tmp_path / "Makefile").exists()
         assert (tmp_path / ".github" / "workflows" / "ci.yml").exists()
-        # No .releaserc is scaffolded (issue #37) — central tagger-only config.
+        # No .releaserc is scaffolded (issue #37) -- central tagger-only config.
         assert not (tmp_path / ".releaserc.yaml").exists()
 
     def test_yaml_has_correct_language(self, tmp_path: Path) -> None:

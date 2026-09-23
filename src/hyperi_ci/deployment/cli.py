@@ -4,7 +4,7 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""``hyperi-ci emit-artefacts`` — Tier 3 templater entry point.
+"""``hyperi-ci emit-artefacts`` -- Tier 3 templater entry point.
 
 Reads ``ci/deployment-contract.json``, validates it, and writes the
 generated deployment artefacts (Dockerfile, Dockerfile.runtime,
@@ -16,7 +16,7 @@ model. Tier 1 (scalo crate) and Tier 2 (scalo package) apps run their own binary
 ``generate-artefacts`` subcommand; only repos with no producer framework
 fall through to Tier 3 here.
 
-For all three tiers, output is byte-identical for the same JSON input —
+For all three tiers, output is byte-identical for the same JSON input --
 that's enforced by the parity test suite (see plan Phase 6).
 
 Generators are not yet implemented (Phase 2 of the implementation plan,
@@ -73,7 +73,7 @@ def emit_artefacts(
 
     Args:
         output_dir: Where artefacts get written. Created if missing.
-            Existing files are overwritten without prompt — this is the
+            Existing files are overwritten without prompt -- this is the
             CI-stage and ``ci/`` regen workflow, not interactive editing.
         contract_path: Path to the ``deployment-contract.json``. Defaults
             to ``<output_dir>/../ci/deployment-contract.json`` when
@@ -127,7 +127,7 @@ def _resolve_contract_path(
     Three signals, in priority:
       1. Explicit ``--from`` path passed by the caller.
       2. If ``output_dir`` is named ``ci`` and it has a sibling
-         ``deployment-contract.json``, use that — supports the
+         ``deployment-contract.json``, use that -- supports the
          "regenerate ci/ in place" idiom where output_dir == source dir.
       3. Else default to ``<cwd>/ci/deployment-contract.json``.
     """

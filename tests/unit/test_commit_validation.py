@@ -208,7 +208,7 @@ class TestUnknownTypeRejection:
         """Fix: (capital F) is not a valid type prefix."""
         result = validate_message("Fix: capitalised prefix should fail")
         assert result.valid is False
-        # Should be no_prefix or unknown_type — either is acceptable as long
+        # Should be no_prefix or unknown_type -- either is acceptable as long
         # as it is invalid.
         assert result.error_type in ("no_prefix", "unknown_type")
 
@@ -323,7 +323,7 @@ class TestFeatGate:
     """
 
     def test_feat_without_opt_in_rejected(self, monkeypatch) -> None:
-        # Same env-leak guard as above — `--allow-feat` exports the env
+        # Same env-leak guard as above -- `--allow-feat` exports the env
         # var to the test phase, masking this gate's behaviour.
         monkeypatch.delenv("HYPERCI_ALLOW_FEAT", raising=False)
         result = validate_message("feat: add new endpoint")
@@ -409,7 +409,7 @@ class TestBreakingChangeGate:
 
     Rationale: semantic-release scans the entire commit body for the
     literal string `BREAKING CHANGE:` and treats it as a footer marker
-    triggering a MAJOR bump — even when written as documentation
+    triggering a MAJOR bump -- even when written as documentation
     reference. The gate forces a deliberate opt-in.
     """
 
@@ -436,7 +436,7 @@ class TestBreakingChangeGate:
         # Even when the marker appears mid-paragraph (not as a typical
         # footer at the end), conventional-commits-parser scans the
         # whole body and treats it as a major-bump trigger. The gate
-        # must catch this case — it's exactly how AI agents have
+        # must catch this case -- it's exactly how AI agents have
         # accidentally bumped majors in the past (writing
         # "BREAKING CHANGE:" as a documentation reference).
         msg = (
@@ -450,7 +450,7 @@ class TestBreakingChangeGate:
 
     def test_uppercase_hyphenated_form_also_gated(self) -> None:
         # `BREAKING-CHANGE:` (with hyphen) is ALSO a conventional-commits
-        # major-bump trigger. We block it for the same reason — agents
+        # major-bump trigger. We block it for the same reason -- agents
         # would otherwise write `BREAKING-CHANGE:` as a "documentation
         # reference" and accidentally bump major. The documented escape
         # for documentation references is lowercase or differently-

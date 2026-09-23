@@ -57,6 +57,6 @@ def test_init_gitops_overwrites_with_force(tmp_path):
 
     assert rc == 0
     assert (target / "README.md").exists()
-    # existing file is preserved — init_gitops does not delete user files
+    # existing file is preserved -- init_gitops does not delete user files
     assert (target / "junk.txt").exists()
     assert (target / "junk.txt").read_text() == "hello"

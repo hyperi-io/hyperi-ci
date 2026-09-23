@@ -1,6 +1,6 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/publish.py
-# Purpose:   Back-compat shim — the package moved to hyperi_ci.release
+# Purpose:   Back-compat shim -- the package moved to hyperi_ci.release
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED

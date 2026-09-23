@@ -8,9 +8,9 @@
 
 Two shapes:
 
-* :class:`Overlay` — used by Dockerfile and ArgoCD overlays. Single
+* :class:`Overlay` -- used by Dockerfile and ArgoCD overlays. Single
   ``anchor`` + (``content`` xor ``file``).
-* :class:`HelmOverlays` — used by Helm overlays. Two-shape decision
+* :class:`HelmOverlays` -- used by Helm overlays. Two-shape decision
   (adds vs patches) per the upstream framework spec, because Helm
   charts are directories and Kustomize patches are the idiomatic
   modify mechanism.
@@ -47,7 +47,7 @@ class Overlay:
     file: Path | None = None
 
     def resolve(self, *, base_dir: Path, artefact: str, index: int) -> str:
-        """Read the fragment text — from ``content`` or ``file``."""
+        """Read the fragment text -- from ``content`` or ``file``."""
         if self.content:
             return self.content
         if self.file is None:
@@ -75,7 +75,7 @@ class HelmAddOverlay:
     file: Path | None = None
 
     def resolve(self, *, base_dir: Path, index: int) -> str:
-        """Read the template content — from ``content`` or ``file``."""
+        """Read the template content -- from ``content`` or ``file``."""
         if self.content:
             return self.content
         if self.file is None:
@@ -104,7 +104,7 @@ class HelmPatchOverlay:
     patch_file: Path | None = None
 
     def resolve_patch(self, *, base_dir: Path, index: int) -> str:
-        """Read the patch text — from inline ``patch`` or ``patch_file``."""
+        """Read the patch text -- from inline ``patch`` or ``patch_file``."""
         if self.patch:
             return self.patch
         if self.patch_file is None:

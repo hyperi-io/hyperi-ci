@@ -4,7 +4,7 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""`resolve_release_version` — the single SSoT all stages use for the version
+"""`resolve_release_version` -- the single SSoT all stages use for the version
 being released. HYPERCI_VERSION (Plan's next-version) wins over the committed
 VERSION file, which is stale once stamping is central (#27 + zero-config)."""
 

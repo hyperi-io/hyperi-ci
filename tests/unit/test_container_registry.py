@@ -35,7 +35,7 @@ def test_legacy_target_both_routes_to_ghcr(org: OrgConfig) -> None:
 
 
 def test_unknown_target_routes_to_ghcr(org: OrgConfig) -> None:
-    """Unknown values are ignored — every container publishes to GHCR."""
+    """Unknown values are ignored -- every container publishes to GHCR."""
     assert resolve_registry_bases(target="dockerhub", org=org) == ["ghcr.io/hyperi-io"]
 
 
