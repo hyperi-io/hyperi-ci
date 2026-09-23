@@ -40,8 +40,9 @@ SECURITY_TOOLS = frozenset(
         "pip_audit",
         "audit",
         "deny",
-        "osv",
         "osv_scanner",
+        "gosec",
+        "govulncheck",
     }
 )
 

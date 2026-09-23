@@ -77,7 +77,8 @@ quality:
 ```
 
 The security set is `gitleaks`, `semgrep`, `bandit`, `pip_audit`, `audit`,
-`deny`, `osv`, `osv_scanner` (`SECURITY_TOOLS` in `quality_common.py`). Every
+`deny`, `osv_scanner`, `gosec`, `govulncheck` (`SECURITY_TOOLS` in
+`quality_common.py`). Every
 other tool - `vulture`, `ty`, `eslint`, `fmt`, `clippy`, `ruff` - keeps the bare
 `tool: warn` string and only warns.
 
