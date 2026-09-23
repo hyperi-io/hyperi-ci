@@ -152,6 +152,14 @@ tools:
     sha256:
       amd64: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
       arm64: 1f53fc8e81258197a35e8603054162a5af1de8c5af13746c71ab680d9534ed87
+  # Tagged `lychee-vX.Y.Z`, so the tag is not the version with a v on it.
+  # musl, because the binary is dropped onto whatever runner the job landed on.
+  lychee:
+    version: 0.24.2
+    repo: lycheeverse/lychee
+    sha256:
+      amd64: 73657a111819a30c47c08352896796f23d64e4eb2b3ed39b6d32149241566fc5
+      arm64: 5d0b0e3aeab240f41920c633a6eaf97599be6eedda034b36e858ede7dba5e535
   kube-linter:
     version: v0.8.3
     repo: stackrox/kube-linter

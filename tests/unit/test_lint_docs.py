@@ -242,3 +242,44 @@ class TestOrchestrator:
             "docs_touched",
         ):
             assert defaults.get(f"quality.{tool}") == "warn", tool
+
+
+class TestLycheeInstall:
+    """lychee had no install path anywhere, so the check never ran (issue #230)."""
+
+    def test_the_url_uses_the_lychee_prefixed_tag(self, monkeypatch) -> None:
+        """Upstream tags `lychee-vX.Y.Z`, so the tag is not the version with a v."""
+        seen: dict[str, object] = {}
+
+        def fake_install(name, url, *, tar_member=None, expected_sha256=None):
+            seen.update(name=name, url=url, member=tar_member, sha=expected_sha256)
+            return "/usr/local/bin/lychee"
+
+        monkeypatch.setattr(doc_links, "install_ci_binary", fake_install)
+        assert doc_links._install_lychee() == "/usr/local/bin/lychee"
+        assert "/releases/download/lychee-v" in str(seen["url"])
+        assert str(seen["url"]).endswith("-unknown-linux-musl.tar.gz")
+        assert seen["member"] == "lychee"
+        assert seen["sha"]
+
+    def test_a_disabled_check_installs_nothing(self, monkeypatch) -> None:
+        called: list[int] = []
+        monkeypatch.setattr(doc_links, "_install_lychee", lambda: called.append(1))
+        config = CIConfig(_raw={"quality": {"doc_links": "disabled"}})
+        assert doc_links.will_run(config) is False
+        assert called == []
+
+    def test_will_run_resolves_the_binary_so_doc_paths_is_not_doubled(
+        self, monkeypatch
+    ) -> None:
+        """will_run is asked BEFORE run, so it must install to answer honestly.
+
+        Answering "no" and then installing makes doc_paths report every broken
+        link a second time.
+        """
+        monkeypatch.setattr(doc_links.shutil, "which", lambda _n: None)
+        monkeypatch.setattr(
+            doc_links, "_install_lychee", lambda: "/usr/local/bin/lychee"
+        )
+        config = CIConfig(_raw={"quality": {"doc_links": "warn"}})
+        assert doc_links.will_run(config) is True
