@@ -478,6 +478,29 @@ class TestDropA53Veneers:
             assert not any("843419" in arg for arg in cmd)
 
 
+class TestBoltFlagCopiesTrackTheCargoPgoPin:
+    """The copied BOLT defaults have to be re-read when `tools.cargo-pgo` moves.
+
+    `--bolt-args` replaces cargo-pgo's own default flags rather than extending
+    them, so pgo.py restates them. A pin bump that leaves the copies alone
+    overrides a newer default set with an older one and every other gate stays
+    green, because the flags we pass are all still valid flags.
+    """
+
+    def test_the_copies_were_read_from_the_pinned_version(self) -> None:
+        pinned = tool_version("cargo-pgo")
+        assert pgo._CARGO_PGO_FLAGS_VERIFIED_AGAINST == pinned, (
+            f"tools.cargo-pgo is now {pinned}, and _CARGO_PGO_INSTRUMENT_BOLT_ARGS "
+            "/ _CARGO_PGO_OPTIMIZE_BOLT_ARGS in "
+            "src/hyperi_ci/languages/rust/pgo.py are copies of cargo-pgo's own "
+            "default BOLT flags, which --bolt-args replaces rather than extends. "
+            "Re-read src/bolt/instrument.rs and src/bolt/optimize.rs at the "
+            f"{pinned} tag of https://github.com/Kobzol/cargo-pgo, update the two "
+            "tuples if the defaults changed, then set "
+            f'_CARGO_PGO_FLAGS_VERIFIED_AGAINST = "{pinned}".'
+        )
+
+
 class TestRunBoltRetry:
     """_run_bolt retries once (splitter disabled) on a BOLT build failure.
 
