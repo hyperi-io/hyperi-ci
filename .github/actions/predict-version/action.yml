@@ -155,6 +155,20 @@ runs:
         else
           echo "will-publish=false" >> "$GITHUB_OUTPUT"
           echo "No release trailer — validate-only run (no tag, no publish)"
+          # Validate-only is correct, and it reads exactly like a release run:
+          # the same green rollup, and no line saying the repo is falling
+          # behind. That silence left scalo-rs 13 releasable commits and 26
+          # days behind crates.io, a security floor bump among them. The
+          # trailer-on-the-wrong-branch case three lines up has warned all
+          # along, and it is the less consequential of the two.
+          #
+          # Silent when nothing is waiting: a warning on every push is a
+          # warning nobody reads. The helper prints nothing then, and says on
+          # stderr which of the two quiet answers this was.
+          unreleased=$(python3 "$GITHUB_ACTION_PATH/unreleased.py" || true)
+          if [[ -n "$unreleased" ]]; then
+            echo "::warning::$unreleased"
+          fi
         fi
 
     - name: Setup semantic-release (shared toolchain — single source of truth)

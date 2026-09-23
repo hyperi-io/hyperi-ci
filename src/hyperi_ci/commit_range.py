@@ -6,11 +6,13 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Resolve the commits a CI event introduced, and whether they ship a release.
 
-Two callers share this, which is why it lives on its own:
+Three callers share this, which is why it lives on its own:
 
 - ``hyperi_ci.quality.commit_validation`` validates every message in the range.
 - The ``predict-version`` composite asks whether the range is release-worthy,
   to decide whether quality + test run on a push to main.
+- The same composite asks what is sitting UNRELEASED on a validate-only run,
+  which is the cumulative question rather than the per-push one.
 
 Stdlib-only, and it imports nothing from the package except
 :mod:`hyperi_ci.release_rules` (itself stdlib-only), because the composite
@@ -24,12 +26,18 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import time
+from collections import Counter
 from pathlib import Path
 
 from hyperi_ci.release_rules import classify_commit, load_type_bump
 
 _COMMIT_SEPARATOR = "----END----"
 _COMMIT_FMT = f"%H%n%s%n%b%n{_COMMIT_SEPARATOR}"
+
+# Highest bump first, for rendering the mix in a warning.
+_BUMP_RENDER_ORDER = ("major", "minor", "patch")
+_SECONDS_PER_DAY = 86400
 
 
 def _parse_git_log(output: str) -> list[tuple[str, str]]:
@@ -165,3 +173,109 @@ def is_release_worthy(project_dir: Path | None = None) -> tuple[bool, str]:
             return True, f"{commit_hash[:8]} is a {bump} bump: {subject}"
 
     return False, f"no release-worthy commit in {len(commits)} pushed commit(s)"
+
+
+def _last_version_tag() -> str | None:
+    """Return the nearest ``v*`` tag reachable from HEAD, or None if there is none."""
+    result = subprocess.run(
+        ["git", "describe", "--tags", "--abbrev=0", "--match", "v[0-9]*"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def _tag_age_days(tag: str) -> int | None:
+    """Return whole days since ``tag``'s commit, or None if git could not say."""
+    result = subprocess.run(
+        ["git", "log", "-1", "--format=%ct", tag],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        committed = int(result.stdout.strip())
+    except ValueError:
+        return None
+    return max(0, int((time.time() - committed) // _SECONDS_PER_DAY))
+
+
+def unreleased_since_tag(
+    project_dir: Path | None = None,
+) -> tuple[str | None, list[tuple[str, str]]]:
+    """Return the nearest ``v*`` tag and the releasable commits HEAD holds past it.
+
+    Cumulative, not per-push: :func:`is_release_worthy` answers whether ONE
+    push shipped something, which goes quiet again on the next chore commit.
+    What an engineer can act on is the backlog -- every releasable commit the
+    last tag does not include.
+
+    Args:
+        project_dir: Directory whose ``.releaserc.json`` overrides the bump
+            map. Defaults to the current directory.
+
+    Returns:
+        ``(tag, commits)`` where ``commits`` is ``(sha, bump)`` for each
+        releasable commit in ``tag..HEAD``. ``(None, [])`` when no ``v*`` tag
+        is reachable or git could not answer -- a tag-less repo has no
+        released baseline to measure against, and its first release runs
+        through :mod:`hyperi_ci.version_source` instead.
+    """
+    tag = _last_version_tag()
+    if tag is None:
+        return None, []
+    rc, commits = git_log([f"{tag}..HEAD"])
+    if rc != 0:
+        return None, []
+
+    type_bump = load_type_bump(project_dir if project_dir is not None else Path.cwd())
+    releasable = []
+    for commit_hash, message in commits:
+        bump = classify_commit(message, type_bump)
+        if bump != "none":
+            releasable.append((commit_hash, bump))
+    return tag, releasable
+
+
+def unreleased_warning(project_dir: Path | None = None) -> tuple[bool, str]:
+    """Return ``(warn, message)`` for releasable work HEAD has not released.
+
+    A validate-only run on main is correct by design and reports success, so
+    "nothing to ship" and "thirteen fixes waiting" arrive looking identical.
+    Three answers, never two: work waiting warns, nothing waiting stays quiet,
+    and no measurable baseline says so rather than passing for either.
+
+    Args:
+        project_dir: Directory whose ``.releaserc.json`` overrides the bump
+            map. Defaults to the current directory.
+
+    Returns:
+        ``(True, message)`` when HEAD carries releasable commits past its
+        nearest ``v*`` tag; ``(False, message)`` otherwise, where the message
+        names which of the two quiet answers it was.
+    """
+    tag, releasable = unreleased_since_tag(project_dir)
+    if tag is None:
+        return False, "no v* tag reachable from HEAD -- no released baseline to measure"
+    if not releasable:
+        return False, f"nothing releasable waiting since {tag}"
+
+    counts = Counter(bump for _sha, bump in releasable)
+    mix = ", ".join(
+        f"{counts[bump]} {bump}" for bump in _BUMP_RENDER_ORDER if counts[bump]
+    )
+    verb = "commit sits" if len(releasable) == 1 else "commits sit"
+    age = _tag_age_days(tag)
+    tagged = "" if age is None else f", tagged {age} day{'' if age == 1 else 's'} ago"
+    return True, (
+        f"{len(releasable)} releasable {verb} unreleased since {tag}{tagged} "
+        f"({mix}). This run validated them and published nothing. Ship them with "
+        f"'hyperi-ci push --publish', or re-run this workflow with from-head=true."
+    )
