@@ -41,6 +41,61 @@ def _config(tool: str, mode: object, language: str = "python") -> CIConfig:
     return CIConfig(_raw={"quality": {language: {tool: mode}}})
 
 
+# Shipped gates whose findings are not security advisories, so a bare mode
+# string may relax them.
+_NOT_SECURITY = frozenset(
+    {
+        "charset",
+        "hadolint",
+        "droast",
+        "kubeconform",
+        "kube_linter",
+        "compose_config",
+        "compose_pins",
+        "cargo_flags",
+        "doc_paths",
+        "doc_links",
+        "mermaid_parse",
+        "markdownlint",
+        "docs_touched",
+        "ty",
+        "pyright",
+        "ruff_format",
+        "ruff_docstrings",
+        "vulture",
+        "eslint",
+        "prettier",
+        "tsc",
+        "gofmt",
+        "govet",
+        "golangci_lint",
+        "fmt",
+        "clippy",
+        "semver_checks",
+    }
+)
+# Arguably security, and not yet decided: checkov is an IaC security scanner,
+# and ruff carries the S (bandit) rules that replaced bandit.
+_UNDECIDED = frozenset({"checkov", "ruff"})
+
+
+def _shipped_gates() -> set[str]:
+    """Every tool defaults.yaml ships a quality mode for, at either level."""
+    modes = {"blocking", "warn", "disabled"}
+    quality = packaged_default("quality")
+    gates: set[str] = set()
+    for key, value in quality.items():
+        if isinstance(value, str) and value in modes:
+            gates.add(key)
+        elif isinstance(value, dict):
+            gates.update(
+                tool
+                for tool, mode in value.items()
+                if isinstance(mode, str) and mode in modes
+            )
+    return gates
+
+
 class TestStrictQuality:
     """The env-driven strict switch."""
 
@@ -278,6 +333,20 @@ class TestSecurityGateNeedsAReason:
         for tool in quality_common.SECURITY_TOOLS:
             keys = [f"quality.{tool}", *(f"quality.{s}.{tool}" for s in scopes)]
             assert any(packaged_default(k) is not None for k in keys), tool
+
+    def test_every_shipped_gate_is_classified(self) -> None:
+        # A new CVE or secret scanner added to defaults.yaml must fail here until
+        # someone decides which side of the reason rule it sits on.
+        shipped = _shipped_gates()
+        security = quality_common.SECURITY_TOOLS
+        assert not (security & _NOT_SECURITY), security & _NOT_SECURITY
+        assert not (security & _UNDECIDED), security & _UNDECIDED
+        unclassified = shipped - security - _NOT_SECURITY - _UNDECIDED
+        assert not unclassified, (
+            f"classify these in SECURITY_TOOLS or here: {unclassified}"
+        )
+        stale = (_NOT_SECURITY | _UNDECIDED) - shipped
+        assert not stale, f"no longer shipped: {stale}"
 
     def test_force_skip_needs_no_reason(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # The incident escape hatch exists for a CI that is already broken.
