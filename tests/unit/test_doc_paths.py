@@ -52,6 +52,33 @@ class TestLinkDestinations:
         doc.write_text("See [the guide](docs/guide.md).\n", encoding="utf-8")
         assert doc_paths.scan_links(doc, root) == []
 
+    def test_code_in_a_fence_is_not_a_link(self, tmp_path: Path) -> None:
+        """A C++ lambda capture and a Python generic are valid link syntax."""
+        root = _repo(tmp_path)
+        doc = root / "README.md"
+        doc.write_text(
+            "```cpp\n"
+            ".or_else([](const std::string & err) { return err; });\n"
+            "```\n"
+            "```python\n"
+            "def first[T](items: list[T]) -> T | None: ...\n"
+            "```\n",
+            encoding="utf-8",
+        )
+        assert doc_paths.scan_links(doc, root) == []
+
+    def test_a_link_after_a_fence_still_reports(self, tmp_path: Path) -> None:
+        """Stripping a fence must not blind the scanner to what follows it."""
+        root = _repo(tmp_path)
+        doc = root / "README.md"
+        doc.write_text(
+            "```cpp\n[](int x) { return x; }\n```\nSee [gone](docs/gone.md).\n",
+            encoding="utf-8",
+        )
+        found = doc_paths.scan_links(doc, root)
+        assert [f.rule for f in found] == ["docs/link-missing"]
+        assert found[0].line == 4
+
     def test_fragment_and_query_are_stripped_before_resolving(
         self, tmp_path: Path
     ) -> None:
