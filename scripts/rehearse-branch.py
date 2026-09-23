@@ -278,6 +278,41 @@ def _rerun(repo: str, run_id: int, settle_secs: int = 90) -> bool:
     return False
 
 
+def raced_the_merge_ref(jobs: list[dict]) -> bool:
+    """True when every failed job died at its checkout step.
+
+    That is the one failure a rerun can tell apart from a broken branch: the
+    run started before GitHub computed refs/pull/N/merge (issue #260). Any
+    other failure is the branch's result, and rerunning it would let a flaky
+    pass stand in for the red it hid.
+    """
+    failed = [job for job in jobs if job.get("conclusion") == "failure"]
+    if not failed:
+        return False
+    for job in failed:
+        step = next(
+            (s for s in job.get("steps", []) if s.get("conclusion") == "failure"),
+            None,
+        )
+        if step is None or "checkout" not in step.get("name", "").lower():
+            return False
+    return True
+
+
+def _failed_at_checkout(repo: str, run_id: int) -> bool:
+    """Read a finished run's jobs and apply :func:`raced_the_merge_ref`."""
+    viewed = _run(
+        ["gh", "run", "view", str(run_id), "-R", repo, "--json", "jobs"], timeout=60
+    )
+    if viewed.returncode != 0:
+        return False
+    try:
+        jobs = json.loads(viewed.stdout or "{}").get("jobs", [])
+    except json.JSONDecodeError:
+        return False
+    return raced_the_merge_ref(jobs)
+
+
 def pick_run(runs: list[dict], fixture_sha: str) -> dict | None:
     """The newest run built from ``fixture_sha``, or None.
 
@@ -493,9 +528,14 @@ def main() -> int:
         )
 
         # A run that started before the merge ref existed failed at checkout, not
-        # on the branch. The ref is there now, so one rerun separates the two: a
-        # branch that is genuinely broken fails again.
-        if verdict == "fail" and run_id and _rerun(repo, run_id):
+        # on the branch. The ref is there now, so that one failure gets one
+        # rerun; every other failure is reported as the branch's result.
+        if (
+            verdict == "fail"
+            and run_id
+            and _failed_at_checkout(repo, run_id)
+            and _rerun(repo, run_id)
+        ):
             print(f"Re-running {run_id} once - the first attempt raced the merge ref")
             verdict, lines, run_id = _watch_pr_run(
                 repo, rehearse_ref, fixture_sha, args.timeout_minutes
