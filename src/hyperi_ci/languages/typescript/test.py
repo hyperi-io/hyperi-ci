@@ -6,17 +6,16 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """TypeScript test handler."""
 
-from __future__ import annotations
-
 import json
-import subprocess
+import shutil
 from pathlib import Path
 
-from hyperi_ci.common import error, info, success
+from hyperi_ci.common import error, info, run_cmd, success
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.typescript._common import (
     detect_package_manager,
     ensure_pm_available,
+    package_script_env,
 )
 
 
@@ -56,7 +55,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         elif runner == "jest":
             cmd.extend(["--", "--coverage"])
 
-    result = subprocess.run(cmd)
+    result = run_cmd(cmd, check=False, env=package_script_env())
     if result.returncode != 0:
         error("TypeScript tests failed")
         return result.returncode
@@ -65,8 +64,6 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     results_dir = Path("test-results")
     coverage_dir = Path("coverage")
     if coverage_dir.exists() and coverage_dir.is_dir():
-        import shutil
-
         results_dir.mkdir(exist_ok=True)
         dest = results_dir / "coverage"
         if dest.exists():
