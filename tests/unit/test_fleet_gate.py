@@ -177,13 +177,29 @@ class TestTheSweepVerdict:
         results = [sweep.Result("ci-test-go-app", sweep.TIMEOUT, "run 1 still going")]
         assert sweep.sweep_verdict(["ci-test-go-app"], results)[0] == 1
 
-    def test_unreachable_outranks_a_failure(self) -> None:
+    def test_a_failure_outranks_an_unreachable_neighbour(self) -> None:
+        """A proven failure is an answer whatever else could not be read.
+
+        Reported as inconclusive, negative-cases prints "it did not prove any
+        gate" over a gate it just proved leaks.
+        """
         results = [
             sweep.Result("ci-test-go-app", sweep.FAIL, "run 1"),
             sweep.Result("ci-test-rust-app", sweep.UNREACHABLE, "gone"),
         ]
-        code, _ = sweep.sweep_verdict(["ci-test-go-app", "ci-test-rust-app"], results)
-        assert code == 2
+        code, lines = sweep.sweep_verdict(
+            ["ci-test-go-app", "ci-test-rust-app"], results
+        )
+        assert code == 1
+        assert any("unreachable" in line for line in lines)
+
+    def test_a_failure_outranks_a_fixture_that_never_ran(self) -> None:
+        results = [sweep.Result("ci-test-go-app", sweep.FAIL, "run 1")]
+        code, lines = sweep.sweep_verdict(
+            ["ci-test-go-app", "ci-test-rust-app"], results
+        )
+        assert code == 1
+        assert any("NOT RUN" in line and "ci-test-rust-app" in line for line in lines)
 
 
 class TestSelectingSweepTargets:

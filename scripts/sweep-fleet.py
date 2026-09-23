@@ -202,11 +202,12 @@ def sweep_verdict(targets: list[str], results: list[Result]) -> tuple[int, list[
     unanswered = sorted(set(targets) - {result.fixture for result in results})
     if unanswered:
         lines.append(f"  NOT RUN: {', '.join(unanswered)}")
-        return 2, lines
-    if any(result.state in INCONCLUSIVE for result in results):
-        return 2, lines
-    if any(result.state != PASS for result in results):
+    # A proven failure outranks an inconclusive neighbour: reporting the sweep
+    # as INCONCLUSIVE would hide a leaked gate behind a fixture that timed out.
+    if any(result.state not in {PASS, *INCONCLUSIVE} for result in results):
         return 1, lines
+    if unanswered or any(result.state in INCONCLUSIVE for result in results):
+        return 2, lines
     return 0, lines
 
 
