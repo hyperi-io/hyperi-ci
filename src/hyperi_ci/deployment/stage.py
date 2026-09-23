@@ -451,8 +451,8 @@ def _run_producer_subprocess(cmd: list[str], tier_label: str, output_dir: Path) 
         returncode, output = stream_cmd(
             cmd, on_heartbeat=_heartbeat, heartbeat_seconds=HEARTBEAT_SECONDS
         )
-    except FileNotFoundError as exc:
-        error(f"Generate ({tier_label}): producer not executable -- {exc}")
+    except OSError as exc:
+        error(f"Generate ({tier_label}): could not start the producer -- {exc}")
         return EXIT_PRODUCER_MISSING
 
     if returncode != 0:

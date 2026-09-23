@@ -214,6 +214,19 @@ class TestTier1:
         assert rc == EXIT_OK
         assert (out / "source.txt").read_text().strip() == "from-dist"
 
+    def test_a_binary_without_the_execute_bit_is_reported_not_raised(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """exec() of such a file raises PermissionError, not FileNotFoundError."""
+        binary = _write_tier1_repo(tmp_path, with_binary=True)
+        binary.chmod(0o644)
+        seen = _record_logs(monkeypatch)
+
+        rc = run(output_dir=tmp_path / "ci-tmp", project_dir=tmp_path)
+
+        assert rc == EXIT_PRODUCER_MISSING
+        assert any("Permission denied" in line for line in seen)
+
     def test_binary_failure_propagated(self, tmp_path: Path) -> None:
         binary_path = _write_tier1_repo(tmp_path, with_binary=True)
         # Rewrite the fake binary to exit non-zero.
