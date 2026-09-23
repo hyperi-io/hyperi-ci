@@ -185,6 +185,24 @@ class TestArgumentRejectionIsNotAFinding:
         assert ok is True
         assert any("tool-version mismatch" in m for m in messages)
 
+    def test_a_warn_tier_tool_that_could_not_run_says_why(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ty in CI printed "issues found" and nothing else: its reason was on stderr."""
+        shown: list[str] = []
+
+        def fake_run(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess:
+            return subprocess.CompletedProcess(
+                [], 1, "", "error: failed to discover a Python environment\n"
+            )
+
+        monkeypatch.setattr(quality.subprocess, "run", fake_run)
+        monkeypatch.setattr(quality.shutil, "which", lambda _cmd: "/usr/bin/ty")
+        monkeypatch.setattr(quality, "warn", lambda _m: None)
+        monkeypatch.setattr(quality, "info", shown.append)
+        assert quality._run_tool("ty", ["ty", "check"], "warn") is True
+        assert any("failed to discover a Python environment" in m for m in shown)
+
     def test_a_real_finding_still_reads_as_failed(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

@@ -232,6 +232,9 @@ def _run_tool(
     if mode == "warn":
         warn(f"  {tool_name}: issues found (non-blocking)")
         _emit_tool_output(tool_name, result.stdout, cap=_WARN_OUTPUT_CAP)
+        # A tool that failed to run explains why on stderr, and without it the
+        # warning names issues nobody can see.
+        _emit_tool_output(tool_name, result.stderr, cap=_WARN_OUTPUT_CAP)
         return True
 
     error(f"  {tool_name}: failed")
