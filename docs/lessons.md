@@ -327,6 +327,32 @@ Two coverage holes in the same family, both structural rather than missed:
   that ships through both in one commit reaches consumers in halves. It turns
   fixtures RED and consumers falsely GREEN depending on direction.
 
+### A run that predates the fix cannot have tested it
+
+Check the timestamps before reading a verdict. A consumer CI run installs the
+CLI with an unpinned `uvx hyperi-ci`, so it resolves whatever PyPI's latest was
+AT THAT MOMENT. Re-reading yesterday's run after today's release tells you
+about yesterday's wheel, and the error is identical either way.
+
+Caught once by two timestamps:
+
+```
+run createdAt              2026-09-23T02:36:31Z
+the wheel's upload_time    2026-09-23T04:18:14Z
+```
+
+102 minutes apart, so the fix was never in the binary under test, and the
+unchanged error was read as the fix not working.
+
+This is one fault wearing different clothes, and it has now produced four
+separate wrong readings: `gh run list --branch main` returning rows from
+every workflow; a repo whose main skips Test having no baseline to compare
+against; the unversioned PyPI endpoint serving a cached answer; and this.
+**In each case the result set was wider or older than the question, and the
+filtering happened by eye.** Ask the narrow question -- name the workflow,
+name the version, read the timestamp -- rather than filtering a wide answer
+afterwards.
+
 ### Turning on a check that was silently off is a behaviour change
 
 Rust coverage never ran until `23c7086` made it run. That commit reads as a
