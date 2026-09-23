@@ -69,7 +69,17 @@ ci_min_python_version: "3.9"
 
 # Quality Checks
 quality:
+  # `enabled: false` switches off every gate below at once, the security gates
+  # included, so it needs a `reason` beside it, the same as one security gate
+  # turned down. Without one it warns today, and fails the stage once issue
+  # #259 stage 2 ships:
+  #
+  #   enabled: false
+  #   reason: "security gates run in the org-level pipeline for this mirror"
+  #
+  # See docs/quality-gate.md#relaxing-a-security-gate.
   enabled: true
+  reason: ""
   exclude_paths: []
 
   # Gates a repo runs as their own CI JOB, repeated in the LOCAL check so a

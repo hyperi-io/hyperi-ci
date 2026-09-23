@@ -152,33 +152,51 @@ def is_skipped(tool: str) -> bool:
     return True
 
 
-def _mapping_example(key: str, mode: str) -> str:
-    """Render the mapping form of ``key`` as a block the reader can paste."""
+_REASON_OWED_TITLE = "hyperi-ci security gate needs a reason"
+_TURNED_DOWN_TITLE = "hyperi-ci gate turned down"
+_REASON_DOCS = "docs/quality-gate.md#relaxing-a-security-gate"
+
+
+def _announce(msg: str, title: str) -> None:
+    """Warn in the log and, in CI, as an annotation the run summary shows.
+
+    The logger line stays in the job log, where a folded group can hide it.
+    Only the annotation reaches the run summary. Escaped, because a raw newline
+    ends a workflow command and hands the rest of the line to the runner.
+    """
+    warn(f"  {msg}")
+    if is_ci():
+        print(f"::warning title={title}::{escape_command_data(msg)}")
+
+
+def _mapping_example(key: str, setting: str, placeholder: str) -> str:
+    """Render ``setting`` and a ``reason`` under ``key`` as a block to paste."""
     parts = key.split(".")
     lines = [f"{'  ' * depth}{part}:" for depth, part in enumerate(parts)]
     indent = "  " * len(parts)
-    lines.append(f"{indent}mode: {mode}")
-    lines.append(
-        f'{indent}reason: "<advisory id, why no fix exists, what mitigates it>"'
-    )
+    lines.append(f"{indent}{setting}")
+    lines.append(f'{indent}reason: "{placeholder}"')
     return "\n".join(lines)
 
 
 def _reason_required_message(key: str, mode: str, shipped: str) -> str:
     """Build the message for a security gate relaxed without a reason."""
     tool = key.rsplit(".", 1)[-1]
+    example = _mapping_example(
+        key, f"mode: {mode}", "<advisory id, why no fix exists, what mitigates it>"
+    )
     return "\n".join(
         (
             f"{key}: {tool} is a security gate, hyperi-ci ships '{shipped}', "
             f"and this repo turns it down to '{mode}' without saying why.",
             "  Name what the gate is waiting on, in the config beside the setting:",
             "",
-            _mapping_example(key, mode),
+            example,
             "",
             "  The reason prints in every run, so the decision can be re-checked "
             "later. A bare mode string stays valid for every non-security tool, "
             "and HYPERCI_QUALITY_SKIP is unaffected.",
-            "  docs: docs/quality-gate.md#relaxing-a-security-gate",
+            f"  docs: {_REASON_DOCS}",
         )
     )
 
@@ -217,11 +235,7 @@ def note_gate_downgrade(
     # Warns rather than failing until a wheel that parses the mapping is on
     # PyPI, because a consumer cannot state a reason before then (issue #259).
     if key.rsplit(".", 1)[-1] in SECURITY_TOOLS and not reason:
-        owed = _reason_required_message(key, mode, shipped)
-        warn(f"  {owed}")
-        if is_ci():
-            title = "hyperi-ci security gate needs a reason"
-            print(f"::warning title={title}::{escape_command_data(owed)}")
+        _announce(_reason_required_message(key, mode, shipped), _REASON_OWED_TITLE)
         return
     msg = (
         f"{key}: this repo sets '{mode}', hyperi-ci ships '{shipped}' - "
@@ -229,9 +243,71 @@ def note_gate_downgrade(
     )
     if reason:
         msg = f"{msg}; reason: {reason}"
-    warn(f"  {msg}")
-    if is_ci():
-        print(f"::warning title=hyperi-ci gate turned down::{escape_command_data(msg)}")
+    _announce(msg, _TURNED_DOWN_TITLE)
+
+
+def _security_gates_shipped(language: str) -> list[str]:
+    """Keys of the security gates hyperi-ci ships switched on for ``language``.
+
+    Measured against the shipped defaults, the same yardstick
+    :func:`note_gate_downgrade` uses: bandit ships ``disabled``, so turning the
+    stage off takes nothing from it.
+    """
+    tools = sorted(SECURITY_TOOLS)
+    candidates = [f"quality.{tool}" for tool in tools]
+    candidates += [f"quality.{language}.{tool}" for tool in tools]
+    return [
+        key
+        for key in candidates
+        if isinstance(shipped := packaged_default(key), str)
+        and stricter(shipped.strip().lower(), "disabled")
+    ]
+
+
+def note_quality_disabled(language: str, reason: str = "") -> None:
+    """Say which security gates ``quality.enabled: false`` switches off.
+
+    Turning the stage off drops every security gate at once, so it owes a
+    ``reason`` exactly as one security gate turned below its shipped default
+    does (:func:`note_gate_downgrade`), and announces itself the same way.
+    The reason sits beside the switch as ``quality.reason``, the shape
+    ``quality.rust.feature_matrix`` uses for its own ``enabled`` opt-out.
+
+    Args:
+        language: Handler language, which picks the per-language gates named.
+        reason: ``quality.reason`` as configured, empty when none.
+
+    """
+    gates = ", ".join(_security_gates_shipped(language))
+    reason = reason.strip()
+    # Warns rather than failing until issue #259 stage 2, like note_gate_downgrade.
+    if not reason:
+        example = _mapping_example(
+            "quality",
+            "enabled: false",
+            "<why this repo runs no quality gates, and what covers them instead>",
+        )
+        owed = "\n".join(
+            (
+                "quality.enabled: false turns off every security gate hyperi-ci "
+                f"ships for this repo ({gates}) without saying why.",
+                "  Name what the stage is waiting on, beside the switch:",
+                "",
+                example,
+                "",
+                "  The reason prints in every run, so the decision can be "
+                "re-checked later.",
+                f"  docs: {_REASON_DOCS}",
+            )
+        )
+        _announce(owed, _REASON_OWED_TITLE)
+        return
+    _announce(
+        "quality.enabled: false - the quality stage does not run, and with it "
+        f"every security gate hyperi-ci ships for this repo ({gates}); "
+        f"reason: {reason}",
+        _TURNED_DOWN_TITLE,
+    )
 
 
 def resolve_cross_tool_mode(
