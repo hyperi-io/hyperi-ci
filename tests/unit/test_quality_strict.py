@@ -287,6 +287,44 @@ class TestSecurityGateNeedsAReason:
         ) == ("disabled")
 
 
+class TestDowngradeAnnotationIsOneCommand:
+    """The runner reads a raw newline as the end of a workflow command.
+
+    The reason-owed message is multi-line, and a stated reason is whatever the
+    repo wrote, so either one unescaped cuts the annotation short and hands
+    the rest of the line to the runner as further input.
+    """
+
+    @staticmethod
+    def _annotations(capsys: pytest.CaptureFixture[str]) -> list[str]:
+        out = capsys.readouterr().out
+        return [line for line in out.splitlines() if line.startswith("::")]
+
+    @pytest.fixture(autouse=True)
+    def _in_ci(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(quality_common, "is_ci", lambda: True)
+        monkeypatch.setattr(quality_common, "warn", lambda _m: None)
+
+    def test_the_multi_line_reason_owed_message_stays_one_line(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        resolve_tool_mode("pip_audit", _config("pip_audit", "warn"), "python")
+        out = capsys.readouterr().out
+        assert out.count("\n") == 1, out
+        assert "%0A" in out
+
+    def test_a_stated_reason_cannot_start_a_second_command(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        reason = "no fix yet\n::error::planted"
+        cfg = _config("pip_audit", {"mode": "warn", "reason": reason})
+        resolve_tool_mode("pip_audit", cfg, "python")
+        annotations = self._annotations(capsys)
+        assert len(annotations) == 1, annotations
+        assert annotations[0].startswith("::warning ")
+        assert "no fix yet%0A::error::planted" in annotations[0]
+
+
 class TestRuffFormatHasItsOwnMode:
     """`ruff format` is configured apart from `ruff check`.
 
