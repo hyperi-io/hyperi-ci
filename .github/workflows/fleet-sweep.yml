@@ -1,0 +1,103 @@
+# Project:   HyperI CI
+# File:      .github/workflows/fleet-sweep.yml
+# Purpose:   Run the ci-test-* fleet against the main every consumer just got
+#
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
+# Copyright: (c) 2026 HYPERI PTY LIMITED
+#
+# Workflows and composite actions float `@main`, so a merge here changes what
+# every consumer runs before anybody has run it anywhere. Until this existed
+# the first evidence of a bad merge was a consumer going red: a Gate job that
+# called a `gate-check` subcommand the wheel did not carry left logreducer red
+# for about 25 hours, and a composite verify step that ran a cargo SUBCOMMAND
+# with `--version` broke the Rust test leg fleet-wide (issue #215).
+#
+# The push filter IS the consumer surface: the reusable workflows the fleet
+# routes through, the shared `_`-prefixed ones, and every composite action.
+# This repo's own CI and its two audits are excluded because no consumer calls
+# them - `tests/unit/test_fleet_sweep.py` holds that list to config/fixtures.yaml.
+#
+# Its own concurrency group, and no cancel-in-progress: a sweep cancelled by
+# the next merge is the failure this exists to catch, wearing a green tick.
+
+name: Fleet sweep
+
+on:
+  schedule:
+    # Monday morning AEST, an hour after the versions audit.
+    - cron: "23 22 * * 0"
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+      - '.github/actions/**'
+      - '!.github/workflows/ci.yml'
+      - '!.github/workflows/fleet-sweep.yml'
+      - '!.github/workflows/gate-audit.yml'
+      - '!.github/workflows/versions-audit.yml'
+  workflow_dispatch:
+    inputs:
+      only:
+        type: string
+        default: ""
+        description: "Comma-separated fixture names. Empty sweeps the whole fleet."
+      language:
+        type: string
+        default: ""
+        description: "Restrict to one language (go, python, rust, typescript)."
+      timeout-minutes:
+        type: string
+        default: "60"
+        description: "How long to wait for the fixture runs."
+
+concurrency:
+  group: fleet-sweep
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    name: Fleet sweep
+    runs-on: ${{ vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    # Above the sweep's own default so a hung fixture is reported by the sweep,
+    # with its run id, rather than killed by the job and reported by nobody.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.14
+
+      - name: Install dependencies
+        run: uv sync --no-sources
+
+      - name: Mint a fleet dispatch token
+        # GITHUB_TOKEN is scoped to this repo, so it can neither start a run on
+        # a fixture nor read one. No fallback to it either: a repo-scoped token
+        # would sweep nothing and the sweep hard-fails on nothing having run.
+        id: bot
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.GH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-actions: write
+          permission-contents: read
+
+      - name: Run the fleet against main
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+        run: |
+          uv run --no-sources python scripts/sweep-fleet.py \
+            --only "${{ inputs.only }}" \
+            --language "${{ inputs.language }}" \
+            --timeout-minutes "${{ inputs.timeout-minutes || '60' }}"

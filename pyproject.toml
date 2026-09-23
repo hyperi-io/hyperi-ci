@@ -110,6 +110,11 @@ convention = "google"
 [tool.ruff.lint.isort]
 force-single-line = false
 
+[tool.ty.environment]
+# scripts/ holds plain modules rather than a package, so `import fixture_fleet`
+# resolves only with that directory on the search path.
+extra-paths = ["scripts"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]

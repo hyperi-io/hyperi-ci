@@ -13,12 +13,17 @@ matches, drifted, and could-not-ask.
 """
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
 import yaml
 
 _ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_ROOT / "scripts"))
+
+import fixture_fleet  # noqa: E402
+
 _SPEC = importlib.util.spec_from_file_location(
     "check_fixture_fleet", _ROOT / "scripts" / "check-fixture-fleet.py"
 )
@@ -96,6 +101,137 @@ class TestTheCheckHasThreeOutcomes:
             lambda *a, **k: type("R", (), {"returncode": 0, "stdout": "not json"})(),
         )
         assert cff.actual() is None
+
+
+class TestTheSsotDrivesSelection:
+    """The path -> fixture mapping is data in the SSoT, not a table in code."""
+
+    def test_every_entry_names_a_workflow_that_exists(self) -> None:
+        present = {p.name for p in (_ROOT / ".github" / "workflows").glob("*.yml")}
+        for entry in cff_fleet():
+            assert entry["workflow"] in present, entry
+
+    def test_exactly_one_canary(self) -> None:
+        canaries = [e for e in cff_fleet() if e.get("rehearsal") == "canary"]
+        assert len(canaries) == 1, canaries
+
+    def test_every_workflow_has_exactly_one_rehearsal_target(self) -> None:
+        fleet = cff_fleet()
+        for workflow in fixture_fleet.language_workflows(fleet):
+            targets = [
+                e
+                for e in fleet
+                if e["workflow"] == workflow
+                and e.get("rehearsal") in ("canary", "default")
+            ]
+            assert len(targets) == 1, (workflow, targets)
+
+    def test_rehearsal_roles_are_spelled_right(self) -> None:
+        """A typo'd role silently drops a workflow's only rehearsal target."""
+        for entry in cff_fleet():
+            assert entry.get("rehearsal", "default") in ("canary", "default"), entry
+
+
+class TestMasksCarryTheirWayOut:
+    """A fixture that switches a hyperi-ci feature off stops the fleet testing
+    it, and without an issue number nothing ever turns it back on."""
+
+    def test_the_declared_masks_are_complete(self) -> None:
+        assert fixture_fleet.mask_problems(cff_fleet()) == []
+
+    def test_a_mask_without_an_issue_is_a_problem(self) -> None:
+        fleet = [{"name": "ci-test-x", "masks": [{"feature": "f", "why": "w"}]}]
+        assert any("issue" in p for p in fixture_fleet.mask_problems(fleet))
+
+    def test_an_issue_that_is_not_a_number_is_a_problem(self) -> None:
+        fleet = [
+            {
+                "name": "ci-test-x",
+                "masks": [{"feature": "f", "why": "w", "issue": "soon"}],
+            }
+        ]
+        assert any("issue" in p for p in fixture_fleet.mask_problems(fleet))
+
+    def test_a_mask_without_a_reason_is_a_problem(self) -> None:
+        fleet = [{"name": "ci-test-x", "masks": [{"feature": "f", "issue": 1}]}]
+        assert any("why" in p for p in fixture_fleet.mask_problems(fleet))
+
+    def test_every_mask_is_printed(self) -> None:
+        lines = fixture_fleet.mask_lines(cff_fleet())
+        assert len(lines) == len(fixture_fleet.masks(cff_fleet()))
+        assert all("hyperi-io/hyperi-ci#" in line for line in lines)
+
+
+class TestSelectingWhatToRehearse:
+    FLEET = [
+        {"name": "ci-test-go-app", "workflow": "go-ci.yml", "rehearsal": "canary"},
+        {"name": "ci-test-py-app", "workflow": "python-ci.yml", "rehearsal": "default"},
+        {"name": "ci-test-py-lib", "workflow": "python-ci.yml"},
+        {"name": "ci-test-rs-app", "workflow": "rust-ci.yml", "rehearsal": "default"},
+    ]
+    TEXTS = {
+        "go-ci.yml": "uses: hyperi-io/hyperi-ci/.github/actions/predict-version@main",
+        "python-ci.yml": "uses: hyperi-io/hyperi-ci/.github/actions/predict-version@main",
+        "rust-ci.yml": (
+            "uses: hyperi-io/hyperi-ci/.github/actions/predict-version@main\n"
+            "uses: hyperi-io/hyperi-ci/.github/actions/setup-rust-tools@main"
+        ),
+        "_release-tail.yml": (
+            "uses: hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@main"
+        ),
+    }
+
+    def _select(self, *paths: str) -> list[str]:
+        chosen = fixture_fleet.select_for_paths(list(paths), self.FLEET, self.TEXTS)
+        return [entry["name"] for entry in chosen]
+
+    def test_a_language_workflow_selects_its_own_target(self) -> None:
+        assert self._select(".github/workflows/rust-ci.yml") == ["ci-test-rs-app"]
+
+    def test_a_shared_workflow_selects_the_canary(self) -> None:
+        assert self._select(".github/workflows/_release-tail.yml") == ["ci-test-go-app"]
+
+    def test_an_action_every_language_calls_selects_the_canary(self) -> None:
+        assert self._select(".github/actions/predict-version/action.yml") == [
+            "ci-test-go-app"
+        ]
+
+    def test_an_action_one_language_calls_selects_that_language(self) -> None:
+        assert self._select(".github/actions/setup-rust-tools/action.yml") == [
+            "ci-test-rs-app"
+        ]
+
+    def test_an_action_only_the_shared_tail_calls_selects_the_canary(self) -> None:
+        assert self._select(".github/actions/setup-semantic-release/action.yml") == [
+            "ci-test-go-app"
+        ]
+
+    def test_a_non_consumer_workflow_selects_nothing(self) -> None:
+        """hyperi-ci's own CI and its audits are not on anyone's @main path."""
+        assert self._select(".github/workflows/versions-audit.yml") == []
+
+    def test_source_and_docs_select_nothing(self) -> None:
+        assert self._select("src/hyperi_ci/cli.py", "docs/lessons.md") == []
+
+    def test_two_changes_select_both_without_duplicates(self) -> None:
+        assert self._select(
+            ".github/workflows/rust-ci.yml",
+            ".github/workflows/python-ci.yml",
+            ".github/workflows/_release-tail.yml",
+            ".github/actions/setup-rust-tools/action.yml",
+        ) == ["ci-test-go-app", "ci-test-py-app", "ci-test-rs-app"]
+
+    def test_a_non_target_fixture_is_never_selected(self) -> None:
+        """python-ci.yml has three fixtures; a PR rehearses ONE of them."""
+        assert "ci-test-py-lib" not in self._select(".github/workflows/python-ci.yml")
+
+    def test_the_real_fleet_and_workflows_resolve(self) -> None:
+        chosen = fixture_fleet.select_for_paths(
+            [".github/workflows/rust-ci.yml"],
+            cff_fleet(),
+            fixture_fleet.read_workflow_texts(),
+        )
+        assert [e["name"] for e in chosen] == ["ci-test-rust-app"]
 
 
 def cff_fleet() -> list[dict]:
