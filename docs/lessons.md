@@ -327,6 +327,29 @@ Two coverage holes in the same family, both structural rather than missed:
   that ships through both in one commit reaches consumers in halves. It turns
   fixtures RED and consumers falsely GREEN depending on direction.
 
+### A passing test answers a question only over the inputs it generates
+
+Checking that a test DISCRIMINATES -- that it fails against the broken build
+and passes against the fix -- proves the ORACLE. It says nothing about the
+GENERATOR.
+
+A property test for a shell-rewriting hook had a correct oracle: is the
+resulting command `env` holding only assignments and no command? Right
+question, right predicate, and it was confirmed to fail on the broken build.
+Its generator only varied SEPARATORS, so every input it built had a separator
+or a command after the assignments. A tail that was ITSELF an assignment --
+`A=1 B=2` -- was outside the generated space, the oracle was never asked about
+it, and the suite passed on a build that still dumped the environment on 185
+inputs out of 640.
+
+**Enumeration failures move.** Catching one in the hand-written cases pushes
+it into the generator, where it looks like coverage. The discriminating check
+is necessary and it is not sufficient: it tells you the test can fail, never
+that you asked it about the case that matters.
+
+Same shape as the entry below, one level up -- a check that returned something
+reassuring about a question it was never asked.
+
 ### An empty result answers a question only if the query could have returned something
 
 Absence is evidence of nothing until you know the query was capable of a hit.
