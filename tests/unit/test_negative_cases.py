@@ -98,6 +98,17 @@ class TestTheContract:
         assert isinstance(case, negative.Case)
         assert case.branch == "expect-fail/schema-invalid"
 
+    @pytest.mark.parametrize(
+        "branch", ["main", "release", "feature/x", "expect-fail/", " main "]
+    )
+    def test_a_branch_outside_expect_fail_is_refused(self, branch: str) -> None:
+        """The runner pushes the defect there, then deletes the branch."""
+        text = CONTRACT.replace(
+            "branch: expect-fail/hadolint-error", f"branch: {branch!r}"
+        )
+        problem = negative.parse_case("ci-test-manifests", "hadolint-error", text)
+        assert isinstance(problem, str) and "expect-fail/" in problem, problem
+
     def test_a_contract_missing_its_stage_is_refused(self) -> None:
         problem = negative.parse_case(
             "f", "c", "expect: fail\npatch: p.patch\nreason: r\n"
