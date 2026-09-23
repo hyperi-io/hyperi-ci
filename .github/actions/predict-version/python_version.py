@@ -17,6 +17,9 @@ prints, so a helper that crashes must still name a usable interpreter rather
 than leave the version empty and fail four jobs later.
 """
 
+# KEEP on a 3.14 floor, where this import is otherwise wrong (issue #184).
+# GitHub runs this composite's scripts before any install, on whatever python3
+# the runner has, which may predate our floor.
 from __future__ import annotations
 
 import importlib.util

@@ -53,6 +53,9 @@ outputs:
   version:
     description: "Predicted next version (without 'v' prefix); set on push and on from-head dispatch"
     value: ${{ steps.predict.outputs.version || steps.forced.outputs.version }}
+  prerelease:
+    description: "'true' iff the predicted version carries a prerelease component (1.2.0-beta.1) — this run does not consume a stable version"
+    value: ${{ steps.derive.outputs.prerelease }}
   run-checks:
     description: "'true' iff quality + test should run (publish-worthy commit OR pull_request)"
     value: ${{ steps.derive.outputs.run-checks }}
@@ -92,6 +95,9 @@ runs:
       # - workflow_dispatch with a tag input → always publish (retroactive).
       # - workflow_dispatch with from-head: true → publish HEAD.
       # - push to main with `Release: true` trailer in HEAD commit → release.
+      # - push to a declared prerelease branch with the same trailer →
+      #   release on that branch's own sequence (1.2.0-beta.1), which spends
+      #   no stable version (issue #144).
       # - everything else, a bare workflow_dispatch included → validate-only
       #   (no version stamp, no tag, no container push, no registry uploads).
       id: gate
@@ -119,24 +125,29 @@ runs:
           exit 0
         fi
 
-        # Publish only ever happens from main (branch-mode decision 1:
-        # branches validate, main is the sole publish path). Stated HERE,
-        # at the gate SSOT, rather than relying on downstream job `if:`
-        # conditions to catch a trailer on a branch. A trailer on a
-        # non-main ref is ignored LOUDLY, never silently.
+        # Stable releases happen only from main (branch-mode decision 1).
+        # A branch the release config declares `prerelease` also releases,
+        # but on its own version sequence (1.2.0-beta.1), so the stable
+        # numbers never move -- that is what makes a release rehearsable
+        # (issue #144). Stated HERE, at the gate SSOT, rather than relying
+        # on downstream job `if:` conditions to catch a trailer on a
+        # branch. A trailer on any other ref is ignored LOUDLY.
         if [[ "${{ github.ref }}" != "refs/heads/main" ]]; then
-          echo "will-publish=false" >> "$GITHUB_OUTPUT"
-          msg=$(git log -1 --format=%B HEAD)
-          if printf '%s' "$msg" | grep -qiE '^[[:space:]]*(Release|Publish):[[:space:]]*true[[:space:]]*$'; then
-            echo "::warning::Release trailer on non-main ref '${{ github.ref }}' — ignored. Releasing only happens from main; merge first."
+          prerelease=$(python3 "$GITHUB_ACTION_PATH/prerelease_branch.py")
+          if [[ "$prerelease" != "true" ]]; then
+            echo "will-publish=false" >> "$GITHUB_OUTPUT"
+            msg=$(git log -1 --format=%B HEAD)
+            if printf '%s' "$msg" | grep -qiE '^[[:space:]]*(Release|Publish):[[:space:]]*true[[:space:]]*$'; then
+              echo "::warning::Release trailer on ref '${{ github.ref }}' — ignored. Releasing happens from main, or from a branch declared 'prerelease' in the release config; merge first, or push to a declared prerelease branch."
+            fi
+            echo "Not a release branch — validate-only run (no tag, no publish)"
+            exit 0
           fi
-          echo "Non-main ref — validate-only run (no tag, no publish)"
-          exit 0
         fi
 
-        # push to main — match the release trailer, either spelling
-        # (case-insensitive on key). hyperi_ci.vocabulary matches the same set
-        # in Python; this runs where hyperi-ci is not installed.
+        # push to a release branch — match the release trailer, either
+        # spelling (case-insensitive on key). hyperi_ci.vocabulary matches the
+        # same set in Python; this runs where hyperi-ci is not installed.
         msg=$(git log -1 --format=%B HEAD)
         if printf '%s' "$msg" | grep -qiE '^[[:space:]]*(Release|Publish):[[:space:]]*true[[:space:]]*$'; then
           echo "will-publish=true" >> "$GITHUB_OUTPUT"
@@ -185,7 +196,10 @@ runs:
           exit $dry_rc
         fi
 
-        version=$(printf '%s\n' "$dry_output" | grep -oE 'next release version is [0-9]+\.[0-9]+\.[0-9]+' | head -1 | awk '{print $5}')
+        # The prerelease component is part of the version: a release off a
+        # prerelease branch is `1.2.0-beta.1`, and truncating it to `1.2.0`
+        # would tag the stable number this run exists to avoid spending.
+        version=$(printf '%s\n' "$dry_output" | grep -oE 'next release version is [0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?' | head -1 | awk '{print $5}')
 
         if [[ -z "$version" ]]; then
           echo "::error::No release-worthy commits since last tag. On a push, drop the 'Release: true' trailer (this is a non-release commit) or land a fix:/feat:/perf: commit. On a from-head dispatch, re-run with --bump patch (or minor) to force a release."
@@ -214,7 +228,11 @@ runs:
         #
         # Not the committed VERSION file (issue #85) — that is an artefact
         # this tool writes, not an input.
-        if [[ -z "$tags_all" ]]; then
+        #
+        # A prerelease keeps semantic-release's own answer: the seed names a
+        # stable starting version, and stamping it over `1.0.0-beta.1` would
+        # cut the first stable release off a prerelease branch.
+        if [[ -z "$tags_all" && "$version" != *-* ]]; then
           start=$(python3 "$GITHUB_ACTION_PATH/seed_version.py")
           if [[ -n "$start" && "$start" != "$version" ]]; then
             echo "::notice::First release on a tag-less repo — starting at $start (semantic-release default was $version)"
@@ -311,6 +329,18 @@ runs:
         branch_build='${{ inputs.branch-build }}'
         git_ref='${{ github.ref }}'
         release_worthy='${{ steps.worthy.outputs.release-worthy }}'
+        version='${{ steps.predict.outputs.version || steps.forced.outputs.version }}'
+
+        # Version identity: a prerelease component means this run ships on its
+        # own sequence and spends no stable number. Read off the version rather
+        # than the branch, so one value answers it everywhere
+        # (hyperi_ci.release_branches is the same test in Python).
+        if [[ "$version" == *-* ]]; then
+          prerelease=true
+        else
+          prerelease=false
+        fi
+        echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
 
         # run-build: publish runs always; an opted-in pull_request also
         # builds (branch-mode decision 2 — PRs validate the FULL pipeline
@@ -345,7 +375,7 @@ runs:
 
         echo "run-build=$run_build" >> "$GITHUB_OUTPUT"
         echo "run-checks=$run_checks" >> "$GITHUB_OUTPUT"
-        summary="run-checks=$run_checks run-build=$run_build (will-publish=$will_publish event=$event_name branch-build=$branch_build release-worthy=$release_worthy)"
+        summary="run-checks=$run_checks run-build=$run_build (will-publish=$will_publish event=$event_name branch-build=$branch_build release-worthy=$release_worthy prerelease=$prerelease)"
         # A gate that skipped reads exactly like a gate that passed, which is
         # the whole of issue #96 -- so say so where it lands, on main.
         if [[ "$run_checks" != "true" && "$event_name" == "push" && "$git_ref" == "refs/heads/main" ]]; then

@@ -20,6 +20,41 @@ pushes to `harbor.devex.hyperi.io:8443`. New scale-set pods pick up the new imag
 automatically on next job spawn (`imagePullPolicy: Always`) - no Helm redeploy
 needed for image-only changes.
 
+### Is the build still going, or did it fail?
+
+The playbook runs on infra, so a lost terminal tells you nothing. These three
+answer it without one:
+
+```bash
+ssh ubuntu@infra.devex.hyperi.io 'pgrep -af "docker build"'
+```
+
+A matching line means a build is in flight. Ubuntu builds first, then Debian.
+Empty output means it finished, OR the playbook errored -- that is the whole
+reason for the second check rather than reading silence as success.
+
+```bash
+scripts/bao-admin kv get -field=admin_password kv/services/harbor
+curl -u "admin:$PASSWORD" \
+  'https://harbor.devex.hyperi.io:8443/api/v2.0/projects/library/repositories/arc-runner/artifacts?page_size=2'
+```
+
+Compare `.push_time` against when the rebuild started; repeat for
+`arc-runner-debian`. No build running AND no fresh push means it errored, so
+re-run the playbook.
+
+### When the build fails
+
+- **`E: held broken packages`** -- a new apt conflict in
+  `install-toolchains --all`. The per-version install is one batched
+  `apt-get install`, in `install_native_deps()` in `src/hyperi_ci/native_deps.py`.
+- **`root is not in the sudoers file`** -- a Dockerfile `RUN` executes as root
+  and `_sudo_prefix()` drops the `sudo` prefix there. This message means a
+  STALE hyperi-ci is baked into the image.
+- **A pin bump that does not take** -- Docker layer caching. Bump
+  `'hyperi-ci>=X.Y'` to an exact version and rebuild that layer with
+  `--no-cache`.
+
 ### Redeploy runner scale sets (Helm-values changes)
 
 ```bash

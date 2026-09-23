@@ -3,7 +3,7 @@
 # File:      scripts/recover-tags.py
 # Purpose:   Rebuild v* tags destroyed by the issue #37 tag-rewrite bug
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Recover release tags rewritten off-main by the #37 central-tagger bug.
 
@@ -178,6 +178,7 @@ def _unrecoverable_tags(repo: str, branch: str, planned: set[str]) -> list[str]:
 
 
 def main() -> int:
+    """Restore v* tags a history rewrite orphaned from the current branch."""
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--repo", default=".", help="path to the affected clone")
     ap.add_argument("--branch", default="main", help="branch carrying release commits")

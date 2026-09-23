@@ -91,8 +91,21 @@ extend-exclude = [
 ]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "UP", "W"]
-ignore = ["E501"]
+# D goes in blocking from the start rather than through the usual warn-first
+# ratchet: src/ already passes it with zero violations, so there is no backlog
+# to grandfather and nothing to gain by letting one accumulate.
+select = ["E", "F", "I", "N", "UP", "W", "D"]
+ignore = [
+    "E501",
+    "D203",  # conflicts with D211 -- ruff drops it and warns on every run
+    "D213",  # conflicts with D212, same
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D"]
 
 [tool.ruff.lint.isort]
 force-single-line = false
@@ -148,4 +161,5 @@ dev = [
     # Pulled transitively via pytest+rich+typer; pin minimum to dodge CVE-2026-4539.
     "pygments>=2.20.0",
     "ruff>=0.16.7",
+    "pytest-xdist>=3.8.0",
 ]

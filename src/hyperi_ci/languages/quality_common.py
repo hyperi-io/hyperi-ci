@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/languages/quality_common.py
 # Purpose:   Shared utilities for two-tier quality (production/test) rule splitting
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Shared quality check utilities for two-tier (production/test) rule splitting.
 
@@ -20,13 +20,15 @@ import os
 from pathlib import Path
 
 from hyperi_ci.common import env_true, is_ci, warn
-from hyperi_ci.config import CIConfig
+from hyperi_ci.config import CIConfig, packaged_default
 
 DEFAULT_TEST_PATHS = ["tests/"]
 
 # The only valid quality-tool modes. An out-of-vocabulary value is a typo, not a
 # silent request to disable the gate (see resolve_cross_tool_mode).
 _VALID_MODES = {"blocking", "warn", "disabled"}
+
+_MODE_STRENGTH = {"disabled": 0, "warn": 1, "blocking": 2}
 
 
 def strict_quality() -> bool:
@@ -92,6 +94,28 @@ def is_skipped(tool: str) -> bool:
     return True
 
 
+def note_gate_downgrade(key: str, mode: str) -> str:
+    """Say when a project has turned a gate below what hyperi-ci ships.
+
+    A gate a repo relaxed and a gate that passed read the same in the log,
+    so the relaxation has to announce itself where the run can be read.
+    """
+    shipped = packaged_default(key)
+    if not isinstance(shipped, str):
+        return mode
+    shipped = shipped.strip().lower()
+    if _MODE_STRENGTH.get(mode, 2) >= _MODE_STRENGTH.get(shipped, 0):
+        return mode
+    msg = (
+        f"{key}: this repo sets '{mode}', hyperi-ci ships '{shipped}' - "
+        f"the gate is turned down here"
+    )
+    warn(f"  {msg}")
+    if is_ci():
+        print(f"::warning title=hyperi-ci gate turned down::{msg}")
+    return mode
+
+
 def resolve_cross_tool_mode(
     config: CIConfig, tool: str, default: str = "blocking"
 ) -> str:
@@ -121,7 +145,7 @@ def resolve_cross_tool_mode(
             f"blocking / warn / disabled; using '{default}'"
         )
         mode = default
-    return apply_strict(mode)
+    return note_gate_downgrade(f"quality.{tool}", apply_strict(mode))
 
 
 def resolve_tool_mode(tool: str, config: CIConfig, language: str) -> str:
@@ -135,7 +159,8 @@ def resolve_tool_mode(tool: str, config: CIConfig, language: str) -> str:
     """
     if is_skipped(tool):
         return "disabled"
-    return apply_strict(str(config.get(f"quality.{language}.{tool}", "blocking")))
+    key = f"quality.{language}.{tool}"
+    return note_gate_downgrade(key, apply_strict(str(config.get(key, "blocking"))))
 
 
 def get_test_paths(config: CIConfig) -> list[str]:

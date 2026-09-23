@@ -2,7 +2,7 @@
 # File:      tests/unit/test_workflow_consistency.py
 # Purpose:   Mechanical drift-prevention for cross-language workflow gates
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Workflow consistency tests.
 
@@ -318,41 +318,67 @@ def test_predict_version_forced_step_handles_explicit_version() -> None:
 
 
 class TestMainOnlyPublishGate:
-    """Branch-mode decision 1 (docs/plans/2026-07-branch-mode): a push can
-    only ever publish from main. The rule lives HERE, in the gate SSOT -
-    not in downstream job `if:` conditions. A `Publish: true` trailer on a
+    """Branch-mode decision 1 (docs/plans/2026-07-branch-mode) as amended by
+    issue #144: a push publishes from main, or from a branch the release
+    config declares `prerelease` - which spends no stable version. Every
+    other ref validates only. The rule lives HERE, in the gate SSOT - not in
+    downstream job `if:` conditions. A `Publish: true` trailer on any other
     branch push is ignored LOUDLY (::warning::), never silently."""
+
+    # The comment landmark that opens the trailer decision. Named once so a
+    # reword updates one line rather than four ordering assertions.
+    TRAILER_DECISION = "push to a release branch"
 
     def _gate_step(self) -> dict:
         path = ACTIONS_DIR / "predict-version" / "action.yml"
         action = yaml.safe_load(path.read_text(encoding="utf-8"))
         return next(s for s in action["runs"]["steps"] if s.get("id") == "gate")
 
-    def test_push_publish_requires_main_ref(self) -> None:
+    def test_push_publish_requires_a_release_ref(self) -> None:
         run = str(self._gate_step()["run"])
         assert 'github.ref }}" != "refs/heads/main"' in run, (
-            "gate must reject non-main refs on push before any trailer match"
+            "gate must test the ref on push before any trailer match"
         )
-        # Ordering: the non-main guard must EXIT before the main trailer
-        # match that can set will-publish=true. Substring presence alone
-        # would stay green if a refactor moved the guard after the match.
+        # Ordering: the ref guard must EXIT before the trailer match that can
+        # set will-publish=true. Substring presence alone would stay green if
+        # a refactor moved the guard after the match.
         guard = run.index('!= "refs/heads/main"')
-        main_trailer = run.index("push to main")
-        assert guard < main_trailer, (
-            "non-main guard must precede the main trailer publish decision"
-        )
+        trailer = run.index(self.TRAILER_DECISION)
+        assert guard < trailer, "ref guard must precede the trailer publish decision"
         # The guard block must exit 0 (validate-only), not fall through.
-        assert "exit 0" in run[guard:main_trailer], (
-            "non-main guard block must exit before the trailer decision"
+        assert "exit 0" in run[guard:trailer], (
+            "ref guard block must exit before the trailer decision"
         )
 
-    def test_nonmain_trailer_warns_loudly(self) -> None:
-        # No silent skips: a trailer on a branch must emit ::warning::.
+    def test_a_declared_prerelease_branch_reaches_the_trailer_decision(self) -> None:
+        # issue #144: the whole point. A non-main ref that the release config
+        # declares prerelease must fall THROUGH the guard, not exit in it.
         run = str(self._gate_step()["run"])
-        nonmain_block_start = run.index('!= "refs/heads/main"')
-        nonmain_block = run[nonmain_block_start:]
-        assert "::warning::" in nonmain_block, (
-            "ignored trailer on a non-main ref must warn loudly"
+        guard = run.index('!= "refs/heads/main"')
+        trailer = run.index(self.TRAILER_DECISION)
+        block = run[guard:trailer]
+        assert "prerelease_branch.py" in block, (
+            "the ref guard must ask the prerelease-branch helper, not "
+            "hard-code the branch set"
+        )
+        assert '"$prerelease" != "true"' in block, (
+            "only a ref that is NOT a declared prerelease branch may exit the "
+            "guard as validate-only"
+        )
+
+    def test_the_prerelease_helper_ships_beside_the_action(self) -> None:
+        # The composite loads it by path on a runner with no hyperi-ci
+        # installed, so it must live in the action directory.
+        helper = ACTIONS_DIR / "predict-version" / "prerelease_branch.py"
+        assert helper.is_file(), f"{helper} must exist for the gate to call"
+
+    def test_ignored_trailer_warns_loudly(self) -> None:
+        # No silent skips: a trailer on a non-release branch must emit
+        # ::warning::.
+        run = str(self._gate_step()["run"])
+        guard = run.index('!= "refs/heads/main"')
+        assert "::warning::" in run[guard:], (
+            "ignored trailer on a non-release ref must warn loudly"
         )
 
     def test_dispatch_is_resolved_before_the_ref_guard(self) -> None:
@@ -368,7 +394,7 @@ class TestMainOnlyPublishGate:
         # registry (issue #105), and it leaves an on-demand run that publishes
         # nothing expressible (issue #111) where a refusal did not.
         run = str(self._gate_step()["run"])
-        block = run[run.index("workflow_dispatch") : run.index("push to main")]
+        block = run[run.index("workflow_dispatch") : run.index(self.TRAILER_DECISION)]
         assert "will-publish=false" in block, (
             "a bare dispatch must resolve validate-only"
         )
@@ -378,7 +404,7 @@ class TestMainOnlyPublishGate:
         # No silent no-ops: someone who meant to release must be told that
         # nothing was published.
         run = str(self._gate_step()["run"])
-        block = run[run.index("workflow_dispatch") : run.index("push to main")]
+        block = run[run.index("workflow_dispatch") : run.index(self.TRAILER_DECISION)]
         assert "::warning::" in block, (
             "a validate-only dispatch must say nothing was published"
         )
@@ -497,6 +523,22 @@ class TestBuildChannelIsNotProxied:
         )
         assert "publish-target" not in channel, (
             "publish-target is a legacy no-op -- it must not gate Tier 2"
+        )
+
+    def test_the_build_step_carries_version_identity_separately(self) -> None:
+        # issue #144: tier and identity are independent, so the build needs
+        # both. Deriving identity from HYPERCI_CHANNEL would make a fast
+        # prerelease unreachable -- a release branch asks for the release tier.
+        wf = _load_workflow("rust-ci.yml")
+        build = next(
+            s for s in wf["jobs"]["build"]["steps"] if s.get("name") == "Run build"
+        )
+        prerelease = str(build.get("env", {}).get("HYPERCI_PRERELEASE", ""))
+        assert "needs.plan.outputs.prerelease" in prerelease, (
+            "the build must read version identity from the plan job's prerelease output"
+        )
+        assert wf["jobs"]["plan"]["outputs"].get("prerelease"), (
+            "the plan job must publish the prerelease output the build reads"
         )
 
     def test_the_release_tail_declares_no_channel(self) -> None:
@@ -1233,4 +1275,73 @@ def test_pushing_steps_use_the_bot_token(step_name: str) -> None:
         assert value == _BOT_TOKEN, (
             f"{step_name}: {key} is {value!r}, expected the bot token with a "
             f"GITHUB_TOKEN fallback ({_BOT_TOKEN!r})."
+        )
+
+
+# Every workflow whose plan job feeds the checks gate, hyperi-ci's own
+# included -- a fork PR must reach `plan` in all of them.
+_PLAN_WORKFLOWS = (*LANGUAGE_WORKFLOWS, "ci.yml")
+
+
+@pytest.mark.parametrize("workflow_name", _PLAN_WORKFLOWS)
+def test_plan_job_runs_on_a_fork_pr(workflow_name: str) -> None:
+    """The plan job must not exclude fork PRs (issue #176).
+
+    Every downstream gate reads `needs.plan.outputs.run-checks`, which is
+    empty when plan skips, so a fork PR that cannot reach plan runs no
+    quality and no test -- and a skipped required check still satisfies
+    branch protection, so it merges green.
+    """
+    wf = _load_workflow(workflow_name)
+    plan = wf["jobs"]["plan"]
+    condition = str(plan.get("if", ""))
+    assert "fork" not in condition, (
+        f"{workflow_name}: the plan job gates on {condition!r}, so a fork PR "
+        f"skips it and every check downstream. predict-version only needs "
+        f"write access on a push or dispatch, never on a PR."
+    )
+
+
+@pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+def test_docker_hub_login_is_fork_guarded(workflow_name: str) -> None:
+    """A Docker Hub login step must skip on a fork PR.
+
+    `vars` are readable by a fork PR and `secrets` are not, so a step gated
+    only on `vars.DOCKERHUB_USERNAME` authenticates with an empty password
+    and fails the job it sits in.
+    """
+    wf = _load_workflow(workflow_name)
+    seen = 0
+    for job_name, job in wf["jobs"].items():
+        for step in job.get("steps", []):
+            if "DOCKERHUB_USERNAME" not in str(step.get("if", "")):
+                continue
+            seen += 1
+            assert "fork" in str(step["if"]), (
+                f"{workflow_name}.{job_name}: Docker Hub login gates only on "
+                f"the var, which a fork PR can read while the secret stays "
+                f"empty -- the login fails and takes the job with it."
+            )
+    assert seen, f"{workflow_name}: no Docker Hub login step found to check"
+
+
+@pytest.mark.parametrize("workflow_name", _PLAN_WORKFLOWS)
+def test_a_terminal_gate_job_always_runs(workflow_name: str) -> None:
+    """Every workflow publishes a context a skipped check cannot satisfy.
+
+    Branch protection requiring `ci / Quality` is satisfied by Quality
+    skipping, so the doctrine's deliberate skip and a gate that never fired
+    look identical from outside the run (issue #177).
+    """
+    wf = _load_workflow(workflow_name)
+    gate = wf["jobs"].get("gate")
+    assert gate, f"{workflow_name}: no terminal gate job -- a skip can pass the run"
+    assert "always()" in str(gate.get("if", "")), (
+        f"{workflow_name}: the gate job is conditional, so it can skip with "
+        f"everything else and satisfy branch protection by doing nothing."
+    )
+    for upstream in ("plan", "quality", "test", "build"):
+        assert upstream in gate["needs"], (
+            f"{workflow_name}: the gate does not need {upstream!r}, so it "
+            f"cannot see whether it ran."
         )

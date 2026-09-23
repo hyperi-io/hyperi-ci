@@ -3,6 +3,66 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.10.6](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.5...v2.10.6) (2026-09-23)
+
+### Bug Fixes
+
+* **ci:** ask PyPI what is published, then make the gate block ([#206](https://github.com/hyperi-io/hyperi-ci/issues/206)) ([1b5875c](https://github.com/hyperi-io/hyperi-ci/commit/1b5875ccbfb92a643af282e2405208f7467abe0d)), closes [#181](https://github.com/hyperi-io/hyperi-ci/issues/181)
+* **ci:** cargo-llvm-cov needs its subcommand name before a flag ([#222](https://github.com/hyperi-io/hyperi-ci/issues/222)) ([fe5048d](https://github.com/hyperi-io/hyperi-ci/commit/fe5048d5a05d3b4ffd4162c11b328096dd4b182d)), closes [#213](https://github.com/hyperi-io/hyperi-ci/issues/213)
+* **ci:** put the fixture fleet in config, and check it against the org ([#225](https://github.com/hyperi-io/hyperi-ci/issues/225)) ([301d4c0](https://github.com/hyperi-io/hyperi-ci/commit/301d4c0545cd27889c4c1f08c0d678bde5d30047)), closes [#215](https://github.com/hyperi-io/hyperi-ci/issues/215) [#219](https://github.com/hyperi-io/hyperi-ci/issues/219)
+* **ci:** stop the Go cache warning in a repo with no go.mod ([#204](https://github.com/hyperi-io/hyperi-ci/issues/204)) ([b45fa8c](https://github.com/hyperi-io/hyperi-ci/commit/b45fa8c05dc455f86f717a629f9981566cb7e6a9))
+* **config:** declare local_gates in defaults, so it can be found ([#229](https://github.com/hyperi-io/hyperi-ci/issues/229)) ([13199a9](https://github.com/hyperi-io/hyperi-ci/commit/13199a9f182d983797f6eca2daf3172464ab0ce7))
+* **container:** survive cargo being absent where it was never installed ([#220](https://github.com/hyperi-io/hyperi-ci/issues/220)) ([1e56bd8](https://github.com/hyperi-io/hyperi-ci/commit/1e56bd8802972196d00a3e6b0476e20f3b402ccb)), closes [#207](https://github.com/hyperi-io/hyperi-ci/issues/207)
+* **push:** refuse an impossible push before running the suite, not after ([#211](https://github.com/hyperi-io/hyperi-ci/issues/211)) ([e00a8da](https://github.com/hyperi-io/hyperi-ci/commit/e00a8da2b9a1693c850102c1aecbed6552943fbd)), closes [#210](https://github.com/hyperi-io/hyperi-ci/issues/210)
+* **quality:** ban the look-alike dashes and the spaces that are not spaces ([#202](https://github.com/hyperi-io/hyperi-ci/issues/202)) ([62e34f4](https://github.com/hyperi-io/hyperi-ci/commit/62e34f4ab0deefeeec8d0ab594bd2bb0d001e92f)), closes [#169](https://github.com/hyperi-io/hyperi-ci/issues/169)
+* **quality:** honour a nested path in quality.exclude_paths ([#221](https://github.com/hyperi-io/hyperi-ci/issues/221)) ([bca602c](https://github.com/hyperi-io/hyperi-ci/commit/bca602cab8ffb58894126f2b25fd13504f938c93))
+* **rust:** install the semver checker, and read its exit code properly ([#203](https://github.com/hyperi-io/hyperi-ci/issues/203)) ([113ea15](https://github.com/hyperi-io/hyperi-ci/commit/113ea1543d1842ab4ad312309e59feefbb2b6e6d)), closes [#186](https://github.com/hyperi-io/hyperi-ci/issues/186) [#199](https://github.com/hyperi-io/hyperi-ci/issues/199)
+* **rust:** say loudly when coverage was asked for and did not run ([#205](https://github.com/hyperi-io/hyperi-ci/issues/205)) ([146c707](https://github.com/hyperi-io/hyperi-ci/commit/146c7073c8d6dde6ee9a6f9ebc1e6a5ea7c3cf6f)), closes [#200](https://github.com/hyperi-io/hyperi-ci/issues/200) [#140](https://github.com/hyperi-io/hyperi-ci/issues/140) [#184](https://github.com/hyperi-io/hyperi-ci/issues/184) [#184](https://github.com/hyperi-io/hyperi-ci/issues/184)
+* **tests:** name every test that skipped in CI ([#226](https://github.com/hyperi-io/hyperi-ci/issues/226)) ([df3596f](https://github.com/hyperi-io/hyperi-ci/commit/df3596f90857e4f6c6137ea0e25b37fa8526c9f7)), closes [#215](https://github.com/hyperi-io/hyperi-ci/issues/215) [#219](https://github.com/hyperi-io/hyperi-ci/issues/219) [#166](https://github.com/hyperi-io/hyperi-ci/issues/166)
+* three checks that never ran, found while clearing the board ([#232](https://github.com/hyperi-io/hyperi-ci/issues/232)) ([9490d5e](https://github.com/hyperi-io/hyperi-ci/commit/9490d5e9e229a5db82deaaaf79725b6eb3be55a0)), closes [#199](https://github.com/hyperi-io/hyperi-ci/issues/199) [#140](https://github.com/hyperi-io/hyperi-ci/issues/140)
+
+## [2.10.5](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.4...v2.10.5) (2026-09-22)
+
+### Bug Fixes
+
+* **ci:** catch a workflow calling a subcommand the published CLI lacks ([#196](https://github.com/hyperi-io/hyperi-ci/issues/196)) ([de297f3](https://github.com/hyperi-io/hyperi-ci/commit/de297f3d808bc63440c3a507fd09a06d8c1d36ac)), closes [#181](https://github.com/hyperi-io/hyperi-ci/issues/181)
+* **ci:** let the release tail see whether optimisation ran ([#180](https://github.com/hyperi-io/hyperi-ci/issues/180)) ([a87e206](https://github.com/hyperi-io/hyperi-ci/commit/a87e206b85baa53c999012d358a2ef9564ecf931))
+* **ci:** publish a gate context a skipped check cannot satisfy ([#191](https://github.com/hyperi-io/hyperi-ci/issues/191)) ([c8bf404](https://github.com/hyperi-io/hyperi-ci/commit/c8bf4048e1409a64062bdc20e4c47846b9c6bbe5)), closes [#177](https://github.com/hyperi-io/hyperi-ci/issues/177)
+* **ci:** refuse the gate when the plan failed or reported nothing ([#197](https://github.com/hyperi-io/hyperi-ci/issues/197)) ([cfb080e](https://github.com/hyperi-io/hyperi-ci/commit/cfb080ec15ed25fd879fefb2097364bc5f857e23)), closes [#191](https://github.com/hyperi-io/hyperi-ci/issues/191) [#177](https://github.com/hyperi-io/hyperi-ci/issues/177)
+* **ci:** run checks on a fork PR, mark an unoptimised release, sweep the header dash ([#182](https://github.com/hyperi-io/hyperi-ci/issues/182)) ([897450c](https://github.com/hyperi-io/hyperi-ci/commit/897450ccac6a940d6b281abb3076ad121583f4f0)), closes [#169](https://github.com/hyperi-io/hyperi-ci/issues/169) [#176](https://github.com/hyperi-io/hyperi-ci/issues/176) [#177](https://github.com/hyperi-io/hyperi-ci/issues/177)
+* **python:** say why five files keep a deferred-annotations import ([#194](https://github.com/hyperi-io/hyperi-ci/issues/194)) ([80110c4](https://github.com/hyperi-io/hyperi-ci/commit/80110c4920e39c4f9adfdc32c42b10bad4fcb275)), closes [#184](https://github.com/hyperi-io/hyperi-ci/issues/184)
+* **quality:** catch a Rust repo that cannot ship its own rustflags ([#190](https://github.com/hyperi-io/hyperi-ci/issues/190)) ([b286c8a](https://github.com/hyperi-io/hyperi-ci/commit/b286c8a43971f2ceabb22c116aa59b4da5f62fd0)), closes [#178](https://github.com/hyperi-io/hyperi-ci/issues/178)
+* **quality:** catch the other forms git excludes a directory by ([#201](https://github.com/hyperi-io/hyperi-ci/issues/201)) ([609b892](https://github.com/hyperi-io/hyperi-ci/commit/609b892cc9d063696aea1045046e26b2fa905d60)), closes [#178](https://github.com/hyperi-io/hyperi-ci/issues/178)
+* **quality:** enforce the ASCII-only rule at last ([#195](https://github.com/hyperi-io/hyperi-ci/issues/195)) ([5a40b57](https://github.com/hyperi-io/hyperi-ci/commit/5a40b578f41e7af28cec067c1be82cefaa186fbd)), closes [#169](https://github.com/hyperi-io/hyperi-ci/issues/169) [#169](https://github.com/hyperi-io/hyperi-ci/issues/169)
+* **quality:** lint our own docstrings, not just everyone else's ([#187](https://github.com/hyperi-io/hyperi-ci/issues/187)) ([4c75593](https://github.com/hyperi-io/hyperi-ci/commit/4c75593d59b005869bc0eddba9c28dd9a8bccfc7))
+* **quality:** scan .github, and skip only this charset module ([#198](https://github.com/hyperi-io/hyperi-ci/issues/198)) ([c38bfac](https://github.com/hyperi-io/hyperi-ci/commit/c38bfac32c1f38964e4b21486f71e32d63b05841)), closes [#169](https://github.com/hyperi-io/hyperi-ci/issues/169)
+* **rust:** check a library release for an unannounced breaking change ([#193](https://github.com/hyperi-io/hyperi-ci/issues/193)) ([19f6918](https://github.com/hyperi-io/hyperi-ci/commit/19f6918e7c55ef37f93e39902fbd40c5b54f566b)), closes [#186](https://github.com/hyperi-io/hyperi-ci/issues/186)
+* **rust:** say loudly when the semver check did not run ([#200](https://github.com/hyperi-io/hyperi-ci/issues/200)) ([4049dcd](https://github.com/hyperi-io/hyperi-ci/commit/4049dcd52dcf8725b92333f07653bfb73d6304f4)), closes [#186](https://github.com/hyperi-io/hyperi-ci/issues/186) [#199](https://github.com/hyperi-io/hyperi-ci/issues/199)
+
+## [2.10.4](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.3...v2.10.4) (2026-09-22)
+
+### Bug Fixes
+
+* **cli:** reach runs and workflows the wrapper does not own ([d2dd5fb](https://github.com/hyperi-io/hyperi-ci/commit/d2dd5fbf94df0828e8ef94bde1c153b6716cdb93)), closes [#101](https://github.com/hyperi-io/hyperi-ci/issues/101)
+* **cli:** say so when this build is not the latest release ([c64958b](https://github.com/hyperi-io/hyperi-ci/commit/c64958bfc4dc4c8f788874a9c54104e1c4bd94a1)), closes [#163](https://github.com/hyperi-io/hyperi-ci/issues/163)
+* **config:** read the declared repo classification ([3c0feb5](https://github.com/hyperi-io/hyperi-ci/commit/3c0feb585a60cd32c5e192dabd08db2c483bcc05))
+* **deps:** claim the service-prefixed compose files ([90085af](https://github.com/hyperi-io/hyperi-ci/commit/90085af0a6383363a35cd0a83d7985ef69f811dd)), closes [#153](https://github.com/hyperi-io/hyperi-ci/issues/153)
+* **docs:** point the cascade at where the config actually lives ([#175](https://github.com/hyperi-io/hyperi-ci/issues/175)) ([77573f5](https://github.com/hyperi-io/hyperi-ci/commit/77573f5edbff6423872a21668b87b18f47938db4))
+* **quality:** check the docs the way the code is checked ([88080bd](https://github.com/hyperi-io/hyperi-ci/commit/88080bdc7650ebdbc9414367688f7b19685e3168))
+* **quality:** correct the extend-exclude floor ([ea1d8a0](https://github.com/hyperi-io/hyperi-ci/commit/ea1d8a0c9e5cfdba93ce29cfd250b49a26c9b477)), closes [#162](https://github.com/hyperi-io/hyperi-ci/issues/162)
+* **quality:** give a compose-only repo a linting entry point ([1cbaa89](https://github.com/hyperi-io/hyperi-ci/commit/1cbaa89fd9bf4598c3ad1be0d5f83fa8212dba56))
+* **release:** close a version's failure issue when a retry ships it ([f98e721](https://github.com/hyperi-io/hyperi-ci/commit/f98e721ef8817cf928306f54b30536da2531a82a)), closes [#160](https://github.com/hyperi-io/hyperi-ci/issues/160)
+* **release:** release from a prerelease branch ([1309d4c](https://github.com/hyperi-io/hyperi-ci/commit/1309d4c1ac725a8a7dda87cc4749a86bc9174fe4)), closes [#37](https://github.com/hyperi-io/hyperi-ci/issues/37) [#158](https://github.com/hyperi-io/hyperi-ci/issues/158) [#143](https://github.com/hyperi-io/hyperi-ci/issues/143) [#144](https://github.com/hyperi-io/hyperi-ci/issues/144)
+* **rust:** default a release to PGO and BOLT ([a58a9a8](https://github.com/hyperi-io/hyperi-ci/commit/a58a9a83e4ce668c0d99b22f1cf362c8ed416a68)), closes [#143](https://github.com/hyperi-io/hyperi-ci/issues/143)
+* **rust:** fail a release whose requested PGO or BOLT did not run ([2bf71db](https://github.com/hyperi-io/hyperi-ci/commit/2bf71db39da05d50214369953dc21a9d411a4404)), closes [#133](https://github.com/hyperi-io/hyperi-ci/issues/133)
+* **rust:** give the PGO workload its duration and a setup step off the clock ([22be415](https://github.com/hyperi-io/hyperi-ci/commit/22be4158ef449a156ba2837fcb08c0798806d22a)), closes [#135](https://github.com/hyperi-io/hyperi-ci/issues/135)
+* **rust:** refuse to release a skipped-optimisation build without consent ([d793bd4](https://github.com/hyperi-io/hyperi-ci/commit/d793bd4cf1599654fa1b3e55e140dc33189de172)), closes [#158](https://github.com/hyperi-io/hyperi-ci/issues/158)
+* **rust:** resolve lld in every PGO stage and retry a big aarch64 link with mold ([b87a131](https://github.com/hyperi-io/hyperi-ci/commit/b87a1310fec17ecfd994649a61aaf431ba964cb4)), closes [#142](https://github.com/hyperi-io/hyperi-ci/issues/142)
+* **rust:** ship BOLT's output and pin the cargo-pgo that makes it ([f812aec](https://github.com/hyperi-io/hyperi-ci/commit/f812aec888a9102dab1fb0fadd214eea721274ea)), closes [#136](https://github.com/hyperi-io/hyperi-ci/issues/136) [#136](https://github.com/hyperi-io/hyperi-ci/issues/136) [#137](https://github.com/hyperi-io/hyperi-ci/issues/137) [#135](https://github.com/hyperi-io/hyperi-ci/issues/135)
+* **scripts:** read the rehearsal run job by job, and call a timeout inconclusive ([79863b3](https://github.com/hyperi-io/hyperi-ci/commit/79863b34929affcd831385620eb1bafa1c9ee696))
+* **test:** derive pytest worker count from the host ([49b1b47](https://github.com/hyperi-io/hyperi-ci/commit/49b1b47e743b5617c9036f0e9530abbb1823d3f4)), closes [scalo-py#29](https://github.com/hyperi-io/scalo-py/issues/29)
+* **watch:** list skipped jobs apart from the jobs that ran ([491b6e1](https://github.com/hyperi-io/hyperi-ci/commit/491b6e1c0fe1b30a02e45dd13625aaa7b77557c9)), closes [#71](https://github.com/hyperi-io/hyperi-ci/issues/71)
+
 ## [2.10.1](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.0...v2.10.1) (2026-09-17)
 
 ### Bug Fixes

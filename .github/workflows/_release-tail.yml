@@ -75,6 +75,14 @@ on:
         type: string
         default: ""
         description: "Space-separated submodule paths to init before the container build (e.g. 'schemas'), so a Dockerfile can bake submodule content. Empty (default) inits nothing."
+      skip-optimize:
+        type: string
+        default: ""
+        description: "'true' if the build skipped the optimisation stage. The container job stamps io.hyperi.optimized from it, so a deployed image says what it is."
+      release-unoptimized:
+        type: string
+        default: ""
+        description: "'true' if this run carries the consent to ship a skipped-optimisation build under a release tag."
 
 env:
   # Rehearsal / incident escape hatch: the HYPERCI_INSTALL_OVERRIDE repo
@@ -86,6 +94,10 @@ env:
   # an old hyperi-ci that allowed it, rather than failing (issue #157).
   HYPERCI_INSTALL: ${{ vars.HYPERCI_INSTALL_OVERRIDE || 'uvx --python 3.14 --no-cache --refresh hyperi-ci' }}
   HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
+  # The build job resolved these; the container and release jobs need them
+  # too, or an unoptimised image ships with no record that it is one.
+  HYPERCI_SKIP_OPTIMIZE: ${{ inputs.skip-optimize }}
+  HYPERCI_RELEASE_UNOPTIMIZED: ${{ inputs.release-unoptimized }}
 
 jobs:
   container:
@@ -390,6 +402,15 @@ jobs:
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
+
+      - name: Setup Rust tools
+        # `run release` calls cargo-semver-checks between stamp-version and the
+        # crates.io push, and this is the only job that reaches that path. The
+        # quality job installs the same action, but the check cannot run there:
+        # before the stamp the manifest holds the LAST released version, so the
+        # comparison is a release against itself (issues #186, #199).
+        if: inputs.language == 'rust'
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-rust-tools@main
 
       - name: Tag HEAD (forced bump / explicit version)
         # from-head dispatch with a non-auto bump (issue #35): force a release

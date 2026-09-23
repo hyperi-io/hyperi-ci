@@ -2,7 +2,7 @@
 # File:      tests/unit/test_quality_strict.py
 # Purpose:   Tests for strict quality mode (warn-tier findings -> blocking)
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for strict quality mode.
 
@@ -17,6 +17,7 @@ from __future__ import annotations
 import pytest
 
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages import quality_common
 from hyperi_ci.languages.quality_common import (
     is_skipped,
     quality_skip,
@@ -95,6 +96,51 @@ class TestResolveToolMode:
         monkeypatch.setenv(_ENV, "1")
         cfg = _config("semgrep", "warn", language)
         assert resolve_tool_mode("semgrep", cfg, language) == "blocking"
+
+
+class TestGateDowngradeIsAnnounced:
+    """A gate a repo relaxed reads the same as one that passed, unless it says so."""
+
+    @staticmethod
+    def _warnings(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        said: list[str] = []
+        monkeypatch.setattr(quality_common, "warn", said.append)
+        return said
+
+    def test_warn_below_a_shipped_blocking_is_announced(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said = self._warnings(monkeypatch)
+        assert resolve_tool_mode(
+            "pip_audit", _config("pip_audit", "warn"), "python"
+        ) == ("warn")
+        assert any("turned down" in w for w in said), said
+        assert any("pip_audit" in w for w in said), said
+
+    def test_matching_the_shipped_default_says_nothing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said = self._warnings(monkeypatch)
+        assert resolve_tool_mode("vulture", _config("vulture", "warn"), "python") == (
+            "warn"
+        )
+        assert said == []
+
+    def test_raising_above_the_shipped_default_says_nothing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said = self._warnings(monkeypatch)
+        assert resolve_tool_mode(
+            "vulture", _config("vulture", "blocking"), "python"
+        ) == ("blocking")
+        assert said == []
+
+    def test_a_tool_with_no_shipped_default_says_nothing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said = self._warnings(monkeypatch)
+        resolve_tool_mode("not_a_tool", _config("not_a_tool", "disabled"), "python")
+        assert said == []
 
 
 class TestRuffFormatHasItsOwnMode:

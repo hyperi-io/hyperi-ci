@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/tools.py
 # Purpose:   External-tool presence checks with actionable, Rust-style guidance
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """External-tool presence checks with actionable, Rust-style guidance.
 
@@ -139,6 +139,40 @@ _REGISTRY: dict[str, ToolInfo] = {
         ),
         url="https://www.checkov.io/2.Basics/Installing%20Checkov.html",
     ),
+    "lychee": ToolInfo(
+        name="lychee",
+        purpose="repo-internal doc link + anchor checking (offline, no network)",
+        # Prebuilt binaries first: `cargo install` compiles it from source
+        # (minutes), everything above fetches a release artefact (seconds).
+        install=(
+            "brew install lychee",
+            "cargo binstall lychee",
+            "download a release binary: https://github.com/lycheeverse/lychee/releases/latest",
+            "cargo install lychee  # from source - slowest, last resort",
+        ),
+        url="https://github.com/lycheeverse/lychee#installation",
+    ),
+    "markdownlint-cli2": ToolInfo(
+        name="markdownlint-cli2",
+        purpose="mechanical markdown syntax linting",
+        install=(
+            "npm install -g markdownlint-cli2",
+            "brew install markdownlint-cli2",
+        ),
+        url="https://github.com/DavidAnson/markdownlint-cli2#install",
+    ),
+    "mermaid": ToolInfo(
+        name="mermaid",
+        purpose="mermaid diagram parse checking (the grammar, not a render)",
+        # Node packages, resolved from the repo's own node_modules. linkedom
+        # supplies the browser globals mermaid's bundle reaches for - without it
+        # a VALID flowchart throws, so both are needed or neither works.
+        install=(
+            "npm install --no-save mermaid linkedom",
+            "add mermaid + linkedom to the project's devDependencies",
+        ),
+        url="https://mermaid.js.org/config/usage.html",
+    ),
     "osv-scanner": ToolInfo(
         name="osv-scanner",
         purpose="dependency vulnerability scanning (OSV)",
@@ -150,6 +184,18 @@ _REGISTRY: dict[str, ToolInfo] = {
         purpose="GitHub operations (releases, workflow dispatch, run status)",
         install=("brew install gh",),
         url="https://cli.github.com/",
+    ),
+    "docker compose": ToolInfo(
+        name="docker compose",
+        purpose="compose file resolution (`docker compose config`) - no daemon needed",
+        # The v2 compose plugin ships inside Docker Desktop and inside the
+        # `docker-compose-plugin` package; the standalone v1 `docker-compose`
+        # binary is end-of-life and is NOT what this calls.
+        install=(
+            "brew install docker docker-compose",
+            "apt-get install docker-compose-plugin",
+        ),
+        url="https://docs.docker.com/compose/install/",
     ),
     "helm": ToolInfo(
         name="helm",

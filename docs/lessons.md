@@ -35,7 +35,7 @@ Source: `hyperi-io/ci` (to be archived once cutover is complete).
 - Many `-dev` packages (e.g. `libsasl2-dev`) are NOT `Multi-Arch: same` -
   installing arm64 replaces amd64, breaking native builds
 - **Solution:** Download cross-arch `.deb` files, extract to private sysroot
-  (`/tmp/cross-sysroot/<arch>/`), point `PKG_CONFIG_PATH` and linker at it
+  (`.tmp/cross-sysroot/` in the workspace), point `PKG_CONFIG_PATH` and linker at it
 - Only install cross-compilers system-wide (they ARE Multi-Arch safe):
   `gcc-aarch64-linux-gnu`, `g++-aarch64-linux-gnu`
 - Also install `libc6-dev:arm64` (provides dynamic linker and standard libs)
@@ -334,14 +334,129 @@ build to ensure fresh artifacts, also via `hyperi-ci run build`.
 
 ## Cross-Language Patterns
 
+### A workflow change is not proven by a green test suite
+
+Three real bugs in one workflow change got past ~3000 local tests and were
+caught by `scripts/rehearse-branch.py` on a real `ci-test-*` fixture. Rehearse
+every change to `.github/workflows/` before merging it.
+
+The reason the suite cannot find them:
+
+- **A wrong model is tested as confidently as a right one.** A gate job treated
+  `build` as governed by `run-checks`; it is governed by `run-build`, which is
+  publish-only, so the job failed every normal PR. Twelve unit tests passed it,
+  because the tests were written to the same wrong model as the code. Unit
+  tests confirm the author's understanding of the contract -- they cannot
+  detect that the understanding is wrong. Only the real workflow can.
+- **The runner is not your machine.** The same job ran `uvx` on a bare
+  `ubuntu-latest` with no `setup-uv` step and exited 127 on a run where every
+  other job was green. Nothing local exercises the runner's PATH.
+
+And a trap in reading the result: a genuine flake can sit on top of a genuine
+failure. A `pip-audit` timeout against pypi.org masked the first of those bugs,
+the re-run looked like the reasonable response, and it cost two rehearsals.
+When a rehearsal fails, read every failing job before deciding any of them is
+transient.
+
+And the rehearsal itself can be the thing that lies. A fixture takes its
+WORKFLOW from `@main` the instant it merges, and its CLI from PyPI on a
+release. So a rehearsal that does not pass `HYPERCI_INSTALL_OVERRIDE` runs the
+PUBLISHED CLI against the branch's workflow -- it exercises the half that
+arrived and silently skips the half that has not shipped.
+
+That cost the fleet a broken Rust test leg. A composite action gained a verify
+step; the rehearsal ran the INSTALL against the published CLI, never reached
+the verify, and came back green. The step was wrong in a way a single real run
+would have shown.
+
+A rehearsal that can quietly run the old code is worse than none, because it
+returns a green you believe. Pass the override, or say out loud which half you
+tested.
+
+Two coverage holes in the same family, both structural rather than missed:
+
+- **A composite action's steps only run inside a job for that language.** The
+  Rust verify steps cannot execute in this repo's CI at all, because this repo
+  has no Rust. The green tick was honest about everything it could reach.
+- **The fast channel is the workflow, the slow one is the wheel.** Anything
+  that ships through both in one commit reaches consumers in halves. It turns
+  fixtures RED and consumers falsely GREEN depending on direction.
+
+### A check that reports success over what it never ran
+
+Five of this repo's checks were green over work they had not done: a CI gate
+that read `== skipped` and so passed a plan job that had FAILED; a
+public-API check nothing installed, so every release took the missing-tool
+branch and returned 0; that same check reading cargo's error code 101 as a
+breaking change; `test.coverage` honoured up to the point the tool would run,
+then running the tests plain; and a subcommand gate that asked an unpinned
+`uvx` what was published and got an hour-old answer from a cached index.
+
+The test that finds them, before writing any check:
+
+> ask what the check prints when the thing it measures did not happen at all.
+> If that is the same as success -- 0, silence, "ok" -- the check is decorative.
+
+Make absence LOUD: a missing tool fails rather than skips, a skipped stage is
+not a passed stage, a requested-but-unrun step is an error. Then test the
+NEGATIVE path -- a test that only ever sees the tool present proves nothing
+about the branch that ships.
+
+That question catches four of the five. It does not catch the subcommand gate,
+which printed a finding rather than a pass -- it did not miss a problem, it
+invented one, because a cached index answered where PyPI should have. So the
+underlying rule is wider than absence:
+
+**A check has THREE outcomes, and collapsing the third is the defect.** Pass,
+fail, and "could not determine". Four of these folded "could not run" into
+pass; the fifth folded "could not resolve" into fail. Both directions destroy
+the same information, and the second is worse in one respect -- a false pass
+gets found eventually by the bug shipping, a false failure trains people to
+ignore the check.
+
+So ask it in both directions: what does this print when it could not run, and
+what does it print when it could not get a trustworthy answer? If either
+matches pass or fail rather than saying which, wire the third outcome.
+
+Knowing the rule is not enough on its own. Two of those five were in code its
+author had merged and self-reviewed the same day. Ask the question of the
+artefact, not of yourself.
+
+Full treatment: `standards/universal/testing.md`, "A green check that never
+ran".
+
+### Decoration by construction, and the weaker check that covers for it
+
+Three doc checks -- lychee, markdownlint, the mermaid grammar layer -- warned
+on every run of every repo for months. Each message was honest and said the
+tool was missing. What made them decoration rather than a gap is that there
+was no install path ANYWHERE: not in `versions.yaml`, not in the installer,
+not baked into a runner image. A check that cannot run in any environment we
+have is not warn-tier, and a permanent warning teaches people to stop reading
+warnings.
+
+The part that hid it for months is worth more than the fix. `doc-paths` is
+DELIBERATELY disabled whenever lychee would run -- so the weaker check stood
+in for the stronger one, permanently, and caught enough to look like coverage.
+From outside, the system appeared to be working. A fallback that silently
+becomes the only path produces a signal indistinguishable from the real one.
+
+So when one check defers to another, ask which one is actually running. If the
+answer is always the fallback, the primary is not a check.
+
+The generic question this raises, which is bigger than three binaries: what
+gate lets a check ship with no install path at all? Three did. The fix for
+each is an afternoon of pinning; the fix for the class is asking, when a check
+is added, where the tool comes from on a runner.
+
 ### Configuration Cascade
 
 Priority (highest wins):
 1. CLI flags / function arguments
 2. Environment variables (`HYPERCI_*`)
 3. `.hyperi-ci.yaml` project config
-4. `config/org.yaml` org defaults
-5. `config/defaults.yaml`
+4. `src/hyperi_ci/config/org.yaml` org defaults
+5. `src/hyperi_ci/config/defaults.yaml`
 6. Hardcoded in code
 
 ### Tool Mode System

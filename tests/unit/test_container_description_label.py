@@ -2,7 +2,7 @@
 # File:      tests/unit/test_container_description_label.py
 # Purpose:   The description label is populated by the pipeline, not just accepted
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 """`org.opencontainers.image.description` must arrive with something in it.

@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/version_source.py
 # Purpose:   Where the first version comes from, when there is no tag yet
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Derive a repo's starting version from what the project already declares.
 
@@ -28,6 +28,9 @@ of the action checkout, and hatchling imports it as the build back-end's
 version source (:func:`build_version`) — neither has run a ``pip install``.
 """
 
+# KEEP on a 3.14 floor, where this import is otherwise wrong (issue #184).
+# predict-version loads this file BY PATH before any install, on whatever
+# python3 the runner has, which may predate our floor.
 from __future__ import annotations
 
 import json

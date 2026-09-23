@@ -11,6 +11,9 @@
 # Lower the local gate so hyperi-ci check matches CI reality.
 test:
   min_coverage: 0
+  python:
+    # The suite is parallel-safe: no fixed ports, every fixture in tmp_path.
+    parallel: true
 
 # hyperi-ci ships as a pip-installable CLI (PyPI), not a containerised
 # service. The container stage treats a project with a [project.scripts]
@@ -36,6 +39,21 @@ deployment:
 # whole python3x-compat rule class is noise here. Suppress both the py36 and py37
 # variants (the ruleset has surfaced different IDs across versions).
 quality:
+  # Agent working artefacts, never committed (AGENT-RULES 4) and never
+  # shipped. Linting them puts eight broken-link errors from a May plan file
+  # into every local check, which is how a check stops being read.
+  exclude_paths:
+    - docs/superpowers
+
+  # Gates that run as their own CI JOB, repeated here so a local
+  # `hyperi-ci check` green actually predicts a CI green. Both are blocking in
+  # ci.yml and neither had any local path, so touching versions.yaml or a
+  # workflow passed locally and went red on the runner.
+  local_gates:
+    - name: version SSOT
+      command: ["uv", "run", "python", "scripts/update-versions.py", "--check"]
+    - name: workflow interfaces
+      command: ["uv", "run", "python", "scripts/check-workflow-interfaces.py"]
   ignore:
     - tool: semgrep
       ids:

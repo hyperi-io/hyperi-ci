@@ -2,7 +2,7 @@
 # File:      tests/unit/test_cli_autoupdate.py
 # Purpose:   Tests for the `hyperi-ci autoupdate` command surface
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 """The verbs of `hyperi-ci autoupdate`, exercised through the real dispatch.

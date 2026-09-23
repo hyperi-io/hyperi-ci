@@ -2,7 +2,7 @@
 # File:      tests/unit/test_preflight.py
 # Purpose:   Credentials are checked before the build, and only the real ones
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 """Preflight must catch a missing token without blocking a release that needs none.

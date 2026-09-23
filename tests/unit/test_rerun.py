@@ -2,7 +2,7 @@
 # File:      tests/unit/test_rerun.py
 # Purpose:   Run selection and the argv rerun hands to gh
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for the rerun wrapper (issue #97).
 
@@ -17,6 +17,7 @@ import subprocess
 import pytest
 
 from hyperi_ci import rerun
+from hyperi_ci import runs as run_lookup
 from hyperi_ci.gh import RunSelectionError
 
 
@@ -65,12 +66,13 @@ class TestRerunArgv:
 class TestRunSelection:
     """Selection matches watch: HEAD's own run, ambiguity refused."""
 
-    def test_repo_without_a_run_id_is_refused(
+    def test_repo_without_an_anchor_is_refused(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         sent: list[str] = []
         monkeypatch.setattr(rerun, "require_gh", lambda: True)
         monkeypatch.setattr(rerun, "gh_run", _recorder(sent))
+        monkeypatch.setattr(run_lookup, "list_runs", lambda **_k: [])
         # HEAD says nothing about another repo, so this must not reach gh.
         assert rerun.rerun_run(repo="hyperi-io/dfe-loader") == 1
         assert sent == []
@@ -80,7 +82,7 @@ class TestRunSelection:
     ) -> None:
         sent: list[str] = []
         monkeypatch.setattr(rerun, "require_gh", lambda: True)
-        monkeypatch.setattr(rerun, "resolve_head_run", lambda **_k: {"databaseId": 99})
+        monkeypatch.setattr(run_lookup, "resolve", lambda **_k: {"databaseId": 99})
         monkeypatch.setattr(rerun, "describe_run", lambda _run: "99 CI")
         monkeypatch.setattr(rerun, "gh_run", _recorder(sent))
         assert rerun.rerun_run() == 0
@@ -93,8 +95,24 @@ class TestRunSelection:
             raise RunSelectionError("several runs match")
 
         monkeypatch.setattr(rerun, "require_gh", lambda: True)
-        monkeypatch.setattr(rerun, "resolve_head_run", boom)
+        monkeypatch.setattr(run_lookup, "resolve", boom)
         assert rerun.rerun_run() == 1
+
+    def test_a_pr_anchor_reaches_the_run(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        seen: dict[str, object] = {}
+
+        def capture(**kwargs: object) -> dict:
+            seen.update(kwargs)
+            return {"databaseId": 77}
+
+        sent: list[str] = []
+        monkeypatch.setattr(rerun, "require_gh", lambda: True)
+        monkeypatch.setattr(run_lookup, "resolve", capture)
+        monkeypatch.setattr(rerun, "describe_run", lambda _run: "77 CI")
+        monkeypatch.setattr(rerun, "gh_run", _recorder(sent))
+        assert rerun.rerun_run(pr=18) == 0
+        assert seen["pr"] == 18
+        assert sent == ["run", "rerun", "77", "--failed"]
 
     def test_no_gh_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(rerun, "require_gh", lambda: False)

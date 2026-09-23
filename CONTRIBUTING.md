@@ -158,10 +158,60 @@ hyperi-ci check
 
 `hyperi-ci` is the HyperI CI CLI (public on PyPI). If you do not have it, install
 it once with `uv tool install hyperi-ci` (or `pipx install hyperi-ci`), or run it
-ad hoc with `uvx hyperi-ci check`. It runs the project's full local validation --
-the same suite CI runs -- and reports what to fix. Run it before every push and before opening a
-pull request; it is the single best way to give your change the best chance of
-surviving CI.
+ad hoc with `uvx hyperi-ci check`. Run it before every push and before opening a
+pull request.
+
+### What a local green does and does not promise
+
+It runs the same quality and test code CI runs, through the same dispatcher, so
+a local green predicts those jobs. It does NOT predict the whole run. These have
+no local equivalent and only ever run on a runner:
+
+- the `plan` job and its version prediction
+- `commit-check` against what actually lands on `main`
+- the `Gate` job
+- the container build and the publish tail
+- CodeQL
+
+Two more differences worth knowing, because they bite in opposite directions:
+
+- **A missing tool warn-skips locally and FAILS in CI.** A blocking tool you do
+  not have installed is an environment gap on your machine and a coverage gap on
+  a runner. A clean local run on a fresh clone can still go red.
+- **`check --strict` is stricter than CI.** It promotes `warn` to `blocking`, and
+  no workflow sets it. Passing `--strict` locally is a harder gate than the one
+  your PR will face.
+
+## For coding agents
+
+An agent working in this repo or any `ci-test-*` fixture is bound by the
+following. These are not preferences.
+
+**Fix what you find in a fixture.** The `hyperi-io/ci-test-*` repos are the E2E
+validation fleet, listed in `config/fixtures.yaml`, which is the SSoT --
+`scripts/check-fixture-fleet.py` holds it to the org. When you touch a fixture
+and find a real problem (a CVE, a drifted workflow, stale deps, format drift),
+fix it as part of your work. No permission round-trip.
+
+**Never repair a deliberate failure.** Anything under a fixture's
+`.ci-negative/` directory, and any `expect-fail/*` branch, is a PLANTED failure.
+The sweep asserts CI fails there at a declared stage for a declared reason, so
+repairing it breaks the test. They carry DO-NOT-FIX headers; believe them.
+
+**Route fixture git through the wrapper.** `python3 scripts/fixture-git.py <repo>
+<git-args...>`. A bare `git -C <fixture>` prompts for approval on every call and
+stalls an unattended run. Scope is the safety: the wrapper only touches a repo
+whose directory name starts `ci-test-`, and refuses `-C` / `--git-dir` /
+`--work-tree`.
+
+**The repo name is the authority, never the directory name.** Several local
+checkouts have drifted from their upstream names. `git remote get-url origin`
+settles it, and `gh --repo` takes nothing else.
+
+**A green test suite does not prove a workflow change.** Rehearse it on a real
+fixture, and pass `HYPERCI_INSTALL_OVERRIDE` when the change is in the CLI --
+without it the rehearsal runs the PUBLISHED CLI against your branch's workflow
+and tests the wrong half. `docs/lessons.md` has the cases.
 
 ## CI/CD Workflow
 

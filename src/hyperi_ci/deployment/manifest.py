@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/deployment/manifest.py
 # Purpose:   Shared substring readers for Cargo.toml / pyproject.toml
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Cheap manifest readers shared by tier detection and the generate stage.
 

@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/languages/rust/quality.py
 # Purpose:   Rust quality checks (fmt, clippy, audit, deny)
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Rust quality checks handler.
 
@@ -21,7 +21,7 @@ from pathlib import Path
 from hyperi_ci.common import error, info, is_ci, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import get_test_ignore, resolve_tool_mode
-from hyperi_ci.quality import osv_scanner
+from hyperi_ci.quality import cargo_flags, osv_scanner
 from hyperi_ci.quality.ignores import IgnoreEntry, for_tool, load_ignores
 
 try:
@@ -338,7 +338,13 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # cargo deny (requires deny.toml — useless without project-specific config)
     mode = _get_tool_mode("deny", config)
     if not Path("deny.toml").exists():
-        info("  cargo deny: skipped (no deny.toml found)")
+        # A bare "skipped" under a blocking mode reads as though advisories
+        # went unchecked; cargo audit above covers them from the same DB.
+        info(
+            "  cargo deny: skipped (no deny.toml). Advisories are still "
+            "gated by cargo audit; a deny.toml would add licence, ban and "
+            "source checks."
+        )
     elif not _run_tool("cargo deny", ["cargo", "deny", "check"], mode):
         had_failure = True
 
@@ -348,6 +354,11 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     # Rustdoc compliance hint (non-blocking; default: enabled)
     _run_rustdoc_hint(config)
+
+    # Rustflags this repo declares but cannot ship (issue #178). Reads config
+    # and .gitignore only, so it costs nothing and runs whatever else ran.
+    if cargo_flags.run(config) != 0:
+        had_failure = True
 
     return 1 if had_failure else 0
 

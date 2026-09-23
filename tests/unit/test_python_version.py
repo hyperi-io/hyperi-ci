@@ -2,7 +2,7 @@
 # File:      tests/unit/test_python_version.py
 # Purpose:   The project's own declaration decides its Python version
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """issue #150: CI must build a project on the interpreter it declares.
 
@@ -65,6 +65,25 @@ class TestRequiresPythonFloor:
         # fallback names a usable interpreter instead.
         _write(tmp_path, "pyproject.toml", "[project\nrequires-python =")
         assert python_version.requires_python_floor(tmp_path) is None
+
+
+class TestSpecifierFloor:
+    """A floor read straight from a specifier, for a release on PyPI (#163)."""
+
+    @pytest.mark.parametrize(
+        "spec,expected",
+        [
+            (">=3.14", "3.14"),
+            (">=3.12", "3.12"),
+            (">=3.12,<4.0", "3.12"),
+        ],
+    )
+    def test_reads_a_published_specifier(self, spec: str, expected: str) -> None:
+        assert python_version.floor_from_specifier(spec) == expected
+
+    @pytest.mark.parametrize("spec", ["", "<4.0", "!=3.11"])
+    def test_names_nothing_without_a_lower_bound(self, spec: str) -> None:
+        assert python_version.floor_from_specifier(spec) is None
 
 
 class TestPeggedFile:

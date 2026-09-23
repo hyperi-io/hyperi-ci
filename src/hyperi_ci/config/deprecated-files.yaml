@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/config/deprecated-files.yaml
 # Purpose:   Table of deprecated project files -> the nudge to show if present
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # hyperi-ci scans a project for these paths during `hyperi-ci check` and in CI
@@ -29,3 +29,11 @@ files:
       default rules as the single source of truth for version bumps - remove
       it. Only a .releaserc.json is honoured, and only for a genuine exception
       (e.g. a multi-crate workspace).
+  - path: TODO.md
+    level: warn
+    message: >-
+      TODO.md is retired: task state belongs in the active plan and in GitHub
+      issues, which are the only copies anyone else can see. A local TODO.md
+      goes stale invisibly - this repo's own ran two months behind and claimed
+      merged work was still blocked. Migrate anything still live to issues and
+      delete the file.

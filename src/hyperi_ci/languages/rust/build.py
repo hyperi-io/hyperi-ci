@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/languages/rust/build.py
 # Purpose:   Rust build handler with cross-compilation support
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Rust build handler.
 
@@ -29,6 +29,7 @@ from hyperi_ci.common import (
     is_ci,
     is_linux,
     is_macos,
+    is_prerelease_build,
     release_unoptimized,
     sanitize_ref_name,
     skip_optimize,
@@ -1236,9 +1237,17 @@ def _build_for_target(
     # PGO path takes over the whole build for this target
     if profile and profile.pgo_enabled:
         binary_names = _detect_binary_names()
-        if not binary_names:
+        # The PGO path returns before the cross-compile setup below, so it would
+        # build a foreign target with the host toolchain.
+        cross = target != _get_native_target() and is_linux()
+        if cross:
             warn(
-                "PGO requested but crate has no binaries — falling back to plain build"
+                f"PGO is not wired for a cross build ({target} from "
+                f"{_get_native_target()}) -- building plain, Tier 1 only"
+            )
+        elif not binary_names:
+            warn(
+                "PGO requested but crate has no binaries -- falling back to plain build"
             )
         else:
             # Use the first binary for PGO (projects with multiple bins can
@@ -1341,11 +1350,15 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         user_optimize = config.get("build.rust.optimize") or {}
         skip = skip_optimize(config)
         consented = release_unoptimized()
+        project_root = Path.cwd()
+        prerelease = is_prerelease_build()
         refusal = unoptimized_release_refusal(
             channel,
             user_optimize,
             skip_optimize=skip,
             release_unoptimized=consented,
+            project_root=project_root,
+            prerelease=prerelease,
         )
         if refusal:
             error(refusal)
@@ -1372,7 +1385,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             if is_ci():
                 print(f"::warning title=hyperi-ci optimisation skipped::{msg}")
         base_profile = resolve_optimization_profile(
-            channel, user_optimize, skip_optimize=skip
+            channel, user_optimize, skip_optimize=skip, project_root=project_root
         )
         cargo_features = _detect_cargo_features()
         # Target-specific validation happens per-target (BOLT is Linux-only)

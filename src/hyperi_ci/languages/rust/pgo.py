@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/languages/rust/pgo.py
 # Purpose:   PGO + BOLT build orchestration for Rust binaries
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """PGO + BOLT build orchestration.
 
@@ -86,12 +86,20 @@ def run_pgo_build(
         )
         return _run_plain_release_build(target, feature_args, cwd, extra_env)
 
-    _ensure_ld_lld_available()
+    if not _ensure_ld_lld_available():
+        warn(
+            "no ld.lld on PATH -- a project selecting -fuse-ld=lld in its own "
+            "cargo config will fail this build with \"cannot find 'ld'\""
+        )
+
+    # Every later stage links a binary at least as large as the instrumented
+    # one, so a linker that rescues this build has to carry forward.
+    build_env = extra_env
 
     # 1. Instrumented build
     info(f"PGO: building instrumented binary for {target}")
     instrument_args = ["build", "--", "--target", target, *feature_args]
-    rc = _run_cargo_pgo(instrument_args, cwd=cwd, extra_env=extra_env)
+    rc = _run_cargo_pgo(instrument_args, cwd=cwd, extra_env=build_env)
     if rc != 0 and target.startswith("aarch64") and shutil.which("mold"):
         # Profile counters push a large binary's text past the +/-128 MB
         # R_AARCH64_CALL26 branch, which bfd cannot bridge; mold inserts thunks.
@@ -99,11 +107,11 @@ def run_pgo_build(
             "PGO instrumented build failed on aarch64 -- retrying once with mold, "
             "which bridges branches past the 128 MB limit"
         )
-        mold_env = {
+        build_env = {
             **(extra_env or {}),
             _target_rustflags_key(target): "-C link-arg=-fuse-ld=mold",
         }
-        rc = _run_cargo_pgo(instrument_args, cwd=cwd, extra_env=mold_env)
+        rc = _run_cargo_pgo(instrument_args, cwd=cwd, extra_env=build_env)
     if rc != 0:
         error(f"PGO instrumented build failed for {target}")
         return rc
@@ -137,7 +145,7 @@ def run_pgo_build(
     rc = _run_cargo_pgo(
         ["optimize", "--", "--target", target, *feature_args],
         cwd=cwd,
-        extra_env=extra_env,
+        extra_env=build_env,
     )
     if rc != 0:
         error(f"PGO optimised build failed for {target}")
@@ -148,7 +156,7 @@ def run_pgo_build(
     # 4. BOLT (optional, Linux-only)
     if profile.bolt_enabled:
         rc = _run_bolt(
-            target, feature_args, binary_name, profile, cwd, extra_env, outcome
+            target, feature_args, binary_name, profile, cwd, build_env, outcome
         )
         if rc != 0:
             warn("BOLT step failed — continuing with PGO-only optimised binary")
@@ -589,12 +597,6 @@ def _bolt_build_env(target: str, *, no_split: bool = False) -> dict[str, str]:
         target_rustflags_key: bolt_rustflags,
         "CARGO_PROFILE_RELEASE_STRIP": "none",
     }
-
-
-# Backwards-compat alias for external callers / pre-1.11 tests.
-# No in-tree caller uses this — _run_bolt calls _bolt_build_env directly.
-# Remove in v2.
-_bolt_linker_env = _bolt_build_env
 
 
 def _attempt_bolt(

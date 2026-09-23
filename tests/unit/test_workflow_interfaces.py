@@ -2,7 +2,7 @@
 # File:      tests/unit/test_workflow_interfaces.py
 # Purpose:   Tests for the reusable-workflow/composite interface compat gate
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Interface backward-compat gate (issue #31).
 
@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+
+import pytest
 
 _SPEC = importlib.util.spec_from_file_location(
     "check_workflow_interfaces",
@@ -161,3 +163,81 @@ class TestRemovedPipelineFiles:
         old = {".github/workflows/rust-ci.yml"}
         cur = {".github/workflows/rust-ci.yml", ".github/workflows/new.yml"}
         assert cwi.removed_pipeline_files(old, cur) == []
+
+
+class TestTheCliSubcommandGate:
+    """A workflow may only call a subcommand the PUBLISHED CLI already has.
+
+    Workflows float `@main` and reach a consumer instantly; the CLI arrives
+    only on a release. A subcommand added in the same commit as its caller is
+    therefore missing on every runner until the next publish (issue #181).
+    """
+
+    def test_a_missing_subcommand_is_reported(self) -> None:
+        gaps = cwi.cli_command_gaps({"a.yml": {"run", "gate-check"}}, {"run"})
+        assert len(gaps) == 1
+        assert "gate-check" in gaps[0]
+        assert "a.yml" in gaps[0]
+
+    def test_a_published_subcommand_is_not_reported(self) -> None:
+        assert cwi.cli_command_gaps({"a.yml": {"run", "watch"}}, {"run", "watch"}) == []
+
+    def test_every_workflow_is_named(self) -> None:
+        gaps = cwi.cli_command_gaps({"a.yml": {"new"}, "b.yml": {"new"}}, set())
+        assert len(gaps) == 2
+
+    def test_a_hidden_command_counts_as_published(self) -> None:
+        """`--help` hides some commands, so the enumeration must not scrape it."""
+        assert cwi.cli_command_gaps({"a.yml": {"tag-head"}}, {"tag-head"}) == []
+
+
+class TestWhatCountsAsPublished:
+    """uv answers "what is the latest" from a cached index, PyPI does not."""
+
+    def test_an_unreachable_pypi_returns_none(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """None is the skip path; a wrong version would fail a clean PR."""
+
+        def _boom(*args: object, **kwargs: object) -> None:
+            raise OSError("no route to host")
+
+        monkeypatch.setattr(cwi.urllib.request, "urlopen", _boom)
+        assert cwi.latest_published_version() is None
+
+    def test_a_malformed_payload_returns_none(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            cwi.urllib.request, "urlopen", lambda *a, **k: _FakeResponse(b"{}")
+        )
+        assert cwi.latest_published_version() is None
+
+    def test_the_version_comes_from_pypi(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        payload = b'{"info": {"version": "9.9.9"}}'
+        monkeypatch.setattr(
+            cwi.urllib.request, "urlopen", lambda *a, **k: _FakeResponse(payload)
+        )
+        assert cwi.latest_published_version() == "9.9.9"
+
+    def test_an_unresolvable_version_skips_rather_than_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(cwi, "latest_published_version", lambda: None)
+        assert cwi.published_cli_commands() is None
+
+
+class _FakeResponse:
+    """Context-manager stand-in for what `urlopen` returns."""
+
+    def __init__(self, body: bytes) -> None:
+        self._body = body
+
+    def __enter__(self) -> _FakeResponse:
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+    def read(self) -> bytes:
+        return self._body

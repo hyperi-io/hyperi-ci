@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/release/binaries.py
 # Purpose:   Language-agnostic binary artifact publishing
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Generic binary artifact publishing.
 
@@ -33,11 +33,13 @@ from hyperi_ci.common import (
     mask,
     resolve_release_version,
     run_cmd,
+    skip_optimize,
     success,
     warn,
 )
 from hyperi_ci.config import CIConfig
 from hyperi_ci.native_deps import ensure_aws_cli
+from hyperi_ci.release_branches import effective_release_channel
 from hyperi_ci.tools import missing_tool_notice
 
 # R2 bucket and endpoint configuration
@@ -61,6 +63,22 @@ def _resolve_gh_release_flags(channel: str) -> list[str]:
     if channel != "release":
         return ["--prerelease"]
     return []
+
+
+def _resolve_channel(config: CIConfig, version: str | None) -> str:
+    """Return the channel this version actually ships on.
+
+    ``release.channel`` states where a project's STABLE artefacts go, so a
+    prerelease version overrides it with its own label: the GitHub Release is
+    marked prerelease and R2 gets the channel prefix instead of the GA one.
+    Without the override a ``1.2.0-beta.1`` cut off a prerelease branch would
+    overwrite the GA ``latest/`` a stable release published (issue #144).
+    """
+    configured = config.get("release.channel", "release")
+    resolved = effective_release_channel(configured, version)
+    if resolved != configured:
+        info(f"Prerelease version {version} — publishing on channel {resolved}")
+    return resolved
 
 
 def _resolve_r2_paths(project_name: str, version: str, channel: str) -> tuple[str, str]:
@@ -151,14 +169,27 @@ def _top_changelog_entry(version: str, changelog: str) -> str | None:
     return "\n".join(lines[start:]).strip() or None
 
 
+UNOPTIMIZED_RELEASE_BANNER = (
+    "> **Built without the optimisation stage.** No PGO and no BOLT ran for "
+    "this release, so its binaries are slower than a standard release of the "
+    "same code. Cut deliberately for a fast deploy-and-test cycle. Do not use "
+    "it to measure performance, and prefer a later optimised release for "
+    "anything long-lived."
+)
+
+
 @contextmanager
 def _release_notes_flags(version: str) -> Iterator[list[str]]:
-    """Yield gh flags carrying the rendered changelog entry as the body.
+    """Yield gh flags carrying the release body.
 
     GitHub puts the body above its own generated notes, so the release page
-    gets the curated entry and the commit list. Yields no flags when there
-    is no CHANGELOG.md or its top entry is a different version, which leaves
-    the generated notes on their own.
+    gets the curated entry and the commit list. An unoptimised build says so
+    first: the artefact is indistinguishable from a full release until
+    someone benchmarks it, and by then it is deployed.
+
+    Yields no flags when there is nothing to add -- no banner, and no
+    CHANGELOG.md whose top entry matches this version -- which leaves the
+    generated notes on their own.
     """
     changelog = Path(CHANGELOG_FILE)
     entry = None
@@ -166,13 +197,16 @@ def _release_notes_flags(version: str) -> Iterator[list[str]]:
         entry = _top_changelog_entry(
             version, changelog.read_text(encoding="utf-8", errors="replace")
         )
-    if entry is None:
+    sections = [
+        s for s in (UNOPTIMIZED_RELEASE_BANNER if skip_optimize() else None, entry) if s
+    ]
+    if not sections:
         yield []
         return
     with tempfile.NamedTemporaryFile(
         "w", suffix=".md", delete=False, encoding="utf-8", newline="\n"
     ) as handle:
-        handle.write(f"{entry}\n")
+        handle.write("\n\n".join(sections) + "\n")
         notes_file = handle.name
     try:
         yield ["--notes-file", notes_file]
@@ -310,7 +344,7 @@ def create_github_release(config: CIConfig) -> int:
         error(f"{problem} — refusing to release")
         return 1
 
-    channel = config.get("release.channel", "release")
+    channel = _resolve_channel(config, version)
     tag = f"v{version}"
 
     info(f"Creating GitHub Release {tag}")
@@ -529,7 +563,7 @@ def publish_binaries(config: CIConfig) -> int:
         info("No dist/ artifacts — skipping binary publish")
         return 0
 
-    channel = config.get("release.channel", "release")
+    channel = _resolve_channel(config, _read_version())
     info(f"Binary publish destinations: {', '.join(destinations)}")
     if channel != "release":
         info(f"Channel: {channel} (prerelease)")

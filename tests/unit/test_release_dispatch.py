@@ -2,7 +2,7 @@
 # File:      tests/unit/test_release_dispatch.py
 # Purpose:   Tests for release/retry-from-HEAD dispatch + idempotent retry (#35)
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Release/retry dispatch (issue #35).
 

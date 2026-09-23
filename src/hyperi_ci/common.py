@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/common.py
 # Purpose:   Shared utilities for CI scripts (output, subprocess, exclusions)
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Shared utilities for HyperI CI.
 
@@ -177,6 +177,24 @@ def release_unoptimized() -> bool:
     no repo variable and no config key, so the consent never outlives the run.
     """
     return env_true("HYPERCI_RELEASE_UNOPTIMIZED")
+
+
+def is_prerelease_build() -> bool:
+    """Whether this run ships a prerelease version rather than a stable one.
+
+    ``HYPERCI_PRERELEASE``, set by the reusable workflows from the plan job's
+    ``prerelease`` output, answers first; otherwise the version being released
+    answers for itself, so a local run needs no extra variable. Identity is
+    separate from the optimisation tier (``HYPERCI_CHANNEL``): a prerelease may
+    be built at any tier, which is what makes a full release rehearsable
+    without spending a stable version (issue #144).
+    """
+    from hyperi_ci.release_branches import is_prerelease_version
+
+    raw = os.environ.get("HYPERCI_PRERELEASE", "").strip().lower()
+    if raw in _TRUTHY or raw in _FALSY:
+        return raw in _TRUTHY
+    return is_prerelease_version(resolve_release_version())
 
 
 def info(msg: str) -> None:

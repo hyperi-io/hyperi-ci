@@ -2,7 +2,7 @@
 # File:      tests/unit/test_rust_build.py
 # Purpose:   Unit tests for Rust workspace feature detection and the Tier 2 summary
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 from __future__ import annotations
@@ -327,6 +327,75 @@ class TestTier2SkipFailsARelease:
     def test_a_stage_never_asked_for_is_not_a_shortfall(self) -> None:
         profile = OptimizationProfile(channel="release", pgo_enabled=True)
         assert tier2_shortfall(profile, OptimizationOutcome(pgo_applied=True)) == []
+
+
+class TestPgoAndCrossCompilation:
+    """The PGO path returns before the cross setup, so the two cannot combine."""
+
+    _NATIVE = "x86_64-unknown-linux-gnu"
+    _FOREIGN = "aarch64-unknown-linux-gnu"
+
+    @staticmethod
+    def _patch(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        warnings: list[str] = []
+        monkeypatch.setattr(build, "_ensure_target_installed", lambda _t: True)
+        monkeypatch.setattr(
+            build, "_get_native_target", lambda: TestPgoAndCrossCompilation._NATIVE
+        )
+        monkeypatch.setattr(build, "is_linux", lambda: True)
+        monkeypatch.setattr(build, "_detect_binary_names", lambda: ["app"])
+        monkeypatch.setattr(build, "_ensure_cross_toolchain", lambda _t: None)
+        monkeypatch.setattr(build, "_setup_cross_sysroot", lambda _a, _t: None)
+        monkeypatch.setattr(build, "_clean_stale_sys_crates", lambda _t: None)
+        monkeypatch.setattr(build, "_cross_env", lambda _t, sysroot=None: {})
+        monkeypatch.setattr(build, "warn", warnings.append)
+        monkeypatch.setattr(
+            build.subprocess,
+            "run",
+            lambda *_a, **_kw: subprocess.CompletedProcess([], 0),
+        )
+        return warnings
+
+    def test_a_cross_target_builds_plain_and_says_so(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        warnings = self._patch(monkeypatch)
+        called: list[str] = []
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.pgo.run_pgo_build",
+            lambda **kwargs: called.append(kwargs["target"]) or 0,
+        )
+
+        rc = build._build_for_target(
+            self._FOREIGN,
+            "",
+            False,
+            profile=OptimizationProfile(channel="release", pgo_enabled=True),
+        )
+
+        assert rc == 0
+        assert called == []
+        assert any("not wired for a cross build" in w for w in warnings), warnings
+
+    def test_a_native_target_still_takes_the_pgo_path(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._patch(monkeypatch)
+        called: list[str] = []
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.pgo.run_pgo_build",
+            lambda **kwargs: called.append(kwargs["target"]) or 0,
+        )
+
+        rc = build._build_for_target(
+            self._NATIVE,
+            "",
+            False,
+            profile=OptimizationProfile(channel="release", pgo_enabled=True),
+        )
+
+        assert rc == 0
+        assert called == [self._NATIVE]
 
 
 class TestVerifyBoltShipped:

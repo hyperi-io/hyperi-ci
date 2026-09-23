@@ -13,7 +13,9 @@ them. Nothing here is mandatory.
 
 - Need a broker → copy the `redpanda` service from `redpanda.compose.yaml`.
 - Need ClickHouse → copy the `clickhouse` service from `clickhouse.compose.yaml`
-  **and** the sibling `clickhouse-low-mem.xml` (the service mounts it).
+  **and** both siblings it mounts: `clickhouse-low-mem.xml` into `config.d/`
+  for the server settings, `clickhouse-low-mem-users.xml` into `users.d/` for
+  the query settings. A profile placed in `config.d/` is parsed and ignored.
 - Per-project data is yours: pre-create Redpanda topics, load your ClickHouse
   schema (e.g. from dfe-schemas) after the healthcheck passes.
 

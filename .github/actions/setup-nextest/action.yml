@@ -54,6 +54,21 @@ inputs:
     required: false
     # hyperi-ci:pin tools.cargo-nextest.sha256.arm64
     default: 103a8f68b20fb01ee5daf2eb4c037b54ace550a04a288ee35761c5e7b0351311
+  llvm-cov-version:
+    description: cargo-llvm-cov release tag to pin (upstream tags carry a `v`)
+    required: false
+    # hyperi-ci:pin tools.cargo-llvm-cov
+    default: v0.9.1
+  llvm-cov-sha256-amd64:
+    description: sha256 of the x86_64-unknown-linux-musl cargo-llvm-cov tarball
+    required: false
+    # hyperi-ci:pin tools.cargo-llvm-cov.sha256.amd64
+    default: 3fca950394a3c49457657c158b1619cec8dfd2647ae5b48746734c0ab969a522
+  llvm-cov-sha256-arm64:
+    description: sha256 of the aarch64-unknown-linux-musl cargo-llvm-cov tarball
+    required: false
+    # hyperi-ci:pin tools.cargo-llvm-cov.sha256.arm64
+    default: 49c0085628392a8d727c4464d91ec417c613c5015f5197cd16d5c05aa3fb5ad1
   sha256-macos:
     description: sha256 of the universal-apple-darwin tarball
     required: false
@@ -126,6 +141,71 @@ runs:
 
         # Flat tarball: the binary is at the root.
         tar xz -C "$HOME/.local/bin" -f "$TMP/nextest.tar.gz" cargo-nextest
+
+    - name: Install cargo-llvm-cov
+      # Coverage belongs in THIS job, not the quality job: `test.coverage` is
+      # read by the test stage, and setup-rust-tools never runs here, which is
+      # why coverage had never run on any repo (issue #140).
+      #
+      # Linux only. Coverage is not collected on the macOS leg, and a macOS
+      # runner that skips this still gets a working nextest above.
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        set -euo pipefail
+        case "$(uname -m)" in
+          x86_64)
+            TARGET=x86_64-unknown-linux-musl
+            WANT_SHA="${{ inputs.llvm-cov-sha256-amd64 }}"
+            ;;
+          aarch64 | arm64)
+            TARGET=aarch64-unknown-linux-musl
+            WANT_SHA="${{ inputs.llvm-cov-sha256-arm64 }}"
+            ;;
+          *)
+            echo "::error::unsupported arch $(uname -m) for cargo-llvm-cov"
+            exit 1
+            ;;
+        esac
+
+        mkdir -p "$HOME/.local/bin"
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+        TMP="$(mktemp -d)"
+        trap 'rm -rf "$TMP"' EXIT
+
+        VERSION="${{ inputs.llvm-cov-version }}"
+        URL="https://github.com/taiki-e/cargo-llvm-cov/releases/download/${VERSION}/cargo-llvm-cov-${TARGET}.tar.gz"
+
+        curl -fsSL --connect-timeout 10 --max-time 300 -o "$TMP/llvm-cov.tar.gz" "$URL"
+        echo "$WANT_SHA  $TMP/llvm-cov.tar.gz" | sha256sum -c - >/dev/null || {
+          echo "::error::$URL failed its sha256 check - refusing to install"
+          echo "  expected $WANT_SHA"
+          echo "  got      $(sha256sum "$TMP/llvm-cov.tar.gz" | cut -d' ' -f1)"
+          exit 1
+        }
+
+        # Flat tarball: the binary is at the root, same as nextest above.
+        tar xz -C "$HOME/.local/bin" -f "$TMP/llvm-cov.tar.gz" cargo-llvm-cov
+
+    - name: Verify cargo-llvm-cov matches the pin
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        WANT: ${{ inputs.llvm-cov-version }}
+      run: |
+        set -uo pipefail
+        # A cargo SUBCOMMAND needs its own name before a flag, exactly as
+        # cargo-nextest does below. A bare `--version` here exits 1 with
+        # "expected subcommand 'llvm-cov'", which failed the step on an
+        # install that had actually succeeded.
+        GOT="$(cargo-llvm-cov llvm-cov --version 2>&1 | head -n1)"
+        if printf '%s' "$GOT" | grep -qF -- "${WANT#v}"; then
+          echo "ok   cargo-llvm-cov: ${WANT#v}"
+        else
+          echo "::error::cargo-llvm-cov: expected version ${WANT#v}, got: $GOT"
+          exit 1
+        fi
 
     - name: Verify cargo-nextest matches the pin
       # ASSERT, don't just print - see the note in setup-go-tools. Separate step

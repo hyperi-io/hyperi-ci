@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/caller_audit.py
 # Purpose:   Report consumer ci.yml drift against the dispatch contract
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Report when a consumer's ci.yml falls behind the dispatch contract.
 

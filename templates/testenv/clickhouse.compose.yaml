@@ -1,7 +1,7 @@
 # ClickHouse — single-node OLAP store for CI/dev integration tests.
 #
 # REFERENCE, NOT A DEPENDENCY. Copy this `clickhouse` service (and the sibling
-# clickhouse-low-mem.xml) into your project and adjust. hyperi-ci keeps the
+# both clickhouse-low-mem*.xml files) into your project and adjust. hyperi-ci keeps the
 # canonical, memory-tuned pattern here.
 #
 # Memory: ClickHouse defaults assume 16GB+. 2g is the reliable single-node
@@ -12,7 +12,7 @@
 
 services:
   clickhouse:
-    image: clickhouse/clickhouse-server:24.8 # pin a current LTS
+    image: clickhouse/clickhouse-server:26.8 # pin a current LTS
     mem_limit: 2g # reliable floor — see header; ClickHouse reads the cgroup cap
     ulimits:
       nofile: { soft: 262144, hard: 262144 } # CH needs a high fd limit
@@ -20,9 +20,11 @@ services:
       - "8123:8123" # HTTP interface
       - "9000:9000" # native protocol
     volumes:
-      # The low-mem profile — caps server memory, shrinks caches, silences
+      # The low-mem profile: caps server memory, shrinks caches, silences
       # high-write log tables, keeps merges small, spills big queries to disk.
+      # Server settings and query settings load from different directories.
       - ./clickhouse-low-mem.xml:/etc/clickhouse-server/config.d/low-mem.xml:ro
+      - ./clickhouse-low-mem-users.xml:/etc/clickhouse-server/users.d/low-mem.xml:ro
     healthcheck:
       test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
       interval: 3s

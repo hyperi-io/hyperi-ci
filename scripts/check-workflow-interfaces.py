@@ -3,7 +3,7 @@
 # File:      scripts/check-workflow-interfaces.py
 # Purpose:   Gate — reusable-workflow/composite interfaces stay backward-compatible
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Interface backward-compatibility gate (issue #31).
 
@@ -21,10 +21,11 @@ Usage:  uv run scripts/check-workflow-interfaces.py
 Exit 1 if any interface regressed; 0 otherwise.
 """
 
-from __future__ import annotations
-
+import json
+import re
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
 
 import yaml
@@ -185,6 +186,7 @@ def _pipeline_files_at(tag: str) -> set[str]:
 
 
 def main() -> int:
+    """Fail on a backward-incompatible change to a published call interface."""
     tag = _last_release_tag()
     if not tag:
         print("No release tag to compare against — skipping interface gate.")
@@ -229,8 +231,115 @@ def main() -> int:
             "or cut a deliberate major break."
         )
         return 1
+    invoked = workflow_cli_commands(_ROOT)
+    published = published_cli_commands()
+    if published is None:
+        print("\nPublished CLI unreachable -- skipping the subcommand gate.")
+    else:
+        gaps = cli_command_gaps(invoked, published)
+        if gaps:
+            print("\nWorkflow calls a subcommand the PUBLISHED CLI lacks:")
+            for gap in gaps:
+                print(f"  - {gap}")
+            print(
+                "\nConsumers take the workflow from @main instantly and the CLI "
+                "from PyPI, so both halves of one commit do not arrive together. "
+                "Release the CLI first, then land the caller."
+            )
+            return 1
+        print(
+            f"\nEvery invoked subcommand exists in the published CLI "
+            f"({len(published)})."
+        )
+
     print("\nAll interfaces backward-compatible.")
     return 0
+
+
+# A workflow line invoking the CLI: `${{ env.HYPERCI_INSTALL }} <subcommand>`.
+_CLI_CALL = re.compile(r"HYPERCI_INSTALL\s*\}\}\s+([a-z][a-z0-9-]*)")
+
+# Introspects typer's registry rather than scraping `--help`, which HIDES some
+# commands (`tag-head` is one) and would report them as missing.
+_LIST_COMMANDS = (
+    "from hyperi_ci.cli import app; "
+    "print(chr(10).join(sorted((c.name or c.callback.__name__).replace('_','-') "
+    "for c in app.registered_commands)))"
+)
+
+
+def workflow_cli_commands(root: Path) -> dict[str, set[str]]:
+    """Return each workflow's set of invoked ``hyperi-ci`` subcommands."""
+    out: dict[str, set[str]] = {}
+    workflows = root / ".github" / "workflows"
+    if not workflows.is_dir():
+        return out
+    for path in sorted(workflows.glob("*.yml")):
+        found = set(_CLI_CALL.findall(path.read_text(encoding="utf-8")))
+        if found:
+            out[path.relative_to(root).as_posix()] = found
+    return out
+
+
+_PYPI_JSON = "https://pypi.org/pypi/hyperi-ci/json"
+
+
+def latest_published_version() -> str | None:
+    """The version PyPI serves, or None when it cannot be reached.
+
+    Asked of PyPI rather than left to uv's resolver, which answers from a
+    cached index: for some time after a release an unpinned `uvx --from
+    hyperi-ci` still runs the PREVIOUS version, even under `--refresh`. This
+    gate would then report a shipped subcommand as missing and block every PR.
+    """
+    try:
+        with urllib.request.urlopen(_PYPI_JSON, timeout=15) as response:
+            return json.load(response)["info"]["version"]
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def published_cli_commands() -> set[str] | None:
+    """Subcommands the LATEST PUBLISHED CLI exposes, or None when unreachable.
+
+    Reads the published wheel, not the working tree, and that inversion is the
+    whole point. Workflows float ``@main`` and reach a consumer instantly; the
+    CLI arrives only on a release. A subcommand added in the same commit as its
+    caller is therefore missing on every runner until the next publish, which
+    is how a Gate job went red across the fleet (issue #181).
+    """
+    version = latest_published_version()
+    if version is None:
+        return None
+    result = subprocess.run(
+        [
+            "uvx",
+            "--from",
+            f"hyperi-ci=={version}",
+            "--python",
+            "3.14",
+            "python",
+            "-c",
+            _LIST_COMMANDS,
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+
+def cli_command_gaps(invoked: dict[str, set[str]], published: set[str]) -> list[str]:
+    """Subcommands a workflow calls that the published CLI does not have."""
+    return sorted(
+        f"{workflow}: calls `hyperi-ci {command}`, absent from the published CLI"
+        for workflow, commands in invoked.items()
+        for command in commands - published
+    )
 
 
 if __name__ == "__main__":

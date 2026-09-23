@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/release/__init__.py
 # Purpose:   Release package — binaries + retroactive dispatch
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Release package.
 

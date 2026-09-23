@@ -2,7 +2,7 @@
 # File:      tests/unit/test_dispatch.py
 # Purpose:   Unit tests for the stage dispatcher
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 from __future__ import annotations
@@ -10,8 +10,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 from hyperi_ci import dispatch
+from hyperi_ci.config import CIConfig
 from hyperi_ci.dispatch import _find_handler_module
 
 
@@ -74,3 +76,59 @@ class TestProjectDirReachesTheHandlers:
         seen = self._record_chdir(monkeypatch)
         assert dispatch.run_stage("nonsense", project_dir=tmp_path) == 1
         assert seen == []
+
+
+class TestLocalGatesCloseTheCiOnlyHole:
+    """A gate that runs only as a CI job makes a local green a lie. A repo
+    declares those commands and gets them back in `hyperi-ci check`."""
+
+    @staticmethod
+    def _config(gates: object) -> CIConfig:
+        return CIConfig(_raw={"quality": {"local_gates": gates}})
+
+    def test_no_declaration_is_a_clean_no_op(self) -> None:
+        assert dispatch._run_local_gates(CIConfig(_raw={})) == 0
+
+    def test_a_passing_gate_returns_zero(self) -> None:
+        assert (
+            dispatch._run_local_gates(
+                self._config([{"name": "ok", "command": ["true"]}])
+            )
+            == 0
+        )
+
+    def test_a_failing_gate_fails_the_check(self) -> None:
+        """The whole point: CI would have failed, so the local check must."""
+        assert (
+            dispatch._run_local_gates(
+                self._config([{"name": "boom", "command": ["false"]}])
+            )
+            != 0
+        )
+
+    def test_a_malformed_entry_fails_loudly_rather_than_skipping(self) -> None:
+        """A silently skipped gate is the defect this exists to close."""
+        assert dispatch._run_local_gates(self._config([{"name": "no command"}])) == 1
+        assert dispatch._run_local_gates(self._config([{"command": ["true"]}])) == 1
+        assert dispatch._run_local_gates(self._config(["not-a-mapping"])) == 1
+
+    def test_the_first_failure_stops_the_rest(self) -> None:
+        gates = [
+            {"name": "first", "command": ["false"]},
+            {"name": "second", "command": ["true"]},
+        ]
+        assert dispatch._run_local_gates(self._config(gates)) != 0
+
+    def test_this_repo_declares_its_two_ci_only_gates(self) -> None:
+        """versions SSOT and workflow interfaces are blocking jobs in ci.yml
+        with no other local path. Read by PATH, not `load_config()`, which
+        resolves against the working directory and made this pass alone and
+        fail in the suite."""
+        root = Path(__file__).resolve().parents[2]
+        declared = yaml.safe_load(
+            (root / ".hyperi-ci.yaml").read_text(encoding="utf-8")
+        )["quality"]["local_gates"]
+        assert {g["name"] for g in declared} == {
+            "version SSOT",
+            "workflow interfaces",
+        }

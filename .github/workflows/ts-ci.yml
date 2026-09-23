@@ -165,10 +165,12 @@ jobs:
   # ---------------------------------------------------------------------------
   plan:
     name: Plan
-    if: github.event.pull_request.head.repo.fork != true
     runs-on: ubuntu-latest
     # predict-version runs semantic-release, whose git plugin verifies push
     # access (a `git push --dry-run`) on a publish predict - needs write.
+    # A fork PR never reaches that: will-publish is false off main, so both
+    # semantic-release steps skip and the read-only token a fork gets is
+    # enough to resolve the gates.
     permissions:
       contents: write
     outputs:
@@ -244,7 +246,9 @@ jobs:
     runs-on: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_TYPESCRIPT || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - name: Docker Hub login
-        if: ${{ vars.DOCKERHUB_USERNAME != '' }}
+        # A fork PR can read the var but not the secret, so an unguarded login
+        # would authenticate with an empty password and fail the job.
+        if: ${{ vars.DOCKERHUB_USERNAME != '' && github.event.pull_request.head.repo.fork != true }}
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -309,7 +313,9 @@ jobs:
         os: ${{ fromJson(startsWith(github.head_ref || github.ref_name, 'renovate/') && format('["{0}"]', vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_TYPESCRIPT || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
     steps:
       - name: Docker Hub login
-        if: ${{ vars.DOCKERHUB_USERNAME != '' }}
+        # A fork PR can read the var but not the secret, so an unguarded login
+        # would authenticate with an empty password and fail the job.
+        if: ${{ vars.DOCKERHUB_USERNAME != '' && github.event.pull_request.head.repo.fork != true }}
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -467,4 +473,40 @@ jobs:
       bump: ${{ inputs.bump }}
       publish-target: ${{ inputs.publish-target }}
       submodules: ${{ inputs.submodules }}
+      skip-optimize: ${{ inputs.skip-optimize }}
+      release-unoptimized: ${{ inputs.release-unoptimized }}
     secrets: inherit
+
+  # ---------------------------------------------------------------------------
+  # gate — the terminal context branch protection should require.
+  #
+  # Requiring `ci / Quality` does not work: GitHub counts a SKIPPED required
+  # check as satisfied, so the doctrine's deliberate skip and a gate that never
+  # fired are the same green tick from outside. This job ALWAYS runs, so the
+  # context it publishes cannot be satisfied by a skip (issue #177).
+  #
+  # It does not re-implement the gate. It reads what the plan job decided and
+  # what the jobs below actually did; the verdict lives in
+  # hyperi_ci.gate_result so it is testable rather than inline shell.
+  # ---------------------------------------------------------------------------
+  gate:
+    name: Gate
+    if: always()
+    # commit-check is deliberately absent: it is not run-checks-gated, so it
+    # already fires on every push and works as a required context by itself.
+    needs: [plan, quality, test, build]
+    runs-on: ubuntu-latest
+    steps:
+      # The CLI ships via uvx, which a bare runner does not have. Without this
+      # the gate exits 127 and fails a run that was otherwise green.
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      - name: Report what actually ran
+        env:
+          HYPERCI_GATE_RUN_CHECKS: ${{ needs.plan.outputs.run-checks }}
+          HYPERCI_GATE_RUN_BUILD: ${{ needs.plan.outputs.run-build }}
+          HYPERCI_GATE_PLAN: ${{ needs.plan.result }}
+          HYPERCI_GATE_QUALITY: ${{ needs.quality.result }}
+          HYPERCI_GATE_TEST: ${{ needs.test.result }}
+          HYPERCI_GATE_BUILD: ${{ needs.build.result }}
+        run: ${{ env.HYPERCI_INSTALL }} gate-check

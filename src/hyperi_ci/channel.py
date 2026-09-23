@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/channel.py
 # Purpose:   Auto-update channel state (live|stable), enable flag, freeze switch
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Auto-update channel, enable flag and freeze switch.
 

@@ -2,7 +2,7 @@
 # File:      tests/unit/test_versions.py
 # Purpose:   The version SSOT is single, shipped, and not copied into source
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Guards on the single-SSOT rule.
 

@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/gate_audit.py
 # Purpose:   Report repos whose quality gate has not actually EXECUTED
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Report when a repo's quality gate has not actually run.
 

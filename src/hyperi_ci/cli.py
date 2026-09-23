@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/cli.py
 # Purpose:   CLI entry point for hyperi-ci tool (Typer via scalo)
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """CLI entry point for HyperI CI.
 
@@ -52,7 +52,7 @@ from typing import Annotated
 import typer
 
 from hyperi_ci import __version__
-from hyperi_ci.config import load_config
+from hyperi_ci.config import CIConfig, load_config
 from hyperi_ci.detect import detect_language
 from hyperi_ci.dispatch import VALID_STAGES, run_stage
 from hyperi_ci.version_source import build_version
@@ -269,6 +269,81 @@ def lint_manifests_cmd(
     root = Path(directory)
     config = load_config(project_dir=root)
     rc = lint_manifests.run(root, config, sarif_path=sarif)
+    raise typer.Exit(rc)
+
+
+@app.command(name="lint-compose")
+def lint_compose_cmd(
+    directory: Annotated[
+        str,
+        typer.Argument(help="Directory to lint (docker-compose files)"),
+    ] = ".",
+    sarif: Annotated[
+        str | None,
+        typer.Option(
+            "--sarif",
+            help=(
+                "Write combined SARIF here (opt-in). The workflow uploads it to "
+                "code scanning only where GitHub Code Security is enabled."
+            ),
+        ),
+    ] = None,
+) -> None:
+    """Lint the docker-compose files in a compose packaging repo.
+
+    Runs compose-config (``docker compose config`` resolution GATE) and
+    compose-pins (image-pin GATE). An image with no tag, or one resolving to
+    ``latest`` when nothing is set, fails: compose is a deploy target, so which
+    image runs must not be the registry's call.
+
+    Built for a repo whose deliverable IS the compose stack (no
+    ``.hyperi-ci.yaml``, no language pipeline, no Helm chart) - call it from the
+    existing workflow beside ``lint-manifests``.
+    """
+    from hyperi_ci.config import load_config
+    from hyperi_ci.quality import lint_compose
+
+    root = Path(directory)
+    config = load_config(project_dir=root)
+    rc = lint_compose.run(root, config, sarif_path=sarif)
+    raise typer.Exit(rc)
+
+
+@app.command(name="lint-docs")
+def lint_docs_cmd(
+    directory: Annotated[
+        str,
+        typer.Argument(help="Directory to lint (markdown documentation)"),
+    ] = ".",
+    sarif: Annotated[
+        str | None,
+        typer.Option(
+            "--sarif",
+            help=(
+                "Write combined SARIF here (opt-in). The workflow uploads it to "
+                "code scanning only where GitHub Code Security is enabled."
+            ),
+        ),
+    ] = None,
+) -> None:
+    """Check the markdown documentation in this repo.
+
+    Runs five checks: doc-paths (a doc naming a file the repo no longer has),
+    doc-links (lychee over internal links and anchors, offline), mermaid-parse
+    (every fenced block against mermaid's own grammar), markdownlint (mechanical
+    syntax) and the docs-untouched nudge.
+
+    All five start at ``warn`` and gate only where a repo has promoted them, so
+    adopting this does not turn an existing docs tree red. The same checks run
+    inside ``hyperi-ci run quality``; this verb is for a docs repo that has no
+    language pipeline to hang them off.
+    """
+    from hyperi_ci.config import load_config
+    from hyperi_ci.quality import lint_docs
+
+    root = Path(directory)
+    config = load_config(project_dir=root)
+    rc = lint_docs.run(root, config, sarif_path=sarif)
     raise typer.Exit(rc)
 
 
@@ -996,6 +1071,35 @@ def seed_tag_cmd(
     raise typer.Exit(seed_tag(project_dir=dir_path, dry_run=dry_run))
 
 
+def _apply_org_classification(cfg: CIConfig, project_dir: Path | None) -> None:
+    """Fill an undeclared classification from the GitHub org property.
+
+    The org property is the standard's third rung. It is opt-in rather
+    than part of the config load because it costs a network round-trip
+    and an outside contributor's clone cannot read it at all.
+
+    Args:
+        cfg: The loaded config, mutated in place when the org answers.
+        project_dir: Repo root, used to resolve the repo slug.
+
+    """
+    from hyperi_ci import classification
+    from hyperi_ci.description_source import repo_slug
+
+    repo = repo_slug(project_dir)
+    if not repo:
+        return
+    value = classification.from_org_property(repo)
+    if not value:
+        return
+    cfg.classification = value
+    cfg.classification_source = classification.SOURCE_ORG
+    cfg.classification_effective = value
+    cfg._raw["classification"] = value
+    cfg._raw["classification_source"] = classification.SOURCE_ORG
+    cfg._raw["classification_effective"] = value
+
+
 @app.command()
 def config(
     project_dir: Annotated[
@@ -1006,12 +1110,29 @@ def config(
         bool,
         typer.Option("--json", help="Output as JSON instead of YAML"),
     ] = False,
+    org_classification: Annotated[
+        bool,
+        typer.Option(
+            "--org-classification",
+            help="Ask the GitHub org for the classification when no in-repo "
+            "marker declares one (needs org API access)",
+        ),
+    ] = False,
 ) -> None:
-    """Show merged configuration (YAML by default, --json for scripts)."""
+    """Show merged configuration (YAML by default, --json for scripts).
+
+    `classification` reports the declared repo category, with
+    `classification_source` naming the marker that answered and
+    `classification_effective` the category to act on -- `internal` when
+    nothing declares one.
+    """
     import yaml
 
     dir_path = Path(project_dir) if project_dir else None
     cfg = load_config(reload=True, project_dir=dir_path)
+
+    if org_classification and not cfg.classification:
+        _apply_org_classification(cfg, dir_path)
 
     if as_json:
         typer.echo(json.dumps(cfg._raw, indent=2, default=str))
@@ -1071,6 +1192,18 @@ def trigger(
             help="workflow_dispatch input as key=value (repeatable)",
         ),
     ] = None,
+    repo: Annotated[
+        str | None,
+        typer.Option(
+            "--repo",
+            "-R",
+            help=("Target repo as owner/name. Defaults to the cwd's git remote."),
+        ),
+    ] = None,
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
 ) -> None:
     """Trigger a GitHub Actions workflow run.
 
@@ -1078,8 +1211,11 @@ def trigger(
     until the run completes — equivalent to running `hyperi-ci trigger`
     then `hyperi-ci watch` as separate commands.
 
-    Pass `--input key=value` once per workflow_dispatch input; a workflow
-    declaring required inputs cannot be dispatched without them.
+    --workflow takes any workflow the repo carries, not only the ci.yml
+    hyperi-ci scaffolds, and accepts a filename, a bare stem or the
+    display name. Pass `--input key=value` once per workflow_dispatch
+    input; a workflow declaring required inputs cannot be dispatched
+    without them.
     """
     from hyperi_ci.trigger import parse_inputs, trigger_workflow
 
@@ -1095,6 +1231,8 @@ def trigger(
         watch=watch_run,
         timeout=timeout,
         interval=interval,
+        repo=repo,
+        project_dir=Path(project_dir) if project_dir else None,
     )
     raise typer.Exit(rc)
 
@@ -1140,9 +1278,34 @@ def watch(
             help=(
                 "Target repo as owner/name (e.g. hyperi-io/dfe-loader). "
                 "Defaults to the cwd's git remote — set this when watching "
-                "a run in a different repo than your cwd; it needs a run ID."
+                "a run in a different repo than your cwd."
             ),
         ),
+    ] = None,
+    pr: Annotated[
+        int | None,
+        typer.Option(
+            "--pr",
+            help=(
+                "Pin to this pull request's head commit -- the anchor for a "
+                "run that fired on pull_request rather than on HEAD."
+            ),
+        ),
+    ] = None,
+    branch: Annotated[
+        str | None,
+        typer.Option(
+            "--branch",
+            help="Pin to the newest commit on this branch that has runs.",
+        ),
+    ] = None,
+    commit: Annotated[
+        str | None,
+        typer.Option("--commit", help="Pin to this commit instead of HEAD."),
+    ] = None,
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
     ] = None,
 ) -> None:
     """Watch a GitHub Actions run to completion.
@@ -1150,15 +1313,23 @@ def watch(
     With no run ID, watches the run built from the commit at HEAD, pinned
     to the workflow this project declares in ci.yml. Name another with
     --workflow; an ambiguous choice is refused rather than guessed.
+
+    --pr, --branch and --commit reach a run that is not on the current
+    branch head. Where nothing resolves, the refusal lists the runs
+    GitHub does hold rather than reporting "no runs found".
     """
     from hyperi_ci.watch import watch_run
 
     rc = watch_run(
         run_id=run_id,
         workflow=workflow,
+        branch=branch,
+        commit=commit,
+        pr=pr,
         timeout=timeout,
         interval=interval,
         repo=repo,
+        project_dir=Path(project_dir) if project_dir else None,
     )
     raise typer.Exit(rc)
 
@@ -1189,24 +1360,47 @@ def rerun(
         typer.Option(
             "--repo",
             "-R",
-            help=(
-                "Target repo as owner/name. Needs an explicit run ID, since "
-                "HEAD says nothing about another repo's runs."
-            ),
+            help="Target repo as owner/name. Defaults to the cwd's git remote.",
         ),
+    ] = None,
+    pr: Annotated[
+        int | None,
+        typer.Option("--pr", help="Pin to this pull request's head commit."),
+    ] = None,
+    branch: Annotated[
+        str | None,
+        typer.Option(
+            "--branch",
+            help="Pin to the newest commit on this branch that has runs.",
+        ),
+    ] = None,
+    commit: Annotated[
+        str | None,
+        typer.Option("--commit", help="Pin to this commit instead of HEAD."),
+    ] = None,
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
     ] = None,
 ) -> None:
     """Re-run a GitHub Actions run, failed jobs only by default.
 
     For genuine infra incidents — a GitHub outage, a registry 5xx. A flaky
     test this project owns is a race to fix, not a run to repeat.
+
+    --pr, --branch and --commit reach a run that is not on the current
+    branch head.
     """
     from hyperi_ci.rerun import rerun_run
 
     rc = rerun_run(
         run_id=run_id,
         workflow=workflow,
+        branch=branch,
+        commit=commit,
+        pr=pr,
         repo=repo,
+        project_dir=Path(project_dir) if project_dir else None,
         failed_only=not all_jobs,
     )
     raise typer.Exit(rc)
@@ -1250,6 +1444,33 @@ def logs(
         bool,
         typer.Option("--failed", help="Show only failed job logs"),
     ] = False,
+    repo: Annotated[
+        str | None,
+        typer.Option(
+            "--repo",
+            "-R",
+            help="Target repo as owner/name. Defaults to the cwd's git remote.",
+        ),
+    ] = None,
+    pr: Annotated[
+        int | None,
+        typer.Option("--pr", help="Pin to this pull request's head commit."),
+    ] = None,
+    branch: Annotated[
+        str | None,
+        typer.Option(
+            "--branch",
+            help="Pin to the newest commit on this branch that has runs.",
+        ),
+    ] = None,
+    commit: Annotated[
+        str | None,
+        typer.Option("--commit", help="Pin to this commit instead of HEAD."),
+    ] = None,
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
 ) -> None:
     """Fetch and filter GitHub Actions run logs.
 
@@ -1258,12 +1479,20 @@ def logs(
     --workflow; an ambiguous choice is refused rather than guessed.
     --failed always names the run it read, so an empty result cannot
     pass for a green build.
+
+    --pr, --branch and --commit reach a run that is not on the current
+    branch head; --repo reads one in another repo.
     """
     from hyperi_ci.logs import fetch_logs
 
     rc = fetch_logs(
         run_id=run_id,
         workflow=workflow,
+        branch=branch,
+        commit=commit,
+        pr=pr,
+        repo=repo,
+        project_dir=Path(project_dir) if project_dir else None,
         job_filter=job,
         step_filter=step,
         grep_pattern=grep,
@@ -1557,6 +1786,47 @@ def check_commits_cmd() -> None:
     # run-checks-gated quality job is skipped on non-release-worthy pushes).
     deprecated_files.scan()
     raise typer.Exit(run())
+
+
+@app.command(name="gate-check")
+def gate_check_cmd() -> None:
+    """Fail when the checks the gate required did not actually run.
+
+    The terminal job of every language workflow. GitHub counts a SKIPPED
+    required check as satisfied, so branch protection naming `ci / Quality` is
+    satisfied by Quality not running. This job always runs, so the context it
+    publishes cannot be satisfied by a skip (issue #177).
+
+    Reads the plan job's gate and the results of the jobs it governs from the
+    environment, because only the workflow knows what the runner decided.
+    CI-only; a no-op locally.
+    """
+    import os
+
+    from hyperi_ci.common import error, info, is_ci, success
+    from hyperi_ci.gate_result import evaluate
+
+    if not is_ci():
+        info("gate-check is a CI-only job -- nothing to decide locally.")
+        return
+
+    def _results(*names: str) -> dict[str, str]:
+        found = {n: os.environ.get(f"HYPERCI_GATE_{n.upper()}", "") for n in names}
+        return {name: result for name, result in found.items() if result}
+
+    verdict = evaluate(
+        run_checks=os.environ.get("HYPERCI_GATE_RUN_CHECKS", "") == "true",
+        run_build=os.environ.get("HYPERCI_GATE_RUN_BUILD", "") == "true",
+        plan=os.environ.get("HYPERCI_GATE_PLAN", ""),
+        checks=_results("quality", "test"),
+        build=_results("build"),
+    )
+    if verdict.ok:
+        success(verdict.reason)
+        return
+    error(verdict.reason)
+    print(f"::error title=hyperi-ci gate::{verdict.reason}")
+    raise typer.Exit(1)
 
 
 def _release_impl(
@@ -2253,6 +2523,13 @@ def main() -> int:
         reconfigure = getattr(stream, "reconfigure", None)
         if callable(reconfigure):
             reconfigure(encoding="utf-8", errors="replace")
+
+    # Here rather than in the Typer callback so `--version` warns too -- its
+    # eager callback exits before the callback body runs (#163).
+    from hyperi_ci.staleness import warn_if_stale
+
+    warn_if_stale()
+
     app()
     return 0
 

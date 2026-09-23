@@ -2,12 +2,13 @@
 # File:      src/hyperi_ci/languages/python/test.py
 # Purpose:   Python test runner (pytest with tiered execution)
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Python test handler.
 
 Runs pytest with optional tiered execution (unit -> integration -> e2e).
-Supports coverage reporting and configurable test arguments.
+Supports coverage reporting, configurable test arguments, and a worker
+count derived from the host when the project opts into parallelism.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import subprocess
 
 from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages.python.parallel import parallel_args
 
 
 def _resolve_cmd(cmd: list[str]) -> list[str]:
@@ -77,7 +79,7 @@ def _absolve_empty_run(rc: int, config: CIConfig, *, label: str = "") -> int:
     if config.get("test.fail_on_missing", False):
         error(f"No tests found{where} and test.fail_on_missing is set")
         return rc
-    warn(f"No tests found{where} — allowed by test.fail_on_missing: false")
+    warn(f"No tests found{where} - allowed by test.fail_on_missing: false")
     return 0
 
 
@@ -108,6 +110,10 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         if min_cov and int(min_cov) > 0:
             base_args.append(f"--cov-fail-under={min_cov}")
 
+    # Worker data is combined by pytest-cov before it reports, so coverage
+    # stays accurate across workers and needs no extra configuration.
+    base_args.extend(parallel_args(config, base_args, _resolve_cmd(["pytest"])))
+
     # Tiered execution
     if config.get("test.use_tiers", False):
         tiers = [
@@ -128,7 +134,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             )
             if rc != 0:
                 if tier_config.get("fail_fast", True):
-                    error(f"  {tier_name} tests failed — stopping pipeline")
+                    error(f"  {tier_name} tests failed - stopping pipeline")
                     return rc
                 warn(f"  {tier_name} tests failed (non-blocking)")
 

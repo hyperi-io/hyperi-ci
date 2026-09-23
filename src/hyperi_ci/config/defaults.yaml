@@ -2,7 +2,7 @@
 # File:      config/defaults.yaml
 # Purpose:   Default configuration values for HyperI CI
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # Projects override these via:
@@ -34,6 +34,28 @@ language: none
 project:
   status: ""
 
+# Declared repo category — DECLARED, never inferred from the repo name.
+# Decides visibility, licence, publish policy and branding.
+#
+# Values:
+#   internal     — company-wide HyperI tooling; private, never published
+#   product      — shipped product; private until a human flips it public
+#   fork         — long-running fork; inherits upstream licence and conventions
+#   general-oss  — HyperI-controlled, for general use; public, Apache-2.0
+#
+# `hyperi`, `oss` and the category numbers 1-4 are accepted as input
+# aliases and normalise to the canonical spellings above.
+#
+# Resolution order: this key (or HYPERCI_CLASSIFICATION, which lands on
+# it), then the `.hyperi-classification` one-token dotfile at repo root,
+# then — only via `hyperi-ci config --org-classification` — the GitHub
+# org custom property.
+#
+# Unset = "not declared". `hyperi-ci config` then reports
+# `classification_effective: internal`, the most restrictive category —
+# an undeclared repo is never read as public OSS.
+classification: ""
+
 # Runner selection is NOT configured here. The reusable workflows resolve it
 # from the GH_RUNNER_* org variables and their own `runner-*` inputs; ARC vs
 # free is a workflow-level decision. A `runners:` block in .hyperi-ci.yaml is
@@ -49,8 +71,26 @@ ci_min_python_version: "3.9"
 quality:
   enabled: true
   exclude_paths: []
+
+  # Gates a repo runs as their own CI JOB, repeated in the LOCAL check so a
+  # local green predicts a CI green. hyperi-ci's check covers what hyperi-ci
+  # MANAGES; a gate the repo bolted into its own workflow is invisible to it,
+  # and touching the file that gate watches passes locally and goes red on the
+  # runner. Declared per repo because which gates exist is the repo's business.
+  #
+  #   local_gates:
+  #     - name: version SSOT
+  #       command: ["uv", "run", "python", "scripts/update-versions.py", "--check"]
+  #
+  # Runs on `hyperi-ci check` only -- CI already runs them as jobs. A malformed
+  # entry FAILS rather than being skipped: a gate that quietly does not run is
+  # the defect this exists to close.
+  local_gates: []
   gitleaks: blocking
   semgrep: warn              # Semgrep SAST (cross-language) - runs once at dispatch, like gitleaks
+  # The ASCII-only rule, enforced at last (issue #169). `warn` first per the
+  # ratchet: this repo still carries ~900 lines of it. Promote at zero.
+  charset: warn              # Typography a keyboard cannot produce; plus ASCII-art diagrams
 
   # Container linting (cross-language, dispatch-level, auto-detect Dockerfiles).
   hadolint: blocking         # Dockerfile GATE - blocks on ERROR severity only (shellcheck-on-RUN)
@@ -62,6 +102,25 @@ quality:
   kubeconform: blocking      # k8s schema-validation GATE (rendered manifests)
   kube_linter: warn          # k8s best-practice ADVISORY; never gates
   checkov: warn              # IaC security ADVISORY (k8s/helm/kustomize/terraform); never gates by default
+
+  # docker-compose linting (Path C - `hyperi-ci lint-compose`, compose packaging repos).
+  compose_config: blocking   # `docker compose config` resolution GATE
+  compose_pins: blocking     # image-pin GATE - an image resolving to `latest` fails
+
+  # Rust rustflags a repo declares but cannot ship (issue #178). `warn` first
+  # per the ratchet: promote once the fleet's count is zero.
+  cargo_flags: warn          # inert gitignore negation, or flags under [build]
+
+  # Documentation linting (`hyperi-ci lint-docs`, and inside the quality stage).
+  # ALL start at `warn` deliberately: a new lint introduced as blocking on an
+  # existing tree fails every PR until the backlog clears. Promote a check to
+  # `blocking` in a repo once that repo's count reaches zero - the first three
+  # are deterministic and carry no style opinion, so they are ready first.
+  doc_paths: warn            # Docs naming a file the repo no longer has
+  doc_links: warn            # lychee over internal links + anchors, offline only
+  mermaid_parse: warn        # Every fenced mermaid block, against mermaid's own grammar
+  markdownlint: warn         # Mechanical markdown syntax (markdownlint-cli2)
+  docs_touched: warn         # Source changed and no doc did. NEVER gates, in any mode
 
   alint: auto                # Repo-hygiene advisory via external `alint` (profile-aware,
                              # NON-BLOCKING). auto = run if installed else info-skip;
@@ -124,7 +183,9 @@ quality:
     govet: blocking
     golangci_lint: blocking
     gosec: blocking
-    govulncheck: warn
+    # CVE gate, blocking to match the other languages -- see the note on
+    # `rust.audit`. Go was in the same state as Rust and nobody had looked.
+    govulncheck: blocking
     test_ignore:
       - errcheck
       - gosec
@@ -132,9 +193,16 @@ quality:
   rust:
     fmt: blocking
     clippy: blocking
-    audit: warn
+    # Public-API break detector for library crates, on the release path only
+    # (issue #186). `warn` first per the ratchet; promote at zero violations.
+    semver_checks: warn
+    # CVE gates, blocking to match Python and TypeScript. The ratchet does not
+    # apply: it introduces a new LINT at warn against an existing backlog,
+    # whereas a known advisory is the reason to gate rather than the reason to
+    # wait. `warn` here let RUSTSEC-2026-0258 and -0285 ship green (issue #185).
+    audit: blocking
     osv_scanner: warn          # malicious-package (MAL-*) scan; OSV feed not in RustSec
-    deny: warn
+    deny: blocking
     features: all
     # Feature-matrix check: catches feature-gating bugs where a module behind
     # feature X uses a crate only declared by feature Y. Without this check,
@@ -188,6 +256,11 @@ test:
       - "-v"
       - "--tb=short"
     coverage_format: xml
+    # false | true | auto | a worker count. Opt in with `true` and the count
+    # comes from the host CPU budget, so it is right on a runner and on a
+    # developer box alike. Off by default because a suite with a shared
+    # fixed port or file is not parallel-safe and would turn red on upgrade.
+    parallel: false
 
   typescript:
     runner: auto

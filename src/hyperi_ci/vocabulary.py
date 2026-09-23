@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/vocabulary.py
 # Purpose:   One word for the release event, and the spellings that still work
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """One word for the event that ships an artefact: ``release``.
 

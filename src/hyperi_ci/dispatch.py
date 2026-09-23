@@ -2,7 +2,7 @@
 # File:      src/hyperi_ci/dispatch.py
 # Purpose:   Stage dispatcher — routes to language-specific handlers
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Stage dispatcher for HyperI CI.
 
@@ -26,17 +26,20 @@ from hyperi_ci.common import (
     group,
     info,
     is_ci,
+    run_cmd,
     success,
     warn,
 )
 from hyperi_ci.config import VALID_PROJECT_STATUSES, CIConfig, load_config
 from hyperi_ci.detect import detect_language
 from hyperi_ci.quality import (
+    charset,
     commit_validation,
     deprecated_files,
     droast,
     gitleaks,
     hadolint,
+    lint_docs,
     repo_advisor,
     semgrep,
 )
@@ -185,6 +188,43 @@ def stage_setup(language: str, config: CIConfig) -> int:
     return rc
 
 
+def _run_local_gates(config: CIConfig) -> int:
+    """Run the CI-only gates a repo declares, so a local green means something.
+
+    Some gates exist as their own CI JOB and have no place in the quality
+    stage, so `hyperi-ci check` passes while CI fails on something knowable
+    locally in seconds. A repo lists those commands under
+    `quality.local_gates` and gets them back in its local check.
+
+    Declared per repo rather than named here: which gates a repo runs as
+    separate jobs is the repo's business, and a path baked into this file
+    would be wrong for every consumer that does not have it.
+    """
+    gates = config.get("quality.local_gates", []) or []
+    if not gates:
+        return 0
+
+    for gate in gates:
+        name = gate.get("name") if isinstance(gate, dict) else None
+        command = gate.get("command") if isinstance(gate, dict) else None
+        if not name or not isinstance(command, list) or not command:
+            error(
+                "quality.local_gates entries need a `name` and a `command` "
+                f"list; got: {gate!r}"
+            )
+            return 1
+        with group(f"Local gate: {name}"):
+            result = run_cmd(command, check=False)
+            if result.returncode != 0:
+                error(
+                    f"  {name}: failed locally, and it is a required job in "
+                    f"CI. Fix it here rather than finding it after the push."
+                )
+                return result.returncode
+            success(f"  {name}: ok")
+    return 0
+
+
 def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> int:
     """Quality checks — gitleaks + language-specific checks."""
     # Deprecated-file hygiene nudge runs first and regardless of
@@ -210,6 +250,14 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
         if rc != 0:
             return rc
 
+    # The ASCII-only rule applies to every language, so it runs once here.
+    # 160 licence headers accumulated an em-dash because nothing enforced it
+    # (issue #169).
+    with group("Character policy"):
+        rc = charset.run(config)
+        if rc != 0:
+            return rc
+
     # Semgrep SAST is cross-language too (python / go / ts / rust / yaml /
     # ...), so it runs here once rather than inside every language handler.
     with group("Semgrep SAST scanning"):
@@ -228,6 +276,13 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
     with group("droast Dockerfile advisory"):
         droast.run(config)
 
+    # Documentation linting is cross-language too, and every check defaults to
+    # `warn` - a repo gets a report rather than a red build until it promotes
+    # one. Auto-detects markdown and clean-skips a repo with none.
+    docs_rc = lint_docs.run(Path.cwd(), config)
+    if docs_rc != 0:
+        return docs_rc
+
     # Commit-message validation. In CI this is the dedicated `commit-check`
     # workflow job - it runs on every merge to main (not just the
     # publish-worthy pushes the run-checks-gated quality job covers) and is
@@ -240,6 +295,10 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
             rc = commit_validation.run(config, local=True)
             if rc != 0:
                 return rc
+
+        rc = _run_local_gates(config)
+        if rc != 0:
+            return rc
 
     extra_env: dict[str, str] = {}
     if language == "rust":

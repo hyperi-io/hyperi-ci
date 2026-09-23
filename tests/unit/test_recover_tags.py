@@ -2,7 +2,7 @@
 # File:      tests/unit/test_recover_tags.py
 # Purpose:   Tests for the issue #37 tag-recovery script
 #
-# License:   BUSL-1.1 — HYPERI PTY LIMITED
+# License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tag-recovery (`scripts/recover-tags.py`) regression tests.
 

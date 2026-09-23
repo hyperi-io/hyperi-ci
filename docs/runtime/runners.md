@@ -175,6 +175,6 @@ standard multi-arch builds. The sysroot code stays in `build.py` but only
 activates when a build target differs from the host arch - which never happens
 with native runners. It remains for edge cases (e.g. RISC-V): builds native
 first, installs only Multi-Arch-safe cross-compilers system-wide, assembles a
-private sysroot under `/tmp/cross-sysroot/<arch>/` (no sudo), and wraps the
+private sysroot under `.tmp/cross-sysroot/` in the workspace (no sudo), and wraps the
 linker to force `-fuse-ld=bfd` + sysroot `-L`/`-rpath-link` flags. See
 [lessons.md](../lessons.md) for the full rationale and gotchas.
