@@ -529,27 +529,46 @@ def _failed_logs(repo: str, jobs: list[dict]) -> dict[int, str]:
     return found
 
 
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+_ESCAPE_REFUSAL = "--allow-escape-sequences"
+
+
 def _job_log(repo: str, job_id: int, attempts: int = 4) -> tuple[str, str]:
     """One failed job's log, with the reason when it could not be read.
 
-    The blob backing this endpoint appears a little after the job concludes,
-    so a single immediate read can come back empty for a log that exists.
-    Retries a few times before giving up, and reports which of the two
-    failures happened rather than collapsing them into "unreadable".
+    Two ways this comes back without a log. A CI log carries ANSI colour, and
+    a gh new enough to refuse an escaped body needs an opt-in flag that an
+    older gh does not have -- so the flag is added only after gh asks for it,
+    which keeps both versions working. Separately the blob backing this
+    endpoint appears a little after the job concludes, so an immediate read can
+    be empty for a log that exists; that is what the retries are for.
+
+    Colour is stripped before returning, because the caller matches a plain
+    reason string against this text.
     """
     last = "no attempt made"
-    for attempt in range(attempts):
-        viewed = _run(
-            ["gh", "api", f"/repos/{repo}/actions/jobs/{job_id}/logs"], timeout=300
-        )
+    allow_escapes = False
+    attempt = 0
+    while attempt < attempts:
+        cmd = ["gh", "api", f"/repos/{repo}/actions/jobs/{job_id}/logs"]
+        if allow_escapes:
+            cmd.append(_ESCAPE_REFUSAL)
+        viewed = _run(cmd, timeout=300)
         if viewed.returncode != 0:
-            detail = (viewed.stderr or "").strip().splitlines()
+            stderr = viewed.stderr or ""
+            if _ESCAPE_REFUSAL in stderr and not allow_escapes:
+                # gh named the flag, so this gh has it. Learning that is not a
+                # failed read, so it does not spend a retry.
+                allow_escapes = True
+                continue
+            detail = stderr.strip().splitlines()
             last = f"gh exited {viewed.returncode}: {detail[-1] if detail else '?'}"
         elif not viewed.stdout.strip():
             last = "gh returned an empty body - the log blob is not published yet"
         else:
-            return viewed.stdout, ""
-        if attempt < attempts - 1:
+            return _ANSI.sub("", viewed.stdout), ""
+        attempt += 1
+        if attempt < attempts:
             time.sleep(15)
     return "", last
 

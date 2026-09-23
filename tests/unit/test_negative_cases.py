@@ -444,3 +444,81 @@ class TestSelectingFixtures:
 
         declared = negative.negative_fixtures(fixture_fleet.load_fleet())
         assert declared, "no fixture declares negative_cases"
+
+
+class TestJobLogRead:
+    """Reading a failed job's log is where this gate has always stopped (#264).
+
+    A CI log carries ANSI colour, and a gh new enough to refuse an escaped
+    body wants a flag an older gh does not have.
+    """
+
+    @staticmethod
+    def _monkey(module, monkeypatch, fake) -> None:
+        monkeypatch.setattr(module, "_run", fake)
+        monkeypatch.setattr(module.time, "sleep", lambda _s: None)
+
+    def test_the_escape_flag_is_added_only_after_gh_asks(self, monkeypatch) -> None:
+        calls: list[list[str]] = []
+
+        def adaptive(args, **_kw):
+            calls.append(args)
+            if "--allow-escape-sequences" not in args:
+                return subprocess.CompletedProcess(
+                    args,
+                    1,
+                    stdout="",
+                    stderr="the response contains terminal escape sequences; "
+                    "pass --allow-escape-sequences to output it anyway",
+                )
+            return subprocess.CompletedProcess(args, 0, stdout="hadolint DL3008")
+
+        self._monkey(negative, monkeypatch, adaptive)
+        text, why = negative._job_log("o/r", 1, attempts=1)
+        assert text == "hadolint DL3008"
+        # Learning the flag is not a failed read, so it must not spend the retry.
+        assert len(calls) == 2
+
+    def test_colour_is_stripped_so_the_reason_can_match(self, monkeypatch) -> None:
+        body = "\x1b[31mhadolint\x1b[0m DL3008"
+        self._monkey(
+            negative,
+            monkeypatch,
+            lambda a, **_k: subprocess.CompletedProcess(a, 0, stdout=body),
+        )
+        assert negative._job_log("o/r", 1)[0] == "hadolint DL3008"
+
+    def test_an_older_gh_without_the_flag_does_not_loop(self, monkeypatch) -> None:
+        calls: list[list[str]] = []
+
+        def refuses_both(args, **_kw):
+            calls.append(args)
+            if "--allow-escape-sequences" in args:
+                return subprocess.CompletedProcess(
+                    args,
+                    1,
+                    stdout="",
+                    stderr="unknown flag: --allow-escape-sequences",
+                )
+            return subprocess.CompletedProcess(
+                args,
+                1,
+                stdout="",
+                stderr="pass --allow-escape-sequences to output it anyway",
+            )
+
+        self._monkey(negative, monkeypatch, refuses_both)
+        text, why = negative._job_log("o/r", 1, attempts=2)
+        assert text == ""
+        assert "unknown flag" in why
+        assert len(calls) <= 4
+
+    def test_an_empty_body_is_named_separately_from_a_gh_failure(
+        self, monkeypatch
+    ) -> None:
+        self._monkey(
+            negative,
+            monkeypatch,
+            lambda a, **_k: subprocess.CompletedProcess(a, 0, stdout="   "),
+        )
+        assert "not published yet" in negative._job_log("o/r", 1, attempts=1)[1]
