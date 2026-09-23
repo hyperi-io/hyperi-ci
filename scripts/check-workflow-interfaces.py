@@ -17,6 +17,10 @@ tree against the LAST RELEASE TAG and fails on a backward-incompatible delta:
 removed input/output/secret, a newly-required input, or optional→required. Run
 in hyperi-ci's own CI so a break is caught before it ever reaches a consumer.
 
+Comparing interface to interface cannot express "nothing consumes this", so a
+deliberate retirement reads as a regression too. `config/retired-interfaces.yaml`
+carries the evidence for one, and this gate honours and reports it.
+
 Usage:  uv run scripts/check-workflow-interfaces.py
 Exit 1 if any interface regressed; 0 otherwise.
 """
@@ -26,6 +30,7 @@ import re
 import subprocess
 import sys
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
@@ -33,6 +38,7 @@ import yaml
 _ROOT = Path(__file__).resolve().parent.parent
 _WORKFLOWS = _ROOT / ".github" / "workflows"
 _ACTIONS = _ROOT / ".github" / "actions"
+_RETIREMENTS = _ROOT / "config" / "retired-interfaces.yaml"
 
 
 def parse_interface(yaml_text: str) -> dict:
@@ -95,14 +101,40 @@ def _secrets(raw: object) -> dict:
     return out
 
 
-def breaking_deltas(old: dict, new: dict) -> list[str]:
-    """Backward-incompatible changes from `old` to `new` (empty == safe)."""
+_REMOVAL_MESSAGE = {
+    "input": "input '{name}' removed (a pinned caller may still pass it)",
+    "output": "output '{name}' removed (a pinned caller may read it)",
+    "secret": "secret '{name}' removed",
+}
+
+
+def removed_members(old: dict, new: dict) -> set[tuple[str, str]]:
+    """(kind, name) pairs `old` declares and `new` does not.
+
+    One definition of "removed", shared by the delta report and the retirement
+    bookkeeping, so the two cannot drift apart.
+    """
+    gone = {("input", n) for n in old["inputs"] if n not in new["inputs"]}
+    gone |= {("output", n) for n in old["outputs"] if n not in new["outputs"]}
+    gone |= {("secret", n) for n in old["secrets"] if n not in new["secrets"]}
+    return gone
+
+
+def breaking_deltas(
+    old: dict, new: dict, retired: frozenset[tuple[str, str]] = frozenset()
+) -> list[str]:
+    """Backward-incompatible changes from `old` to `new` (empty == safe).
+
+    `retired` holds the (kind, name) pairs a retirement record has cleared for
+    this file; a removal listed there is not reported.
+    """
     deltas: list[str] = []
 
+    for kind, name in sorted(removed_members(old, new)):
+        if (kind, name) not in retired:
+            deltas.append(_REMOVAL_MESSAGE[kind].format(name=name))
+
     old_in, new_in = old["inputs"], new["inputs"]
-    for name in old_in:
-        if name not in new_in:
-            deltas.append(f"input '{name}' removed (a pinned caller may still pass it)")
     for name, spec in new_in.items():
         was = old_in.get(name)
         # New required input with no default → old callers don't pass it.
@@ -112,14 +144,7 @@ def breaking_deltas(old: dict, new: dict) -> list[str]:
         elif was is not None and spec["required"] and not was["required"]:
             deltas.append(f"input '{name}' changed optional → required")
 
-    for name in old["outputs"]:
-        if name not in new["outputs"]:
-            deltas.append(f"output '{name}' removed (a pinned caller may read it)")
-
     old_sec, new_sec = old["secrets"], new["secrets"]
-    for name in old_sec:
-        if name not in new_sec:
-            deltas.append(f"secret '{name}' removed")
     for name, spec in new_sec.items():
         was = old_sec.get(name)
         if was is None and spec["required"]:
@@ -128,6 +153,112 @@ def breaking_deltas(old: dict, new: dict) -> list[str]:
             deltas.append(f"secret '{name}' changed optional → required")
 
     return deltas
+
+
+_KINDS = ("input", "secret", "output")
+_ENTRY_FIELDS = frozenset({"file", "kind", "name", "reason", "checked"})
+
+
+@dataclass(frozen=True, slots=True)
+class Retirement:
+    """One interface member a release may stop declaring, and its evidence."""
+
+    file: str
+    kind: str
+    name: str
+    reason: str
+    checked: str
+
+    @property
+    def member(self) -> tuple[str, str]:
+        """The (kind, name) pair this record clears."""
+        return (self.kind, self.name)
+
+
+def parse_retirements(yaml_text: str) -> list[Retirement]:
+    """Validated records from `config/retired-interfaces.yaml`.
+
+    Args:
+        yaml_text: Contents of the retirement file.
+
+    Returns:
+        Every declared retirement, in file order.
+
+    Raises:
+        ValueError: On a malformed entry. An entry missing its reason or date
+            asserts that nothing consumes the interface without saying how that
+            was established, which is a bypass rather than a retirement.
+    """
+    data = yaml.safe_load(yaml_text) or {}
+    # An absent or null key is an empty list; any other shape is a malformed
+    # file, which must not read as "no retirements declared".
+    raw = [] if data.get("retired") is None else data["retired"]
+    if not isinstance(raw, list):
+        raise ValueError("`retired` must be a list")
+
+    records: list[Retirement] = []
+    for index, entry in enumerate(raw):
+        where = f"entry {index}"
+        if not isinstance(entry, dict):
+            raise ValueError(f"{where} is not a mapping")
+        unknown = sorted(set(entry) - _ENTRY_FIELDS)
+        if unknown:
+            raise ValueError(f"{where} has unknown field(s): {', '.join(unknown)}")
+        missing = sorted(f for f in _ENTRY_FIELDS if not str(entry.get(f, "")).strip())
+        if missing:
+            raise ValueError(f"{where} is missing: {', '.join(missing)}")
+        if entry["kind"] not in _KINDS:
+            raise ValueError(
+                f"{where} has kind '{entry['kind']}', not one of {', '.join(_KINDS)}"
+            )
+        records.append(
+            Retirement(
+                file=str(entry["file"]),
+                kind=str(entry["kind"]),
+                name=str(entry["name"]),
+                reason=" ".join(str(entry["reason"]).split()),
+                checked=str(entry["checked"]),
+            )
+        )
+    return records
+
+
+def load_retirements(path: Path) -> list[Retirement]:
+    """Retirements declared at `path`; none when the file is absent.
+
+    A missing file means the gate checks everything, which is the safe
+    direction to fail in.
+    """
+    if not path.is_file():
+        return []
+    return parse_retirements(path.read_text(encoding="utf-8"))
+
+
+def _declares(iface: dict | None, kind: str, name: str) -> bool:
+    """Whether a parsed interface declares this member."""
+    return iface is not None and name in iface[f"{kind}s"]
+
+
+def retirement_state(
+    record: Retirement, tree: dict | None, baseline: dict | None
+) -> str:
+    """Where a retirement stands: pending, retired or prunable.
+
+    Args:
+        record: The retirement to classify.
+        tree: Parsed interface of its file now, or None if it declares none.
+        baseline: The same at the last release tag.
+
+    Returns:
+        "pending" while the interface is still declared, "retired" for the
+        removal this run clears, "prunable" once a release has shipped without
+        it and the entry no longer does anything.
+    """
+    if _declares(tree, record.kind, record.name):
+        return "pending"
+    if _declares(baseline, record.kind, record.name):
+        return "retired"
+    return "prunable"
 
 
 def removed_pipeline_files(old: set[str], current: set[str]) -> list[str]:
@@ -152,6 +283,8 @@ def _last_release_tag() -> str | None:
         ["git", "describe", "--tags", "--abbrev=0"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         cwd=_ROOT,
     )
     return result.stdout.strip() or None if result.returncode == 0 else None
@@ -162,6 +295,8 @@ def _file_at(tag: str, rel_path: str) -> str | None:
         ["git", "show", f"{tag}:{rel_path}"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         cwd=_ROOT,
     )
     return result.stdout if result.returncode == 0 else None
@@ -173,6 +308,8 @@ def _pipeline_files_at(tag: str) -> set[str]:
         ["git", "ls-tree", "-r", "--name-only", tag, ".github/"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         cwd=_ROOT,
     )
     if result.returncode != 0:
@@ -185,6 +322,34 @@ def _pipeline_files_at(tag: str) -> set[str]:
     }
 
 
+def _report_retirements(
+    retirements: list[Retirement],
+    tree_ifaces: dict[str, dict],
+    tag_ifaces: dict[str, dict],
+    tag: str,
+) -> None:
+    """Print every retirement and its state, so none of them is silent."""
+    if not retirements:
+        return
+    print(f"\nRetirements honoured ({_RETIREMENTS.relative_to(_ROOT).as_posix()}):")
+    prunable: list[Retirement] = []
+    for record in retirements:
+        state = retirement_state(
+            record, tree_ifaces.get(record.file), tag_ifaces.get(record.file)
+        )
+        print(f"  {state:8} {record.file}: {record.kind} '{record.name}'")
+        print(f"           checked {record.checked} — {record.reason}")
+        if state == "prunable":
+            prunable.append(record)
+    if prunable:
+        noun = "entry" if len(prunable) == 1 else "entries"
+        print(
+            f"\n  {len(prunable)} {noun} no longer clear anything — absent from "
+            f"{tag} as well as the tree. Delete them from "
+            f"{_RETIREMENTS.relative_to(_ROOT).as_posix()}."
+        )
+
+
 def main() -> int:
     """Fail on a backward-incompatible change to a published call interface."""
     tag = _last_release_tag()
@@ -192,13 +357,25 @@ def main() -> int:
         print("No release tag to compare against — skipping interface gate.")
         return 0
 
+    try:
+        retirements = load_retirements(_RETIREMENTS)
+    except ValueError as exc:
+        print(f"config/retired-interfaces.yaml is invalid: {exc}")
+        return 1
+    retired_by_file: dict[str, set[tuple[str, str]]] = {}
+    for record in retirements:
+        retired_by_file.setdefault(record.file, set()).add(record.member)
+
     print(f"Interface compat gate — working tree vs {tag}\n")
     regressions = 0
+    tree_ifaces: dict[str, dict] = {}
+    tag_ifaces: dict[str, dict] = {}
     for path in _tracked_files():
         rel = path.relative_to(_ROOT).as_posix()
-        new_iface = parse_interface(path.read_text())
+        new_iface = parse_interface(path.read_text(encoding="utf-8"))
         if new_iface["kind"] == "other":
             continue
+        tree_ifaces[rel] = new_iface
         old_text = _file_at(tag, rel)
         if old_text is None:
             print(f"  {rel}: new since {tag} — no baseline, OK")
@@ -206,7 +383,10 @@ def main() -> int:
         old_iface = parse_interface(old_text)
         if old_iface["kind"] == "other":
             continue
-        deltas = breaking_deltas(old_iface, new_iface)
+        tag_ifaces[rel] = old_iface
+        deltas = breaking_deltas(
+            old_iface, new_iface, frozenset(retired_by_file.get(rel, ()))
+        )
         if deltas:
             regressions += len(deltas)
             print(f"  ✗ {rel}:")
@@ -222,6 +402,8 @@ def main() -> int:
     for rel in removed:
         regressions += 1
         print(f"  ✗ {rel}: removed since {tag} (a pinned caller's @main ref 404s)")
+
+    _report_retirements(retirements, tree_ifaces, tag_ifaces, tag)
 
     if regressions:
         print(
