@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 import pytest
 
+from hyperi_ci import logs
 from hyperi_ci.logs import (
     _download_logs,
     _failed_job_names,
@@ -317,3 +318,41 @@ class TestFetchLogsPinning:
             rc = fetch_logs(workflow="Test", failed_only=True)
         assert rc == 0
         assert mock_get.call_args[0][0] == "12"
+
+
+class TestJobIdPinsItsRun:
+    """A job id is unique in a repo, so it already says which run (issue #254)."""
+
+    @staticmethod
+    def _gh(stdout: str, rc: int = 0):
+        def fake(args):
+            return subprocess.CompletedProcess(args, rc, stdout=stdout, stderr="")
+
+        return fake
+
+    def test_a_numeric_job_resolves_its_run_and_name(self, monkeypatch) -> None:
+        monkeypatch.setattr(logs, "_run", self._gh("35866259941\nNegative cases\n"))
+        assert logs.resolve_job("107204066730", "o/r") == (
+            "35866259941",
+            "Negative cases",
+        )
+
+    def test_a_job_name_is_left_alone(self, monkeypatch) -> None:
+        """--job is a name substring; only an all-digits value reads as an id."""
+        called: list[object] = []
+        monkeypatch.setattr(logs, "_run", lambda a: called.append(a))
+        assert logs.resolve_job("Negative cases", "o/r") is None
+        assert called == []
+
+    def test_an_unknown_job_id_does_not_invent_a_run(self, monkeypatch) -> None:
+        monkeypatch.setattr(logs, "_run", self._gh("", rc=1))
+        assert logs.resolve_job("999999999999", "o/r") is None
+
+    def test_a_truncated_api_answer_is_not_a_run(self, monkeypatch) -> None:
+        # .run_id alone, no name: half an answer must not pin anything.
+        monkeypatch.setattr(logs, "_run", self._gh("35866259941\n"))
+        assert logs.resolve_job("107204066730", "o/r") is None
+
+    def test_gh_failing_to_execute_is_not_a_run(self, monkeypatch) -> None:
+        monkeypatch.setattr(logs, "_run", lambda _a: None)
+        assert logs.resolve_job("107204066730", "o/r") is None

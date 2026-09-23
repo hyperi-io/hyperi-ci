@@ -95,6 +95,53 @@ def _download_logs(run_id: str, repo: str | None = None) -> Path | None:
     return None
 
 
+def resolve_job(job: str, repo: str | None = None) -> tuple[str, str] | None:
+    """Return ``(run id, job name)`` for a JOB id, or None.
+
+    A job id is unique within a repo, so it already says which run is meant and
+    a second anchor flag is redundant (issue #254). ``--job`` is otherwise a
+    name substring, so only an all-digits value is treated as an id - no job
+    name is all digits, which keeps the two readings apart.
+
+    The name comes back with it because the caller filters output by job NAME,
+    and an id matches none.
+    """
+    if not job.isdigit():
+        return None
+    target = repo or "{owner}/{repo}"
+    result = _run(
+        [
+            "gh",
+            "api",
+            f"repos/{target}/actions/jobs/{job}",
+            "--jq",
+            ".run_id, .name",
+        ]
+    )
+    if result is None or result.returncode != 0:
+        return None
+    lines = result.stdout.strip().splitlines()
+    if len(lines) != 2 or not lines[0].strip():
+        return None
+    return lines[0].strip(), lines[1].strip()
+
+
+def _run(args: list[str]) -> subprocess.CompletedProcess | None:
+    """Run a gh command, returning None when it could not be executed."""
+    try:
+        return subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=60,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+
+
 def _get_run(run_id: str, repo: str | None = None) -> dict | None:
     """Fetch a run's identity and its jobs.
 
@@ -267,6 +314,13 @@ def fetch_logs(
     """
     if not require_gh():
         return 1
+
+    if not run_id and job_filter:
+        resolved = resolve_job(job_filter, repo)
+        if resolved:
+            run_id, job_name = resolved
+            info(f"Pinned to run {run_id} from job {job_filter} ({job_name})")
+            job_filter = job_name
 
     if not run_id:
         from hyperi_ci import runs as run_lookup
