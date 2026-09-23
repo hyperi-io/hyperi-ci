@@ -25,10 +25,9 @@ from hyperi_ci.config import CIConfig, load_config
 def _make_config(publish_target: str = "oss") -> CIConfig:
     """Create a CIConfig with the OSS destination map populated.
 
-    The legacy ``destinations_internal`` block was removed in v2.1.4
-    along with JFrog publishing; the ``publish_target`` field is still
-    accepted for back-compat with downstream ``.hyperi-ci.yaml`` files
-    but is ignored at runtime.
+    The legacy ``destinations_internal`` block was removed in v2.1.4; the
+    ``publish_target`` field is still accepted for back-compat with
+    downstream ``.hyperi-ci.yaml`` files but is ignored at runtime.
     """
     raw = {
         "publish": {
@@ -135,15 +134,25 @@ class TestPublishTargetFromEnv:
 
 
 class TestOSSDestinationHygiene:
-    """OSS destinations must never accidentally point at JFrog."""
+    """Every destination resolves to a public registry, never a private one."""
 
-    def test_oss_destinations_are_not_jfrog(self) -> None:
+    _PUBLIC = {
+        "pypi",
+        "npmjs",
+        "crates-io",
+        "ghcr",
+        "ghcr-charts",
+        "r2-binaries",
+        "go-proxy",
+    }
+
+    def test_every_destination_is_public(self) -> None:
         config = _make_config("oss")
         dests = config.publish_destinations()
         for artifact_type, destination in dests[0].items():
-            assert "jfrog" not in destination, (
-                f"OSS destination for '{artifact_type}' points to JFrog: "
-                f"'{destination}'"
+            assert destination in self._PUBLIC, (
+                f"destination for '{artifact_type}' is not a known public "
+                f"registry: '{destination}'"
             )
 
 

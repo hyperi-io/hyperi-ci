@@ -20,8 +20,7 @@ Three-state ``release.container.enabled`` gate:
 * ``false``: explicit skip.
 
 Every container is built and (in release mode) pushed to GHCR. The
-legacy ``release.target`` field is accepted for back-compat but ignored
-— JFrog publishing was removed in v2.1.4.
+legacy ``release.target`` field is accepted for back-compat but ignored.
 
 Push modes (resolved by :mod:`hyperi_ci.release_mode` — the SSOT):
 

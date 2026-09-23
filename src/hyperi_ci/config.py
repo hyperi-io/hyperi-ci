@@ -80,8 +80,8 @@ class CIConfig:
     classification_effective: str = "internal"
 
     # Kept for backwards compatibility with downstream .hyperi-ci.yaml files
-    # that still set `publish.target`. Ignored at runtime — see
-    # publish_destinations(). JFrog publishing was removed in v2.1.4.
+    # that still set `publish.target`. Ignored at runtime -- see
+    # publish_destinations().
     publish_target: str = "oss"
 
     # Legacy `publish.*` keys found in the project's own config, so
@@ -118,9 +118,8 @@ class CIConfig:
 
         The legacy ``publish_target`` field (``internal`` / ``oss`` / ``both``)
         is accepted for backward compatibility with downstream
-        ``.hyperi-ci.yaml`` files but ignored at runtime — every value
-        routes to the OSS destination map. JFrog publishing was removed
-        in v2.1.4.
+        ``.hyperi-ci.yaml`` files but ignored at runtime -- every value
+        routes to the OSS destination map.
         """
         dest = self.get("release.destinations", {})
         dest = dict(dest) if isinstance(dest, dict) else {}

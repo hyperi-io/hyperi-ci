@@ -23,8 +23,8 @@ def test_oss_resolves_to_ghcr_only(org: OrgConfig) -> None:
 
 
 def test_legacy_target_internal_routes_to_ghcr(org: OrgConfig) -> None:
-    """`target: internal` is accepted for back-compat but ignored —
-    every container publishes to GHCR. JFrog was removed in v2.1.4.
+    """`target: internal` is accepted for back-compat but ignored --
+    every container publishes to GHCR.
     """
     assert resolve_registry_bases(target="internal", org=org) == ["ghcr.io/hyperi-io"]
 

@@ -58,7 +58,7 @@ A precise inventory is part of the migration cost. Approximate shape:
 
 | Bucket | What lives there | Visibility lever used |
 |---|---|---|
-| Org secrets (all repos) | R2 keys, JFrog token + username, generic publish creds | "All repositories" |
+| Org secrets (all repos) | R2 keys, generic publish creds | "All repositories" |
 | Org secrets (private only) | Anything we don't want hyperi-ci (public) seeing | "Private repositories" |
 | Org secrets (selected) | Per-product keys (e.g. dfe-* only) | "Selected repositories" |
 | Org vars | App IDs, client IDs, public-but-config values | Same three-tier visibility |
@@ -118,8 +118,8 @@ planning time.
 ### 1. The "private repos only" boundary
 
 This is the single highest-stakes item. We rely on the GitHub-side
-boundary so that hyperi-ci (public) cannot see, e.g., `JFROG_TOKEN`
-when a workflow runs on a fork PR.
+boundary so that hyperi-ci (public) cannot see, e.g.,
+`R2_SECRET_ACCESS_KEY` when a workflow runs on a fork PR.
 
 Forgejo doesn't have this lever at the org tier. The alternatives:
 
@@ -128,7 +128,7 @@ Forgejo doesn't have this lever at the org tier. The alternatives:
   blast radius is correctly scoped. Driven from `secrets-access.yaml`
   the same way we already drive selective access.
 - **Per-key tokens with downstream-enforced scope** - issue
-  per-project JFrog tokens limited to the repo's namespace. Means a
+  per-project registry tokens limited to the repo's namespace. Means a
   leak to a fork PR can only affect that project's namespace. Already
   good practice; not yet uniformly applied.
 - **Run publish jobs only on protected branches/tags** with environment
@@ -239,7 +239,6 @@ For each category:
 
 | Secret | Source of truth | Migration step |
 |---|---|---|
-| JFROG_TOKEN | `jf atc` -> OpenBao `kv/services/jfrog` | Issue new token, write to Forgejo, deactivate old |
 | R2 keys | Cloudflare dashboard -> OpenBao `kv/services/cloudflare-r2` | Re-provision into Forgejo from OpenBao |
 | PyPI tokens | pypi.org per-token | Issue new project-scoped token, set in Forgejo |
 | crates.io tokens | crates.io per-token | Same |

@@ -696,7 +696,7 @@ def test_run_legacy_target_both_routes_to_ghcr_only(
     tmp_path: Path, monkeypatch
 ) -> None:
     """Legacy ``target: both`` is accepted for back-compat but only
-    routes to GHCR — JFrog publishing was removed in v2.1.4.
+    routes to GHCR.
     """
     monkeypatch.chdir(tmp_path)
     (tmp_path / "Cargo.toml").write_text(
@@ -719,5 +719,5 @@ def test_run_legacy_target_both_routes_to_ghcr_only(
 
     assert run(cfg, language="rust") == 0
     tags = fake_build.call_args.kwargs["tags"]
-    assert any("ghcr.io/hyperi-io" in t for t in tags)
-    assert not any("jfrog" in t for t in tags)
+    assert tags
+    assert all(t.startswith("ghcr.io/hyperi-io/") for t in tags)

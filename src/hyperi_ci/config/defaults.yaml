@@ -374,8 +374,7 @@ release:
   #   false           - explicit skip.
   #
   # Every container is published to GHCR (ghcr.io/<org>). There is
-  # intentionally no `registry:` field — JFrog publishing was removed
-  # in v2.1.4.
+  # intentionally no `registry:` field.
   #
   # Docker Hub is NOT a publish target. The Docker Hub login step in
   # the reusable workflows remains for authenticated pulls (avoids

@@ -180,7 +180,7 @@ def _is_removal_tier(key: str) -> bool:
 def deprecated_config_message(keys: list[str]) -> str:
     """Build the notice naming each legacy key, and what happens to it.
 
-    Two tiers: a renamed key keeps working indefinitely, a JFrog-era destination
+    Two tiers: a renamed key keeps working indefinitely, a legacy destination
     key is removed on a date (issue #151).
     """
     renamed = [key for key in keys if not _is_removal_tier(key)]

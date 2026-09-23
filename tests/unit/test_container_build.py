@@ -131,7 +131,7 @@ def test_resolve_tags_multi_registry_release():
     tags = resolve_tags(
         registry_bases=[
             "ghcr.io/hyperi-io",
-            "hypersec.jfrog.io/hyperi-docker-local",
+            "registry.example.com/hyperi",
         ],
         image_name="dfe-loader",
         version="1.13.5",
@@ -142,9 +142,9 @@ def test_resolve_tags_multi_registry_release():
         "ghcr.io/hyperi-io/dfe-loader:v1.13.5",
         "ghcr.io/hyperi-io/dfe-loader:latest",
         "ghcr.io/hyperi-io/dfe-loader:sha-abc1234",
-        "hypersec.jfrog.io/hyperi-docker-local/dfe-loader:v1.13.5",
-        "hypersec.jfrog.io/hyperi-docker-local/dfe-loader:latest",
-        "hypersec.jfrog.io/hyperi-docker-local/dfe-loader:sha-abc1234",
+        "registry.example.com/hyperi/dfe-loader:v1.13.5",
+        "registry.example.com/hyperi/dfe-loader:latest",
+        "registry.example.com/hyperi/dfe-loader:sha-abc1234",
     ]
 
 
@@ -152,7 +152,7 @@ def test_resolve_tags_multi_registry_pre_ga():
     tags = resolve_tags(
         registry_bases=[
             "ghcr.io/hyperi-io",
-            "hypersec.jfrog.io/hyperi-docker-local",
+            "registry.example.com/hyperi",
         ],
         image_name="dfe-receiver",
         version="2.0.0",
@@ -162,8 +162,8 @@ def test_resolve_tags_multi_registry_pre_ga():
     assert tags == [
         "ghcr.io/hyperi-io/dfe-receiver:v2.0.0-beta",
         "ghcr.io/hyperi-io/dfe-receiver:sha-aaa1111",
-        "hypersec.jfrog.io/hyperi-docker-local/dfe-receiver:v2.0.0-beta",
-        "hypersec.jfrog.io/hyperi-docker-local/dfe-receiver:sha-aaa1111",
+        "registry.example.com/hyperi/dfe-receiver:v2.0.0-beta",
+        "registry.example.com/hyperi/dfe-receiver:sha-aaa1111",
     ]
 
 

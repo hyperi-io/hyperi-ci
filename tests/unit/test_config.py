@@ -129,7 +129,7 @@ class TestCIConfig:
 
     def test_legacy_target_both_routes_to_oss(self) -> None:
         """Legacy ``target: both`` is accepted for back-compat but
-        treated as OSS since JFrog publishing was removed in v2.1.4.
+        treated as OSS.
         """
         config = CIConfig(
             publish_target="both",
