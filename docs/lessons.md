@@ -347,6 +347,33 @@ So when adding a sibling to an existing function, read what the existing one
 does FIRST and copy it deliberately, and when fixing a rule of a class, sweep
 the class rather than the instance.
 
+### A cause that explains every symptom is still not the cause
+
+Twice in one day, from two unrelated defects.
+
+A ClickHouse container timed out at exactly its budget, and the mechanism
+offered was an orphaned container from an earlier pod holding the port. It fit
+every symptom. The pod spec said `dind-sock: emptyDir{}` -- dockerd is
+per-pod, so no container from another pod was ever visible. One lookup, and
+the published explanation was wrong.
+
+A fixture rehearsal failed at `couldn't find remote ref refs/pull/19/merge`,
+and the mechanism offered was cleanup closing the PR while the job queued. It
+fit too. The PR was created at 13:01:35 and checkout first failed at 13:01:43
+-- eight seconds, long before cleanup ran. GitHub computes the merge ref
+asynchronously and fires the workflow immediately; the ref simply did not
+exist yet.
+
+**Both mechanisms were reasoned, not read.** That is the tell. A cause derived
+from the symptom will always fit the symptom -- that is what deriving it from
+the symptom means -- so fitting is no evidence at all. What separates a real
+cause is that something independent of the symptom confirms it: a config file,
+a timestamp, a second run.
+
+The cheap discriminator in both cases was a fact that already existed and took
+one command to fetch. So before a cause is written down anywhere durable, name
+the one lookup that would refute it, and make it.
+
 ### Improving a check inside a wrong frame feels exactly like progress
 
 A search for override entries with no rule behind them returned 34 orphans.
