@@ -25,7 +25,7 @@ from pathlib import Path
 
 from hyperi_ci.common import error, info, is_ci, run_cmd, success, warn
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import apply_strict, is_skipped
+from hyperi_ci.languages.quality_common import resolve_cross_tool_mode
 from hyperi_ci.quality.install import install_ci_binary
 from hyperi_ci.tools import missing_tool_notice
 from hyperi_ci.versions import tool_sha256, tool_version
@@ -477,13 +477,15 @@ def run(config: CIConfig) -> int:
     Returns:
         Exit code (0 = success).
 
+    Raises:
+        GateReasonRequiredError: The gate is turned below the shipped
+            ``blocking`` with no reason beside it.
+
     """
-    # apply_strict, like semgrep does: --strict upgrades warn -> blocking. The
-    # rule-less guard rides on `mode`, so without this a developer who asked for
-    # strict got a green "no secrets detected" out of an empty ruleset.
-    mode = apply_strict(str(config.get("quality.gitleaks", "blocking")))
-    if is_skipped("gitleaks"):
-        return 0
+    # The shared resolver applies --strict (warn -> blocking), which the
+    # rule-less guard rides on: without it a developer who asked for strict got
+    # a green "no secrets detected" out of an empty ruleset.
+    mode = resolve_cross_tool_mode(config, "gitleaks", "blocking")
     if mode == "disabled":
         info("  gitleaks: disabled")
         return 0
