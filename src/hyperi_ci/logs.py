@@ -77,6 +77,18 @@ def _download_logs(run_id: str, repo: str | None = None) -> Path | None:
         return tmp_dir
     except subprocess.CalledProcessError as exc:
         detail = exc.stderr.decode(errors="replace").strip() if exc.stderr else ""
+        # GitHub publishes the archive only once a run finishes, so a 404 on a
+        # run still going means "not yet" rather than "no such run" (issue #254).
+        if "404" in detail or "Not Found" in detail:
+            run = _get_run(run_id, repo)
+            if run and run.get("status") != "completed":
+                error(
+                    f"Run {run_id} is {run.get('status')} - GitHub publishes logs "
+                    f"when a run finishes. Watch it with `hyperi-ci watch {run_id}`, "
+                    f"or read a single job now with "
+                    f"`gh api repos/<owner>/<repo>/actions/jobs/<job-id>/logs`."
+                )
+                return None
         error(f"Failed to download logs for run {run_id}: {detail or 'gh api failed'}")
     except zipfile.BadZipFile:
         error(f"Failed to download logs for run {run_id}: the response was not a zip")
