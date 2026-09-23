@@ -3,6 +3,14 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.10.7](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.6...v2.10.7) (2026-09-23)
+
+### Bug Fixes
+
+* **gate:** warn when main is carrying an unreleased release ([#234](https://github.com/hyperi-io/hyperi-ci/issues/234)) ([3c9d658](https://github.com/hyperi-io/hyperi-ci/commit/3c9d6580335199ddff255e63d3e7a233046c802c))
+* **gitleaks:** catch a config that blinds the scan, not just a rule-less one ([#166](https://github.com/hyperi-io/hyperi-ci/issues/166)) ([ca5d308](https://github.com/hyperi-io/hyperi-ci/commit/ca5d308c83a9896e7d86415a2ce9217a8855e3aa)), closes [#67](https://github.com/hyperi-io/hyperi-ci/issues/67) [#67](https://github.com/hyperi-io/hyperi-ci/issues/67)
+* **rust:** read the machine arch, so an arm64 runner is not its own cross build ([#235](https://github.com/hyperi-io/hyperi-ci/issues/235)) ([993a55d](https://github.com/hyperi-io/hyperi-ci/commit/993a55d7a74a9546b08cdae02b473385b4ab231e))
+
 ## [2.10.6](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.5...v2.10.6) (2026-09-23)
 
 ### Bug Fixes
