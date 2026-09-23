@@ -166,6 +166,55 @@ class TestMergeRefRace:
         assert rehearse_branch._rerun("o/r", 42) is False
 
 
+def _job(conclusion: str, *steps: tuple[str, str]) -> dict:
+    return {
+        "conclusion": conclusion,
+        "steps": [{"name": name, "conclusion": c} for name, c in steps],
+    }
+
+
+class TestOnlyTheCheckoutRaceIsRerun:
+    """A rerun hides a flaky red unless the failure was the merge-ref race."""
+
+    def test_a_checkout_failure_is_the_race(self) -> None:
+        jobs = [
+            _job(
+                "failure",
+                ("Set up job", "success"),
+                ("Run actions/checkout@abc", "failure"),
+            ),
+            _job("success", ("Run actions/checkout@abc", "success")),
+        ]
+        assert rehearse_branch.raced_the_merge_ref(jobs) is True
+
+    def test_a_failing_test_step_is_the_branch(self) -> None:
+        jobs = [
+            _job(
+                "failure",
+                ("Run actions/checkout@abc", "success"),
+                ("Run tests", "failure"),
+            )
+        ]
+        assert rehearse_branch.raced_the_merge_ref(jobs) is False
+
+    def test_one_real_failure_beside_a_checkout_failure_is_the_branch(self) -> None:
+        jobs = [
+            _job("failure", ("Run actions/checkout@abc", "failure")),
+            _job(
+                "failure",
+                ("Run actions/checkout@abc", "success"),
+                ("Run quality", "failure"),
+            ),
+        ]
+        assert rehearse_branch.raced_the_merge_ref(jobs) is False
+
+    def test_a_failed_job_with_no_failed_step_is_not_the_race(self) -> None:
+        assert rehearse_branch.raced_the_merge_ref([_job("failure")]) is False
+
+    def test_no_failure_is_not_the_race(self) -> None:
+        assert rehearse_branch.raced_the_merge_ref([_job("success")]) is False
+
+
 class TestPickRun:
     """Selecting on the fixture commit, because the branch name is reused.
 
