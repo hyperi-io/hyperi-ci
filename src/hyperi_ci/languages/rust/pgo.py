@@ -327,11 +327,17 @@ def _ensure_llvm_profdata_available() -> bool:
 
     The `llvm-tools-preview` rustup component installs it under the rustc
     sysroot and NOT on PATH, and a self-hosted runner skips the setup action
-    that would have added the component at all. The sysroot copy is the one to
-    use rather than a distro build, because merging raw profile data needs the
-    same LLVM version the compiler was built with.
+    that would have added the component at all.
+
+    A distro `llvm-profdata` on PATH is taken first and is normally fine -- an
+    older one reads a profile written by a newer LLVM. The sysroot copy is the
+    FALLBACK because rustup guarantees it exists and it matches the compiler,
+    which is what makes this work on a GitHub-hosted runner that ships no
+    unversioned llvm-profdata at all.
     """
-    if shutil.which("llvm-profdata"):
+    found = shutil.which("llvm-profdata")
+    if found:
+        info(f"  llvm-profdata: {found} (on PATH)")
         return True
 
     bin_dir = _rustc_sysroot_bin()
