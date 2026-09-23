@@ -17,7 +17,7 @@ overridable per project in .hyperi-ci.yaml.
 import os
 from pathlib import Path
 
-from hyperi_ci.common import env_true, is_ci, warn
+from hyperi_ci.common import env_true, escape_command_data, is_ci, warn
 from hyperi_ci.config import CIConfig, packaged_default
 
 DEFAULT_TEST_PATHS = ["tests/"]
@@ -211,7 +211,8 @@ def note_gate_downgrade(
         owed = _reason_required_message(key, mode, shipped)
         warn(f"  {owed}")
         if is_ci():
-            print(f"::warning title=hyperi-ci security gate needs a reason::{owed}")
+            title = "hyperi-ci security gate needs a reason"
+            print(f"::warning title={title}::{escape_command_data(owed)}")
         return
     msg = (
         f"{key}: this repo sets '{mode}', hyperi-ci ships '{shipped}' - "
@@ -221,7 +222,7 @@ def note_gate_downgrade(
         msg = f"{msg}; reason: {reason}"
     warn(f"  {msg}")
     if is_ci():
-        print(f"::warning title=hyperi-ci gate turned down::{msg}")
+        print(f"::warning title=hyperi-ci gate turned down::{escape_command_data(msg)}")
 
 
 def resolve_cross_tool_mode(
