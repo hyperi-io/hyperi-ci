@@ -323,7 +323,11 @@ def classify(
         logs.get(int(job.get("databaseId") or 0), "") for job in matched
     ).strip()
     if not text:
-        return UNREACHABLE, f"failed at {case.stage} but its log is unreadable"
+        return (
+            UNREACHABLE,
+            f"failed at {case.stage} as declared, but its log could not be read "
+            f"- the gate is untested, not broken (see the log-unread line above)",
+        )
     if case.reason.lower() not in text.lower():
         return (
             WRONG_REASON,
@@ -517,12 +521,37 @@ def _failed_logs(repo: str, jobs: list[dict]) -> dict[int, str]:
         job_id = int(job.get("databaseId") or 0)
         if not job_id:
             continue
+        text, why = _job_log(repo, job_id)
+        if text:
+            found[job_id] = text
+        else:
+            print(f"    log unread for job {job_id}: {why}", file=sys.stderr)
+    return found
+
+
+def _job_log(repo: str, job_id: int, attempts: int = 4) -> tuple[str, str]:
+    """One failed job's log, with the reason when it could not be read.
+
+    The blob backing this endpoint appears a little after the job concludes,
+    so a single immediate read can come back empty for a log that exists.
+    Retries a few times before giving up, and reports which of the two
+    failures happened rather than collapsing them into "unreadable".
+    """
+    last = "no attempt made"
+    for attempt in range(attempts):
         viewed = _run(
             ["gh", "api", f"/repos/{repo}/actions/jobs/{job_id}/logs"], timeout=300
         )
-        if viewed.returncode == 0 and viewed.stdout.strip():
-            found[job_id] = viewed.stdout
-    return found
+        if viewed.returncode != 0:
+            detail = (viewed.stderr or "").strip().splitlines()
+            last = f"gh exited {viewed.returncode}: {detail[-1] if detail else '?'}"
+        elif not viewed.stdout.strip():
+            last = "gh returned an empty body - the log blob is not published yet"
+        else:
+            return viewed.stdout, ""
+        if attempt < attempts - 1:
+            time.sleep(15)
+    return "", last
 
 
 def check_patches(
