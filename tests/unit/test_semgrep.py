@@ -74,6 +74,21 @@ class TestResolveMode:
         semgrep._resolve_mode(cfg, "python")
         assert any("quality.python.semgrep" in w for w in said), said
 
+    @pytest.mark.parametrize(
+        "raw",
+        ["block", "enabled", {"mode": "off", "reason": "typo"}],
+    )
+    def test_an_unknown_mode_is_named_and_falls_back_to_the_default(
+        self, monkeypatch: pytest.MonkeyPatch, raw: object
+    ) -> None:
+        # The shared resolvers reject a typo, so semgrep must not be the one
+        # gate that carries it through as a mode nothing else recognises.
+        said: list[str] = []
+        monkeypatch.setattr(quality_common, "warn", said.append)
+        cfg = _cfg({"quality": {"semgrep": raw}})
+        assert semgrep._resolve_mode(cfg, None) == "warn"
+        assert any("unknown mode" in w for w in said), said
+
     def test_strict_upgrades_warn(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(_STRICT, "1")
         assert semgrep._resolve_mode(_cfg(), None) == "blocking"
