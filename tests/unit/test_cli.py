@@ -268,3 +268,35 @@ class TestRunnerImageBake:
         # proves the fan-out rather than a single default language.
         assert "mold linker" in combined
         assert "sharp / image processing" in combined
+
+
+class TestTheRunSaysWhichVersionRan:
+    """A CI run records the CLI version it resolved.
+
+    Consumers install with an unpinned `uvx hyperi-ci`, so nothing else in the
+    log says which wheel ran. Without this line, a run made before a fix
+    shipped is indistinguishable from the fix not working.
+    """
+
+    @staticmethod
+    def _run(env_extra: dict[str, str], tmp_path) -> str:
+        result = subprocess.run(
+            [sys.executable, "-m", "hyperi_ci.cli", "--help"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=str(tmp_path),
+            env={**_TEST_ENV, **env_extra},
+        )
+        return result.stdout + result.stderr
+
+    def test_it_prints_the_version_in_ci(self, tmp_path) -> None:
+        from hyperi_ci import __version__
+
+        assert f"hyperi-ci {__version__}" in self._run({"CI": "true"}, tmp_path)
+
+    def test_it_stays_quiet_outside_ci(self, tmp_path) -> None:
+        """Local runs keep the banner off; the line is a CI diagnostic."""
+        combined = self._run({"CI": "", "GITHUB_ACTIONS": ""}, tmp_path)
+        assert "hyperi-ci 2." not in combined

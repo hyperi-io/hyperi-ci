@@ -2524,6 +2524,15 @@ def main() -> int:
         if callable(reconfigure):
             reconfigure(encoding="utf-8", errors="replace")
 
+    # A consumer installs the CLI with an unpinned `uvx hyperi-ci`, so the log
+    # is the only record of which version actually ran. Without it, telling a
+    # stale run from an ineffective fix means arithmetic on the PyPI upload
+    # time.
+    from hyperi_ci.common import info, is_ci
+
+    if is_ci():
+        info(f"hyperi-ci {__version__}")
+
     # Here rather than in the Typer callback so `--version` warns too -- its
     # eager callback exits before the callback body runs (#163).
     from hyperi_ci.staleness import warn_if_stale
