@@ -6,8 +6,6 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for `hyperi_ci.deployment.stage.run` and `check_drift`."""
 
-from __future__ import annotations
-
 import json
 import os
 import stat
@@ -229,6 +227,97 @@ class TestTier1:
         )
         rc = run(output_dir=tmp_path / "ci-tmp", project_dir=tmp_path)
         assert rc == EXIT_PRODUCER_FAILED
+
+
+def _record_logs(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Collect every line the stage and the streamed producer log, in order."""
+    from hyperi_ci import common
+    from hyperi_ci.deployment import stage as stage_module
+
+    seen: list[str] = []
+    monkeypatch.setattr(common, "info", seen.append)
+    monkeypatch.setattr(stage_module, "info", seen.append)
+    monkeypatch.setattr(stage_module, "error", seen.append)
+    return seen
+
+
+def _set_binary(binary: Path, script: str) -> None:
+    binary.write_text(f"#!/usr/bin/env bash\n{script}", encoding="utf-8")
+    os.chmod(binary, binary.stat().st_mode | stat.S_IXUSR)
+
+
+class TestProducerLeavesEvidence:
+    """A producer that stalls must still leave a trail in the log (issue #261).
+
+    Generate is the first step that EXECUTES the built binary, and a BOLTed
+    aarch64 binary hung there for 96 minutes with nothing logged (issue #262).
+    """
+
+    def test_output_before_a_stall_is_logged_while_it_runs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from hyperi_ci.deployment import stage as stage_module
+
+        binary = _write_tier1_repo(tmp_path, with_binary=True)
+        _set_binary(binary, 'echo "before-the-stall"\nsleep 1\necho "after"\n')
+        monkeypatch.setattr(stage_module, "HEARTBEAT_SECONDS", 0.2, raising=False)
+        seen = _record_logs(monkeypatch)
+
+        rc = run(output_dir=tmp_path / "ci-tmp", project_dir=tmp_path)
+
+        assert rc == EXIT_OK
+        heartbeats = [i for i, line in enumerate(seen) if "still running" in line]
+        assert heartbeats, "no heartbeat while the producer ran"
+        assert seen.index("  before-the-stall") < heartbeats[0]
+
+    def test_the_subcommand_hint_reads_stderr(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        binary = _write_tier1_repo(tmp_path, with_binary=True)
+        _set_binary(
+            binary,
+            "echo \"error: unrecognized subcommand 'generate-artefacts'\" >&2\n"
+            "exit 2\n",
+        )
+        seen = _record_logs(monkeypatch)
+
+        rc = run(output_dir=tmp_path / "ci-tmp", project_dir=tmp_path)
+
+        assert rc == EXIT_PRODUCER_FAILED
+        assert any("no such subcommand" in line for line in seen)
+
+    def test_each_artefact_written_is_named(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        binary = _write_tier1_repo(tmp_path, with_binary=True)
+        _set_binary(
+            binary,
+            'mkdir -p "$3"\nprintf "FROM scratch\\n" > "$3/Dockerfile.runtime"\n',
+        )
+        seen = _record_logs(monkeypatch)
+
+        rc = run(output_dir=tmp_path / "ci-tmp", project_dir=tmp_path)
+
+        assert rc == EXIT_OK
+        assert any("wrote" in line and "Dockerfile.runtime" in line for line in seen)
+
+    def test_proc_stat_reads_state_and_cpu_past_a_bracketed_name(self) -> None:
+        from hyperi_ci.deployment.stage import _describe_stat
+
+        # utime 250 + stime 50 ticks; the command name carries its own brackets.
+        fields = ["S", "1"] + ["0"] * 9 + ["250", "50"] + ["0"] * 10
+        line = "4242 (odd (name) app) " + " ".join(fields)
+
+        described = _describe_stat(line)
+
+        assert described.startswith("state S (sleeping), ")
+        assert described.endswith(f"{300 / os.sysconf('SC_CLK_TCK'):.1f}s CPU")
+
+    def test_an_unreadable_stat_describes_nothing(self) -> None:
+        from hyperi_ci.deployment.stage import _describe_stat
+
+        assert _describe_stat("") == ""
+        assert _describe_stat("1 (x) S not-a-number") == ""
 
 
 class TestRustBinaryName:
