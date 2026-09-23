@@ -103,7 +103,7 @@ jobs:
             --timeout-minutes "${{ inputs.timeout-minutes || '60' }}"
 
   # ---------------------------------------------------------------------------
-  # negative-cases — the half the sweep above cannot prove.
+  # negative-cases - the half the sweep above cannot prove.
   #
   # A sweep over clean fixtures shows a gate passes on clean input. It cannot
   # tell a blocking gate from a warn-only one or from one that never ran: all
