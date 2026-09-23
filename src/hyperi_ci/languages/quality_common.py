@@ -244,7 +244,7 @@ def resolve_cross_tool_mode(
     if is_skipped(tool):
         return "disabled"
     key = f"quality.{tool}"
-    mode, reason = _checked_mode(key, config.get(key, default), default)
+    mode, reason = checked_mode(key, config.get(key, default), default)
     note_gate_downgrade(key, mode, reason)
     return apply_strict(mode)
 
@@ -262,12 +262,12 @@ def resolve_tool_mode(tool: str, config: CIConfig, language: str) -> str:
     if is_skipped(tool):
         return "disabled"
     key = f"quality.{language}.{tool}"
-    mode, reason = _checked_mode(key, config.get(key, "blocking"), "blocking")
+    mode, reason = checked_mode(key, config.get(key, "blocking"), "blocking")
     note_gate_downgrade(key, mode, reason)
     return apply_strict(mode)
 
 
-def _checked_mode(key: str, raw: object, default: str) -> tuple[str, str]:
+def checked_mode(key: str, raw: object, default: str) -> tuple[str, str]:
     """Split ``raw`` into mode and reason, rejecting an out-of-vocabulary mode.
 
     A typo (`block`, `enabled`, `true`) must NOT silently downgrade a gate to
