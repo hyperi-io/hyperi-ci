@@ -11,8 +11,6 @@ Each tool's mode (blocking/warn/disabled) is configurable via
 .hyperi-ci.yaml quality.rust section.
 """
 
-from __future__ import annotations
-
 import os
 import shutil
 import subprocess
@@ -158,6 +156,53 @@ def _has_lib_target(project_dir: Path | None = None) -> bool:
     # presence of src/lib.rs as a proxy. Workspace members aren't
     # explored — this is the conservative path.
     return (cwd / "src" / "lib.rs").exists()
+
+
+def _package_lib_map(project_dir: Path | None = None) -> dict[str, bool]:
+    """Map each workspace package name to whether it exposes a lib target.
+
+    `_has_lib_target` answers for the workspace as a whole, which is the wrong
+    question for `cargo hack`: it runs per member, so one bin-only member fails
+    the whole check with "no library targets found" while the workspace-wide
+    answer says a lib exists. Empty when cargo metadata is unavailable, which
+    leaves the caller on the workspace-wide answer.
+    """
+    cwd = project_dir or Path.cwd()
+    if not (cwd / "Cargo.toml").exists():
+        return {}
+
+    try:
+        result = subprocess.run(
+            ["cargo", "metadata", "--no-deps", "--format-version=1"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except (FileNotFoundError, OSError):
+        return {}
+
+    if getattr(result, "returncode", 1) != 0:
+        return {}
+
+    import json as _json
+
+    try:
+        metadata = _json.loads(getattr(result, "stdout", "") or "")
+    except _json.JSONDecodeError:
+        return {}
+
+    lib_map: dict[str, bool] = {}
+    for package in metadata.get("packages", []):
+        name = package.get("name")
+        if not name:
+            continue
+        lib_map[name] = any(
+            "lib" in target.get("kind", []) or "rlib" in target.get("kind", [])
+            for target in package.get("targets", [])
+        )
+    return lib_map
 
 
 def _split_feature_sets(features: str) -> list[str]:
@@ -408,33 +453,44 @@ def _run_feature_matrix(config: CIConfig) -> bool:
             return False
 
     had_failure = False
-    has_lib = _has_lib_target()
 
     # Both passes use --lib when a lib target exists, --bins otherwise.
     # cargo would error "no library targets found" on bin-only crates
     # otherwise. The semantic intent is "check whatever this crate
     # actually exposes" so falling back to --bins keeps the same
     # feature-gate-safety guarantee.
-    target_args = ["--lib"] if has_lib else ["--bins"]
+    #
+    # A workspace mixing lib and bin-only members has no single right answer,
+    # so each member is scoped with -p and gets its own flag.
+    lib_map = _package_lib_map()
+    mixed_workspace = len(lib_map) > 1 and len(set(lib_map.values())) > 1
+    if mixed_workspace:
+        scopes = [
+            (["-p", name], ["--lib"] if has_lib else ["--bins"])
+            for name, has_lib in sorted(lib_map.items())
+        ]
+    else:
+        scopes = [([], ["--lib"] if _has_lib_target() else ["--bins"])]
 
     # Pass 1 — bare crate (no default features). Catches "breaks without defaults" bugs.
     if fm_config.get("also_check_no_default_features", True):
-        cmd = ["cargo", "check", "--no-default-features", *target_args]
-        if not _run_tool("feature_matrix (no-default-features)", cmd, "blocking"):
-            had_failure = True
+        for scope_args, target_args in scopes:
+            cmd = ["cargo", "check", "--no-default-features", *scope_args, *target_args]
+            if not _run_tool("feature_matrix (no-default-features)", cmd, "blocking"):
+                had_failure = True
 
     # Pass 2 — each feature in isolation
-    cmd = ["cargo", "hack", "--each-feature", "--no-dev-deps", "check", *target_args]
+    tuning: list[str] = []
 
     exclude = fm_config.get("exclude", [])
     if isinstance(exclude, list) and exclude:
-        cmd.extend(["--exclude-features", ",".join(str(x) for x in exclude)])
+        tuning.extend(["--exclude-features", ",".join(str(x) for x in exclude)])
 
     mutex = fm_config.get("mutually_exclusive", [])
     if isinstance(mutex, list):
         for pair in mutex:
             if isinstance(pair, list) and len(pair) >= 2:
-                cmd.extend(
+                tuning.extend(
                     [
                         "--mutually-exclusive-features",
                         ",".join(str(x) for x in pair),
@@ -443,10 +499,21 @@ def _run_feature_matrix(config: CIConfig) -> bool:
 
     extra = fm_config.get("extra_args", [])
     if isinstance(extra, list):
-        cmd.extend(str(x) for x in extra)
+        tuning.extend(str(x) for x in extra)
 
-    if not _run_tool("feature_matrix (each-feature)", cmd, "blocking"):
-        had_failure = True
+    for scope_args, target_args in scopes:
+        cmd = [
+            "cargo",
+            "hack",
+            "--each-feature",
+            "--no-dev-deps",
+            "check",
+            *scope_args,
+            *target_args,
+            *tuning,
+        ]
+        if not _run_tool("feature_matrix (each-feature)", cmd, "blocking"):
+            had_failure = True
 
     return not had_failure
 

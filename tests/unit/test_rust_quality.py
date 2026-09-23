@@ -5,8 +5,7 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
-from __future__ import annotations
-
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -409,8 +408,88 @@ class TestFeatureMatrixBinOnlyProject:
         ]
 
 
-# Re-import Path here so the new TestHasLibTarget tests can use it cleanly.
-from pathlib import Path  # noqa: E402
+class TestFeatureMatrixMixedWorkspace:
+    """issue #238: a workspace mixing lib and bin-only members is scoped per member.
+
+    `cargo hack` runs per member, so a workspace-wide `--lib` fails outright on
+    a bin-only member with "no library targets found". That is why
+    ci-test-rust-workspace had feature_matrix switched off.
+    """
+
+    @staticmethod
+    def _capture(monkeypatch: pytest.MonkeyPatch, lib_map: dict[str, bool]) -> list:
+        captured: list[list[str]] = []
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality.shutil.which", lambda n: f"/usr/bin/{n}"
+        )
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality._run_tool",
+            lambda name, cmd, mode, use_uvx=False: captured.append(cmd) or True,
+        )
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality._package_lib_map",
+            lambda *a, **kw: lib_map,
+        )
+        return captured
+
+    def test_each_member_gets_the_flag_its_targets_allow(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured = self._capture(monkeypatch, {"the-lib": True, "the-app": False})
+
+        assert _run_feature_matrix(_make_config(None)) is True
+
+        # Sorted by package name, so the-app precedes the-lib.
+        assert captured[0] == [
+            "cargo",
+            "check",
+            "--no-default-features",
+            "-p",
+            "the-app",
+            "--bins",
+        ]
+        assert captured[1] == [
+            "cargo",
+            "check",
+            "--no-default-features",
+            "-p",
+            "the-lib",
+            "--lib",
+        ]
+        hack = [cmd for cmd in captured if cmd[1] == "hack"]
+        assert [cmd[-2:] for cmd in hack] == [
+            ["the-app", "--bins"],
+            ["the-lib", "--lib"],
+        ]
+
+    def test_a_uniform_workspace_stays_on_one_invocation(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No split where every member agrees: same cost as before the fix."""
+        captured = self._capture(monkeypatch, {"one": True, "two": True})
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality._has_lib_target", lambda *a, **kw: True
+        )
+
+        assert _run_feature_matrix(_make_config(None)) is True
+
+        assert len(captured) == 2
+        assert not any("-p" in cmd for cmd in captured)
+
+    def test_no_metadata_falls_back_to_the_workspace_answer(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An empty map means cargo metadata failed, not that there are no libs."""
+        captured = self._capture(monkeypatch, {})
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality._has_lib_target", lambda *a, **kw: True
+        )
+
+        assert _run_feature_matrix(_make_config(None)) is True
+
+        assert len(captured) == 2
+        assert captured[0] == ["cargo", "check", "--no-default-features", "--lib"]
+
 
 # --- deny.toml advisory-ignore sharing (issue #42) -----------------------
 from hyperi_ci.languages.rust.quality import (  # noqa: E402
