@@ -403,6 +403,23 @@ The cheap discriminator in both cases was a fact that already existed and took
 one command to fetch. So before a cause is written down anywhere durable, name
 the one lookup that would refute it, and make it.
 
+**And that is still not enough, because a lookup returns something.** A third
+case the same day: `gh run list --branch main` came back with runs four days
+stale while newer ones existed, and dropping the flag showed the current ones.
+Mechanism written down, sent to another session, plausible. Re-run twenty
+minutes later, both forms returned identical current results. The listing had
+lagged and settled; the flag had nothing to do with it.
+
+A measurement that produces a number, a verdict or a listing reads as a check
+that ran, which is exactly why it gets trusted. But one reading cannot tell a
+real effect from a transient one, and a transient is what an eventually
+consistent API, a warm cache or a race hands you. The tell in every case that
+went wrong: the result came back on the first attempt and was believed.
+
+So re-run it a DIFFERENT way before the cause is durable -- a second query
+path, a second point in time, an inverted assertion. Not the same command
+twice. Where the two disagree, what you had was a reading, not a fact.
+
 ### Improving a check inside a wrong frame feels exactly like progress
 
 A search for override entries with no rule behind them returned 34 orphans.
