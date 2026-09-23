@@ -326,6 +326,10 @@ build:
   # No `typescript.package_manager`: detect_package_manager() resolves it from
   # the package.json `packageManager` field, the lockfile, then npm.
 
+  rust:
+    # arm64 leg on a releasable merge to main. Read from .hyperi-ci.yaml only, so no env override (#249).
+    arm64_on_main: true
+
   golang:
     targets:
       - linux/amd64
