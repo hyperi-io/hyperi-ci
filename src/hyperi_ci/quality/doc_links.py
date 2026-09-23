@@ -26,6 +26,7 @@ A repo silences a known-bad link with a committed ``.lycheeignore``, which
 lychee reads from the directory it runs in.
 """
 
+import functools
 import json
 import platform
 import shutil
@@ -40,12 +41,16 @@ from hyperi_ci.tools import missing_tool_notice
 from hyperi_ci.versions import tool_sha256, tool_version
 
 
+@functools.cache
 def _install_lychee() -> str | None:
     """Install the pinned lychee release on Linux CI (else None).
 
     Without this the check warned about a missing binary on every consumer run
     and nothing could act on it, because no runner image or install path
     supplied one (issue #230).
+
+    Cached, so one run makes one attempt: :func:`planned_mode` and :func:`run`
+    both ask, and a failed download tried twice only doubles the error.
     """
     target = (
         "x86_64-unknown-linux-musl"
