@@ -195,8 +195,11 @@ fix it as part of your work. No permission round-trip.
 
 **Never repair a deliberate failure.** Anything under a fixture's
 `.ci-negative/` directory, and any `expect-fail/*` branch, is a PLANTED failure.
-The sweep asserts CI fails there at a declared stage for a declared reason, so
-repairing it breaks the test. They carry DO-NOT-FIX headers; believe them.
+`scripts/negative-cases.py` asserts CI fails there at a declared stage for a
+declared reason, so repairing it breaks the test. They carry DO-NOT-FIX headers;
+believe them. A case is a `<case>.patch` plus a `<case>.yaml` contract -
+[docs/testing/NEGATIVE-CASES.md](docs/testing/negative-cases.md) has the shape,
+and why the runner opens a PR instead of pushing a branch.
 
 **Route fixture git through the wrapper.** `python3 scripts/fixture-git.py <repo>
 <git-args...>`. A bare `git -C <fixture>` prompts for approval on every call and
@@ -229,9 +232,10 @@ uv run scripts/rehearse-branch.py --branch <your-branch> --repo hyperi-io/<fixtu
   with `workflows: write` that hypersec-ci-bot is not.
 
 **The fleet sweep runs everything against main.** `Fleet sweep` dispatches all
-nine fixtures on a merge touching the consumer surface, and weekly. Ran nothing
-or could not reach a repo is a FAILURE, not a pass. By hand:
-`uv run scripts/sweep-fleet.py --only <fixture>`.
+nine fixtures on a merge touching the consumer surface, and weekly, then runs
+the planted failures (`uv run scripts/negative-cases.py`). Ran nothing, could
+not reach a repo, or a planted failure that went green is a FAILURE, not a pass.
+By hand: `uv run scripts/sweep-fleet.py --only <fixture>`.
 
 **A fixture switching a hyperi-ci feature off declares it.** Add a `masks:`
 entry to `config/fixtures.yaml` naming the feature, the reason, and the ISSUE

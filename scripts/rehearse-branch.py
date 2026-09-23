@@ -124,6 +124,19 @@ def _read_override(repo: str) -> str | None:
     return result.stdout.strip() or None
 
 
+def override_value(branch: str) -> str:
+    """The HYPERCI_INSTALL_OVERRIDE that runs a hyperi-ci branch's own CLI.
+
+    Without `--no-cache --refresh`, uvx resolves the branch to whatever it
+    built last time and the record would certify a commit no fixture ran.
+    `--python` pins the CLI's interpreter (issue #157).
+    """
+    return (
+        "uvx --python 3.14 --no-cache --refresh --from "
+        f"git+https://github.com/{_HYPERI_CI_REPO}@{branch} hyperi-ci"
+    )
+
+
 def _gh_var(repo: str, action: str, value: str = "") -> bool:
     """Set or delete HYPERCI_INSTALL_OVERRIDE on the fixture. True on success."""
     if action == "set":
@@ -355,14 +368,7 @@ def main() -> int:
         # pins @main), so cleanup restores this rather than deleting the key.
         prior_override = _read_override(repo)
         if not args.no_cli_override:
-            # --no-cache --refresh or uvx resolves the branch to whatever it
-            # built last time, and the record would certify a commit no fixture
-            # ran. --python pins the CLI's interpreter (issue #157).
-            value = (
-                "uvx --python 3.14 --no-cache --refresh --from "
-                f"git+https://github.com/{_HYPERI_CI_REPO}@{branch} hyperi-ci"
-            )
-            override_set = _gh_var(repo, "set", value)
+            override_set = _gh_var(repo, "set", override_value(branch))
             if not override_set:
                 return _fail("could not set HYPERCI_INSTALL_OVERRIDE")
             print(f"HYPERCI_INSTALL_OVERRIDE set on {repo}")
