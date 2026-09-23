@@ -72,7 +72,10 @@ class TestResolveMode:
         monkeypatch.setattr(quality_common, "warn", said.append)
         cfg = _cfg({"quality": {"python": {"semgrep": "disabled"}}})
         semgrep._resolve_mode(cfg, "python")
-        assert any("quality.python.semgrep" in w for w in said), said
+        # The generic turned-down warning names the key too, so only the
+        # security-gate text proves the reason rule was applied.
+        owed = [w for w in said if "security gate" in w]
+        assert any("quality.python.semgrep" in w for w in owed), said
 
     @pytest.mark.parametrize(
         "raw",
