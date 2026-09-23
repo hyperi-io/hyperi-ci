@@ -186,7 +186,15 @@ class TestPureJsProjectEndToEnd:
         _write_pkg(in_tmpdir, {"test": "echo ok"})
         # No config files -- tool-specific skips expected
 
-        with patch("hyperi_ci.languages.typescript.quality.subprocess.run") as mock_run:
+        # osv-scanner is the one tool here not stubbed through subprocess.run;
+        # left real, the result depended on whether this machine had it.
+        with (
+            patch("hyperi_ci.languages.typescript.quality.subprocess.run") as mock_run,
+            patch(
+                "hyperi_ci.languages.typescript.quality.osv_scanner.run",
+                return_value=True,
+            ),
+        ):
             mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
             rc = quality.run(_make_config())
 
