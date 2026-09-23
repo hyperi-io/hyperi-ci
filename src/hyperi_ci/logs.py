@@ -178,17 +178,21 @@ def _run_label(run_id: str, run: dict) -> str:
     return describe_run({"databaseId": run_id, **run})
 
 
+_INDEX_PREFIX = re.compile(r"^\d+_")
+
+
 def _parse_log_path(path: Path, base: Path) -> tuple[str, str]:
     """Extract job and step names from a log file path.
 
-    Log files follow the pattern: JobName/N_StepName.txt
+    A step log is ``JobName/N_StepName.txt``. A job's whole log is a
+    top-level ``N_JobName.txt``, whose index is not part of the job's name.
 
     Args:
         path: Path to the log file.
         base: Base directory of extracted logs.
 
     Returns:
-        Tuple of (job_name, step_name).
+        Tuple of (job_name, step_name); the step is empty for a whole-job log.
 
     """
     relative = path.relative_to(base)
@@ -197,10 +201,26 @@ def _parse_log_path(path: Path, base: Path) -> tuple[str, str]:
     if len(parts) >= 2:
         job_name = parts[0]
         step_file = parts[-1]
-        step_name = re.sub(r"^\d+_", "", step_file.removesuffix(".txt"))
+        step_name = _INDEX_PREFIX.sub("", step_file.removesuffix(".txt"))
         return job_name, step_name
 
-    return path.stem, ""
+    return _INDEX_PREFIX.sub("", path.stem), ""
+
+
+def _log_files(log_dir: Path) -> list[tuple[Path, str, str]]:
+    """List an extracted archive's log files as ``(path, job, step)``.
+
+    A job's whole log repeats its step logs, so it is read only for a job whose
+    folder has none: a reusable-workflow job's folder holds just ``system.txt``.
+    """
+    entries = [
+        (path, *_parse_log_path(path, log_dir))
+        for path in sorted(log_dir.rglob("*.txt"))
+    ]
+    stepped = {job for path, job, step in entries if step and path.name != "system.txt"}
+    return [
+        (path, job, step) for path, job, step in entries if step or job not in stepped
+    ]
 
 
 def _filter_and_print(
@@ -228,15 +248,13 @@ def _filter_and_print(
     """
     compiled_grep = re.compile(grep_pattern, re.IGNORECASE) if grep_pattern else None
 
-    log_files = sorted(log_dir.rglob("*.txt"))
+    log_files = _log_files(log_dir)
     if not log_files:
         warn("No log files found")
         return 0
 
     matched = 0
-    for log_file in log_files:
-        job_name, step_name = _parse_log_path(log_file, log_dir)
-
+    for log_file, job_name, step_name in log_files:
         if failed_jobs is not None and _job_key(job_name) not in failed_jobs:
             continue
 
