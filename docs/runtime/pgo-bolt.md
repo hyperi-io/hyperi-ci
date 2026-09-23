@@ -69,6 +69,10 @@ amd64 is unaffected and keeps cargo-pgo's own BOLT flags untouched. On
 aarch64 those defaults are restated in `pgo.py`, because cargo-pgo's
 `--bolt-args` replaces its flag set instead of extending it.
 
+Bumping `tools.cargo-pgo` fails a unit test until those copies are re-read at
+the new version, because a stale copy overrides the newer defaults and nothing
+else would notice.
+
 ## The Four Rules
 
 ### Rule 1 - Exercise data-processing hot paths, not startup
