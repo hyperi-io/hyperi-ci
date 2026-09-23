@@ -92,6 +92,16 @@ def run_pgo_build(
             "cargo config will fail this build with \"cannot find 'ld'\""
         )
 
+    # Checked before the workload rather than after it: without profdata the
+    # optimise step fails, and the 300s of profiling is spent for nothing.
+    if not _ensure_llvm_profdata_available():
+        error(
+            "llvm-profdata is unavailable and cargo-pgo cannot merge the "
+            "profile without it -- refusing to spend the workload on a PGO "
+            "build that cannot finish"
+        )
+        return 1
+
     # Every later stage links a binary at least as large as the instrumented
     # one, so a linker that rescues this build has to carry forward.
     build_env = extra_env
@@ -283,6 +293,70 @@ def _ensure_llvm_bolt_available() -> bool:
     No auto-install — the apt package is added by native_deps.py.
     """
     return _shim_llvm_tools(_BOLT_TOOLCHAIN_BINARIES)
+
+
+def _rustc_sysroot_bin() -> Path | None:
+    """Directory the `llvm-tools` component installs its binaries into.
+
+    A missing rustc RAISES rather than returning non-zero, so the absent case
+    is caught here instead of reaching the caller as a traceback.
+    """
+    try:
+        sysroot = run_cmd(["rustc", "--print", "sysroot"], check=False, capture=True)
+        version = run_cmd(["rustc", "-vV"], check=False, capture=True)
+    except OSError:
+        return None
+    if sysroot.returncode != 0 or not sysroot.stdout.strip():
+        return None
+    if version.returncode != 0:
+        return None
+    host = next(
+        (
+            line.split("host:", 1)[1].strip()
+            for line in version.stdout.splitlines()
+            if line.startswith("host:")
+        ),
+        "",
+    )
+    if not host:
+        return None
+    return Path(sysroot.stdout.strip()) / "lib" / "rustlib" / host / "bin"
+
+
+def _ensure_llvm_profdata_available() -> bool:
+    """Make `llvm-profdata` resolvable so cargo-pgo can merge the profile.
+
+    The `llvm-tools-preview` rustup component installs it under the rustc
+    sysroot and NOT on PATH, and a self-hosted runner skips the setup action
+    that would have added the component at all. The sysroot copy is the one to
+    use rather than a distro build, because merging raw profile data needs the
+    same LLVM version the compiler was built with.
+    """
+    if shutil.which("llvm-profdata"):
+        return True
+
+    bin_dir = _rustc_sysroot_bin()
+    if bin_dir is None:
+        warn("  could not resolve the rustc sysroot to look for llvm-profdata")
+        return False
+
+    if not (bin_dir / "llvm-profdata").exists():
+        info("  llvm-profdata missing - adding the llvm-tools-preview component")
+        added = run_cmd(
+            ["rustup", "component", "add", "llvm-tools-preview"], check=False
+        )
+        if added.returncode != 0:
+            warn("  rustup could not add llvm-tools-preview")
+            return False
+
+    if not (bin_dir / "llvm-profdata").exists():
+        return False
+
+    current = os.environ.get("PATH", "")
+    if str(bin_dir) not in current.split(os.pathsep):
+        os.environ["PATH"] = f"{bin_dir}{os.pathsep}{current}"
+    info(f"  llvm-profdata: {bin_dir / 'llvm-profdata'}")
+    return True
 
 
 def _ensure_ld_lld_available() -> bool:

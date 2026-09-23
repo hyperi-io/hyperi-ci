@@ -8,10 +8,12 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from hyperi_ci.languages.rust import pgo
 from hyperi_ci.languages.rust.optimize import (
     OptimizationOutcome,
     OptimizationProfile,
@@ -639,6 +641,75 @@ def _executable(path):
     return path
 
 
+class TestProfdataReachesCargoPgo:
+    """cargo-pgo merges the profile with llvm-profdata, which is not on PATH.
+
+    The rustup component installs it under the rustc sysroot, so a runner can
+    have it and still fail. A self-hosted runner may not have it at all.
+    """
+
+    @staticmethod
+    def _sysroot(tmp_path, monkeypatch, *, profdata: bool):
+        bin_dir = tmp_path / "lib" / "rustlib" / "x86_64-unknown-linux-gnu" / "bin"
+        bin_dir.mkdir(parents=True)
+        if profdata:
+            _executable(bin_dir / "llvm-profdata")
+        monkeypatch.setattr(pgo.shutil, "which", lambda _name: None)
+        monkeypatch.setattr(pgo, "_rustc_sysroot_bin", lambda: bin_dir)
+        monkeypatch.setenv("PATH", "/usr/bin")
+        return bin_dir
+
+    def test_the_sysroot_copy_is_put_on_path(self, tmp_path, monkeypatch) -> None:
+        bin_dir = self._sysroot(tmp_path, monkeypatch, profdata=True)
+        assert pgo._ensure_llvm_profdata_available() is True
+        assert str(bin_dir) in os.environ["PATH"].split(os.pathsep)
+
+    def test_a_missing_component_is_installed(self, tmp_path, monkeypatch) -> None:
+        bin_dir = self._sysroot(tmp_path, monkeypatch, profdata=False)
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, **_kwargs):
+            calls.append(cmd)
+            _executable(bin_dir / "llvm-profdata")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(pgo, "run_cmd", fake_run)
+        assert pgo._ensure_llvm_profdata_available() is True
+        assert ["rustup", "component", "add", "llvm-tools-preview"] in calls
+
+    def test_an_unresolvable_sysroot_is_reported(self, monkeypatch) -> None:
+        monkeypatch.setattr(pgo.shutil, "which", lambda _name: None)
+        monkeypatch.setattr(pgo, "_rustc_sysroot_bin", lambda: None)
+        assert pgo._ensure_llvm_profdata_available() is False
+
+    def test_the_build_refuses_before_spending_the_workload(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """The failure this exists to stop: 300s of profiling, then no merge."""
+        monkeypatch.setattr(pgo, "_ensure_cargo_pgo_installed", lambda: True)
+        monkeypatch.setattr(pgo, "_ensure_ld_lld_available", lambda: True)
+        monkeypatch.setattr(pgo, "_ensure_llvm_profdata_available", lambda: False)
+        workload: list[str] = []
+        monkeypatch.setattr(
+            pgo, "_run_workload", lambda *a, **k: workload.append("ran") or 0
+        )
+        cargo: list[str] = []
+        monkeypatch.setattr(
+            pgo, "_run_cargo_pgo", lambda *a, **k: cargo.append("ran") or 0
+        )
+
+        rc = run_pgo_build(
+            target="x86_64-unknown-linux-gnu",
+            profile=_make_profile(),
+            binary_name="app",
+            cwd=tmp_path,
+        )
+
+        assert rc == 1
+        assert workload == []
+        assert cargo == []
+
+
 class TestLinkerForThePgoSteps:
     """issue #142: lld resolves in every stage; a big aarch64 link gets mold."""
 
@@ -660,6 +731,10 @@ class TestLinkerForThePgoSteps:
         with (
             patch(
                 "hyperi_ci.languages.rust.pgo._ensure_cargo_pgo_installed",
+                return_value=True,
+            ),
+            patch(
+                "hyperi_ci.languages.rust.pgo._ensure_llvm_profdata_available",
                 return_value=True,
             ),
             patch(
@@ -700,6 +775,10 @@ class TestLinkerForThePgoSteps:
         with (
             patch(
                 "hyperi_ci.languages.rust.pgo._ensure_cargo_pgo_installed",
+                return_value=True,
+            ),
+            patch(
+                "hyperi_ci.languages.rust.pgo._ensure_llvm_profdata_available",
                 return_value=True,
             ),
             patch("hyperi_ci.languages.rust.pgo._run_workload", return_value=0),
