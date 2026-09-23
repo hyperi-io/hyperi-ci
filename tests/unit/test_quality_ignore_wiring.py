@@ -11,18 +11,21 @@ entries translated to the tool's native flag, and the excludes the
 format gate carries.
 """
 
-from __future__ import annotations
-
+import json
 import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
+from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.python import quality
 from hyperi_ci.languages.python.quality import (
     _build_pip_audit_cmd,
     _build_ruff_format_cmd,
 )
 from hyperi_ci.quality.ignores import IgnoreEntry
+from hyperi_ci.versions import tool_version
 
 
 class TestPipAuditCommand:
@@ -52,6 +55,41 @@ class TestPipAuditCommand:
         # Both ids appear after their respective flags
         assert "PYSEC-A" in cmd
         assert "PYSEC-B" in cmd
+
+
+class TestTyCommand:
+    """ty runs inside the project's environment, at the version the SSoT pins."""
+
+    def test_ty_off_path_runs_through_uv_at_the_pinned_version(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls = tmp_path / "calls.jsonl"
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        # Stands in for uv and uvx: records its argv and exits 0.
+        recorder = (
+            f"#!{sys.executable}\n"
+            "import json, pathlib, sys\n"
+            f"with open({str(calls)!r}, 'a', encoding='utf-8') as fh:\n"
+            "    argv = [pathlib.Path(sys.argv[0]).name, *sys.argv[1:]]\n"
+            "    fh.write(json.dumps(argv) + '\\n')\n"
+        )
+        for name in ("uv", "uvx"):
+            (bin_dir / name).write_text(recorder, encoding="utf-8")
+            (bin_dir / name).chmod(0o755)
+        project = tmp_path / "project"
+        project.mkdir()
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("PATH", str(bin_dir))
+        monkeypatch.delenv("HYPERCI_QUALITY_SKIP", raising=False)
+        monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
+
+        quality.run(CIConfig(_raw={}))
+
+        argvs = [json.loads(line) for line in calls.read_text().splitlines()]
+        assert [argv for argv in argvs if "ty" in argv] == [
+            ["uv", "run", "--with", f"ty=={tool_version('ty')}", "--", "ty", "check"]
+        ]
 
 
 class TestRuffFormatCommand:
