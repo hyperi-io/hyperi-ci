@@ -779,6 +779,36 @@ def _pin_cli(fixture: Fixture, branch: str) -> str:
     return ""
 
 
+def _pin_fixtures(
+    fixtures: dict[str, Fixture], cases: list[Case], branch: str
+) -> tuple[list[Case], list[sweep_fleet.Result], str]:
+    """Pin every fixture's CLI, setting aside the ones whose override is unknown.
+
+    A value that could not be READ cannot be put back, and cleanup would then
+    delete a permanent override (ci-test-manifests pins `@main`). So such a
+    fixture is left untouched and its cases are unreachable, not run.
+
+    Returns:
+        (cases still runnable, unreachable results, a fatal error or "").
+    """
+    unpinned: dict[str, str] = {}
+    for name, fixture in fixtures.items():
+        try:
+            reason = _pin_cli(fixture, branch)
+        except rehearse_branch.OverrideUnreadableError as exc:
+            unpinned[name] = f"CLI not pinned, prior override unreadable: {exc}"
+            continue
+        if reason:
+            return [], [], reason
+    runnable = [case for case in cases if case.fixture not in unpinned]
+    results = [
+        sweep_fleet.Result(case.case_id, UNREACHABLE, unpinned[case.fixture])
+        for case in cases
+        if case.fixture in unpinned
+    ]
+    return runnable, results, ""
+
+
 def _report_patches(code: int, lines: list[str]) -> int:
     """Print the patch-check report and hand its exit code back.
 
@@ -900,10 +930,13 @@ def main() -> int:
         results: list[sweep_fleet.Result] = list(stale)
         try:
             if args.cli_branch:
-                for fixture in fixtures.values():
-                    if reason := _pin_cli(fixture, args.cli_branch):
-                        print(f"ERROR: {reason}")
-                        return 2
+                runnable, unpinned, reason = _pin_fixtures(
+                    fixtures, runnable, args.cli_branch
+                )
+                if reason:
+                    print(f"ERROR: {reason}")
+                    return 2
+                results.extend(unpinned)
                 print(f"CLI pinned to hyperi-ci@{args.cli_branch}")
             live, prepared = _prepare(fixtures, runnable)
             results.extend(prepared)
