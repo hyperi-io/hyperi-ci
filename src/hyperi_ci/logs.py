@@ -22,8 +22,6 @@ Anchors and ``--repo`` (issue #97): ``--pr``, ``--branch`` and
 the API path instead.
 """
 
-from __future__ import annotations
-
 import json
 import re
 import subprocess
@@ -33,6 +31,15 @@ from pathlib import Path
 
 from hyperi_ci.common import error, info, warn
 from hyperi_ci.gh import RunSelectionError, describe_run, gh_run, require_gh
+
+
+def _job_key(name: str) -> str:
+    """Normalise a job name so the API's form and the archive's form compare equal.
+
+    A reusable-workflow job is `ci / Quality` in the API and `ci _ Quality` as a
+    folder in the log archive, so comparing them raw matches nothing.
+    """
+    return name.lower().replace("/", "_")
 
 
 def logs_api_path(run_id: str, repo: str | None = None) -> str:
@@ -109,14 +116,8 @@ def resolve_job(job: str, repo: str | None = None) -> tuple[str, str] | None:
     if not job.isdigit():
         return None
     target = repo or "{owner}/{repo}"
-    result = _run(
-        [
-            "gh",
-            "api",
-            f"repos/{target}/actions/jobs/{job}",
-            "--jq",
-            ".run_id, .name",
-        ]
+    result = _gh(
+        ["api", f"repos/{target}/actions/jobs/{job}", "--jq", ".run_id, .name"]
     )
     if result is None or result.returncode != 0:
         return None
@@ -126,19 +127,11 @@ def resolve_job(job: str, repo: str | None = None) -> tuple[str, str] | None:
     return lines[0].strip(), lines[1].strip()
 
 
-def _run(args: list[str]) -> subprocess.CompletedProcess | None:
-    """Run a gh command, returning None when it could not be executed."""
+def _gh(args: list[str]) -> subprocess.CompletedProcess[str] | None:
+    """Run gh through the shared helper; None when gh could not be executed."""
     try:
-        return subprocess.run(
-            args,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=60,
-        )
-    except (subprocess.SubprocessError, OSError):
+        return gh_run(args, check=False)
+    except OSError:
         return None
 
 
@@ -172,9 +165,9 @@ def _get_run(run_id: str, repo: str | None = None) -> dict | None:
 
 
 def _failed_job_names(run: dict) -> set[str]:
-    """Get names of failed jobs in a run, lowercased for matching."""
+    """Get the failed jobs in a run, as :func:`_job_key` keys."""
     return {
-        job["name"].lower()
+        _job_key(job["name"])
         for job in run.get("jobs", [])
         if job.get("conclusion") == "failure" and job.get("name")
     }
@@ -218,7 +211,7 @@ def _filter_and_print(
     grep_pattern: str | None = None,
     tail_lines: int | None = None,
     failed_jobs: set[str] | None = None,
-) -> None:
+) -> int:
     """Filter and print log files.
 
     Args:
@@ -227,7 +220,10 @@ def _filter_and_print(
         step_filter: Substring filter for step names (case-insensitive).
         grep_pattern: Regex pattern to match log lines (case-insensitive).
         tail_lines: Only show last N lines per file.
-        failed_jobs: Set of failed job names to filter by.
+        failed_jobs: :func:`_job_key` keys of the failed jobs to filter by.
+
+    Returns:
+        How many log files passed the job, step and failed-job filters.
 
     """
     compiled_grep = re.compile(grep_pattern, re.IGNORECASE) if grep_pattern else None
@@ -235,19 +231,22 @@ def _filter_and_print(
     log_files = sorted(log_dir.rglob("*.txt"))
     if not log_files:
         warn("No log files found")
-        return
+        return 0
 
+    matched = 0
     for log_file in log_files:
         job_name, step_name = _parse_log_path(log_file, log_dir)
 
-        if failed_jobs is not None and job_name.lower() not in failed_jobs:
+        if failed_jobs is not None and _job_key(job_name) not in failed_jobs:
             continue
 
-        if job_filter and job_filter.lower() not in job_name.lower():
+        if job_filter and _job_key(job_filter) not in _job_key(job_name):
             continue
 
         if step_filter and step_filter.lower() not in step_name.lower():
             continue
+
+        matched += 1
 
         try:
             lines = log_file.read_text(errors="replace").splitlines()
@@ -269,6 +268,13 @@ def _filter_and_print(
 
         for line in lines:
             print(f"{prefix} {line}")
+
+    return matched
+
+
+def _job_names(log_dir: Path) -> list[str]:
+    """The job folders in an extracted log archive."""
+    return sorted(p.name for p in log_dir.iterdir() if p.is_dir())
 
 
 def fetch_logs(
@@ -315,12 +321,23 @@ def fetch_logs(
     if not require_gh():
         return 1
 
-    if not run_id and job_filter:
+    # No job NAME is all digits, so an all-digits --job is an id: resolve it,
+    # never fall back to matching it as a name, which can only match nothing.
+    if job_filter and job_filter.isdigit():
         resolved = resolve_job(job_filter, repo)
-        if resolved:
-            run_id, job_name = resolved
-            info(f"Pinned to run {run_id} from job {job_filter} ({job_name})")
-            job_filter = job_name
+        if resolved is None:
+            error(
+                f"Could not resolve job {job_filter}: no such job, or gh could not reach it."
+            )
+            return 1
+        job_run, job_name = resolved
+        if run_id and run_id != job_run:
+            error(f"Job {job_filter} belongs to run {job_run}, not run {run_id}.")
+            return 1
+        if not run_id:
+            info(f"Pinned to run {job_run} from job {job_filter} ({job_name})")
+        run_id = job_run
+        job_filter = job_name
 
     if not run_id:
         from hyperi_ci import runs as run_lookup
@@ -371,7 +388,7 @@ def fetch_logs(
     if not log_dir:
         return 1
 
-    _filter_and_print(
+    matched = _filter_and_print(
         log_dir,
         job_filter=job_filter,
         step_filter=step_filter,
@@ -379,5 +396,14 @@ def fetch_logs(
         tail_lines=tail_lines,
         failed_jobs=failed_jobs,
     )
+
+    # Silence here would read as "the logs are empty", when the filter matched
+    # no job at all.
+    if not matched and (job_filter or step_filter or failed_jobs):
+        error(
+            f"No log file in run {run_id} matched the filter. "
+            f"Jobs in that run: {', '.join(_job_names(log_dir)) or 'none'}"
+        )
+        return 1
 
     return 0
