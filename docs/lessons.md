@@ -347,6 +347,35 @@ So when adding a sibling to an existing function, read what the existing one
 does FIRST and copy it deliberately, and when fixing a rule of a class, sweep
 the class rather than the instance.
 
+### A check can be correct, wired up, and unable to run where it runs
+
+Three in one day, all green or quiet, none of them working.
+
+`lychee`, `markdownlint-cli2` and the mermaid grammar check each printed an
+honest "not installed" line inside a passing job. Nothing could act on it:
+neither tool was in `versions.yaml`, no install path fetched them, no runner
+image baked them. They could not have run in any environment we own.
+
+`osv-scanner` returned `True` on a missing lockfile under every mode, so three
+repos with no committed `Cargo.lock` reported zero findings. The zero was
+silence, not coverage, and flipping the tool to blocking would have changed
+nothing on exactly those repos.
+
+The negative-case catalogue committed a planted patch before pushing it, and
+an ARC runner has no global git config. Every case failed at `git commit`, so
+no gate was ever exercised. It had never once worked on a runner.
+
+**The code was right in all three.** The gap is between the check and the
+place it executes: a tool nothing installs, a file that is not there, an
+identity the runner does not have. None of it shows up in a unit test, because
+a unit test supplies the environment the check assumes.
+
+So a new check is not finished when it passes locally. Name what it needs from
+the runner -- a binary, a file, a credential, an identity -- and confirm each
+one exists there. And make the tool say which of the three outcomes it reached:
+ran and passed, ran and failed, or could not run. Where those first and third
+collapse into the same green, nobody finds out for months.
+
 ### A cause that explains every symptom is still not the cause
 
 Twice in one day, from two unrelated defects.
