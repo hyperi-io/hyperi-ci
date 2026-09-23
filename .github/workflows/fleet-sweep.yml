@@ -101,3 +101,58 @@ jobs:
             --only "${{ inputs.only }}" \
             --language "${{ inputs.language }}" \
             --timeout-minutes "${{ inputs.timeout-minutes || '60' }}"
+
+  # ---------------------------------------------------------------------------
+  # negative-cases - the half the sweep above cannot prove.
+  #
+  # A sweep over clean fixtures shows a gate passes on clean input. It cannot
+  # tell a blocking gate from a warn-only one or from one that never ran: all
+  # three are the same green tick. These runs carry the defect (issue #219).
+  #
+  # `if: always()` because a red sweep is exactly when the question "do the
+  # gates still block" matters most.
+  # ---------------------------------------------------------------------------
+  negative-cases:
+    name: Negative cases
+    needs: sweep
+    if: always()
+    runs-on: ${{ vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.14
+
+      - name: Install dependencies
+        run: uv sync --no-sources
+
+      - name: Mint a fleet write token
+        # Wider than the sweep's: this pushes an ephemeral expect-fail branch
+        # and opens the pull request whose run is the evidence. A bare push
+        # would not do -- the plan job sets run-checks=false off main, so the
+        # gate under test never runs and the case reads as a leak.
+        id: bot
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.GH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-actions: read
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Prove the planted failures still fail
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+        run: |
+          uv run --no-sources python scripts/negative-cases.py \
+            --only "${{ inputs.only }}" \
+            --timeout-minutes "${{ inputs.timeout-minutes || '45' }}"

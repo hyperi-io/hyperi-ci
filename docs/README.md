@@ -128,6 +128,9 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 - [testing/FIXTURE-GIT.md](testing/fixture-git.md) - the fixture fleet and
   `scripts/rehearse-branch.py`, the canary: it runs a branch's workflows and
   CLI against a fixture through a draft PR, which always runs checks
+- [testing/NEGATIVE-CASES.md](testing/negative-cases.md) - the planted failures
+  under a fixture's `.ci-negative/`, and the runner that refuses the ones that
+  go green
 
 ### Deployment artefacts
 
