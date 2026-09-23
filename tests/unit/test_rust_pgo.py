@@ -5,10 +5,9 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
-from __future__ import annotations
-
 import os
 import subprocess
+from typing import Literal
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -387,6 +386,96 @@ class TestBoltBuildEnv:
         # Cargo's env var convention replaces BOTH - and . with _
         env = _bolt_build_env("aarch64-apple-darwin")
         assert "CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS" in env
+
+
+def _bolt_cargo_commands(tmp_path, target: str) -> list[list[str]]:
+    """Every `cargo pgo` argv the full PGO + BOLT pipeline builds for `target`."""
+    bin_dir = tmp_path / "target" / target / "release"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "my-bin").touch()
+    (bin_dir / "my-bin-bolt-instrumented").touch()
+
+    with (
+        patch(
+            "hyperi_ci.languages.rust.pgo._ensure_cargo_pgo_installed",
+            return_value=True,
+        ),
+        patch(
+            "hyperi_ci.languages.rust.pgo._ensure_llvm_bolt_available",
+            return_value=True,
+        ),
+        patch(
+            "hyperi_ci.languages.rust.pgo._run_cargo_pgo", return_value=0
+        ) as mock_cargo,
+        patch("hyperi_ci.languages.rust.pgo._run_workload", return_value=0),
+    ):
+        rc = run_pgo_build(
+            target=target,
+            profile=_make_profile(bolt_enabled=True),
+            binary_name="my-bin",
+            cwd=tmp_path,
+        )
+    assert rc == 0
+    return [call[0][0] for call in mock_cargo.call_args_list]
+
+
+class TestDropA53Veneers:
+    """issue #240: the aarch64 BOLT steps drop Cortex-A53 erratum 843419 veneers.
+
+    The linker's erratum workaround inserts branch veneers, and BOLT refuses a
+    binary carrying them because relaying it invalidates the page offsets they
+    were computed from. cargo-pgo's `--bolt-args` REPLACES its own default BOLT
+    flags rather than extending them, so the defaults have to come back with the
+    extra flag or the optimise step silently loses its whole flag set.
+    """
+
+    def test_the_instrument_stage_sends_its_defaults_and_the_flag(self) -> None:
+        args = pgo._bolt_tool_args("aarch64-unknown-linux-gnu", "instrument")
+        assert args[0] == "--bolt-args"
+        assert args[1].split() == [
+            *pgo._CARGO_PGO_INSTRUMENT_BOLT_ARGS,
+            "--drop-cortex-a53-843419-veneers",
+        ]
+
+    def test_the_optimize_stage_sends_its_defaults_and_the_flag(self) -> None:
+        args = pgo._bolt_tool_args("aarch64-unknown-linux-gnu", "optimize")
+        assert args[0] == "--bolt-args"
+        assert args[1].split() == [
+            *pgo._CARGO_PGO_OPTIMIZE_BOLT_ARGS,
+            "--drop-cortex-a53-843419-veneers",
+        ]
+
+    @pytest.mark.parametrize("stage", ["instrument", "optimize"])
+    def test_x86_64_passes_nothing_through(
+        self, stage: Literal["instrument", "optimize"]
+    ) -> None:
+        """amd64 has no erratum, so cargo-pgo keeps its own defaults untouched."""
+        assert pgo._bolt_tool_args("x86_64-unknown-linux-gnu", stage) == []
+
+    def test_both_aarch64_bolt_commands_carry_the_flag(self, tmp_path) -> None:
+        cmds = _bolt_cargo_commands(tmp_path, "aarch64-unknown-linux-gnu")
+
+        bolt_cmds = [cmd for cmd in cmds if cmd[0] == "bolt"]
+        assert len(bolt_cmds) == 2
+        for cmd in bolt_cmds:
+            flags = cmd[cmd.index("--bolt-args") + 1].split()
+            assert "--drop-cortex-a53-843419-veneers" in flags
+            # cargo-pgo's own flag, so it goes before the `--` that starts
+            # the args forwarded to cargo.
+            assert cmd.index("--bolt-args") < cmd.index("--")
+
+        # `cargo pgo build` / `optimize` reject --bolt-args -- it is BOLT-only.
+        pgo_cmds = [cmd for cmd in cmds if cmd[0] != "bolt"]
+        assert pgo_cmds
+        assert all("--bolt-args" not in cmd for cmd in pgo_cmds)
+
+    def test_no_x86_64_command_carries_the_flag(self, tmp_path) -> None:
+        cmds = _bolt_cargo_commands(tmp_path, "x86_64-unknown-linux-gnu")
+
+        assert [cmd for cmd in cmds if cmd[0] == "bolt"]
+        for cmd in cmds:
+            assert "--bolt-args" not in cmd
+            assert not any("843419" in arg for arg in cmd)
 
 
 class TestRunBoltRetry:

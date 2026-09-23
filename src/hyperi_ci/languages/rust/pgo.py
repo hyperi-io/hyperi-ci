@@ -19,13 +19,12 @@ Graceful degradation:
   - workload_cmd fails → hard error (bad profile data is worse than no PGO)
 """
 
-from __future__ import annotations
-
 import os
 import re
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Literal
 
 from hyperi_ci.common import error, info, run_cmd, warn
 from hyperi_ci.languages._build_common import elf_section_names
@@ -673,6 +672,55 @@ def _bolt_build_env(target: str, *, no_split: bool = False) -> dict[str, str]:
     }
 
 
+# BOLT refuses an aarch64 binary carrying the linker's Cortex-A53 erratum 843419
+# workaround veneers, because relaying the binary invalidates the page offsets
+# those veneers were computed from. Dropping them leaves the shipped binary
+# unsafe on Cortex-A53, which is accepted because these binaries run on Graviton
+# and Ampere-class server cores, never the 2012 in-order A53 little core used in
+# phones and embedded parts. A deployment target that does include Cortex-A53
+# has to drop this flag and take PGO-only aarch64 builds.
+_DROP_A53_VENEERS = "--drop-cortex-a53-843419-veneers"
+
+# cargo-pgo passes --bolt-args to llvm-bolt in place of the flags it would
+# otherwise pass, not alongside them, so its own defaults are restated here and
+# sent back with the extra flag. They are copied from the pinned cargo-pgo
+# (`tools.cargo-pgo` in versions.yaml), src/bolt/instrument.rs and
+# src/bolt/optimize.rs, and move with that pin.
+_CARGO_PGO_INSTRUMENT_BOLT_ARGS = ("-update-debug-sections",)
+_CARGO_PGO_OPTIMIZE_BOLT_ARGS = (
+    "-reorder-blocks=ext-tsp",
+    "-reorder-functions=hfsort",
+    "-split-functions=2",
+    "-split-all-cold",
+    "-jump-tables=move",
+    "-use-gnu-stack",
+    "-split-eh",
+    "-lite=1",
+    "-icf=1",
+    "-relocs",
+    "-update-debug-sections",
+    "-dyno-stats",
+)
+
+
+def _bolt_tool_args(target: str, stage: Literal["instrument", "optimize"]) -> list[str]:
+    """`--bolt-args` for one cargo-pgo BOLT stage, empty off aarch64.
+
+    The two stages take different default flag sets, and `--bolt-args`
+    replaces rather than extends them, so the set for `stage` is sent back
+    with the veneer flag appended. Every other architecture gets an empty
+    list and keeps cargo-pgo's defaults with nothing passed through.
+    """
+    if not target.startswith("aarch64"):
+        return []
+    defaults = (
+        _CARGO_PGO_INSTRUMENT_BOLT_ARGS
+        if stage == "instrument"
+        else _CARGO_PGO_OPTIMIZE_BOLT_ARGS
+    )
+    return ["--bolt-args", " ".join([*defaults, _DROP_A53_VENEERS])]
+
+
 def _attempt_bolt(
     target: str,
     feature_args: list[str],
@@ -710,7 +758,15 @@ def _attempt_bolt(
         f"BOLT: building instrumented binary for {target} (linker forced to lld){label}"
     )
     rc = _run_cargo_pgo(
-        ["bolt", "build", "--", "--target", target, *feature_args],
+        [
+            "bolt",
+            "build",
+            *_bolt_tool_args(target, "instrument"),
+            "--",
+            "--target",
+            target,
+            *feature_args,
+        ],
         cwd=cwd,
         extra_env=bolt_env,
     )
@@ -741,7 +797,16 @@ def _attempt_bolt(
         f"BOLT: optimising binary for {target} (using PGO + BOLT profiles, linker=lld){label}"
     )
     rc = _run_cargo_pgo(
-        ["bolt", "optimize", "--with-pgo", "--", "--target", target, *feature_args],
+        [
+            "bolt",
+            "optimize",
+            "--with-pgo",
+            *_bolt_tool_args(target, "optimize"),
+            "--",
+            "--target",
+            target,
+            *feature_args,
+        ],
         cwd=cwd,
         extra_env=bolt_env,
     )
