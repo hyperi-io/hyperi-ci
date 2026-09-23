@@ -278,13 +278,32 @@ def _rerun(repo: str, run_id: int, settle_secs: int = 90) -> bool:
     return False
 
 
+def pick_run(runs: list[dict], fixture_sha: str) -> dict | None:
+    """The newest run built from ``fixture_sha``, or None.
+
+    Every cycle reuses the rehearsal BRANCH NAME, and a deleted branch still
+    matches `gh run list --branch`, so the newest run on that name can belong
+    to a previous cycle. Selecting on the fixture commit is exact where the
+    name is not: a stale green run read as this cycle's would certify a
+    hyperi-ci commit no fixture ever ran (issue #263).
+    """
+    return next((r for r in runs if r.get("headSha") == fixture_sha), None)
+
+
 def _watch_pr_run(
-    repo: str, rehearse_ref: str, timeout_minutes: int
+    repo: str, rehearse_ref: str, fixture_sha: str, timeout_minutes: int
 ) -> tuple[str, list[str], int]:
     """Wait for the rehearsal's pull_request run and read it job by job.
 
     Uses `gh run list` / `gh run view`, which every supported gh has, rather
     than `gh pr checks --json`, which older gh rejects outright.
+
+    Args:
+        repo: The fixture, ``owner/name``.
+        rehearse_ref: The rehearsal branch pushed to it.
+        fixture_sha: The commit this cycle pushed -- runs from any other are
+            a previous cycle's and are ignored.
+        timeout_minutes: How long to wait for a run to finish.
 
     Returns:
         ("pass" | "fail" | "timeout", lines, run id). A timeout is no verdict at
@@ -306,16 +325,16 @@ def _watch_pr_run(
                 "--event",
                 "pull_request",
                 "--json",
-                "databaseId,status",
+                "databaseId,status,headSha",
                 "--limit",
-                "1",
+                "20",
             ],
             timeout=60,
         )
-        runs: list[dict] = []
+        candidates: list[dict] = []
         if listed.returncode == 0:
             try:
-                runs = json.loads(listed.stdout or "[]")
+                candidates = json.loads(listed.stdout or "[]")
             except json.JSONDecodeError:
                 last_error = "unreadable gh run list output"
         else:
@@ -323,6 +342,8 @@ def _watch_pr_run(
             last_error = (
                 stderr_lines[-1] if stderr_lines else f"gh exited {listed.returncode}"
             )
+        mine = pick_run(candidates, fixture_sha)
+        runs = [mine] if mine else []
         if runs and runs[0].get("status") == "completed":
             viewed = _run(
                 [
@@ -414,6 +435,14 @@ def main() -> int:
             if result.returncode != 0:
                 return _fail(f"git {git_args[0]} failed: {result.stderr.strip()}")
 
+        # Identifies THIS cycle's runs. The branch name cannot -- every cycle
+        # reuses it, and a deleted branch still matches `gh run list`.
+        rev = _run(["git", "-C", str(clone), "rev-parse", "HEAD"], timeout=60)
+        if rev.returncode != 0:
+            return _fail(f"could not read the rehearsal commit: {rev.stderr.strip()}")
+        fixture_sha = rev.stdout.strip()
+        print(f"Fixture commit: {fixture_sha[:12]}")
+
         override_set = False
         # A fixture may already carry a permanent override (ci-test-manifests
         # pins @main), so cleanup restores this rather than deleting the key.
@@ -459,7 +488,9 @@ def main() -> int:
                 "fail at checkout through no fault of the branch"
             )
 
-        verdict, lines, run_id = _watch_pr_run(repo, rehearse_ref, args.timeout_minutes)
+        verdict, lines, run_id = _watch_pr_run(
+            repo, rehearse_ref, fixture_sha, args.timeout_minutes
+        )
 
         # A run that started before the merge ref existed failed at checkout, not
         # on the branch. The ref is there now, so one rerun separates the two: a
@@ -467,7 +498,7 @@ def main() -> int:
         if verdict == "fail" and run_id and _rerun(repo, run_id):
             print(f"Re-running {run_id} once - the first attempt raced the merge ref")
             verdict, lines, run_id = _watch_pr_run(
-                repo, rehearse_ref, args.timeout_minutes
+                repo, rehearse_ref, fixture_sha, args.timeout_minutes
             )
 
         print("Rehearsal run results:")

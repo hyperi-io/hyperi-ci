@@ -164,3 +164,30 @@ class TestMergeRefRace:
             lambda args, **_k: subprocess.CompletedProcess(args, 1),
         )
         assert rehearse_branch._rerun("o/r", 42) is False
+
+
+class TestPickRun:
+    """Selecting on the fixture commit, because the branch name is reused.
+
+    A stale GREEN run read as this cycle's result certifies a hyperi-ci commit
+    no fixture ever ran, which is the gate not existing (issue #263).
+    """
+
+    MINE = {"databaseId": 2, "status": "completed", "headSha": "bd5cb02e"}
+    STALE = {"databaseId": 1, "status": "completed", "headSha": "579ee253"}
+
+    def test_a_previous_cycles_run_is_not_mine(self) -> None:
+        assert rehearse_branch.pick_run([self.STALE], "bd5cb02e") is None
+
+    def test_it_reaches_past_a_stale_head_of_list_entry(self) -> None:
+        # gh returns newest-first, but indexing lag can put the stale one there.
+        picked = rehearse_branch.pick_run([self.STALE, self.MINE], "bd5cb02e")
+        assert picked is not None
+        assert picked["databaseId"] == 2
+
+    def test_a_stale_green_run_never_stands_in_for_mine(self) -> None:
+        green_stale = {**self.STALE, "conclusion": "success"}
+        assert rehearse_branch.pick_run([green_stale], "bd5cb02e") is None
+
+    def test_no_runs_yet_is_not_a_match(self) -> None:
+        assert rehearse_branch.pick_run([], "bd5cb02e") is None
