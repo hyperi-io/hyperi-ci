@@ -386,7 +386,9 @@ def stream_cmd(
         The exit code and the combined output.
 
     Raises:
-        FileNotFoundError: The command is not executable.
+        OSError: The command could not be started -- ``FileNotFoundError``
+            when it does not exist, ``PermissionError`` when it lacks the
+            execute bit.
 
     """
     # The python36 compatibility rules cannot apply on the 3.14 floor.
