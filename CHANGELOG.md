@@ -3,6 +3,46 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.10.11](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.10...v2.10.11) (2026-09-23)
+
+### Bug Fixes
+
+* **ci:** a negative case passes only when its tool failed ([01f529f](https://github.com/hyperi-io/hyperi-ci/commit/01f529fab376d31e8e54035c5a81b109e417c771))
+* **ci:** build arm64 without publishing, and on a release-worthy merge ([#251](https://github.com/hyperi-io/hyperi-ci/issues/251)) ([2dd38d9](https://github.com/hyperi-io/hyperi-ci/commit/2dd38d98b8948e94b6135bbd88f953971b99501b)), closes [#249](https://github.com/hyperi-io/hyperi-ci/issues/249)
+* **ci:** check a planted patch still applies, and let a case wait on a release ([#258](https://github.com/hyperi-io/hyperi-ci/issues/258)) ([cf19912](https://github.com/hyperi-io/hyperi-ci/commit/cf19912542fc17ab44554baad175d132be7908de)), closes [#219](https://github.com/hyperi-io/hyperi-ci/issues/219)
+* **ci:** give the negative-case commits an identity so they can run ([469a942](https://github.com/hyperi-io/hyperi-ci/commit/469a942e5a0c5da1971b694daff1db3ff6e4b051))
+* **ci:** leave a fixture as the rehearsal found it ([bbea920](https://github.com/hyperi-io/hyperi-ci/commit/bbea920fa95cbaa602067ebb455ecbf3ac9e1a03)), closes [#260](https://github.com/hyperi-io/hyperi-ci/issues/260)
+* **ci:** let a proven failure outrank an inconclusive neighbour ([cd92033](https://github.com/hyperi-io/hyperi-ci/commit/cd920334a686dabda56f85940f03b68d5ea3edb2))
+* **ci:** never pin a negative-case CLI whose override could not be read ([b833631](https://github.com/hyperi-io/hyperi-ci/commit/b833631ff3addd01da594262e85ed4ae7e601809)), closes [#269](https://github.com/hyperi-io/hyperi-ci/issues/269)
+* **ci:** read a job log that carries terminal colour ([2070d3f](https://github.com/hyperi-io/hyperi-ci/commit/2070d3fa9f202ca014a2e463078ec1d8120aa044))
+* **ci:** refuse a negative-case branch outside expect-fail/ ([74f3473](https://github.com/hyperi-io/hyperi-ci/commit/74f34732430257ccaa13946e0983bef4cf982600))
+* **ci:** rerun a rehearsal only when it lost the merge-ref race ([27cfa72](https://github.com/hyperi-io/hyperi-ci/commit/27cfa72740ea55e261bf35e6fc2dc0ba9dca78ad)), closes [#260](https://github.com/hyperi-io/hyperi-ci/issues/260)
+* **ci:** retry a failed run read in the negative-case poll ([1845aca](https://github.com/hyperi-io/hyperi-ci/commit/1845acaea4f00fc8805307bd0a8e61ac0d58833f))
+* **ci:** run the planted failures, and refuse the ones that go green ([#219](https://github.com/hyperi-io/hyperi-ci/issues/219)) ([#246](https://github.com/hyperi-io/hyperi-ci/issues/246)) ([c603b20](https://github.com/hyperi-io/hyperi-ci/commit/c603b20462a1ef0b0f41beb66b705dcf7549f177))
+* **ci:** say why a negative case's log could not be read, and retry it ([bb9ecea](https://github.com/hyperi-io/hyperi-ci/commit/bb9eceae4c35f7960760a2d87e9f5fd7962350de))
+* **ci:** stream the generate producer so a hang leaves evidence ([e5bbc67](https://github.com/hyperi-io/hyperi-ci/commit/e5bbc67cbeed1e032ae3d82d78c49b03349fb9d8)), closes [#262](https://github.com/hyperi-io/hyperi-ci/issues/262) [#262](https://github.com/hyperi-io/hyperi-ci/issues/262) [#261](https://github.com/hyperi-io/hyperi-ci/issues/261) [#262](https://github.com/hyperi-io/hyperi-ci/issues/262)
+* **cli:** say which hyperi-ci version a CI run resolved ([3f5ae40](https://github.com/hyperi-io/hyperi-ci/commit/3f5ae40bf30180ce493b766ad1666088ba947d50))
+* **config:** declare build.rust.arm64_on_main in the shipped defaults ([21c63bd](https://github.com/hyperi-io/hyperi-ci/commit/21c63bdd62de55ee48dc58f90aa2a4d7477d6df7))
+* **docs-lint:** let doc_paths: blocking fail a broken link again ([8040b7b](https://github.com/hyperi-io/hyperi-ci/commit/8040b7bb09f7f5ae5abd758d041bee0c975ee8ee))
+* **docs-lint:** try the lychee install once per run, not twice ([abb9ae7](https://github.com/hyperi-io/hyperi-ci/commit/abb9ae7ab900c5e4cebaa82b77794fa45eabc367))
+* **logs:** let a job id pin the run it belongs to ([15718e8](https://github.com/hyperi-io/hyperi-ci/commit/15718e8ea2a47c7784a9cb0d8934d8f09b65cb89))
+* **logs:** match reusable-workflow jobs, and never print nothing silently ([226985b](https://github.com/hyperi-io/hyperi-ci/commit/226985bf44855f7502bec9da990688d9c6ab7c0d))
+* **logs:** say a run is unfinished instead of Not Found ([e9cdbdb](https://github.com/hyperi-io/hyperi-ci/commit/e9cdbdb49ab77a202cf24450938d0ca7287c0cbc)), closes [#254](https://github.com/hyperi-io/hyperi-ci/issues/254)
+* **quality:** escape the gate-downgrade annotations ([534496a](https://github.com/hyperi-io/hyperi-ci/commit/534496a1c19ec04f4da1c6a4bfc0bf9f4c55d480)), closes [#259](https://github.com/hyperi-io/hyperi-ci/issues/259)
+* **quality:** fail a blocking osv-scanner that is missing in CI ([f6c2da3](https://github.com/hyperi-io/hyperi-ci/commit/f6c2da35701d954c525ecdca807bfad33ad4f198))
+* **quality:** hold the Go security gates to the reason rule ([7350f98](https://github.com/hyperi-io/hyperi-ci/commit/7350f98c95cf689a14ac6cda4fc9db0c581ec555)), closes [#259](https://github.com/hyperi-io/hyperi-ci/issues/259)
+* **quality:** install lychee so the doc-link check can run ([be5dbc5](https://github.com/hyperi-io/hyperi-ci/commit/be5dbc50cc4ac54488f2d442f100e129d98de7a4))
+* **quality:** pin ty and run it in the project's environment ([ddb64fe](https://github.com/hyperi-io/hyperi-ci/commit/ddb64fe4d8cb2cab1e2c202299dd019e274b5693))
+* **quality:** read a tool that could not start as unchecked, not as findings ([d1b3a9f](https://github.com/hyperi-io/hyperi-ci/commit/d1b3a9f1953d437db2a950a3ae1432b9753808c6))
+* **quality:** reject an unknown semgrep mode like every other gate ([c468afe](https://github.com/hyperi-io/hyperi-ci/commit/c468afed4aa46da15b2cbed3cf133bf0c74d8eba))
+* **quality:** show a warn-tier tool's stderr, not just its stdout ([ab4632d](https://github.com/hyperi-io/hyperi-ci/commit/ab4632d1ba83ef0db8b98e398fc8433be881385e))
+* **quality:** stop reading code in a fence as a markdown link ([48044d9](https://github.com/hyperi-io/hyperi-ci/commit/48044d9d8ae136932ad5528ccf935888eee44cdd))
+* **rust:** merge the PGO profile with rustc's own llvm-profdata ([2854028](https://github.com/hyperi-io/hyperi-ci/commit/285402871b611eefa0aaa39dd48ec6a072b8fcb1))
+* **rust:** name which llvm-profdata the PGO merge resolved ([e8ec249](https://github.com/hyperi-io/hyperi-ci/commit/e8ec2492d06baf2878f69a8d7841df36a84c454d))
+* **rust:** reach the PATH llvm-profdata when rustup is absent ([826ee78](https://github.com/hyperi-io/hyperi-ci/commit/826ee78ebf477331c91d87b440154e956641729b))
+* **test:** run the default-push tests in their own repo ([d17cd45](https://github.com/hyperi-io/hyperi-ci/commit/d17cd45b30bdf14b03c13c7de2ab8772ad22a4b8))
+* **ts:** stream turbo output so a cancelled test run keeps its log ([b02e374](https://github.com/hyperi-io/hyperi-ci/commit/b02e37404dd749196bdf6104d46295399c9a9274)), closes [#265](https://github.com/hyperi-io/hyperi-ci/issues/265)
+
 ## [2.10.10](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.9...v2.10.10) (2026-09-23)
 
 ### Bug Fixes
