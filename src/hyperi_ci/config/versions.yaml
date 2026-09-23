@@ -331,6 +331,9 @@ tools:
   vulture:
     version: "2.16"
     pypi: vulture
+  ty:
+    version: 0.0.81
+    pypi: ty
 
 # Upstream capabilities we WANT but that are not ready yet.
 #
