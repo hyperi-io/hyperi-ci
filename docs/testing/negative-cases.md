@@ -28,7 +28,7 @@ reason: hadolint
 |---|---|
 | `case` | the case name; defaults to the file's stem |
 | `patch` | the diff to apply, relative to `.ci-negative/` |
-| `branch` | the ephemeral branch; defaults to `expect-fail/<case>` |
+| `branch` | the ephemeral branch; defaults to `expect-fail/<case>`, and one outside `expect-fail/` is refused |
 | `expect` | always `fail` -- a case that expects a pass is refused |
 | `stage` | the job or step whose failure is the pass condition |
 | `reason` | the tool that has to FAIL in that job's log: an error line naming it, not a could-not-run line |

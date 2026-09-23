@@ -93,6 +93,7 @@ WRONG_REASON = "wrong-reason"
 STALE_PATCH = "stale-patch"
 
 CASE_DIR = ".ci-negative"
+_BRANCH_PREFIX = "expect-fail/"
 # GitHub's own bot identity, the convention for a commit a workflow authors.
 _BOT_NAME = "github-actions[bot]"
 _BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
@@ -198,11 +199,17 @@ def parse_case(fixture: str, name: str, text: str) -> Case | str:
     if not isinstance(pending, bool):
         return f"pending_release must be true or false, got {pending!r}"
 
+    # The runner pushes the planted defect to this branch and later deletes it,
+    # so a typo naming `main` would ship the defect and then delete main.
+    branch = str(data.get("branch") or f"expect-fail/{name}").strip()
+    if not branch.startswith(_BRANCH_PREFIX) or branch == _BRANCH_PREFIX:
+        return f"branch must be under {_BRANCH_PREFIX}, got {branch!r}"
+
     return Case(
         fixture=fixture,
         name=str(data.get("case") or name),
         patch=str(data["patch"]),
-        branch=str(data.get("branch") or f"expect-fail/{name}"),
+        branch=branch,
         stage=str(data["stage"]),
         reason=str(data["reason"]),
         pending_release=pending,
