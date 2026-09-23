@@ -31,8 +31,13 @@ reason: hadolint
 | `branch` | the ephemeral branch; defaults to `expect-fail/<case>` |
 | `expect` | always `fail` -- a case that expects a pass is refused |
 | `stage` | the job or step whose failure is the pass condition |
-| `reason` | the tool name that has to appear in that job's log |
+| `reason` | the tool that has to FAIL in that job's log: an error line naming it, not a could-not-run line |
+| `advisory` | optional; an advisory id the failed log has to name, so the gate failed on the planted defect |
 | `pending_release` | `true` while the gate is merged but not yet on PyPI |
+
+The tool's name on its own proves nothing, because every tool prints it when it
+passes, is disabled or is skipped. A contract's `rule` (hadolint's `DL3004`) is
+not checked: the job log prints the finding's message and never its rule id.
 
 `pending_release` must be a boolean. `"no"` is a truthy string, so a quoted
 value is refused rather than coerced.
@@ -59,7 +64,7 @@ flowchart LR
     F -->|yes| G[pass]
     F -->|run went green| H[leaked]
     F -->|failed elsewhere| I[wrong-stage]
-    F -->|no such tool in the log| J[wrong-reason]
+    F -->|the tool did not fail| J[wrong-reason]
     G & H & I & J --> K[close the PR, delete the branch]
 ```
 

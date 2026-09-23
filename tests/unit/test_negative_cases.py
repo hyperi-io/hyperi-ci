@@ -22,6 +22,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 _ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_ROOT / "scripts"))
 
@@ -191,7 +193,7 @@ class TestWhatARunProved:
     ) -> None:
         jobs, quality = self._quality_failed()
         state, _ = negative.classify(
-            CASE, "failure", jobs, _logs(quality, "DL3004 hadolint error")
+            CASE, "failure", jobs, _logs(quality, _HADOLINT_LOG)
         )
         assert state == negative.PASS
 
@@ -252,6 +254,143 @@ class TestWhatARunProved:
             CASE, "failure", [_job("ci / Quality", "success")], {}
         )
         assert state == negative.UNREACHABLE
+
+
+def _err(message: str) -> str:
+    """A hyperi-ci error() line as the job-log API returns it."""
+    return f"2026-09-23T05:32:03Z ##[error][ERROR   ] hyperi_ci.common:error:217 -   {message}"
+
+
+def _ok(level: str, message: str) -> str:
+    return f"2026-09-23T05:32:03Z [{level:<8}] hyperi_ci.common:x:1 -   {message}"
+
+
+# Excerpts of the failed Quality / linting job logs of the last real run of each
+# case: ci-test-manifests 35875547921 and 35875558348, ci-test-rust-simple
+# 35821804196, ci-test-go-app 35821074047.
+_HADOLINT_LOG = "\n".join(
+    [
+        _ok("INFO", "hadolint: linting 1 Dockerfile(s)..."),
+        "2026-09-23T14:38:40Z ##[error]Do not use sudo as it leads to unpredictable "
+        "behavior. Use a tool like gosu to enforce root",
+        _err("hadolint: 1 error-severity finding(s) must be fixed"),
+    ]
+)
+_RUST_AUDIT_LOG = "\n".join(
+    [
+        _ok("SUCCESS", "clippy src (all): passed"),
+        _err("cargo audit: failed"),
+        _err("cargo deny: failed"),
+        "2026-09-23T05:32:59Z ID:        RUSTSEC-2021-0003",
+    ]
+)
+_GO_VULN_LOG = "\n".join(
+    [
+        _err("govulncheck: failed"),
+        "2026-09-23T05:14:43Z Vulnerability #1: GO-2022-1059",
+    ]
+)
+_SCHEMA_LOG = "\n".join(
+    [
+        _ok("INFO", "kubeconform: validating 3 manifest file(s)..."),
+        _err("kubeconform: 1 invalid manifest(s) must be fixed"),
+    ]
+)
+
+_RUST_CASE = negative.Case(
+    fixture="ci-test-rust-simple",
+    name="rust-cve-advisory",
+    patch="rust-cve-advisory.patch",
+    branch="expect-fail/rust-cve-advisory",
+    stage="quality",
+    reason="audit",
+    advisory="RUSTSEC-2021-0003",
+)
+_GO_CASE = negative.Case(
+    fixture="ci-test-go-app",
+    name="go-cve-govulncheck",
+    patch="go-cve-govulncheck.patch",
+    branch="expect-fail/go-cve-govulncheck",
+    stage="quality",
+    reason="govulncheck",
+    advisory="GO-2022-1059",
+)
+_SCHEMA_CASE = negative.Case(
+    fixture="ci-test-manifests",
+    name="schema-invalid",
+    patch="schema-invalid.patch",
+    branch="expect-fail/schema-invalid",
+    stage="k8s + IaC linting",
+    reason="kubeconform",
+)
+
+
+class TestTheReasonIsAFailureNotAName:
+    """Every tool prints its own name when it passes, is disabled, or is skipped.
+
+    So a declared tool merely appearing in the failed job's log proved nothing,
+    and a run that failed on something else read as the gate firing.
+    """
+
+    @pytest.mark.parametrize(
+        ("case", "log"),
+        [
+            (CASE, _HADOLINT_LOG),
+            (_RUST_CASE, _RUST_AUDIT_LOG),
+            (_GO_CASE, _GO_VULN_LOG),
+            (_SCHEMA_CASE, _SCHEMA_LOG),
+        ],
+    )
+    def test_each_real_case_log_still_passes(self, case, log) -> None:
+        assert negative.missing_evidence(case, log) == ""
+
+    def test_a_disabled_audit_beside_a_failed_deny_is_not_the_audit_gate(
+        self,
+    ) -> None:
+        log = "\n".join(
+            [
+                _ok("INFO", "cargo audit: disabled"),
+                _err("cargo deny: failed"),
+                "ID:        RUSTSEC-2021-0003",
+            ]
+        )
+        assert negative.missing_evidence(_RUST_CASE, log)
+
+    def test_a_passed_audit_beside_a_failed_clippy_is_not_the_audit_gate(
+        self,
+    ) -> None:
+        log = "\n".join(
+            [_err("clippy src (all): failed"), _ok("SUCCESS", "cargo audit: passed")]
+        )
+        assert negative.missing_evidence(_RUST_CASE, log)
+
+    def test_a_passed_hadolint_beside_a_failed_ruff_is_not_the_hadolint_gate(
+        self,
+    ) -> None:
+        log = "\n".join([_ok("SUCCESS", "hadolint: passed"), _err("ruff: failed")])
+        assert negative.missing_evidence(CASE, log)
+
+    def test_a_tool_that_could_not_run_did_not_fire(self) -> None:
+        log = _err("hadolint could not complete - failing the gate")
+        assert negative.missing_evidence(CASE, log)
+
+    def test_an_audit_failure_on_some_other_advisory_is_not_this_case(self) -> None:
+        log = "\n".join([_err("cargo audit: failed"), "ID:        RUSTSEC-2099-0001"])
+        assert "RUSTSEC-2021-0003" in negative.missing_evidence(_RUST_CASE, log)
+
+    def test_the_contract_advisory_is_read(self) -> None:
+        case = negative.parse_case("f", "c", CONTRACT + "advisory: GO-2022-1059\n")
+        assert isinstance(case, negative.Case)
+        assert case.advisory == "GO-2022-1059"
+
+    def test_the_verdict_names_what_was_missing(self) -> None:
+        quality = _job("ci / Quality", "failure", [("Run quality checks", "failure")])
+        log = "\n".join([_ok("SUCCESS", "hadolint: passed"), _err("ruff: failed")])
+        state, detail = negative.classify(
+            CASE, "failure", [quality], _logs(quality, log)
+        )
+        assert state == negative.WRONG_REASON
+        assert "hadolint" in detail
 
 
 class TestFindingThisCycleSRun:

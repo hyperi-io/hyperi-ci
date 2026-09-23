@@ -113,6 +113,7 @@ class Case:
     stage: str
     reason: str
     pending_release: bool = False
+    advisory: str = ""
 
     @property
     def case_id(self) -> str:
@@ -205,6 +206,7 @@ def parse_case(fixture: str, name: str, text: str) -> Case | str:
         stage=str(data["stage"]),
         reason=str(data["reason"]),
         pending_release=pending,
+        advisory=str(data.get("advisory") or ""),
     )
 
 
@@ -331,12 +333,50 @@ def classify(
             f"failed at {case.stage} as declared, but its log could not be read "
             f"- the gate is untested, not broken (see the log-unread line above)",
         )
-    if case.reason.lower() not in text.lower():
-        return (
-            WRONG_REASON,
-            f"failed at {case.stage} with no {case.reason!r} in its log",
-        )
+    if why := missing_evidence(case, text):
+        return WRONG_REASON, f"failed at {case.stage}, but {why}"
     return PASS, f"failed at {case.stage} on {case.reason}"
+
+
+# hyperi-ci's error() reaches a CI job log as `##[error]`, and a local one as `[ERROR`.
+_ERROR_MARKERS = ("##[error]", "[ERROR")
+# An error line saying the tool never ran is the third outcome, not the gate firing.
+_COULD_NOT_RUN = ("not installed", "could not")
+
+
+def missing_evidence(case: Case, text: str) -> str:
+    """Why ``text`` does not show the declared tool failing, or "" when it does.
+
+    The tool's name alone proves nothing: every tool prints it when it passes,
+    when it is disabled and when it is skipped. So the name has to sit on an
+    ERROR line that is not a could-not-run line. Where the contract names an
+    ``advisory``, that id has to be in the log too, so the gate failed on the
+    planted defect rather than on something else. A contract's ``rule`` is not
+    checked: hyperi-ci's annotation carries it in a title the job log never
+    prints (ci-test-manifests run 35875547921 shows the message, no DL3004).
+
+    Pure, so each false pass has a test rather than a run.
+
+    Args:
+        case: The contract the log has to satisfy.
+        text: The failed job's log, colour already stripped.
+
+    Returns:
+        The missing evidence, or an empty string.
+    """
+    wanted = tokens(case.reason)
+    fired = [
+        line
+        for line in text.splitlines()
+        if any(marker in line for marker in _ERROR_MARKERS)
+        and wanted <= tokens(line)
+        and not any(phrase in line.lower() for phrase in _COULD_NOT_RUN)
+    ]
+    if not fired:
+        return f"no error line from {case.reason!r} in its log"
+    if case.advisory and case.advisory.lower() not in text.lower():
+        return f"{case.reason!r} failed without naming {case.advisory}"
+    return ""
 
 
 def soften(case: Case, state: str, detail: str) -> tuple[str, str]:
