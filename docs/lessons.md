@@ -327,6 +327,27 @@ Two coverage holes in the same family, both structural rather than missed:
   that ships through both in one commit reaches consumers in halves. It turns
   fixtures RED and consumers falsely GREEN depending on direction.
 
+### Turning on a check that was silently off is a behaviour change
+
+Rust coverage never ran until `23c7086` made it run. That commit reads as a
+fix. For consumers it was a behaviour change, and it broke a repo the same day.
+
+`cargo llvm-cov` builds into `target/llvm-cov-target` and passes it as the
+`--target-dir` FLAG. The flag does not set `CARGO_TARGET_DIR`, so a test that
+builds a binary path from that variable reads it as unset, falls back to
+`target/debug/`, and cannot find a binary the build definitely produced.
+
+dfe-transform-vrl hand-rolled the path and broke. dfe-transform-vector asks
+Cargo with `env!("CARGO_BIN_EXE_<name>")`, which resolves at compile time to
+the binary just built, and was immune. That is the idiom for a test that
+executes its own binary; a path assembled by hand is correct only until
+something redirects the build.
+
+The general shape: enabling a stage that was dormant runs consumer code that
+has never run in CI, so its latent bugs all surface at once and look like a
+regression in whatever merged that day. Say which stage started running, and
+expect the first failures to be in the consumers rather than in the change.
+
 ### A check that reports success over what it never ran
 
 Five of this repo's checks were green over work they had not done: a CI gate

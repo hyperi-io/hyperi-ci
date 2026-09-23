@@ -376,8 +376,8 @@ class TestTheShippedRetirementFile:
     """The repo's own records must parse and point at real declarations."""
 
     def test_it_parses(self) -> None:
-        records = cwi.load_retirements(cwi._RETIREMENTS)
-        assert records, "expected the JFrog retirements"
+        """Empty is a valid state: a record is pruned once its removal ships."""
+        assert isinstance(cwi.load_retirements(cwi._RETIREMENTS), list)
 
     def test_every_record_names_a_file_that_exists(self) -> None:
         """A typo'd path reads as prunable, which would hide the mistake."""
