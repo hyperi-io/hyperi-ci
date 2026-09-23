@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.10.8](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.7...v2.10.8) (2026-09-23)
+
+### Bug Fixes
+
+* **gate:** let the interface gate retire what nothing consumes ([#236](https://github.com/hyperi-io/hyperi-ci/issues/236)) ([93e62d1](https://github.com/hyperi-io/hyperi-ci/commit/93e62d1fe738041c4ba1dc05d98ac44987e9e373))
+* **rust:** put llvm-profdata on PATH before the workload runs ([#237](https://github.com/hyperi-io/hyperi-ci/issues/237)) ([f80c76b](https://github.com/hyperi-io/hyperi-ci/commit/f80c76bec2eaab04b4d3c3c3855ff5ad718267f4))
+
 ## [2.10.7](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.6...v2.10.7) (2026-09-23)
 
 ### Bug Fixes
