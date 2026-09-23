@@ -18,8 +18,6 @@ going. :func:`select_run` is the single matcher; which commit to pin on
 is :mod:`hyperi_ci.runs`.
 """
 
-from __future__ import annotations
-
 import json
 import shutil
 import subprocess
@@ -109,6 +107,7 @@ def gh_run(
     *,
     capture: bool = True,
     check: bool = True,
+    timeout: float | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run a gh CLI command.
 
@@ -116,12 +115,14 @@ def gh_run(
         args: Arguments to pass to gh (e.g. ["run", "list"]).
         capture: Capture stdout/stderr.
         check: Raise on non-zero exit.
+        timeout: Seconds before gh is killed and ``subprocess.TimeoutExpired``
+            raised. None waits for it to exit.
 
     Returns:
         CompletedProcess result.
 
     """
-    return run_cmd(["gh", *args], capture=capture, check=check)
+    return run_cmd(["gh", *args], capture=capture, check=check, timeout=timeout)
 
 
 def gh_json(
