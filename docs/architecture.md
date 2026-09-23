@@ -379,9 +379,10 @@ detail - tiers, cache, cross-compile (dormant) - is
                setup-nextest                                          (pinned tool installs)
 src/hyperi_ci/
   cli.py · dispatch.py · detect.py · config.py · common.py · stamp.py · init.py
+  config/      defaults · org · versions · deprecated-files · toolchains/ · native-deps/
   container/   stage · labels · templates · manifest · compose · build
   languages/   python · rust · typescript · golang   (quality|test|build|release)
-config/        defaults · org · runners · versions · toolchains/ · native-deps/
+config/        fixtures · dynamic-config-keys · retired-interfaces   (repo-root, not shipped in the wheel)
 scripts/       update-versions.py (/deps) · check-workflow-interfaces.py (#31 gate)
 templates/     pgo-workload/ · testenv/
 docs/          this tree
