@@ -320,6 +320,40 @@ class TestFetchLogsPinning:
         assert mock_get.call_args[0][0] == "12"
 
 
+def _archive(root: Path, job_folder: str) -> Path:
+    """An extracted log archive: GitHub writes `ci / Quality` as `ci _ Quality`."""
+    (root / job_folder).mkdir()
+    (root / job_folder / "1_Run quality checks.txt").write_text("the line\n")
+    return root
+
+
+class TestArchiveJobNames:
+    """A reusable-workflow job is named differently in the API and the archive."""
+
+    def test_an_api_job_name_matches_its_archive_folder(self, tmp_path, capsys) -> None:
+        log_dir = _archive(tmp_path, "ci _ Quality")
+        matched = logs._filter_and_print(log_dir, job_filter="ci / Quality")
+        assert "the line" in capsys.readouterr().out
+        assert matched == 1
+
+    def test_failed_only_finds_a_reusable_workflow_job(self, tmp_path, capsys) -> None:
+        log_dir = _archive(tmp_path, "ci _ Quality")
+        failed = _failed_job_names(
+            _viewed_run("CI", jobs=[{"name": "ci / Quality", "conclusion": "failure"}])
+        )
+        matched = logs._filter_and_print(log_dir, failed_jobs=failed)
+        assert "the line" in capsys.readouterr().out
+        assert matched == 1
+
+    def test_a_filter_that_matches_nothing_is_an_error(self, tmp_path) -> None:
+        log_dir = _archive(tmp_path, "ci _ Build")
+        with (
+            patch("hyperi_ci.logs.require_gh", return_value=True),
+            patch("hyperi_ci.logs._download_logs", return_value=log_dir),
+        ):
+            assert fetch_logs(run_id="12", job_filter="Quality") == 1
+
+
 class TestJobIdPinsItsRun:
     """A job id is unique in a repo, so it already says which run (issue #254)."""
 
@@ -331,7 +365,7 @@ class TestJobIdPinsItsRun:
         return fake
 
     def test_a_numeric_job_resolves_its_run_and_name(self, monkeypatch) -> None:
-        monkeypatch.setattr(logs, "_run", self._gh("35866259941\nNegative cases\n"))
+        monkeypatch.setattr(logs, "_gh", self._gh("35866259941\nNegative cases\n"))
         assert logs.resolve_job("107204066730", "o/r") == (
             "35866259941",
             "Negative cases",
@@ -340,19 +374,37 @@ class TestJobIdPinsItsRun:
     def test_a_job_name_is_left_alone(self, monkeypatch) -> None:
         """--job is a name substring; only an all-digits value reads as an id."""
         called: list[object] = []
-        monkeypatch.setattr(logs, "_run", lambda a: called.append(a))
+        monkeypatch.setattr(logs, "_gh", lambda a: called.append(a))
         assert logs.resolve_job("Negative cases", "o/r") is None
         assert called == []
 
     def test_an_unknown_job_id_does_not_invent_a_run(self, monkeypatch) -> None:
-        monkeypatch.setattr(logs, "_run", self._gh("", rc=1))
+        monkeypatch.setattr(logs, "_gh", self._gh("", rc=1))
         assert logs.resolve_job("999999999999", "o/r") is None
 
     def test_a_truncated_api_answer_is_not_a_run(self, monkeypatch) -> None:
         # .run_id alone, no name: half an answer must not pin anything.
-        monkeypatch.setattr(logs, "_run", self._gh("35866259941\n"))
+        monkeypatch.setattr(logs, "_gh", self._gh("35866259941\n"))
         assert logs.resolve_job("107204066730", "o/r") is None
 
+    def test_an_unresolvable_job_id_is_an_error_not_a_name(self, monkeypatch) -> None:
+        """Read as a name, an id matches nothing and printed nothing, exit 0."""
+        monkeypatch.setattr(logs, "require_gh", lambda: True)
+        monkeypatch.setattr(logs, "_gh", self._gh("", rc=1))
+        downloads: list[object] = []
+        monkeypatch.setattr(logs, "_download_logs", lambda *a: downloads.append(a))
+        assert fetch_logs(job_filter="107204066730", repo="o/r") == 1
+        assert downloads == []
+
+    def test_a_job_id_from_another_run_is_refused(self, monkeypatch) -> None:
+        monkeypatch.setattr(logs, "require_gh", lambda: True)
+        monkeypatch.setattr(logs, "_gh", self._gh("35866259941\nci / Quality\n"))
+        downloads: list[object] = []
+        monkeypatch.setattr(logs, "_download_logs", lambda *a: downloads.append(a))
+        rc = fetch_logs(run_id="11111111111", job_filter="107204066730", repo="o/r")
+        assert rc == 1
+        assert downloads == []
+
     def test_gh_failing_to_execute_is_not_a_run(self, monkeypatch) -> None:
-        monkeypatch.setattr(logs, "_run", lambda _a: None)
+        monkeypatch.setattr(logs, "_gh", lambda _a: None)
         assert logs.resolve_job("107204066730", "o/r") is None
