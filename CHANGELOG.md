@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.10.10](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.9...v2.10.10) (2026-09-23)
+
+### Bug Fixes
+
+* **quality:** scope the feature matrix per workspace member ([657ed5c](https://github.com/hyperi-io/hyperi-ci/commit/657ed5c6a38602bb461836b9864975c85b02cf6c))
+* **rust:** guard the copied cargo-pgo BOLT flags ([#245](https://github.com/hyperi-io/hyperi-ci/issues/245)) ([c423fe3](https://github.com/hyperi-io/hyperi-ci/commit/c423fe373005047474e74334d77d19f0027c517f)), closes [#240](https://github.com/hyperi-io/hyperi-ci/issues/240)
+
 ## [2.10.9](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.8...v2.10.9) (2026-09-23)
 
 ### Bug Fixes
