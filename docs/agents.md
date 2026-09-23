@@ -22,9 +22,11 @@ hyperi-ci is a CLI, so the service-shaped parts of the HyperI Python standard do
 
 ## Each commit on a branch stands alone
 
-Never add a commit that fixes, cleans up or corrects an earlier commit on the same branch, or on any branch you forked from. If commits 1 to 3 land and commit 1 turns out sloppy, rewrite 1 to 3 atomically and force-push the branch. Do not add commit 4 apologising for commit 1.
+Never add a commit that fixes, cleans up or corrects an earlier commit on the same branch, or on any branch you forked from. If commits 1 to 3 land and commit 1 turns out sloppy, rewrite 1 to 3 atomically. Do not add commit 4 apologising for commit 1.
 
 This holds until the branch opens as a formal upstream PR, and after that a rebase-clean still beats a follow-up commit.
+
+**An agent cannot force-push.** `git.push.force-lease` denies it, and `git reset --hard` is denied too, so "rewrite and force-push" is advice an agent cannot take. Squash the work onto a NEW branch and open the PR from there, closing the superseded one and saying why. Ask a human to delete the orphan, or delete it yourself through `gh api -X DELETE repos/<org>/<repo>/git/refs/heads/<branch>`, which is a remote ref delete rather than a force-push and is allowed.
 
 ## Fix the flaky test, never re-run it
 
