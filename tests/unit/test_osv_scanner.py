@@ -6,8 +6,6 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for ``hyperi_ci.quality.osv_scanner``."""
 
-from __future__ import annotations
-
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -91,10 +89,11 @@ class TestRun:
         assert ok is True
         assert called == []
 
-    def test_skips_and_passes_when_binary_absent(
+    def test_skips_and_passes_locally_when_binary_absent(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         monkeypatch.setattr(osv_scanner, "available", lambda: False)
+        monkeypatch.setattr(osv_scanner, "is_ci", lambda: False)
         called: list[object] = []
         ok = osv_scanner.run(
             self._lockfile(tmp_path),
@@ -104,6 +103,26 @@ class TestRun:
         )
         assert ok is True
         assert called == []
+
+    def test_a_blocking_scan_with_no_binary_fails_in_ci(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A blocking gate that could not run has not passed."""
+        said: list[str] = []
+        monkeypatch.setattr(osv_scanner, "available", lambda: False)
+        monkeypatch.setattr(osv_scanner, "is_ci", lambda: True)
+        monkeypatch.setattr(osv_scanner, "error", said.append, raising=False)
+        ok = osv_scanner.run(self._lockfile(tmp_path), [], "blocking", lambda *a: True)
+        assert ok is False
+        assert any("osv-scanner" in s and "not installed" in s for s in said), said
+
+    def test_a_warn_scan_with_no_binary_still_passes_in_ci(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setattr(osv_scanner, "available", lambda: False)
+        monkeypatch.setattr(osv_scanner, "is_ci", lambda: True)
+        ok = osv_scanner.run(self._lockfile(tmp_path), [], "warn", lambda *a: False)
+        assert ok is True
 
     def test_missing_lockfile_skips(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path

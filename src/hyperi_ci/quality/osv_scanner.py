@@ -21,14 +21,13 @@ True positives are acted on; known false positives are suppressed via
 ``[[IgnoredVulns]]`` config, with optional auto-expiry).
 """
 
-from __future__ import annotations
-
 import shutil
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
-from hyperi_ci.common import info, is_ci, warn
+from hyperi_ci.common import error, info, is_ci, warn
 from hyperi_ci.quality.ignores import IgnoreEntry
+from hyperi_ci.tools import missing_tool_notice
 
 SLUG = "osv-scanner"
 _BINARY = "osv-scanner"
@@ -91,15 +90,16 @@ def run(
 ) -> bool:
     """Run osv-scanner against ``lockfile``, delegating execution.
 
-    Auto-detects the binary and skips with a notice if it is absent
-    (same pattern as every other optional tool). When ignore entries
+    A missing binary fails a ``blocking`` scan in CI and warn-skips
+    everywhere else, like every other quality tool. When ignore entries
     are present, writes an ``osv-scanner.toml`` and points the scanner
     at it. Execution + blocking/warn/disabled semantics are delegated
     to ``run_tool`` (the caller's tool runner), so this stays uniform
     with the rest of the quality stage.
 
     Returns:
-        True on pass / skip; ``run_tool``'s result otherwise.
+        True on pass / skip; False when a blocking scan could not run in
+        CI; ``run_tool``'s result otherwise.
 
     """
     if mode == "disabled":
@@ -107,10 +107,11 @@ def run(
         return True
 
     if not available():
-        info(
-            f"  {SLUG}: binary not found — skipping malicious-package scan "
-            f"of {lockfile.name} (install osv-scanner to enable)"
-        )
+        notice = missing_tool_notice(_BINARY)
+        if mode == "blocking" and is_ci():
+            error(notice)
+            return False
+        warn(notice)
         return True
 
     if not lockfile.exists():
