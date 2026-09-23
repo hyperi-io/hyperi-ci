@@ -190,6 +190,7 @@ jobs:
     outputs:
       run-checks: ${{ steps.predict.outputs.run-checks }}
       run-build: ${{ steps.predict.outputs.run-build }}
+      run-arm64-check: ${{ steps.predict.outputs.run-arm64-check }}
       will-release: ${{ steps.predict.outputs.will-release }}
       next-version: ${{ steps.predict.outputs.version }}
       prerelease: ${{ steps.predict.outputs.prerelease }}
@@ -232,10 +233,20 @@ jobs:
         run: ${{ env.HYPERCI_INSTALL }} preflight
 
       - name: Generate build matrix
-        # Multi-arch (amd64 + arm64) on publish runs; single-arch on
-        # validate-only AND branch-mode PR builds -- arm64 is slow on
-        # shared runners and wasteful when nothing's being shipped, so
-        # arch breadth keys off will-release, NOT run-build.
+        # Arch breadth keys off run-build: every run that builds at all builds
+        # both arches. That covers a validate-only dispatch and a branch-mode
+        # PR, which are the two on-demand ways to exercise arm64 without
+        # publishing. Keying it off will-release meant arm64 first executed on
+        # the run meant to ship it, so a Cortex-A53 BOLT refusal was found
+        # mid-publish and its fix could not be tested except by publishing
+        # again (issue #249).
+        #
+        # run-arm64-check is the one case that builds where run-build is
+        # false: a release-worthy merge to main, which ships, so the doctrine's
+        # red line (a merge that ships nothing compiles nothing) is untouched.
+        # That leg is arm64 ALONE -- it exists to catch arm64-specific
+        # breakage while the change is still attributable, not to rebuild
+        # amd64 that every other gate already covered.
         #
         # A project that lists `build.rust.targets` in .hyperi-ci.yaml ships
         # only those arches, so one whose release build does not fit the
@@ -252,6 +263,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          run_build="${{ steps.predict.outputs.run-build }}"
+          arm64_check="${{ steps.predict.outputs.run-arm64-check }}"
           AMD64_RUNNER="${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE_RUST || vars.GH_RUNNER_RUST || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"
           ARM64_RUNNER="${{ vars.GH_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}"
           wanted=""
@@ -261,10 +274,18 @@ jobs:
           want() { [[ -z "$wanted" || " $wanted" == *" $1 "* ]]; }
           amd64='{"target":"x86_64-unknown-linux-gnu","runner":"'"$AMD64_RUNNER"'","os_arch":"linux-amd64"}'
           arm64='{"target":"aarch64-unknown-linux-gnu","runner":"'"$ARM64_RUNNER"'","os_arch":"linux-arm64"}'
-          legs=()
-          if want x86_64-unknown-linux-gnu; then legs+=("$amd64"); fi
-          if [[ "${{ steps.predict.outputs.will-release }}" == "true" ]] && want aarch64-unknown-linux-gnu; then legs+=("$arm64"); fi
-          if [[ ${#legs[@]} -eq 0 ]]; then legs=("$amd64"); fi
+          if [[ "$run_build" == "true" ]]; then
+            legs=()
+            if want x86_64-unknown-linux-gnu; then legs+=("$amd64"); fi
+            if want aarch64-unknown-linux-gnu; then legs+=("$arm64"); fi
+            # A targets list naming neither still builds amd64 rather than nothing.
+            if [[ ${#legs[@]} -eq 0 ]]; then legs=("$amd64"); fi
+          elif [[ "$arm64_check" == "true" ]]; then
+            legs=("$arm64")
+          else
+            # Nothing builds here; the Build job is gated off and never reads this.
+            legs=("$amd64")
+          fi
           matrix="{\"include\":[$(IFS=,; echo "${legs[*]}")]}"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
@@ -446,7 +467,11 @@ jobs:
   build:
     name: Build (${{ matrix.os_arch }})
     needs: [plan, quality, test]
-    if: needs.plan.outputs.run-build == 'true'
+    # The second clause is the arm64-parity case (issue #249): a release-worthy
+    # merge to main builds the arm64 leg alone, so an arm64 regression is found
+    # where it is still attributable rather than during the release that ships
+    # it. The matrix holds arm64 only there; see the plan job's matrix step.
+    if: needs.plan.outputs.run-build == 'true' || needs.plan.outputs.run-arm64-check == 'true'
     runs-on: ${{ matrix.runner }}
     strategy:
       # A leg that dies on its runner must not cancel a leg that finished:
@@ -555,6 +580,11 @@ jobs:
   release-tail:
     name: Release tail
     needs: [plan, build]
+    # The tail used to be reached exactly when Build ran, since both keyed off
+    # run-build. The arm64-parity build (issue #249) breaks that: it compiles
+    # one leg to catch a regression and ships nothing, so the container build
+    # the tail would run is cost with no deliverable behind it.
+    if: needs.plan.outputs.run-build == 'true'
     # Elevated + passed to _release-tail.yml: its tag-and-release job commits +
     # tags (contents), pushes GHCR (packages) and runs the semantic-release GH
     # plugin (issues + pull-requests). Capped by the caller's grant.

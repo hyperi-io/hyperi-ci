@@ -62,6 +62,9 @@ outputs:
   run-build:
     description: "'true' iff build + container + publish should run (publish-worthy only)"
     value: ${{ steps.derive.outputs.run-build }}
+  run-arm64-check:
+    description: "'true' iff this run owes an arm64-only build for parity -- a release-worthy merge to main on a project that ships aarch64 and has not set build.rust.arm64_on_main: false (issue #249)"
+    value: ${{ steps.derive.outputs.run-arm64-check }}
   python-version:
     description: "Python version this project is built and tested on"
     value: ${{ steps.python.outputs.python-version }}
@@ -387,9 +390,24 @@ runs:
           run_checks=false
         fi
 
+        # run-arm64-check: the one case that builds arm64 where run-build is
+        # false. arm64 compiled only on a run that was already publishing, so
+        # an arm64-only defect first executed during the release meant to ship
+        # it, and the fix could not be exercised except by publishing again
+        # (issue #249). A release-worthy merge WILL ship, so building its arm64
+        # leg crosses no line: a merge that ships nothing still compiles
+        # nothing, and run-build above is untouched. Only rust-ci.yml reads
+        # this; the project half of the answer (ships aarch64, has not opted
+        # out) is the helper's.
+        arm64_check=false
+        if [[ "$event_name" == "push" && "$git_ref" == "refs/heads/main" && "$release_worthy" == "true" ]]; then
+          arm64_check=$(python3 "$GITHUB_ACTION_PATH/arm64_check.py")
+        fi
+
         echo "run-build=$run_build" >> "$GITHUB_OUTPUT"
         echo "run-checks=$run_checks" >> "$GITHUB_OUTPUT"
-        summary="run-checks=$run_checks run-build=$run_build (will-publish=$will_publish event=$event_name branch-build=$branch_build release-worthy=$release_worthy prerelease=$prerelease)"
+        echo "run-arm64-check=$arm64_check" >> "$GITHUB_OUTPUT"
+        summary="run-checks=$run_checks run-build=$run_build run-arm64-check=$arm64_check (will-publish=$will_publish event=$event_name branch-build=$branch_build release-worthy=$release_worthy prerelease=$prerelease)"
         # A gate that skipped reads exactly like a gate that passed, which is
         # the whole of issue #96 -- so say so where it lands, on main.
         if [[ "$run_checks" != "true" && "$event_name" == "push" && "$git_ref" == "refs/heads/main" ]]; then
