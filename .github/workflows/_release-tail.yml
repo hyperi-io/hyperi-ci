@@ -94,9 +94,11 @@ env:
   # an old hyperi-ci that allowed it, rather than failing (issue #157).
   HYPERCI_INSTALL: ${{ vars.HYPERCI_INSTALL_OVERRIDE || 'uvx --python 3.14 --no-cache --refresh hyperi-ci' }}
   HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
-  # The build job resolved these; the container and release jobs need them
-  # too, or an unoptimised image ships with no record that it is one.
-  HYPERCI_SKIP_OPTIMIZE: ${{ inputs.skip-optimize }}
+  # The container and release jobs read the same switches the build did, or an
+  # unoptimised image ships with no record that it is one. The skip falls back
+  # to the repo variable exactly as the build's does: `vars` in a nested
+  # workflow are the consumer repo's.
+  HYPERCI_SKIP_OPTIMIZE: ${{ inputs.skip-optimize || vars.HYPERCI_SKIP_OPTIMIZE }}
   HYPERCI_RELEASE_UNOPTIMIZED: ${{ inputs.release-unoptimized }}
 
 jobs:
