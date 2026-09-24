@@ -3,6 +3,27 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.10.13](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.12...v2.10.13) (2026-09-24)
+
+### Bug Fixes
+
+* **audit:** check the inputs a person dispatches, not only the CLI's ([#299](https://github.com/hyperi-io/hyperi-ci/issues/299)) ([52f9f10](https://github.com/hyperi-io/hyperi-ci/commit/52f9f10c7d0f5ec8c0bb0bb19c3c2bee1c387e15)), closes [#285](https://github.com/hyperi-io/hyperi-ci/issues/285)
+* **ci:** give Rust Quality 90 minutes, twice elastic's real run ([#315](https://github.com/hyperi-io/hyperi-ci/issues/315)) ([032a7cb](https://github.com/hyperi-io/hyperi-ci/commit/032a7cb57a4e6bf500b90269a5d0996add035c64)), closes [#300](https://github.com/hyperi-io/hyperi-ci/issues/300) [#300](https://github.com/hyperi-io/hyperi-ci/issues/300)
+* **ci:** let a dispatch build the release tier without publishing ([#285](https://github.com/hyperi-io/hyperi-ci/issues/285)) ([bfbc470](https://github.com/hyperi-io/hyperi-ci/commit/bfbc470d275443311778ba2445fc40a459b4bd01)), closes [#257](https://github.com/hyperi-io/hyperi-ci/issues/257)
+* **ci:** retry a tool download instead of failing the release on one 5xx ([#302](https://github.com/hyperi-io/hyperi-ci/issues/302)) ([13027a5](https://github.com/hyperi-io/hyperi-ci/commit/13027a51968ad083e8941d82234495f22b336505))
+* **ci:** retry the interface gate's PyPI lookup instead of skipping on one 5xx ([#311](https://github.com/hyperi-io/hyperi-ci/issues/311)) ([a907492](https://github.com/hyperi-io/hyperi-ci/commit/a9074920821dd9e3234a62fb244bacc491f68437))
+* **ci:** stop a hung job at its own limit, not GitHub's 360 minutes ([#300](https://github.com/hyperi-io/hyperi-ci/issues/300)) ([f6efe90](https://github.com/hyperi-io/hyperi-ci/commit/f6efe9014aed3113affe4961200114a6ccb89ab9)), closes [#262](https://github.com/hyperi-io/hyperi-ci/issues/262) [#262](https://github.com/hyperi-io/hyperi-ci/issues/262)
+* **commit:** reject an empty message instead of crashing on it ([#318](https://github.com/hyperi-io/hyperi-ci/issues/318)) ([892d093](https://github.com/hyperi-io/hyperi-ci/commit/892d0933abe42500115e026990a7b8c1c60673a3)), closes [#184](https://github.com/hyperi-io/hyperi-ci/issues/184) [#317](https://github.com/hyperi-io/hyperi-ci/issues/317)
+* **common:** retry a curl the backstop killed instead of raising ([#324](https://github.com/hyperi-io/hyperi-ci/issues/324)) ([cc2e105](https://github.com/hyperi-io/hyperi-ci/commit/cc2e10554654c701b7de54cd8037657f0555ee83)), closes [#320](https://github.com/hyperi-io/hyperi-ci/issues/320)
+* **config:** tell a repo to move destinations_oss, never to delete it ([#322](https://github.com/hyperi-io/hyperi-ci/issues/322)) ([9d583f6](https://github.com/hyperi-io/hyperi-ci/commit/9d583f6599f3be80a515020f9aa8dfffd9539eaa)), closes [#184](https://github.com/hyperi-io/hyperi-ci/issues/184)
+* **fleet:** keep a branch-CLI override marked for as long as it is set ([#321](https://github.com/hyperi-io/hyperi-ci/issues/321)) ([2a243fe](https://github.com/hyperi-io/hyperi-ci/commit/2a243fe4939ca92077f98bb116b359cd03046d28))
+* **fleet:** wait for a fixture a rehearsal holds instead of sweeping it ([#319](https://github.com/hyperi-io/hyperi-ci/issues/319)) ([f15b98c](https://github.com/hyperi-io/hyperi-ci/commit/f15b98c6905121aa34bf63d01acfcc38df101182)), closes [#316](https://github.com/hyperi-io/hyperi-ci/issues/316)
+* **quality:** write the osv-scanner ignore config outside the checkout ([#323](https://github.com/hyperi-io/hyperi-ci/issues/323)) ([c901054](https://github.com/hyperi-io/hyperi-ci/commit/c901054c7d2dd777f9816130683a32aa3258953c))
+* report a rejected Slack webhook as a failed post ([#309](https://github.com/hyperi-io/hyperi-ci/issues/309)) ([c610382](https://github.com/hyperi-io/hyperi-ci/commit/c610382871047b22fcdfd60b011ed66a57e9d74e)), closes [#308](https://github.com/hyperi-io/hyperi-ci/issues/308)
+* retry a Python-side fetch instead of failing on one 5xx ([#304](https://github.com/hyperi-io/hyperi-ci/issues/304)) ([28d662e](https://github.com/hyperi-io/hyperi-ci/commit/28d662e697a04e9c33237d9baada4bf3e0115863)), closes [#302](https://github.com/hyperi-io/hyperi-ci/issues/302) [#303](https://github.com/hyperi-io/hyperi-ci/issues/303)
+* retry an APT codename probe instead of falling back on one 5xx ([#310](https://github.com/hyperi-io/hyperi-ci/issues/310)) ([76ec137](https://github.com/hyperi-io/hyperi-ci/commit/76ec1375ec7ff93f733984de01e4719cae7c75da)), closes [#306](https://github.com/hyperi-io/hyperi-ci/issues/306)
+* stop retrying a fetch that failed with a 4xx ([#314](https://github.com/hyperi-io/hyperi-ci/issues/314)) ([4452a47](https://github.com/hyperi-io/hyperi-ci/commit/4452a47a684491269145f2a7ad4f0aae601c3dbc)), closes [#312](https://github.com/hyperi-io/hyperi-ci/issues/312)
+
 ## [2.10.12](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.11...v2.10.12) (2026-09-24)
 
 ### Bug Fixes
