@@ -5,8 +5,8 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
-from __future__ import annotations
-
+import functools
+import shutil
 import struct
 from collections.abc import Callable
 from pathlib import Path
@@ -14,7 +14,30 @@ from pathlib import Path
 import pytest
 
 from hyperi_ci import channel
-from hyperi_ci.common import is_ci
+from hyperi_ci.common import is_ci, run_cmd
+
+
+@functools.cache
+def repo_local_git_env() -> tuple[str, ...]:
+    """The environment variables that bind git to one repository, as git lists them."""
+    if shutil.which("git") is None:
+        return ()
+    result = run_cmd(
+        ["git", "rev-parse", "--local-env-vars"], capture=True, check=False
+    )
+    return tuple(result.stdout.split())
+
+
+@pytest.fixture(autouse=True)
+def detached_from_the_calling_repo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep every git call a test makes off the repository running the suite.
+
+    Under `git rebase --exec` or a git hook, git exports GIT_DIR, and a test
+    that runs `git init <tmp>` re-initialises THAT repository instead. A linked
+    worktree's GIT_DIR turns the main checkout bare.
+    """
+    for name in repo_local_git_env():
+        monkeypatch.delenv(name, raising=False)
 
 
 def _write_elf(
