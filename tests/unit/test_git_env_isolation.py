@@ -36,3 +36,17 @@ def test_git_names_the_variables_that_bind_it_to_a_repo() -> None:
 def test_no_repo_local_git_variable_reaches_a_test() -> None:
     leaked = [name for name in _repo_local_names() if name in os.environ]
     assert not leaked, f"a test inherited {leaked}; git calls here hit the calling repo"
+
+
+def test_the_scrub_clears_a_planted_git_dir(
+    monkeypatch: pytest.MonkeyPatch, clear_git_env
+) -> None:
+    # Fails in a clean env too, unlike the leak test above, which needs an
+    # exported GIT_DIR to bite.
+    monkeypatch.setenv("GIT_DIR", "/nonexistent/.git/worktrees/w")
+    monkeypatch.setenv("GIT_WORK_TREE", "/nonexistent")
+    clear_git_env(monkeypatch)
+    # Compare the one value, never os.environ itself: a failed assertion prints
+    # both sides, and the environment carries credentials.
+    assert os.environ.get("GIT_DIR") is None
+    assert os.environ.get("GIT_WORK_TREE") is None
