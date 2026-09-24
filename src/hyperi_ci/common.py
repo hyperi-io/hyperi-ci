@@ -25,11 +25,18 @@ from scalo.logger import logger
 
 # Initialise logger for CI use (auto-detects GH Actions, CI, terminal)
 from scalo.logger import setup as _setup_logger
+from scalo.logger.scrub import ScrubConfig, SecretsConfig
 
 if TYPE_CHECKING:
     from hyperi_ci.config import CIConfig
 
-_setup_logger(ci_mode=None, mask_sensitive=True)
+# scalo's default scrubber minus gitleaks' generic-api-key rule, which matches
+# log prose containing the word "keys" and ate our own config warnings (#255).
+SCRUB_CONFIG = ScrubConfig(
+    secrets=SecretsConfig(exclude_rules=frozenset({"generic-api-key"}))
+)
+
+_setup_logger(ci_mode=None, scrub_config=SCRUB_CONFIG)
 
 
 def sanitize_ref_name(ref: str) -> str:

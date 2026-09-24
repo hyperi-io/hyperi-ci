@@ -336,7 +336,7 @@ requires-dist = [
     { name = "packaging", specifier = ">=26.0" },
     { name = "pydantic", specifier = ">=2.13" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "scalo", specifier = ">=2.28.5" },
+    { name = "scalo", specifier = ">=2.30.2" },
     { name = "tomli-w", specifier = ">=1.2.0" },
     { name = "typer", specifier = ">=0.27" },
 ]
@@ -836,7 +836,7 @@ wheels = [
 
 [[package]]
 name = "scalo"
-version = "2.30.0"
+version = "2.30.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -854,9 +854,9 @@ dependencies = [
     { name = "tomli-w" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2e/88/9b6405dcc0bc3aa8178bd90754a9a452e168dc5e7d6f57c2d2cbfccaf733/scalo-2.30.0.tar.gz", hash = "sha256:d0bf1fe5b5fb1870236a49ef13f018f5bd58c083cef7a8e22d75325dbf4e5a4f", size = 337665, upload-time = "2026-08-27T22:56:05.278Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/eb/ec/af761685c29a80d24832b3dcbe7ce2153139f7dcdc096ef44ea5667ce667/scalo-2.30.2.tar.gz", hash = "sha256:e98418cfcc8f77608bbab2020886b8aa0c10ecaf746e67a8eb522629c736ce62", size = 337554, upload-time = "2026-09-24T00:09:30.491Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d8/c0/53e8745fbcfdff8485cd8840bcb2502ee9264daf40971f4a4e928ab5e91d/scalo-2.30.0-py3-none-any.whl", hash = "sha256:323043d5617bf9ddc231ee2cbdb5105b3138b1fc245efd1a03f755683444e542", size = 410306, upload-time = "2026-08-27T22:56:03.439Z" },
+    { url = "https://files.pythonhosted.org/packages/9f/84/d57a315966718014f922cc7baa7c7bdcee4cf530dfad128ed6f6954092a3/scalo-2.30.2-py3-none-any.whl", hash = "sha256:46be53f5cd82e828df5c0b7e8d989e56be9e4b8d8e8c6a7fd170cc16d50a6897", size = 410442, upload-time = "2026-09-24T00:09:28.494Z" },
 ]
 
 [[package]]
