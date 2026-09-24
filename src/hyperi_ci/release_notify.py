@@ -301,11 +301,12 @@ def notify_slack(config: CIConfig, *, text: str) -> int:
         warn(f"release-notify: {variable} names no webhook — skipping Slack")
         return 0
 
-    # No retry flags: a retried POST posts the message twice.
+    # -f turns a rejected webhook into a failed exit, and no retry flags,
+    # because a retried POST posts the message twice.
     result = run_cmd(
         [
             "curl",
-            "-sS",
+            "-fsS",
             "-X",
             "POST",
             "-K",
