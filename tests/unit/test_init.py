@@ -103,11 +103,19 @@ class TestRenderTemplates:
 
     def test_workflow_scaffolds_dispatch_inputs(self) -> None:
         # `hyperi-ci publish` dispatches from-head + bump (issue #35) and the
-        # Actions UI offers skip-optimize (issue #132); the scaffolded ci.yml
-        # must declare each and forward it, else the dispatch errors.
+        # Actions UI offers skip-optimize (issue #132) and optimize-tier
+        # (issue #257); the scaffolded ci.yml must declare each and forward it,
+        # else the dispatch errors.
+        dispatch_inputs = (
+            "from-head",
+            "bump",
+            "skip-optimize",
+            "release-unoptimized",
+            "optimize-tier",
+        )
         for workflow_file in ("python-ci.yml", "rust-ci.yml", "ts-ci.yml", "go-ci.yml"):
             content = _render_workflow("my-project", workflow_file)
-            for name in ("from-head", "bump", "skip-optimize", "release-unoptimized"):
+            for name in dispatch_inputs:
                 assert f"{name}:" in content, f"{workflow_file}: missing {name} input"
                 assert f"{name}: ${{{{ inputs.{name}" in content, (
                     f"{workflow_file}: {name} not forwarded"

@@ -225,6 +225,10 @@ manifest's `[features]` unioned with every member's.
 `llvm-bolt-NN` + `merge-fdata-NN` + `ld.lld-NN` get used. Bump it in your project only
 if you need a specific LLVM major - otherwise trust the default.
 
+### Running it without a release
+
+A run that publishes nothing builds Tier 1. The `optimize-tier: release` dispatch input builds Tier 2 on one validate-only run, so a PGO or BOLT fix no longer needs a release to test. How to run it, and what it costs: [`pgo-bolt.md`](../runtime/pgo-bolt.md) -> *Validating your workload locally* -> *Testing it in CI without a release*.
+
 ---
 
 ## Skipping optimisation for one run
