@@ -1760,3 +1760,33 @@ def test_a_terminal_gate_job_always_runs(workflow_name: str) -> None:
             f"{workflow_name}: the gate does not need {upstream!r}, so it "
             f"cannot see whether it ran."
         )
+
+
+class TestToolDownloadsRetry:
+    """A tool download retries, so one transient 5xx cannot fail a release.
+
+    An unretried cargo-semver-checks download in Tag & Release lost a
+    dfe-receiver release to a single GitHub 500.
+    """
+
+    @staticmethod
+    def _downloads() -> list[tuple[str, str]]:
+        found = []
+        for path in sorted(ACTIONS_DIR.rglob("*.yml")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if re.search(r"\bcurl\b", line) and " -o " in line:
+                    name = path.relative_to(ACTIONS_DIR).as_posix()
+                    found.append((name, line.strip()))
+        return found
+
+    def test_the_scan_finds_the_downloads(self) -> None:
+        assert len(self._downloads()) >= 5
+
+    def test_every_download_retries_within_a_bound(self) -> None:
+        # The bound keeps six 300 s attempts from eating a 45-minute job limit.
+        unretried = [
+            (name, line)
+            for name, line in self._downloads()
+            if "--retry " not in line or "--retry-max-time" not in line
+        ]
+        assert not unretried, unretried

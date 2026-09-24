@@ -137,7 +137,7 @@ runs:
         # re-uploaded under the same tag. Verification needs the whole file, so
         # the download cannot pipe straight into tar.
         fetch() {  # $1=url  $2=expected sha256  $3=dest file
-          curl -fsSL --connect-timeout 10 --max-time 300 -o "$3" "$1"
+          curl -fsSL --connect-timeout 10 --max-time 300 --retry 5 --retry-all-errors --retry-delay 2 --retry-max-time 600 -o "$3" "$1"
           echo "$2  $3" | sha256sum -c - >/dev/null || {
             echo "::error::$1 failed its sha256 check - refusing to install"
             echo "  expected $2"

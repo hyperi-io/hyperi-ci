@@ -70,7 +70,7 @@ runs:
         # mismatch never lands on PATH even briefly.
         TMP="$(mktemp -d)"
         trap 'rm -rf "$TMP"' EXIT
-        curl -fsSL --connect-timeout 10 --max-time 300 -o "$TMP/osv-scanner" \
+        curl -fsSL --connect-timeout 10 --max-time 300 --retry 5 --retry-all-errors --retry-delay 2 --retry-max-time 600 -o "$TMP/osv-scanner" \
           "https://github.com/google/osv-scanner/releases/download/${OSV_VERSION}/osv-scanner_linux_${OSV_ARCH}"
         echo "$OSV_SHA  $TMP/osv-scanner" | sha256sum -c - >/dev/null || {
           echo "::error::osv-scanner failed its sha256 check - refusing to install"
