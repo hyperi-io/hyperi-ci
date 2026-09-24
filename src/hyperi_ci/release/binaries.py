@@ -14,8 +14,6 @@ Called from dispatch.py after the language-specific release handler.
 Any language that packages binaries to dist/ gets this for free.
 """
 
-from __future__ import annotations
-
 import filecmp
 import os
 import re
@@ -179,7 +177,7 @@ UNOPTIMIZED_RELEASE_BANNER = (
 
 
 @contextmanager
-def _release_notes_flags(version: str) -> Iterator[list[str]]:
+def _release_notes_flags(version: str, config: CIConfig) -> Iterator[list[str]]:
     """Yield gh flags carrying the release body.
 
     GitHub puts the body above its own generated notes, so the release page
@@ -190,6 +188,13 @@ def _release_notes_flags(version: str) -> Iterator[list[str]]:
     Yields no flags when there is nothing to add -- no banner, and no
     CHANGELOG.md whose top entry matches this version -- which leaves the
     generated notes on their own.
+
+    Args:
+        version: Version being released, matched against the changelog.
+        config: Merged CI config. The build and the image label read a skip
+            from ``build.skip_optimize`` as well as the env, so the banner
+            reads the same config or the release page contradicts them.
+
     """
     changelog = Path(CHANGELOG_FILE)
     entry = None
@@ -197,9 +202,8 @@ def _release_notes_flags(version: str) -> Iterator[list[str]]:
         entry = _top_changelog_entry(
             version, changelog.read_text(encoding="utf-8", errors="replace")
         )
-    sections = [
-        s for s in (UNOPTIMIZED_RELEASE_BANNER if skip_optimize() else None, entry) if s
-    ]
+    banner = UNOPTIMIZED_RELEASE_BANNER if skip_optimize(config) else None
+    sections = [s for s in (banner, entry) if s]
     if not sections:
         yield []
         return
@@ -348,7 +352,7 @@ def create_github_release(config: CIConfig) -> int:
     tag = f"v{version}"
 
     info(f"Creating GitHub Release {tag}")
-    with _release_notes_flags(version) as notes_flags:
+    with _release_notes_flags(version, config) as notes_flags:
         cmd = ["gh", "release", "create", tag, "--title", tag, "--generate-notes"]
         cmd.extend(notes_flags)
         cmd.extend(_resolve_gh_release_flags(channel))
@@ -382,7 +386,7 @@ def create_github_release(config: CIConfig) -> int:
 
 
 def _upload_binaries_github(
-    channel: str = "release", exclude_python: bool = False
+    config: CIConfig, channel: str = "release", exclude_python: bool = False
 ) -> int:
     """Create GitHub Release and upload built binaries.
 
@@ -390,6 +394,11 @@ def _upload_binaries_github(
     channels (alpha, beta), the release is marked as prerelease.
     Falls back to upload if the release already exists at HEAD (idempotent
     re-runs); refuses to clobber a release at a different commit (#105).
+
+    Args:
+        config: Merged CI config, which the release body reads.
+        channel: Channel the version ships on.
+        exclude_python: Drop wheels and sdists from the upload.
 
     Returns:
         Exit code (0 = success).
@@ -408,7 +417,7 @@ def _upload_binaries_github(
     tag = f"v{version}"
     info(f"Publishing {len(artifacts)} artifact(s) to GitHub Release {tag}")
 
-    with _release_notes_flags(version) as notes_flags:
+    with _release_notes_flags(version, config) as notes_flags:
         cmd = ["gh", "release", "create", tag, "--title", tag, "--generate-notes"]
         cmd.extend(notes_flags)
         cmd.extend(_resolve_gh_release_flags(channel))
@@ -572,7 +581,7 @@ def publish_binaries(config: CIConfig) -> int:
         if dest == "github-releases":
             with group("Upload: GitHub Releases"):
                 rc = _upload_binaries_github(
-                    channel=channel, exclude_python=exclude_python
+                    config, channel=channel, exclude_python=exclude_python
                 )
                 if rc != 0:
                     return rc
