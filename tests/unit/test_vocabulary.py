@@ -10,12 +10,10 @@ Back-compat is the whole point of the rename, so most of this file is about the
 old spellings continuing to work.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from hyperi_ci import vocabulary
-from hyperi_ci.config import CIConfig
+from hyperi_ci.config import CIConfig, packaged_default
 
 
 class TestFoldLegacyConfig:
@@ -162,6 +160,33 @@ class TestDeprecationMessage:
         message = vocabulary.deprecated_config_message(["publish.destinations_oss"])
         assert "REMOVED" in message
         assert vocabulary.REMOVAL_DATE in message
+
+    def test_destinations_oss_says_move_it_not_delete_it(self) -> None:
+        """Deleting it turns every destination it opted out back on."""
+        message = vocabulary.deprecated_config_message(["publish.destinations_oss"])
+        assert "publish.destinations_oss -> release.destinations" in message
+        assert "inert" not in message
+        assert "Delete" not in message
+
+    def test_target_is_still_told_to_go(self) -> None:
+        message = vocabulary.deprecated_config_message(["publish.target"])
+        assert "Delete" in message
+        assert "release.destinations" not in message
+
+    def test_moving_keeps_an_opt_out_that_deleting_loses(self) -> None:
+        """The reason the advice is move: npm publishing comes back on delete."""
+        shipped = dict(packaged_default("release.destinations"))
+        opted_out = CIConfig(
+            _raw={
+                "release": {"destinations": shipped},
+                "publish": {"destinations_oss": {"npm": False}},
+            }
+        )
+        moved = CIConfig(_raw={"release": {"destinations": {**shipped, "npm": False}}})
+        deleted = CIConfig(_raw={"release": {"destinations": shipped}})
+        assert opted_out.destination_for("npm") == []
+        assert moved.destination_for("npm") == []
+        assert deleted.destination_for("npm") != []
 
     def test_both_tiers_are_reported_separately(self) -> None:
         message = vocabulary.deprecated_config_message(
