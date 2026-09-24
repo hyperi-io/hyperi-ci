@@ -3,6 +3,28 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.10.12](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.11...v2.10.12) (2026-09-24)
+
+### Bug Fixes
+
+* **ci:** let a pod-scoped runner contain the buildx builder ([#289](https://github.com/hyperi-io/hyperi-ci/issues/289)) ([df24402](https://github.com/hyperi-io/hyperi-ci/commit/df24402b78067b7d122908b3dcbbd9aac2e0067e)), closes [#284](https://github.com/hyperi-io/hyperi-ci/issues/284)
+* **ci:** let a repo-variable skip-optimize reach the release tail ([2551886](https://github.com/hyperi-io/hyperi-ci/commit/25518864e697e8ec9c70a4b5f492918feb706981))
+* **ci:** teach the release tail and the build the optimize-tier ask ([478c092](https://github.com/hyperi-io/hyperi-ci/commit/478c092d00330d000450559e69e9276982bb53f5)), closes [#257](https://github.com/hyperi-io/hyperi-ci/issues/257)
+* **generate:** report a producer that cannot be started ([d6e3acd](https://github.com/hyperi-io/hyperi-ci/commit/d6e3acd8f42bfb4754453ea175e40a1c6c7b303d))
+* **logging:** keep env-style credentials masked in our logs ([#293](https://github.com/hyperi-io/hyperi-ci/issues/293)) ([36c072a](https://github.com/hyperi-io/hyperi-ci/commit/36c072ab998012fa60f9a5c2f33030efc553f957)), closes [#255](https://github.com/hyperi-io/hyperi-ci/issues/255)
+* **logging:** no log line can start a workflow command ([#295](https://github.com/hyperi-io/hyperi-ci/issues/295)) ([592119d](https://github.com/hyperi-io/hyperi-ci/commit/592119df47ee987251951a0f8d7f53917170a7a3))
+* **logging:** report each CI event once, through one function ([#297](https://github.com/hyperi-io/hyperi-ci/issues/297)) ([d834b83](https://github.com/hyperi-io/hyperi-ci/commit/d834b832cdc78987140b75d0d412f248d4f258f0)), closes [#296](https://github.com/hyperi-io/hyperi-ci/issues/296)
+* **logging:** stop the secret scrubber eating our own config warnings ([b5c1c85](https://github.com/hyperi-io/hyperi-ci/commit/b5c1c8576284147a19064d3dd95c2bc4419e56df)), closes [#255](https://github.com/hyperi-io/hyperi-ci/issues/255)
+* **logs:** give up on a job-id lookup that never answers ([073444f](https://github.com/hyperi-io/hyperi-ci/commit/073444f258f4bd089980ce9e691ba2af5a8cb81a))
+* **logs:** read a reusable-workflow job from its whole log ([64b7694](https://github.com/hyperi-io/hyperi-ci/commit/64b7694d6bab2ba52e848c454f30eb68dceaa832))
+* pin the calls the encoding guard could not see ([#287](https://github.com/hyperi-io/hyperi-ci/issues/287)) ([48fba94](https://github.com/hyperi-io/hyperi-ci/commit/48fba946949afc5017f3f0badfb4786827933750)), closes [#275](https://github.com/hyperi-io/hyperi-ci/issues/275) [#275](https://github.com/hyperi-io/hyperi-ci/issues/275)
+* pin the encoding of every text-mode call ([cc688ad](https://github.com/hyperi-io/hyperi-ci/commit/cc688ad256a3f58eb8f11bff396c4c97ee1c71ae)), closes [#275](https://github.com/hyperi-io/hyperi-ci/issues/275)
+* **quality:** announce a force-skip once, and escaped ([#294](https://github.com/hyperi-io/hyperi-ci/issues/294)) ([589cc67](https://github.com/hyperi-io/hyperi-ci/commit/589cc67e2b0387ea5dbb8f5875b855bf781253ca)), closes [#286](https://github.com/hyperi-io/hyperi-ci/issues/286)
+* **quality:** announce a relaxed gate once, and never raw ([683f2b9](https://github.com/hyperi-io/hyperi-ci/commit/683f2b9cbafc88378b29be87ace6c17773c6b136))
+* **quality:** disabling the stage owes a reason ([fc52e88](https://github.com/hyperi-io/hyperi-ci/commit/fc52e8830301849aa1753ae41c1260ca0a71ea01)), closes [#250](https://github.com/hyperi-io/hyperi-ci/issues/250) [#270](https://github.com/hyperi-io/hyperi-ci/issues/270)
+* **release:** the unoptimised banner reads a config skip too ([86b974b](https://github.com/hyperi-io/hyperi-ci/commit/86b974ba219e6ba57a823136d1cf788a5a33102f))
+* **tests:** keep test git calls off the repo running the suite ([c4f5355](https://github.com/hyperi-io/hyperi-ci/commit/c4f5355dc876692c95bdf8b73e207a54897d6429))
+
 ## [2.10.11](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.10...v2.10.11) (2026-09-23)
 
 ### Bug Fixes
