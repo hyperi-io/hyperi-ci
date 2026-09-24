@@ -250,7 +250,7 @@ class TestCurlRetryRule:
         outcomes.append((22, "503", ""))
         clock = iter([0.0])
         monkeypatch.setattr(common.time, "monotonic", lambda: next(clock, elapsed))
-        monkeypatch.setattr(common, "_backoff", lambda _retry: 16.0)
+        monkeypatch.setattr(common, "backoff", lambda _retry: 16.0)
         _fetch(tmp_path)
         assert len(attempts) == attempts_made
 
