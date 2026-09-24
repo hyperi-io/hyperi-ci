@@ -10,12 +10,11 @@ Back-compat is the whole point of the rename, so most of this file is about the
 old spellings continuing to work.
 """
 
-from __future__ import annotations
-
 import pytest
 
+from hyperi_ci import config as config_module
 from hyperi_ci import vocabulary
-from hyperi_ci.config import CIConfig
+from hyperi_ci.config import CIConfig, load_config, packaged_default
 
 
 class TestFoldLegacyConfig:
@@ -162,6 +161,59 @@ class TestDeprecationMessage:
         message = vocabulary.deprecated_config_message(["publish.destinations_oss"])
         assert "REMOVED" in message
         assert vocabulary.REMOVAL_DATE in message
+
+    def test_destinations_oss_says_move_it_not_delete_it(self) -> None:
+        """Deleting it turns every destination it opted out back on."""
+        message = vocabulary.deprecated_config_message(["publish.destinations_oss"])
+        assert "publish.destinations_oss -> release.destinations" in message
+        assert "inert" not in message
+        assert "Delete" not in message
+
+    @pytest.mark.parametrize(
+        "doc",
+        [
+            {"release": {"destinations_oss": {"python": False}}},
+            {"release": {"target": "oss"}, "publish": {"channel": "beta"}},
+        ],
+        ids=["release-block-only", "beside-a-publish-block"],
+    )
+    def test_a_removal_key_under_release_is_reported_too(self, doc) -> None:
+        """Written under release:, it once drew no warning at all."""
+        _, keys = vocabulary.fold_legacy_config(doc)
+        key = next(iter(doc["release"]))
+        assert f"release.{key}" in keys
+
+    def test_load_config_names_a_release_block_removal_key(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """The path a real run takes, not only the fold helper."""
+        monkeypatch.setattr(config_module, "_config_cache", None)
+        (tmp_path / ".hyperi-ci.yaml").write_text(
+            "release:\n  destinations_oss:\n    python: false\n", encoding="utf-8"
+        )
+        config = load_config(reload=True, project_dir=tmp_path)
+        assert "release.destinations_oss" in config.deprecated_keys
+        assert config.destination_for("python") == []
+
+    def test_target_is_still_told_to_go(self) -> None:
+        message = vocabulary.deprecated_config_message(["publish.target"])
+        assert "Delete" in message
+        assert "release.destinations" not in message
+
+    def test_moving_keeps_an_opt_out_that_deleting_loses(self) -> None:
+        """The reason the advice is move: npm publishing comes back on delete."""
+        shipped = dict(packaged_default("release.destinations"))
+        opted_out = CIConfig(
+            _raw={
+                "release": {"destinations": shipped},
+                "publish": {"destinations_oss": {"npm": False}},
+            }
+        )
+        moved = CIConfig(_raw={"release": {"destinations": {**shipped, "npm": False}}})
+        deleted = CIConfig(_raw={"release": {"destinations": shipped}})
+        assert opted_out.destination_for("npm") == []
+        assert moved.destination_for("npm") == []
+        assert deleted.destination_for("npm") != []
 
     def test_both_tiers_are_reported_separately(self) -> None:
         message = vocabulary.deprecated_config_message(

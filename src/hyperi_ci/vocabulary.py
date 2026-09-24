@@ -29,8 +29,6 @@ runs, and passing one the callee does not declare is a hard error rather than a
 warning. ``publish-target`` and ``will-publish`` therefore stay declared.
 """
 
-from __future__ import annotations
-
 import os
 from typing import Any
 
@@ -75,24 +73,30 @@ def fold_legacy_config(doc: Any) -> tuple[Any, list[str]]:
     ``release:`` wins any key set both ways -- a project mid-migration has
     already said which spelling it means.
 
+    A removal-tier key written under ``release:`` is named too, because the
+    rename alone would never report it.
+
     Returns:
-        ``(document, deprecated_keys)``. The document is unchanged and the list
-        empty when there is no legacy block.
+        ``(document, deprecated_keys)``. The document is unchanged when there
+        is no legacy block, and the list empty when nothing is deprecated.
 
     """
     if not isinstance(doc, dict):
         return doc, []
-    legacy = doc.get(LEGACY_CONFIG_NAMESPACE)
-    if not isinstance(legacy, dict):
-        return doc, []
-
     canonical = doc.get(CONFIG_NAMESPACE)
     canonical = canonical if isinstance(canonical, dict) else {}
+    removing = sorted(
+        f"{CONFIG_NAMESPACE}.{key}" for key in canonical if key in _REMOVAL_TIER
+    )
+    legacy = doc.get(LEGACY_CONFIG_NAMESPACE)
+    if not isinstance(legacy, dict):
+        return doc, removing
 
     folded = dict(doc)
     folded[CONFIG_NAMESPACE] = _merge(legacy, canonical)
     folded.pop(LEGACY_CONFIG_NAMESPACE, None)
-    return folded, sorted(f"{LEGACY_CONFIG_NAMESPACE}.{key}" for key in legacy)
+    renamed = sorted(f"{LEGACY_CONFIG_NAMESPACE}.{key}" for key in legacy)
+    return folded, renamed + removing
 
 
 def canonical_key(key: str) -> str:
@@ -172,6 +176,10 @@ REMOVAL_DATE = "December 2026"
 # a namespace so either namespace matches.
 _REMOVAL_TIER: frozenset[str] = frozenset({"target", "destinations_oss"})
 
+# A removal-tier key that still takes effect, and where its entries go. Deleting
+# one without moving it turns every destination it opted out back on.
+_MOVED_TO: dict[str, str] = {"destinations_oss": "release.destinations"}
+
 
 def _is_removal_tier(key: str) -> bool:
     return key.rsplit(".", 1)[-1] in _REMOVAL_TIER
@@ -181,10 +189,13 @@ def deprecated_config_message(keys: list[str]) -> str:
     """Build the notice naming each legacy key, and what happens to it.
 
     Two tiers: a renamed key keeps working indefinitely, a legacy destination
-    key is removed on a date (issue #151).
+    key is removed on a date (issue #151). Of those, an inert key is deleted,
+    and one that still takes effect is moved.
     """
     renamed = [key for key in keys if not _is_removal_tier(key)]
     removing = [key for key in keys if _is_removal_tier(key)]
+    moving = [key for key in removing if key.rsplit(".", 1)[-1] in _MOVED_TO]
+    inert = [key for key in removing if key not in moving]
 
     parts: list[str] = []
     if renamed:
@@ -193,8 +204,18 @@ def deprecated_config_message(keys: list[str]) -> str:
             f"Renamed config keys in .hyperi-ci.yaml: {pairs}. "
             "The old spelling keeps working; rename when convenient."
         )
-    if removing:
-        names = ", ".join(removing)
+    if moving:
+        pairs = ", ".join(
+            f"{key} -> {_MOVED_TO[key.rsplit('.', 1)[-1]]}" for key in moving
+        )
+        parts.append(
+            f"Legacy destination keys in .hyperi-ci.yaml: {pairs}. "
+            f"They still take effect and are REMOVED in {REMOVAL_DATE}. Move "
+            "their entries across -- deleting them instead turns every "
+            "destination they opt out of back on."
+        )
+    if inert:
+        names = ", ".join(inert)
         parts.append(
             f"Legacy destination keys in .hyperi-ci.yaml: {names}. "
             f"These are inert now and are REMOVED in {REMOVAL_DATE} -- "
