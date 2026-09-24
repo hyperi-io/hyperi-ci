@@ -41,6 +41,10 @@ For copy-paste starting points, see `templates/pgo-workload/`.
 that does not need them. See
 [`rust.md`](../languages/rust.md) -> *Skipping optimisation for one run*.
 
+`optimize-tier: release` does the opposite: PGO and BOLT on a run that
+publishes nothing, to test a workload or a BOLT fix without a release. See
+*Testing it in CI without a release* below.
+
 To prove a workload end to end without spending a stable version, cut a
 prerelease off a branch and leave optimisation on -- see
 [`prereleases.md`](../prereleases.md).
@@ -278,6 +282,23 @@ cargo pgo optimize build -- --features jemalloc
 If step 5 shows startup code at the top, your workload needs more
 sustained traffic or needs to start driving load only AFTER the
 binary is fully ready.
+
+### Testing it in CI without a release
+
+The `optimize-tier: release` dispatch input builds Tier 2 on one validate-only run:
+
+```bash
+gh workflow run ci.yml --ref <branch> -f optimize-tier=release
+```
+
+Nothing is tagged or published. A bare dispatch builds both arches, and each pays Tier 2: the arm64 build step on dfe-receiver took 52 minutes against about 4 at Tier 1 (issue #257).
+
+- Run it on a branch, not `main`. Runs share a concurrency group per ref with `cancel-in-progress`, so a dispatch on `main` cancels an in-flight push run there, publish included, or gets cancelled by the next merge.
+- Per-run input only. There is no repo variable and no `.hyperi-ci.yaml` key, because every run of the repo would pay that.
+- It beats `skip-optimize` from any source, with a warning, so the image label and release notes match the binary.
+- With a workload configured, the strict check still applies: if PGO or BOLT never reaches the binary, the run fails. With no workload, PGO is never asked for and the run builds Tier 1.
+- `release` is the only value. Anything else fails the build rather than quietly building Tier 1.
+- `hyperi-ci init` writes the input into a new `ci.yml`. An older one declares it under `workflow_dispatch.inputs` and forwards it under `with:`, like `skip-optimize`.
 
 ## Reference implementation
 

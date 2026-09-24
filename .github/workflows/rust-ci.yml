@@ -75,6 +75,10 @@ on:
         type: string
         default: ""
         description: "'true' to consent, for this run only, to shipping a skipped-optimisation build under a release tag. Without it a release that would have run PGO/BOLT refuses skip-optimize."
+      optimize-tier:
+        type: string
+        default: ""
+        description: "'release' to build the release optimisation tier (PGO + BOLT) on a run that publishes nothing. Per run only. Empty = the tier follows whether the run ships."
     secrets:
       CARGO_REGISTRY_TOKEN:
         required: false
@@ -130,6 +134,11 @@ on:
         required: false
         default: ""
         description: "'true' to consent, for this run only, to shipping a skipped-optimisation build under a release tag. Without it a release that would have run PGO/BOLT refuses skip-optimize."
+      optimize-tier:
+        type: string
+        required: false
+        default: ""
+        description: "'release' to build the release optimisation tier (PGO + BOLT) on a run that publishes nothing. Per run only. Empty = the tier follows whether the run ships."
 
 concurrency:
   group: ${{ github.workflow }}-${{ inputs.tag || github.ref }}
@@ -155,6 +164,10 @@ env:
   # Consent to release a skipped-optimisation build: per-run input only, never
   # a repo variable, so the consent cannot outlive the run.
   HYPERCI_RELEASE_UNOPTIMIZED: ${{ inputs.release-unoptimized }}
+  # Ask for the release optimisation tier on a run that publishes nothing:
+  # per-run input only, never a repo variable, because the tier adds PGO and
+  # BOLT to every build it reaches (issue #257).
+  HYPERCI_OPTIMIZE_TIER: ${{ inputs.optimize-tier }}
 
 # Least-privilege GITHUB_TOKEN default for every job (CodeQL
 # actions/missing-workflow-permissions). Two jobs elevate: release-tail
@@ -549,9 +562,11 @@ jobs:
         env:
           RUST_BUILD_TARGETS: ${{ matrix.target }}
           # Optimisation TIER. Tier 2 (PGO + BOLT) adds ~14 min per arch, so it
-          # runs only for a build that ships -- the same signal that gates the
-          # stamp step above. A prerelease ships, so it is built at the release
-          # tier by default: that is the release rehearsal (issue #144).
+          # runs for a build that ships -- the same signal that gates the stamp
+          # step above -- or when a dispatch asks for it with optimize-tier,
+          # which the build reads from HYPERCI_OPTIMIZE_TIER (issue #257). A
+          # prerelease ships, so it is built at the release tier by default:
+          # that is the release rehearsal (issue #144).
           HYPERCI_CHANNEL: ${{ needs.plan.outputs.will-release == 'true' && 'release' || '' }}
           # Version IDENTITY, independent of the tier above. True when the
           # build spends no stable version, which is what lets `skip-optimize`
@@ -606,6 +621,7 @@ jobs:
       submodules: ${{ inputs.submodules }}
       skip-optimize: ${{ inputs.skip-optimize }}
       release-unoptimized: ${{ inputs.release-unoptimized }}
+      optimize-tier: ${{ inputs.optimize-tier }}
     secrets: inherit
 
   # ---------------------------------------------------------------------------

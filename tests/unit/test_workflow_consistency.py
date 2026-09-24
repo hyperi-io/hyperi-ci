@@ -1052,6 +1052,53 @@ class TestReleaseUnoptimizedThreading:
         )
 
 
+OPTIMIZE_TIER_ENV = "${{ inputs.optimize-tier }}"
+
+
+class TestOptimizeTierThreading:
+    """issue #257: a dispatch asks for the release optimisation tier on a run
+    that publishes nothing, threaded through every language workflow and the
+    tail like release-unoptimized."""
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    @pytest.mark.parametrize("trigger", ["workflow_call", "workflow_dispatch"])
+    def test_accepts_the_input(self, workflow_name: str, trigger: str) -> None:
+        wf = _load_workflow(workflow_name)
+        on = wf.get("on") or wf.get(True, {})
+        spec = on.get(trigger, {}).get("inputs", {}).get("optimize-tier")
+        assert spec is not None, f"{workflow_name}: {trigger} missing optimize-tier"
+        assert spec.get("type") == "string"
+        assert spec.get("default") == "", "the tier must follow the run unless asked"
+        assert spec.get("required") is not True
+
+    @pytest.mark.parametrize(
+        "workflow_name", [*LANGUAGE_WORKFLOWS, "_release-tail.yml"]
+    )
+    def test_env_reads_the_input_and_no_variable(self, workflow_name: str) -> None:
+        # A repo variable would put PGO and BOLT on every run of the repo,
+        # 52 minutes of arm64 build a time (issue #257).
+        wf = _load_workflow(workflow_name)
+        value = wf.get("env", {}).get("HYPERCI_OPTIMIZE_TIER")
+        assert value == OPTIMIZE_TIER_ENV, (
+            f"{workflow_name}: HYPERCI_OPTIMIZE_TIER must be exactly {OPTIMIZE_TIER_ENV}"
+        )
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_the_tail_is_told(self, workflow_name: str) -> None:
+        # The tail's image label and release notes read skip_optimize, which
+        # the tier overrides, so the tail needs the same ask the build saw.
+        jobs = _load_workflow(workflow_name)["jobs"]
+        tail = next(
+            j for j in jobs.values() if "_release-tail.yml" in str(j.get("uses", ""))
+        )
+        assert tail.get("with", {}).get("optimize-tier") == OPTIMIZE_TIER_ENV, (
+            f"{workflow_name}: _release-tail call must forward optimize-tier"
+        )
+        tail_inputs = _load_workflow("_release-tail.yml")
+        on = tail_inputs.get("on") or tail_inputs.get(True, {})
+        assert "optimize-tier" in on["workflow_call"]["inputs"]
+
+
 class TestFirstReleaseAndOrphanGuards:
     """issue #37 follow-up: tag-less repos declare their starting version
     via VERSION (shipped verbatim); orphaned-tag repos fail loud at plan
