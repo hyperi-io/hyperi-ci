@@ -10,13 +10,17 @@ Uses scalo logger for structured output with automatic environment
 detection (GitHub Actions workflow commands, Solarized terminal, plain CI).
 """
 
+import http.client
 import os
+import random
 import re
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.request
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
@@ -571,6 +575,67 @@ def download_artefact(name: str, url: str) -> bytes | None:
         error(f"Failed to download {name} (curl exit {rc})")
         return None
     return body
+
+
+URL_ATTEMPTS = 4
+
+# Any 5xx is retried, and of the 4xx only these, which mean "ask again later".
+_URL_RETRY_STATUSES = frozenset({408, 429})
+
+# What a failed urllib request raises: HTTPError and URLError are both OSError,
+# and a response cut short raises an HTTPException.
+URL_ERRORS = (OSError, http.client.HTTPException)
+
+
+def _url_read_once(request: urllib.request.Request, timeout: float) -> bytes:
+    with urllib.request.urlopen(request, timeout=timeout) as resp:  # nosec B310  # nosemgrep: dynamic-urllib-use-detected -- callers pass fixed https URLs
+        return resp.read()
+
+
+def url_read(
+    request: urllib.request.Request,
+    *,
+    timeout: float,
+    attempts: int = URL_ATTEMPTS,
+) -> bytes:
+    """Open ``request`` with urllib and return the body, retrying a transient failure.
+
+    A 5xx, 408 or 429, a timeout, a reset connection or any other socket error
+    is tried again after about 1s, 2s, then 4s. Each wait is cut by up to half
+    at random so parallel jobs do not retry in step. Any other HTTP status
+    raises at once, because asking again gets the same answer.
+
+    Args:
+        request: What to open. The caller vouches for the URL.
+        timeout: Seconds allowed for each attempt.
+        attempts: Tries in total. 1 turns retrying off.
+
+    Returns:
+        The response body, empty for a HEAD request.
+
+    Raises:
+        urllib.error.HTTPError: A status that retrying cannot change.
+        OSError: The last failure, once every attempt is spent.
+        http.client.HTTPException: The same, for a malformed or truncated reply.
+
+    """
+    for attempt in range(1, attempts):
+        try:
+            return _url_read_once(request, timeout)
+        except urllib.error.HTTPError as exc:
+            if exc.code < 500 and exc.code not in _URL_RETRY_STATUSES:
+                raise
+            exc.close()
+            reason = f"HTTP {exc.code}"
+        except URL_ERRORS as exc:
+            reason = str(exc) or type(exc).__name__
+        delay = random.uniform(0.5, 1.0) * 2 ** (attempt - 1)
+        info(
+            f"{request.full_url}: {reason}, retrying in {delay:.1f}s "
+            f"(retry {attempt} of {attempts - 1})"
+        )
+        time.sleep(delay)
+    return _url_read_once(request, timeout)
 
 
 def _log_line(line: str) -> None:

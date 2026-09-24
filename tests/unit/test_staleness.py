@@ -162,6 +162,18 @@ class TestTheDailyInterval:
         staleness._record_check(1234.5)
         assert staleness.TIMESTAMP_FILE.read_text(encoding="utf-8") == "1234.5"
 
+    def test_pypi_is_asked_once_with_no_backoff(
+        self,
+        fake_urlopen: tuple[list[Exception | bytes], list[str], list[float]],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _, asked, sleeps = fake_urlopen
+        monkeypatch.setattr(staleness, "_suppressed", lambda: False)
+
+        assert staleness._check(time.time()) == []
+        assert len(asked) == 1
+        assert sleeps == []
+
 
 class TestSuppression:
     """A warning nobody asked for in a place it cannot help is noise."""
