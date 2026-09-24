@@ -157,9 +157,7 @@ def is_skipped(tool: str) -> bool:
         f"{tool}: FORCE-SKIPPED via HYPERCI_QUALITY_SKIP - rare edge-case "
         f"override; remove it once the false positive is fixed"
     )
-    warn(f"  {msg}")
-    if is_ci():
-        print(f"::warning title=hyperi-ci quality force-skip::{msg}")
+    _announce(msg, "hyperi-ci quality force-skip")
     return True
 
 
