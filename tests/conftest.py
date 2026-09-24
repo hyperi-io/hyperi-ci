@@ -28,6 +28,18 @@ def repo_local_git_env() -> tuple[str, ...]:
     return tuple(result.stdout.split())
 
 
+def _clear_repo_local_git_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Remove every variable that binds git to one repository."""
+    for name in repo_local_git_env():
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture
+def clear_git_env() -> Callable[[pytest.MonkeyPatch], None]:
+    """The helper the autouse fixture runs, for a test that proves it."""
+    return _clear_repo_local_git_env
+
+
 @pytest.fixture(autouse=True)
 def detached_from_the_calling_repo(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep every git call a test makes off the repository running the suite.
@@ -36,8 +48,7 @@ def detached_from_the_calling_repo(monkeypatch: pytest.MonkeyPatch) -> None:
     that runs `git init <tmp>` re-initialises THAT repository instead. A linked
     worktree's GIT_DIR turns the main checkout bare.
     """
-    for name in repo_local_git_env():
-        monkeypatch.delenv(name, raising=False)
+    _clear_repo_local_git_env(monkeypatch)
 
 
 def _write_elf(
