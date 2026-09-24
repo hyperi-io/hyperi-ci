@@ -6,12 +6,11 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for hyperi_ci.quality.install.install_ci_binary (no real downloads)."""
 
-from __future__ import annotations
-
 import hashlib
 import io
 import subprocess
 import tarfile
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -68,7 +67,8 @@ class TestInstallBody:
         def _run(cmd, **kw):  # noqa: ANN001, ANN003
             state["cmds"].append(cmd)
             if cmd[0] == "curl":
-                return SimpleNamespace(returncode=curl_rc, stdout=curl_stdout)
+                Path(cmd[cmd.index("-o") + 1]).write_bytes(curl_stdout)
+                return SimpleNamespace(returncode=curl_rc, stdout="")
             if sudo_raises:
                 raise subprocess.CalledProcessError(1, cmd)
             if cmd[:2] == ["sudo", "mv"]:
@@ -78,13 +78,16 @@ class TestInstallBody:
         monkeypatch.setattr(install.subprocess, "run", _run)
         return state
 
-    def test_raw_binary_success_uses_f_flag(
+    def test_raw_binary_success_uses_f_flag_and_retries(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         state = self._wire(monkeypatch)
         assert install.install_ci_binary("tool", "http://x") == "/usr/local/bin/tool"
+        [curl] = [c for c in state["cmds"] if c[0] == "curl"]
         # curl -f: fail on HTTP error instead of saving a 404 page as the binary.
-        assert any(c[0] == "curl" and "-fsSL" in c for c in state["cmds"])
+        assert "-fsS" in curl
+        assert "--retry-all-errors" in curl
+        assert "-o" in curl
 
     def test_tar_member_extracted(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._wire(monkeypatch, curl_stdout=_make_targz("tool"))

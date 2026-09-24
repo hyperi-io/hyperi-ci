@@ -15,8 +15,6 @@ Some ship as a raw binary (hadolint), others inside a ``.tar.gz``
 (kubeconform, kube-linter); ``tar_member`` selects the entry to extract.
 """
 
-from __future__ import annotations
-
 import hashlib
 import io
 import shutil
@@ -26,7 +24,7 @@ import tarfile
 import tempfile
 from pathlib import Path
 
-from hyperi_ci.common import error, info, is_ci, warn
+from hyperi_ci.common import download_artefact, error, info, is_ci, warn
 
 
 def fetch_verified(
@@ -46,28 +44,14 @@ def fetch_verified(
     ``expected_sha256`` of None warns and returns the bytes unverified, for a
     tool not yet pinned.
     """
-    # -f: fail (empty body, non-zero exit) on an HTTP error instead of saving a
-    # 404/captive-portal HTML page and later chmod+exec'ing it as "the tool".
-    # --connect-timeout/--max-time give a HARD ceiling so a stalled mirror
-    # cannot hang the runner unbounded (the repo's no-unbounded-wait doctrine);
-    # the outer timeout= is a belt-and-braces backstop.
-    try:
-        dl = subprocess.run(
-            ["curl", "-fsSL", "--connect-timeout", "10", "--max-time", "180", url],
-            capture_output=True,
-            timeout=200,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        error(f"  Failed to download {name} (network error / timeout)")
-        return None
-    if dl.returncode != 0 or not dl.stdout:
-        error(f"  Failed to download {name} (curl exit {dl.returncode})")
+    payload = download_artefact(name, url)
+    if payload is None:
         return None
 
     # Hash the RAW download (the binary itself, or the .tar.gz for a tar
     # member) BEFORE extracting or exec'ing anything, so one pinned hash covers
     # the exact bytes that arrived off the wire.
-    got = hashlib.sha256(dl.stdout).hexdigest()
+    got = hashlib.sha256(payload).hexdigest()
     if expected_sha256 is None:
         warn(
             f"  {name}: installing WITHOUT a pinned SHA256 - integrity unverified "
@@ -79,7 +63,7 @@ def fetch_verified(
             f"(expected {expected_sha256}, got {got})"
         )
         return None
-    return dl.stdout
+    return payload
 
 
 def install_ci_binary(

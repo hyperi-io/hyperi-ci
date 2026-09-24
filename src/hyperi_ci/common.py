@@ -14,9 +14,10 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -436,6 +437,134 @@ def run_cmd(
         env=run_env,
         timeout=timeout,
     )
+
+
+# The same retry set the composite actions carry, bounded so a dead host cannot
+# hold a job for longer than the window.
+_CURL_RETRY_MAX_TIME = 600
+_CURL_RETRY = (
+    "--retry",
+    "5",
+    "--retry-all-errors",
+    "--retry-delay",
+    "2",
+    "--retry-max-time",
+    str(_CURL_RETRY_MAX_TIME),
+)
+
+
+def curl_fetch(
+    url: str,
+    dest: Path,
+    *,
+    extra: Sequence[str] = (),
+    follow_redirects: bool = True,
+    timeout: float | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Download ``url`` to ``dest`` with curl, retrying a transient failure.
+
+    Every Python-side fetch goes through here, and a test fails on a fetching
+    curl argv anywhere else. The body always goes to a file: curl truncates an
+    ``-o`` file before each retry, but it cannot take back bytes already
+    written to stdout, so a retried fetch read off stdout or piped into a
+    shell can carry its body twice.
+
+    ``-f`` turns an HTTP error into a non-zero exit rather than a saved error
+    page. curl's own error line goes to stderr.
+
+    Args:
+        url: What to fetch.
+        dest: File the body is written to.
+        extra: More curl options, such as ``--max-time``, placed before the URL.
+        follow_redirects: Pass ``-L``.
+        timeout: Seconds before the curl process is killed. A value below the
+            600-second retry window cuts the retries short.
+
+    Returns:
+        The finished curl process. Check its return code.
+
+    """
+    cmd = [
+        "curl",
+        "-fsS",
+        *(["-L"] if follow_redirects else []),
+        *_CURL_RETRY,
+        *extra,
+        "-o",
+        str(dest),
+        url,
+    ]
+    return run_cmd(cmd, check=False, timeout=timeout)
+
+
+def curl_read(
+    url: str,
+    *,
+    extra: Sequence[str] = (),
+    follow_redirects: bool = True,
+    timeout: float | None = None,
+) -> tuple[int, bytes]:
+    """Fetch ``url`` into memory through a temp file, removed before returning.
+
+    For a caller that needs the bytes, or pipes them into a shell. The
+    arguments are those of :func:`curl_fetch`.
+
+    Args:
+        url: What to fetch.
+        extra: More curl options, placed before the URL.
+        follow_redirects: Pass ``-L``.
+        timeout: Seconds before the curl process is killed.
+
+    Returns:
+        curl's exit code and the body. The body is empty unless curl exited 0.
+
+    """
+    with tempfile.TemporaryDirectory(prefix="hyperi-ci-fetch-") as scratch:
+        dest = Path(scratch) / "body"
+        result = curl_fetch(
+            url,
+            dest,
+            extra=extra,
+            follow_redirects=follow_redirects,
+            timeout=timeout,
+        )
+        # A curl that exits 0 without writing the file reads as an empty body.
+        ok = result.returncode == 0 and dest.is_file()
+        body = dest.read_bytes() if ok else b""
+    return result.returncode, body
+
+
+_ARTEFACT_MAX_TIME = 180
+
+
+def download_artefact(name: str, url: str) -> bytes | None:
+    """Fetch a release artefact into memory, or log why not and return None.
+
+    The connect and per-attempt limits put a ceiling on a stalled mirror. The
+    process backstop sits above curl's whole retry window, so it only fires on
+    a curl that has stopped honouring its own limits.
+
+    Args:
+        name: What is being fetched, for the error line.
+        url: Where from.
+
+    Returns:
+        The body, or None on any failure, an empty body included.
+
+    """
+    try:
+        rc, body = curl_read(
+            url,
+            extra=("--connect-timeout", "10", "--max-time", str(_ARTEFACT_MAX_TIME)),
+            timeout=_CURL_RETRY_MAX_TIME + _ARTEFACT_MAX_TIME + 20,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        error(f"Failed to download {name} (network error / timeout)")
+        return None
+    if rc != 0 or not body:
+        error(f"Failed to download {name} (curl exit {rc})")
+        return None
+    return body
 
 
 def _log_line(line: str) -> None:
