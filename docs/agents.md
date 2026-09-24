@@ -11,10 +11,10 @@ Binding on coding agents, and on anyone sending a patch by hand.
 
 ## Conventions no linter enforces
 
-`ruff` selects `E,F,I,N,UP,W` here and does NOT select `D`, so docstring rules are convention rather than lint. So are these.
+`ruff` selects `E,F,I,N,UP,W,D` here, with `D` switched off for `tests/`. These it cannot check.
 
 - **Never `print()` or raw `logging`.** `common.py` wraps scalo's logger, and `info` / `warn` / `error` / `success` are the house output path.
-- **Never roll your own `subprocess.run`.** Call `common.run_cmd`, which pins `encoding="utf-8", errors="replace"`. Python's default text decoder follows the locale, which on a minimal container is ASCII -- one 0xff byte in `gh run download` output then takes down the whole `hyperi-ci logs` run with `UnicodeDecodeError`. Printing foreign bytes has the same problem, which `cli.main()` handles by reconfiguring stdout and stderr with `errors="replace"`.
+- **Never roll your own `subprocess.run`.** Call `common.run_cmd`, which pins `encoding="utf-8", errors="replace"`. Python's default text decoder follows the locale, which on a minimal container is ASCII -- one 0xff byte in `gh run download` output then takes down the whole `hyperi-ci logs` run with `UnicodeDecodeError`. Printing foreign bytes has the same problem, which `cli.main()` handles by reconfiguring stdout and stderr with `errors="replace"`. Where `run_cmd` does not fit, pin both by hand: `tests/unit/test_text_encoding_pinned.py` fails on any text-mode subprocess or file call in `src/` without them.
 - **Never write a third-party version into source.** `src/hyperi_ci/config/versions.yaml` is the SSoT, and `tests/unit/test_versions.py` fails on a reintroduced constant.
 - **Drop `from __future__ import annotations`** from any module you touch. The floor is Python 3.14, where it forces the old PEP 563 semantics and defeats PEP 649.
 
