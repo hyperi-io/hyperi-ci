@@ -15,10 +15,13 @@ an ``-o`` file so stdout carries only the status it judges the attempt by.
 
 import ast
 import http.server
+import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -128,9 +131,15 @@ class TestCurlFetch:
         assert "-L" not in cmd
 
 
-# Each outcome is (curl exit code, what -w printed, curl's error line).
-Outcome = tuple[int, str, str]
+# Each outcome is (curl exit code, what -w printed, curl's error line), or an
+# exception the attempt raises instead of returning.
+Outcome = tuple[int, str, str] | Exception
 Script = tuple[list[Outcome], list[list[str]], list[float], list[str]]
+
+
+def _backstop_kill() -> subprocess.TimeoutExpired:
+    """What run_cmd raises when the backstop kills a curl past its --max-time."""
+    return subprocess.TimeoutExpired(["curl", "https://example.invalid/x"], 200)
 
 
 @pytest.fixture
@@ -147,7 +156,10 @@ def scripted_curl(monkeypatch: pytest.MonkeyPatch) -> Script:
 
     def fake(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         attempts.append(cmd)
-        rc, status, stderr = outcomes.pop(0) if outcomes else (0, "200", "")
+        outcome = outcomes.pop(0) if outcomes else (0, "200", "")
+        if isinstance(outcome, Exception):
+            raise outcome
+        rc, status, stderr = outcome
         return subprocess.CompletedProcess(cmd, rc, stdout=status, stderr=stderr)
 
     monkeypatch.setattr(common, "run_cmd", fake)
@@ -221,6 +233,81 @@ class TestCurlRetryRule:
         assert len(attempts) == 1
         assert sleeps == []
 
+    @pytest.mark.parametrize(
+        ("elapsed", "attempts_made"),
+        [(590.0, 1), (580.0, 2)],
+        ids=["retry-would-start-at-606s", "retry-starts-at-596s"],
+    )
+    def test_the_wait_before_a_retry_counts_toward_the_window(
+        self,
+        scripted_curl: Script,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        elapsed: float,
+        attempts_made: int,
+    ) -> None:
+        outcomes, attempts, _, _ = scripted_curl
+        outcomes.append((22, "503", ""))
+        clock = iter([0.0])
+        monkeypatch.setattr(common.time, "monotonic", lambda: next(clock, elapsed))
+        monkeypatch.setattr(common, "_backoff", lambda _retry: 16.0)
+        _fetch(tmp_path)
+        assert len(attempts) == attempts_made
+
+    def test_a_curl_the_backstop_killed_is_retried(
+        self, scripted_curl: Script, tmp_path: Path
+    ) -> None:
+        outcomes, attempts, sleeps, _ = scripted_curl
+        outcomes.append(_backstop_kill())
+        assert _fetch(tmp_path) == 0
+        assert len(attempts) == 2
+        assert len(sleeps) == 1
+
+    def test_a_curl_the_backstop_keeps_killing_is_a_timed_out_fetch(
+        self, scripted_curl: Script, tmp_path: Path
+    ) -> None:
+        outcomes, attempts, sleeps, logged = scripted_curl
+        outcomes.extend(_backstop_kill() for _ in range(6))
+        result = common.curl_fetch("https://example.invalid/x", tmp_path / "o")
+        assert result.returncode == 28
+        assert len(attempts) == 6
+        assert len(sleeps) == 5
+        assert logged[-1] == (
+            "https://example.invalid/x: curl outlived --max-time 180 "
+            "and was killed 20s later"
+        )
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://ci-bot:s3cret@example.invalid:8443/x?arch=amd64",
+            "https://s3cret@example.invalid:8443/x?arch=amd64",
+        ],
+        ids=["user-and-password", "token-as-user"],
+    )
+    def test_credentials_in_the_url_stay_out_of_the_log(
+        self, scripted_curl: Script, tmp_path: Path, url: str
+    ) -> None:
+        outcomes, attempts, _, logged = scripted_curl
+        outcomes.extend([(22, "503", ""), (22, "401", "")])
+        assert common.curl_fetch(url, tmp_path / "o").returncode == 22
+        assert attempts[0][-1] == url
+        assert len(logged) == 2
+        for line in logged:
+            assert line.startswith("https://example.invalid:8443/x?arch=amd64: ")
+            assert "s3cret" not in line
+
+    def test_a_url_too_malformed_to_redact_is_left_out_of_the_log(
+        self, scripted_curl: Script, tmp_path: Path
+    ) -> None:
+        outcomes, _, _, logged = scripted_curl
+        outcomes.extend([(3, "000", "curl: (3) URL rejected: Bad hostname")] * 6)
+        url = "https://ci-bot:s3cret@[::1/x"
+        assert common.curl_fetch(url, tmp_path / "o").returncode == 3
+        assert len(logged) == 6
+        for line in logged:
+            assert line.startswith("<unparseable URL>: curl: (3) URL rejected")
+
     def test_each_failure_is_logged_with_curls_own_line(
         self, scripted_curl: Script, tmp_path: Path
     ) -> None:
@@ -287,8 +374,9 @@ def flaky_server(
     """Serve ``_BODY`` on localhost, failing first in the ways ``plan`` lists.
 
     A number answers with that HTTP status. ``partial`` promises the whole
-    body and closes the connection halfway through it. The retry backoff is
-    skipped.
+    body and closes the connection halfway through it. ``redirect`` sends a
+    302 to ``/redirected``, which answers with the next step. A hit on that
+    path is recorded with the path in front. The retry backoff is skipped.
     """
     plan: list[str] = []
     hits: list[str] = []
@@ -297,7 +385,13 @@ def flaky_server(
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             step = plan.pop(0) if plan else "ok"
-            hits.append(step)
+            hits.append(step if self.path == "/body" else f"{self.path} {step}")
+            if step == "redirect":
+                self.send_response(302)
+                self.send_header("Location", "/redirected")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
             if step.isdigit():
                 self.send_response(int(step))
                 self.send_header("Content-Length", "0")
@@ -351,6 +445,56 @@ class TestRealCurlRetries:
         assert hits == [status]
         assert body == b""
 
+    def test_a_redirect_to_a_final_status_is_asked_once(
+        self, flaky_server: tuple[str, list[str], list[str]]
+    ) -> None:
+        url, plan, hits = flaky_server
+        plan.extend(["redirect", "404"])
+
+        rc, body = common.curl_read(url, extra=("--noproxy", "*"))
+
+        assert rc == 22
+        assert hits == ["redirect", "/redirected 404"]
+        assert body == b""
+
+    def test_a_redirect_is_judged_by_the_status_it_ends_on(
+        self, flaky_server: tuple[str, list[str], list[str]]
+    ) -> None:
+        # Judged by the 302, a 503 behind a redirect would read as final.
+        url, plan, hits = flaky_server
+        plan.extend(["redirect", "503"])
+
+        rc, body = common.curl_read(url, extra=("--noproxy", "*"))
+
+        assert rc == 0
+        assert hits == ["redirect", "/redirected 503", "ok"]
+        assert body == _BODY
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the stand-in curl is sh")
+class TestHungCurl:
+    """A stand-in curl that ignores its own --max-time, as a wedged one does."""
+
+    def test_is_killed_retried_and_reported_as_a_timeout(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        stand_in = tmp_path / "bin" / "curl"
+        stand_in.parent.mkdir()
+        stand_in.write_text("#!/bin/sh\nexec sleep 30\n", encoding="utf-8")
+        stand_in.chmod(0o755)
+        monkeypatch.setenv(
+            "PATH", f"{stand_in.parent}{os.pathsep}{os.environ.get('PATH', '')}"
+        )
+        monkeypatch.setattr(common, "_CURL_BACKSTOP", 0)
+        monkeypatch.setattr(common, "_CURL_RETRIES", 1)
+        monkeypatch.setattr(common.time, "sleep", lambda _s: None)
+        started = time.monotonic()
+
+        rc, body = common.curl_read("https://example.invalid/x", max_time=1)
+
+        assert (rc, body) == (28, b"")
+        assert time.monotonic() - started < 10
+
 
 class TestDownloadArtefact:
     @pytest.fixture
@@ -390,22 +534,26 @@ class TestDownloadArtefact:
         assert common.download_artefact("tool", "https://x.invalid") is None
         assert errors == ["Failed to download tool (curl exit 0)"]
 
-    @pytest.mark.parametrize(
-        "raised",
-        [FileNotFoundError(2, "curl"), subprocess.TimeoutExpired(["curl"], 800)],
-    )
-    def test_a_missing_or_hung_curl_returns_none(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        errors: list[str],
-        raised: Exception,
+    def test_a_missing_curl_is_named_and_returns_none(
+        self, monkeypatch: pytest.MonkeyPatch, errors: list[str]
     ) -> None:
-        def explode(*_a: object, **_k: object) -> None:
-            raise raised
+        def missing(*_a: object, **_k: object) -> None:
+            raise FileNotFoundError(2, "No such file or directory", "curl")
 
-        monkeypatch.setattr(common, "run_cmd", explode)
+        monkeypatch.setattr(common, "run_cmd", missing)
         assert common.download_artefact("tool", "https://x.invalid") is None
-        assert errors == ["Failed to download tool (network error / timeout)"]
+        assert errors == [
+            "Failed to download tool ([Errno 2] No such file or directory: 'curl')"
+        ]
+
+    def test_a_hung_curl_is_retried_then_named_as_a_timeout(
+        self, scripted_curl: Script, errors: list[str]
+    ) -> None:
+        outcomes, attempts, _, _ = scripted_curl
+        outcomes.extend(_backstop_kill() for _ in range(6))
+        assert common.download_artefact("tool", "https://x.invalid") is None
+        assert len(attempts) == 6
+        assert errors == ["Failed to download tool (curl exit 28)"]
 
 
 def _curl_argvs(source: str) -> list[tuple[int, str]]:
