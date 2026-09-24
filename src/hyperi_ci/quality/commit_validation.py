@@ -321,7 +321,8 @@ def format_type_list() -> str:
 def format_rejection(result: ValidationResult, original: str) -> str:
     """Format a friendly 'Computer says no.' rejection message."""
     lines = ["Computer says no.", ""]
-    lines.append(f"  Commit: {original.splitlines()[0]!r}")
+    first_line = (original.splitlines() or [""])[0]
+    lines.append(f"  Commit: {first_line!r}")
     lines.append(f"  Reason: {result.reason}")
     lines.append("")
 
