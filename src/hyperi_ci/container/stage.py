@@ -33,8 +33,6 @@ Push modes (resolved by :mod:`hyperi_ci.release_mode` -- the SSOT):
 * ``validate`` -- push-to-main and local runs: build, no push.
 """
 
-from __future__ import annotations
-
 import os
 import re
 import subprocess
@@ -101,6 +99,8 @@ def _read_sha() -> str:
         ["git", "rev-parse", "--short", "HEAD"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     return result.stdout.strip() if result.returncode == 0 else "unknown"
 
@@ -205,7 +205,7 @@ def run(config: CIConfig, *, language: str = "") -> int:
         info(f"Container resolve: build={'true' if build else 'false'} — {reason}")
         gh_out = os.environ.get("GITHUB_OUTPUT")
         if gh_out:
-            with open(gh_out, "a", encoding="utf-8") as fh:
+            with open(gh_out, "a", encoding="utf-8", newline="\n") as fh:
                 fh.write(f"build={'true' if build else 'false'}\n")
         return 0
 
@@ -501,6 +501,7 @@ def _build_from_content(
         suffix=".Dockerfile",
         delete=False,
         dir=".",
+        encoding="utf-8",
     ) as f:
         f.write(dockerfile_content)
         dockerfile_path = Path(f.name)
@@ -764,7 +765,7 @@ def _splice_dockerfile_overlays(
 def _detect_rust_version() -> str:
     toolchain_file = Path("rust-toolchain.toml")
     if toolchain_file.exists():
-        for line in toolchain_file.read_text().splitlines():
+        for line in toolchain_file.read_text(encoding="utf-8").splitlines():
             if "channel" in line and "=" in line:
                 return line.split("=")[1].strip().strip('"').strip("'")
     return "stable"

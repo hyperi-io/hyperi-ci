@@ -16,8 +16,6 @@ Lists unpublished version tags and triggers the workflow_dispatch event
 for a specific tag.
 """
 
-from __future__ import annotations
-
 import subprocess
 
 from hyperi_ci.common import (
@@ -60,6 +58,8 @@ def _get_version_tags() -> list[str]:
         ["git", "tag", "--list", "v*", "--sort=-version:refname"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if result.returncode != 0:
         return []
@@ -72,6 +72,8 @@ def _tag_has_release(tag: str) -> bool:
         ["gh", "release", "view", tag],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     return result.returncode == 0
 
@@ -82,6 +84,8 @@ def _get_tag_info(tag: str) -> str:
         ["git", "log", "-1", "--format=%ci", tag],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     date = result.stdout.strip()[:10] if result.returncode == 0 else "unknown"
     return date
@@ -117,6 +121,8 @@ def _detect_workflow_file() -> str:
         ["gh", "workflow", "list", "--json", "name,id"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if result.returncode != 0:
         return "ci.yml"
@@ -154,9 +160,19 @@ def _head_in_sync_with_origin() -> bool:
     local tree. If the operator's HEAD differs, what gets released is not
     what they're looking at -- warn so there are no surprises.
     """
-    local = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True)
+    local = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     remote = subprocess.run(
-        ["git", "rev-parse", "origin/main"], capture_output=True, text=True
+        ["git", "rev-parse", "origin/main"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if local.returncode != 0 or remote.returncode != 0:
         return True  # can't tell -- don't block

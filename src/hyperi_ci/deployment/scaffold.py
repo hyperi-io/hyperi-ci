@@ -22,8 +22,6 @@ template. Calling ``init-contract`` in a scalo repo would produce a
 contract that drifts from the source of truth.
 """
 
-from __future__ import annotations
-
 import json
 import re
 from pathlib import Path
@@ -97,7 +95,7 @@ def init_contract(
 
     try:
         output_dir.mkdir(parents=True, exist_ok=True)
-        target.write_text(payload, encoding="utf-8")
+        target.write_text(payload, encoding="utf-8", newline="\n")
     except OSError as exc:
         error(f"failed to write {target}: {exc}")
         return EXIT_IO_ERROR

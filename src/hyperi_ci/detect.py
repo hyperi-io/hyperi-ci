@@ -11,8 +11,6 @@ Override detection:
   2. Config file: .hyperi-ci.yaml with 'language: rust'
 """
 
-from __future__ import annotations
-
 import os
 from pathlib import Path
 
@@ -47,7 +45,7 @@ def _get_override_language(project_dir: Path | None = None) -> str | None:
         if not config_file.exists():
             continue
         try:
-            with open(config_file) as f:
+            with open(config_file, encoding="utf-8") as f:
                 config = yaml.safe_load(f)
                 if config and isinstance(config, dict):
                     lang = config.get("language")

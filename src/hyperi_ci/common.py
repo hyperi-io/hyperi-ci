@@ -67,7 +67,7 @@ def resolve_release_version() -> str | None:
         return explicit.removeprefix("v")
     version_file = Path("VERSION")
     if version_file.exists():
-        value = version_file.read_text().strip()
+        value = version_file.read_text(encoding="utf-8").strip()
         if value:
             return value.removeprefix("v")
     return latest_version_tag()
@@ -530,7 +530,7 @@ def get_exclude_dirs(config_raw: dict[str, Any] | None = None) -> list[str]:
 
     gitmodules = Path(".gitmodules")
     if gitmodules.exists():
-        for line in gitmodules.read_text().splitlines():
+        for line in gitmodules.read_text(encoding="utf-8").splitlines():
             if "path" in line and "=" in line:
                 path = line.split("=", 1)[1].strip()
                 if path and Path(path).is_dir():

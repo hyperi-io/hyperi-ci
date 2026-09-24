@@ -11,8 +11,6 @@ scans project manifest files for known patterns, and installs missing
 apt packages on Linux. No-ops on non-Linux platforms.
 """
 
-from __future__ import annotations
-
 import io
 import os
 import platform
@@ -203,7 +201,7 @@ def _load_dep_groups(language: str, category: str = "native-deps") -> list[DepGr
         logger.warning(f"No {category} config for: {language}")
         return []
 
-    raw = yaml.safe_load(_expand_template_vars(config_file.read_text()))
+    raw = yaml.safe_load(_expand_template_vars(config_file.read_text(encoding="utf-8")))
     if not raw:
         return []
 
@@ -234,7 +232,7 @@ def _read_manifests(project_dir: Path, manifest_files: list[str]) -> str:
     for filename in manifest_files:
         manifest_path = project_dir / filename
         if manifest_path.exists():
-            content_parts.append(manifest_path.read_text())
+            content_parts.append(manifest_path.read_text(encoding="utf-8"))
     return "\n".join(content_parts)
 
 
@@ -256,6 +254,8 @@ def _get_os_codename() -> str:
             ["lsb_release", "-cs"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
     except FileNotFoundError:
         return ""
@@ -307,6 +307,8 @@ def _get_dpkg_arch() -> str:
         ["dpkg", "--print-architecture"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     return result.stdout.strip() if result.returncode == 0 else "amd64"
 
@@ -338,7 +340,7 @@ def _repo_already_configured(repo_url: str, codename: str) -> Path | None:
 
     for path in candidates:
         try:
-            content = path.read_text()
+            content = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
         # Match on scheme-less URL path + codename. Covers both the
@@ -472,7 +474,9 @@ def _add_apt_repo(repo: AptRepo) -> int:
     # Skip if the exact `deb` line is already present in the file. Substring
     # check (not equality) -- the file may contain other entries for different
     # versions of the same toolchain (e.g. llvm.list holds v19/v20/v21/v22).
-    if sources_path.exists() and sources_line in sources_path.read_text():
+    if sources_path.exists() and sources_line in sources_path.read_text(
+        encoding="utf-8"
+    ):
         logger.info(f"APT source already configured: {sources_path}")
         return 0
 
@@ -494,6 +498,8 @@ def _is_dpkg_installed(package: str, min_version: str = "") -> bool:
         ["dpkg", "-s", package],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if result.returncode != 0:
         return False

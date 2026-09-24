@@ -19,8 +19,6 @@ Migration steps:
   6. Preserve existing .hyperi-ci.yaml if present
 """
 
-from __future__ import annotations
-
 import json
 import re
 import shutil
@@ -47,6 +45,8 @@ def _is_git_repo(project_dir: Path) -> bool:
         cwd=project_dir,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     return result.returncode == 0
 
@@ -56,7 +56,7 @@ def _has_ci_submodule(project_dir: Path) -> bool:
     gitmodules = project_dir / ".gitmodules"
     if not gitmodules.exists():
         return False
-    content = gitmodules.read_text()
+    content = gitmodules.read_text(encoding="utf-8")
     return "path = ci" in content or "path=ci" in content
 
 
@@ -85,6 +85,8 @@ def _remove_ci_submodule(project_dir: Path) -> bool:
         cwd=project_dir,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if deinit.returncode != 0:
         warn(f"  submodule deinit warning: {deinit.stderr.strip()}")
@@ -94,6 +96,8 @@ def _remove_ci_submodule(project_dir: Path) -> bool:
         cwd=project_dir,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if rm_result.returncode != 0:
         error(f"  Failed to remove ci/: {rm_result.stderr.strip()}")
@@ -135,7 +139,7 @@ def _clean_gitmodules(project_dir: Path) -> None:
     if not gitmodules.exists():
         return
 
-    content = gitmodules.read_text()
+    content = gitmodules.read_text(encoding="utf-8")
 
     # git rm of the submodule already removes the entry from .gitmodules
     # in most git versions -- but if it's still there, clean it up
@@ -156,17 +160,21 @@ def _clean_gitmodules(project_dir: Path) -> None:
             cwd=project_dir,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         if gitmodules.exists():
             gitmodules.unlink()
         info("  Removed empty .gitmodules")
     else:
-        gitmodules.write_text(cleaned + "\n")
+        gitmodules.write_text(cleaned + "\n", encoding="utf-8", newline="\n")
         subprocess.run(
             ["git", "add", ".gitmodules"],
             cwd=project_dir,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         info("  Cleaned ci entry from .gitmodules (other submodules preserved)")
 
@@ -174,7 +182,7 @@ def _clean_gitmodules(project_dir: Path) -> None:
 def _workflow_references_old_ci(path: Path) -> bool:
     """Check if a workflow file references the old ci/ submodule."""
     try:
-        content = path.read_text()
+        content = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return False
     return any(pattern in content for pattern in _OLD_CI_PATTERNS)
@@ -251,7 +259,7 @@ def _find_old_ci_env_refs(project_dir: Path) -> list[str]:
                 except ValueError:
                     pass
             try:
-                content = f.read_text()
+                content = f.read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
                 continue
             for pattern in old_patterns:
@@ -346,7 +354,7 @@ def _fix_releaserc(
         return False
 
     try:
-        content = releaserc_path.read_text()
+        content = releaserc_path.read_text(encoding="utf-8")
         config = json.loads(content)
     except (OSError, json.JSONDecodeError) as exc:
         warn(f"  Could not parse {releaserc_path.name}: {exc}")
@@ -404,7 +412,7 @@ def _fix_releaserc(
     if modified:
         config["plugins"] = kept
         output = json.dumps(config, indent=2) + "\n"
-        releaserc_path.write_text(output)
+        releaserc_path.write_text(output, encoding="utf-8", newline="\n")
         success(f"  Updated {releaserc_path.name}")
 
     return modified

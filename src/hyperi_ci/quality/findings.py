@@ -40,8 +40,6 @@ kube-linter + Checkov inside the separate ``lint-manifests`` process - which,
 being a distinct step, correctly starts with its own fresh budget.
 """
 
-from __future__ import annotations
-
 import json
 import os
 from dataclasses import dataclass, field
@@ -297,7 +295,7 @@ def write_sarif(tool: str, findings: list[Finding], path: str | Path) -> None:
     # surfacing IO error).
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+        p.write_text(json.dumps(doc, indent=2), encoding="utf-8", newline="\n")
     except OSError as exc:
         warn(f"  could not write SARIF for {tool}: {exc}")
 

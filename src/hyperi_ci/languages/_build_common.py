@@ -12,8 +12,6 @@ build modules to remove copy-paste duplication and ensure they evolve
 in lockstep.
 """
 
-from __future__ import annotations
-
 import hashlib
 import struct
 from pathlib import Path
@@ -64,7 +62,7 @@ def generate_checksums(output_dir: Path) -> None:
             continue
         sha = hashlib.sha256(f.read_bytes()).hexdigest()
         sha_path = f.with_name(f.name + ".sha256")
-        sha_path.write_text(f"{sha}  {f.name}\n")
+        sha_path.write_text(f"{sha}  {f.name}\n", encoding="utf-8", newline="\n")
         info(f"Wrote {sha_path.name}")
         count += 1
     if count:

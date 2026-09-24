@@ -19,8 +19,6 @@ Wraps git push with:
 All flows set ``HYPERCI_PUSH=1`` so the pre-push hook allows the push.
 """
 
-from __future__ import annotations
-
 import os
 import subprocess
 from pathlib import Path
@@ -321,7 +319,7 @@ def _emit_gh_output(**pairs: str) -> None:
     gh_out = os.environ.get("GITHUB_OUTPUT")
     if not gh_out:
         return
-    with open(gh_out, "a", encoding="utf-8") as fh:
+    with open(gh_out, "a", encoding="utf-8", newline="\n") as fh:
         for key, value in pairs.items():
             fh.write(f"{key}={value}\n")
 
@@ -502,7 +500,7 @@ def _write_version_and_commit(
     version_file = cwd_path / "VERSION"
 
     try:
-        version_file.write_text(f"{next_version}\n")
+        version_file.write_text(f"{next_version}\n", encoding="utf-8", newline="\n")
     except OSError as exc:
         error(f"Failed to write {version_file}: {exc}")
         return 1

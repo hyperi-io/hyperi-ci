@@ -9,8 +9,6 @@
 Builds Python packages using uv/pip wheel or Nuitka for compiled binaries.
 """
 
-from __future__ import annotations
-
 import subprocess
 import tomllib
 from contextlib import contextmanager
@@ -134,8 +132,8 @@ def stamp_manifest(version: str, root: Path) -> None:
     pyproject = root / "pyproject.toml"
     if not pyproject.exists():
         return
-    text = pyproject.read_text()
+    text = pyproject.read_text(encoding="utf-8")
     new_text = replace_toml_table_version(text, "project", version)
     if new_text != text:
-        pyproject.write_text(new_text)
+        pyproject.write_text(new_text, encoding="utf-8", newline="\n")
         info(f"Stamped pyproject.toml: {version}")

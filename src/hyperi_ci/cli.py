@@ -40,8 +40,6 @@ rely on muscle memory. In particular:
   - --force semantics vary (overwrite vs skip-checks) -- document in each command
 """
 
-from __future__ import annotations
-
 import json
 import os
 import sys
@@ -1749,7 +1747,7 @@ def check_commit_cmd(
         raise typer.Exit(0)
 
     if message_file:
-        msg = Path(message_file).read_text().strip()
+        msg = Path(message_file).read_text(encoding="utf-8", errors="replace").strip()
     elif not sys.stdin.isatty():
         msg = sys.stdin.read().strip()
     else:
