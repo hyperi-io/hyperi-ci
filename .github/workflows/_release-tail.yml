@@ -109,6 +109,8 @@ env:
 jobs:
   container:
     name: Container
+    # At least twice the longest successful run across the fleet (issue #262).
+    timeout-minutes: 135
     # Raw branch pushes never reach this workflow (caller gates on
     # quality+test+build pre-needs). Pushes to main, workflow_dispatch,
     # and branch-mode pull_request runs (caller's branch-build opt-in)
@@ -241,6 +243,8 @@ jobs:
 
   tag-and-release:
     name: Tag & Release
+    # At least twice the longest successful run across the fleet (issue #262).
+    timeout-minutes: 45
     needs: [container]
     # Runs iff a release is being published, and is DECOUPLED from the
     # container outcome (issue #33) for projects that do not ship a

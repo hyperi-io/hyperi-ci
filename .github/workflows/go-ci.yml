@@ -270,6 +270,8 @@ jobs:
 
   quality:
     name: Quality
+    # At least twice the longest successful run across the fleet (issue #262).
+    timeout-minutes: 45
     needs: [plan]
     if: needs.plan.outputs.run-checks == 'true'
     runs-on: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_GOLANG || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
@@ -391,6 +393,8 @@ jobs:
 
   build:
     name: Build (${{ matrix.os_arch }})
+    # At least twice the longest successful run across the fleet (issue #262).
+    timeout-minutes: 135
     needs: [plan, quality, test]
     if: needs.plan.outputs.run-build == 'true'
     runs-on: ${{ matrix.runner }}

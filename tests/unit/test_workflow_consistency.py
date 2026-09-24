@@ -1052,6 +1052,35 @@ class TestReleaseUnoptimizedThreading:
         )
 
 
+class TestJobTimeouts:
+    """issue #262: a hung job stops at its own limit, not GitHub's 360 minutes."""
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    @pytest.mark.parametrize("job", ["quality", "build"])
+    def test_language_jobs_carry_a_limit(self, workflow_name: str, job: str) -> None:
+        minutes = _load_workflow(workflow_name)["jobs"][job].get("timeout-minutes")
+        assert isinstance(minutes, int) and 0 < minutes < 360, (
+            f"{workflow_name}: {job} needs a timeout-minutes below GitHub's 360"
+        )
+
+    @pytest.mark.parametrize("job", ["container", "tag-and-release"])
+    def test_release_tail_jobs_carry_a_limit(self, job: str) -> None:
+        # The limit goes on the tail's own jobs: a `uses:` caller job cannot take one.
+        tail_jobs = _load_workflow("_release-tail.yml")["jobs"]
+        minutes = tail_jobs[job].get("timeout-minutes")
+        assert isinstance(minutes, int) and 0 < minutes < 360, (
+            f"_release-tail.yml: {job} needs a timeout-minutes below GitHub's 360"
+        )
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_the_release_tail_call_carries_none(self, workflow_name: str) -> None:
+        jobs = _load_workflow(workflow_name)["jobs"]
+        tail = next(
+            j for j in jobs.values() if "_release-tail.yml" in str(j.get("uses", ""))
+        )
+        assert "timeout-minutes" not in tail
+
+
 OPTIMIZE_TIER_ENV = "${{ inputs.optimize-tier }}"
 
 
