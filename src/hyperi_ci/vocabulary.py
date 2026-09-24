@@ -75,24 +75,30 @@ def fold_legacy_config(doc: Any) -> tuple[Any, list[str]]:
     ``release:`` wins any key set both ways -- a project mid-migration has
     already said which spelling it means.
 
+    A removal-tier key written under ``release:`` is named too, because the
+    rename alone would never report it.
+
     Returns:
-        ``(document, deprecated_keys)``. The document is unchanged and the list
-        empty when there is no legacy block.
+        ``(document, deprecated_keys)``. The document is unchanged when there
+        is no legacy block, and the list empty when nothing is deprecated.
 
     """
     if not isinstance(doc, dict):
         return doc, []
-    legacy = doc.get(LEGACY_CONFIG_NAMESPACE)
-    if not isinstance(legacy, dict):
-        return doc, []
-
     canonical = doc.get(CONFIG_NAMESPACE)
     canonical = canonical if isinstance(canonical, dict) else {}
+    removing = sorted(
+        f"{CONFIG_NAMESPACE}.{key}" for key in canonical if key in _REMOVAL_TIER
+    )
+    legacy = doc.get(LEGACY_CONFIG_NAMESPACE)
+    if not isinstance(legacy, dict):
+        return doc, removing
 
     folded = dict(doc)
     folded[CONFIG_NAMESPACE] = _merge(legacy, canonical)
     folded.pop(LEGACY_CONFIG_NAMESPACE, None)
-    return folded, sorted(f"{LEGACY_CONFIG_NAMESPACE}.{key}" for key in legacy)
+    renamed = sorted(f"{LEGACY_CONFIG_NAMESPACE}.{key}" for key in legacy)
+    return folded, renamed + removing
 
 
 def canonical_key(key: str) -> str:

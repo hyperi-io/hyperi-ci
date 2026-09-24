@@ -168,6 +168,20 @@ class TestDeprecationMessage:
         assert "inert" not in message
         assert "Delete" not in message
 
+    @pytest.mark.parametrize(
+        "doc",
+        [
+            {"release": {"destinations_oss": {"python": False}}},
+            {"release": {"target": "oss"}, "publish": {"channel": "beta"}},
+        ],
+        ids=["release-block-only", "beside-a-publish-block"],
+    )
+    def test_a_removal_key_under_release_is_reported_too(self, doc) -> None:
+        """Written under release:, it once drew no warning at all."""
+        _, keys = vocabulary.fold_legacy_config(doc)
+        key = next(iter(doc["release"]))
+        assert f"release.{key}" in keys
+
     def test_target_is_still_told_to_go(self) -> None:
         message = vocabulary.deprecated_config_message(["publish.target"])
         assert "Delete" in message
