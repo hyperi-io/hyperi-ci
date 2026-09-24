@@ -27,6 +27,7 @@ from pathlib import Path
 import yaml
 from scalo import logger
 
+from hyperi_ci.common import curl_read, download_artefact
 from hyperi_ci.versions import runtime_version
 
 # Codenames to try as fallbacks when a given APT repo doesn't ship
@@ -421,17 +422,12 @@ def _add_apt_repo(repo: AptRepo) -> int:
     else:
         logger.info(f"Adding APT key from {repo.key_url}")
         # Download key and dearmor into keyring
-        dl = subprocess.run(
-            ["curl", "-fsSL", repo.key_url],
-            capture_output=True,
-        )
-        if dl.returncode != 0:
+        rc, key = curl_read(repo.key_url)
+        if rc != 0:
             logger.error(f"Failed to download APT key from {repo.key_url}")
-            return dl.returncode
+            return rc
 
-        if repo.key_fingerprint and not _verify_apt_key(
-            dl.stdout, repo.key_fingerprint
-        ):
+        if repo.key_fingerprint and not _verify_apt_key(key, repo.key_fingerprint):
             logger.error(f"Refusing to install the APT key from {repo.key_url}")
             return 1
 
@@ -445,7 +441,7 @@ def _add_apt_repo(repo: AptRepo) -> int:
                 "-o",
                 repo.keyring,
             ],
-            input=dl.stdout,
+            input=key,
         )
         if dearmor.returncode != 0:
             logger.error(f"Failed to dearmor APT key to {repo.keyring}")
@@ -561,27 +557,6 @@ _AWS_CLI_BIN_DIR = "/usr/local/bin"
 _AWS_CLI_ARCHES = {"x86_64": "x86_64", "aarch64": "aarch64", "arm64": "aarch64"}
 
 
-def _download(name: str, url: str) -> bytes | None:
-    """Fetch a URL into memory, or say why it failed.
-
-    ``-f`` so an HTTP error is an error rather than a saved 404 page, and the
-    timeouts put a ceiling on a stalled mirror.
-    """
-    try:
-        dl = subprocess.run(
-            ["curl", "-fsSL", "--connect-timeout", "10", "--max-time", "180", url],
-            capture_output=True,
-            timeout=200,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        logger.error(f"Failed to download {name} (network error / timeout)")
-        return None
-    if dl.returncode != 0 or not dl.stdout:
-        logger.error(f"Failed to download {name} (curl exit {dl.returncode})")
-        return None
-    return dl.stdout
-
-
 def _verify_detached_signature(payload: bytes, signature: bytes, key: bytes) -> bool:
     """Check ``signature`` covers ``payload`` under the shipped AWS CLI key.
 
@@ -668,8 +643,8 @@ def ensure_aws_cli() -> str | None:
     url = _AWS_CLI_ZIP_URL.format(arch=arch)
     logger.info(f"aws not found - installing AWS CLI v2 from {url}")
 
-    payload = _download("AWS CLI", url)
-    signature = _download("AWS CLI signature", f"{url}.sig")
+    payload = download_artefact("AWS CLI", url)
+    signature = download_artefact("AWS CLI signature", f"{url}.sig")
     if payload is None or signature is None:
         return None
 

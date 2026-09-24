@@ -22,18 +22,19 @@ Linux only. No-ops elsewhere, so importing this on a macOS workstation is
 safe but does nothing useful.
 """
 
-from __future__ import annotations
-
 import os
 import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
 from scalo import logger
+
+from hyperi_ci.common import curl_fetch, curl_read
 
 _CONFIG_FILE = Path(__file__).resolve().parent / "config" / "bootstrap.yaml"
 
@@ -93,17 +94,10 @@ def _run(cmd: list[str], *, shell_input: str | None = None) -> int:
     return result.returncode
 
 
-def _capture(cmd: list[str]) -> tuple[int, str]:
-    """Run a command and capture stdout. Returns (exit code, stdout)."""
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
-    return result.returncode, result.stdout.strip()
+def _fetch_text(url: str) -> tuple[int, str]:
+    """Fetch a small text document. Returns (exit code, stripped body)."""
+    rc, body = curl_read(url)
+    return rc, body.decode("utf-8", errors="replace").strip()
 
 
 def _have(binary: str) -> bool:
@@ -154,13 +148,9 @@ def _install_cargo_tools(tools: list[str]) -> int:
         # The installer script is fetched and piped to a shell. Upstream ships
         # no signed artefact for it; the alternative is a source build of
         # binstall itself, which defeats the point.
-        dl = subprocess.run(
-            ["curl", "-fsSL", _CARGO_BINSTALL_URL],
-            capture_output=True,
-            check=False,
-        )
-        if dl.returncode == 0 and dl.stdout:
-            rc = subprocess.run(["bash"], input=dl.stdout, check=False).returncode
+        rc, script = curl_read(_CARGO_BINSTALL_URL)
+        if rc == 0 and script:
+            rc = subprocess.run(["bash"], input=script, check=False).returncode
             if rc != 0:
                 logger.warning(
                     "cargo-binstall install failed - falling back to source builds"
@@ -213,17 +203,18 @@ def install_rust(spec: RustSpec) -> int:
         logger.info("rustup already installed")
     else:
         logger.info("Installing rustup")
-        dl = subprocess.run(
-            ["curl", "--proto", "=https", "--tlsv1.2", "-sSf", _RUSTUP_URL],
-            capture_output=True,
-            check=False,
+        # rustup's own install line: https only, TLS 1.2 or later, no redirects.
+        rc, script = curl_read(
+            _RUSTUP_URL,
+            extra=("--proto", "=https", "--tlsv1.2"),
+            follow_redirects=False,
         )
-        if dl.returncode != 0 or not dl.stdout:
+        if rc != 0 or not script:
             logger.error("Failed to download rustup installer")
-            return dl.returncode or 1
+            return rc or 1
         rc = subprocess.run(
             ["sh", "-s", "--", "-y", "--default-toolchain", default_channel],
-            input=dl.stdout,
+            input=script,
             check=False,
         ).returncode
         if rc != 0:
@@ -278,7 +269,7 @@ def install_go() -> int:
         logger.info("Go already installed at /usr/local/go")
         return 0
 
-    rc, version = _capture(["curl", "-fsSL", _GO_VERSION_URL])
+    rc, version = _fetch_text(_GO_VERSION_URL)
     if rc != 0 or not version:
         logger.error("Failed to resolve the current Go version")
         return rc or 1
@@ -288,15 +279,17 @@ def install_go() -> int:
 
     arch = "arm64" if platform.machine() in ("aarch64", "arm64") else "amd64"
     tarball = f"go{version}.linux-{arch}.tar.gz"
-    dest = Path("/tmp") / tarball  # noqa: S108 - transient download, removed below
+    url = f"{_GO_DOWNLOAD_BASE}/{tarball}"
 
-    rc = _run(["curl", "-fsSL", "-o", str(dest), f"{_GO_DOWNLOAD_BASE}/{tarball}"])
-    if rc != 0:
-        logger.error(f"Failed to download {tarball}")
-        return rc
+    with tempfile.TemporaryDirectory(prefix="hyperi-ci-go-") as scratch:
+        dest = Path(scratch) / tarball
+        logger.info(f"  Downloading {url}")
+        rc = curl_fetch(url, dest).returncode
+        if rc != 0:
+            logger.error(f"Failed to download {tarball}")
+            return rc
 
-    rc = _run([*_sudo_prefix(), "tar", "-C", "/usr/local", "-xzf", str(dest)])
-    dest.unlink(missing_ok=True)
+        rc = _run([*_sudo_prefix(), "tar", "-C", "/usr/local", "-xzf", str(dest)])
     if rc != 0:
         logger.error("Failed to extract the Go tarball")
         return rc
@@ -332,13 +325,7 @@ def install_node(spec: NodeSpec) -> int:
     default = spec.default or spec.versions[-1]
 
     if not (nvm_dir / "nvm.sh").exists():
-        rc, tag = _capture(
-            [
-                "curl",
-                "-fsSL",
-                "https://api.github.com/repos/nvm-sh/nvm/releases/latest",
-            ]
-        )
+        rc, tag = _fetch_text("https://api.github.com/repos/nvm-sh/nvm/releases/latest")
         if rc != 0 or not tag:
             logger.error("Failed to resolve the current nvm release")
             return rc or 1
@@ -352,16 +339,12 @@ def install_node(spec: NodeSpec) -> int:
 
         logger.info(f"Installing nvm {nvm_tag} into {nvm_dir}")
         nvm_dir.mkdir(parents=True, exist_ok=True)
-        dl = subprocess.run(
-            ["curl", "-fsSL", f"{_NVM_INSTALL_BASE}/{nvm_tag}/install.sh"],
-            capture_output=True,
-            check=False,
-        )
-        if dl.returncode != 0 or not dl.stdout:
+        rc, script = curl_read(f"{_NVM_INSTALL_BASE}/{nvm_tag}/install.sh")
+        if rc != 0 or not script:
             logger.error("Failed to download the nvm installer")
-            return dl.returncode or 1
+            return rc or 1
         env = {**os.environ, "NVM_DIR": str(nvm_dir)}
-        rc = subprocess.run(["bash"], input=dl.stdout, env=env, check=False).returncode
+        rc = subprocess.run(["bash"], input=script, env=env, check=False).returncode
         if rc != 0:
             logger.error("nvm install failed")
             return rc

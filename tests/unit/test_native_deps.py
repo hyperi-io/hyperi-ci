@@ -5,8 +5,6 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
-from __future__ import annotations
-
 import io
 import shutil
 import subprocess
@@ -397,7 +395,8 @@ class TestAptKeyFingerprint:
         def fake_run(cmd, **kwargs):
             invoked.append(list(cmd))
             if cmd[0] == "curl":
-                return subprocess.CompletedProcess(cmd, 0, stdout=b"ARMOURED-KEY")
+                Path(cmd[cmd.index("-o") + 1]).write_bytes(b"ARMOURED-KEY")
+                return subprocess.CompletedProcess(cmd, 0, stdout="")
             if cmd[:2] == ["gpg", "--show-keys"]:
                 return subprocess.CompletedProcess(cmd, 0, stdout=self._COLONS)
             if cmd[:2] == ["dpkg", "--print-architecture"]:
@@ -421,6 +420,33 @@ class TestAptKeyFingerprint:
         rc, invoked = self._install(tmp_path, monkeypatch, self._PRIMARY)
         assert rc == 0
         assert any("--dearmor" in cmd for cmd in invoked)
+
+    def test_the_key_is_fetched_to_a_file_with_retries(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _, invoked = self._install(tmp_path, monkeypatch, self._PRIMARY)
+        [curl] = [cmd for cmd in invoked if cmd[0] == "curl"]
+        assert "-o" in curl
+        assert "--retry-all-errors" in curl
+
+    def test_a_failed_key_fetch_returns_curls_exit_code(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        sources_list, sources_dir = _seed_apt_tree(tmp_path, {})
+        _patch_apt_paths(monkeypatch, sources_list, sources_dir)
+        monkeypatch.setattr(
+            native_deps.subprocess,
+            "run",
+            lambda cmd, **_kw: subprocess.CompletedProcess(cmd, 22, stdout=""),
+        )
+        repo = AptRepo(
+            key_url="https://apt.llvm.org/llvm-snapshot.gpg.key",
+            keyring=str(tmp_path / "llvm.gpg"),
+            url="https://apt.llvm.org/noble/",
+            codename="llvm-toolchain-noble-23",
+        )
+        assert _add_apt_repo(repo) == 22
+        assert not (tmp_path / "llvm.gpg").exists()
 
     def test_spaced_lowercase_fingerprint_still_matches(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -927,7 +953,7 @@ class TestEnsureAwsCli:
         def explode(*_a: object, **_k: object) -> None:
             raise AssertionError("must not download when aws is already present")
 
-        monkeypatch.setattr(native_deps, "_download", explode)
+        monkeypatch.setattr(native_deps, "download_artefact", explode)
         assert native_deps.ensure_aws_cli() == "/usr/bin/aws"
 
     def test_non_linux_declines_rather_than_installing(
@@ -951,7 +977,9 @@ class TestEnsureAwsCli:
         monkeypatch.setattr(native_deps.shutil, "which", lambda _c: None)
         monkeypatch.setattr(native_deps.platform, "system", lambda: "Linux")
         monkeypatch.setattr(native_deps.platform, "machine", lambda: "x86_64")
-        monkeypatch.setattr(native_deps, "_download", lambda _n, _u: b"not-a-zip")
+        monkeypatch.setattr(
+            native_deps, "download_artefact", lambda _n, _u: b"not-a-zip"
+        )
         monkeypatch.setattr(
             native_deps, "_verify_detached_signature", lambda *_a: False
         )
@@ -968,7 +996,7 @@ class TestEnsureAwsCli:
         monkeypatch.setattr(native_deps.shutil, "which", lambda _c: None)
         monkeypatch.setattr(native_deps.platform, "system", lambda: "Linux")
         monkeypatch.setattr(native_deps.platform, "machine", lambda: "x86_64")
-        monkeypatch.setattr(native_deps, "_download", lambda _n, _u: None)
+        monkeypatch.setattr(native_deps, "download_artefact", lambda _n, _u: None)
 
         def explode(*_a: object, **_k: object) -> None:
             raise AssertionError("must not verify a download that never arrived")

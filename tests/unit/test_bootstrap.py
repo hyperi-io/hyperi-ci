@@ -12,15 +12,14 @@ tested here is everything that can be checked without a Linux box: the config
 contract, the non-Linux guard, and the CLI wiring.
 """
 
-from __future__ import annotations
-
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
-from hyperi_ci import bootstrap
+from hyperi_ci import bootstrap, common
 
 _TEST_ENV = {**os.environ, "HYPERCI_AUTO_UPDATE": "false"}
 
@@ -81,6 +80,66 @@ class TestNonLinuxGuard:
         monkeypatch.setattr(bootstrap.platform, "system", lambda: "Linux")
         monkeypatch.setattr(bootstrap.os, "geteuid", lambda: 1001)
         assert bootstrap._sudo_prefix() == ["sudo"]
+
+
+class TestInstallerScriptsComeFromAFile:
+    """A retried fetch piped straight into a shell can run its body twice.
+
+    The installer scripts are fetched to a temp file with retries, then the
+    whole file goes to the shell.
+    """
+
+    @staticmethod
+    def _wire(monkeypatch: pytest.MonkeyPatch, script: bytes) -> dict[str, list]:
+        seen: dict[str, list] = {"curl": [], "shell": []}
+
+        def fake_curl(cmd: list[str], **_kw: object) -> subprocess.CompletedProcess:
+            seen["curl"].append(cmd)
+            Path(cmd[cmd.index("-o") + 1]).write_bytes(script)
+            return subprocess.CompletedProcess(cmd, 0)
+
+        def fake_shell(cmd: list[str], **kw: object) -> subprocess.CompletedProcess:
+            seen["shell"].append((cmd, kw.get("input")))
+            return subprocess.CompletedProcess(cmd, 0)
+
+        monkeypatch.setattr(common, "run_cmd", fake_curl)
+        monkeypatch.setattr(bootstrap.subprocess, "run", fake_shell)
+        monkeypatch.setattr(bootstrap, "_run", lambda *_a, **_k: 0)
+        return seen
+
+    def test_rustup_keeps_its_own_transport_rules(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setattr(bootstrap.platform, "system", lambda: "Linux")
+        monkeypatch.setattr(bootstrap, "_have", lambda _b: False)
+        monkeypatch.setenv("CARGO_HOME", str(tmp_path))
+        monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
+        seen = self._wire(monkeypatch, b"#!/bin/sh\necho rustup\n")
+
+        assert bootstrap.install_rust(bootstrap.RustSpec(channels=[])) == 0
+
+        [curl] = seen["curl"]
+        assert curl[-1] == bootstrap._RUSTUP_URL
+        assert "-L" not in curl
+        assert "--retry-all-errors" in curl
+        assert curl[curl.index("--proto") + 1] == "=https"
+        assert "--tlsv1.2" in curl
+        [(shell, body)] = seen["shell"]
+        assert shell[:2] == ["sh", "-s"]
+        assert body == b"#!/bin/sh\necho rustup\n"
+
+    def test_cargo_binstall_script_is_piped_whole(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(bootstrap, "_have", lambda _b: False)
+        seen = self._wire(monkeypatch, b"#!/bin/bash\necho binstall\n")
+
+        assert bootstrap._install_cargo_tools(["sccache"]) == 0
+
+        [curl] = seen["curl"]
+        assert curl[-1] == bootstrap._CARGO_BINSTALL_URL
+        assert "--retry-all-errors" in curl
+        assert seen["shell"] == [(["bash"], b"#!/bin/bash\necho binstall\n")]
 
 
 class TestInstallAllWiring:
