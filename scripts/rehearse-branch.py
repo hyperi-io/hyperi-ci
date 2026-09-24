@@ -517,7 +517,7 @@ def main() -> int:
         for wf in sorted((clone / ".github" / "workflows").glob("*.yml")):
             new_text, count = swap_refs(wf.read_text(encoding="utf-8"), branch)
             if count:
-                wf.write_text(new_text, encoding="utf-8")
+                wf.write_text(new_text, encoding="utf-8", newline="\n")
                 swapped_files += 1
                 total_swaps += count
         if total_swaps == 0:

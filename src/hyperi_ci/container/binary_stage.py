@@ -28,8 +28,6 @@ Rewriting only fires when the source file is a bare name that matches a
 dfe-loader pattern) are left alone.
 """
 
-from __future__ import annotations
-
 import re
 import tempfile
 from pathlib import Path
@@ -117,6 +115,7 @@ def stage_binary_dockerfile(
         delete=False,
         dir=".",
         encoding="utf-8",
+        newline="\n",
     ) as f:
         f.write(rewritten)
         return Path(f.name)
