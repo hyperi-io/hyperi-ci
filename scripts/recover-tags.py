@@ -30,8 +30,6 @@ Recovery flow per repo:
     # review the printed plan + push command, then run it with explicit consent
 """
 
-from __future__ import annotations
-
 import argparse
 import re
 import subprocess
@@ -51,6 +49,8 @@ def _git(repo: str, *args: str) -> str:
         ["git", "-C", repo, *args],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=True,
     )
     return out.stdout.strip()
@@ -63,6 +63,8 @@ def _git_ok(repo: str, *args: str) -> bool:
             ["git", "-C", repo, *args],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
         ).returncode
         == 0

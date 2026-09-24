@@ -502,6 +502,7 @@ def _build_from_content(
         delete=False,
         dir=".",
         encoding="utf-8",
+        newline="\n",
     ) as f:
         f.write(dockerfile_content)
         dockerfile_path = Path(f.name)
