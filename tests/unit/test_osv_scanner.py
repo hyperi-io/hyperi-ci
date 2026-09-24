@@ -174,9 +174,7 @@ class TestRun:
             captured["mode"] = mode
             return True
 
-        ok = osv_scanner.run(
-            self._lockfile(tmp_path), [], "warn", fake_run_tool, write_dir=tmp_path
-        )
+        ok = osv_scanner.run(self._lockfile(tmp_path), [], "warn", fake_run_tool)
         assert ok is True
         assert "--config" not in captured["cmd"]
         assert captured["mode"] == "warn"
@@ -188,18 +186,30 @@ class TestRun:
         captured: dict[str, Any] = {}
 
         def fake_run_tool(label: str, cmd: list[str], mode: str) -> bool:
-            captured["cmd"] = cmd
+            config = Path(cmd[cmd.index("--config") + 1])
+            captured["config"] = config
+            captured["text"] = config.read_text(encoding="utf-8")
             return True
 
         entries = [IgnoreEntry("osv-scanner", "MAL-2026-1", "FP #1276")]
         osv_scanner.run(
-            self._lockfile(tmp_path, "pnpm-lock.yaml"),
-            entries,
-            "warn",
-            fake_run_tool,
-            write_dir=tmp_path,
+            self._lockfile(tmp_path, "pnpm-lock.yaml"), entries, "warn", fake_run_tool
         )
-        assert "--config" in captured["cmd"]
-        config = tmp_path / "osv-scanner.toml"
-        assert config.exists()
-        assert "MAL-2026-1" in config.read_text()
+        assert "MAL-2026-1" in captured["text"]
+
+    def test_the_config_is_written_outside_the_checkout_and_removed(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Left beside the lockfile, it showed up as untracked and got committed."""
+        monkeypatch.setattr(osv_scanner, "available", lambda: True)
+        captured: dict[str, Any] = {}
+
+        def fake_run_tool(label: str, cmd: list[str], mode: str) -> bool:
+            captured["config"] = Path(cmd[cmd.index("--config") + 1])
+            return True
+
+        entries = [IgnoreEntry("osv-scanner", "MAL-2026-1", "FP #1276")]
+        osv_scanner.run(self._lockfile(tmp_path), entries, "warn", fake_run_tool)
+        assert tmp_path not in captured["config"].parents
+        assert not captured["config"].exists()
+        assert not (tmp_path / "osv-scanner.toml").exists()
