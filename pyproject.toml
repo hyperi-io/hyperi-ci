@@ -40,7 +40,7 @@ dependencies = [
     # new scalo APIs (e.g. deployment contract module added in 2.28).
     # No [metrics] extra: hyperi-ci is a CLI, not a long-running service,
     # so it takes scalo's opt-out and skips the Prometheus + OTel SDK stack.
-    "scalo>=2.28.5",
+    "scalo>=2.30.2",
     "oras>=0.2.42",
     "packaging>=26.0",
     "pydantic>=2.13",
