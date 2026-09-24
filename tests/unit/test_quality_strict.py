@@ -14,6 +14,7 @@ to blocking so they surface before a push instead of after.
 
 import pytest
 
+from hyperi_ci import common
 from hyperi_ci.config import CIConfig, packaged_default
 from hyperi_ci.languages import quality_common
 from hyperi_ci.languages.quality_common import (
@@ -35,12 +36,12 @@ _REASON = "GHSA-0000 has no patched release; mitigated by pod isolation"
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Isolate every test from ambient strict/skip env vars and from a CI runner.
 
-    In CI a relaxed gate is an annotation instead of a log line, so a test
-    reading the log line has to run as it would on a workstation.
+    Under GitHub Actions a relaxed gate is an annotation instead of a log line,
+    so a test reading the log line has to run as it would on a workstation.
     """
     monkeypatch.delenv(_ENV, raising=False)
     monkeypatch.delenv(_SKIP, raising=False)
-    monkeypatch.setattr(quality_common, "is_ci", lambda: False)
+    monkeypatch.setattr(quality_common, "is_github_actions", lambda: False)
 
 
 def _config(tool: str, mode: object, language: str = "python") -> CIConfig:
@@ -381,12 +382,12 @@ class TestDowngradeAnnotationIsOneCommand:
 
     @pytest.fixture(autouse=True)
     def logged(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
-        """Run in CI, recording what reaches the logger.
+        """Run under GitHub Actions, recording what reaches the logger.
 
-        Under GitHub Actions the logger's warning is an annotation too, so in
-        CI anything it records is a second annotation for the same event.
+        There the logger's warning is an annotation too, so anything it records
+        is a second annotation for the same event.
         """
-        monkeypatch.setattr(quality_common, "is_ci", lambda: True)
+        monkeypatch.setattr(quality_common, "is_github_actions", lambda: True)
         said: list[str] = []
         monkeypatch.setattr(quality_common, "warn", said.append)
         return said
@@ -421,7 +422,7 @@ class TestDowngradeAnnotationIsOneCommand:
         capsys: pytest.CaptureFixture[str],
         logged: list[str],
     ) -> None:
-        monkeypatch.setattr(quality_common, "is_ci", lambda: False)
+        monkeypatch.setattr(quality_common, "is_github_actions", lambda: False)
         resolve_tool_mode("pip_audit", _config("pip_audit", "warn"), "python")
         assert self._annotations(capsys) == []
         assert any("quality.python.pip_audit" in w for w in logged), logged
@@ -445,6 +446,40 @@ class TestDowngradeAnnotationIsOneCommand:
         assert out.startswith("::warning title=hyperi-ci gate turned down::")
         assert "reason: no fix yet ::error::planted" in out
         assert logged == []
+
+    def test_a_force_skip_is_one_annotation(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        logged: list[str],
+    ) -> None:
+        monkeypatch.setenv(_SKIP, "semgrep")
+        assert is_skipped("semgrep") is True
+        annotations = self._annotations(capsys)
+        assert len(annotations) == 1, annotations
+        assert annotations[0].startswith(
+            "::warning title=hyperi-ci quality force-skip::"
+        )
+        assert logged == []
+
+    def test_another_ci_gets_a_log_line_not_an_annotation(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        logged: list[str],
+    ) -> None:
+        # Only GitHub Actions reads workflow commands; any other CI would print
+        # the escaped annotation as one unreadable line.
+        monkeypatch.setattr(
+            quality_common, "is_github_actions", common.is_github_actions
+        )
+        monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+        monkeypatch.setenv("CI", "true")
+        monkeypatch.setenv("BUILDKITE", "true")
+        monkeypatch.setenv(_SKIP, "semgrep")
+        assert is_skipped("semgrep") is True
+        assert self._annotations(capsys) == []
+        assert len(logged) == 1, logged
 
 
 class TestConfigTextComesBackOnOneLine:

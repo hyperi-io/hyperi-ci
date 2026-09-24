@@ -232,29 +232,52 @@ def is_prerelease_build() -> bool:
     return is_prerelease_version(resolve_release_version())
 
 
+# A line the Actions runner reads as a workflow command starts with one of
+# these, leading whitespace ignored.
+_COMMAND_PREFIXES = ("::", "##[")
+
+
+def _inert(msg: str) -> str:
+    """Return ``msg`` with no line the Actions runner would run as a command.
+
+    Log text carries repo config and tool output, and under GitHub Actions the
+    logger writes every line after the first raw. A line that would start a
+    command gets a ``| `` prefix. Elsewhere the text is returned unchanged.
+    """
+    if not is_github_actions():
+        return msg
+    lines = msg.splitlines()
+    if not any(line.lstrip().startswith(_COMMAND_PREFIXES) for line in lines):
+        return msg
+    return "\n".join(
+        f"| {line}" if line.lstrip().startswith(_COMMAND_PREFIXES) else line
+        for line in lines
+    )
+
+
 def info(msg: str) -> None:
     """Info message -- delegates to scalo logger."""
-    logger.info(msg)
+    logger.info(_inert(msg))
 
 
 def success(msg: str) -> None:
     """Success message -- delegates to scalo logger."""
-    logger.success(msg)
+    logger.success(_inert(msg))
 
 
 def warn(msg: str) -> None:
     """Warning -- delegates to scalo logger."""
-    logger.warning(msg)
+    logger.warning(_inert(msg))
 
 
 def error(msg: str) -> None:
     """Error -- delegates to scalo logger."""
-    logger.error(msg)
+    logger.error(_inert(msg))
 
 
 def fatal(msg: str) -> None:
     """Fatal error -- log and exit with code 1."""
-    logger.critical(msg)
+    logger.critical(_inert(msg))
     sys.exit(1)
 
 

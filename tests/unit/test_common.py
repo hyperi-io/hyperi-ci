@@ -23,6 +23,59 @@ from hyperi_ci.common import (
 )
 from hyperi_ci.config import CIConfig
 
+_PLANTED = "no fix yet\n::error title=planted::x\r  ::notice::planted\n##[error]planted"
+
+
+class TestLogTextStartsNoCommand:
+    """What a GitHub Actions runner reads from our log lines.
+
+    scalo writes every line of a message after the first raw, and the runner
+    reads a line starting with ``::`` or ``##[`` as a workflow command, so a
+    value from repo config could plant one through any log call.
+    """
+
+    @staticmethod
+    def _commands(call: str, env: dict[str, str]) -> list[str]:
+        code = f"from hyperi_ci import common\ncommon.{call}({_PLANTED!r})\n"
+        result = run_cmd(
+            [sys.executable, "-c", code], capture=True, env=env, timeout=60
+        )
+        output = f"{result.stdout}\n{result.stderr}"
+        return [
+            line
+            for line in output.splitlines()
+            if line.lstrip().startswith(("::", "##[")) and "planted" in line
+        ]
+
+    @pytest.mark.parametrize("call", ["info", "success", "warn", "error"])
+    def test_a_planted_line_starts_no_command(self, call: str) -> None:
+        env = {"CI": "true", "GITHUB_ACTIONS": "true"}
+        assert self._commands(call, env) == []
+
+    def test_the_text_still_reaches_the_log(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(common, "is_github_actions", lambda: True)
+        assert common._inert(_PLANTED).splitlines() == [
+            "no fix yet",
+            "| ::error title=planted::x",
+            "|   ::notice::planted",
+            "| ##[error]planted",
+        ]
+
+    def test_ordinary_multi_line_text_is_untouched(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(common, "is_github_actions", lambda: True)
+        text = "help: install it with one of:\n  brew install x\n  cargo install x"
+        assert common._inert(text) == text
+
+    def test_outside_github_actions_nothing_changes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(common, "is_github_actions", lambda: False)
+        assert common._inert(_PLANTED) == _PLANTED
+
 
 class TestNormaliseTristate:
     """The shared on/off/auto coercion for stage gates."""
