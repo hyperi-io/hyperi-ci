@@ -194,6 +194,11 @@ jobs:
       - name: Set up Docker Buildx
         if: steps.resolve.outputs.build == 'true'
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        # The builder's default cgroup parent, /docker/buildx, sits at the node
+        # root and escapes a runner pod's memory limit (issue #284); a runner
+        # whose dind nests jobs under the pod sets this variable, e.g. jobs/buildx.
+        with:
+          driver-opts: ${{ vars.HYPERCI_BUILDX_CGROUP_PARENT && format('cgroup-parent={0}', vars.HYPERCI_BUILDX_CGROUP_PARENT) || '' }}
 
       - name: Download build artifacts
         # The build-dist-* artifact carries both dist/ (binaries) and
