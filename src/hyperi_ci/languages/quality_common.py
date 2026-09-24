@@ -55,6 +55,16 @@ class GateReasonRequiredError(ValueError):
     """
 
 
+def _one_line(text: str) -> str:
+    """Join ``text`` onto one line and strip it.
+
+    Repo config reaches the log through here, and under GitHub Actions a line
+    break in a logged message starts a new line the runner parses as a
+    workflow command.
+    """
+    return " ".join(text.splitlines()).strip()
+
+
 def mode_and_reason(raw: object, default: str) -> tuple[str, str]:
     """Split a configured quality value into its mode and its stated reason.
 
@@ -68,7 +78,8 @@ def mode_and_reason(raw: object, default: str) -> tuple[str, str]:
         default: Mode to assume when a mapping carries no ``mode``.
 
     Returns:
-        The mode, lowercased and stripped, and the reason (empty when none).
+        The mode, lowercased, and the reason (empty when none), each stripped
+        and joined onto one line.
 
     """
     if isinstance(raw, dict):
@@ -77,7 +88,7 @@ def mode_and_reason(raw: object, default: str) -> tuple[str, str]:
     else:
         mode = str(raw)
         reason = ""
-    return mode.strip().lower(), reason.strip()
+    return _one_line(mode).lower(), _one_line(reason)
 
 
 def strict_quality() -> bool:
@@ -158,15 +169,18 @@ _REASON_DOCS = "docs/quality-gate.md#relaxing-a-security-gate"
 
 
 def _announce(msg: str, title: str) -> None:
-    """Warn in the log and, in CI, as an annotation the run summary shows.
+    """Announce once: in CI as an annotation, anywhere else as a log line.
 
-    The logger line stays in the job log, where a folded group can hide it.
-    Only the annotation reaches the run summary. Escaped, because a raw newline
-    ends a workflow command and hands the rest of the line to the runner.
+    The annotation reaches the run summary, where a folded log group cannot
+    hide it, and it is escaped because a raw newline ends a workflow command.
+    In CI it is the only output: the logger would add a second annotation and
+    write every line after the first unescaped, for the runner to parse as
+    further commands.
     """
-    warn(f"  {msg}")
     if is_ci():
         print(f"::warning title={title}::{escape_command_data(msg)}")
+        return
+    warn(f"  {msg}")
 
 
 def _mapping_example(key: str, setting: str, placeholder: str) -> str:
@@ -279,7 +293,7 @@ def note_quality_disabled(language: str, reason: str = "") -> None:
 
     """
     gates = ", ".join(_security_gates_shipped(language))
-    reason = reason.strip()
+    reason = _one_line(reason)
     # Warns rather than failing until issue #259 stage 2, like note_gate_downgrade.
     if not reason:
         example = _mapping_example(

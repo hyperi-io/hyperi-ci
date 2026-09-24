@@ -17,7 +17,9 @@ import pytest
 from hyperi_ci.config import CIConfig, packaged_default
 from hyperi_ci.languages import quality_common
 from hyperi_ci.languages.quality_common import (
+    checked_mode,
     is_skipped,
+    mode_and_reason,
     quality_skip,
     resolve_cross_tool_mode,
     resolve_tool_mode,
@@ -31,9 +33,14 @@ _REASON = "GHSA-0000 has no patched release; mitigated by pod isolation"
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Isolate every test from ambient strict/skip env vars."""
+    """Isolate every test from ambient strict/skip env vars and from a CI runner.
+
+    In CI a relaxed gate is an annotation instead of a log line, so a test
+    reading the log line has to run as it would on a workstation.
+    """
     monkeypatch.delenv(_ENV, raising=False)
     monkeypatch.delenv(_SKIP, raising=False)
+    monkeypatch.setattr(quality_common, "is_ci", lambda: False)
 
 
 def _config(tool: str, mode: object, language: str = "python") -> CIConfig:
@@ -373,12 +380,19 @@ class TestDowngradeAnnotationIsOneCommand:
         return [line for line in out.splitlines() if line.startswith("::")]
 
     @pytest.fixture(autouse=True)
-    def _in_ci(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def logged(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        """Run in CI, recording what reaches the logger.
+
+        Under GitHub Actions the logger's warning is an annotation too, so in
+        CI anything it records is a second annotation for the same event.
+        """
         monkeypatch.setattr(quality_common, "is_ci", lambda: True)
-        monkeypatch.setattr(quality_common, "warn", lambda _m: None)
+        said: list[str] = []
+        monkeypatch.setattr(quality_common, "warn", said.append)
+        return said
 
     def test_a_missing_reason_is_annotated_in_ci(
-        self, capsys: pytest.CaptureFixture[str]
+        self, capsys: pytest.CaptureFixture[str], logged: list[str]
     ) -> None:
         # A logger line sits inside a folded group; the annotation reaches the
         # run summary, which is where a reader sees a relaxed security gate.
@@ -389,22 +403,28 @@ class TestDowngradeAnnotationIsOneCommand:
             "::warning title=hyperi-ci security gate needs a reason::"
         )
         assert "quality.python.pip_audit" in annotations[0]
+        assert logged == []
 
     def test_a_turned_down_gate_is_annotated_in_ci(
-        self, capsys: pytest.CaptureFixture[str]
+        self, capsys: pytest.CaptureFixture[str], logged: list[str]
     ) -> None:
         resolve_tool_mode("vulture", _config("vulture", "disabled"), "python")
         annotations = self._annotations(capsys)
         assert len(annotations) == 1, annotations
         assert annotations[0].startswith("::warning title=hyperi-ci gate turned down::")
         assert "quality.python.vulture" in annotations[0]
+        assert logged == []
 
-    def test_no_annotation_outside_ci(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    def test_outside_ci_it_is_a_log_line_and_no_annotation(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        logged: list[str],
     ) -> None:
         monkeypatch.setattr(quality_common, "is_ci", lambda: False)
         resolve_tool_mode("pip_audit", _config("pip_audit", "warn"), "python")
         assert self._annotations(capsys) == []
+        assert any("quality.python.pip_audit" in w for w in logged), logged
 
     def test_the_multi_line_reason_owed_message_stays_one_line(
         self, capsys: pytest.CaptureFixture[str]
@@ -415,15 +435,46 @@ class TestDowngradeAnnotationIsOneCommand:
         assert "%0A" in out
 
     def test_a_stated_reason_cannot_start_a_second_command(
-        self, capsys: pytest.CaptureFixture[str]
+        self, capsys: pytest.CaptureFixture[str], logged: list[str]
     ) -> None:
         reason = "no fix yet\n::error::planted"
         cfg = _config("pip_audit", {"mode": "warn", "reason": reason})
         resolve_tool_mode("pip_audit", cfg, "python")
-        annotations = self._annotations(capsys)
-        assert len(annotations) == 1, annotations
-        assert annotations[0].startswith("::warning ")
-        assert "no fix yet%0A::error::planted" in annotations[0]
+        out = capsys.readouterr().out
+        assert out.count("\n") == 1, out
+        assert out.startswith("::warning title=hyperi-ci gate turned down::")
+        assert "reason: no fix yet ::error::planted" in out
+        assert logged == []
+
+
+class TestConfigTextComesBackOnOneLine:
+    """A line break in a quality value would reach the log as a line of its own.
+
+    Under GitHub Actions the runner reads such a line as a workflow command, and
+    the value is whatever the repo's config says.
+    """
+
+    @pytest.mark.parametrize("line_break", ["\n", "\r\n", "\r"])
+    def test_a_multi_line_reason(self, line_break: str) -> None:
+        raw = {"mode": "warn", "reason": f" no fix yet{line_break}::error::planted "}
+        assert mode_and_reason(raw, "blocking") == (
+            "warn",
+            "no fix yet ::error::planted",
+        )
+
+    def test_a_multi_line_mode(self) -> None:
+        mode, _ = mode_and_reason("warn\n::ERROR::planted", "blocking")
+        assert mode == "warn ::error::planted"
+
+    def test_an_unknown_multi_line_mode_is_named_on_one_line(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said: list[str] = []
+        monkeypatch.setattr(quality_common, "warn", said.append)
+        raw = "block\n::error::planted"
+        assert checked_mode("quality.python.ruff", raw, "blocking") == ("blocking", "")
+        assert len(said) == 1, said
+        assert "\n" not in said[0]
 
 
 class TestRuffFormatHasItsOwnMode:
