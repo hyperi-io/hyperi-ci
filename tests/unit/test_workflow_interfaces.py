@@ -14,10 +14,13 @@ regresses vs the last release, so the break never reaches a consumer.
 """
 
 import importlib.util
+import urllib.error
 from pathlib import Path
-from typing import Self
 
 import pytest
+
+# What the shared `fake_urlopen` fixture hands back: outcomes, URLs asked, sleeps.
+_Urlopen = tuple[list[Exception | bytes], list[str], list[float]]
 
 _SPEC = importlib.util.spec_from_file_location(
     "check_workflow_interfaces",
@@ -193,31 +196,27 @@ class TestTheCliSubcommandGate:
 class TestWhatCountsAsPublished:
     """uv answers "what is the latest" from a cached index, PyPI does not."""
 
-    def test_an_unreachable_pypi_returns_none(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_an_unreachable_pypi_returns_none(self, fake_urlopen: _Urlopen) -> None:
         """None is the skip path; a wrong version would fail a clean PR."""
-
-        def _boom(*args: object, **kwargs: object) -> None:
-            raise OSError("no route to host")
-
-        monkeypatch.setattr(cwi.urllib.request, "urlopen", _boom)
         assert cwi.latest_published_version() is None
 
-    def test_a_malformed_payload_returns_none(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(
-            cwi.urllib.request, "urlopen", lambda *a, **k: _FakeResponse(b"{}")
-        )
+    def test_a_malformed_payload_returns_none(self, fake_urlopen: _Urlopen) -> None:
+        outcomes, _, _ = fake_urlopen
+        outcomes.append(b"{}")
         assert cwi.latest_published_version() is None
 
-    def test_the_version_comes_from_pypi(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        payload = b'{"info": {"version": "9.9.9"}}'
-        monkeypatch.setattr(
-            cwi.urllib.request, "urlopen", lambda *a, **k: _FakeResponse(payload)
-        )
+    def test_the_version_comes_from_pypi(self, fake_urlopen: _Urlopen) -> None:
+        outcomes, _, _ = fake_urlopen
+        outcomes.append(b'{"info": {"version": "9.9.9"}}')
         assert cwi.latest_published_version() == "9.9.9"
+
+    def test_one_5xx_is_retried_not_skipped(self, fake_urlopen: _Urlopen) -> None:
+        """A single PyPI 503 must not turn the gate into a skip."""
+        outcomes, asked, _ = fake_urlopen
+        outcomes.append(urllib.error.HTTPError(cwi._PYPI_JSON, 503, "busy", {}, None))
+        outcomes.append(b'{"info": {"version": "9.9.9"}}')
+        assert cwi.latest_published_version() == "9.9.9"
+        assert len(asked) == 2
 
     def test_an_unresolvable_version_skips_rather_than_fails(
         self, monkeypatch: pytest.MonkeyPatch
@@ -393,19 +392,3 @@ class TestTheShippedRetirementFile:
                 (root / record.file).read_text(encoding="utf-8")
             )
             assert not cwi._declares(iface, record.kind, record.name), record.name
-
-
-class _FakeResponse:
-    """Context-manager stand-in for what `urlopen` returns."""
-
-    def __init__(self, body: bytes) -> None:
-        self._body = body
-
-    def __enter__(self) -> Self:
-        return self
-
-    def __exit__(self, *exc: object) -> bool:
-        return False
-
-    def read(self) -> bytes:
-        return self._body
