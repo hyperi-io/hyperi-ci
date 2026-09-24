@@ -12,8 +12,9 @@ old spellings continuing to work.
 
 import pytest
 
+from hyperi_ci import config as config_module
 from hyperi_ci import vocabulary
-from hyperi_ci.config import CIConfig, packaged_default
+from hyperi_ci.config import CIConfig, load_config, packaged_default
 
 
 class TestFoldLegacyConfig:
@@ -181,6 +182,18 @@ class TestDeprecationMessage:
         _, keys = vocabulary.fold_legacy_config(doc)
         key = next(iter(doc["release"]))
         assert f"release.{key}" in keys
+
+    def test_load_config_names_a_release_block_removal_key(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """The path a real run takes, not only the fold helper."""
+        monkeypatch.setattr(config_module, "_config_cache", None)
+        (tmp_path / ".hyperi-ci.yaml").write_text(
+            "release:\n  destinations_oss:\n    python: false\n", encoding="utf-8"
+        )
+        config = load_config(reload=True, project_dir=tmp_path)
+        assert "release.destinations_oss" in config.deprecated_keys
+        assert config.destination_for("python") == []
 
     def test_target_is_still_told_to_go(self) -> None:
         message = vocabulary.deprecated_config_message(["publish.target"])

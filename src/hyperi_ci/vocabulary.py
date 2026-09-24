@@ -29,8 +29,6 @@ runs, and passing one the callee does not declare is a hard error rather than a
 warning. ``publish-target`` and ``will-publish`` therefore stay declared.
 """
 
-from __future__ import annotations
-
 import os
 from typing import Any
 
