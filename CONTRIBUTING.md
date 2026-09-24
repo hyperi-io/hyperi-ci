@@ -233,12 +233,14 @@ uv run scripts/rehearse-branch.py --branch <your-branch> --repo hyperi-io/<fixtu
 - Which fixtures it wants comes from `config/fixtures.yaml`, and the job names
   them. CI verifies; you run, because starting a rehearsal needs a GitHub App
   with `workflows: write` that hypersec-ci-bot is not.
+- It refuses while a `Fleet sweep` run is unfinished or another rehearsal holds the fixture.
 
 **The fleet sweep runs everything against main.** `Fleet sweep` dispatches all
 nine fixtures on a merge touching the consumer surface, and weekly, then runs
 the planted failures (`uv run scripts/negative-cases.py`). Ran nothing, could
 not reach a repo, or a planted failure that went green is a FAILURE, not a pass.
 By hand: `uv run scripts/sweep-fleet.py --only <fixture>`.
+The sweep waits for a fixture carrying a `rehearse/*` branch, and reads one still held at its deadline as inconclusive.
 
 **A fixture switching a hyperi-ci feature off declares it.** Add a `masks:`
 entry to `config/fixtures.yaml` naming the feature, the reason, and the ISSUE

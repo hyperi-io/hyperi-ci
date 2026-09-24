@@ -31,6 +31,11 @@ names the hyperi-ci commit that was rehearsed and the run that proved it,
 so ``scripts/rehearse-gate.py`` can refuse a PR whose current head has
 never been run against a fixture (issue #215).
 
+It refuses to start while a fleet sweep has not finished, and exits 2 with
+nothing changed: the override would reach the fixture runs that sweep
+dispatched to certify main. It also refuses a fixture whose override already
+names a hyperi-ci branch, because a rehearsal still holds it.
+
 Deliberately NEVER: merges anything, touches the fixture's main, or
 publishes. Known limit (accepted, pinning decision #31 gate-only):
 composite refs INSIDE the lang workflows stay @main -- composite changes
@@ -52,6 +57,8 @@ import time
 from pathlib import Path
 
 _HYPERI_CI_REPO = "hyperi-io/hyperi-ci"
+# The fleet sweep treats a fixture carrying any branch under this as held.
+REHEARSAL_PREFIX = "rehearse/"
 _REF_SWAP = re.compile(r"(hyperi-io/hyperi-ci/[^@\s]+)@main\b")
 
 
@@ -152,6 +159,80 @@ def override_value(branch: str) -> str:
     )
 
 
+# A branch name carries `/`, so the ref runs to the next space.
+_OVERRIDE_REF = re.compile(
+    rf"git\+https://github\.com/{re.escape(_HYPERI_CI_REPO)}(?:\.git)?@([^\s#]+)"
+)
+
+
+def held_by(value: str | None) -> str | None:
+    """The hyperi-ci branch a rehearsal holds a fixture on, or None when it is free.
+
+    The override is repo-wide and read as each job starts, so every run that
+    starts while it names a branch installs that branch's CLI, whoever
+    dispatched it. The permanent ``@main`` pin and an override naming no
+    hyperi-ci git ref are not holds.
+
+    Args:
+        value: The fixture's HYPERCI_INSTALL_OVERRIDE, None when unset.
+
+    Returns:
+        The holding ref, or None.
+    """
+    match = _OVERRIDE_REF.search(value or "")
+    if match is None or match.group(1) == "main":
+        return None
+    return match.group(1)
+
+
+_SWEEP_WORKFLOW = "fleet-sweep.yml"
+
+
+class SweepUnreadableError(RuntimeError):
+    """Whether a fleet sweep is running could not be read."""
+
+
+def _running_sweep() -> int | None:
+    """The id of a fleet-sweep run that has not finished, or None.
+
+    Raises:
+        SweepUnreadableError: gh failed or answered with something unreadable.
+            Read as "no sweep", the override would reach fixture runs that
+            sweep already dispatched.
+    """
+    result = _run(
+        [
+            "gh",
+            "run",
+            "list",
+            "-R",
+            _HYPERI_CI_REPO,
+            "--workflow",
+            _SWEEP_WORKFLOW,
+            "--json",
+            "databaseId,status",
+            "--limit",
+            "20",
+        ]
+    )
+    if result.returncode != 0:
+        stderr = result.stderr.strip().splitlines()
+        detail = stderr[-1] if stderr else f"gh exited {result.returncode}"
+        raise SweepUnreadableError(
+            f"cannot list {_SWEEP_WORKFLOW} runs on {_HYPERI_CI_REPO}: {detail}"
+        )
+    try:
+        runs = json.loads(result.stdout or "[]")
+        return next(
+            (int(run["databaseId"]) for run in runs if run["status"] != "completed"),
+            None,
+        )
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        raise SweepUnreadableError(
+            f"unreadable {_SWEEP_WORKFLOW} run list on {_HYPERI_CI_REPO}: {exc}"
+        ) from exc
+
+
 def _gh_var(repo: str, action: str, value: str = "") -> bool:
     """Set or delete HYPERCI_INSTALL_OVERRIDE on the fixture. True on success."""
     if action == "set":
@@ -162,6 +243,60 @@ def _gh_var(repo: str, action: str, value: str = "") -> bool:
     if result.returncode != 0 and action == "set":
         print(result.stderr, file=sys.stderr)
     return result.returncode == 0
+
+
+def _restore_override(repo: str, prior: str | None) -> bool:
+    """Put the fixture's install override back as this run found it.
+
+    Args:
+        repo: The fixture, ``owner/name``.
+        prior: Its override before this run, None when it was unset.
+
+    Returns:
+        True once it is back, False after printing what to put back by hand.
+    """
+    if prior is None:
+        restored = _gh_var(repo, "delete")
+    else:
+        restored = _gh_var(repo, "set", prior)
+    if not restored:
+        print(
+            f"WARNING: {_OVERRIDE_VAR} on {repo} was NOT restored -- put it back by "
+            f"hand: {prior if prior is not None else 'delete it'}",
+            file=sys.stderr,
+        )
+    return restored
+
+
+def _teardown(
+    repo: str, clone: Path, ref: str, prior: str | None, *, override_set: bool
+) -> None:
+    """Put the override back, then delete the rehearsal branch.
+
+    In that order so the branch, which the fleet sweep waits on, outlives the
+    override. Deleting the branch also closes any PR it heads.
+
+    Args:
+        repo: The fixture, ``owner/name``.
+        clone: The local clone the branch was pushed from.
+        ref: The rehearsal branch.
+        prior: The override before this run, None when it was unset.
+        override_set: Whether this run set the override.
+    """
+    restored = override_set and _restore_override(repo, prior)
+    # Best-effort: unattended sessions park branch deletes.
+    result = _run(
+        ["git", "-C", str(clone), "push", "origin", "--delete", ref], timeout=60
+    )
+    done = "override restored, " if restored else ""
+    if result.returncode == 0:
+        print(f"Cleaned up: {done}{ref} deleted")
+        return
+    stderr = result.stderr.strip().splitlines()
+    print(
+        f"Branch {ref} NOT deleted ({stderr[-1] if stderr else 'unknown'}) -- delete "
+        f"it by hand, or every fleet sweep waits on {repo}"
+    )
 
 
 _PASSING_CONCLUSIONS = frozenset({"success", "skipped", "neutral"})
@@ -484,16 +619,34 @@ def main() -> int:
     if repo == _HYPERI_CI_REPO:
         return _fail("rehearse against a fixture, not hyperi-ci itself")
     if branch in ("main", "master"):
-        return _fail("rehearsing main is meaningless — it is what fixtures already run")
+        return _fail(
+            "rehearsing main is meaningless -- it is what fixtures already run"
+        )
     head_sha = _branch_head(branch)
     if head_sha is None:
         return _fail(
-            f"branch {branch!r} not found on {_HYPERI_CI_REPO} — push it first"
+            f"branch {branch!r} not found on {_HYPERI_CI_REPO} -- push it first"
         )
     print(f"Rehearsing {branch} at {head_sha[:12]} against {repo}")
 
     slug = rehearse_slug(branch)
-    rehearse_ref = f"rehearse/{slug}"
+    rehearse_ref = f"{REHEARSAL_PREFIX}{slug}"
+
+    # The override reaches every run that starts while it is set, including the
+    # fixture runs a sweep already dispatched to certify main.
+    if not args.no_cli_override:
+        try:
+            sweep_id = _running_sweep()
+        except SweepUnreadableError as exc:
+            return _fail(f"{exc} -- not setting an override a sweep could pick up")
+        if sweep_id is not None:
+            print(
+                f"REHEARSAL REFUSED: fleet-sweep run {sweep_id} on {_HYPERI_CI_REPO} "
+                f"has not finished, and the override would reach the runs it "
+                f"dispatches on {repo}. Nothing was changed -- rehearse {branch} "
+                "once it finishes."
+            )
+            return 2
 
     # A fixture may carry a permanent override (ci-test-manifests pins @main),
     # which cleanup restores rather than deletes. Read before anything is
@@ -502,6 +655,13 @@ def main() -> int:
         prior_override = _read_override(repo)
     except OverrideUnreadableError as exc:
         return _fail(f"{exc} -- not replacing an override this run could not restore")
+    # Recorded as the prior, another rehearsal's branch would be put back at
+    # cleanup, and the fixture left installing a branch that merges away.
+    if holder := held_by(prior_override):
+        return _fail(
+            f"{_OVERRIDE_VAR} on {repo} already runs hyperi-ci@{holder}, so a "
+            "rehearsal holds the fixture -- finish or clean up that rehearsal first"
+        )
 
     with tempfile.TemporaryDirectory(prefix="rehearse-") as tmp:
         clone = Path(tmp) / "fixture"
@@ -534,114 +694,108 @@ def main() -> int:
             if result.returncode != 0:
                 return _fail(f"git {git_args[0]} failed: {result.stderr.strip()}")
 
-        # Identifies THIS cycle's runs. The branch name cannot -- every cycle
-        # reuses it, and a deleted branch still matches `gh run list`.
-        rev = _run(["git", "-C", str(clone), "rev-parse", "HEAD"], timeout=60)
-        if rev.returncode != 0:
-            return _fail(f"could not read the rehearsal commit: {rev.stderr.strip()}")
-        fixture_sha = rev.stdout.strip()
-        print(f"Fixture commit: {fixture_sha[:12]}")
-
+        # Every exit from here tears down, unless --keep. A leaked override
+        # breaks every run once its branch merges away, and a leaked branch
+        # holds the fixture in every fleet sweep.
         override_set = False
-        if not args.no_cli_override:
-            override_set = _gh_var(repo, "set", override_value(branch))
-            if not override_set:
-                return _fail("could not set HYPERCI_INSTALL_OVERRIDE")
-            print(f"HYPERCI_INSTALL_OVERRIDE set on {repo}")
+        try:
+            # Identifies THIS cycle's runs. The branch name cannot -- every cycle
+            # reuses it, and a deleted branch still matches `gh run list`.
+            rev = _run(["git", "-C", str(clone), "rev-parse", "HEAD"], timeout=60)
+            if rev.returncode != 0:
+                return _fail(
+                    f"could not read the rehearsal commit: {rev.stderr.strip()}"
+                )
+            fixture_sha = rev.stdout.strip()
+            print(f"Fixture commit: {fixture_sha[:12]}")
 
-        body = (
-            "Throwaway rehearsal PR created by scripts/rehearse-branch.py. "
-            f"Exercises hyperi-ci@{branch} workflows"
-            + ("" if args.no_cli_override else " + branch CLI")
-            + " against this fixture. Never merged; cleaned up automatically."
-        )
-        result = _run(
-            [
-                "gh",
-                "pr",
-                "create",
-                "-R",
-                repo,
-                "--draft",
-                "--head",
-                rehearse_ref,
-                "--title",
-                f"ci: rehearse hyperi-ci@{branch} [do not merge]",
-                "--body",
-                body,
-            ],
-            timeout=60,
-        )
-        if result.returncode != 0:
-            return _fail(f"PR create failed: {result.stderr.strip()}")
-        pr_url = result.stdout.strip()
-        pr_number = int(pr_url.rstrip("/").rsplit("/", 1)[-1])
-        print(f"Rehearsal PR: {pr_url}")
+            if not args.no_cli_override:
+                override_set = _gh_var(repo, "set", override_value(branch))
+                if not override_set:
+                    return _fail("could not set HYPERCI_INSTALL_OVERRIDE")
+                print(f"HYPERCI_INSTALL_OVERRIDE set on {repo}")
 
-        if not _wait_for_merge_ref(repo, pr_number):
-            print(
-                f"WARNING: refs/pull/{pr_number}/merge did not appear - the run may "
-                "fail at checkout through no fault of the branch"
+            body = (
+                "Throwaway rehearsal PR created by scripts/rehearse-branch.py. "
+                f"Exercises hyperi-ci@{branch} workflows"
+                + ("" if args.no_cli_override else " + branch CLI")
+                + " against this fixture. Never merged; cleaned up automatically."
             )
+            result = _run(
+                [
+                    "gh",
+                    "pr",
+                    "create",
+                    "-R",
+                    repo,
+                    "--draft",
+                    "--head",
+                    rehearse_ref,
+                    "--title",
+                    f"ci: rehearse hyperi-ci@{branch} [do not merge]",
+                    "--body",
+                    body,
+                ],
+                timeout=60,
+            )
+            if result.returncode != 0:
+                return _fail(f"PR create failed: {result.stderr.strip()}")
+            pr_url = result.stdout.strip()
+            pr_number = int(pr_url.rstrip("/").rsplit("/", 1)[-1])
+            print(f"Rehearsal PR: {pr_url}")
 
-        verdict, lines, run_id = _watch_pr_run(
-            repo, rehearse_ref, fixture_sha, args.timeout_minutes
-        )
+            if not _wait_for_merge_ref(repo, pr_number):
+                print(
+                    f"WARNING: refs/pull/{pr_number}/merge did not appear - the run "
+                    "may fail at checkout through no fault of the branch"
+                )
 
-        # A run that started before the merge ref existed failed at checkout, not
-        # on the branch. The ref is there now, so that one failure gets one
-        # rerun; every other failure is reported as the branch's result.
-        if (
-            verdict == "fail"
-            and run_id
-            and _failed_at_checkout(repo, run_id)
-            and _rerun(repo, run_id)
-        ):
-            print(f"Re-running {run_id} once - the first attempt raced the merge ref")
             verdict, lines, run_id = _watch_pr_run(
                 repo, rehearse_ref, fixture_sha, args.timeout_minutes
             )
 
-        print("Rehearsal run results:")
-        for line in lines:
-            print(line)
-
-        # Written BEFORE cleanup: closing the PR leaves the body readable, and
-        # the gate reads this to decide whether a hyperi-ci commit was proven.
-        if args.no_cli_override:
-            print("--no-cli-override: no record written, the CLI half was not tested")
-        else:
-            _write_record(
-                repo, pr_number, body, record_block(head_sha, run_id, verdict)
-            )
-
-        if args.keep:
-            print("--keep: leaving PR, branch, and override in place")
-        else:
-            cancelled = _cancel_inflight(repo, rehearse_ref)
-            if cancelled:
-                print(f"Cancelled unfinished run(s) before teardown: {cancelled}")
-            _run(["gh", "pr", "close", str(pr_number), "-R", repo], timeout=60)
-            if override_set:
-                if prior_override is None:
-                    _gh_var(repo, "delete")
-                else:
-                    _gh_var(repo, "set", prior_override)
-            # Branch delete may be policy-blocked (unattended sessions park
-            # branch deletes) -- best-effort, report either way.
-            result = _run(
-                ["git", "-C", str(clone), "push", "origin", "--delete", rehearse_ref],
-                timeout=60,
-            )
-            if result.returncode == 0:
+            # A run that started before the merge ref existed failed at checkout,
+            # not on the branch. The ref is there now, so that one failure gets
+            # one rerun; every other failure is reported as the branch's result.
+            if (
+                verdict == "fail"
+                and run_id
+                and _failed_at_checkout(repo, run_id)
+                and _rerun(repo, run_id)
+            ):
                 print(
-                    f"Cleaned up: PR closed, override restored, {rehearse_ref} deleted"
+                    f"Re-running {run_id} once - the first attempt raced the merge ref"
+                )
+                verdict, lines, run_id = _watch_pr_run(
+                    repo, rehearse_ref, fixture_sha, args.timeout_minutes
+                )
+
+            print("Rehearsal run results:")
+            for line in lines:
+                print(line)
+
+            # Written BEFORE cleanup: closing the PR leaves the body readable, and
+            # the gate reads this to decide whether a hyperi-ci commit was proven.
+            if args.no_cli_override:
+                print(
+                    "--no-cli-override: no record written, the CLI half was not tested"
                 )
             else:
-                print(
-                    f"PR closed + override restored; branch {rehearse_ref} NOT "
-                    f"deleted ({result.stderr.strip().splitlines()[-1] if result.stderr.strip() else 'unknown'}) "
-                    "— delete manually"
+                _write_record(
+                    repo, pr_number, body, record_block(head_sha, run_id, verdict)
+                )
+
+            if args.keep:
+                print("--keep: leaving PR, branch, and override in place")
+            else:
+                cancelled = _cancel_inflight(repo, rehearse_ref)
+                if cancelled:
+                    print(f"Cancelled unfinished run(s) before teardown: {cancelled}")
+                _run(["gh", "pr", "close", str(pr_number), "-R", repo], timeout=60)
+        finally:
+            if not args.keep:
+                _teardown(
+                    repo, clone, rehearse_ref, prior_override, override_set=override_set
                 )
 
     if verdict == "pass":
@@ -653,7 +807,7 @@ def main() -> int:
             "read the fixture's PR run by hand before merging"
         )
         return 2
-    print(f"REHEARSAL FAILED: {branch} broke {repo} — fix before merging to main")
+    print(f"REHEARSAL FAILED: {branch} broke {repo} -- fix before merging to main")
     return 1
 
 
