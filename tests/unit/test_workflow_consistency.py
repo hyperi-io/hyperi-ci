@@ -948,6 +948,24 @@ class TestArm64Parity:
         )
 
 
+class TestBuildxCgroupParent:
+    """issue #284: the buildx builder can be placed under the runner pod's cgroup."""
+
+    def _buildx_step(self) -> dict:
+        steps = _load_workflow("_release-tail.yml")["jobs"]["container"]["steps"]
+        return next(s for s in steps if "setup-buildx-action" in str(s.get("uses", "")))
+
+    def test_the_cgroup_parent_comes_from_the_variable(self) -> None:
+        opts = str(self._buildx_step().get("with", {}).get("driver-opts", ""))
+        assert "vars.HYPERCI_BUILDX_CGROUP_PARENT" in opts
+        assert "cgroup-parent=" in opts
+
+    def test_it_is_off_unless_the_variable_is_set(self) -> None:
+        # The stock-dind fleet must keep the builder where it is today.
+        opts = str(self._buildx_step().get("with", {}).get("driver-opts", ""))
+        assert opts.rstrip().endswith("|| '' }}"), opts
+
+
 SKIP_OPTIMIZE_ENV = "${{ inputs.skip-optimize || vars.HYPERCI_SKIP_OPTIMIZE }}"
 
 
