@@ -273,8 +273,10 @@ def _teardown(
 ) -> None:
     """Put the override back, then delete the rehearsal branch.
 
-    In that order so the branch, which the fleet sweep waits on, outlives the
-    override. Deleting the branch also closes any PR it heads.
+    In that order so the branch, which the fleet sweep and the runner-image
+    canary read as the hold, outlives the override. A failed restore keeps the
+    branch, since it is then the only sign the fixture still runs a branch CLI.
+    Deleting the branch also closes any PR it heads.
 
     Args:
         repo: The fixture, ``owner/name``.
@@ -284,6 +286,12 @@ def _teardown(
         override_set: Whether this run set the override.
     """
     restored = override_set and _restore_override(repo, prior)
+    if override_set and not restored:
+        print(
+            f"Branch {ref} KEPT: the override was not restored, and the branch is "
+            f"what marks {repo} as held. Delete it only after fixing the override."
+        )
+        return
     # Best-effort: unattended sessions park branch deletes.
     result = _run(
         ["git", "-C", str(clone), "push", "origin", "--delete", ref], timeout=60

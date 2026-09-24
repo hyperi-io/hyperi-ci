@@ -677,6 +677,103 @@ class TestPinningTheCli:
     FAILED must never be recorded as a read that found nothing.
     """
 
+    @pytest.fixture(autouse=True)
+    def git(self, monkeypatch) -> list[list[str]]:
+        """Let every git call pinning and cleanup make succeed, and record it."""
+        calls: list[list[str]] = []
+
+        def fake(args, **_kwargs):
+            calls.append(args)
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(negative, "_run", fake)
+        return calls
+
+    @staticmethod
+    def _go_only(tmp_path: Path) -> tuple[dict, list]:
+        fixtures = {"ci-test-go-app": negative.Fixture(repo="o/go", clone=tmp_path)}
+        case = negative.Case(
+            fixture="ci-test-go-app",
+            name="go-cve-govulncheck",
+            patch="p.patch",
+            branch="expect-fail/go-cve-govulncheck",
+            stage="quality",
+            reason="govulncheck",
+        )
+        return fixtures, [case]
+
+    def test_the_marker_goes_up_before_the_override_and_down_after_it(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The sweep and the runner-image canary read the marker as the hold."""
+        events: list[str] = []
+        rehearse = negative.rehearse_branch
+
+        def run(args, **_kwargs):
+            events.append(" ".join(args[3:]))
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        def gh_var(_repo, action, _value=""):
+            events.append(f"variable {action}")
+            return True
+
+        monkeypatch.setattr(negative, "_run", run)
+        monkeypatch.setattr(rehearse, "_read_override", lambda _repo: None)
+        monkeypatch.setattr(rehearse, "_gh_var", gh_var)
+        fixtures, cases = self._go_only(tmp_path)
+
+        _, _, fatal = negative._pin_fixtures(fixtures, cases, "fix/my-gate")
+        negative._cleanup(fixtures, [])
+
+        assert fatal == ""
+        marker = "rehearse/negative-cases-fix-my-gate"
+        assert events == [
+            f"push origin HEAD:refs/heads/{marker}",
+            "variable set",
+            "variable delete",
+            f"push origin --delete {marker}",
+        ]
+
+    def test_a_failed_restore_keeps_the_marker(
+        self, monkeypatch, capsys, tmp_path, git
+    ) -> None:
+        """Without it, a branch CLI would sit on the fixture with nothing marking it."""
+        rehearse = negative.rehearse_branch
+        monkeypatch.setattr(rehearse, "_read_override", lambda _repo: None)
+        monkeypatch.setattr(
+            rehearse, "_gh_var", lambda _repo, action, _value="": action == "set"
+        )
+        fixtures, cases = self._go_only(tmp_path)
+
+        negative._pin_fixtures(fixtures, cases, "fix/my-gate")
+        negative._cleanup(fixtures, [])
+
+        assert not any("--delete" in call for call in git)
+        assert "KEPT" in capsys.readouterr().out
+
+    def test_a_marker_that_will_not_push_sets_no_override(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        calls: list[str] = []
+        rehearse = negative.rehearse_branch
+
+        def run(args, **_kwargs):
+            return subprocess.CompletedProcess(args, 1, stdout="", stderr="denied")
+
+        def gh_var(_repo, action, _value=""):
+            calls.append(action)
+            return True
+
+        monkeypatch.setattr(negative, "_run", run)
+        monkeypatch.setattr(rehearse, "_read_override", lambda _repo: None)
+        monkeypatch.setattr(rehearse, "_gh_var", gh_var)
+        fixtures, cases = self._go_only(tmp_path)
+
+        _, _, fatal = negative._pin_fixtures(fixtures, cases, "fix/my-gate")
+
+        assert "marker" in fatal
+        assert calls == []
+
     def test_an_unreadable_override_is_never_set_or_deleted(
         self, monkeypatch, tmp_path
     ) -> None:

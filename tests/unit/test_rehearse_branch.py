@@ -499,6 +499,7 @@ def _fake_fixture(
     *,
     pr_create_rc: int = 0,
     var_set_rc: int = 0,
+    var_delete_rc: int = 0,
     rev_parse_rc: int = 0,
 ):
     """Answer every gh and git call main() makes, recording what it changes.
@@ -542,6 +543,10 @@ def _fake_fixture(
             if args[:3] == ["gh", "variable", "set"]:
                 return subprocess.CompletedProcess(
                     args, var_set_rc, stdout="", stderr="gh: HTTP 403"
+                )
+            if args[:3] == ["gh", "variable", "delete"]:
+                return subprocess.CompletedProcess(
+                    args, var_delete_rc, stdout="", stderr="gh: HTTP 502"
                 )
             return ok()
         if args[0] == "git":
@@ -731,3 +736,15 @@ class TestTheRehearsalBranchGoesOnEveryExit:
         fake, changes = _fake_fixture(None, pr_create_rc=1)
         assert self._run_main(monkeypatch, fake, "--keep") == 1
         assert _events(changes) == ["branch push", "variable set", "pr create"]
+
+    def test_a_failed_restore_keeps_the_branch(self, monkeypatch, capsys) -> None:
+        """The branch is the only sign a branch CLI is still on the fixture."""
+        fake, changes = _fake_fixture(None, pr_create_rc=1, var_delete_rc=1)
+        assert self._run_main(monkeypatch, fake) == 1
+        assert _events(changes) == [
+            "branch push",
+            "variable set",
+            "pr create",
+            "variable delete",
+        ]
+        assert "rehearse/fix-x KEPT" in capsys.readouterr().out
