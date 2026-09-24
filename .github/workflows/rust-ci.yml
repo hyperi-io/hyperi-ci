@@ -328,8 +328,9 @@ jobs:
 
   quality:
     name: Quality
-    # At least twice the longest successful run across the fleet (issue #262).
-    timeout-minutes: 45
+    # At least twice the longest successful run across the fleet, which is
+    # dfe-transform-elastic's 39-minute feature matrix (issue #262).
+    timeout-minutes: 90
     needs: [plan]
     if: needs.plan.outputs.run-checks == 'true'
     # Renovate branches use lightweight runners -- dependency update PRs don't need 16cpu
