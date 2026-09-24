@@ -225,6 +225,22 @@ manifest's `[features]` unioned with every member's.
 `llvm-bolt-NN` + `merge-fdata-NN` + `ld.lld-NN` get used. Bump it in your project only
 if you need a specific LLVM major - otherwise trust the default.
 
+### Running it without a release
+
+A run that publishes nothing builds Tier 1, so a PGO or BOLT fix used to need a release to test. `optimize-tier: release` asks for the release tier on one validate-only run:
+
+```bash
+gh workflow run ci.yml -f optimize-tier=release
+```
+
+Nothing is tagged or published. A bare dispatch builds both arches, and each pays Tier 2: the arm64 build step on dfe-receiver took 52 minutes against about 4 at Tier 1 (issue #257).
+
+- Per-run input only. There is no repo variable and no `.hyperi-ci.yaml` key, because every run of the repo would pay that.
+- It beats `skip-optimize` from any source, with a warning, so the image label and release notes match the binary.
+- The strict check still applies: if PGO or BOLT never reaches the binary, the run fails. That is the point of asking.
+- `release` is the only value. Anything else fails the build rather than quietly building Tier 1.
+- `hyperi-ci init` writes the input into a new `ci.yml`. An older one declares it under `workflow_dispatch.inputs` and forwards it under `with:`, like `skip-optimize`.
+
 ---
 
 ## Skipping optimisation for one run
