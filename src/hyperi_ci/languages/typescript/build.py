@@ -45,7 +45,7 @@ def stamp_manifest(version: str, root: Path) -> None:
     pkg = root / "package.json"
     if not pkg.exists():
         return
-    text = pkg.read_text()
+    text = pkg.read_text(encoding="utf-8")
     new_text = re.sub(
         r'("version"\s*:\s*)"[^"]*"',
         rf'\g<1>"{version}"',
@@ -53,5 +53,5 @@ def stamp_manifest(version: str, root: Path) -> None:
         count=1,
     )
     if new_text != text:
-        pkg.write_text(new_text)
+        pkg.write_text(new_text, encoding="utf-8", newline="\n")
         info(f"Stamped package.json: {version}")

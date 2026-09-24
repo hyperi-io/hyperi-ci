@@ -6,8 +6,6 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Python publish handler -- publishes Python packages to PyPI."""
 
-from __future__ import annotations
-
 import os
 import subprocess
 
@@ -30,7 +28,9 @@ def _publish_pypi() -> int:
     if token:
         cmd.extend(["--token", token])
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(
+        cmd, capture_output=True, text=True, encoding="utf-8", errors="replace"
+    )
     if result.returncode != 0:
         if "already exists" in (result.stderr + result.stdout):
             warn("  Package version already exists on PyPI (skipping)")

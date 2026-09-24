@@ -272,7 +272,7 @@ def _filter_and_print(
         matched += 1
 
         try:
-            lines = log_file.read_text(errors="replace").splitlines()
+            lines = log_file.read_text(encoding="utf-8", errors="replace").splitlines()
         except OSError:
             continue
 

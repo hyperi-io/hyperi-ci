@@ -15,8 +15,6 @@ level (overrides section), not at the hyperi-ci invocation level. The
 test_ignore config is available for projects using direct eslint invocation.
 """
 
-from __future__ import annotations
-
 import shutil
 import subprocess
 from pathlib import Path
@@ -103,7 +101,7 @@ def _find_npm_script(
         return None
 
     try:
-        data = json.loads(pkg.read_text())
+        data = json.loads(pkg.read_text(encoding="utf-8"))
         scripts = data.get("scripts", {})
         for name in candidates:
             if name in scripts:
@@ -149,7 +147,9 @@ def _run_tool(
         warn(f"  {tool_name}: not installed (skipping locally)")
         return True
 
-    result = subprocess.run(resolved, capture_output=True, text=True)
+    result = subprocess.run(
+        resolved, capture_output=True, text=True, encoding="utf-8", errors="replace"
+    )
     if result.returncode == 0:
         success(f"  {tool_name}: passed")
         return True

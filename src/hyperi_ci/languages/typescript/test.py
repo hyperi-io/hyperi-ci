@@ -27,7 +27,7 @@ def _detect_test_runner(config: CIConfig) -> str:
 
     pkg_json = Path("package.json")
     if pkg_json.exists():
-        pkg = json.loads(pkg_json.read_text())
+        pkg = json.loads(pkg_json.read_text(encoding="utf-8"))
         dev_deps = pkg.get("devDependencies", {})
         if "vitest" in dev_deps:
             return "vitest"

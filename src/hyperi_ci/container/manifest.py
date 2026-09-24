@@ -6,12 +6,10 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Parse container-manifest.json emitted by scalo deployment contracts."""
 
-from __future__ import annotations
-
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 _REQUIRED_FIELDS = ["base_image", "binary_name"]
 
@@ -35,7 +33,7 @@ class ContainerManifest:
     custom_repos: list[dict[str, str]] = field(default_factory=list)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> ContainerManifest:
+    def from_dict(cls, data: dict[str, Any]) -> Self:
         """Create a manifest from a parsed JSON dict.
 
         Raises:
@@ -92,5 +90,5 @@ def load_manifest(path: Path) -> ContainerManifest:
         msg = f"Container manifest not found: {path}"
         raise FileNotFoundError(msg)
 
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     return ContainerManifest.from_dict(data)

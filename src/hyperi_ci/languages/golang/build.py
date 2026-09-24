@@ -12,8 +12,6 @@ convention: {binary}-{os}-{arch}[.exe]
 Version is in the R2/release path, not the filename.
 """
 
-from __future__ import annotations
-
 import os
 import shutil
 import subprocess
@@ -49,6 +47,8 @@ def _detect_binary_name() -> str:
         ["go", "list", "-m"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     if result.returncode == 0 and result.stdout.strip():
@@ -88,7 +88,7 @@ def _detect_version() -> str:
     """
     version_file = Path("VERSION")
     if version_file.exists():
-        val = version_file.read_text().strip()
+        val = version_file.read_text(encoding="utf-8").strip()
         if val:
             return f"v{val}" if not val.startswith("v") else val
 
@@ -109,6 +109,8 @@ def _build_ldflags(version: str, version_pkg: str) -> str:
         ["git", "rev-parse", "--short", "HEAD"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     commit = (

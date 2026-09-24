@@ -13,8 +13,6 @@ target resolution -- building the installer command, confirming the version
 actually moved, re-exec -- is the same on both channels.
 """
 
-from __future__ import annotations
-
 import json
 import os
 import shutil
@@ -433,7 +431,7 @@ def _effective_current(uv_path: str | None) -> Version:
 def _timestamp_age() -> float:
     """Return age of timestamp file in seconds, or infinity if missing."""
     try:
-        ts = float(TIMESTAMP_FILE.read_text().strip())
+        ts = float(TIMESTAMP_FILE.read_text(encoding="utf-8").strip())
         return time.time() - ts
     except (FileNotFoundError, ValueError):
         return float("inf")
@@ -442,7 +440,7 @@ def _timestamp_age() -> float:
 def _write_timestamp() -> None:
     """Write current time to the timestamp file."""
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    TIMESTAMP_FILE.write_text(str(time.time()))
+    TIMESTAMP_FILE.write_text(str(time.time()), encoding="utf-8", newline="\n")
 
 
 def _should_auto_update() -> bool:

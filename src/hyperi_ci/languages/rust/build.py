@@ -116,6 +116,8 @@ def _get_native_triple() -> str:
         ["gcc", "-dumpmachine"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if result.returncode == 0 and result.stdout.strip():
         return result.stdout.strip()
@@ -144,7 +146,7 @@ def _widen_custom_repos_for_arch(arch: str) -> bool:
     for list_file in sources_dir.glob("*.list"):
         if list_file.name in skip_files:
             continue
-        content = list_file.read_text()
+        content = list_file.read_text(encoding="utf-8")
         # Match arch=<archs> in deb lines, e.g. arch=amd64
         pattern = r"(arch=)([a-z0-9,]+)"
         match = re.search(pattern, content)
@@ -178,6 +180,8 @@ def _ensure_cross_apt_metadata(arch: str) -> None:
         ["dpkg", "--print-foreign-architectures"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     arch_registered = arch in result.stdout
 
@@ -192,6 +196,8 @@ def _ensure_cross_apt_metadata(arch: str) -> None:
                 ["lsb_release", "-cs"],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
             )
             codename = codename_result.stdout.strip() or "noble"
             lines = [
@@ -203,12 +209,14 @@ def _ensure_cross_apt_metadata(arch: str) -> None:
                 ["sudo", "tee", str(ports_list)],
                 input="\n".join(lines) + "\n",
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 capture_output=True,
                 check=False,
             )
             deb822_sources = Path("/etc/apt/sources.list.d/ubuntu.sources")
             if deb822_sources.exists():
-                content = deb822_sources.read_text()
+                content = deb822_sources.read_text(encoding="utf-8")
                 if "Architectures:" not in content:
                     info("  Scoping deb822 sources to amd64")
                     subprocess.run(
@@ -254,6 +262,8 @@ def _detect_native_dev_packages(native_triple: str) -> list[str]:
         ["dpkg", "-S", f"/usr/lib/{native_triple}/pkgconfig/*.pc"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if result.returncode != 0:
         return []
@@ -263,6 +273,8 @@ def _detect_native_dev_packages(native_triple: str) -> list[str]:
         ["dpkg", "--print-architecture"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     ).stdout.strip()
 
     for line in result.stdout.splitlines():
@@ -312,6 +324,8 @@ def _resolve_cross_packages(
                 ["apt-cache", "depends", pkg],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=False,
             )
             for line in result.stdout.splitlines():
@@ -360,7 +374,7 @@ def _patch_ld_scripts(sysroot: Path, cross_triple: str) -> int:
         if not so_file.is_file():
             continue
         try:
-            content = so_file.read_text()
+            content = so_file.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             continue
 
@@ -374,7 +388,7 @@ def _patch_ld_scripts(sysroot: Path, cross_triple: str) -> int:
             f" {sysroot}/usr/lib/{cross_triple}/",
         )
         if content != original:
-            so_file.write_text(content)
+            so_file.write_text(content, encoding="utf-8", newline="\n")
             patched += 1
 
     return patched
@@ -518,7 +532,9 @@ exec {real_bin} \\
                 real_bin=real_bin,
                 sysroot=sysroot,
                 triple=cross_triple,
-            )
+            ),
+            encoding="utf-8",
+            newline="\n",
         )
         wrapper.chmod(perms)
         info(f"  Linker wrapper: {wrapper} -> {real_bin}")
@@ -631,6 +647,8 @@ def _ensure_target_installed(target: str) -> bool:
         ["rustup", "target", "add", target],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if result.returncode != 0:
         error(f"  Failed to install target {target}: {result.stderr.strip()}")
@@ -716,7 +734,12 @@ def _verify_binary(binary: Path, target: str, native_target: str) -> bool:
 
     if shutil.which("file"):
         result = subprocess.run(
-            ["file", str(binary)], capture_output=True, text=True, check=False
+            ["file", str(binary)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
         )
         if "ELF" not in result.stdout:
             error(f"    Not an ELF binary: {result.stdout.strip()}")
@@ -731,6 +754,8 @@ def _verify_binary(binary: Path, target: str, native_target: str) -> bool:
                 ["readelf", "-h", str(binary)],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=False,
             )
             for line in result.stdout.splitlines():
@@ -749,6 +774,8 @@ def _verify_binary(binary: Path, target: str, native_target: str) -> bool:
             ["readelf", "-d", str(binary)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
         )
         deps = []
@@ -769,6 +796,8 @@ def _verify_binary(binary: Path, target: str, native_target: str) -> bool:
                     [str(binary), flag],
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     check=False,
                     timeout=10,
                 )
@@ -863,6 +892,8 @@ def _cargo_metadata() -> dict | None:
         ["cargo", "metadata", "--format-version", "1", "--no-deps"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     if result.returncode != 0:
@@ -941,10 +972,10 @@ def stamp_manifest(version: str, root: Path) -> None:
     cargo = root / "Cargo.toml"
     if not cargo.exists():
         return
-    text = cargo.read_text()
+    text = cargo.read_text(encoding="utf-8")
     for table in ("package", "workspace.package"):
         text = replace_toml_table_version(text, table, version)
-    cargo.write_text(text)
+    cargo.write_text(text, encoding="utf-8", newline="\n")
     info(f"Stamped Cargo.toml: {version}")
 
 
@@ -957,7 +988,7 @@ def _detect_version() -> str:
     """
     version_file = Path("VERSION")
     if version_file.exists():
-        val = version_file.read_text().strip()
+        val = version_file.read_text(encoding="utf-8").strip()
         if val:
             return f"v{val}" if not val.startswith("v") else val
 
@@ -970,6 +1001,8 @@ def _detect_version() -> str:
         ["cargo", "metadata", "--format-version", "1", "--no-deps"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     if result.returncode == 0:
@@ -1116,7 +1149,7 @@ def _find_c_sys_crates() -> list[str]:
         return []
 
     try:
-        content = lock_path.read_text()
+        content = lock_path.read_text(encoding="utf-8")
     except OSError:
         return []
 
@@ -1145,6 +1178,8 @@ def _rlib_has_wrong_arch(rlib: Path, expected_arch_substr: str) -> bool:
         [ar_cmd, "t", str(rlib)],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     if list_result.returncode != 0:

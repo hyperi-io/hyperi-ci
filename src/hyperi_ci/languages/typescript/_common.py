@@ -47,7 +47,13 @@ def _corepack_enable() -> bool:
         warn("corepack not found on PATH")
         return False
 
-    cp = subprocess.run(["corepack", "enable"], capture_output=True, text=True)
+    cp = subprocess.run(
+        ["corepack", "enable"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     if cp.returncode == 0:
         info("  corepack enabled")
         return True
@@ -61,6 +67,8 @@ def _corepack_enable() -> bool:
         ["corepack", "enable", "--install-directory", str(user_dir)],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if cp.returncode == 0:
         os.environ["PATH"] = str(user_dir) + os.pathsep + os.environ.get("PATH", "")
@@ -88,7 +96,7 @@ def pinned_package_manager(project_dir: Path | None = None) -> str | None:
     if not pkg.exists():
         return None
     try:
-        pm_raw = json.loads(pkg.read_text()).get("packageManager")
+        pm_raw = json.loads(pkg.read_text(encoding="utf-8")).get("packageManager")
     except json.JSONDecodeError:
         return None
     if isinstance(pm_raw, str) and pm_raw:
@@ -188,7 +196,7 @@ def detect_yarn_version(project_dir: Path | None = None) -> int:
 
     if pkg.exists():
         try:
-            data = json.loads(pkg.read_text())
+            data = json.loads(pkg.read_text(encoding="utf-8"))
             pm_raw = data.get("packageManager", "")
             if isinstance(pm_raw, str) and pm_raw.startswith("yarn@"):
                 version_str = pm_raw.split("@")[1].split(".")[0]
@@ -202,6 +210,8 @@ def detect_yarn_version(project_dir: Path | None = None) -> int:
             ["yarn", "--version"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=root,
         )
         if result.returncode == 0:

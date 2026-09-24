@@ -16,8 +16,6 @@ The workflow calls this once (`hyperi-ci stamp-version <version>`) with no
 per-language branching; language detection routes the manifest stamp.
 """
 
-from __future__ import annotations
-
 import re
 from pathlib import Path
 
@@ -82,7 +80,7 @@ def stamp_version(version: str, project_dir: Path | None = None) -> int:
     root = project_dir or Path.cwd()
 
     # Central: VERSION is the language-agnostic source of truth, always written.
-    (root / "VERSION").write_text(f"{version}\n")
+    (root / "VERSION").write_text(f"{version}\n", encoding="utf-8", newline="\n")
     info(f"Stamped VERSION: {version}")
 
     # Language-specific: manifest stamp lives in the language's own code.

@@ -135,6 +135,8 @@ def run(
     if entries:
         target_dir = write_dir or lockfile.resolve().parent
         config_path = target_dir / _CONFIG_NAME
-        config_path.write_text(render_ignore_config(entries))
+        config_path.write_text(
+            render_ignore_config(entries), encoding="utf-8", newline="\n"
+        )
 
     return run_tool(SLUG, build_command(lockfile, config_path), mode)

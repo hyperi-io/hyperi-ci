@@ -6,8 +6,6 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """TypeScript/Node publish handler -- publishes npm packages to npmjs.com or GitHub Packages."""
 
-from __future__ import annotations
-
 import os
 import subprocess
 from pathlib import Path
@@ -35,6 +33,8 @@ def _publish_npm() -> int:
         env={**os.environ, "NPM_TOKEN": token},
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if result.returncode != 0:
         if "already exists" in (result.stderr + result.stdout):
@@ -68,18 +68,26 @@ def _publish_ghcr_npm() -> int:
     registry_url = f"https://npm.pkg.github.com/{org.github_org}"
 
     npmrc = Path(".npmrc")
-    npmrc_backup = npmrc.read_text() if npmrc.exists() else None
+    npmrc_backup = npmrc.read_text(encoding="utf-8") if npmrc.exists() else None
 
     npmrc.write_text(
         f"@{org.github_org}:registry={registry_url}\n"
-        f"//npm.pkg.github.com/:_authToken={token}\n"
+        f"//npm.pkg.github.com/:_authToken={token}\n",
+        encoding="utf-8",
+        newline="\n",
     )
 
     try:
-        result = subprocess.run(["npm", "publish"], capture_output=True, text=True)
+        result = subprocess.run(
+            ["npm", "publish"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
     finally:
         if npmrc_backup is not None:
-            npmrc.write_text(npmrc_backup)
+            npmrc.write_text(npmrc_backup, encoding="utf-8", newline="\n")
         else:
             npmrc.unlink(missing_ok=True)
 

@@ -24,8 +24,6 @@ The detector returns a ``Decision`` so callers can both gate the build
 and present a clear reason to the developer.
 """
 
-from __future__ import annotations
-
 import json
 import subprocess
 from dataclasses import dataclass
@@ -145,7 +143,7 @@ def _rust_is_library(project_dir: Path) -> bool:
     if bin_dir.is_dir() and any(p.suffix == ".rs" for p in bin_dir.iterdir()):
         return False
     try:
-        manifest = tomllib.loads(cargo_toml.read_text())
+        manifest = tomllib.loads(cargo_toml.read_text(encoding="utf-8"))
     except Exception:
         return False
     if manifest.get("bin"):
@@ -194,7 +192,7 @@ def _rust_supports_contract(project_dir: Path) -> bool:
     if not cargo_toml.exists():
         return False
     try:
-        manifest = tomllib.loads(cargo_toml.read_text())
+        manifest = tomllib.loads(cargo_toml.read_text(encoding="utf-8"))
     except Exception:
         return False
     deps = manifest.get("dependencies", {})
@@ -229,7 +227,7 @@ def _typescript_is_library(project_dir: Path) -> bool:
     if not package_json.exists():
         return False
     try:
-        manifest = json.loads(package_json.read_text())
+        manifest = json.loads(package_json.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return False
     if manifest.get("bin"):
@@ -266,7 +264,7 @@ def _golang_is_library(project_dir: Path) -> bool:
         if "vendor" in path.parts or "testdata" in path.parts:
             continue
         try:
-            head = path.read_text(errors="replace").splitlines()[:5]
+            head = path.read_text(encoding="utf-8", errors="replace").splitlines()[:5]
         except OSError:
             continue
         for line in head:

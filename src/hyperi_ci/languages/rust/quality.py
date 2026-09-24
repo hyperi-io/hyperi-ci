@@ -63,7 +63,7 @@ def _deny_toml_advisory_ignores(project_dir: Path | None = None) -> list[str]:
     if not deny_toml.exists():
         return []
     try:
-        manifest = tomllib.loads(deny_toml.read_text())
+        manifest = tomllib.loads(deny_toml.read_text(encoding="utf-8"))
     except Exception as exc:  # malformed deny.toml -- cargo deny will report it
         warn(f"  cargo deny: could not parse deny.toml for shared ignores: {exc}")
         return []
@@ -133,6 +133,8 @@ def _has_lib_target(project_dir: Path | None = None) -> bool:
             cwd=cwd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         rc = getattr(result, "returncode", 1)
     except (FileNotFoundError, OSError):
@@ -254,7 +256,9 @@ def _run_tool(
         warn(f"  {tool_name}: not installed (skipping locally)")
         return True
 
-    result = subprocess.run(resolved, capture_output=True, text=True)
+    result = subprocess.run(
+        resolved, capture_output=True, text=True, encoding="utf-8", errors="replace"
+    )
 
     if result.returncode == 0:
         success(f"  {tool_name}: passed")
@@ -445,6 +449,8 @@ def _run_feature_matrix(config: CIConfig) -> bool:
             ["cargo", "install", "--locked", "cargo-hack"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         if result.returncode != 0:
             error("  feature_matrix: failed to install cargo-hack")
@@ -546,6 +552,8 @@ def _run_rustdoc_hint(config: CIConfig) -> None:
         ["cargo", "doc", "--no-deps", "--lib", "--all-features"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         env={
             **os.environ,
             "RUSTDOCFLAGS": "-W rustdoc::broken_intra_doc_links "

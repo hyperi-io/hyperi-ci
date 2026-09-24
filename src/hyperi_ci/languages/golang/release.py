@@ -11,8 +11,6 @@ Binary artifact uploads are handled generically by publish_binaries
 in dispatch.py -- not duplicated here.
 """
 
-from __future__ import annotations
-
 import subprocess
 
 from hyperi_ci.common import error, group, info, success
@@ -33,6 +31,8 @@ def _publish_go_proxy() -> int:
         ["go", "list", "-m"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if result.returncode != 0:
         error("Could not determine Go module path")

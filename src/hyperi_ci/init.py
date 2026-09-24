@@ -69,7 +69,7 @@ def detect_license(project_dir: Path) -> str:
     ci_config = project_dir / ".hyperi-ci.yaml"
     if ci_config.exists():
         try:
-            data = yaml.safe_load(ci_config.read_text()) or {}
+            data = yaml.safe_load(ci_config.read_text(encoding="utf-8")) or {}
             declared = data.get("license") if isinstance(data, dict) else None
             if isinstance(declared, str) and declared.strip():
                 return declared.strip()
@@ -79,7 +79,7 @@ def detect_license(project_dir: Path) -> str:
     license_file = project_dir / "LICENSE"
     if license_file.exists():
         try:
-            content = license_file.read_text()[:2000]
+            content = license_file.read_text(encoding="utf-8")[:2000]
             for license_id, markers in _LICENSE_MARKERS.items():
                 if any(m in content for m in markers):
                     return license_id
@@ -90,7 +90,7 @@ def detect_license(project_dir: Path) -> str:
     for glob_pattern in scan_globs:
         for f in project_dir.glob(glob_pattern):
             try:
-                header = f.read_text()[:500]
+                header = f.read_text(encoding="utf-8")[:500]
             except (OSError, UnicodeDecodeError):
                 continue
             for license_id, markers in _LICENSE_MARKERS.items():
@@ -101,7 +101,7 @@ def detect_license(project_dir: Path) -> str:
     if src_dir.is_dir():
         for f in src_dir.rglob("*.py"):
             try:
-                header = f.read_text()[:500]
+                header = f.read_text(encoding="utf-8")[:500]
             except (OSError, UnicodeDecodeError):
                 continue
             for license_id, markers in _LICENSE_MARKERS.items():
@@ -122,7 +122,7 @@ def _detect_submodules(project_dir: Path) -> str:
     ci_config = project_dir / ".hyperi-ci.yaml"
     if ci_config.exists():
         try:
-            data = yaml.safe_load(ci_config.read_text()) or {}
+            data = yaml.safe_load(ci_config.read_text(encoding="utf-8")) or {}
             declared = data.get("submodules") if isinstance(data, dict) else None
             if isinstance(declared, str) and declared.strip():
                 return declared.strip()
@@ -155,7 +155,7 @@ def _detect_python_build_type(project_dir: Path) -> str:
     if not pyproject.exists():
         return "package"
 
-    content = pyproject.read_text()
+    content = pyproject.read_text(encoding="utf-8")
     app_markers = (
         "[project.scripts]",
         "[project.gui-scripts]",
@@ -515,7 +515,7 @@ def _write_file(path: Path, content: str, *, force: bool) -> bool:
         return False
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content)
+    path.write_text(content, encoding="utf-8", newline="\n")
     success(f"  Created {path.name}")
     return True
 
@@ -543,7 +543,7 @@ def _makefile_has_ci_targets(project_dir: Path) -> bool:
     if not makefile.exists():
         return False
 
-    content = makefile.read_text()
+    content = makefile.read_text(encoding="utf-8")
     ci_targets = ["quality:", "test:", "build:"]
     return any(target in content for target in ci_targets)
 
@@ -685,7 +685,9 @@ def init_project(
             "else\n"
             '    echo "Warning: hyperi-ci not found — skipping commit validation" >&2\n'
             "    exit 0\n"
-            "fi\n"
+            "fi\n",
+            encoding="utf-8",
+            newline="\n",
         )
         hook_path.chmod(0o755)
         info(f"  Created: {hook_path}")
@@ -714,7 +716,9 @@ def init_project(
             "echo ''\n"
             "echo '  To bypass (emergency): HYPERCI_PUSH=1 git push'\n"
             "echo ''\n"
-            "exit 1\n"
+            "exit 1\n",
+            encoding="utf-8",
+            newline="\n",
         )
         pre_push_path.chmod(0o755)
         info(f"  Created: {pre_push_path}")

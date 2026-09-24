@@ -6,8 +6,6 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Rust publish handler -- publishes crates to crates.io."""
 
-from __future__ import annotations
-
 import os
 import subprocess
 from pathlib import Path
@@ -72,6 +70,8 @@ def _publish_crates_io() -> int:
         env={**os.environ, "CARGO_REGISTRY_TOKEN": token},
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
 
     if result.returncode != 0:

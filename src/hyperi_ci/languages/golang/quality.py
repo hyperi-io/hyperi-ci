@@ -6,8 +6,6 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Golang quality checks handler."""
 
-from __future__ import annotations
-
 import shutil
 import subprocess
 
@@ -55,7 +53,9 @@ def _run_tool(
         warn(f"  {tool_name}: not installed (skipping locally)")
         return True
 
-    result = subprocess.run(resolved, capture_output=True, text=True)
+    result = subprocess.run(
+        resolved, capture_output=True, text=True, encoding="utf-8", errors="replace"
+    )
     if result.returncode == 0:
         success(f"  {tool_name}: passed")
         return True
