@@ -7,9 +7,10 @@
 """Tests for the one curl helper in ``hyperi_ci.common``.
 
 A fetch that did not retry turned one GitHub or CDN 500 into a failed job or
-a failed runner-image bake. The helper retries, and it only does so safely
-because the body goes to an ``-o`` file: curl truncates that file before a
-retry, but cannot take back bytes already written to stdout.
+a failed runner-image bake. A fetch that retried everything spent five more
+unauthenticated requests on a GitHub rate-limit 403. The helper retries what
+asking again can fix, gives each attempt a time limit, and keeps the body in
+an ``-o`` file so stdout carries only the status it judges the attempt by.
 """
 
 import ast
@@ -28,15 +29,6 @@ from hyperi_ci import common
 _ROOT = Path(__file__).resolve().parents[2]
 _SRC = _ROOT / "src" / "hyperi_ci"
 _ACTIONS = _ROOT / ".github" / "actions"
-_RETRY = [
-    "--retry",
-    "5",
-    "--retry-all-errors",
-    "--retry-delay",
-    "2",
-    "--retry-max-time",
-    "600",
-]
 # These POST data, and a retried POST is not safe to repeat.
 _SENDERS = frozenset({"argocd/gitops_push.py", "release_notify.py"})
 _HELPER = ("common.py", "curl_fetch")
@@ -50,23 +42,24 @@ def _fake_curl(
     monkeypatch: pytest.MonkeyPatch,
     *,
     rc: int = 0,
+    status: str = "200",
     body: bytes | None = b"BODY",
 ) -> list[tuple[list[str], dict]]:
-    """Stand in for curl: record the call and write ``body`` to its -o file."""
+    """Stand in for curl: record the call, write ``body`` to its -o file."""
     calls: list[tuple[list[str], dict]] = []
 
     def fake(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         calls.append((cmd, kwargs))
         if body is not None:
             Path(cmd[cmd.index("-o") + 1]).write_bytes(body)
-        return subprocess.CompletedProcess(cmd, rc)
+        return subprocess.CompletedProcess(cmd, rc, stdout=status, stderr="")
 
     monkeypatch.setattr(common, "run_cmd", fake)
     return calls
 
 
 class TestCurlFetch:
-    def test_writes_to_the_file_with_the_retry_set(
+    def test_the_body_goes_to_the_file_and_the_status_to_stdout(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         calls = _fake_curl(monkeypatch)
@@ -78,19 +71,40 @@ class TestCurlFetch:
         assert cmd[0] == "curl"
         assert cmd[-1] == "https://example.invalid/tool"
         assert cmd[cmd.index("-o") + 1] == str(dest)
+        assert _contains(cmd, ["-w", "%{http_code}"])
         assert "-fsS" in cmd
         assert "-L" in cmd
-        assert _contains(cmd, _RETRY)
         assert kwargs["check"] is False
+        assert kwargs["capture"] is True
 
-    def test_stdout_is_never_captured(
+    def test_curl_is_never_asked_to_retry_by_itself(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        # A retry can repeat bytes on stdout, so nothing may be read from it.
+        # curl's own retry cannot tell a 404 from a 503 under -f.
         calls = _fake_curl(monkeypatch)
         common.curl_fetch("https://example.invalid/x", tmp_path / "out")
-        [(_, kwargs)] = calls
-        assert not kwargs.get("capture")
+        [(cmd, _)] = calls
+        assert not [arg for arg in cmd if arg.startswith("--retry")]
+
+    def test_each_attempt_has_a_time_limit_and_a_backstop(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        calls = _fake_curl(monkeypatch)
+        common.curl_fetch("https://example.invalid/x", tmp_path / "out")
+        [(cmd, kwargs)] = calls
+        assert _contains(cmd, ["--connect-timeout", "10"])
+        assert _contains(cmd, ["--max-time", "180"])
+        # A backstop inside --max-time kills a curl that is still within its limit.
+        assert kwargs["timeout"] > 180
+
+    def test_max_time_moves_the_limit_and_the_backstop(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        calls = _fake_curl(monkeypatch)
+        common.curl_fetch("https://x.invalid", tmp_path / "o", max_time=300)
+        [(cmd, kwargs)] = calls
+        assert _contains(cmd, ["--max-time", "300"])
+        assert kwargs["timeout"] > 300
 
     def test_extra_flags_reach_curl_before_the_url(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -99,11 +113,11 @@ class TestCurlFetch:
         common.curl_fetch(
             "https://example.invalid/x",
             tmp_path / "out",
-            extra=("--max-time", "180"),
+            extra=("--proto", "=https"),
         )
         [(cmd, _)] = calls
-        assert _contains(cmd, ["--max-time", "180"])
-        assert cmd.index("--max-time") < cmd.index("https://example.invalid/x")
+        assert _contains(cmd, ["--proto", "=https"])
+        assert cmd.index("--proto") < cmd.index("https://example.invalid/x")
 
     def test_follow_redirects_off_drops_the_flag(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -112,15 +126,117 @@ class TestCurlFetch:
         common.curl_fetch("https://x.invalid", tmp_path / "o", follow_redirects=False)
         [(cmd, _)] = calls
         assert "-L" not in cmd
-        assert _contains(cmd, _RETRY)
 
-    def test_timeout_reaches_the_process(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+
+# Each outcome is (curl exit code, what -w printed, curl's error line).
+Outcome = tuple[int, str, str]
+Script = tuple[list[Outcome], list[list[str]], list[float], list[str]]
+
+
+@pytest.fixture
+def scripted_curl(monkeypatch: pytest.MonkeyPatch) -> Script:
+    """Answer each curl attempt from a script, and skip the retry backoff.
+
+    Returns ``(outcomes, attempts, sleeps, logged)``. Once ``outcomes`` is
+    empty every attempt succeeds.
+    """
+    outcomes: list[Outcome] = []
+    attempts: list[list[str]] = []
+    sleeps: list[float] = []
+    logged: list[str] = []
+
+    def fake(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        attempts.append(cmd)
+        rc, status, stderr = outcomes.pop(0) if outcomes else (0, "200", "")
+        return subprocess.CompletedProcess(cmd, rc, stdout=status, stderr=stderr)
+
+    monkeypatch.setattr(common, "run_cmd", fake)
+    monkeypatch.setattr(common.time, "sleep", sleeps.append)
+    monkeypatch.setattr(common, "info", logged.append)
+    return outcomes, attempts, sleeps, logged
+
+
+def _fetch(tmp_path: Path) -> int:
+    return common.curl_fetch("https://example.invalid/x", tmp_path / "o").returncode
+
+
+class TestCurlRetryRule:
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            (22, "500", "curl: (22) The requested URL returned error: 500"),
+            (22, "502", ""),
+            (22, "503", ""),
+            (22, "408", ""),
+            (22, "429", ""),
+            (18, "200", "curl: (18) transfer closed with 5000 bytes remaining"),
+            (56, "200", "curl: (56) Recv failure: Connection reset by peer"),
+            (7, "000", "curl: (7) Failed to connect"),
+            (28, "000", "curl: (28) Operation timed out"),
+            (22, "", ""),
+        ],
+        ids=lambda outcome: f"exit{outcome[0]}-{outcome[1] or 'nostatus'}",
+    )
+    def test_a_transient_failure_is_retried(
+        self, scripted_curl: Script, tmp_path: Path, failure: Outcome
     ) -> None:
-        calls = _fake_curl(monkeypatch)
-        common.curl_fetch("https://x.invalid", tmp_path / "o", timeout=42)
-        [(_, kwargs)] = calls
-        assert kwargs["timeout"] == 42
+        outcomes, attempts, sleeps, _ = scripted_curl
+        outcomes.append(failure)
+        assert _fetch(tmp_path) == 0
+        assert len(attempts) == 2
+        assert len(sleeps) == 1
+
+    @pytest.mark.parametrize("status", ["400", "401", "403", "404", "410"])
+    def test_a_status_retrying_cannot_change_is_final(
+        self, scripted_curl: Script, tmp_path: Path, status: str
+    ) -> None:
+        outcomes, attempts, sleeps, _ = scripted_curl
+        outcomes.append((22, status, f"curl: (22) returned error: {status}"))
+        assert _fetch(tmp_path) == 22
+        assert len(attempts) == 1
+        assert sleeps == []
+
+    def test_gives_up_after_five_retries_with_the_last_failure(
+        self, scripted_curl: Script, tmp_path: Path
+    ) -> None:
+        outcomes, attempts, sleeps, _ = scripted_curl
+        outcomes.extend([(22, "503", "")] * 5 + [(28, "000", "")])
+        assert _fetch(tmp_path) == 28
+        assert len(attempts) == 6
+        # Backoff doubles from about a second, each wait shortened by up to half.
+        for waited, ceiling in zip(sleeps, (1.0, 2.0, 4.0, 8.0, 16.0), strict=True):
+            assert ceiling / 2 <= waited <= ceiling
+
+    def test_no_retry_starts_after_the_window(
+        self,
+        scripted_curl: Script,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        outcomes, attempts, sleeps, _ = scripted_curl
+        outcomes.append((22, "503", ""))
+        clock = iter([0.0])
+        monkeypatch.setattr(common.time, "monotonic", lambda: next(clock, 600.0))
+        assert _fetch(tmp_path) == 22
+        assert len(attempts) == 1
+        assert sleeps == []
+
+    def test_each_failure_is_logged_with_curls_own_line(
+        self, scripted_curl: Script, tmp_path: Path
+    ) -> None:
+        outcomes, _, _, logged = scripted_curl
+        outcomes.extend(
+            [
+                (22, "503", "curl: (22) The requested URL returned error: 503"),
+                (22, "404", "curl: (22) The requested URL returned error: 404"),
+            ]
+        )
+        assert _fetch(tmp_path) == 22
+        retried, final = logged
+        assert "error: 503" in retried
+        assert "retry 1 of 5" in retried
+        assert final.startswith("https://example.invalid/x: ")
+        assert final.endswith("curl: (22) The requested URL returned error: 404")
 
 
 class TestCurlRead:
@@ -138,7 +254,7 @@ class TestCurlRead:
     def test_a_failed_fetch_returns_no_partial_body(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _fake_curl(monkeypatch, rc=22, body=b"partial")
+        _fake_curl(monkeypatch, rc=22, status="404", body=b"partial")
         assert common.curl_read("https://example.invalid/x") == (22, b"")
 
     def test_a_success_with_no_file_reads_as_empty(
@@ -153,33 +269,37 @@ class TestCurlRead:
             "https://x.invalid",
             extra=("--proto", "=https"),
             follow_redirects=False,
-            timeout=7,
+            max_time=7,
         )
-        [(cmd, kwargs)] = calls
+        [(cmd, _)] = calls
         assert _contains(cmd, ["--proto", "=https"])
         assert "-L" not in cmd
-        assert kwargs["timeout"] == 7
+        assert _contains(cmd, ["--max-time", "7"])
 
 
 _BODY = b"0123456789" * 1000
 
 
 @pytest.fixture
-def flaky_server() -> Iterator[tuple[str, list[str], list[str]]]:
+def flaky_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[tuple[str, list[str], list[str]]]:
     """Serve ``_BODY`` on localhost, failing first in the ways ``plan`` lists.
 
-    ``500`` answers with a server error. ``partial`` promises the whole body
-    and closes the connection halfway through it.
+    A number answers with that HTTP status. ``partial`` promises the whole
+    body and closes the connection halfway through it. The retry backoff is
+    skipped.
     """
     plan: list[str] = []
     hits: list[str] = []
+    monkeypatch.setattr(common.time, "sleep", lambda _s: None)
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             step = plan.pop(0) if plan else "ok"
             hits.append(step)
-            if step == "500":
-                self.send_response(500)
+            if step.isdigit():
+                self.send_response(int(step))
                 self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
@@ -205,7 +325,7 @@ def flaky_server() -> Iterator[tuple[str, list[str], list[str]]]:
 class TestRealCurlRetries:
     """The real curl binary, against a server that fails once and then serves."""
 
-    @pytest.mark.parametrize("failure", ["500", "partial"])
+    @pytest.mark.parametrize("failure", ["500", "503", "408", "429", "partial"])
     def test_one_failure_then_the_body_exactly_once(
         self, flaky_server: tuple[str, list[str], list[str]], failure: str
     ) -> None:
@@ -217,6 +337,19 @@ class TestRealCurlRetries:
         assert rc == 0
         assert hits == [failure, "ok"]
         assert body == _BODY
+
+    @pytest.mark.parametrize("status", ["403", "404"])
+    def test_a_final_status_is_asked_once(
+        self, flaky_server: tuple[str, list[str], list[str]], status: str
+    ) -> None:
+        url, plan, hits = flaky_server
+        plan.append(status)
+
+        rc, body = common.curl_read(url, extra=("--noproxy", "*"))
+
+        assert rc == 22
+        assert hits == [status]
+        assert body == b""
 
 
 class TestDownloadArtefact:
@@ -238,23 +371,15 @@ class TestDownloadArtefact:
     ) -> None:
         calls = _fake_curl(monkeypatch)
         common.download_artefact("tool", "https://x.invalid")
-        [(cmd, _)] = calls
+        [(cmd, kwargs)] = calls
         assert _contains(cmd, ["--connect-timeout", "10"])
         assert _contains(cmd, ["--max-time", "180"])
-
-    def test_the_backstop_outlasts_the_retry_window(
-        self, monkeypatch: pytest.MonkeyPatch, errors: list[str]
-    ) -> None:
-        # A backstop inside the window kills curl while it is still retrying.
-        calls = _fake_curl(monkeypatch)
-        common.download_artefact("tool", "https://x.invalid")
-        [(_, kwargs)] = calls
-        assert kwargs["timeout"] > 600 + 180
+        assert kwargs["timeout"] > 180
 
     def test_a_curl_failure_is_named_and_returns_none(
         self, monkeypatch: pytest.MonkeyPatch, errors: list[str]
     ) -> None:
-        _fake_curl(monkeypatch, rc=22)
+        _fake_curl(monkeypatch, rc=22, status="404")
         assert common.download_artefact("hadolint", "https://x.invalid") is None
         assert errors == ["Failed to download hadolint (curl exit 22)"]
 
@@ -348,9 +473,13 @@ class TestEveryFetchUsesTheHelper:
         assert _curl_argvs(source) == expected
 
 
-def test_the_composite_actions_carry_the_same_retry_set() -> None:
-    # Two copies of one retry policy drift unless something holds them together.
-    retry = " ".join(_RETRY)
+def test_the_composite_actions_carry_the_helpers_retry_budget() -> None:
+    # curl's own retry cannot give up on a 4xx, so the shell copies keep only
+    # the helper's attempt count and window, and those must not drift.
+    retry = (
+        f"--retry {common._CURL_RETRIES} --retry-all-errors --retry-delay 2 "
+        f"--retry-max-time {common._CURL_RETRY_MAX_TIME}"
+    )
     downloads = [
         line.strip()
         for path in sorted(_ACTIONS.rglob("*.yml"))

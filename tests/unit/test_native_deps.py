@@ -425,13 +425,13 @@ class TestAptKeyFingerprint:
         assert rc == 0
         assert any("--dearmor" in cmd for cmd in invoked)
 
-    def test_the_key_is_fetched_to_a_file_with_retries(
+    def test_the_key_is_fetched_to_a_file_with_a_time_limit(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _, invoked = self._install(tmp_path, monkeypatch, self._PRIMARY)
         [curl] = [cmd for cmd in invoked if cmd[0] == "curl"]
         assert "-o" in curl
-        assert "--retry-all-errors" in curl
+        assert "--max-time" in curl
 
     def test_a_failed_key_fetch_returns_curls_exit_code(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -441,7 +441,7 @@ class TestAptKeyFingerprint:
         monkeypatch.setattr(
             native_deps.subprocess,
             "run",
-            lambda cmd, **_kw: subprocess.CompletedProcess(cmd, 22, stdout=""),
+            lambda cmd, **_kw: subprocess.CompletedProcess(cmd, 22, stdout="404"),
         )
         repo = AptRepo(
             key_url="https://apt.llvm.org/llvm-snapshot.gpg.key",

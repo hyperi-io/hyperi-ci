@@ -45,6 +45,8 @@ _GO_VERSION_URL = "https://go.dev/VERSION?m=text"
 _GO_DOWNLOAD_BASE = "https://go.dev/dl"
 _NVM_INSTALL_BASE = "https://raw.githubusercontent.com/nvm-sh/nvm"
 _CARGO_BINSTALL_URL = "https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh"
+# The Go tarball is about 70 MB, so a 300-second attempt still finishes at 250 KB/s.
+_GO_TARBALL_MAX_TIME = 300
 
 
 @dataclass
@@ -284,7 +286,7 @@ def install_go() -> int:
     with tempfile.TemporaryDirectory(prefix="hyperi-ci-go-") as scratch:
         dest = Path(scratch) / tarball
         logger.info(f"  Downloading {url}")
-        rc = curl_fetch(url, dest).returncode
+        rc = curl_fetch(url, dest, max_time=_GO_TARBALL_MAX_TIME).returncode
         if rc != 0:
             logger.error(f"Failed to download {tarball}")
             return rc

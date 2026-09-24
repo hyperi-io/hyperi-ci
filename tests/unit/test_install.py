@@ -68,7 +68,8 @@ class TestInstallBody:
             state["cmds"].append(cmd)
             if cmd[0] == "curl":
                 Path(cmd[cmd.index("-o") + 1]).write_bytes(curl_stdout)
-                return SimpleNamespace(returncode=curl_rc, stdout="")
+                status = "404" if curl_rc else "200"
+                return subprocess.CompletedProcess(cmd, curl_rc, status, "")
             if sudo_raises:
                 raise subprocess.CalledProcessError(1, cmd)
             if cmd[:2] == ["sudo", "mv"]:
@@ -78,7 +79,7 @@ class TestInstallBody:
         monkeypatch.setattr(install.subprocess, "run", _run)
         return state
 
-    def test_raw_binary_success_uses_f_flag_and_retries(
+    def test_raw_binary_success_uses_f_flag_and_a_time_limit(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         state = self._wire(monkeypatch)
@@ -86,7 +87,7 @@ class TestInstallBody:
         [curl] = [c for c in state["cmds"] if c[0] == "curl"]
         # curl -f: fail on HTTP error instead of saving a 404 page as the binary.
         assert "-fsS" in curl
-        assert "--retry-all-errors" in curl
+        assert "--max-time" in curl
         assert "-o" in curl
 
     def test_tar_member_extracted(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -103,7 +104,7 @@ class TestInstallBody:
         assert install.install_ci_binary("tool", "http://x", tar_member="tool") is None
 
     def test_curl_failure_returns_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        self._wire(monkeypatch, curl_rc=1)
+        self._wire(monkeypatch, curl_rc=22)
         assert install.install_ci_binary("tool", "http://x") is None
 
     def test_sudo_failure_returns_none_not_crash(
