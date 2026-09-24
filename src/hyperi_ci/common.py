@@ -459,7 +459,7 @@ def _status_is_final(code: int) -> bool:
     return code < 500 and code not in _RETRY_STATUSES
 
 
-def _backoff(retry: int) -> float:
+def backoff(retry: int) -> float:
     """Seconds to wait before retry number ``retry``.
 
     About 1, 2, 4 and so on, each cut by up to half at random so parallel jobs
@@ -593,7 +593,7 @@ def curl_fetch(
         if result.returncode == 0:
             return result
         reason = (result.stderr or "").strip() or f"curl exit {result.returncode}"
-        delay = _backoff(retry + 1)
+        delay = backoff(retry + 1)
         # The window bounds when a retry starts, so the wait before it counts.
         retry_starts = time.monotonic() - started + delay
         if (
@@ -727,7 +727,7 @@ def url_read(
             reason = f"HTTP {exc.code}"
         except URL_ERRORS as exc:
             reason = str(exc) or type(exc).__name__
-        delay = _backoff(attempt)
+        delay = backoff(attempt)
         info(
             f"{request.full_url}: {reason}, retrying in {delay:.1f}s "
             f"(retry {attempt} of {attempts - 1})"

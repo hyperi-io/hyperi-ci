@@ -14,16 +14,26 @@ Docstring coverage uses ruff D rules (pydocstyle) instead of interrogate,
 which is unmaintained and pulls in the vulnerable 'py' package.
 """
 
-from __future__ import annotations
-
 import os
+import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 from packaging.version import InvalidVersion, Version
 
-from hyperi_ci.common import error, get_exclude_dirs, info, is_ci, success, warn
+from hyperi_ci.common import (
+    URL_ATTEMPTS,
+    backoff,
+    error,
+    get_exclude_dirs,
+    info,
+    is_ci,
+    run_cmd,
+    success,
+    warn,
+)
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import (
     get_test_ignore,
@@ -73,6 +83,21 @@ _ARGV_REJECTION = (
 # missing-tool check above the run cannot see it, because the command was
 # rewritten to start with `uv`, which IS on PATH.
 _SPAWN_FAILURE = "failed to spawn"
+
+# pip-audit's summary line when it has vulnerabilities to report.
+_PIP_AUDIT_FINDING = re.compile(r"^Found \d+ known vulnerabilit", re.MULTILINE)
+
+# pip-audit 2.10's lines for an unreachable advisory DB, which exits 1 exactly
+# as a finding does.
+_ADVISORY_DB_UNREACHABLE = re.compile(
+    r"^(?:requests\.exceptions\.(?:ConnectionError|ProxyError|ReadTimeout"
+    r"|ChunkedEncodingError)\b"
+    r"|urllib3\.exceptions\.ProtocolError\b"
+    r"|requests\.exceptions\.HTTPError: 5\d\d "
+    r"|ERROR:pip_audit\._cli:Could not connect to "
+    r"|ERROR:pip_audit\._cli:PyPI is not redirecting properly)",
+    re.MULTILINE,
+)
 
 
 def _get_tool_mode(tool: str, config: CIConfig) -> str:
@@ -180,6 +205,59 @@ def _emit_tool_output(
         )
 
 
+def _advisory_db_unreachable(result: subprocess.CompletedProcess[str]) -> bool:
+    """Whether a pip-audit run failed only because the advisory DB was unreachable.
+
+    A run that reported vulnerabilities never counts, whatever else it printed.
+
+    Args:
+        result: One finished pip-audit run.
+
+    Returns:
+        True for a failed run whose output names a connection-level failure and
+        no finding.
+
+    """
+    if result.returncode == 0:
+        return False
+    output = f"{result.stdout or ''}\n{result.stderr or ''}"
+    if _PIP_AUDIT_FINDING.search(output):
+        return False
+    return _ADVISORY_DB_UNREACHABLE.search(output) is not None
+
+
+def _run_until_reachable(
+    tool_name: str, cmd: list[str]
+) -> subprocess.CompletedProcess[str]:
+    """Run an advisory-DB scan, again after a backoff while the DB is unreachable.
+
+    Up to ``URL_ATTEMPTS`` runs, waiting about 1s, 2s, then 4s between them,
+    each wait cut by up to half at random. Any other outcome, a finding
+    included, ends it at once.
+
+    Args:
+        tool_name: Name for the retry log line.
+        cmd: The resolved command.
+
+    Returns:
+        The last run.
+
+    """
+    for attempt in range(1, URL_ATTEMPTS):
+        result = run_cmd(cmd, check=False, capture=True)
+        if not _advisory_db_unreachable(result):
+            return result
+        lines = (result.stderr or "").strip().splitlines()
+        reason = lines[-1] if lines else f"exit {result.returncode}"
+        delay = backoff(attempt)
+        info(
+            f"  {tool_name}: advisory DB unreachable ({reason}), retrying in "
+            f"{delay:.1f}s (retry {attempt} of {URL_ATTEMPTS - 1})"
+        )
+        time.sleep(delay)
+    return run_cmd(cmd, check=False, capture=True)
+
+
 def _run_tool(
     tool_name: str,
     cmd: list[str],
@@ -187,10 +265,24 @@ def _run_tool(
     use_uvx: bool = False,
     use_uv_with: bool = False,
     spec: str | None = None,
+    retry_unreachable: bool = False,
 ) -> bool:
     """Run a quality tool and handle its result based on mode.
 
-    Returns True if pipeline should continue, False if blocking failure.
+    Args:
+        tool_name: Name used in every log line.
+        cmd: Command and arguments, before resolution.
+        mode: ``blocking``, ``warn`` or ``disabled``.
+        use_uvx: Run a standalone tool through ``uvx``.
+        use_uv_with: Run the tool inside the project's environment.
+        spec: Requirement to install for ``use_uvx`` or ``use_uv_with``.
+        retry_unreachable: The tool is pip-audit, so a run that could not
+            reach the advisory DB is made again. One that never reaches it
+            still fails.
+
+    Returns:
+        True if the pipeline should continue, False on a blocking failure.
+
     """
     if mode == "disabled":
         info(f"  {tool_name}: disabled")
@@ -211,9 +303,16 @@ def _run_tool(
         warn(f"  {tool_name}: not installed (skipping locally)")
         return True
 
-    result = subprocess.run(
-        resolved, capture_output=True, text=True, encoding="utf-8", errors="replace"
-    )
+    if retry_unreachable:
+        result = _run_until_reachable(tool_name, resolved)
+    else:
+        result = run_cmd(resolved, check=False, capture=True)
+    unreachable_note = ""
+    if retry_unreachable and _advisory_db_unreachable(result):
+        unreachable_note = (
+            f"  {tool_name}: advisory DB unreachable after {URL_ATTEMPTS} "
+            f"attempts, so nothing was checked"
+        )
 
     if result.returncode == 0:
         success(f"  {tool_name}: passed")
@@ -236,7 +335,7 @@ def _run_tool(
     if any(marker in (result.stderr or "").lower() for marker in _ARGV_REJECTION):
         note = (
             f"  {tool_name}: rejected the command line and checked nothing "
-            f"— tool-version mismatch, not a finding"
+            f"-- tool-version mismatch, not a finding"
         )
         if mode == "warn":
             warn(note)
@@ -247,6 +346,8 @@ def _run_tool(
 
     if mode == "warn":
         warn(f"  {tool_name}: issues found (non-blocking)")
+        if unreachable_note:
+            warn(unreachable_note)
         _emit_tool_output(tool_name, result.stdout, cap=_WARN_OUTPUT_CAP)
         # A tool that failed to run explains why on stderr, and without it the
         # warning names issues nobody can see.
@@ -254,6 +355,8 @@ def _run_tool(
         return True
 
     error(f"  {tool_name}: failed")
+    if unreachable_note:
+        error(unreachable_note)
     # No cap on a blocking failure: this is the output someone has to act on.
     _emit_tool_output(tool_name, result.stdout)
     _emit_tool_output(tool_name, result.stderr)
@@ -411,7 +514,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # installed packages, not ~/.venv or the system Python.
     mode = _get_tool_mode("pip_audit", config)
     pip_audit_cmd = _build_pip_audit_cmd(for_tool(ignores, "pip-audit"))
-    if not _run_tool("pip-audit", pip_audit_cmd, mode):
+    if not _run_tool("pip-audit", pip_audit_cmd, mode, retry_unreachable=True):
         had_failure = True
 
     # Docstring coverage via ruff D rules (replaces interrogate)
