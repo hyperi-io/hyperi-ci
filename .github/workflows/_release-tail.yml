@@ -83,6 +83,10 @@ on:
         type: string
         default: ""
         description: "'true' if this run carries the consent to ship a skipped-optimisation build under a release tag."
+      optimize-tier:
+        type: string
+        default: ""
+        description: "'release' if this run asked for the release optimisation tier. It overrides skip-optimize, so the image label and release notes match the binary."
 
 env:
   # Rehearsal / incident escape hatch: the HYPERCI_INSTALL_OVERRIDE repo
@@ -100,6 +104,7 @@ env:
   # workflow are the consumer repo's.
   HYPERCI_SKIP_OPTIMIZE: ${{ inputs.skip-optimize || vars.HYPERCI_SKIP_OPTIMIZE }}
   HYPERCI_RELEASE_UNOPTIMIZED: ${{ inputs.release-unoptimized }}
+  HYPERCI_OPTIMIZE_TIER: ${{ inputs.optimize-tier }}
 
 jobs:
   container:

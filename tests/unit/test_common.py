@@ -15,6 +15,7 @@ from hyperi_ci import common
 from hyperi_ci.common import (
     is_prerelease_build,
     normalise_tristate,
+    optimize_tier,
     release_unoptimized,
     run_cmd,
     sanitize_ref_name,
@@ -107,6 +108,49 @@ class TestSkipOptimize:
         # mask the project's own config.
         monkeypatch.setenv("HYPERCI_SKIP_OPTIMIZE", "")
         assert skip_optimize(self._config(True)) is True
+
+
+class TestOptimizeTier:
+    """issue #257: a run asks for the release optimisation tier by name."""
+
+    def test_unset_asks_for_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("HYPERCI_OPTIMIZE_TIER", raising=False)
+        assert optimize_tier() == ""
+
+    def test_the_value_is_normalised(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("HYPERCI_OPTIMIZE_TIER", " Release ")
+        assert optimize_tier() == "release"
+
+    def test_the_release_tier_beats_every_skip(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A repo-wide skip must not strip PGO and BOLT from a run that asked
+        # for them by name, and the override is said out loud.
+        warnings: list[str] = []
+        monkeypatch.setattr(common, "warn", warnings.append)
+        monkeypatch.setenv("HYPERCI_OPTIMIZE_TIER", "release")
+        monkeypatch.setenv("HYPERCI_SKIP_OPTIMIZE", "true")
+        config = CIConfig(_raw={"build": {"skip_optimize": True}})
+        assert skip_optimize(config) is False
+        assert warnings and "optimize-tier=release" in warnings[0]
+
+    def test_the_release_tier_with_no_skip_is_quiet(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        warnings: list[str] = []
+        monkeypatch.setattr(common, "warn", warnings.append)
+        monkeypatch.setenv("HYPERCI_OPTIMIZE_TIER", "release")
+        monkeypatch.delenv("HYPERCI_SKIP_OPTIMIZE", raising=False)
+        assert skip_optimize() is False
+        assert not warnings
+
+    def test_an_unknown_tier_leaves_the_skip_alone(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The build refuses the value; skip_optimize must not treat it as a yes.
+        monkeypatch.setenv("HYPERCI_OPTIMIZE_TIER", "beta")
+        monkeypatch.setenv("HYPERCI_SKIP_OPTIMIZE", "true")
+        assert skip_optimize() is True
 
 
 class TestReleaseUnoptimized:

@@ -145,6 +145,18 @@ def env_true(name: str) -> bool:
     return truthy(os.environ.get(name, ""))
 
 
+def optimize_tier() -> str:
+    """The optimisation tier this run asked for, or ``""`` when it asked for none.
+
+    Read from ``HYPERCI_OPTIMIZE_TIER``, which the reusable workflows set from
+    their per-run ``optimize-tier`` input only. There is no repo variable and
+    no config key: the release tier adds PGO and BOLT to every build it
+    reaches, so the ask must not outlive the run. A value other than
+    ``release`` comes back as given, for the build stage to refuse.
+    """
+    return os.environ.get("HYPERCI_OPTIMIZE_TIER", "").strip().lower()
+
+
 def skip_optimize(config: CIConfig | None = None) -> bool:
     """Whether this run drops the optimisation stage.
 
@@ -154,7 +166,23 @@ def skip_optimize(config: CIConfig | None = None) -> bool:
     workflows from their ``skip-optimize`` input, beats ``build.skip_optimize``.
     It is read here rather than through the ``HYPERCI_*`` config mapping,
     which splits on underscores and would land it at ``skip.optimize``.
+
+    A run that asks for the release tier never skips. It named PGO and BOLT
+    for this run, which beats a repo-wide skip, and answering here keeps the
+    build, the image label and the release notes in agreement.
     """
+    if optimize_tier() == "release":
+        if _skip_requested(config):
+            warn(
+                "optimize-tier=release overrides skip-optimize for this run -- "
+                "PGO and BOLT run."
+            )
+        return False
+    return _skip_requested(config)
+
+
+def _skip_requested(config: CIConfig | None) -> bool:
+    """Whether the skip-optimize input, variable or config key asks to skip."""
     raw = os.environ.get("HYPERCI_SKIP_OPTIMIZE", "").strip().lower()
     if raw in _TRUTHY or raw in _FALSY:
         return raw in _TRUTHY
