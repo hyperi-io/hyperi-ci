@@ -329,6 +329,80 @@ class TestTier2SkipFailsARelease:
         assert tier2_shortfall(profile, OptimizationOutcome(pgo_applied=True)) == []
 
 
+class TestOptimizeTierOnAValidateRun:
+    """issue #257: a dispatch builds the release tier without publishing."""
+
+    _TIER2 = {
+        "pgo": {"enabled": True, "workload_cmd": "bash scripts/w.sh"},
+        "bolt": {"enabled": True},
+    }
+
+    @staticmethod
+    def _validate_run(monkeypatch: pytest.MonkeyPatch, tier: str | None) -> None:
+        """Env of a run that publishes nothing: no channel, no tag, no skip."""
+        for name in (
+            "HYPERCI_CHANNEL",
+            "GITHUB_REF_TYPE",
+            "RUST_VERSION",
+            "CI_COMMIT_TAG",
+            "HYPERCI_SKIP_OPTIMIZE",
+        ):
+            monkeypatch.delenv(name, raising=False)
+        if tier is None:
+            monkeypatch.delenv("HYPERCI_OPTIMIZE_TIER", raising=False)
+        else:
+            monkeypatch.setenv("HYPERCI_OPTIMIZE_TIER", tier)
+
+    @staticmethod
+    def _on_build(*_args, outcome: OptimizationOutcome, **_kwargs) -> int:
+        outcome.pgo_applied = True
+        outcome.bolt_applied = True
+        return 0
+
+    def _run(self, monkeypatch: pytest.MonkeyPatch) -> tuple[int, list]:
+        real_channel = build._resolve_build_channel
+        logged = TestTier2Summary._patch_build(monkeypatch, self._on_build)
+        monkeypatch.setattr(build, "_resolve_build_channel", real_channel)
+        config = TestTier2Summary._config(self._TIER2)
+        rc = build.run(config, {"RUST_BUILD_TARGETS": "x86_64-unknown-linux-gnu"})
+        return rc, logged
+
+    def test_the_release_tier_runs_pgo_and_bolt(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._validate_run(monkeypatch, "release")
+        rc, logged = self._run(monkeypatch)
+        assert rc == 0
+        assert [o.describe() for o in logged] == [
+            "optimised: pgo=yes bolt=yes allocator=jemalloc"
+        ]
+
+    def test_without_the_ask_a_validate_run_stays_tier_1(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._validate_run(monkeypatch, None)
+        rc, logged = self._run(monkeypatch)
+        assert rc == 0
+        assert logged == []
+
+    def test_an_unknown_tier_fails_the_build(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # A typo must not build Tier 1 quietly, and the dispatch-supplied value
+        # reaches a workflow command escaped.
+        errors: list[str] = []
+        self._validate_run(monkeypatch, "relase%25\n::warning::planted")
+        monkeypatch.setattr(build, "error", errors.append)
+        monkeypatch.setattr(build, "is_ci", lambda: True)
+        rc, _logged = self._run(monkeypatch)
+        assert rc == 1
+        assert errors and "optimize-tier" in errors[0]
+        out = capsys.readouterr().out
+        assert "::error title=hyperi-ci optimize-tier refused::" in out
+        assert "\n::warning::planted" not in out
+        assert "relase%2525" in out
+
+
 class TestNativeTargetFollowsTheMachine:
     """An arm64 Linux runner must not read its own target as a cross build.
 
