@@ -406,6 +406,7 @@ def run_cmd(
     cwd: str | Path | None = None,
     env: dict[str, str] | None = None,
     timeout: float | None = None,
+    stdin_text: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run a subprocess with consistent error handling.
 
@@ -417,6 +418,10 @@ def run_cmd(
         env: Additional env vars (merged with os.environ).
         timeout: Seconds before the child is killed and
             ``subprocess.TimeoutExpired`` raised. None waits for it to exit.
+        stdin_text: Text written to the child's stdin, which is then closed.
+            The way to hand a child a secret: argv is readable by any process
+            on the host through ``/proc/<pid>/cmdline``, stdin is not. None
+            leaves stdin inherited.
 
     Returns:
         CompletedProcess with text output.
@@ -436,6 +441,7 @@ def run_cmd(
         cwd=cwd,
         env=run_env,
         timeout=timeout,
+        input=stdin_text,
     )
 
 

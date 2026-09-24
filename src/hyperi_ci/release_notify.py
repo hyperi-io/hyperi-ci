@@ -24,8 +24,6 @@ environment variable holding a webhook URL. Nothing is posted off-org by
 default -- an outbound notification is a decision for whoever owns the channel.
 """
 
-from __future__ import annotations
-
 import json
 import os
 import re
@@ -34,6 +32,7 @@ from pathlib import Path
 
 from hyperi_ci.common import error, info, run_cmd, success, warn
 from hyperi_ci.config import CIConfig
+from hyperi_ci.curl_config import config_line
 
 # `#123`, but not a colour literal (`#abc`) or a trailing digit of a word.
 _ISSUE_REF = re.compile(r"(?:^|[\s(\[,])#(\d+)\b")
@@ -291,7 +290,8 @@ def notify_slack(config: CIConfig, *, text: str) -> int:
 
     The webhook lives in an environment variable named by
     ``notify.slack.webhook_env``; the URL itself is a secret and never appears
-    in config. Unset means no Slack, which is the default.
+    in config. curl reads it from stdin, never argv. Unset means no Slack,
+    which is the default.
     """
     variable = str(config.get("notify.slack.webhook_env", "") or "")
     if not variable:
@@ -301,20 +301,23 @@ def notify_slack(config: CIConfig, *, text: str) -> int:
         warn(f"release-notify: {variable} names no webhook — skipping Slack")
         return 0
 
+    # No retry flags: a retried POST posts the message twice.
     result = run_cmd(
         [
             "curl",
             "-sS",
             "-X",
             "POST",
+            "-K",
+            "-",
             "-H",
             "Content-Type: application/json",
             "-d",
             json.dumps({"text": text}),
-            webhook,
         ],
         capture=True,
         check=False,
+        stdin_text=config_line("url", webhook),
     )
     if result.returncode != 0:
         warn("release-notify: Slack post failed")

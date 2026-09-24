@@ -12,8 +12,6 @@ And a notification that returns non-zero would turn an already-shipped release
 red, which is worse than the missing notification it was meant to fix.
 """
 
-from __future__ import annotations
-
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -202,7 +200,8 @@ class TestSlackIsOffByDefault:
     def test_posts_when_configured_and_set(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("SLACK_CI_WEBHOOK", "https://hooks.example/x")
+        webhook = "https://hooks.example/services/T0/B0/tok_TESTONLY_abc123"
+        monkeypatch.setenv("SLACK_CI_WEBHOOK", webhook)
         config = CIConfig(
             _raw={"notify": {"slack": {"webhook_env": "SLACK_CI_WEBHOOK"}}}
         )
@@ -210,7 +209,26 @@ class TestSlackIsOffByDefault:
             "hyperi_ci.release_notify.run_cmd", return_value=MagicMock(returncode=0)
         ) as spawned:
             assert notify_slack(config, text="hi") == 0
-        assert "https://hooks.example/x" in spawned.call_args.args[0]
+        argv = spawned.call_args.args[0]
+        assert argv[argv.index("-K") + 1] == "-"
+        assert spawned.call_args.kwargs["stdin_text"] == f'url = "{webhook}"\n'
+
+    def test_the_webhook_never_reaches_argv(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """argv is readable by any process on the host through /proc."""
+        secret = "tok_TESTONLY_abc123"
+        monkeypatch.setenv("SLACK_CI_WEBHOOK", f"https://hooks.example/{secret}")
+        config = CIConfig(
+            _raw={"notify": {"slack": {"webhook_env": "SLACK_CI_WEBHOOK"}}}
+        )
+        with patch(
+            "hyperi_ci.release_notify.run_cmd", return_value=MagicMock(returncode=0)
+        ) as spawned:
+            notify_slack(config, text="hi")
+        argv = spawned.call_args.args[0]
+        assert not [arg for arg in argv if secret in arg]
+        assert not [arg for arg in argv if arg.startswith("--retry")]
 
     def test_the_webhook_url_is_never_in_config(self) -> None:
         """Config is committed; a webhook URL is a secret."""
