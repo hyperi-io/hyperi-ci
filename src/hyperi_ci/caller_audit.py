@@ -15,9 +15,10 @@ Nothing reports the gap on its own. It surfaces as an HTTP 422 at dispatch
 time, and only when someone tries to release that way -- four of eight Rust
 repos were undriveable for months before anyone needed the path.
 
-The contract is :data:`hyperi_ci.release.dispatch.DISPATCH_INPUTS`, which is
-what the CLI actually sends, rather than the reusable workflow's full
-`workflow_call.inputs`. A `workflow_call` input nobody dispatches (say
+The contract is :data:`CALLER_INPUTS`: what the CLI sends
+(:data:`hyperi_ci.release.dispatch.DISPATCH_INPUTS`) plus what a person sends
+from the Actions UI (:data:`UI_DISPATCH_INPUTS`). It is not the reusable
+workflow's full `workflow_call.inputs`: an input nobody dispatches (say
 `rust-toolchain`) has no business in a consumer's dispatch schema.
 
 Three ways a consumer breaks, all reported, none written:
@@ -31,8 +32,6 @@ Three ways a consumer breaks, all reported, none written:
 Reads are strictly report-only: the caller file belongs to the consumer repo.
 """
 
-from __future__ import annotations
-
 import json
 import re
 import subprocess
@@ -42,6 +41,16 @@ from pathlib import Path
 import yaml
 
 from hyperi_ci.release.dispatch import DISPATCH_INPUTS
+
+# Inputs a person sends from the Actions UI, which `hyperi-ci init` scaffolds
+# but the CLI never sends.
+UI_DISPATCH_INPUTS: tuple[str, ...] = (
+    "skip-optimize",
+    "release-unoptimized",
+    "optimize-tier",
+)
+
+CALLER_INPUTS: tuple[str, ...] = (*DISPATCH_INPUTS, *UI_DISPATCH_INPUTS)
 
 # Reusable workflows this project publishes. A job calling one of these is a
 # release caller and is held to the dispatch contract.
@@ -149,7 +158,7 @@ def audit_text(repo: str, text: str) -> CallerReport:
         forwarded.update(_FORWARDED.findall(str(value)))
     report.forwarded = sorted(forwarded)
 
-    for name in DISPATCH_INPUTS:
+    for name in CALLER_INPUTS:
         spec = declared.get(name)
         if spec is None:
             report.findings.append(Finding("missing", name))
