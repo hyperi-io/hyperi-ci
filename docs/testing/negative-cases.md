@@ -152,6 +152,7 @@ pinning `@main`, and deleting it would change what the fixture runs. The sweep's
 own App has no `variables: write`, so `--cli-branch` is a developer command, the
 same split as `scripts/rehearse-branch.py`.
 A fixture whose override already names a hyperi-ci branch belongs to a rehearsal, so it is left alone and its cases read unreachable.
+While the override is set, a `rehearse/negative-cases-<branch>` marker branch sits on the fixture, so the fleet sweep and the runner-image canary treat it as held. The marker is deleted after the override is restored, and kept if the restore fails.
 
 The sweep therefore cannot pin the CLI, so a case for a merged-but-unreleased
 gate declares it in the contract instead:

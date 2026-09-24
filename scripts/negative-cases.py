@@ -147,6 +147,7 @@ class Fixture:
     prior_override: str | None = None
     override_set: bool = False
     branches: list[str] = field(default_factory=list)
+    marker: str = ""
 
 
 def _run(
@@ -757,11 +758,33 @@ def _cleanup(fixtures: dict[str, Fixture], live: list[Live]) -> None:
             )
             if result.returncode != 0:
                 print(f"  WARNING: {fixture.repo} {branch} NOT deleted - delete it")
-        if not fixture.override_set:
-            continue
         # ci-test-manifests carries a permanent override pinning @main, so this
         # restores the prior value rather than deleting the key.
-        rehearse_branch._restore_override(fixture.repo, fixture.prior_override)
+        restored = not fixture.override_set or rehearse_branch._restore_override(
+            fixture.repo, fixture.prior_override
+        )
+        if not fixture.marker:
+            continue
+        if not restored:
+            print(
+                f"  WARNING: {fixture.repo} {fixture.marker} KEPT - the override was "
+                "not restored; delete the branch only after fixing the override"
+            )
+            continue
+        result = _run(
+            [
+                "git",
+                "-C",
+                str(fixture.clone),
+                "push",
+                "origin",
+                "--delete",
+                fixture.marker,
+            ],
+            timeout=60,
+        )
+        if result.returncode != 0:
+            print(f"  WARNING: {fixture.repo} {fixture.marker} NOT deleted - delete it")
 
 
 def _set_aside(
@@ -825,6 +848,19 @@ def _pin_cli(fixture: Fixture, branch: str, prior: str | None) -> str:
         Why the override could not be set, or an empty string.
     """
     fixture.prior_override = prior
+    # The fleet sweep and the runner-image canary read a rehearse/* branch as a
+    # branch CLI on the fixture, so the marker goes up before the override and
+    # comes down after it.
+    marker = (
+        f"{rehearse_branch.REHEARSAL_PREFIX}negative-cases-"
+        f"{rehearse_branch.rehearse_slug(branch)}"
+    )
+    pushed = _run(
+        ["git", "-C", str(fixture.clone), "push", "origin", f"HEAD:refs/heads/{marker}"]
+    )
+    if pushed.returncode != 0:
+        return f"could not push the {marker} marker to {fixture.repo}"
+    fixture.marker = marker
     if not rehearse_branch._gh_var(
         fixture.repo, "set", rehearse_branch.override_value(branch)
     ):
