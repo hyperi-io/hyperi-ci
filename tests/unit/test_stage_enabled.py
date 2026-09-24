@@ -13,12 +13,14 @@ guidance as the escape hatch for a project with no tests, while nothing read it
 allow opting out of. These lock all three in.
 """
 
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from hyperi_ci import config as config_module
+from hyperi_ci.common import run_cmd
 from hyperi_ci.config import CIConfig, load_config
 from hyperi_ci.dispatch import stage_build, stage_quality, stage_test
 from hyperi_ci.languages import quality_common
@@ -194,7 +196,7 @@ class TestDisablingQualityOwesAReason:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         monkeypatch.setattr(quality_common, "is_ci", lambda: True)
-        monkeypatch.setattr(quality_common, "warn", lambda _m: None)
+        said = self._warnings(monkeypatch)
         self._off()
         annotations = self._annotations(capsys)
         assert len(annotations) == 1, annotations
@@ -204,18 +206,65 @@ class TestDisablingQualityOwesAReason:
         assert "quality.enabled" in annotations[0]
         # The message is multi-line; a raw newline would end the command early.
         assert "%0A" in annotations[0]
+        # Under GitHub Actions the logger's own line is a second annotation.
+        assert said == []
 
-    def test_a_stated_reason_is_annotated_and_cannot_start_a_second_command(
+    def test_in_ci_a_stated_reason_is_one_annotation_on_one_line(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         monkeypatch.setattr(quality_common, "is_ci", lambda: True)
-        monkeypatch.setattr(quality_common, "warn", lambda _m: None)
-        self._off(reason="rebuilt under #12\n::error::planted")
+        said = self._warnings(monkeypatch)
+        self._off(reason="rebuilt under #12\r\n::error::planted")
         annotations = self._annotations(capsys)
         assert len(annotations) == 1, annotations
         assert annotations[0].startswith("::warning title=hyperi-ci gate turned down::")
-        assert "quality.enabled" in annotations[0]
-        assert "#12%0A::error::planted" in annotations[0]
+        assert "reason: rebuilt under #12 ::error::planted" in annotations[0]
+        assert said == []
+
+    def test_outside_ci_a_stated_reason_is_one_log_line(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said = self._warnings(monkeypatch)
+        self._off(reason="rebuilt under #12\n::error::planted")
+        assert len(said) == 1, said
+        assert "reason: rebuilt under #12 ::error::planted" in said[0]
+        assert "\n" not in said[0]
+
+
+class TestRelaxedGateUnderTheRealLogger:
+    """What a GitHub Actions runner reads when quality is switched off.
+
+    scalo writes a warning there as ``::warning::`` plus its first line and
+    passes every later line through raw, so a stub of ``warn`` cannot show
+    whether repo config reaches the runner as a workflow command.
+    """
+
+    @staticmethod
+    def _commands(reason: str) -> list[str]:
+        code = (
+            "from hyperi_ci.languages.quality_common import note_quality_disabled\n"
+            f"note_quality_disabled('python', {reason!r})\n"
+        )
+        result = run_cmd(
+            [sys.executable, "-c", code],
+            capture=True,
+            env={"CI": "true", "GITHUB_ACTIONS": "true"},
+            timeout=60,
+        )
+        output = f"{result.stdout}\n{result.stderr}"
+        return [line for line in output.splitlines() if line.startswith("::")]
+
+    def test_a_planted_line_break_starts_no_command(self) -> None:
+        commands = self._commands("rebuilt under #12\n::error title=planted::x")
+        assert len(commands) == 1, commands
+        assert commands[0].startswith("::warning title=hyperi-ci gate turned down::")
+
+    def test_the_multi_line_reason_owed_message_is_one_annotation(self) -> None:
+        commands = self._commands("")
+        assert len(commands) == 1, commands
+        assert commands[0].startswith(
+            "::warning title=hyperi-ci security gate needs a reason::"
+        )
 
 
 class TestFailOnMissing:
