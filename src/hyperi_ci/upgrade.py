@@ -28,7 +28,7 @@ from packaging.version import InvalidVersion, Version
 from scalo.logger import logger
 
 from hyperi_ci import __version__, channel
-from hyperi_ci.common import is_ci
+from hyperi_ci.common import URL_ATTEMPTS, is_ci, url_read
 
 PACKAGE = "hyperi-ci"
 PYPI_URL = f"https://pypi.org/pypi/{PACKAGE}/json"
@@ -498,11 +498,16 @@ def _blocking_gate(*, ignore_invocation: bool = False) -> str | None:
     return None
 
 
-def _fetch_releases() -> dict[str, list]:
+def _fetch_releases(*, attempts: int = URL_ATTEMPTS) -> dict[str, list]:
     """Fetch the PyPI releases mapping, or {} on any error.
 
     One request serves both the version list and the upload timestamps the
     stable channel ages against.
+
+    Args:
+        attempts: Tries before giving up. The checks that run ahead of every
+            command pass 1, so a machine with no route to PyPI does not sit
+            through the retries on each one.
 
     Returns:
         PyPI releases mapping {version_string: [file_dicts]}.
@@ -510,8 +515,7 @@ def _fetch_releases() -> dict[str, list]:
     """
     try:
         req = urllib.request.Request(PYPI_URL, headers={"Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=PYPI_TIMEOUT) as resp:  # nosec B310  # nosemgrep: dynamic-urllib-use-detected -- hardcoded PyPI HTTPS URL
-            data = json.loads(resp.read())
+        data = json.loads(url_read(req, timeout=PYPI_TIMEOUT, attempts=attempts))
     except Exception:
         return {}
     releases = data.get("releases", {})
@@ -698,7 +702,7 @@ def maybe_auto_update() -> None:
         if not _should_auto_update():
             return
 
-        releases = _fetch_releases()
+        releases = _fetch_releases(attempts=1)
         if not releases:
             return
 

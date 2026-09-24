@@ -5,16 +5,20 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
+import http.server
 import io
 import shutil
+import socket
 import subprocess
+import threading
 import zipfile
+from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from hyperi_ci import native_deps
+from hyperi_ci import common, native_deps
 from hyperi_ci.native_deps import (
     AptRepo,
     _add_apt_repo,
@@ -1018,3 +1022,151 @@ class TestEnsureAwsCli:
 
     def test_a_corrupt_archive_is_reported_not_raised(self, tmp_path: Path) -> None:
         assert native_deps._extract_zip(b"not-a-zip", tmp_path) is False
+
+
+def _loopback_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep a proxy in the environment off loopback requests, and skip backoff."""
+    monkeypatch.setenv("no_proxy", "*")
+    monkeypatch.setattr(common.time, "sleep", lambda _s: None)
+
+
+@pytest.fixture
+def apt_repo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[tuple[str, dict[str, list[int]], list[str]]]:
+    """Answer ``HEAD dists/<codename>/Release`` on localhost with scripted statuses.
+
+    ``plan`` maps a codename to the statuses its requests get in order, the
+    last one repeating. An unplanned codename answers 404, a dist the repo
+    does not publish.
+    """
+    plan: dict[str, list[int]] = {}
+    hits: list[str] = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_HEAD(self) -> None:
+            parts = self.path.split("/")
+            codename = parts[parts.index("dists") + 1]
+            statuses = plan.get(codename, [404])
+            status = statuses.pop(0) if len(statuses) > 1 else statuses[0]
+            hits.append(f"{codename} {status}")
+            self.send_response(status)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, format: str, *args: object) -> None:
+            pass
+
+    _loopback_only(monkeypatch)
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True
+    )
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}/deb", plan, hits
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+class TestResolveCodename:
+    """Only a 404 moves an auto codename on. A network failure never does."""
+
+    @pytest.fixture(autouse=True)
+    def _on_noble(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(native_deps, "_get_os_codename", lambda: "noble")
+
+    @pytest.fixture
+    def warnings(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        logged: list[str] = []
+        monkeypatch.setattr(native_deps, "warn", logged.append)
+        return logged
+
+    @staticmethod
+    def _resolve(url: str) -> str:
+        return native_deps._resolve_codename(
+            AptRepo(key_url="unused", keyring="unused", url=url)
+        )
+
+    def test_one_500_does_not_change_the_codename(
+        self,
+        apt_repo: tuple[str, dict[str, list[int]], list[str]],
+        warnings: list[str],
+    ) -> None:
+        url, plan, hits = apt_repo
+        plan["noble"] = [500, 200]
+
+        assert self._resolve(url) == "noble"
+        assert hits == ["noble 500", "noble 200"]
+        assert warnings == []
+
+    def test_a_404_falls_back_to_the_next_codename(
+        self,
+        apt_repo: tuple[str, dict[str, list[int]], list[str]],
+        warnings: list[str],
+    ) -> None:
+        url, plan, hits = apt_repo
+        plan["resolute"] = [200]
+
+        assert self._resolve(url) == "resolute"
+        assert hits == ["noble 404", "resolute 200"]
+        assert warnings == []
+
+    def test_an_unreachable_repo_keeps_the_codename_and_warns(
+        self,
+        apt_repo: tuple[str, dict[str, list[int]], list[str]],
+        warnings: list[str],
+    ) -> None:
+        url, plan, hits = apt_repo
+        plan["noble"] = [503]
+
+        assert self._resolve(url) == "noble"
+        # Every attempt went to noble, none walked on to an older codename.
+        assert hits == ["noble 503"] * common.URL_ATTEMPTS
+        [warning] = warnings
+        assert "'noble'" in warning
+        assert "503" in warning
+
+    def test_a_fallback_that_cannot_be_checked_is_used_not_skipped(
+        self,
+        apt_repo: tuple[str, dict[str, list[int]], list[str]],
+        warnings: list[str],
+    ) -> None:
+        url, plan, hits = apt_repo
+        plan["resolute"] = [502]
+
+        assert self._resolve(url) == "resolute"
+        assert hits == ["noble 404"] + ["resolute 502"] * common.URL_ATTEMPTS
+        [warning] = warnings
+        assert "'resolute'" in warning
+
+    def test_a_repo_with_no_matching_codename_keeps_the_os_one_and_warns(
+        self,
+        apt_repo: tuple[str, dict[str, list[int]], list[str]],
+        warnings: list[str],
+    ) -> None:
+        url, _, hits = apt_repo
+
+        assert self._resolve(url) == "noble"
+        assert hits == [
+            "noble 404",
+            "resolute 404",
+            "jammy 404",
+            "focal 404",
+            "trixie 404",
+        ]
+        assert warnings == [f"No supported codename found for {url}"]
+
+    def test_a_refused_connection_is_not_read_as_a_missing_codename(
+        self, monkeypatch: pytest.MonkeyPatch, warnings: list[str]
+    ) -> None:
+        _loopback_only(monkeypatch)
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+
+        assert self._resolve(f"http://127.0.0.1:{port}/deb") == "noble"
+        [warning] = warnings
+        assert "'noble'" in warning
+        assert "refused" in warning.lower()

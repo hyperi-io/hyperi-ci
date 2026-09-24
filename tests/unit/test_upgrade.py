@@ -5,20 +5,20 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
-from __future__ import annotations
-
+import email.message
 import json
 import os
 import shutil
 import sys
 import time
+import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from packaging.version import Version
 
-from hyperi_ci import channel
+from hyperi_ci import channel, common, upgrade
 from hyperi_ci.upgrade import (
     CHECK_INTERVAL,
     _blocking_gate,
@@ -395,6 +395,9 @@ class TestShouldAutoUpdate:
             assert _should_auto_update() is False
 
 
+Script = tuple[list[Exception | bytes], list[str], list[float]]
+
+
 class TestFetchReleases:
     """Read the PyPI releases mapping (with mocked network)."""
 
@@ -421,9 +424,33 @@ class TestFetchReleases:
         assert releases == self.RELEASES
         assert _parse_latest_version(releases) == ("1.1.0", "1.2.0rc1")
 
-    def test_empty_on_network_error(self) -> None:
-        with patch("urllib.request.urlopen", side_effect=OSError("timeout")):
-            assert _fetch_releases() == {}
+    def test_empty_on_network_error(self, fake_urlopen: Script) -> None:
+        outcomes, asked, sleeps = fake_urlopen
+        outcomes.extend([OSError("timeout")] * common.URL_ATTEMPTS)
+        assert _fetch_releases() == {}
+        assert len(asked) == common.URL_ATTEMPTS
+        assert len(sleeps) == common.URL_ATTEMPTS - 1
+
+    def test_a_5xx_is_retried_before_giving_up(self, fake_urlopen: Script) -> None:
+        outcomes, asked, _ = fake_urlopen
+        busy = urllib.error.HTTPError(
+            upgrade.PYPI_URL, 503, "busy", email.message.Message(), None
+        )
+        outcomes.extend([busy, json.dumps({"releases": self.RELEASES}).encode()])
+        assert _fetch_releases() == self.RELEASES
+        assert asked == [upgrade.PYPI_URL] * 2
+
+    def test_explicit_update_retries_and_keeps_its_error(
+        self, fake_urlopen: Script, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _, asked, _ = fake_urlopen
+        errors: list[str] = []
+        monkeypatch.setattr(upgrade.logger, "error", errors.append)
+        monkeypatch.setattr(upgrade, "_refuse_when_frozen", lambda: False)
+
+        assert run_upgrade() == 1
+        assert len(asked) == common.URL_ATTEMPTS
+        assert errors == ["Could not determine latest version from PyPI"]
 
     def test_empty_when_releases_is_not_a_mapping(self) -> None:
         """A shape change upstream must not reach the resolvers as a list."""
@@ -975,6 +1002,16 @@ class TestMaybeAutoUpdate:
                                 ) as mock_run:
                                     maybe_auto_update()
         mock_run.assert_not_called()
+
+    def test_asks_pypi_once_so_an_offline_machine_is_not_held_up(
+        self, fake_urlopen: Script, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _, asked, sleeps = fake_urlopen
+        monkeypatch.setattr(upgrade, "_should_auto_update", lambda: True)
+
+        maybe_auto_update()
+        assert asked == [upgrade.PYPI_URL]
+        assert sleeps == []
 
 
 class TestRunUpgradeCmd:

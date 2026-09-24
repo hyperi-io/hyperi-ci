@@ -209,7 +209,7 @@ def _check(now: float) -> list[str]:
         return []
     _record_check(now)
 
-    lines = lines_for_releases(_fetch_releases(), __version__)
+    lines = lines_for_releases(_fetch_releases(attempts=1), __version__)
     for line in lines:
         warn(line)
     return lines

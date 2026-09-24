@@ -27,7 +27,14 @@ from pathlib import Path
 import yaml
 from scalo import logger
 
-from hyperi_ci.common import curl_read, download_artefact
+from hyperi_ci.common import (
+    URL_ERRORS,
+    curl_read,
+    download_artefact,
+    info,
+    url_read,
+    warn,
+)
 from hyperi_ci.versions import runtime_version
 
 # Codenames to try as fallbacks when a given APT repo doesn't ship
@@ -264,41 +271,67 @@ def _get_os_codename() -> str:
 
 
 def _repo_has_codename(repo_url: str, codename: str) -> bool:
-    """Check if the repo has a Release file for the given codename."""
+    """Check whether the repo publishes a Release file for ``codename``.
+
+    Only a 404 reads as "not published". Anything else that outlasts
+    ``url_read``'s retries raises, so the caller can tell an unreachable repo
+    from a missing codename.
+
+    Raises:
+        OSError: The repo could not be reached, or answered with an error
+            other than 404.
+        http.client.HTTPException: The reply was malformed or cut short.
+
+    """
     url = f"{repo_url.rstrip('/')}/dists/{codename}/Release"
-    req = urllib.request.Request(url, method="HEAD")
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310  # nosemgrep: dynamic-urllib-use-detected -- URL constructed from known APT repo
-            return resp.status == 200
-    except (urllib.error.URLError, OSError):
-        return False
+        url_read(urllib.request.Request(url, method="HEAD"), timeout=10)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return False
+        raise
+    return True
 
 
 def _resolve_codename(repo: AptRepo) -> str:
     """Resolve the codename to use for an APT repo.
 
     If codename is explicit, uses it directly. If "auto", tries the current
-    OS codename first, then falls back through LTS codenames.
+    OS codename first, then falls back through LTS codenames in order.
+
+    Only a 404 moves on to the next candidate. A probe that gets no answer
+    keeps the candidate it was checking and warns, because skipping it would
+    install from an older codename's repo on the strength of a network fault.
     """
     if repo.codename != "auto":
         return repo.codename
 
     os_codename = _get_os_codename()
-    if os_codename and _repo_has_codename(repo.url, os_codename):
-        logger.info(f"Repo {repo.url} supports current codename: {os_codename}")
-        return os_codename
+    candidates = [os_codename] if os_codename else []
+    candidates += [c for c in _FALLBACK_CODENAMES if c != os_codename]
 
-    for lts in _FALLBACK_CODENAMES:
-        if lts == os_codename:
-            continue
-        if _repo_has_codename(repo.url, lts):
-            logger.info(
-                f"Repo {repo.url} does not support {os_codename!r}, "
-                f"using fallback: {lts}"
+    for codename in candidates:
+        try:
+            published = _repo_has_codename(repo.url, codename)
+        except URL_ERRORS as exc:
+            warn(
+                f"Could not check {repo.url} for {codename!r} ({exc}). Using "
+                f"{codename} unchecked rather than falling back on a network "
+                "failure."
             )
-            return lts
+            return codename
+        if not published:
+            continue
+        if codename == os_codename:
+            info(f"Repo {repo.url} supports current codename: {codename}")
+        else:
+            info(
+                f"Repo {repo.url} does not support {os_codename!r}, "
+                f"using fallback: {codename}"
+            )
+        return codename
 
-    logger.warning(f"No supported codename found for {repo.url}")
+    warn(f"No supported codename found for {repo.url}")
     return os_codename or _FALLBACK_CODENAMES[0]
 
 

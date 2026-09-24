@@ -8,12 +8,15 @@
 import functools
 import shutil
 import struct
+import urllib.error
+import urllib.request
 from collections.abc import Callable
 from pathlib import Path
+from typing import Self
 
 import pytest
 
-from hyperi_ci import channel
+from hyperi_ci import channel, common
 from hyperi_ci.common import is_ci, run_cmd
 
 
@@ -120,6 +123,51 @@ def _write_elf(
 def make_elf() -> Callable[..., Path]:
     """Factory for real ELF files with a chosen section table."""
     return _write_elf
+
+
+class _Response:
+    """Context-manager stand-in for what ``urlopen`` returns."""
+
+    def __init__(self, body: bytes) -> None:
+        self._body = body
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+    def read(self) -> bytes:
+        return self._body
+
+
+@pytest.fixture
+def fake_urlopen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[list[Exception | bytes], list[str], list[float]]:
+    """Answer every ``urlopen`` from a script, and skip the retry backoff.
+
+    Returns ``(outcomes, asked, sleeps)``. Each request takes the next outcome:
+    an exception is raised, bytes are served as the body. Once ``outcomes`` is
+    empty every request is refused, the way it is on a machine with no route.
+    ``asked`` records each URL requested and ``sleeps`` each backoff skipped.
+    """
+    outcomes: list[Exception | bytes] = []
+    asked: list[str] = []
+    sleeps: list[float] = []
+
+    def urlopen(request: urllib.request.Request, timeout: float) -> _Response:
+        asked.append(request.full_url)
+        if not outcomes:
+            raise urllib.error.URLError("no route to host")
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return _Response(outcome)
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(common.time, "sleep", sleeps.append)
+    return outcomes, asked, sleeps
 
 
 @pytest.fixture(autouse=True)
