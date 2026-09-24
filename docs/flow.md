@@ -260,6 +260,8 @@ A merge to `main` cancels the in-flight release run. The concurrency group is
 `cancel-in-progress: true`, so every push to `main` kills whatever the previous
 one started -- the release tail included. Land the merges, then dispatch.
 
+Wait for the last merge's push run to show up in `gh run list` before you dispatch. GitHub registers a push run a few seconds after the merge, so a dispatch sent straight after the merge can land first and then be cancelled by it. A `release <tag>` dispatch is safe, because the tag puts it in a group of its own.
+
 The cancelled run leaves no tag and no artefacts, so recovery is another
 `hyperi-ci release`. The cost is the build time, which on a Tier 2 Rust
 publish is 35-45 minutes per arch.
