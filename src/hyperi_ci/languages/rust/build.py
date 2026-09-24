@@ -23,11 +23,10 @@ import sys
 from pathlib import Path
 
 from hyperi_ci.common import (
+    announce,
     error,
-    escape_command_data,
     group,
     info,
-    is_ci,
     is_linux,
     is_macos,
     is_prerelease_build,
@@ -1403,12 +1402,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
                 "'release' (PGO + BOLT on a run that publishes nothing); leave "
                 "it empty otherwise."
             )
-            error(refusal)
-            if is_ci():
-                print(
-                    "::error title=hyperi-ci optimize-tier refused::"
-                    f"{escape_command_data(refusal)}"
-                )
+            announce(refusal, "hyperi-ci optimize-tier refused", level="error")
             return 1
         channel = _resolve_build_channel(config)
         user_optimize = config.get("build.rust.optimize") or {}
@@ -1425,18 +1419,14 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             prerelease=prerelease,
         )
         if refusal:
-            error(refusal)
-            if is_ci():
-                print(f"::error title=hyperi-ci unoptimised release refused::{refusal}")
+            announce(refusal, "hyperi-ci unoptimised release refused", level="error")
             return 1
         if skip and channel == "release" and consented:
             msg = (
                 "Shipping a release with the optimisation stage skipped, by "
                 "explicit consent (release-unoptimized=true)."
             )
-            warn(msg)
-            if is_ci():
-                print(f"::warning title=hyperi-ci unoptimised release::{msg}")
+            announce(msg, "hyperi-ci unoptimised release")
         if skip:
             # An unoptimised binary looks identical until someone benchmarks it.
             msg = (
@@ -1445,9 +1435,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
                 "HYPERCI_SKIP_OPTIMIZE / build.skip_optimize for a fully "
                 "optimised binary."
             )
-            warn(msg)
-            if is_ci():
-                print(f"::warning title=hyperi-ci optimisation skipped::{msg}")
+            announce(msg, "hyperi-ci optimisation skipped")
         base_profile = resolve_optimization_profile(
             channel, user_optimize, skip_optimize=skip, project_root=project_root
         )

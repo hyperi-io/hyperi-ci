@@ -4,12 +4,11 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-from __future__ import annotations
-
 from pathlib import Path
 
 import pytest
 
+from hyperi_ci import common
 from hyperi_ci.quality import deprecated_files as dep
 
 
@@ -28,7 +27,7 @@ def test_scan_flags_deprecated_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     (tmp_path / ".releaserc.yaml").write_text("branches: [main]\n", encoding="utf-8")
-    monkeypatch.setattr(dep, "is_ci", lambda: False)
+    monkeypatch.setattr(common, "is_github_actions", lambda: False)
     assert dep.scan(tmp_path) == [".releaserc.yaml"]
 
 
@@ -37,30 +36,40 @@ def test_scan_reports_every_present_file(
 ) -> None:
     (tmp_path / ".releaserc.yaml").write_text("x: 1\n", encoding="utf-8")
     (tmp_path / ".releaserc.yml").write_text("x: 1\n", encoding="utf-8")
-    monkeypatch.setattr(dep, "is_ci", lambda: False)
+    monkeypatch.setattr(common, "is_github_actions", lambda: False)
     assert set(dep.scan(tmp_path)) == {".releaserc.yaml", ".releaserc.yml"}
 
 
-def test_scan_emits_github_annotation_in_ci(
+def test_scan_emits_one_github_annotation_under_actions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # In CI a warn also prints a ::warning:: so it escapes the folded log group.
+    # The annotation reaches the run summary; a logger warning there would be
+    # a second annotation for the same file.
+    said: list[str] = []
     (tmp_path / ".releaserc.yaml").write_text("x: 1\n", encoding="utf-8")
-    monkeypatch.setattr(dep, "is_ci", lambda: True)
+    monkeypatch.setattr(common, "is_github_actions", lambda: True)
+    monkeypatch.setattr(common, "warn", said.append)
     fired = dep.scan(tmp_path)
     out = capsys.readouterr().out
     assert fired == [".releaserc.yaml"]
-    assert "::warning" in out
-    assert ".releaserc.yaml" in out
+    warnings = [line for line in out.splitlines() if line.startswith("::warning")]
+    assert len(warnings) == 1, out
+    assert warnings[0].startswith("::warning title=hyperi-ci deprecated file::")
+    assert ".releaserc.yaml" in warnings[0]
+    assert said == []
 
 
-def test_scan_no_annotation_when_not_ci(
+def test_scan_is_a_log_line_off_github_actions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    said: list[str] = []
     (tmp_path / ".releaserc.yaml").write_text("x: 1\n", encoding="utf-8")
-    monkeypatch.setattr(dep, "is_ci", lambda: False)
+    monkeypatch.setattr(common, "is_github_actions", lambda: False)
+    monkeypatch.setattr(common, "warn", said.append)
     dep.scan(tmp_path)
     assert "::warning" not in capsys.readouterr().out
+    assert len(said) == 1, said
+    assert ".releaserc.yaml" in said[0]
 
 
 def test_missing_table_is_nonfatal(

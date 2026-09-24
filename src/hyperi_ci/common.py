@@ -19,7 +19,7 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from scalo.logger import logger
 
@@ -309,6 +309,26 @@ def escape_command_data(value: str) -> str:
     further command.
     """
     return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def announce(
+    msg: str, title: str, *, level: Literal["warning", "error"] = "warning"
+) -> None:
+    """Report once: an annotation under GitHub Actions, a log line elsewhere.
+
+    The annotation reaches the run summary, where a folded log group cannot
+    hide it, and it is escaped because a raw newline ends a workflow command.
+    Under GitHub Actions it is the only output, because the logger would add a
+    second annotation. Any other CI reads no workflow commands, so it gets the
+    log line.
+    """
+    if is_github_actions():
+        print(f"::{level} title={title}::{escape_command_data(msg)}", flush=True)
+        return
+    if level == "error":
+        error(msg)
+    else:
+        warn(msg)
 
 
 def mask(value: str) -> None:
