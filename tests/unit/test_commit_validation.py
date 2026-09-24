@@ -4,7 +4,6 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-from __future__ import annotations
 
 import json
 import subprocess
@@ -534,6 +533,13 @@ class TestFormatRejection:
         )
         output = format_rejection(result, "fix: thing\n\nGenerated with Claude Code")
         assert "Computer says no." in output
+
+    @pytest.mark.parametrize("original", ["", "\n", "   \n\n"])
+    def test_an_empty_message_is_rejected_not_crashed(self, original: str) -> None:
+        result = validate_message(original)
+        output = format_rejection(result, original)
+        assert output.startswith("Computer says no.")
+        assert f"Reason: {result.reason}" in output
 
 
 # ---------------------------------------------------------------------------
