@@ -121,7 +121,7 @@ class TestInstallerScriptsComeFromAFile:
         [curl] = seen["curl"]
         assert curl[-1] == bootstrap._RUSTUP_URL
         assert "-L" not in curl
-        assert "--retry-all-errors" in curl
+        assert "--max-time" in curl
         assert curl[curl.index("--proto") + 1] == "=https"
         assert "--tlsv1.2" in curl
         [(shell, body)] = seen["shell"]
@@ -138,7 +138,7 @@ class TestInstallerScriptsComeFromAFile:
 
         [curl] = seen["curl"]
         assert curl[-1] == bootstrap._CARGO_BINSTALL_URL
-        assert "--retry-all-errors" in curl
+        assert "--max-time" in curl
         assert seen["shell"] == [(["bash"], b"#!/bin/bash\necho binstall\n")]
 
 

@@ -449,18 +449,46 @@ def run_cmd(
     )
 
 
-# The same retry set the composite actions carry, bounded so a dead host cannot
-# hold a job for longer than the window.
+# Any 5xx is retried, and of the 4xx only these, which mean "ask again later".
+_RETRY_STATUSES = frozenset({408, 429})
+
+
+def _status_is_final(code: int) -> bool:
+    """Whether asking again cannot change an HTTP error status."""
+    return code < 500 and code not in _RETRY_STATUSES
+
+
+def _backoff(retry: int) -> float:
+    """Seconds to wait before retry number ``retry``.
+
+    About 1, 2, 4 and so on, each cut by up to half at random so parallel jobs
+    do not retry in step.
+    """
+    return random.uniform(0.5, 1.0) * 2 ** (retry - 1)
+
+
+_CURL_RETRIES = 5
+# No retry starts once this many seconds have passed since the first attempt.
 _CURL_RETRY_MAX_TIME = 600
-_CURL_RETRY = (
-    "--retry",
-    "5",
-    "--retry-all-errors",
-    "--retry-delay",
-    "2",
-    "--retry-max-time",
-    str(_CURL_RETRY_MAX_TIME),
-)
+_CURL_CONNECT_TIMEOUT = 10
+_CURL_MAX_TIME = 180
+# Seconds past --max-time before the process is killed, so it only fires on a
+# curl that has stopped honouring its own limit.
+_CURL_BACKSTOP = 20
+# curl's exit code for an HTTP status of 400 or more under -f.
+_CURL_HTTP_ERROR = 22
+
+
+def _curl_retryable(result: subprocess.CompletedProcess[str]) -> bool:
+    """Whether a failed curl attempt is worth making again.
+
+    Every failure is, except an HTTP status that asking again cannot change.
+    An HTTP error with no readable status is retried rather than guessed at.
+    """
+    status = (result.stdout or "").strip()
+    if result.returncode != _CURL_HTTP_ERROR or not status.isdigit():
+        return True
+    return not _status_is_final(int(status))
 
 
 def curl_fetch(
@@ -469,42 +497,75 @@ def curl_fetch(
     *,
     extra: Sequence[str] = (),
     follow_redirects: bool = True,
-    timeout: float | None = None,
+    max_time: int = _CURL_MAX_TIME,
 ) -> subprocess.CompletedProcess[str]:
     """Download ``url`` to ``dest`` with curl, retrying a transient failure.
 
     Every Python-side fetch goes through here, and a test fails on a fetching
-    curl argv anywhere else. The body always goes to a file: curl truncates an
-    ``-o`` file before each retry, but it cannot take back bytes already
-    written to stdout, so a retried fetch read off stdout or piped into a
-    shell can carry its body twice.
+    curl argv anywhere else. Each attempt is one curl process. The body goes
+    to the ``-o`` file and stdout carries only the HTTP status, which decides
+    whether the attempt is made again.
+
+    A 5xx, 408 or 429, a transfer cut off mid-body, a timeout or any other
+    curl failure is retried up to 5 times, after about 1s, 2s, 4s, 8s and
+    16s, each wait cut by up to half at random. No retry starts after 600s.
+    Any other HTTP status is final, because asking again gets the same answer
+    and spends another request against a rate limit.
 
     ``-f`` turns an HTTP error into a non-zero exit rather than a saved error
-    page. curl's own error line goes to stderr.
+    page. curl's error line is logged for each failed attempt.
 
     Args:
         url: What to fetch.
         dest: File the body is written to.
-        extra: More curl options, such as ``--max-time``, placed before the URL.
+        extra: More curl options, placed before the URL.
         follow_redirects: Pass ``-L``.
-        timeout: Seconds before the curl process is killed. A value below the
-            600-second retry window cuts the retries short.
+        max_time: Seconds one attempt may take in all, the connect included.
+            The curl process is killed 20 seconds after that.
 
     Returns:
-        The finished curl process. Check its return code.
+        The last curl attempt. Check its return code.
+
+    Raises:
+        OSError: curl could not be started.
+        subprocess.TimeoutExpired: An attempt outlived its own ``--max-time``.
 
     """
     cmd = [
         "curl",
         "-fsS",
         *(["-L"] if follow_redirects else []),
-        *_CURL_RETRY,
+        "--connect-timeout",
+        str(_CURL_CONNECT_TIMEOUT),
+        "--max-time",
+        str(max_time),
+        "-w",
+        "%{http_code}",
         *extra,
         "-o",
         str(dest),
         url,
     ]
-    return run_cmd(cmd, check=False, timeout=timeout)
+    started = time.monotonic()
+    retry = 0
+    while True:
+        result = run_cmd(
+            cmd, check=False, capture=True, timeout=max_time + _CURL_BACKSTOP
+        )
+        if result.returncode == 0:
+            return result
+        reason = (result.stderr or "").strip() or f"curl exit {result.returncode}"
+        out_of_time = time.monotonic() - started >= _CURL_RETRY_MAX_TIME
+        if retry == _CURL_RETRIES or out_of_time or not _curl_retryable(result):
+            info(f"{url}: {reason}")
+            return result
+        retry += 1
+        delay = _backoff(retry)
+        info(
+            f"{url}: {reason}, retrying in {delay:.1f}s "
+            f"(retry {retry} of {_CURL_RETRIES})"
+        )
+        time.sleep(delay)
 
 
 def curl_read(
@@ -512,7 +573,7 @@ def curl_read(
     *,
     extra: Sequence[str] = (),
     follow_redirects: bool = True,
-    timeout: float | None = None,
+    max_time: int = _CURL_MAX_TIME,
 ) -> tuple[int, bytes]:
     """Fetch ``url`` into memory through a temp file, removed before returning.
 
@@ -523,10 +584,14 @@ def curl_read(
         url: What to fetch.
         extra: More curl options, placed before the URL.
         follow_redirects: Pass ``-L``.
-        timeout: Seconds before the curl process is killed.
+        max_time: Seconds one attempt may take in all.
 
     Returns:
         curl's exit code and the body. The body is empty unless curl exited 0.
+
+    Raises:
+        OSError: curl could not be started.
+        subprocess.TimeoutExpired: An attempt outlived its own ``--max-time``.
 
     """
     with tempfile.TemporaryDirectory(prefix="hyperi-ci-fetch-") as scratch:
@@ -536,7 +601,7 @@ def curl_read(
             dest,
             extra=extra,
             follow_redirects=follow_redirects,
-            timeout=timeout,
+            max_time=max_time,
         )
         # A curl that exits 0 without writing the file reads as an empty body.
         ok = result.returncode == 0 and dest.is_file()
@@ -544,15 +609,8 @@ def curl_read(
     return result.returncode, body
 
 
-_ARTEFACT_MAX_TIME = 180
-
-
 def download_artefact(name: str, url: str) -> bytes | None:
     """Fetch a release artefact into memory, or log why not and return None.
-
-    The connect and per-attempt limits put a ceiling on a stalled mirror. The
-    process backstop sits above curl's whole retry window, so it only fires on
-    a curl that has stopped honouring its own limits.
 
     Args:
         name: What is being fetched, for the error line.
@@ -563,11 +621,7 @@ def download_artefact(name: str, url: str) -> bytes | None:
 
     """
     try:
-        rc, body = curl_read(
-            url,
-            extra=("--connect-timeout", "10", "--max-time", str(_ARTEFACT_MAX_TIME)),
-            timeout=_CURL_RETRY_MAX_TIME + _ARTEFACT_MAX_TIME + 20,
-        )
+        rc, body = curl_read(url)
     except (OSError, subprocess.TimeoutExpired):
         error(f"Failed to download {name} (network error / timeout)")
         return None
@@ -578,9 +632,6 @@ def download_artefact(name: str, url: str) -> bytes | None:
 
 
 URL_ATTEMPTS = 4
-
-# Any 5xx is retried, and of the 4xx only these, which mean "ask again later".
-_URL_RETRY_STATUSES = frozenset({408, 429})
 
 # What a failed urllib request raises: HTTPError and URLError are both OSError,
 # and a response cut short raises an HTTPException.
@@ -605,9 +656,14 @@ def url_read(
     at random so parallel jobs do not retry in step. Any other HTTP status
     raises at once, because asking again gets the same answer.
 
+    Nothing here bounds how long a whole call takes. ``timeout`` limits each
+    socket operation, so a server that trickles its reply can hold an attempt
+    far longer, and a hung DNS lookup is not limited at all.
+
     Args:
         request: What to open. The caller vouches for the URL.
-        timeout: Seconds allowed for each attempt.
+        timeout: Seconds any one socket operation may block, such as the
+            connect or a single read.
         attempts: Tries in total. 1 turns retrying off.
 
     Returns:
@@ -623,13 +679,13 @@ def url_read(
         try:
             return _url_read_once(request, timeout)
         except urllib.error.HTTPError as exc:
-            if exc.code < 500 and exc.code not in _URL_RETRY_STATUSES:
+            if _status_is_final(exc.code):
                 raise
             exc.close()
             reason = f"HTTP {exc.code}"
         except URL_ERRORS as exc:
             reason = str(exc) or type(exc).__name__
-        delay = random.uniform(0.5, 1.0) * 2 ** (attempt - 1)
+        delay = _backoff(attempt)
         info(
             f"{request.full_url}: {reason}, retrying in {delay:.1f}s "
             f"(retry {attempt} of {attempts - 1})"
