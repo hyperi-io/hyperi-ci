@@ -35,6 +35,8 @@ from pathlib import Path
 
 import yaml
 
+from hyperi_ci.common import URL_ERRORS, url_read
+
 _ROOT = Path(__file__).resolve().parent.parent
 _WORKFLOWS = _ROOT / ".github" / "workflows"
 _ACTIONS = _ROOT / ".github" / "actions"
@@ -475,9 +477,9 @@ def latest_published_version() -> str | None:
     gate would then report a shipped subcommand as missing and block every PR.
     """
     try:
-        with urllib.request.urlopen(_PYPI_JSON, timeout=15) as response:
-            return json.load(response)["info"]["version"]
-    except (OSError, ValueError, KeyError):
+        body = url_read(urllib.request.Request(_PYPI_JSON), timeout=15)
+        return json.loads(body)["info"]["version"]
+    except (*URL_ERRORS, ValueError, KeyError):
         return None
 
 
