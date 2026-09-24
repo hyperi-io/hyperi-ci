@@ -12,8 +12,6 @@ are published based on publish_target. Does NOT test actual publishing
 and is tested via integration tests against test projects.
 """
 
-from __future__ import annotations
-
 import subprocess
 from pathlib import Path
 
@@ -604,6 +602,10 @@ class TestChangelogEntryExtraction:
         assert _top_changelog_entry("2.9.26", "# Changelog\n\nNothing yet.\n") is None
 
 
+_NO_CONFIG = CIConfig(_raw={})
+_SKIP_IN_CONFIG = CIConfig(_raw={"build": {"skip_optimize": True}})
+
+
 class TestReleaseNotesFlags:
     """gh gets --notes-file only when the changelog names this version."""
 
@@ -611,7 +613,7 @@ class TestReleaseNotesFlags:
         monkeypatch.chdir(tmp_path)
         from hyperi_ci.release.binaries import _release_notes_flags
 
-        with _release_notes_flags("2.9.26") as flags:
+        with _release_notes_flags("2.9.26", _NO_CONFIG) as flags:
             assert flags == []
 
     def test_a_stale_top_entry_adds_no_flags(self, tmp_path, monkeypatch) -> None:
@@ -619,7 +621,7 @@ class TestReleaseNotesFlags:
         monkeypatch.chdir(tmp_path)
         from hyperi_ci.release.binaries import _release_notes_flags
 
-        with _release_notes_flags("1.0.0") as flags:
+        with _release_notes_flags("1.0.0", _NO_CONFIG) as flags:
             assert flags == []
 
     def test_the_entry_reaches_gh_and_the_file_is_cleaned_up(
@@ -629,7 +631,7 @@ class TestReleaseNotesFlags:
         monkeypatch.chdir(tmp_path)
         from hyperi_ci.release.binaries import _release_notes_flags
 
-        with _release_notes_flags("2.9.26") as flags:
+        with _release_notes_flags("2.9.26", _NO_CONFIG) as flags:
             assert flags[0] == "--notes-file"
             notes = Path(flags[1])
             assert "LLVM 23" in notes.read_text(encoding="utf-8")
@@ -638,6 +640,11 @@ class TestReleaseNotesFlags:
 
 class TestUnoptimizedReleaseBanner:
     """A release built with the optimisation stage skipped must say so."""
+
+    @pytest.fixture(autouse=True)
+    def _no_ambient_optimise_request(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("HYPERCI_SKIP_OPTIMIZE", raising=False)
+        monkeypatch.delenv("HYPERCI_OPTIMIZE_TIER", raising=False)
 
     def test_the_banner_leads_the_body(self, tmp_path, monkeypatch) -> None:
         (tmp_path / "CHANGELOG.md").write_text(_THREE_ENTRIES, encoding="utf-8")
@@ -648,7 +655,7 @@ class TestUnoptimizedReleaseBanner:
             _release_notes_flags,
         )
 
-        with _release_notes_flags("2.9.26") as flags:
+        with _release_notes_flags("2.9.26", _NO_CONFIG) as flags:
             body = Path(flags[1]).read_text(encoding="utf-8")
         assert body.startswith(UNOPTIMIZED_RELEASE_BANNER)
         assert "LLVM 23" in body
@@ -663,7 +670,24 @@ class TestUnoptimizedReleaseBanner:
             _release_notes_flags,
         )
 
-        with _release_notes_flags("2.9.26") as flags:
+        with _release_notes_flags("2.9.26", _NO_CONFIG) as flags:
+            assert flags[0] == "--notes-file"
+            assert (
+                Path(flags[1]).read_text(encoding="utf-8").strip()
+                == UNOPTIMIZED_RELEASE_BANNER
+            )
+
+    def test_a_skip_set_only_in_config_carries_the_banner(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        # The build and the image label read build.skip_optimize too.
+        monkeypatch.chdir(tmp_path)
+        from hyperi_ci.release.binaries import (
+            UNOPTIMIZED_RELEASE_BANNER,
+            _release_notes_flags,
+        )
+
+        with _release_notes_flags("2.9.26", _SKIP_IN_CONFIG) as flags:
             assert flags[0] == "--notes-file"
             assert (
                 Path(flags[1]).read_text(encoding="utf-8").strip()
@@ -674,8 +698,54 @@ class TestUnoptimizedReleaseBanner:
         self, tmp_path, monkeypatch
     ) -> None:
         monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("HYPERCI_SKIP_OPTIMIZE", raising=False)
         from hyperi_ci.release.binaries import _release_notes_flags
 
-        with _release_notes_flags("2.9.26") as flags:
+        with _release_notes_flags("2.9.26", _NO_CONFIG) as flags:
             assert flags == []
+
+
+class TestBothReleasePathsReadTheConfigSkip:
+    """Each path that runs `gh release create` passes its config to the body."""
+
+    @pytest.fixture
+    def bodies(self, tmp_path, monkeypatch) -> list[str]:
+        from hyperi_ci.release import binaries
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("HYPERCI_SKIP_OPTIMIZE", raising=False)
+        monkeypatch.delenv("HYPERCI_OPTIMIZE_TIER", raising=False)
+        sent: list[str] = []
+
+        def fake_run_cmd(cmd: list[str], **_kw: object) -> subprocess.CompletedProcess:
+            if "--notes-file" in cmd:
+                notes = Path(cmd[cmd.index("--notes-file") + 1])
+                sent.append(notes.read_text(encoding="utf-8"))
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        monkeypatch.setattr(binaries, "run_cmd", fake_run_cmd)
+        monkeypatch.setattr(binaries, "_read_version", lambda: "1.2.3")
+        return sent
+
+    def test_create_github_release(self, bodies: list[str]) -> None:
+        from hyperi_ci.release import binaries
+
+        assert binaries.create_github_release(_SKIP_IN_CONFIG) == 0
+        assert len(bodies) == 1, bodies
+        assert bodies[0].startswith(binaries.UNOPTIMIZED_RELEASE_BANNER)
+
+    def test_publish_binaries_to_github_releases(
+        self, bodies: list[str], tmp_path
+    ) -> None:
+        from hyperi_ci.release import binaries
+
+        (tmp_path / "dist").mkdir()
+        (tmp_path / "dist" / "demo-linux-amd64").write_bytes(b"\x7fELF")
+        config = CIConfig(
+            _raw={
+                "build": {"skip_optimize": True},
+                "release": {"destinations": {"binaries": "github-releases"}},
+            }
+        )
+        assert binaries.publish_binaries(config) == 0
+        assert len(bodies) == 1, bodies
+        assert bodies[0].startswith(binaries.UNOPTIMIZED_RELEASE_BANNER)
