@@ -12,10 +12,15 @@ And a notification that returns non-zero would turn an already-shipped release
 red, which is worse than the missing notification it was meant to fix.
 """
 
+import shutil
+import threading
+from collections.abc import Iterator
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from hyperi_ci import release_notify
 from hyperi_ci.config import CIConfig
 from hyperi_ci.release_notify import (
     _previous_tag,
@@ -236,3 +241,46 @@ class TestSlackIsOffByDefault:
             _raw={"notify": {"slack": {"webhook_env": "SLACK_CI_WEBHOOK"}}}
         )
         assert "https://" not in str(config.get("notify.slack.webhook_env"))
+
+
+class _RejectingWebhook(BaseHTTPRequestHandler):
+    """Answer every POST the way Slack answers a revoked webhook."""
+
+    def do_POST(self) -> None:
+        self.send_response(403)
+        self.end_headers()
+        self.wfile.write(b"invalid_token")
+
+    def log_message(self, *args: object) -> None:
+        pass
+
+
+@pytest.mark.skipif(shutil.which("curl") is None, reason="needs curl")
+class TestARejectedWebhookIsReportedAsAFailure:
+    """A revoked webhook answers 4xx, which must never read as posted."""
+
+    @pytest.fixture
+    def webhook(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+        for proxy in ("http_proxy", "HTTP_PROXY", "all_proxy", "ALL_PROXY"):
+            monkeypatch.delenv(proxy, raising=False)
+        server = HTTPServer(("127.0.0.1", 0), _RejectingWebhook)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        yield f"http://127.0.0.1:{server.server_port}/services/T0/B0/x"
+        server.shutdown()
+        server.server_close()
+
+    def test_a_4xx_warns_and_never_says_posted(
+        self, monkeypatch: pytest.MonkeyPatch, webhook: str
+    ) -> None:
+        monkeypatch.setenv("SLACK_CI_WEBHOOK", webhook)
+        config = CIConfig(
+            _raw={"notify": {"slack": {"webhook_env": "SLACK_CI_WEBHOOK"}}}
+        )
+        warned: list[str] = []
+        posted: list[str] = []
+        monkeypatch.setattr(release_notify, "warn", warned.append)
+        monkeypatch.setattr(release_notify, "success", posted.append)
+        assert notify_slack(config, text="hi") == 0
+        assert posted == []
+        assert any("Slack post failed" in line for line in warned), warned
