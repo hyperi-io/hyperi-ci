@@ -24,12 +24,14 @@ from pathlib import Path
 
 from hyperi_ci.common import (
     error,
+    escape_command_data,
     group,
     info,
     is_ci,
     is_linux,
     is_macos,
     is_prerelease_build,
+    optimize_tier,
     release_unoptimized,
     sanitize_ref_name,
     skip_optimize,
@@ -815,10 +817,12 @@ def _resolve_build_channel(config: CIConfig) -> str:
     Priority (highest wins):
       1. `HYPERCI_CHANNEL` env var (set by reusable workflow when
          `inputs.tag` is non-empty, i.e. `hyperi-ci release` dispatch)
-      2. Tag-ref inference: `GITHUB_REF_TYPE == "tag"` → "release"
-      3. `RUST_VERSION` / `CI_COMMIT_TAG` env vars (semantic-release-
+      2. `optimize-tier: release` on this run (`HYPERCI_OPTIMIZE_TIER`), which
+         builds the release tier on a run that publishes nothing (issue #257)
+      3. Tag-ref inference: `GITHUB_REF_TYPE == "tag"` → "release"
+      4. `RUST_VERSION` / `CI_COMMIT_TAG` env vars (semantic-release-
          style tagged builds set these when checking out the tag)
-      4. "alpha" (default for push-event CI)
+      5. "alpha" (default for push-event CI)
 
     **Rationale for not falling back to `release.channel`:** Tier 2
     (PGO + BOLT) adds 30-60 min per build and a bad workload causes
@@ -829,13 +833,15 @@ def _resolve_build_channel(config: CIConfig) -> str:
     still gets push-event CI on every commit, which must NOT trigger
     Tier 2. The build channel is orthogonal to the release channel.
 
-    An operator who explicitly wants a one-off release-style build on
-    a non-tag ref can set `HYPERCI_CHANNEL=release` in the workflow
-    dispatch env, or pin the workflow to a tagged ref.
+    An operator who wants a one-off release-tier build on a non-tag ref
+    dispatches with `optimize-tier: release`.
     """
     override = os.environ.get("HYPERCI_CHANNEL", "").strip().lower()
     if override:
         return override
+
+    if optimize_tier() == "release":
+        return "release"
 
     if os.environ.get("GITHUB_REF_TYPE", "").strip().lower() == "tag":
         return "release"
@@ -1355,6 +1361,20 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     binary_names_for_profile = _detect_binary_names()
     base_profile: OptimizationProfile | None = None
     if binary_names_for_profile:
+        tier = optimize_tier()
+        if tier and tier != "release":
+            refusal = (
+                f"optimize-tier={tier!r} is not a tier. The one value is "
+                "'release' (PGO + BOLT on a run that publishes nothing); leave "
+                "it empty otherwise."
+            )
+            error(refusal)
+            if is_ci():
+                print(
+                    "::error title=hyperi-ci optimize-tier refused::"
+                    f"{escape_command_data(refusal)}"
+                )
+            return 1
         channel = _resolve_build_channel(config)
         user_optimize = config.get("build.rust.optimize") or {}
         skip = skip_optimize(config)

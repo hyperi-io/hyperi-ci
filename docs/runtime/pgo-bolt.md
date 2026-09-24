@@ -41,6 +41,10 @@ For copy-paste starting points, see `templates/pgo-workload/`.
 that does not need them. See
 [`rust.md`](../languages/rust.md) -> *Skipping optimisation for one run*.
 
+`optimize-tier: release` does the opposite: PGO and BOLT on a run that
+publishes nothing, to test a workload or a BOLT fix without a release. See
+[`rust.md`](../languages/rust.md) -> *Tier 2 - PGO + BOLT* -> *Running it without a release*.
+
 To prove a workload end to end without spending a stable version, cut a
 prerelease off a branch and leave optimisation on -- see
 [`prereleases.md`](../prereleases.md).

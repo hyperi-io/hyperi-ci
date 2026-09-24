@@ -69,6 +69,10 @@ on:
         type: string
         default: ""
         description: "'true' to consent, for this run only, to shipping a skipped-optimisation build under a release tag. No-op for TypeScript today, kept for parity."
+      optimize-tier:
+        type: string
+        default: ""
+        description: "'release' to build the release optimisation tier on a run that publishes nothing. No-op for TypeScript today, kept for parity."
     secrets:
       NPM_TOKEN:
         required: false
@@ -122,6 +126,11 @@ on:
         required: false
         default: ""
         description: "'true' to consent, for this run only, to shipping a skipped-optimisation build under a release tag. No-op for TypeScript today, kept for parity."
+      optimize-tier:
+        type: string
+        required: false
+        default: ""
+        description: "'release' to build the release optimisation tier on a run that publishes nothing. No-op for TypeScript today, kept for parity."
 
 concurrency:
   group: ${{ github.workflow }}-${{ inputs.tag || github.ref }}
@@ -147,6 +156,10 @@ env:
   # Consent to release a skipped-optimisation build: per-run input only, never
   # a repo variable, so the consent cannot outlive the run.
   HYPERCI_RELEASE_UNOPTIMIZED: ${{ inputs.release-unoptimized }}
+  # Ask for the release optimisation tier on a run that publishes nothing:
+  # per-run input only, never a repo variable, because the tier adds PGO and
+  # BOLT to every build it reaches (issue #257).
+  HYPERCI_OPTIMIZE_TIER: ${{ inputs.optimize-tier }}
 
 # Least-privilege GITHUB_TOKEN default for every job (CodeQL
 # actions/missing-workflow-permissions). Two jobs elevate: release-tail
@@ -473,6 +486,7 @@ jobs:
       submodules: ${{ inputs.submodules }}
       skip-optimize: ${{ inputs.skip-optimize }}
       release-unoptimized: ${{ inputs.release-unoptimized }}
+      optimize-tier: ${{ inputs.optimize-tier }}
     secrets: inherit
 
   # ---------------------------------------------------------------------------

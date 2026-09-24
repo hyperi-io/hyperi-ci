@@ -328,6 +328,11 @@ def _render_workflow(
         "        required: false\n"
         '        default: ""\n'
         "        description: \"'true' to consent, for this run only, to shipping a skipped-optimisation build under a release tag.\"\n"
+        "      optimize-tier:\n"
+        "        type: string\n"
+        "        required: false\n"
+        '        default: ""\n'
+        "        description: \"'release' to build the release optimisation tier on a run that publishes nothing (Rust: PGO + BOLT).\"\n"
         "\n"
         "jobs:\n"
         "  ci:\n"
@@ -339,6 +344,7 @@ def _render_workflow(
         "      bump: ${{ inputs.bump || 'auto' }}\n"
         "      skip-optimize: ${{ inputs.skip-optimize || '' }}\n"
         "      release-unoptimized: ${{ inputs.release-unoptimized || '' }}\n"
+        "      optimize-tier: ${{ inputs.optimize-tier || '' }}\n"
     )
 
     if publish_target != "internal":
