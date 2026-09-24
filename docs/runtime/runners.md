@@ -89,14 +89,16 @@ the compiler estate is actually needed.
 ## Self-hosted runner tiers
 
 ARC runner scale sets are sized in tiers. The k8s manifests in hyperi-infra
-are the SSoT; the sizing, for reference:
+are the SSoT, including each set's `maxRunners`; the sizing, as read from the
+live AutoscalingRunnerSets on 2026-09-24:
 
-| Tier | CPUs | RAM | maxRunners | Typical use |
-|---|---|---|---|---|
-| 2cpu | 2 | 4Gi | 20 | lint, test, publish, tag |
-| 4cpu | 4 | 8Gi | 10 | Python / Node.js builds, small Rust crates |
-| 8cpu | 8 | 16Gi | 5 | medium Rust / C++ builds, integration tests |
-| 16cpu | 16 | 28Gi | 3 | large Rust / C++ release builds, ClickHouse |
+| Tier | CPUs | RAM | Typical use |
+|---|---|---|---|
+| 4cpu | 4 | 8Gi | lint, test, publish, tag; Python / Node.js builds, small Rust crates |
+| 8cpu | 8 | 16Gi | medium Rust / C++ builds, integration tests |
+| 16cpu | 16 | 16Gi | large Rust / C++ release builds, ClickHouse |
+
+There is no 2cpu tier.
 
 ## Split-runner multi-arch
 
