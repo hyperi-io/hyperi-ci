@@ -17,7 +17,7 @@ overridable per project in .hyperi-ci.yaml.
 import os
 from pathlib import Path
 
-from hyperi_ci.common import env_true, escape_command_data, is_github_actions, warn
+from hyperi_ci.common import announce, env_true, warn
 from hyperi_ci.config import CIConfig, packaged_default
 
 DEFAULT_TEST_PATHS = ["tests/"]
@@ -157,28 +157,13 @@ def is_skipped(tool: str) -> bool:
         f"{tool}: FORCE-SKIPPED via HYPERCI_QUALITY_SKIP - rare edge-case "
         f"override; remove it once the false positive is fixed"
     )
-    _announce(msg, "hyperi-ci quality force-skip")
+    announce(msg, "hyperi-ci quality force-skip")
     return True
 
 
 _REASON_OWED_TITLE = "hyperi-ci security gate needs a reason"
 _TURNED_DOWN_TITLE = "hyperi-ci gate turned down"
 _REASON_DOCS = "docs/quality-gate.md#relaxing-a-security-gate"
-
-
-def _announce(msg: str, title: str) -> None:
-    """Announce once: an annotation under GitHub Actions, a log line elsewhere.
-
-    The annotation reaches the run summary, where a folded log group cannot
-    hide it, and it is escaped because a raw newline ends a workflow command.
-    Under GitHub Actions it is the only output, because the logger would add a
-    second annotation. Any other CI reads no workflow commands, so it gets the
-    log line.
-    """
-    if is_github_actions():
-        print(f"::warning title={title}::{escape_command_data(msg)}")
-        return
-    warn(f"  {msg}")
 
 
 def _mapping_example(key: str, setting: str, placeholder: str) -> str:
@@ -247,7 +232,7 @@ def note_gate_downgrade(
     # Warns rather than failing until a wheel that parses the mapping is on
     # PyPI, because a consumer cannot state a reason before then (issue #259).
     if key.rsplit(".", 1)[-1] in SECURITY_TOOLS and not reason:
-        _announce(_reason_required_message(key, mode, shipped), _REASON_OWED_TITLE)
+        announce(_reason_required_message(key, mode, shipped), _REASON_OWED_TITLE)
         return
     msg = (
         f"{key}: this repo sets '{mode}', hyperi-ci ships '{shipped}' - "
@@ -255,7 +240,7 @@ def note_gate_downgrade(
     )
     if reason:
         msg = f"{msg}; reason: {reason}"
-    _announce(msg, _TURNED_DOWN_TITLE)
+    announce(msg, _TURNED_DOWN_TITLE)
 
 
 def _security_gates_shipped(language: str) -> list[str]:
@@ -312,9 +297,9 @@ def note_quality_disabled(language: str, reason: str = "") -> None:
                 f"  docs: {_REASON_DOCS}",
             )
         )
-        _announce(owed, _REASON_OWED_TITLE)
+        announce(owed, _REASON_OWED_TITLE)
         return
-    _announce(
+    announce(
         "quality.enabled: false - the quality stage does not run, and with it "
         f"every security gate hyperi-ci ships for this repo ({gates}); "
         f"reason: {reason}",

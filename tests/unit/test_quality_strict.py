@@ -29,6 +29,8 @@ from hyperi_ci.languages.quality_common import (
 
 _ENV = "HYPERCI_QUALITY_STRICT"
 _SKIP = "HYPERCI_QUALITY_SKIP"
+# Taken at import, before any fixture replaces it.
+_REAL_IS_GITHUB_ACTIONS = common.is_github_actions
 _REASON = "GHSA-0000 has no patched release; mitigated by pod isolation"
 
 
@@ -41,7 +43,7 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     monkeypatch.delenv(_ENV, raising=False)
     monkeypatch.delenv(_SKIP, raising=False)
-    monkeypatch.setattr(quality_common, "is_github_actions", lambda: False)
+    monkeypatch.setattr(common, "is_github_actions", lambda: False)
 
 
 def _config(tool: str, mode: object, language: str = "python") -> CIConfig:
@@ -169,6 +171,7 @@ class TestGateDowngradeIsAnnounced:
     def _warnings(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         said: list[str] = []
         monkeypatch.setattr(quality_common, "warn", said.append)
+        monkeypatch.setattr(common, "warn", said.append)
         return said
 
     def test_warn_below_a_shipped_blocking_is_announced(
@@ -226,6 +229,7 @@ class TestSecurityGateNeedsAReason:
     def _warnings(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         said: list[str] = []
         monkeypatch.setattr(quality_common, "warn", said.append)
+        monkeypatch.setattr(common, "warn", said.append)
         return said
 
     def test_bare_warn_on_a_security_tool_is_named(
@@ -387,9 +391,10 @@ class TestDowngradeAnnotationIsOneCommand:
         There the logger's warning is an annotation too, so anything it records
         is a second annotation for the same event.
         """
-        monkeypatch.setattr(quality_common, "is_github_actions", lambda: True)
+        monkeypatch.setattr(common, "is_github_actions", lambda: True)
         said: list[str] = []
         monkeypatch.setattr(quality_common, "warn", said.append)
+        monkeypatch.setattr(common, "warn", said.append)
         return said
 
     def test_a_missing_reason_is_annotated_in_ci(
@@ -422,7 +427,7 @@ class TestDowngradeAnnotationIsOneCommand:
         capsys: pytest.CaptureFixture[str],
         logged: list[str],
     ) -> None:
-        monkeypatch.setattr(quality_common, "is_github_actions", lambda: False)
+        monkeypatch.setattr(common, "is_github_actions", lambda: False)
         resolve_tool_mode("pip_audit", _config("pip_audit", "warn"), "python")
         assert self._annotations(capsys) == []
         assert any("quality.python.pip_audit" in w for w in logged), logged
@@ -470,9 +475,7 @@ class TestDowngradeAnnotationIsOneCommand:
     ) -> None:
         # Only GitHub Actions reads workflow commands; any other CI would print
         # the escaped annotation as one unreadable line.
-        monkeypatch.setattr(
-            quality_common, "is_github_actions", common.is_github_actions
-        )
+        monkeypatch.setattr(common, "is_github_actions", _REAL_IS_GITHUB_ACTIONS)
         monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
         monkeypatch.setenv("CI", "true")
         monkeypatch.setenv("BUILDKITE", "true")
@@ -506,6 +509,7 @@ class TestConfigTextComesBackOnOneLine:
     ) -> None:
         said: list[str] = []
         monkeypatch.setattr(quality_common, "warn", said.append)
+        monkeypatch.setattr(common, "warn", said.append)
         raw = "block\n::error::planted"
         assert checked_mode("quality.python.ruff", raw, "blocking") == ("blocking", "")
         assert len(said) == 1, said

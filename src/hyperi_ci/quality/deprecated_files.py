@@ -12,13 +12,11 @@ edit, not a code change. Runs on ``hyperi-ci check`` (local pre-push) and in
 CI. Non-fatal by design - it recommends removal, it never gates a build.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import yaml
 
-from hyperi_ci.common import info, is_ci, warn
+from hyperi_ci.common import announce, info
 
 # config/ is a sibling of quality/ inside the package (both under hyperi_ci/).
 _TABLE_PATH = Path(__file__).resolve().parents[1] / "config" / "deprecated-files.yaml"
@@ -40,8 +38,8 @@ def scan(project_dir: Path | None = None) -> list[str]:
     """Warn about deprecated files present under ``project_dir``.
 
     For each table entry whose path exists, emit a non-fatal nudge - a
-    ``warn`` also prints a GitHub ``::warning::`` annotation in CI so it
-    escapes the folded log group and lands in the run summary. Returns the
+    ``warn`` level entry is one GitHub ``::warning::`` annotation under GitHub
+    Actions, so it lands in the run summary, and a log line elsewhere. Returns the
     project-relative paths that fired (for callers / tests). Never raises and
     never fails a build: it is a recommendation, not a gate.
     """
@@ -56,8 +54,6 @@ def scan(project_dir: Path | None = None) -> list[str]:
         if level == "info":
             info(message)
         else:
-            warn(message)
-            if is_ci():
-                print(f"::warning title=hyperi-ci deprecated file::{rel}: {message}")
+            announce(f"{rel}: {message}", "hyperi-ci deprecated file")
         fired.append(rel)
     return fired

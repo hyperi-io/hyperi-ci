@@ -8,6 +8,7 @@
 import subprocess
 import sys
 import time
+from typing import Literal
 
 import pytest
 
@@ -75,6 +76,59 @@ class TestLogTextStartsNoCommand:
     ) -> None:
         monkeypatch.setattr(common, "is_github_actions", lambda: False)
         assert common._inert(_PLANTED) == _PLANTED
+
+
+class TestAnnounce:
+    """One report per event: an annotation under GitHub Actions, a log line elsewhere.
+
+    Under GitHub Actions the logger's own warning or error is an annotation too,
+    so logging as well as annotating reports the event twice.
+    """
+
+    @pytest.fixture
+    def logged(self, monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
+        said: dict[str, list[str]] = {"warn": [], "error": []}
+        monkeypatch.setattr(common, "warn", said["warn"].append)
+        monkeypatch.setattr(common, "error", said["error"].append)
+        return said
+
+    def test_under_github_actions_it_is_one_escaped_annotation(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        logged: dict[str, list[str]],
+    ) -> None:
+        monkeypatch.setattr(common, "is_github_actions", lambda: True)
+        common.announce("first\n::error::planted", "hyperi-ci test")
+        out = capsys.readouterr().out
+        assert out == "::warning title=hyperi-ci test::first%0A::error::planted\n"
+        assert logged == {"warn": [], "error": []}
+
+    def test_an_error_is_an_error_annotation(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        logged: dict[str, list[str]],
+    ) -> None:
+        monkeypatch.setattr(common, "is_github_actions", lambda: True)
+        common.announce("refused", "hyperi-ci test", level="error")
+        assert capsys.readouterr().out == "::error title=hyperi-ci test::refused\n"
+        assert logged == {"warn": [], "error": []}
+
+    @pytest.mark.parametrize("level", ["warning", "error"])
+    def test_elsewhere_it_is_a_log_line_at_its_level(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        logged: dict[str, list[str]],
+        level: Literal["warning", "error"],
+    ) -> None:
+        monkeypatch.setattr(common, "is_github_actions", lambda: False)
+        common.announce("said once", "hyperi-ci test", level=level)
+        assert capsys.readouterr().out == ""
+        key = "error" if level == "error" else "warn"
+        assert logged[key] == ["said once"]
+        assert sum(len(v) for v in logged.values()) == 1
 
 
 class TestNormaliseTristate:

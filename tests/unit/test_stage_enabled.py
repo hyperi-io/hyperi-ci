@@ -19,6 +19,7 @@ from unittest.mock import patch
 
 import pytest
 
+from hyperi_ci import common
 from hyperi_ci import config as config_module
 from hyperi_ci.common import run_cmd
 from hyperi_ci.config import CIConfig, load_config
@@ -89,12 +90,13 @@ class TestDisablingQualityOwesAReason:
     def _isolated(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         # The deprecated-file scan reads cwd and runs before the switch is read.
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr(quality_common, "is_github_actions", lambda: False)
+        monkeypatch.setattr(common, "is_github_actions", lambda: False)
 
     @staticmethod
     def _warnings(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         said: list[str] = []
         monkeypatch.setattr(quality_common, "warn", said.append)
+        monkeypatch.setattr(common, "warn", said.append)
         return said
 
     @staticmethod
@@ -195,7 +197,7 @@ class TestDisablingQualityOwesAReason:
     def test_a_missing_reason_is_annotated_in_ci(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        monkeypatch.setattr(quality_common, "is_github_actions", lambda: True)
+        monkeypatch.setattr(common, "is_github_actions", lambda: True)
         said = self._warnings(monkeypatch)
         self._off()
         annotations = self._annotations(capsys)
@@ -212,7 +214,7 @@ class TestDisablingQualityOwesAReason:
     def test_in_ci_a_stated_reason_is_one_annotation_on_one_line(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        monkeypatch.setattr(quality_common, "is_github_actions", lambda: True)
+        monkeypatch.setattr(common, "is_github_actions", lambda: True)
         said = self._warnings(monkeypatch)
         self._off(reason="rebuilt under #12\r\n::error::planted")
         annotations = self._annotations(capsys)

@@ -15,6 +15,7 @@ skip short-circuits in ``run`` (which return before any scan).
 
 import pytest
 
+from hyperi_ci import common
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages import quality_common
 from hyperi_ci.quality import semgrep
@@ -44,7 +45,7 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     monkeypatch.delenv(_STRICT, raising=False)
     monkeypatch.delenv(_SKIP, raising=False)
-    monkeypatch.setattr(quality_common, "is_github_actions", lambda: False)
+    monkeypatch.setattr(common, "is_github_actions", lambda: False)
 
 
 class TestResolveMode:
@@ -75,6 +76,7 @@ class TestResolveMode:
         # fallback a repo could disable SAST through it unremarked.
         said: list[str] = []
         monkeypatch.setattr(quality_common, "warn", said.append)
+        monkeypatch.setattr(common, "warn", said.append)
         cfg = _cfg({"quality": {"python": {"semgrep": "disabled"}}})
         semgrep._resolve_mode(cfg, "python")
         # The generic turned-down warning names the key too, so only the
@@ -93,6 +95,7 @@ class TestResolveMode:
         # gate that carries it through as a mode nothing else recognises.
         said: list[str] = []
         monkeypatch.setattr(quality_common, "warn", said.append)
+        monkeypatch.setattr(common, "warn", said.append)
         cfg = _cfg({"quality": {"semgrep": raw}})
         assert semgrep._resolve_mode(cfg, None) == "warn"
         assert any("unknown mode" in w for w in said), said
@@ -124,6 +127,7 @@ class TestRun:
     ) -> None:
         said: list[str] = []
         monkeypatch.setattr(quality_common, "warn", said.append)
+        monkeypatch.setattr(common, "warn", said.append)
         cfg = _cfg({"quality": {"semgrep": "disabled"}})
         assert semgrep.run(cfg) == 0
         assert any("security gate" in w for w in said), said

@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from hyperi_ci import common
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.rust import build
 from hyperi_ci.languages.rust.optimize import (
@@ -389,18 +390,32 @@ class TestOptimizeTierOnAValidateRun:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         # A typo must not build Tier 1 quietly, and the dispatch-supplied value
-        # reaches a workflow command escaped.
+        # reaches one workflow command, escaped.
         errors: list[str] = []
         self._validate_run(monkeypatch, "relase%25\n::warning::planted")
-        monkeypatch.setattr(build, "error", errors.append)
-        monkeypatch.setattr(build, "is_ci", lambda: True)
+        monkeypatch.setattr(common, "error", errors.append)
+        monkeypatch.setattr(common, "is_github_actions", lambda: True)
+        rc, _logged = self._run(monkeypatch)
+        assert rc == 1
+        out = capsys.readouterr().out
+        title = "::error title=hyperi-ci optimize-tier refused::"
+        assert [line for line in out.splitlines() if line.startswith(title)] != []
+        assert out.count("::error") == 1, out
+        assert "\n::warning::planted" not in out
+        assert "relase%2525" in out
+        assert errors == []
+
+    def test_an_unknown_tier_is_a_log_line_off_github_actions(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        errors: list[str] = []
+        self._validate_run(monkeypatch, "relase")
+        monkeypatch.setattr(common, "error", errors.append)
+        monkeypatch.setattr(common, "is_github_actions", lambda: False)
         rc, _logged = self._run(monkeypatch)
         assert rc == 1
         assert errors and "optimize-tier" in errors[0]
-        out = capsys.readouterr().out
-        assert "::error title=hyperi-ci optimize-tier refused::" in out
-        assert "\n::warning::planted" not in out
-        assert "relase%2525" in out
+        assert "::error" not in capsys.readouterr().out
 
 
 class TestNativeTargetFollowsTheMachine:
