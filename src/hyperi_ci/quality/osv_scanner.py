@@ -22,6 +22,7 @@ True positives are acted on; known false positives are suppressed via
 """
 
 import shutil
+import tempfile
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
@@ -85,15 +86,14 @@ def run(
     entries: Iterable[IgnoreEntry],
     mode: str,
     run_tool: Callable[[str, list[str], str], bool],
-    *,
-    write_dir: Path | None = None,
 ) -> bool:
     """Run osv-scanner against ``lockfile``, delegating execution.
 
     A missing binary fails a ``blocking`` scan in CI and warn-skips
     everywhere else, like every other quality tool. When ignore entries
-    are present, writes an ``osv-scanner.toml`` and points the scanner
-    at it. Execution + blocking/warn/disabled semantics are delegated
+    are present, writes an ``osv-scanner.toml`` into a temporary directory,
+    points the scanner at it, and removes it after the scan. Execution +
+    blocking/warn/disabled semantics are delegated
     to ``run_tool`` (the caller's tool runner), so this stays uniform
     with the rest of the quality stage.
 
@@ -131,12 +131,14 @@ def run(
         return True
 
     entries = list(entries)
-    config_path: Path | None = None
-    if entries:
-        target_dir = write_dir or lockfile.resolve().parent
-        config_path = target_dir / _CONFIG_NAME
+    if not entries:
+        return run_tool(SLUG, build_command(lockfile), mode)
+
+    # Outside the checkout, so a local run leaves nothing untracked to commit
+    # and a repo's own osv-scanner.toml is never overwritten.
+    with tempfile.TemporaryDirectory(prefix="hyperi-ci-osv-") as scratch:
+        config_path = Path(scratch) / _CONFIG_NAME
         config_path.write_text(
             render_ignore_config(entries), encoding="utf-8", newline="\n"
         )
-
-    return run_tool(SLUG, build_command(lockfile, config_path), mode)
+        return run_tool(SLUG, build_command(lockfile, config_path), mode)
