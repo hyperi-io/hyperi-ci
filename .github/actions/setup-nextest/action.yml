@@ -131,7 +131,7 @@ runs:
 
         # Verification needs the whole file, so the download cannot pipe
         # straight into tar.
-        curl -fsSL --connect-timeout 10 --max-time 300 -o "$TMP/nextest.tar.gz" "$URL"
+        curl -fsSL --connect-timeout 10 --max-time 300 --retry 5 --retry-all-errors --retry-delay 2 --retry-max-time 600 -o "$TMP/nextest.tar.gz" "$URL"
         check_sha "$WANT_SHA" "$TMP/nextest.tar.gz" || {
           echo "::error::$URL failed its sha256 check - refusing to install"
           echo "  expected $WANT_SHA"
@@ -177,7 +177,7 @@ runs:
         VERSION="${{ inputs.llvm-cov-version }}"
         URL="https://github.com/taiki-e/cargo-llvm-cov/releases/download/${VERSION}/cargo-llvm-cov-${TARGET}.tar.gz"
 
-        curl -fsSL --connect-timeout 10 --max-time 300 -o "$TMP/llvm-cov.tar.gz" "$URL"
+        curl -fsSL --connect-timeout 10 --max-time 300 --retry 5 --retry-all-errors --retry-delay 2 --retry-max-time 600 -o "$TMP/llvm-cov.tar.gz" "$URL"
         echo "$WANT_SHA  $TMP/llvm-cov.tar.gz" | sha256sum -c - >/dev/null || {
           echo "::error::$URL failed its sha256 check - refusing to install"
           echo "  expected $WANT_SHA"
