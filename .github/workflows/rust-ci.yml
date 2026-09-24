@@ -328,6 +328,8 @@ jobs:
 
   quality:
     name: Quality
+    # At least twice the longest successful run across the fleet (issue #262).
+    timeout-minutes: 45
     needs: [plan]
     if: needs.plan.outputs.run-checks == 'true'
     # Renovate branches use lightweight runners -- dependency update PRs don't need 16cpu
@@ -479,6 +481,8 @@ jobs:
 
   build:
     name: Build (${{ matrix.os_arch }})
+    # At least twice the longest successful run across the fleet (issue #262).
+    timeout-minutes: 135
     needs: [plan, quality, test]
     # The second clause is the arm64-parity case (issue #249): a release-worthy
     # merge to main builds the arm64 leg alone, so an arm64 regression is found
