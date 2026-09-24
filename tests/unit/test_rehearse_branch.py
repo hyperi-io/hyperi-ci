@@ -9,7 +9,10 @@
 import importlib.util
 import json
 import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 _SPEC = importlib.util.spec_from_file_location(
     "rehearse_branch",
@@ -318,3 +321,413 @@ class TestPickRun:
 
     def test_no_runs_yet_is_not_a_match(self) -> None:
         assert rehearse_branch.pick_run([], "bd5cb02e") is None
+
+
+# ci-test-manifests pins @main on purpose, with no --python.
+_MAIN_PIN = (
+    "uvx --no-cache --refresh --from "
+    "git+https://github.com/hyperi-io/hyperi-ci@main hyperi-ci"
+)
+
+
+class TestWhoHoldsAFixture:
+    """A fixture is held while its install override runs a hyperi-ci branch."""
+
+    def test_a_rehearsal_override_holds_it(self) -> None:
+        value = rehearse_branch.override_value("fix/312-fetch-followups")
+        assert rehearse_branch.held_by(value) == "fix/312-fetch-followups"
+
+    def test_the_permanent_main_pin_does_not(self) -> None:
+        assert rehearse_branch.held_by(_MAIN_PIN) is None
+
+    @pytest.mark.parametrize("value", [None, ""])
+    def test_an_unset_override_does_not(self, value) -> None:
+        assert rehearse_branch.held_by(value) is None
+
+    def test_a_branch_named_after_main_is_still_a_branch(self) -> None:
+        value = rehearse_branch.override_value("main-next")
+        assert rehearse_branch.held_by(value) == "main-next"
+
+    def test_the_ref_runs_to_the_next_space(self) -> None:
+        value = (
+            "uvx --from git+https://github.com/hyperi-io/hyperi-ci@feat/a/b.c hyperi-ci"
+        )
+        assert rehearse_branch.held_by(value) == "feat/a/b.c"
+
+    def test_a_ref_ending_the_value_is_read(self) -> None:
+        value = "uvx --from git+https://github.com/hyperi-io/hyperi-ci.git@fix/x"
+        assert rehearse_branch.held_by(value) == "fix/x"
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            # A PyPI version pin, not a git ref.
+            "uvx --from hyperi-ci@2.10.12 hyperi-ci",
+            "uvx --from git+https://github.com/hyperi-io/hyperi-ci-fork@fix/x hyperi-ci",
+            "uvx --from git+https://github.com/someone/hyperi-ci@fix/x hyperi-ci",
+            "pipx run hyperi-ci",
+        ],
+    )
+    def test_a_value_naming_no_hyperi_ci_git_ref_is_not_a_hold(self, value) -> None:
+        assert rehearse_branch.held_by(value) is None
+
+
+def _sweep_runs(*statuses: str) -> str:
+    return json.dumps(
+        [{"databaseId": 100 + n, "status": s} for n, s in enumerate(statuses)]
+    )
+
+
+class TestARunningSweep:
+    """A rehearsal's override reaches every run that starts while it is set.
+
+    That includes the fixture runs a fleet sweep already dispatched, so the
+    sweep would certify main on the rehearsed branch's CLI.
+    """
+
+    @staticmethod
+    def _listing(monkeypatch, rc: int, stdout: str = "", stderr: str = "") -> list:
+        calls: list[list[str]] = []
+
+        def fake_run(args, **_kwargs):
+            calls.append(args)
+            return subprocess.CompletedProcess(args, rc, stdout=stdout, stderr=stderr)
+
+        monkeypatch.setattr(rehearse_branch, "_run", fake_run)
+        return calls
+
+    @pytest.mark.parametrize("status", ["queued", "in_progress"])
+    def test_an_unfinished_sweep_is_found(self, monkeypatch, status) -> None:
+        calls = self._listing(monkeypatch, 0, _sweep_runs("completed", status))
+        assert rehearse_branch._running_sweep() == 101
+        assert "fleet-sweep.yml" in calls[0]
+        assert "hyperi-io/hyperi-ci" in calls[0]
+
+    def test_finished_sweeps_are_not_running(self, monkeypatch) -> None:
+        self._listing(monkeypatch, 0, _sweep_runs("completed", "completed"))
+        assert rehearse_branch._running_sweep() is None
+
+    def test_no_sweep_ever_is_not_running(self, monkeypatch) -> None:
+        self._listing(monkeypatch, 0, "[]")
+        assert rehearse_branch._running_sweep() is None
+
+    def test_a_failed_query_is_not_read_as_no_sweep(self, monkeypatch) -> None:
+        self._listing(monkeypatch, 1, stderr="gh: Bad credentials (HTTP 401)")
+        with pytest.raises(rehearse_branch.SweepUnreadableError, match="HTTP 401"):
+            rehearse_branch._running_sweep()
+
+    def test_an_unreadable_answer_is_not_read_as_no_sweep(self, monkeypatch) -> None:
+        self._listing(monkeypatch, 0, "<html>")
+        with pytest.raises(rehearse_branch.SweepUnreadableError):
+            rehearse_branch._running_sweep()
+
+
+class _FixtureTouchedError(Exception):
+    """Raised by a fake gh the moment a call reaches the fixture repo."""
+
+
+class TestTheRehearsalRefusesDuringASweep:
+    FIXTURE = "hyperi-io/ci-test-go-app"
+
+    def _main(self, monkeypatch, sweep_listing, *extra: str) -> list[list[str]]:
+        calls: list[list[str]] = []
+
+        def fake_run(args, **_kwargs):
+            calls.append(args)
+            if any(self.FIXTURE in arg for arg in args):
+                raise _FixtureTouchedError(args)
+            if args[:2] == ["gh", "api"]:
+                return subprocess.CompletedProcess(args, 0, stdout="a" * 40)
+            return sweep_listing(args)
+
+        monkeypatch.setattr(rehearse_branch, "_run", fake_run)
+        argv = ["rehearse-branch.py", "--branch", "fix/x", "--repo", self.FIXTURE]
+        monkeypatch.setattr(sys, "argv", [*argv, *extra])
+        return calls
+
+    def test_a_running_sweep_refuses_with_nothing_touched(
+        self, monkeypatch, capsys
+    ) -> None:
+        self._main(
+            monkeypatch,
+            lambda a: subprocess.CompletedProcess(
+                a,
+                0,
+                stdout=json.dumps([{"databaseId": 36001828234, "status": "queued"}]),
+            ),
+        )
+        assert rehearse_branch.main() == 2
+        assert "36001828234" in capsys.readouterr().out
+
+    def test_a_failed_sweep_query_refuses_with_nothing_touched(
+        self, monkeypatch, capsys
+    ) -> None:
+        self._main(
+            monkeypatch,
+            lambda a: subprocess.CompletedProcess(a, 1, stderr="gh: HTTP 502"),
+        )
+        assert rehearse_branch.main() == 1
+        assert "HTTP 502" in capsys.readouterr().err
+
+    def test_no_sweep_lets_the_rehearsal_reach_the_fixture(self, monkeypatch) -> None:
+        self._main(
+            monkeypatch,
+            lambda a: subprocess.CompletedProcess(
+                a, 0, stdout=_sweep_runs("completed")
+            ),
+        )
+        with pytest.raises(_FixtureTouchedError):
+            rehearse_branch.main()
+
+    def test_without_the_override_a_sweep_is_not_in_the_way(self, monkeypatch) -> None:
+        """No override is set, so nothing reaches the sweep's runs."""
+        calls = self._main(
+            monkeypatch,
+            lambda a: subprocess.CompletedProcess(a, 0, stdout=_sweep_runs("queued")),
+            "--no-cli-override",
+        )
+        with pytest.raises(_FixtureTouchedError):
+            rehearse_branch.main()
+        assert not any("fleet-sweep.yml" in args for args in calls)
+
+
+_FIXTURE = "hyperi-io/ci-test-go-app"
+
+
+def _fake_fixture(
+    prior: str | None,
+    *,
+    pr_create_rc: int = 0,
+    var_set_rc: int = 0,
+    rev_parse_rc: int = 0,
+):
+    """Answer every gh and git call main() makes, recording what it changes.
+
+    Returns (fake _run, changes). A change is a variable set or delete, a push
+    or branch delete, or a PR create or close.
+    """
+    changes: list[list[str]] = []
+
+    def fake_run(args, **_kwargs):
+        def ok(out: str = "") -> subprocess.CompletedProcess:
+            return subprocess.CompletedProcess(args, 0, stdout=out, stderr="")
+
+        if args[:3] == ["gh", "run", "list"]:
+            return ok("[]")
+        if args[:2] == ["gh", "api"] and "/branches/" in args[2]:
+            return ok("a" * 40)
+        if args[:2] == ["gh", "api"] and "/actions/variables/" in args[2]:
+            if prior is None:
+                return subprocess.CompletedProcess(
+                    args, 1, stdout="", stderr="gh: Not Found (HTTP 404)"
+                )
+            return ok(prior)
+        if args[:3] == ["gh", "repo", "clone"]:
+            workflows = Path(args[4]) / ".github" / "workflows"
+            workflows.mkdir(parents=True)
+            (workflows / "ci.yml").write_text(
+                "uses: hyperi-io/hyperi-ci/.github/workflows/go-ci.yml@main\n",
+                encoding="utf-8",
+            )
+            return ok()
+        if args[:2] in (["gh", "variable"], ["gh", "pr"]):
+            changes.append(args)
+            if args[:3] == ["gh", "pr", "create"]:
+                return subprocess.CompletedProcess(
+                    args,
+                    pr_create_rc,
+                    stdout="https://github.com/hyperi-io/ci-test-go-app/pull/5",
+                    stderr="gh: Validation Failed (HTTP 422)",
+                )
+            if args[:3] == ["gh", "variable", "set"]:
+                return subprocess.CompletedProcess(
+                    args, var_set_rc, stdout="", stderr="gh: HTTP 403"
+                )
+            return ok()
+        if args[0] == "git":
+            if "push" in args:
+                changes.append(args)
+            if "rev-parse" in args:
+                return subprocess.CompletedProcess(
+                    args, rev_parse_rc, stdout="b" * 40, stderr="fatal: bad HEAD"
+                )
+            return ok()
+        raise AssertionError(f"unexpected call: {args}")
+
+    return fake_run, changes
+
+
+def _events(changes: list[list[str]]) -> list[str]:
+    """Each change as one word pair, in the order main() made it."""
+    events = []
+    for change in changes:
+        if change[:2] in (["gh", "variable"], ["gh", "pr"]):
+            events.append(f"{change[1]} {change[2]}")
+        else:
+            events.append("branch delete" if "--delete" in change else "branch push")
+    return events
+
+
+def _var_changes(changes: list[list[str]]) -> list[tuple[str, str]]:
+    """(action, value) for each variable change, value empty for a delete."""
+    return [
+        (c[2], c[c.index("--body") + 1] if "--body" in c else "")
+        for c in changes
+        if c[:2] == ["gh", "variable"]
+    ]
+
+
+class TestTheRehearsalLeavesTheOverrideAsItFoundIt:
+    """A leaked override outlives the rehearsal branch it names.
+
+    Once that branch is merged and deleted, every run on the fixture fails at
+    install, and a later rehearsal would record it as the value to put back.
+    """
+
+    @staticmethod
+    def _run_main(monkeypatch, fake, *extra: str) -> int:
+        monkeypatch.setattr(rehearse_branch, "_run", fake)
+        argv = ["rehearse-branch.py", "--branch", "fix/x", "--repo", _FIXTURE]
+        monkeypatch.setattr(sys, "argv", [*argv, *extra])
+        return rehearse_branch.main()
+
+    @pytest.mark.parametrize("holder", ["fix/other", "fix/x"])
+    def test_a_fixture_another_rehearsal_holds_is_refused_untouched(
+        self, monkeypatch, capsys, holder
+    ) -> None:
+        """Its own branch's stale override is a hold too: it was never put back."""
+        fake, changes = _fake_fixture(rehearse_branch.override_value(holder))
+        assert self._run_main(monkeypatch, fake) == 1
+        assert changes == []
+        assert holder in capsys.readouterr().err
+
+    def test_the_permanent_main_pin_is_not_a_hold(self, monkeypatch) -> None:
+        fake, changes = _fake_fixture(_MAIN_PIN, pr_create_rc=1)
+        self._run_main(monkeypatch, fake)
+        assert any(c[:3] == ["gh", "pr", "create"] for c in changes)
+
+    def test_a_failed_pr_create_deletes_an_override_that_was_unset(
+        self, monkeypatch
+    ) -> None:
+        fake, changes = _fake_fixture(None, pr_create_rc=1)
+        assert self._run_main(monkeypatch, fake) == 1
+        assert _var_changes(changes) == [
+            ("set", rehearse_branch.override_value("fix/x")),
+            ("delete", ""),
+        ]
+
+    def test_a_failed_pr_create_puts_a_prior_override_back(self, monkeypatch) -> None:
+        fake, changes = _fake_fixture(_MAIN_PIN, pr_create_rc=1)
+        assert self._run_main(monkeypatch, fake) == 1
+        assert _var_changes(changes) == [
+            ("set", rehearse_branch.override_value("fix/x")),
+            ("set", _MAIN_PIN),
+        ]
+
+    def test_keep_leaves_the_override_in_place(self, monkeypatch) -> None:
+        fake, changes = _fake_fixture(None, pr_create_rc=1)
+        assert self._run_main(monkeypatch, fake, "--keep") == 1
+        assert _var_changes(changes) == [
+            ("set", rehearse_branch.override_value("fix/x"))
+        ]
+
+    def test_an_exception_after_the_override_is_set_still_restores_it(
+        self, monkeypatch
+    ) -> None:
+        def watch(*_args, **_kwargs):
+            raise RuntimeError("gh went away")
+
+        fake, changes = _fake_fixture(None)
+        monkeypatch.setattr(rehearse_branch, "_wait_for_merge_ref", lambda *_a: True)
+        monkeypatch.setattr(rehearse_branch, "_watch_pr_run", watch)
+        with pytest.raises(RuntimeError, match="gh went away"):
+            self._run_main(monkeypatch, fake)
+        assert _var_changes(changes)[-1] == ("delete", "")
+
+
+class TestTheRehearsalBranchGoesOnEveryExit:
+    """The sweep waits on any rehearse/* branch, so one left behind blocks the
+    fixture in every sweep until someone deletes it by hand.
+
+    The override goes back first, so the branch the sweep waits on outlives it.
+    """
+
+    @staticmethod
+    def _run_main(monkeypatch, fake, *extra: str) -> int:
+        monkeypatch.setattr(rehearse_branch, "_run", fake)
+        argv = ["rehearse-branch.py", "--branch", "fix/x", "--repo", _FIXTURE]
+        monkeypatch.setattr(sys, "argv", [*argv, *extra])
+        return rehearse_branch.main()
+
+    @pytest.mark.parametrize(
+        ("knobs", "extra", "expected"),
+        [
+            ({"rev_parse_rc": 1}, (), ["branch push", "branch delete"]),
+            (
+                {"var_set_rc": 1},
+                (),
+                ["branch push", "variable set", "branch delete"],
+            ),
+            (
+                {"pr_create_rc": 1},
+                (),
+                [
+                    "branch push",
+                    "variable set",
+                    "pr create",
+                    "variable delete",
+                    "branch delete",
+                ],
+            ),
+            (
+                {"pr_create_rc": 1},
+                ("--no-cli-override",),
+                ["branch push", "pr create", "branch delete"],
+            ),
+        ],
+        ids=["rev-parse", "override-set", "pr-create", "pr-create-no-override"],
+    )
+    def test_a_failure_after_the_push_deletes_the_branch_last(
+        self, monkeypatch, knobs, extra, expected
+    ) -> None:
+        fake, changes = _fake_fixture(None, **knobs)
+        assert self._run_main(monkeypatch, fake, *extra) == 1
+        assert _events(changes) == expected
+
+    def test_an_exception_restores_the_override_then_deletes_the_branch(
+        self, monkeypatch
+    ) -> None:
+        def watch(*_args, **_kwargs):
+            raise RuntimeError("gh went away")
+
+        fake, changes = _fake_fixture(None)
+        monkeypatch.setattr(rehearse_branch, "_wait_for_merge_ref", lambda *_a: True)
+        monkeypatch.setattr(rehearse_branch, "_watch_pr_run", watch)
+        with pytest.raises(RuntimeError, match="gh went away"):
+            self._run_main(monkeypatch, fake)
+        assert _events(changes)[-2:] == ["variable delete", "branch delete"]
+
+    def test_a_pass_closes_the_pr_then_restores_then_deletes(
+        self, monkeypatch, capsys
+    ) -> None:
+        fake, changes = _fake_fixture(_MAIN_PIN)
+        monkeypatch.setattr(rehearse_branch, "_wait_for_merge_ref", lambda *_a: True)
+        monkeypatch.setattr(
+            rehearse_branch, "_watch_pr_run", lambda *_a: ("pass", [], 42)
+        )
+        monkeypatch.setattr(rehearse_branch, "_write_record", lambda *_a: True)
+        assert self._run_main(monkeypatch, fake) == 0
+        assert _events(changes) == [
+            "branch push",
+            "variable set",
+            "pr create",
+            "pr close",
+            "variable set",
+            "branch delete",
+        ]
+        assert "Cleaned up" in capsys.readouterr().out
+
+    def test_keep_leaves_the_branch_and_the_override(self, monkeypatch) -> None:
+        fake, changes = _fake_fixture(None, pr_create_rc=1)
+        assert self._run_main(monkeypatch, fake, "--keep") == 1
+        assert _events(changes) == ["branch push", "variable set", "pr create"]

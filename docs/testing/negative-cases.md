@@ -104,6 +104,8 @@ four of them on 16-cpu ARC runners, and putting that on every PR was rejected on
 cost. The negative job runs even when the sweep itself is red, because a red
 sweep is when "do the gates still block" matters most.
 
+A fixture carrying a `rehearse/*` branch is held by a rehearsal, whose install override reaches every run there. Its cases read unreachable without waiting, because the sweep job before this one already waited.
+
 By hand:
 
 ```bash
@@ -149,6 +151,7 @@ previous value back afterwards - `ci-test-manifests` carries a permanent one
 pinning `@main`, and deleting it would change what the fixture runs. The sweep's
 own App has no `variables: write`, so `--cli-branch` is a developer command, the
 same split as `scripts/rehearse-branch.py`.
+A fixture whose override already names a hyperi-ci branch belongs to a rehearsal, so it is left alone and its cases read unreachable.
 
 The sweep therefore cannot pin the CLI, so a case for a merged-but-unreleased
 gate declares it in the contract instead:

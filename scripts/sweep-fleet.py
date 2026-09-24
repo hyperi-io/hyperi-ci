@@ -20,6 +20,11 @@ NOTHING is not a pass -- an empty fleet, a filter that matched nobody, or every
 dispatch refused all look like silence. And a repo that could not be reached is
 not a repo that is fine.
 
+A fixture carrying a rehearse/* branch is held by a rehearsal, whose install
+override points every run there at the rehearsed branch's CLI rather than
+main's. The sweep waits for the branch to go and reports the fixture held if
+it never does.
+
 Usage:
     uv run scripts/sweep-fleet.py
     uv run scripts/sweep-fleet.py --only ci-test-go-app --timeout-minutes 30
@@ -55,10 +60,13 @@ UNREACHABLE = "unreachable"
 # release, so a case for a merged-but-unreleased gate fails for a reason that
 # says nothing about the gate (issue #248).
 PENDING_RELEASE = "pending-release"
+# A rehearse/* branch stayed on the fixture until the deadline, so it was never
+# dispatched.
+HELD = "held"
 
 # Answered nothing, as distinct from answered badly - neither is PASS, so a run
 # carrying one can never go green.
-INCONCLUSIVE = (UNREACHABLE, PENDING_RELEASE)
+INCONCLUSIVE = (UNREACHABLE, PENDING_RELEASE, HELD)
 
 _WORKFLOW = "ci.yml"
 _POLL_SECONDS = 20
@@ -153,6 +161,58 @@ def _await_new_run(repo: str, before: set[int], deadline: float) -> int | None:
     return None
 
 
+class HoldUnreadableError(RuntimeError):
+    """Whether a rehearsal holds a fixture could not be read."""
+
+
+def _rehearsal_branches(repo: str) -> list[str]:
+    """The rehearsal branches on a fixture. Any at all means a rehearsal holds it.
+
+    A rehearsal pushes its branch before it points the fixture's CLI at the
+    rehearsed one, and deletes it only after putting the CLI back, so the
+    branch covers the whole hold. It is read from the branches rather than the
+    install override because the fleet's App token cannot read variables.
+
+    Args:
+        repo: The fixture, ``owner/name``.
+
+    Returns:
+        The branch names, empty when no rehearsal holds the fixture.
+
+    Raises:
+        HoldUnreadableError: gh failed or answered with something unreadable.
+            Read as "not held", the sweep would dispatch into a rehearsal.
+    """
+    prefix = rehearse_branch.REHEARSAL_PREFIX
+    result = _run(["gh", "api", f"repos/{repo}/git/matching-refs/heads/{prefix}"])
+    if result.returncode != 0:
+        stderr = result.stderr.strip().splitlines()
+        detail = stderr[-1] if stderr else f"gh exited {result.returncode}"
+        raise HoldUnreadableError(f"cannot list {prefix}* branches on {repo}: {detail}")
+    try:
+        refs = json.loads(result.stdout or "[]")
+        return [str(ref["ref"]).removeprefix("refs/heads/") for ref in refs]
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise HoldUnreadableError(
+            f"unreadable {prefix}* branch list on {repo}: {exc}"
+        ) from exc
+
+
+def _start(name: str, deadline: float) -> Result | int:
+    """Dispatch one fixture: the run it started, or a Result saying why none did."""
+    repo = f"{fixture_fleet.ORG}/{name}"
+    before = _run_ids(repo)
+    if before is None:
+        return Result(name, UNREACHABLE, "cannot list its runs")
+    if reason := _dispatch(repo):
+        return Result(name, UNREACHABLE, f"dispatch refused: {reason}")
+    run_id = _await_new_run(repo, before, min(deadline, time.time() + 180))
+    if run_id is None:
+        return Result(name, UNREACHABLE, "dispatch produced no run")
+    print(f"  dispatched {name} -> run {run_id}")
+    return run_id
+
+
 def _run_state(repo: str, run_id: int) -> tuple[str, str] | None:
     """(status, conclusion) for a run, or None when it cannot be read."""
     viewed = _run(
@@ -187,8 +247,8 @@ def sweep_verdict(targets: list[str], results: list[Result]) -> tuple[int, list[
 
     Returns:
         (exit code, report lines). 0 all green, 1 a fixture failed, 2 the
-        sweep proved nothing -- it ran none, could not reach one, or one was
-        waiting on a release.
+        sweep proved nothing -- it ran none, could not reach one, one was
+        waiting on a release, or a rehearsal held one.
     """
     # Wide enough for the longest state, so the column stays a column.
     lines = [
@@ -212,32 +272,41 @@ def sweep_verdict(targets: list[str], results: list[Result]) -> tuple[int, list[
 
 
 def _sweep(targets: list[fixture_fleet.Entry], timeout_minutes: int) -> list[Result]:
-    """Dispatch every target, wait for all of them, and read each run."""
+    """Dispatch every target, wait for all of them, and read each run.
+
+    A fixture a rehearsal holds is re-read every poll and dispatched once the
+    hold clears, so the free ones never wait behind it.
+    """
     deadline = time.time() + timeout_minutes * 60
+    # Not yet dispatched -> the branches holding it, "" until its first read.
+    waiting: dict[str, str] = {entry["name"]: "" for entry in targets}
     pending: dict[str, int] = {}
     results: list[Result] = []
 
-    for entry in targets:
-        repo = f"{fixture_fleet.ORG}/{entry['name']}"
-        before = _run_ids(repo)
-        if before is None:
-            results.append(Result(entry["name"], UNREACHABLE, "cannot list its runs"))
-            continue
-        if reason := _dispatch(repo):
-            results.append(
-                Result(entry["name"], UNREACHABLE, f"dispatch refused: {reason}")
-            )
-            continue
-        run_id = _await_new_run(repo, before, min(deadline, time.time() + 180))
-        if run_id is None:
-            results.append(
-                Result(entry["name"], UNREACHABLE, "dispatch produced no run")
-            )
-            continue
-        pending[entry["name"]] = run_id
-        print(f"  dispatched {entry['name']} -> run {run_id}")
+    while True:
+        for name, previous in list(waiting.items()):
+            try:
+                branches = _rehearsal_branches(f"{fixture_fleet.ORG}/{name}")
+            except HoldUnreadableError as exc:
+                del waiting[name]
+                results.append(Result(name, UNREACHABLE, str(exc)))
+                continue
+            if branches:
+                holders = ", ".join(branches)
+                if holders != previous:
+                    print(
+                        f"  {name} carries {holders} - a rehearsal holds it, waiting",
+                        flush=True,
+                    )
+                waiting[name] = holders
+                continue
+            del waiting[name]
+            started = _start(name, deadline)
+            if isinstance(started, Result):
+                results.append(started)
+            else:
+                pending[name] = started
 
-    while pending and time.time() < deadline:
         for name, run_id in list(pending.items()):
             repo = f"{fixture_fleet.ORG}/{name}"
             state = _run_state(repo, run_id)
@@ -256,11 +325,21 @@ def _sweep(targets: list[fixture_fleet.Entry], timeout_minutes: int) -> list[Res
                 continue
             passed, _ = rehearse_branch.summarise_jobs(jobs)
             results.append(Result(name, PASS if passed else FAIL, f"run {run_id}"))
-        if pending:
-            time.sleep(_POLL_SECONDS)
+        if not (waiting or pending):
+            break
+        time.sleep(_POLL_SECONDS)
+        # Gated after the sleep, so no poll or hold re-read starts past the deadline.
+        if time.time() >= deadline:
+            break
 
     for name, run_id in pending.items():
         results.append(Result(name, TIMEOUT, f"run {run_id} still going"))
+    for name, holders in waiting.items():
+        results.append(
+            Result(
+                name, HELD, f"{holders} still there at the deadline - never dispatched"
+            )
+        )
     return results
 
 

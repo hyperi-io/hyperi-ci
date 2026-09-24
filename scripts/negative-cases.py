@@ -30,6 +30,10 @@ A case whose gate is merged but not yet on PyPI declares `pending_release:
 true` and reads INCONCLUSIVE rather than red. Inconclusive is not a pass: the
 verdict refuses anything that is not PASS either way.
 
+A fixture carrying a rehearse/* branch is held by a rehearsal whose install
+override reaches every run there, so its cases read unreachable instead of
+proving a gate on the rehearsed branch's CLI.
+
 `--check-patches` answers the stale-patch half on its own, in seconds, with no
 run dispatched anywhere. The full run does it first as well, so a patch that
 plants nothing costs a clone rather than a pull request and 45 minutes.
@@ -757,20 +761,70 @@ def _cleanup(fixtures: dict[str, Fixture], live: list[Live]) -> None:
             continue
         # ci-test-manifests carries a permanent override pinning @main, so this
         # restores the prior value rather than deleting the key.
-        if fixture.prior_override is None:
-            rehearse_branch._gh_var(fixture.repo, "delete")
-        else:
-            rehearse_branch._gh_var(fixture.repo, "set", fixture.prior_override)
+        rehearse_branch._restore_override(fixture.repo, fixture.prior_override)
 
 
-def _pin_cli(fixture: Fixture, branch: str) -> str:
+def _set_aside(
+    cases: list[Case], reasons: dict[str, str]
+) -> tuple[list[Case], list[sweep_fleet.Result]]:
+    """Split cases into the runnable and the unreachable, by fixture.
+
+    Args:
+        cases: The cases still in play.
+        reasons: Fixture name -> why its cases cannot run.
+
+    Returns:
+        (cases on the other fixtures, one unreachable result per set-aside case).
+    """
+    runnable = [case for case in cases if case.fixture not in reasons]
+    results = [
+        sweep_fleet.Result(case.case_id, UNREACHABLE, reasons[case.fixture])
+        for case in cases
+        if case.fixture in reasons
+    ]
+    return runnable, results
+
+
+def _set_aside_held(
+    fixtures: dict[str, Fixture], cases: list[Case]
+) -> tuple[list[Case], list[sweep_fleet.Result]]:
+    """Set aside the cases of every fixture a rehearsal holds.
+
+    A rehearsal's install override reaches every run on the fixture, so a case
+    there would prove a gate on the rehearsed branch's CLI. The sweep job
+    before this one already waited for the hold, so this does not wait again.
+
+    Returns:
+        (cases on unheld fixtures, one unreachable result per held case).
+    """
+    held: dict[str, str] = {}
+    for name in sorted({case.fixture for case in cases}):
+        try:
+            branches = sweep_fleet._rehearsal_branches(fixtures[name].repo)
+        except sweep_fleet.HoldUnreadableError as exc:
+            held[name] = f"not planted, cannot tell if a rehearsal holds it: {exc}"
+            continue
+        if branches:
+            held[name] = f"not planted, a rehearsal holds it: {', '.join(branches)}"
+    return _set_aside(cases, held)
+
+
+def _pin_cli(fixture: Fixture, branch: str, prior: str | None) -> str:
     """Point the fixture's CLI at a hyperi-ci branch. Empty string on success.
 
     A fixture takes its workflows from `@main` the moment they merge but its
     CLI from PyPI on release, so a case for an unreleased CLI gate fails for
     the wrong reason until this is set.
+
+    Args:
+        fixture: The fixture to pin.
+        branch: The hyperi-ci branch whose CLI it should run.
+        prior: Its override before this run, which cleanup puts back.
+
+    Returns:
+        Why the override could not be set, or an empty string.
     """
-    fixture.prior_override = rehearse_branch._read_override(fixture.repo)
+    fixture.prior_override = prior
     if not rehearse_branch._gh_var(
         fixture.repo, "set", rehearse_branch.override_value(branch)
     ):
@@ -782,30 +836,36 @@ def _pin_cli(fixture: Fixture, branch: str) -> str:
 def _pin_fixtures(
     fixtures: dict[str, Fixture], cases: list[Case], branch: str
 ) -> tuple[list[Case], list[sweep_fleet.Result], str]:
-    """Pin every fixture's CLI, setting aside the ones whose override is unknown.
+    """Pin every fixture's CLI, setting aside the ones it cannot safely take.
 
     A value that could not be READ cannot be put back, and cleanup would then
-    delete a permanent override (ci-test-manifests pins `@main`). So such a
-    fixture is left untouched and its cases are unreachable, not run.
+    delete a permanent override (ci-test-manifests pins `@main`). A rehearsal's
+    override cannot be put back either: once that rehearsal ends and its branch
+    is merged away, the fixture would be left installing a branch that no
+    longer exists. Either way the fixture is left untouched and its cases are
+    unreachable, not run.
 
     Returns:
         (cases still runnable, unreachable results, a fatal error or "").
     """
     unpinned: dict[str, str] = {}
+    wanted = {case.fixture for case in cases}
     for name, fixture in fixtures.items():
+        if name not in wanted:
+            continue
         try:
-            reason = _pin_cli(fixture, branch)
+            prior = rehearse_branch._read_override(fixture.repo)
         except rehearse_branch.OverrideUnreadableError as exc:
             unpinned[name] = f"CLI not pinned, prior override unreadable: {exc}"
             continue
-        if reason:
+        if holder := rehearse_branch.held_by(prior):
+            unpinned[name] = (
+                f"CLI not pinned, a rehearsal of hyperi-ci@{holder} holds the fixture"
+            )
+            continue
+        if reason := _pin_cli(fixture, branch, prior):
             return [], [], reason
-    runnable = [case for case in cases if case.fixture not in unpinned]
-    results = [
-        sweep_fleet.Result(case.case_id, UNREACHABLE, unpinned[case.fixture])
-        for case in cases
-        if case.fixture in unpinned
-    ]
+    runnable, results = _set_aside(cases, unpinned)
     return runnable, results, ""
 
 
@@ -925,9 +985,12 @@ def main() -> int:
             print(f"  STALE PATCH: {result.fixture} - {result.detail}", flush=True)
         skipped = {result.fixture for result in stale}
         runnable = [case for case in cases if case.case_id not in skipped]
+        runnable, held = _set_aside_held(fixtures, runnable)
+        for result in held:
+            print(f"  HELD: {result.fixture} - {result.detail}", flush=True)
 
         live: list[Live] = []
-        results: list[sweep_fleet.Result] = list(stale)
+        results: list[sweep_fleet.Result] = [*stale, *held]
         try:
             if args.cli_branch:
                 runnable, unpinned, reason = _pin_fixtures(

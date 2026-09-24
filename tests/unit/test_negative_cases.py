@@ -569,6 +569,7 @@ class TestACaseWaitingOnARelease:
             sweep.TIMEOUT,
             sweep.UNREACHABLE,
             sweep.PENDING_RELEASE,
+            sweep.HELD,
             negative.LEAKED,
             negative.WRONG_STAGE,
             negative.WRONG_REASON,
@@ -725,6 +726,180 @@ class TestPinningTheCli:
         assert "HTTP 502" in results[0].detail
         touched = [action for repo, action in calls if repo == "o/manifests"]
         assert touched == [], calls
+
+    def test_a_fixture_a_rehearsal_holds_is_left_to_it(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Recorded as the prior, the rehearsal's branch would be put BACK.
+
+        Once that rehearsal has finished and its branch is merged away, every
+        run on the fixture then fails at install.
+        """
+        rehearse = negative.rehearse_branch
+        priors = {
+            "o/manifests": rehearse.override_value("fix/312-fetch-followups"),
+            "o/go": None,
+        }
+        calls: list[tuple[str, str, str]] = []
+
+        def gh_var(repo, action, value=""):
+            calls.append((repo, action, value))
+            return True
+
+        monkeypatch.setattr(rehearse, "_read_override", priors.get)
+        monkeypatch.setattr(rehearse, "_gh_var", gh_var)
+        fixtures = {
+            "ci-test-manifests": negative.Fixture(repo="o/manifests", clone=tmp_path),
+            "ci-test-go-app": negative.Fixture(repo="o/go", clone=tmp_path),
+        }
+        go_case = negative.Case(
+            fixture="ci-test-go-app",
+            name="go-cve-govulncheck",
+            patch="p.patch",
+            branch="expect-fail/go-cve-govulncheck",
+            stage="quality",
+            reason="govulncheck",
+        )
+
+        runnable, results, fatal = negative._pin_fixtures(
+            fixtures, [CASE, go_case], "fix/my-gate"
+        )
+        negative._cleanup(fixtures, [])
+
+        assert fatal == ""
+        assert runnable == [go_case]
+        assert [(r.fixture, r.state) for r in results] == [
+            (CASE.case_id, negative.UNREACHABLE)
+        ]
+        assert "fix/312-fetch-followups" in results[0].detail
+        assert fixtures["ci-test-manifests"].prior_override is None
+        assert [c for c in calls if c[0] == "o/manifests"] == [], calls
+        # The free fixture is pinned and then put back as it was.
+        assert [action for repo, action, _ in calls if repo == "o/go"] == [
+            "set",
+            "delete",
+        ]
+
+
+def _rehearse_refs(holds: dict[str, list[str] | str], reads: list[str]):
+    """A fake gh answering the sweep's rehearse/* branch read per repo.
+
+    A list is the branches on that repo, a string is a failed gh call.
+    """
+
+    def fake_run(args, **_kwargs):
+        assert args[:2] == ["gh", "api"] and "matching-refs/heads/rehearse/" in args[2]
+        repo = "/".join(args[2].split("/")[1:3])
+        reads.append(repo)
+        answer = holds[repo]
+        if isinstance(answer, str):
+            return subprocess.CompletedProcess(args, 1, stdout="", stderr=answer)
+        refs = [{"ref": f"refs/heads/{branch}"} for branch in answer]
+        return subprocess.CompletedProcess(args, 0, stdout=json.dumps(refs))
+
+    return fake_run
+
+
+class TestAFixtureARehearsalHolds:
+    """A rehearsal's override reaches every run on the fixture, a case's too.
+
+    The sweep job before this one already waited for the hold, so this one
+    sets the fixture aside rather than waiting again.
+    """
+
+    SCHEMA = negative.Case(
+        fixture="ci-test-manifests",
+        name="schema-invalid",
+        patch="schema-invalid.patch",
+        branch="expect-fail/schema-invalid",
+        stage="quality",
+        reason="kubeconform",
+    )
+
+    def test_a_held_fixture_is_set_aside_once_read(self, monkeypatch, tmp_path) -> None:
+        reads: list[str] = []
+        monkeypatch.setattr(
+            negative.sweep_fleet,
+            "_run",
+            _rehearse_refs(
+                {
+                    "hyperi-io/ci-test-manifests": ["rehearse/fix-x"],
+                    "hyperi-io/ci-test-go-app": [],
+                    "hyperi-io/ci-test-rust-simple": "gh: Server Error (HTTP 502)",
+                },
+                reads,
+            ),
+        )
+        fixtures = {
+            name: negative.Fixture(repo=f"hyperi-io/{name}", clone=tmp_path)
+            for name in ("ci-test-manifests", "ci-test-go-app", "ci-test-rust-simple")
+        }
+        cases = [CASE, self.SCHEMA, _GO_CASE, _RUST_CASE]
+
+        runnable, results = negative._set_aside_held(fixtures, cases)
+
+        assert runnable == [_GO_CASE]
+        by_case = {r.fixture: r for r in results}
+        assert [by_case[c.case_id].state for c in (CASE, self.SCHEMA, _RUST_CASE)] == [
+            negative.UNREACHABLE
+        ] * 3
+        assert "rehearse/fix-x" in by_case[CASE.case_id].detail
+        assert "HTTP 502" in by_case[_RUST_CASE.case_id].detail
+        # One read per fixture: no waiting.
+        assert sorted(reads) == sorted(f.repo for f in fixtures.values())
+
+    def test_the_cases_of_a_held_fixture_are_never_planted(
+        self, monkeypatch, capsys
+    ) -> None:
+        prepared: list = []
+
+        def prepare(_fixtures, cases):
+            prepared.extend(cases)
+            return [], []
+
+        def read_cases(name, _clone):
+            return [c for c in (CASE, _GO_CASE) if c.fixture == name], []
+
+        monkeypatch.setattr(
+            negative.fixture_fleet,
+            "load_fleet",
+            lambda: [
+                {"name": "ci-test-manifests", "negative_cases": True},
+                {"name": "ci-test-go-app", "negative_cases": True},
+            ],
+        )
+        monkeypatch.setattr(negative, "_clone", lambda *_a, **_k: "")
+        monkeypatch.setattr(negative, "read_cases", read_cases)
+        monkeypatch.setattr(
+            negative,
+            "check_patches",
+            lambda _f, cases: [
+                sweep.Result(c.case_id, negative.PASS, "applies") for c in cases
+            ],
+        )
+        monkeypatch.setattr(
+            negative.sweep_fleet,
+            "_run",
+            _rehearse_refs(
+                {
+                    "hyperi-io/ci-test-manifests": ["rehearse/fix-x"],
+                    "hyperi-io/ci-test-go-app": [],
+                },
+                [],
+            ),
+        )
+        monkeypatch.setattr(negative, "_prepare", prepare)
+        monkeypatch.setattr(negative, "_await_runs", lambda *_a: [])
+        monkeypatch.setattr(negative, "_cleanup", lambda *_a: None)
+        monkeypatch.setattr(sys, "argv", ["negative-cases.py"])
+
+        assert negative.main() == 2
+        assert prepared == [_GO_CASE]
+        out = capsys.readouterr().out
+        assert any(
+            negative.UNREACHABLE in line and "rehearse/fix-x" in line
+            for line in out.splitlines()
+        ), out
 
 
 class TestJobLogRead:

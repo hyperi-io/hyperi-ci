@@ -13,9 +13,12 @@ happy path.
 """
 
 import importlib.util
+import json
+import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -200,6 +203,193 @@ class TestTheSweepVerdict:
         )
         assert code == 1
         assert any("NOT RUN" in line and "ci-test-rust-app" in line for line in lines)
+
+    def test_a_held_fixture_is_not_a_pass(self) -> None:
+        results = [
+            sweep.Result("ci-test-go-app", sweep.PASS, "run 1"),
+            sweep.Result("ci-test-rust-app", sweep.HELD, "held by fix/x"),
+        ]
+        code, _ = sweep.sweep_verdict(["ci-test-go-app", "ci-test-rust-app"], results)
+        assert code == 2
+        assert sweep.HELD in sweep.INCONCLUSIVE
+
+
+class _Clock:
+    """Stands in for the sweep's `time` module: sleeping advances the clock."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def time(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+
+_REHEARSAL = ["rehearse/fix-312-fetch-followups"]
+_FAILED = "gh: Server Error (HTTP 502)"
+
+
+def _matching_refs(branches: list[str]) -> str:
+    """The body GitHub's matching-refs endpoint returns for these branches."""
+    return json.dumps(
+        [
+            {
+                "ref": f"refs/heads/{branch}",
+                "node_id": "REF_x",
+                "url": f"https://api.github.com/repos/o/r/git/refs/heads/{branch}",
+                "object": {"sha": "c" * 40, "type": "commit", "url": "u"},
+            }
+            for branch in branches
+        ]
+    )
+
+
+def _refs_answer(args: list[str], answer) -> subprocess.CompletedProcess:
+    """A branch list, a failed gh call (a string), or an unreadable body (bytes)."""
+    if isinstance(answer, str):
+        return subprocess.CompletedProcess(args, 1, stdout="", stderr=answer)
+    if isinstance(answer, bytes):
+        return subprocess.CompletedProcess(args, 0, stdout=answer.decode())
+    return subprocess.CompletedProcess(args, 0, stdout=_matching_refs(answer))
+
+
+class TestReadingARehearsalHold:
+    """A rehearsal's branch is pushed before its override is set, and deleted
+    after the override is put back, so the branch covers the whole hold."""
+
+    def _read(self, monkeypatch, answer) -> list[str]:
+        asked: list[list[str]] = []
+
+        def fake_run(args, **_kwargs):
+            asked.append(args)
+            return _refs_answer(args, answer)
+
+        monkeypatch.setattr(sweep, "_run", fake_run)
+        branches = sweep._rehearsal_branches("hyperi-io/ci-test-go-app")
+        assert asked == [
+            [
+                "gh",
+                "api",
+                "repos/hyperi-io/ci-test-go-app/git/matching-refs/heads/rehearse/",
+            ]
+        ]
+        return branches
+
+    def test_each_rehearse_branch_is_named(self, monkeypatch) -> None:
+        both = ["rehearse/fix-312-fetch-followups", "rehearse/fix-x"]
+        assert self._read(monkeypatch, both) == both
+
+    def test_no_rehearse_branch_is_no_hold(self, monkeypatch) -> None:
+        assert self._read(monkeypatch, []) == []
+
+    def test_a_failed_read_is_not_read_as_no_hold(self, monkeypatch) -> None:
+        with pytest.raises(sweep.HoldUnreadableError, match="HTTP 502"):
+            self._read(monkeypatch, _FAILED)
+
+    def test_an_unreadable_answer_is_not_read_as_no_hold(self, monkeypatch) -> None:
+        with pytest.raises(sweep.HoldUnreadableError):
+            self._read(monkeypatch, b"<html>")
+
+
+class TestAFixtureARehearsalHolds:
+    """A rehearsal points a fixture's CLI at its branch, repo-wide.
+
+    Every run that starts meanwhile installs that branch, so a sweep that
+    dispatched into it would certify main on a CLI main never shipped.
+    """
+
+    @staticmethod
+    def _sweep(monkeypatch, holds: dict[str, list], minutes: int = 1):
+        """Run `_sweep` over fake gh, popping each fixture's branch reads in turn.
+
+        Returns (results, dispatch times by fixture, hold reads by fixture).
+        """
+        clock = _Clock()
+        dispatched: dict[str, float] = {}
+        reads: dict[str, int] = {}
+
+        def fake_run(args, **_kwargs):
+            name = args[2].split("/")[2]
+            reads[name] = reads.get(name, 0) + 1
+            queue = holds[name]
+            return _refs_answer(args, queue.pop(0) if len(queue) > 1 else queue[0])
+
+        def read_override(repo):
+            raise AssertionError(f"the sweep read {repo}'s install override")
+
+        def run_ids(repo):
+            name = repo.rsplit("/", 1)[-1]
+            return {7} if name in dispatched else set()
+
+        def dispatch(repo):
+            dispatched[repo.rsplit("/", 1)[-1]] = clock.now
+            return ""
+
+        monkeypatch.setattr(sweep, "time", clock)
+        monkeypatch.setattr(sweep, "_run", fake_run)
+        monkeypatch.setattr(sweep.rehearse_branch, "_read_override", read_override)
+        monkeypatch.setattr(sweep, "_run_ids", run_ids)
+        monkeypatch.setattr(sweep, "_dispatch", dispatch)
+        monkeypatch.setattr(sweep, "_run_state", lambda *_a: ("completed", "success"))
+        monkeypatch.setattr(
+            sweep, "_read_jobs", lambda *_a: [{"name": "ci", "conclusion": "success"}]
+        )
+        targets = [{"name": name} for name in holds]
+        results = sweep._sweep(targets, minutes)
+        return {r.fixture: r for r in results}, dispatched, reads
+
+    def test_a_hold_that_clears_is_swept_once_it_does(self, monkeypatch) -> None:
+        results, dispatched, reads = self._sweep(
+            monkeypatch, {"ci-test-go-app": [_REHEARSAL, _REHEARSAL, []]}
+        )
+        assert results["ci-test-go-app"].state == sweep.PASS
+        # Read three times, dispatched on the third, one poll apart each.
+        assert reads["ci-test-go-app"] == 3
+        assert dispatched == {"ci-test-go-app": 2 * sweep._POLL_SECONDS}
+
+    def test_a_hold_that_outlasts_the_deadline_is_never_dispatched(
+        self, monkeypatch
+    ) -> None:
+        results, dispatched, _ = self._sweep(
+            monkeypatch, {"ci-test-go-app": [_REHEARSAL]}
+        )
+        held = results["ci-test-go-app"]
+        assert held.state == sweep.HELD
+        assert "rehearse/fix-312-fetch-followups" in held.detail
+        assert dispatched == {}
+
+    def test_a_free_fixture_does_not_wait_behind_a_held_one(self, monkeypatch) -> None:
+        results, dispatched, _ = self._sweep(
+            monkeypatch,
+            {
+                "ci-test-a-held": [_REHEARSAL],
+                "ci-test-b-freed": [_REHEARSAL, []],
+                "ci-test-c-free": [[]],
+            },
+        )
+        assert dispatched == {
+            "ci-test-c-free": 0.0,
+            "ci-test-b-freed": sweep._POLL_SECONDS,
+        }
+        assert [results[n].state for n in sorted(results)] == [
+            sweep.HELD,
+            sweep.PASS,
+            sweep.PASS,
+        ]
+        code, _ = sweep.sweep_verdict(sorted(results), list(results.values()))
+        assert code == 2
+
+    def test_an_unreadable_hold_is_unreachable_not_dispatched(
+        self, monkeypatch
+    ) -> None:
+        results, dispatched, _ = self._sweep(
+            monkeypatch, {"ci-test-go-app": [_FAILED], "ci-test-rust-app": [[]]}
+        )
+        assert results["ci-test-go-app"].state == sweep.UNREACHABLE
+        assert "HTTP 502" in results["ci-test-go-app"].detail
+        assert dispatched == {"ci-test-rust-app": 0.0}
 
 
 class TestSelectingSweepTargets:
