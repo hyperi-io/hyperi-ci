@@ -29,9 +29,9 @@ _VALID_MODES = {"blocking", "warn", "disabled"}
 _MODE_STRENGTH = {"disabled": 0, "warn": 1, "blocking": 2}
 
 # Tools whose findings are advisories about SECURITY - secrets, SAST, and the
-# CVE/advisory feeds. Turning one of these below what hyperi-ci ships requires
-# a stated reason (:func:`note_gate_downgrade`); every other tool may be
-# turned down with a bare mode string.
+# CVE/advisory feeds. Turning one of these below what hyperi-ci ships without a
+# stated reason fails the stage (:func:`note_gate_downgrade`). Every other tool
+# may be turned down with a bare mode string.
 SECURITY_TOOLS = frozenset(
     {
         "gitleaks",
@@ -50,9 +50,15 @@ SECURITY_TOOLS = frozenset(
 class GateReasonRequiredError(ValueError):
     """A security gate is relaxed in config and gives no reason for it.
 
-    Carries the full operator-facing message, so a caller reports
-    ``str(exc)`` and needs to know nothing about the gate that raised.
+    Carries the full operator-facing message and the title to report it
+    under, so a caller reports ``str(exc)`` and needs to know nothing about
+    the gate that raised.
+
+    Attributes:
+        title: Annotation title the failure is reported under in CI.
     """
+
+    title = "hyperi-ci security gate needs a reason"
 
 
 def _one_line(text: str) -> str:
@@ -161,7 +167,6 @@ def is_skipped(tool: str) -> bool:
     return True
 
 
-_REASON_OWED_TITLE = "hyperi-ci security gate needs a reason"
 _TURNED_DOWN_TITLE = "hyperi-ci gate turned down"
 _REASON_DOCS = "docs/quality-gate.md#relaxing-a-security-gate"
 
@@ -205,12 +210,12 @@ def note_gate_downgrade(
 
     A gate a repo relaxed and a gate that passed read the same in the log,
     so the relaxation has to announce itself where the run can be read.
-    For a tool in :data:`SECURITY_TOOLS`, turning one below its shipped
-    default with no ``reason`` beside it prints a warning naming the fix.
-    Stage 2 of issue #259 turns that warning into
-    :class:`GateReasonRequiredError` and a failed stage. The comparison is
-    against that tool's OWN shipped default, whatever it is: semgrep ships
-    ``warn``, so ``semgrep: warn`` is not a downgrade.
+    For a tool in :data:`SECURITY_TOOLS` the announcement is not enough:
+    turning one below its shipped default with no ``reason`` beside it
+    raises :class:`GateReasonRequiredError`, and the stage fails with the
+    fix to paste. The comparison is against that tool's OWN shipped default,
+    whatever it is: semgrep ships ``warn``, so ``semgrep: warn`` is not a
+    downgrade.
 
     Takes the CONFIGURED mode, not the post-``apply_strict`` one, so
     ``hyperi-ci check --strict`` reports the same config problem CI will.
@@ -222,6 +227,9 @@ def note_gate_downgrade(
         shipped_key: Key carrying the shipped default, where the repo wrote
             its override somewhere else (semgrep's legacy per-language key).
 
+    Raises:
+        GateReasonRequiredError: A security gate is relaxed with no reason.
+
     """
     shipped = packaged_default(shipped_key or key)
     if not isinstance(shipped, str):
@@ -229,11 +237,8 @@ def note_gate_downgrade(
     shipped = shipped.strip().lower()
     if _MODE_STRENGTH.get(mode, 2) >= _MODE_STRENGTH.get(shipped, 0):
         return
-    # Warns rather than failing until a wheel that parses the mapping is on
-    # PyPI, because a consumer cannot state a reason before then (issue #259).
     if key.rsplit(".", 1)[-1] in SECURITY_TOOLS and not reason:
-        announce(_reason_required_message(key, mode, shipped), _REASON_OWED_TITLE)
-        return
+        raise GateReasonRequiredError(_reason_required_message(key, mode, shipped))
     msg = (
         f"{key}: this repo sets '{mode}', hyperi-ci ships '{shipped}' - "
         f"the gate is turned down here"
@@ -266,18 +271,22 @@ def note_quality_disabled(language: str, reason: str = "") -> None:
 
     Turning the stage off drops every security gate at once, so it owes a
     ``reason`` exactly as one security gate turned below its shipped default
-    does (:func:`note_gate_downgrade`), and announces itself the same way.
-    The reason sits beside the switch as ``quality.reason``, the shape
-    ``quality.rust.feature_matrix`` uses for its own ``enabled`` opt-out.
+    does (:func:`note_gate_downgrade`): without one it raises
+    :class:`GateReasonRequiredError`, and with one it announces itself the
+    same way. The reason sits beside the switch as ``quality.reason``, the
+    shape ``quality.rust.feature_matrix`` uses for its own ``enabled``
+    opt-out.
 
     Args:
         language: Handler language, which picks the per-language gates named.
         reason: ``quality.reason`` as configured, empty when none.
 
+    Raises:
+        GateReasonRequiredError: The stage is switched off with no reason.
+
     """
     gates = ", ".join(_security_gates_shipped(language))
     reason = _one_line(reason)
-    # Warns rather than failing until issue #259 stage 2, like note_gate_downgrade.
     if not reason:
         example = _mapping_example(
             "quality",
@@ -297,8 +306,7 @@ def note_quality_disabled(language: str, reason: str = "") -> None:
                 f"  docs: {_REASON_DOCS}",
             )
         )
-        announce(owed, _REASON_OWED_TITLE)
-        return
+        raise GateReasonRequiredError(owed)
     announce(
         "quality.enabled: false - the quality stage does not run, and with it "
         f"every security gate hyperi-ci ships for this repo ({gates}); "
@@ -322,6 +330,10 @@ def resolve_cross_tool_mode(
     ``reason`` a relaxed security gate needs) - a bare string keeps the options
     at their defaults. A force-skip wins; otherwise strict upgrades a ``warn``
     to ``blocking``.
+
+    Raises:
+        GateReasonRequiredError: A security gate is relaxed with no reason.
+
     """
     if is_skipped(tool):
         return "disabled"
@@ -342,6 +354,10 @@ def resolve_tool_mode(
     the tool is ``disabled`` for this run. Otherwise, under strict mode
     (:func:`strict_quality`) a ``warn`` tool is upgraded to ``blocking``;
     ``disabled`` is left untouched.
+
+    Raises:
+        GateReasonRequiredError: A security gate is relaxed with no reason.
+
     """
     if is_skipped(tool):
         return "disabled"

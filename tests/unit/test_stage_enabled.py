@@ -26,6 +26,7 @@ from hyperi_ci.config import CIConfig, load_config
 from hyperi_ci.dispatch import stage_build, stage_quality, stage_test
 from hyperi_ci.languages import quality_common
 from hyperi_ci.languages.python.test import _absolve_empty_run
+from hyperi_ci.languages.quality_common import GateReasonRequiredError
 
 _REASON = "stage rebuilt under #12; gitleaks runs in the org-wide secret scan"
 _OWED = "without saying why"
@@ -63,13 +64,11 @@ class TestStageEnabledSwitches:
         handler.assert_not_called()
 
     def test_quality_stage_honours_its_key(self) -> None:
+        off = _config(quality={"enabled": False, "reason": _REASON})
         with patch("hyperi_ci.dispatch._dispatch_to_handler") as handler:
             with patch("hyperi_ci.dispatch.deprecated_files.scan"):
                 with patch("hyperi_ci.dispatch.repo_advisor.run"):
-                    assert (
-                        stage_quality("python", _config(quality={"enabled": False}))
-                        == 0
-                    )
+                    assert stage_quality("python", off) == 0
         handler.assert_not_called()
 
     def test_a_disabled_test_stage_does_not_mask_a_missing_handler(self) -> None:
@@ -113,24 +112,27 @@ class TestDisablingQualityOwesAReason:
     def _off(language: str = "python", **quality: object) -> int:
         return stage_quality(language, _config(quality={"enabled": False, **quality}))
 
-    def test_a_missing_reason_is_named_with_a_fix_to_paste(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        said = self._warnings(monkeypatch)
-        # Stage 1 of issue #259 warns and never fails the stage.
-        assert self._off() == 0
-        message = "\n".join(said)
+    @classmethod
+    def _owed(cls, language: str = "python", **quality: object) -> str:
+        with pytest.raises(GateReasonRequiredError) as caught:
+            cls._off(language, **quality)
+        return str(caught.value)
+
+    def test_a_missing_reason_fails_with_a_fix_to_paste(self) -> None:
+        message = self._owed()
         assert "quality.enabled" in message
         assert _OWED in message
         assert "enabled: false" in message
         assert "reason:" in message
 
-    def test_outside_ci_it_is_a_log_line_and_no_annotation(
+    def test_a_missing_reason_is_neither_logged_nor_annotated_here(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
+        # run_stage reports the failure once, so a warning here would be twice.
+        monkeypatch.setattr(common, "is_github_actions", lambda: True)
         said = self._warnings(monkeypatch)
-        self._off()
-        assert any(_OWED in w for w in said), said
+        self._owed()
+        assert said == []
         assert self._annotations(capsys) == []
 
     @pytest.mark.parametrize(
@@ -143,22 +145,14 @@ class TestDisablingQualityOwesAReason:
             ("javascript", "quality.typescript.audit"),
         ],
     )
-    def test_the_gates_this_repo_loses_are_named(
-        self, monkeypatch: pytest.MonkeyPatch, language: str, key: str
-    ) -> None:
-        said = self._warnings(monkeypatch)
-        self._off(language)
-        message = "\n".join(said)
+    def test_the_gates_this_repo_loses_are_named(self, language: str, key: str) -> None:
+        message = self._owed(language)
         assert "quality.gitleaks" in message
         assert "quality.semgrep" in message
         assert key in message
 
-    def test_gates_this_repo_never_ran_are_not_named(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        said = self._warnings(monkeypatch)
-        self._off("python")
-        message = "\n".join(said)
+    def test_gates_this_repo_never_ran_are_not_named(self) -> None:
+        message = self._owed("python")
         assert "quality.python.pip_audit" in message
         # bandit ships `disabled`, so turning the stage off takes nothing from it.
         assert "quality.python.bandit" not in message
@@ -172,12 +166,8 @@ class TestDisablingQualityOwesAReason:
         assert any(_REASON in w for w in said), said
         assert not any(_OWED in w for w in said), said
 
-    def test_a_whitespace_only_reason_is_no_reason(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        said = self._warnings(monkeypatch)
-        self._off(reason="   ")
-        assert any(_OWED in w for w in said), said
+    def test_a_whitespace_only_reason_is_no_reason(self) -> None:
+        assert _OWED in self._owed(reason="   ")
 
     def test_the_documented_yaml_reaches_the_reader(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -193,23 +183,6 @@ class TestDisablingQualityOwesAReason:
         assert stage_quality("python", config) == 0
         assert any(_REASON in w for w in said), said
         assert not any(_OWED in w for w in said), said
-
-    def test_a_missing_reason_is_annotated_in_ci(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        monkeypatch.setattr(common, "is_github_actions", lambda: True)
-        said = self._warnings(monkeypatch)
-        self._off()
-        annotations = self._annotations(capsys)
-        assert len(annotations) == 1, annotations
-        assert annotations[0].startswith(
-            "::warning title=hyperi-ci security gate needs a reason::"
-        )
-        assert "quality.enabled" in annotations[0]
-        # The message is multi-line; a raw newline would end the command early.
-        assert "%0A" in annotations[0]
-        # Under GitHub Actions the logger's own line is a second annotation.
-        assert said == []
 
     def test_in_ci_a_stated_reason_is_one_annotation_on_one_line(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -261,12 +234,44 @@ class TestRelaxedGateUnderTheRealLogger:
         assert len(commands) == 1, commands
         assert commands[0].startswith("::warning title=hyperi-ci gate turned down::")
 
-    def test_the_multi_line_reason_owed_message_is_one_annotation(self) -> None:
-        commands = self._commands("")
+    def test_the_multi_line_reason_owed_failure_is_one_annotation(
+        self, tmp_path: Path
+    ) -> None:
+        # The owed reason fails the stage, so it has to reach the runner through
+        # run_stage, as one error annotation and never as a traceback.
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "probe"\nversion = "0.0.0"\n', encoding="utf-8"
+        )
+        (tmp_path / ".hyperi-ci.yaml").write_text(
+            "quality:\n  enabled: false\n", encoding="utf-8"
+        )
+        code = (
+            "import sys\n"
+            "from pathlib import Path\n"
+            "from hyperi_ci.dispatch import run_stage\n"
+            f"sys.exit(run_stage('quality', project_dir=Path({str(tmp_path)!r})))\n"
+        )
+        result = run_cmd(
+            [sys.executable, "-c", code],
+            capture=True,
+            check=False,
+            env={"CI": "true", "GITHUB_ACTIONS": "true"},
+            timeout=60,
+        )
+        output = f"{result.stdout}\n{result.stderr}"
+        commands = [
+            line
+            for line in output.splitlines()
+            if line.startswith("::")
+            and not line.startswith(("::group::", "::endgroup::"))
+        ]
+        assert result.returncode == 1, output
+        assert "Traceback" not in output, output
         assert len(commands) == 1, commands
         assert commands[0].startswith(
-            "::warning title=hyperi-ci security gate needs a reason::"
+            "::error title=hyperi-ci security gate needs a reason::"
         )
+        assert "quality.enabled" in commands[0]
 
 
 class TestFailOnMissing:

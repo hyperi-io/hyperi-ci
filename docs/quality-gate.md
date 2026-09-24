@@ -30,8 +30,7 @@ flowchart TB
     M --> TD{"weaker than the<br/>shipped default?"}
     TD -->|no| ST
     TD -->|yes| SEC{"a security tool<br/>with no reason?"}
-    SEC -->|yes| F["warn: a reason is owed<br/>(fails once #259 stage 2 ships)"]:::fail
-    F --> ST
+    SEC -->|yes| F["stage FAILS"]:::fail
     SEC -->|no| W["warn: the gate is<br/>turned down here"] --> ST
     ST{"--strict AND<br/>mode is warn?"}
     ST -->|yes| B["blocking"]:::block
@@ -66,9 +65,7 @@ Set per project in `.hyperi-ci.yaml` under `quality.<lang>.<tool>` (or
 
 ## Relaxing a security gate
 
-A repo may turn any gate down. A SECURITY gate turned down must say what it is
-waiting on. Today a missing reason prints a warning naming the fix. The stage
-fails on it once stage 2 of issue #259 ships:
+A repo may turn any gate down. A SECURITY gate turned down must say what it is waiting on, and the stage fails without it. The failure names the key and prints the YAML to paste:
 
 ```yaml
 quality:
@@ -91,8 +88,8 @@ justification; `semgrep: disabled` is below the default and does.
 
 | shipped | configured | security tool | outcome |
 |---|---|---|---|
-| blocking | warn / disabled | yes | reason REQUIRED, warns without one (fails from #259 stage 2) |
-| warn | disabled | yes | reason REQUIRED |
+| blocking | warn / disabled | yes | reason REQUIRED, stage fails without one |
+| warn | disabled | yes | reason REQUIRED, stage fails without one |
 | warn | warn | yes | nothing - it matches the default |
 | disabled | anything | yes | nothing is below `disabled` |
 | any | anything weaker | no | the existing warning, never a failure |
@@ -121,7 +118,7 @@ quality:
   reason: "security gates run in the org-level pipeline for this mirror"
 ```
 
-Without one, the stage warns and names the security gates the repo loses: gitleaks, semgrep and its language's own. In CI that is the same `::warning::` a single relaxed gate raises, and it fails the stage once issue #259 stage 2 ships. A stated reason prints on every run.
+Without one, the stage fails and names the security gates the repo loses: gitleaks, semgrep and its language's own. In CI that is the same `::error::` a single relaxed gate raises. A stated reason prints on every run.
 
 `quality.reason` is safe to add before your runner reads it. Older versions ignore the key.
 
