@@ -17,7 +17,7 @@ overridable per project in .hyperi-ci.yaml.
 import os
 from pathlib import Path
 
-from hyperi_ci.common import env_true, escape_command_data, is_ci, warn
+from hyperi_ci.common import env_true, escape_command_data, is_github_actions, warn
 from hyperi_ci.config import CIConfig, packaged_default
 
 DEFAULT_TEST_PATHS = ["tests/"]
@@ -167,15 +167,15 @@ _REASON_DOCS = "docs/quality-gate.md#relaxing-a-security-gate"
 
 
 def _announce(msg: str, title: str) -> None:
-    """Announce once: in CI as an annotation, anywhere else as a log line.
+    """Announce once: an annotation under GitHub Actions, a log line elsewhere.
 
     The annotation reaches the run summary, where a folded log group cannot
     hide it, and it is escaped because a raw newline ends a workflow command.
-    In CI it is the only output: the logger would add a second annotation and
-    write every line after the first unescaped, for the runner to parse as
-    further commands.
+    Under GitHub Actions it is the only output, because the logger would add a
+    second annotation. Any other CI reads no workflow commands, so it gets the
+    log line.
     """
-    if is_ci():
+    if is_github_actions():
         print(f"::warning title={title}::{escape_command_data(msg)}")
         return
     warn(f"  {msg}")

@@ -39,12 +39,12 @@ def _off(reason: str) -> dict[str, str]:
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Start each test with strict + skip unset, as on a workstation.
 
-    In CI a relaxed gate is an annotation instead of a log line, so a test
-    reading the log line must not depend on the runner it happens to run on.
+    Under GitHub Actions a relaxed gate is an annotation instead of a log line,
+    so a test reading the log line must not depend on the runner it runs on.
     """
     monkeypatch.delenv(_STRICT, raising=False)
     monkeypatch.delenv(_SKIP, raising=False)
-    monkeypatch.setattr(quality_common, "is_ci", lambda: False)
+    monkeypatch.setattr(quality_common, "is_github_actions", lambda: False)
 
 
 class TestResolveMode:
