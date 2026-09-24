@@ -20,6 +20,7 @@ import tempfile
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -477,6 +478,40 @@ _CURL_MAX_TIME = 180
 _CURL_BACKSTOP = 20
 # curl's exit code for an HTTP status of 400 or more under -f.
 _CURL_HTTP_ERROR = 22
+# curl's exit code for a transfer that ran past --max-time.
+_CURL_TIMED_OUT = 28
+
+
+def _redact_url(url: str) -> str:
+    """Return ``url`` without its ``user:password@``, for a log line.
+
+    A URL too malformed to split is replaced whole, because where its
+    credentials end cannot be told.
+    """
+    try:
+        parts = urllib.parse.urlsplit(url)
+    except ValueError:
+        return "<unparseable URL>"
+    if "@" not in parts.netloc:
+        return url
+    host = parts.netloc.rpartition("@")[2]
+    return urllib.parse.urlunsplit(parts._replace(netloc=host))
+
+
+def _curl_attempt(cmd: list[str], max_time: int) -> subprocess.CompletedProcess[str]:
+    """Run one curl attempt, reporting a backstop kill as curl's own timeout."""
+    try:
+        return run_cmd(
+            cmd, check=False, capture=True, timeout=max_time + _CURL_BACKSTOP
+        )
+    except subprocess.TimeoutExpired:
+        reason = (
+            f"curl outlived --max-time {max_time} "
+            f"and was killed {_CURL_BACKSTOP}s later"
+        )
+        return subprocess.CompletedProcess(
+            cmd, _CURL_TIMED_OUT, stdout="", stderr=reason
+        )
 
 
 def _curl_retryable(result: subprocess.CompletedProcess[str]) -> bool:
@@ -508,12 +543,17 @@ def curl_fetch(
 
     A 5xx, 408 or 429, a transfer cut off mid-body, a timeout or any other
     curl failure is retried up to 5 times, after about 1s, 2s, 4s, 8s and
-    16s, each wait cut by up to half at random. No retry starts after 600s.
-    Any other HTTP status is final, because asking again gets the same answer
-    and spends another request against a rate limit.
+    16s, each wait cut by up to half at random. No retry starts more than
+    600s after the first attempt did. Any other HTTP status is final, because
+    asking again gets the same answer and spends another request against a
+    rate limit.
+
+    A curl that outlives its own ``--max-time`` is killed 20 seconds later,
+    and the attempt counts as a timeout, curl's exit 28.
 
     ``-f`` turns an HTTP error into a non-zero exit rather than a saved error
-    page. curl's error line is logged for each failed attempt.
+    page. curl's error line is logged for each failed attempt, after the URL
+    with any ``user:password@`` removed.
 
     Args:
         url: What to fetch.
@@ -528,7 +568,6 @@ def curl_fetch(
 
     Raises:
         OSError: curl could not be started.
-        subprocess.TimeoutExpired: An attempt outlived its own ``--max-time``.
 
     """
     cmd = [
@@ -546,23 +585,27 @@ def curl_fetch(
         str(dest),
         url,
     ]
+    shown = _redact_url(url)
     started = time.monotonic()
     retry = 0
     while True:
-        result = run_cmd(
-            cmd, check=False, capture=True, timeout=max_time + _CURL_BACKSTOP
-        )
+        result = _curl_attempt(cmd, max_time)
         if result.returncode == 0:
             return result
         reason = (result.stderr or "").strip() or f"curl exit {result.returncode}"
-        out_of_time = time.monotonic() - started >= _CURL_RETRY_MAX_TIME
-        if retry == _CURL_RETRIES or out_of_time or not _curl_retryable(result):
-            info(f"{url}: {reason}")
+        delay = _backoff(retry + 1)
+        # The window bounds when a retry starts, so the wait before it counts.
+        retry_starts = time.monotonic() - started + delay
+        if (
+            retry == _CURL_RETRIES
+            or retry_starts >= _CURL_RETRY_MAX_TIME
+            or not _curl_retryable(result)
+        ):
+            info(f"{shown}: {reason}")
             return result
         retry += 1
-        delay = _backoff(retry)
         info(
-            f"{url}: {reason}, retrying in {delay:.1f}s "
+            f"{shown}: {reason}, retrying in {delay:.1f}s "
             f"(retry {retry} of {_CURL_RETRIES})"
         )
         time.sleep(delay)
@@ -590,8 +633,7 @@ def curl_read(
         curl's exit code and the body. The body is empty unless curl exited 0.
 
     Raises:
-        OSError: curl could not be started.
-        subprocess.TimeoutExpired: An attempt outlived its own ``--max-time``.
+        OSError: curl could not be started, or the temp file failed.
 
     """
     with tempfile.TemporaryDirectory(prefix="hyperi-ci-fetch-") as scratch:
@@ -622,8 +664,8 @@ def download_artefact(name: str, url: str) -> bytes | None:
     """
     try:
         rc, body = curl_read(url)
-    except (OSError, subprocess.TimeoutExpired):
-        error(f"Failed to download {name} (network error / timeout)")
+    except OSError as exc:
+        error(f"Failed to download {name} ({exc})")
         return None
     if rc != 0 or not body:
         error(f"Failed to download {name} (curl exit {rc})")
