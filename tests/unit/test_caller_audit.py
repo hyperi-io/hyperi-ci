@@ -11,12 +11,11 @@ after its fix, `PRE_FIX` is the shape that produced the HTTP 422 across four
 Rust repos.
 """
 
-from __future__ import annotations
-
 import pytest
 
-from hyperi_ci.caller_audit import audit_local, audit_text
-from hyperi_ci.release.dispatch import DISPATCH_INPUTS, _dispatch_cmd
+from hyperi_ci.caller_audit import CALLER_INPUTS, audit_local, audit_text
+from hyperi_ci.init import _render_workflow
+from hyperi_ci.release.dispatch import _dispatch_cmd
 
 COMPLIANT = """
 name: CI
@@ -37,6 +36,18 @@ on:
         type: string
         required: false
         default: "auto"
+      skip-optimize:
+        type: string
+        required: false
+        default: ""
+      release-unoptimized:
+        type: string
+        required: false
+        default: ""
+      optimize-tier:
+        type: string
+        required: false
+        default: ""
 jobs:
   ci:
     uses: hyperi-io/hyperi-ci/.github/workflows/rust-ci.yml@main
@@ -45,8 +56,15 @@ jobs:
       tag: ${{ inputs.tag || '' }}
       from-head: ${{ inputs.from-head || '' }}
       bump: ${{ inputs.bump || 'auto' }}
+      skip-optimize: ${{ inputs.skip-optimize || '' }}
+      release-unoptimized: ${{ inputs.release-unoptimized || '' }}
+      optimize-tier: ${{ inputs.optimize-tier || '' }}
     secrets: inherit
 """
+
+_UI_INPUTS = ("skip-optimize", "release-unoptimized", "optimize-tier")
+
+ALL_INPUTS = sorted(CALLER_INPUTS)
 
 PRE_FIX = """
 name: CI
@@ -73,8 +91,8 @@ def test_compliant_caller_is_clean() -> None:
     report = audit_text("dfe-receiver", COMPLIANT)
     assert report.ok
     assert report.calls is not None
-    assert report.declared == ["bump", "from-head", "tag"]
-    assert report.forwarded == ["bump", "from-head", "tag"]
+    assert report.declared == ALL_INPUTS
+    assert report.forwarded == ALL_INPUTS
 
 
 def test_pre_fix_caller_reports_every_fault() -> None:
@@ -82,9 +100,36 @@ def test_pre_fix_caller_reports_every_fault() -> None:
     assert _kinds(PRE_FIX) == {
         ("missing", "from-head"),
         ("missing", "bump"),
+        ("missing", "skip-optimize"),
+        ("missing", "release-unoptimized"),
+        ("missing", "optimize-tier"),
         ("not-forwarded", "tag"),
         ("required", "tag"),
     }
+
+
+def test_a_caller_without_the_ui_inputs_is_reported() -> None:
+    """Six Rust consumers could not ship unoptimised and the audit said nothing."""
+    text = COMPLIANT
+    for name in _UI_INPUTS:
+        text = text.replace(
+            f"      {name}:\n        type: string\n"
+            '        required: false\n        default: ""\n',
+            "",
+        )
+        text = text.replace(f"      {name}: ${{{{ inputs.{name} || '' }}}}\n", "")
+    assert _kinds(text) == {("missing", name) for name in _UI_INPUTS}
+
+
+@pytest.mark.parametrize(
+    "workflow_file", ["python-ci.yml", "rust-ci.yml", "ts-ci.yml", "go-ci.yml"]
+)
+def test_the_audit_checks_every_input_init_scaffolds(workflow_file: str) -> None:
+    """A dispatch input init writes but the audit skips is drift nobody reports."""
+    report = audit_text("scaffold", _render_workflow("my-project", workflow_file))
+    assert report.ok, [f.describe() for f in report.findings]
+    unchecked = sorted(set(report.declared) - set(CALLER_INPUTS))
+    assert not unchecked, f"init scaffolds {unchecked}, which the audit never checks"
 
 
 def test_declared_but_not_forwarded_is_reported() -> None:
@@ -108,7 +153,7 @@ def test_yaml_boolean_on_key_is_handled() -> None:
 
     doc = yaml.safe_load(COMPLIANT)
     assert True in doc or "on" in doc
-    assert audit_text("x", COMPLIANT).declared == ["bump", "from-head", "tag"]
+    assert audit_text("x", COMPLIANT).declared == ALL_INPUTS
 
 
 def test_non_caller_is_not_audited() -> None:
@@ -139,9 +184,9 @@ def test_missing_ci_yml_reports(tmp_path) -> None:
     assert report.error is not None
 
 
-@pytest.mark.parametrize("name", DISPATCH_INPUTS)
+@pytest.mark.parametrize("name", CALLER_INPUTS)
 def test_every_contract_input_is_checked(name: str) -> None:
-    """Adding to DISPATCH_INPUTS must extend the audit, not bypass it."""
+    """Adding to either input tuple must extend the audit, not bypass it."""
     assert ("missing", name) in _kinds(
         """
 name: CI
