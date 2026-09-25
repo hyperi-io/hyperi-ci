@@ -5,8 +5,6 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import yaml
@@ -123,6 +121,22 @@ class TestRenderTemplates:
             # Tag relaxed to optional (else gh workflow run errors on no-tag dispatch)
             assert "required: true" not in content, (
                 f"{workflow_file}: tag must be optional for from-head dispatch"
+            )
+
+    def test_workflow_scaffolds_test_tier_choice(self) -> None:
+        # `test-tier: full` reaches the reusable workflow on a dispatch only
+        # when the caller declares the input and forwards it.
+        for workflow_file in ("python-ci.yml", "rust-ci.yml", "ts-ci.yml", "go-ci.yml"):
+            doc = yaml.safe_load(_render_workflow("my-project", workflow_file))
+            spec = doc["on"]["workflow_dispatch"]["inputs"]["test-tier"]
+            assert spec["type"] == "choice", workflow_file
+            assert spec["options"] == ["core", "full"], workflow_file
+            assert spec["default"] == "core", workflow_file
+            assert spec["required"] is False, workflow_file
+            assert spec["description"], workflow_file
+            with_block = doc["jobs"]["ci"]["with"]
+            assert with_block["test-tier"] == "${{ inputs.test-tier || 'core' }}", (
+                workflow_file
             )
 
     def test_workflow_dispatch_accepts_tag_input(self) -> None:

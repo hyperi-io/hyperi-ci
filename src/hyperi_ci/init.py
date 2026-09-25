@@ -312,12 +312,12 @@ def _render_workflow(
         "        type: string\n"
         "        required: false\n"
         '        default: ""\n'
-        "        description: \"'true' to release/retry the current HEAD — the CI creates the tag (issue #35).\"\n"
+        "        description: \"'true' to release/retry the current HEAD -- the CI creates the tag (issue #35).\"\n"
         "      bump:\n"
         "        type: string\n"
         "        required: false\n"
         '        default: "auto"\n'
-        '        description: "Version resolution for from-head: auto | patch | minor (forced — release even with no release-worthy commit) | X.Y.Z (exact version)."\n'
+        '        description: "Version resolution for from-head: auto | patch | minor (forced -- release even with no release-worthy commit) | X.Y.Z (exact version)."\n'
         "      skip-optimize:\n"
         "        type: string\n"
         "        required: false\n"
@@ -333,6 +333,12 @@ def _render_workflow(
         "        required: false\n"
         '        default: ""\n'
         "        description: \"'release' to build the release optimisation tier on a run that publishes nothing (Rust: PGO + BOLT).\"\n"
+        "      test-tier:\n"
+        "        type: choice\n"
+        "        required: false\n"
+        '        default: "core"\n'
+        "        options: [core, full]\n"
+        '        description: "full runs the full test tier on this run. core never lowers a tier."\n'
         "\n"
         "jobs:\n"
         "  ci:\n"
@@ -345,6 +351,7 @@ def _render_workflow(
         "      skip-optimize: ${{ inputs.skip-optimize || '' }}\n"
         "      release-unoptimized: ${{ inputs.release-unoptimized || '' }}\n"
         "      optimize-tier: ${{ inputs.optimize-tier || '' }}\n"
+        "      test-tier: ${{ inputs.test-tier || 'core' }}\n"
     )
 
     if publish_target != "internal":
