@@ -75,6 +75,8 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
   owns the `ci-test-*` fixture rules
 - [architecture.md](architecture.md) - the two sides (workflows + CLI), the
   two-level workflow model, the job contract, what's shared vs duplicated, why
+- [test-tiers.md](test-tiers.md) - the core and full test tiers, `--tier`, and
+  the per-run notice of what was left out
 - [flow.md](flow.md) - push/dispatch -> gate -> version -> build -> tag -> publish,
   one semantic-release computation driving every stage
 - [versioning.md](versioning.md) - the git tag is the only truth; VERSION and
