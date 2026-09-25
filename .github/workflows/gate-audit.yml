@@ -68,10 +68,16 @@ jobs:
         # No fallback to github.token on a failed mint: a repo-scoped token
         # would sweep one repo and report "all clear", which is the very fault
         # this workflow exists to catch.
+        # Inputs reach the script through env, never `${{ }}` in the body, so a
+        # crafted dispatch value cannot run as shell beside the org token.
         env:
           GH_TOKEN: ${{ steps.bot.outputs.token }}
+          MAX_AGE_DAYS: ${{ inputs.max-age-days || '7' }}
+          INCLUDE_PRERELEASE: ${{ inputs.include-prerelease || false }}
         run: |
+          extra=()
+          if [ "$INCLUDE_PRERELEASE" = "true" ]; then extra+=(--include-prerelease); fi
           uv run hyperi-ci audit-gates \
             --org hyperi-io \
-            --max-age-days "${{ inputs.max-age-days || '7' }}" \
-            ${{ inputs.include-prerelease && '--include-prerelease' || '' }}
+            --max-age-days "$MAX_AGE_DAYS" \
+            "${extra[@]}"
