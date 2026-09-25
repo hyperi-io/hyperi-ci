@@ -33,6 +33,10 @@ inputs:
     description: "Version resolution for from-head: auto (semantic-release picks) | patch | minor (forced)"
     required: false
     default: "auto"
+  test-tier:
+    description: "core | full. full raises this run's test tier; core never lowers one. A schedule runs full, and so does a release once the repo sets test.full.required_for_release. Empty = core."
+    required: false
+    default: ""
   branch-build:
     description: "'true' to run build + container on pull_request events (branch-mode: PRs validate the full pipeline; whether the container also pushes a dev image is the separate publish.container.dev_push opt-in in .hyperi-ci.yaml)"
     required: false
@@ -68,6 +72,12 @@ outputs:
   python-version:
     description: "Python version this project is built and tested on"
     value: ${{ steps.python.outputs.python-version }}
+  test-tier:
+    description: "core | full -- the tier the Test job runs. full on a schedule, on test-tier: full, or on a release in a repo that sets test.full.required_for_release; else core"
+    value: ${{ steps.tier.outputs.test-tier }}
+  full-required-for-release:
+    description: "'true' iff the project sets test.full.required_for_release, so a release runs full and the Gate fails one handed less"
+    value: ${{ steps.tier.outputs.full-required-for-release }}
 
 runs:
   using: composite
@@ -101,11 +111,21 @@ runs:
       # - push to a declared prerelease branch with the same trailer →
       #   release on that branch's own sequence (1.2.0-beta.1), which spends
       #   no stable version (issue #144).
+      # - schedule -> never publishes, whatever HEAD's trailer says.
       # - everything else, a bare workflow_dispatch included → validate-only
       #   (no version stamp, no tag, no container push, no registry uploads).
       id: gate
       shell: bash
       run: |
+        # A schedule runs on main's HEAD, so the trailer check below would
+        # publish any HEAD still carrying `Release: true`. A scheduled run
+        # tests; releasing stays a push or a dispatch.
+        if [[ "${{ github.event_name }}" == "schedule" ]]; then
+          echo "will-publish=false" >> "$GITHUB_OUTPUT"
+          echo "::notice::Scheduled run -- tests only, nothing is built, tagged or published"
+          exit 0
+        fi
+
         if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
           # A dispatch publishes in exactly one of two modes, each of which
           # resolves a real version: `tag=vX.Y.Z` re-publishes an existing
@@ -380,11 +400,12 @@ runs:
           run_build=false
         fi
 
-        # run-checks: a publish run, a PR, a dispatch -- and a merge to main
-        # that CARRIES a release, whether or not this run is the one that
-        # ships it (issue #124). run-build deliberately stays publish-only:
-        # compiling a commit nothing ships is the red line the doctrine draws.
-        if [[ "$will_publish" == "true" || "$event_name" == "pull_request" || "$event_name" == "workflow_dispatch" || "$release_worthy" == "true" ]]; then
+        # run-checks: a publish run, a PR, a dispatch, a schedule -- and a
+        # merge to main that CARRIES a release, whether or not this run is the
+        # one that ships it (issue #124). run-build deliberately stays
+        # publish-only: compiling a commit nothing ships is the red line the
+        # doctrine draws, so a schedule tests and builds nothing.
+        if [[ "$will_publish" == "true" || "$event_name" == "pull_request" || "$event_name" == "workflow_dispatch" || "$event_name" == "schedule" || "$release_worthy" == "true" ]]; then
           run_checks=true
         else
           run_checks=false
@@ -415,3 +436,14 @@ runs:
         else
           echo "::notice::$summary"
         fi
+
+    - name: Resolve the test tier
+      # The Test job runs this tier and the Gate checks it against a release.
+      # Inputs travel as env, so a workflow input is never read as shell.
+      id: tier
+      shell: bash
+      env:
+        TIER_EVENT: ${{ github.event_name }}
+        TIER_WILL_RELEASE: ${{ steps.gate.outputs.will-publish }}
+        TIER_REQUESTED: ${{ inputs.test-tier }}
+      run: python3 "$GITHUB_ACTION_PATH/resolve_tier.py"

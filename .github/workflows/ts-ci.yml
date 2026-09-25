@@ -53,6 +53,10 @@ on:
         type: string
         default: "auto"
         description: "Version resolution for from-head: auto | patch | minor (forced) | X.Y.Z (exact version)."
+      test-tier:
+        type: string
+        default: "core"
+        description: "core | full. full runs the full test tier on this run; core never lowers a tier. A scheduled run is full, and so is a release once the repo sets test.full.required_for_release."
       submodules:
         type: string
         default: ""
@@ -106,6 +110,12 @@ on:
         required: false
         default: "auto"
         description: "Version resolution for from-head: auto | patch | minor (forced) | X.Y.Z (exact version)."
+      test-tier:
+        type: choice
+        required: false
+        default: "core"
+        options: [core, full]
+        description: "core | full. full runs the full test tier on this run; core never lowers a tier."
       runner-mode:
         type: string
         default: ""
@@ -133,7 +143,10 @@ on:
         description: "'release' to build the release optimisation tier on a run that publishes nothing. No-op for TypeScript today, kept for parity."
 
 concurrency:
-  group: ${{ github.workflow }}-${{ inputs.tag || github.ref }}
+  # A schedule and a dispatch that publishes nothing each get their own
+  # group: sharing main's, either could cancel a release in flight or be
+  # cancelled by the next push.
+  group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'schedule' || github.event_name == 'workflow_dispatch' && inputs.tag == '' && inputs.from-head != 'true' && format('dispatch-{0}', github.ref) || inputs.tag || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -189,6 +202,8 @@ jobs:
       run-build: ${{ steps.predict.outputs.run-build }}
       will-release: ${{ steps.predict.outputs.will-release }}
       next-version: ${{ steps.predict.outputs.version }}
+      test-tier: ${{ steps.predict.outputs.test-tier }}
+      full-required-for-release: ${{ steps.predict.outputs.full-required-for-release }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -203,6 +218,7 @@ jobs:
           tag: ${{ inputs.tag }}
           from-head: ${{ inputs.from-head }}
           bump: ${{ inputs.bump }}
+          test-tier: ${{ inputs.test-tier }}
           branch-build: ${{ inputs.branch-build || vars.HYPERCI_BRANCH_BUILD }}
 
       - name: Install uv (preflight)
@@ -317,7 +333,9 @@ jobs:
         run: ${{ env.HYPERCI_INSTALL }} run quality
 
   test:
-    name: Test
+    # The tier is in the name so a check list shows what ran. The runner is
+    # spelled out so the name stays one bracket: Test (core, arc-native-4cpu).
+    name: Test (${{ needs.plan.outputs.test-tier }}, ${{ matrix.os }})
     needs: [plan]
     if: needs.plan.outputs.run-checks == 'true'
     runs-on: ${{ matrix.os }}
@@ -371,7 +389,10 @@ jobs:
         run: git submodule update --init --depth 1 $SUBMODULES
 
       - name: Run tests
-        run: ${{ env.HYPERCI_INSTALL }} run test
+        # --tier full only on a full run: a CLI without the flag fails loudly
+        # rather than running core under a full name, and a core run passes
+        # nothing, so the project's own test.tier still applies.
+        run: ${{ env.HYPERCI_INSTALL }} run test ${{ needs.plan.outputs.test-tier == 'full' && '--tier full' || '' }}
 
       - name: Upload test results
         if: always()
@@ -525,4 +546,7 @@ jobs:
           HYPERCI_GATE_QUALITY: ${{ needs.quality.result }}
           HYPERCI_GATE_TEST: ${{ needs.test.result }}
           HYPERCI_GATE_BUILD: ${{ needs.build.result }}
+          HYPERCI_GATE_TEST_TIER: ${{ needs.plan.outputs.test-tier }}
+          HYPERCI_GATE_WILL_RELEASE: ${{ needs.plan.outputs.will-release }}
+          HYPERCI_GATE_FULL_REQUIRED: ${{ needs.plan.outputs.full-required-for-release }}
         run: ${{ env.HYPERCI_INSTALL }} gate-check
