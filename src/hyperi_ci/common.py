@@ -318,7 +318,10 @@ def escape_command_data(value: str) -> str:
 
 
 def announce(
-    msg: str, title: str, *, level: Literal["warning", "error"] = "warning"
+    msg: str,
+    title: str,
+    *,
+    level: Literal["notice", "warning", "error"] = "warning",
 ) -> None:
     """Report once: an annotation under GitHub Actions, a log line elsewhere.
 
@@ -326,15 +329,17 @@ def announce(
     hide it, and it is escaped because a raw newline ends a workflow command.
     Under GitHub Actions it is the only output, because the logger would add a
     second annotation. Any other CI reads no workflow commands, so it gets the
-    log line.
+    log line, at info for a notice.
     """
     if is_github_actions():
         print(f"::{level} title={title}::{escape_command_data(msg)}", flush=True)
         return
     if level == "error":
         error(msg)
-    else:
+    elif level == "warning":
         warn(msg)
+    else:
+        info(msg)
 
 
 def mask(value: str) -> None:

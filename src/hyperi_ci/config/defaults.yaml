@@ -254,6 +254,11 @@ quality:
 # Testing
 test:
   enabled: true
+  # core: the suite the project selects by default (its pytest `addopts -m`,
+  # nextest `#[ignore]` and `default-filter`). full: everything the runner can
+  # execute. HYPERCI_TEST_TIER and `--tier` override. Unrelated to `use_tiers`
+  # below and to `rust.tier`, which pick directories and test kinds.
+  tier: core
   coverage: true
   min_coverage: 80
   fail_on_missing: false
