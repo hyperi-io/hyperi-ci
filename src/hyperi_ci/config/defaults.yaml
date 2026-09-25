@@ -267,6 +267,13 @@ test:
       # pytest -m expression the full tier passes in place of the project's
       # addopts -m. Empty selects every test; "not live" keeps one marker out.
       markers: ""
+    # Tests full leaves out because the CI runner cannot execute them (live
+    # cloud, manual, perf). `filter` is a nextest filterset, passed as -E, and
+    # fails the stage under cargo test, which cannot apply one. `skip` lists
+    # test-name substrings, passed as --skip to nextest and cargo test alike.
+    rust:
+      filter: ""
+      skip: []
 
   coverage: true
   min_coverage: 80
