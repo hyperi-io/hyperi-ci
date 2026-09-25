@@ -12,17 +12,13 @@ on the CI runner is wrong on a developer box. When a project opts in with
 instead, and a project that already passes its own ``-n`` is left untouched.
 """
 
-from __future__ import annotations
-
-import configparser
 import os
-import shlex
-import tomllib
 from pathlib import Path
 
 from hyperi_ci.common import info, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.cpu import cpu_budget
+from hyperi_ci.languages.python.pytest_args import project_args
 
 # Past this width a pytest run pays more in per-worker collection than it wins
 # in parallelism: hyperi-ci's own 2598-test suite takes 23.6s at 8 workers,
@@ -36,13 +32,6 @@ _WORKERS_ENV = "HYPERCI_TEST_WORKERS"
 # the parallelism decision, including the decision to turn xdist off.
 _OWN_PARALLEL_FLAGS = ("-n", "--numprocesses")
 _XDIST_DISABLED = ("no:xdist", "no:xdist.plugin")
-
-# Where pytest reads addopts from, and the section that holds them.
-_INI_SOURCES = (
-    ("pytest.ini", "pytest"),
-    ("tox.ini", "pytest"),
-    ("setup.cfg", "tool:pytest"),
-)
 
 
 def _tokens_claim_parallelism(tokens: list[str]) -> bool:
@@ -71,54 +60,6 @@ def _tokens_claim_parallelism(tokens: list[str]) -> bool:
     return False
 
 
-def _addopts_from_pyproject(root: Path) -> list[str]:
-    """Read ``addopts`` out of ``[tool.pytest.ini_options]``.
-
-    Args:
-        root: Directory holding the project's ``pyproject.toml``.
-
-    Returns:
-        Shell-split arguments, empty when the file or the key is absent.
-
-    """
-    path = root / "pyproject.toml"
-    try:
-        data = tomllib.loads(path.read_text(encoding="utf-8", errors="replace"))
-    except (OSError, tomllib.TOMLDecodeError):
-        return []
-    raw = data.get("tool", {}).get("pytest", {}).get("ini_options", {}).get("addopts")
-    if isinstance(raw, list):
-        return [str(item) for item in raw]
-    if isinstance(raw, str):
-        return shlex.split(raw)
-    return []
-
-
-def _addopts_from_ini(root: Path) -> list[str]:
-    """Read ``addopts`` out of pytest's ini-style configuration files.
-
-    Args:
-        root: Directory holding the project's configuration files.
-
-    Returns:
-        Shell-split arguments from every ini source that declares them.
-
-    """
-    found: list[str] = []
-    for filename, section in _INI_SOURCES:
-        path = root / filename
-        if not path.is_file():
-            continue
-        parser = configparser.ConfigParser()
-        try:
-            parser.read(path, encoding="utf-8")
-        except (OSError, configparser.Error):
-            continue
-        if parser.has_option(section, "addopts"):
-            found.extend(shlex.split(parser.get(section, "addopts")))
-    return found
-
-
 def project_sets_own_workers(args: list[str], root: Path | None = None) -> bool:
     """Report whether the project has already chosen its own worker count.
 
@@ -133,14 +74,7 @@ def project_sets_own_workers(args: list[str], root: Path | None = None) -> bool:
         True when any of those sources sets ``-n`` or disables xdist.
 
     """
-    base = root if root is not None else Path.cwd()
-    sources = [
-        args,
-        _addopts_from_pyproject(base),
-        _addopts_from_ini(base),
-        shlex.split(os.environ.get("PYTEST_ADDOPTS", "")),
-    ]
-    return any(_tokens_claim_parallelism(tokens) for tokens in sources)
+    return _tokens_claim_parallelism(project_args(args, root))
 
 
 def _workers_from_env() -> int | None:
