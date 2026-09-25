@@ -16,9 +16,11 @@ with ``test.use_tiers`` / ``test.tiers.*`` (the Python directory split) or
 tests live, this picks whether the deselected and ignored ones run.
 """
 
+import re
+from collections import deque
 from enum import StrEnum
 
-from hyperi_ci.common import announce
+from hyperi_ci.common import announce, strip_ansi
 from hyperi_ci.config import CIConfig
 
 TEST_TIER_KEY = "test.tier"
@@ -80,6 +82,30 @@ def handler_tier(extra_env: dict[str, str] | None) -> SuiteTier:
 
     """
     return SuiteTier((extra_env or {}).get(TEST_TIER_ENV, SuiteTier.CORE.value))
+
+
+class KeptLines:
+    """An ``on_line`` sink that keeps the lines matching a pattern, bounded.
+
+    ``stream_cmd`` returns only the tail of a run's output, and a summary can
+    be spread through it (one libtest line per test binary), so a handler
+    collects what it parses as the lines go by.
+    """
+
+    def __init__(self, pattern: re.Pattern[str], limit: int = 4096) -> None:
+        """Keep up to ``limit`` of the most recent lines matching ``pattern``."""
+        self._pattern = pattern
+        self._lines: deque[str] = deque(maxlen=limit)
+
+    def __call__(self, line: str) -> None:
+        """Keep ``line``, colour stripped, when it matches."""
+        clean = strip_ansi(line)
+        if self._pattern.search(clean):
+            self._lines.append(clean)
+
+    def text(self) -> str:
+        """Return the kept lines, newline-joined."""
+        return "\n".join(self._lines)
 
 
 def announce_tier(tier: SuiteTier, detail: str) -> None:

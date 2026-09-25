@@ -7,6 +7,7 @@
 
 import subprocess
 import sys
+import threading
 import time
 from typing import Literal
 
@@ -385,6 +386,108 @@ class TestStreamCmd:
         assert rc == 3
         assert output == "parent"
         assert elapsed < 20
+
+    def test_a_partial_line_passes_through_before_its_newline(self) -> None:
+        """A hung test's id, written with no newline, must reach the log."""
+        started = time.monotonic()
+        arrivals: list[tuple[float, str]] = []
+        rc, _ = common.stream_cmd(
+            [
+                sys.executable,
+                "-c",
+                "import sys, time\n"
+                "sys.stdout.write('tests/test_x.py::test_hangs ')\n"
+                "sys.stdout.flush()\n"
+                "time.sleep(3)\n"
+                "print('PASSED')\n",
+            ],
+            on_line=None,
+            on_chunk=lambda text: arrivals.append((time.monotonic() - started, text)),
+        )
+        assert rc == 0
+        first_at, first_text = arrivals[0]
+        assert first_text.startswith("tests/test_x.py::test_hangs")
+        assert first_at < 2.5
+        assert "".join(text for _, text in arrivals).endswith("PASSED\n")
+
+    def test_lines_are_split_across_reads_and_the_last_one_is_kept(self) -> None:
+        lines: list[str] = []
+        common.stream_cmd(
+            [
+                sys.executable,
+                "-c",
+                "import sys, time\n"
+                "sys.stdout.write('one\\r\\ntw'); sys.stdout.flush(); time.sleep(0.3)\n"
+                "sys.stdout.write('o\\nthree')\n",
+            ],
+            on_line=lines.append,
+        )
+        assert lines == ["one", "two", "three"]
+
+    def test_the_returned_output_is_a_bounded_tail(self) -> None:
+        """A runaway-logging child must not grow the parent without limit."""
+        rc, output = common.stream_cmd(
+            [
+                sys.executable,
+                "-c",
+                "import sys\n"
+                "for i in range(20000):\n"
+                "    sys.stdout.write('x' * 50 + '\\n')\n"
+                "print('LAST')\n",
+            ],
+            on_line=None,
+        )
+        assert rc == 0
+        assert len(output) <= common.STREAM_TAIL_CHARS
+        assert output.endswith("LAST")
+
+    def test_a_failing_sink_does_not_block_the_child(self) -> None:
+        """`hyperi-ci check | head` closes stdout; the pipe must still drain.
+
+        The child writes far past a pipe buffer. If draining stopped at the
+        first failed write, the child would block on a full pipe for ever.
+        """
+
+        def _closed(_text: str) -> None:
+            raise BrokenPipeError("stdout closed")
+
+        outcome: list[BaseException | tuple[int, str]] = []
+
+        def _run() -> None:
+            try:
+                outcome.append(
+                    common.stream_cmd(
+                        [
+                            sys.executable,
+                            "-c",
+                            "import sys; sys.stdout.write('y' * 4_000_000)",
+                        ],
+                        on_line=None,
+                        on_chunk=_closed,
+                    )
+                )
+            except BrokenPipeError as exc:
+                outcome.append(exc)
+
+        guard = threading.Thread(target=_run, daemon=True)
+        guard.start()
+        guard.join(timeout=30)
+        assert not guard.is_alive(), "stream_cmd hung behind a failed sink"
+        assert len(outcome) == 1
+        assert isinstance(outcome[0], BrokenPipeError)
+
+    def test_env_reaches_the_child(self) -> None:
+        rc, output = common.stream_cmd(
+            [
+                sys.executable,
+                "-c",
+                "import os; print(os.environ['HYPERCI_STREAM_PROBE'])",
+            ],
+            on_line=None,
+            env={"HYPERCI_STREAM_PROBE": "cases=64"},
+        )
+        assert rc == 0
+        assert output == "cases=64"
 
 
 class TestMask:
