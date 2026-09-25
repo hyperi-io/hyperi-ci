@@ -53,6 +53,7 @@ from hyperi_ci import __version__
 from hyperi_ci.config import CIConfig, load_config
 from hyperi_ci.detect import detect_language
 from hyperi_ci.dispatch import VALID_STAGES, run_stage
+from hyperi_ci.languages.tiering import SuiteTier
 from hyperi_ci.version_source import build_version
 
 app = typer.Typer(
@@ -158,6 +159,18 @@ def _main(
     maybe_auto_update()
 
 
+_TIER_HELP = (
+    "Test tier: core (the project's default selection) or full (also the "
+    "deselected and ignored tests). Overrides test.tier and HYPERCI_TEST_TIER."
+)
+
+
+def _apply_test_tier(tier: SuiteTier | None) -> None:
+    """Hand ``--tier`` to the config cascade, above the env var it overwrites."""
+    if tier is not None:
+        os.environ["HYPERCI_TEST_TIER"] = tier.value
+
+
 @app.command()
 def run(
     stage: Annotated[str, typer.Argument(help="Stage to run")],
@@ -165,13 +178,21 @@ def run(
         str | None,
         typer.Option("--project-dir", "-C", help="Project root directory"),
     ] = None,
+    tier: Annotated[
+        SuiteTier | None,
+        typer.Option("--tier", help=_TIER_HELP),
+    ] = None,
 ) -> None:
     """Run a CI stage (setup, quality, test, build, release)."""
     if stage not in VALID_STAGES:
         typer.echo(f"Invalid stage: {stage}", err=True)
         typer.echo(f"Valid stages: {', '.join(VALID_STAGES)}", err=True)
         raise typer.Exit(1)
+    if tier is not None and stage != "test":
+        typer.echo(f"--tier applies to the test stage, not {stage}", err=True)
+        raise typer.Exit(1)
 
+    _apply_test_tier(tier)
     dir_path = Path(project_dir) if project_dir else None
     rc = run_stage(stage, project_dir=dir_path)
     raise typer.Exit(rc)
@@ -202,6 +223,10 @@ def check(
             ),
         ),
     ] = False,
+    tier: Annotated[
+        SuiteTier | None,
+        typer.Option("--tier", help=_TIER_HELP),
+    ] = None,
 ) -> None:
     """Run local pre-push checks (quality + test by default).
 
@@ -214,11 +239,15 @@ def check(
     A tool that is not installed locally (and has no uv fallback) is still
     warn-skipped even under ``--strict`` - strict enforces what runs, not
     what your machine has; CI, where the tools are present, is the backstop.
+
+    ``--tier full`` runs the tests the project deselects or ignores by
+    default as well. ``--full`` is unrelated: it adds the build stage.
     """
     dir_path = Path(project_dir) if project_dir else None
 
     if strict:
         os.environ["HYPERCI_QUALITY_STRICT"] = "1"
+    _apply_test_tier(tier)
 
     stages = ["quality"]
     if not quick:
