@@ -259,6 +259,15 @@ test:
   # execute. HYPERCI_TEST_TIER and `--tier` override. Unrelated to `use_tiers`
   # below and to `rust.tier`, which pick directories and test kinds.
   tier: core
+
+  full:
+    # Whether a release must have run the full tier.
+    required_for_release: false
+    python:
+      # pytest -m expression the full tier passes in place of the project's
+      # addopts -m. Empty selects every test; "not live" keeps one marker out.
+      markers: ""
+
   coverage: true
   min_coverage: 80
   fail_on_missing: false
