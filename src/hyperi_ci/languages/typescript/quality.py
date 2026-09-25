@@ -10,9 +10,8 @@ Orchestrates: eslint, prettier, tsc, npm audit, semgrep.
 Each tool's mode is configurable via .hyperi-ci.yaml quality.typescript section.
 
 Note: TypeScript eslint is invoked via npm scripts, which use the project's
-eslint config. Test relaxation (test_ignore) is applied at the eslint config
-level (overrides section), not at the hyperi-ci invocation level. The
-test_ignore config is available for projects using direct eslint invocation.
+eslint config. Test relaxation is applied at the eslint config level
+(overrides section); hyperi-ci has no ``test_ignore`` for TypeScript.
 """
 
 import shutil

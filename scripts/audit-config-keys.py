@@ -74,12 +74,17 @@ def _leaf_keys(node: object, trail: list[str]) -> list[str]:
 
 
 def _quoted(path: str, haystack: str) -> bool:
-    """True when the dotted path appears quoted, or as a quoted prefix."""
-    return re.search(rf"""["']{re.escape(path)}["'.]""", haystack) is not None
+    """True when the dotted path appears as a whole quoted string."""
+    return re.search(rf"""["']{re.escape(path)}["']""", haystack) is not None
 
 
 def _has_reader(path: str, haystack: str) -> bool:
-    """True when the key, or a multi-segment ancestor, is read from source."""
+    """True when the key, or a multi-segment ancestor, is read from source.
+
+    An ancestor counts only as a whole quoted string -- ``config.get("a.b", {})``
+    reads the mapping, and its children with it. A longer key that merely starts
+    with the ancestor (``"a.b.c"``, ``f"a.b.{x}"``) says nothing about ``a.b.d``.
+    """
     parts = path.split(".")
     for cut in range(len(parts), 1, -1):
         if _quoted(".".join(parts[:cut]), haystack):
@@ -87,11 +92,20 @@ def _has_reader(path: str, haystack: str) -> bool:
     return len(parts) == 1 and _quoted(path, haystack)
 
 
-def _load_allowlist() -> dict[str, str]:
+def _load_section(name: str) -> dict[str, str]:
     if not ALLOWLIST.is_file():
         return {}
     data = yaml.safe_load(ALLOWLIST.read_text(encoding="utf-8")) or {}
-    return dict(data.get("keys") or {})
+    return dict(data.get(name) or {})
+
+
+def _load_allowlist() -> dict[str, str]:
+    return _load_section("keys")
+
+
+def load_pending() -> dict[str, str]:
+    """Keys declared ahead of their reader, and what will read them."""
+    return _load_section("pending")
 
 
 def audit() -> tuple[list[str], list[str], list[str]]:
@@ -99,8 +113,8 @@ def audit() -> tuple[list[str], list[str], list[str]]:
 
     Returns:
         ``(unread, stale_allowlist, unused_allowlist)`` -- keys nothing reads,
-        allowlist entries naming a file that no longer exists, and allowlist
-        entries the audit would have passed anyway.
+        allowlist entries naming a file that no longer exists, and allowlist or
+        pending entries the audit would have passed anyway.
 
     """
     haystack = (
@@ -110,15 +124,20 @@ def audit() -> tuple[list[str], list[str], list[str]]:
         yaml.safe_load(DEFAULTS.read_text(encoding="utf-8")) or {}, []
     )
     allowed = _load_allowlist()
+    pending = load_pending()
 
     found = {key: _has_reader(key, haystack) for key in declared}
-    unread = [key for key, ok in found.items() if not ok and key not in allowed]
+    unread = [
+        key
+        for key, ok in found.items()
+        if not ok and key not in allowed and key not in pending
+    ]
     stale = [
         f"{key} -> {reader}"
         for key, reader in allowed.items()
         if not (ROOT / reader).is_file()
     ]
-    unused = [key for key in allowed if found.get(key)]
+    unused = [key for key in (*allowed, *pending) if found.get(key)]
     return unread, stale, unused
 
 
@@ -139,6 +158,7 @@ def main() -> int:
             + _index([ROOT / ".github"], {".yml", ".yaml"})
         )
         allowed = _load_allowlist()
+        pending = load_pending()
         for key in _leaf_keys(
             yaml.safe_load(DEFAULTS.read_text(encoding="utf-8")) or {}, []
         ):
@@ -146,10 +166,15 @@ def main() -> int:
                 verdict = "read"
             elif key in allowed:
                 verdict = f"dynamic ({allowed[key]})"
+            elif key in pending:
+                verdict = "PENDING, no reader yet"
             else:
                 verdict = "UNREAD"
             print(f"{verdict:<48} {key}")
         print()
+
+    for key, reader in load_pending().items():
+        print(f"Pending, no reader yet: {key} -- to be read by {reader}")
 
     if unread:
         print("Declared in defaults.yaml, read by nothing:")
@@ -165,12 +190,18 @@ def main() -> int:
         for entry in stale:
             print(f"  {entry}")
     if unused:
-        print("\nAllowlist entries the audit finds anyway (drop them):")
+        print("\nAllowlist or pending entries the audit finds anyway (drop them):")
         for key in unused:
             print(f"  {key}")
 
     if unread or stale or unused:
         return 1
+    if pending := load_pending():
+        print(
+            f"Every key declared in defaults.yaml has a reader, except the "
+            f"{len(pending)} pending above."
+        )
+        return 0
     print("Every key declared in defaults.yaml has a reader.")
     return 0
 
