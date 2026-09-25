@@ -743,9 +743,13 @@ def audit_callers(
     one declared `required: true` (which breaks every dispatch that does not
     send it).
 
+    An optional input such as `test-tier` is held to the last two only. A
+    caller without it is noted, not counted as drifted.
+
     Never writes. The caller file belongs to the consumer repo.
     """
     from hyperi_ci.caller_audit import (
+        OPTIONAL_CALLER_INPUTS,
         audit_local,
         audit_repo,
         org_repos,
@@ -781,12 +785,20 @@ def audit_callers(
         for finding in report.findings:
             warn(f"  {finding.describe()}")
 
+    for name in OPTIONAL_CALLER_INPUTS:
+        lacking = [r.repo for r in reports if name in r.optional_absent]
+        if lacking:
+            info(
+                f"{len(lacking)} caller(s) do not declare optional input {name} "
+                "(not drift; `hyperi-ci init` adds it)"
+            )
+
     info(f"Audited {len(reports)} caller(s)")
     if not drifted:
         success("Every caller honours the dispatch contract")
         raise typer.Exit(0)
 
-    error(f"{len(drifted)} caller(s) drifted — a release from HEAD will fail")
+    error(f"{len(drifted)} caller(s) drifted -- a release from HEAD will fail")
     info("Fix in the consumer repo's .github/workflows/ci.yml, or re-run")
     info("`hyperi-ci init` there to regenerate it.")
     raise typer.Exit(1)

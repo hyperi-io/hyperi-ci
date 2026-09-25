@@ -12,8 +12,15 @@ Rust repos.
 """
 
 import pytest
+from typer.testing import CliRunner
 
-from hyperi_ci.caller_audit import CALLER_INPUTS, audit_local, audit_text
+from hyperi_ci.caller_audit import (
+    CALLER_INPUTS,
+    OPTIONAL_CALLER_INPUTS,
+    audit_local,
+    audit_text,
+)
+from hyperi_ci.cli import app
 from hyperi_ci.init import _render_workflow
 from hyperi_ci.release.dispatch import _dispatch_cmd
 
@@ -128,8 +135,64 @@ def test_the_audit_checks_every_input_init_scaffolds(workflow_file: str) -> None
     """A dispatch input init writes but the audit skips is drift nobody reports."""
     report = audit_text("scaffold", _render_workflow("my-project", workflow_file))
     assert report.ok, [f.describe() for f in report.findings]
-    unchecked = sorted(set(report.declared) - set(CALLER_INPUTS))
+    assert not report.optional_absent
+    checked = set(CALLER_INPUTS) | set(OPTIONAL_CALLER_INPUTS)
+    unchecked = sorted(set(report.declared) - checked)
     assert not unchecked, f"init scaffolds {unchecked}, which the audit never checks"
+
+
+def test_a_caller_without_test_tier_is_clean() -> None:
+    """Every caller predating the test tier still dispatches, so it is not drift."""
+    assert "test-tier" not in COMPLIANT
+    report = audit_text("dfe-receiver", COMPLIANT)
+    assert report.ok
+    assert report.optional_absent == ["test-tier"]
+
+
+def test_audit_callers_passes_a_caller_without_test_tier(tmp_path) -> None:
+    """The command exits 0 on an old caller: absence is a note, not drift."""
+    caller = tmp_path / ".github" / "workflows" / "ci.yml"
+    caller.parent.mkdir(parents=True)
+    caller.write_text(COMPLIANT, encoding="utf-8")
+    result = CliRunner().invoke(app, ["audit-callers", "-C", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+
+
+TEST_TIER_DECLARED = COMPLIANT.replace(
+    "jobs:\n",
+    "      test-tier:\n"
+    "        type: choice\n"
+    "        required: false\n"
+    '        default: "core"\n'
+    "        options: [core, full]\n"
+    "jobs:\n",
+).replace(
+    "    secrets: inherit\n",
+    "      test-tier: ${{ inputs.test-tier || 'core' }}\n    secrets: inherit\n",
+)
+
+
+def test_a_caller_forwarding_test_tier_is_clean() -> None:
+    report = audit_text("x", TEST_TIER_DECLARED)
+    assert report.ok, [f.describe() for f in report.findings]
+    assert not report.optional_absent
+    assert "test-tier" in report.forwarded
+
+
+def test_test_tier_declared_but_not_forwarded_is_reported() -> None:
+    """Declared then dropped means `test-tier: full` is accepted and ignored."""
+    text = TEST_TIER_DECLARED.replace(
+        "      test-tier: ${{ inputs.test-tier || 'core' }}\n", ""
+    )
+    assert _kinds(text) == {("not-forwarded", "test-tier")}
+
+
+def test_test_tier_required_is_reported() -> None:
+    text = TEST_TIER_DECLARED.replace(
+        '        required: false\n        default: "core"',
+        '        required: true\n        default: "core"',
+    )
+    assert _kinds(text) == {("required", "test-tier")}
 
 
 def test_declared_but_not_forwarded_is_reported() -> None:

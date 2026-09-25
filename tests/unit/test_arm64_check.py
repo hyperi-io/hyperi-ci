@@ -106,3 +106,12 @@ def test_a_config_that_is_not_a_mapping_is_off(tmp_path: Path) -> None:
     wanted, reason = wants_arm64_check(_project(tmp_path, config="- one\n- two\n"))
     assert wanted is False
     assert "could not be read" in reason
+
+
+def test_an_opt_out_in_a_yml_config_is_honoured(tmp_path: Path) -> None:
+    # load_config reads .hyperi-ci.yml, so an opt-out there must count here too.
+    root = _project(tmp_path)
+    (root / ".hyperi-ci.yml").write_text(
+        "build:\n  rust:\n    arm64_on_main: false\n", encoding="utf-8"
+    )
+    assert wants_arm64_check(root)[0] is False

@@ -1790,3 +1790,97 @@ class TestToolDownloadsRetry:
             if "--retry " not in line or "--retry-max-time" not in line
         ]
         assert not unretried, unretried
+
+
+class TestTestTierThreading:
+    """The test tier is resolved once in plan and read by Test and Gate.
+
+    A caller passes nothing today, so every new input carries a default, and
+    the tier reaches the Test job and the Gate only through plan outputs.
+    """
+
+    @staticmethod
+    def _on(wf: dict) -> dict:
+        return wf.get("on") or wf.get(True, {})
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_the_call_input_defaults_to_core(self, workflow_name: str) -> None:
+        inputs = self._on(_load_workflow(workflow_name))["workflow_call"]["inputs"]
+        assert inputs["test-tier"].get("default") == "core"
+        assert inputs["test-tier"].get("required") is not True
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_the_dispatch_input_is_a_choice(self, workflow_name: str) -> None:
+        inputs = self._on(_load_workflow(workflow_name))["workflow_dispatch"]["inputs"]
+        assert inputs["test-tier"]["type"] == "choice"
+        assert inputs["test-tier"]["options"] == ["core", "full"]
+        assert inputs["test-tier"]["default"] == "core"
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_plan_passes_the_input_and_exports_the_tier(
+        self, workflow_name: str
+    ) -> None:
+        plan = _load_workflow(workflow_name)["jobs"]["plan"]
+        predict = next(
+            s for s in plan["steps"] if "predict-version" in str(s.get("uses", ""))
+        )
+        assert predict["with"]["test-tier"] == "${{ inputs.test-tier }}"
+        outputs = plan["outputs"]
+        assert outputs["test-tier"] == "${{ steps.predict.outputs.test-tier }}"
+        assert outputs["full-required-for-release"] == (
+            "${{ steps.predict.outputs.full-required-for-release }}"
+        )
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_the_test_job_is_named_and_run_by_tier(self, workflow_name: str) -> None:
+        test = _load_workflow(workflow_name)["jobs"]["test"]
+        assert (
+            test["name"]
+            == "Test (${{ needs.plan.outputs.test-tier }}, ${{ matrix.os }})"
+        )
+        # No job-level tier env: a core run must leave the project's own
+        # test.tier in charge, and a full run must fail on a CLI that lacks
+        # --tier rather than run core under a full name.
+        assert "HYPERCI_TEST_TIER" not in (test.get("env") or {})
+        step = next(s for s in test["steps"] if s.get("name") == "Run tests")
+        assert step["run"] == (
+            "${{ env.HYPERCI_INSTALL }} run test "
+            "${{ needs.plan.outputs.test-tier == 'full' && '--tier full' || '' }}"
+        )
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_the_gate_receives_tier_and_release(self, workflow_name: str) -> None:
+        gate = _load_workflow(workflow_name)["jobs"]["gate"]
+        env = next(s for s in gate["steps"] if "gate-check" in str(s.get("run", "")))[
+            "env"
+        ]
+        assert env["HYPERCI_GATE_TEST_TIER"] == "${{ needs.plan.outputs.test-tier }}"
+        assert env["HYPERCI_GATE_WILL_RELEASE"] == (
+            "${{ needs.plan.outputs.will-release }}"
+        )
+        assert env["HYPERCI_GATE_FULL_REQUIRED"] == (
+            "${{ needs.plan.outputs.full-required-for-release }}"
+        )
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_non_publishing_runs_have_their_own_concurrency_group(
+        self, workflow_name: str
+    ) -> None:
+        # Sharing main's group, a nightly or a validate-only dispatch would
+        # cancel a release in flight, or be cancelled by the next push.
+        group = _load_workflow(workflow_name)["concurrency"]["group"]
+        assert "github.event_name == 'schedule' && 'schedule'" in group
+        assert (
+            "github.event_name == 'workflow_dispatch' && inputs.tag == '' "
+            "&& inputs.from-head != 'true' && format('dispatch-{0}', github.ref)"
+        ) in group
+
+    def test_the_composite_exports_both_outputs(self) -> None:
+        path = ACTIONS_DIR / "predict-version" / "action.yml"
+        action = yaml.safe_load(path.read_text(encoding="utf-8"))
+        assert "test-tier" in action["inputs"]
+        assert {"test-tier", "full-required-for-release"} <= set(action["outputs"])
+
+    def test_the_tier_helper_ships_with_the_action(self) -> None:
+        helper = ACTIONS_DIR / "predict-version" / "resolve_tier.py"
+        assert helper.is_file(), f"{helper} is referenced by action.yml but missing"
