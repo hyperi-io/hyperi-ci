@@ -69,7 +69,11 @@ A full run passes pytest `-r` with the project's own report chars plus `s` (`-rf
 
 Two limits on what a pattern sees. Only the first line of a multi-line reason is matched. Under `--no-fold-skipped` the reason starts after the first ` - ` in the line, so a node id containing ` - ` (a parametrize id, say) moves part of it into the reason. A pattern without `^` or `$` anchors still matches in both cases.
 
-Rust has nothing to check. nextest's `skipped` count under full is the tests `test.full.rust.skip` and `test.full.rust.filter` exclude, and neither nextest nor libtest can skip a test at run time. A test that returns early when a service is missing reports as passed, which no runner can tell apart. TypeScript and Go skips are not checked.
+Rust has nothing to check. nextest's `skipped` count under full is the tests `test.full.rust.skip` and `test.full.rust.filter` exclude, and stable Rust gives a test no way to skip itself at run time. A test that returns early when a service is missing reports as passed, which no runner can tell apart. TypeScript and Go skips are not checked.
+
+## The slowest tests, in CI
+
+In CI, both tiers pass pytest `--durations=25`, which lists the 25 slowest test phases after the run. That is how a core test that has grown slow gets noticed and moved to full. A project that sets `--durations` itself, in `test.python.args`, its pytest config file's `addopts` or `PYTEST_ADDOPTS`, keeps its own value. Local runs are unchanged.
 
 ## The tier notice
 
