@@ -50,6 +50,25 @@ In CI the reusable workflows pick the tier per run and set `HYPERCI_TEST_TIER`. 
 
 A full run that could only run the core command says so with a `test tier full` warning: TypeScript with no `test:full` script, and Go always.
 
+## A skip fails a full run
+
+Under full, a skipped pytest test fails the stage. A skip there is a test that did not run, usually because a service it needs was missing, and full exists to prove everything ran. Core is unchanged: a skip stays a skip.
+
+To tolerate a skip, add a regular expression to `test.full.python.allow_skip` in `.hyperi-ci.yaml`. It is matched with `re.search` against the reason pytest prints, which is `Skipped` for a bare `pytest.skip()`:
+
+```yaml
+test:
+  full:
+    python:
+      allow_skip:
+        - "^needs Windows$"
+        - "could not import 'torch'"
+```
+
+A full run passes pytest `-r` with the project's own report chars plus `s` (`-rfEs` when it sets none), so the short test summary lists every skip with its reason. It works the same under pytest-xdist. Each skip nobody allowed gets an error line with its count, reason and locations, and each allowed one an info line. If the summary's skip count does not match the reasons listed, or there is no summary line (`-qq` prints none), the skips cannot be checked and the run fails.
+
+Rust has nothing to check. nextest's `skipped` count under full is the tests `test.full.rust.skip` and `test.full.rust.filter` exclude, and neither nextest nor libtest can skip a test at run time. A test that returns early when a service is missing reports as passed, which no runner can tell apart. TypeScript and Go skips are not checked.
+
 ## The tier notice
 
 Every pytest and Rust run emits a `test tier <tier>` notice with what it ran and left out, as does a TypeScript `test:full` script. In GitHub Actions it is a `::notice::` annotation in the run summary. Elsewhere it is an info log line.
@@ -69,6 +88,7 @@ pytest-xdist leaves the deselected count out of its summary, so under `-n` the n
 |---|---|---|
 | `test.tier` | `core` | The tier |
 | `test.full.python.markers` | `""` | pytest `-m` expression for full |
+| `test.full.python.allow_skip` | `[]` | Regular expressions for the pytest skip reasons full tolerates |
 | `test.full.rust.skip` | `[]` | Test-name substrings full leaves out, both runners |
 | `test.full.rust.filter` | `""` | nextest filterset full leaves out, nextest only |
 | `test.full.required_for_release` | `false` | Whether a release must have run full |
