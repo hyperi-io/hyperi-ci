@@ -18,6 +18,9 @@ deselected counts as a ``test tier`` notice.
 Under ``full`` a skip fails the run unless its reason matches
 ``test.full.python.allow_skip``: a skip there is a test that could not run,
 which the full tier exists to rule out.
+
+In CI both tiers list the slowest tests with ``--durations``, unless the
+project sets its own.
 """
 
 import re
@@ -28,6 +31,7 @@ from hyperi_ci.common import (
     echo_chunk,
     error,
     info,
+    is_ci,
     stream_cmd,
     strip_ansi,
     success,
@@ -45,6 +49,10 @@ from hyperi_ci.languages.tiering import (
 
 _FULL_MARKERS_KEY = "test.full.python.markers"
 _ALLOW_SKIP_KEY = "test.full.python.allow_skip"
+
+# How many of the slowest tests a CI run lists, so a core test that has grown
+# slow is seen and can move to the full tier.
+_CI_DURATIONS = 25
 
 
 def _resolve_cmd(cmd: list[str]) -> list[str]:
@@ -356,6 +364,16 @@ def _allow_skip_patterns(config: CIConfig) -> list[re.Pattern[str]] | None:
     return patterns
 
 
+def _durations_args(args: list[str]) -> list[str]:
+    """Return ``--durations`` for a CI run, empty locally or when the project sets it."""
+    if not is_ci():
+        return []
+    if option_values(project_args(args), "--durations"):
+        info("  Slowest tests: the project sets its own --durations, leaving it alone")
+        return []
+    return [f"--durations={_CI_DURATIONS}"]
+
+
 def _report_chars_arg(args: list[str]) -> str:
     """Return ``-r`` with the project's report chars plus ``s``, for skip reasons."""
     given = option_values(project_args(args), "--report-chars", "-r")
@@ -394,6 +412,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # Worker data is combined by pytest-cov before it reports, so coverage
     # stays accurate across workers and needs no extra configuration.
     base_args.extend(parallel_args(config, base_args, _resolve_cmd(["pytest"])))
+    base_args.extend(_durations_args(base_args))
 
     allow_skip: list[re.Pattern[str]] | None = None
     if test_tier is SuiteTier.FULL:

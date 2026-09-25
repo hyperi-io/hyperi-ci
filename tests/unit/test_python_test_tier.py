@@ -232,6 +232,7 @@ def recorder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _Recorder:
     monkeypatch.setattr(f"{MODULE}.announce_tier", rec.announce)
     monkeypatch.setattr(f"{MODULE}.error", rec.errors.append)
     monkeypatch.setattr(f"{MODULE}.info", rec.infos.append)
+    monkeypatch.setattr(f"{MODULE}.is_ci", lambda: False)
     return rec
 
 
@@ -457,6 +458,67 @@ class TestReportChars:
         assert "-rxs" in recorder.commands[0]
 
 
+class TestSlowestTestsInCI:
+    @pytest.fixture
+    def in_ci(self, monkeypatch: pytest.MonkeyPatch, recorder: _Recorder) -> _Recorder:
+        monkeypatch.setattr(f"{MODULE}.is_ci", lambda: True)
+        return recorder
+
+    def test_core_in_ci_reports_the_25_slowest(self, in_ci: _Recorder) -> None:
+        assert py_test.run(_config(), extra_env={"TEST_TIER": "core"}) == 0
+        assert in_ci.commands == [["pytest", "-v", "--tb=short", "--durations=25"]]
+
+    def test_full_in_ci_reports_them_too(self, in_ci: _Recorder) -> None:
+        assert py_test.run(_allow("probe"), extra_env={"TEST_TIER": "full"}) == 0
+        assert "--durations=25" in in_ci.commands[0]
+
+    def test_a_local_run_is_left_alone(self, recorder: _Recorder) -> None:
+        py_test.run(_config(), extra_env={"TEST_TIER": "core"})
+        assert not any(a.startswith("--durations") for a in recorder.commands[0])
+
+    def test_the_project_args_setting_it_win(self, in_ci: _Recorder) -> None:
+        config = _config(python={"args": ["-v", "--durations", "5"]})
+        py_test.run(config, extra_env={"TEST_TIER": "core"})
+        assert in_ci.commands == [["pytest", "-v", "--durations", "5"]]
+
+    def test_pytest_addopts_setting_it_wins(
+        self, in_ci: _Recorder, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("PYTEST_ADDOPTS", "--durations=0")
+        py_test.run(_config(), extra_env={"TEST_TIER": "core"})
+        assert "--durations=25" not in in_ci.commands[0]
+
+    @pytest.mark.parametrize(
+        ("filename", "text"),
+        [
+            (
+                "pyproject.toml",
+                '[tool.pytest.ini_options]\naddopts = "--durations=5"\n',
+            ),
+            ("pyproject.toml", '[tool.pytest]\naddopts = ["--durations=5"]\n'),
+            ("pytest.toml", '[pytest]\naddopts = ["--durations=5"]\n'),
+            (".pytest.toml", '[pytest]\naddopts = ["--durations=5"]\n'),
+            ("pytest.ini", "[pytest]\naddopts = --durations 5\n"),
+            (".pytest.ini", "[pytest]\naddopts = --durations 5\n"),
+            ("tox.ini", "[pytest]\naddopts = --durations=5\n"),
+            ("setup.cfg", "[tool:pytest]\naddopts = --durations=5\n"),
+        ],
+    )
+    def test_a_config_file_setting_it_wins(
+        self, in_ci: _Recorder, tmp_path: Path, filename: str, text: str
+    ) -> None:
+        (tmp_path / filename).write_text(text, encoding="utf-8", newline="\n")
+        py_test.run(_config(), extra_env={"TEST_TIER": "core"})
+        assert "--durations=25" not in in_ci.commands[0]
+
+    def test_durations_min_alone_is_not_a_durations_setting(
+        self, in_ci: _Recorder
+    ) -> None:
+        config = _config(python={"args": ["-v", "--durations-min=2"]})
+        py_test.run(config, extra_env={"TEST_TIER": "core"})
+        assert in_ci.commands[0][-1] == "--durations=25"
+
+
 class TestAgainstRealPytest:
     """The -m override is pytest's behaviour, so check it against pytest."""
 
@@ -488,7 +550,16 @@ class TestAgainstRealPytest:
         monkeypatch.setattr(f"{MODULE}.announce_tier", rec.announce)
         monkeypatch.setattr(f"{MODULE}.echo_chunk", rec.infos.append)
         monkeypatch.setattr(f"{MODULE}.error", rec.errors.append)
+        monkeypatch.setattr(f"{MODULE}.is_ci", lambda: False)
         return rec
+
+    def test_ci_prints_the_slowest_and_the_counts_still_read(
+        self, probe: _Recorder, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(f"{MODULE}.is_ci", lambda: True)
+        assert py_test.run(_config(), extra_env={"TEST_TIER": "core"}) == 0
+        assert "slowest 25 durations" in "".join(probe.infos)
+        assert probe.notices == [(SuiteTier.CORE, "1 passed, 1 skipped, 2 deselected")]
 
     def test_core_keeps_the_project_selection(self, probe: _Recorder) -> None:
         assert py_test.run(_config(), extra_env={"TEST_TIER": "core"}) == 0

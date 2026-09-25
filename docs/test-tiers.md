@@ -67,7 +67,11 @@ test:
 
 A full run passes pytest `-r` with the project's own report chars plus `s` (`-rfEs` when it sets none), so the short test summary lists every skip with its reason. It works the same under pytest-xdist. Each skip nobody allowed gets an error line with its count, reason and locations, and each allowed one an info line. If the summary's skip count does not match the reasons listed, or there is no summary line (`-qq` prints none), the skips cannot be checked and the run fails.
 
-Rust has nothing to check. nextest's `skipped` count under full is the tests `test.full.rust.skip` and `test.full.rust.filter` exclude, and neither nextest nor libtest can skip a test at run time. A test that returns early when a service is missing reports as passed, which no runner can tell apart. TypeScript and Go skips are not checked.
+Rust has nothing to check. nextest's `skipped` count under full is the tests `test.full.rust.skip` and `test.full.rust.filter` exclude, and stable Rust gives a test no way to skip itself at run time. A test that returns early when a service is missing reports as passed, which no runner can tell apart. TypeScript and Go skips are not checked.
+
+## The slowest tests, in CI
+
+In CI, both tiers pass pytest `--durations=25`, which lists the 25 slowest test phases after the run. That is how a core test that has grown slow gets noticed and moved to full. A project that sets `--durations` itself, in `test.python.args`, its pytest config file's `addopts` or `PYTEST_ADDOPTS`, keeps its own value. Local runs are unchanged.
 
 ## The tier notice
 
