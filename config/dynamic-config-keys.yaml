@@ -92,5 +92,4 @@ keys:
 # reader yet; the value says what will read it. The audit reports every pending
 # key on each run, and fails once a reader exists, so the entry is removed in
 # the change that lands the reader.
-pending:
-  test.full.required_for_release: "the CI plan job's release gate (test-tier workflow change)"
+pending: {}

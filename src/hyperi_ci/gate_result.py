@@ -19,9 +19,20 @@ execute?
 The doctrine itself is unchanged. A push that ships nothing SHOULD skip quality
 and test, and this passes it -- while saying so, so the reason is on the record
 rather than inferred from a green tick.
+
+It also names the test tier the plan resolved. The tier is a report, not the
+enforcement: the plan forces full on a release in a project that sets
+``test.full.required_for_release``, the Test job passes ``--tier full`` to a CLI
+that fails without it, and Build needs Test, so a release that owed full never
+reaches publishing on less. The Gate runs beside the release tail and cannot
+stop it. It fails, after the fact, only when the tier it was handed contradicts
+that -- a wiring fault.
 """
 
+import os
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Self
 
 # A job that never started. GitHub reports this for a gated job, and for every
 # job downstream of one that failed.
@@ -47,6 +58,61 @@ class GateVerdict:
     reason: str
 
 
+FULL_TIER = "full"
+
+
+@dataclass(frozen=True, slots=True)
+class TierContext:
+    """The test tier the plan resolved, and whether it had to be full.
+
+    Attributes:
+        tier: ``core`` or ``full``; empty when the workflow predates tiers.
+        will_release: Whether the plan decided this run tags and publishes.
+        full_required: Whether the project set
+            ``test.full.required_for_release``.
+
+    """
+
+    tier: str = ""
+    will_release: bool = False
+    full_required: bool = False
+
+    @classmethod
+    def from_env(cls, environ: Mapping[str, str] | None = None) -> Self:
+        """Read the context the Gate job's ``env:`` block passes.
+
+        Args:
+            environ: The environment to read; the process environment if None.
+
+        Returns:
+            The context. Absent variables read as a workflow that predates
+            tiers, which changes nothing about the verdict.
+
+        """
+        env = os.environ if environ is None else environ
+        return cls(
+            tier=env.get("HYPERCI_GATE_TEST_TIER", "").strip().lower(),
+            will_release=env.get("HYPERCI_GATE_WILL_RELEASE", "") == "true",
+            full_required=env.get("HYPERCI_GATE_FULL_REQUIRED", "") == "true",
+        )
+
+    @property
+    def release_short_of_full(self) -> bool:
+        """Whether a release that owed full was handed a lesser tier."""
+        return self.will_release and self.full_required and self.tier != FULL_TIER
+
+    def describe(self) -> str:
+        """Return the sentence naming the tier, empty when there is none."""
+        if not self.tier:
+            return ""
+        if self.will_release and self.tier != FULL_TIER:
+            return (
+                f" Tests ran at tier {self.tier} on a release; "
+                f"test.full.required_for_release is off."
+            )
+        return f" Tests ran at tier {self.tier}."
+
+
 def evaluate(
     *,
     run_checks: bool,
@@ -54,6 +120,7 @@ def evaluate(
     plan: str,
     checks: dict[str, str],
     build: dict[str, str] | None = None,
+    tier: TierContext | None = None,
 ) -> GateVerdict:
     """Decide whether a run may report success.
 
@@ -70,12 +137,15 @@ def evaluate(
               nothing downstream can be trusted.
         checks: Job name to result, for the jobs ``run_checks`` governs.
         build: Job name to result, for the jobs ``run_build`` governs.
+        tier: The test tier the plan resolved. None reads it from the Gate
+              job's environment (:meth:`TierContext.from_env`).
 
     Returns:
         The verdict, whose reason is written to be read in a check summary.
 
     """
     build = build or {}
+    tier = TierContext.from_env() if tier is None else tier
 
     # The plan job must have SUCCEEDED, not merely "not skipped". A plan that
     # failed or was cancelled computed no gate, so every job under it skipped
@@ -129,6 +199,21 @@ def evaluate(
             ),
         )
 
+    # The release tail does not wait for this job, so this records a release
+    # that already ran short; it cannot stop one. The Test job exports no
+    # counts, so the line names the tier, and its own annotation has the rest.
+    if run_checks and tier.release_short_of_full:
+        return GateVerdict(
+            ok=False,
+            reason=(
+                f"This run released with tests at tier "
+                f"{tier.tier or 'unknown'}, and test.full.required_for_release "
+                f"owed full. The plan should have forced full, so the workflow "
+                f"is wired wrong. See the Test job's annotation for what did "
+                f"not run."
+            ),
+        )
+
     ran = sorted(n for n, result in every.items() if result == SUCCESS)
     if not run_checks and not run_build:
         return GateVerdict(
@@ -139,4 +224,5 @@ def evaluate(
                 "nothing. Skipped deliberately, not missed."
             ),
         )
-    return GateVerdict(ok=True, reason=f"Ran and passed: {', '.join(ran)}.")
+    tier_line = tier.describe() if run_checks else ""
+    return GateVerdict(ok=True, reason=f"Ran and passed: {', '.join(ran)}.{tier_line}")

@@ -21,6 +21,7 @@ from typing import Any
 import yaml
 
 from hyperi_ci import classification
+from hyperi_ci.project_config import CONFIG_FILES
 
 _CONFIG_DIR = Path(__file__).resolve().parent / "config"
 
@@ -290,12 +291,7 @@ def load_config(
     )
 
     deprecated_keys: list[str] = []
-    for name in (
-        ".hyperi-ci.yaml",
-        ".hyperi-ci.yml",
-        ".hypersec-ci.yaml",
-        ".hypersec-ci.yml",
-    ):
+    for name in CONFIG_FILES:
         config_file = project_dir / name
         if config_file.exists():
             with open(config_file, encoding="utf-8") as f:
