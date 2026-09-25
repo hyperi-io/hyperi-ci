@@ -196,10 +196,8 @@ quality:
     audit: blocking
     audit_level: moderate
     osv_scanner: warn          # malicious-package (MAL-*) scan; npm audit is CVE-only
-    test_ignore:
-      - "@typescript-eslint/no-explicit-any"
-      - "@typescript-eslint/no-non-null-assertion"
-      - "no-console"
+    # No `test_ignore`: eslint runs through the project's own script, so test
+    # relaxation belongs in the project's eslint config overrides.
 
   golang:
     gofmt: warn
@@ -254,27 +252,46 @@ quality:
 # Testing
 test:
   enabled: true
+  # core: the suite the project selects by default (its pytest `addopts -m`,
+  # nextest `#[ignore]` and `default-filter`). full: everything the runner can
+  # execute. HYPERCI_TEST_TIER and `--tier` override. Unrelated to `use_tiers`
+  # below and to `rust.tier`, which pick directories and test kinds.
+  tier: core
+
+  full:
+    # Whether a release must have run the full tier.
+    required_for_release: false
+    python:
+      # pytest -m expression the full tier passes in place of the project's
+      # addopts -m. Empty selects every test; "not live" keeps one marker out.
+      markers: ""
+    # Tests full leaves out because the CI runner cannot execute them (live
+    # cloud, manual, perf). `filter` is a nextest filterset, passed as -E, and
+    # fails the stage under cargo test, which cannot apply one. `skip` lists
+    # test-name substrings, passed as --skip to nextest and cargo test alike.
+    rust:
+      filter: ""
+      skip: []
+
   coverage: true
   min_coverage: 80
   fail_on_missing: false
   use_tiers: false
 
+  # Python only, with `use_tiers`. No `timeout`: nothing enforced one.
   tiers:
     unit:
       enabled: true
       fail_fast: true
-      timeout: 300
     integration:
       enabled: true
       fail_fast: true
-      timeout: 900
     e2e:
       enabled: false
       fail_fast: false
-      timeout: 1800
 
+  # No `runner`: pytest is the only one the handler runs.
   python:
-    runner: pytest
     args:
       - "-v"
       - "--tb=short"
@@ -285,17 +302,13 @@ test:
     # fixed port or file is not parallel-safe and would turn red on upgrade.
     parallel: false
 
+  # No `args` and no `e2e` block: the handler runs a package script, and
+  # nothing ran Playwright or Cypress. A `test:full` script is the way in.
   typescript:
     runner: auto
-    args: []
-    e2e:
-      enabled: false
-      runner: playwright       # playwright or cypress
-      browser: chromium        # chromium, firefox, webkit
-      args: []
 
+  # No `runner`: go test is the only one the handler runs.
   golang:
-    runner: go
     race: true
     args:
       - "-v"
@@ -348,8 +361,7 @@ build:
       - darwin/arm64
       - windows/amd64
     cgo: false
-    garble: false
-    container: false
+    # No `garble` or `container`: the Go build handler implements neither.
 
 # Releasing
 #

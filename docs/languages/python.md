@@ -99,6 +99,10 @@ A single unsafe test does not cost a project the whole feature - mark the tests
 that must share a worker with xdist's own `@pytest.mark.xdist_group` and run
 `--dist loadgroup`.
 
+## Test tiers
+
+`--tier full` (or `test.tier: full`) adds `-m "<test.full.python.markers>"`, which replaces the project's `addopts -m`, so tests deselected by marker run too. The key defaults to `""`, every test. Details and the per-run notice: [test-tiers.md](../test-tiers.md).
+
 ## Gotchas - read before debugging CI
 
 ### Publish must go through `hyperi-ci run build`, not raw `uv build`

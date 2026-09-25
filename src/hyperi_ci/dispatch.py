@@ -34,6 +34,11 @@ from hyperi_ci.languages.quality_common import (
     GateReasonRequiredError,
     note_quality_disabled,
 )
+from hyperi_ci.languages.tiering import (
+    TEST_TIER_ENV,
+    InvalidTestTierError,
+    resolve_test_tier,
+)
 from hyperi_ci.quality import (
     charset,
     commit_validation,
@@ -324,7 +329,14 @@ def stage_test(language: str, config: CIConfig) -> int:
         info("Tests disabled in configuration")
         return 0
 
-    extra_env: dict[str, str] = {}
+    try:
+        test_tier = resolve_test_tier(config)
+    except InvalidTestTierError as exc:
+        error(str(exc))
+        return 1
+    info(f"Test tier: {test_tier}")
+
+    extra_env: dict[str, str] = {TEST_TIER_ENV: test_tier.value}
     if language == "rust":
         features = _normalize_rust_features(config, "test")
         extra_env["RUST_FEATURES"] = features

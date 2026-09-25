@@ -97,3 +97,42 @@ class TestTheGateActuallyCatchesThings:
         assert audit_module._has_reader(
             "build.rust.targets", 'config.get("build.rust")'
         )
+
+    def test_a_sibling_key_does_not_credit_the_ancestor(self, audit_module) -> None:
+        """How ten dead `test.*` keys passed: `"test.typescript.runner"` was
+        read, so `test.typescript.e2e.browser` counted as read too."""
+        assert not audit_module._has_reader(
+            "test.typescript.e2e.browser",
+            'config.get("test.typescript.runner", "auto")',
+        )
+
+    def test_an_fstring_child_path_does_not_credit_every_child(
+        self, audit_module
+    ) -> None:
+        assert not audit_module._has_reader(
+            "test.tiers.unit.timeout", 'config.get(f"test.tiers.{name}", {})'
+        )
+
+
+class TestPendingKeys:
+    """A key declared ahead of its reader is named, never passed off as read."""
+
+    def test_pending_keys_are_not_reported_unread(self, audit_module) -> None:
+        unread, _, _ = audit_module.audit()
+        assert not set(audit_module.load_pending()) & set(unread)
+
+    def test_every_pending_key_is_declared_and_has_no_reader(
+        self, audit_module
+    ) -> None:
+        """Once the reader lands, the entry shows up as redundant and fails."""
+        _, _, unused = audit_module.audit()
+        assert not set(audit_module.load_pending()) & set(unused)
+
+    def test_the_run_names_what_is_pending(
+        self, audit_module, capsys: pytest.CaptureFixture[str], monkeypatch
+    ) -> None:
+        monkeypatch.setattr(sys, "argv", ["audit-config-keys.py"])
+        assert audit_module.main() == 0
+        out = capsys.readouterr().out
+        for key in audit_module.load_pending():
+            assert f"Pending, no reader yet: {key}" in out

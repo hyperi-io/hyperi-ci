@@ -10,6 +10,7 @@ Uses scalo logger for structured output with automatic environment
 detection (GitHub Actions workflow commands, Solarized terminal, plain CI).
 """
 
+import codecs
 import http.client
 import os
 import random
@@ -318,7 +319,10 @@ def escape_command_data(value: str) -> str:
 
 
 def announce(
-    msg: str, title: str, *, level: Literal["warning", "error"] = "warning"
+    msg: str,
+    title: str,
+    *,
+    level: Literal["notice", "warning", "error"] = "warning",
 ) -> None:
     """Report once: an annotation under GitHub Actions, a log line elsewhere.
 
@@ -326,15 +330,17 @@ def announce(
     hide it, and it is escaped because a raw newline ends a workflow command.
     Under GitHub Actions it is the only output, because the logger would add a
     second annotation. Any other CI reads no workflow commands, so it gets the
-    log line.
+    log line, at info for a notice.
     """
     if is_github_actions():
         print(f"::{level} title={title}::{escape_command_data(msg)}", flush=True)
         return
     if level == "error":
         error(msg)
-    else:
+    elif level == "warning":
         warn(msg)
+    else:
+        info(msg)
 
 
 def mask(value: str) -> None:
@@ -740,59 +746,153 @@ def _log_line(line: str) -> None:
     info(f"  {line}")
 
 
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+
+
+def strip_ansi(text: str) -> str:
+    """Remove terminal colour and cursor codes, for parsing a tool's output.
+
+    ``CARGO_TERM_COLOR=always``, ``PY_COLORS=1`` and ``FORCE_COLOR`` colour a
+    tool's output even into a pipe, splitting a number from the word after it.
+    """
+    return _ANSI_ESCAPE.sub("", text)
+
+
+def echo_chunk(text: str) -> None:
+    """Pass a piece of a child's output through unchanged, as it arrives.
+
+    For a ``stream_cmd`` whose child's own output is the report, such as a test
+    runner's: the logger would prefix every line of it, and waiting for a
+    newline would hold back the id of a test that hangs mid-line.
+    """
+    sys.stdout.write(text)
+    sys.stdout.flush()
+
+
+# How much of a streamed child's output ``stream_cmd`` returns. Bounded, so a
+# test that logs without end cannot exhaust a 4 GB runner.
+STREAM_TAIL_CHARS = 64 * 1024
+
+_STREAM_READ_BYTES = 64 * 1024
+
+
+class _StreamReader:
+    """Drain a child's output pipe, feeding the sinks and keeping a bounded tail.
+
+    A sink that raises (a closed stdout under ``| head``) is not allowed to stop
+    the draining: an undrained pipe fills and blocks the child. The first such
+    exception is kept for the caller to raise once the child has exited.
+    """
+
+    def __init__(
+        self,
+        fd: int,
+        on_line: Callable[[str], None] | None,
+        on_chunk: Callable[[str], None] | None,
+        tail_chars: int,
+    ) -> None:
+        self._fd = fd
+        self._on_line = on_line
+        self._on_chunk = on_chunk
+        self._tail_chars = tail_chars
+        self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self._partial = ""
+        self._tail = ""
+        self._lock = threading.Lock()
+        self.sink_error: BaseException | None = None
+
+    def _call(self, sink: Callable[[str], None] | None, text: str) -> None:
+        if sink is None or self.sink_error is not None:
+            return
+        try:
+            sink(text)
+        except Exception as exc:  # noqa: BLE001 - kept and re-raised by stream_cmd
+            self.sink_error = exc
+
+    def _feed(self, text: str) -> None:
+        if not text:
+            return
+        self._call(self._on_chunk, text)
+        with self._lock:
+            self._tail = (self._tail + text)[-self._tail_chars :]
+        # Only the last piece can be an unfinished line; it waits for the rest.
+        pieces = (self._partial + text).split("\n")
+        self._partial = pieces.pop()
+        if len(self._partial) > self._tail_chars:
+            self._partial = self._partial[-self._tail_chars :]
+        for line in pieces:
+            self._call(self._on_line, line.removesuffix("\r"))
+
+    def run(self) -> None:
+        """Read until EOF, then hand over any final unterminated line."""
+        while chunk := os.read(self._fd, _STREAM_READ_BYTES):
+            self._feed(self._decoder.decode(chunk))
+        self._feed(self._decoder.decode(b"", final=True))
+        if self._partial:
+            self._call(self._on_line, self._partial.removesuffix("\r"))
+            self._partial = ""
+
+    def tail(self) -> str:
+        """Return the retained end of the output, without its final newline."""
+        with self._lock:
+            return self._tail.removesuffix("\n").removesuffix("\r")
+
+
 def stream_cmd(
     cmd: list[str],
     *,
-    on_line: Callable[[str], None] = _log_line,
+    on_line: Callable[[str], None] | None = _log_line,
+    on_chunk: Callable[[str], None] | None = None,
     on_heartbeat: Callable[[float, int], None] | None = None,
     heartbeat_seconds: float = 30.0,
     cwd: str | Path | None = None,
+    env: dict[str, str] | None = None,
 ) -> tuple[int, str]:
-    """Run a subprocess, handing over each output line as it arrives.
+    """Run a subprocess, handing over its output as it arrives.
 
     For a step whose silence is itself the symptom: a process that hangs still
-    leaves every line it printed, and ``on_heartbeat`` fires on an interval
+    leaves everything it printed, and ``on_heartbeat`` fires on an interval
     while it runs, so the log says how long it has been going (issue #261).
 
     Args:
         cmd: Command as list of strings.
-        on_line: Called with each line of combined stdout and stderr.
+        on_line: Called with each complete line of combined stdout and stderr,
+            and with a final unterminated one at exit. None skips it.
+        on_chunk: Called with each piece of output as it is read, before any
+            newline arrives, for a caller that passes the output through.
         on_heartbeat: Called with elapsed seconds and the child's pid every
             ``heartbeat_seconds`` until the process exits.
         heartbeat_seconds: Interval between heartbeats.
         cwd: Working directory.
+        env: Additional env vars for the child (merged with os.environ).
 
     Returns:
-        The exit code and the combined output.
+        The exit code and the last :data:`STREAM_TAIL_CHARS` characters of the
+        combined output. A caller that needs something from earlier collects
+        it in ``on_line``.
 
     Raises:
         OSError: The command could not be started -- ``FileNotFoundError``
             when it does not exist, ``PermissionError`` when it lacks the
             execute bit.
+        Exception: The first exception ``on_line`` or ``on_chunk`` raised,
+            re-raised once the child has exited. The pipe is drained regardless.
 
     """
+    run_env = {**os.environ, **env} if env else None
     # The python36 compatibility rules cannot apply on the 3.14 floor.
     # nosemgrep: python.lang.compatibility.python36.python36-compatibility-Popen1, python.lang.compatibility.python36.python36-compatibility-Popen2
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
         cwd=cwd,
+        env=run_env,
     )
-    lines: list[str] = []
-
-    def _read() -> None:
-        if proc.stdout is None:
-            return
-        for raw in proc.stdout:
-            line = raw.rstrip("\n")
-            lines.append(line)
-            on_line(line)
-
-    reader = threading.Thread(target=_read, daemon=True)
+    if proc.stdout is None:
+        raise OSError(f"no output pipe for {cmd[0]}")
+    drain = _StreamReader(proc.stdout.fileno(), on_line, on_chunk, STREAM_TAIL_CHARS)
+    reader = threading.Thread(target=drain.run, daemon=True)
     reader.start()
     started = time.monotonic()
     while True:
@@ -806,7 +906,9 @@ def stream_cmd(
     # Bounded: a grandchild that inherited the pipe can hold it open after the
     # child exits, and waiting on that would be a new hang.
     reader.join(timeout=10)
-    return returncode, "\n".join(lines)
+    if drain.sink_error is not None:
+        raise drain.sink_error
+    return returncode, drain.tail()
 
 
 # Common directories to exclude from quality checks

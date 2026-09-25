@@ -25,13 +25,51 @@ keys:
   quality.golang.golangci_lint: src/hyperi_ci/languages/quality_common.py
   quality.golang.gosec: src/hyperi_ci/languages/quality_common.py
   quality.golang.govulncheck: src/hyperi_ci/languages/quality_common.py
+  quality.python.ruff: src/hyperi_ci/languages/quality_common.py
+  quality.python.ruff_format: src/hyperi_ci/languages/quality_common.py
+  quality.python.ruff_docstrings: src/hyperi_ci/languages/quality_common.py
+  quality.python.ty: src/hyperi_ci/languages/quality_common.py
+  quality.python.pyright: src/hyperi_ci/languages/quality_common.py
+  quality.python.bandit: src/hyperi_ci/languages/quality_common.py
+  quality.python.pip_audit: src/hyperi_ci/languages/quality_common.py
+  quality.python.vulture: src/hyperi_ci/languages/quality_common.py
+  quality.typescript.eslint: src/hyperi_ci/languages/quality_common.py
+  quality.typescript.prettier: src/hyperi_ci/languages/quality_common.py
+  quality.typescript.tsc: src/hyperi_ci/languages/quality_common.py
+  quality.typescript.audit: src/hyperi_ci/languages/quality_common.py
+  quality.typescript.osv_scanner: src/hyperi_ci/languages/quality_common.py
+  quality.rust.fmt: src/hyperi_ci/languages/quality_common.py
+  quality.rust.clippy: src/hyperi_ci/languages/quality_common.py
+  quality.rust.semver_checks: src/hyperi_ci/languages/quality_common.py
+  quality.rust.audit: src/hyperi_ci/languages/quality_common.py
+  quality.rust.osv_scanner: src/hyperi_ci/languages/quality_common.py
+  quality.rust.deny: src/hyperi_ci/languages/quality_common.py
 
   # get_test_ignore() builds `quality.<language>.test_ignore`.
   quality.golang.test_ignore: src/hyperi_ci/languages/quality_common.py
+  quality.python.test_ignore: src/hyperi_ci/languages/quality_common.py
+  quality.rust.test_ignore: src/hyperi_ci/languages/quality_common.py
+
+  # _normalize_rust_features() builds `<stage>.rust.features`.
+  quality.rust.features: src/hyperi_ci/dispatch.py
+  test.rust.features: src/hyperi_ci/dispatch.py
+
+  # The Python directory split reads each `test.tiers.<dir>` mapping by name.
+  test.tiers.unit.enabled: src/hyperi_ci/languages/python/test.py
+  test.tiers.unit.fail_fast: src/hyperi_ci/languages/python/test.py
+  test.tiers.integration.enabled: src/hyperi_ci/languages/python/test.py
+  test.tiers.integration.fail_fast: src/hyperi_ci/languages/python/test.py
+  test.tiers.e2e.enabled: src/hyperi_ci/languages/python/test.py
+  test.tiers.e2e.fail_fast: src/hyperi_ci/languages/python/test.py
+
+  # Read off .hyperi-ci.yaml by chained .get(), not by dotted path.
+  build.rust.arm64_on_main: src/hyperi_ci/arm64_check.py
 
   # resolve_cross_tool_mode() builds `quality.<tool>` for the tools that run
   # once at dispatch level rather than per language.
   quality.gitleaks: src/hyperi_ci/quality/gitleaks.py
+  quality.kubeconform: src/hyperi_ci/quality/kubeconform.py
+  quality.checkov: src/hyperi_ci/quality/checkov.py
   quality.hadolint: src/hyperi_ci/quality/hadolint.py
   quality.droast: src/hyperi_ci/quality/droast.py
   quality.kube_linter: src/hyperi_ci/quality/kube_linter.py
@@ -52,3 +90,10 @@ keys:
   # Deliberate mirror of the Python constant, declared so an operator can see
   # the supported schema version in `hyperi-ci config` output.
   deployment.max_supported_schema_version: src/hyperi_ci/config.py
+
+# Keys declared ahead of the reader that lands with separate work. Each has NO
+# reader yet; the value says what will read it. The audit reports every pending
+# key on each run, and fails once a reader exists, so the entry is removed in
+# the change that lands the reader.
+pending:
+  test.full.required_for_release: "the CI plan job's release gate (test-tier workflow change)"
