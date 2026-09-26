@@ -65,15 +65,19 @@ test:
         - "could not import 'torch'"
 ```
 
-A full run passes pytest `-r` with the project's own report chars plus `s` (`-rfEs` when it sets none), so the short test summary lists every skip with its reason. It works the same under pytest-xdist, and for skips inside unittest `subTest` and pytest's `subtests` fixture. Each skip nobody allowed gets an error line with its count, reason and locations, and each allowed one an info line. If the summary's skip count does not match the reasons listed, or there is no summary line (net `-qq`, or a plugin that replaces the terminal reporter), the skips cannot be checked and the run fails.
+Every pytest run, core or full, passes `-r` with the project's own report chars plus `s` (`-rfEs` when it sets none), so the short test summary lists every skip with its reason. Full reads that list. It works the same under pytest-xdist, and for skips inside unittest `subTest` and pytest's `subtests` fixture. Each skip nobody allowed gets an error line with its count, reason and locations, and each allowed one an info line. If the summary's skip count does not match the reasons listed, or there is no summary line (net `-qq`, or a plugin that replaces the terminal reporter), the skips cannot be checked and the run fails.
 
 Two limits on what a pattern sees. Only the first line of a multi-line reason is matched. Under `--no-fold-skipped` the reason starts after the first ` - ` in the line, so a node id containing ` - ` (a parametrize id, say) moves part of it into the reason. A pattern without `^` or `$` anchors still matches in both cases.
 
 Rust has nothing to check. nextest's `skipped` count under full is the tests `test.full.rust.skip` and `test.full.rust.filter` exclude, and stable Rust gives a test no way to skip itself at run time. A test that returns early when a service is missing reports as passed, which no runner can tell apart. TypeScript and Go skips are not checked.
 
-## The slowest tests, in CI
+## The slowest tests and JUnit, in CI
 
-In CI, both tiers pass pytest `--durations=25`, which lists the 25 slowest test phases after the run. That is how a core test that has grown slow gets noticed and moved to full. A project that sets `--durations` itself, in `test.python.args`, its pytest config file's `addopts` or `PYTEST_ADDOPTS`, keeps its own value. Local runs are unchanged.
+In CI, both tiers pass pytest `--durations=25`, which lists the 25 slowest test phases after the run. That is how a core test that has grown slow gets noticed and moved to full. A project that sets `--durations` itself, in `test.python.args`, its pytest config file's `addopts` or `PYTEST_ADDOPTS`, keeps its own value.
+
+Both tiers also write JUnit XML to `test-results/junit.xml`, which the Test job uploads as the `test-results-python-<os>` artifact. With `test.use_tiers` each directory gets its own file, `junit-unit.xml` and so on. A project that sets `--junitxml` (or `--junit-xml`) in any of those sources keeps its own path, and one that passes `-p no:junitxml` gets none.
+
+Local runs get neither.
 
 ## The tier notice
 

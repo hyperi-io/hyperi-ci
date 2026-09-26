@@ -9,6 +9,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree
 
 import pytest
 
@@ -320,9 +321,9 @@ def _allow(*patterns: str, **test: Any) -> CIConfig:
 
 
 class TestCommandPerTier:
-    def test_core_command_is_unchanged(self, recorder: _Recorder) -> None:
+    def test_core_locally_adds_only_skip_reasons(self, recorder: _Recorder) -> None:
         assert py_test.run(_config(), extra_env={"TEST_TIER": "core"}) == 0
-        assert recorder.commands == [["pytest", "-v", "--tb=short"]]
+        assert recorder.commands == [["pytest", "-v", "--tb=short", "-rfEs"]]
 
     def test_no_tier_given_is_core(self, recorder: _Recorder) -> None:
         assert py_test.run(_config()) == 0
@@ -504,11 +505,39 @@ class TestFullTierSkips:
 
 
 class TestReportChars:
-    """``-r`` is last-wins, so full extends the project's chars with ``s``."""
+    """``-r`` is last-wins, so every run extends the project's chars with ``s``."""
 
-    def test_core_passes_no_report_chars(self, recorder: _Recorder) -> None:
+    def test_core_keeps_pytest_default_chars(self, recorder: _Recorder) -> None:
         py_test.run(_config(), extra_env={"TEST_TIER": "core"})
-        assert not any(arg.startswith("-r") for arg in recorder.commands[0])
+        assert [a for a in recorder.commands[0] if a.startswith("-r")] == ["-rfEs"]
+
+    def test_core_extends_the_project_args(self, recorder: _Recorder) -> None:
+        config = _config(python={"args": ["-v", "-rx"]})
+        py_test.run(config, extra_env={"TEST_TIER": "core"})
+        assert recorder.commands[0][-1] == "-rxs"
+
+    def test_core_extends_the_project_config_file(
+        self, recorder: _Recorder, tmp_path: Path
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[tool.pytest.ini_options]\naddopts = "-rf"\n',
+            encoding="utf-8",
+            newline="\n",
+        )
+        py_test.run(_config(), extra_env={"TEST_TIER": "core"})
+        assert "-rfs" in recorder.commands[0]
+
+    def test_a_reset_keeps_the_reset_and_adds_skips(self, recorder: _Recorder) -> None:
+        """``-rN`` clears the chars, so ``-rNs`` reports skips and nothing else."""
+        config = _config(python={"args": ["-rN"]})
+        py_test.run(config, extra_env={"TEST_TIER": "core"})
+        assert recorder.commands[0][-1] == "-rNs"
+
+    def test_all_chars_already_include_skips(self, recorder: _Recorder) -> None:
+        """``-ras`` is what pytest reads as ``-ra``: ``a`` already holds ``s``."""
+        config = _config(python={"args": ["-ra"]})
+        py_test.run(config, extra_env={"TEST_TIER": "core"})
+        assert recorder.commands[0][-1] == "-ras"
 
     def test_full_keeps_pytest_default_chars(self, recorder: _Recorder) -> None:
         py_test.run(_allow("probe"), extra_env={"TEST_TIER": "full"})
@@ -547,7 +576,16 @@ class TestSlowestTestsInCI:
 
     def test_core_in_ci_reports_the_25_slowest(self, in_ci: _Recorder) -> None:
         assert py_test.run(_config(), extra_env={"TEST_TIER": "core"}) == 0
-        assert in_ci.commands == [["pytest", "-v", "--tb=short", "--durations=25"]]
+        assert in_ci.commands == [
+            [
+                "pytest",
+                "-v",
+                "--tb=short",
+                "--durations=25",
+                "-rfEs",
+                "--junitxml=test-results/junit.xml",
+            ]
+        ]
 
     def test_full_in_ci_reports_them_too(self, in_ci: _Recorder) -> None:
         assert py_test.run(_allow("probe"), extra_env={"TEST_TIER": "full"}) == 0
@@ -560,7 +598,8 @@ class TestSlowestTestsInCI:
     def test_the_project_args_setting_it_win(self, in_ci: _Recorder) -> None:
         config = _config(python={"args": ["-v", "--durations", "5"]})
         py_test.run(config, extra_env={"TEST_TIER": "core"})
-        assert in_ci.commands == [["pytest", "-v", "--durations", "5"]]
+        assert in_ci.commands[0][:4] == ["pytest", "-v", "--durations", "5"]
+        assert "--durations=25" not in in_ci.commands[0]
 
     def test_pytest_addopts_setting_it_wins(
         self, in_ci: _Recorder, monkeypatch: pytest.MonkeyPatch
@@ -597,7 +636,83 @@ class TestSlowestTestsInCI:
     ) -> None:
         config = _config(python={"args": ["-v", "--durations-min=2"]})
         py_test.run(config, extra_env={"TEST_TIER": "core"})
-        assert in_ci.commands[0][-1] == "--durations=25"
+        assert "--durations=25" in in_ci.commands[0]
+
+
+_JUNIT = "--junitxml=test-results/junit.xml"
+
+
+class TestJUnitInCI:
+    @pytest.fixture
+    def in_ci(self, monkeypatch: pytest.MonkeyPatch, recorder: _Recorder) -> _Recorder:
+        monkeypatch.setattr(f"{MODULE}.is_ci", lambda: True)
+        return recorder
+
+    def test_core_in_ci_writes_junit(self, in_ci: _Recorder) -> None:
+        py_test.run(_config(), extra_env={"TEST_TIER": "core"})
+        assert _JUNIT in in_ci.commands[0]
+
+    def test_full_in_ci_writes_junit(self, in_ci: _Recorder) -> None:
+        py_test.run(_allow("probe"), extra_env={"TEST_TIER": "full"})
+        assert _JUNIT in in_ci.commands[0]
+
+    def test_a_local_run_writes_none(self, recorder: _Recorder) -> None:
+        py_test.run(_config(), extra_env={"TEST_TIER": "core"})
+        assert not any(a.startswith("--junit") for a in recorder.commands[0])
+
+    def test_each_directory_run_gets_its_own_file(self, in_ci: _Recorder) -> None:
+        py_test.run(_config(use_tiers=True), extra_env={"TEST_TIER": "core"})
+        assert [cmd[-2:] for cmd in in_ci.commands] == [
+            ["--junitxml=test-results/junit-unit.xml", "tests/unit/"],
+            ["--junitxml=test-results/junit-integration.xml", "tests/integration/"],
+        ]
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ["--junitxml=out.xml"],
+            ["--junitxml", "out.xml"],
+            ["--junit-xml=out.xml"],
+            ["--junit-xml", "out.xml"],
+            ["-p", "no:junitxml"],
+            ["-pno:junitxml"],
+        ],
+    )
+    def test_the_project_args_setting_it_win(
+        self, in_ci: _Recorder, args: list[str]
+    ) -> None:
+        py_test.run(_config(python={"args": args}), extra_env={"TEST_TIER": "core"})
+        assert _JUNIT not in in_ci.commands[0]
+
+    def test_pytest_addopts_setting_it_wins(
+        self, in_ci: _Recorder, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("PYTEST_ADDOPTS", "--junitxml=out.xml")
+        py_test.run(_config(), extra_env={"TEST_TIER": "core"})
+        assert _JUNIT not in in_ci.commands[0]
+
+    @pytest.mark.parametrize(
+        ("filename", "text"),
+        [
+            (
+                "pyproject.toml",
+                '[tool.pytest.ini_options]\naddopts = "--junitxml=o.xml"\n',
+            ),
+            ("pyproject.toml", '[tool.pytest]\naddopts = ["--junitxml=o.xml"]\n'),
+            ("pytest.toml", '[pytest]\naddopts = ["--junit-xml=o.xml"]\n'),
+            (".pytest.toml", '[pytest]\naddopts = ["--junitxml=o.xml"]\n'),
+            ("pytest.ini", "[pytest]\naddopts = --junitxml o.xml\n"),
+            (".pytest.ini", "[pytest]\naddopts = --junitxml=o.xml\n"),
+            ("tox.ini", "[pytest]\naddopts = --junitxml=o.xml\n"),
+            ("setup.cfg", "[tool:pytest]\naddopts = -p no:junitxml\n"),
+        ],
+    )
+    def test_a_config_file_setting_it_wins(
+        self, in_ci: _Recorder, tmp_path: Path, filename: str, text: str
+    ) -> None:
+        (tmp_path / filename).write_text(text, encoding="utf-8", newline="\n")
+        py_test.run(_config(), extra_env={"TEST_TIER": "core"})
+        assert _JUNIT not in in_ci.commands[0]
 
 
 class TestAgainstRealPytest:
@@ -689,6 +804,30 @@ class TestAgainstRealPytest:
         )
         assert py_test.run(_allow("^probe$"), extra_env={"TEST_TIER": "full"}) == 1
         assert "FAILED tests/test_fails.py::test_broken" in "".join(probe.infos)
+
+    def test_core_prints_skip_reasons(self, probe: _Recorder) -> None:
+        assert py_test.run(_config(), extra_env={"TEST_TIER": "core"}) == 0
+        assert "SKIPPED [1] tests/test_probe.py:6: probe" in "".join(probe.infos)
+
+    def test_core_in_ci_writes_junit_with_the_skip_reason(
+        self, probe: _Recorder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(f"{MODULE}.is_ci", lambda: True)
+        assert py_test.run(_config(), extra_env={"TEST_TIER": "core"}) == 0
+        junit = tmp_path / "test-results" / "junit.xml"
+        root = ElementTree.parse(junit).getroot()
+        skipped = root.findall(".//testcase/skipped")
+        assert [element.get("message") for element in skipped] == ["probe"]
+        assert len(root.findall(".//testcase")) == 2
+
+    def test_junit_under_xdist(
+        self, probe: _Recorder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(f"{MODULE}.is_ci", lambda: True)
+        config = _config(python={"args": ["-v", "-n", "2"]})
+        assert py_test.run(config, extra_env={"TEST_TIER": "core"}) == 0
+        root = ElementTree.parse(tmp_path / "test-results" / "junit.xml").getroot()
+        assert len(root.findall(".//testcase")) == 2
 
     @pytest.fixture
     def subtest_skips(self, probe: _Recorder, tmp_path: Path) -> _Recorder:

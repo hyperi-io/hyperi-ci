@@ -152,3 +152,14 @@ class TestOptionValues:
 
     def test_a_trailing_flag_without_value_is_ignored(self) -> None:
         assert option_values(["--durations"], "--durations") == []
+
+    def test_every_long_spelling_counts(self) -> None:
+        tokens = ["--junitxml=a.xml", "--junit-xml", "b.xml"]
+        assert option_values(tokens, "--junitxml", "--junit-xml") == [
+            "a.xml",
+            "b.xml",
+        ]
+
+    def test_a_short_only_option(self) -> None:
+        tokens = ["-p", "no:xdist", "-pno:junitxml"]
+        assert option_values(tokens, "-p") == ["no:xdist", "no:junitxml"]

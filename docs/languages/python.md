@@ -110,6 +110,10 @@ A single unsafe test does not cost a project the whole feature - mark the tests
 that must share a worker with xdist's own `@pytest.mark.xdist_group` and run
 `--dist loadgroup`.
 
+## Test output
+
+Every run passes pytest `-r` with `s` added to the project's own report chars, so each skip is listed with its reason. In CI, both tiers also pass `--durations=25` and write JUnit XML to `test-results/junit.xml` for the Test job's upload. A project that sets either option itself keeps its own. Details: [test-tiers.md](../test-tiers.md).
+
 ## Test tiers
 
 `--tier full` (or `test.tier: full`) adds `-m "<test.full.python.markers>"`, which replaces the project's `addopts -m`, so tests deselected by marker run too. The key defaults to `""`, every test. Details and the per-run notice: [test-tiers.md](../test-tiers.md).
