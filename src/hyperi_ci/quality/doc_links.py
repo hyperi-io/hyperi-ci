@@ -160,6 +160,9 @@ def run(
                 "--offline",
                 "--include-fragments",
                 "--no-progress",
+                # lychee cannot resolve a `/README.md` link without an absolute root.
+                "--root-dir",
+                str(root.resolve()),
                 "--format",
                 "json",
                 *[str(f) for f in files],
