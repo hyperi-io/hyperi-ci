@@ -131,6 +131,7 @@ Without one, the stage warns and names the security gates the repo loses: gitlea
 |---|---|---|
 | gitleaks | cross-language secret scan | dispatch (`quality/gitleaks.py`) |
 | semgrep | cross-language SAST (`--config auto`) | dispatch (`quality/semgrep.py`) |
+| charset | typography a keyboard cannot type, ASCII-art | dispatch (`quality/charset.py`) |
 | hadolint | Dockerfile lint GATE (shellcheck-on-`RUN`) | dispatch (`quality/hadolint.py`) |
 | droast | Dockerfile ADVISORY (cache / dockerignore) | dispatch (`quality/droast.py`) |
 | kubeconform | k8s manifest schema GATE | `lint-manifests` verb (`quality/kubeconform.py`) |
@@ -160,6 +161,26 @@ only; the formatter is `quality.python.ruff_format` and the D rules are
 formatter on an established tree reformats most of it at once, so deferring that
 must not require relaxing the real lint gate. All three default to blocking
 except `ruff_docstrings` (warn).
+
+### charset exclusions
+
+charset scans `src/`, `scripts/` and `.github/`. It skips the same directories as every other discovery here: `quality.exclude_paths` (a bare name or a repo-relative path) and the always-pruned set (`.git`, `node_modules`, `.venv`, ...).
+
+Where a banned character is correct DATA -- a registry's official name in a TOML table -- list the file under `quality.charset_exclude`:
+
+```yaml
+quality:
+  charset_exclude:
+    - "src/*/data/**"
+```
+
+Each glob matches the WHOLE repo-relative path, and `**` spans directories. So `*.toml` only matches a top-level file, and `**/*.toml` matches at any depth. A value that is not a list of relative glob strings fails the stage. There is no inline pragma, because a comment would change the data or is not possible in JSON.
+
+Every run that drops a file says so, per source:
+
+```text
+charset: 2 file(s) excluded (quality.charset_exclude: 1, quality.exclude_paths: 1)
+```
 
 ### gitleaks config
 

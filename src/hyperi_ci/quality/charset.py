@@ -24,14 +24,21 @@ what a parser does: one inside a YAML key or a TOML value is read as part of
 the token, and nothing in the diff shows why the file stopped loading.
 """
 
-from pathlib import Path
+import os
+from collections import Counter
+from collections.abc import Iterable
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 
-from hyperi_ci.common import info, success, warn
+from hyperi_ci.common import error, get_exclude_dirs, info, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_cross_tool_mode
 from hyperi_ci.quality import findings as fdg
+from hyperi_ci.quality import targets
 
 _TOOL = "charset"
+_EXCLUDE_PATHS = "quality.exclude_paths"
+_CHARSET_EXCLUDE = "quality.charset_exclude"
 
 # Character to what a keyboard types instead. Every entry is a substitution a
 # writer meant as punctuation, never a character carrying meaning of its own.
@@ -130,31 +137,151 @@ def scan_text(path: str, text: str) -> list[fdg.Finding]:
     return out
 
 
-def scan(roots: list[Path]) -> list[fdg.Finding]:
-    """Scan every source file under ``roots``, except this module.
+@dataclass(frozen=True, slots=True)
+class Selection:
+    """The files to scan, and how many each exclusion source dropped.
+
+    Attributes:
+        files: Files to scan, sorted within each root.
+        excluded: Dropped-file count per config key, for keys that dropped any.
+    """
+
+    files: list[Path]
+    excluded: Counter[str]
+
+
+def exclude_patterns(config: CIConfig) -> list[str]:
+    """Return ``quality.charset_exclude``, or raise on a malformed value.
+
+    A malformed exclusion would otherwise leave the check scanning what the
+    repo meant to exclude, with nothing saying why.
+
+    Raises:
+        ValueError: The value is not a list of relative glob strings.
+    """
+    raw = config.get(_CHARSET_EXCLUDE, [])
+    if not isinstance(raw, list):
+        raise ValueError(
+            f"{_CHARSET_EXCLUDE} must be a list of glob patterns, "
+            f"got {type(raw).__name__}: {raw!r}"
+        )
+    for entry in raw:
+        if not isinstance(entry, str) or not entry.strip() or entry.startswith("/"):
+            raise ValueError(
+                f"{_CHARSET_EXCLUDE} entries must be non-empty repo-relative glob "
+                f"strings, got {entry!r}"
+            )
+    return raw
+
+
+def select(
+    roots: list[Path],
+    *,
+    base: Path | None = None,
+    exclude_dirs: Iterable[str] = (),
+    exclude_paths: Iterable[str] = (),
+    patterns: Iterable[str] = (),
+) -> Selection:
+    """Pick the files under ``roots`` to scan, except this module.
 
     ``_BOX_DRAWING`` holds its characters as literal table DATA, so scanning
     this file reports the definition rather than a defect -- and a check that
     flags its own dictionary teaches the reader to distrust it.
+
+    Args:
+        roots: Directories to walk.
+        base: The repo root that relative paths and globs are measured from;
+            defaults to the working directory.
+        exclude_dirs: Directories pruned without being counted, on top of the
+            set :mod:`hyperi_ci.quality.targets` always prunes.
+        exclude_paths: Directories from ``quality.exclude_paths``, matched the
+            same way (a bare name or a relative path) and counted.
+        patterns: Globs from ``quality.charset_exclude``. Each matches the whole
+            repo-relative POSIX path, and ``**`` spans directories.
+
+    Returns:
+        The files to scan and the per-source excluded counts.
     """
-    out: list[fdg.Finding] = []
+    base = Path.cwd() if base is None else base
+    pruned = targets.prune_set(exclude_dirs)
+    configured = targets.exclude_set(exclude_paths)
+    globs = list(patterns)
     # Resolved, not by name: matching `charset.py` anywhere would exempt a
     # consumer's own module of that name, and anyone who wanted the exemption.
     this_file = Path(__file__).resolve()
+    files: list[Path] = []
+    excluded: Counter[str] = Counter()
     for root in roots:
         if not root.is_dir():
             continue
-        for path in sorted(root.rglob("*")):
-            if path.suffix not in SUFFIXES or not path.is_file():
-                continue
-            if path.resolve() == this_file:
-                continue
-            try:
-                text = path.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):
-                continue
-            out.extend(scan_text(str(path), text))
+        kept: list[Path] = []
+        # Whether each directory still to be walked sits inside an
+        # exclude_paths entry, keyed the way os.walk reports it.
+        inside = {os.fspath(root): targets.is_pruned(base / root, base, configured)}
+        for dirpath, dirnames, filenames in os.walk(root):
+            here = Path(dirpath)
+            anchored = base / here
+            excluded_here = inside.pop(dirpath)
+            dirnames[:] = [
+                d for d in dirnames if not targets.is_pruned(anchored / d, base, pruned)
+            ]
+            for d in dirnames:
+                below = targets.is_pruned(anchored / d, base, configured)
+                inside[os.path.join(dirpath, d)] = excluded_here or below
+            for name in filenames:
+                path = here / name
+                if path.suffix not in SUFFIXES or not path.is_file():
+                    continue
+                if path.resolve() == this_file:
+                    continue
+                if excluded_here:
+                    excluded[_EXCLUDE_PATHS] += 1
+                elif _matches(_relative(path, base), globs):
+                    excluded[_CHARSET_EXCLUDE] += 1
+                else:
+                    kept.append(path)
+        files.extend(sorted(kept))
+    return Selection(files=files, excluded=excluded)
+
+
+def _relative(path: Path, base: Path) -> PurePosixPath:
+    """Return ``path`` relative to ``base`` as POSIX, or as given if outside it."""
+    try:
+        return PurePosixPath((base / path).relative_to(base).as_posix())
+    except ValueError:
+        return PurePosixPath(path.as_posix())
+
+
+def _matches(path: PurePosixPath, globs: list[str]) -> bool:
+    return any(path.full_match(pattern) for pattern in globs)
+
+
+def scan_files(files: Iterable[Path]) -> list[fdg.Finding]:
+    """Scan each of ``files``, skipping any that cannot be read as UTF-8."""
+    out: list[fdg.Finding] = []
+    for path in files:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        out.extend(scan_text(str(path), text))
     return out
+
+
+def scan(roots: list[Path]) -> list[fdg.Finding]:
+    """Scan every source file under ``roots``, with no configured exclusion."""
+    return scan_files(select(roots).files)
+
+
+def _excluded_line(excluded: Counter[str]) -> str:
+    """Render the per-source exclusion count, sources in a fixed order."""
+    parts = [
+        f"{key}: {excluded[key]}"
+        for key in (_CHARSET_EXCLUDE, _EXCLUDE_PATHS)
+        if excluded[key]
+    ]
+    total = sum(excluded.values())
+    return f"  {_TOOL}: {total} file(s) excluded ({', '.join(parts)})"
 
 
 def run(
@@ -167,11 +294,13 @@ def run(
 
     Args:
         config: Merged CI configuration.
-        roots: Directories to scan; defaults to ``src/`` and ``scripts/``.
+        roots: Directories to scan; defaults to ``src/``, ``scripts/`` and
+            ``.github/``.
         sarif_path: Where to write SARIF, when the caller collects it.
 
     Returns:
-        0 unless a blocking mode found something.
+        0 unless a blocking mode found something, or the exclusion config is
+        malformed.
 
     """
     mode = resolve_cross_tool_mode(config, "charset", "warn")
@@ -179,10 +308,31 @@ def run(
         info(f"  {_TOOL}: disabled")
         return 0
 
+    try:
+        patterns = exclude_patterns(config)
+    except ValueError as exc:
+        error(f"  {_TOOL}: {exc}")
+        return 1
+
+    # Split so a directory pruned by default is not reported as the repo's own
+    # exclusion.
+    configured = config.get(_EXCLUDE_PATHS, [])
+    configured = configured if isinstance(configured, list) else []
+    exclude_dirs = get_exclude_dirs(config._raw)
+    exclude_paths = [d for d in exclude_dirs if d in configured]
+
     # `.github/` carries the workflow and action headers this check was raised
     # about, so leaving it out reported clean on the motivating surface.
-    targets = roots or [Path("src"), Path("scripts"), Path(".github")]
-    found = scan(targets)
+    scan_roots = roots or [Path("src"), Path("scripts"), Path(".github")]
+    selection = select(
+        scan_roots,
+        exclude_dirs=[d for d in exclude_dirs if d not in configured],
+        exclude_paths=exclude_paths,
+        patterns=patterns,
+    )
+    if selection.excluded:
+        info(_excluded_line(selection.excluded))
+    found = scan_files(selection.files)
 
     dropped = fdg.surface(_TOOL, found, sarif_path=sarif_path)
     if dropped:
