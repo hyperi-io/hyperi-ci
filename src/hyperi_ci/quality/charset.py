@@ -318,6 +318,8 @@ def run(
     # exclusion.
     configured = config.get(_EXCLUDE_PATHS, [])
     configured = configured if isinstance(configured, list) else []
+    # get_exclude_dirs strips a trailing `/`, so compare in the same form.
+    configured = [str(entry).rstrip("/") for entry in configured]
     exclude_dirs = get_exclude_dirs(config._raw)
     exclude_paths = [d for d in exclude_dirs if d in configured]
 
