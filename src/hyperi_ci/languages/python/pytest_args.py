@@ -129,14 +129,22 @@ def project_args(args: list[str], root: Path | None = None) -> list[str]:
     return [*config_file_addopts(base), *env, *args]
 
 
-def option_values(tokens: list[str], long: str, short: str | None = None) -> list[str]:
+def _attached_value(token: str, name: str) -> str | None:
+    """Return the value joined to an option in one token, None when not joined."""
+    if name.startswith("--"):
+        return token[len(name) + 1 :] if token.startswith(f"{name}=") else None
+    if token.startswith(name) and not token.startswith("--") and token != name:
+        return token[len(name) :]
+    return None
+
+
+def option_values(tokens: list[str], *names: str) -> list[str]:
     """Return every value given for an option, in order.
 
     Args:
         tokens: Split pytest arguments.
-        long: The long spelling, e.g. ``--durations``.
-        short: The short spelling, e.g. ``-r``, which also takes an attached
-            value (``-rfE``).
+        *names: The option's spellings. A long one (``--durations``) also
+            takes ``=value``, a short one (``-r``) an attached value (``-rfE``).
 
     Returns:
         The values, the last being the one pytest uses.
@@ -144,11 +152,13 @@ def option_values(tokens: list[str], long: str, short: str | None = None) -> lis
     """
     values: list[str] = []
     for index, token in enumerate(tokens):
-        if token in (long, short):
+        if token in names:
             if index + 1 < len(tokens):
                 values.append(tokens[index + 1])
-        elif token.startswith(f"{long}="):
-            values.append(token[len(long) + 1 :])
-        elif short and token.startswith(short) and not token.startswith("--"):
-            values.append(token[len(short) :])
+            continue
+        for name in names:
+            attached = _attached_value(token, name)
+            if attached is not None:
+                values.append(attached)
+                break
     return values

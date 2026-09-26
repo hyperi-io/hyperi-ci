@@ -19,8 +19,9 @@ Under ``full`` a skip fails the run unless its reason matches
 ``test.full.python.allow_skip``: a skip there is a test that could not run,
 which the full tier exists to rule out.
 
-In CI both tiers list the slowest tests with ``--durations``, unless the
-project sets its own.
+Every run lists each skip with its reason (``-r`` with ``s``). In CI both
+tiers also list the slowest tests with ``--durations`` and write JUnit XML to
+``test-results/``, each unless the project sets its own.
 """
 
 import re
@@ -53,6 +54,9 @@ _ALLOW_SKIP_KEY = "test.full.python.allow_skip"
 # How many of the slowest tests a CI run lists, so a core test that has grown
 # slow is seen and can move to the full tier.
 _CI_DURATIONS = 25
+
+# The directory python-ci.yml's Test job uploads as its test results.
+_RESULTS_DIR = "test-results"
 
 
 def _resolve_cmd(cmd: list[str]) -> list[str]:
@@ -95,8 +99,8 @@ _XDIST_HEADER = re.compile(
 # collected. Interrupted, internal and usage errors leave nothing to check.
 _COMPLETED_EXITS = (0, 1, _PYTEST_NO_TESTS_COLLECTED)
 
-# pytest's report chars when a project sets none. ``-r`` is last-wins, so full
-# appends ``s`` to the project's chars rather than passing it alone.
+# pytest's report chars when a project sets none. ``-r`` is last-wins, so every
+# run appends ``s`` to the project's chars rather than passing it alone.
 _DEFAULT_REPORT_CHARS = "fE"
 
 _SHORT_SUMMARY = re.compile(r"^=+ short test summary info =+$")
@@ -395,6 +399,26 @@ def _report_chars_arg(args: list[str]) -> str:
     return f"-r{chars}s"
 
 
+def _junit_wanted(args: list[str]) -> bool:
+    """Report whether a run writes JUnit XML for the CI upload, never locally."""
+    if not is_ci():
+        return False
+    tokens = project_args(args)
+    if option_values(tokens, "--junitxml", "--junit-xml"):
+        info("  JUnit: the project sets its own --junitxml, leaving it alone")
+        return False
+    # With the plugin disabled, pytest rejects --junitxml as a usage error.
+    if "no:junitxml" in option_values(tokens, "-p"):
+        info("  JUnit: the project disables pytest's junitxml plugin, writing none")
+        return False
+    return True
+
+
+def _junit_args(wanted: bool, filename: str) -> list[str]:
+    """Return ``--junitxml`` into the results directory, which pytest creates."""
+    return [f"--junitxml={_RESULTS_DIR}/{filename}"] if wanted else []
+
+
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     """Run Python tests.
 
@@ -427,6 +451,8 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # stays accurate across workers and needs no extra configuration.
     base_args.extend(parallel_args(config, base_args, _resolve_cmd(["pytest"])))
     base_args.extend(_durations_args(base_args))
+    base_args.append(_report_chars_arg(base_args))
+    junit = _junit_wanted(base_args)
 
     allow_skip: list[re.Pattern[str]] | None = None
     if test_tier is SuiteTier.FULL:
@@ -434,7 +460,6 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         allow_skip = _allow_skip_patterns(config)
         if full_args is None or allow_skip is None:
             return 1
-        base_args.append(_report_chars_arg(base_args))
         base_args.extend(full_args)
 
     # Directory split (test.use_tiers), independent of the test tier.
@@ -452,7 +477,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
             rc = _absolve_empty_run(
                 _run_pytest(
-                    base_args + [dir_path],
+                    base_args
+                    + _junit_args(junit, f"junit-{dir_tier}.xml")
+                    + [dir_path],
                     test_tier,
                     dir_tier=dir_tier,
                     allow_skip=allow_skip,
@@ -471,7 +498,12 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     # Single run (no directory split)
     rc = _absolve_empty_run(
-        _run_pytest(base_args, test_tier, allow_skip=allow_skip), config
+        _run_pytest(
+            base_args + _junit_args(junit, "junit.xml"),
+            test_tier,
+            allow_skip=allow_skip,
+        ),
+        config,
     )
     if rc == 0:
         success("Tests passed")
