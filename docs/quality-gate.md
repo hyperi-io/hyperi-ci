@@ -186,6 +186,22 @@ Every run that drops a file says so, per source:
 charset: 2 file(s) excluded (quality.charset_exclude: 1, quality.exclude_paths: 1)
 ```
 
+### Rust feature matrix: warnings
+
+The feature matrix builds each feature alone. Code every combined build uses can be dead in one of those builds, and clippy never sees it because it runs `--all-features`. `quality.rust.feature_matrix.warnings` decides what that warning does. It ships `warn`, and `--strict` upgrades it. A compile error fails in every mode.
+
+| Mode | Behaviour |
+|---|---|
+| `warn` | Same commands as before. Each feature set that warned is named with its first warning, a `::warning::` in CI. |
+| `blocking` | rustc denies warnings, and `cargo hack --keep-going` names every failing set in one run. |
+| `disabled` | Same commands and environment as before, warnings unread. |
+
+`warn` and `blocking` run cargo with `CARGO_TERM_COLOR=never` and strip any escapes that still arrive, since coloured output hides the lines the report is read from.
+
+The deny is its own `target.'cfg(all())'` rustflags entry, passed with `--config`. Cargo joins all matching target entries, so the repo's `[target.*]` flags and the ARC runner's `CARGO_TARGET_*_RUSTFLAGS` survive. `RUSTFLAGS` would discard both, `--cfg` flags included. Where `RUSTFLAGS` or `CARGO_ENCODED_RUSTFLAGS` is already set, cargo reads only that, so the deny is appended there. A repo with only `[build] rustflags`, on a machine with no target entry, loses them for these two passes. They are not copied into the deny: cargo ignores `[build]` whenever any target entry matches, and a copy would add flags wherever one does.
+
+New flags mean a new fingerprint: the first blocking run re-checks every dependency once, and both builds then stay cached.
+
 ### gitleaks config
 
 If your repo has a `.gitleaks.toml` (or `ci/.gitleaks.toml`), hyperi-ci passes

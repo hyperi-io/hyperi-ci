@@ -285,9 +285,14 @@ class _Tools:
         self.commands[tool_name] = cmd
         return True
 
+    def matrix_pass(
+        self, tool_name: str, cmd: list[str], _first_label: str, mode: str
+    ) -> bool:
+        return self.run_tool(tool_name, cmd, mode)
+
     def doc(self, cmd: list[str], **_kw: Any) -> Any:
         self.commands["cargo doc"] = cmd
-        return type("Result", (), {"stdout": "", "stderr": ""})()
+        return type("Result", (), {"stdout": "", "stderr": "", "returncode": 0})()
 
 
 @pytest.fixture
@@ -296,6 +301,7 @@ def tools(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _Tools:
     (tmp_path / "deny.toml").write_text("", encoding="utf-8")
     rec = _Tools()
     monkeypatch.setattr(f"{QUALITY}._run_tool", rec.run_tool)
+    monkeypatch.setattr(f"{QUALITY}._run_matrix_pass", rec.matrix_pass)
     monkeypatch.setattr(f"{QUALITY}.subprocess.run", rec.doc)
     monkeypatch.setattr(f"{QUALITY}.shutil.which", lambda n: f"/usr/bin/{n}")
     monkeypatch.setattr(f"{QUALITY}._has_lib_target", lambda *_a: True)
@@ -404,7 +410,7 @@ class TestFeatureMatrixScope:
         )
         rec: list[list[str]] = []
         monkeypatch.setattr(
-            f"{QUALITY}._run_tool", lambda _n, cmd, *_a, **_k: rec.append(cmd) or True
+            f"{QUALITY}._run_matrix_pass", lambda _n, cmd, *_a: rec.append(cmd) or True
         )
         assert rust_quality._run_feature_matrix(_quality_config(), workspace=True)
         assert all("--workspace" not in cmd for cmd in rec)
