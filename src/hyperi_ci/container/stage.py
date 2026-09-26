@@ -50,7 +50,12 @@ from hyperi_ci.common import (
     warn,
 )
 from hyperi_ci.config import CIConfig, OrgConfig, load_org_config
-from hyperi_ci.container.build import build_and_push, resolve_tags
+from hyperi_ci.container.build import (
+    BuildArgError,
+    build_and_push,
+    render_build_args,
+    resolve_tags,
+)
 from hyperi_ci.container.detect import Decision, detect
 from hyperi_ci.container.labels import build_oci_labels
 from hyperi_ci.container.registry import resolve_registry_bases
@@ -570,9 +575,10 @@ def _dispatch_build(
             "`description:` in .hyperi-ci.yaml."
         )
 
+    revision = os.environ.get("GITHUB_SHA", _read_sha())
     labels = build_oci_labels(
         repo=f"{org.github_org}/{image_name}",
-        revision=os.environ.get("GITHUB_SHA", _read_sha()),
+        revision=revision,
         version=version,
         title=image_name,
         description=description,
@@ -585,8 +591,16 @@ def _dispatch_build(
     if cfg_labels:
         labels.update(cfg_labels)
 
+    # The same version and revision as the labels, so an ARG and the label agree.
+    try:
+        build_args = render_build_args(
+            container_cfg.get("build_args"), version=version, sha=revision
+        )
+    except BuildArgError as exc:
+        error(str(exc))
+        return 1
+
     platforms = container_cfg.get("platforms", ["linux/amd64", "linux/arm64"])
-    build_args = container_cfg.get("build_args", {})
     context = container_cfg.get("context", ".")
 
     # Outside a GA publish the Build job only produces linux-amd64 (saves

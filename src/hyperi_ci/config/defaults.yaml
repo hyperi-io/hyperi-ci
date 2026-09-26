@@ -414,6 +414,11 @@ release:
     platforms:
       - linux/amd64
       - linux/arm64
+    # `--build-arg NAME=value` pairs. A value may carry `{version}` (the
+    # release version, as on the image's version label) and `{sha}` (the
+    # commit on its revision label): `CODE_VERSION: "{version}"`. Any other
+    # `{...}` fails the build. Write a literal brace as `{{` or `}}`.
+    build_args: {}
 
   helm:
     enabled: false
