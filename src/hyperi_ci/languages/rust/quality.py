@@ -9,6 +9,10 @@
 Orchestrates: cargo fmt --check, cargo clippy, cargo audit, cargo deny.
 Each tool's mode (blocking/warn/disabled) is configurable via
 .hyperi-ci.yaml quality.rust section.
+
+In a root-package workspace, the package-scoped commands (clippy, cargo deny,
+the feature matrix, rustdoc) take ``--workspace`` so members are checked too.
+cargo fmt and cargo audit cover the whole workspace already.
 """
 
 import os
@@ -19,6 +23,7 @@ from pathlib import Path
 from hyperi_ci.common import error, info, is_ci, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import get_test_ignore, resolve_tool_mode
+from hyperi_ci.languages.rust._manifest import is_root_package_workspace
 from hyperi_ci.quality import cargo_flags, osv_scanner
 from hyperi_ci.quality.ignores import IgnoreEntry, for_tool, load_ignores
 
@@ -313,6 +318,13 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     clippy_user_allows = [f"-A{e.id}" for e in for_tool(ignores, "clippy")]
 
     has_lib = _has_lib_target()
+    workspace = is_root_package_workspace()
+    workspace_args = ["--workspace"] if workspace else []
+    if workspace:
+        info(
+            "  Root package is also a workspace: clippy, cargo deny, the feature "
+            "matrix and rustdoc take --workspace, so every member is checked"
+        )
 
     for feature_set in feature_sets:
         feature_args = []
@@ -325,7 +337,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         # Bin-only crates would fail clippy --lib with "no library targets
         # found", so we only include --lib when the project actually has one.
         target_args = ["--lib", "--bins"] if has_lib else ["--bins"]
-        prod_cmd = ["cargo", "clippy", *target_args, *feature_args]
+        prod_cmd = ["cargo", "clippy", *workspace_args, *target_args, *feature_args]
         prod_cmd.extend(
             ["--", "-D", "warnings", "-D", "clippy::dbg_macro", *clippy_user_allows]
         )
@@ -333,7 +345,8 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             had_failure = True
 
         # Test pass -- test + bench targets, relaxed
-        test_cmd = ["cargo", "clippy", "--tests", "--benches"] + feature_args
+        test_cmd = ["cargo", "clippy", *workspace_args, "--tests", "--benches"]
+        test_cmd.extend(feature_args)
         allow_flags = [f"-A{rule}" for rule in test_ignore]
         test_cmd.extend(
             [
@@ -394,15 +407,15 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             "gated by cargo audit; a deny.toml would add licence, ban and "
             "source checks."
         )
-    elif not _run_tool("cargo deny", ["cargo", "deny", "check"], mode):
+    elif not _run_tool("cargo deny", ["cargo", "deny", *workspace_args, "check"], mode):
         had_failure = True
 
     # Feature matrix check (cargo hack --each-feature)
-    if not _run_feature_matrix(config):
+    if not _run_feature_matrix(config, workspace=workspace):
         had_failure = True
 
     # Rustdoc compliance hint (non-blocking; default: enabled)
-    _run_rustdoc_hint(config)
+    _run_rustdoc_hint(config, workspace=workspace)
 
     # Rustflags this repo declares but cannot ship (issue #178). Reads config
     # and .gitignore only, so it costs nothing and runs whatever else ran.
@@ -412,7 +425,17 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     return 1 if had_failure else 0
 
 
-def _run_feature_matrix(config: CIConfig) -> bool:
+def _names_a_package_scope(args: list[str]) -> bool:
+    """Return True when ``args`` already pick the packages cargo acts on.
+
+    cargo and cargo-hack reject a second ``--workspace``, and ``-p`` narrows
+    what ``--workspace`` would widen, so a repo's own scope wins.
+    """
+    scope_flags = {"--workspace", "--all", "-p", "--package"}
+    return any(a in scope_flags or a.startswith("--package=") for a in args)
+
+
+def _run_feature_matrix(config: CIConfig, *, workspace: bool = False) -> bool:
     """Run cargo-hack feature-matrix check.
 
     Catches feature-gating bugs where a module behind feature X uses a crate
@@ -424,6 +447,16 @@ def _run_feature_matrix(config: CIConfig) -> bool:
         cargo hack --each-feature --no-dev-deps check --lib
 
     Opt-out requires an explicit reason; CI fails if reason is missing.
+
+    Args:
+        config: Merged CI configuration.
+        workspace: Pass ``--workspace``, for a root-package workspace, unless
+            each member is already scoped with ``-p`` or ``extra_args`` names
+            a scope.
+
+    Returns:
+        True when the check passed or was disabled with a reason.
+
     """
     fm_config = config.get("quality.rust.feature_matrix", {})
     if not isinstance(fm_config, dict):
@@ -468,6 +501,9 @@ def _run_feature_matrix(config: CIConfig) -> bool:
     #
     # A workspace mixing lib and bin-only members has no single right answer,
     # so each member is scoped with -p and gets its own flag.
+    extra = fm_config.get("extra_args", [])
+    extra = [str(x) for x in extra] if isinstance(extra, list) else []
+
     lib_map = _package_lib_map()
     mixed_workspace = len(lib_map) > 1 and len(set(lib_map.values())) > 1
     if mixed_workspace:
@@ -476,7 +512,13 @@ def _run_feature_matrix(config: CIConfig) -> bool:
             for name, has_lib in sorted(lib_map.items())
         ]
     else:
-        scopes = [([], ["--lib"] if _has_lib_target() else ["--bins"])]
+        widen = workspace and not _names_a_package_scope(extra)
+        scopes = [
+            (
+                ["--workspace"] if widen else [],
+                ["--lib"] if _has_lib_target() else ["--bins"],
+            )
+        ]
 
     # Pass 1 -- bare crate (no default features). Catches "breaks without defaults" bugs.
     if fm_config.get("also_check_no_default_features", True):
@@ -503,9 +545,7 @@ def _run_feature_matrix(config: CIConfig) -> bool:
                     ]
                 )
 
-    extra = fm_config.get("extra_args", [])
-    if isinstance(extra, list):
-        tuning.extend(str(x) for x in extra)
+    tuning.extend(extra)
 
     for scope_args, target_args in scopes:
         cmd = [
@@ -524,12 +564,17 @@ def _run_feature_matrix(config: CIConfig) -> bool:
     return not had_failure
 
 
-def _run_rustdoc_hint(config: CIConfig) -> None:
+def _run_rustdoc_hint(config: CIConfig, *, workspace: bool = False) -> None:
     """Run cargo doc and emit a single concise warning if any issues found.
 
     Non-blocking by design: rustdoc hygiene is a ratchet, not a gate. Reports
     one summary line + standards links so AI agents and humans know where to
     look. Set quality.rust.rustdoc_hint.enabled=false to silence entirely.
+
+    Args:
+        config: Merged CI configuration.
+        workspace: Pass ``--workspace``, for a root-package workspace.
+
     """
     rd_config = config.get("quality.rust.rustdoc_hint", {})
     if not isinstance(rd_config, dict):
@@ -549,7 +594,14 @@ def _run_rustdoc_hint(config: CIConfig) -> None:
     # Build with --no-deps + RUSTDOCFLAGS treating warnings as warnings (default)
     # We just want the count, not to fail.
     result = subprocess.run(
-        ["cargo", "doc", "--no-deps", "--lib", "--all-features"],
+        [
+            "cargo",
+            "doc",
+            *(["--workspace"] if workspace else []),
+            "--no-deps",
+            "--lib",
+            "--all-features",
+        ],
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -565,16 +617,15 @@ def _run_rustdoc_hint(config: CIConfig) -> None:
     )
     combined = (result.stdout or "") + (result.stderr or "")
     warning_count = combined.count("warning:")
-    # Subtract the trailing summary line (e.g. "generated N warnings") to avoid
-    # double-counting; that line itself contains "warning:" once.
-    if "lib doc) generated" in combined:
-        warning_count = max(0, warning_count - 1)
+    # Each documented crate adds one "warning: `x` (lib doc) generated N
+    # warnings" summary line, which is not a finding of its own.
+    warning_count = max(0, warning_count - combined.count("lib doc) generated"))
 
     if warning_count == 0:
         return
 
     warn(
-        f"  rustdoc: {warning_count} doc warning(s) — see "
+        f"  rustdoc: {warning_count} doc warning(s) -- see "
         "https://doc.rust-lang.org/rustdoc/ + "
         "https://rust-lang.github.io/api-guidelines/documentation.html"
     )
