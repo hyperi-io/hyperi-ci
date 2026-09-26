@@ -17,8 +17,6 @@ Auto-detect + clean skip: a repo with no Dockerfile just yields ``[]`` and the
 tool info-skips - no opt-out config needed for a repo that has no target.
 """
 
-from __future__ import annotations
-
 import os
 from collections.abc import Iterable
 from pathlib import Path
@@ -69,12 +67,12 @@ def discover_dockerfiles(
     always-pruned set. Paths are returned sorted for deterministic output.
     """
     root = Path(root)
-    prune = _ALWAYS_PRUNE | {str(d).strip("/") for d in exclude_dirs if d}
+    prune = prune_set(exclude_dirs)
     found: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(root):
         # Prune in place so os.walk does not descend into excluded dirs.
         dirnames[:] = [
-            d for d in dirnames if not _is_pruned(Path(dirpath) / d, root, prune)
+            d for d in dirnames if not is_pruned(Path(dirpath) / d, root, prune)
         ]
         for fn in filenames:
             if _is_dockerfile(fn):
@@ -82,11 +80,17 @@ def discover_dockerfiles(
     return sorted(found)
 
 
-def _prune(exclude_dirs: Iterable[str]) -> set[str]:
-    return _ALWAYS_PRUNE | {str(d).strip("/") for d in exclude_dirs if d}
+def exclude_set(exclude_dirs: Iterable[str]) -> set[str]:
+    """Return ``exclude_dirs`` in the form :func:`is_pruned` matches against."""
+    return {str(d).strip("/") for d in exclude_dirs if d}
 
 
-def _is_pruned(candidate: Path, root: Path, prune: set[str]) -> bool:
+def prune_set(exclude_dirs: Iterable[str]) -> set[str]:
+    """Return ``exclude_dirs`` plus the directories pruned whatever the config."""
+    return _ALWAYS_PRUNE | exclude_set(exclude_dirs)
+
+
+def is_pruned(candidate: Path, root: Path, prune: set[str]) -> bool:
     """Whether ``candidate`` is excluded, by bare NAME or by relative PATH.
 
     `quality.exclude_paths` takes paths, so a nested entry like
@@ -162,11 +166,11 @@ def discover_compose_files(
     surface = _compose_surface()
     if surface is None:
         return []
-    prune = _prune(exclude_dirs)
+    prune = prune_set(exclude_dirs)
     out: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [
-            d for d in dirnames if not _is_pruned(Path(dirpath) / d, root, prune)
+            d for d in dirnames if not is_pruned(Path(dirpath) / d, root, prune)
         ]
         here = Path(dirpath)
         for fn in filenames:
@@ -201,11 +205,11 @@ def discover_markdown_files(
     deliberately broken link must stay broken.
     """
     root = Path(root)
-    prune = _prune(exclude_dirs) | _DOC_PRUNE
+    prune = prune_set(exclude_dirs) | _DOC_PRUNE
     found: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [
-            d for d in dirnames if not _is_pruned(Path(dirpath) / d, root, prune)
+            d for d in dirnames if not is_pruned(Path(dirpath) / d, root, prune)
         ]
         for fn in filenames:
             if not fn.endswith((".md", ".markdown")):
@@ -232,11 +236,11 @@ def discover_helm_charts(
     checkout does not double every chart.
     """
     root = Path(root)
-    prune = _prune(exclude_dirs)
+    prune = prune_set(exclude_dirs)
     charts: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [
-            d for d in dirnames if not _is_pruned(Path(dirpath) / d, root, prune)
+            d for d in dirnames if not is_pruned(Path(dirpath) / d, root, prune)
         ]
         if "Chart.yaml" not in filenames:
             continue
@@ -308,11 +312,11 @@ def discover_manifests(
     validation. Pruned dirs never descend.
     """
     root = Path(root)
-    prune = _prune(exclude_dirs)
+    prune = prune_set(exclude_dirs)
     out: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [
-            d for d in dirnames if not _is_pruned(Path(dirpath) / d, root, prune)
+            d for d in dirnames if not is_pruned(Path(dirpath) / d, root, prune)
         ]
         here = Path(dirpath)
         if _inside_chart(here, root):
