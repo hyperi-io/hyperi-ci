@@ -14,6 +14,10 @@ The test tier is separate from ``test.rust.tier``: ``core`` runs what the
 project selects by default, ``full`` adds ``#[ignore]`` tests and, under
 nextest, the tests the profile's ``default-filter`` leaves out. Every run
 reports its run and skipped counts as a ``test tier`` notice.
+
+Where the root Cargo.toml is both a package and a workspace with no
+``default-members``, every command takes ``--workspace``: cargo would
+otherwise test the root package alone.
 """
 
 import re
@@ -35,6 +39,7 @@ from hyperi_ci.common import (
     warn,
 )
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages.rust._manifest import is_root_package_workspace
 from hyperi_ci.languages.tiering import (
     KeptLines,
     SuiteTier,
@@ -159,6 +164,25 @@ def _split_feature_sets(features: str) -> list[str]:
     return [f.strip() for f in features.split("|") if f.strip()]
 
 
+def _scope_args(features: str, *, workspace: bool) -> list[str]:
+    """Return the package and feature switches every test command shares.
+
+    Args:
+        features: ``all``, ``default`` or a feature list.
+        workspace: Whether to pass ``--workspace``.
+
+    Returns:
+        The switches, ``--workspace`` first.
+
+    """
+    args = ["--workspace"] if workspace else []
+    if features == "all":
+        args.append("--all-features")
+    elif features != "default":
+        args.extend(["--features", features])
+    return args
+
+
 def _has_nextest() -> bool:
     """Check if cargo-nextest is installed."""
     return shutil.which("cargo-nextest") is not None
@@ -229,6 +253,7 @@ def _build_test_cmd(
     runner: str = "cargo",
     test_tier: SuiteTier = SuiteTier.CORE,
     selection: FullSelection = _NO_EXCLUSIONS,
+    workspace: bool = False,
 ) -> list[str]:
     """Build the cargo test command for the resolved runner.
 
@@ -241,6 +266,7 @@ def _build_test_cmd(
         runner: ``nextest`` or ``cargo``.
         test_tier: The test tier; ``full`` adds the ignored tests.
         selection: What full leaves out; ignored under ``core``.
+        workspace: Pass ``--workspace``, for a root-package workspace.
 
     Returns:
         The command.
@@ -256,10 +282,7 @@ def _build_test_cmd(
     else:
         cmd.append("test")
 
-    if features == "all":
-        cmd.append("--all-features")
-    elif features != "default":
-        cmd.extend(["--features", features])
+    cmd.extend(_scope_args(features, workspace=workspace))
 
     if rust_tier == "unit":
         cmd.append("--lib")
@@ -365,8 +388,11 @@ def _run_coverage(
     test_tier: SuiteTier = SuiteTier.CORE,
     selection: FullSelection = _NO_EXCLUSIONS,
     what: str = "",
+    workspace: bool = False,
 ) -> int:
     """Run tests with coverage using tarpaulin or llvm-cov.
+
+    Both tools spell the all-members switch ``--workspace``, as cargo does.
 
     Returns exit code (0 = success), or -1 when neither tool is installed.
     """
@@ -386,11 +412,8 @@ def _run_coverage(
             "Html",
             "--output-dir",
             str(_RESULTS_DIR),
+            *_scope_args(features, workspace=workspace),
         ]
-        if features == "all":
-            cmd.append("--all-features")
-        elif features != "default":
-            cmd.extend(["--features", features])
         if full:
             cmd.extend(["--", *selection.harness_args(include_ignored=True)])
 
@@ -414,10 +437,7 @@ def _run_coverage(
         if runner == "nextest":
             cmd.append("nextest")
         cmd.extend(["--lcov", "--output-path", str(lcov_path)])
-        if features == "all":
-            cmd.append("--all-features")
-        elif features != "default":
-            cmd.extend(["--features", features])
+        cmd.extend(_scope_args(features, workspace=workspace))
         if full and runner == "nextest":
             cmd.extend(selection.nextest_args())
             if harness := selection.harness_args(include_ignored=False):
@@ -488,6 +508,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             error(_filterset_unusable("cargo test"))
             return 1
         selection = resolved
+    workspace = is_root_package_workspace()
+    if workspace:
+        info("  Root package is also a workspace: --workspace, so every member runs")
     features = (extra_env or {}).get("RUST_FEATURES", "all")
     rust_tier = config.get("test.rust.tier", "all")
     feature_sets = _split_feature_sets(features)
@@ -504,6 +527,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
                 test_tier=test_tier,
                 selection=selection,
                 what=what,
+                workspace=workspace,
             )
             if rc >= 0:
                 if rc == 0:
@@ -515,7 +539,11 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         # Standard test execution (no coverage tool, or a test.rust.tier subset)
         if rust_tier == "all":
             cmd = _build_test_cmd(
-                feature_set, runner=runner, test_tier=test_tier, selection=selection
+                feature_set,
+                runner=runner,
+                test_tier=test_tier,
+                selection=selection,
+                workspace=workspace,
             )
             rc = _run_tests(cmd, test_tier, what)
             if rc != 0:
@@ -534,6 +562,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
                 runner=runner,
                 test_tier=test_tier,
                 selection=selection,
+                workspace=workspace,
             )
             info(f"  Running {kind} tests{label}...")
             rc = _run_tests(cmd, test_tier, f"{what} {kind}".strip())
