@@ -161,6 +161,20 @@ formatter on an established tree reformats most of it at once, so deferring that
 must not require relaxing the real lint gate. All three default to blocking
 except `ruff_docstrings` (warn).
 
+### Rust feature matrix: warnings
+
+The feature matrix builds each feature alone. Code every combined build uses can be dead in one of those builds, and clippy never sees it because it runs `--all-features`. `quality.rust.feature_matrix.warnings` decides what that warning does. It ships `warn`, and `--strict` upgrades it. A compile error fails in every mode.
+
+| Mode | Behaviour |
+|---|---|
+| `warn` | Same commands as before. Each feature set that warned is named with its first warning, a `::warning::` in CI. |
+| `blocking` | rustc denies warnings, and `cargo hack --keep-going` names every failing set in one run. |
+| `disabled` | Same commands as before, warnings unread. |
+
+The deny is its own `target.'cfg(all())'` rustflags entry, passed with `--config`. Cargo joins all matching target entries, so the repo's `[target.*]` flags and the ARC runner's `CARGO_TARGET_*_RUSTFLAGS` survive. `RUSTFLAGS` would discard both, `--cfg` flags included. Where `RUSTFLAGS` or `CARGO_ENCODED_RUSTFLAGS` is already set, cargo reads only that, so the deny is appended there. A repo with only `[build] rustflags`, on a machine with no target entry, loses them for these two passes.
+
+New flags mean a new fingerprint: the first blocking run re-checks every dependency once, and both builds then stay cached.
+
 ### gitleaks config
 
 If your repo has a `.gitleaks.toml` (or `ci/.gitleaks.toml`), hyperi-ci passes

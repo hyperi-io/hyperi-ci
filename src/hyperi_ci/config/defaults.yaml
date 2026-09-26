@@ -238,6 +238,7 @@ quality:
       exclude: []                      # features to skip entirely (e.g., ["_testing-only"])
       mutually_exclusive: []           # pairs that must not coexist (e.g., [["native-tls", "rustls"]])
       extra_args: []                   # pass-through to `cargo hack` (e.g., ["--workspace"])
+      warnings: warn                   # a feature set that builds with warnings: blocking / warn / disabled
     # Rustdoc compliance hint -- single concise warning if doc warnings are
     # found. Non-blocking by design (rustdoc hygiene is a ratchet, not a
     # gate). Set enabled=false to silence entirely. References:

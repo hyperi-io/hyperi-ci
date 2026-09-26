@@ -5,13 +5,20 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
+import subprocess
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.rust.quality import _run_feature_matrix, _run_rustdoc_hint
+from hyperi_ci.languages.rust.quality import (
+    _deny_warnings,
+    _feature_set_findings,
+    _run_feature_matrix,
+    _run_matrix_pass,
+    _run_rustdoc_hint,
+)
 
 
 def _make_config(fm: dict[str, Any] | None) -> CIConfig:
@@ -62,14 +69,16 @@ class TestFeatureMatrixCommandConstruction:
         def fake_which(name: str) -> str | None:
             return f"/usr/bin/{name}"
 
-        def fake_run_tool(
-            tool_name: str, cmd: list[str], mode: str, use_uvx: bool = False
+        def fake_run_pass(
+            tool_name: str, cmd: list[str], label: str, warnings_mode: str
         ) -> bool:
             captured_cmds.append(cmd)
             return True
 
         monkeypatch.setattr("hyperi_ci.languages.rust.quality.shutil.which", fake_which)
-        monkeypatch.setattr("hyperi_ci.languages.rust.quality._run_tool", fake_run_tool)
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality._run_matrix_pass", fake_run_pass
+        )
 
         config = _make_config(None)
         assert _run_feature_matrix(config) is True
@@ -95,8 +104,8 @@ class TestFeatureMatrixCommandConstruction:
             "hyperi_ci.languages.rust.quality.shutil.which", lambda n: f"/usr/bin/{n}"
         )
         monkeypatch.setattr(
-            "hyperi_ci.languages.rust.quality._run_tool",
-            lambda name, cmd, mode, use_uvx=False: captured_cmds.append(cmd) or True,
+            "hyperi_ci.languages.rust.quality._run_matrix_pass",
+            lambda name, cmd, label, mode: captured_cmds.append(cmd) or True,
         )
 
         config = _make_config({"also_check_no_default_features": False})
@@ -110,8 +119,8 @@ class TestFeatureMatrixCommandConstruction:
             "hyperi_ci.languages.rust.quality.shutil.which", lambda n: f"/usr/bin/{n}"
         )
         monkeypatch.setattr(
-            "hyperi_ci.languages.rust.quality._run_tool",
-            lambda name, cmd, mode, use_uvx=False: captured_cmds.append(cmd) or True,
+            "hyperi_ci.languages.rust.quality._run_matrix_pass",
+            lambda name, cmd, label, mode: captured_cmds.append(cmd) or True,
         )
 
         config = _make_config({"exclude": ["_internal", "_testing"]})
@@ -128,8 +137,8 @@ class TestFeatureMatrixCommandConstruction:
             "hyperi_ci.languages.rust.quality.shutil.which", lambda n: f"/usr/bin/{n}"
         )
         monkeypatch.setattr(
-            "hyperi_ci.languages.rust.quality._run_tool",
-            lambda name, cmd, mode, use_uvx=False: captured_cmds.append(cmd) or True,
+            "hyperi_ci.languages.rust.quality._run_matrix_pass",
+            lambda name, cmd, label, mode: captured_cmds.append(cmd) or True,
         )
 
         config = _make_config(
@@ -155,8 +164,8 @@ class TestFeatureMatrixCommandConstruction:
             "hyperi_ci.languages.rust.quality.shutil.which", lambda n: f"/usr/bin/{n}"
         )
         monkeypatch.setattr(
-            "hyperi_ci.languages.rust.quality._run_tool",
-            lambda name, cmd, mode, use_uvx=False: captured_cmds.append(cmd) or True,
+            "hyperi_ci.languages.rust.quality._run_matrix_pass",
+            lambda name, cmd, label, mode: captured_cmds.append(cmd) or True,
         )
 
         config = _make_config({"extra_args": ["--workspace", "--verbose"]})
@@ -173,8 +182,8 @@ class TestFeatureMatrixFailurePropagation:
             "hyperi_ci.languages.rust.quality.shutil.which", lambda n: f"/usr/bin/{n}"
         )
         monkeypatch.setattr(
-            "hyperi_ci.languages.rust.quality._run_tool",
-            lambda name, cmd, mode, use_uvx=False: False,
+            "hyperi_ci.languages.rust.quality._run_matrix_pass",
+            lambda name, cmd, label, mode: False,
         )
         config = _make_config(None)
         assert _run_feature_matrix(config) is False
@@ -386,8 +395,8 @@ class TestFeatureMatrixBinOnlyProject:
             "hyperi_ci.languages.rust.quality.shutil.which", lambda n: f"/usr/bin/{n}"
         )
         monkeypatch.setattr(
-            "hyperi_ci.languages.rust.quality._run_tool",
-            lambda name, cmd, mode, use_uvx=False: captured_cmds.append(cmd) or True,
+            "hyperi_ci.languages.rust.quality._run_matrix_pass",
+            lambda name, cmd, label, mode: captured_cmds.append(cmd) or True,
         )
         # Override the autouse "force lib" fixture
         monkeypatch.setattr(
@@ -423,8 +432,8 @@ class TestFeatureMatrixMixedWorkspace:
             "hyperi_ci.languages.rust.quality.shutil.which", lambda n: f"/usr/bin/{n}"
         )
         monkeypatch.setattr(
-            "hyperi_ci.languages.rust.quality._run_tool",
-            lambda name, cmd, mode, use_uvx=False: captured.append(cmd) or True,
+            "hyperi_ci.languages.rust.quality._run_matrix_pass",
+            lambda name, cmd, label, mode: captured.append(cmd) or True,
         )
         monkeypatch.setattr(
             "hyperi_ci.languages.rust.quality._package_lib_map",
@@ -549,3 +558,372 @@ class TestMergeDenyAdvisoryIgnores:
         assert ids == ["RUSTSEC-2024-0436", "RUSTSEC-2021-0127"]
         # the pre-existing quality.ignore entry is kept verbatim (its reason)
         assert merged[0].reason == "dup"
+
+
+# --- feature sets that build with warnings (issue #333) -------------------
+
+# Captured from cargo-hack 0.6.45 on cargo 1.98.1, stdout and stderr on one pipe:
+# a crate where feature `a` alone and feature `c` alone each leave a helper dead.
+_HACK_WARNINGS_LOCAL = """\
+info: --no-dev-deps modifies real `Cargo.toml` while cargo-hack is running and restores it when finished
+info: running `cargo check --lib --all-features` on fm-probe (1/6)
+    Checking fm-probe v0.1.0 (/work/fm-probe)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+
+info: running `cargo check --lib --no-default-features --features a` on fm-probe (3/6)
+    Checking fm-probe v0.1.0 (/work/fm-probe)
+warning: function `helper` is never used
+ --> src/lib.rs:4:4
+  |
+4 | fn helper() -> u32 {
+  |    ^^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `fm-probe` (lib) generated 1 warning
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+
+info: running `cargo check --lib --no-default-features --features b` on fm-probe (4/6)
+    Checking fm-probe v0.1.0 (/work/fm-probe)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+
+info: running `cargo check --lib --no-default-features --features c` on fm-probe (5/6)
+    Checking fm-probe v0.1.0 (/work/fm-probe)
+warning: function `other` is never used
+ --> src/lib.rs:9:4
+  |
+9 | fn other() -> u32 {
+  |    ^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `fm-probe` (lib) generated 1 warning
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+"""
+
+# The same run under GITHUB_ACTIONS=true, where cargo-hack opens a log group.
+_HACK_WARNINGS_GHA = """\
+info: --no-dev-deps modifies real `Cargo.toml` while cargo-hack is running and restores it when finished
+::group::running `cargo check --lib --no-default-features --features a` on fm-probe (3/6)
+warning: function `helper` is never used
+ --> src/lib.rs:4:4
+  |
+4 | fn helper() -> u32 {
+  |    ^^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `fm-probe` (lib) generated 1 warning
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+::endgroup::
+::group::running `cargo check --lib --no-default-features --features b` on fm-probe (4/6)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+::endgroup::
+::group::running `cargo check --lib --no-default-features --features c` on fm-probe (5/6)
+warning: function `other` is never used
+ --> src/lib.rs:9:4
+  |
+9 | fn other() -> u32 {
+  |    ^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `fm-probe` (lib) generated 1 warning
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+::endgroup::
+"""
+
+# The same crate with warnings denied and --keep-going.
+_HACK_DENIED = """\
+info: running `cargo check --config target.'cfg(all())'.rustflags=["-Dwarnings"] --lib --no-default-features --features a` on fm-probe (3/6)
+    Checking fm-probe v0.1.0 (/work/fm-probe)
+error: function `helper` is never used
+ --> src/lib.rs:4:4
+  |
+4 | fn helper() -> u32 {
+  |    ^^^^^^
+  |
+  = note: `-D dead-code` implied by `-D warnings`
+  = help: to override `-D warnings` add `#[expect(dead_code)]` or `#[allow(dead_code)]`
+
+error: could not compile `fm-probe` (lib) due to 1 previous error
+error: process didn't exit successfully: `cargo check --config target.'cfg(all())'.rustflags=["-Dwarnings"] --lib --manifest-path Cargo.toml --no-default-features --features a` (exit status: 101)
+
+info: running `cargo check --config target.'cfg(all())'.rustflags=["-Dwarnings"] --lib --no-default-features --features b` on fm-probe (4/6)
+    Checking fm-probe v0.1.0 (/work/fm-probe)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+
+info: running `cargo check --config target.'cfg(all())'.rustflags=["-Dwarnings"] --lib --no-default-features --features c` on fm-probe (5/6)
+    Checking fm-probe v0.1.0 (/work/fm-probe)
+error: function `other` is never used
+ --> src/lib.rs:9:4
+  |
+9 | fn other() -> u32 {
+  |    ^^^^^
+  |
+  = note: `-D dead-code` implied by `-D warnings`
+  = help: to override `-D warnings` add `#[expect(dead_code)]` or `#[allow(dead_code)]`
+
+error: could not compile `fm-probe` (lib) due to 1 previous error
+
+error: failed to run 2 commands
+"""
+
+_PLAIN_CHECK_WARNS = """\
+    Checking fm-probe v0.1.0 (/work/fm-probe)
+warning: function `helper` is never used
+ --> src/lib.rs:4:4
+  |
+warning: `fm-probe` (lib) generated 1 warning
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+"""
+
+_HACK_CMD = ["cargo", "hack", "--each-feature", "--no-dev-deps", "check", "--lib"]
+_DENY = "target.'cfg(all())'.rustflags=[\"-Dwarnings\"]"
+
+
+class TestFeatureSetFindings:
+    """The parser names each feature set from real cargo-hack output."""
+
+    @pytest.mark.parametrize("output", [_HACK_WARNINGS_LOCAL, _HACK_WARNINGS_GHA])
+    def test_each_warned_set_is_named_with_its_first_warning(self, output: str) -> None:
+        findings = _feature_set_findings(output, "warning", "unnamed")
+
+        assert [(f.label, f.message) for f in findings] == [
+            (
+                "--features a on fm-probe",
+                "function `helper` is never used (src/lib.rs:4:4)",
+            ),
+            (
+                "--features c on fm-probe",
+                "function `other` is never used (src/lib.rs:9:4)",
+            ),
+        ]
+
+    def test_denied_sets_are_named_as_errors(self) -> None:
+        findings = _feature_set_findings(_HACK_DENIED, "error", "unnamed")
+
+        assert [(f.label, f.message) for f in findings] == [
+            (
+                "--features a on fm-probe",
+                "function `helper` is never used (src/lib.rs:4:4)",
+            ),
+            (
+                "--features c on fm-probe",
+                "function `other` is never used (src/lib.rs:9:4)",
+            ),
+        ]
+
+    def test_errors_are_not_counted_as_warnings(self) -> None:
+        assert _feature_set_findings(_HACK_DENIED, "warning", "unnamed") == []
+
+    def test_plain_check_output_takes_the_first_label(self) -> None:
+        findings = _feature_set_findings(
+            _PLAIN_CHECK_WARNS, "warning", "--no-default-features"
+        )
+
+        assert [f.label for f in findings] == ["--no-default-features"]
+
+    def test_all_features_and_bare_runs_are_labelled(self) -> None:
+        output = (
+            "info: running `cargo check --lib --all-features` on x (1/2)\n"
+            "warning: unused import: `std::fmt`\n"
+            "warning: `x` (lib) generated 1 warning\n"
+            "info: running `cargo check --lib --no-default-features` on x (2/2)\n"
+            "warning: `x` (lib) generated 1 warning\n"
+        )
+        findings = _feature_set_findings(output, "warning", "unnamed")
+
+        assert [(f.label, f.message) for f in findings] == [
+            ("--all-features on x", "unused import: `std::fmt`"),
+            ("--no-default-features on x", ""),
+        ]
+
+
+class TestDenyWarnings:
+    """Blocking mode denies warnings without discarding anyone's rustflags."""
+
+    def test_no_env_flags_adds_a_target_entry_after_check(self) -> None:
+        cmd, env = _deny_warnings(_HACK_CMD, {})
+
+        assert cmd == [*_HACK_CMD[:5], "--config", _DENY, "--lib"]
+        assert env == {}
+
+    def test_existing_rustflags_are_kept(self) -> None:
+        cmd, env = _deny_warnings(_HACK_CMD, {"RUSTFLAGS": " -C target-cpu=native "})
+
+        assert cmd == _HACK_CMD
+        assert env == {"RUSTFLAGS": "-C target-cpu=native -D warnings"}
+
+    def test_empty_rustflags_still_wins_over_config(self) -> None:
+        _, env = _deny_warnings(_HACK_CMD, {"RUSTFLAGS": ""})
+
+        assert env == {"RUSTFLAGS": "-D warnings"}
+
+    def test_encoded_rustflags_take_the_deny_when_set(self) -> None:
+        cmd, env = _deny_warnings(
+            _HACK_CMD,
+            {"CARGO_ENCODED_RUSTFLAGS": "-C\x1ftarget-cpu=native", "RUSTFLAGS": "x"},
+        )
+
+        assert cmd == _HACK_CMD
+        assert env == {
+            "CARGO_ENCODED_RUSTFLAGS": "-C\x1ftarget-cpu=native\x1f-D\x1fwarnings"
+        }
+
+
+def _fake_cargo(
+    monkeypatch: pytest.MonkeyPatch, returncode: int, output: str
+) -> list[dict[str, Any]]:
+    """Record every subprocess.run call and answer it with ``output``."""
+    calls: list[dict[str, Any]] = []
+
+    def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append({"cmd": cmd, **kwargs})
+        return subprocess.CompletedProcess(cmd, returncode, stdout=output)
+
+    monkeypatch.setattr("hyperi_ci.languages.rust.quality.subprocess.run", fake_run)
+    monkeypatch.setattr(
+        "hyperi_ci.languages.rust.quality.shutil.which", lambda n: f"/usr/bin/{n}"
+    )
+    return calls
+
+
+class TestRunMatrixPass:
+    """What each warnings mode runs, and what it reports."""
+
+    def test_warn_names_each_set_and_passes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls = _fake_cargo(monkeypatch, 0, _HACK_WARNINGS_GHA)
+        announced: list[str] = []
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality.announce",
+            lambda msg, title: announced.append(msg),
+        )
+        monkeypatch.setenv("RUSTFLAGS", "-C target-cpu=native")
+
+        assert _run_matrix_pass("fm", list(_HACK_CMD), "unnamed", "warn") is True
+
+        assert announced == [
+            "feature_matrix: --features a on fm-probe builds with warnings: "
+            "function `helper` is never used (src/lib.rs:4:4)",
+            "feature_matrix: --features c on fm-probe builds with warnings: "
+            "function `other` is never used (src/lib.rs:9:4)",
+        ]
+        assert calls[0]["cmd"] == _HACK_CMD
+        assert calls[0]["env"] is None
+        assert calls[0]["stderr"] is subprocess.STDOUT
+
+    def test_blocking_denies_merges_rustflags_and_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls = _fake_cargo(monkeypatch, 101, _HACK_DENIED)
+        errors: list[str] = []
+        monkeypatch.setattr("hyperi_ci.languages.rust.quality.error", errors.append)
+        monkeypatch.setattr("hyperi_ci.languages.rust.quality.info", lambda msg: None)
+        monkeypatch.setenv("RUSTFLAGS", "-C target-cpu=native")
+        monkeypatch.delenv("CARGO_ENCODED_RUSTFLAGS", raising=False)
+
+        assert _run_matrix_pass("fm", list(_HACK_CMD), "unnamed", "blocking") is False
+
+        assert calls[0]["cmd"] == ["cargo", "hack", "--keep-going", *_HACK_CMD[2:]]
+        assert calls[0]["env"]["RUSTFLAGS"] == "-C target-cpu=native -D warnings"
+        assert errors == [
+            "  fm: failed",
+            "  fm: --features a on fm-probe: "
+            "function `helper` is never used (src/lib.rs:4:4)",
+            "  fm: --features c on fm-probe: "
+            "function `other` is never used (src/lib.rs:9:4)",
+        ]
+
+    def test_blocking_without_env_flags_uses_the_config_entry(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls = _fake_cargo(monkeypatch, 0, "")
+        monkeypatch.delenv("RUSTFLAGS", raising=False)
+        monkeypatch.delenv("CARGO_ENCODED_RUSTFLAGS", raising=False)
+        cmd = ["cargo", "check", "--no-default-features", "--lib"]
+
+        assert _run_matrix_pass("fm", cmd, "--no-default-features", "blocking")
+
+        assert calls[0]["cmd"] == [
+            "cargo",
+            "check",
+            "--config",
+            _DENY,
+            "--no-default-features",
+            "--lib",
+        ]
+        assert calls[0]["env"] is None
+
+    def test_a_compile_error_fails_in_warn_mode(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _fake_cargo(monkeypatch, 101, _HACK_DENIED)
+
+        assert _run_matrix_pass("fm", list(_HACK_CMD), "unnamed", "warn") is False
+
+    def test_disabled_runs_exactly_what_it_did_before(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls = _fake_cargo(monkeypatch, 0, _HACK_WARNINGS_GHA)
+        ran: list[tuple[list[str], str]] = []
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality._run_tool",
+            lambda name, cmd, mode, use_uvx=False: ran.append((cmd, mode)) or True,
+        )
+        monkeypatch.setenv("RUSTFLAGS", "-C target-cpu=native")
+
+        assert _run_matrix_pass("fm", list(_HACK_CMD), "unnamed", "disabled")
+
+        assert ran == [(_HACK_CMD, "blocking")]
+        assert calls == []
+
+
+@pytest.mark.usefixtures("_force_lib_target")
+class TestFeatureMatrixWarningsMode:
+    """``quality.rust.feature_matrix.warnings`` resolves like every quality mode."""
+
+    @staticmethod
+    def _modes(monkeypatch: pytest.MonkeyPatch, fm: dict[str, Any] | None) -> set:
+        modes: set[str] = set()
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality.shutil.which", lambda n: f"/usr/bin/{n}"
+        )
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality._package_lib_map", lambda *a, **kw: {}
+        )
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality._run_matrix_pass",
+            lambda name, cmd, label, mode: modes.add(mode) or True,
+        )
+        assert _run_feature_matrix(_make_config(fm)) is True
+        return modes
+
+    def test_unset_is_warn(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
+        assert self._modes(monkeypatch, None) == {"warn"}
+
+    @pytest.mark.parametrize("mode", ["blocking", "warn", "disabled"])
+    def test_configured_mode_is_used(
+        self, monkeypatch: pytest.MonkeyPatch, mode: str
+    ) -> None:
+        monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
+        assert self._modes(monkeypatch, {"warnings": mode}) == {mode}
+
+    def test_strict_upgrades_warn_to_blocking(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYPERCI_QUALITY_STRICT", "1")
+        assert self._modes(monkeypatch, None) == {"blocking"}
+
+    def test_strict_leaves_disabled_alone(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYPERCI_QUALITY_STRICT", "1")
+        assert self._modes(monkeypatch, {"warnings": "disabled"}) == {"disabled"}
+
+    def test_a_typo_falls_back_to_warn(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
+        assert self._modes(monkeypatch, {"warnings": "block"}) == {"warn"}

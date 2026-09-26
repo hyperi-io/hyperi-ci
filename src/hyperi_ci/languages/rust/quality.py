@@ -12,11 +12,14 @@ Each tool's mode (blocking/warn/disabled) is configurable via
 """
 
 import os
+import re
 import shutil
 import subprocess
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
-from hyperi_ci.common import error, info, is_ci, success, warn
+from hyperi_ci.common import announce, error, info, is_ci, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import get_test_ignore, resolve_tool_mode
 from hyperi_ci.quality import cargo_flags, osv_scanner
@@ -33,6 +36,32 @@ _DEFAULT_RUST_TEST_IGNORE = [
     "clippy::panic",
     "clippy::indexing_slicing",
 ]
+
+# A target entry of its own joins the repo's and the runner's target rustflags,
+# where RUSTFLAGS would discard them.
+_DENY_WARNINGS_CONFIG = "target.'cfg(all())'.rustflags=[\"-Dwarnings\"]"
+
+# cargo-hack writes its progress line as a log group under GitHub Actions.
+_HACK_RUN = re.compile(
+    r"^(?:info: |::group::)running `(?P<cmd>[^`]*)` on (?P<crate>\S+)"
+)
+_WARNED_UNIT = re.compile(r"^warning: `[^`]+` \(.+\) generated \d+ warnings?")
+_FAILED_UNIT = re.compile(r"^error: could not compile `")
+
+_FEATURE_WARNINGS_TITLE = "hyperi-ci feature set builds with warnings"
+
+
+@dataclass(frozen=True, slots=True)
+class FeatureSetFinding:
+    """A feature set whose build produced diagnostics.
+
+    Attributes:
+        label: The feature flags cargo ran with, and the crate when known.
+        message: The first diagnostic, with its source location when cargo gave one.
+    """
+
+    label: str
+    message: str
 
 
 def _deny_toml_advisory_ignores(project_dir: Path | None = None) -> list[str]:
@@ -423,6 +452,11 @@ def _run_feature_matrix(config: CIConfig) -> bool:
         cargo check --no-default-features --lib
         cargo hack --each-feature --no-dev-deps check --lib
 
+    A feature built alone can leave code dead that every combined build uses,
+    so ``quality.rust.feature_matrix.warnings`` decides what a warning does:
+    ``warn`` names each feature set that warned, ``blocking`` denies warnings
+    in rustc and fails, ``disabled`` runs the passes as before (issue #333).
+
     Opt-out requires an explicit reason; CI fails if reason is missing.
     """
     fm_config = config.get("quality.rust.feature_matrix", {})
@@ -459,6 +493,9 @@ def _run_feature_matrix(config: CIConfig) -> bool:
             return False
 
     had_failure = False
+    warnings_mode = resolve_tool_mode(
+        "feature_matrix.warnings", config, "rust", default="warn"
+    )
 
     # Both passes use --lib when a lib target exists, --bins otherwise.
     # cargo would error "no library targets found" on bin-only crates
@@ -482,7 +519,10 @@ def _run_feature_matrix(config: CIConfig) -> bool:
     if fm_config.get("also_check_no_default_features", True):
         for scope_args, target_args in scopes:
             cmd = ["cargo", "check", "--no-default-features", *scope_args, *target_args]
-            if not _run_tool("feature_matrix (no-default-features)", cmd, "blocking"):
+            label = " on ".join(["--no-default-features", *scope_args[1:]])
+            if not _run_matrix_pass(
+                "feature_matrix (no-default-features)", cmd, label, warnings_mode
+            ):
                 had_failure = True
 
     # Pass 2 -- each feature in isolation
@@ -518,10 +558,164 @@ def _run_feature_matrix(config: CIConfig) -> bool:
             *target_args,
             *tuning,
         ]
-        if not _run_tool("feature_matrix (each-feature)", cmd, "blocking"):
+        if not _run_matrix_pass(
+            "feature_matrix (each-feature)",
+            cmd,
+            "a feature set cargo-hack did not name",
+            warnings_mode,
+        ):
             had_failure = True
 
     return not had_failure
+
+
+def _deny_warnings(
+    cmd: list[str], environ: Mapping[str, str]
+) -> tuple[list[str], dict[str, str]]:
+    """Return ``cmd`` and the extra env that make rustc deny every warning.
+
+    Cargo takes extra flags from ONE source: ``CARGO_ENCODED_RUSTFLAGS``, else
+    ``RUSTFLAGS``, else every matching ``target.*`` entry joined, else
+    ``build.rustflags``. With neither env source set, the deny goes in as its
+    own ``target.'cfg(all())'`` entry via ``--config``, which joins the repo's
+    and the runner's target entries rather than replacing them. It still
+    displaces ``build.rustflags`` where no other target entry exists.
+
+    Args:
+        cmd: The cargo or cargo-hack command, containing ``check``.
+        environ: The environment the command will inherit.
+
+    Returns:
+        The command to run, and env vars to set on top of ``environ``.
+
+    """
+    if "CARGO_ENCODED_RUSTFLAGS" in environ:
+        flags = [f for f in environ["CARGO_ENCODED_RUSTFLAGS"].split("\x1f") if f]
+        return cmd, {"CARGO_ENCODED_RUSTFLAGS": "\x1f".join([*flags, "-D", "warnings"])}
+    if "RUSTFLAGS" in environ:
+        return cmd, {"RUSTFLAGS": f"{environ['RUSTFLAGS'].strip()} -D warnings".strip()}
+    at = cmd.index("check") + 1
+    return [*cmd[:at], "--config", _DENY_WARNINGS_CONFIG, *cmd[at:]], {}
+
+
+def _feature_set_label(hack_cmd: str, crate: str) -> str:
+    """Name the feature set in a ``cargo hack`` "running" line."""
+    tokens = hack_cmd.split()
+    if "--features" in tokens and tokens.index("--features") + 1 < len(tokens):
+        flags = f"--features {tokens[tokens.index('--features') + 1]}"
+    elif "--all-features" in tokens:
+        flags = "--all-features"
+    else:
+        flags = "--no-default-features"
+    return f"{flags} on {crate}"
+
+
+def _first_diagnostic(lines: list[str], prefix: str) -> str:
+    """Return the first ``prefix`` diagnostic, with the location cargo printed."""
+    fallback = ""
+    for index, line in enumerate(lines):
+        if not line.startswith(prefix):
+            continue
+        if _WARNED_UNIT.match(line) or _FAILED_UNIT.match(line):
+            continue
+        text = line.removeprefix(prefix).strip()
+        following = lines[index + 1].strip() if index + 1 < len(lines) else ""
+        if following.startswith("--> "):
+            return f"{text} ({following.removeprefix('--> ')})"
+        fallback = fallback or text
+    return fallback
+
+
+def _feature_set_findings(
+    output: str, level: str, first_label: str
+) -> list[FeatureSetFinding]:
+    """Split cargo output by feature set and report each set that ``level``-ed.
+
+    ``cargo hack`` announces each run on its own ``running`` line, and cargo
+    closes every unit that warned or failed with a summary line, so a set
+    counts only on that summary. Cargo replays cached diagnostics for a fresh
+    unit, so a warm target directory reports the same sets as a cold one.
+
+    Args:
+        output: cargo's stdout and stderr through one pipe, so cargo-hack's
+            progress lines stay in order with the diagnostics.
+        level: ``warning`` or ``error``.
+        first_label: Name for output before any ``running`` line, which is all
+            of it for a plain ``cargo check``.
+
+    Returns:
+        One finding per feature set, in the order cargo ran them.
+
+    """
+    summary = _WARNED_UNIT if level == "warning" else _FAILED_UNIT
+    sections: list[tuple[str, list[str]]] = [(first_label, [])]
+    for line in output.splitlines():
+        if run := _HACK_RUN.match(line):
+            label = _feature_set_label(run["cmd"], run["crate"])
+            sections.append((label, []))
+            continue
+        sections[-1][1].append(line)
+
+    findings: list[FeatureSetFinding] = []
+    for label, lines in sections:
+        if any(summary.match(line) for line in lines):
+            message = _first_diagnostic(lines, f"{level}: ")
+            findings.append(FeatureSetFinding(label=label, message=message))
+    return findings
+
+
+def _run_matrix_pass(
+    tool_name: str, cmd: list[str], first_label: str, warnings_mode: str
+) -> bool:
+    """Run one feature-matrix pass. Returns True if the pipeline should continue.
+
+    A compile error always fails. A warning fails under ``blocking``, is named
+    per feature set under ``warn``, and is not looked for under ``disabled``.
+    """
+    if warnings_mode == "disabled" or not shutil.which(cmd[0]):
+        return _run_tool(tool_name, cmd, "blocking")
+
+    env: dict[str, str] = {}
+    if warnings_mode == "blocking":
+        cmd, env = _deny_warnings(cmd, os.environ)
+        if cmd[1] == "hack":
+            # Without it cargo-hack stops at the first set, and each rerun names one.
+            cmd = [*cmd[:2], "--keep-going", *cmd[2:]]
+
+    # One pipe: under GitHub Actions cargo-hack names each set on stdout while
+    # the diagnostics go to stderr, and only a shared pipe keeps their order.
+    result = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env={**os.environ, **env} if env else None,
+    )
+    output = result.stdout or ""
+
+    if result.returncode != 0:
+        error(f"  {tool_name}: failed")
+        for finding in _feature_set_findings(output, "error", first_label):
+            error(f"  {tool_name}: {finding.label}: {finding.message}")
+        info(output)
+        return False
+
+    warned = _feature_set_findings(output, "warning", first_label)
+    if not warned:
+        success(f"  {tool_name}: passed")
+        return True
+    for finding in warned:
+        announce(
+            f"feature_matrix: {finding.label} builds with warnings: {finding.message}",
+            _FEATURE_WARNINGS_TITLE,
+        )
+    info(
+        f"  {tool_name}: {len(warned)} feature set(s) warn (non-blocking; "
+        "quality.rust.feature_matrix.warnings: blocking fails on them)"
+    )
+    return True
 
 
 def _run_rustdoc_hint(config: CIConfig) -> None:
@@ -574,7 +768,7 @@ def _run_rustdoc_hint(config: CIConfig) -> None:
         return
 
     warn(
-        f"  rustdoc: {warning_count} doc warning(s) — see "
+        f"  rustdoc: {warning_count} doc warning(s) -- see "
         "https://doc.rust-lang.org/rustdoc/ + "
         "https://rust-lang.github.io/api-guidelines/documentation.html"
     )
