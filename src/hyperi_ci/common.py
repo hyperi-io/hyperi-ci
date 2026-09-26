@@ -246,6 +246,21 @@ def is_prerelease_build() -> bool:
 _COMMAND_PREFIXES = ("::", "##[")
 
 
+# CSI sequences (colour, cursor) and OSC sequences (hyperlinks) ended by BEL or ST.
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+
+
+def strip_ansi(text: str) -> str:
+    """Return ``text`` without terminal escape sequences.
+
+    A tool forced into colour (``CARGO_TERM_COLOR=always``, a ``[term]`` table,
+    ``PY_COLORS=1``, ``FORCE_COLOR``) writes them into captured output too, and
+    a parser matching line starts, or a number beside the word after it, then
+    matches nothing.
+    """
+    return _ANSI_ESCAPE.sub("", text)
+
+
 def _inert(msg: str) -> str:
     """Return ``msg`` with no line the Actions runner would run as a command.
 
@@ -746,18 +761,6 @@ def url_read(
 
 def _log_line(line: str) -> None:
     info(f"  {line}")
-
-
-_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
-
-
-def strip_ansi(text: str) -> str:
-    """Remove terminal colour and cursor codes, for parsing a tool's output.
-
-    ``CARGO_TERM_COLOR=always``, ``PY_COLORS=1`` and ``FORCE_COLOR`` colour a
-    tool's output even into a pipe, splitting a number from the word after it.
-    """
-    return _ANSI_ESCAPE.sub("", text)
 
 
 def echo_chunk(text: str) -> None:
