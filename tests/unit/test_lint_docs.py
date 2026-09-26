@@ -15,6 +15,8 @@ than a mock, so a change in either tool's shape shows up here.
 
 import json
 import os
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -124,6 +126,63 @@ class TestLycheeParsing:
     def test_unparseable_output_yields_nothing_rather_than_raising(self) -> None:
         assert doc_links.parse("not json at all") == []
         assert doc_links.parse("") == []
+
+
+class TestLycheeInvocation:
+    """How lychee is called, and what a real binary makes of it."""
+
+    def test_the_root_dir_is_passed_as_the_absolute_repo_root(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """lychee only resolves `/README.md` style links against an absolute root."""
+        argv_file = tmp_path / "argv.txt"
+        fake = tmp_path / "lychee"
+        fake.write_text(
+            f"#!/bin/sh\nprintf '%s\\n' \"$@\" > '{argv_file}'\necho '{{}}'\n",
+            encoding="utf-8",
+        )
+        fake.chmod(0o755)
+        monkeypatch.setattr(doc_links.shutil, "which", lambda _n: str(fake))
+        repo = tmp_path / "repo"
+        (repo / "docs").mkdir(parents=True)
+        doc = repo / "docs" / "a.md"
+        doc.write_text("# a\n", encoding="utf-8")
+        monkeypatch.chdir(repo / "docs")
+
+        doc_links.run([doc], _config(doc_links="blocking"), root=Path(".."))
+
+        argv = argv_file.read_text(encoding="utf-8").splitlines()
+        assert "--root-dir" in argv
+        root_dir = argv[argv.index("--root-dir") + 1]
+        assert Path(root_dir).is_absolute()
+        assert Path(root_dir) == repo.resolve()
+
+    @pytest.mark.skipif(shutil.which("lychee") is None, reason="lychee not on PATH")
+    def test_a_root_relative_link_resolves_against_the_repo(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # Off CI a lychee tool error also returns 0, so run as CI where it fails.
+        monkeypatch.setattr(doc_links, "is_ci", lambda: True)
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        (tmp_path / "README.md").write_text("# Repo\n", encoding="utf-8")
+        (tmp_path / "docs").mkdir()
+        doc = tmp_path / "docs" / "a.md"
+        doc.write_text("See [the readme](/README.md).\n", encoding="utf-8")
+        rc = doc_links.run([doc], _config(doc_links="blocking"), root=tmp_path)
+
+        assert rc == 0
+
+    @pytest.mark.skipif(shutil.which("lychee") is None, reason="lychee not on PATH")
+    def test_a_root_relative_link_to_a_missing_file_is_still_broken(
+        self, tmp_path: Path
+    ) -> None:
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        (tmp_path / "docs").mkdir()
+        doc = tmp_path / "docs" / "a.md"
+        doc.write_text("See [gone](/NOPE.md).\n", encoding="utf-8")
+        rc = doc_links.run([doc], _config(doc_links="blocking"), root=tmp_path)
+
+        assert rc == 1
 
 
 class TestMarkdownlintParsing:
