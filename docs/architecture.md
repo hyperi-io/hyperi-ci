@@ -350,6 +350,20 @@ finds a signal - a Dockerfile, or a Rust binary using scalo's contract.
 container.** The decision is resolved *before* Docker Buildx boots, so a library
 never pulls buildkit from Docker Hub nor logs in to GHCR.
 
+**Build args can carry the version (issue #342).** `release.container.build_args` becomes `--build-arg NAME=value`. The image labels are invisible to a Dockerfile, so a value may name two placeholders:
+
+- `{version}` -- the version the stage tags the image with and writes to the `org.opencontainers.image.version` label. That is `HYPERCI_VERSION` on a release run. Outside one it falls back to `VERSION`, the latest `v*` tag, the ref name, then `0.0.0`, same as the label.
+- `{sha}` -- the commit on the `org.opencontainers.image.revision` label: the full `GITHUB_SHA` in CI, the short `HEAD` hash locally.
+
+```yaml
+release:
+  container:
+    build_args:
+      CODE_VERSION: "{version}"
+```
+
+A Dockerfile with `ARG CODE_VERSION` then sees the release version. Any other `{...}`, `{verison}` included, fails the container stage and names the offender. Write a literal brace as `{{` or `}}`. A value with no braces passes through unchanged. Nothing is passed unasked: docker warns about every build arg a Dockerfile does not declare.
+
 **Container failure never blocks the release (issue #33).** Tag & Release is
 decoupled from the Container job (`always()`): a transient container/registry
 hiccup surfaces as a red run but the crate/PyPI/npm + GitHub Release still ships

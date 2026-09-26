@@ -6,13 +6,85 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Execute docker buildx build with optional multi-registry push."""
 
-from __future__ import annotations
-
+import string
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
 
 from hyperi_ci.common import error, info, success
 from hyperi_ci.release_branches import is_prerelease_version
+
+_BUILD_ARG_PLACEHOLDERS = ("version", "sha")
+
+
+class BuildArgError(ValueError):
+    """A ``release.container.build_args`` value cannot be rendered."""
+
+
+def render_build_args(
+    build_args: Mapping[str, object] | None, *, version: str, sha: str
+) -> dict[str, str]:
+    """Substitute ``{version}`` and ``{sha}`` into build-arg values.
+
+    Values follow ``str.format`` brace rules: ``{{`` and ``}}`` are a literal
+    brace. Keys are never substituted. Only the two bare placeholders are
+    accepted, so a typo such as ``{verison}`` fails the build instead of
+    shipping the literal text.
+
+    Args:
+        build_args: The ``release.container.build_args`` mapping, or None.
+        version: The version the image's ``org.opencontainers.image.version``
+            label carries.
+        sha: The commit the image's ``org.opencontainers.image.revision``
+            label carries.
+
+    Returns:
+        The mapping with every value rendered to a string.
+
+    Raises:
+        BuildArgError: ``build_args`` is not a mapping, or a value holds an
+            unknown placeholder or an unbalanced brace.
+
+    """
+    if build_args is None:
+        return {}
+    if not isinstance(build_args, Mapping):
+        raise BuildArgError(
+            "release.container.build_args must be a mapping of ARG name to "
+            f"value, got {type(build_args).__name__}"
+        )
+
+    known = {"version": version, "sha": sha}
+    allowed = ", ".join(f"{{{name}}}" for name in _BUILD_ARG_PLACEHOLDERS)
+    rendered: dict[str, str] = {}
+    for key, raw in build_args.items():
+        text = str(raw)
+        where = f"release.container.build_args.{key} = {text!r}"
+        try:
+            parts = list(string.Formatter().parse(text))
+        except ValueError as exc:
+            raise BuildArgError(
+                f"{where}: {exc}. Write a literal brace as {{{{ or }}}}."
+            ) from exc
+
+        pieces: list[str] = []
+        for literal, field, spec, conversion in parts:
+            pieces.append(literal)
+            if field is None:
+                continue
+            if field not in known or spec or conversion:
+                token = field
+                if conversion:
+                    token += f"!{conversion}"
+                if spec:
+                    token += f":{spec}"
+                raise BuildArgError(
+                    f"{where}: unknown placeholder {{{token}}}. Supported: "
+                    f"{allowed}. Write a literal brace as {{{{ or }}}}."
+                )
+            pieces.append(known[field])
+        rendered[str(key)] = "".join(pieces)
+    return rendered
 
 
 def build_and_push(
@@ -41,7 +113,8 @@ def build_and_push(
             (e.g. ``["ghcr.io/hyperi-io/app:v1.0.0", "ghcr.io/hyperi-io/app:latest"]``).
         platforms: Target platforms (e.g. ``["linux/amd64", "linux/arm64"]``).
         labels: OCI labels dict.
-        build_args: Additional ``--build-arg key=value`` pairs.
+        build_args: Additional ``--build-arg key=value`` pairs, already
+            rendered by :func:`render_build_args`.
         push: When True, push to all tagged registries. When False, build
             but discard (validation only).
 
