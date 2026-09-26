@@ -105,15 +105,24 @@ def _get_tool_mode(tool: str, config: CIConfig) -> str:
     return resolve_tool_mode(tool, config, "python")
 
 
+def _component_patterns(excludes: list[str]) -> list[str]:
+    """Rewrite each bare name as a glob that matches it as a whole path component.
+
+    bandit and vulture match a pattern without wildcards as a substring of the
+    path, so a bare ``data`` would also drop ``src/pkg/metadata.py``.
+    """
+    return [e if "/" in e else f"*/{e}/*" for e in excludes]
+
+
 def _build_exclude_args(tool: str, excludes: list[str]) -> list[str]:
     """Build exclusion arguments for a quality tool."""
+    if not excludes:
+        return []
     if tool == "ruff":
         # --exclude replaces the repo's own ruff excludes, --extend-exclude adds.
-        return [f"--extend-exclude={','.join(excludes)}"] if excludes else []
-    if tool == "bandit":
-        return [f"--exclude={','.join(excludes)}"] if excludes else []
-    if tool == "vulture":
-        return [f"--exclude={','.join(excludes)}"] if excludes else []
+        return [f"--extend-exclude={','.join(excludes)}"]
+    if tool in ("bandit", "vulture"):
+        return [f"--exclude={','.join(_component_patterns(excludes))}"]
     return []
 
 

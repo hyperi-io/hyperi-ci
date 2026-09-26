@@ -158,14 +158,20 @@ class TestExcludePaths:
     def test_a_bare_name_excludes_that_directory_anywhere(
         self, repo: list[str], tmp_path: Path
     ) -> None:
-        # get_exclude_dirs keeps an entry only when it is a directory at the
-        # repo root, for every tool alike.
-        (tmp_path / "data").mkdir()
+        assert not (tmp_path / "data").exists()
         charset.run(_config(exclude_paths=["data"]), roots=[Path("src")])
         assert _excluded_lines(repo) == [
             "  charset: 1 file(s) excluded (quality.exclude_paths: 1)"
         ]
         assert any("1 line(s)" in line for line in repo), repo
+
+    def test_a_trailing_slash_still_counts_as_exclude_paths(
+        self, repo: list[str]
+    ) -> None:
+        charset.run(_config(exclude_paths=["data/"]), roots=[Path("src")])
+        assert _excluded_lines(repo) == [
+            "  charset: 1 file(s) excluded (quality.exclude_paths: 1)"
+        ]
 
     def test_a_relative_path_excludes_that_directory(self, repo: list[str]) -> None:
         charset.run(_config(exclude_paths=["src/scalo/data"]), roots=[Path("src")])

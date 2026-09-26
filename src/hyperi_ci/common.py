@@ -10,6 +10,8 @@ Uses scalo logger for structured output with automatic environment
 detection (GitHub Actions workflow commands, Solarized terminal, plain CI).
 """
 
+import fnmatch
+import functools
 import http.client
 import os
 import random
@@ -858,6 +860,41 @@ _COMMON_EXCLUDES = [
 ]
 
 
+# Searching these for a bare exclude name would cost more than the lookup is worth.
+_NAME_SEARCH_SKIP = frozenset(
+    {".git", ".worktrees", "node_modules", ".venv", "venv", "target"}
+)
+
+
+def _unmatched_names(root: Path, names: set[str]) -> set[str]:
+    """Return the names (or name globs) that match no directory under ``root``."""
+    missing = set(names)
+    for _dirpath, dirnames, _filenames in root.walk():
+        for dirname in dirnames:
+            missing = {n for n in missing if not fnmatch.fnmatchcase(dirname, n)}
+        if not missing:
+            break
+        dirnames[:] = [d for d in dirnames if d not in _NAME_SEARCH_SKIP]
+    return missing
+
+
+@functools.cache
+def _note_unmatched_excludes(entries: tuple[str, ...], root: Path) -> None:
+    """Report each ``quality.exclude_paths`` entry that excludes nothing.
+
+    Info, not a warning: an entry may guard a directory that only exists on
+    some checkouts. Cached so the note appears once per process, however many
+    stages ask for the exclude list.
+    """
+    prefix = "quality.exclude_paths:"
+    names = {e for e in entries if "/" not in e and not (root / e).is_dir()}
+    for name in sorted(_unmatched_names(root, names)):
+        info(f"{prefix} no directory named '{name}', so it excludes nothing")
+    for entry in entries:
+        if "/" in entry and not (root / entry).is_dir():
+            info(f"{prefix} '{entry}' is not a directory, so it excludes nothing")
+
+
 def get_exclude_dirs(config_raw: dict[str, Any] | None = None) -> list[str]:
     """Get directories to exclude from quality checks.
 
@@ -865,7 +902,12 @@ def get_exclude_dirs(config_raw: dict[str, Any] | None = None) -> list[str]:
       1. Git submodule paths (from .gitmodules)
       2. ci/ and ai/ (always)
       3. Common directories (.venv, node_modules, target, etc.)
-      4. Custom paths from quality.exclude_paths config
+      4. Custom entries from quality.exclude_paths config, with any trailing
+         ``/`` stripped. An entry with a ``/`` is a path from the repo root,
+         kept only if it is a directory. A bare name is kept regardless,
+         since the consumers match it against a directory name at any depth.
+
+    A custom entry that excludes nothing is reported once per process.
     """
     excludes: list[str] = []
 
@@ -888,8 +930,12 @@ def get_exclude_dirs(config_raw: dict[str, Any] | None = None) -> list[str]:
     if config_raw:
         custom = config_raw.get("quality", {}).get("exclude_paths", [])
         if isinstance(custom, list):
-            for path in custom:
-                if path and Path(path).is_dir() and path not in excludes:
-                    excludes.append(path)
+            stripped = (str(entry).rstrip("/") for entry in custom if entry)
+            entries = tuple(entry for entry in stripped if entry)
+            _note_unmatched_excludes(entries, Path.cwd())
+            for entry in entries:
+                keep = "/" not in entry or Path(entry).is_dir()
+                if keep and entry not in excludes:
+                    excludes.append(entry)
 
     return excludes
