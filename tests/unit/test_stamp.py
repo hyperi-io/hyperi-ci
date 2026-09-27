@@ -7,9 +7,118 @@
 """Central `stamp_version`: writes VERSION (language-agnostic), then
 delegates the manifest stamp to the detected language."""
 
-from __future__ import annotations
+import shlex
+import sys
+from pathlib import Path
 
-from hyperi_ci.stamp import stamp_version
+import pytest
+import yaml
+
+from hyperi_ci import config as config_module
+from hyperi_ci.config import load_config
+from hyperi_ci.stamp import stamp_paths, stamp_version
+
+
+@pytest.fixture(autouse=True)
+def _restore_config_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    """stamp_version reloads config from tmp_path; keep that out of other tests."""
+    monkeypatch.setattr(config_module, "_config_cache", None)
+
+
+def _configure(root: Path, release: dict) -> None:
+    (root / ".hyperi-ci.yaml").write_text(
+        yaml.safe_dump({"release": release}), encoding="utf-8"
+    )
+
+
+# Copies VERSION to a generated file, the shape of dfe-engine's spec generator.
+_COPY_VERSION = (
+    "from pathlib import Path; "
+    "Path('spec.json').write_text("
+    "'{\"version\": \"' + Path('VERSION').read_text().strip() + '\"}')"
+)
+
+
+class TestStampCommand:
+    """`release.stamp_cmd` runs after VERSION is written, from the repo root."""
+
+    def test_a_string_command_sees_the_new_version(self, tmp_path: Path) -> None:
+        command = shlex.join([sys.executable, "-c", _COPY_VERSION])
+        _configure(tmp_path, {"stamp_cmd": command})
+        assert stamp_version("1.4.0", project_dir=tmp_path) == 0
+        assert (tmp_path / "spec.json").read_text() == '{"version": "1.4.0"}'
+
+    def test_a_list_is_the_argv(self, tmp_path: Path) -> None:
+        _configure(tmp_path, {"stamp_cmd": [sys.executable, "-c", _COPY_VERSION]})
+        assert stamp_version("1.4.1", project_dir=tmp_path) == 0
+        assert (tmp_path / "spec.json").read_text() == '{"version": "1.4.1"}'
+
+    def test_a_failing_command_fails_the_stamp(self, tmp_path: Path) -> None:
+        _configure(
+            tmp_path, {"stamp_cmd": [sys.executable, "-c", "raise SystemExit(3)"]}
+        )
+        assert stamp_version("1.4.0", project_dir=tmp_path) == 1
+        # VERSION is still written: the command runs after it, and needs it.
+        assert (tmp_path / "VERSION").read_text() == "1.4.0\n"
+
+    def test_a_missing_program_fails_the_stamp(self, tmp_path: Path) -> None:
+        _configure(tmp_path, {"stamp_cmd": "no-such-program-hyperi-ci --flag"})
+        assert stamp_version("1.4.0", project_dir=tmp_path) == 1
+
+    def test_a_wrong_type_fails_the_stamp(self, tmp_path: Path) -> None:
+        _configure(tmp_path, {"stamp_cmd": {"run": "generate"}})
+        assert stamp_version("1.4.0", project_dir=tmp_path) == 1
+
+    def test_no_shell_is_involved(self, tmp_path: Path) -> None:
+        """A `;` is an argument, not a second command."""
+        script = "import sys; open('args.txt', 'w').write(repr(sys.argv[1:]))"
+        _configure(
+            tmp_path,
+            {"stamp_cmd": [sys.executable, "-c", script, ";", "touch", "pwned"]},
+        )
+        assert stamp_version("1.4.0", project_dir=tmp_path) == 0
+        assert (tmp_path / "args.txt").read_text() == "[';', 'touch', 'pwned']"
+        assert not (tmp_path / "pwned").exists()
+
+    def test_unset_runs_nothing(self, tmp_path: Path) -> None:
+        _configure(tmp_path, {"stamp_cmd": ""})
+        assert stamp_version("1.4.0", project_dir=tmp_path) == 0
+
+
+class TestStampPaths:
+    """`release.stamp_paths` become paths in a commit to the default branch."""
+
+    @staticmethod
+    def _resolve(root: Path, paths: object) -> list[str]:
+        _configure(root, {"stamp_paths": paths})
+        return stamp_paths(load_config(project_dir=root, reload=True), root)
+
+    def test_relative_paths_pass_through(self, tmp_path: Path) -> None:
+        paths = ["openapi-spec/openapi.json", "openapi-spec/openapi.e2e.json"]
+        assert self._resolve(tmp_path, paths) == paths
+
+    def test_duplicates_and_backslashes_collapse(self, tmp_path: Path) -> None:
+        paths = ["spec\\openapi.json", "spec/openapi.json", "./spec/openapi.json"]
+        assert self._resolve(tmp_path, paths) == ["spec/openapi.json"]
+
+    @pytest.mark.parametrize("bad", ["/etc/passwd", "../other/file", "spec/../../x"])
+    def test_a_path_outside_the_repo_is_refused(self, tmp_path: Path, bad: str) -> None:
+        with pytest.raises(ValueError, match="relative to the repo root"):
+            self._resolve(tmp_path, [bad])
+
+    def test_a_symlink_out_of_the_repo_is_refused(self, tmp_path: Path) -> None:
+        root = tmp_path / "repo"
+        root.mkdir()
+        (root / "escape").symlink_to(tmp_path)
+        with pytest.raises(ValueError, match="resolves outside the repo"):
+            self._resolve(root, ["escape/secret"])
+
+    def test_a_string_is_not_a_list(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="must be a list"):
+            self._resolve(tmp_path, "openapi.json")
+
+    def test_unset_is_empty(self, tmp_path: Path) -> None:
+        assert self._resolve(tmp_path, []) == []
 
 
 class TestVersionFileWrite:

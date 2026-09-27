@@ -22,6 +22,7 @@ Everything else that carries a version number is an **output**:
 | `VERSION` | `hyperi-ci stamp-version`, at build time | No |
 | `CHANGELOG.md` | `@semantic-release/changelog`, at release time | No |
 | `Cargo.toml` / `pyproject.toml` / `package.json` version | `stamp-version`, at build time | Only to seed a tag-less repo |
+| Files in `release.stamp_paths` | `release.stamp_cmd`, run by `stamp-version` | No |
 | The git tag | `tag-head` / semantic-release, at release time | **Yes** |
 
 Reading an output as an input is what issue #85 was about: `VERSION` froze at
@@ -114,6 +115,36 @@ To see what a checkout would release:
 git describe --tags --abbrev=0     # the last released version
 hyperi-ci --version                # what this checkout would build as, if editable
 ```
+
+### Other files that carry the version
+
+A committed file with the version baked in -- a generated OpenAPI spec's
+`info.version` -- goes stale on every release unless something regenerates it.
+Name the generator and what it writes:
+
+```yaml
+release:
+  stamp_cmd: uv run python openapi-spec/generate.py
+  stamp_paths:
+    - openapi-spec/openapi.json
+    - openapi-spec/openapi.e2e.json
+```
+
+`stamp-version` runs `stamp_cmd` from the repo root after it writes `VERSION`
+and the manifest, so the generator reads the new version from `VERSION`. No
+shell is involved: a string is split the way a shell would split it, a list is
+the argv. A non-zero exit fails the stamp.
+
+It runs where `stamp-version` runs -- the Container job, so the image carries
+the regenerated files, and Tag & Publish (for a repo that commits `VERSION`),
+so they are on disk for `release-commit`, which adds `stamp_paths` to the same commit as `VERSION` and
+`CHANGELOG.md`. It does not run in the Build job: that stamps with an inline
+step before hyperi-ci is installed, so a wheel or binary built there does not
+see it.
+
+`stamp_paths` must stay inside the repo. An absolute path, a `..` or a symlink
+out is refused, and a listed file missing from disk is skipped with a warning;
+either way `VERSION` and `CHANGELOG.md` still land.
 
 ## CHANGELOG.md
 

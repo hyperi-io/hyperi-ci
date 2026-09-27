@@ -14,14 +14,20 @@ commit is never tagged, the ref is never force-updated -- are asserted here
 rather than left to review.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import yaml
 
+from hyperi_ci import config as config_module
 from hyperi_ci.release_commit import SUPPLEMENT, commit_release_artefacts
+
+
+@pytest.fixture(autouse=True)
+def _restore_config_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    """release-commit reloads config from tmp_path; keep that out of other tests."""
+    monkeypatch.setattr(config_module, "_config_cache", None)
 
 
 @pytest.fixture
@@ -182,6 +188,69 @@ class TestTheNotesSupplement:
             assert commit_release_artefacts(version="3.1.0", project_dir=project) == 0
         tree = stub.bodies_for("/git/trees")[0]["tree"]
         assert SUPPLEMENT not in {entry["path"] for entry in tree}
+
+
+class TestStampPaths:
+    """Files `release.stamp_cmd` wrote ride along with VERSION and the changelog."""
+
+    @staticmethod
+    def _configure(project: Path, paths: object) -> None:
+        (project / ".hyperi-ci.yaml").write_text(
+            yaml.safe_dump({"release": {"stamp_paths": paths}}), encoding="utf-8"
+        )
+
+    @staticmethod
+    def _spec(project: Path, name: str) -> None:
+        path = project / "openapi-spec" / name
+        path.parent.mkdir(exist_ok=True)
+        path.write_text('{"info": {"version": "3.1.0"}}\n', encoding="utf-8")
+
+    def _tree_paths(self, api: _Api) -> set[str]:
+        return {entry["path"] for entry in api.bodies_for("/git/trees")[0]["tree"]}
+
+    def test_listed_files_join_the_commit(self, api: _Api, project: Path) -> None:
+        self._spec(project, "openapi.json")
+        self._spec(project, "openapi.e2e.json")
+        self._configure(
+            project, ["openapi-spec/openapi.json", "openapi-spec/openapi.e2e.json"]
+        )
+        assert commit_release_artefacts(version="3.1.0", project_dir=project) == 0
+        assert self._tree_paths(api) == {
+            "VERSION",
+            "CHANGELOG.md",
+            "openapi-spec/openapi.json",
+            "openapi-spec/openapi.e2e.json",
+        }
+
+    def test_a_listed_file_not_on_disk_is_skipped(
+        self, api: _Api, project: Path
+    ) -> None:
+        self._spec(project, "openapi.json")
+        self._configure(
+            project, ["openapi-spec/openapi.json", "openapi-spec/gone.json"]
+        )
+        assert commit_release_artefacts(version="3.1.0", project_dir=project) == 0
+        assert self._tree_paths(api) == {
+            "VERSION",
+            "CHANGELOG.md",
+            "openapi-spec/openapi.json",
+        }
+
+    def test_a_path_out_of_the_repo_still_commits_the_rest(
+        self, api: _Api, project: Path
+    ) -> None:
+        """A bad entry costs the extras, never VERSION and the changelog."""
+        self._configure(project, ["../../etc/passwd"])
+        assert commit_release_artefacts(version="3.1.0", project_dir=project) == 0
+        assert self._tree_paths(api) == {"VERSION", "CHANGELOG.md"}
+
+    def test_a_fixed_artefact_listed_again_is_not_doubled(
+        self, api: _Api, project: Path
+    ) -> None:
+        self._configure(project, ["VERSION"])
+        commit_release_artefacts(version="3.1.0", project_dir=project)
+        tree = api.bodies_for("/git/trees")[0]["tree"]
+        assert [entry["path"] for entry in tree].count("VERSION") == 1
 
 
 class TestNoOps:
