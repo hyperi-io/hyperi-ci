@@ -390,6 +390,16 @@ release:
   # file that is missing fails the release rather than shipping a broken pin.
   assets: []
 
+  # For committed files that carry the version where hyperi-ci cannot see it,
+  # such as a generated OpenAPI spec. `stamp-version` runs `stamp_cmd` from the
+  # repo root after it writes VERSION and the manifest -- in the Container job
+  # and again in Tag & Publish, not in Build. A string is split like a shell
+  # would split it but never run through one; a list is the argv. A failure
+  # fails the stamp. `release-commit` then puts `stamp_paths` back on the
+  # branch next to VERSION and CHANGELOG.md.
+  stamp_cmd: ""
+  stamp_paths: []
+
   # Container build & publish.
   #
   # `enabled` is three-state:

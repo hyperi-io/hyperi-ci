@@ -14,12 +14,19 @@ Two layers, split on the central/language rule:
 
 The workflow calls this once (`hyperi-ci stamp-version <version>`) with no
 per-language branching; language detection routes the manifest stamp.
+
+A repo whose committed files carry the version somewhere hyperi-ci cannot know
+about (a generated OpenAPI spec) names a command in ``release.stamp_cmd``, run
+after both layers, and the files it writes in ``release.stamp_paths``, which
+``release-commit`` puts back on the branch.
 """
 
 import re
-from pathlib import Path
+import shlex
+from pathlib import Path, PurePosixPath
 
-from hyperi_ci.common import info, warn
+from hyperi_ci.common import error, info, run_cmd, warn
+from hyperi_ci.config import CIConfig, load_config
 from hyperi_ci.detect import detect_language
 
 
@@ -59,21 +66,101 @@ _MANIFEST_STAMPERS: dict[str, tuple[str, str]] = {
 }
 
 
+def stamp_command(config: CIConfig) -> list[str] | None:
+    """Resolve ``release.stamp_cmd`` to an argv, or None when unset.
+
+    A string is split the way a shell would split it, but never run through
+    one; a list is taken as the argv as-is.
+
+    Raises:
+        ValueError: The value is neither a string nor a list of strings, or
+            the string does not parse.
+
+    """
+    raw = config.get("release.stamp_cmd")
+    if raw is None or raw == "" or raw == []:
+        return None
+    if isinstance(raw, str):
+        argv = shlex.split(raw)
+    elif isinstance(raw, list) and all(isinstance(part, str) for part in raw):
+        argv = list(raw)
+    else:
+        msg = f"release.stamp_cmd must be a string or a list of strings, got {raw!r}"
+        raise ValueError(msg)
+    return argv or None
+
+
+def stamp_paths(config: CIConfig, root: Path) -> list[str]:
+    """Resolve ``release.stamp_paths`` to repo-relative POSIX paths.
+
+    These become paths in a commit written to the default branch, so an entry
+    that is absolute or climbs out of the repo is refused rather than trusted.
+
+    Raises:
+        ValueError: The value is not a list, or an entry is not a relative
+            path inside ``root``.
+
+    """
+    raw = config.get("release.stamp_paths") or []
+    if not isinstance(raw, list):
+        msg = f"release.stamp_paths must be a list of paths, got {raw!r}"
+        raise ValueError(msg)
+    base = root.resolve()
+    paths: list[str] = []
+    for entry in raw:
+        if not isinstance(entry, str) or not entry.strip():
+            msg = f"release.stamp_paths: {entry!r} is not a path"
+            raise ValueError(msg)
+        posix = PurePosixPath(entry.strip().replace("\\", "/"))
+        if posix.is_absolute() or ".." in posix.parts:
+            msg = f"release.stamp_paths: {entry} must be relative to the repo root"
+            raise ValueError(msg)
+        if not (base / posix).resolve().is_relative_to(base):
+            msg = f"release.stamp_paths: {entry} resolves outside the repo"
+            raise ValueError(msg)
+        if str(posix) not in paths:
+            paths.append(str(posix))
+    return paths
+
+
+def _run_stamp_command(root: Path) -> int:
+    """Run ``release.stamp_cmd`` from ``root``. Returns its exit code."""
+    try:
+        argv = stamp_command(load_config(project_dir=root, reload=True))
+    except ValueError as exc:
+        error(f"stamp-version: {exc}")
+        return 1
+    if argv is None:
+        return 0
+    info(f"Running release.stamp_cmd: {shlex.join(argv)}")
+    try:
+        result = run_cmd(argv, check=False, cwd=root)
+    except OSError as exc:
+        error(f"stamp-version: release.stamp_cmd could not start: {exc}")
+        return 1
+    if result.returncode != 0:
+        error(f"stamp-version: release.stamp_cmd exited {result.returncode}")
+        return 1
+    return 0
+
+
 def stamp_version(version: str, project_dir: Path | None = None) -> int:
     """Write the version into VERSION and the language manifest.
+
+    Then runs ``release.stamp_cmd``, when set, so files generated from the
+    version pick it up.
 
     Args:
         version: Release version, with or without a leading ``v``.
         project_dir: Project root. Defaults to cwd.
 
     Returns:
-        0 on success, 1 if ``version`` is empty.
+        0 on success, 1 if ``version`` is empty or ``release.stamp_cmd``
+        fails.
 
     """
     version = version.removeprefix("v").strip()
     if not version:
-        from hyperi_ci.common import error
-
         error("stamp-version: empty version")
         return 1
 
@@ -99,4 +186,4 @@ def stamp_version(version: str, project_dir: Path | None = None) -> int:
     else:
         warn("Could not detect language — wrote VERSION only")
 
-    return 0
+    return _run_stamp_command(root)

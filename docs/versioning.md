@@ -22,6 +22,7 @@ Everything else that carries a version number is an **output**:
 | `VERSION` | `hyperi-ci stamp-version`, at build time | No |
 | `CHANGELOG.md` | `@semantic-release/changelog`, at release time | No |
 | `Cargo.toml` / `pyproject.toml` / `package.json` version | `stamp-version`, at build time | Only to seed a tag-less repo |
+| Files in `release.stamp_paths` | `release.stamp_cmd`, run by `stamp-version` | No |
 | The git tag | `tag-head` / semantic-release, at release time | **Yes** |
 
 Reading an output as an input is what issue #85 was about: `VERSION` froze at
@@ -114,6 +115,30 @@ To see what a checkout would release:
 git describe --tags --abbrev=0     # the last released version
 hyperi-ci --version                # what this checkout would build as, if editable
 ```
+
+### Other files that carry the version
+
+A committed file with the version baked in -- a generated OpenAPI spec's `info.version` -- goes stale on every release unless something regenerates it. Name the generator and what it writes:
+
+```yaml
+release:
+  stamp_cmd: uv run python openapi-spec/generate.py
+  stamp_paths:
+    - openapi-spec/openapi.json
+    - openapi-spec/openapi.e2e.json
+```
+
+`stamp-version` runs `stamp_cmd` from the repo root after it writes `VERSION` and the manifest, so the generator reads the new version from `VERSION`. No shell is involved: a string is split the way a shell would split it, a list is the argv. A non-zero exit fails the stamp.
+
+It runs where `stamp-version` runs, and only on a publishing run. The Container job runs it before the image build, so a published image carries the regenerated files. Tag & Publish runs it again, for a repo that commits `VERSION`, so the files are on disk for `release-commit`. It does not run in the Build job, which stamps with an inline step before hyperi-ci is installed, so a wheel or binary built there does not see it.
+
+`release-commit` adds `stamp_paths` to the commit that carries `VERSION` and `CHANGELOG.md`, and leaves a file out when:
+
+- the Tag & Publish stamp did not succeed, since a generator that failed part-way leaves partial output;
+- the branch has changed that file since the release's checkout, because a merge during the release, or a retroactive dispatch of an old tag, would otherwise have its newer copy overwritten;
+- it is missing, a directory or a symlink, or it sits under `.git/` or is `.github/release-notes/NEXT.md`.
+
+A list with any entry that is absolute, holds a `..` or resolves outside the repo is refused whole. None of these stop `VERSION` and `CHANGELOG.md` landing.
 
 ## CHANGELOG.md
 
