@@ -522,49 +522,18 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - name: Stamp predicted version
-        # Version-first pipeline: write the version we're about to tag
-        # into Cargo.toml + VERSION before `cargo build`, so the binary
-        # has the correct CARGO_PKG_VERSION baked in. Without this we'd
-        # publish a v1.18.3 release containing a binary that introspects
-        # itself as 1.18.2 -- every metrics dashboard would lie.
-        #
-        # Runs on push AND on a from-head dispatch (issue #35) -- both
-        # release HEAD, whose committed tree is stale under the tagger-only
-        # model (the bumped version is never committed). next-version is the
-        # resolved value (semantic-release on auto, last+bump on a forced
-        # patch/minor, or the explicit X.Y.Z override). A plain `tag`
-        # dispatch is skipped: it checks out the tag's own tree, already
-        # correct. Validate-only runs are skipped too (nothing ships).
-        if: needs.plan.outputs.will-release == 'true' && (github.event_name == 'push' || inputs.from-head == 'true')
-        run: |
-          version="${{ needs.plan.outputs.next-version }}"
-          if [[ -z "$version" ]]; then
-            echo "::error::next-version output empty — plan.predict step must populate it"
-            exit 1
-          fi
-          echo "Stamping version: $version"
-
-          if grep -qE '^\[package\]' Cargo.toml; then
-            sed -i -E "/^\[package\]/,/^\[/ s/^version[[:space:]]*=[[:space:]]*\"[^\"]*\"/version = \"$version\"/" Cargo.toml
-          fi
-
-          if grep -qE '^\[workspace\.package\]' Cargo.toml; then
-            sed -i -E "/^\[workspace\.package\]/,/^\[/ s/^version[[:space:]]*=[[:space:]]*\"[^\"]*\"/version = \"$version\"/" Cargo.toml
-          fi
-
-          if [[ -f VERSION ]]; then
-            echo "$version" > VERSION
-          fi
-
-          echo "--- Cargo.toml after stamp:"
-          grep -E '^version[[:space:]]*=' Cargo.toml | head -3
-          [[ -f VERSION ]] && echo "--- VERSION: $(cat VERSION)"
-
       - name: Setup runtime (uv + Python + native deps)
         uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
         with:
           language: rust
+
+      - name: Stamp predicted version
+        # Stamps VERSION + Cargo.toml before `cargo build` so CARGO_PKG_VERSION matches the tag, on push and from-head dispatch only -- both release HEAD, whose committed tree is stale (issue #35).
+        if: needs.plan.outputs.will-release == 'true' && (github.event_name == 'push' || inputs.from-head == 'true')
+        env:
+          # Via env so the value cannot be read as shell -- stamp-version itself fails on an empty one.
+          NEXT_VERSION: ${{ needs.plan.outputs.next-version }}
+        run: ${{ env.HYPERCI_INSTALL }} stamp-version "$NEXT_VERSION"
 
       - name: Install Rust toolchain
         if: ${{ runner.environment != 'self-hosted' }}

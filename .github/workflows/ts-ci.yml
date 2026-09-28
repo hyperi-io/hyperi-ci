@@ -417,34 +417,6 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - name: Stamp predicted version
-        # Version-first pipeline: write the version we're about to tag
-        # into package.json + VERSION before the bundle is built. npm
-        # publish reads package.json's version field at publish time. Runs
-        # on push AND on a from-head dispatch (issue #35) -- both release
-        # HEAD, whose committed tree is stale (tagger-only). A plain `tag`
-        # dispatch is skipped (the tag's tree is correct).
-        if: needs.plan.outputs.will-release == 'true' && (github.event_name == 'push' || inputs.from-head == 'true')
-        run: |
-          version="${{ needs.plan.outputs.next-version }}"
-          if [[ -z "$version" ]]; then
-            echo "::error::next-version output empty"
-            exit 1
-          fi
-          echo "Stamping version: $version"
-
-          if [[ -f package.json ]]; then
-            # npm version --no-git-tag-version updates package.json + lockfile
-            # without creating a commit/tag -- semantic-release does that later.
-            npm version "$version" --no-git-tag-version --allow-same-version
-            echo "Stamped package.json"
-          fi
-
-          if [[ -f VERSION ]]; then
-            echo "$version" > VERSION
-            echo "Stamped VERSION"
-          fi
-
       - name: Set up Node.js
         if: ${{ runner.environment != 'self-hosted' }}
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -464,6 +436,14 @@ jobs:
         run: |
           command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
           command -v python3 || uv python install 3.14
+
+      - name: Stamp predicted version
+        # Stamps VERSION + package.json, which npm publish reads, on push and from-head dispatch only -- both release HEAD, whose committed tree is stale (issue #35).
+        if: needs.plan.outputs.will-release == 'true' && (github.event_name == 'push' || inputs.from-head == 'true')
+        env:
+          # Via env so the value cannot be read as shell -- stamp-version itself fails on an empty one.
+          NEXT_VERSION: ${{ needs.plan.outputs.next-version }}
+        run: ${{ env.HYPERCI_INSTALL }} stamp-version "$NEXT_VERSION"
 
       - name: Install dependencies
         run: ${{ env.HYPERCI_INSTALL }} install-deps typescript

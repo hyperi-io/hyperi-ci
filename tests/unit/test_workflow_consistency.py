@@ -283,6 +283,38 @@ class TestFromHeadThreading:
             f"{workflow_name}.build: stamp must still run on push."
         )
 
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_build_stamps_with_the_shared_command(self, workflow_name: str) -> None:
+        # One stamper for Build, Container and Tag & Publish (issue #348): an
+        # inline sed/echo copy drifts from stamp_manifest and never runs
+        # release.stamp_cmd, so a wheel or binary misses the regenerated files.
+        steps = _load_workflow(workflow_name)["jobs"]["build"]["steps"]
+        names = [s.get("name") for s in steps]
+        stamp_at = names.index("Stamp predicted version")
+        stamp = steps[stamp_at]
+        run = str(stamp["run"])
+        assert run == '${{ env.HYPERCI_INSTALL }} stamp-version "$NEXT_VERSION"', (
+            f"{workflow_name}.build: stamp must call `hyperi-ci stamp-version`, "
+            f"not an inline script. Got: {run!r}"
+        )
+        assert stamp["env"]["NEXT_VERSION"] == (
+            "${{ needs.plan.outputs.next-version }}"
+        ), f"{workflow_name}.build: stamp must take the plan's next-version via env"
+        assert stamp_at < names.index("Run build"), (
+            f"{workflow_name}.build: the stamp must run before the build"
+        )
+        # HYPERCI_INSTALL is `uvx ...`, so uv has to be on the runner first.
+        uv_actions = ("astral-sh/setup-uv", "actions/setup-runtime")
+        uv_ready = [
+            i
+            for i, s in enumerate(steps)
+            if any(action in str(s.get("uses", "")) for action in uv_actions)
+        ]
+        assert uv_ready and uv_ready[0] < stamp_at, (
+            f"{workflow_name}.build: stamp-version runs through uvx, so uv must be "
+            "installed before it"
+        )
+
     def test_container_stamps_predicted_version_before_the_build(self) -> None:
         # The container job checks out HEAD on its own runner, so the Build job's
         # stamp never reaches the tree the Dockerfile copies (dfe-engine#271).

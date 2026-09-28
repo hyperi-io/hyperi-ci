@@ -426,26 +426,6 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - name: Stamp predicted version
-        # Version-first pipeline: write the version we're about to tag
-        # into VERSION before `go build`. Go binaries pick this up via
-        # `-ldflags "-X main.version=$VERSION"` in build.py. Runs on push
-        # AND on a from-head dispatch (issue #35) -- both release HEAD,
-        # whose committed tree is stale (tagger-only). A plain `tag`
-        # dispatch is skipped (the tag's tree is correct).
-        if: needs.plan.outputs.will-release == 'true' && (github.event_name == 'push' || inputs.from-head == 'true')
-        run: |
-          version="${{ needs.plan.outputs.next-version }}"
-          if [[ -z "$version" ]]; then
-            echo "::error::next-version output empty"
-            exit 1
-          fi
-          echo "Stamping version: $version"
-          if [[ -f VERSION ]]; then
-            echo "$version" > VERSION
-            echo "Stamped VERSION"
-          fi
-
       - name: Set up Go
         if: ${{ runner.environment != 'self-hosted' }}
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -465,6 +445,14 @@ jobs:
         run: |
           command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
           command -v python3 || uv python install 3.14
+
+      - name: Stamp predicted version
+        # Stamps VERSION, which build.py injects via -ldflags, on push and from-head dispatch only -- both release HEAD, whose committed tree is stale (issue #35).
+        if: needs.plan.outputs.will-release == 'true' && (github.event_name == 'push' || inputs.from-head == 'true')
+        env:
+          # Via env so the value cannot be read as shell -- stamp-version itself fails on an empty one.
+          NEXT_VERSION: ${{ needs.plan.outputs.next-version }}
+        run: ${{ env.HYPERCI_INSTALL }} stamp-version "$NEXT_VERSION"
 
       - name: Install native dependencies
         run: ${{ env.HYPERCI_INSTALL }} install-native-deps golang
