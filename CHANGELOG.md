@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.11.2](https://github.com/hyperi-io/hyperi-ci/compare/v2.11.1...v2.11.2) (2026-09-28)
+
+### Bug Fixes
+
+* **container:** retry apt-get update through a mirror mid-sync ([#368](https://github.com/hyperi-io/hyperi-ci/issues/368)) ([1a8eb7e](https://github.com/hyperi-io/hyperi-ci/commit/1a8eb7edf5c394b8b6c06d59cd68e591be71e43c))
+* **rust:** read cargo metadata through the shared helper ([#367](https://github.com/hyperi-io/hyperi-ci/issues/367)) ([f7b20e2](https://github.com/hyperi-io/hyperi-ci/commit/f7b20e28bba4ce536377c4f8ff006dcf0ef2484a))
+
 ## [2.11.1](https://github.com/hyperi-io/hyperi-ci/compare/v2.11.0...v2.11.1) (2026-09-28)
 
 ### Bug Fixes
