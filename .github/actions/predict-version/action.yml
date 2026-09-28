@@ -55,8 +55,8 @@ outputs:
     description: "Deprecated spelling of will-release, same value. Kept because a reusable workflow cannot warn about an output a caller reads."
     value: ${{ steps.gate.outputs.will-publish }}
   version:
-    description: "Predicted next version (without 'v' prefix); set on push and on from-head dispatch"
-    value: ${{ steps.predict.outputs.version || steps.forced.outputs.version }}
+    description: "Version this run releases (without 'v' prefix): predicted on push and on from-head dispatch, the tag's own on a tag dispatch"
+    value: ${{ steps.predict.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}
   prerelease:
     description: "'true' iff the predicted version carries a prerelease component (1.2.0-beta.1) — this run does not consume a stable version"
     value: ${{ steps.derive.outputs.prerelease }}
@@ -334,6 +334,18 @@ runs:
         echo "version=$version" >> "$GITHUB_OUTPUT"
         echo "::notice::Forced from-head bump ($bump): v$version (was v$latest)"
 
+    - name: Resolve the re-published tag's version
+      # A `tag` dispatch re-publishes an existing release, so the version is
+      # the tag's own. Build and Publish stamp it: the tagged tree carries the
+      # release before it, because VERSION and the manifest are committed back
+      # after the tag (issue #352).
+      id: tagged
+      if: ${{ steps.gate.outputs.will-publish == 'true' && github.event_name == 'workflow_dispatch' && inputs.tag != '' }}
+      shell: bash
+      env:
+        RELEASE_TAG: ${{ inputs.tag }}
+      run: python3 "$GITHUB_ACTION_PATH/tag_version.py"
+
     - name: Detect a release-worthy push
       # The doctrine runs checks on PR review and RELEASE-WORTHY pushes, but
       # the code only ever asked for the release trailer -- which marks
@@ -366,7 +378,7 @@ runs:
         branch_build='${{ inputs.branch-build }}'
         git_ref='${{ github.ref }}'
         release_worthy='${{ steps.worthy.outputs.release-worthy }}'
-        version='${{ steps.predict.outputs.version || steps.forced.outputs.version }}'
+        version='${{ steps.predict.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}'
 
         # Version identity: a prerelease component means this run ships on its
         # own sequence and spends no stable number. Read off the version rather
