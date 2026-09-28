@@ -38,8 +38,9 @@ names a hyperi-ci branch, because a rehearsal still holds it.
 
 Deliberately NEVER: merges anything, touches the fixture's main, or
 publishes. Known limit (accepted, pinning decision #31 gate-only):
-composite refs INSIDE the lang workflows stay @main -- composite changes
-are covered by hyperi-ci's own local-ref ci.yml instead.
+composite refs INSIDE the lang workflows stay @main, so a rehearsal runs
+main's composites, and ``scripts/rehearse-gate.py`` reports a composite
+change as unrehearsed rather than counting it proven (issue #366).
 
 Usage:
     uv run scripts/rehearse-branch.py --branch fix/my-change \

@@ -26,6 +26,12 @@ needs `variables: write`; hypersec-ci-bot has neither, and minting a credential
 is not an agent's call. So CI verifies and a developer runs, which is also why
 the record names a COMMIT -- push another commit and the gate goes red again.
 
+A composite-action change cannot be rehearsed at all. The reusable workflows
+call their composites at `@main`, so a fixture running this branch's workflows
+still runs main's composite, and a green record would vouch for code it never
+ran (issue #366). The gate names the composite as unrehearsed and stays red, so
+a human decides whether it merges.
+
 Usage:
     uv run scripts/rehearse-gate.py --pr 240
     uv run scripts/rehearse-gate.py --base-ref origin/main
@@ -174,26 +180,59 @@ def verify(fixture: str, head_sha: str) -> Outcome:
     return Outcome(fixture, PROVEN, f"run {record['run-id']}")
 
 
-def gate_verdict(required: list[str], outcomes: list[Outcome]) -> tuple[int, list[str]]:
+def composite_changes(paths: list[str]) -> list[str]:
+    """Composite actions the diff changes, in name order.
+
+    Args:
+        paths: Repo-relative paths changed by the diff.
+
+    Returns:
+        Action directory names under `.github/actions/`.
+    """
+    names = {fixture_fleet.action_of(path) for path in paths}
+    return sorted(name for name in names if name is not None)
+
+
+def gate_verdict(
+    required: list[str],
+    outcomes: list[Outcome],
+    composites: list[str] | None = None,
+) -> tuple[int, list[str]]:
     """Turn per-fixture outcomes into an exit code and a report.
 
-    A required fixture that produced no outcome is the case this gate exists
-    for. Reporting success on nothing having run is how a gate becomes a
-    formality.
+    A changed composite holds the code at 1 or worse whatever the fixtures
+    say, because no rehearsal ran it.
 
     Args:
         required: Fixture names the diff has to be proven against.
         outcomes: One per fixture the gate managed to ask about.
+        composites: Composite actions the diff changes.
 
     Returns:
         (exit code, report lines). 0 proven, 1 unproven or failed, 2 unknown.
+    """
+    if composites:
+        code, lines = _fixture_verdict(required, outcomes)
+        lines.append(f"  UNREHEARSED composite action(s): {', '.join(composites)}")
+        return max(code, 1), lines
+    if not required:
+        return 0, ["No consumer surface touched - rehearsal not required."]
+    return _fixture_verdict(required, outcomes)
+
+
+def _fixture_verdict(
+    required: list[str], outcomes: list[Outcome]
+) -> tuple[int, list[str]]:
+    """The verdict on the fixtures alone.
+
+    A required fixture that produced no outcome is the case this gate exists
+    for. Reporting success on nothing having run is how a gate becomes a
+    formality.
     """
     lines = [
         f"  {outcome.state:<11} {outcome.fixture} - {outcome.detail}"
         for outcome in outcomes
     ]
-    if not required:
-        return 0, ["No consumer surface touched - rehearsal not required."]
 
     seen = {outcome.fixture for outcome in outcomes}
     missing = sorted(set(required) - seen)
@@ -258,8 +297,9 @@ def main() -> int:
         changed, fleet, fixture_fleet.read_workflow_texts()
     )
     required = [entry["name"] for entry in required_entries]
+    composites = composite_changes(changed)
 
-    if not required:
+    if not required and not composites:
         print("No consumer surface touched - rehearsal not required.")
         return 0
 
@@ -268,9 +308,9 @@ def main() -> int:
         args.branch or _run(["git", "rev-parse", "--abbrev-ref", "HEAD"]).stdout.strip()
     )
 
-    print(f"Rehearsal required for {head_sha[:12]}: {', '.join(required)}")
+    print(f"Rehearsal required for {head_sha[:12]}: {', '.join(required) or 'none'}")
     outcomes = [verify(name, head_sha) for name in required]
-    code, lines = gate_verdict(required, outcomes)
+    code, lines = gate_verdict(required, outcomes, composites)
     for line in lines:
         print(line)
 
@@ -281,6 +321,13 @@ def main() -> int:
     if unproven:
         for line in _advice(branch, unproven):
             print(line)
+    if composites:
+        print(
+            f"COMPOSITE UNREHEARSED: {', '.join(composites)}. The reusable "
+            "workflows call composites at @main, so a rehearsal of this branch "
+            "ran main's copy and proves nothing about this change. A human "
+            "decides whether it merges."
+        )
     print(
         "NOT REHEARSED: this change reaches every consumer through @main the "
         "moment it merges."
