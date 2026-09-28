@@ -425,38 +425,6 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - name: Stamp predicted version
-        # Version-first pipeline: write the version we're about to tag
-        # into pyproject.toml + VERSION before the wheel/sdist is built,
-        # so importlib.metadata.version("<pkg>") returns the right value
-        # at runtime. Runs on push AND on a from-head dispatch (issue #35):
-        # both release HEAD, whose committed tree is stale (tagger-only).
-        # A plain `tag` dispatch is skipped (the tag's tree is correct).
-        if: needs.plan.outputs.will-release == 'true' && (github.event_name == 'push' || inputs.from-head == 'true')
-        run: |
-          version="${{ needs.plan.outputs.next-version }}"
-          if [[ -z "$version" ]]; then
-            echo "::error::next-version output empty"
-            exit 1
-          fi
-          echo "Stamping version: $version"
-
-          # PEP 621 [project] version = "..." -- covers static-version projects.
-          # Dynamic-version projects (setuptools-scm, hatch-vcs) read from VCS
-          # and don't need this rewrite; the VERSION file write below covers
-          # them since semantic-release's prepareCmd also writes VERSION.
-          # Sed scoped to the [project] table -- same approach as the
-          # Cargo.toml stamp in rust-ci.yml.
-          if [[ -f pyproject.toml ]] && grep -qE '^\[project\]' pyproject.toml; then
-            sed -i -E "/^\[project\]/,/^\[/ s/^version[[:space:]]*=[[:space:]]*\"[^\"]*\"/version = \"$version\"/" pyproject.toml
-            echo "Stamped pyproject.toml"
-          fi
-
-          if [[ -f VERSION ]]; then
-            echo "$version" > VERSION
-            echo "Stamped VERSION"
-          fi
-
       - name: Install uv
         if: ${{ runner.environment != 'self-hosted' }}
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
@@ -475,6 +443,14 @@ jobs:
 
       - name: Install native dependencies
         run: ${{ env.HYPERCI_INSTALL }} install-native-deps python
+
+      - name: Stamp predicted version
+        # Stamps VERSION + pyproject.toml before `uv sync` installs the project, on push and from-head dispatch only -- both release HEAD, whose committed tree is stale (issue #35).
+        if: needs.plan.outputs.will-release == 'true' && (github.event_name == 'push' || inputs.from-head == 'true')
+        env:
+          # Via env so the value cannot be read as shell -- stamp-version itself fails on an empty one.
+          NEXT_VERSION: ${{ needs.plan.outputs.next-version }}
+        run: ${{ env.HYPERCI_INSTALL }} stamp-version "$NEXT_VERSION"
 
       - name: Install dependencies
         # UV_PYTHON is scoped to this step ON PURPOSE. It picks the interpreter

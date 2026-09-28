@@ -479,8 +479,8 @@ jobs:
           # read as shell.
           RELEASE_VERSION: ${{ steps.forcedtag.outputs.version || inputs.next-version }}
         run: |
-          # Guarded like the build's own stamp: a repo with no VERSION file has
-          # opted out, and creating one here would commit a file it never had.
+          # A repo with no VERSION file has opted out, and creating one here
+          # would commit a file it never had.
           if [[ -f VERSION ]]; then
             ${{ env.HYPERCI_INSTALL }} stamp-version "$RELEASE_VERSION"
           else
