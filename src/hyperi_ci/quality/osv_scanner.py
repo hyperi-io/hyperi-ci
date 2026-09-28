@@ -19,20 +19,32 @@ on a feed that misfires would red the build on legitimate packages.
 True positives are acted on; known false positives are suppressed via
 ``quality.ignore`` (which generates this scanner's native
 ``[[IgnoredVulns]]`` config, with optional auto-expiry).
+
+A repo can also carry its own ``osv-scanner.toml`` beside the lockfile.
+osv-scanner reads that file only when no ``--config`` is given, so the
+generated ignores are appended to a copy of it rather than replacing it.
 """
 
 import shutil
 import tempfile
-from collections.abc import Callable, Iterable
+import tomllib
+from collections.abc import Iterable
 from pathlib import Path
 
-from hyperi_ci.common import error, info, is_ci, warn
+from hyperi_ci.common import error, info, is_ci, run_cmd, success, warn
 from hyperi_ci.quality.ignores import IgnoreEntry
 from hyperi_ci.tools import missing_tool_notice
 
 SLUG = "osv-scanner"
 _BINARY = "osv-scanner"
 _CONFIG_NAME = "osv-scanner.toml"
+
+# osv-scanner v2 returns 128 only for ErrNoPackagesFound (internal/cmd/run.go).
+_NO_PACKAGES_EXIT = 128
+
+
+class ConfigMergeError(ValueError):
+    """A repo's own osv-scanner.toml cannot carry the generated ignores."""
 
 
 def available() -> bool:
@@ -69,6 +81,72 @@ def render_ignore_config(entries: Iterable[IgnoreEntry]) -> str:
     return "\n\n".join(blocks) + "\n"
 
 
+def repo_config_path(lockfile: Path) -> Path:
+    """Return the config osv-scanner reads for ``lockfile`` when not given one.
+
+    osv-scanner v2 looks only in the lockfile's own directory, never a parent
+    (``normalizeConfigLoadPath`` in ``internal/config/manager.go``).
+    """
+    return lockfile.parent / _CONFIG_NAME
+
+
+def merge_config(
+    repo_text: str, entries: Iterable[IgnoreEntry]
+) -> tuple[str, list[str]]:
+    """Append generated ``[[IgnoredVulns]]`` blocks to a repo's own config.
+
+    The repo text is kept verbatim, so every setting it carries survives:
+    ``PackageOverrides``, ``GoVersionOverride``, comments and all. On a
+    duplicate id the repo's entry wins and the generated one is dropped.
+    osv-scanner would honour only the first of two entries anyway and warn
+    about the second, and the repo file is what a hand-run osv-scanner reads.
+
+    Args:
+        repo_text: The repo's ``osv-scanner.toml``, or ``""`` when it has none.
+        entries: Ignores from ``quality.ignore`` and ``deny.toml``.
+
+    Returns:
+        The merged TOML text, and the generated ids the repo already ignores.
+
+    Raises:
+        ConfigMergeError: The repo file is not valid TOML, or it declares
+            ``IgnoredVulns`` in a form an appended block cannot extend.
+
+    """
+    try:
+        repo = tomllib.loads(repo_text)
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigMergeError(f"not valid TOML: {exc}") from exc
+
+    repo_ignores = repo.get("IgnoredVulns", [])
+    if not isinstance(repo_ignores, list):
+        raise ConfigMergeError("IgnoredVulns is not an array of tables")
+    repo_ids = {v.get("id") for v in repo_ignores if isinstance(v, dict)}
+
+    added: list[IgnoreEntry] = []
+    shadowed: list[str] = []
+    for entry in entries:
+        if entry.id in repo_ids:
+            shadowed.append(entry.id)
+        else:
+            added.append(entry)
+
+    head = repo_text
+    if head and not head.endswith("\n"):
+        head += "\n"
+    generated = render_ignore_config(added)
+    merged = head + ("\n" if head and generated else "") + generated
+
+    # An inline `IgnoredVulns = [...]` array cannot be extended by a table header.
+    try:
+        tomllib.loads(merged)
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigMergeError(
+            f"cannot append [[IgnoredVulns]] blocks to it: {exc}"
+        ) from exc
+    return merged, shadowed
+
+
 def build_command(lockfile: Path, config_path: Path | None = None) -> list[str]:
     """Compose the osv-scanner CLI invocation for a single lockfile.
 
@@ -81,25 +159,58 @@ def build_command(lockfile: Path, config_path: Path | None = None) -> list[str]:
     return cmd
 
 
-def run(
-    lockfile: Path,
-    entries: Iterable[IgnoreEntry],
-    mode: str,
-    run_tool: Callable[[str, list[str], str], bool],
-) -> bool:
-    """Run osv-scanner against ``lockfile``, delegating execution.
+def _not_scanned(why: str, mode: str) -> None:
+    """Report a scan that examined no package, which is not a clean result."""
+    warn(
+        f"  {SLUG}: NOT SCANNED - {why}, so no package was examined. "
+        f"This is not a clean result."
+    )
+    if is_ci() and mode == "blocking":
+        print(
+            f"::warning title=osv-scanner scanned nothing::{SLUG} is "
+            f"{mode} but {why}, so it gated nothing here."
+        )
+
+
+def _scan(lockfile: Path, config_path: Path | None, mode: str) -> bool:
+    """Run one scan and apply the warn / blocking semantics to its exit code."""
+    result = run_cmd(build_command(lockfile, config_path), check=False, capture=True)
+    if result.returncode == 0:
+        success(f"  {SLUG}: passed")
+        return True
+
+    if result.returncode == _NO_PACKAGES_EXIT:
+        _not_scanned(f"{lockfile.name} lists no packages", mode)
+        return True
+
+    if mode == "warn":
+        warn(f"  {SLUG}: issues found (non-blocking)")
+        if result.stdout:
+            info(result.stdout)
+        return True
+
+    error(f"  {SLUG}: failed (exit {result.returncode})")
+    for stream in (result.stdout, result.stderr):
+        if stream:
+            info(stream)
+    return False
+
+
+def run(lockfile: Path, entries: Iterable[IgnoreEntry], mode: str) -> bool:
+    """Run osv-scanner against ``lockfile``.
 
     A missing binary fails a ``blocking`` scan in CI and warn-skips
-    everywhere else, like every other quality tool. When ignore entries
-    are present, writes an ``osv-scanner.toml`` into a temporary directory,
-    points the scanner at it, and removes it after the scan. Execution +
-    blocking/warn/disabled semantics are delegated
-    to ``run_tool`` (the caller's tool runner), so this stays uniform
-    with the rest of the quality stage.
+    everywhere else, like every other quality tool. A missing lockfile, or
+    one that lists no packages, is reported as NOT SCANNED and passes.
+
+    When ignore entries are present, the repo's own ``osv-scanner.toml``
+    (if any) is merged with them into a file in a temporary directory, the
+    scanner is pointed at it, and it is removed after the scan.
 
     Returns:
-        True on pass / skip; False when a blocking scan could not run in
-        CI; ``run_tool``'s result otherwise.
+        True on pass, skip or a ``warn``-mode finding; False when a
+        ``blocking`` scan failed, could not run in CI, or the repo's
+        config could not be merged.
 
     """
     if mode == "disabled":
@@ -117,28 +228,35 @@ def run(
     if not lockfile.exists():
         # A library legitimately ships no lockfile, so this is not a failure,
         # but it is not coverage either (issue #223).
-        warn(
-            f"  {SLUG}: NOT SCANNED - no {lockfile.name} in this repo, so no "
-            f"package was examined. This is not a clean result."
-        )
-        if is_ci() and mode == "blocking":
-            print(
-                f"::warning title=osv-scanner scanned nothing::{SLUG} is "
-                f"{mode} but found no {lockfile.name}, so it gated nothing "
-                f"here. A dependency graph exists only in this repo's "
-                f"consumers."
-            )
+        _not_scanned(f"there is no {lockfile.name} in this repo", mode)
         return True
 
     entries = list(entries)
     if not entries:
-        return run_tool(SLUG, build_command(lockfile), mode)
+        return _scan(lockfile, None, mode)
+
+    repo_path = repo_config_path(lockfile)
+    repo_text = repo_path.read_text(encoding="utf-8") if repo_path.is_file() else ""
+    try:
+        merged, shadowed = merge_config(repo_text, entries)
+    except ConfigMergeError as exc:
+        refusal = (
+            f"  {SLUG}: NOT SCANNED - cannot add the quality.ignore / deny.toml "
+            f"ignores to {repo_path}: {exc}. Scanning without it would drop "
+            f"the repo's own ignores."
+        )
+        if mode == "blocking":
+            error(refusal)
+            return False
+        warn(refusal)
+        return True
+
+    for vuln_id in shadowed:
+        info(f"  {SLUG}: {vuln_id} is already ignored in {repo_path}, which wins")
 
     # Outside the checkout, so a local run leaves nothing untracked to commit
     # and a repo's own osv-scanner.toml is never overwritten.
     with tempfile.TemporaryDirectory(prefix="hyperi-ci-osv-") as scratch:
         config_path = Path(scratch) / _CONFIG_NAME
-        config_path.write_text(
-            render_ignore_config(entries), encoding="utf-8", newline="\n"
-        )
-        return run_tool(SLUG, build_command(lockfile, config_path), mode)
+        config_path.write_text(merged, encoding="utf-8", newline="\n")
+        return _scan(lockfile, config_path, mode)

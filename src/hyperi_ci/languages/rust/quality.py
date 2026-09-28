@@ -382,12 +382,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     osv_ignores = _merge_deny_advisory_ignores(
         for_tool(ignores, osv_scanner.SLUG), osv_scanner.SLUG, deny_advisory_ids
     )
-    if not osv_scanner.run(
-        Path("Cargo.lock"),
-        osv_ignores,
-        mode,
-        _run_tool,
-    ):
+    if not osv_scanner.run(Path("Cargo.lock"), osv_ignores, mode):
         had_failure = True
 
     # cargo deny (requires deny.toml -- useless without project-specific config)

@@ -292,12 +292,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # 7-day Renovate cooldown.
     mode = _get_tool_mode("osv_scanner", config)
     osv_lockfile = Path(_PM_LOCKFILE.get(pm, "package-lock.json"))
-    if not osv_scanner.run(
-        osv_lockfile,
-        for_tool(ignores, osv_scanner.SLUG),
-        mode,
-        _run_tool,
-    ):
+    if not osv_scanner.run(osv_lockfile, for_tool(ignores, osv_scanner.SLUG), mode):
         had_failure = True
 
     return 1 if had_failure else 0
