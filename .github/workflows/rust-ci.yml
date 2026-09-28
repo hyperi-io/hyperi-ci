@@ -205,6 +205,9 @@ jobs:
   # ---------------------------------------------------------------------------
   plan:
     name: Plan
+    # Stays hosted until the vanilla image carries PyYAML or yq: without either
+    # the composite cannot read .hyperi-ci.yaml, and every setting Plan takes
+    # from it falls back to its default (issue #291).
     runs-on: ubuntu-latest
     # predict-version runs semantic-release, whose git plugin verifies push
     # access (a `git push --dry-run`) on a publish predict - needs write.
@@ -330,7 +333,9 @@ jobs:
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    # Needs only git and uv, so no language variable and no renovate carve-out:
+    # the default set is already the lightest one (issue #291).
+    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -637,7 +642,8 @@ jobs:
     # commit-check is deliberately absent: it is not run-checks-gated, so it
     # already fires on every push and works as a required context by itself.
     needs: [plan, quality, test, build]
-    runs-on: ubuntu-latest
+    # Needs only uv; same chain as commit-check (issue #291).
+    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       # The CLI ships via uvx, which a bare runner does not have. Without this
       # the gate exits 127 and fails a run that was otherwise green.

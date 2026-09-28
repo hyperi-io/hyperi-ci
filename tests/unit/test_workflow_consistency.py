@@ -1472,6 +1472,14 @@ class TestRunnerSelection:
         "ts-ci.yml": "GH_RUNNER_TYPESCRIPT",
     }
 
+    # Jobs that need no toolchain resolve through the default set alone
+    # (issue #291). A renovate carve-out would move them onto a heavier image.
+    TOOLCHAIN_FREE_JOBS = ("commit-check", "gate")
+    DEFAULT_CHAIN = (
+        "${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && "
+        "'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"
+    )
+
     @staticmethod
     def _gated_runs_on(workflow_name: str) -> list[tuple[str, str]]:
         """Every (job, runs-on) that resolves through an org variable."""
@@ -1482,6 +1490,28 @@ class TestRunnerSelection:
             if "GH_RUNNER" in runs_on:
                 found.append((name, runs_on))
         return found
+
+    @classmethod
+    def _toolchain_runs_on(cls, workflow_name: str) -> list[tuple[str, str]]:
+        """The gated jobs that need the language toolchain."""
+        return [
+            (job, runs_on)
+            for job, runs_on in cls._gated_runs_on(workflow_name)
+            if job not in cls.TOOLCHAIN_FREE_JOBS
+        ]
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_toolchain_free_jobs_use_the_default_chain(
+        self, workflow_name: str
+    ) -> None:
+        jobs = _load_workflow(workflow_name)["jobs"]
+        for job in self.TOOLCHAIN_FREE_JOBS:
+            runs_on = str(jobs[job]["runs-on"])
+            assert runs_on == self.DEFAULT_CHAIN, (
+                f"{workflow_name}.{job}: runs-on must be the default chain, "
+                f"so it follows GH_RUNNER_DEFAULT and free mode.\n"
+                f"  expected: {self.DEFAULT_CHAIN}\n  actual:   {runs_on}"
+            )
 
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
     def test_every_language_gates_at_least_one_job(self, workflow_name: str) -> None:
@@ -1510,7 +1540,7 @@ class TestRunnerSelection:
 
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
     def test_renovate_carveout_is_present(self, workflow_name: str) -> None:
-        for job, runs_on in self._gated_runs_on(workflow_name):
+        for job, runs_on in self._toolchain_runs_on(workflow_name):
             assert self.RENOVATE in runs_on, (
                 f"{workflow_name}.{job}: runs-on lost the renovate carve-out "
                 f"(issue #91).\n  actual: {runs_on}"
@@ -1523,7 +1553,7 @@ class TestRunnerSelection:
         # symptom is a missing toolchain, not a wrong-runner error.
         mine = self.LANG_VAR[workflow_name]
         theirs = {v for k, v in self.LANG_VAR.items() if k != workflow_name}
-        for job, runs_on in self._gated_runs_on(workflow_name):
+        for job, runs_on in self._toolchain_runs_on(workflow_name):
             assert mine in runs_on, (
                 f"{workflow_name}.{job}: runs-on does not reference {mine}"
             )
