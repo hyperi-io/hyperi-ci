@@ -29,6 +29,10 @@ Three ways a consumer breaks, all reported, none written:
 ``required``       declared `required: true`, which fails any dispatch that
                    does not send it (a from-head release sends no `tag`)
 
+:data:`OPTIONAL_CALLER_INPUTS` are held to the last two only. A caller that
+leaves one out still dispatches every release path, so its absence is noted
+on the report and never counted as drift.
+
 Reads are strictly report-only: the caller file belongs to the consumer repo.
 """
 
@@ -51,6 +55,10 @@ UI_DISPATCH_INPUTS: tuple[str, ...] = (
 )
 
 CALLER_INPUTS: tuple[str, ...] = (*DISPATCH_INPUTS, *UI_DISPATCH_INPUTS)
+
+# UI inputs `hyperi-ci init` scaffolds that older callers lack, and whose
+# reusable-workflow default is what those callers already get.
+OPTIONAL_CALLER_INPUTS: tuple[str, ...] = ("test-tier",)
 
 # Reusable workflows this project publishes. A job calling one of these is a
 # release caller and is held to the dispatch contract.
@@ -91,6 +99,7 @@ class CallerReport:
     declared: list[str] = field(default_factory=list)
     forwarded: list[str] = field(default_factory=list)
     findings: list[Finding] = field(default_factory=list)
+    optional_absent: list[str] = field(default_factory=list)
     error: str | None = None
 
     @property
@@ -158,10 +167,13 @@ def audit_text(repo: str, text: str) -> CallerReport:
         forwarded.update(_FORWARDED.findall(str(value)))
     report.forwarded = sorted(forwarded)
 
-    for name in CALLER_INPUTS:
+    for name in (*CALLER_INPUTS, *OPTIONAL_CALLER_INPUTS):
         spec = declared.get(name)
         if spec is None:
-            report.findings.append(Finding("missing", name))
+            if name in OPTIONAL_CALLER_INPUTS:
+                report.optional_absent.append(name)
+            else:
+                report.findings.append(Finding("missing", name))
             continue
         if name not in forwarded:
             report.findings.append(Finding("not-forwarded", name))

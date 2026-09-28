@@ -84,9 +84,10 @@ the single place language divergence is allowed.
 | `plan` | - | always | Decide whether this run is a release; emit gate outputs |
 | `commit-check` | - | push-to-main OR `pull_request` | Conventional-commit **landing gate** - fatal on push to main (validates what lands), advisory on PRs. NOT `run-checks`-gated (see below) |
 | `quality` | `[plan]` | `run-checks` | Lint / typecheck / security scan |
-| `test` | `[plan]` | `run-checks` | Unit + integration tests |
+| `test` | `[plan]` | `run-checks` | Tests at the plan's `test-tier`, named `Test (<tier>, <runner>)`; a full run passes `--tier full` |
 | `build` | `[plan, quality, test]` | `run-build` | Compile binaries / wheels / packages, stamp version, upload `dist/` |
 | `release-tail` | `[plan, build]` | own gates | Container + tag-and-release, via shared `_release-tail.yml` |
+| `gate` | `[plan, quality, test, build]` | always | `hyperi-ci gate-check`: fails when a required job did not pass, and names the test tier. The context a ruleset should require (issue #177) |
 
 `commit-check` is deliberately **independent of `plan` / `run-checks`**: that
 gate skips the quality job on non-release-worthy merges to main, so a bad
@@ -112,8 +113,10 @@ rejected push.
 
 | Output | True when | Effect |
 |---|---|---|
-| `will-release` | push to **main** with `Release: true` trailer, OR `workflow_dispatch` carrying `tag` or `from-head: true` | The underlying release signal. A trailer on a non-main ref is ignored LOUDLY (`::warning::`) - main is the sole release path (branch-mode decision 1). A dispatch carrying neither is validate-only and warns that nothing was released |
-| `run-checks` | `will-release`, OR a **release-worthy push to main** (the pushed range carries a `feat:` / `fix:` / `perf:`; a range that cannot be resolved counts as worthy, so the gate fails open), OR `pull_request`, OR `workflow_dispatch` | Run quality + test. A release-worthy merge is TESTED, never shipped - `run-build` stays release-only |
+| `will-release` | push to **main** with `Release: true` trailer, OR `workflow_dispatch` carrying `tag` or `from-head: true` | The underlying release signal. A trailer on a non-main ref is ignored LOUDLY (`::warning::`) - main is the sole release path (branch-mode decision 1). A dispatch carrying neither is validate-only and warns that nothing was released. A `schedule` run is never a release, whatever HEAD's trailer says |
+| `run-checks` | `will-release`, OR a **release-worthy push to main** (the pushed range carries a `feat:` / `fix:` / `perf:`; a range that cannot be resolved counts as worthy, so the gate fails open), OR `pull_request`, OR `workflow_dispatch`, OR `schedule` | Run quality + test. A release-worthy merge is TESTED, never shipped - `run-build` stays release-only |
+| `test-tier` | `full` on `schedule`, when the `test-tier` input is `full`, when the project's own `test.tier` is `full`, or on `will-release` with `full-required-for-release`; else `core` | The tier the Test job runs. Nothing lowers it, so a caller forwarding `core` on every event cannot lower a scheduled or opted-in release run. An unknown value, from the input or the project, fails Plan |
+| `full-required-for-release` | the project sets `test.full.required_for_release: true` | A release runs `full`. The Gate fails a release handed any other tier. Off by default |
 | `run-build` | `will-release`, OR `workflow_dispatch`, OR `pull_request` with the `branch-build` opt-in | Run build + container (the release tail stays `will-release`-only) |
 | `run-arm64-check` | a **release-worthy push to main** on a Rust project that ships `aarch64-unknown-linux-gnu` and has not set `build.rust.arm64_on_main: false` | Run the Build job with an arm64-ONLY matrix. Read by `rust-ci.yml` alone; the release tail does not run, so this compiles one leg and ships nothing |
 | `next-version` | `will-release` AND push | Predicted semver from semantic-release dry-run |
@@ -175,7 +178,25 @@ flowchart LR
 | Pull request + `branch-build` opt-in | yes | yes advisory | yes | yes | yes | yes validate / dev push | no |
 | `workflow_dispatch` with `tag` / `from-head` (release) | yes | no | yes | yes | yes | yes | yes |
 | `workflow_dispatch`, bare (validate-only) | yes | no | yes | yes | yes | yes validate | no |
+| `schedule` (a caller's cron) | yes | no | yes | yes, full tier | no | no | no |
 | push to a feature branch | yes | no | no | no | no | no | no |
+
+### Test tiers
+
+`core` is what a PR and a push run. `full` adds every test the project deselects or ignores by default, and runs on a `schedule`, on a run given `test-tier: full`, and in a project whose own `test.tier` is `full`. Plan resolves the tier once (`hyperi_ci.plan_tier`, loaded by path from the composite, reading every config spelling `load_config` accepts). The Test job passes `--tier full` on a full run and nothing on a core run, so a core run leaves the project's own `test.tier` in charge.
+
+A release runs `core`, as it did before tiers, and the Gate says so. A project opts its releases into `full`:
+
+```yaml
+# .hyperi-ci.yaml
+test:
+  full:
+    required_for_release: true   # releases run full
+```
+
+The Gate job has no checkout, so Plan reads this key and passes it as the `full-required-for-release` output. A caller reaches `test-tier: full` on a dispatch only once its own `ci.yml` declares the input and forwards it. `hyperi-ci init` scaffolds both, and `hyperi-ci audit-callers` notes a caller without it rather than counting it as drift. A `schedule` and a dispatch that publishes nothing each get their own concurrency group, so neither can cancel a release on main or be cancelled by a push.
+
+Three things enforce a full release, and the Gate is none of them. Plan forces `full` when the project opts in. The Test job passes `--tier full`, which a CLI without the flag rejects, so a full run never quietly runs core. Build needs Test, and the release tail needs Build. The Gate runs beside the release tail and cannot stop it: it names the tier in its reason line, and fails the run after the fact if an opted-in release was handed anything but `full`.
 
 Tag-on-publish doctrine: a commit landing on main produces no tag and no
 artefacts. The operator opts in with `hyperi-ci push --release` (adds the
