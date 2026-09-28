@@ -561,3 +561,24 @@ class TestEscapeCommandData:
 
     def test_plain_value_unchanged(self) -> None:
         assert common.escape_command_data("plain-value") == "plain-value"
+
+
+class TestStripAnsi:
+    """Terminal escapes come out; the text around them stays."""
+
+    def test_cargo_colour_is_removed(self) -> None:
+        coloured = (
+            "\x1b[1m\x1b[33mwarning\x1b[0m\x1b[1m: function `helper` is never used"
+            "\x1b[0m\n \x1b[1m\x1b[94m--> \x1b[0msrc/lib.rs:4:4"
+        )
+        assert common.strip_ansi(coloured) == (
+            "warning: function `helper` is never used\n --> src/lib.rs:4:4"
+        )
+
+    @pytest.mark.parametrize("end", ["\x07", "\x1b\\"])
+    def test_hyperlinks_keep_their_text(self, end: str) -> None:
+        linked = f"\x1b]8;;file:///src/lib.rs{end}src/lib.rs\x1b]8;;{end}:4:4"
+        assert common.strip_ansi(linked) == "src/lib.rs:4:4"
+
+    def test_plain_text_unchanged(self) -> None:
+        assert common.strip_ansi("::group::running `x`") == "::group::running `x`"

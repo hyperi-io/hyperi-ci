@@ -331,10 +331,12 @@ def resolve_cross_tool_mode(
     return apply_strict(mode)
 
 
-def resolve_tool_mode(tool: str, config: CIConfig, language: str) -> str:
+def resolve_tool_mode(
+    tool: str, config: CIConfig, language: str, default: str = "blocking"
+) -> str:
     """Resolve a quality tool's mode: ``blocking``, ``warn`` or ``disabled``.
 
-    Reads ``quality.<language>.<tool>`` from config (default ``blocking``),
+    Reads ``quality.<language>.<tool>`` from config (``default`` when unset),
     which takes the same bare-string-or-mapping shapes as
     :func:`resolve_cross_tool_mode`. A force-skip (:func:`is_skipped`) wins -
     the tool is ``disabled`` for this run. Otherwise, under strict mode
@@ -344,7 +346,7 @@ def resolve_tool_mode(tool: str, config: CIConfig, language: str) -> str:
     if is_skipped(tool):
         return "disabled"
     key = f"quality.{language}.{tool}"
-    mode, reason = checked_mode(key, config.get(key, "blocking"), "blocking")
+    mode, reason = checked_mode(key, config.get(key, default), default)
     note_gate_downgrade(key, mode, reason)
     return apply_strict(mode)
 
