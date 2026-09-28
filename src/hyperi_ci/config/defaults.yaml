@@ -138,6 +138,8 @@ quality:
   # existing tree fails every PR until the backlog clears. Promote a check to
   # `blocking` in a repo once that repo's count reaches zero - the first three
   # are deterministic and carry no style opinion, so they are ready first.
+  # doc_paths also takes `prescriptive:`, directories whose inline-code paths
+  # name the CONSUMER's tree (a standards repo) and are not checked here.
   doc_paths: warn            # Docs naming a file the repo no longer has
   doc_links: warn            # lychee over internal links + anchors, offline only
   mermaid_parse: warn        # Every fenced mermaid block, against mermaid's own grammar
