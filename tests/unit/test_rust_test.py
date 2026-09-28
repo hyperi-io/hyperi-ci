@@ -119,6 +119,7 @@ class TestStageFailsClosed:
             raise AssertionError("no test command should run")
 
         monkeypatch.setattr(f"{MODULE}.subprocess.run", _never)
+        monkeypatch.setattr(f"{MODULE}.stream_cmd", _never)
         assert run(_make_config(nextest=True)) == 1
 
 
@@ -168,17 +169,18 @@ class TestCommandConstruction:
     def test_serial_flag_matches_the_runner(self, tier: str) -> None:
         """The two spell single-threaded differently; the wrong spelling is a hang
         or a parse error, not a slow run."""
-        assert _build_test_cmd("default", tier=tier, runner="nextest")[-2:] == [
+        assert _build_test_cmd("default", rust_tier=tier, runner="nextest")[-2:] == [
             "--jobs",
             "1",
         ]
-        assert _build_test_cmd("default", tier=tier, runner="cargo")[-2:] == [
+        assert _build_test_cmd("default", rust_tier=tier, runner="cargo")[-2:] == [
             "--",
             "--test-threads=1",
         ]
 
     def test_unit_tier_is_lib_only(self) -> None:
-        assert _build_test_cmd("default", tier="unit", runner="nextest")[-1] == "--lib"
+        cmd = _build_test_cmd("default", rust_tier="unit", runner="nextest")
+        assert cmd[-1] == "--lib"
 
 
 class TestCoverageKeepsTheResolvedRunner:
@@ -194,9 +196,13 @@ class TestCoverageKeepsTheResolvedRunner:
             lambda tool: None if tool == "cargo-tarpaulin" else "/usr/bin/x",
         )
         monkeypatch.setattr(
-            f"{MODULE}.subprocess.run",
-            lambda cmd, *a, **k: calls.append(cmd) or MagicMock(returncode=0),
+            f"{MODULE}.stream_cmd",
+            lambda cmd, *a, **k: calls.append(cmd) or (0, ""),
         )
+        monkeypatch.setattr(
+            f"{MODULE}.subprocess.run", lambda *a, **k: MagicMock(returncode=0)
+        )
+        monkeypatch.setattr(f"{MODULE}.announce_tier", lambda *_a: None)
         return calls
 
     def test_nextest_is_composed_not_replaced(

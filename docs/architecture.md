@@ -256,8 +256,8 @@ That gate covers the workflow INTERFACE -- inputs, outputs, secrets -- and canno
 ## CLI surface
 
 ```
-hyperi-ci run <stage>      quality | test | build | release
-hyperi-ci check [--quick|--full|--strict]  pre-push: quality(+test)(+build); --strict fails on warn-tier findings
+hyperi-ci run <stage>      quality | test | build | release; test takes --tier core|full
+hyperi-ci check [--quick|--full|--strict|--tier full]  pre-push: quality(+test)(+build); --strict fails on warn-tier findings; --tier full runs the ignored tests too
 hyperi-ci push [--release]         commit + push, opt-in Release: true trailer
 hyperi-ci release [<tag>]          release/retry HEAD, or re-release an existing tag
 hyperi-ci stamp-version <v>        write VERSION + manifest (central)

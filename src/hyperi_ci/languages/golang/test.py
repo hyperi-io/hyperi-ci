@@ -10,13 +10,11 @@ Runs go test with optional race detection and coverage reporting.
 Coverage output goes to test-results/ for artifact upload.
 """
 
-from __future__ import annotations
-
-import subprocess
 from pathlib import Path
 
-from hyperi_ci.common import error, info, success
+from hyperi_ci.common import error, info, run_cmd, success
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages.tiering import SuiteTier, handler_tier, warn_full_ran_core
 
 _RESULTS_DIR = Path("test-results")
 
@@ -24,6 +22,8 @@ _RESULTS_DIR = Path("test-results")
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     """Run Golang tests."""
     info("Running Golang tests...")
+    if handler_tier(extra_env) is SuiteTier.FULL:
+        warn_full_ran_core("Go has no ignored-test mechanism")
 
     cmd = ["go", "test"]
     args = list(config.get("test.golang.args", ["-v"]))
@@ -40,7 +40,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     cmd.append("./...")
 
-    result = subprocess.run(cmd)
+    result = run_cmd(cmd, check=False)
     if result.returncode != 0:
         error("Golang tests failed")
         return result.returncode
@@ -49,7 +49,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     coverage_file = _RESULTS_DIR / "coverage.out"
     if coverage_file.exists():
         html_file = _RESULTS_DIR / "coverage.html"
-        subprocess.run(
+        run_cmd(
             ["go", "tool", "cover", f"-html={coverage_file}", f"-o={html_file}"],
             check=False,
         )
