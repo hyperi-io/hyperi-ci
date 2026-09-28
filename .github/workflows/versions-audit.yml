@@ -61,6 +61,17 @@ jobs:
           uv run --no-sources python scripts/update-versions.py \
             --stable --fail-on-drift ${{ inputs.now && '--now' || '' }}
 
+      - name: Mint a fleet read token
+        # The fixtures are private and GITHUB_TOKEN sees only this repo, so the
+        # check below read every fixture as missing from the org.
+        id: bot
+        if: always()
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.GH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
       - name: Check the fixture fleet against the org
         # Scheduled rather than on the PR path: it needs network and an
         # authenticated gh, and a fixture is renamed about once a year. An
@@ -68,7 +79,7 @@ jobs:
         # not the same answer as "no drift" (issue #215).
         if: always()
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
         run: uv run --no-sources python scripts/check-fixture-fleet.py
 
   digests:
