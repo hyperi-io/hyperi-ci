@@ -20,6 +20,8 @@ from hyperi_ci.languages.rust.quality import (
     _run_rustdoc_hint,
 )
 
+_TARGETS_RUN_CMD = "hyperi_ci.languages.rust.targets.run_cmd"
+
 
 def _make_config(fm: dict[str, Any] | None) -> CIConfig:
     raw: dict[str, Any] = {"quality": {"rust": {}}}
@@ -298,10 +300,7 @@ class TestHasLibTarget:
             stdout = '{"packages":[{"name":"myapp","targets":[{"kind":["bin"],"name":"myapp"}]}]}'
             stderr = ""
 
-        monkeypatch.setattr(
-            "hyperi_ci.languages.rust.quality.subprocess.run",
-            lambda *a, **kw: FakeResult(),
-        )
+        monkeypatch.setattr(_TARGETS_RUN_CMD, lambda *a, **kw: FakeResult())
         assert _has_lib_target(tmp_path) is False
 
     def test_library_project_returns_true(
@@ -318,10 +317,7 @@ class TestHasLibTarget:
             stdout = '{"packages":[{"name":"mylib","targets":[{"kind":["lib"],"name":"mylib"}]}]}'
             stderr = ""
 
-        monkeypatch.setattr(
-            "hyperi_ci.languages.rust.quality.subprocess.run",
-            lambda *a, **kw: FakeResult(),
-        )
+        monkeypatch.setattr(_TARGETS_RUN_CMD, lambda *a, **kw: FakeResult())
         assert _has_lib_target(tmp_path) is True
 
     def test_mixed_lib_and_bin_returns_true(
@@ -343,10 +339,7 @@ class TestHasLibTarget:
             )
             stderr = ""
 
-        monkeypatch.setattr(
-            "hyperi_ci.languages.rust.quality.subprocess.run",
-            lambda *a, **kw: FakeResult(),
-        )
+        monkeypatch.setattr(_TARGETS_RUN_CMD, lambda *a, **kw: FakeResult())
         assert _has_lib_target(tmp_path) is True
 
     def test_falls_back_to_filesystem_when_cargo_unavailable(
@@ -363,7 +356,7 @@ class TestHasLibTarget:
         def fake_run(*args, **kwargs):
             raise FileNotFoundError("cargo not on PATH")
 
-        monkeypatch.setattr("hyperi_ci.languages.rust.quality.subprocess.run", fake_run)
+        monkeypatch.setattr(_TARGETS_RUN_CMD, fake_run)
         assert _has_lib_target(tmp_path) is True
 
     def test_filesystem_fallback_returns_false_for_bin_only(
@@ -380,8 +373,60 @@ class TestHasLibTarget:
         def fake_run(*args, **kwargs):
             raise FileNotFoundError("cargo not on PATH")
 
-        monkeypatch.setattr("hyperi_ci.languages.rust.quality.subprocess.run", fake_run)
+        monkeypatch.setattr(_TARGETS_RUN_CMD, fake_run)
         assert _has_lib_target(tmp_path) is False
+
+    def test_unparseable_metadata_takes_the_filesystem_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from hyperi_ci.languages.rust.quality import _has_lib_target
+
+        (tmp_path / "Cargo.toml").write_text(
+            '[package]\nname = "mylib"\nversion = "0.1.0"\n'
+        )
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "lib.rs").write_text("// lib\n")
+
+        monkeypatch.setattr(
+            _TARGETS_RUN_CMD,
+            lambda *a, **kw: subprocess.CompletedProcess(a, 0, stdout="not json"),
+        )
+        assert _has_lib_target(tmp_path) is True
+
+
+class TestPackageLibMap:
+    """`_package_lib_map` answers per workspace member, or not at all."""
+
+    def test_maps_each_member(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from hyperi_ci.languages.rust.quality import _package_lib_map
+
+        (tmp_path / "Cargo.toml").write_text('[workspace]\nmembers = ["a", "b"]\n')
+        stdout = (
+            '{"packages":['
+            '{"name":"a","targets":[{"kind":["rlib"],"name":"a"}]},'
+            '{"name":"b","targets":[{"kind":["bin"],"name":"b"}]}'
+            "]}"
+        )
+        monkeypatch.setattr(
+            _TARGETS_RUN_CMD,
+            lambda *a, **kw: subprocess.CompletedProcess(a, 0, stdout=stdout),
+        )
+        assert _package_lib_map(tmp_path) == {"a": True, "b": False}
+
+    def test_empty_without_cargo(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from hyperi_ci.languages.rust.quality import _package_lib_map
+
+        (tmp_path / "Cargo.toml").write_text('[package]\nname = "a"\n')
+
+        def fake_run(*args: Any, **kwargs: Any) -> None:
+            raise FileNotFoundError("cargo not on PATH")
+
+        monkeypatch.setattr(_TARGETS_RUN_CMD, fake_run)
+        assert _package_lib_map(tmp_path) == {}
 
 
 class TestFeatureMatrixBinOnlyProject:

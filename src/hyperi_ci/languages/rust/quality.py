@@ -27,6 +27,7 @@ from hyperi_ci.common import announce, error, info, is_ci, strip_ansi, success, 
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import get_test_ignore, resolve_tool_mode
 from hyperi_ci.languages.rust._manifest import is_root_package_workspace
+from hyperi_ci.languages.rust.targets import cargo_metadata
 from hyperi_ci.quality import cargo_flags, osv_scanner
 from hyperi_ci.quality.ignores import IgnoreEntry, for_tool, load_ignores
 
@@ -153,35 +154,16 @@ def _has_lib_target(project_dir: Path | None = None) -> bool:
     (like ci-test-rust-app or any `cargo new --bin` crate) don't
     spuriously fail the quality stage.
 
-    Authoritative answer comes from ``cargo metadata`` when available;
-    a Cargo.toml + filesystem fallback covers the case where cargo is
-    on PATH but metadata fails for some reason.
+    Authoritative answer comes from ``cargo metadata`` when available.
+    When cargo is missing, fails, or prints output that is not JSON, the
+    root crate's ``src/lib.rs`` is the answer.
     """
     cwd = project_dir or Path.cwd()
     if not (cwd / "Cargo.toml").exists():
         return False
 
-    try:
-        result = subprocess.run(
-            ["cargo", "metadata", "--no-deps", "--format-version=1"],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-        rc = getattr(result, "returncode", 1)
-    except (FileNotFoundError, OSError):
-        rc = 1
-        result = None  # type: ignore[assignment]
-
-    if rc == 0:
-        import json as _json
-
-        try:
-            metadata = _json.loads(getattr(result, "stdout", "") or "")
-        except _json.JSONDecodeError:
-            metadata = {}
+    metadata = cargo_metadata(cwd)
+    if metadata is not None:
         for package in metadata.get("packages", []):
             for target in package.get("targets", []):
                 if "lib" in target.get("kind", []) or "rlib" in target.get("kind", []):
@@ -207,26 +189,8 @@ def _package_lib_map(project_dir: Path | None = None) -> dict[str, bool]:
     if not (cwd / "Cargo.toml").exists():
         return {}
 
-    try:
-        result = subprocess.run(
-            ["cargo", "metadata", "--no-deps", "--format-version=1"],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-    except (FileNotFoundError, OSError):
-        return {}
-
-    if getattr(result, "returncode", 1) != 0:
-        return {}
-
-    import json as _json
-
-    try:
-        metadata = _json.loads(getattr(result, "stdout", "") or "")
-    except _json.JSONDecodeError:
+    metadata = cargo_metadata(cwd)
+    if metadata is None:
         return {}
 
     lib_map: dict[str, bool] = {}
