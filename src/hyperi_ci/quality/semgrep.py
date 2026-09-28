@@ -35,7 +35,13 @@ _SHIPPED_KEY = "quality.semgrep"
 
 
 def _resolve_mode(config: CIConfig, language: str | None) -> str:
-    """Resolve semgrep's mode, with a legacy ``quality.<language>.semgrep`` winning."""
+    """Resolve semgrep's mode, with a legacy ``quality.<language>.semgrep`` winning.
+
+    Raises:
+        GateReasonRequiredError: The gate is turned below the shipped default
+            with no reason beside it.
+
+    """
     if is_skipped("semgrep"):
         return "disabled"
     key = _SHIPPED_KEY
@@ -60,6 +66,10 @@ def run(config: CIConfig, *, language: str | None = None) -> int:
 
     Returns:
         Exit code (0 = success / non-blocking / skipped).
+
+    Raises:
+        GateReasonRequiredError: The gate is turned below the shipped default
+            with no reason beside it.
 
     """
     mode = _resolve_mode(config, language)

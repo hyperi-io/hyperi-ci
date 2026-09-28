@@ -5,16 +5,18 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import pytest
 import yaml
 
-from hyperi_ci import dispatch
+from hyperi_ci import common, dispatch
+from hyperi_ci import config as config_module
 from hyperi_ci.config import CIConfig
 from hyperi_ci.dispatch import _find_handler_module
+
+_OWED_TITLE = "hyperi-ci security gate needs a reason"
+_REASON = "security gates run in the org-level pipeline for this mirror"
 
 
 class TestPublishIsAnAliasForRelease:
@@ -76,6 +78,94 @@ class TestProjectDirReachesTheHandlers:
         seen = self._record_chdir(monkeypatch)
         assert dispatch.run_stage("nonsense", project_dir=tmp_path) == 1
         assert seen == []
+
+
+class TestAnOwedReasonFailsTheStage:
+    """A security gate turned down with no reason fails the quality stage.
+
+    The reader gets the message that names the key and the YAML to paste,
+    reported by run_stage, never a traceback.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _project(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        # run_stage moves the process into the project and caches its config.
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(config_module, "_config_cache", None)
+        monkeypatch.delenv("HYPERCI_QUALITY_SKIP", raising=False)
+        monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
+        monkeypatch.setattr(common, "is_github_actions", lambda: False)
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "probe"\nversion = "0.0.0"\n', encoding="utf-8"
+        )
+
+    @staticmethod
+    def _run(tmp_path: Path, quality: dict[str, object]) -> int:
+        (tmp_path / ".hyperi-ci.yaml").write_text(
+            yaml.safe_dump({"quality": quality}), encoding="utf-8"
+        )
+        return dispatch.run_stage("quality", project_dir=tmp_path)
+
+    @staticmethod
+    def _errors(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        said: list[str] = []
+        monkeypatch.setattr(common, "error", said.append)
+        return said
+
+    @staticmethod
+    def _annotations(capsys: pytest.CaptureFixture[str]) -> list[str]:
+        out = capsys.readouterr().out
+        return [
+            line
+            for line in out.splitlines()
+            if line.startswith("::")
+            and not line.startswith(("::group::", "::endgroup::"))
+        ]
+
+    def test_a_security_gate_down_without_a_reason_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said = self._errors(monkeypatch)
+        assert self._run(tmp_path, {"alint": "disabled", "gitleaks": "warn"}) == 1
+        message = "\n".join(said)
+        assert "quality.gitleaks: gitleaks is a security gate" in message
+        assert "mode: warn" in message
+        assert "reason:" in message
+
+    def test_quality_off_without_a_reason_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said = self._errors(monkeypatch)
+        assert self._run(tmp_path, {"enabled": False}) == 1
+        message = "\n".join(said)
+        assert "quality.enabled: false turns off every security gate" in message
+        assert "reason:" in message
+
+    def test_quality_off_with_a_reason_passes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said = self._errors(monkeypatch)
+        assert self._run(tmp_path, {"enabled": False, "reason": _REASON}) == 0
+        assert said == []
+
+    def test_in_ci_the_failure_is_one_error_annotation_on_one_line(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        # The annotation reaches the run summary, where a folded log group
+        # cannot hide it, and a raw newline would end the command early.
+        monkeypatch.setattr(common, "is_github_actions", lambda: True)
+        said = self._errors(monkeypatch)
+        assert self._run(tmp_path, {"alint": "disabled", "gitleaks": "warn"}) == 1
+        annotations = self._annotations(capsys)
+        assert len(annotations) == 1, annotations
+        assert annotations[0].startswith(f"::error title={_OWED_TITLE}::")
+        assert "quality.gitleaks" in annotations[0]
+        assert "%0A" in annotations[0]
+        # Under GitHub Actions the logger's own line is a second annotation.
+        assert said == []
 
 
 class TestLocalGatesCloseTheCiOnlyHole:

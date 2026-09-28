@@ -18,6 +18,7 @@ import pytest
 from hyperi_ci import common
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages import quality_common
+from hyperi_ci.languages.quality_common import GateReasonRequiredError
 from hyperi_ci.quality import semgrep
 
 _STRICT = "HYPERCI_QUALITY_STRICT"
@@ -69,20 +70,12 @@ class TestResolveMode:
         cfg = _cfg({"quality": {"python": {"semgrep": _off("no SAST rules for this")}}})
         assert semgrep._resolve_mode(cfg, "python") == "disabled"
 
-    def test_legacy_key_is_measured_against_the_shipped_default(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_legacy_key_is_measured_against_the_shipped_default(self) -> None:
         # quality.python.semgrep carries no default of its own, so without the
         # fallback a repo could disable SAST through it unremarked.
-        said: list[str] = []
-        monkeypatch.setattr(quality_common, "warn", said.append)
-        monkeypatch.setattr(common, "warn", said.append)
         cfg = _cfg({"quality": {"python": {"semgrep": "disabled"}}})
-        semgrep._resolve_mode(cfg, "python")
-        # The generic turned-down warning names the key too, so only the
-        # security-gate text proves the reason rule was applied.
-        owed = [w for w in said if "security gate" in w]
-        assert any("quality.python.semgrep" in w for w in owed), said
+        with pytest.raises(GateReasonRequiredError, match="quality.python.semgrep"):
+            semgrep._resolve_mode(cfg, "python")
 
     @pytest.mark.parametrize(
         "raw",
@@ -122,12 +115,7 @@ class TestRun:
         cfg = _cfg({"quality": {"semgrep": _off("no SAST on this repo")}})
         assert semgrep.run(cfg) == 0
 
-    def test_disabled_without_a_reason_is_named(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        said: list[str] = []
-        monkeypatch.setattr(quality_common, "warn", said.append)
-        monkeypatch.setattr(common, "warn", said.append)
+    def test_disabled_without_a_reason_raises(self) -> None:
         cfg = _cfg({"quality": {"semgrep": "disabled"}})
-        assert semgrep.run(cfg) == 0
-        assert any("security gate" in w for w in said), said
+        with pytest.raises(GateReasonRequiredError, match="security gate"):
+            semgrep.run(cfg)

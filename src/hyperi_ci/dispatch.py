@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Protocol, cast
 
 from hyperi_ci.common import (
+    announce,
     error,
     group,
     info,
@@ -607,11 +608,9 @@ def run_stage(
         else:
             rc = handler(language, config)
     except GateReasonRequiredError as exc:
-        # Nothing raises this until issue #259 stage 2 restores the raise in
-        # note_gate_downgrade and note_quality_disabled. From then, a relaxed
-        # security gate with no reason ends the stage here rather than running
-        # on past it.
-        error(str(exc))
+        # A relaxed security gate with no reason is a config defect, and a run
+        # that continues past it is the silent skip this check exists to stop.
+        announce(str(exc), exc.title, level="error")
         return 1
 
     if rc == 0:
