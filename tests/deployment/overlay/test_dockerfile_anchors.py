@@ -12,17 +12,93 @@ Synthetic base Dockerfiles cover each anchor:
   * single overlay, multiple overlays at same anchor, cross-anchor
   * missing-anchor errors with candidate list
   * binary-name disambiguation for after-app-binary
+  * logical-instruction boundaries: continuations, heredocs, and the
+    Dockerfiles hyperi-ci's own generators emit
 """
-
-from __future__ import annotations
 
 import pytest
 
+from hyperi_ci.apt_retry import apt_update_sh
+from hyperi_ci.container.compose import compose_contract_dockerfile
+from hyperi_ci.container.manifest import ContainerManifest
+from hyperi_ci.container.templates import render_python_template
 from hyperi_ci.deployment.overlay.anchors.dockerfile import (
     DockerfileAnchorResolver,
 )
 from hyperi_ci.deployment.overlay.errors import AnchorNotFound
 from hyperi_ci.deployment.overlay.model import Overlay
+
+_KEYWORDS = frozenset(
+    {
+        "ADD",
+        "ARG",
+        "CMD",
+        "COPY",
+        "ENTRYPOINT",
+        "ENV",
+        "EXPOSE",
+        "FROM",
+        "HEALTHCHECK",
+        "LABEL",
+        "ONBUILD",
+        "RUN",
+        "SHELL",
+        "STOPSIGNAL",
+        "USER",
+        "VOLUME",
+        "WORKDIR",
+    }
+)
+
+
+def _assert_whole_instructions(text: str) -> None:
+    """Fail unless every line starts an instruction or continues one ending in ``\\``.
+
+    Blank and comment lines are skipped the way the Dockerfile parser skips
+    them, including inside a continuation.
+    """
+    continuing = False
+    for number, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if not continuing:
+            keyword = stripped.split(maxsplit=1)[0].upper()
+            assert keyword in _KEYWORDS, (
+                f"line {number} is not an instruction: {line!r}"
+            )
+        continuing = stripped.endswith("\\")
+
+
+def _previous_code_line(lines: list[str], idx: int) -> str:
+    """Return the nearest line above ``idx`` that is neither blank nor a comment."""
+    for line in reversed(lines[:idx]):
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            return line
+    return ""
+
+
+def _assert_starts_instruction(out: str, marker: str) -> list[str]:
+    """Assert the ``marker`` line is not swallowed by a continuation above it."""
+    lines = out.splitlines()
+    idx = lines.index(marker)
+    assert not _previous_code_line(lines, idx).rstrip().endswith("\\"), out
+    _assert_whole_instructions(out)
+    return lines
+
+
+def _manifest(*, runtime_packages: list[str]) -> ContainerManifest:
+    return ContainerManifest(
+        base_image="ubuntu:24.04",
+        binary_name="myapp",
+        runtime_packages=runtime_packages,
+        expose_ports=[8080],
+        health_check={"path": "/healthz", "port": 8080},
+        entrypoint=["myapp"],
+        cmd=["run"],
+    )
+
 
 # A representative base Dockerfile in the shape scalo-rs/scalo-py generators emit.
 _BASE = """\
@@ -86,6 +162,26 @@ class TestSimpleAnchors:
         out = resolver.splice(_BASE, [overlay])
         assert out.index("# right-before-ep") < out.index("ENTRYPOINT")
 
+    @pytest.mark.parametrize(
+        "base",
+        [
+            pytest.param(render_python_template(), id="python-template"),
+            pytest.param(
+                compose_contract_dockerfile(_manifest(runtime_packages=[])),
+                id="contract",
+            ),
+        ],
+    )
+    def test_before_entrypoint_skips_healthcheck_cmd_continuation(
+        self, base: str
+    ) -> None:
+        assert "\\\n    CMD curl" in base
+        resolver = DockerfileAnchorResolver()
+        overlay = Overlay(anchor="before-entrypoint", content="RUN echo pre-ep\n")
+        out = resolver.splice(base, [overlay])
+        lines = _assert_starts_instruction(out, "RUN echo pre-ep")
+        assert lines[lines.index("RUN echo pre-ep") + 1].startswith("ENTRYPOINT")
+
     def test_end_of_image_alias_of_before_entrypoint(self) -> None:
         resolver = DockerfileAnchorResolver()
         overlay = Overlay(anchor="end-of-image", content="# eoi\n")
@@ -94,13 +190,89 @@ class TestSimpleAnchors:
 
 
 class TestPackageManagerAnchor:
-    def test_after_base_deps_lands_after_apt_get(self) -> None:
+    def test_after_base_deps_lands_after_whole_multiline_run(self) -> None:
         resolver = DockerfileAnchorResolver()
-        overlay = Overlay(anchor="after-base-deps", content="# post-apt\n")
+        overlay = Overlay(anchor="after-base-deps", content="RUN echo post-apt\n")
         out = resolver.splice(_BASE, [overlay])
-        # Overlay must be after the apt-get line and before COPY.
-        assert out.index("# post-apt") > out.index("apt-get update")
-        assert out.index("# post-apt") < out.index("COPY myapp")
+        lines = _assert_starts_instruction(out, "RUN echo post-apt")
+        idx = lines.index("RUN echo post-apt")
+        assert lines[idx - 1] == "    && rm -rf /var/lib/apt/lists/*"
+        assert out.index("RUN echo post-apt") < out.index("COPY myapp")
+
+    def test_contract_runtime_apt_retry_loop_is_anchored(self) -> None:
+        base = compose_contract_dockerfile(_manifest(runtime_packages=["libssl3"]))
+        assert f"RUN {apt_update_sh()} \\" in base.splitlines()
+        resolver = DockerfileAnchorResolver()
+        overlay = Overlay(anchor="after-base-deps", content="RUN echo post-deps\n")
+        out = resolver.splice(base, [overlay])
+        lines = _assert_starts_instruction(out, "RUN echo post-deps")
+        idx = lines.index("RUN echo post-deps")
+        assert lines[idx - 1].endswith("libssl3 && rm -rf /var/lib/apt/lists/*")
+        assert out.index("AS runtime") < out.index("RUN echo post-deps")
+        assert out.index("RUN echo post-deps") < out.index("WORKDIR /app\nCOPY")
+
+    def test_python_template_apt_retry_loop_is_anchored(self) -> None:
+        base = render_python_template()
+        assert f"RUN {apt_update_sh()} \\" in base.splitlines()
+        resolver = DockerfileAnchorResolver()
+        overlay = Overlay(anchor="after-base-deps", content="RUN echo post-deps\n")
+        out = resolver.splice(base, [overlay])
+        lines = _assert_starts_instruction(out, "RUN echo post-deps")
+        idx = lines.index("RUN echo post-deps")
+        assert (
+            lines[idx - 1] == "    ca-certificates curl && rm -rf /var/lib/apt/lists/*"
+        )
+
+    def test_apt_in_an_earlier_build_stage_does_not_count(self) -> None:
+        # The chef stage installs curl with apt; the runtime stage installs nothing.
+        base = compose_contract_dockerfile(_manifest(runtime_packages=[]))
+        assert "apt-get" in base
+        resolver = DockerfileAnchorResolver()
+        overlay = Overlay(anchor="after-base-deps", content="RUN echo x\n")
+        with pytest.raises(AnchorNotFound):
+            resolver.splice(base, [overlay])
+
+    def test_apt_path_without_package_manager_call_does_not_count(self) -> None:
+        base = "FROM ubuntu:24.04\nRUN rm -rf /var/lib/apt/lists/*\nUSER app\n"
+        resolver = DockerfileAnchorResolver()
+        overlay = Overlay(anchor="after-base-deps", content="RUN echo x\n")
+        with pytest.raises(AnchorNotFound):
+            resolver.splice(base, [overlay])
+
+    def test_heredoc_run_is_anchored_after_its_delimiter(self) -> None:
+        base = (
+            "FROM ubuntu:24.04\n"
+            "RUN <<EOF\n"
+            "apt-get update\n"
+            "apt-get install -y curl\n"
+            "EOF\n"
+            "USER app\n"
+        )
+        resolver = DockerfileAnchorResolver()
+        overlay = Overlay(anchor="after-base-deps", content="RUN echo post-deps\n")
+        out = resolver.splice(base, [overlay])
+        assert out == base.replace("\nEOF\n", "\nEOF\nRUN echo post-deps\n")
+
+    def test_comment_inside_continuation_does_not_end_the_run(self) -> None:
+        base = (
+            "FROM ubuntu:24.04\n"
+            "RUN apt-get update \\\n"
+            "    # the install follows\n"
+            "    && apt-get install -y curl\n"
+            "USER app\n"
+        )
+        resolver = DockerfileAnchorResolver()
+        overlay = Overlay(anchor="after-base-deps", content="RUN echo post-deps\n")
+        out = resolver.splice(base, [overlay])
+        lines = _assert_starts_instruction(out, "RUN echo post-deps")
+        assert lines[lines.index("RUN echo post-deps") - 1].endswith("curl")
+
+    def test_after_anchor_on_last_line_without_trailing_newline(self) -> None:
+        base = "FROM alpine:3.20\nRUN apk add curl"
+        resolver = DockerfileAnchorResolver()
+        overlay = Overlay(anchor="after-base-deps", content="RUN echo x\n")
+        out = resolver.splice(base, [overlay])
+        assert out == "FROM alpine:3.20\nRUN apk add curl\nRUN echo x\n"
 
     def test_after_base_deps_works_with_dnf(self) -> None:
         base = "FROM rockylinux:9\nRUN dnf install -y curl\nUSER appuser\n"
@@ -167,6 +339,14 @@ class TestMultipleOverlaysAtSameAnchor:
         out = resolver.splice(_BASE, [before_user, after_image])
         # after-base-image lands near top, before-user lands near bottom
         assert out.index("# abi") < out.index("# bu")
+
+    def test_after_and_before_at_the_same_point_keep_file_order(self) -> None:
+        base = "FROM ubuntu:24.04\nUSER app\n"
+        resolver = DockerfileAnchorResolver()
+        before_user = Overlay(anchor="before-user", content="# bu\n")
+        after_image = Overlay(anchor="after-base-image", content="# abi\n")
+        out = resolver.splice(base, [before_user, after_image])
+        assert out == "FROM ubuntu:24.04\n# abi\n# bu\nUSER app\n"
 
 
 class TestErrorReporting:

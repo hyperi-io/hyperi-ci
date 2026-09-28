@@ -6,12 +6,15 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Dockerfile anchor resolver.
 
-Anchor names map to keyword-relative line positions in the base
-Dockerfile. The contract-generated Dockerfile (scalo's
-``generate_dockerfile()`` or scalo's equivalent) emits a predictable
-shape with each top-level directive appearing once, which makes
-keyword-on-line matching unambiguous and avoids needing scalo to
-emit explicit marker comments.
+Anchor names map to positions relative to landmark instructions in the
+base Dockerfile. The contract-generated Dockerfile (scalo's
+``generate_dockerfile()`` or hyperi-ci's own generators) emits a
+predictable shape, which makes keyword matching unambiguous and avoids
+needing scalo to emit explicit marker comments.
+
+Anchors resolve against LOGICAL instructions, not physical lines: an
+instruction runs to the end of its trailing-backslash continuations and
+any heredoc bodies it opens, so an overlay never lands inside one.
 
 If a future consumer needs a finer-grained anchor that doesn't map to
 a Dockerfile keyword landmark, revisit by either (a) adding a new
@@ -21,19 +24,21 @@ when at least one consumer actually pulls for it (Rule of Three).
 
 Anchor catalog (order = position-in-file):
 
-    - ``after-base-image``    : after the first ``FROM`` line
-    - ``after-base-deps``     : after the LAST ``RUN apt-get`` /
-                                ``RUN dnf`` / ``RUN apk`` line
-    - ``after-app-binary``    : after a ``COPY <name> ...`` line where
-                                ``<name>`` matches the binary name
+    - ``after-base-image``    : after the first ``FROM`` instruction
+    - ``after-base-deps``     : after the LAST ``RUN`` in the final
+                                build stage that invokes a package
+                                manager (apt-get / apt / dnf / yum /
+                                microdnf / apk / pacman / zypper)
+                                anywhere in its command
+    - ``after-app-binary``    : after a ``COPY <name> ...`` instruction
+                                where ``<name>`` matches the binary name
                                 supplied as resolver context
-    - ``before-user``         : before the ``USER`` line  ← vector's anchor
-    - ``before-healthcheck``  : before the ``HEALTHCHECK`` line
-    - ``before-entrypoint``   : before the ``ENTRYPOINT`` or ``CMD`` line
+    - ``before-user``         : before the ``USER`` instruction
+    - ``before-healthcheck``  : before the ``HEALTHCHECK`` instruction
+    - ``before-entrypoint``   : before the ``ENTRYPOINT`` or ``CMD``
+                                instruction
     - ``end-of-image``        : alias of ``before-entrypoint``
 """
-
-from __future__ import annotations
 
 import re
 from collections.abc import Iterable
@@ -42,28 +47,108 @@ from dataclasses import dataclass
 from hyperi_ci.deployment.overlay.errors import AnchorNotFound
 from hyperi_ci.deployment.overlay.model import Overlay
 
-# Anchor names that don't need positional context, mapped to (where, regex).
-# `where` is one of "before" | "after"; regex matches the landmark line.
-_SIMPLE_ANCHORS: dict[str, tuple[str, re.Pattern[str]]] = {
-    "after-base-image": ("after", re.compile(r"^\s*FROM\b")),
-    "before-user": ("before", re.compile(r"^\s*USER\b")),
-    "before-healthcheck": ("before", re.compile(r"^\s*HEALTHCHECK\b")),
-    "before-entrypoint": (
-        "before",
-        re.compile(r"^\s*(ENTRYPOINT|CMD)\b"),
-    ),
-    "end-of-image": ("before", re.compile(r"^\s*(ENTRYPOINT|CMD)\b")),
+# Anchor names that don't need positional context, mapped to
+# (where, instruction keywords). `where` is "before" | "after".
+_SIMPLE_ANCHORS: dict[str, tuple[str, frozenset[str]]] = {
+    "after-base-image": ("after", frozenset({"FROM"})),
+    "before-user": ("before", frozenset({"USER"})),
+    "before-healthcheck": ("before", frozenset({"HEALTHCHECK"})),
+    "before-entrypoint": ("before", frozenset({"ENTRYPOINT", "CMD"})),
+    "end-of-image": ("before", frozenset({"ENTRYPOINT", "CMD"})),
 }
 
-# Distro-agnostic package-manager regex for `after-base-deps`.
+# A package manager in command position, so `/var/lib/apt/lists` does not count.
 _PKG_MANAGER_RE = re.compile(
-    r"^\s*RUN\s+(apt-get|apt|dnf|yum|microdnf|apk|pacman|zypper)\b"
+    r"(?:^|[\s;&|(`])(?:apt-get|apt|dnf|yum|microdnf|apk|pacman|zypper)\s"
 )
 
 # Recognised binary-COPY shape for `after-app-binary`. Matches:
 #   COPY <name> /usr/local/bin/<name>
 #   COPY --chown=... <name> ...
 _BINARY_COPY_TEMPLATE = r"^\s*COPY\s+(?:--[\w=]+\s+)*{name}(\s|$)"
+
+# `<<EOF`, `<<-EOF`, `<<"EOF"`; the lookarounds reject a `<<<` here-string.
+_HEREDOC_RE = re.compile(r"(?<!<)<<(?!<)(-?)([\"']?)([A-Za-z_]\w*)\2")
+
+# Only these instructions take heredocs (Dockerfile syntax 1.4+).
+_HEREDOC_KEYWORDS = frozenset({"RUN", "COPY", "ADD"})
+
+
+@dataclass(frozen=True, slots=True)
+class _Instruction:
+    """One logical Dockerfile instruction.
+
+    Attributes:
+        keyword: The instruction keyword, upper-cased.
+        start: Index of its first physical line.
+        end: Index of its last physical line, continuations and heredocs included.
+        text: Its physical lines joined, heredoc bodies included.
+    """
+
+    keyword: str
+    start: int
+    end: int
+    text: str
+
+
+def _is_blank_or_comment(line: str) -> bool:
+    stripped = line.strip()
+    return not stripped or stripped.startswith("#")
+
+
+def _continuation_end(lines: list[str], start: int) -> int:
+    """Return the last physical line of the instruction beginning at ``start``.
+
+    Blank and comment lines inside a continuation are dropped by the
+    Dockerfile parser rather than ending the instruction, so they are
+    skipped here too.
+    """
+    end = start
+    while lines[end].rstrip().endswith("\\"):
+        nxt = end + 1
+        while nxt < len(lines) and _is_blank_or_comment(lines[nxt]):
+            nxt += 1
+        if nxt >= len(lines):
+            break
+        end = nxt
+    return end
+
+
+def _heredoc_end(lines: list[str], head: str, end: int) -> int:
+    """Return the last line of the heredoc bodies ``head`` opens after ``end``."""
+    for match in _HEREDOC_RE.finditer(head):
+        strip_tabs = match.group(1) == "-"
+        delimiter = match.group(3)
+        idx = end + 1
+        while idx < len(lines):
+            body_line = lines[idx].rstrip("\r\n")
+            if strip_tabs:
+                body_line = body_line.lstrip("\t")
+            if body_line == delimiter:
+                break
+            idx += 1
+        end = min(idx, len(lines) - 1)
+    return end
+
+
+def _parse_instructions(lines: list[str]) -> list[_Instruction]:
+    """Group physical ``lines`` into logical instructions, in file order."""
+    instructions: list[_Instruction] = []
+    idx = 0
+    while idx < len(lines):
+        if _is_blank_or_comment(lines[idx]):
+            idx += 1
+            continue
+        start = idx
+        keyword = lines[start].split(maxsplit=1)[0].upper()
+        end = _continuation_end(lines, start)
+        if keyword in _HEREDOC_KEYWORDS:
+            head = "".join(lines[start : end + 1])
+            end = _heredoc_end(lines, head, end)
+        text = "".join(lines[start : end + 1])
+        instructions.append(_Instruction(keyword, start, end, text))
+        idx = end + 1
+    return instructions
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,8 +174,10 @@ class DockerfileAnchorResolver:
         """Splice ``overlays`` into ``base`` at their declared anchors.
 
         Multiple overlays at the same anchor are spliced in declaration
-        order. Returns the spliced text. Raises :class:`AnchorNotFound`
-        if any overlay's anchor doesn't resolve in the base.
+        order. An ``after`` anchor lands after the whole logical
+        instruction and a ``before`` anchor above its first line. Returns
+        the spliced text. Raises :class:`AnchorNotFound` if any overlay's
+        anchor doesn't resolve in the base.
         """
         # Group by anchor while preserving declaration order so multiple
         # overlays at the same anchor land contiguously and in input order.
@@ -102,76 +189,83 @@ class DockerfileAnchorResolver:
             return base
 
         lines = base.splitlines(keepends=True)
-        # Insertions: list of (line_index, position, text). Process from
-        # bottom to top so earlier-line indices stay valid.
-        insertions: list[tuple[int, str, str]] = []
+        instructions = _parse_instructions(lines)
 
+        # (insert-before-line-index, position, block); an index of
+        # len(lines) appends at the end of the file.
+        insertions: list[tuple[int, str, str]] = []
         for anchor, group in grouped.items():
-            line_index, position = self._resolve(anchor, lines)
+            instruction, position = self._resolve(anchor, instructions)
             text_block = "\n".join(o.content.rstrip("\n") for o in group)
             # Each spliced block is its own logical paragraph -- add a
             # trailing newline so the next line keeps its indent.
             block = text_block + ("\n" if not text_block.endswith("\n") else "")
-            insertions.append((line_index, position, block))
+            target = instruction.end + 1 if position == "after" else instruction.start
+            insertions.append((target, position, block))
 
-        # Apply insertions bottom-up, before-then-after at the same line
-        # so before-anchor lands above after-anchor at the same index.
-        insertions.sort(key=lambda t: (t[0], 0 if t[1] == "after" else 1), reverse=True)
-        for line_index, position, block in insertions:
-            target = line_index + 1 if position == "after" else line_index
-            lines.insert(target, block)
+        # At a shared insertion point, the previous instruction's "after"
+        # blocks come before the next instruction's "before" blocks.
+        insertions.sort(key=lambda t: (t[0], 0 if t[1] == "after" else 1))
 
-        return "".join(lines)
+        appends_at_eof = insertions[-1][0] == len(lines)
+        if appends_at_eof and lines and not lines[-1].endswith("\n"):
+            lines[-1] += "\n"
+        out: list[str] = []
+        pending = iter(insertions)
+        nxt = next(pending, None)
+        for idx in range(len(lines) + 1):
+            while nxt is not None and nxt[0] == idx:
+                out.append(nxt[2])
+                nxt = next(pending, None)
+            if idx < len(lines):
+                out.append(lines[idx])
+        return "".join(out)
 
     # ---- internal -------------------------------------------------------
 
-    def _resolve(self, anchor: str, lines: list[str]) -> tuple[int, str]:
-        """Return ``(line_index, position)`` for ``anchor`` in ``lines``."""
-        if anchor in _SIMPLE_ANCHORS:
-            position, pattern = _SIMPLE_ANCHORS[anchor]
-            for idx, line in enumerate(lines):
-                if pattern.search(line):
-                    return idx, position
-            raise AnchorNotFound(
-                anchor=anchor,
-                artefact="Dockerfile",
-                candidates=self.known_anchors,
-            )
-
-        if anchor == "after-base-deps":
-            last_idx = -1
-            for idx, line in enumerate(lines):
-                if _PKG_MANAGER_RE.search(line):
-                    last_idx = idx
-            if last_idx >= 0:
-                return last_idx, "after"
-            raise AnchorNotFound(
-                anchor=anchor,
-                artefact="Dockerfile",
-                candidates=self.known_anchors,
-            )
-
-        if anchor == "after-app-binary":
-            if not self.binary_name:
-                raise AnchorNotFound(
-                    anchor=anchor,
-                    artefact="Dockerfile",
-                    candidates=self.known_anchors,
-                )
-            pattern = re.compile(
-                _BINARY_COPY_TEMPLATE.format(name=re.escape(self.binary_name))
-            )
-            for idx, line in enumerate(lines):
-                if pattern.search(line):
-                    return idx, "after"
-            raise AnchorNotFound(
-                anchor=anchor,
-                artefact="Dockerfile",
-                candidates=self.known_anchors,
-            )
-
-        raise AnchorNotFound(
+    def _not_found(self, anchor: str) -> AnchorNotFound:
+        return AnchorNotFound(
             anchor=anchor,
             artefact="Dockerfile",
             candidates=self.known_anchors,
         )
+
+    def _resolve(
+        self, anchor: str, instructions: list[_Instruction]
+    ) -> tuple[_Instruction, str]:
+        """Return ``(instruction, position)`` for ``anchor``."""
+        if anchor in _SIMPLE_ANCHORS:
+            position, keywords = _SIMPLE_ANCHORS[anchor]
+            for instruction in instructions:
+                if instruction.keyword in keywords:
+                    return instruction, position
+            raise self._not_found(anchor)
+
+        if anchor == "after-base-deps":
+            # Packages installed in an earlier build stage never reach the image.
+            final_from = max(
+                (i for i, ins in enumerate(instructions) if ins.keyword == "FROM"),
+                default=0,
+            )
+            match: _Instruction | None = None
+            for instruction in instructions[final_from:]:
+                if instruction.keyword == "RUN" and _PKG_MANAGER_RE.search(
+                    instruction.text
+                ):
+                    match = instruction
+            if match is None:
+                raise self._not_found(anchor)
+            return match, "after"
+
+        if anchor == "after-app-binary":
+            if not self.binary_name:
+                raise self._not_found(anchor)
+            pattern = re.compile(
+                _BINARY_COPY_TEMPLATE.format(name=re.escape(self.binary_name))
+            )
+            for instruction in instructions:
+                if instruction.keyword == "COPY" and pattern.search(instruction.text):
+                    return instruction, "after"
+            raise self._not_found(anchor)
+
+        raise self._not_found(anchor)
