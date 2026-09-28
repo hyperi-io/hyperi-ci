@@ -16,16 +16,14 @@ rebalances a suite whose test durations differ widely, unless the project has
 chosen its own distribution mode.
 """
 
-import configparser
 import os
 import re
-import shlex
-import tomllib
 from pathlib import Path
 
 from hyperi_ci.common import info, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.cpu import cpu_budget
+from hyperi_ci.languages.python.pytest_args import project_args
 
 # Past this width a pytest run pays more in per-worker collection than it wins
 # in parallelism: hyperi-ci's own 2598-test suite takes 23.6s at 8 workers,
@@ -50,13 +48,6 @@ _DIST_MODE = "worksteal"
 _WORKSTEAL_MIN_XDIST = (3, 2)
 
 _XDIST_PLUGIN_LINE = re.compile(r"pytest-xdist-(\d+)\.(\d+)")
-
-# Where pytest reads addopts from, and the section that holds them.
-_INI_SOURCES = (
-    ("pytest.ini", "pytest"),
-    ("tox.ini", "pytest"),
-    ("setup.cfg", "tool:pytest"),
-)
 
 
 def _tokens_claim_parallelism(tokens: list[str]) -> bool:
@@ -100,114 +91,6 @@ def _tokens_claim_dist(tokens: list[str]) -> bool:
     )
 
 
-def _split_addopts(raw: object) -> list[str]:
-    """Turn an ``addopts`` value from a TOML file into arguments.
-
-    Args:
-        raw: The value as parsed, a string or a list of strings.
-
-    Returns:
-        Shell-split arguments, empty for any other type.
-
-    """
-    if isinstance(raw, list):
-        return [str(item) for item in raw]
-    if isinstance(raw, str):
-        return shlex.split(raw)
-    return []
-
-
-def _read_toml(path: Path) -> dict:
-    """Parse a TOML file, empty when it is absent or malformed.
-
-    Args:
-        path: The file to read.
-
-    Returns:
-        The parsed document.
-
-    """
-    try:
-        return tomllib.loads(path.read_text(encoding="utf-8", errors="replace"))
-    except (OSError, tomllib.TOMLDecodeError):
-        return {}
-
-
-def _addopts_from_toml(root: Path) -> list[str]:
-    """Read ``addopts`` out of every TOML table pytest 9 takes them from.
-
-    ``pytest.toml`` and ``.pytest.toml`` hold a ``[pytest]`` table, and
-    ``pyproject.toml`` holds native ``[tool.pytest]`` or ini-style
-    ``[tool.pytest.ini_options]``.
-
-    Args:
-        root: Directory holding the project's configuration files.
-
-    Returns:
-        Shell-split arguments from every table that declares them.
-
-    """
-    found: list[str] = []
-    for filename in ("pytest.toml", ".pytest.toml"):
-        table = _read_toml(root / filename).get("pytest", {})
-        if isinstance(table, dict):
-            found.extend(_split_addopts(table.get("addopts")))
-    tool = _read_toml(root / "pyproject.toml").get("tool", {})
-    tool_pytest = tool.get("pytest", {}) if isinstance(tool, dict) else None
-    if isinstance(tool_pytest, dict):
-        found.extend(_split_addopts(tool_pytest.get("addopts")))
-        ini_options = tool_pytest.get("ini_options", {})
-        if isinstance(ini_options, dict):
-            found.extend(_split_addopts(ini_options.get("addopts")))
-    return found
-
-
-def _addopts_from_ini(root: Path) -> list[str]:
-    """Read ``addopts`` out of pytest's ini-style configuration files.
-
-    Args:
-        root: Directory holding the project's configuration files.
-
-    Returns:
-        Shell-split arguments from every ini source that declares them.
-
-    """
-    found: list[str] = []
-    for filename, section in _INI_SOURCES:
-        path = root / filename
-        if not path.is_file():
-            continue
-        parser = configparser.ConfigParser()
-        try:
-            parser.read(path, encoding="utf-8")
-        except (OSError, configparser.Error):
-            continue
-        if parser.has_option(section, "addopts"):
-            found.extend(shlex.split(parser.get(section, "addopts")))
-    return found
-
-
-def _argument_sources(args: list[str], root: Path | None) -> list[list[str]]:
-    """Collect every pytest argument list the run will see.
-
-    Args:
-        args: pytest arguments hyperi-ci has assembled so far.
-        root: Project directory; defaults to the working directory.
-
-    Returns:
-        hyperi-ci's own arguments, the project's ``addopts`` from each config
-        file pytest reads, and ``PYTEST_ADDOPTS``, one list per source.
-
-    """
-    base = root if root is not None else Path.cwd()
-    return [
-        args,
-        _addopts_from_toml(base),
-        _addopts_from_ini(base),
-        shlex.split(os.environ.get("PYTEST_ADDOPTS", "")),
-    ]
-
-
 def project_sets_own_workers(args: list[str], root: Path | None = None) -> bool:
     """Report whether the project has already chosen its own worker count.
 
@@ -222,9 +105,7 @@ def project_sets_own_workers(args: list[str], root: Path | None = None) -> bool:
         True when any of those sources sets ``-n`` or disables xdist.
 
     """
-    return any(
-        _tokens_claim_parallelism(tokens) for tokens in _argument_sources(args, root)
-    )
+    return _tokens_claim_parallelism(project_args(args, root))
 
 
 def project_sets_own_dist(args: list[str], root: Path | None = None) -> bool:
@@ -240,7 +121,7 @@ def project_sets_own_dist(args: list[str], root: Path | None = None) -> bool:
         True when any of those sources sets ``--dist`` or ``-d``.
 
     """
-    return any(_tokens_claim_dist(tokens) for tokens in _argument_sources(args, root))
+    return _tokens_claim_dist(project_args(args, root))
 
 
 def _workers_from_env() -> int | None:
