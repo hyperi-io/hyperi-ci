@@ -36,7 +36,9 @@ one (a TS monorepo with ``packages/*/go.mod`` got a red ``go-mod-exists``
 error). When the primary language is known, a generated override layer
 (``extends:`` the shipped default, then ``level: off``) disables the OTHER
 ecosystems' root-only rules; per-file rules (Trojan-Source, hygiene) stay
-active for every ecosystem.
+active for every ecosystem. A Rust library with no bin target also loses
+``rust-cargo-lock-exists``: Rust's own guidance leaves committing a library's
+``Cargo.lock`` to the maintainer, so the warning is noise there.
 
 Config (``.hyperi-ci.yaml``):
 
@@ -44,8 +46,6 @@ Config (``.hyperi-ci.yaml``):
     quality.alint: enabled   # run, warn (still non-fatal) if alint is missing
     quality.alint: disabled  # never run
 """
-
-from __future__ import annotations
 
 import platform
 import shutil
@@ -56,6 +56,7 @@ from pathlib import Path
 from hyperi_ci.common import info, is_ci, run_cmd, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.detect import LANGUAGE_MARKERS
+from hyperi_ci.languages.rust.targets import rust_is_library
 from hyperi_ci.quality.install import fetch_verified
 from hyperi_ci.tools import find_tool
 from hyperi_ci.versions import tool_sha256, tool_version
@@ -137,18 +138,32 @@ _ROOT_ONLY_RULES: dict[str, tuple[str, ...]] = {
 }
 
 
-def _override_layer(language: str | None) -> str | None:
+# Rules that stay on for a Rust primary but go off when the crate or workspace
+# has no bin target.
+_RUST_LIBRARY_OFF_RULES: tuple[str, ...] = ("rust-cargo-lock-exists",)
+
+
+def _override_layer(language: str | None, project_dir: Path) -> str | None:
     """Render the primary-language override config, or None to skip it.
 
     Returns YAML that ``extends:`` the shipped default and sets ``level:
     off`` on the root-only rules of every alint group EXCEPT the primary
-    language's own. None when the language is unknown - with no primary to
-    judge against, the shipped default runs unmodified.
+    language's own. A Rust primary that is library-only also switches off
+    :data:`_RUST_LIBRARY_OFF_RULES`. None when the language is unknown -
+    with no primary to judge against, the shipped default runs unmodified.
 
     NOTE: this must be ONE config file. alint 0.13's repeatable ``-c`` only
     honours the first file (later layers are silently ignored), so a second
     ``-c`` override layer does not work; ``extends:`` + same-id rule merge
     does.
+
+    Args:
+        language: The resolved primary language.
+        project_dir: Repo root, inspected for Rust bin targets.
+
+    Returns:
+        The override YAML, or None.
+
     """
     lang = (language or "").strip().lower()
     if lang not in LANGUAGE_MARKERS:
@@ -173,11 +188,14 @@ def _override_layer(language: str | None) -> str | None:
         "",
         "rules:",
     ]
+    off: list[str] = []
     for group, rules in _ROOT_ONLY_RULES.items():
-        if group == primary_group:
-            continue
-        for rule_id in rules:
-            lines += [f"  - id: {rule_id}", "    level: off"]
+        if group != primary_group:
+            off.extend(rules)
+    if primary_group == "rust" and rust_is_library(project_dir):
+        off.extend(_RUST_LIBRARY_OFF_RULES)
+    for rule_id in off:
+        lines += [f"  - id: {rule_id}", "    level: off"]
     return "\n".join(lines) + "\n"
 
 
@@ -220,7 +238,7 @@ def run(
         # ship the HyperI default explicitly so the advisory works with no
         # per-repo file - language-scoped when the primary language is known.
         if not (root / ".alint.yml").exists():
-            layer = _override_layer(language or getattr(config, "language", None))
+            layer = _override_layer(language or getattr(config, "language", None), root)
             if layer is None:
                 cmd += ["-c", str(_DEFAULT_CONFIG)]
             else:

@@ -524,7 +524,7 @@ they surface a recommendation and carry on.
   `has_<lang>` facts match nested monorepo packages and would otherwise demand
   a secondary ecosystem's manifest at the repo root (issue #75 - a TS monorepo
   with `packages/*/go.mod` got a red `go-mod-exists`). Per-file rules
-  (Trojan-Source, hygiene) stay active for every ecosystem. Implemented as a
+  (Trojan-Source, hygiene) stay active for every ecosystem. A Rust-primary repo with no bin target in any workspace member also gets `rust-cargo-lock-exists` off, since committing a library's `Cargo.lock` is the maintainer's call (https://blog.rust-lang.org/2023/08/29/committing-lockfiles/). A feature-gated bin still counts as an app. Implemented as a
   generated single-file layer that `extends:` the shipped default - alint
   0.13's repeatable `-c` only honours the first file (0.14 rejects a second
   outright), so two `-c` layers do not compose. The layer carries

@@ -11,9 +11,6 @@ For cross-targets with C/C++ dependencies, builds a private sysroot from
 downloaded .deb packages (ported from old CI's proven sysroot approach).
 """
 
-from __future__ import annotations
-
-import json
 import os
 import re
 import shutil
@@ -61,6 +58,7 @@ from hyperi_ci.languages.rust.optimize import (
     validate_profile,
 )
 from hyperi_ci.languages.rust.pgo import BOLT_NOTE_SECTION
+from hyperi_ci.languages.rust.targets import cargo_metadata
 
 _TARGET_MAP = {
     "x86_64-unknown-linux-gnu": ("linux", "amd64"),
@@ -881,29 +879,6 @@ def _resolve_build_channel(config: CIConfig) -> str:
     return "alpha"
 
 
-def _cargo_metadata() -> dict | None:
-    """Parse `cargo metadata --no-deps`; None when cargo or the manifest fails.
-
-    `--no-deps` limits `packages` to the workspace members, which is the
-    crate list both binary detection and feature detection need.
-    """
-    result = subprocess.run(
-        ["cargo", "metadata", "--format-version", "1", "--no-deps"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
-    if result.returncode != 0:
-        return None
-
-    try:
-        return json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return None
-
-
 def _detect_cargo_features() -> set[str]:
     """Union the `[features]` tables of the root manifest and every member.
 
@@ -913,7 +888,7 @@ def _detect_cargo_features() -> set[str]:
     """
     features = parse_cargo_features(Path.cwd() / "Cargo.toml")
 
-    meta = _cargo_metadata()
+    meta = cargo_metadata()
     if meta is None:
         return features
 
@@ -936,7 +911,7 @@ def _detect_binary_names() -> list[str]:
     and forcing them into the publish path breaks the default build
     when the feature isn't enabled.
     """
-    meta = _cargo_metadata()
+    meta = cargo_metadata()
     if meta is None:
         return [Path.cwd().name]
 
@@ -996,23 +971,12 @@ def _detect_version() -> str:
         if val:
             return sanitize_ref_name(val)
 
-    result = subprocess.run(
-        ["cargo", "metadata", "--format-version", "1", "--no-deps"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
-    if result.returncode == 0:
-        try:
-            meta = json.loads(result.stdout)
-            for package in meta.get("packages", []):
-                version = package.get("version", "")
-                if version:
-                    return f"v{version}"
-        except json.JSONDecodeError:
-            pass
+    meta = cargo_metadata()
+    if meta is not None:
+        for package in meta.get("packages", []):
+            version = package.get("version", "")
+            if version:
+                return f"v{version}"
 
     return "dev"
 
