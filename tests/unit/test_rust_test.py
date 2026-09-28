@@ -270,7 +270,7 @@ class TestCoverageSaysWhenItDidNotRun:
 
 type _Call = tuple[list[str], dict[str, str] | None]
 
-_INCREMENTAL = {"CARGO_INCREMENTAL": "1"}
+_INCREMENTAL = {"CARGO_INCREMENTAL": "1", "RUSTC_WRAPPER": ""}
 
 
 class _Recorder:
@@ -322,6 +322,16 @@ class TestLlvmCovRunsIncremental:
         assert _run_coverage("default", runner="nextest") == 0
         assert recorder.streamed[0][0][:2] == ["cargo", "llvm-cov"]
         assert recorder.streamed[0][1] == _INCREMENTAL
+
+    def test_the_coverage_run_bypasses_sccache(
+        self, monkeypatch: pytest.MonkeyPatch, recorder: _Recorder
+    ) -> None:
+        """sccache refuses CARGO_INCREMENTAL=1, so the wrapper is emptied (#376)."""
+        _coverage_tool(monkeypatch, "cargo-llvm-cov")
+        _run_coverage("default", runner="cargo")
+        env = recorder.streamed[0][1]
+        assert env is not None
+        assert env["RUSTC_WRAPPER"] == ""
 
     def test_the_html_report_goes_through_run_cmd_with_the_same_env(
         self, monkeypatch: pytest.MonkeyPatch, recorder: _Recorder

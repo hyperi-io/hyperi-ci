@@ -59,8 +59,10 @@ _LIBTEST_FULL_ARG = "--include-ignored"
 
 # With incremental off, as the ARC runner sets it for sccache, rustc makes small
 # functions cross-crate inlinable at opt-level > 0 and llvm-cov reports each
-# one's unused stub as "mismatched data".
-_LLVM_COV_ENV = {"CARGO_INCREMENTAL": "1"}
+# one's unused stub as "mismatched data". sccache refuses incremental builds, so
+# the empty RUSTC_WRAPPER (which cargo reads as "no wrapper") takes it out of
+# this one run.
+_LLVM_COV_ENV = {"CARGO_INCREMENTAL": "1", "RUSTC_WRAPPER": ""}
 
 _FULL_FILTER_KEY = "test.full.rust.filter"
 _FULL_SKIP_KEY = "test.full.rust.skip"
