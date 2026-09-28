@@ -4,8 +4,7 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-from __future__ import annotations
-
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -14,6 +13,7 @@ from typing import cast
 import pytest
 
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages.rust import targets
 from hyperi_ci.quality import repo_advisor
 
 
@@ -228,6 +228,120 @@ def test_bash_primary_disables_all_ecosystem_root_rules(
         assert f"- id: {rule}\n    level: off" in layer
 
 
+_CARGO_LOCK_OFF = "- id: rust-cargo-lock-exists\n    level: off"
+
+
+def _rust_crate(root: Path, *, main: bool = False) -> Path:
+    """Lay out a single Rust crate: a library, plus ``src/main.rs`` if ``main``."""
+    (root / "Cargo.toml").write_text(
+        '[package]\nname = "crate"\nversion = "0.1.0"\n', encoding="utf-8"
+    )
+    (root / "src").mkdir()
+    (root / "src" / "lib.rs").write_text("pub fn f() {}\n", encoding="utf-8")
+    if main:
+        (root / "src" / "main.rs").write_text("fn main() {}\n", encoding="utf-8")
+    return root
+
+
+def _cargo_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force the filesystem fallback so the answer does not depend on the host."""
+
+    def _absent(*_a, **_k):
+        raise FileNotFoundError(2, "No such file or directory: 'cargo'")
+
+    monkeypatch.setattr(targets, "run_cmd", _absent)
+
+
+def _cargo_reports(monkeypatch: pytest.MonkeyPatch, *members: list[dict]) -> None:
+    """Stand in for ``cargo metadata --no-deps``, one package per target list."""
+    packages = [{"name": f"m{i}", "targets": t} for i, t in enumerate(members)]
+    payload = json.dumps({"packages": packages})
+    monkeypatch.setattr(
+        targets,
+        "run_cmd",
+        lambda cmd, **_k: subprocess.CompletedProcess(cmd, 0, payload, ""),
+    )
+
+
+def _layer_for(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, language: str) -> str:
+    configs = _stub_run_capture_cfg(monkeypatch)
+    _have_alint(monkeypatch)
+    monkeypatch.setattr(repo_advisor, "is_ci", lambda: False)
+    assert repo_advisor.run(_cfg("auto"), tmp_path, language=language) == 0
+    (layer,) = configs
+    return layer
+
+
+def test_rust_library_turns_off_cargo_lock_rule(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """scalo-rs: a library that deliberately leaves Cargo.lock uncommitted."""
+    _cargo_absent(monkeypatch)
+    layer = _layer_for(_rust_crate(tmp_path), monkeypatch, "rust")
+    assert _CARGO_LOCK_OFF in layer
+    # The primary's other root-only rules stay on.
+    assert "rust-cargo-toml-exists" not in layer
+    assert "rust-toolchain-pinned" not in layer
+
+
+def test_rust_app_keeps_cargo_lock_rule(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _cargo_absent(monkeypatch)
+    layer = _layer_for(_rust_crate(tmp_path, main=True), monkeypatch, "rust")
+    assert "rust-cargo-lock-exists" not in layer
+
+
+def test_feature_gated_bin_still_keeps_cargo_lock_rule(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """dfe-loader: its only extra bin is feature-gated, and it is still an app."""
+    _cargo_reports(
+        monkeypatch,
+        [
+            {"name": "crate", "kind": ["lib"]},
+            {"name": "pgo-driver", "kind": ["bin"], "required-features": ["pgo"]},
+        ],
+    )
+    layer = _layer_for(_rust_crate(tmp_path), monkeypatch, "rust")
+    assert "rust-cargo-lock-exists" not in layer
+
+
+def test_workspace_with_a_bin_member_keeps_cargo_lock_rule(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bin in any workspace member makes the whole workspace an app."""
+    _cargo_reports(
+        monkeypatch,
+        [{"name": "core", "kind": ["lib"]}],
+        [{"name": "app", "kind": ["bin"]}],
+    )
+    layer = _layer_for(_rust_crate(tmp_path), monkeypatch, "rust")
+    assert "rust-cargo-lock-exists" not in layer
+
+
+def test_workspace_of_libraries_turns_off_cargo_lock_rule(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _cargo_reports(
+        monkeypatch,
+        [{"name": "core", "kind": ["lib"]}],
+        [{"name": "macros", "kind": ["proc-macro"]}],
+    )
+    layer = _layer_for(_rust_crate(tmp_path), monkeypatch, "rust")
+    assert _CARGO_LOCK_OFF in layer
+
+
+def test_non_rust_primary_is_unchanged_by_a_rust_library(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-primary Rust group already has the rule off, and only once."""
+    _cargo_absent(monkeypatch)
+    layer = _layer_for(_rust_crate(tmp_path), monkeypatch, "python")
+    assert layer.count("- id: rust-cargo-lock-exists") == 1
+    assert "python-has-lockfile" not in layer
+
+
 def test_unknown_language_uses_plain_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -360,7 +474,7 @@ def test_override_layer_suppresses_nested_go_mod_with_real_alint(
         "module example.com/oc\n\ngo 1.22\n", encoding="utf-8"
     )
 
-    layer = repo_advisor._override_layer("typescript")
+    layer = repo_advisor._override_layer("typescript", tmp_path)
     assert layer is not None
     layer_path = tmp_path / "override.yml"
     layer_path.write_text(layer, encoding="utf-8", newline="\n")

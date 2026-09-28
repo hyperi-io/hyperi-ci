@@ -5,8 +5,6 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
-from __future__ import annotations
-
 import json
 import subprocess
 from pathlib import Path
@@ -15,7 +13,7 @@ import pytest
 
 from hyperi_ci import common
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.rust import build
+from hyperi_ci.languages.rust import build, targets
 from hyperi_ci.languages.rust.optimize import (
     OptimizationOutcome,
     OptimizationProfile,
@@ -55,9 +53,7 @@ class TestDetectCargoFeatures:
             '[features]\njemalloc = ["dep:tikv-jemallocator"]\n'
         )
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr(
-            build.subprocess, "run", _metadata_runner([member_manifest])
-        )
+        monkeypatch.setattr(targets, "run_cmd", _metadata_runner([member_manifest]))
 
         assert build._detect_cargo_features() == {"jemalloc"}
 
@@ -69,7 +65,7 @@ class TestDetectCargoFeatures:
             '[package]\nname = "app"\n\n[features]\njemalloc = []\nmimalloc = []\n'
         )
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr(build.subprocess, "run", _metadata_runner([root]))
+        monkeypatch.setattr(targets, "run_cmd", _metadata_runner([root]))
 
         assert build._detect_cargo_features() == {"jemalloc", "mimalloc"}
 
@@ -80,7 +76,7 @@ class TestDetectCargoFeatures:
             '[package]\nname = "app"\n\n[features]\njemalloc = []\n'
         )
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr(build.subprocess, "run", _metadata_runner([], returncode=1))
+        monkeypatch.setattr(targets, "run_cmd", _metadata_runner([], returncode=1))
 
         assert build._detect_cargo_features() == {"jemalloc"}
 
@@ -112,9 +108,7 @@ class TestWorkspaceFeaturesReachTheCargoLine:
     ) -> None:
         member_manifest = self._virtual_workspace(tmp_path)
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr(
-            build.subprocess, "run", _metadata_runner([member_manifest])
-        )
+        monkeypatch.setattr(targets, "run_cmd", _metadata_runner([member_manifest]))
 
         profile = validate_profile(
             OptimizationProfile(channel="release", allocator="jemalloc"),
@@ -134,7 +128,7 @@ class TestWorkspaceFeaturesReachTheCargoLine:
         """The dfe-archiver symptom: no member read, so the cargo line loses it."""
         self._virtual_workspace(tmp_path)
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr(build.subprocess, "run", _metadata_runner([]))
+        monkeypatch.setattr(targets, "run_cmd", _metadata_runner([]))
 
         profile = validate_profile(
             OptimizationProfile(channel="release", allocator="jemalloc"),
