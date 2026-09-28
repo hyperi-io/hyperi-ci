@@ -3,6 +3,23 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.11.0](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.13...v2.11.0) (2026-09-28)
+
+### Features
+
+* **release:** commit files a repo stamps with the version ([#351](https://github.com/hyperi-io/hyperi-ci/issues/351)) ([1f77e61](https://github.com/hyperi-io/hyperi-ci/commit/1f77e61ba167dc47aa2759769c6eb8c40b0646db))
+* **test:** add a core/full test tier ([#353](https://github.com/hyperi-io/hyperi-ci/issues/353)) ([0364a29](https://github.com/hyperi-io/hyperi-ci/commit/0364a2993bd3a98f8a36d73ec231ec212f1ee13a))
+
+### Bug Fixes
+
+* **ci:** pass gate-audit dispatch inputs to the step through env ([#328](https://github.com/hyperi-io/hyperi-ci/issues/328)) ([82211da](https://github.com/hyperi-io/hyperi-ci/commit/82211da52d78419e5f7c853d6ed873230937a2db))
+* **ci:** read the private fixture fleet with the app token ([#354](https://github.com/hyperi-io/hyperi-ci/issues/354)) ([9c16278](https://github.com/hyperi-io/hyperi-ci/commit/9c162788c4ac087dd4ae496f78484e41aff4c1cc))
+* **container:** let build_args carry the release version ([#343](https://github.com/hyperi-io/hyperi-ci/issues/343)) ([57edb0b](https://github.com/hyperi-io/hyperi-ci/commit/57edb0b9dda4ce876185d08a4447814288821919)), closes [#342](https://github.com/hyperi-io/hyperi-ci/issues/342)
+* **quality:** keep a bare exclude_paths name that is not at the root ([#340](https://github.com/hyperi-io/hyperi-ci/issues/340)) ([152a4c0](https://github.com/hyperi-io/hyperi-ci/commit/152a4c01c89f225cb877405786162f2037bc922e)), closes [#338](https://github.com/hyperi-io/hyperi-ci/issues/338)
+* **quality:** let charset exclude data paths, honour exclude_paths ([#339](https://github.com/hyperi-io/hyperi-ci/issues/339)) ([cf45b0b](https://github.com/hyperi-io/hyperi-ci/commit/cf45b0b3f414d97e8257f15ceb8f24b5ae3e55ce)), closes [#337](https://github.com/hyperi-io/hyperi-ci/issues/337)
+* **quality:** resolve root-relative doc links in lychee ([#341](https://github.com/hyperi-io/hyperi-ci/issues/341)) ([5fc9359](https://github.com/hyperi-io/hyperi-ci/commit/5fc9359610317d61ba3e0d3cef7782df53bf50e9))
+* **quality:** retry pip-audit when the advisory DB cannot be reached ([#326](https://github.com/hyperi-io/hyperi-ci/issues/326)) ([6395718](https://github.com/hyperi-io/hyperi-ci/commit/6395718949356f511a88d3d724861d7bf30a96b1)), closes [#325](https://github.com/hyperi-io/hyperi-ci/issues/325)
+
 ## [2.10.13](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.12...v2.10.13) (2026-09-24)
 
 ### Bug Fixes
