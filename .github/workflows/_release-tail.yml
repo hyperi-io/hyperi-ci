@@ -222,8 +222,9 @@ jobs:
       - name: Stamp predicted version
         # This job checks out HEAD on its own runner, so the Build job's stamp
         # never reaches the tree the Dockerfile copies (issue dfe-engine#271).
-        # A `tag` dispatch checks out a tree that already carries its version.
-        if: steps.resolve.outputs.build == 'true' && inputs.will-publish == 'true' && inputs.tag == '' && inputs.next-version != ''
+        # A `tag` dispatch stamps too: the tagged tree carries the release
+        # before it (issue #352). This tree is never committed.
+        if: steps.resolve.outputs.build == 'true' && inputs.will-publish == 'true' && inputs.next-version != ''
         run: ${{ env.HYPERCI_INSTALL }} stamp-version "${{ inputs.next-version }}"
 
       - name: Build container
@@ -467,8 +468,8 @@ jobs:
         # stamp runs on a different runner and only dist/ + ci-tmp/ travel
         # between them, so without this VERSION never moves.
         #
-        # Skipped on a tag dispatch, like the Container stamp: that checkout is
-        # an old tag, and its version committed onto main would move it back.
+        # Skipped on a tag dispatch: that checkout is an old tag, and its
+        # version committed onto main would move main back.
         #
         # Non-fatal, like the commit below: a failure leaves VERSION where it
         # already was rather than reddening a shipped release.

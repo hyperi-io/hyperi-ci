@@ -148,7 +148,7 @@ def _derive(event: str, will_publish: str, repo: Path) -> dict[str, str]:
             "inputs.branch-build": "",
             "github.ref": "refs/heads/main",
             "steps.worthy.outputs.release-worthy": "",
-            "steps.predict.outputs.version || steps.forced.outputs.version": "",
+            "steps.predict.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version": "",
         },
         repo,
     )
@@ -235,3 +235,58 @@ class TestTheOtherEvents:
         # The schedule clause must not widen run-checks for anything else.
         outputs = _derive("push", "false", released_head)
         assert outputs["run-checks"] == "false"
+
+
+class TestATagDispatch:
+    """A `tag` dispatch re-publishes the tag's own version (issue #352)."""
+
+    def test_a_tag_dispatch_publishes(self, released_head: Path) -> None:
+        outputs = _run_step(
+            "gate",
+            {
+                "github.event_name": "workflow_dispatch",
+                "github.ref": "refs/heads/main",
+                "inputs.tag": "v1.0.4",
+                "inputs.from-head": "",
+            },
+            released_head,
+        )
+        assert outputs["will-publish"] == "true"
+
+    def test_the_version_is_the_tags_own(self, released_head: Path) -> None:
+        # The tree says 1.0.3, as a tagged commit does before the commit-back.
+        (released_head / "VERSION").write_text("1.0.3\n", encoding="utf-8")
+        outputs = _run_step("tagged", {"inputs.tag": "v1.0.4"}, released_head)
+        assert outputs == {"version": "1.0.4"}
+
+    def test_a_prerelease_tag_keeps_its_label(self, released_head: Path) -> None:
+        outputs = _run_step("tagged", {"inputs.tag": "v1.2.0-beta.1"}, released_head)
+        assert outputs == {"version": "1.2.0-beta.1"}
+
+    def test_a_tag_that_names_no_version_fails(self, released_head: Path) -> None:
+        output = released_head / ".github_output"
+        output.write_text("", encoding="utf-8")
+        result = subprocess.run(
+            [sys.executable, str(ACTION_DIR / "tag_version.py")],
+            cwd=released_head,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env={"RELEASE_TAG": "1.0.4", "GITHUB_OUTPUT": str(output)},
+            check=False,
+        )
+        assert result.returncode == 1
+        assert "::error" in result.stdout
+        assert output.read_text(encoding="utf-8") == ""
+
+    def test_only_a_tag_dispatch_runs_the_step(self) -> None:
+        condition = str(_steps()["tagged"]["if"])
+        assert "steps.gate.outputs.will-publish == 'true'" in condition
+        assert "github.event_name == 'workflow_dispatch'" in condition
+        assert "inputs.tag != ''" in condition
+
+    def test_the_version_output_reads_the_step(self) -> None:
+        action = yaml.safe_load((ACTION_DIR / "action.yml").read_text(encoding="utf-8"))
+        assert "steps.tagged.outputs.version" in action["outputs"]["version"]["value"]
+        assert "steps.tagged.outputs.version" in str(_steps()["derive"]["run"])
