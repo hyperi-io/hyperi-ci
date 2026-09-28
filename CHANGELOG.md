@@ -3,6 +3,20 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.11.1](https://github.com/hyperi-io/hyperi-ci/compare/v2.11.0...v2.11.1) (2026-09-28)
+
+### Bug Fixes
+
+* **ci:** run tests by tier, keep a schedule from publishing ([#355](https://github.com/hyperi-io/hyperi-ci/issues/355)) ([a238dc5](https://github.com/hyperi-io/hyperi-ci/commit/a238dc5aa441f1443c274fca1ca5b9235b451746))
+* **quality:** keep the Cargo.lock nudge off Rust libraries ([#362](https://github.com/hyperi-io/hyperi-ci/issues/362)) ([ac116ec](https://github.com/hyperi-io/hyperi-ci/commit/ac116ec9547727515080210f53a7e13a8be3fc7f))
+* **release:** never move main back to an older release ([#364](https://github.com/hyperi-io/hyperi-ci/issues/364)) ([5467ea5](https://github.com/hyperi-io/hyperi-ci/commit/5467ea588a7976d01b721c7c53a7543cca796f8e))
+* **rust:** report feature sets that warn in the feature matrix ([#363](https://github.com/hyperi-io/hyperi-ci/issues/363)) ([89a4735](https://github.com/hyperi-io/hyperi-ci/commit/89a47357e5d819b41520a47c2b0d7839289b94ca)), closes [#333](https://github.com/hyperi-io/hyperi-ci/issues/333)
+* **rust:** run llvm-cov incremental, and cover one feature set ([#361](https://github.com/hyperi-io/hyperi-ci/issues/361)) ([1ec691b](https://github.com/hyperi-io/hyperi-ci/commit/1ec691ba7db96f7492735e8f8fdfeadd476ed3c8))
+* **rust:** test and lint every member of a root-package workspace ([#358](https://github.com/hyperi-io/hyperi-ci/issues/358)) ([67a5ee1](https://github.com/hyperi-io/hyperi-ci/commit/67a5ee1bc90ad68c256290206f9d2b75ce4ad90a)), closes [#334](https://github.com/hyperi-io/hyperi-ci/issues/334)
+* **test:** guard rails for the full tier, skip reasons and JUnit in CI ([#360](https://github.com/hyperi-io/hyperi-ci/issues/360)) ([0b08c70](https://github.com/hyperi-io/hyperi-ci/commit/0b08c705f5ede330de18f61deee650b63b1d3db0)), closes [#344](https://github.com/hyperi-io/hyperi-ci/issues/344)
+* **test:** patch run_cmd in the rust workspace coverage fixture ([#365](https://github.com/hyperi-io/hyperi-ci/issues/365)) ([aa4f8d4](https://github.com/hyperi-io/hyperi-ci/commit/aa4f8d42b0e03beb250122ca7f86c532626fb3ab)), closes [#361](https://github.com/hyperi-io/hyperi-ci/issues/361) [#358](https://github.com/hyperi-io/hyperi-ci/issues/358)
+* **test:** worksteal with xdist, audit the last full test run ([#356](https://github.com/hyperi-io/hyperi-ci/issues/356)) ([b1c99cb](https://github.com/hyperi-io/hyperi-ci/commit/b1c99cb4e298d0538062b301db3c2b25d467fac2))
+
 ## [2.11.0](https://github.com/hyperi-io/hyperi-ci/compare/v2.10.13...v2.11.0) (2026-09-28)
 
 ### Features
