@@ -10,14 +10,22 @@ Covers the bare-`COPY <app>` rewrite logic that fixes the Container
 stage binary-placement bug.
 """
 
-from __future__ import annotations
-
 import os
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
-from hyperi_ci.container.binary_stage import stage_binary_dockerfile
+from hyperi_ci.config import CIConfig, OrgConfig
+from hyperi_ci.container import binary_stage, stage
+from hyperi_ci.container.binary_stage import (
+    LICENCE_DEST,
+    find_licence_file,
+    stage_binary_dockerfile,
+)
+
+# This repository's own root: a real build context that carries a LICENSE.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _write_dist_artefact(dist_dir: Path, name: str, arch: str) -> Path:
@@ -270,3 +278,128 @@ class TestRegressionFromBugSpec:
         assert "ARG TARGETARCH" in rewritten
         # Bare COPY gone -- that was the bug.
         assert "\nCOPY dfe-archiver " not in rewritten
+
+
+class TestLicenceCopy:
+    """Issue #345: every image carries the licence text at /licenses/LICENSE."""
+
+    def test_repo_licence_is_appended_to_final_stage(self, cwd_tmp: Path) -> None:
+        df = _write_dockerfile(
+            cwd_tmp,
+            "FROM rust:1.84 AS builder\nRUN cargo build\n"
+            "FROM ubuntu:24.04\n"
+            "COPY --from=builder /app/demo /usr/local/bin/demo\n"
+            'ENTRYPOINT ["demo"]',
+        )
+        result = stage_binary_dockerfile(df, context=_REPO_ROOT)
+        rewritten = result.read_text(encoding="utf-8")
+        result.unlink()
+
+        assert result != df
+        lines = rewritten.splitlines()
+        assert lines[-2] == 'ENTRYPOINT ["demo"]'
+        assert lines[-1] == f"COPY LICENSE {LICENCE_DEST}"
+        assert LICENCE_DEST == "/licenses/LICENSE"
+
+    def test_licence_copy_rides_along_with_binary_rewrite(self, cwd_tmp: Path) -> None:
+        _write_dist_artefact(cwd_tmp / "dist", "demo", "amd64")
+        df = _write_dockerfile(
+            cwd_tmp,
+            "FROM ubuntu:24.04\nCOPY demo /usr/local/bin/demo\n",
+        )
+        result = stage_binary_dockerfile(df, context=_REPO_ROOT)
+        rewritten = result.read_text(encoding="utf-8")
+        result.unlink()
+
+        assert rewritten == (
+            "FROM ubuntu:24.04\n"
+            "ARG TARGETARCH\n"
+            "COPY dist/demo-linux-${TARGETARCH} /usr/local/bin/demo\n"
+            "COPY LICENSE /licenses/LICENSE\n"
+        )
+
+    def test_no_licence_leaves_dockerfile_alone(self, cwd_tmp: Path) -> None:
+        df = _write_dockerfile(cwd_tmp, "FROM scratch\n")
+        assert find_licence_file(cwd_tmp) is None
+        assert stage_binary_dockerfile(df, context=cwd_tmp) == df
+
+    def test_fallback_order_and_dockerignore_skip(
+        self, cwd_tmp: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Stand-in names: the lookup order and the ignore check are name-agnostic.
+        monkeypatch.setattr(binary_stage, "_LICENCE_NAMES", ("first", "second.md"))
+        (cwd_tmp / "second.md").write_text("text\n", encoding="utf-8")
+        assert find_licence_file(cwd_tmp) == "second.md"
+
+        (cwd_tmp / ".dockerignore").write_text("*.md\n", encoding="utf-8")
+        with patch.object(binary_stage, "warn") as warned:
+            assert find_licence_file(cwd_tmp) is None
+        assert "second.md" in warned.call_args.args[0]
+
+        (cwd_tmp / ".dockerignore").write_text("*.md\n!second.md\n", encoding="utf-8")
+        assert find_licence_file(cwd_tmp) == "second.md"
+
+
+class TestDockerignoreMatch:
+    """A root-level file against Docker's .dockerignore rules."""
+
+    @pytest.mark.parametrize(
+        ("ignore", "excluded"),
+        [
+            ("", False),
+            ("# LICENSE\n", False),
+            ("LICENSE\n", True),
+            ("/LICENSE\n", True),
+            ("./LICENSE\n", True),
+            ("LICEN?E\n", True),
+            ("*\n", True),
+            ("**\n", True),
+            ("**/LICENSE\n", True),
+            ("*\n!LICENSE\n", False),
+            ("!LICENSE\nLICENSE\n", True),
+            ("docs/LICENSE\n", False),
+            ("*.md\n", False),
+            ("target/\n.git/\n", False),
+        ],
+    )
+    def test_patterns(self, tmp_path: Path, ignore: str, excluded: bool) -> None:
+        (tmp_path / ".dockerignore").write_text(ignore, encoding="utf-8")
+        assert binary_stage._dockerignore_excludes(tmp_path, "LICENSE") is excluded
+
+    def test_no_dockerignore(self, tmp_path: Path) -> None:
+        assert binary_stage._dockerignore_excludes(tmp_path, "LICENSE") is False
+
+
+def test_dispatch_build_hands_buildx_the_licence_copy(
+    cwd_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The container stage passes its build context to the rewrite."""
+    seen: dict[str, str] = {}
+
+    def record(**kwargs: object) -> int:
+        dockerfile = kwargs["dockerfile_path"]
+        assert isinstance(dockerfile, Path)
+        seen["dockerfile"] = dockerfile.read_text(encoding="utf-8")
+        seen["context"] = str(kwargs["context"])
+        return 0
+
+    df = _write_dockerfile(cwd_tmp, "FROM scratch\n")
+    monkeypatch.setattr(stage, "build_and_push", record)
+    monkeypatch.setattr(stage, "_read_version", lambda: "1.2.3")
+    monkeypatch.setattr(stage, "_read_sha", lambda: "deadbeef")
+    with patch("hyperi_ci.description_source.github_description", return_value=None):
+        rc = stage._dispatch_build(
+            dockerfile_path=df,
+            container_cfg={"context": str(_REPO_ROOT)},
+            config=CIConfig(_raw={}),
+            org=OrgConfig(),
+            registry_bases=["ghcr.io/hyperi-io"],
+            push_mode="release",
+            binary_backed=False,
+        )
+
+    assert rc == 0
+    assert seen["context"] == str(_REPO_ROOT)
+    assert seen["dockerfile"] == "FROM scratch\nCOPY LICENSE /licenses/LICENSE\n"
+    # The rewritten Dockerfile is a temp file the stage removes afterwards.
+    assert list(cwd_tmp.glob("*.Dockerfile")) == []

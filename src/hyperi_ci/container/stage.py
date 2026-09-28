@@ -650,11 +650,13 @@ def _dispatch_build(
     # the build context root that the upstream Build stage doesn't put
     # there -- it puts arch-suffixed binaries in `dist/<app>-linux-<arch>`.
     # Rewrite the Dockerfile to use ${TARGETARCH} substitution so multi-arch
-    # buildx works in a single invocation. No-op for Dockerfiles that
-    # already use the parameterised form (ci-test-* / dfe-loader pattern).
+    # buildx works in a single invocation. The same rewrite appends the copy
+    # of the context's licence file into /licenses/.
     from hyperi_ci.container.binary_stage import stage_binary_dockerfile
 
-    effective_dockerfile = stage_binary_dockerfile(dockerfile_path)
+    effective_dockerfile = stage_binary_dockerfile(
+        dockerfile_path, context=Path(context)
+    )
     rewrote = effective_dockerfile != dockerfile_path
 
     try:

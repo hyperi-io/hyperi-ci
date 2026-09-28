@@ -85,7 +85,7 @@ human's call.
 |---|---|
 | crates.io, PyPI, npm | that artefact's own manifest field, untouched by this tool |
 | `org.opencontainers.image.description` | the resolved value, written at build time |
-| GHCR package page | the same label - GHCR renders it |
+| GHCR package page | the same value - GHCR reads a multi-arch image's from the index annotation, a single-arch image's from the label |
 | GitHub repo description | checked, not written |
 | Homebrew, apt, AUR, RPM | out of our hands; those live in someone else's repo |
 
