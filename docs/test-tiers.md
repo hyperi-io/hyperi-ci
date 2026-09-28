@@ -46,6 +46,8 @@ In CI the reusable workflows pick the tier per run and set `HYPERCI_TEST_TIER`. 
 - `test.full.rust.skip` lists test-name substrings, passed as `--skip` after `--`. nextest and libtest both take it.
 - `test.full.rust.filter` is a nextest filterset, passed as `-E`. libtest cannot apply one, so it fails the stage under cargo test or tarpaulin rather than run the tests it was meant to exclude.
 
+In both tiers, a root Cargo.toml that is both a `[package]` and a `[workspace]` adds `--workspace` to every Rust command, because cargo otherwise tests the root package alone. A virtual workspace (no root `[package]`), a single crate and a workspace that sets `default-members` run unchanged: cargo's default covers the first two, and `default-members` is the repo's own choice of what runs. With `--workspace`, the default `features: all` turns on every member's features at once, mutually exclusive ones included, as a virtual workspace already does. Narrow it with `test.rust.features`, where `|` separates feature sets that run one after another.
+
 **TypeScript.** A `test:<tier>` script runs exactly as package.json writes it, with no `--coverage` appended, because it need not be vitest or jest.
 
 A full run that could only run the core command says so with a `test tier full` warning: TypeScript with no `test:full` script, and Go always.
