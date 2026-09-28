@@ -167,7 +167,10 @@ def streams(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _Streams:
     rec = _Streams()
     monkeypatch.setattr(f"{MODULE}.stream_cmd", rec.stream)
     monkeypatch.setattr(f"{MODULE}.announce_tier", lambda *_a: None)
-    monkeypatch.setattr(f"{MODULE}.subprocess.run", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        f"{MODULE}.run_cmd",
+        lambda *_a, **_k: type("Result", (), {"returncode": 0})(),
+    )
     return rec
 
 

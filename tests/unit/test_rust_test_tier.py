@@ -5,6 +5,7 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -142,7 +143,9 @@ def streams(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _Streams:
     rec = _Streams()
     monkeypatch.setattr(f"{MODULE}.stream_cmd", rec.stream)
     monkeypatch.setattr(f"{MODULE}.announce_tier", rec.announce)
-    monkeypatch.setattr(f"{MODULE}.subprocess.run", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        f"{MODULE}.run_cmd", lambda *_a, **_k: subprocess.CompletedProcess([], 0)
+    )
     monkeypatch.setattr(f"{MODULE}._has_nextest", lambda: True)
     return rec
 

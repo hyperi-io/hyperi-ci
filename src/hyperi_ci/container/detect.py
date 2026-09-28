@@ -25,14 +25,11 @@ and present a clear reason to the developer.
 """
 
 import json
-import subprocess
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover -- Python < 3.11
-    import tomli as tomllib  # type: ignore[no-redef]  # ty: ignore[unresolved-import]
+from hyperi_ci.languages.rust.targets import rust_is_library
 
 
 @dataclass(frozen=True)
@@ -107,7 +104,7 @@ def detect(
 def _is_library(*, language: str, project_dir: Path) -> bool:
     """Return True if the project is library-only (no executable target)."""
     if language == "rust":
-        return _rust_is_library(project_dir)
+        return rust_is_library(project_dir)
     if language == "python":
         return _python_is_library(project_dir)
     if language == "typescript":
@@ -115,67 +112,6 @@ def _is_library(*, language: str, project_dir: Path) -> bool:
     if language == "golang":
         return _golang_is_library(project_dir)
     return False
-
-
-def _rust_is_library(project_dir: Path) -> bool:
-    """Rust: library if no ``[[bin]]`` target nor ``src/main.rs`` / ``src/bin/*.rs``.
-
-    Uses ``cargo metadata`` for the authoritative answer when cargo is
-    available; falls back to filesystem heuristics otherwise (CI images
-    that don't have cargo on PATH at the container-stage shouldn't hit
-    this path, but the fallback keeps tests deterministic).
-    """
-    cargo_toml = project_dir / "Cargo.toml"
-    if not cargo_toml.exists():
-        return False
-
-    metadata = _cargo_metadata(project_dir)
-    if metadata is not None:
-        for package in metadata.get("packages", []):
-            for target in package.get("targets", []):
-                if "bin" in target.get("kind", []):
-                    return False
-        return True
-
-    if (project_dir / "src" / "main.rs").exists():
-        return False
-    bin_dir = project_dir / "src" / "bin"
-    if bin_dir.is_dir() and any(p.suffix == ".rs" for p in bin_dir.iterdir()):
-        return False
-    try:
-        manifest = tomllib.loads(cargo_toml.read_text(encoding="utf-8"))
-    except Exception:
-        return False
-    if manifest.get("bin"):
-        return False
-    return True
-
-
-def _cargo_metadata(project_dir: Path) -> dict | None:
-    """Cargo's own answer, or None when it cannot be had.
-
-    None covers cargo being ABSENT as well as failing. The container job
-    installs no Rust toolchain, so `cargo` is genuinely missing there and
-    `subprocess.run` raises rather than returning a code -- which crashed the
-    resolve-only path instead of taking the filesystem fallback (issue #207).
-    """
-    try:
-        result = subprocess.run(
-            ["cargo", "metadata", "--no-deps", "--format-version=1"],
-            cwd=project_dir,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-    except OSError:
-        return None
-    if result.returncode != 0:
-        return None
-    try:
-        return json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return None
 
 
 def _rust_supports_contract(project_dir: Path) -> bool:

@@ -5,16 +5,14 @@
 # License:   BUSL-1.1
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from hyperi_ci.container import detect as dt
 from hyperi_ci.container.detect import detect
+from hyperi_ci.languages.rust import targets
 
 
 def _write_cargo_toml(project: Path, body: str) -> None:
@@ -330,10 +328,10 @@ class TestCargoMissingDoesNotCrashTheResolve:
         def _absent(*args: object, **kwargs: object) -> None:
             raise FileNotFoundError(2, "No such file or directory: 'cargo'")
 
-        monkeypatch.setattr(dt.subprocess, "run", _absent)
+        monkeypatch.setattr(targets, "run_cmd", _absent)
         root = self._rust_lib(tmp_path)
-        assert dt._cargo_metadata(root) is None
-        assert dt._rust_is_library(root) is True
+        assert targets.cargo_metadata(root) is None
+        assert targets.rust_is_library(root) is True
 
     def test_a_binary_is_still_recognised_without_cargo(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -343,18 +341,18 @@ class TestCargoMissingDoesNotCrashTheResolve:
         def _absent(*args: object, **kwargs: object) -> None:
             raise FileNotFoundError(2, "No such file or directory: 'cargo'")
 
-        monkeypatch.setattr(dt.subprocess, "run", _absent)
+        monkeypatch.setattr(targets, "run_cmd", _absent)
         root = self._rust_lib(tmp_path)
         (root / "src" / "main.rs").write_text("fn main() {}\n", encoding="utf-8")
-        assert dt._rust_is_library(root) is False
+        assert targets.rust_is_library(root) is False
 
     def test_a_failing_cargo_is_still_handled(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The pre-existing non-zero path must not regress."""
         monkeypatch.setattr(
-            dt.subprocess,
-            "run",
+            targets,
+            "run_cmd",
             lambda *a, **k: SimpleNamespace(returncode=1, stdout=""),
         )
-        assert dt._cargo_metadata(tmp_path) is None
+        assert targets.cargo_metadata(tmp_path) is None
