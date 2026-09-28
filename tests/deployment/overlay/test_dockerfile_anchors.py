@@ -318,6 +318,152 @@ class TestAfterAppBinary:
             resolver.splice(_BASE, [overlay])
 
 
+def _contract() -> str:
+    return compose_contract_dockerfile(_manifest(runtime_packages=["libssl3"]))
+
+
+def _final_stage_start(base: str) -> int:
+    """Return the line index of the last ``FROM`` in ``base``."""
+    lines = base.splitlines()
+    return max(i for i, line in enumerate(lines) if line.startswith("FROM "))
+
+
+class TestFinalStageAnchors:
+    """Anchors land in the image that ships, never in a build stage."""
+
+    @pytest.mark.parametrize(
+        "base",
+        [
+            pytest.param(_contract(), id="contract"),
+            pytest.param(render_python_template(), id="python-template"),
+        ],
+    )
+    def test_after_base_image_follows_the_final_from(self, base: str) -> None:
+        assert base.count("\nFROM ") >= 1 and base.startswith("FROM ")
+        resolver = DockerfileAnchorResolver(binary_name="myapp")
+        overlay = Overlay(anchor="after-base-image", content="RUN echo post-from\n")
+        out = resolver.splice(base, [overlay])
+        lines = _assert_starts_instruction(out, "RUN echo post-from")
+        idx = lines.index("RUN echo post-from")
+        assert idx - 1 == _final_stage_start(out)
+
+    def test_contract_after_app_binary_follows_the_builder_copy(self) -> None:
+        base = _contract()
+        copy = "COPY --from=builder /app/target/release/myapp /usr/local/bin/myapp"
+        assert copy in base.splitlines()
+        resolver = DockerfileAnchorResolver(binary_name="myapp")
+        overlay = Overlay(anchor="after-app-binary", content="RUN echo post-bin\n")
+        out = resolver.splice(base, [overlay])
+        lines = _assert_starts_instruction(out, "RUN echo post-bin")
+        assert lines[lines.index("RUN echo post-bin") - 1] == copy
+
+    def test_after_app_binary_accepts_chown_with_a_colon(self) -> None:
+        base = _contract().replace(
+            "COPY --from=builder /app/target",
+            "COPY --from=builder --chown=1000:1000 /app/target",
+        )
+        resolver = DockerfileAnchorResolver(binary_name="myapp")
+        overlay = Overlay(anchor="after-app-binary", content="RUN echo post-bin\n")
+        out = resolver.splice(base, [overlay])
+        lines = _assert_starts_instruction(out, "RUN echo post-bin")
+        assert "--chown=1000:1000" in lines[lines.index("RUN echo post-bin") - 1]
+
+    def test_after_app_binary_matches_on_destination(self) -> None:
+        base = (
+            "FROM rust:slim AS builder\n"
+            "RUN cargo build --release\n"
+            "FROM ubuntu:24.04\n"
+            "COPY --from=builder /out/server-x86_64 /usr/local/bin/myapp\n"
+            "COPY --from=builder /out/config.yaml /etc/myapp/config.yaml\n"
+            "USER app\n"
+        )
+        resolver = DockerfileAnchorResolver(binary_name="myapp")
+        overlay = Overlay(anchor="after-app-binary", content="RUN echo post-bin\n")
+        out = resolver.splice(base, [overlay])
+        lines = out.splitlines()
+        assert lines[lines.index("RUN echo post-bin") - 1].endswith("/bin/myapp")
+
+    def test_after_app_binary_matches_json_form(self) -> None:
+        base = 'FROM ubuntu:24.04\nCOPY ["myapp", "/usr/local/bin/"]\nUSER app\n'
+        resolver = DockerfileAnchorResolver(binary_name="myapp")
+        overlay = Overlay(anchor="after-app-binary", content="RUN echo post-bin\n")
+        out = resolver.splice(base, [overlay])
+        assert out.index("RUN echo post-bin") > out.index("COPY [")
+
+    def test_python_template_after_app_binary_follows_the_last_stage_copy(
+        self,
+    ) -> None:
+        base = render_python_template()
+        resolver = DockerfileAnchorResolver(binary_name="app")
+        overlay = Overlay(anchor="after-app-binary", content="RUN echo post-app\n")
+        out = resolver.splice(base, [overlay])
+        lines = _assert_starts_instruction(out, "RUN echo post-app")
+        idx = lines.index("RUN echo post-app")
+        assert lines[idx - 1] == "COPY --from=builder /app/src /app/src"
+        assert idx > _final_stage_start(out)
+
+    def test_contract_after_app_binary_survives_a_mismatched_name(self) -> None:
+        # The resolver's name comes from config or the checkout directory,
+        # the COPY's from the scalo manifest, so the two can differ.
+        base = _contract()
+        resolver = DockerfileAnchorResolver(binary_name="checkout-dir")
+        overlay = Overlay(anchor="after-app-binary", content="RUN echo post-bin\n")
+        out = resolver.splice(base, [overlay])
+        lines = out.splitlines()
+        previous = lines[lines.index("RUN echo post-bin") - 1]
+        assert previous.startswith("COPY --from=builder /app/target/release/")
+
+    def test_copy_from_an_image_is_not_a_build_stage(self) -> None:
+        base = (
+            "FROM ubuntu:24.04\n"
+            "COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv\n"
+            "USER app\n"
+        )
+        resolver = DockerfileAnchorResolver(binary_name="myapp")
+        overlay = Overlay(anchor="after-app-binary", content="# x\n")
+        with pytest.raises(AnchorNotFound):
+            resolver.splice(base, [overlay])
+
+    def test_binary_copy_in_a_build_stage_does_not_count(self) -> None:
+        base = (
+            "FROM rust:slim AS builder\n"
+            "COPY myapp /build/myapp\n"
+            "FROM ubuntu:24.04\n"
+            "USER app\n"
+        )
+        resolver = DockerfileAnchorResolver(binary_name="myapp")
+        overlay = Overlay(anchor="after-app-binary", content="# x\n")
+        with pytest.raises(AnchorNotFound):
+            resolver.splice(base, [overlay])
+
+    def test_user_in_a_build_stage_does_not_count(self) -> None:
+        base = (
+            "FROM rust:slim AS builder\n"
+            "USER builder\n"
+            "RUN cargo build\n"
+            "FROM ubuntu:24.04\n"
+            "USER app\n"
+        )
+        resolver = DockerfileAnchorResolver()
+        overlay = Overlay(anchor="before-user", content="RUN echo pre-user\n")
+        out = resolver.splice(base, [overlay])
+        assert out.endswith("RUN echo pre-user\nUSER app\n")
+
+    def test_single_stage_after_base_image_is_unchanged(self) -> None:
+        base = "FROM ubuntu:24.04\nCOPY myapp /usr/local/bin/myapp\nUSER app\n"
+        resolver = DockerfileAnchorResolver(binary_name="myapp")
+        image = Overlay(anchor="after-base-image", content="RUN echo post-from\n")
+        binary = Overlay(anchor="after-app-binary", content="RUN echo post-bin\n")
+        out = resolver.splice(base, [image, binary])
+        assert out == (
+            "FROM ubuntu:24.04\n"
+            "RUN echo post-from\n"
+            "COPY myapp /usr/local/bin/myapp\n"
+            "RUN echo post-bin\n"
+            "USER app\n"
+        )
+
+
 class TestMultipleOverlaysAtSameAnchor:
     def test_declaration_order_preserved(self) -> None:
         resolver = DockerfileAnchorResolver()
