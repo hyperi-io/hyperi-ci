@@ -234,6 +234,7 @@ uv run scripts/rehearse-branch.py --branch <your-branch> --repo hyperi-io/<fixtu
   them. CI verifies; you run, because starting a rehearsal needs a GitHub App
   with `workflows: write` that hypersec-ci-bot is not.
 - It refuses while a `Fleet sweep` run is unfinished or another rehearsal holds the fixture.
+- A change under `.github/actions/**` stays red, because the workflows call composites at `@main` and no rehearsal runs it. A human decides.
 
 **The fleet sweep runs everything against main.** `Fleet sweep` dispatches all
 nine fixtures on a merge touching the consumer surface, and weekly, then runs

@@ -106,6 +106,14 @@ def actions_in(text: str) -> set[str]:
     return set(_ACTION_REF.findall(text))
 
 
+def action_of(path: str) -> str | None:
+    """The composite-action directory a repo-relative path sits in, or None."""
+    path = path.replace("\\", "/").removeprefix("./")
+    if not path.startswith(_ACTION_PREFIX):
+        return None
+    return path[len(_ACTION_PREFIX) :].split("/", 1)[0]
+
+
 def workflows_for_action(
     action: str, texts: dict[str, str], language_files: set[str]
 ) -> set[str]:
@@ -162,8 +170,7 @@ def select_for_paths(
                 selected.add(name)
             elif name.startswith("_"):
                 shared_touched = True
-        elif path.startswith(_ACTION_PREFIX):
-            action = path[len(_ACTION_PREFIX) :].split("/", 1)[0]
+        elif (action := action_of(path)) is not None:
             callers = workflows_for_action(action, texts, language_files)
             if not callers or callers == language_files:
                 shared_touched = True

@@ -140,6 +140,69 @@ class TestTheGateVerdict:
         )
 
 
+class TestACompositeChangeIsUnrehearsed:
+    """The lang workflows call composites @main, so no rehearsal runs one (#366)."""
+
+    def test_changed_composites_are_named_once_each(self) -> None:
+        paths = [
+            ".github/actions/predict-version/action.yml",
+            "./.github/actions/predict-version/resolve.py",
+            ".github/actions/setup-runtime/action.yml",
+            ".github/workflows/python-ci.yml",
+            "src/hyperi_ci/cli.py",
+        ]
+        assert gate.composite_changes(paths) == ["predict-version", "setup-runtime"]
+
+    def test_no_composite_touched_names_none(self) -> None:
+        assert gate.composite_changes([".github/workflows/python-ci.yml"]) == []
+
+    def test_a_proven_rehearsal_does_not_prove_a_composite(self) -> None:
+        outcomes = [gate.Outcome("ci-test-python-app", gate.PROVEN, "run 1")]
+        code, lines = gate.gate_verdict(
+            ["ci-test-python-app"], outcomes, ["predict-version"]
+        )
+        assert code == 1
+        assert any(
+            "UNREHEARSED" in line and "predict-version" in line for line in lines
+        )
+
+    def test_an_unknown_fixture_still_reads_as_unknown(self) -> None:
+        outcomes = [gate.Outcome("ci-test-python-app", gate.UNREACHABLE, "gh failed")]
+        code, _ = gate.gate_verdict(
+            ["ci-test-python-app"], outcomes, ["predict-version"]
+        )
+        assert code == 2
+
+    def test_a_composite_with_no_fixture_selected_is_not_a_pass(self) -> None:
+        code, lines = gate.gate_verdict([], [], ["predict-version"])
+        assert code == 1
+        assert not any("No consumer surface" in line for line in lines)
+
+    def _main(self, monkeypatch, changed: list[str]) -> int:
+        argv = ["rehearse-gate.py", "--head-sha", "a" * 40, "--branch", "fix/x"]
+        for path in changed:
+            argv += ["--changed-file", path]
+        monkeypatch.setattr(sys, "argv", argv)
+        monkeypatch.setattr(
+            gate, "verify", lambda name, _sha: gate.Outcome(name, gate.PROVEN, "run 1")
+        )
+        return gate.main()
+
+    def test_the_gate_refuses_a_proven_composite_change(
+        self, monkeypatch, capsys
+    ) -> None:
+        code = self._main(monkeypatch, [".github/actions/predict-version/action.yml"])
+        out = capsys.readouterr().out
+        assert code == 1
+        assert "COMPOSITE UNREHEARSED: predict-version" in out
+        assert "REHEARSED: every required fixture" not in out
+
+    def test_a_proven_workflow_change_still_passes(self, monkeypatch, capsys) -> None:
+        code = self._main(monkeypatch, [".github/workflows/python-ci.yml"])
+        assert code == 0
+        assert "COMPOSITE UNREHEARSED" not in capsys.readouterr().out
+
+
 class TestTheSweepVerdict:
     def test_a_green_fleet_passes(self) -> None:
         results = [sweep.Result("ci-test-go-app", sweep.PASS, "run 1")]
