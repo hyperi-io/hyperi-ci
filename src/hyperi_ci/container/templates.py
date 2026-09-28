@@ -6,8 +6,7 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Dockerfile templates for Python and Node container image builds."""
 
-from __future__ import annotations
-
+from hyperi_ci.apt_retry import apt_get_sh, apt_update_sh
 from hyperi_ci.versions import runtime_version
 
 PYTHON_DOCKERFILE_TEMPLATE = """\
@@ -32,7 +31,8 @@ COPY . .
 RUN uv sync --frozen --no-dev
 
 FROM python:{python_version}-slim
-RUN apt-get update && apt-get install -y --no-install-recommends \\
+RUN {apt_update} \\
+    && {apt_install} \\
     ca-certificates curl && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
@@ -81,6 +81,8 @@ def render_python_template(
     """
     return PYTHON_DOCKERFILE_TEMPLATE.format(
         python_version=python_version or runtime_version("python"),
+        apt_update=apt_update_sh(),
+        apt_install=apt_get_sh("install -y --no-install-recommends"),
         port=port,
         health_path=health_path,
         entrypoint=entrypoint,
