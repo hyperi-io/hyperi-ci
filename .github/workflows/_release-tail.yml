@@ -462,14 +462,17 @@ jobs:
 
       - name: Stamp the released version
         id: stamp
-        # release-commit reads VERSION off this job's disk, and this job checks
-        # out the TAG, whose VERSION is by definition the pre-release value.
-        # The build's stamp runs on a different runner and only dist/ + ci-tmp/
-        # travel between them, so without this VERSION never moves.
+        # release-commit reads VERSION off this job's disk, and the commit this
+        # job checked out still carries the pre-release value. The build's
+        # stamp runs on a different runner and only dist/ + ci-tmp/ travel
+        # between them, so without this VERSION never moves.
+        #
+        # Skipped on a tag dispatch, like the Container stamp: that checkout is
+        # an old tag, and its version committed onto main would move it back.
         #
         # Non-fatal, like the commit below: a failure leaves VERSION where it
         # already was rather than reddening a shipped release.
-        if: steps.publish.outcome == 'success'
+        if: steps.publish.outcome == 'success' && inputs.tag == ''
         continue-on-error: true
         env:
           # Via env, not interpolated into the script, so the value cannot be
@@ -494,8 +497,8 @@ jobs:
         # property whose absence caused the #37 orphaning.
         #
         # Non-fatal: once the registry has the release, a failure here must
-        # not turn a shipped release red.
-        if: steps.publish.outcome == 'success'
+        # not turn a shipped release red. Same gate as the stamp above.
+        if: steps.publish.outcome == 'success' && inputs.tag == ''
         continue-on-error: true
         env:
           # Also a push to the default branch, so it needs the bypass actor

@@ -14,6 +14,7 @@ commit is never tagged, the ref is never force-updated -- are asserted here
 rather than left to review.
 """
 
+import base64
 from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import unquote
@@ -68,6 +69,8 @@ class _Api:
         # Blob shas of stamped files on the branch tip; a path not listed is
         # answered with the sha the checkout's HEAD carries.
         self.tip_blobs: dict[str, str | None] = {}
+        # VERSION on the branch tip. None answers as a 404.
+        self.tip_version: str | None = "3.1.0\n"
 
     def __call__(self, args: list[str], *, body: dict | None = None) -> dict | None:
         self.calls.append((args, body))
@@ -76,6 +79,11 @@ class _Api:
             path = unquote(endpoint.split("/contents/", 1)[1].split("?", 1)[0])
             if path == SUPPLEMENT:
                 return {"sha": "supplement-sha"} if self.supplement_on_branch else None
+            if path == "VERSION":
+                if self.tip_version is None:
+                    return None
+                encoded = base64.encodebytes(self.tip_version.encode()).decode()
+                return {"sha": "version-sha", "content": encoded}
             sha = self.tip_blobs.get(path, _HEAD_BLOB)
             return {"sha": sha} if sha else None
         if endpoint.endswith("/git/ref/heads/main"):
@@ -184,7 +192,7 @@ class TestTheNotesSupplement:
         commit_release_artefacts(version="3.1.0", project_dir=project)
         tree = api.bodies_for("/git/trees")[0]["tree"]
         assert {entry["path"] for entry in tree} == {"VERSION", "CHANGELOG.md"}
-        assert not [e for e in api.endpoints() if "/contents/" in e]
+        assert not [e for e in api.endpoints() if f"/contents/{SUPPLEMENT}" in e]
 
     def test_an_unrendered_release_keeps_it(self, api: _Api, project: Path) -> None:
         """A forced bump skips semantic-release, so the notes went nowhere."""
@@ -414,6 +422,68 @@ class TestNoOps:
         )
         assert rc == 0
         assert api.calls == []
+
+
+class TestTheBranchNeverMovesBackwards:
+    """A VERSION older than the branch tip's is a stale commit (issue #350)."""
+
+    def test_an_older_version_commits_nothing(self, api: _Api, project: Path) -> None:
+        api.tip_version = "3.2.0\n"
+        assert commit_release_artefacts(version="3.1.0", project_dir=project) == 0
+        assert not api.bodies_for("/git/commits")
+        assert not api.bodies_for("/git/trees")
+
+    def test_an_older_version_leaves_the_supplement(
+        self, api: _Api, project: Path
+    ) -> None:
+        path = project / SUPPLEMENT
+        path.parent.mkdir(parents=True)
+        path.write_text("- a thing\n", encoding="utf-8")
+        api.tip_version = "3.2.0\n"
+        commit_release_artefacts(version="3.1.0", project_dir=project)
+        assert not api.bodies_for("/git/trees")
+
+    @pytest.mark.parametrize("tip", ["3.1.0\n", "3.0.9\n", "2.10.13\n"])
+    def test_an_equal_or_newer_version_commits(
+        self, api: _Api, project: Path, tip: str
+    ) -> None:
+        api.tip_version = tip
+        assert commit_release_artefacts(version="3.1.0", project_dir=project) == 0
+        assert api.bodies_for("/git/commits")
+
+    def test_versions_compare_numerically(self, api: _Api, project: Path) -> None:
+        """2.10 is newer than 2.9, which a string compare gets wrong."""
+        (project / "VERSION").write_text("2.10.0\n", encoding="utf-8")
+        api.tip_version = "2.9.17\n"
+        commit_release_artefacts(version="2.10.0", project_dir=project)
+        assert api.bodies_for("/git/commits")
+
+    def test_an_unparseable_tip_version_commits(self, api: _Api, project: Path) -> None:
+        api.tip_version = "not a version\n"
+        commit_release_artefacts(version="3.1.0", project_dir=project)
+        assert api.bodies_for("/git/commits")
+
+    def test_an_unparseable_local_version_commits(
+        self, api: _Api, project: Path
+    ) -> None:
+        (project / "VERSION").write_text("dev\n", encoding="utf-8")
+        api.tip_version = "3.2.0\n"
+        commit_release_artefacts(version="3.1.0", project_dir=project)
+        assert api.bodies_for("/git/commits")
+
+    def test_a_tip_without_version_commits(self, api: _Api, project: Path) -> None:
+        api.tip_version = None
+        commit_release_artefacts(version="3.1.0", project_dir=project)
+        assert api.bodies_for("/git/commits")
+
+    def test_no_version_on_disk_skips_the_check(
+        self, api: _Api, tmp_path: Path
+    ) -> None:
+        (tmp_path / "CHANGELOG.md").write_text("# Changelog\n", encoding="utf-8")
+        api.tip_version = "9.9.9\n"
+        commit_release_artefacts(version="3.1.0", project_dir=tmp_path)
+        assert not [e for e in api.endpoints() if "/contents/VERSION" in e]
+        assert api.bodies_for("/git/commits")
 
 
 class TestRefusals:

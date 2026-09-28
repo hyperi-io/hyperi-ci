@@ -210,7 +210,7 @@ class TestFromHeadThreading:
         """VERSION must be stamped in the job that commits it.
 
         release-commit lists VERSION in RELEASE_ARTEFACTS and reads it off
-        disk, but tag-and-release checks out the TAG, whose VERSION is the
+        disk, but the commit tag-and-release checks out still carries the
         pre-release value. The build's stamp runs on another runner and only
         dist/ + ci-tmp/ are passed between them, so without a stamp here the
         uploaded blob matches the branch, the tree is unchanged for that path,
@@ -235,6 +235,11 @@ class TestFromHeadThreading:
         # publish would leave a version on disk nothing shipped.
         assert str(stamp["if"]) == str(commit["if"]), (
             "stamp and release-commit must share a condition"
+        )
+        # A tag dispatch checks out an old tag, so its VERSION and CHANGELOG.md
+        # committed onto main would move the branch backwards (issue #350).
+        assert "inputs.tag == ''" in str(stamp["if"]), (
+            "stamp and release-commit must skip a retroactive tag dispatch"
         )
         assert stamp["continue-on-error"] is True, (
             "bookkeeping after a shipped release must not turn it red"

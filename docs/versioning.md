@@ -104,6 +104,8 @@ recomputed the same version and died on `tag vX already exists` (issue #37).
   overwrite;
 - an identical tree is a no-op, so a re-run adds nothing.
 
+It never moves the branch backwards. A retroactive `tag` dispatch skips the stamp and the commit-back, since its checkout is the old tag. `release-commit` also commits nothing when the tip's `VERSION` is newer than the disk's, which catches a forced `bump=X.Y.Z` below the latest tag. A missing or unparseable `VERSION` on either side skips that check.
+
 The build back-end no longer depends on the file being present or fresh.
 `build_version()` in `version_source.py` resolves `HYPERCI_VERSION` -> `VERSION`
 -> latest `v*` tag -> seed version, so a fresh clone builds and the run's
