@@ -25,18 +25,20 @@ forward ref update, so a branch that moved under us fails loudly and retries
 against the new tip instead of overwriting someone's push.
 """
 
-from __future__ import annotations
-
 import base64
 import json
 import os
 import tempfile
 from pathlib import Path
+from urllib.parse import quote
 
 from hyperi_ci.common import error, info, run_cmd, success, warn
+from hyperi_ci.config import load_config
+from hyperi_ci.stamp import stamp_paths
 
 # The rendered artefacts. Both are outputs: VERSION is written by
-# `stamp-version`, CHANGELOG.md by @semantic-release/changelog.
+# `stamp-version`, CHANGELOG.md by @semantic-release/changelog. A repo adds its
+# own through `release.stamp_paths`.
 CHANGELOG = "CHANGELOG.md"
 RELEASE_ARTEFACTS = ("VERSION", CHANGELOG)
 
@@ -49,6 +51,10 @@ SUPPLEMENT = ".github/release-notes/NEXT.md"
 # push retriggers CI, which finds no `Release: true` trailer and validates
 # for nothing.
 _MESSAGE = "chore(release): v{version} [skip ci]"
+
+# The workflow sets this to the stamp step's outcome. Unset means no workflow
+# step ran the stamp, as on a local run, and the files on disk are trusted.
+STAMP_OUTCOME_ENV = "HYPERCI_STAMP_OUTCOME"
 
 _RETRIES = 3
 
@@ -78,17 +84,92 @@ def _api(args: list[str], *, body: dict | None = None) -> dict | None:
         return None
 
 
-def _blob_entries(repo: str, root: Path) -> list[dict[str, str | None]] | None:
+def _stamped_artefacts(root: Path) -> list[str]:
+    """Return the ``release.stamp_paths`` files that are safe to commit.
+
+    A broken ``stamp_paths`` is reported and dropped rather than failing the
+    commit, so VERSION and CHANGELOG.md still land. So are the files when the
+    workflow's stamp step did not succeed, because a generator that failed
+    part-way leaves partial output on disk.
+    """
+    outcome = os.environ.get(STAMP_OUTCOME_ENV, "")
+    try:
+        listed = stamp_paths(load_config(project_dir=root, reload=True), root)
+    except ValueError as exc:
+        error(f"release-commit: {exc} -- committing VERSION and {CHANGELOG} only")
+        return []
+    if listed and outcome not in ("", "success"):
+        warn(
+            f"release-commit: the stamp step ended {outcome} -- "
+            "leaving release.stamp_paths out of the commit"
+        )
+        return []
+    kept: list[str] = []
+    for name in listed:
+        path = root / name
+        if name in RELEASE_ARTEFACTS:
+            continue
+        if name == SUPPLEMENT or ".git" in Path(name).parts:
+            warn(f"release-commit: release.stamp_paths cannot include {name}")
+        elif path.is_symlink():
+            warn(f"release-commit: release.stamp_paths entry {name} is a symlink")
+        elif not path.is_file():
+            warn(f"release-commit: release.stamp_paths entry {name} is not a file")
+        else:
+            kept.append(name)
+    return kept
+
+
+def _local_blob(root: Path, name: str) -> str | None:
+    """Return the blob sha of ``name`` in the checkout's HEAD, if it has one."""
+    result = run_cmd(
+        ["git", "rev-parse", "--verify", "--quiet", f"HEAD:{name}"],
+        capture=True,
+        check=False,
+        cwd=root,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def _unchanged_on_tip(
+    *, repo: str, root: Path, tip: str, names: list[str]
+) -> list[str]:
+    """Keep the stamped files the branch has not changed since this checkout.
+
+    The release commit builds on the branch tip, but the files come from a
+    checkout that can be older: a merge landed during the release, or a
+    retroactive dispatch checked out an old tag. A generated file is derived
+    from source, so writing the checkout's copy over a newer one on the branch
+    would lose that change.
+    """
+    kept: list[str] = []
+    for name in names:
+        local = _local_blob(root, name)
+        remote = _api([f"repos/{repo}/contents/{quote(name)}?ref={tip}"])
+        remote_sha = (remote or {}).get("sha")
+        if local == remote_sha:
+            kept.append(name)
+        else:
+            warn(
+                f"release-commit: {name} changed on the branch since this "
+                "checkout -- leaving the branch's copy alone"
+            )
+    return kept
+
+
+def _blob_entries(
+    repo: str, root: Path, artefacts: list[str]
+) -> list[dict[str, str | None]] | None:
     """Upload each artefact as a blob, returning tree entries by sha.
 
     Content goes up base64-encoded so a file that is not valid UTF-8 (or
     carries a stray CR) survives the round trip intact.
     """
     entries: list[dict[str, str | None]] = []
-    for name in RELEASE_ARTEFACTS:
+    for name in artefacts:
         path = root / name
-        if not path.is_file():
-            continue
         encoded = base64.b64encode(path.read_bytes()).decode("ascii")
         blob = _api(
             ["-X", "POST", f"repos/{repo}/git/blobs"],
@@ -97,9 +178,8 @@ def _blob_entries(repo: str, root: Path) -> list[dict[str, str | None]] | None:
         if not blob or "sha" not in blob:
             error(f"release-commit: failed to upload {name} as a blob")
             return None
-        entries.append(
-            {"path": name, "mode": "100644", "type": "blob", "sha": blob["sha"]}
-        )
+        mode = "100755" if path.stat().st_mode & 0o111 else "100644"
+        entries.append({"path": name, "mode": mode, "type": "blob", "sha": blob["sha"]})
     return entries
 
 
@@ -166,7 +246,9 @@ def commit_release_artefacts(
         error("release-commit: GITHUB_REPOSITORY not set (must run in CI)")
         return 1
 
-    present = [name for name in RELEASE_ARTEFACTS if (root / name).is_file()]
+    fixed = [name for name in RELEASE_ARTEFACTS if (root / name).is_file()]
+    stamped = _stamped_artefacts(root)
+    present = fixed + stamped
     consumed = [SUPPLEMENT] if (root / SUPPLEMENT).is_file() else []
     if not present and not consumed:
         info("release-commit: no release artefacts on disk — nothing to commit")
@@ -180,7 +262,14 @@ def commit_release_artefacts(
         return 0
 
     for attempt in range(1, _RETRIES + 1):
-        outcome = _attempt(repo=repo, root=root, version=version, branch=branch)
+        outcome = _attempt(
+            repo=repo,
+            root=root,
+            version=version,
+            branch=branch,
+            fixed=fixed,
+            stamped=stamped,
+        )
         if outcome != "retry":
             return 0 if outcome == "ok" else 1
         warn(
@@ -192,7 +281,15 @@ def commit_release_artefacts(
     return 1
 
 
-def _attempt(*, repo: str, root: Path, version: str, branch: str) -> str:
+def _attempt(
+    *,
+    repo: str,
+    root: Path,
+    version: str,
+    branch: str,
+    fixed: list[str],
+    stamped: list[str],
+) -> str:
     """One create-tree/commit/update-ref cycle. Returns ok, retry or fail."""
     ref = _api([f"repos/{repo}/git/ref/heads/{branch}"])
     tip = (ref or {}).get("object", {}).get("sha")
@@ -206,7 +303,8 @@ def _attempt(*, repo: str, root: Path, version: str, branch: str) -> str:
         error(f"release-commit: cannot read the tree of {tip[:8]}")
         return "fail"
 
-    entries = _blob_entries(repo, root)
+    fresh = _unchanged_on_tip(repo=repo, root=root, tip=tip, names=stamped)
+    entries = _blob_entries(repo, root, fixed + fresh)
     if entries is None:
         return "fail"
     entries += _supplement_entry(repo=repo, root=root, branch=branch, version=version)

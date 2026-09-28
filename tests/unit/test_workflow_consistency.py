@@ -249,6 +249,12 @@ class TestFromHeadThreading:
         assert "-f VERSION" in stamp["run"], (
             "stamp step must not create a VERSION file where none exists"
         )
+        # release.stamp_paths must stay out after a failed stamp_cmd, which can
+        # leave partial output on disk. The outcome goes by env so an older
+        # CLI ignores it instead of rejecting an unknown flag.
+        assert commit["env"]["HYPERCI_STAMP_OUTCOME"] == (
+            f"${{{{ steps.{stamp['id']}.outcome }}}}"
+        ), "release-commit must see the stamp step's outcome"
 
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
     def test_build_stamps_on_from_head_dispatch(self, workflow_name: str) -> None:

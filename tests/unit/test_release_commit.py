@@ -14,14 +14,27 @@ commit is never tagged, the ref is never force-updated -- are asserted here
 rather than left to review.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import unquote
 
 import pytest
+import yaml
 
-from hyperi_ci.release_commit import SUPPLEMENT, commit_release_artefacts
+from hyperi_ci import config as config_module
+from hyperi_ci.common import run_cmd
+from hyperi_ci.release_commit import (
+    STAMP_OUTCOME_ENV,
+    SUPPLEMENT,
+    _local_blob,
+    commit_release_artefacts,
+)
+
+
+@pytest.fixture(autouse=True)
+def _restore_config_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    """release-commit reloads config from tmp_path; keep that out of other tests."""
+    monkeypatch.setattr(config_module, "_config_cache", None)
 
 
 @pytest.fixture
@@ -33,6 +46,9 @@ def project(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return tmp_path
+
+
+_HEAD_BLOB = "head-blob-sha"
 
 
 class _Api:
@@ -49,12 +65,19 @@ class _Api:
         self.new_tree = new_tree
         self.ref_update = ref_update
         self.supplement_on_branch = supplement_on_branch
+        # Blob shas of stamped files on the branch tip; a path not listed is
+        # answered with the sha the checkout's HEAD carries.
+        self.tip_blobs: dict[str, str | None] = {}
 
     def __call__(self, args: list[str], *, body: dict | None = None) -> dict | None:
         self.calls.append((args, body))
         endpoint = args[-1]
         if "/contents/" in endpoint:
-            return {"sha": "supplement-sha"} if self.supplement_on_branch else None
+            path = unquote(endpoint.split("/contents/", 1)[1].split("?", 1)[0])
+            if path == SUPPLEMENT:
+                return {"sha": "supplement-sha"} if self.supplement_on_branch else None
+            sha = self.tip_blobs.get(path, _HEAD_BLOB)
+            return {"sha": sha} if sha else None
         if endpoint.endswith("/git/ref/heads/main"):
             return {"object": {"sha": "tip-sha"}}
         if "/git/commits/" in endpoint:
@@ -182,6 +205,192 @@ class TestTheNotesSupplement:
             assert commit_release_artefacts(version="3.1.0", project_dir=project) == 0
         tree = stub.bodies_for("/git/trees")[0]["tree"]
         assert SUPPLEMENT not in {entry["path"] for entry in tree}
+
+
+class TestStampPaths:
+    """Files `release.stamp_cmd` wrote ride along with VERSION and the changelog."""
+
+    @pytest.fixture(autouse=True)
+    def _checkout_head(self, monkeypatch: pytest.MonkeyPatch) -> dict[str, str | None]:
+        """Blob shas in the checkout's HEAD; a path not listed carries _HEAD_BLOB."""
+        blobs: dict[str, str | None] = {}
+        monkeypatch.delenv(STAMP_OUTCOME_ENV, raising=False)
+        monkeypatch.setattr(
+            "hyperi_ci.release_commit._local_blob",
+            lambda _root, name: blobs.get(name, _HEAD_BLOB),
+        )
+        return blobs
+
+    @staticmethod
+    def _configure(project: Path, paths: object) -> None:
+        (project / ".hyperi-ci.yaml").write_text(
+            yaml.safe_dump({"release": {"stamp_paths": paths}}), encoding="utf-8"
+        )
+
+    @staticmethod
+    def _spec(project: Path, name: str) -> None:
+        path = project / "openapi-spec" / name
+        path.parent.mkdir(exist_ok=True)
+        path.write_text('{"info": {"version": "3.1.0"}}\n', encoding="utf-8")
+
+    def _tree_paths(self, api: _Api) -> set[str]:
+        return {entry["path"] for entry in api.bodies_for("/git/trees")[0]["tree"]}
+
+    def test_listed_files_join_the_commit(self, api: _Api, project: Path) -> None:
+        self._spec(project, "openapi.json")
+        self._spec(project, "openapi.e2e.json")
+        self._configure(
+            project, ["openapi-spec/openapi.json", "openapi-spec/openapi.e2e.json"]
+        )
+        assert commit_release_artefacts(version="3.1.0", project_dir=project) == 0
+        assert self._tree_paths(api) == {
+            "VERSION",
+            "CHANGELOG.md",
+            "openapi-spec/openapi.json",
+            "openapi-spec/openapi.e2e.json",
+        }
+
+    def test_a_listed_file_not_on_disk_is_skipped(
+        self, api: _Api, project: Path
+    ) -> None:
+        self._spec(project, "openapi.json")
+        self._configure(
+            project, ["openapi-spec/openapi.json", "openapi-spec/gone.json"]
+        )
+        assert commit_release_artefacts(version="3.1.0", project_dir=project) == 0
+        assert self._tree_paths(api) == {
+            "VERSION",
+            "CHANGELOG.md",
+            "openapi-spec/openapi.json",
+        }
+
+    def test_a_path_out_of_the_repo_still_commits_the_rest(
+        self, api: _Api, project: Path
+    ) -> None:
+        """A bad entry costs the extras, never VERSION and the changelog."""
+        self._configure(project, ["../../etc/passwd"])
+        assert commit_release_artefacts(version="3.1.0", project_dir=project) == 0
+        assert self._tree_paths(api) == {"VERSION", "CHANGELOG.md"}
+
+    def test_a_fixed_artefact_listed_again_is_not_doubled(
+        self, api: _Api, project: Path
+    ) -> None:
+        self._configure(project, ["VERSION"])
+        commit_release_artefacts(version="3.1.0", project_dir=project)
+        tree = api.bodies_for("/git/trees")[0]["tree"]
+        assert [entry["path"] for entry in tree].count("VERSION") == 1
+
+    def test_a_file_the_branch_changed_since_the_checkout_is_left_alone(
+        self, api: _Api, project: Path
+    ) -> None:
+        """A merge during the release regenerated it from newer source."""
+        self._spec(project, "openapi.json")
+        self._spec(project, "openapi.e2e.json")
+        self._configure(
+            project, ["openapi-spec/openapi.json", "openapi-spec/openapi.e2e.json"]
+        )
+        api.tip_blobs["openapi-spec/openapi.json"] = "newer-on-main"
+        assert commit_release_artefacts(version="3.1.0", project_dir=project) == 0
+        assert self._tree_paths(api) == {
+            "VERSION",
+            "CHANGELOG.md",
+            "openapi-spec/openapi.e2e.json",
+        }
+
+    def test_a_file_new_to_both_sides_is_committed(
+        self, api: _Api, project: Path, _checkout_head: dict[str, str | None]
+    ) -> None:
+        self._spec(project, "openapi.json")
+        self._configure(project, ["openapi-spec/openapi.json"])
+        _checkout_head["openapi-spec/openapi.json"] = None
+        api.tip_blobs["openapi-spec/openapi.json"] = None
+        commit_release_artefacts(version="3.1.0", project_dir=project)
+        assert "openapi-spec/openapi.json" in self._tree_paths(api)
+
+    def test_a_file_added_on_the_branch_since_the_checkout_is_left_alone(
+        self, api: _Api, project: Path, _checkout_head: dict[str, str | None]
+    ) -> None:
+        self._spec(project, "openapi.json")
+        self._configure(project, ["openapi-spec/openapi.json"])
+        _checkout_head["openapi-spec/openapi.json"] = None
+        commit_release_artefacts(version="3.1.0", project_dir=project)
+        assert "openapi-spec/openapi.json" not in self._tree_paths(api)
+
+    def test_a_failed_stamp_step_keeps_its_output_out(
+        self, api: _Api, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A generator that died part-way leaves partial files behind."""
+        self._spec(project, "openapi.json")
+        self._configure(project, ["openapi-spec/openapi.json"])
+        monkeypatch.setenv(STAMP_OUTCOME_ENV, "failure")
+        assert commit_release_artefacts(version="3.1.0", project_dir=project) == 0
+        assert self._tree_paths(api) == {"VERSION", "CHANGELOG.md"}
+
+    def test_a_successful_stamp_step_commits_its_output(
+        self, api: _Api, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._spec(project, "openapi.json")
+        self._configure(project, ["openapi-spec/openapi.json"])
+        monkeypatch.setenv(STAMP_OUTCOME_ENV, "success")
+        commit_release_artefacts(version="3.1.0", project_dir=project)
+        assert "openapi-spec/openapi.json" in self._tree_paths(api)
+
+    @pytest.mark.parametrize("name", [".git/config", SUPPLEMENT])
+    def test_paths_release_commit_owns_are_refused(
+        self, api: _Api, project: Path, name: str
+    ) -> None:
+        path = project / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x\n", encoding="utf-8")
+        self._configure(project, [name])
+        commit_release_artefacts(version="3.1.0", project_dir=project)
+        blobs = [e for e in api.bodies_for("/git/trees")[0]["tree"] if e["sha"]]
+        assert name not in {entry["path"] for entry in blobs}
+
+    def test_a_symlink_is_not_flattened_into_a_file(
+        self, api: _Api, project: Path
+    ) -> None:
+        self._spec(project, "openapi.json")
+        (project / "openapi-spec" / "alias.json").symlink_to("openapi.json")
+        self._configure(project, ["openapi-spec/alias.json"])
+        commit_release_artefacts(version="3.1.0", project_dir=project)
+        assert "openapi-spec/alias.json" not in self._tree_paths(api)
+
+    def test_an_executable_keeps_its_mode(self, api: _Api, project: Path) -> None:
+        script = project / "bin" / "tool"
+        script.parent.mkdir()
+        script.write_text("#!/bin/sh\n", encoding="utf-8")
+        script.chmod(0o755)
+        self._configure(project, ["bin/tool"])
+        commit_release_artefacts(version="3.1.0", project_dir=project)
+        modes = {e["path"]: e["mode"] for e in api.bodies_for("/git/trees")[0]["tree"]}
+        assert modes["bin/tool"] == "100755"
+        assert modes["VERSION"] == "100644"
+
+
+class TestLocalBlob:
+    """The checkout's HEAD blob, compared against the branch tip."""
+
+    @staticmethod
+    def _git(root: Path, *args: str) -> str:
+        identity = ["-c", "user.name=t", "-c", "user.email=t@t"]
+        result = run_cmd(["git", "-C", str(root), *identity, *args], capture=True)
+        return result.stdout.strip()
+
+    def test_matches_git_hash_object(self, tmp_path: Path) -> None:
+        self._git(tmp_path, "init", "-q")
+        (tmp_path / "spec.json").write_text("{}\n", encoding="utf-8")
+        self._git(tmp_path, "add", "spec.json")
+        self._git(tmp_path, "commit", "-q", "-m", "x")
+        expected = self._git(tmp_path, "hash-object", "spec.json")
+        assert _local_blob(tmp_path, "spec.json") == expected
+
+    def test_a_path_head_lacks_is_none(self, tmp_path: Path) -> None:
+        self._git(tmp_path, "init", "-q")
+        (tmp_path / "a").write_text("a\n", encoding="utf-8")
+        self._git(tmp_path, "add", "a")
+        self._git(tmp_path, "commit", "-q", "-m", "x")
+        assert _local_blob(tmp_path, "spec.json") is None
 
 
 class TestNoOps:

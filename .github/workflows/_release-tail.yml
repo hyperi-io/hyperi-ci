@@ -461,6 +461,7 @@ jobs:
         run: ${{ env.HYPERCI_INSTALL }} run release
 
       - name: Stamp the released version
+        id: stamp
         # release-commit reads VERSION off this job's disk, and this job checks
         # out the TAG, whose VERSION is by definition the pre-release value.
         # The build's stamp runs on a different runner and only dist/ + ci-tmp/
@@ -500,6 +501,10 @@ jobs:
           # Also a push to the default branch, so it needs the bypass actor
           # for the same reason the tag does.
           GH_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
+          # release.stamp_paths are left out unless the stamp above succeeded:
+          # a stamp_cmd that failed part-way leaves partial files on disk. Env,
+          # not a flag, so an older CLI ignores it rather than failing.
+          HYPERCI_STAMP_OUTCOME: ${{ steps.stamp.outcome }}
         run: >-
           ${{ env.HYPERCI_INSTALL }} release-commit
           "${{ steps.forcedtag.outputs.version || inputs.next-version }}"
