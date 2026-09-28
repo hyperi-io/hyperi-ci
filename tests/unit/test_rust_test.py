@@ -5,6 +5,8 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
+import subprocess
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -118,7 +120,7 @@ class TestStageFailsClosed:
         def _never(*args: object, **kwargs: object) -> None:
             raise AssertionError("no test command should run")
 
-        monkeypatch.setattr(f"{MODULE}.subprocess.run", _never)
+        monkeypatch.setattr(f"{MODULE}.run_cmd", _never)
         monkeypatch.setattr(f"{MODULE}.stream_cmd", _never)
         assert run(_make_config(nextest=True)) == 1
 
@@ -200,7 +202,7 @@ class TestCoverageKeepsTheResolvedRunner:
             lambda cmd, *a, **k: calls.append(cmd) or (0, ""),
         )
         monkeypatch.setattr(
-            f"{MODULE}.subprocess.run", lambda *a, **k: MagicMock(returncode=0)
+            f"{MODULE}.run_cmd", lambda *a, **k: MagicMock(returncode=0)
         )
         monkeypatch.setattr(f"{MODULE}.announce_tier", lambda *_a: None)
         return calls
@@ -264,3 +266,140 @@ class TestCoverageSaysWhenItDidNotRun:
         monkeypatch.setattr(f"{MODULE}.is_ci", lambda: False)
         assert _run_coverage("default") == -1
         assert "::warning" not in capsys.readouterr().out
+
+
+type _Call = tuple[list[str], dict[str, str] | None]
+
+_INCREMENTAL = {"CARGO_INCREMENTAL": "1"}
+
+
+class _Recorder:
+    """Stands in for stream_cmd and run_cmd, keeping each command and its env."""
+
+    def __init__(self) -> None:
+        self.streamed: list[_Call] = []
+        self.ran: list[_Call] = []
+        self.report_rc = 0
+
+    def stream(
+        self, cmd: list[str], *, env: dict[str, str] | None = None, **_kw: Any
+    ) -> tuple[int, str]:
+        self.streamed.append((cmd, env))
+        return 0, ""
+
+    def run(
+        self, cmd: list[str], *, env: dict[str, str] | None = None, **_kw: Any
+    ) -> subprocess.CompletedProcess[str]:
+        self.ran.append((cmd, env))
+        return subprocess.CompletedProcess(cmd, self.report_rc)
+
+
+@pytest.fixture
+def recorder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _Recorder:
+    monkeypatch.chdir(tmp_path)
+    rec = _Recorder()
+    monkeypatch.setattr(f"{MODULE}.stream_cmd", rec.stream)
+    monkeypatch.setattr(f"{MODULE}.run_cmd", rec.run)
+    monkeypatch.setattr(f"{MODULE}.announce_tier", lambda *_a: None)
+    monkeypatch.setattr(f"{MODULE}._has_nextest", lambda: True)
+    return rec
+
+
+def _coverage_tool(monkeypatch: pytest.MonkeyPatch, tool: str | None) -> None:
+    monkeypatch.setattr(
+        f"{MODULE}.shutil.which", lambda name: "/usr/bin/x" if name == tool else None
+    )
+
+
+class TestLlvmCovRunsIncremental:
+    """The ARC runner turns incremental off, which makes llvm-cov report
+    "mismatched data" for every cross-crate-inlinable function."""
+
+    def test_the_coverage_run_turns_incremental_back_on(
+        self, monkeypatch: pytest.MonkeyPatch, recorder: _Recorder
+    ) -> None:
+        _coverage_tool(monkeypatch, "cargo-llvm-cov")
+        assert _run_coverage("default", runner="nextest") == 0
+        assert recorder.streamed[0][0][:2] == ["cargo", "llvm-cov"]
+        assert recorder.streamed[0][1] == _INCREMENTAL
+
+    def test_the_html_report_goes_through_run_cmd_with_the_same_env(
+        self, monkeypatch: pytest.MonkeyPatch, recorder: _Recorder
+    ) -> None:
+        _coverage_tool(monkeypatch, "cargo-llvm-cov")
+        _run_coverage("default", runner="cargo")
+        assert recorder.ran == [
+            (
+                [
+                    "cargo",
+                    "llvm-cov",
+                    "report",
+                    "--html",
+                    "--output-dir",
+                    "test-results/coverage-html",
+                ],
+                _INCREMENTAL,
+            )
+        ]
+
+    def test_a_failed_report_is_not_announced_as_written(
+        self, monkeypatch: pytest.MonkeyPatch, recorder: _Recorder
+    ) -> None:
+        _coverage_tool(monkeypatch, "cargo-llvm-cov")
+        recorder.report_rc = 1
+        said: list[str] = []
+        told: list[str] = []
+        monkeypatch.setattr(f"{MODULE}.warn", said.append)
+        monkeypatch.setattr(f"{MODULE}.info", told.append)
+        assert _run_coverage("default", runner="cargo") == 0
+        assert any("no HTML report" in line for line in said)
+        assert not any("Coverage report:" in line for line in told)
+
+    def test_tarpaulin_keeps_the_inherited_env(
+        self, monkeypatch: pytest.MonkeyPatch, recorder: _Recorder
+    ) -> None:
+        _coverage_tool(monkeypatch, "cargo-tarpaulin")
+        _run_coverage("default", runner="cargo")
+        assert recorder.streamed[0][0][:2] == ["cargo", "tarpaulin"]
+        assert recorder.streamed[0][1] is None
+
+    def test_a_plain_run_keeps_the_inherited_env(
+        self, monkeypatch: pytest.MonkeyPatch, recorder: _Recorder
+    ) -> None:
+        _coverage_tool(monkeypatch, "cargo-llvm-cov")
+        config = CIConfig(_raw={"test": {"coverage": False}})
+        assert run(config, extra_env={"RUST_FEATURES": "default"}) == 0
+        assert recorder.streamed[0][0][:3] == ["cargo", "nextest", "run"]
+        assert recorder.streamed[0][1] is None
+
+
+class TestCoverageOnTheFirstFeatureSetOnly:
+    """Every coverage run writes the same lcov.info, so only one can be kept."""
+
+    def test_later_feature_sets_run_plain(
+        self, monkeypatch: pytest.MonkeyPatch, recorder: _Recorder
+    ) -> None:
+        _coverage_tool(monkeypatch, "cargo-llvm-cov")
+        assert run(_make_config(), extra_env={"RUST_FEATURES": "a|b|c"}) == 0
+        commands = [cmd for cmd, _env in recorder.streamed]
+        assert commands[0][:3] == ["cargo", "llvm-cov", "nextest"]
+        assert commands[0][-2:] == ["--features", "a"]
+        assert commands[1:] == [
+            ["cargo", "nextest", "run", "--features", "b"],
+            ["cargo", "nextest", "run", "--features", "c"],
+        ]
+        assert len(recorder.ran) == 1
+
+    def test_a_missing_tool_is_reported_once(
+        self, monkeypatch: pytest.MonkeyPatch, recorder: _Recorder
+    ) -> None:
+        _coverage_tool(monkeypatch, None)
+        monkeypatch.setattr(f"{MODULE}.is_ci", lambda: False)
+        said: list[str] = []
+        monkeypatch.setattr(f"{MODULE}.warn", said.append)
+        assert run(_make_config(), extra_env={"RUST_FEATURES": "a|b"}) == 0
+        assert sum("did NOT run" in line for line in said) == 1
+        assert [cmd for cmd, _env in recorder.streamed] == [
+            ["cargo", "nextest", "run", "--features", "a"],
+            ["cargo", "nextest", "run", "--features", "b"],
+        ]

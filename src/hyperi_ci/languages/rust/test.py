@@ -22,7 +22,6 @@ otherwise test the root package alone.
 
 import re
 import shutil
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -33,6 +32,7 @@ from hyperi_ci.common import (
     info,
     is_ci,
     normalise_tristate,
+    run_cmd,
     stream_cmd,
     strip_ansi,
     success,
@@ -56,6 +56,11 @@ _NEXTEST_FULL_ARGS = ["--run-ignored", "all", "--ignore-default-filter"]
 # The full tier under libtest (cargo test, tarpaulin, plain llvm-cov), after
 # `--`. libtest has no default-filter.
 _LIBTEST_FULL_ARG = "--include-ignored"
+
+# With incremental off, as the ARC runner sets it for sccache, rustc makes small
+# functions cross-crate inlinable at opt-level > 0 and llvm-cov reports each
+# one's unused stub as "mismatched data".
+_LLVM_COV_ENV = {"CARGO_INCREMENTAL": "1"}
 
 _FULL_FILTER_KEY = "test.full.rust.filter"
 _FULL_SKIP_KEY = "test.full.rust.skip"
@@ -349,20 +354,26 @@ def tier_detail(output: str) -> str:
     return ", ".join(parts)
 
 
-def _run_tests(cmd: list[str], test_tier: SuiteTier, what: str = "") -> int:
+def _run_tests(
+    cmd: list[str],
+    test_tier: SuiteTier,
+    what: str = "",
+    env: dict[str, str] | None = None,
+) -> int:
     """Run one test command, passing its output through, and announce it.
 
     Args:
         cmd: The test command.
         test_tier: The tier it ran under.
         what: Prefix for the notice, e.g. the feature set.
+        env: Env vars layered over the inherited environment, or None.
 
     Returns:
         The command's exit code.
 
     """
     kept = KeptLines(_KEEP)
-    rc, _tail = stream_cmd(cmd, on_line=kept, on_chunk=echo_chunk)
+    rc, _tail = stream_cmd(cmd, on_line=kept, on_chunk=echo_chunk, env=env)
     prefix = f"{what}: " if what else ""
     announce_tier(test_tier, f"{prefix}{tier_detail(kept.text())}")
     return rc
@@ -447,24 +458,20 @@ def _run_coverage(
 
         info("  Running tests with cargo-llvm-cov for coverage...")
         _note_coverage_runner(runner, "cargo-llvm-cov")
-        rc = _run_tests(cmd, test_tier, what)
+        rc = _run_tests(cmd, test_tier, what, env=_LLVM_COV_ENV)
         if rc != 0:
             error("Rust coverage tests failed")
             return rc
 
-        # Generate HTML report
-        subprocess.run(
-            [
-                "cargo",
-                "llvm-cov",
-                "report",
-                "--html",
-                "--output-dir",
-                str(html_dir),
-            ],
+        report = run_cmd(
+            ["cargo", "llvm-cov", "report", "--html", "--output-dir", str(html_dir)],
             check=False,
+            env=_LLVM_COV_ENV,
         )
-        info(f"  Coverage report: {html_dir}")
+        if report.returncode == 0:
+            info(f"  Coverage report: {html_dir}")
+        else:
+            warn(f"  cargo llvm-cov report exited {report.returncode}, no HTML report")
         return 0
 
     # `test.coverage` defaults to true, so a repo that never mentioned coverage
@@ -514,13 +521,15 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     features = (extra_env or {}).get("RUST_FEATURES", "all")
     rust_tier = config.get("test.rust.tier", "all")
     feature_sets = _split_feature_sets(features)
+    coverage = config.get("test.coverage", True) and rust_tier == "all"
 
-    for feature_set in feature_sets:
+    for index, feature_set in enumerate(feature_sets):
         label = f" ({feature_set})" if len(feature_sets) > 1 else ""
         what = f"features {feature_set}" if len(feature_sets) > 1 else ""
 
-        # Try coverage first if enabled (only for first feature set)
-        if config.get("test.coverage", True) and rust_tier == "all":
+        # Coverage runs on the first feature set only, because every run writes
+        # the same lcov.info and HTML report and a later set would replace it.
+        if coverage and index == 0:
             rc = _run_coverage(
                 feature_set,
                 runner=runner,
