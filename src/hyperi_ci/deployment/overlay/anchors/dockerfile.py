@@ -16,6 +16,9 @@ Anchors resolve against LOGICAL instructions, not physical lines: an
 instruction runs to the end of its trailing-backslash continuations and
 any heredoc bodies it opens, so an overlay never lands inside one.
 
+Every anchor resolves in the FINAL build stage -- the one that becomes
+the image. An overlay in an earlier stage never reaches what ships.
+
 If a future consumer needs a finer-grained anchor that doesn't map to
 a Dockerfile keyword landmark, revisit by either (a) adding a new
 keyword anchor here that the consumer's contract-generator already
@@ -24,15 +27,20 @@ when at least one consumer actually pulls for it (Rule of Three).
 
 Anchor catalog (order = position-in-file):
 
-    - ``after-base-image``    : after the first ``FROM`` instruction
-    - ``after-base-deps``     : after the LAST ``RUN`` in the final
-                                build stage that invokes a package
-                                manager (apt-get / apt / dnf / yum /
-                                microdnf / apk / pacman / zypper)
+    - ``after-base-image``    : after the ``FROM`` that opens the final
+                                stage
+    - ``after-base-deps``     : after the LAST ``RUN`` that invokes a
+                                package manager (apt-get / apt / dnf /
+                                yum / microdnf / apk / pacman / zypper)
                                 anywhere in its command
-    - ``after-app-binary``    : after a ``COPY <name> ...`` instruction
-                                where ``<name>`` matches the binary name
-                                supplied as resolver context
+    - ``after-app-binary``    : after the first ``COPY`` with a source
+                                or destination path whose last component
+                                is the binary name supplied as resolver
+                                context, flags such as ``--from`` and
+                                ``--chown=1000:1000`` allowed; failing
+                                that, after the last ``COPY --from`` an
+                                earlier build stage, which is how a
+                                Python image receives its venv and source
     - ``before-user``         : before the ``USER`` instruction
     - ``before-healthcheck``  : before the ``HEALTHCHECK`` instruction
     - ``before-entrypoint``   : before the ``ENTRYPOINT`` or ``CMD``
@@ -40,9 +48,11 @@ Anchor catalog (order = position-in-file):
     - ``end-of-image``        : alias of ``before-entrypoint``
 """
 
+import json
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 
 from hyperi_ci.deployment.overlay.errors import AnchorNotFound
 from hyperi_ci.deployment.overlay.model import Overlay
@@ -62,11 +72,6 @@ _PKG_MANAGER_RE = re.compile(
     r"(?:^|[\s;&|(`])(?:apt-get|apt|dnf|yum|microdnf|apk|pacman|zypper)\s"
 )
 
-# Recognised binary-COPY shape for `after-app-binary`. Matches:
-#   COPY <name> /usr/local/bin/<name>
-#   COPY --chown=... <name> ...
-_BINARY_COPY_TEMPLATE = r"^\s*COPY\s+(?:--[\w=]+\s+)*{name}(\s|$)"
-
 # `<<EOF`, `<<-EOF`, `<<"EOF"`; the lookarounds reject a `<<<` here-string.
 _HEREDOC_RE = re.compile(r"(?<!<)<<(?!<)(-?)([\"']?)([A-Za-z_]\w*)\2")
 
@@ -83,12 +88,15 @@ class _Instruction:
         start: Index of its first physical line.
         end: Index of its last physical line, continuations and heredocs included.
         text: Its physical lines joined, heredoc bodies included.
+        command: Its continuation lines joined into one, without comments or
+            heredoc bodies.
     """
 
     keyword: str
     start: int
     end: int
     text: str
+    command: str
 
 
 def _is_blank_or_comment(line: str) -> bool:
@@ -142,13 +150,56 @@ def _parse_instructions(lines: list[str]) -> list[_Instruction]:
         start = idx
         keyword = lines[start].split(maxsplit=1)[0].upper()
         end = _continuation_end(lines, start)
+        command = " ".join(
+            line.rstrip().removesuffix("\\")
+            for line in lines[start : end + 1]
+            if not _is_blank_or_comment(line)
+        )
         if keyword in _HEREDOC_KEYWORDS:
             head = "".join(lines[start : end + 1])
             end = _heredoc_end(lines, head, end)
         text = "".join(lines[start : end + 1])
-        instructions.append(_Instruction(keyword, start, end, text))
+        instructions.append(_Instruction(keyword, start, end, text, command))
         idx = end + 1
     return instructions
+
+
+def _final_stage(instructions: list[_Instruction]) -> list[_Instruction]:
+    """Return the instructions of the last build stage, its ``FROM`` first."""
+    starts = [i for i, ins in enumerate(instructions) if ins.keyword == "FROM"]
+    return instructions[starts[-1] :] if starts else instructions
+
+
+def _stage_refs(instructions: list[_Instruction]) -> set[str]:
+    """Return every name a ``COPY --from`` can use for a build stage, lower-cased."""
+    refs: set[str] = set()
+    froms = [ins for ins in instructions if ins.keyword == "FROM"]
+    for index, ins in enumerate(froms):
+        refs.add(str(index))
+        words = ins.command.split()
+        if len(words) >= 4 and words[-2].upper() == "AS":
+            refs.add(words[-1].lower())
+    return refs
+
+
+def _copy_args(command: str) -> tuple[str, list[str]]:
+    """Return a ``COPY`` command's ``--from`` value and its paths, destination last."""
+    words = command.split()[1:]
+    source_stage = ""
+    while words and words[0].startswith("--"):
+        flag = words.pop(0)
+        if flag.lower().startswith("--from="):
+            source_stage = flag.split("=", 1)[1]
+    rest = " ".join(words)
+    if not rest.startswith("["):
+        return source_stage, words
+    try:
+        paths = json.loads(rest)
+    except json.JSONDecodeError:
+        return source_stage, []
+    if not isinstance(paths, list):
+        return source_stage, []
+    return source_stage, [str(p) for p in paths]
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,22 +284,19 @@ class DockerfileAnchorResolver:
     def _resolve(
         self, anchor: str, instructions: list[_Instruction]
     ) -> tuple[_Instruction, str]:
-        """Return ``(instruction, position)`` for ``anchor``."""
+        """Return ``(instruction, position)`` for ``anchor`` in the final stage."""
+        final = _final_stage(instructions)
+
         if anchor in _SIMPLE_ANCHORS:
             position, keywords = _SIMPLE_ANCHORS[anchor]
-            for instruction in instructions:
+            for instruction in final:
                 if instruction.keyword in keywords:
                     return instruction, position
             raise self._not_found(anchor)
 
         if anchor == "after-base-deps":
-            # Packages installed in an earlier build stage never reach the image.
-            final_from = max(
-                (i for i, ins in enumerate(instructions) if ins.keyword == "FROM"),
-                default=0,
-            )
             match: _Instruction | None = None
-            for instruction in instructions[final_from:]:
+            for instruction in final:
                 if instruction.keyword == "RUN" and _PKG_MANAGER_RE.search(
                     instruction.text
                 ):
@@ -260,12 +308,23 @@ class DockerfileAnchorResolver:
         if anchor == "after-app-binary":
             if not self.binary_name:
                 raise self._not_found(anchor)
-            pattern = re.compile(
-                _BINARY_COPY_TEMPLATE.format(name=re.escape(self.binary_name))
-            )
-            for instruction in instructions:
-                if instruction.keyword == "COPY" and pattern.search(instruction.text):
-                    return instruction, "after"
-            raise self._not_found(anchor)
+            return self._app_binary_copy(instructions, final), "after"
 
         raise self._not_found(anchor)
+
+    def _app_binary_copy(
+        self, instructions: list[_Instruction], final: list[_Instruction]
+    ) -> _Instruction:
+        """Return the final-stage ``COPY`` that brings the application in."""
+        copies = [ins for ins in final if ins.keyword == "COPY"]
+        for instruction in copies:
+            _, paths = _copy_args(instruction.command)
+            if any(PurePosixPath(p).name == self.binary_name for p in paths):
+                return instruction
+        # The binary name comes from config or the checkout directory, so it
+        # can miss the manifest's name; a copy out of a build stage still wins.
+        stages = _stage_refs(instructions)
+        built = [ins for ins in copies if _copy_args(ins.command)[0].lower() in stages]
+        if built:
+            return built[-1]
+        raise self._not_found("after-app-binary")
