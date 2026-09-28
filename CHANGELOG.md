@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.11.6](https://github.com/hyperi-io/hyperi-ci/compare/v2.11.5...v2.11.6) (2026-09-28)
+
+### Bug Fixes
+
+* **ci:** refuse a rehearsal as proof of a composite change ([#374](https://github.com/hyperi-io/hyperi-ci/issues/374)) ([835f2c2](https://github.com/hyperi-io/hyperi-ci/commit/835f2c27435f366069a5553070427f9bff0588de)), closes [#355](https://github.com/hyperi-io/hyperi-ci/issues/355) [#366](https://github.com/hyperi-io/hyperi-ci/issues/366)
+* **rust:** run llvm-cov coverage without sccache ([#377](https://github.com/hyperi-io/hyperi-ci/issues/377)) ([158d0da](https://github.com/hyperi-io/hyperi-ci/commit/158d0da42c7605529df3ce562d93d04a1ff70329)), closes [#361](https://github.com/hyperi-io/hyperi-ci/issues/361) [#376](https://github.com/hyperi-io/hyperi-ci/issues/376)
+
 ## [2.11.5](https://github.com/hyperi-io/hyperi-ci/compare/v2.11.4...v2.11.5) (2026-09-28)
 
 ### Bug Fixes
