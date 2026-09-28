@@ -26,11 +26,14 @@ against the new tip instead of overwriting someone's push.
 """
 
 import base64
+import binascii
 import json
 import os
 import tempfile
 from pathlib import Path
 from urllib.parse import quote
+
+from packaging.version import InvalidVersion, Version
 
 from hyperi_ci.common import error, info, run_cmd, success, warn
 from hyperi_ci.config import load_config
@@ -39,8 +42,9 @@ from hyperi_ci.stamp import stamp_paths
 # The rendered artefacts. Both are outputs: VERSION is written by
 # `stamp-version`, CHANGELOG.md by @semantic-release/changelog. A repo adds its
 # own through `release.stamp_paths`.
+VERSION = "VERSION"
 CHANGELOG = "CHANGELOG.md"
-RELEASE_ARTEFACTS = ("VERSION", CHANGELOG)
+RELEASE_ARTEFACTS = (VERSION, CHANGELOG)
 
 # Hand-written notes for the version being cut, printed into the release notes
 # by @semantic-release/exec. Removed in the same commit, so one supplement
@@ -157,6 +161,36 @@ def _unchanged_on_tip(
                 "checkout -- leaving the branch's copy alone"
             )
     return kept
+
+
+def _tip_is_newer(*, repo: str, root: Path, tip: str) -> bool:
+    """Say whether the branch tip carries a later VERSION than this checkout.
+
+    A retroactive dispatch of an old tag, or a forced bump below the latest
+    tag, stamps an older version on disk, and committing it would move the
+    branch backwards. A side that is missing or does not parse as a version
+    skips the check.
+    """
+    local = root / VERSION
+    if not local.is_file():
+        return False
+    remote = _api([f"repos/{repo}/contents/{VERSION}?ref={tip}"])
+    encoded = (remote or {}).get("content")
+    if not encoded:
+        return False
+    try:
+        ours = Version(local.read_text(encoding="utf-8", errors="replace").strip())
+        raw = base64.b64decode(encoded).decode("utf-8", errors="replace")
+        theirs = Version(raw.strip())
+    except (InvalidVersion, binascii.Error):
+        return False
+    if ours >= theirs:
+        return False
+    info(
+        f"release-commit: the branch already carries v{theirs}, newer than "
+        f"v{ours} on disk -- committing nothing"
+    )
+    return True
 
 
 def _blob_entries(
@@ -296,6 +330,9 @@ def _attempt(
     if not tip:
         error(f"release-commit: cannot read {branch} ref")
         return "fail"
+
+    if _tip_is_newer(repo=repo, root=root, tip=tip):
+        return "ok"
 
     head = _api([f"repos/{repo}/git/commits/{tip}"])
     base_tree = (head or {}).get("tree", {}).get("sha")
