@@ -83,13 +83,24 @@ parallel-safe, and a CLI upgrade must not turn one red without a repo saying so.
   suite records that it stays serial.
 - **This run only:** `HYPERCI_TEST_WORKERS=4`, or `0` to force serial.
 - **Already parallel:** a project that passes its own `-n` (in
-  `test.python.args`, in `addopts` in `pyproject.toml` / `pytest.ini` /
-  `tox.ini` / `setup.cfg`, or in `PYTEST_ADDOPTS`) keeps its own number, and so
-  does one that sets `-p no:xdist`.
+  `test.python.args`, in `addopts` in `pytest.toml` / `.pytest.toml` /
+  `pyproject.toml` (`[tool.pytest]` or `[tool.pytest.ini_options]`) /
+  `pytest.ini` / `tox.ini` / `setup.cfg`, or in `PYTEST_ADDOPTS`) keeps its own
+  number, and so does one that sets `-p no:xdist`.
 
 pytest-xdist must be in the project's dev dependencies. hyperi-ci probes the
 resolved pytest for it (`pytest -VV`) and runs serial with a warning when it is
 absent, so a project without the plugin is unaffected.
+
+When hyperi-ci supplies the `-n` it adds `--dist worksteal` too. xdist's default
+`load` mode queues a batch on each worker up front, so one worker can sit on a
+queue of slow tests while the rest go idle. Worksteal moves tests still queued
+on a busy worker to one that has run dry.
+
+- **Own mode:** a project that sets `--dist` or `-d` in any of the sources
+  above keeps it.
+- **Old xdist:** worksteal needs pytest-xdist 3.2 or later. An older one keeps
+  the default mode, with a warning.
 
 Coverage survives the split: pytest-cov collects each worker's data and combines
 it before reporting, so `--cov-fail-under` measures the same thing it did
