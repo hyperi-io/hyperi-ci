@@ -6,10 +6,9 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Compose multi-stage Dockerfile from contract manifest + cargo-chef build stages."""
 
-from __future__ import annotations
-
 import json
 
+from hyperi_ci.apt_retry import apt_get_sh, apt_update_sh
 from hyperi_ci.container.manifest import ContainerManifest
 from hyperi_ci.versions import tool_sha256, tool_version
 
@@ -95,8 +94,8 @@ def _chef_stage(rust_version: str) -> str:
 FROM rust:{_rust_slim_tag(rust_version)} AS chef
 ARG CARGO_CHEF_VERSION={tool_version("cargo-chef")}
 RUN set -eux; \\
-    apt-get update; \\
-    apt-get install -y --no-install-recommends curl xz-utils ca-certificates; \\
+    {apt_update_sh()}; \\
+    {apt_get_sh("install -y --no-install-recommends curl xz-utils ca-certificates")}; \\
     rm -rf /var/lib/apt/lists/*; \\
     case "$(uname -m)" in \\
       x86_64)  chef_target=x86_64-unknown-linux-musl; chef_sha={tool_sha256("cargo-chef", "x86_64")} ;; \\
@@ -136,8 +135,10 @@ def _runtime_stage(manifest: ContainerManifest) -> str:
 
     if manifest.runtime_packages:
         pkg_list = " ".join(manifest.runtime_packages)
+        install = apt_get_sh("install -y --no-install-recommends")
         lines.append(
-            "RUN apt-get update && apt-get install -y --no-install-recommends \\\n"
+            f"RUN {apt_update_sh()} \\\n"
+            f"    && {install} \\\n"
             f"    {pkg_list} && rm -rf /var/lib/apt/lists/*"
         )
 

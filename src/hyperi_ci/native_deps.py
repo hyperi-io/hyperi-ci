@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -27,11 +28,17 @@ from pathlib import Path
 import yaml
 from scalo import logger
 
+from hyperi_ci.apt_retry import (
+    APT_RETRY_OPTION,
+    APT_UPDATE_ATTEMPTS,
+    APT_UPDATE_BACKOFF_SECONDS,
+)
 from hyperi_ci.common import (
     URL_ERRORS,
     curl_read,
     download_artefact,
     info,
+    run_cmd,
     url_read,
     warn,
 )
@@ -550,21 +557,24 @@ def _is_dpkg_installed(package: str, min_version: str = "") -> bool:
 
 
 def _apt_install(packages: list[str]) -> int:
-    """Run apt-get update then install packages. Returns exit code."""
-    sudo = _sudo_prefix()
-    update = subprocess.run([*sudo, "apt-get", "update"])
-    if update.returncode != 0:
-        logger.warning("apt-get update failed — continuing anyway")
+    """Run apt-get update then install packages. Returns exit code.
 
-    install = subprocess.run(
-        [
-            *sudo,
-            "apt-get",
-            "install",
-            "-y",
-            "--no-install-recommends",
-            *packages,
-        ]
+    The update is re-run on the same schedule as the Dockerfile text in
+    ``apt_retry``, because runner-image bake calls this from a Dockerfile
+    ``RUN`` where a mirror mid-sync fails the fetch outright.
+    """
+    apt_get = [*_sudo_prefix(), "apt-get", *APT_RETRY_OPTION.split()]
+    for attempt in range(1, APT_UPDATE_ATTEMPTS + 1):
+        if run_cmd([*apt_get, "update"], check=False).returncode == 0:
+            break
+        if attempt == APT_UPDATE_ATTEMPTS:
+            logger.warning("apt-get update failed -- continuing anyway")
+            break
+        time.sleep(attempt * APT_UPDATE_BACKOFF_SECONDS)
+
+    install = run_cmd(
+        [*apt_get, "install", "-y", "--no-install-recommends", *packages],
+        check=False,
     )
     return install.returncode
 
