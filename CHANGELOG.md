@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.11.3](https://github.com/hyperi-io/hyperi-ci/compare/v2.11.2...v2.11.3) (2026-09-28)
+
+### Bug Fixes
+
+* **deployment:** anchor Dockerfile overlays on whole instructions ([#370](https://github.com/hyperi-io/hyperi-ci/issues/370)) ([476c37d](https://github.com/hyperi-io/hyperi-ci/commit/476c37dac4f3ba488253a51079ab5b964bf997ff)), closes [#368](https://github.com/hyperi-io/hyperi-ci/issues/368) [#369](https://github.com/hyperi-io/hyperi-ci/issues/369)
+
 ## [2.11.2](https://github.com/hyperi-io/hyperi-ci/compare/v2.11.1...v2.11.2) (2026-09-28)
 
 ### Bug Fixes
