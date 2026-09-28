@@ -224,10 +224,9 @@ quality:
     osv_scanner: warn          # malicious-package (MAL-*) scan; OSV feed not in RustSec
     deny: blocking
     features: all
-    # Feature-matrix check: catches feature-gating bugs where a module behind
-    # feature X uses a crate only declared by feature Y. Without this check,
-    # transitive deps from other features mask the bug until a downstream
-    # consumer enables only X. Always-on by default. Opt-out with a reason.
+    # Feature-matrix check: clippy on each feature alone. Catches a module
+    # behind feature X using a crate only feature Y declares, and a lint that
+    # fires only on a single-feature build. Always-on. Opt-out with a reason.
     feature_matrix:
       enabled: true
       reason: ""                       # required IF enabled=false; CI fails without it
@@ -235,7 +234,7 @@ quality:
       exclude: []                      # features to skip entirely (e.g., ["_testing-only"])
       mutually_exclusive: []           # pairs that must not coexist (e.g., [["native-tls", "rustls"]])
       extra_args: []                   # pass-through to `cargo hack` (e.g., ["--workspace"])
-      warnings: warn                   # a feature set that builds with warnings: blocking / warn / disabled
+      warnings: warn                   # a feature set with warnings or lints: blocking / warn / disabled
     # Rustdoc compliance hint -- single concise warning if doc warnings are
     # found. Non-blocking by design (rustdoc hygiene is a ratchet, not a
     # gate). Set enabled=false to silence entirely. References:

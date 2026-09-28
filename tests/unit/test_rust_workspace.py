@@ -345,7 +345,7 @@ class TestLintReadsTheManifest:
         assert cmds["cargo deny"] == ["cargo", "deny", "--workspace", "check"]
         assert cmds["feature_matrix (no-default-features)"] == [
             "cargo",
-            "check",
+            "clippy",
             "--no-default-features",
             "--workspace",
             "--lib",
@@ -355,7 +355,7 @@ class TestLintReadsTheManifest:
             "hack",
             "--each-feature",
             "--no-dev-deps",
-            "check",
+            "clippy",
             "--workspace",
             "--lib",
         ]

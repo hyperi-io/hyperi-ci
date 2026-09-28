@@ -65,7 +65,7 @@ class TestFeatureMatrixCommandConstruction:
     """Verify the cargo hack command is built correctly from config."""
 
     def test_default_invocation(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Default config: --each-feature --no-dev-deps check --lib + no-default-features pass."""
+        """Default config: --each-feature --no-dev-deps clippy --lib + no-default-features."""
         captured_cmds: list[list[str]] = []
 
         def fake_which(name: str) -> str | None:
@@ -87,16 +87,35 @@ class TestFeatureMatrixCommandConstruction:
 
         assert len(captured_cmds) == 2
         # First: no-default-features pass
-        assert captured_cmds[0] == ["cargo", "check", "--no-default-features", "--lib"]
+        assert captured_cmds[0] == ["cargo", "clippy", "--no-default-features", "--lib"]
         # Second: each-feature pass
         assert captured_cmds[1] == [
             "cargo",
             "hack",
             "--each-feature",
             "--no-dev-deps",
-            "check",
+            "clippy",
             "--lib",
         ]
+
+    def test_the_repo_clippy_allows_reach_every_feature_set(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A lint the repo allowed must not come back once per feature (#375)."""
+        captured_cmds: list[list[str]] = []
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality.shutil.which", lambda n: f"/usr/bin/{n}"
+        )
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality._run_matrix_pass",
+            lambda name, cmd, label, mode: captured_cmds.append(cmd) or True,
+        )
+
+        allows = ["-Aclippy::unused_self"]
+        assert _run_feature_matrix(_make_config(None), clippy_allows=allows) is True
+
+        for cmd in captured_cmds:
+            assert cmd[-2:] == ["--", "-Aclippy::unused_self"]
 
     def test_disable_no_default_features_pass(
         self, monkeypatch: pytest.MonkeyPatch
@@ -451,13 +470,18 @@ class TestFeatureMatrixBinOnlyProject:
         config = _make_config(None)
         assert _run_feature_matrix(config) is True
 
-        assert captured_cmds[0] == ["cargo", "check", "--no-default-features", "--bins"]
+        assert captured_cmds[0] == [
+            "cargo",
+            "clippy",
+            "--no-default-features",
+            "--bins",
+        ]
         assert captured_cmds[1] == [
             "cargo",
             "hack",
             "--each-feature",
             "--no-dev-deps",
-            "check",
+            "clippy",
             "--bins",
         ]
 
@@ -496,7 +520,7 @@ class TestFeatureMatrixMixedWorkspace:
         # Sorted by package name, so the-app precedes the-lib.
         assert captured[0] == [
             "cargo",
-            "check",
+            "clippy",
             "--no-default-features",
             "-p",
             "the-app",
@@ -504,7 +528,7 @@ class TestFeatureMatrixMixedWorkspace:
         ]
         assert captured[1] == [
             "cargo",
-            "check",
+            "clippy",
             "--no-default-features",
             "-p",
             "the-lib",
@@ -542,7 +566,7 @@ class TestFeatureMatrixMixedWorkspace:
         assert _run_feature_matrix(_make_config(None)) is True
 
         assert len(captured) == 2
-        assert captured[0] == ["cargo", "check", "--no-default-features", "--lib"]
+        assert captured[0] == ["cargo", "clippy", "--no-default-features", "--lib"]
 
 
 # --- deny.toml advisory-ignore sharing (issue #42) -----------------------
@@ -950,6 +974,27 @@ class TestRunMatrixPass:
             "--lib",
         ]
         assert "RUSTFLAGS" not in calls[0]["env"]
+
+    def test_blocking_clippy_puts_the_config_before_the_lint_args(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--config is a cargo flag, so it must land before clippy's `--`."""
+        calls = _fake_cargo(monkeypatch, 0, "")
+        monkeypatch.delenv("RUSTFLAGS", raising=False)
+        monkeypatch.delenv("CARGO_ENCODED_RUSTFLAGS", raising=False)
+        cmd = ["cargo", "clippy", "--lib", "--", "-Aclippy::unused_self"]
+
+        assert _run_matrix_pass("fm", cmd, "--no-default-features", "blocking")
+
+        assert calls[0]["cmd"] == [
+            "cargo",
+            "clippy",
+            "--config",
+            _DENY,
+            "--lib",
+            "--",
+            "-Aclippy::unused_self",
+        ]
 
     def test_a_compile_error_fails_in_warn_mode(
         self, monkeypatch: pytest.MonkeyPatch
