@@ -13,8 +13,6 @@ so a box without cargo simply exercises the parse path, which is what the
 design says must always be sufficient.
 """
 
-from __future__ import annotations
-
 import json
 import subprocess
 from pathlib import Path
@@ -1122,6 +1120,21 @@ def _cargo_usable() -> bool:
         return False
 
 
+def _cargo_metadata_diagnosis(root: Path) -> str:
+    """Re-run the command enrich_cargo runs, since it discards cargo's stderr."""
+    proc = subprocess.run(
+        ["cargo", "metadata", "--format-version", "1", "--offline"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=60,
+        check=False,
+    )
+    return f"cargo metadata exited {proc.returncode}: {proc.stderr.strip()[-2000:]}"
+
+
 class TestEnrichmentWithoutLock:
     """The path that only runs when a lockfile cannot answer.
 
@@ -1151,7 +1164,8 @@ class TestEnrichmentWithoutLock:
         It still needs a working cargo, so it is skipped where there is none.
         """
         _lockless_cargo_workspace(tmp_path)
-        assert ecosystems.enrich_cargo(tmp_path).get("member") == "0.4.2"
+        resolved = ecosystems.enrich_cargo(tmp_path).get("member")
+        assert resolved == "0.4.2", _cargo_metadata_diagnosis(tmp_path)
 
     @pytest.mark.skipif(not _cargo_usable(), reason="needs a working cargo toolchain")
     def test_drift_attributes_the_version_to_cargo_when_the_lock_is_absent(
