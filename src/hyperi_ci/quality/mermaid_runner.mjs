@@ -15,16 +15,55 @@
 // import, which is what keeps this a parse check rather than the mmdc render
 // path and its headless Chrome.
 
+//
+// Packages are looked up in the node_modules directories named by
+// HYPERCI_NODE_MODULES (path-delimiter separated), in order. The ESM loader
+// ignores NODE_PATH, and a bare import from here would search site-packages.
+
 import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { delimiter, dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const fail = (reason, detail) => {
   process.stdout.write(JSON.stringify({ ok: false, reason, detail }));
   process.exit(0);
 };
 
+const moduleDirs = (process.env.HYPERCI_NODE_MODULES ?? "")
+  .split(delimiter)
+  .filter(Boolean);
+
+// The ESM entry of an `exports` / `module` / `main` declaration.
+const esmEntry = (spec) => {
+  if (typeof spec === "string") return spec;
+  if (spec && typeof spec === "object") {
+    return esmEntry(spec["."] ?? spec.import ?? spec.default);
+  }
+  return undefined;
+};
+
+const load = async (name) => {
+  for (const dir of moduleDirs) {
+    let manifest;
+    try {
+      // Resolving from a file directly inside `dir` searches `dir` itself.
+      manifest = createRequire(join(dir, "hyperi-ci.js")).resolve(
+        `${name}/package.json`,
+      );
+    } catch {
+      continue;
+    }
+    const pkg = JSON.parse(await readFile(manifest, "utf8"));
+    const entry = esmEntry(pkg.exports) ?? pkg.module ?? pkg.main ?? "index.js";
+    return import(pathToFileURL(join(dirname(manifest), entry)).href);
+  }
+  return import(name);
+};
+
 let mermaid;
 try {
-  const { parseHTML } = await import("linkedom");
+  const { parseHTML } = await load("linkedom");
   const dom = parseHTML("<!doctype html><html><body></body></html>");
   // `navigator` is a read-only getter on the Node 24 global, so it is left
   // alone; mermaid's parse path does not read it.
@@ -35,7 +74,7 @@ try {
   globalThis.Element = dom.Element;
   globalThis.HTMLElement = dom.HTMLElement;
   globalThis.SVGElement = dom.SVGElement ?? dom.Element;
-  mermaid = (await import("mermaid")).default;
+  mermaid = (await load("mermaid")).default;
 } catch (err) {
   fail("missing-dependency", String(err && err.message ? err.message : err));
 }

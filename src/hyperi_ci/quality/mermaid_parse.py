@@ -20,16 +20,16 @@ have one:
    it, and an empty one is a fence problem rather than a grammar problem.
 2. **Grammar, when Node resolves ``mermaid`` + ``linkedom``.** The vendored
    ``mermaid_runner.mjs`` supplies the browser globals mermaid's bundle reaches
-   for and parses each block. Absent the packages the layer skips with the
-   install line; whether that skip is fatal is the mode's call, per the gate
-   contract - a blocking check that cannot run has not passed.
+   for and parses each block. The packages come from the repo's own
+   ``node_modules``, else on CI from the pinned set
+   :mod:`hyperi_ci.quality.node_tools` installs. Absent both the layer skips
+   with the install line; whether that skip is fatal is the mode's call, per
+   the gate contract - a blocking check that cannot run has not passed.
 
 ``linkedom`` is not decoration. Without it a VALID flowchart throws
 ``DOMPurify.addHook is not a function`` on mermaid 12, so the layer would fail
 correct diagrams.
 """
-
-from __future__ import annotations
 
 import json
 import os
@@ -43,6 +43,7 @@ from hyperi_ci.common import error, info, is_ci, run_cmd, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_cross_tool_mode
 from hyperi_ci.quality import findings as fdg
+from hyperi_ci.quality import node_tools
 from hyperi_ci.tools import missing_tool_notice
 
 RUNNER = Path(__file__).with_name("mermaid_runner.mjs")
@@ -147,19 +148,31 @@ def screen(block: Block) -> fdg.Finding | None:
     return None
 
 
-def _node_env(root: Path) -> dict[str, str]:
-    """NODE_PATH pointing at the repo's own ``node_modules``.
+def _module_dirs(root: Path) -> list[Path]:
+    """The ``node_modules`` directories the runner may import the packages from.
 
-    The runner lives inside the installed wheel, so node's upward search for
-    ``node_modules`` starts in site-packages and never reaches the repo. Naming
-    the repo's directory is what lets a project supply the two packages as its
-    own dev dependencies.
+    The repo's own first, so a project that pins mermaid as a dev dependency is
+    checked against that version. hyperi-ci's pinned install follows, and is only
+    fetched when the repo does not already supply both packages.
     """
-    parts = [str(root / "node_modules")]
-    existing = os.environ.get("NODE_PATH")
-    if existing:
-        parts.append(existing)
-    return {"NODE_PATH": os.pathsep.join(parts)}
+    own = root / "node_modules"
+    dirs = [own]
+    if not all((own / name / "package.json").is_file() for name in NODE_PACKAGES):
+        installed = node_tools.install()
+        if installed is not None:
+            dirs.append(installed)
+    return dirs
+
+
+def _node_env(root: Path) -> dict[str, str]:
+    """Environment naming the ``node_modules`` directories for the runner.
+
+    NODE_PATH cannot do this job: node's ESM loader ignores it, and the runner is
+    an ES module living inside the installed wheel, so its own upward search for
+    ``node_modules`` starts in site-packages and never reaches the repo.
+    """
+    dirs = os.pathsep.join(str(d) for d in _module_dirs(root))
+    return {"HYPERCI_NODE_MODULES": dirs}
 
 
 def _run_parser(blocks: list[Block], root: Path) -> tuple[dict[int, str], str | None]:

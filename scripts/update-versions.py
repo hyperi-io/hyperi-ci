@@ -51,8 +51,6 @@ Update behaviour:
     docs/plans/2026-07-branch-mode/PLAN.md decisions 4, 5 and 7).
 """
 
-from __future__ import annotations
-
 import argparse
 import json
 import re
@@ -764,9 +762,9 @@ def _stable(versions: dict, *, fail_on_drift: bool = False) -> int:
         if not isinstance(spec, dict):
             continue
         cur_version = spec.get("version")
-        source = spec.get("repo") or spec.get("pypi")
+        source = spec.get("repo") or spec.get("pypi") or spec.get("npm")
         if not source:
-            print(f"  {name}: {cur_version} (no `repo:`/`pypi:` — cannot check)")
+            print(f"  {name}: {cur_version} (no `repo:`/`pypi:`/`npm:` — cannot check)")
             continue
         # Resolve through the SAME helper --auto-update uses. Reporting and
         # bumping must never drift apart: when this loop had its own copy of the
@@ -1015,6 +1013,30 @@ def _pypi_releases(package: str) -> list[dict[str, Any]] | None:
     return out
 
 
+def _npm_releases(package: str) -> list[dict[str, Any]] | None:
+    """Return npm versions as pseudo-releases, dated by the registry's publish time.
+
+    Deprecated versions are dropped, the npm equivalent of a PyPI yank.
+    """
+    # An npm name is `[@scope/]name`, so the URL stays on registry.npmjs.org.
+    if not re.fullmatch(r"(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*", package):
+        return None
+    try:
+        with urllib.request.urlopen(  # noqa: S310  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+            f"https://registry.npmjs.org/{package}", timeout=15
+        ) as response:
+            data = json.load(response)
+    except (OSError, json.JSONDecodeError):
+        return None
+    times = data.get("time") or {}
+    out: list[dict[str, Any]] = []
+    for version, meta in (data.get("versions") or {}).items():
+        if meta.get("deprecated") or version not in times:
+            continue
+        out.append({"tag_name": version, "published_at": times[version]})
+    return out
+
+
 def _report_watchlist(versions: dict) -> None:
     """Print `watch:` - upstream capabilities we want but that are not ready.
 
@@ -1053,11 +1075,13 @@ def _latest_tool_release(spec: dict, now: datetime) -> tuple[str | None, str]:
     nobody enforces.
     """
     cur_version = spec.get("version")
-    repo, pypi = spec.get("repo"), spec.get("pypi")
-    if not cur_version or not (repo or pypi):
+    repo, pypi, npm = spec.get("repo"), spec.get("pypi"), spec.get("npm")
+    if not cur_version or not (repo or pypi or npm):
         return None, "lookup-failed"
     if pypi:
         releases = _pypi_releases(str(pypi))
+    elif npm:
+        releases = _npm_releases(str(npm))
     elif spec.get("release_source") == "tags":
         releases = _tag_releases(str(repo), now)
     else:
@@ -1170,6 +1194,10 @@ def _auto_update(versions: dict) -> int:
             # A stale digest fails the install closed and this path cannot
             # refresh one, so a digest-pinned tool is bumped by hand.
             print(f"  {name}: {spec.get('version')} (digest-pinned -- bump by hand)")
+            continue
+        if spec.get("lockfile"):
+            # The lock's integrity hashes need scripts/relock-node-tools.py.
+            print(f"  {name}: {spec.get('version')} (lock-pinned -- bump by hand)")
             continue
         latest, status = _latest_tool_release(spec, now)
         if status == "ok" and latest:

@@ -318,6 +318,8 @@ mermaid-parse uses `mermaid.parse` via Node (`mermaid` + `linkedom`), never
 draw. Without Node the structural half still runs; a repo that has promoted the
 check to blocking fails in CI rather than passing unproven.
 
+On CI every tool is installed by hyperi-ci, pinned in `versions.yaml`. lychee is a digest-checked release tarball. markdownlint-cli2, mermaid and linkedom come from one `npm ci` against `src/hyperi_ci/config/node-tools/package-lock.json`, whose sha512 per package pins the whole tree. The runner's own `node` and `npm` do that install, and the GitHub-hosted and ARC native images both carry them. A tool already on PATH, or mermaid + linkedom in the repo's own `node_modules`, wins. Bumping one of the three npm pins means `uv run scripts/relock-node-tools.py` in the same commit, which resolves the tree as of 7 days ago so a transitive dependency gets the same soak as the pin.
+
 **Vale is not adopted.** The reasons recorded in hyperi-ai's
 `standards/universal/documentation-structure.md` hold here: it is a string
 matcher aimed at an intent problem, its Google/Microsoft packages encode
