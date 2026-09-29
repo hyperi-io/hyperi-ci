@@ -204,30 +204,33 @@ class TestFromHeadThreading:
         assert "bump != 'auto'" in ifc, (
             "forced-tag step must skip when bump == 'auto' (auto uses semantic-release)"
         )
+        # The plan's resolved version, never the bump: re-resolving `patch` on a
+        # re-run after a first attempt tagged picks the next number.
+        assert forced[0]["run"].endswith("tag-head --bump ${{ inputs.next-version }}")
 
     def test_release_tail_commits_the_version_prepare_stamped(self) -> None:
-        """VERSION must reach release-commit stamped, from a job that ran no repo code.
+        """VERSION must move, and the stamp must run in a job with no credential.
 
-        release-commit lists VERSION in RELEASE_ARTEFACTS and reads it off
-        disk, but the commit tag-and-release checks out still carries the
-        pre-release value, so without a stamp VERSION never moves in any repo
-        on this pipeline. The stamp runs release.stamp_cmd, which is repo code,
-        so it runs in `prepare` and release-commit restores the stamped files
-        from the prepared directory (issue #409).
+        The commit tag-and-release checks out still carries the pre-release
+        VERSION, so without one written VERSION never moves in any repo on
+        this pipeline. The stamp runs release.stamp_cmd, which is repo code, so
+        it runs in `prepare`; release-commit restores its stamp_paths files and
+        writes VERSION from the release version (issue #409).
         """
         jobs = _load_workflow("_release-tail.yml")["jobs"]
         prepare = jobs["prepare"]["steps"]
         steps = jobs["tag-and-release"]["steps"]
         names = [s.get("name") for s in steps]
 
-        prepared = next(s for s in prepare if s.get("name") == "Prepare the release")
-        assert "release-prepare" in prepared["run"]
-        assert prepared["env"]["RELEASE_VERSION"] == "${{ inputs.next-version }}"
+        stamp = next(s for s in prepare if s.get("name") == "Stamp the release")
+        assert "release-prepare" in stamp["run"] and "--phase stamp" in stamp["run"]
+        assert stamp["env"]["RELEASE_VERSION"] == "${{ inputs.next-version }}"
 
         commit = steps[names.index("Commit rendered release artefacts")]
         assert "HYPERCI_RELEASE_PREPARED" in commit["env"], (
-            "release-commit must restore VERSION from the prepared directory"
+            "release-commit must restore stamp_paths from the prepared directory"
         )
+        assert commit["run"].endswith('release-commit "${{ inputs.next-version }}"')
         # A tag dispatch checks out an old tag, so its VERSION and CHANGELOG.md
         # committed onto main would move the branch backwards (issue #350).
         assert "inputs.tag == ''" in str(commit["if"]), (
@@ -236,11 +239,6 @@ class TestFromHeadThreading:
         assert commit["continue-on-error"] is True, (
             "bookkeeping after a shipped release must not turn it red"
         )
-        # release.stamp_paths must stay out after a failed stamp_cmd, which can
-        # leave partial output behind.
-        assert commit["env"]["HYPERCI_STAMP_OUTCOME"] == (
-            "${{ needs.prepare.result }}"
-        ), "release-commit must see the prepare stamp's outcome"
 
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
     def test_build_stamps_on_from_head_dispatch(self, workflow_name: str) -> None:

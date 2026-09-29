@@ -282,11 +282,20 @@ jobs:
 
       - name: Download build artifacts
         # npm pack packages the compiled output the Build job left in dist/.
+        if: inputs.language == 'typescript'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: build-dist-*
-          path: .
+          path: ${{ runner.temp }}/build-dist
           merge-multiple: true
+
+      - name: Place dist/ and ci-tmp/
+        # Only those two trees, so an artefact cannot overwrite checkout files.
+        if: inputs.language == 'typescript'
+        run: |
+          for tree in dist ci-tmp; do
+            if [ -d "$RUNNER_TEMP/build-dist/$tree" ]; then cp -RL "$RUNNER_TEMP/build-dist/$tree" .; fi
+          done
 
       - name: Install Rust toolchain
         if: inputs.language == 'rust'
@@ -304,31 +313,80 @@ jobs:
         uses: hyperi-io/hyperi-ci/.github/actions/setup-rust-tools@main
 
       - name: Set up Node.js
-        if: inputs.language == 'typescript' && runner.environment != 'self-hosted'
+        # No self-hosted skip: the org's publish runners carry no Node.
+        if: inputs.language == 'typescript'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ inputs.node-version }}
 
-      - name: Prepare the release
+      - name: Stamp the release
         env:
-          # A forced from-head bump is predicted by the plan too, so the plan's
-          # version is the one tag-head cuts. The upload refuses a mismatch.
+          # A forced from-head bump is predicted by the plan too, and tag-head
+          # cuts that same version. The upload refuses a mismatch.
+          HYPERCI_VERSION: ${{ inputs.next-version }}
+          RELEASE_VERSION: ${{ inputs.next-version }}
+          STAMPED_DIR: ${{ runner.temp }}/release-stamped
+        run: ${{ env.HYPERCI_INSTALL }} release-prepare "$RELEASE_VERSION" --out "$STAMPED_DIR" --phase stamp
+
+      - name: Upload the stamp outputs
+        # Before the packaging below runs the repo's build scripts and package
+        # scripts, which could otherwise rewrite these files.
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-stamped
+          path: ${{ runner.temp }}/release-stamped
+          # stamp_paths may name a dotfile.
+          include-hidden-files: true
+          # A re-run of this job replaces the attempt before it.
+          overwrite: true
+          if-no-files-found: ignore
+          retention-days: 1
+
+      - name: Check and package the release
+        env:
           HYPERCI_VERSION: ${{ inputs.next-version }}
           RELEASE_VERSION: ${{ inputs.next-version }}
           PREPARED_DIR: ${{ runner.temp }}/release-prepared
-        run: ${{ env.HYPERCI_INSTALL }} release-prepare "$RELEASE_VERSION" --out "$PREPARED_DIR"
+        run: ${{ env.HYPERCI_INSTALL }} release-prepare "$RELEASE_VERSION" --out "$PREPARED_DIR" --phase package
 
       - name: Upload the prepared release
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-prepared
           path: ${{ runner.temp }}/release-prepared
-          # stamp_paths may name a dotfile.
-          include-hidden-files: true
-          # A re-run of this job replaces the attempt before it.
           overwrite: true
           if-no-files-found: error
           retention-days: 1
+
+  prepare-failed:
+    name: Record a failed prepare
+    # Tag & Release never starts after a failed prepare, so its own failure
+    # notice never fires. Its own job, because prepare holds no write token.
+    needs: [prepare]
+    if: failure() && needs.prepare.result == 'failure'
+    runs-on: ${{ vars.GH_RUNNER_MODE == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: false
+
+      - name: Set up Python
+        run: uv python install --no-config ${{ inputs.python-version }}
+
+      - name: Open the release-failure issue
+        # No checkout: the issue needs only the repository name and the run.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          ${{ env.HYPERCI_INSTALL }} release-notify
+          "${{ inputs.next-version }}"
+          --outcome failure
+          --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
   tag-and-release:
     name: Tag & Release
@@ -369,13 +427,8 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      # The ghcr-npm destination publishes to GitHub Packages with the job token.
       packages: write
-    env:
-      # Mapped to env because the `secrets` context is not readable from a
-      # step-level `if`, and the release identity turns on whether this repo
-      # can see the App key at all (the org secret is `selected`, and this is
-      # a reusable workflow -- `secrets: inherit` resolves in the CALLER).
-      RELEASE_APP_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
     steps:
       - name: Install uv
         # First, before anything that can fail: every later step, including the
@@ -405,6 +458,56 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Download build artifacts
+        # Build job uploads both dist/ and ci-tmp/ trees.
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: build-dist-*
+          path: ${{ runner.temp }}/build-dist
+          merge-multiple: true
+
+      - name: Place dist/ and ci-tmp/
+        # Only those two trees, so an artefact from a job that ran repo code
+        # cannot overwrite .hyperi-ci.yaml or any other checkout file.
+        run: |
+          for tree in dist ci-tmp; do
+            if [ -d "$RUNNER_TEMP/build-dist/$tree" ]; then cp -RL "$RUNNER_TEMP/build-dist/$tree" .; fi
+          done
+
+      - name: Download the prepared release
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-prepared
+          path: ${{ runner.temp }}/release-prepared
+
+      - name: Download the stamp outputs
+        # A repo with no release.stamp_paths uploads none.
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-stamped
+          path: ${{ runner.temp }}/release-prepared/stamped
+
+      - name: Set up Python
+        # --no-config: in the checkout, uv reads the repo's [tool.uv], whose
+        # python-install-mirror picks where the interpreter that then runs
+        # hyperi-ci, credentials and all, is downloaded from.
+        run: uv python install --no-config ${{ inputs.python-version }}
+
+      - name: Verify the prepared release
+        # Before anything is tagged: a prepared version or language that does
+        # not match this run fails here, with no tag and nothing published.
+        env:
+          HYPERCI_VERSION: ${{ inputs.next-version }}
+          HYPERCI_RELEASE_PREPARED: ${{ runner.temp }}/release-prepared
+        run: ${{ env.HYPERCI_INSTALL }} release-verify
+
+      - name: Check for the release App key
+        # The `secrets` context is not readable from a step-level `if`, and the
+        # key belongs in the one step that uses it, not in the job's env.
+        id: appkey
+        run: echo "has=${{ secrets.GH_APP_PRIVATE_KEY != '' }}" >> "$GITHUB_OUTPUT"
+
       - name: Mint the release bot token
         # Tag, commit and release-commit all PUSH. As `github-actions` those
         # pushes cannot be excepted from a branch ruleset -- rulesets only
@@ -414,11 +517,11 @@ jobs:
         # workflows, leaving the release commit invisible to anything that
         # should react to it.
         id: bot
-        if: env.RELEASE_APP_KEY != ''
+        if: steps.appkey.outputs.has == 'true'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           client-id: ${{ vars.GH_APP_CLIENT_ID }}
-          private-key: ${{ env.RELEASE_APP_KEY }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-contents: write
@@ -441,12 +544,6 @@ jobs:
         # version from commits). Forced bumps use tag-head instead.
         if: ${{ github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto') }}
         uses: hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@main
-
-      - name: Set up Python
-        # --no-config: in the checkout, uv reads the repo's [tool.uv], whose
-        # python-install-mirror picks where the interpreter that then runs
-        # hyperi-ci, credentials and all, is downloaded from.
-        run: uv python install --no-config ${{ inputs.python-version }}
 
       - name: Guard — predicted tag must not already exist off-HEAD
         # Defence-in-depth for issue #37: refuse to tag if the predicted
@@ -471,9 +568,8 @@ jobs:
           fi
 
       - name: Tag (semantic-release)
-        # Real run (no --dry-run) -- analyzes commits, writes Cargo.toml
-        # + VERSION + CHANGELOG, commits with [skip ci], pushes commit,
-        # creates and pushes the git tag. Same version `next-version`
+        # Real run (no --dry-run) -- analyzes commits, renders CHANGELOG.md,
+        # and creates and pushes the git tag. Same version `next-version`
         # predicted in plan (deterministic). Also handles a from-head
         # `auto` dispatch (#35): re-runs the tagger on HEAD.
         #
@@ -497,52 +593,28 @@ jobs:
             npx semantic-release
           fi
 
-      - name: GHCR login
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Download build artifacts
-        # Build job uploads both dist/ and ci-tmp/ trees -- extract at
-        # the project root so paths land where consumers expect them.
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: build-dist-*
-          path: .
-          merge-multiple: true
-
-      - name: Download the prepared release
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: release-prepared
-          path: ${{ runner.temp }}/release-prepared
-
       - name: Tag HEAD (forced bump / explicit version)
         # from-head dispatch with a non-auto bump (issue #35): force a release
-        # of HEAD. semantic-release can't force a version, so tag-head resolves
-        # it -- `last-tag + bump` for patch/minor, or the explicit X.Y.Z verbatim
-        # (the --version override that steps past a taken/orphaned tag, #37) --
-        # and creates the tag at HEAD via the GitHub API (works with
-        # persist-credentials: false). It emits `version` for the Publish step,
-        # which re-stamps the manifest to it before pushing to the registry.
+        # of HEAD at the version the plan already resolved for it (last tag +
+        # bump, or the explicit X.Y.Z), and which Build and Prepare stamped.
+        # Passing the version rather than the bump keeps a re-run idempotent:
+        # re-resolving `patch` after the first attempt tagged would pick the
+        # next number and orphan a tag. tag-head creates the tag at HEAD via
+        # the GitHub API (works with persist-credentials: false).
         id: forcedtag
         if: ${{ inputs.from-head == 'true' && inputs.bump != 'auto' && inputs.bump != '' }}
         env:
           GH_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
-        run: ${{ env.HYPERCI_INSTALL }} tag-head --bump ${{ inputs.bump }}
+        run: ${{ env.HYPERCI_INSTALL }} tag-head --bump ${{ inputs.next-version }}
 
       - name: Publish
         # Uploads to all OSS destinations: crates.io / PyPI / npm /
-        # GHCR / GitHub Releases / Cloudflare R2.
+        # GitHub Releases / Cloudflare R2.
         id: publish
         env:
-          # Version being released -- same SSoT as Build (stamp) + Container
-          # (#27). A forced from-head bump resolves its version from tag-head
-          # (the plan's prediction doesn't know the forced bump); otherwise
-          # the plan's next-version. publish re-stamps the manifest to this.
-          HYPERCI_VERSION: ${{ steps.forcedtag.outputs.version || inputs.next-version }}
+          # Version being released -- same SSoT as Build, Container and Prepare
+          # (#27). Forced bumps are cut at this same version.
+          HYPERCI_VERSION: ${{ inputs.next-version }}
           # Upload-only: the checks and packing already ran in `prepare`, and
           # the upload refuses a directory prepared for another version.
           HYPERCI_RELEASE_PREPARED: ${{ runner.temp }}/release-prepared
@@ -555,11 +627,11 @@ jobs:
         run: ${{ env.HYPERCI_INSTALL }} run release
 
       - name: Commit rendered release artefacts
-        # VERSION and the release.stamp_paths files (stamped in `prepare`, and
-        # restored from its artefact by name) and CHANGELOG.md (rendered by
+        # VERSION (written from the release version where git tracks it), the
+        # release.stamp_paths files (stamped in `prepare` and restored by name
+        # when prepare ran on this commit) and CHANGELOG.md (rendered by
         # @semantic-release/changelog) have had no owner since
-        # @semantic-release/git was dropped (issue #85). A repo that commits
-        # no VERSION has opted out of one, and prepare carries none.
+        # @semantic-release/git was dropped (issue #85).
         #
         # Runs after the tag exists and adds an untagged commit via the Git
         # Data API, so no tag points at machine-authored history -- the
@@ -577,12 +649,9 @@ jobs:
           # for the same reason the tag does.
           GH_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
           HYPERCI_RELEASE_PREPARED: ${{ runner.temp }}/release-prepared
-          # release.stamp_paths are left out unless the stamp succeeded: a
-          # stamp_cmd that failed part-way leaves partial files behind.
-          HYPERCI_STAMP_OUTCOME: ${{ needs.prepare.result }}
         run: >-
           ${{ env.HYPERCI_INSTALL }} release-commit
-          "${{ steps.forcedtag.outputs.version || inputs.next-version }}"
+          "${{ inputs.next-version }}"
 
       - name: Announce the release
         # semantic-release's `success` step: comment on every issue and PR the
@@ -593,7 +662,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: >-
           ${{ env.HYPERCI_INSTALL }} release-notify
-          "${{ steps.forcedtag.outputs.version || inputs.next-version }}"
+          "${{ inputs.next-version }}"
           --outcome success
 
       - name: Record a failed release
@@ -605,6 +674,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: >-
           ${{ env.HYPERCI_INSTALL }} release-notify
-          "${{ steps.forcedtag.outputs.version || inputs.next-version }}"
+          "${{ inputs.next-version }}"
           --outcome failure
           --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

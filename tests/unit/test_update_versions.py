@@ -59,7 +59,7 @@ class TestSemanticReleasePluginMajors:
     VERSIONS = {
         "semantic_release": {
             "core": "25",
-            "plugin_majors": {"conventional-changelog-conventionalcommits": "9"},
+            "plugin_pins": {"conventional-changelog-conventionalcommits": "9"},
         }
     }
 
@@ -76,7 +76,7 @@ class TestSemanticReleasePluginMajors:
         line = "  @semantic-release/changelog"
         assert _apply(line, self.VERSIONS) == line
 
-    def test_absent_plugin_majors_is_not_an_error(self) -> None:
+    def test_absent_plugin_pins_is_not_an_error(self) -> None:
         line = "  conventional-changelog-conventionalcommits@9"
         assert _apply(line, {"semantic_release": {"core": "25"}}) == line
 
@@ -94,7 +94,7 @@ class TestSemanticReleasePluginMajors:
             root / ".github" / "actions" / "setup-semantic-release" / "action.yml"
         ).read_text(encoding="utf-8", errors="replace")
 
-        majors = versions["semantic_release"].get("plugin_majors") or {}
+        majors = versions["semantic_release"].get("plugin_pins") or {}
         assert majors, "the SSOT records no plugin pins; this guard would test nothing"
         for pkg, major in majors.items():
             assert f"{pkg}@{major}" in action, (

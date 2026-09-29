@@ -50,13 +50,13 @@ runs:
       run: |
         npm install -g \
           semantic-release@25 \
-          @semantic-release/commit-analyzer \
-          @semantic-release/release-notes-generator \
-          @semantic-release/changelog \
-          @semantic-release/exec \
-          @semantic-release/git \
-          @semantic-release/github \
-          conventional-changelog-conventionalcommits@9
+          @semantic-release/commit-analyzer@13.0.1 \
+          @semantic-release/release-notes-generator@14.1.1 \
+          @semantic-release/changelog@7.0.0 \
+          @semantic-release/exec@7.1.0 \
+          @semantic-release/git@11.0.1 \
+          @semantic-release/github@12.0.10 \
+          conventional-changelog-conventionalcommits@9.3.1
 
     - name: Provide the release config (central default, never the #37 plugins)
       shell: bash

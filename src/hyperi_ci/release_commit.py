@@ -62,10 +62,6 @@ SUPPLEMENT = SUPPLEMENT_FILE
 # for nothing.
 _MESSAGE = "chore(release): v{version} [skip ci]"
 
-# The workflow sets this to the stamp step's outcome. Unset means no workflow
-# step ran the stamp, as on a local run, and the files on disk are trusted.
-STAMP_OUTCOME_ENV = "HYPERCI_STAMP_OUTCOME"
-
 _RETRIES = 3
 
 
@@ -98,20 +94,12 @@ def _stamped_artefacts(root: Path) -> list[str]:
     """Return the ``release.stamp_paths`` files that are safe to commit.
 
     A broken ``stamp_paths`` is reported and dropped rather than failing the
-    commit, so VERSION and CHANGELOG.md still land. So are the files when the
-    workflow's stamp step did not succeed, because a generator that failed
-    part-way leaves partial output on disk.
+    commit, so VERSION and CHANGELOG.md still land. A stamp that failed
+    part-way never reaches here: it fails the prepare job, and no release runs.
     """
-    outcome = os.environ.get(STAMP_OUTCOME_ENV, "")
     listed = carried_stamp_paths(
         load_config(project_dir=root, reload=True), root, who="release-commit"
     )
-    if listed and outcome not in ("", "success"):
-        warn(
-            f"release-commit: the stamp step ended {outcome} -- "
-            "leaving release.stamp_paths out of the commit"
-        )
-        return []
     kept: list[str] = []
     for name in listed:
         path = root / name

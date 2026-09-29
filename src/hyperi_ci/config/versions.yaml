@@ -446,10 +446,19 @@ semantic_release:
     - "@semantic-release/git"
     - "@semantic-release/github"
     - "conventional-changelog-conventionalcommits"
-  # Plugins whose MAJOR is pinned in the install line, driven from here the same
-  # way `core` is. A plugin listed above but absent here floats to latest.
-  plugin_majors:
+  # Exact plugin versions for the install line, driven from here the same way
+  # `core` is. They run in Tag & Release beside the bot token, so none floats.
+  # Latest on npm as of 2026-09-29. commit-analyzer (2025-01-03) and exec
+  # (2025-05-09) have had no release in over a year; both are semantic-release's
+  # own plugins.
+  plugin_pins:
+    "@semantic-release/commit-analyzer": "13.0.1"
+    "@semantic-release/release-notes-generator": "14.1.1"
+    "@semantic-release/changelog": "7.0.0"
+    "@semantic-release/exec": "7.1.0"
+    "@semantic-release/git": "11.0.1"
+    "@semantic-release/github": "12.0.10"
     # v10 requires conventional-changelog-writer@9, which core 25 does not
     # bring; unpinned, v10 broke the dry-run in every repo at once. Lifting this
-    # means moving `core` with it.
-    conventional-changelog-conventionalcommits: "9"
+    # past 9 means moving `core` with it.
+    conventional-changelog-conventionalcommits: "9.3.1"

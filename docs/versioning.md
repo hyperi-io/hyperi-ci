@@ -139,15 +139,15 @@ release:
 
 `stamp-version` runs `stamp_cmd` from the repo root after it writes `VERSION` and the manifest, so the generator reads the new version from `VERSION`. No shell is involved: a string is split the way a shell would split it, a list is the argv. A non-zero exit fails the stamp.
 
-It runs where `stamp-version` runs, and only on a publishing run. The Build job runs it before the build, so a wheel or binary carries the regenerated files. The Container job runs it again on its own checkout before the image build. The Prepare release job runs it a third time and carries `VERSION` and the `stamp_paths` files to Tag & Release, which runs no repo code, for `release-commit`.
+It runs where `stamp-version` runs, and only on a publishing run. The Build job runs it before the build, so a wheel or binary carries the regenerated files. The Container job runs it again on its own checkout before the image build. The Prepare release job runs it a third time and uploads the `stamp_paths` files before its packaging code runs. Tag & Release, which runs no repo code, restores them for `release-commit`, and writes `VERSION` itself from the release version where git tracks one. A stamp that fails fails the prepare job, so nothing is tagged.
 
 `release-commit` adds `stamp_paths` to the commit that carries `VERSION` and `CHANGELOG.md`, and leaves a file out when:
 
-- the prepare stamp did not succeed, since a generator that failed part-way leaves partial output;
+- prepare ran on a different commit from Tag & Release's checkout, so the files were rendered from other source;
 - the branch has changed that file since the release's checkout, because a merge during the release, or a retroactive dispatch of an old tag, would otherwise have its newer copy overwritten;
-- it is missing, a directory or a symlink, or it sits under `.git/` or is `.github/release-notes/NEXT.md`.
+- it is missing, a directory or a symlink, or it is `VERSION`, `CHANGELOG.md` or `.github/release-notes/NEXT.md`.
 
-A list with any entry that is absolute, holds a `..` or resolves outside the repo is refused whole. None of these stop `VERSION` and `CHANGELOG.md` landing.
+A list with any entry that is absolute, holds a `..`, sits under `.git/` or resolves outside the repo is refused whole. None of these stop `VERSION` and `CHANGELOG.md` landing.
 
 ## CHANGELOG.md
 
