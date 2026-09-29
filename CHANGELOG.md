@@ -3,6 +3,16 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.11.8](https://github.com/hyperi-io/hyperi-ci/compare/v2.11.7...v2.11.8) (2026-09-29)
+
+### Bug Fixes
+
+* **ci:** keep Docker Hub credentials off disk while repo code runs ([#411](https://github.com/hyperi-io/hyperi-ci/issues/411)) ([7cd72a4](https://github.com/hyperi-io/hyperi-ci/commit/7cd72a4b7e4e68b3231e7792e2cb5ddca4e4f979)), closes [#406](https://github.com/hyperi-io/hyperi-ci/issues/406)
+* **ci:** keep the job token out of sibling clones' git config ([#404](https://github.com/hyperi-io/hyperi-ci/issues/404)) ([6631c6e](https://github.com/hyperi-io/hyperi-ci/commit/6631c6ee671c1959aa2ab36b7de50b3462b1387b)), closes [#398](https://github.com/hyperi-io/hyperi-ci/issues/398)
+* **ci:** read the fleet sweep's verdict from the run's own conclusion ([#407](https://github.com/hyperi-io/hyperi-ci/issues/407)) ([5e23c1b](https://github.com/hyperi-io/hyperi-ci/commit/5e23c1b599fdb7fa8c88beb973a17059789582e4)), closes [#401](https://github.com/hyperi-io/hyperi-ci/issues/401)
+* **ci:** stop the Test job's checkout leaving the job token where tests can read it ([#405](https://github.com/hyperi-io/hyperi-ci/issues/405)) ([1d2dbc0](https://github.com/hyperi-io/hyperi-ci/commit/1d2dbc09bde9cbcc8dbe29f87d2e48eb567264db)), closes [#402](https://github.com/hyperi-io/hyperi-ci/issues/402)
+* **deps:** pin lodash-es past its prototype-pollution and template-injection advisories ([#399](https://github.com/hyperi-io/hyperi-ci/issues/399)) ([e916898](https://github.com/hyperi-io/hyperi-ci/commit/e9168982d5eb4b3b189718fd856a04af7d0de867))
+
 ## [2.11.7](https://github.com/hyperi-io/hyperi-ci/compare/v2.11.6...v2.11.7) (2026-09-29)
 
 ### Bug Fixes

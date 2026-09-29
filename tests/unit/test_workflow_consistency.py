@@ -1870,29 +1870,6 @@ def test_plan_job_runs_on_a_fork_pr(workflow_name: str) -> None:
     )
 
 
-@pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
-def test_docker_hub_login_is_fork_guarded(workflow_name: str) -> None:
-    """A Docker Hub login step must skip on a fork PR.
-
-    `vars` are readable by a fork PR and `secrets` are not, so a step gated
-    only on `vars.DOCKERHUB_USERNAME` authenticates with an empty password
-    and fails the job it sits in.
-    """
-    wf = _load_workflow(workflow_name)
-    seen = 0
-    for job_name, job in wf["jobs"].items():
-        for step in job.get("steps", []):
-            if "DOCKERHUB_USERNAME" not in str(step.get("if", "")):
-                continue
-            seen += 1
-            assert "fork" in str(step["if"]), (
-                f"{workflow_name}.{job_name}: Docker Hub login gates only on "
-                f"the var, which a fork PR can read while the secret stays "
-                f"empty -- the login fails and takes the job with it."
-            )
-    assert seen, f"{workflow_name}: no Docker Hub login step found to check"
-
-
 @pytest.mark.parametrize("workflow_name", _PLAN_WORKFLOWS)
 def test_a_terminal_gate_job_always_runs(workflow_name: str) -> None:
     """Every workflow publishes a context a skipped check cannot satisfy.
