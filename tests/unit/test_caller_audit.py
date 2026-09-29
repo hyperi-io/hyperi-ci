@@ -17,6 +17,7 @@ from typer.testing import CliRunner
 from hyperi_ci.caller_audit import (
     CALLER_INPUTS,
     OPTIONAL_CALLER_INPUTS,
+    RUST_OPTIONAL_CALLER_INPUTS,
     audit_local,
     audit_text,
 )
@@ -136,7 +137,11 @@ def test_the_audit_checks_every_input_init_scaffolds(workflow_file: str) -> None
     report = audit_text("scaffold", _render_workflow("my-project", workflow_file))
     assert report.ok, [f.describe() for f in report.findings]
     assert not report.optional_absent
-    checked = set(CALLER_INPUTS) | set(OPTIONAL_CALLER_INPUTS)
+    checked = (
+        set(CALLER_INPUTS)
+        | set(OPTIONAL_CALLER_INPUTS)
+        | set(RUST_OPTIONAL_CALLER_INPUTS)
+    )
     unchecked = sorted(set(report.declared) - checked)
     assert not unchecked, f"init scaffolds {unchecked}, which the audit never checks"
 
@@ -146,7 +151,7 @@ def test_a_caller_without_test_tier_is_clean() -> None:
     assert "test-tier" not in COMPLIANT
     report = audit_text("dfe-receiver", COMPLIANT)
     assert report.ok
-    assert report.optional_absent == ["test-tier"]
+    assert report.optional_absent == ["test-tier", "bolt-optimize-args"]
 
 
 def test_audit_callers_passes_a_caller_without_test_tier(tmp_path) -> None:
@@ -175,7 +180,7 @@ TEST_TIER_DECLARED = COMPLIANT.replace(
 def test_a_caller_forwarding_test_tier_is_clean() -> None:
     report = audit_text("x", TEST_TIER_DECLARED)
     assert report.ok, [f.describe() for f in report.findings]
-    assert not report.optional_absent
+    assert "test-tier" not in report.optional_absent
     assert "test-tier" in report.forwarded
 
 
@@ -279,3 +284,39 @@ def test_dispatch_cmd_builds_the_gh_invocation() -> None:
         "-f",
         "tag=v1.2.3",
     ]
+
+
+BOLT_ARGS_DECLARED = COMPLIANT.replace(
+    "jobs:\n",
+    "      bolt-optimize-args:\n"
+    "        type: string\n"
+    "        required: false\n"
+    '        default: ""\n'
+    "jobs:\n",
+).replace(
+    "    secrets: inherit\n",
+    "      bolt-optimize-args: ${{ inputs.bolt-optimize-args || '' }}\n"
+    "    secrets: inherit\n",
+)
+
+
+def test_a_rust_caller_forwarding_bolt_args_is_clean() -> None:
+    report = audit_text("x", BOLT_ARGS_DECLARED)
+    assert report.ok, [f.describe() for f in report.findings]
+    assert "bolt-optimize-args" not in report.optional_absent
+
+
+def test_bolt_args_declared_but_not_forwarded_is_reported() -> None:
+    """Declared then dropped means the bisect flags are accepted and ignored."""
+    text = BOLT_ARGS_DECLARED.replace(
+        "      bolt-optimize-args: ${{ inputs.bolt-optimize-args || '' }}\n", ""
+    )
+    assert _kinds(text) == {("not-forwarded", "bolt-optimize-args")}
+
+
+def test_bolt_args_is_not_held_against_a_non_rust_caller() -> None:
+    """python-ci.yml declares no BOLT input, so its callers must not be told to add one."""
+    text = COMPLIANT.replace("rust-ci.yml", "python-ci.yml")
+    report = audit_text("x", text)
+    assert report.ok
+    assert report.optional_absent == ["test-tier"]

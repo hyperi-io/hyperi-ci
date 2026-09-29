@@ -714,6 +714,46 @@ _CARGO_PGO_OPTIMIZE_BOLT_ARGS = (
 )
 
 
+# Replaces _CARGO_PGO_OPTIMIZE_BOLT_ARGS for one validate-only run, set from the
+# rust-ci.yml `bolt-optimize-args` dispatch input so a BOLT flag bisect is one
+# dispatch per attempt (issue #262). build.py refuses it on a run that ships.
+BOLT_OPTIMIZE_ARGS_ENV = "HYPERCI_BOLT_OPTIMIZE_ARGS"
+
+# One llvm-bolt option as a single token: dash-led, `=` for a value. cargo-pgo
+# shell-splits `--bolt-args`, so quotes, spaces and metacharacters stay out.
+_BOLT_ARG_TOKEN = re.compile(r"-{1,2}[A-Za-z0-9][A-Za-z0-9_.,:+=-]*")
+
+
+def bolt_optimize_args_override() -> tuple[str, ...] | None:
+    """The per-run BOLT optimise flags, or None when the run sets none.
+
+    Whitespace-only counts as unset. A value option takes the `-name=value`
+    form, because every token must start with a dash.
+
+    Raises:
+        ValueError: A token is not one dash-led llvm-bolt option.
+
+    """
+    tokens = os.environ.get(BOLT_OPTIMIZE_ARGS_ENV, "").split()
+    if not tokens:
+        return None
+    bad = [token for token in tokens if not _BOLT_ARG_TOKEN.fullmatch(token)]
+    if bad:
+        rejected = " ".join(repr(token) for token in bad)
+        raise ValueError(
+            f"bolt-optimize-args rejects {rejected}: each flag is one token that "
+            "starts with '-' and holds only letters, digits and _ . , : + = -. "
+            "Give a value as -name=value."
+        )
+    return tuple(tokens)
+
+
+def _names_a53_veneer_flag(flags: list[str]) -> bool:
+    """Whether a flag list already sets the A53 veneer option, in any spelling."""
+    wanted = _DROP_A53_VENEERS.lstrip("-")
+    return any(flag.lstrip("-").split("=", 1)[0] == wanted for flag in flags)
+
+
 def _bolt_tool_args(target: str, stage: Literal["instrument", "optimize"]) -> list[str]:
     """`--bolt-args` for one cargo-pgo BOLT stage, empty off aarch64.
 
@@ -721,7 +761,18 @@ def _bolt_tool_args(target: str, stage: Literal["instrument", "optimize"]) -> li
     replaces rather than extends them, so the set for `stage` is sent back
     with the veneer flag appended. Every other architecture gets an empty
     list and keeps cargo-pgo's defaults with nothing passed through.
+
+    A `HYPERCI_BOLT_OPTIMIZE_ARGS` override replaces the optimise set on every
+    architecture. aarch64 still gets the veneer flag appended unless the
+    override sets that option itself, e.g. `-drop-cortex-a53-843419-veneers=false`.
     """
+    override = bolt_optimize_args_override() if stage == "optimize" else None
+    if override is not None:
+        flags = list(override)
+        if target.startswith("aarch64") and not _names_a53_veneer_flag(flags):
+            flags.append(_DROP_A53_VENEERS)
+        return ["--bolt-args", " ".join(flags)]
+
     if not target.startswith("aarch64"):
         return []
     defaults = (
@@ -813,12 +864,15 @@ def _attempt_bolt(
     info(
         f"BOLT: optimising binary for {target} (using PGO + BOLT profiles, linker=lld){label}"
     )
+    optimize_args = _bolt_tool_args(target, "optimize")
+    if bolt_optimize_args_override() is not None:
+        warn(f"BOLT: optimise flags overridden for {target}: {optimize_args[1]}")
     rc = _run_cargo_pgo(
         [
             "bolt",
             "optimize",
             "--with-pgo",
-            *_bolt_tool_args(target, "optimize"),
+            *optimize_args,
             "--",
             "--target",
             target,

@@ -779,6 +779,7 @@ def audit_callers(
     """
     from hyperi_ci.caller_audit import (
         OPTIONAL_CALLER_INPUTS,
+        RUST_OPTIONAL_CALLER_INPUTS,
         audit_local,
         audit_repo,
         org_repos,
@@ -814,7 +815,7 @@ def audit_callers(
         for finding in report.findings:
             warn(f"  {finding.describe()}")
 
-    for name in OPTIONAL_CALLER_INPUTS:
+    for name in (*OPTIONAL_CALLER_INPUTS, *RUST_OPTIONAL_CALLER_INPUTS):
         lacking = [r.repo for r in reports if name in r.optional_absent]
         if lacking:
             info(

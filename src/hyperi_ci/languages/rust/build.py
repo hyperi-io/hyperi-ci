@@ -57,7 +57,10 @@ from hyperi_ci.languages.rust.optimize import (
     unoptimized_release_refusal,
     validate_profile,
 )
-from hyperi_ci.languages.rust.pgo import BOLT_NOTE_SECTION
+from hyperi_ci.languages.rust.pgo import (
+    BOLT_NOTE_SECTION,
+    bolt_optimize_args_override,
+)
 from hyperi_ci.languages.rust.targets import cargo_metadata
 
 _TARGET_MAP = {
@@ -869,14 +872,60 @@ def _resolve_build_channel(config: CIConfig) -> str:
     if optimize_tier() == "release":
         return "release"
 
-    if os.environ.get("GITHUB_REF_TYPE", "").strip().lower() == "tag":
+    if _ship_signal():
         return "release"
 
+    return "alpha"
+
+
+def _ship_signal() -> str | None:
+    """Name the env signal that says this build ships, or None when none does.
+
+    The reusable workflows set `HYPERCI_CHANNEL` only when the plan job
+    predicts `will-release`, which a tag dispatch, a from-head dispatch and a
+    push carrying the release trailer all do. The tag signals cover a build
+    run outside those workflows. `optimize-tier` is deliberately absent: it
+    builds the release tier on a run that publishes nothing.
+    """
+    channel = os.environ.get("HYPERCI_CHANNEL", "").strip()
+    if channel:
+        return f"HYPERCI_CHANNEL={channel}"
+    if os.environ.get("GITHUB_REF_TYPE", "").strip().lower() == "tag":
+        return "GITHUB_REF_TYPE=tag"
     for var in ("RUST_VERSION", "CI_COMMIT_TAG"):
         if os.environ.get(var, "").strip():
-            return "release"
+            return var
+    return None
 
-    return "alpha"
+
+def _bolt_override_refusal() -> str | None:
+    """Why this run may not take `bolt-optimize-args`, or None when it may.
+
+    The override is a bisect tool: a binary built with unreviewed BOLT flags
+    must never ship, so any ship signal refuses it. It also needs
+    `optimize-tier=release`, because without that a validate-only run never
+    reaches the BOLT optimise step and the dispatch would test nothing.
+    """
+    try:
+        override = bolt_optimize_args_override()
+    except ValueError as exc:
+        return str(exc)
+    if override is None:
+        return None
+    signal = _ship_signal()
+    if signal:
+        return (
+            f"bolt-optimize-args is debug-only and this run ships ({signal}). "
+            "A release always builds with the reviewed BOLT flags; drop the "
+            "input, or dispatch validate-only (no tag, no from-head)."
+        )
+    if optimize_tier() != "release":
+        return (
+            "bolt-optimize-args only changes the BOLT optimise step, which a "
+            "validate-only run reaches with optimize-tier=release. Dispatch "
+            "with both."
+        )
+    return None
 
 
 def _detect_cargo_features() -> set[str]:
@@ -1330,6 +1379,19 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     extra = extra_env or {}
     info("Building Rust project...")
+
+    bolt_refusal = _bolt_override_refusal()
+    if bolt_refusal:
+        announce(bolt_refusal, "hyperi-ci bolt-optimize-args refused", level="error")
+        return 1
+    bolt_override = bolt_optimize_args_override()
+    if bolt_override:
+        announce(
+            "BOLT optimise flags overridden for this run (debug only, refused on "
+            f"any run that ships): {' '.join(bolt_override)}. aarch64 still gets "
+            "the Cortex-A53 veneer drop unless the override sets it.",
+            "hyperi-ci BOLT flags overridden",
+        )
 
     features = extra.get("RUST_FEATURES", "")
     all_features = extra.get("RUST_ALL_FEATURES", "false") == "true"

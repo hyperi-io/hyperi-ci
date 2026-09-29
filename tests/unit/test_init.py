@@ -123,6 +123,21 @@ class TestRenderTemplates:
                 f"{workflow_file}: tag must be optional for from-head dispatch"
             )
 
+    def test_only_a_rust_caller_scaffolds_bolt_optimize_args(self) -> None:
+        # issue #262: rust-ci.yml alone declares the input, and a caller
+        # forwarding an undeclared input fails to start.
+        for workflow_file in ("python-ci.yml", "rust-ci.yml", "ts-ci.yml", "go-ci.yml"):
+            doc = yaml.safe_load(_render_workflow("my-project", workflow_file))
+            spec = doc["on"]["workflow_dispatch"]["inputs"].get("bolt-optimize-args")
+            forwarded = doc["jobs"]["ci"]["with"].get("bolt-optimize-args")
+            if workflow_file != "rust-ci.yml":
+                assert spec is None and forwarded is None, workflow_file
+                continue
+            assert spec["type"] == "string"
+            assert spec["default"] == ""
+            assert spec["required"] is False
+            assert forwarded == "${{ inputs.bolt-optimize-args || '' }}"
+
     def test_workflow_scaffolds_test_tier_choice(self) -> None:
         # `test-tier: full` reaches the reusable workflow on a dispatch only
         # when the caller declares the input and forwards it.

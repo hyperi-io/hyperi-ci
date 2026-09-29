@@ -21,8 +21,6 @@ for stamping. Scaffolding a per-repo .releaserc with @semantic-release/git
 is what caused the issue #37 tag-rewrite damage.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 from typing import Any
 
@@ -286,6 +284,9 @@ def _render_workflow(
     submodules: str = "",
 ) -> str:
     """Render consumer .github/workflows/ci.yml content."""
+    # BOLT is Rust-only, and a caller forwarding an input its reusable
+    # workflow does not declare fails to start.
+    rust = workflow_file == "rust-ci.yml"
     base = (
         f"# Project:   {project_name}\n"
         "# File:      .github/workflows/ci.yml\n"
@@ -339,6 +340,16 @@ def _render_workflow(
         '        default: "core"\n'
         "        options: [core, full]\n"
         '        description: "full runs the full test tier on this run. core never lowers a tier."\n'
+    )
+    if rust:
+        base += (
+            "      bolt-optimize-args:\n"
+            "        type: string\n"
+            "        required: false\n"
+            '        default: ""\n'
+            '        description: "Debug only: llvm-bolt flags replacing the BOLT optimise defaults, for a bisect. Needs optimize-tier=release; refused on a run that ships."\n'
+        )
+    base += (
         "\n"
         "jobs:\n"
         "  ci:\n"
@@ -353,6 +364,8 @@ def _render_workflow(
         "      optimize-tier: ${{ inputs.optimize-tier || '' }}\n"
         "      test-tier: ${{ inputs.test-tier || 'core' }}\n"
     )
+    if rust:
+        base += "      bolt-optimize-args: ${{ inputs.bolt-optimize-args || '' }}\n"
 
     if publish_target != "internal":
         base += f"      publish-target: {publish_target}\n"

@@ -60,6 +60,10 @@ CALLER_INPUTS: tuple[str, ...] = (*DISPATCH_INPUTS, *UI_DISPATCH_INPUTS)
 # reusable-workflow default is what those callers already get.
 OPTIONAL_CALLER_INPUTS: tuple[str, ...] = ("test-tier",)
 
+# Optional in the same way, but held only on a rust-ci.yml caller: no other
+# language workflow declares them, so another caller forwarding one breaks.
+RUST_OPTIONAL_CALLER_INPUTS: tuple[str, ...] = ("bolt-optimize-args",)
+
 # Reusable workflows this project publishes. A job calling one of these is a
 # release caller and is held to the dispatch contract.
 _REUSABLE = re.compile(
@@ -167,10 +171,15 @@ def audit_text(repo: str, text: str) -> CallerReport:
         forwarded.update(_FORWARDED.findall(str(value)))
     report.forwarded = sorted(forwarded)
 
-    for name in (*CALLER_INPUTS, *OPTIONAL_CALLER_INPUTS):
+    optional = OPTIONAL_CALLER_INPUTS
+    match = _REUSABLE.search(uses)
+    if match and match.group("name") == "rust":
+        optional = (*optional, *RUST_OPTIONAL_CALLER_INPUTS)
+
+    for name in (*CALLER_INPUTS, *optional):
         spec = declared.get(name)
         if spec is None:
-            if name in OPTIONAL_CALLER_INPUTS:
+            if name in optional:
                 report.optional_absent.append(name)
             else:
                 report.findings.append(Finding("missing", name))
