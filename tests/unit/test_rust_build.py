@@ -412,6 +412,123 @@ class TestOptimizeTierOnAValidateRun:
         assert "::error" not in capsys.readouterr().out
 
 
+class TestBoltOptimizeArgsNeverShips:
+    """issue #262: the BOLT flag override is a bisect tool for validate-only runs.
+
+    A binary built with unreviewed BOLT flags must never reach a release, so
+    every ship signal refuses it and fails the build rather than dropping it.
+    """
+
+    _SHIP_SIGNALS = (
+        "HYPERCI_CHANNEL",
+        "GITHUB_REF_TYPE",
+        "RUST_VERSION",
+        "CI_COMMIT_TAG",
+    )
+
+    def _validate_dispatch(
+        self, monkeypatch: pytest.MonkeyPatch, args: str | None
+    ) -> None:
+        """A dispatch that publishes nothing and asks for the release tier."""
+        for name in (*self._SHIP_SIGNALS, "HYPERCI_SKIP_OPTIMIZE"):
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv("HYPERCI_OPTIMIZE_TIER", "release")
+        if args is None:
+            monkeypatch.delenv("HYPERCI_BOLT_OPTIMIZE_ARGS", raising=False)
+        else:
+            monkeypatch.setenv("HYPERCI_BOLT_OPTIMIZE_ARGS", args)
+
+    def test_unset_is_never_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._validate_dispatch(monkeypatch, None)
+        monkeypatch.setenv("HYPERCI_CHANNEL", "release")
+        assert build._bolt_override_refusal() is None
+
+    def test_a_validate_only_release_tier_dispatch_takes_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._validate_dispatch(monkeypatch, "-relocs -lite=1")
+        assert build._bolt_override_refusal() is None
+
+    @pytest.mark.parametrize(
+        ("name", "value"),
+        [
+            # will-release: a tag dispatch, a from-head dispatch, or a push
+            # with the release trailer. The workflow sets nothing else here.
+            ("HYPERCI_CHANNEL", "release"),
+            ("GITHUB_REF_TYPE", "tag"),
+            ("RUST_VERSION", "1.2.3"),
+            ("CI_COMMIT_TAG", "v1.2.3"),
+        ],
+    )
+    def test_any_ship_signal_refuses_it(
+        self, monkeypatch: pytest.MonkeyPatch, name: str, value: str
+    ) -> None:
+        self._validate_dispatch(monkeypatch, "-relocs")
+        monkeypatch.setenv(name, value)
+        refusal = build._bolt_override_refusal()
+        assert refusal is not None
+        assert "debug-only" in refusal and "ships" in refusal
+
+    def test_it_needs_the_release_tier(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Without optimize-tier=release a validate run never reaches BOLT, so
+        # the dispatch would test nothing and say nothing.
+        self._validate_dispatch(monkeypatch, "-relocs")
+        monkeypatch.delenv("HYPERCI_OPTIMIZE_TIER")
+        refusal = build._bolt_override_refusal()
+        assert refusal is not None and "optimize-tier=release" in refusal
+
+    def test_a_malformed_value_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._validate_dispatch(monkeypatch, "-relocs;id")
+        refusal = build._bolt_override_refusal()
+        assert refusal is not None and "rejects" in refusal
+
+    def _run(self, monkeypatch: pytest.MonkeyPatch) -> tuple[int, list[str]]:
+        built: list[str] = []
+
+        def on_build(target, *_args, outcome: OptimizationOutcome, **_kwargs) -> int:
+            built.append(target)
+            outcome.pgo_applied = True
+            outcome.bolt_applied = True
+            return 0
+
+        real_channel = build._resolve_build_channel
+        TestTier2Summary._patch_build(monkeypatch, on_build)
+        monkeypatch.setattr(build, "_resolve_build_channel", real_channel)
+        config = TestTier2Summary._config(TestOptimizeTierOnAValidateRun._TIER2)
+        rc = build.run(config, {"RUST_BUILD_TARGETS": "x86_64-unknown-linux-gnu"})
+        return rc, built
+
+    def test_a_publishing_run_fails_before_building(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        self._validate_dispatch(monkeypatch, "-relocs")
+        monkeypatch.setenv("HYPERCI_CHANNEL", "release")
+        monkeypatch.setattr(common, "is_github_actions", lambda: True)
+        rc, built = self._run(monkeypatch)
+        assert rc == 1
+        assert built == []
+        out = capsys.readouterr().out
+        assert "::error title=hyperi-ci bolt-optimize-args refused::" in out
+
+    def test_an_allowed_override_is_announced_as_a_warning(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        self._validate_dispatch(monkeypatch, "-relocs -lite=1")
+        monkeypatch.setattr(common, "is_github_actions", lambda: True)
+        rc, built = self._run(monkeypatch)
+        assert rc == 0
+        assert built == ["x86_64-unknown-linux-gnu"]
+        warnings = [
+            line
+            for line in capsys.readouterr().out.splitlines()
+            if line.startswith("::warning title=hyperi-ci BOLT flags overridden::")
+        ]
+        assert len(warnings) == 1
+        assert "-relocs -lite=1" in warnings[0]
+
+
 class TestNativeTargetFollowsTheMachine:
     """An arm64 Linux runner must not read its own target as a cross build.
 

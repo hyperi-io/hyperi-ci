@@ -229,6 +229,8 @@ if you need a specific LLVM major - otherwise trust the default.
 
 A run that publishes nothing builds Tier 1. The `optimize-tier: release` dispatch input builds Tier 2 on one validate-only run, so a PGO or BOLT fix no longer needs a release to test. How to run it, and what it costs: [`pgo-bolt.md`](../runtime/pgo-bolt.md) -> *Validating your workload locally* -> *Testing it in CI without a release*.
 
+On the same kind of run, `bolt-optimize-args` replaces the BOLT optimise flags so a BOLT fault can be bisected one dispatch at a time: [`pgo-bolt.md`](../runtime/pgo-bolt.md) -> *Bisecting BOLT*.
+
 ---
 
 ## Skipping optimisation for one run

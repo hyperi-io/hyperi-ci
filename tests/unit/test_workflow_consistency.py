@@ -1225,6 +1225,49 @@ class TestOptimizeTierThreading:
         assert "optimize-tier" in on["workflow_call"]["inputs"]
 
 
+BOLT_ARGS_ENV = "${{ inputs.bolt-optimize-args }}"
+
+
+class TestBoltOptimizeArgsThreading:
+    """issue #262: a validate-only dispatch overrides the BOLT optimise flags,
+    so a flag bisect is one dispatch per attempt. Rust only: no other language
+    runs BOLT, and the build stage alone reads the value."""
+
+    @pytest.mark.parametrize("trigger", ["workflow_call", "workflow_dispatch"])
+    def test_rust_accepts_the_input(self, trigger: str) -> None:
+        wf = _load_workflow("rust-ci.yml")
+        on = wf.get("on") or wf.get(True, {})
+        spec = on.get(trigger, {}).get("inputs", {}).get("bolt-optimize-args")
+        assert spec is not None, f"rust-ci.yml: {trigger} missing bolt-optimize-args"
+        assert spec.get("type") == "string"
+        assert spec.get("default") == "", "unset must mean the reviewed defaults"
+        assert spec.get("required") is not True
+
+    def test_only_the_build_step_reads_it_through_env(self) -> None:
+        # Through env so a dispatch value never becomes shell; never a repo
+        # variable, which would put unreviewed flags on every run.
+        wf = _load_workflow("rust-ci.yml")
+        assert "HYPERCI_BOLT_OPTIMIZE_ARGS" not in wf.get("env", {})
+        steps = wf["jobs"]["build"]["steps"]
+        run_build = next(s for s in steps if s.get("name") == "Run build")
+        assert run_build["env"]["HYPERCI_BOLT_OPTIMIZE_ARGS"] == BOLT_ARGS_ENV
+        for step in steps:
+            assert "bolt-optimize-args" not in str(step.get("run", "")), step.get(
+                "name"
+            )
+        text = (WORKFLOW_DIR / "rust-ci.yml").read_text(encoding="utf-8")
+        assert text.count("inputs.bolt-optimize-args") == 1
+
+    @pytest.mark.parametrize(
+        "workflow_name",
+        ["python-ci.yml", "ts-ci.yml", "go-ci.yml", "_release-tail.yml"],
+    )
+    def test_no_other_workflow_carries_it(self, workflow_name: str) -> None:
+        text = (WORKFLOW_DIR / workflow_name).read_text(encoding="utf-8")
+        assert "bolt-optimize-args" not in text
+        assert "HYPERCI_BOLT_OPTIMIZE_ARGS" not in text
+
+
 class TestFirstReleaseAndOrphanGuards:
     """issue #37 follow-up: tag-less repos declare their starting version
     via VERSION (shipped verbatim); orphaned-tag repos fail loud at plan

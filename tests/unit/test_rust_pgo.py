@@ -478,6 +478,142 @@ class TestDropA53Veneers:
             assert not any("843419" in arg for arg in cmd)
 
 
+class TestBoltOptimizeArgsOverride:
+    """issue #262: a validate-only dispatch replaces the BOLT optimise flags.
+
+    Bisecting a BOLT fault needs one flag set per run, and the flag set was a
+    code constant. build.py owns the refusal on a run that ships; these cover
+    what the override does once it is allowed.
+    """
+
+    _AARCH64 = "aarch64-unknown-linux-gnu"
+    _X86_64 = "x86_64-unknown-linux-gnu"
+
+    @pytest.fixture(autouse=True)
+    def _unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv(pgo.BOLT_OPTIMIZE_ARGS_ENV, raising=False)
+
+    @pytest.mark.parametrize("raw", [None, "", "   ", "\n\t"])
+    def test_unset_or_blank_is_no_override(
+        self, monkeypatch: pytest.MonkeyPatch, raw: str | None
+    ) -> None:
+        if raw is not None:
+            monkeypatch.setenv(pgo.BOLT_OPTIMIZE_ARGS_ENV, raw)
+        assert pgo.bolt_optimize_args_override() is None
+
+    @pytest.mark.parametrize(
+        ("target", "expected"),
+        [
+            (
+                _AARCH64,
+                [
+                    "--bolt-args",
+                    " ".join(
+                        [*pgo._CARGO_PGO_OPTIMIZE_BOLT_ARGS, pgo._DROP_A53_VENEERS]
+                    ),
+                ],
+            ),
+            (_X86_64, []),
+        ],
+    )
+    def test_unset_leaves_the_defaults_unchanged(
+        self, target: str, expected: list[str]
+    ) -> None:
+        assert pgo._bolt_tool_args(target, "optimize") == expected
+
+    def test_tokens_split_on_any_whitespace(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(
+            pgo.BOLT_OPTIMIZE_ARGS_ENV, "  -relocs\t-lite=1\n--split-functions=2 "
+        )
+        assert pgo.bolt_optimize_args_override() == (
+            "-relocs",
+            "-lite=1",
+            "--split-functions=2",
+        )
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "relocs",
+            "-relocs; rm -rf /",
+            "-relocs|tee",
+            "-o=$(id)",
+            "-data=`id`",
+            "-print-only='main'",
+            '-print-only="main"',
+            "-relocs&",
+            "-x>out",
+            "-data=/tmp/profile",
+            "-",
+            "---",
+            "-a\\b",
+        ],
+    )
+    def test_a_token_that_is_not_one_dash_option_is_rejected(
+        self, monkeypatch: pytest.MonkeyPatch, bad: str
+    ) -> None:
+        monkeypatch.setenv(pgo.BOLT_OPTIMIZE_ARGS_ENV, f"-relocs {bad}")
+        with pytest.raises(ValueError, match="bolt-optimize-args rejects"):
+            pgo.bolt_optimize_args_override()
+
+    def test_x86_64_takes_the_override_as_given(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(pgo.BOLT_OPTIMIZE_ARGS_ENV, "-relocs -lite=1")
+        assert pgo._bolt_tool_args(self._X86_64, "optimize") == [
+            "--bolt-args",
+            "-relocs -lite=1",
+        ]
+
+    def test_aarch64_still_drops_the_a53_veneers(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(pgo.BOLT_OPTIMIZE_ARGS_ENV, "-relocs -lite=1")
+        assert pgo._bolt_tool_args(self._AARCH64, "optimize") == [
+            "--bolt-args",
+            "-relocs -lite=1 --drop-cortex-a53-843419-veneers",
+        ]
+
+    @pytest.mark.parametrize(
+        "spelling",
+        [
+            "-drop-cortex-a53-843419-veneers=false",
+            "--drop-cortex-a53-843419-veneers=0",
+            "--drop-cortex-a53-843419-veneers",
+        ],
+    )
+    def test_an_override_naming_the_veneer_option_owns_it(
+        self, monkeypatch: pytest.MonkeyPatch, spelling: str
+    ) -> None:
+        monkeypatch.setenv(pgo.BOLT_OPTIMIZE_ARGS_ENV, f"-relocs {spelling}")
+        assert pgo._bolt_tool_args(self._AARCH64, "optimize") == [
+            "--bolt-args",
+            f"-relocs {spelling}",
+        ]
+
+    @pytest.mark.parametrize("target", [_AARCH64, _X86_64])
+    def test_the_instrument_stage_ignores_the_override(
+        self, monkeypatch: pytest.MonkeyPatch, target: str
+    ) -> None:
+        unset = pgo._bolt_tool_args(target, "instrument")
+        monkeypatch.setenv(pgo.BOLT_OPTIMIZE_ARGS_ENV, "-relocs")
+        assert pgo._bolt_tool_args(target, "instrument") == unset
+
+    def test_the_override_reaches_the_bolt_optimize_command(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        monkeypatch.setenv(pgo.BOLT_OPTIMIZE_ARGS_ENV, "-relocs -lite=1")
+        cmds = _bolt_cargo_commands(tmp_path, self._AARCH64)
+        optimize = next(c for c in cmds if c[:2] == ["bolt", "optimize"])
+        assert optimize[optimize.index("--bolt-args") + 1] == (
+            "-relocs -lite=1 --drop-cortex-a53-843419-veneers"
+        )
+        build_cmd = next(c for c in cmds if c[:2] == ["bolt", "build"])
+        assert "-relocs" not in build_cmd[build_cmd.index("--bolt-args") + 1]
+
+
 class TestBoltFlagCopiesTrackTheCargoPgoPin:
     """The copied BOLT defaults have to be re-read when `tools.cargo-pgo` moves.
 

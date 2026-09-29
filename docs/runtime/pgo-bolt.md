@@ -300,6 +300,25 @@ Nothing is tagged or published. A bare dispatch builds both arches, and each pay
 - `release` is the only value. Anything else fails the build rather than quietly building Tier 1.
 - `hyperi-ci init` writes the input into a new `ci.yml`. An older one declares it under `workflow_dispatch.inputs` and forwards it under `with:`, like `skip-optimize`.
 
+## Bisecting BOLT
+
+A BOLT binary that misbehaves where the PGO-only one does not points at the optimise-stage flags. `bolt-optimize-args` replaces them for one validate-only run, so each bisect step is one dispatch:
+
+```bash
+gh workflow run ci.yml --ref <branch> -f optimize-tier=release \
+  -f bolt-optimize-args="-reorder-blocks=ext-tsp -relocs -lite=1"
+```
+
+Start from `_CARGO_PGO_OPTIMIZE_BOLT_ARGS` in `src/hyperi_ci/languages/rust/pgo.py` and drop flags.
+
+- Debug only. A run that ships refuses it and fails: tag or from-head dispatch, release-trailer push, tag ref.
+- Needs `optimize-tier=release`, else the run never reaches BOLT. The build refuses rather than test nothing.
+- The instrument stage keeps its own flags.
+- aarch64 still gets `--drop-cortex-a53-843419-veneers`, which BOLT needs there. An override naming that option (`-drop-cortex-a53-843419-veneers=false`) owns it.
+- One token per flag, starting with `-`, a value as `-name=value`, from letters, digits and `_ . , : + = -`. No empty set: `-dyno-stats` alone is the nearest.
+- The run carries a `::warning::` naming the flags.
+- Rust callers only. `hyperi-ci init` scaffolds it; an older caller declares and forwards it like `optimize-tier`.
+
 ## Reference implementation
 
 `dfe-receiver` is the first shipping DFE binary with Tier 2. Its

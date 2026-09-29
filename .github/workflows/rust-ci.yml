@@ -83,6 +83,10 @@ on:
         type: string
         default: ""
         description: "'release' to build the release optimisation tier (PGO + BOLT) on a run that publishes nothing. Per run only. Empty = the tier follows whether the run ships."
+      bolt-optimize-args:
+        type: string
+        default: ""
+        description: "Debug only: space-separated llvm-bolt flags replacing the BOLT optimise-stage defaults, for bisecting a BOLT fault. Needs optimize-tier=release; any run that ships refuses it. Empty = the reviewed defaults."
     secrets:
       CARGO_REGISTRY_TOKEN:
         required: false
@@ -149,6 +153,11 @@ on:
         required: false
         default: ""
         description: "'release' to build the release optimisation tier (PGO + BOLT) on a run that publishes nothing. Per run only. Empty = the tier follows whether the run ships."
+      bolt-optimize-args:
+        type: string
+        required: false
+        default: ""
+        description: "Debug only: space-separated llvm-bolt flags replacing the BOLT optimise-stage defaults, for bisecting a BOLT fault. Needs optimize-tier=release; any run that ships refuses it. Empty = the reviewed defaults."
 
 concurrency:
   # A schedule and a dispatch that publishes nothing each get their own
@@ -573,6 +582,10 @@ jobs:
           # build spends no stable version, which is what lets `skip-optimize`
           # cut a fast prerelease without the release-unoptimized consent.
           HYPERCI_PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+          # Debug-only BOLT optimise flags, per-run input only (issue #262).
+          # Through env so a dispatch value is never shell; the build refuses
+          # it on any run that ships.
+          HYPERCI_BOLT_OPTIMIZE_ARGS: ${{ inputs.bolt-optimize-args }}
         run: ${{ env.HYPERCI_INSTALL }} run build
 
       - name: Generate deployment artefacts
