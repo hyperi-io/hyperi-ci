@@ -71,6 +71,9 @@ class _Api:
         self.tip_blobs: dict[str, str | None] = {}
         # VERSION on the branch tip. None answers as a 404.
         self.tip_version: str | None = "3.1.0\n"
+        # Successive answers to a branch ref read; the last one repeats.
+        self.tips: list[str] = ["tip-sha"]
+        self.ref_reads = 0
 
     def __call__(self, args: list[str], *, body: dict | None = None) -> dict | None:
         self.calls.append((args, body))
@@ -87,7 +90,9 @@ class _Api:
             sha = self.tip_blobs.get(path, _HEAD_BLOB)
             return {"sha": sha} if sha else None
         if endpoint.endswith("/git/ref/heads/main"):
-            return {"object": {"sha": "tip-sha"}}
+            tip = self.tips[min(self.ref_reads, len(self.tips) - 1)]
+            self.ref_reads += 1
+            return {"object": {"sha": tip}}
         if "/git/commits/" in endpoint:
             return {"tree": {"sha": "tree-base"}}
         if endpoint.endswith("/git/blobs"):
@@ -499,12 +504,57 @@ class TestRefusals:
     def test_a_moving_branch_retries_then_fails(
         self, project: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A rejected non-fast-forward means someone else pushed."""
+        """A refused update on a branch that moved means someone else pushed."""
         monkeypatch.setenv("GITHUB_REPOSITORY", "hyperi-io/hyperi-ci")
         stub = _Api(ref_update=False)
+        stub.tips = [f"tip-{n}" for n in range(10)]
         with patch("hyperi_ci.release_commit._api", stub):
             assert commit_release_artefacts(version="3.1.0", project_dir=project) == 1
         assert len(stub.bodies_for("/git/refs/heads/")) == 3
+
+    def test_a_refusal_on_a_branch_that_did_not_move_fails_at_once(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A ruleset refusal is not a race, so it is never retried."""
+        monkeypatch.setenv("GITHUB_REPOSITORY", "hyperi-io/hyperi-ci")
+        stub = _Api(ref_update=False)
+        errors: list[str] = []
+        with (
+            patch("hyperi_ci.release_commit._api", stub),
+            patch("hyperi_ci.release_commit.error", errors.append),
+            patch(
+                "hyperi_ci.release_commit._last_api_error",
+                "Repository rule violations found for refs/heads/main",
+            ),
+        ):
+            assert commit_release_artefacts(version="3.1.0", project_dir=project) == 1
+        assert len(stub.bodies_for("/git/refs/heads/")) == 1
+        assert "has not moved" in errors[0]
+        assert "Repository rule violations found" in errors[0]
+        assert "GH_APP_PRIVATE_KEY" in errors[1]
+
+    def test_a_branch_that_moved_once_lands_on_the_retry(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("GITHUB_REPOSITORY", "hyperi-io/hyperi-ci")
+        stub = _Api(ref_update=False)
+        stub.tips = ["tip-a", "tip-b"]
+        refused = {"left": 1}
+
+        def one_refusal(args: list[str], *, body: dict | None = None) -> dict | None:
+            if "/git/refs/heads/" in args[-1] and refused["left"]:
+                refused["left"] -= 1
+                stub.calls.append((args, body))
+                return None
+            if "/git/refs/heads/" in args[-1]:
+                stub.calls.append((args, body))
+                return {"ref": "refs/heads/main"}
+            return stub(args, body=body)
+
+        with patch("hyperi_ci.release_commit._api", one_refusal):
+            assert commit_release_artefacts(version="3.1.0", project_dir=project) == 0
+        parents = [body["parents"] for body in stub.bodies_for("/git/commits")]
+        assert parents == [["tip-a"], ["tip-b"]]
 
     def test_an_unreadable_ref_fails_without_committing(
         self, project: Path, monkeypatch: pytest.MonkeyPatch
