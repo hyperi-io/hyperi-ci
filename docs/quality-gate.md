@@ -501,6 +501,8 @@ osv-scanner takes its ignores as a config file, and once it is handed one with `
 
 A lockfile that lists no packages makes osv-scanner exit 128. hyperi-ci reports that as NOT SCANNED, the same as a missing lockfile: a warning, neither a finding nor a clean result.
 
+Only exit 1 is a finding. When osv.dev cannot be queried, v2.6.0 exits 127 and names the `vulnmatch/osvdev` matcher in its error, and it prints a zero-vulnerability summary that is not true. hyperi-ci reports that as NOT SCANNED too, and passes in both modes, the same policy as cargo-audit's unreachable advisory database. Exit 129 is mapped to the API failure in osv-scanner's source but not yet returned by it, and is handled the same way. Any other non-zero exit is a scanner error: it fails a `blocking` gate and warns under `warn`, and is never called a finding.
+
 ## Missing tool - local vs CI
 
 A tool that is not installed and has no `uv`/`uvx` fallback:

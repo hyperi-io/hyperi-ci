@@ -55,6 +55,13 @@ ignore = true
 [PackageOverrides.license]
 override = ["MIT"]"""
 
+# What osv-scanner v2.6.0 writes to stderr, exiting 127, when osv.dev is down.
+OSV_DEV_UNREACHABLE_STDERR = (
+    "Error during extraction: (extracting as vulnmatch/osvdev) max retries "
+    "exceeded: attempt 4: request failed: Post "
+    '"https://api.osv.dev/v1/querybatch": dial tcp: connect: connection refused\n'
+)
+
 
 def _entry(vuln_id: str, reason: str = "from quality.ignore") -> IgnoreEntry:
     return IgnoreEntry("osv-scanner", vuln_id, reason)
@@ -448,6 +455,72 @@ class TestRun:
             "::warning title=osv-scanner scanned nothing::" in capsys.readouterr().out
         )
 
+    @pytest.mark.parametrize("mode", ["warn", "blocking"])
+    @pytest.mark.parametrize(
+        ("returncode", "stderr"),
+        [
+            (129, "API query failed"),
+            (127, OSV_DEV_UNREACHABLE_STDERR),
+        ],
+        ids=["exit-129", "exit-127-osvdev"],
+    )
+    def test_an_unreachable_osv_dev_is_not_scanned_not_a_finding(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        mode: str,
+        returncode: int,
+        stderr: str,
+    ) -> None:
+        """An outage is a scan that did not happen, never an advisory."""
+        said: list[str] = []
+        self._runner(monkeypatch, returncode, stderr=stderr)
+        monkeypatch.setattr(osv_scanner, "warn", said.append)
+        monkeypatch.setattr(osv_scanner, "error", said.append)
+
+        ok = osv_scanner.run(self._lockfile(tmp_path), [], mode)
+
+        assert ok is True
+        logged = "\n".join(said)
+        assert "NOT SCANNED" in logged
+        assert "osv.dev could not be queried" in logged
+        assert "issues found" not in logged
+        assert "failed" not in logged
+
+    def test_blocking_annotates_an_unreachable_osv_dev_in_ci(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+    ) -> None:
+        self._runner(monkeypatch, 127, stderr=OSV_DEV_UNREACHABLE_STDERR)
+        monkeypatch.setattr(osv_scanner, "is_ci", lambda: True)
+        osv_scanner.run(self._lockfile(tmp_path), [], "blocking")
+        assert (
+            "::warning title=osv-scanner scanned nothing::" in capsys.readouterr().out
+        )
+
+    @pytest.mark.parametrize(
+        ("mode", "passes", "said_via"),
+        [("warn", True, "warn"), ("blocking", False, "error")],
+    )
+    def test_another_scanner_error_keeps_the_mode_but_is_not_a_finding(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        mode: str,
+        passes: bool,
+        said_via: str,
+    ) -> None:
+        """A 127 with no osv.dev failure in it is a scanner fault, not an outage."""
+        said: list[str] = []
+        self._runner(monkeypatch, 127, stderr="Failed to read config file: boom")
+        monkeypatch.setattr(osv_scanner, said_via, said.append)
+
+        ok = osv_scanner.run(self._lockfile(tmp_path), [], mode)
+
+        assert ok is passes
+        logged = "\n".join(said)
+        assert "scanner error (exit 127), not a finding" in logged
+        assert "NOT SCANNED" not in logged
+
 
 @pytest.mark.skipif(not osv_scanner.available(), reason="osv-scanner not installed")
 class TestRealBinary:
@@ -476,3 +549,28 @@ class TestRealBinary:
 
         assert ok is True
         assert any("lists no packages" in s for s in said), said
+
+    @pytest.mark.slow
+    def test_an_unreachable_osv_dev_is_reported_as_not_scanned(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Pins the exit the outage branch keys on; the retries take about 20s."""
+        dead_proxy = "http://127.0.0.1:9"
+        for var in ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy"):
+            monkeypatch.setenv(var, dead_proxy)
+        for var in ("NO_PROXY", "no_proxy"):
+            monkeypatch.delenv(var, raising=False)
+        lockfile = tmp_path / "Cargo.lock"
+        lockfile.write_text(
+            'version = 3\n\n[[package]]\nname = "smallvec"\nversion = "0.6.9"\n'
+            'source = "registry+https://github.com/rust-lang/crates.io-index"\n',
+            encoding="utf-8",
+        )
+        said: list[str] = []
+        monkeypatch.setattr(osv_scanner, "warn", said.append)
+        monkeypatch.setattr(osv_scanner, "error", said.append)
+
+        ok = osv_scanner.run(lockfile, [], "blocking")
+
+        assert ok is True
+        assert any("osv.dev could not be queried" in s for s in said), said
