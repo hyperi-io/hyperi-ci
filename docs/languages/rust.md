@@ -233,6 +233,24 @@ On the same kind of run, `bolt-optimize-args` replaces the BOLT optimise flags s
 
 ---
 
+## The Build job's time limit
+
+The Build job stops at 135 minutes, per matrix leg. That is at least twice the longest successful build across the fleet (issue #262), but a Tier 2 release can outrun it: dfe-transform-elastic's PGO-only Build took 93 minutes on 2026-09-16, and BOLT adds an instrument build, a second workload run and an optimise build on top.
+
+A caller raises it in `with:`, the same on every `<lang>-ci.yml`:
+
+```yaml
+jobs:
+  ci:
+    uses: hyperi-io/hyperi-ci/.github/workflows/rust-ci.yml@main
+    with:
+      build-timeout-minutes: 240
+```
+
+Leaving it out, or passing 0, keeps 135. A GitHub-hosted runner stops a job at 360 whatever is set, and a self-hosted one at 7200 (5 days). Pass it as a number, unquoted: a quoted `"240"` is a string, and GitHub refuses the whole run before any job starts. `hyperi-ci init` does not scaffold it.
+
+---
+
 ## Skipping optimisation for one run
 
 Tier 2 is four sequential cargo passes plus two workload runs, and a failed
