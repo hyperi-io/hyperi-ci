@@ -81,6 +81,27 @@ Both tiers also write JUnit XML to `test-results/junit.xml`, which the Test job 
 
 Local runs get neither.
 
+## Test job settings a caller can pass
+
+Two `with:` inputs on every `<lang>-ci.yml` change the CI Test job. Both are off unless a caller sets them, and `hyperi-ci init` scaffolds neither.
+
+```yaml
+jobs:
+  ci:
+    uses: hyperi-io/hyperi-ci/.github/workflows/python-ci.yml@main
+    with:
+      test-github-token: "true"
+      test-timeout-minutes: 300
+```
+
+**`test-github-token`** gives the test step the run's GitHub token as both `GH_TOKEN` and `GITHUB_TOKEN`. That is for tests that call the GitHub API: unauthenticated they share the 60 requests an hour GitHub allows per address, and runners behind one egress address run out. `gh` reads `GH_TOKEN`, most API clients `GITHUB_TOKEN`. Default `""`, which puts neither variable in the environment at all, not even empty.
+
+What it hands over: a token that is read-only on this repo's contents and can read anything public. Every test and every test dependency can read it, so on a private repo they can read the code, and it cannot read any other private repo. Opt in only where the tests need it.
+
+**`test-timeout-minutes`** is the Test job's limit, per matrix leg. Default 360, which is GitHub's own limit for a job that sets none, so leaving it out changes nothing. A GitHub-hosted runner stops a job at 360 whatever is set, and a self-hosted one at 7200 (5 days). 0 reads as 360. Pass it as a number, unquoted: a quoted `"300"` is a string, and GitHub refuses the whole run before any job starts.
+
+Quality, Build and the release tail carry fixed limits. Test does not, because one repo's Test run reaches 250 minutes and no shared limit under 360 leaves it room (issue #262).
+
 ## The tier notice
 
 Every pytest and Rust run emits a `test tier <tier>` notice with what it ran and left out, as does a TypeScript `test:full` script. In GitHub Actions it is a `::notice::` annotation in the run summary. Elsewhere it is an info log line.
