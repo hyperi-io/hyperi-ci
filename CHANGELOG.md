@@ -3,6 +3,19 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.12.0](https://github.com/hyperi-io/hyperi-ci/compare/v2.11.8...v2.12.0) (2026-09-29)
+
+### Features
+
+* **test:** let a project opt into native tools such as helm for its tests ([e9291b5](https://github.com/hyperi-io/hyperi-ci/commit/e9291b565a07db0546d560e4caea08f6c800e1f9)), closes [#410](https://github.com/hyperi-io/hyperi-ci/issues/410)
+
+### Bug Fixes
+
+* **quality:** skip COMMERCIAL.md and AI-TRAINING-POLICY.md in the doc lints ([#420](https://github.com/hyperi-io/hyperi-ci/issues/420)) ([4d79a40](https://github.com/hyperi-io/hyperi-ci/commit/4d79a406b3e24e815784527ed527531e940e9a72)), closes [#210](https://github.com/hyperi-io/hyperi-ci/issues/210)
+* **release:** report a refused release commit instead of retrying it as a race ([#423](https://github.com/hyperi-io/hyperi-ci/issues/423)) ([3df01be](https://github.com/hyperi-io/hyperi-ci/commit/3df01be09a2bc3574d4468a758e704270cb16b25))
+* **release:** run a release's repo code apart from its upload credentials ([7e017ca](https://github.com/hyperi-io/hyperi-ci/commit/7e017ca00c751cd6a1dac2b36663970a58b7a93a)), closes [#409](https://github.com/hyperi-io/hyperi-ci/issues/409)
+* **rust:** link aarch64 BOLT without the A53 fix ([#419](https://github.com/hyperi-io/hyperi-ci/issues/419)) ([bca92f2](https://github.com/hyperi-io/hyperi-ci/commit/bca92f20fed889a9e899af97fdd3a2142ccff8d5)), closes [#262](https://github.com/hyperi-io/hyperi-ci/issues/262)
+
 ## [2.11.8](https://github.com/hyperi-io/hyperi-ci/compare/v2.11.7...v2.11.8) (2026-09-29)
 
 ### Bug Fixes
