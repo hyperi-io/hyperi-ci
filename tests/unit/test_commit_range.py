@@ -140,6 +140,52 @@ class TestCommitsInRange:
         assert resolved is False
 
 
+def _on_merge_group(
+    monkeypatch: pytest.MonkeyPatch, repo: Path, tmp_path: Path, group: dict
+) -> None:
+    payload = tmp_path / "event.json"
+    payload.write_text(json.dumps({"merge_group": group}))
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "merge_group")
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(payload))
+
+
+class TestMergeGroupRange:
+    """A merge queue entry's range comes from its payload (issue #228)."""
+
+    def test_range_is_base_sha_to_head_sha(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = _repo(tmp_path)
+        _commit(repo, "chore: already on main")
+        base = _commit(repo, "fix: the base the queue built on")
+        head = _commit(repo, "fix: the squash that lands (#7)")
+        _commit(repo, "feat: past head, not in the group")
+        _on_merge_group(
+            monkeypatch, repo, tmp_path, {"base_sha": base, "head_sha": head}
+        )
+
+        commits, resolved = commits_in_range()
+        assert resolved is True
+        assert [m.splitlines()[0] for _, m in commits] == [
+            "fix: the squash that lands (#7)"
+        ]
+
+    def test_unknown_base_is_unresolved_not_a_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A base the clone lacks must degrade loudly, never fall through to a
+        # generic range that validates some other set of commits.
+        repo = _repo(tmp_path)
+        head = _commit(repo, "fix: head")
+        _on_merge_group(
+            monkeypatch, repo, tmp_path, {"base_sha": "deadbeef" * 5, "head_sha": head}
+        )
+
+        commits, resolved = commits_in_range()
+        assert (commits, resolved) == ([], False)
+
+
 class TestIsReleaseWorthy:
     """What the gate asks before skipping quality + test on a push to main."""
 

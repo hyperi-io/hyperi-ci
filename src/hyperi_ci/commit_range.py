@@ -102,7 +102,12 @@ def commits_in_range() -> tuple[list[tuple[str, str]], bool]:
        Also catches merge-imported history (the range includes commits a
        merge made newly reachable) -- the rustlib v3.0.0 class of bug.
     2. ``pull_request`` event -> ``<base sha>..HEAD``.
-    3. Generic fallbacks for local / unknown contexts: ``origin/main..HEAD``
+    3. ``merge_group`` event -> ``base_sha..head_sha`` from the payload. The
+       queue fast-forwards main to ``head_sha`` once the checks pass, so this
+       is exactly the squash commit that will land, validated before it does.
+       The payload names the range the queue built, so nothing is inferred
+       from where ``origin/main`` happened to point at checkout.
+    4. Generic fallbacks for local / unknown contexts: ``origin/main..HEAD``
        then a bounded ``HEAD~N..HEAD``.
 
     A resolved-but-empty range short-circuits (returns ``([], True)``) so we
@@ -137,6 +142,17 @@ def commits_in_range() -> tuple[list[tuple[str, str]], bool]:
             rc, commits = git_log([f"{base}..HEAD"])
             if rc == 0:
                 return commits, True
+    elif event == "merge_group":
+        group = payload.get("merge_group") or {}
+        base = str(group.get("base_sha", ""))
+        head = str(group.get("head_sha", "")) or "HEAD"
+        if base:
+            rc, commits = git_log([f"{base}..{head}"])
+            if rc == 0:
+                return commits, True
+            # Same reasoning as the push case: new commits exist and cannot be
+            # listed, and a fallback range would validate the wrong set.
+            return [], False
 
     for git_range in ("origin/main..HEAD", "HEAD~20..HEAD"):
         rc, commits = git_log([git_range])
