@@ -22,7 +22,8 @@ credentials, the same constraint ``tag-head`` works around.
 
 Concurrency is handled by the ref update itself. GitHub rejects a non-fast-
 forward ref update, so a branch that moved under us fails loudly and retries
-against the new tip instead of overwriting someone's push.
+against the new tip instead of overwriting someone's push. A refused update on
+a branch that did not move is a ruleset or permission refusal, and fails at once.
 """
 
 import base64
@@ -62,9 +63,14 @@ STAMP_OUTCOME_ENV = "HYPERCI_STAMP_OUTCOME"
 
 _RETRIES = 3
 
+# stderr of the most recent failed `gh api` call, quoted when a refusal is
+# reported so the log carries GitHub's own reason.
+_last_api_error = ""
+
 
 def _api(args: list[str], *, body: dict | None = None) -> dict | None:
     """Call `gh api`, returning the parsed response or None on failure."""
+    global _last_api_error
     tmp_path: str | None = None
     cmd = ["gh", "api", *args]
     if body is not None:
@@ -81,6 +87,7 @@ def _api(args: list[str], *, body: dict | None = None) -> dict | None:
         if tmp_path:
             Path(tmp_path).unlink(missing_ok=True)
     if result.returncode != 0:
+        _last_api_error = (result.stderr or "").strip()
         return None
     try:
         return json.loads(result.stdout)
@@ -238,10 +245,10 @@ def _supplement_entry(
         else ""
     )
     if version not in rendered:
-        info(f"release-commit: no v{version} entry in {CHANGELOG} — {SUPPLEMENT} kept")
+        info(f"release-commit: no v{version} entry in {CHANGELOG} -- {SUPPLEMENT} kept")
         return []
     if _api([f"repos/{repo}/contents/{SUPPLEMENT}?ref={branch}"]) is None:
-        info(f"release-commit: {SUPPLEMENT} is not on {branch} — leaving it alone")
+        info(f"release-commit: {SUPPLEMENT} is not on {branch} -- leaving it alone")
         return []
     return [{"path": SUPPLEMENT, "mode": "100644", "type": "blob", "sha": None}]
 
@@ -285,7 +292,7 @@ def commit_release_artefacts(
     present = fixed + stamped
     consumed = [SUPPLEMENT] if (root / SUPPLEMENT).is_file() else []
     if not present and not consumed:
-        info("release-commit: no release artefacts on disk — nothing to commit")
+        info("release-commit: no release artefacts on disk -- nothing to commit")
         return 0
 
     if dry_run:
@@ -308,10 +315,10 @@ def commit_release_artefacts(
             return 0 if outcome == "ok" else 1
         warn(
             f"release-commit: {branch} moved while committing "
-            f"(attempt {attempt}/{_RETRIES}) — rebuilding on the new tip"
+            f"(attempt {attempt}/{_RETRIES}) -- rebuilding on the new tip"
         )
 
-    error(f"release-commit: {branch} kept moving — giving up after {_RETRIES} tries")
+    error(f"release-commit: {branch} kept moving -- giving up after {_RETRIES} tries")
     return 1
 
 
@@ -385,9 +392,34 @@ def _attempt(
         body={"sha": new_commit, "force": False},
     )
     if not updated:
-        return "retry"
+        return _classify_refused_update(repo=repo, branch=branch, tip=tip)
 
     success(
         f"release-commit: {branch} now carries v{version} ({new_commit[:8]}, untagged)"
     )
     return "ok"
+
+
+def _classify_refused_update(*, repo: str, branch: str, tip: str) -> str:
+    """Tell a branch that moved (retry) from a push GitHub refused (fail).
+
+    A refused update whose branch still points at ``tip`` was not a race: a
+    ruleset or a missing permission turned the push away, and retrying cannot
+    change that answer.
+    """
+    reason = _last_api_error
+    ref = _api([f"repos/{repo}/git/ref/heads/{branch}"])
+    now = (ref or {}).get("object", {}).get("sha")
+    if now and now != tip:
+        return "retry"
+    error(
+        f"release-commit: GitHub refused the update to {branch}, which has not "
+        f"moved -- a ruleset or the token's permissions blocked the push"
+        + (f": {reason}" if reason else "")
+    )
+    error(
+        "release-commit: a protected branch takes this commit only from the "
+        "release bot. If this run warned that GH_APP_PRIVATE_KEY is not "
+        "visible to the repo, add the repo to that org secret's selected list."
+    )
+    return "fail"
