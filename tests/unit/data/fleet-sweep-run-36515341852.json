@@ -1,0 +1,71 @@
+{
+  "conclusion": "success",
+  "databaseId": 36515341852,
+  "jobs": [
+    {
+      "completedAt": "2026-09-29T03:02:45Z",
+      "conclusion": "success",
+      "name": "k8s + IaC linting",
+      "startedAt": "2026-09-29T03:02:17Z",
+      "status": "completed"
+    },
+    {
+      "completedAt": "2026-09-29T03:02:45Z",
+      "conclusion": "success",
+      "name": "ci / Plan",
+      "startedAt": "2026-09-29T03:02:30Z",
+      "status": "completed"
+    },
+    {
+      "completedAt": "2026-09-29T03:02:15Z",
+      "conclusion": "skipped",
+      "name": "ci / Commit messages",
+      "startedAt": "2026-09-29T03:02:16Z",
+      "status": "completed"
+    },
+    {
+      "completedAt": "2026-09-29T03:03:52Z",
+      "conclusion": "success",
+      "name": "ci / Quality",
+      "startedAt": "2026-09-29T03:03:01Z",
+      "status": "completed"
+    },
+    {
+      "completedAt": "2026-09-29T03:03:36Z",
+      "conclusion": "success",
+      "name": "ci / Test (core, arc-vanilla-4cpu-canary)",
+      "startedAt": "2026-09-29T03:03:01Z",
+      "status": "completed"
+    },
+    {
+      "completedAt": "2026-09-29T03:04:45Z",
+      "conclusion": "success",
+      "name": "ci / Build",
+      "startedAt": "2026-09-29T03:04:07Z",
+      "status": "completed"
+    },
+    {
+      "completedAt": "2026-09-29T03:05:20Z",
+      "conclusion": "success",
+      "name": "ci / Gate",
+      "startedAt": "2026-09-29T03:05:01Z",
+      "status": "completed"
+    },
+    {
+      "completedAt": "2026-09-29T03:05:54Z",
+      "conclusion": "success",
+      "name": "ci / Release tail / Container",
+      "startedAt": "2026-09-29T03:04:48Z",
+      "status": "completed"
+    },
+    {
+      "completedAt": "2026-09-29T03:05:54Z",
+      "conclusion": "skipped",
+      "name": "ci / Release tail / Tag & Release",
+      "startedAt": "2026-09-29T03:05:55Z",
+      "status": "completed"
+    }
+  ],
+  "status": "completed",
+  "updatedAt": "2026-09-29T03:05:55Z"
+}

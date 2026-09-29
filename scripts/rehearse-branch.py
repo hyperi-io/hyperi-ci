@@ -308,7 +308,16 @@ def _teardown(
     )
 
 
-_PASSING_CONCLUSIONS = frozenset({"success", "skipped", "neutral"})
+PASSING_CONCLUSIONS = frozenset({"success", "skipped", "neutral"})
+
+
+def run_passed(conclusion: str | None) -> bool:
+    """Whether a finished run passed, read from the run's own conclusion.
+
+    Not from its jobs: they come from a second read that can disagree with the
+    run's, and a job-by-job verdict called a green run red (issue #401).
+    """
+    return conclusion == "success"
 
 
 def summarise_jobs(jobs: list[dict]) -> tuple[bool, list[str]]:
@@ -322,7 +331,7 @@ def summarise_jobs(jobs: list[dict]) -> tuple[bool, list[str]]:
         for job in jobs
     ]
     passed = bool(jobs) and all(
-        job.get("conclusion") in _PASSING_CONCLUSIONS for job in jobs
+        job.get("conclusion") in PASSING_CONCLUSIONS for job in jobs
     )
     return passed, lines
 
@@ -560,7 +569,7 @@ def _watch_pr_run(
                 "--event",
                 "pull_request",
                 "--json",
-                "databaseId,status,headSha",
+                "databaseId,status,conclusion,headSha",
                 "--limit",
                 "20",
             ],
@@ -579,7 +588,11 @@ def _watch_pr_run(
             )
         mine = pick_run(candidates, fixture_sha)
         runs = [mine] if mine else []
-        if runs and runs[0].get("status") == "completed":
+        if (
+            runs
+            and runs[0].get("status") == "completed"
+            and (conclusion := runs[0].get("conclusion"))
+        ):
             viewed = _run(
                 [
                     "gh",
@@ -595,8 +608,9 @@ def _watch_pr_run(
             )
             if viewed.returncode == 0:
                 jobs = json.loads(viewed.stdout or "{}").get("jobs", [])
-                passed, lines = summarise_jobs(jobs)
-                return ("pass" if passed else "fail"), lines, int(runs[0]["databaseId"])
+                _, lines = summarise_jobs(jobs)
+                verdict = "pass" if run_passed(conclusion) else "fail"
+                return verdict, lines, int(runs[0]["databaseId"])
             last_error = viewed.stderr.strip()
         time.sleep(30)
     note = f" (last gh error: {last_error})" if last_error else ""

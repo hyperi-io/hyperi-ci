@@ -277,6 +277,121 @@ class TestTheSweepVerdict:
         assert sweep.HELD in sweep.INCONCLUSIVE
 
 
+# ci-test-manifests run 36515341852 as `gh run view --json jobs` returns it:
+# green, with a non-reusable job and two skipped ones. The sweep called it red.
+_RUN_401 = json.loads(
+    (Path(__file__).parent / "data" / "fleet-sweep-run-36515341852.json").read_text(
+        encoding="utf-8"
+    )
+)
+
+
+def _settling(jobs: list[dict]) -> list[dict]:
+    """The same jobs with the last one read before it carries a conclusion."""
+    *done, last = (dict(job) for job in jobs)
+    return [*done, {**last, "status": "queued", "conclusion": ""}]
+
+
+class TestReadingOneFixtureRun:
+    """A fixture run's verdict is the run's own conclusion (issue #401)."""
+
+    def test_the_401_run_passes(self) -> None:
+        result = sweep.run_result(
+            "ci-test-manifests", 36515341852, _RUN_401["conclusion"], None
+        )
+        assert result == sweep.Result(
+            "ci-test-manifests", sweep.PASS, "run 36515341852"
+        )
+
+    def test_a_job_still_settling_does_not_turn_a_green_run_red(self) -> None:
+        jobs = _settling(_RUN_401["jobs"])
+        # The job-by-job reading the sweep used to apply fails this shape.
+        assert sweep.rehearse_branch.summarise_jobs(jobs)[0] is False
+        result = sweep.run_result("ci-test-manifests", 1, "success", jobs)
+        assert result.state == sweep.PASS
+
+    def test_a_failed_run_names_the_job_that_failed(self) -> None:
+        jobs = [dict(job) for job in _RUN_401["jobs"]]
+        container = next(job for job in jobs if job["name"].endswith("Container"))
+        container["conclusion"] = "failure"
+        result = sweep.run_result("ci-test-manifests", 7, "failure", jobs)
+        assert result.state == sweep.FAIL
+        assert result.detail == (
+            "run 7 concluded failure: ci / Release tail / Container failure"
+        )
+
+    def test_a_cancelled_run_is_not_a_pass(self) -> None:
+        result = sweep.run_result("ci-test-manifests", 7, "cancelled", [])
+        assert result == sweep.Result(
+            "ci-test-manifests", sweep.FAIL, "run 7 concluded cancelled"
+        )
+
+    def test_unreadable_jobs_still_fail_a_failed_run(self) -> None:
+        result = sweep.run_result("ci-test-manifests", 7, "failure", None)
+        assert result.state == sweep.FAIL
+        assert "could not be read" in result.detail
+
+    def test_a_null_conclusion_reads_as_none_not_the_word(self, monkeypatch) -> None:
+        answer = json.dumps({"status": "in_progress", "conclusion": None})
+        monkeypatch.setattr(
+            sweep,
+            "_run",
+            lambda args, **_k: subprocess.CompletedProcess(args, 0, stdout=answer),
+        )
+        assert sweep._run_state("o/r", 1) == ("in_progress", "")
+
+
+class TestPollingOneFixtureRun:
+    """The sweep loop reads a verdict only once the run carries a conclusion."""
+
+    @staticmethod
+    def _sweep(monkeypatch, states: list[tuple[str, str]], jobs: list[dict]):
+        clock = _Clock()
+        answers = iter(states)
+        job_reads: list[int] = []
+
+        def read_jobs(_repo, run_id):
+            job_reads.append(run_id)
+            return jobs
+
+        monkeypatch.setattr(sweep, "time", clock)
+        monkeypatch.setattr(sweep, "_rehearsal_branches", lambda _repo: [])
+        monkeypatch.setattr(sweep, "_start", lambda _name, _deadline: 36515341852)
+        monkeypatch.setattr(sweep, "_run_state", lambda *_a: next(answers))
+        monkeypatch.setattr(sweep, "_read_jobs", read_jobs)
+        results = sweep._sweep([{"name": "ci-test-manifests"}], 5)
+        return results, job_reads
+
+    def test_the_401_run_passes_whatever_its_jobs_say(self, monkeypatch) -> None:
+        results, job_reads = self._sweep(
+            monkeypatch,
+            [("in_progress", ""), ("completed", _RUN_401["conclusion"])],
+            _settling(_RUN_401["jobs"]),
+        )
+        assert [r.state for r in results] == [sweep.PASS]
+        # A green run needs no job read, so none can disagree with it.
+        assert job_reads == []
+
+    def test_completed_with_no_conclusion_is_still_going(self, monkeypatch) -> None:
+        results, _ = self._sweep(
+            monkeypatch,
+            [("completed", ""), ("completed", "success")],
+            [],
+        )
+        assert [r.state for r in results] == [sweep.PASS]
+
+    def test_a_failed_run_is_read_for_its_jobs(self, monkeypatch) -> None:
+        failed = [
+            {"name": "ci / Quality", "status": "completed", "conclusion": "failure"}
+        ]
+        results, job_reads = self._sweep(
+            monkeypatch, [("completed", "failure")], failed
+        )
+        assert [r.state for r in results] == [sweep.FAIL]
+        assert "ci / Quality failure" in results[0].detail
+        assert job_reads == [36515341852]
+
+
 class _Clock:
     """Stands in for the sweep's `time` module: sleeping advances the clock."""
 
