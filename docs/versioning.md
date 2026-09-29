@@ -182,6 +182,7 @@ notification must never turn an already-shipped release red:
 |------|--------------|
 | `release-notify --outcome success` | Comments on every issue and PR referenced by the commits in the release |
 | `release-notify --outcome failure` | Opens (or reuses) a `release-failure` issue naming the run and the retry command |
+| `release-notify --outcome commit-back-failed` | When `release-commit` fails: one `release-commit-back` issue per repo naming the fix, a comment per later version. Closed by hand |
 
 These replace what `@semantic-release/github`'s `success` / `fail` steps would
 do; that plugin is never loaded, being the other half of the #37 pair.
