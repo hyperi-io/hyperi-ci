@@ -11,8 +11,10 @@ These render each step's ``${{ }}`` expressions for one event and run it in a
 throwaway repo whose HEAD carries ``Release: true``, so a schedule branch that
 fell through to the trailer check would publish and fail the test.
 
-``python3`` on the step's PATH is this interpreter, so a helper needing
-PyYAML does not depend on whatever the host's own python3 carries.
+``python3`` on the step's PATH is this interpreter by default. The config
+readers run under ``uv run --with pyyaml``, exactly as the composite runs them,
+and :class:`TestAPython3WithoutPyYAML` puts a python3 with no PyYAML first on
+the PATH to prove the answer no longer depends on the runner's own.
 """
 
 import os
@@ -26,6 +28,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from hyperi_ci.versions import tool_version
+
 ACTION_DIR = (
     Path(__file__).resolve().parents[2] / ".github" / "actions" / "predict-version"
 )
@@ -35,6 +39,27 @@ pytestmark = pytest.mark.skipif(
     shutil.which("bash") is None or shutil.which("git") is None,
     reason="needs bash and git",
 )
+
+# The config readers run under uv. Tests that reach one need it on the PATH.
+needs_uv = pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv")
+
+# HOME moves into the throwaway repo, so uv would otherwise start a cold cache
+# and fetch PyYAML afresh for every test.
+_UV_CACHE = (
+    subprocess.run(
+        ["uv", "cache", "dir"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    ).stdout.strip()
+    if shutil.which("uv")
+    else ""
+)
+
+#: The composite's own input default, which versions.yaml keeps in step.
+_INPUTS = {"inputs.pyyaml-version": tool_version("pyyaml")}
 
 
 def _steps() -> dict[str, dict]:
@@ -62,8 +87,13 @@ def _python3_shim(repo: Path) -> Path:
 
 
 def _run_step(
-    step_id: str, values: dict[str, str], repo: Path, env: dict[str, str] | None = None
-) -> dict[str, str]:
+    step_id: str,
+    values: dict[str, str],
+    repo: Path,
+    env: dict[str, str] | None = None,
+    path_first: Path | None = None,
+) -> tuple[dict[str, str], str]:
+    values = {**_INPUTS, **values}
     step = _steps()[step_id]
     script = _render(str(step["run"]), values)
     output = repo / ".github_output"
@@ -79,8 +109,14 @@ def _run_step(
         encoding="utf-8",
         errors="replace",
         env={
-            "PATH": f"{_python3_shim(repo)}{os.pathsep}{os.environ.get('PATH', '')}",
+            "PATH": os.pathsep.join(
+                [
+                    str(path_first or _python3_shim(repo)),
+                    os.environ.get("PATH", ""),
+                ]
+            ),
             "HOME": str(repo),
+            **({"UV_CACHE_DIR": _UV_CACHE} if _UV_CACHE else {}),
             "GITHUB_OUTPUT": str(output),
             "GITHUB_ACTION_PATH": str(ACTION_DIR),
             "GITHUB_WORKSPACE": str(repo),
@@ -90,11 +126,12 @@ def _run_step(
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    return dict(
+    written = dict(
         line.split("=", 1)
         for line in output.read_text(encoding="utf-8").splitlines()
         if "=" in line
     )
+    return written, result.stdout
 
 
 @pytest.fixture
@@ -136,7 +173,7 @@ def _gate(event: str, repo: Path) -> dict[str, str]:
             "inputs.from-head": "",
         },
         repo,
-    )
+    )[0]
 
 
 def _derive(event: str, will_publish: str, repo: Path) -> dict[str, str]:
@@ -151,10 +188,16 @@ def _derive(event: str, will_publish: str, repo: Path) -> dict[str, str]:
             "steps.predict.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version": "",
         },
         repo,
-    )
+    )[0]
 
 
-def _tier(event: str, will_publish: str, requested: str, repo: Path) -> dict[str, str]:
+def _tier(
+    event: str,
+    will_publish: str,
+    requested: str,
+    repo: Path,
+    path_first: Path | None = None,
+) -> dict[str, str]:
     return _run_step(
         "tier",
         {
@@ -163,7 +206,13 @@ def _tier(event: str, will_publish: str, requested: str, repo: Path) -> dict[str
             "inputs.test-tier": requested,
         },
         repo,
-    )
+        path_first=path_first,
+    )[0]
+
+
+def _targets(repo: Path, path_first: Path | None = None) -> tuple[str, str]:
+    written, stdout = _run_step("targets", {}, repo, path_first=path_first)
+    return written["rust-targets"], stdout
 
 
 def test_the_steps_python3_is_this_interpreter(tmp_path: Path) -> None:
@@ -241,7 +290,7 @@ class TestATagDispatch:
     """A `tag` dispatch re-publishes the tag's own version (issue #352)."""
 
     def test_a_tag_dispatch_publishes(self, released_head: Path) -> None:
-        outputs = _run_step(
+        outputs, _ = _run_step(
             "gate",
             {
                 "github.event_name": "workflow_dispatch",
@@ -256,11 +305,11 @@ class TestATagDispatch:
     def test_the_version_is_the_tags_own(self, released_head: Path) -> None:
         # The tree says 1.0.3, as a tagged commit does before the commit-back.
         (released_head / "VERSION").write_text("1.0.3\n", encoding="utf-8")
-        outputs = _run_step("tagged", {"inputs.tag": "v1.0.4"}, released_head)
+        outputs, _ = _run_step("tagged", {"inputs.tag": "v1.0.4"}, released_head)
         assert outputs == {"version": "1.0.4"}
 
     def test_a_prerelease_tag_keeps_its_label(self, released_head: Path) -> None:
-        outputs = _run_step("tagged", {"inputs.tag": "v1.2.0-beta.1"}, released_head)
+        outputs, _ = _run_step("tagged", {"inputs.tag": "v1.2.0-beta.1"}, released_head)
         assert outputs == {"version": "1.2.0-beta.1"}
 
     def test_a_tag_that_names_no_version_fails(self, released_head: Path) -> None:
@@ -290,3 +339,184 @@ class TestATagDispatch:
         action = yaml.safe_load((ACTION_DIR / "action.yml").read_text(encoding="utf-8"))
         assert "steps.tagged.outputs.version" in action["outputs"]["version"]["value"]
         assert "steps.tagged.outputs.version" in str(_steps()["derive"]["run"])
+
+
+_AMD64 = "x86_64-unknown-linux-gnu"
+_ARM64 = "aarch64-unknown-linux-gnu"
+
+
+@pytest.fixture(scope="module")
+def bare_python3(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A bin directory whose python3 has no PyYAML, as on the ARC vanilla image."""
+    if shutil.which("uv") is None:
+        pytest.skip("needs uv")
+    venv = tmp_path_factory.mktemp("bare") / "venv"
+    subprocess.run(
+        ["uv", "venv", "--quiet", "--python", sys.executable, str(venv)],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    bin_dir = venv / ("Scripts" if os.name == "nt" else "bin")
+    probe = subprocess.run(
+        [str(bin_dir / "python3"), "-c", "import yaml"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    # Guards the guard: a python3 that has PyYAML proves nothing below.
+    assert probe.returncode != 0, "the bare python3 can import yaml"
+    # Shadow any yq on the host too, or the fallback answers in PyYAML's place.
+    fake_yq = bin_dir / "yq"
+    fake_yq.write_text("#!/bin/sh\nexit 127\n", encoding="utf-8")
+    fake_yq.chmod(fake_yq.stat().st_mode | stat.S_IXUSR)
+    return bin_dir
+
+
+def _rust_repo(repo: Path, config: str) -> Path:
+    (repo / "Cargo.toml").write_text(
+        '[package]\nname = "thing"\nversion = "0.1.0"\n', encoding="utf-8"
+    )
+    (repo / ".hyperi-ci.yaml").write_text(config, encoding="utf-8")
+    return repo
+
+
+@needs_uv
+class TestAPython3WithoutPyYAML:
+    """Every config read in Plan comes out right on a python3 with no PyYAML.
+
+    The ARC vanilla image has python3 but neither PyYAML nor yq. Before the
+    readers ran under uv, the tier there came out core for a repo asking for
+    full, the arm64 check read nothing, and the Rust matrix built every target
+    (issue #291). ``UV_PYTHON_PREFERENCE=only-system`` makes uv take that
+    python3 as the base, so the PyYAML the step asks for is what reads the file.
+    """
+
+    ENV = {"UV_PYTHON_PREFERENCE": "only-system"}
+
+    def _step(
+        self, step_id: str, values: dict[str, str], repo: Path, bare: Path
+    ) -> tuple[dict[str, str], str]:
+        return _run_step(step_id, values, repo, env=self.ENV, path_first=bare)
+
+    def test_the_project_tier_is_read(
+        self, released_head: Path, bare_python3: Path
+    ) -> None:
+        (released_head / ".hyperi-ci.yaml").write_text(
+            "test:\n  tier: full\n", encoding="utf-8"
+        )
+        outputs, stdout = self._step(
+            "tier",
+            {
+                "github.event_name": "pull_request",
+                "steps.gate.outputs.will-publish": "false",
+                "inputs.test-tier": "",
+            },
+            released_head,
+            bare_python3,
+        )
+        assert outputs["test-tier"] == "full", stdout
+        assert "test.tier: full" in stdout
+
+    def test_the_release_opt_in_is_read(
+        self, released_head: Path, bare_python3: Path
+    ) -> None:
+        (released_head / ".hyperi-ci.yaml").write_text(
+            "test:\n  full:\n    required_for_release: true\n", encoding="utf-8"
+        )
+        outputs, _ = self._step(
+            "tier",
+            {
+                "github.event_name": "push",
+                "steps.gate.outputs.will-publish": "true",
+                "inputs.test-tier": "",
+            },
+            released_head,
+            bare_python3,
+        )
+        assert outputs == {"test-tier": "full", "full-required-for-release": "true"}
+
+    def test_the_rust_targets_are_read(
+        self, released_head: Path, bare_python3: Path
+    ) -> None:
+        _rust_repo(
+            released_head,
+            f"build:\n  rust:\n    targets:\n      - {_AMD64}\n",
+        )
+        outputs, stdout = self._step("targets", {}, released_head, bare_python3)
+        assert outputs == {"rust-targets": _AMD64}
+        assert f"::notice title=rust targets::{_AMD64}" in stdout
+
+    @pytest.mark.parametrize(
+        ("targets", "expected"),
+        [([_AMD64], "false"), ([_AMD64, _ARM64], "true")],
+    )
+    def test_the_arm64_check_reads_the_targets(
+        self,
+        released_head: Path,
+        bare_python3: Path,
+        targets: list[str],
+        expected: str,
+    ) -> None:
+        listed = "".join(f"      - {target}\n" for target in targets)
+        _rust_repo(released_head, f"build:\n  rust:\n    targets:\n{listed}")
+        outputs, _ = self._step(
+            "derive",
+            {
+                "steps.gate.outputs.will-publish": "false",
+                "github.event_name": "push",
+                "inputs.branch-build": "",
+                "github.ref": "refs/heads/main",
+                "steps.worthy.outputs.release-worthy": "true",
+                "steps.predict.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version": "",
+            },
+            released_head,
+            bare_python3,
+        )
+        assert outputs["run-arm64-check"] == expected
+
+
+@needs_uv
+class TestTheRustTargetsStep:
+    """What the Rust matrix is handed, and when it warns."""
+
+    def test_no_list_means_every_target_and_says_nothing(
+        self, released_head: Path
+    ) -> None:
+        _rust_repo(released_head, "language: rust\n")
+        assert _targets(released_head) == ("", "")
+
+    def test_the_list_is_space_separated(self, released_head: Path) -> None:
+        _rust_repo(
+            released_head,
+            f"build:\n  rust:\n    targets:\n      - {_AMD64}\n      - {_ARM64}\n",
+        )
+        assert _targets(released_head)[0] == f"{_AMD64} {_ARM64}"
+
+    def test_another_language_gets_an_empty_list_and_no_warning(
+        self, released_head: Path
+    ) -> None:
+        # Only rust-ci.yml reads this, so a python repo's broken config is
+        # the tier step's to report, not this one's.
+        (released_head / ".hyperi-ci.yaml").write_text("x: [\n", encoding="utf-8")
+        assert _targets(released_head) == ("", "")
+
+    def test_an_unreadable_config_warns_and_builds_every_target(
+        self, released_head: Path
+    ) -> None:
+        _rust_repo(released_head, "build: [unclosed\n")
+        targets, stdout = _targets(released_head)
+        assert targets == ""
+        assert stdout.startswith("::warning title=rust targets::.hyperi-ci.yaml")
+        assert "every target builds" in stdout
+        assert len(stdout.splitlines()) == 1
+
+    def test_a_list_that_is_not_a_list_warns(self, released_head: Path) -> None:
+        _rust_repo(released_head, f"build:\n  rust:\n    targets: {_AMD64}\n")
+        targets, stdout = _targets(released_head)
+        assert targets == ""
+        assert "build.rust.targets must be a list" in stdout

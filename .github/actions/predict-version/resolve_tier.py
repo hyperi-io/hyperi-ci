@@ -85,7 +85,7 @@ def run() -> int:
     _write_outputs(tier, required)
     if project.unreadable:
         print(
-            f"::warning title=test tier {tier}::{why}; {project.unreadable} could not be read, so its tier settings were ignored"
+            f"::warning title=test tier {tier}::{why}; {project.unreadable}, so its tier settings were ignored"
         )
     else:
         print(f"::notice title=test tier {tier}::{why}")

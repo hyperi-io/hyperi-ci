@@ -115,3 +115,18 @@ def test_an_opt_out_in_a_yml_config_is_honoured(tmp_path: Path) -> None:
         "build:\n  rust:\n    arm64_on_main: false\n", encoding="utf-8"
     )
     assert wants_arm64_check(root)[0] is False
+
+
+def test_a_targets_value_that_is_not_a_list_is_off(tmp_path: Path) -> None:
+    # A bare string used to be searched as a substring, so it named aarch64
+    # whenever the triple appeared anywhere in it.
+    config = f"build:\n  rust:\n    targets: {AARCH64}\n"
+    wanted, reason = wants_arm64_check(_project(tmp_path, config=config))
+    assert wanted is False
+    assert "must be a list" in reason
+
+
+def test_the_reason_says_why_the_config_could_not_be_read(tmp_path: Path) -> None:
+    wanted, reason = wants_arm64_check(_project(tmp_path, config="- one\n"))
+    assert wanted is False
+    assert "not a mapping" in reason
