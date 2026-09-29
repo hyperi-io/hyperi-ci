@@ -19,13 +19,14 @@ import os
 from pathlib import Path
 from typing import Any, Protocol, cast
 
-from hyperi_ci import native_tools
+from hyperi_ci import native_tools, release_prepare
 from hyperi_ci.common import (
     announce,
     error,
     group,
     info,
     is_ci,
+    resolve_release_version,
     run_cmd,
     success,
     warn,
@@ -430,6 +431,43 @@ def stage_build(language: str, config: CIConfig, *, local: bool = False) -> int:
     return 0
 
 
+def check_prepared(language: str) -> int:
+    """Refuse a prepared directory written for another version or language.
+
+    It came from a job that ran repo code, so it is checked against what this
+    run is releasing before anything reads it. A CI run with no prepared
+    directory is a caller on a release tail that predates the split, and says
+    so, because the repo's own code then runs beside the tokens.
+    """
+    ok, prepared = release_prepare.load_or_report("release")
+    if not ok:
+        return 1
+    if prepared is None:
+        if is_ci():
+            announce(
+                f"{release_prepare.PREPARED_ENV} is not set, so this release runs "
+                "the repo's own code (semver checks, npm pack) in the process "
+                "that holds the publish tokens. Move the caller to the current "
+                "hyperi-ci release tail (issue #409).",
+                "hyperi-ci release without a prepare job",
+                level="warning",
+            )
+        return 0
+    version = resolve_release_version()
+    if prepared.version != version:
+        error(
+            f"Prepared v{prepared.version} but this run releases v{version} -- "
+            "refusing to upload artefacts built for another version"
+        )
+        return 1
+    canonical = _LANGUAGE_ALIASES.get(language, language)
+    if prepared.language != canonical:
+        error(f"Prepared a {prepared.language} release, but this is {canonical}")
+        return 1
+    info(f"Uploading v{version} as prepared; no repo code runs in this stage")
+    return 0
+
+
 def stage_release(language: str, config: CIConfig) -> int:
     """Release -- CI-only, dispatch to language-specific handler + binary upload."""
     if not is_ci():
@@ -448,6 +486,10 @@ def stage_release(language: str, config: CIConfig) -> int:
             "to the same OSS destinations as 'release'. Pre-GA staging on "
             "private registries was retired in v2.1.4."
         )
+
+    rc = check_prepared(language)
+    if rc != 0:
+        return rc
 
     rc = _dispatch_to_handler(language, "release", config)
     if rc == -1:

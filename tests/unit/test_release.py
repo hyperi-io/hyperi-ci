@@ -453,6 +453,35 @@ class TestReleaseAssets:
 
         assert stage_release_assets(self._config(["catalogue"])) == 1
 
+    @pytest.mark.parametrize(
+        "entry",
+        ["/proc/self/environ", "../../.docker/config.json", ".git/config", "link"],
+    )
+    def test_a_path_that_would_publish_the_runner_is_refused(
+        self, tmp_path, monkeypatch, entry: str
+    ) -> None:
+        """The upload holds every publish credential."""
+        repo = tmp_path / "repo"
+        (repo / ".git").mkdir(parents=True)
+        (repo / ".git" / "config").write_text("[core]\n")
+        (tmp_path / "secret").write_text("token\n")
+        (repo / "link").symlink_to(tmp_path / "secret")
+        monkeypatch.chdir(repo)
+        from hyperi_ci.release.binaries import stage_release_assets
+
+        assert stage_release_assets(self._config([entry])) == 1
+        assert not (repo / "dist").exists()
+
+    def test_a_symlink_to_a_file_inside_the_repo_is_refused(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "real.yaml").write_text("x\n")
+        (tmp_path / "alias.yaml").symlink_to(tmp_path / "real.yaml")
+        from hyperi_ci.release.binaries import stage_release_assets
+
+        assert stage_release_assets(self._config(["alias.yaml"])) == 1
+
     def test_it_refuses_to_clobber_a_built_artefact(
         self, tmp_path, monkeypatch
     ) -> None:

@@ -4,12 +4,17 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Python publish handler -- publishes Python packages to PyPI."""
+"""Python release handler -- uploads the Build job's wheel and sdist to PyPI.
+
+Nothing is built here. ``uv publish`` runs with ``--no-config`` because a
+project's ``[tool.uv] publish-url`` would otherwise send the token to whatever
+host it names (issue #409), and the token goes in the environment rather than
+on the command line, where any process on the runner can read it.
+"""
 
 import os
-import subprocess
 
-from hyperi_ci.common import error, group, info, success, warn
+from hyperi_ci.common import error, group, info, run_cmd, success, warn
 from hyperi_ci.config import CIConfig
 
 
@@ -22,14 +27,12 @@ def _publish_pypi() -> int:
         Exit code (0 = success).
 
     """
-    cmd = ["uv", "publish"]
-
     token = os.environ.get("PYPI_TOKEN")
-    if token:
-        cmd.extend(["--token", token])
-
-    result = subprocess.run(
-        cmd, capture_output=True, text=True, encoding="utf-8", errors="replace"
+    result = run_cmd(
+        ["uv", "publish", "--no-config"],
+        env={"UV_PUBLISH_TOKEN": token} if token else None,
+        capture=True,
+        check=False,
     )
     if result.returncode != 0:
         if "already exists" in (result.stderr + result.stdout):

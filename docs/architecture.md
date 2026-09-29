@@ -299,6 +299,8 @@ hyperi-ci check [--quick|--full|--strict|--tier full]  pre-push: quality(+test)(
 hyperi-ci push [--release]         commit + push, opt-in Release: true trailer
 hyperi-ci release [<tag>]          release/retry HEAD, or re-release an existing tag
 hyperi-ci stamp-version <v>        write VERSION + manifest (central)
+hyperi-ci release-prepare <v> --out <dir> [--phase stamp|package|all]   stamp + run the release's repo code (semver checks, packing) with no credentials; `run release` with HYPERCI_RELEASE_PREPARED=<dir> then only uploads
+hyperi-ci release-verify           fail before tagging when the prepared release names another version or language
 hyperi-ci init                     scaffold ci.yml, .hyperi-ci.yaml, Makefile, githooks
 hyperi-ci detect | config          show detected language / merged config
 hyperi-ci trigger | watch | rerun | logs   drive GitHub Actions from the terminal

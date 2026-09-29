@@ -563,3 +563,61 @@ class TestRefusals:
         with patch("hyperi_ci.release_commit._api", return_value=None) as stub:
             assert commit_release_artefacts(version="3.1.0", project_dir=project) == 1
         assert stub.call_count == 1
+
+
+class TestPreparedStamp:
+    """The publish job runs no stamp: stamp_paths come from prepare, VERSION from here."""
+
+    @staticmethod
+    def _prepared(project: Path, tmp_path: Path, head: str) -> Path:
+        (project / ".hyperi-ci.yaml").write_text(
+            yaml.safe_dump({"release": {"stamp_paths": ["spec.json", "CHANGELOG.md"]}}),
+            encoding="utf-8",
+        )
+        prepared = tmp_path / "prepared"
+        stamped = prepared / "stamped"
+        stamped.mkdir(parents=True)
+        (prepared / "prepared.json").write_text(
+            '{"schema": 2, "version": "3.2.0", "language": "python", '
+            f'"head": "{head}", "facts": {{}}}}',
+            encoding="utf-8",
+        )
+        # Forged: VERSION is never taken from prepare.
+        (stamped / "VERSION").write_text("6.6.6\n", encoding="utf-8")
+        (stamped / "spec.json").write_text('{"version": "3.2.0"}', encoding="utf-8")
+        # Stale in the prepare job, which never runs semantic-release.
+        (stamped / "CHANGELOG.md").write_text("# stale\n", encoding="utf-8")
+        return prepared
+
+    def test_the_prepared_files_are_restored_before_committing(
+        self, api: _Api, project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        prepared = self._prepared(project, tmp_path, head="")
+        monkeypatch.setenv("HYPERCI_RELEASE_PREPARED", str(prepared))
+
+        assert commit_release_artefacts(version="3.2.0", project_dir=project) == 0
+
+        assert (project / "VERSION").read_text(encoding="utf-8") == "3.2.0\n"
+        assert (project / "spec.json").is_file()
+        assert "stale" not in (project / "CHANGELOG.md").read_text(encoding="utf-8")
+
+    def test_a_prepare_on_another_commit_restores_no_stamp_paths(
+        self, api: _Api, project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        prepared = self._prepared(project, tmp_path, head="a" * 40)
+        monkeypatch.setenv("HYPERCI_RELEASE_PREPARED", str(prepared))
+        monkeypatch.setattr(
+            "hyperi_ci.release_prepare.head_commit", lambda _root: "b" * 40
+        )
+
+        assert commit_release_artefacts(version="3.2.0", project_dir=project) == 0
+
+        assert (project / "VERSION").read_text(encoding="utf-8") == "3.2.0\n"
+        assert not (project / "spec.json").exists()
+
+    def test_an_unusable_prepared_directory_commits_nothing(
+        self, api: _Api, project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYPERCI_RELEASE_PREPARED", str(tmp_path / "absent"))
+        assert commit_release_artefacts(version="3.1.0", project_dir=project) == 1
+        assert not api.bodies_for("/git/commits")
