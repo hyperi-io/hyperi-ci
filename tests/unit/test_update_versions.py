@@ -829,6 +829,39 @@ class TestToolPins:
         assert "broken" in problems[0]
         assert [p[3] for p in pins] == ["tools.gitleaks"]
 
+    def test_digests_mirror_into_composite_actions_only(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A workflow handing the version to an installer action takes no digest.
+
+        The gitops scaffold passes helm's version to azure/setup-helm, which
+        fetches the binary itself, while hyperi-ci checks the same tool's
+        digests when it installs helm for a project's tests.
+        """
+        _pin_tree(tmp_path, monkeypatch)
+        action = tmp_path / "actions" / "setup-x" / "action.yml"
+        action.parent.mkdir(parents=True)
+        action.write_text("", encoding="utf-8")
+        monkeypatch.setattr(update_versions, "_ACTIONS_DIR", tmp_path / "actions")
+        digest = "a" * 64
+        pins, problems = update_versions._marker_pins(
+            {
+                "tools": {
+                    "gitleaks": {
+                        "version": "v8.30.1",
+                        "pin": ["pin.py", "actions/setup-x/action.yml"],
+                        "sha256": {"amd64": digest},
+                    }
+                }
+            }
+        )
+        assert problems == []
+        assert [(p[0].name, p[3]) for p in pins] == [
+            ("pin.py", "tools.gitleaks"),
+            ("action.yml", "tools.gitleaks"),
+            ("action.yml", "tools.gitleaks.sha256.amd64"),
+        ]
+
 
 class TestToolMismatches:
     def test_in_step_pin_reports_nothing(self, tmp_path: Path, monkeypatch) -> None:

@@ -325,13 +325,19 @@ tools:
     sha256:
       x86_64: aca691abfbfbbe00d482e0ed2249eec3091b65e96a0ce92947fb5b254d48b16d
       aarch64: cd59b90fce5fa84c4189648fec33404ec5491791eebdb812df5e7fca8336408d
-  # Helm itself, not the action that installs it: azure/setup-helm takes the
-  # binary version as a `with:` input, so the value is a literal in the
-  # gitops scaffold's workflows and drifted there unpinned. No digest of ours
-  # because the action does the fetching - ours is the version it fetches.
+  # Helm itself, not the action that installs it. Two consumers share this one
+  # version. azure/setup-helm takes it as a `with:` input in the gitops
+  # scaffold's workflows, and fetches the binary itself. native_tools.py fetches
+  # it from get.helm.sh for a project's tests (`test.native_tools`), and checks
+  # these digests. They were cross-checked against upstream's `.sha256sum`
+  # files and the release notes at pin time. The scaffold carries no digest
+  # marker: update-versions.py mirrors digests into composite actions only.
   helm:
     version: v4.3.0
     repo: helm/helm
+    sha256:
+      amd64: 86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb
+      arm64: 31c5794dd55c66a51e6b7d2e2ac7a114ae8b1de41ff1d9ba51748ac973b06a08
     pin:
       - src/hyperi_ci/gitops_templates/workflows/validate.yaml
       - src/hyperi_ci/gitops_templates/workflows/stitch-and-publish.yaml
