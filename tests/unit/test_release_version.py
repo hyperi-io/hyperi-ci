@@ -8,16 +8,17 @@
 being released. HYPERCI_VERSION (Plan's next-version) wins over the committed
 VERSION file, which is stale once stamping is central (#27 + zero-config)."""
 
-from __future__ import annotations
-
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from hyperi_ci import common
 from hyperi_ci.common import (
     explicit_version,
+    holds_latest,
     latest_version_tag,
+    newer_release_than,
     resolve_release_version,
 )
 
@@ -87,6 +88,85 @@ class TestLatestVersionTag:
         _git(tmp_path, "tag", "v1.1.2-beta.1")
         monkeypatch.chdir(tmp_path)
         assert latest_version_tag() is None
+
+
+class TestNewerReleaseThan:
+    """`latest` pointers stay on the newest stable release (PR #385 review).
+
+    Re-publishing an older tag must publish its own artefacts without moving
+    R2 `latest/`, GHCR `:latest` or the GitHub Release Latest flag.
+    """
+
+    @staticmethod
+    def _tagged(tmp_path: Path, monkeypatch, *tags: str) -> None:
+        _init_repo(tmp_path)
+        for tag in tags:
+            _git(tmp_path, "tag", tag)
+        monkeypatch.chdir(tmp_path)
+
+    def test_an_older_version_is_behind_the_newest_release(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        self._tagged(tmp_path, monkeypatch, "v1.0.4", "v1.0.5")
+        assert newer_release_than("1.0.4") == "1.0.5"
+        assert newer_release_than("v1.0.4") == "1.0.5"
+
+    def test_the_newest_release_moves_latest(self, monkeypatch, tmp_path: Path) -> None:
+        # A re-run of the current release, and a Tag & Release run after the
+        # tag was cut, both see their own tag as the highest.
+        self._tagged(tmp_path, monkeypatch, "v1.0.4", "v1.0.5")
+        assert newer_release_than("1.0.5") is None
+
+    def test_a_version_above_every_tag_moves_latest(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        # The Container job runs before the new tag exists.
+        self._tagged(tmp_path, monkeypatch, "v1.0.4", "v1.0.5")
+        assert newer_release_than("1.0.6") is None
+
+    def test_components_compare_as_numbers(self, monkeypatch, tmp_path: Path) -> None:
+        self._tagged(tmp_path, monkeypatch, "v1.0.9", "v1.0.10")
+        assert newer_release_than("1.0.9") == "1.0.10"
+        assert newer_release_than("1.0.10") is None
+
+    def test_a_prerelease_tag_never_counts_as_the_newest_release(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        self._tagged(tmp_path, monkeypatch, "v1.0.4", "v1.0.5-beta.1", "v2.0.0-rc.1")
+        assert newer_release_than("1.0.4") is None
+
+    def test_a_prerelease_version_is_never_compared(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        self._tagged(tmp_path, monkeypatch, "v1.0.5")
+        assert newer_release_than("1.0.4-beta.1") is None
+
+    def test_a_repo_with_no_tags_moves_latest(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        self._tagged(tmp_path, monkeypatch)
+        assert newer_release_than("0.1.0") is None
+
+    def test_holding_latest_says_so(self, monkeypatch, tmp_path: Path) -> None:
+        self._tagged(tmp_path, monkeypatch, "v1.0.4", "v1.0.5")
+        said: list[str] = []
+        monkeypatch.setattr(common, "warn", said.append)
+
+        assert holds_latest("1.0.4", "R2 latest/") is True
+        assert said == [
+            "Leaving R2 latest/ on v1.0.5: v1.0.4 is older than the newest "
+            "stable release. Only its versioned artefacts publish."
+        ]
+
+    def test_the_newest_release_holds_nothing(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        self._tagged(tmp_path, monkeypatch, "v1.0.4", "v1.0.5")
+        said: list[str] = []
+        monkeypatch.setattr(common, "warn", said.append)
+
+        assert holds_latest("1.0.5", "R2 latest/") is False
+        assert said == []
 
 
 class TestExplicitVersion:

@@ -749,3 +749,106 @@ class TestBothReleasePathsReadTheConfigSkip:
         assert binaries.publish_binaries(config) == 0
         assert len(bodies) == 1, bodies
         assert bodies[0].startswith(binaries.UNOPTIMIZED_RELEASE_BANNER)
+
+
+class TestLatestStaysOnTheNewestRelease:
+    """Re-publishing an older tag leaves every `latest` pointer where it is.
+
+    A tag dispatch of v1.18.19 while v1.18.25 is current would otherwise
+    point downloads.hyperi.io/<project>/latest/ and the GitHub Release Latest
+    flag back at 1.18.19. The versioned artefacts still publish.
+    """
+
+    @pytest.fixture
+    def repo(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        for args in (
+            ["init", "-q"],
+            ["commit", "--allow-empty", "-m", "chore: seed"],
+            ["tag", "v1.0.4"],
+            ["tag", "v1.0.5"],
+            ["tag", "v1.0.6-beta.1"],
+        ):
+            subprocess.run(
+                ["git", "-c", "user.email=t@t", "-c", "user.name=t", *args],
+                cwd=tmp_path,
+                check=True,
+                capture_output=True,
+            )
+        (tmp_path / "dist").mkdir()
+        (tmp_path / "dist" / "demo-linux-amd64").write_bytes(b"\x7fELF")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("R2_ACCESS_KEY_ID", "test-key")
+        monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "test-secret")
+        return tmp_path
+
+    @staticmethod
+    def _sent(monkeypatch: pytest.MonkeyPatch, version: str) -> list[list[str]]:
+        from hyperi_ci.release import binaries
+
+        sent: list[list[str]] = []
+
+        def fake_run_cmd(cmd: list[str], **_kw: object) -> subprocess.CompletedProcess:
+            sent.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        monkeypatch.setattr(binaries, "run_cmd", fake_run_cmd)
+        monkeypatch.setattr(binaries, "_read_version", lambda: version)
+        monkeypatch.setattr(binaries, "ensure_aws_cli", lambda: "/usr/bin/aws")
+        return sent
+
+    @staticmethod
+    def _r2_targets(sent: list[list[str]]) -> list[str]:
+        return [cmd[3] if cmd[2] == "rm" else cmd[4] for cmd in sent if cmd[0] == "aws"]
+
+    def test_an_older_tag_leaves_r2_latest_alone(self, repo, monkeypatch) -> None:
+        from hyperi_ci.release import binaries
+
+        sent = self._sent(monkeypatch, "1.0.4")
+        assert binaries._publish_r2_binaries() == 0
+
+        assert self._r2_targets(sent) == [
+            f"s3://bin-repo/{repo.name}/v1.0.4/demo-linux-amd64",
+        ]
+
+    def test_the_newest_release_moves_r2_latest(self, repo, monkeypatch) -> None:
+        from hyperi_ci.release import binaries
+
+        sent = self._sent(monkeypatch, "1.0.5")
+        assert binaries._publish_r2_binaries() == 0
+
+        assert self._r2_targets(sent) == [
+            f"s3://bin-repo/{repo.name}/latest/",
+            f"s3://bin-repo/{repo.name}/v1.0.5/demo-linux-amd64",
+            f"s3://bin-repo/{repo.name}/latest/demo-linux-amd64",
+        ]
+
+    def test_an_older_tag_is_not_marked_latest_on_github(
+        self, repo, monkeypatch
+    ) -> None:
+        from hyperi_ci.release import binaries
+
+        sent = self._sent(monkeypatch, "1.0.4")
+        assert binaries.create_github_release(CIConfig(_raw={})) == 0
+        assert "--latest=false" in sent[0]
+
+    def test_the_binary_upload_path_carries_the_same_flag(
+        self, repo, monkeypatch
+    ) -> None:
+        from hyperi_ci.release import binaries
+
+        sent = self._sent(monkeypatch, "1.0.4")
+        config = CIConfig(
+            _raw={"release": {"destinations": {"binaries": "github-releases"}}}
+        )
+        assert binaries.publish_binaries(config) == 0
+        assert sent[0][:3] == ["gh", "release", "create"]
+        assert "--latest=false" in sent[0]
+
+    def test_the_newest_release_leaves_github_to_mark_it_latest(
+        self, repo, monkeypatch
+    ) -> None:
+        from hyperi_ci.release import binaries
+
+        sent = self._sent(monkeypatch, "1.0.5")
+        assert binaries.create_github_release(CIConfig(_raw={})) == 0
+        assert not any(arg.startswith("--latest") for arg in sent[0])
