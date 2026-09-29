@@ -26,7 +26,10 @@ from pathlib import Path
 from hyperi_ci.common import announce, error, info, is_ci, strip_ansi, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import get_test_ignore, resolve_tool_mode
-from hyperi_ci.languages.rust._manifest import is_root_package_workspace
+from hyperi_ci.languages.rust._manifest import (
+    is_root_package_workspace,
+    restore_cargo_manifests,
+)
 from hyperi_ci.languages.rust.targets import cargo_metadata
 from hyperi_ci.quality import cargo_flags, osv_scanner
 from hyperi_ci.quality.ignores import IgnoreEntry, for_tool, load_ignores
@@ -536,24 +539,6 @@ def _run_feature_matrix(
         driver_args = [*cap, *clippy_allows]
         lint_args = ["--", *driver_args] if driver_args else []
 
-    # Pass 1 -- bare crate (no default features). Catches "breaks without defaults" bugs.
-    if fm_config.get("also_check_no_default_features", True):
-        for scope_args, target_args in scopes:
-            cmd = [
-                "cargo",
-                lint_tool,
-                "--no-default-features",
-                *scope_args,
-                *target_args,
-                *lint_args,
-            ]
-            label = " on ".join(["--no-default-features", *scope_args[1:]])
-            if not _run_matrix_pass(
-                "feature_matrix (no-default-features)", cmd, label, warnings_mode
-            ):
-                had_failure = True
-
-    # Pass 2 -- each feature in isolation
     tuning: list[str] = []
 
     exclude = fm_config.get("exclude", [])
@@ -575,28 +560,48 @@ def _run_feature_matrix(
 
     if not is_ci():
         info(
-            "  feature_matrix: cargo-hack --no-dev-deps rewrites Cargo.toml "
-            "until it exits, so do not commit while it runs"
+            "  feature_matrix: cargo-hack --no-dev-deps rewrites Cargo.toml and "
+            "Cargo.lock until the matrix ends, so do not commit while it runs"
         )
-    for scope_args, target_args in scopes:
-        cmd = [
-            "cargo",
-            "hack",
-            "--each-feature",
-            "--no-dev-deps",
-            lint_tool,
-            *scope_args,
-            *target_args,
-            *tuning,
-            *lint_args,
-        ]
-        if not _run_matrix_pass(
-            "feature_matrix (each-feature)",
-            cmd,
-            "a feature set cargo-hack did not name",
-            warnings_mode,
-        ):
-            had_failure = True
+    with restore_cargo_manifests():
+        # Pass 1 -- bare crate (no default features). Catches "breaks without
+        # defaults" bugs.
+        if fm_config.get("also_check_no_default_features", True):
+            for scope_args, target_args in scopes:
+                cmd = [
+                    "cargo",
+                    lint_tool,
+                    "--no-default-features",
+                    *scope_args,
+                    *target_args,
+                    *lint_args,
+                ]
+                label = " on ".join(["--no-default-features", *scope_args[1:]])
+                if not _run_matrix_pass(
+                    "feature_matrix (no-default-features)", cmd, label, warnings_mode
+                ):
+                    had_failure = True
+
+        # Pass 2 -- each feature in isolation
+        for scope_args, target_args in scopes:
+            cmd = [
+                "cargo",
+                "hack",
+                "--each-feature",
+                "--no-dev-deps",
+                lint_tool,
+                *scope_args,
+                *target_args,
+                *tuning,
+                *lint_args,
+            ]
+            if not _run_matrix_pass(
+                "feature_matrix (each-feature)",
+                cmd,
+                "a feature set cargo-hack did not name",
+                warnings_mode,
+            ):
+                had_failure = True
 
     return not had_failure
 
