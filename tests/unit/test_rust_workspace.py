@@ -345,19 +345,25 @@ class TestLintReadsTheManifest:
         assert cmds["cargo deny"] == ["cargo", "deny", "--workspace", "check"]
         assert cmds["feature_matrix (no-default-features)"] == [
             "cargo",
-            "check",
+            "clippy",
             "--no-default-features",
             "--workspace",
             "--lib",
+            "--",
+            "--cap-lints",
+            "warn",
         ]
         assert cmds["feature_matrix (each-feature)"] == [
             "cargo",
             "hack",
             "--each-feature",
             "--no-dev-deps",
-            "check",
+            "clippy",
             "--workspace",
             "--lib",
+            "--",
+            "--cap-lints",
+            "warn",
         ]
         assert cmds["cargo doc"][:3] == ["cargo", "doc", "--workspace"]
 
@@ -390,7 +396,9 @@ class TestFeatureMatrixScope:
         assert rust_quality._run_feature_matrix(
             _quality_config(**feature_matrix), workspace=True
         )
-        return tools.commands["feature_matrix (each-feature)"]
+        cmd = tools.commands["feature_matrix (each-feature)"]
+        # Cargo-hack flags sit before clippy's `--`.
+        return cmd[: cmd.index("--")] if "--" in cmd else cmd
 
     def test_extra_workspace_is_not_doubled(self, tools: _Tools) -> None:
         """cargo-hack rejects a second `--workspace` outright."""

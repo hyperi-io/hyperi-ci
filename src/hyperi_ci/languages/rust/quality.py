@@ -19,7 +19,7 @@ import os
 import re
 import shutil
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -399,7 +399,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         had_failure = True
 
     # Feature matrix check (cargo hack --each-feature)
-    if not _run_feature_matrix(config, workspace=workspace):
+    if not _run_feature_matrix(
+        config, workspace=workspace, clippy_allows=clippy_user_allows
+    ):
         had_failure = True
 
     # Rustdoc compliance hint (non-blocking; default: enabled)
@@ -423,21 +425,28 @@ def _names_a_package_scope(args: list[str]) -> bool:
     return any(a in scope_flags or a.startswith("--package=") for a in args)
 
 
-def _run_feature_matrix(config: CIConfig, *, workspace: bool = False) -> bool:
-    """Run cargo-hack feature-matrix check.
+def _run_feature_matrix(
+    config: CIConfig,
+    *,
+    workspace: bool = False,
+    clippy_allows: Sequence[str] = (),
+) -> bool:
+    """Run the cargo-hack feature matrix under clippy.
 
     Catches feature-gating bugs where a module behind feature X uses a crate
     only declared by feature Y. Without this check, transitive deps from
     other features mask the bug until a downstream consumer enables only X.
+    Running clippy rather than check also catches a lint that fires only on a
+    single-feature build, which the all-features clippy pass cannot see.
 
     Default behaviour (enabled=true, no other config): runs
-        cargo check --no-default-features --lib
-        cargo hack --each-feature --no-dev-deps check --lib
+        cargo clippy --no-default-features --lib
+        cargo hack --each-feature --no-dev-deps clippy --lib
 
     A feature built alone can leave code dead that every combined build uses,
-    so ``quality.rust.feature_matrix.warnings`` decides what a warning does:
-    ``warn`` names each feature set that warned, ``blocking`` denies warnings
-    in rustc and fails, ``disabled`` runs the passes as before (issue #333).
+    so ``quality.rust.feature_matrix.warnings`` decides what a warning or lint
+    does: ``warn`` names each feature set that warned, ``blocking`` denies
+    warnings and fails, ``disabled`` runs the passes without looking.
 
     Opt-out requires an explicit reason; CI fails if reason is missing.
 
@@ -446,6 +455,8 @@ def _run_feature_matrix(config: CIConfig, *, workspace: bool = False) -> bool:
         workspace: Pass ``--workspace``, for a root-package workspace, unless
             each member is already scoped with ``-p`` or ``extra_args`` names
             a scope.
+        clippy_allows: ``-A<lint>`` flags from the repo's clippy ignores, so a
+            lint the repo allowed is not reported again per feature.
 
     Returns:
         True when the check passed or was disabled with a reason.
@@ -516,10 +527,26 @@ def _run_feature_matrix(config: CIConfig, *, workspace: bool = False) -> bool:
             )
         ]
 
+    lint_tool = "check" if _get_tool_mode("clippy", config) == "disabled" else "clippy"
+    lint_args: list[str] = []
+    if lint_tool == "clippy":
+        # Below blocking, a lint the repo sets to deny only warns, so it names
+        # the feature set instead of failing the matrix.
+        cap = [] if warnings_mode == "blocking" else ["--cap-lints", "warn"]
+        driver_args = [*cap, *clippy_allows]
+        lint_args = ["--", *driver_args] if driver_args else []
+
     # Pass 1 -- bare crate (no default features). Catches "breaks without defaults" bugs.
     if fm_config.get("also_check_no_default_features", True):
         for scope_args, target_args in scopes:
-            cmd = ["cargo", "check", "--no-default-features", *scope_args, *target_args]
+            cmd = [
+                "cargo",
+                lint_tool,
+                "--no-default-features",
+                *scope_args,
+                *target_args,
+                *lint_args,
+            ]
             label = " on ".join(["--no-default-features", *scope_args[1:]])
             if not _run_matrix_pass(
                 "feature_matrix (no-default-features)", cmd, label, warnings_mode
@@ -546,16 +573,22 @@ def _run_feature_matrix(config: CIConfig, *, workspace: bool = False) -> bool:
 
     tuning.extend(extra)
 
+    if not is_ci():
+        info(
+            "  feature_matrix: cargo-hack --no-dev-deps rewrites Cargo.toml "
+            "until it exits, so do not commit while it runs"
+        )
     for scope_args, target_args in scopes:
         cmd = [
             "cargo",
             "hack",
             "--each-feature",
             "--no-dev-deps",
-            "check",
+            lint_tool,
             *scope_args,
             *target_args,
             *tuning,
+            *lint_args,
         ]
         if not _run_matrix_pass(
             "feature_matrix (each-feature)",
@@ -581,7 +614,8 @@ def _deny_warnings(
     displaces ``build.rustflags`` where no other target entry exists.
 
     Args:
-        cmd: The cargo or cargo-hack command, containing ``check``.
+        cmd: The cargo or cargo-hack command, containing ``clippy`` or
+            ``check``.
         environ: The environment the command will inherit.
 
     Returns:
@@ -593,7 +627,8 @@ def _deny_warnings(
         return cmd, {"CARGO_ENCODED_RUSTFLAGS": "\x1f".join([*flags, "-D", "warnings"])}
     if "RUSTFLAGS" in environ:
         return cmd, {"RUSTFLAGS": f"{environ['RUSTFLAGS'].strip()} -D warnings".strip()}
-    at = cmd.index("check") + 1
+    subcommand = "clippy" if "clippy" in cmd else "check"
+    at = cmd.index(subcommand) + 1
     return [*cmd[:at], "--config", _DENY_WARNINGS_CONFIG, *cmd[at:]], {}
 
 
