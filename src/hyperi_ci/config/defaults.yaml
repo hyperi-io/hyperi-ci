@@ -431,9 +431,8 @@ release:
   # Every container is published to GHCR (ghcr.io/<org>). There is
   # intentionally no `registry:` field.
   #
-  # Docker Hub is NOT a publish target. The Docker Hub login step in
-  # the reusable workflows remains for authenticated pulls (avoids
-  # anonymous rate limits) but no project publishes there.
+  # Docker Hub is NOT a publish target. The Container job logs in to it
+  # only to authenticate the Dockerfile's base-image pulls.
   container:
     enabled: auto
     dockerfile: Dockerfile
