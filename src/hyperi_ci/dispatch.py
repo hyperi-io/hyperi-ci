@@ -37,6 +37,7 @@ from hyperi_ci.languages.quality_common import (
     GateReasonRequiredError,
     note_quality_disabled,
 )
+from hyperi_ci.languages.rust._jobs import capped_cargo_jobs
 from hyperi_ci.languages.tiering import (
     TEST_TIER_ENV,
     InvalidTestTierError,
@@ -184,9 +185,14 @@ def _dispatch_to_handler(
     Returns -1 if no handler found, otherwise the handler's return code.
     """
     handler = _find_handler_module(language, stage)
-    if handler:
+    if not handler:
+        return -1
+    if _LANGUAGE_ALIASES.get(language, language) != "rust":
         return handler.run(config, extra_env=extra_env)
-    return -1
+    # cargo sizes its job count by CPUs alone, which OOM-kills a runner whose
+    # memory limit is below one rustc per CPU.
+    with capped_cargo_jobs(config):
+        return handler.run(config, extra_env=extra_env)
 
 
 def stage_setup(language: str, config: CIConfig) -> int:
