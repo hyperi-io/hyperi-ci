@@ -51,31 +51,11 @@ prerelease off a branch and leave optimisation on -- see
 
 ### aarch64: a BOLTed binary is not safe on Cortex-A53
 
-On an aarch64 target the BOLT steps pass `--drop-cortex-a53-843419-veneers`
-to llvm-bolt. The linker works around Cortex-A53 erratum 843419 by inserting
-branch veneers, and BOLT refuses to rewrite a binary carrying them because
-relaying the binary invalidates the page offsets they were computed from.
-Dropping them is what lets BOLT run at all on an aarch64 binary large enough
-to need veneers.
+On an aarch64 Linux target the BOLT steps link through a wrapper written to `~/.cache/hyperi-ci/bolt-linker/`, which drops the `-Wl,--fix-cortex-a53-843419` rustc passes on every link and adds `-mno-fix-cortex-a53-843419` so gcc does not add the same fix from its own spec. The linker then inserts none of the erratum 843419 veneers that llvm-bolt refuses to rewrite, and the wrapper execs the linker `CARGO_TARGET_<TRIPLE>_LINKER` already names, else `aarch64-linux-gnu-gcc`, else `cc`. amd64 is unaffected.
 
-The trade is the flag's own warning: the BOLTed binary must not run on a
-Cortex-A53. That is accepted because HyperI Rust binaries run on Graviton and
-Ampere-class server cores, not the 2012 in-order A53 little core used in
-phones and embedded parts.
+The trade: the BOLTed binary must not run on a Cortex-A53. That is accepted because HyperI Rust binaries run on Graviton and Ampere-class server cores, not the 2012 in-order A53 little core used in phones and embedded parts.
 
-**If a deployment target ever includes Cortex-A53**, remove
-`_DROP_A53_VENEERS` from `src/hyperi_ci/languages/rust/pgo.py` and take
-PGO-only aarch64 builds, or move the `llvm` pin in `versions.yaml` past the
-release carrying https://github.com/llvm/llvm-project/pull/187955, which
-eliminates the veneers rather than dropping them.
-
-amd64 is unaffected and keeps cargo-pgo's own BOLT flags untouched. On
-aarch64 those defaults are restated in `pgo.py`, because cargo-pgo's
-`--bolt-args` replaces its flag set instead of extending it.
-
-Bumping `tools.cargo-pgo` fails a unit test until those copies are re-read at
-the new version, because a stale copy overrides the newer defaults and nothing
-else would notice.
+**If a deployment target ever includes Cortex-A53**, take PGO-only aarch64 builds.
 
 ## The Four Rules
 
@@ -309,12 +289,12 @@ gh workflow run ci.yml --ref <branch> -f optimize-tier=release \
   -f bolt-optimize-args="-reorder-blocks=ext-tsp -relocs -lite=1"
 ```
 
-Start from `_CARGO_PGO_OPTIMIZE_BOLT_ARGS` in `src/hyperi_ci/languages/rust/pgo.py` and drop flags.
+Start from `_CARGO_PGO_OPTIMIZE_BOLT_ARGS` in `src/hyperi_ci/languages/rust/pgo.py` and drop flags. It is a copy of cargo-pgo's own defaults, and bumping `tools.cargo-pgo` fails a unit test until it is re-read at the new version.
 
 - Debug only. A run that ships refuses it and fails: tag or from-head dispatch, release-trailer push, tag ref.
 - Needs `optimize-tier=release`, else the run never reaches BOLT. The build refuses rather than test nothing.
 - The instrument stage keeps its own flags.
-- aarch64 still gets `--drop-cortex-a53-843419-veneers`, which BOLT needs there. An override naming that option (`-drop-cortex-a53-843419-veneers=false`) owns it.
+- The flags go to llvm-bolt as given on every architecture. The aarch64 link already carries no erratum 843419 veneers, so an override needs no veneer option.
 - One token per flag, starting with `-`, a value as `-name=value`, from letters, digits and `_ . , : + = -`. No empty set: `-dyno-stats` alone is the nearest.
 - The run carries a `::warning::` naming the flags.
 - Rust callers only. `hyperi-ci init` scaffolds it; an older caller declares and forwards it like `optimize-tier`.

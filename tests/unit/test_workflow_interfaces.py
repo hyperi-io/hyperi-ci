@@ -15,6 +15,7 @@ regresses vs the last release, so the break never reaches a consumer.
 
 import importlib.util
 import urllib.error
+from email.message import Message
 from pathlib import Path
 
 import pytest
@@ -213,7 +214,9 @@ class TestWhatCountsAsPublished:
     def test_one_5xx_is_retried_not_skipped(self, fake_urlopen: _Urlopen) -> None:
         """A single PyPI 503 must not turn the gate into a skip."""
         outcomes, asked, _ = fake_urlopen
-        outcomes.append(urllib.error.HTTPError(cwi._PYPI_JSON, 503, "busy", {}, None))
+        outcomes.append(
+            urllib.error.HTTPError(cwi._PYPI_JSON, 503, "busy", Message(), None)
+        )
         outcomes.append(b'{"info": {"version": "9.9.9"}}')
         assert cwi.latest_published_version() == "9.9.9"
         assert len(asked) == 2

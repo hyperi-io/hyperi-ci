@@ -1392,8 +1392,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if bolt_override:
         announce(
             "BOLT optimise flags overridden for this run (debug only, refused on "
-            f"any run that ships): {' '.join(bolt_override)}. aarch64 still gets "
-            "the Cortex-A53 veneer drop unless the override sets it.",
+            f"any run that ships): {' '.join(bolt_override)}.",
             "hyperi-ci BOLT flags overridden",
         )
 

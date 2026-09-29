@@ -58,7 +58,14 @@ class TestDiscovery:
         assert [p.name for p in found] == ["README.md", "guide.markdown", "notes.md"]
 
     def test_generated_and_upstream_files_are_skipped(self, tmp_path: Path) -> None:
-        for name in ("CHANGELOG.md", "LICENSE.md", "NOTICE.md", "README.md"):
+        for name in (
+            "CHANGELOG.md",
+            "LICENSE.md",
+            "NOTICE.md",
+            "COMMERCIAL.md",
+            "AI-TRAINING-POLICY.md",
+            "README.md",
+        ):
             (tmp_path / name).write_text("# x\n", encoding="utf-8")
         assert [p.name for p in discover_markdown_files(tmp_path)] == ["README.md"]
 
