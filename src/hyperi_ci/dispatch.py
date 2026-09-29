@@ -19,7 +19,7 @@ import os
 from pathlib import Path
 from typing import Any, Protocol, cast
 
-from hyperi_ci import release_prepare
+from hyperi_ci import native_tools, release_prepare
 from hyperi_ci.common import (
     announce,
     error,
@@ -344,6 +344,9 @@ def stage_test(language: str, config: CIConfig) -> int:
         features = _normalize_rust_features(config, "test")
         extra_env["RUST_FEATURES"] = features
         info(f"Rust features config: {features}")
+
+    if native_tools.prepare(config) != 0:
+        return 1
 
     rc = _dispatch_to_handler(language, "test", config, extra_env=extra_env)
     if rc == -1:

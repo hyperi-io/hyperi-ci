@@ -19,12 +19,14 @@ Graceful degradation:
   - workload_cmd fails → hard error (bad profile data is worse than no PGO)
 """
 
+import hashlib
 import os
 import re
 import shutil
+import stat
 import subprocess
+import sys
 from pathlib import Path
-from typing import Literal
 
 from hyperi_ci.common import error, info, run_cmd, warn
 from hyperi_ci.languages._build_common import elf_section_names
@@ -33,6 +35,7 @@ from hyperi_ci.languages.rust.optimize import (
     OptimizationProfile,
     cargo_feature_args,
 )
+from hyperi_ci.upgrade import CACHE_DIR
 from hyperi_ci.versions import tool_version
 
 # llvm-bolt writes this note into every binary it rewrites, and strip keeps it,
@@ -636,7 +639,132 @@ def _target_rustflags_key(target: str) -> str:
     )
 
 
-def _bolt_build_env(target: str, *, no_split: bool = False) -> dict[str, str]:
+def _target_linker_key(target: str) -> str:
+    """Cargo's env name for `target.<triple>.linker`."""
+    return _target_rustflags_key(target).removesuffix("_RUSTFLAGS") + "_LINKER"
+
+
+# llvm-bolt refuses the erratum 843419 veneers the linker inserts, so the BOLT
+# link drops rustc's target-spec flag (lld has no negation to append) and adds
+# the gcc option that stops gcc's own spec re-adding it. The result is not safe
+# on Cortex-A53, accepted because these binaries run on Graviton and
+# Ampere-class server cores; a deployment target that includes Cortex-A53 has
+# to take PGO-only aarch64 builds.
+_A53_FIX_LINK_ARG = "-Wl,--fix-cortex-a53-843419"
+_NO_A53_FIX_DRIVER_ARG = "-mno-fix-cortex-a53-843419"
+
+_BOLT_LINKER_DIR = CACHE_DIR / "bolt-linker"
+
+_A53_STRIP_WRAPPER = """\
+#!{python} -IS
+import os
+import sys
+
+REAL = {real!r}
+DROP = {drop!r}
+ADD = {add!r}
+
+
+def strip_response_file(arg):
+    if not arg.startswith("@"):
+        return arg
+    path = arg[1:]
+    try:
+        with open(path, encoding="utf-8", errors="surrogateescape") as f:
+            lines = f.read().split("\\n")
+    except OSError:
+        return arg
+    if DROP not in lines:
+        return arg
+    stripped = path + ".no-a53-fix"
+    with open(stripped, "w", encoding="utf-8", errors="surrogateescape", newline="\\n") as f:
+        f.write("\\n".join(line for line in lines if line != DROP))
+    return "@" + stripped
+
+
+args = [strip_response_file(arg) for arg in sys.argv[1:] if arg != DROP]
+os.execv(REAL, [REAL, *args, ADD])
+"""
+
+
+def _real_aarch64_linker(target: str, extra_env: dict[str, str] | None) -> str | None:
+    """Absolute path of the linker driver the BOLT link would otherwise run.
+
+    Order: CARGO_TARGET_<TRIPLE>_LINKER from ``extra_env``, then from the
+    process env, then ``<gnu-triple>-gcc``, then ``cc``, cargo's own default.
+    Symlinks are kept, because ccache and clang pick their mode from argv[0].
+    """
+    key = _target_linker_key(target)
+    parts = target.split("-")
+    gnu_triple = f"{parts[0]}-{parts[2]}-{parts[3]}" if len(parts) == 4 else target
+    candidates = [
+        ((extra_env or {}).get(key), f"{key} (build env)"),
+        (os.environ.get(key), f"{key} (process env)"),
+        (f"{gnu_triple}-gcc", "target gcc on PATH"),
+        ("cc", "cc on PATH"),
+    ]
+    for name, source in candidates:
+        if not name:
+            continue
+        resolved = shutil.which(name)
+        if resolved:
+            real = os.path.abspath(resolved)
+            info(f"BOLT: real linker for {target} is {real} ({source})")
+            return real
+        warn(f"BOLT: {source} names {name}, which does not resolve -- skipping it")
+    return None
+
+
+def _a53_strip_linker(real_linker: str) -> Path:
+    """Write the wrapper that links through ``real_linker`` without the A53 fix.
+
+    It is Python rather than sh because rustc falls back to an
+    ``@linker-arguments`` file past ARG_MAX, one argument a line, and that file
+    needs rewriting line by line. The file name carries a digest of the
+    content, so concurrent jobs that resolve the same linker write identical
+    bytes and a rename never exposes a half-written file.
+    """
+    script = _A53_STRIP_WRAPPER.format(
+        python=sys.executable,
+        real=real_linker,
+        drop=_A53_FIX_LINK_ARG,
+        add=_NO_A53_FIX_DRIVER_ARG,
+    )
+    digest = hashlib.sha256(script.encode("utf-8")).hexdigest()[:12]
+    _BOLT_LINKER_DIR.mkdir(parents=True, exist_ok=True)
+    wrapper = _BOLT_LINKER_DIR / f"no-a53-fix-{digest}"
+    staging = wrapper.with_name(f"{wrapper.name}.{os.getpid()}")
+    staging.write_text(script, encoding="utf-8", newline="\n")
+    staging.chmod(
+        stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH
+    )
+    staging.replace(wrapper)
+    return wrapper
+
+
+def _a53_linker_env(target: str, extra_env: dict[str, str] | None) -> dict[str, str]:
+    """CARGO_TARGET_<TRIPLE>_LINKER pointing at the A53 strip wrapper, or {}."""
+    real = _real_aarch64_linker(target, extra_env)
+    if real is None:
+        warn(
+            f"BOLT: no linker driver resolves for {target}, so the link keeps the "
+            "Cortex-A53 erratum fix and llvm-bolt will refuse its veneers"
+        )
+        return {}
+    wrapper = _a53_strip_linker(real)
+    info(
+        f"BOLT: linking {target} through {wrapper}, which drops "
+        f"{_A53_FIX_LINK_ARG} and adds {_NO_A53_FIX_DRIVER_ARG}"
+    )
+    return {_target_linker_key(target): str(wrapper)}
+
+
+def _bolt_build_env(
+    target: str,
+    *,
+    no_split: bool = False,
+    extra_env: dict[str, str] | None = None,
+) -> dict[str, str]:
     """Env overrides for cargo-pgo BOLT build and optimize steps.
 
     BOLT imposes two linker-level requirements that collide with common
@@ -663,6 +791,10 @@ def _bolt_build_env(target: str, *, no_split: bool = False) -> dict[str, str]:
     `-fuse-ld=lld` wins over a project `-fuse-ld=mold`. A project whose flags
     live only in `build.rustflags` loses them for these steps: cargo reads
     `build.rustflags` only when no target rustflags exist.
+
+    On aarch64 the linker is also replaced by a wrapper that links without
+    the Cortex-A53 erratum 843419 fix, whose veneers llvm-bolt refuses. The
+    wrapper execs the linker ``extra_env`` or the process env already names.
     """
     target_rustflags_key = _target_rustflags_key(target)
     # Base BOLT rustflags (lld for --emit-relocs). On the no-split retry, append
@@ -672,32 +804,24 @@ def _bolt_build_env(target: str, *, no_split: bool = False) -> dict[str, str]:
         extra = _bolt_no_split_rustflags()
         if extra:
             bolt_rustflags = f"{bolt_rustflags} {extra}"
-    return {
+    env = {
         target_rustflags_key: bolt_rustflags,
         "CARGO_PROFILE_RELEASE_STRIP": "none",
     }
+    if target.startswith("aarch64") and "linux" in target:
+        env.update(_a53_linker_env(target, extra_env))
+    return env
 
 
-# BOLT refuses an aarch64 binary carrying the linker's Cortex-A53 erratum 843419
-# workaround veneers, because relaying the binary invalidates the page offsets
-# those veneers were computed from. Dropping them leaves the shipped binary
-# unsafe on Cortex-A53, which is accepted because these binaries run on Graviton
-# and Ampere-class server cores, never the 2012 in-order A53 little core used in
-# phones and embedded parts. A deployment target that does include Cortex-A53
-# has to drop this flag and take PGO-only aarch64 builds.
-_DROP_A53_VENEERS = "--drop-cortex-a53-843419-veneers"
-
-# cargo-pgo passes --bolt-args to llvm-bolt in place of the flags it would
-# otherwise pass, not alongside them, so its own defaults are restated here and
-# sent back with the extra flag. They are copied from the pinned cargo-pgo
-# (`tools.cargo-pgo` in versions.yaml), src/bolt/instrument.rs and
-# src/bolt/optimize.rs, and move with that pin.
+# cargo-pgo's own default llvm-bolt optimise flags, which --bolt-args replaces
+# rather than extends, so a HYPERCI_BOLT_OPTIMIZE_ARGS bisect starts from these.
+# They are copied from src/bolt/optimize.rs of the pinned cargo-pgo
+# (`tools.cargo-pgo` in versions.yaml) and move with that pin.
 #
 # tests/unit/test_rust_pgo.py fails when `tools.cargo-pgo` moves away from the
-# version the two tuples below were read from.
+# version the tuple below was read from.
 _CARGO_PGO_FLAGS_VERIFIED_AGAINST = "0.3.0"
 
-_CARGO_PGO_INSTRUMENT_BOLT_ARGS = ("-update-debug-sections",)
 _CARGO_PGO_OPTIMIZE_BOLT_ARGS = (
     "-reorder-blocks=ext-tsp",
     "-reorder-functions=hfsort",
@@ -748,39 +872,17 @@ def bolt_optimize_args_override() -> tuple[str, ...] | None:
     return tuple(tokens)
 
 
-def _names_a53_veneer_flag(flags: list[str]) -> bool:
-    """Whether a flag list already sets the A53 veneer option, in any spelling."""
-    wanted = _DROP_A53_VENEERS.lstrip("-")
-    return any(flag.lstrip("-").split("=", 1)[0] == wanted for flag in flags)
+def _bolt_optimize_args() -> list[str]:
+    """`--bolt-args` for the cargo-pgo BOLT optimise step, empty by default.
 
-
-def _bolt_tool_args(target: str, stage: Literal["instrument", "optimize"]) -> list[str]:
-    """`--bolt-args` for one cargo-pgo BOLT stage, empty off aarch64.
-
-    The two stages take different default flag sets, and `--bolt-args`
-    replaces rather than extends them, so the set for `stage` is sent back
-    with the veneer flag appended. Every other architecture gets an empty
-    list and keeps cargo-pgo's defaults with nothing passed through.
-
-    A `HYPERCI_BOLT_OPTIMIZE_ARGS` override replaces the optimise set on every
-    architecture. aarch64 still gets the veneer flag appended unless the
-    override sets that option itself, e.g. `-drop-cortex-a53-843419-veneers=false`.
+    Empty keeps cargo-pgo's own llvm-bolt flags on every architecture. A
+    `HYPERCI_BOLT_OPTIMIZE_ARGS` override replaces them as given, including
+    any llvm-bolt option it names, such as `--drop-cortex-a53-843419-veneers`.
     """
-    override = bolt_optimize_args_override() if stage == "optimize" else None
-    if override is not None:
-        flags = list(override)
-        if target.startswith("aarch64") and not _names_a53_veneer_flag(flags):
-            flags.append(_DROP_A53_VENEERS)
-        return ["--bolt-args", " ".join(flags)]
-
-    if not target.startswith("aarch64"):
+    override = bolt_optimize_args_override()
+    if override is None:
         return []
-    defaults = (
-        _CARGO_PGO_INSTRUMENT_BOLT_ARGS
-        if stage == "instrument"
-        else _CARGO_PGO_OPTIMIZE_BOLT_ARGS
-    )
-    return ["--bolt-args", " ".join([*defaults, _DROP_A53_VENEERS])]
+    return ["--bolt-args", " ".join(override)]
 
 
 def _attempt_bolt(
@@ -812,12 +914,13 @@ def _attempt_bolt(
     # Merge project env_overrides (LTO etc.) with the BOLT-step build
     # env (fuse-ld=lld + strip=none [+ no-split]). BOLT env takes precedence
     # over project config for the target-specific rustflags -- intentional.
-    bolt_env = {**(extra_env or {}), **_bolt_build_env(target, no_split=no_split)}
+    bolt_overrides = _bolt_build_env(target, no_split=no_split, extra_env=extra_env)
+    bolt_env = {**(extra_env or {}), **bolt_overrides}
     label = " (no-split)" if no_split else ""
 
-    if target.startswith("aarch64"):
+    if _target_linker_key(target) in bolt_overrides:
         info(
-            f"BOLT: dropping Cortex-A53 erratum 843419 veneers for {target} -- "
+            f"BOLT: {target} links without the Cortex-A53 erratum 843419 fix -- "
             "the shipped binary is not safe on Cortex-A53"
         )
 
@@ -829,7 +932,6 @@ def _attempt_bolt(
         [
             "bolt",
             "build",
-            *_bolt_tool_args(target, "instrument"),
             "--",
             "--target",
             target,
@@ -864,8 +966,8 @@ def _attempt_bolt(
     info(
         f"BOLT: optimising binary for {target} (using PGO + BOLT profiles, linker=lld){label}"
     )
-    optimize_args = _bolt_tool_args(target, "optimize")
-    if bolt_optimize_args_override() is not None:
+    optimize_args = _bolt_optimize_args()
+    if optimize_args:
         warn(f"BOLT: optimise flags overridden for {target}: {optimize_args[1]}")
     rc = _run_cargo_pgo(
         [
