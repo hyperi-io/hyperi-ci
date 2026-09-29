@@ -3,6 +3,14 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.12.1](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.0...v2.12.1) (2026-09-29)
+
+### Bug Fixes
+
+* **rust:** cap cargo jobs by the runner's memory limit ([#427](https://github.com/hyperi-io/hyperi-ci/issues/427)) ([0854924](https://github.com/hyperi-io/hyperi-ci/commit/0854924115cfdc9c83aa754ea577265bba7697d6))
+* **rust:** restore the manifests cargo-hack rewrites in the feature matrix ([#424](https://github.com/hyperi-io/hyperi-ci/issues/424)) ([1c7f5b0](https://github.com/hyperi-io/hyperi-ci/commit/1c7f5b0e230c776b8fd56f968f5951093026e37f))
+* **rust:** route quality tool output through the logger and correct the feature-matrix docs ([#425](https://github.com/hyperi-io/hyperi-ci/issues/425)) ([89b04bf](https://github.com/hyperi-io/hyperi-ci/commit/89b04bfd8bbfd1571285266f4d89c8c6ec121147))
+
 ## [2.12.0](https://github.com/hyperi-io/hyperi-ci/compare/v2.11.8...v2.12.0) (2026-09-29)
 
 ### Features
