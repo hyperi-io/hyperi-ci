@@ -35,6 +35,10 @@ from hyperi_ci.versions import tool_version
 
 NODE_TOOLS = ("linkedom", "markdownlint-cli2", "mermaid")
 
+# Transitive packages forced to their versions.yaml pin through npm `overrides`,
+# for a parent that pins an exact version carrying an advisory.
+NODE_OVERRIDES = ("lodash-es",)
+
 LOCKFILE = Path(__file__).parent.parent / "config" / "node-tools" / "package-lock.json"
 
 # Matches the `name` in the lockfile, which npm writes from this manifest.
@@ -53,6 +57,7 @@ def manifest() -> dict[str, object]:
         "name": MANIFEST_NAME,
         "private": True,
         "dependencies": {name: tool_version(name) for name in NODE_TOOLS},
+        "overrides": {name: tool_version(name) for name in NODE_OVERRIDES},
     }
 
 

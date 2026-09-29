@@ -77,6 +77,34 @@ class TestPins:
         entry = _lock()["packages"][f"node_modules/{tool}"]
         assert entry["version"] == versions.tool_version(tool)
 
+    @pytest.mark.parametrize("name", node_tools.NODE_OVERRIDES)
+    def test_each_override_is_an_ssot_entry_on_the_same_lock(self, name: str) -> None:
+        data = yaml.safe_load(versions.VERSIONS_FILE.read_text(encoding="utf-8"))
+        spec = data["tools"][name]
+        assert spec["npm"] == name
+        root = Path(__file__).resolve().parents[2]
+        assert root / spec["lockfile"] == node_tools.LOCKFILE
+
+    def test_the_manifest_overrides_come_from_the_ssot(self) -> None:
+        overrides = node_tools.manifest()["overrides"]
+        assert overrides == {
+            n: versions.tool_version(n) for n in node_tools.NODE_OVERRIDES
+        }
+
+    @pytest.mark.parametrize("name", node_tools.NODE_OVERRIDES)
+    def test_every_locked_copy_of_an_override_is_its_pin(self, name: str) -> None:
+        """An override left out of the relock still resolves the old version."""
+        copies = {
+            k: v["version"]
+            for k, v in _lock()["packages"].items()
+            if k == f"node_modules/{name}" or k.endswith(f"/node_modules/{name}")
+        }
+        assert copies, f"{name} is not in the lock - drop it from NODE_OVERRIDES"
+        pin = versions.tool_version(name)
+        assert set(copies.values()) == {pin}, (
+            f"{copies} - run `uv run scripts/relock-node-tools.py`"
+        )
+
     def test_every_locked_package_carries_a_sha512_from_the_public_registry(
         self,
     ) -> None:
