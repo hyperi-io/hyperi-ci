@@ -6,13 +6,19 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 import os
+import shlex
+import shutil
+import signal
 import subprocess
+import sys
+import threading
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages.rust import _manifest
 from hyperi_ci.languages.rust._manifest import restore_cargo_manifests
 from hyperi_ci.languages.rust.quality import _run_feature_matrix
 
@@ -194,6 +200,184 @@ class TestRestoreCargoManifests:
         assert workspace.manifest.read_bytes() == ROOT
         assert len(warned) == 1
         assert "member" in warned[0]
+
+
+# Enters the restore block, rewrites what cargo-hack would, then waits to be signalled.
+_CHILD = """
+import sys
+import time
+from pathlib import Path
+
+from hyperi_ci.languages.rust import _manifest
+
+_manifest.cargo_metadata = lambda *_a: None
+with _manifest.restore_cargo_manifests():
+    Path("Cargo.toml").write_bytes(bytes.fromhex(sys.argv[1]))
+    Path("Cargo.lock").write_bytes(bytes.fromhex(sys.argv[2]))
+    print("ready", flush=True)
+    time.sleep(60)
+"""
+
+posix_signals = pytest.mark.skipif(
+    sys.platform == "win32", reason="SIGTERM and SIGKILL are POSIX signals"
+)
+
+
+def _git_init(root: Path) -> Path:
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    backup = _manifest._backup_dir(root)
+    assert backup is not None
+    return backup
+
+
+def _signalled_child(root: Path, signum: int) -> int:
+    """Run the child to the point cargo-hack has rewritten, signal it, and reap it."""
+    proc = subprocess.Popen(
+        [sys.executable, "-c", _CHILD, ROOT_STRIPPED.hex(), LOCK_PRUNED.hex()],
+        cwd=root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+    )
+    assert proc.stdout is not None
+    lines = []
+    for line in proc.stdout:
+        lines.append(line)
+        if line.strip() == "ready":
+            break
+    assert lines and lines[-1].strip() == "ready", "".join(lines)
+    proc.send_signal(signum)
+    return proc.wait(timeout=30)
+
+
+@posix_signals
+class TestSigterm:
+    def test_sigterm_restores_and_exits_143(self, workspace: _Workspace) -> None:
+        backup = _git_init(workspace.root)
+
+        returncode = _signalled_child(workspace.root, signal.SIGTERM)
+
+        assert returncode == 143
+        assert workspace.manifest.read_bytes() == ROOT
+        assert workspace.lock.read_bytes() == LOCK
+        assert not backup.exists()
+
+    def test_the_previous_handler_is_put_back(self, workspace: _Workspace) -> None:
+        def mine(_signum: int, _frame: Any) -> None:
+            return None
+
+        previous = signal.signal(signal.SIGTERM, mine)
+        try:
+            with restore_cargo_manifests():
+                assert signal.getsignal(signal.SIGTERM) is not mine
+            assert signal.getsignal(signal.SIGTERM) is mine
+        finally:
+            signal.signal(signal.SIGTERM, previous)
+
+    def test_off_the_main_thread_no_handler_is_set(self, workspace: _Workspace) -> None:
+        before = signal.getsignal(signal.SIGTERM)
+        seen: list[Any] = []
+
+        def body() -> None:
+            with restore_cargo_manifests():
+                workspace.manifest.write_bytes(ROOT_STRIPPED)
+                seen.append(signal.getsignal(signal.SIGTERM))
+
+        thread = threading.Thread(target=body)
+        thread.start()
+        thread.join(timeout=30)
+
+        assert seen == [before]
+        assert workspace.manifest.read_bytes() == ROOT
+
+
+@pytest.fixture
+def announced(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    messages: list[str] = []
+    monkeypatch.setattr(
+        f"{MANIFEST}.announce", lambda msg, _title, **_kw: messages.append(msg)
+    )
+    return messages
+
+
+@posix_signals
+class TestKilledRun:
+    def test_a_stale_backup_that_differs_warns_and_leaves_the_file(
+        self, workspace: _Workspace, announced: list[str]
+    ) -> None:
+        backup = _git_init(workspace.root)
+        assert _signalled_child(workspace.root, signal.SIGKILL) == -signal.SIGKILL
+        assert workspace.manifest.read_bytes() == ROOT_STRIPPED
+
+        with restore_cargo_manifests():
+            assert workspace.manifest.read_bytes() == ROOT_STRIPPED
+
+        assert workspace.manifest.read_bytes() == ROOT_STRIPPED
+        assert len(announced) == 2
+        manifest_warning = next(m for m in announced if "Cargo.toml" in m)
+        assert "stripped its dev-dependencies" in manifest_warning
+        command = shlex.split(manifest_warning.split("restore it: ", 1)[1])
+        assert command[0] == "cp"
+        assert command[2] == str(workspace.manifest.resolve())
+        shutil.copyfile(command[1], command[2])
+        assert workspace.manifest.read_bytes() == ROOT
+        assert not backup.exists()
+
+    def test_a_stale_backup_that_matches_is_removed_silently(
+        self, workspace: _Workspace, announced: list[str]
+    ) -> None:
+        backup = _git_init(workspace.root)
+        _signalled_child(workspace.root, signal.SIGKILL)
+        workspace.manifest.write_bytes(ROOT)
+        workspace.lock.write_bytes(LOCK)
+
+        with restore_cargo_manifests():
+            pass
+
+        assert announced == []
+        assert not backup.exists()
+        assert not backup.with_name(backup.name + ".killed").exists()
+
+    def test_a_lockfile_the_killed_run_created_is_named_for_removal(
+        self, workspace: _Workspace, announced: list[str]
+    ) -> None:
+        _git_init(workspace.root)
+        workspace.lock.unlink()
+        _signalled_child(workspace.root, signal.SIGKILL)
+        workspace.manifest.write_bytes(ROOT)
+
+        with restore_cargo_manifests():
+            pass
+
+        assert len(announced) == 1
+        assert f"rm {workspace.lock.resolve()}" in announced[0]
+        assert workspace.lock.read_bytes() == LOCK_PRUNED
+
+
+class TestBackup:
+    def test_the_normal_path_leaves_no_backup(self, workspace: _Workspace) -> None:
+        backup = _git_init(workspace.root)
+        with restore_cargo_manifests():
+            assert (backup / "index.json").is_file()
+            workspace.manifest.write_bytes(ROOT_STRIPPED)
+
+        assert workspace.manifest.read_bytes() == ROOT
+        assert not backup.exists()
+
+    def test_a_failed_restore_keeps_the_backup(
+        self, workspace: _Workspace, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        backup = _git_init(workspace.root)
+        monkeypatch.setattr(f"{MANIFEST}.warn", lambda _msg: None)
+        with restore_cargo_manifests():
+            workspace.member.unlink()
+            workspace.member.mkdir()
+
+        assert (backup / "index.json").is_file()
+
+    def test_outside_git_nothing_is_backed_up(self, workspace: _Workspace) -> None:
+        assert _manifest._backup_dir(workspace.root) is None
 
 
 class _CargoHack:
