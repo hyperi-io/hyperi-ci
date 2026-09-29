@@ -21,7 +21,8 @@ aarch64 at all, and has it opted out with ``build.rust.arm64_on_main: false``.
 
 The predict-version composite loads this by path on a runner where hyperi-ci is
 not installed, so it is stdlib-only and imports nothing from the package but
-:mod:`hyperi_ci.project_config`, which is stdlib-only for the same reason.
+:mod:`hyperi_ci.project_config` and :mod:`hyperi_ci.build_targets`, which are
+stdlib-only for the same reason.
 """
 
 # KEEP on a 3.14 floor, where this import is otherwise wrong (issue #184).
@@ -31,6 +32,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from hyperi_ci.build_targets import declared_targets
 from hyperi_ci.project_config import read_project_config
 
 #: The only arm64 target the build matrix carries a leg for.
@@ -54,9 +56,10 @@ def wants_arm64_check(root: Path) -> tuple[bool, str]:
     if not (root / "Cargo.toml").is_file():
         return False, "no Cargo.toml -- this project has no arm64 leg to run"
 
-    config, name = read_project_config(root)
+    project = read_project_config(root)
+    config = project.data
     if config is None:
-        return False, f"{name} could not be read -- no arm64 check"
+        return False, f"{project.unreadable} -- no arm64 check"
 
     build = config.get("build")
     rust = (build or {}).get("rust") if isinstance(build, dict) else None
@@ -66,7 +69,10 @@ def wants_arm64_check(root: Path) -> tuple[bool, str]:
     if opt is not None and str(opt).strip().lower() in _OFF:
         return False, "build.rust.arm64_on_main is off -- this project opted out"
 
-    targets = rust.get("targets") or []
+    try:
+        targets = declared_targets(config)
+    except ValueError as exc:
+        return False, f"{project.name} could not be read: {exc} -- no arm64 check"
     if targets and AARCH64 not in targets:
         return False, f"build.rust.targets names no {AARCH64}"
 

@@ -52,8 +52,9 @@ class ProjectTier(NamedTuple):
     Attributes:
         tier: The project's ``test.tier``, core when unset.
         full_required: Whether ``test.full.required_for_release`` is on.
-        unreadable: The config file name when it exists and could not be
-            read, else empty. Both settings then read as unset.
+        unreadable: The config file and why it could not be read, when it
+            exists and could not be, else empty. Both settings then read as
+            unset.
 
     """
 
@@ -86,9 +87,10 @@ def read_project_tier(root: Path) -> ProjectTier:
         ValueError: If ``test.tier`` names neither tier.
 
     """
-    config, name = read_project_config(root)
+    project = read_project_config(root)
+    config, name = project.data, project.name
     if config is None:
-        return ProjectTier(CORE, False, name)
+        return ProjectTier(CORE, False, project.unreadable)
 
     raw_tier = _lookup(config, TIER_KEY)
     tier = str(raw_tier).strip().lower() if raw_tier is not None else CORE
