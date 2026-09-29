@@ -206,9 +206,11 @@ def _marker_pins(
             out.append((path, _pin_pattern(key), str(version), key))
 
             # The composite runs before hyperi-ci exists, so the digest is
-            # mirrored there too (issue #66).
+            # mirrored there too (issue #66). A workflow hands the version to an
+            # installer action (the gitops scaffold's azure/setup-helm), which
+            # does its own fetching, so it carries no digest.
             digests = spec.get("sha256")
-            if digests is None:
+            if digests is None or _ACTIONS_DIR not in path.parents:
                 continue
             if not isinstance(digests, dict):
                 problems.append(f"  {key}.sha256: not a mapping [{_UNFIXABLE}]")

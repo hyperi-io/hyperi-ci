@@ -262,6 +262,12 @@ test:
   # below and to `rust.tier`, which pick directories and test kinds.
   tier: core
 
+  # Native tools the tests shell out to, installed pinned (version + sha256
+  # from versions.yaml) and put on PATH before the tests run, in both tiers and
+  # every language. Opt-in: nothing is installed by default. An unknown name
+  # fails the stage. Known: helm.
+  native_tools: []
+
   full:
     # Whether a release must have run the full tier.
     required_for_release: false
