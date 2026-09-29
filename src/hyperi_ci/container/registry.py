@@ -10,13 +10,10 @@ Every container publishes to GHCR (``ghcr.io/<github-org>``). The legacy
 ``release.target`` config key is accepted for backward compatibility with
 downstream ``.hyperi-ci.yaml`` files but ignored at runtime.
 
-Docker Hub is intentionally NOT a target. The Docker Hub login step in
-the reusable workflows remains, gated on ``vars.DOCKERHUB_USERNAME``, so
-authenticated pulls bypass anonymous rate limits -- but no project
-publishes to Docker Hub.
+Docker Hub is intentionally NOT a target. The Container job logs in to it,
+gated on ``vars.DOCKERHUB_USERNAME``, only to authenticate the Dockerfile's
+base-image pulls.
 """
-
-from __future__ import annotations
 
 from hyperi_ci.config import OrgConfig
 

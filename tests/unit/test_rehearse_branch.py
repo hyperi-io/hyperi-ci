@@ -76,7 +76,7 @@ class TestRehearseSlug:
 
 
 class TestSummariseJobs:
-    """The rehearsal verdict is read job by job, never from the run status."""
+    """The job-by-job reading the gate applies to a rehearsal's recorded run."""
 
     # The shape of a real fixture PR run: the tag job skips on a PR.
     PR_RUN = [
@@ -168,8 +168,18 @@ class TestMergeRefRace:
         """
         listed = json.dumps(
             [
-                {"databaseId": 99, "status": "completed", "headSha": "stale"},
-                {"databaseId": 42, "status": "completed", "headSha": "mine"},
+                {
+                    "databaseId": 99,
+                    "status": "completed",
+                    "conclusion": "failure",
+                    "headSha": "stale",
+                },
+                {
+                    "databaseId": 42,
+                    "status": "completed",
+                    "conclusion": "success",
+                    "headSha": "mine",
+                },
             ]
         )
         jobs = json.dumps({"jobs": [{"name": "ci / Test", "conclusion": "success"}]})
@@ -186,6 +196,61 @@ class TestMergeRefRace:
             "o/r", "rehearse/x", "mine", 1
         )
         assert (verdict, run_id, viewed) == ("pass", 42, ["42"])
+
+    @staticmethod
+    def _watch(monkeypatch, listings: list[dict], jobs: list[dict]):
+        """Run the watcher over gh run list answers served in turn."""
+        answers = iter(listings)
+        sleeps: list[float] = []
+
+        def fake_run(args, **_kwargs):
+            if args[:3] == ["gh", "run", "list"]:
+                listed = [{"databaseId": 42, "headSha": "mine", **next(answers)}]
+                return subprocess.CompletedProcess(args, 0, stdout=json.dumps(listed))
+            return subprocess.CompletedProcess(
+                args, 0, stdout=json.dumps({"jobs": jobs})
+            )
+
+        monkeypatch.setattr(rehearse_branch, "_run", fake_run)
+        monkeypatch.setattr(rehearse_branch.time, "sleep", sleeps.append)
+        verdict, lines, _ = rehearse_branch._watch_pr_run(
+            "o/r", "rehearse/x", "mine", 1
+        )
+        return verdict, lines, len(sleeps)
+
+    def test_the_run_conclusion_decides_not_a_job_still_settling(
+        self, monkeypatch
+    ) -> None:
+        """A job read with no conclusion yet must not fail a green run (#401)."""
+        verdict, lines, _ = self._watch(
+            monkeypatch,
+            [{"status": "completed", "conclusion": "success"}],
+            [
+                {"name": "ci / Test", "conclusion": "success"},
+                {"name": "ci / Release tail / Tag & Release", "conclusion": ""},
+            ],
+        )
+        assert verdict == "pass"
+        assert any("pending" in line and "Tag & Release" in line for line in lines)
+
+    def test_a_failed_run_fails_the_rehearsal(self, monkeypatch) -> None:
+        verdict, _, _ = self._watch(
+            monkeypatch,
+            [{"status": "completed", "conclusion": "failure"}],
+            [{"name": "ci / Test", "conclusion": "failure"}],
+        )
+        assert verdict == "fail"
+
+    def test_a_completed_run_with_no_conclusion_is_waited_on(self, monkeypatch) -> None:
+        verdict, _, sleeps = self._watch(
+            monkeypatch,
+            [
+                {"status": "completed", "conclusion": ""},
+                {"status": "completed", "conclusion": "success"},
+            ],
+            [{"name": "ci / Test", "conclusion": "success"}],
+        )
+        assert (verdict, sleeps) == ("pass", 1)
 
     def test_a_refused_rerun_is_not_a_restart(self, monkeypatch) -> None:
         monkeypatch.setattr(

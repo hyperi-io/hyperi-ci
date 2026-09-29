@@ -224,7 +224,9 @@ def _run_state(repo: str, run_id: int) -> tuple[str, str] | None:
         data = json.loads(viewed.stdout or "{}")
     except json.JSONDecodeError:
         return None
-    return str(data.get("status", "")), str(data.get("conclusion", ""))
+    # `or ""`: an unfinished run carries a null conclusion, which str() would
+    # turn into the word "None".
+    return str(data.get("status") or ""), str(data.get("conclusion") or "")
 
 
 def _read_jobs(repo: str, run_id: int) -> list[dict] | None:
@@ -236,6 +238,41 @@ def _read_jobs(repo: str, run_id: int) -> list[dict] | None:
         return json.loads(viewed.stdout or "{}").get("jobs", [])
     except json.JSONDecodeError:
         return None
+
+
+def run_result(
+    fixture: str, run_id: int, conclusion: str, jobs: list[dict] | None
+) -> Result:
+    """The verdict on one finished fixture run.
+
+    The run's own conclusion decides it. The jobs come from a second read that
+    can disagree with it, and a job-by-job verdict called a green run red
+    (issue #401). Here they only name what failed.
+
+    Args:
+        fixture: The fixture the run belongs to.
+        run_id: The run.
+        conclusion: The run's conclusion.
+        jobs: Its jobs, or None when they could not be read. Only a run that
+            did not pass needs them.
+
+    Returns:
+        PASS on a ``success`` conclusion, else FAIL naming the jobs that did
+        not pass.
+    """
+    if rehearse_branch.run_passed(conclusion):
+        return Result(fixture, PASS, f"run {run_id}")
+    detail = f"run {run_id} concluded {conclusion or 'nothing'}"
+    if jobs is None:
+        return Result(fixture, FAIL, f"{detail}; its jobs could not be read")
+    failed = [
+        f"{job.get('name')} {job.get('conclusion') or 'pending'}"
+        for job in jobs
+        if job.get("conclusion") not in rehearse_branch.PASSING_CONCLUSIONS
+    ]
+    if failed:
+        detail += f": {', '.join(failed)}"
+    return Result(fixture, FAIL, detail)
 
 
 def sweep_verdict(targets: list[str], results: list[Result]) -> tuple[int, list[str]]:
@@ -314,17 +351,17 @@ def _sweep(targets: list[fixture_fleet.Entry], timeout_minutes: int) -> list[Res
                 results.append(Result(name, UNREACHABLE, f"cannot read run {run_id}"))
                 del pending[name]
                 continue
-            if state[0] != "completed":
+            status, conclusion = state
+            # Finished means a conclusion to read, not only a completed status.
+            if status != "completed" or not conclusion:
                 continue
             del pending[name]
-            jobs = _read_jobs(repo, run_id)
-            if jobs is None:
-                results.append(
-                    Result(name, UNREACHABLE, f"cannot read run {run_id} jobs")
-                )
-                continue
-            passed, _ = rehearse_branch.summarise_jobs(jobs)
-            results.append(Result(name, PASS if passed else FAIL, f"run {run_id}"))
+            jobs = (
+                None
+                if rehearse_branch.run_passed(conclusion)
+                else _read_jobs(repo, run_id)
+            )
+            results.append(run_result(name, run_id, conclusion, jobs))
         if not (waiting or pending):
             break
         time.sleep(_POLL_SECONDS)
