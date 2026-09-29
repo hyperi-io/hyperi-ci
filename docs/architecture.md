@@ -388,6 +388,8 @@ finds a signal - a Dockerfile, or a Rust binary using scalo's contract.
 container.** The decision is resolved *before* Docker Buildx boots, so a library
 never pulls buildkit from Docker Hub nor logs in to GHCR.
 
+**Docker Hub login is Container-only (issue #406).** `docker/login-action` leaves the credential in `~/.docker/config.json` until the job ends. Container logs in for base-image pulls, and the Dockerfile's `RUN` steps cannot read it inside BuildKit. The language workflows run repo code in every job, so they log in nowhere and testcontainers pulls anonymously. If that limit starts failing tests, give the runner's Docker daemon a pull-through mirror.
+
 **Build args can carry the version (issue #342).** `release.container.build_args` becomes `--build-arg NAME=value`. The image labels are invisible to a Dockerfile, so a value may name two placeholders:
 
 - `{version}` -- the version the stage tags the image with and writes to the `org.opencontainers.image.version` label. That is `HYPERCI_VERSION` on a release run. Outside one it falls back to `VERSION`, the latest `v*` tag, the ref name, then `0.0.0`, same as the label.
