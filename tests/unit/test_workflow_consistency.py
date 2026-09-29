@@ -16,19 +16,16 @@ maintenance risk. This test catches drift mechanically: every gate
 must match the canonical strings below.
 """
 
-from __future__ import annotations
-
 import json
 import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 import yaml
-
-from hyperi_ci.versions import tool_version
 
 WORKFLOW_DIR = Path(__file__).parent.parent.parent / ".github" / "workflows"
 LANGUAGE_WORKFLOWS = ("rust-ci.yml", "python-ci.yml", "ts-ci.yml", "go-ci.yml")
@@ -865,8 +862,8 @@ class TestArm64Parity:
 
     def _derive(self, case: str, tmp_path: Path) -> dict[str, str]:
         """Run the composite's derive step for one case."""
-        if not shutil.which("bash") or not shutil.which("uv"):
-            pytest.skip("rendering the step needs bash + uv")
+        if not shutil.which("bash"):
+            pytest.skip("rendering the step needs bash")
         will_publish, event, ref, worthy = self.CASES[case]
         script = _render(
             str(_composite_step("derive")["run"]),
@@ -889,7 +886,9 @@ class TestArm64Parity:
             env={
                 "GITHUB_ACTION_PATH": str(ACTIONS_DIR / "predict-version"),
                 "GITHUB_WORKSPACE": str(root),
-                "PYYAML_VERSION": tool_version("pyyaml"),
+                # What the reader step hands on; test_predict_version_steps
+                # runs the real reader.
+                "CONFIG_PYTHON": sys.executable,
             },
         )
 

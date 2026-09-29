@@ -13,7 +13,8 @@ stdlib-only and imports nothing from the package.
 
 The composite runs its config readers under ``uv run --with pyyaml``, because a
 runner's own python3 may have no PyYAML: the ARC vanilla image has neither it
-nor ``yq``. ``yq`` stays as the fallback for a caller on a bare python3. A file
+nor ``yq``. When uv cannot supply PyYAML the composite runs them on the
+runner's python3 instead, where ``yq`` is the fallback parser. A file
 that exists and cannot be parsed is reported with the reason, never read as
 empty, because an empty config quietly means "every default".
 """
