@@ -37,6 +37,7 @@ SECURITY_TOOLS = frozenset(
         "gitleaks",
         "semgrep",
         "bandit",
+        "ruff_security",
         "pip_audit",
         "audit",
         "deny",

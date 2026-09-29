@@ -69,6 +69,7 @@ _NOT_SECURITY = frozenset(
         "mermaid_parse",
         "markdownlint",
         "docs_touched",
+        "ruff",
         "ty",
         "pyright",
         "ruff_format",
@@ -85,9 +86,9 @@ _NOT_SECURITY = frozenset(
         "semver_checks",
     }
 )
-# Arguably security, and not yet decided: checkov is an IaC security scanner,
-# and ruff carries the S (bandit) rules that replaced bandit.
-_UNDECIDED = frozenset({"checkov", "ruff"})
+# Arguably security, and not yet decided: checkov is an IaC security scanner.
+# ruff's S rules are ruff_security's, so the `ruff` lint key is not security.
+_UNDECIDED = frozenset({"checkov"})
 
 
 def _shipped_gates() -> set[str]:
@@ -292,10 +293,25 @@ class TestSecurityGateNeedsAReason:
         assert any("turned down" in w for w in said), said
 
     def test_a_shipped_disabled_tool_has_nothing_below_it(self) -> None:
-        # bandit ships `disabled` (superseded by ruff S rules) -- no downgrade.
+        # bandit ships `disabled` (ruff_security is the bandit-class check).
         assert resolve_tool_mode("bandit", _config("bandit", "disabled"), "python") == (
             "disabled"
         )
+
+    def test_turning_off_the_ruff_security_pass_needs_a_reason(self) -> None:
+        # With bandit off, ruff S is the only bandit-class check a repo gets.
+        with pytest.raises(GateReasonRequiredError, match="ruff_security"):
+            resolve_tool_mode(
+                "ruff_security", _config("ruff_security", "disabled"), "python"
+            )
+
+    def test_the_ruff_security_pass_at_its_shipped_warn_is_silent(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said = self._warnings(monkeypatch)
+        cfg = _config("ruff_security", "warn")
+        assert resolve_tool_mode("ruff_security", cfg, "python") == "warn"
+        assert said == []
 
     def test_the_cross_language_resolver_enforces_it_too(self) -> None:
         cfg = CIConfig(_raw={"quality": {"gitleaks": "warn"}})

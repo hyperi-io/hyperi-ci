@@ -98,8 +98,9 @@ quality:
 
   # Every tool below takes a bare mode (`blocking` / `warn` / `disabled`) or a
   # mapping carrying `mode` plus options. A SECURITY tool (gitleaks, semgrep,
-  # bandit, pip_audit, audit, deny, osv_scanner, gosec, govulncheck) set BELOW
-  # the default shipped here needs a `reason` in that mapping, or the stage fails:
+  # bandit, ruff_security, pip_audit, audit, deny, osv_scanner, gosec,
+  # govulncheck) set BELOW the default shipped here needs a `reason` in that
+  # mapping, or the stage fails:
   #
   #   pip_audit:
   #     mode: warn
@@ -160,12 +161,14 @@ quality:
     ruff: blocking
     ty: warn                   # Astral's type checker (OSS, Rust-based, replaces pyright/mypy)
     pyright: disabled          # Superseded by ty
-    bandit: disabled            # Superseded by ruff S rules
+    bandit: disabled            # Off: ruff_security below is the bandit-class check
     bandit_exclude_tests: true  # Legacy — only used if bandit re-enabled
     pip_audit: blocking
     ruff_format: blocking       # Ruff formatter — its own key, not `ruff` above, so a
                                 # project can defer adopting it (a whole-tree reformat)
                                 # without relaxing the lint gate
+    ruff_security: warn         # Ruff S rules (flake8-bandit) over src/, run whatever
+                                # the repo's own ruff config selects
     ruff_docstrings: warn       # Ruff D rules (pydocstyle) — replaces interrogate
     vulture: warn
     # Rules auto-relaxed in test directories (applied via --extend-ignore)

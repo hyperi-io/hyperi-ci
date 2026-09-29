@@ -8,14 +8,14 @@ other languages and have each cost a real failure.
 
 | Stage | Tools |
 |---|---|
-| quality | `ruff check`, `ruff format --check`, `ty` (typecheck), `bandit`, `pip-audit` |
+| quality | `ruff check`, `ruff format --check`, `ruff check --select S` (security), `ty` (typecheck), `pip-audit`, `vulture` |
 | test | `pytest` with coverage |
 | build | `uv build` (wheel + sdist); optional Nuitka native binary |
 | publish | `uv publish` -> pypi.org |
 
 ```mermaid
 flowchart LR
-    Q["quality<br/>ruff · ty · bandit · pip-audit"] --> T["test<br/>pytest + coverage"]
+    Q["quality<br/>ruff · ty · pip-audit"] --> T["test<br/>pytest + coverage"]
     T --> B["build<br/>uv build (wheel+sdist)<br/>+ Nuitka (optional)"]
     B --> PYPI["pypi.org"]
 ```
