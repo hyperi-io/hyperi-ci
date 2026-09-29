@@ -503,13 +503,23 @@ jobs:
         env:
           SIBLINGS: ${{ inputs.sibling-checkouts }}
           GH_TOKEN: ${{ github.token }}
+          GIT_TERMINAL_PROMPT: "0"
+        # The token goes in as environment-scoped git config, as actions/checkout
+        # does it, so it never reaches argv or a sibling's .git/config, where the
+        # test step could read it.
         run: |
+          basic="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::$basic"
+          n="${GIT_CONFIG_COUNT:-0}"
+          export GIT_CONFIG_COUNT=$((n + 1))
+          export "GIT_CONFIG_KEY_$n=http.https://github.com/.extraheader"
+          export "GIT_CONFIG_VALUE_$n=AUTHORIZATION: basic $basic"
           for spec in $SIBLINGS; do
             repo="${spec%@*}"
             ref="${spec#*@}"
             [ "$ref" = "$spec" ] && ref=""
             git clone --depth 1 ${ref:+--branch "$ref"} \
-              "https://x-access-token:${GH_TOKEN}@github.com/${repo}.git" \
+              "https://github.com/${repo}.git" \
               "../$(basename "$repo")"
           done
 
