@@ -345,15 +345,21 @@ jobs:
     # on plan.outputs.run-checks: a cheap git-log + regex check must validate
     # what actually reaches main on EVERY merge, not only publish-worthy
     # pushes (all the quality job covers). Fatal on push to main (what lands);
-    # advisory on pull_request (branch commits may be squashed away - see
-    # commit_validation.run). Feature-branch pushes skip it, so the fast
-    # chore-skip path is untouched. See CLAUDE.md CI gate doctrine.
+    # advisory on pull_request for branch commits (they may be squashed away),
+    # fatal for the PR title (a squash lands it) - see commit_validation.run.
+    # Feature-branch pushes skip it, so the fast chore-skip path is untouched.
+    # See CLAUDE.md CI gate doctrine.
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'pull_request'
     # Needs only git and uv, so no language variable and no renovate carve-out:
     # the default set is already the lightest one (issue #291).
     runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    # pull-requests: read reads the PR title live. A job-level block replaces
+    # the workflow default, so contents: read is restated.
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -365,6 +371,8 @@ jobs:
         with:
           enable-cache: false
       - name: Validate commit messages
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: ${{ env.HYPERCI_INSTALL }} check-commits
 
   quality:

@@ -1466,6 +1466,20 @@ class TestCommitCheckJob:
             f"{workflow_name}: commit-check must invoke `hyperi-ci check-commits`"
         )
 
+    @pytest.mark.parametrize("workflow_name", (*LANGUAGE_WORKFLOWS, "ci.yml"))
+    def test_commit_check_can_read_the_pr_title_live(self, workflow_name: str) -> None:
+        # The payload title is frozen at trigger time and a re-run replays it,
+        # so check-commits reads the title from the API with the job token.
+        job = _load_workflow(workflow_name)["jobs"]["commit-check"]
+        assert job.get("permissions") == {
+            "contents": "read",
+            "pull-requests": "read",
+        }, f"{workflow_name}: commit-check needs pull-requests: read"
+        step = next(s for s in job["steps"] if "check-commits" in str(s.get("run")))
+        assert (step.get("env") or {}).get("GH_TOKEN") == "${{ github.token }}", (
+            f"{workflow_name}: the check-commits step needs GH_TOKEN"
+        )
+
 
 @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
 def test_workflow_has_plan_job_first(workflow_name: str) -> None:

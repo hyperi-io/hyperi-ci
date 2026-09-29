@@ -82,7 +82,7 @@ the single place language divergence is allowed.
 | Job | needs | if | Purpose |
 |---|---|---|---|
 | `plan` | - | always | Decide whether this run is a release; emit gate outputs |
-| `commit-check` | - | push-to-main OR `pull_request` | Conventional-commit **landing gate** - fatal on push to main (validates what lands), advisory on PRs. NOT `run-checks`-gated (see below) |
+| `commit-check` | - | push-to-main OR `pull_request` | Conventional-commit **landing gate** - fatal on push to main (validates what lands); on PRs advisory for branch commits, fatal for the PR title. NOT `run-checks`-gated (see below) |
 | `quality` | `[plan]` | `run-checks` | Lint / typecheck / security scan |
 | `test` | `[plan]` | `run-checks` | Tests at the plan's `test-tier`, named `Test (<tier>, <runner>)`; a full run passes `--tier full` |
 | `build` | `[plan, quality, test]` | `run-build` | Compile binaries / wheels / packages, stamp version, upload `dist/` |
@@ -108,6 +108,8 @@ their only one. Validating what LANDS covers both, and is merge-method
 agnostic. The accepted cost is that it is post-hoc -- the bad message is on
 main by the time it fails, so the fix is a follow-up commit rather than a
 rejected push.
+
+On a `pull_request` the PR title is validated as well, and a bad one is fatal, because a squash merge makes it the subject that lands on main. The title is read live from the API with the job token, since the event payload is frozen at trigger time and a re-run replays it. With no token or no API answer it falls back to the payload title and warns.
 
 ### Gate outputs (computed in `plan`)
 

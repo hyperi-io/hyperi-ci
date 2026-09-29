@@ -118,18 +118,26 @@ jobs:
     # plan.outputs.run-checks: it must validate what actually reaches main on
     # EVERY merge, not only publish-worthy pushes. Fatal on push to main (what
     # lands) and on merge_group (what is about to land -- the queue's squash
-    # commit, range base_sha..head_sha); advisory on pull_request. Runs the
-    # LOCAL branch code (uv run) so this repo's own PRs exercise the change.
+    # commit, range base_sha..head_sha); advisory on pull_request for branch
+    # commits, fatal for the PR title. Runs the LOCAL branch code (uv run) so
+    # this repo's own PRs exercise the change.
     # See docs/architecture.md, "Under a merge queue".
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'pull_request' ||
       github.event_name == 'merge_group'
     runs-on: ubuntu-latest
+    # pull-requests: read reads the PR title live. A job-level block replaces
+    # the workflow default, so contents: read is restated.
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          # Keeps the job token away from the code this job runs (issue #402).
+          persist-credentials: false
       - name: Install uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
@@ -139,6 +147,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --no-sources
       - name: Validate commit messages
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: uv run --no-sources hyperi-ci check-commits
 
   quality:

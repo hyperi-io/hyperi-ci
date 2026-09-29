@@ -778,6 +778,242 @@ class TestRunFatalInMergeQueue:
         assert cv.run(CIConfig()) == 0
 
 
+_REPO = "hyperi-io/example"
+_PR_NUMBER = 207
+
+
+def _write_titled_pr_event(
+    tmp_path: Path, base_sha: str, title: str | None, body: str = ""
+) -> Path:
+    pr: dict[str, object] = {"number": _PR_NUMBER, "base": {"sha": base_sha}}
+    if title is not None:
+        pr["title"] = title
+        pr["body"] = body
+    payload = tmp_path / "event.json"
+    payload.write_text(json.dumps({"pull_request": pr}))
+    return payload
+
+
+class _FakeGh:
+    """Stands in for `gh api`: records each call and answers with one response."""
+
+    def __init__(
+        self,
+        *,
+        pr: dict | None = None,
+        returncode: int = 0,
+        raises: Exception | None = None,
+    ) -> None:
+        self.calls: list[list[str]] = []
+        self._stdout = json.dumps(pr) if pr is not None else ""
+        self._returncode = returncode
+        self._raises = raises
+
+    def __call__(
+        self, args: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess:
+        self.calls.append(args)
+        if self._raises is not None:
+            raise self._raises
+        return subprocess.CompletedProcess(
+            ["gh", *args], self._returncode, self._stdout, ""
+        )
+
+
+class _Log:
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.warns: list[str] = []
+        self.errors: list[str] = []
+        self.successes: list[str] = []
+        monkeypatch.setattr(cv, "warn", self.warns.append)
+        monkeypatch.setattr(cv, "error", self.errors.append)
+        monkeypatch.setattr(cv, "success", self.successes.append)
+
+
+@pytest.fixture
+def pr_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Set up a pull_request run over a repo whose branch commits are valid.
+
+    Returns a callable taking the payload title, the fake `gh`, and whether
+    a token is present; it returns the fake so a test can read its calls.
+    """
+    repo = _repo(tmp_path)
+    base = _commit(repo, "fix: base")
+    _commit(repo, "fix: good branch commit")
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+    monkeypatch.setenv("GITHUB_REPOSITORY", _REPO)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("HYPERCI_ALLOW_FEAT", raising=False)
+    monkeypatch.setattr(cv, "is_ci", lambda: True)
+
+    def setup(
+        payload_title: str | None,
+        gh: _FakeGh,
+        *,
+        token: bool = True,
+        body: str = "",
+    ) -> _FakeGh:
+        event = _write_titled_pr_event(tmp_path, base, payload_title, body)
+        monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
+        if token:
+            monkeypatch.setenv("GH_TOKEN", "fake-token")
+        else:
+            monkeypatch.delenv("GH_TOKEN", raising=False)
+        monkeypatch.setattr(cv, "gh_run", gh)
+        return gh
+
+    return setup
+
+
+class TestRunPrTitle:
+    """A squash merge lands the PR title as the subject on main, so a bad
+    title is fatal on the PR even though branch commits are advisory
+    (dfe-fetcher #207 landed as ae9046d and failed main's push run)."""
+
+    def test_bad_title_is_fatal(self, pr_run, monkeypatch: pytest.MonkeyPatch) -> None:
+        log = _Log(monkeypatch)
+        pr_run("fix: GA public tree", _FakeGh(pr={"title": "fix: GA public tree"}))
+
+        assert cv.run() == 1
+        assert any("squash merge makes the title" in e for e in log.errors)
+        assert any("lowercase letter (got 'G')" in e for e in log.errors)
+
+    def test_good_title_passes(self, pr_run, monkeypatch: pytest.MonkeyPatch) -> None:
+        log = _Log(monkeypatch)
+        pr_run("fix: ga public tree", _FakeGh(pr={"title": "fix: ga public tree"}))
+
+        assert cv.run() == 0
+        assert any("PR title passed" in s for s in log.successes)
+        assert log.errors == []
+        assert log.warns == []
+
+    def test_live_title_wins_over_the_stale_payload(
+        self, pr_run, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        log = _Log(monkeypatch)
+        gh = pr_run("fix: GA public tree", _FakeGh(pr={"title": "fix: ga public tree"}))
+
+        assert cv.run() == 0
+        assert gh.calls == [["api", f"repos/{_REPO}/pulls/{_PR_NUMBER}"]]
+        assert log.warns == []
+
+    @pytest.mark.parametrize(
+        "gh",
+        [
+            _FakeGh(returncode=1),
+            _FakeGh(raises=FileNotFoundError("gh")),
+            _FakeGh(raises=subprocess.TimeoutExpired("gh", 30)),
+        ],
+        ids=["api-error", "gh-missing", "timeout"],
+    )
+    def test_api_failure_falls_back_to_the_payload(
+        self, pr_run, monkeypatch: pytest.MonkeyPatch, gh: _FakeGh
+    ) -> None:
+        log = _Log(monkeypatch)
+        pr_run("fix: GA public tree", gh)
+
+        assert cv.run() == 1
+        assert any("from the event payload" in w for w in log.warns)
+        assert any("re-run" in w for w in log.warns)
+
+    def test_no_token_uses_the_payload_without_calling_the_api(
+        self, pr_run, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        log = _Log(monkeypatch)
+        gh = pr_run("fix: ga public tree", _FakeGh(), token=False)
+
+        assert cv.run() == 0
+        assert gh.calls == []
+        assert any("no GH_TOKEN" in w for w in log.warns)
+
+    def test_missing_payload_title_skips_with_a_warning(
+        self, pr_run, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        log = _Log(monkeypatch)
+        pr_run(None, _FakeGh(), token=False)
+
+        assert cv.run() == 0
+        assert any("PR title NOT validated" in w for w in log.warns)
+
+    def test_missing_payload_file_skips_with_a_warning(
+        self, pr_run, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        log = _Log(monkeypatch)
+        pr_run(None, _FakeGh())
+        monkeypatch.setenv("GITHUB_EVENT_PATH", "/nonexistent/event.json")
+
+        assert cv.run() == 0
+        assert any("PR title NOT validated" in w for w in log.warns)
+
+    def test_bad_branch_commits_stay_advisory_under_a_good_title(
+        self, pr_run, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        log = _Log(monkeypatch)
+        _git(Path.cwd(), "commit", "--allow-empty", "-q", "-m", "WIP Bad Subject")
+        pr_run("fix: good title", _FakeGh(pr={"title": "fix: good title"}))
+
+        assert cv.run() == 0
+        assert any("would fail validation on merge" in w for w in log.warns)
+        assert log.errors == []
+
+    def test_feat_title_needs_its_confirmation(
+        self, pr_run, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        log = _Log(monkeypatch)
+        pr_run("feat: new command", _FakeGh(pr={"title": "feat: new command"}))
+
+        assert cv.run() == 1
+        assert any("MINOR bump" in e for e in log.errors)
+
+    @pytest.mark.parametrize("where", ["body", "commit"])
+    def test_feat_title_confirmed_by_the_trailer(
+        self, pr_run, monkeypatch: pytest.MonkeyPatch, where: str
+    ) -> None:
+        _Log(monkeypatch)
+        pr = {"title": "feat: new command", "body": ""}
+        if where == "body":
+            pr["body"] = "Adds the command.\n\nAllow-Feat: true"
+        else:
+            _git(
+                Path.cwd(),
+                "commit",
+                "--allow-empty",
+                "-q",
+                "-m",
+                "feat: new command\n\nAllow-Feat: true",
+            )
+        pr_run("feat: new command", _FakeGh(pr=pr))
+
+        assert cv.run() == 0
+
+    @pytest.mark.parametrize("event", ["push", "merge_group"])
+    def test_other_events_never_read_a_title(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, event: str
+    ) -> None:
+        repo = _repo(tmp_path)
+        base = _commit(repo, "fix: base")
+        head = _commit(repo, "fix: the change that lands")
+        monkeypatch.chdir(repo)
+        monkeypatch.setenv("GITHUB_EVENT_NAME", event)
+        payload = (
+            _write_push_event(tmp_path, base, head)
+            if event == "push"
+            else _write_merge_group_event(tmp_path, base, head)
+        )
+        monkeypatch.setenv("GITHUB_EVENT_PATH", str(payload))
+        monkeypatch.setenv("GITHUB_REPOSITORY", _REPO)
+        monkeypatch.setenv("GH_TOKEN", "fake-token")
+        monkeypatch.setattr(cv, "is_ci", lambda: True)
+        gh = _FakeGh(pr={"title": "Bad Title"})
+        monkeypatch.setattr(cv, "gh_run", gh)
+        log = _Log(monkeypatch)
+
+        assert cv.run() == 0
+        assert gh.calls == []
+        assert not any("PR title" in m for m in log.warns + log.successes)
+
+
 class TestRunLocal:
     """`local=True` (hyperi-ci check pre-push) validates the unpushed range
     outside CI and is FATAL - catch a bad message before the push. Without
