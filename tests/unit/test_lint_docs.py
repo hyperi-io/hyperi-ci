@@ -20,9 +20,18 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 from hyperi_ci.config import CIConfig
-from hyperi_ci.quality import doc_links, docs_touched, lint_docs, markdownlint
+from hyperi_ci.quality import (
+    doc_links,
+    doc_paths,
+    docs_touched,
+    lint_docs,
+    markdownlint,
+    mermaid_parse,
+)
+from hyperi_ci.quality import findings as fdg
 from hyperi_ci.quality.targets import discover_markdown_files
 
 
@@ -224,6 +233,12 @@ class TestMarkdownlintParsing:
         text = markdownlint.DEFAULT_CONFIG.read_text(encoding="utf-8")
         assert "MD013: false" in text
 
+    def test_the_shipped_default_disables_table_pipe_spacing(self) -> None:
+        # MD060 was 711 of 851 findings on this repo's own docs, and a table
+        # renders the same whatever its pipe spacing.
+        rules = yaml.safe_load(markdownlint.DEFAULT_CONFIG.read_text(encoding="utf-8"))
+        assert rules["MD060"] is False
+
     def test_the_wheel_carries_the_default_config(self) -> None:
         """A wheel without it makes every consumer inherit MD013 - assert it ships."""
         root = Path(__file__).resolve().parents[2]
@@ -391,3 +406,93 @@ class TestLycheeInstall:
         )
         config = CIConfig(_raw={"quality": {"doc_links": "warn"}})
         assert doc_links.planned_mode(config) == "warn"
+
+
+class TestAnnotationLevelFollowsMode:
+    """Only a blocking check may raise an error annotation.
+
+    A warn-tier check that surfaced `error` put red annotations on a green job
+    and spent the step's 10-error budget before the language handler ran.
+    """
+
+    def test_blocking_keeps_errors(self) -> None:
+        found = [fdg.Finding("t", "a.md", 1, "error", "r", "m")]
+        assert fdg.at_mode(found, "blocking") == found
+
+    def test_warn_downgrades_errors_and_leaves_the_rest(self) -> None:
+        found = [
+            fdg.Finding("t", "a.md", 1, "error", "r", "m"),
+            fdg.Finding("t", "a.md", 2, "notice", "r", "m"),
+        ]
+        assert [f.level for f in fdg.at_mode(found, "warn")] == ["warning", "notice"]
+        assert found[0].level == "error"
+
+    @staticmethod
+    def _surfaced(monkeypatch) -> list[str]:
+        levels: list[str] = []
+
+        def capture(tool, findings, *, sarif_path=None):
+            levels.extend(f.level for f in findings)
+            return 0
+
+        monkeypatch.setattr(fdg, "surface", capture)
+        return levels
+
+    @staticmethod
+    def _fake_tool(tmp_path: Path, name: str, output: str, rc: int) -> str:
+        exe = tmp_path / "bin" / name
+        exe.parent.mkdir(exist_ok=True)
+        exe.write_text(f"#!/bin/sh\ncat <<'EOF'\n{output}\nEOF\nexit {rc}\n", "utf-8")
+        exe.chmod(0o755)
+        return str(exe)
+
+    @pytest.mark.parametrize(
+        ("mode", "level", "rc"), [("warn", "warning", 0), ("blocking", "error", 1)]
+    )
+    def test_markdownlint(self, tmp_path: Path, monkeypatch, mode, level, rc) -> None:
+        line = "README.md:1 error MD022/blanks-around-headings Headings [Context: x]"
+        exe = self._fake_tool(tmp_path, "markdownlint-cli2", line, 1)
+        monkeypatch.setattr(markdownlint.shutil, "which", lambda _n: exe)
+        levels = self._surfaced(monkeypatch)
+        doc = tmp_path / "README.md"
+        doc.write_text("# x\n", encoding="utf-8")
+        config = _config(markdownlint=mode)
+        assert markdownlint.run([doc], config, root=tmp_path) == rc
+        assert levels == [level]
+
+    @pytest.mark.parametrize(
+        ("mode", "level", "rc"), [("warn", "warning", 0), ("blocking", "error", 1)]
+    )
+    def test_doc_links(self, tmp_path: Path, monkeypatch, mode, level, rc) -> None:
+        report = json.dumps({"error_map": {"README.md": [{"url": "gone.md"}]}})
+        exe = self._fake_tool(tmp_path, "lychee", report, 2)
+        monkeypatch.setattr(doc_links.shutil, "which", lambda _n: exe)
+        levels = self._surfaced(monkeypatch)
+        doc = tmp_path / "README.md"
+        doc.write_text("[x](gone.md)\n", encoding="utf-8")
+        assert doc_links.run([doc], _config(doc_links=mode), root=tmp_path) == rc
+        assert levels == [level]
+
+    @pytest.mark.parametrize(
+        ("mode", "level", "rc"), [("warn", "warning", 0), ("blocking", "error", 1)]
+    )
+    def test_mermaid_parse(self, tmp_path: Path, monkeypatch, mode, level, rc) -> None:
+        # An unclosed fence is a structural finding, so no Node is needed.
+        monkeypatch.setattr(mermaid_parse, "_run_parser", lambda _b, _r: ({}, None))
+        levels = self._surfaced(monkeypatch)
+        doc = tmp_path / "README.md"
+        doc.write_text("```mermaid\ngraph TD\n  A --> B\n", encoding="utf-8")
+        config = _config(mermaid_parse=mode)
+        assert mermaid_parse.run([doc], config, root=tmp_path) == rc
+        assert levels == [level]
+
+    @pytest.mark.parametrize(
+        ("mode", "level", "rc"), [("warn", "warning", 0), ("blocking", "error", 1)]
+    )
+    def test_doc_paths(self, tmp_path: Path, monkeypatch, mode, level, rc) -> None:
+        levels = self._surfaced(monkeypatch)
+        doc = tmp_path / "README.md"
+        doc.write_text("[x](docs/gone.md)\n", encoding="utf-8")
+        config = _config(doc_paths=mode)
+        assert doc_paths.run([doc], config, root=tmp_path, lychee_mode=None) == rc
+        assert levels == [level]

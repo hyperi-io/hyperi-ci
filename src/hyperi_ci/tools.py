@@ -164,9 +164,10 @@ _REGISTRY: dict[str, ToolInfo] = {
     "mermaid": ToolInfo(
         name="mermaid",
         purpose="mermaid diagram parse checking (the grammar, not a render)",
-        # Node packages, resolved from the repo's own node_modules. linkedom
-        # supplies the browser globals mermaid's bundle reaches for - without it
-        # a VALID flowchart throws, so both are needed or neither works.
+        # Node packages, from the repo's own node_modules or, on CI, the pinned
+        # set quality/node_tools.py installs. linkedom supplies the browser
+        # globals mermaid's bundle reaches for - without it a VALID flowchart
+        # throws, so both are needed or neither works.
         install=(
             "npm install --no-save mermaid linkedom",
             "add mermaid + linkedom to the project's devDependencies",

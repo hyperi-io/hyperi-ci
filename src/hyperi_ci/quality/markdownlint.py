@@ -16,12 +16,13 @@ a line-length rule would report every correctly written paragraph. A repo with
 its own ``.markdownlint*`` config keeps it and the default is not passed at
 all - one config, not a merge whose winner nobody can predict from the repo.
 
+A ``markdownlint-cli2`` on PATH wins; otherwise on CI the pinned release comes
+from :mod:`hyperi_ci.quality.node_tools`.
+
 This is the ratchet's clearest case. An existing tree lights up on the first
 run, so it starts at ``warn`` and is promoted per repo once its count reaches
 zero; a greenfield repo can set ``blocking`` on day one and never accumulate.
 """
-
-from __future__ import annotations
 
 import re
 import shutil
@@ -31,6 +32,7 @@ from hyperi_ci.common import error, info, is_ci, run_cmd, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_cross_tool_mode
 from hyperi_ci.quality import findings as fdg
+from hyperi_ci.quality import node_tools
 from hyperi_ci.tools import missing_tool_notice
 
 DEFAULT_CONFIG = Path(__file__).parent.parent / "config" / "markdownlint.yaml"
@@ -114,7 +116,9 @@ def run(
         return 0
 
     root = Path(root or Path.cwd())
-    exe = shutil.which("markdownlint-cli2")
+    exe = shutil.which("markdownlint-cli2") or node_tools.executable(
+        "markdownlint-cli2"
+    )
     if not exe:
         if mode == "blocking" and is_ci():
             error(missing_tool_notice("markdownlint-cli2"))
@@ -155,7 +159,9 @@ def run(
             return 1
         return 0
 
-    dropped = fdg.surface("markdownlint", found, sarif_path=sarif_path)
+    dropped = fdg.surface(
+        "markdownlint", fdg.at_mode(found, mode), sarif_path=sarif_path
+    )
     if dropped:
         info(f"  markdownlint: +{dropped} more finding(s) in the job summary")
 

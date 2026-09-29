@@ -305,7 +305,7 @@ def run(
             f"({_PRESCRIPTIVE})"
         )
 
-    dropped = fdg.surface("doc-paths", found, sarif_path=sarif_path)
+    dropped = fdg.surface("doc-paths", fdg.at_mode(found, mode), sarif_path=sarif_path)
     if dropped:
         info(f"  doc-paths: +{dropped} more finding(s) in the job summary")
 
