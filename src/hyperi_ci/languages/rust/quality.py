@@ -272,14 +272,14 @@ def _run_tool(
     if mode == "warn":
         warn(f"  {tool_name}: issues found (non-blocking)")
         if result.stdout:
-            print(result.stdout)
+            info(result.stdout)
         return True
 
     error(f"  {tool_name}: failed")
     if result.stdout:
-        print(result.stdout)
+        info(result.stdout)
     if result.stderr:
-        print(result.stderr)
+        info(result.stderr)
     return False
 
 
@@ -492,7 +492,7 @@ def _run_feature_matrix(
         if result.returncode != 0:
             error("  feature_matrix: failed to install cargo-hack")
             if result.stderr:
-                print(result.stderr)
+                info(result.stderr)
             return False
 
     had_failure = False
