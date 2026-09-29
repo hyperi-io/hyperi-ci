@@ -335,11 +335,11 @@ jobs:
         with:
           name: release-stamped
           path: ${{ runner.temp }}/release-stamped
-          # stamp_paths may name a dotfile.
+          # The stamp marker is a dotfile, and stamp_paths may name others.
           include-hidden-files: true
           # A re-run of this job replaces the attempt before it.
           overwrite: true
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 1
 
       - name: Check and package the release
@@ -481,8 +481,6 @@ jobs:
           path: ${{ runner.temp }}/release-prepared
 
       - name: Download the stamp outputs
-        # A repo with no release.stamp_paths uploads none.
-        continue-on-error: true
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-stamped
