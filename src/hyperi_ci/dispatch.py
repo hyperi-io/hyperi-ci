@@ -19,12 +19,14 @@ import os
 from pathlib import Path
 from typing import Any, Protocol, cast
 
+from hyperi_ci import release_prepare
 from hyperi_ci.common import (
     announce,
     error,
     group,
     info,
     is_ci,
+    resolve_release_version,
     run_cmd,
     success,
     warn,
@@ -426,6 +428,34 @@ def stage_build(language: str, config: CIConfig, *, local: bool = False) -> int:
     return 0
 
 
+def _check_prepared(language: str) -> int:
+    """Refuse a prepared directory written for another version or language.
+
+    It came from a job that ran repo code, so it is checked against what this
+    run is releasing before anything reads it.
+    """
+    try:
+        prepared = release_prepare.load()
+    except release_prepare.PreparedError as exc:
+        error(str(exc))
+        return 1
+    if prepared is None:
+        return 0
+    version = resolve_release_version()
+    if prepared.version != version:
+        error(
+            f"Prepared v{prepared.version} but this run releases v{version} -- "
+            "refusing to upload artefacts built for another version"
+        )
+        return 1
+    canonical = _LANGUAGE_ALIASES.get(language, language)
+    if prepared.language != canonical:
+        error(f"Prepared a {prepared.language} release, but this is {canonical}")
+        return 1
+    info(f"Uploading v{version} as prepared; no repo code runs in this stage")
+    return 0
+
+
 def stage_release(language: str, config: CIConfig) -> int:
     """Release -- CI-only, dispatch to language-specific handler + binary upload."""
     if not is_ci():
@@ -444,6 +474,10 @@ def stage_release(language: str, config: CIConfig) -> int:
             "to the same OSS destinations as 'release'. Pre-GA staging on "
             "private registries was retired in v2.1.4."
         )
+
+    rc = _check_prepared(language)
+    if rc != 0:
+        return rc
 
     rc = _dispatch_to_handler(language, "release", config)
     if rc == -1:

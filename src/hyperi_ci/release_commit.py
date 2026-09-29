@@ -35,6 +35,7 @@ from urllib.parse import quote
 
 from packaging.version import InvalidVersion, Version
 
+from hyperi_ci import release_prepare
 from hyperi_ci.common import error, info, run_cmd, success, warn
 from hyperi_ci.config import load_config
 from hyperi_ci.stamp import stamp_paths
@@ -122,6 +123,41 @@ def _stamped_artefacts(root: Path) -> list[str]:
         else:
             kept.append(name)
     return kept
+
+
+def _restore_prepared(root: Path) -> bool:
+    """Bring the stamped files over from ``release-prepare``, when a run split it.
+
+    The publish job runs no stamp of its own, because ``release.stamp_cmd`` is
+    repo code (issue #409). VERSION and the ``stamp_paths`` files come from the
+    prepare job instead, named here from this checkout's config.
+
+    Returns:
+        False when the prepared directory is set but unusable.
+
+    """
+    try:
+        prepared = release_prepare.load()
+    except release_prepare.PreparedError as exc:
+        error(f"release-commit: {exc}")
+        return False
+    if prepared is None:
+        return True
+    names = [VERSION]
+    try:
+        listed = stamp_paths(load_config(project_dir=root, reload=True), root)
+    except ValueError:
+        listed = []
+    names += [
+        name
+        for name in listed
+        if name not in RELEASE_ARTEFACTS
+        and name != SUPPLEMENT
+        and ".git" not in Path(name).parts
+    ]
+    restored = release_prepare.restore_stamped(prepared, root, names)
+    info(f"release-commit: restored {', '.join(restored) or 'nothing'} from prepare")
+    return True
 
 
 def _local_blob(root: Path, name: str) -> str | None:
@@ -278,6 +314,9 @@ def commit_release_artefacts(
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     if not repo:
         error("release-commit: GITHUB_REPOSITORY not set (must run in CI)")
+        return 1
+
+    if not _restore_prepared(root):
         return 1
 
     fixed = [name for name in RELEASE_ARTEFACTS if (root / name).is_file()]

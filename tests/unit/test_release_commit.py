@@ -513,3 +513,40 @@ class TestRefusals:
         with patch("hyperi_ci.release_commit._api", return_value=None) as stub:
             assert commit_release_artefacts(version="3.1.0", project_dir=project) == 1
         assert stub.call_count == 1
+
+
+class TestPreparedStamp:
+    """The publish job runs no stamp: VERSION and stamp_paths come from prepare."""
+
+    def test_the_prepared_files_are_restored_before_committing(
+        self, api: _Api, project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (project / ".hyperi-ci.yaml").write_text(
+            yaml.safe_dump({"release": {"stamp_paths": ["spec.json", "CHANGELOG.md"]}}),
+            encoding="utf-8",
+        )
+        prepared = tmp_path / "prepared"
+        stamped = prepared / "stamped"
+        stamped.mkdir(parents=True)
+        (prepared / "prepared.json").write_text(
+            '{"schema": 1, "version": "3.2.0", "language": "python", "facts": {}}',
+            encoding="utf-8",
+        )
+        (stamped / "VERSION").write_text("3.2.0\n", encoding="utf-8")
+        (stamped / "spec.json").write_text('{"version": "3.2.0"}', encoding="utf-8")
+        # Stale in the prepare job, which never runs semantic-release.
+        (stamped / "CHANGELOG.md").write_text("# stale\n", encoding="utf-8")
+        monkeypatch.setenv("HYPERCI_RELEASE_PREPARED", str(prepared))
+
+        assert commit_release_artefacts(version="3.2.0", project_dir=project) == 0
+
+        assert (project / "VERSION").read_text(encoding="utf-8") == "3.2.0\n"
+        assert (project / "spec.json").is_file()
+        assert "stale" not in (project / "CHANGELOG.md").read_text(encoding="utf-8")
+
+    def test_an_unusable_prepared_directory_commits_nothing(
+        self, api: _Api, project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYPERCI_RELEASE_PREPARED", str(tmp_path / "absent"))
+        assert commit_release_artefacts(version="3.1.0", project_dir=project) == 1
+        assert not api.bodies_for("/git/commits")

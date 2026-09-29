@@ -11,34 +11,40 @@ Binary artifact uploads are handled generically by publish_binaries
 in dispatch.py -- not duplicated here.
 """
 
-import subprocess
+from pathlib import Path
 
 from hyperi_ci.common import error, group, info, success
 from hyperi_ci.config import CIConfig
 
 
-def _publish_go_proxy() -> int:
-    """Trigger Go module proxy indexing.
+def _module_path(root: Path) -> str | None:
+    """Return the ``module`` path declared in ``go.mod``, or None.
 
-    Go modules are automatically indexed by proxy.golang.org when a tag
-    is pushed to a public repo. This forces an immediate fetch.
+    Read from the file: ``go list -m`` would fetch and run whatever toolchain
+    go.mod names, with every publish credential in its environment.
+    """
+    go_mod = root / "go.mod"
+    if not go_mod.is_file():
+        return None
+    for line in go_mod.read_text(encoding="utf-8", errors="replace").splitlines():
+        fields = line.split("//", 1)[0].split()
+        if len(fields) == 2 and fields[0] == "module":
+            return fields[1].strip('"`')
+    return None
+
+
+def _publish_go_proxy() -> int:
+    """Report the module proxy.golang.org indexes when the tag is pushed.
 
     Returns:
         Exit code (0 = success).
 
     """
-    result = subprocess.run(
-        ["go", "list", "-m"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    if result.returncode != 0:
-        error("Could not determine Go module path")
+    module_path = _module_path(Path.cwd())
+    if not module_path:
+        error("Could not determine Go module path from go.mod")
         return 1
 
-    module_path = result.stdout.strip()
     info(f"Go module {module_path} will be indexed by proxy.golang.org on tag push")
     success("Go proxy publish: automatic on tag push")
     return 0

@@ -1061,6 +1061,34 @@ def release_commit_cmd(
     )
 
 
+@app.command(name="release-prepare")
+def release_prepare_cmd(
+    version: Annotated[
+        str,
+        typer.Argument(help="Version being released (with or without leading v)"),
+    ],
+    out: Annotated[
+        str,
+        typer.Option("--out", help="Directory to write the prepared artefacts to"),
+    ],
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+) -> None:
+    """Stamp the release and run everything in it that executes repo code.
+
+    The half of a release that holds no credentials: the version stamp and
+    `release.stamp_cmd`, cargo-semver-checks and `cargo package`, `npm pack`.
+    `run release` with HYPERCI_RELEASE_PREPARED naming `--out` then only
+    uploads (issue #409).
+    """
+    from hyperi_ci.release_prepare import prepare_release
+
+    dir_path = Path(project_dir) if project_dir else None
+    raise typer.Exit(prepare_release(version, out_dir=Path(out), project_dir=dir_path))
+
+
 @app.command(name="seed-version")
 def seed_version_cmd(
     project_dir: Annotated[
