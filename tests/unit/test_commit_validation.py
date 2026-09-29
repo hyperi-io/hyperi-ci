@@ -725,6 +725,59 @@ class TestRunAdvisoryOnPR:
         assert rc == 0
 
 
+def _write_merge_group_event(tmp_path: Path, base_sha: str, head_sha: str) -> Path:
+    payload = tmp_path / "event.json"
+    payload.write_text(
+        json.dumps({"merge_group": {"base_sha": base_sha, "head_sha": head_sha}})
+    )
+    return payload
+
+
+class TestRunFatalInMergeQueue:
+    """A merge queue tests the squash commit main fast-forwards to (issue
+    #228), so a bad subject there is the landing gate firing before the
+    landing. Advisory would let it merge and fail post-hoc on the push."""
+
+    def test_queue_failure_is_fatal(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = _repo(tmp_path)
+        base = _commit(repo, "fix: base")
+        head = _commit(repo, "Bad squash subject (#12)")
+        monkeypatch.chdir(repo)
+        monkeypatch.setenv("GITHUB_EVENT_NAME", "merge_group")
+        monkeypatch.setenv(
+            "GITHUB_EVENT_PATH", str(_write_merge_group_event(tmp_path, base, head))
+        )
+        monkeypatch.setattr(cv, "is_ci", lambda: True)
+        errors: list[str] = []
+        monkeypatch.setattr(cv, "error", lambda m: errors.append(m))
+
+        from hyperi_ci.config import CIConfig
+
+        assert cv.run(CIConfig()) == 1
+        assert any("Bad squash subject" in e for e in errors)
+
+    def test_queue_valid_squash_passes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = _repo(tmp_path)
+        # A bad commit BEFORE base is outside the queue's range and must not count.
+        _commit(repo, "Old bad subject already on main")
+        base = _commit(repo, "fix: base")
+        head = _commit(repo, "fix: the squash that lands (#12)")
+        monkeypatch.chdir(repo)
+        monkeypatch.setenv("GITHUB_EVENT_NAME", "merge_group")
+        monkeypatch.setenv(
+            "GITHUB_EVENT_PATH", str(_write_merge_group_event(tmp_path, base, head))
+        )
+        monkeypatch.setattr(cv, "is_ci", lambda: True)
+
+        from hyperi_ci.config import CIConfig
+
+        assert cv.run(CIConfig()) == 0
+
+
 class TestRunLocal:
     """`local=True` (hyperi-ci check pre-push) validates the unpushed range
     outside CI and is FATAL - catch a bad message before the push. Without

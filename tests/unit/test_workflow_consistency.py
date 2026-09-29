@@ -1927,3 +1927,210 @@ class TestTestTierThreading:
     def test_the_tier_helper_ships_with_the_action(self) -> None:
         helper = ACTIONS_DIR / "predict-version" / "resolve_tier.py"
         assert helper.is_file(), f"{helper} is referenced by action.yml but missing"
+
+
+_QUEUE_REF = "refs/heads/gh-readonly-queue/main/pr-228-0123456789abcdef"
+
+
+def _split_top(expression: str, operator: str) -> list[str]:
+    """Split on ``operator`` where it sits outside every parenthesis."""
+    parts, depth, start, i = [], 0, 0, 0
+    while i < len(expression):
+        char = expression[i]
+        depth += char == "("
+        depth -= char == ")"
+        if depth == 0 and expression.startswith(operator, i):
+            parts.append(expression[start:i])
+            start = i + len(operator)
+            i = start
+            continue
+        i += 1
+    parts.append(expression[start:])
+    return [part.strip() for part in parts]
+
+
+def _fires(expression: str, context: dict[str, str]) -> bool:
+    """Evaluate a job ``if:`` of the shapes ci.yml uses, for one event.
+
+    Handles ``||``, ``&&``, parentheses, ``always()`` and ``name ==/!= 'value'``.
+    Any other clause, or a name missing from ``context``, fails the test rather
+    than reading as false.
+    """
+    expression = expression.strip()
+    ors = _split_top(expression, "||")
+    if len(ors) > 1:
+        return any(_fires(part, context) for part in ors)
+    ands = _split_top(expression, "&&")
+    if len(ands) > 1:
+        return all(_fires(part, context) for part in ands)
+    if expression.startswith("(") and expression.endswith(")"):
+        return _fires(expression[1:-1], context)
+    if expression == "always()":
+        return True
+    match = re.fullmatch(r"([\w.-]+) (==|!=) '([^']*)'", expression)
+    assert match, f"clause this model cannot read: {expression!r}"
+    name, operator, value = match.groups()
+    assert name in context, f"no value for {name} in the model"
+    return (context[name] == value) == (operator == "==")
+
+
+class TestMergeGroup:
+    """hyperi-ci's own ci.yml under a merge queue (issue #228).
+
+    A queue waits on the required checks of a temporary gh-readonly-queue
+    branch. No trigger, or a required job that skips, and the queue stalls or
+    merges untested. The queue run must check what a PR checks and must never
+    build, tag, publish or commit back.
+    """
+
+    @staticmethod
+    def _git(cwd: Path, *args: str) -> None:
+        subprocess.run(
+            ["git", *args],
+            cwd=cwd,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+
+    def _plan(self, event: str, ref: str, tmp_path: Path) -> dict[str, str]:
+        """Run the composite's gate and derive steps; return the gate outputs.
+
+        HEAD carries a release trailer, so a queue run that publishes on the
+        squash message would show here.
+        """
+        if not shutil.which("bash") or not shutil.which("python3"):
+            pytest.skip("rendering the step needs bash + python3")
+        root = tmp_path / "repo"
+        root.mkdir(parents=True)
+        self._git(root, "init", "-q")
+        self._git(root, "config", "user.email", "t@t.io")
+        self._git(root, "config", "user.name", "t")
+        message = "fix: squash (#228)\n\nRelease: true"
+        self._git(root, "commit", "--allow-empty", "-q", "-m", message)
+        env = {
+            "GITHUB_ACTION_PATH": str(ACTIONS_DIR / "predict-version"),
+            "GITHUB_WORKSPACE": str(root),
+            "GITHUB_REF": ref,
+        }
+        gate = _run_step(
+            _render(
+                str(_composite_step("gate")["run"]),
+                {
+                    "${{ github.event_name }}": event,
+                    "${{ github.ref }}": ref,
+                    "${{ inputs.tag }}": "",
+                    "${{ inputs.from-head }}": "",
+                },
+            ),
+            cwd=root,
+            env=env,
+        )
+        derived = _run_step(
+            _render(
+                str(_composite_step("derive")["run"]),
+                {
+                    expression: {
+                        "will_publish": gate["will-publish"],
+                        "event_name": event,
+                        "branch_build": "",
+                        "git_ref": ref,
+                        "release_worthy": "",
+                        "version": "",
+                    }[name]
+                    for expression, name in _DERIVE_INPUTS.items()
+                },
+            ),
+            cwd=root,
+            env=env,
+        )
+        return {**gate, **derived}
+
+    def _jobs_that_run(self, event: str, ref: str, tmp_path: Path) -> set[str]:
+        """Which ci.yml jobs fire for ``event``, under the plan it computes."""
+        plan = self._plan(event, ref, tmp_path)
+        context = {
+            "github.event_name": event,
+            "github.ref": ref,
+            "needs.plan.outputs.run-build": plan["run-build"],
+            "needs.plan.outputs.run-checks": plan["run-checks"],
+            "needs.plan.outputs.will-release": plan["will-publish"],
+        }
+        fired: set[str] = set()
+        for name, job in _load_workflow("ci.yml")["jobs"].items():
+            condition = str(job.get("if", ""))
+            needs = job.get("needs", [])
+            needs = [needs] if isinstance(needs, str) else needs
+            # Without a status function a job skips when any need skipped.
+            if "always()" not in condition and not set(needs) <= fired:
+                continue
+            if not condition or _fires(condition, context):
+                fired.add(name)
+        return fired
+
+    def test_the_model_reads_every_condition(self) -> None:
+        # Guards the model itself: a job gate it cannot parse fails here first.
+        context = {
+            "github.event_name": "push",
+            "github.ref": "refs/heads/main",
+            "needs.plan.outputs.run-build": "true",
+            "needs.plan.outputs.run-checks": "true",
+            "needs.plan.outputs.will-release": "true",
+        }
+        for job in _load_workflow("ci.yml")["jobs"].values():
+            if "if" in job:
+                _fires(str(job["if"]), context)
+
+    def test_the_workflow_triggers_on_the_queue(self) -> None:
+        wf = _load_workflow("ci.yml")
+        on = wf.get("on") or wf.get(True, {})
+        assert "merge_group" in on, "ci.yml: no merge_group trigger, the queue stalls"
+        types = (on["merge_group"] or {}).get("types", ["checks_requested"])
+        assert "checks_requested" in types
+
+    def test_a_queue_run_is_validate_only(self, tmp_path: Path) -> None:
+        plan = self._plan("merge_group", _QUEUE_REF, tmp_path)
+        assert plan["will-publish"] == "false", (
+            "a queue run resolved will-release from the squash trailer"
+        )
+        assert plan["run-build"] == "false"
+
+    def test_the_queue_runs_what_a_pr_runs(self, tmp_path: Path) -> None:
+        queue = self._jobs_that_run("merge_group", _QUEUE_REF, tmp_path / "q")
+        pr = self._jobs_that_run("pull_request", "refs/pull/228/merge", tmp_path / "p")
+        assert {"plan", "commit-check", "quality", "test", "gate"} <= queue
+        assert queue == pr - {"rehearsal"}, (
+            f"merge_group runs {sorted(queue)}; a PR runs {sorted(pr)}. Only the "
+            f"fixture rehearsal may differ."
+        )
+
+    def test_the_queue_never_ships(self, tmp_path: Path) -> None:
+        queue = self._jobs_that_run("merge_group", _QUEUE_REF, tmp_path)
+        assert not queue & {"build", "release-tail"}, (
+            f"a queue run reached {sorted(queue & {'build', 'release-tail'})}"
+        )
+
+    def test_the_rehearsal_skips_only_in_the_queue(self, tmp_path: Path) -> None:
+        # Its record names the PR head; the queue commit is a new SHA.
+        condition = str(_load_workflow("ci.yml")["jobs"]["rehearsal"]["if"])
+        base = {"github.ref": _QUEUE_REF}
+        assert not _fires(condition, {**base, "github.event_name": "merge_group"})
+        for event in ("pull_request", "push", "workflow_dispatch"):
+            assert _fires(condition, {**base, "github.event_name": event})
+
+    def test_quality_and_test_are_unconditional(self) -> None:
+        # Quality is the ruleset's required context. A condition on it is a
+        # way for it to skip, and a skipped required check reads as passing.
+        jobs = _load_workflow("ci.yml")["jobs"]
+        for name in ("quality", "test"):
+            assert "if" not in jobs[name], f"ci.yml {name} gained a condition"
+            assert "needs" not in jobs[name], f"ci.yml {name} gained a dependency"
+
+    def test_a_queue_run_has_its_own_concurrency_group(self) -> None:
+        # Keyed on github.ref, which is per queue entry. A constant key, or
+        # one on the base branch, would let main's push cancel a queue run.
+        group = _load_workflow("ci.yml")["concurrency"]["group"]
+        assert "github.ref" in group
+        assert "base_ref" not in group and "refs/heads/main" not in group

@@ -249,7 +249,7 @@ def validate_message(msg: str) -> ValidationResult:
             valid=False,
             reason=(
                 "`feat:` triggers a MINOR bump. HyperI policy is to use "
-                "`feat:` RARELY — for genuinely new user-facing features. "
+                "`feat:` RARELY -- for genuinely new user-facing features. "
                 "Adding a CLI flag, config knob, helper, or refinement is "
                 "`fix:`, not `feat:`. If this commit IS a genuinely new "
                 "feature (not just an improvement), set HYPERCI_ALLOW_FEAT=1 "
@@ -264,7 +264,7 @@ def validate_message(msg: str) -> ValidationResult:
         return ValidationResult(
             valid=False,
             reason=(
-                "Commit body contains `BREAKING CHANGE:` — this triggers a "
+                "Commit body contains `BREAKING CHANGE:` -- this triggers a "
                 "MAJOR bump even when written as documentation reference. "
                 "Rephrase as `breaking-change footer` or `breaking change "
                 "marker`. If a major bump IS intentional, set "
@@ -386,6 +386,9 @@ def run(
       branch commits validated on a PR may be discarded by a squash-merge
       (only the squash subject lands) and are never re-validated on the
       merge push, so a PR gets feedback rather than a hard red.
+    - ``merge_group`` (a merge queue entry) -> FATAL. The queue's squash
+      commit is the commit main fast-forwards to, so this is the landing
+      gate run BEFORE the landing rather than after it.
 
     ``local=True`` runs the same check outside CI (``hyperi-ci check``
     pre-push backstop): with no CI event the range falls back to
