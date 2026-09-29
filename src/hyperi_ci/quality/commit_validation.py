@@ -78,10 +78,6 @@ _TRUTHY_TRAILER = frozenset({"true", "1", "yes"})
 
 _PR_API_TIMEOUT_SECONDS = 30
 
-# Values of a repo's `squash_merge_commit_title`; the second is GitHub's default.
-_PR_TITLE = "PR_TITLE"
-_COMMIT_OR_PR_TITLE = "COMMIT_OR_PR_TITLE"
-
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -508,13 +504,6 @@ def _api_object(path: str) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
-def _api_ready() -> str | None:
-    """Return the repository to query, or None when the API cannot be used."""
-    repo = os.environ.get("GITHUB_REPOSITORY", "")
-    has_token = bool(os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"))
-    return repo if repo and has_token else None
-
-
 def _current_pr() -> dict | None:
     """Return the pull request being validated, read live where possible.
 
@@ -524,9 +513,10 @@ def _current_pr() -> dict | None:
     """
     payload_pr = event_payload().get("pull_request") or {}
     number = payload_pr.get("number")
-    repo = _api_ready()
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    has_token = bool(os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"))
 
-    if repo and number:
+    if repo and number and has_token:
         live = _api_object(f"repos/{repo}/pulls/{number}")
         if live is not None and isinstance(live.get("title"), str):
             return live
@@ -543,21 +533,6 @@ def _current_pr() -> dict | None:
         "push a commit to validate the new one."
     )
     return payload_pr
-
-
-def _squash_title_setting() -> str:
-    """Return the repo's ``squash_merge_commit_title``, else GitHub's default."""
-    repo = _api_ready()
-    if repo:
-        data = _api_object(f"repos/{repo}")
-        setting = data.get("squash_merge_commit_title") if data else None
-        if isinstance(setting, str) and setting:
-            return setting
-        reason = f"could not read squash_merge_commit_title for {repo}"
-    else:
-        reason = "no GH_TOKEN to read the repo's squash_merge_commit_title"
-    warn(f"{reason}; assuming GitHub's default, {_COMMIT_OR_PR_TITLE}.")
-    return _COMMIT_OR_PR_TITLE
 
 
 def _commit_count(pr: dict, branch_messages: list[str]) -> int:
@@ -606,7 +581,7 @@ def _validate_title_lands(pr: dict, branch_messages: list[str], why: str) -> int
 
 
 def _validate_one_commit_lands(pr: dict, branch_messages: list[str], why: str) -> int:
-    """Validate the one commit a squash lands under ``COMMIT_OR_PR_TITLE``.
+    """Validate the one commit a squash of a one-commit PR lands.
 
     The commit's own message becomes the squash commit, so it is fatal and
     the title is advisory.
@@ -652,10 +627,8 @@ def _validate_one_commit_lands(pr: dict, branch_messages: list[str], why: str) -
 def _validate_squash_subject(branch_messages: list[str]) -> int:
     """Validate the line a squash merge of the PR would land on main.
 
-    GitHub picks it from ``squash_merge_commit_title``: ``PR_TITLE`` lands
-    the title, and ``COMMIT_OR_PR_TITLE`` (the default) lands a one-commit
-    PR's own commit message and the title otherwise. Any other value is
-    treated as ``PR_TITLE``.
+    A one-commit PR lands that commit's own message, so the commit is fatal
+    and the title advisory. Any other PR lands its title.
 
     Args:
         branch_messages: Messages of the pull request's branch commits.
@@ -667,19 +640,9 @@ def _validate_squash_subject(branch_messages: list[str]) -> int:
     if pr is None:
         return 0
 
-    setting = _squash_title_setting()
-    if setting == _COMMIT_OR_PR_TITLE:
-        count = _commit_count(pr, branch_messages)
-        why = f"squash_merge_commit_title={setting}, {count} commit(s)"
-        if count == 1:
-            return _validate_one_commit_lands(pr, branch_messages, why)
-        return _validate_title_lands(pr, branch_messages, why)
-
-    if setting != _PR_TITLE:
-        info(
-            f"squash_merge_commit_title is {setting!r}, not a known value; "
-            "validating the PR title as the landing subject."
-        )
-    return _validate_title_lands(
-        pr, branch_messages, f"squash_merge_commit_title={setting}"
-    )
+    count = _commit_count(pr, branch_messages)
+    why = f"{count} commit(s)"
+    # Assumes COMMIT_OR_PR_TITLE, GitHub's default, which every hyperi-io repo uses.
+    if count == 1:
+        return _validate_one_commit_lands(pr, branch_messages, why)
+    return _validate_title_lands(pr, branch_messages, why)
