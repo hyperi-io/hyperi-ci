@@ -26,6 +26,7 @@ generated ignores are appended to a copy of it rather than replacing it.
 """
 
 import shutil
+import subprocess
 import tempfile
 import tomllib
 from collections.abc import Iterable
@@ -39,8 +40,15 @@ SLUG = "osv-scanner"
 _BINARY = "osv-scanner"
 _CONFIG_NAME = "osv-scanner.toml"
 
-# osv-scanner v2 returns 128 only for ErrNoPackagesFound (internal/cmd/run.go).
+# osv-scanner v2 exit codes, from cmd/osv-scanner/internal/cmd/run.go.
+_FINDINGS_EXIT = 1
+_ERRORED_EXIT = 127
 _NO_PACKAGES_EXIT = 128
+_API_FAILED_EXIT = 129
+
+# v2.6.0 never returns ErrAPIFailed, so a failed osv.dev query exits 127 with
+# this plugin named in the logged error.
+_OSV_DEV_MATCHER = "vulnmatch/osvdev"
 
 
 class ConfigMergeError(ValueError):
@@ -160,9 +168,9 @@ def build_command(lockfile: Path, config_path: Path | None = None) -> list[str]:
 
 
 def _not_scanned(why: str, mode: str) -> None:
-    """Report a scan that examined no package, which is not a clean result."""
+    """Report a scan that checked no package, which is not a clean result."""
     warn(
-        f"  {SLUG}: NOT SCANNED - {why}, so no package was examined. "
+        f"  {SLUG}: NOT SCANNED - {why}, so no package was checked. "
         f"This is not a clean result."
     )
     if is_ci() and mode == "blocking":
@@ -172,45 +180,70 @@ def _not_scanned(why: str, mode: str) -> None:
         )
 
 
+def _osv_dev_unreachable(result: subprocess.CompletedProcess[str]) -> bool:
+    """Whether the scan read the lockfile but could not query osv.dev."""
+    if result.returncode == _API_FAILED_EXIT:
+        return True
+    return result.returncode == _ERRORED_EXIT and _OSV_DEV_MATCHER in (
+        result.stderr or ""
+    )
+
+
 def _scan(lockfile: Path, config_path: Path | None, mode: str) -> bool:
-    """Run one scan and apply the warn / blocking semantics to its exit code."""
+    """Run one scan and apply the warn / blocking semantics to its exit code.
+
+    Only exit 1 is a finding. An osv.dev outage passes in both modes, reported
+    as NOT SCANNED, the same policy as cargo-audit's unreachable advisory
+    database: the repo cannot fix it, and the Renovate cooldown still stands.
+    Any other scanner error keeps the mode's outcome but is not called a finding.
+    """
     result = run_cmd(build_command(lockfile, config_path), check=False, capture=True)
-    if result.returncode == 0:
+    code = result.returncode
+    if code == 0:
         success(f"  {SLUG}: passed")
         return True
 
-    if result.returncode == _NO_PACKAGES_EXIT:
+    if code == _NO_PACKAGES_EXIT:
         _not_scanned(f"{lockfile.name} lists no packages", mode)
         return True
 
-    if mode == "warn":
-        warn(f"  {SLUG}: issues found (non-blocking)")
-        if result.stdout:
-            info(result.stdout)
+    if _osv_dev_unreachable(result):
+        _not_scanned(f"osv.dev could not be queried (exit {code})", mode)
+        if result.stderr:
+            info(result.stderr)
         return True
 
-    error(f"  {SLUG}: failed (exit {result.returncode})")
+    if code == _FINDINGS_EXIT:
+        outcome = "issues found"
+    else:
+        outcome = f"scanner error (exit {code}), not a finding"
+
+    if mode == "warn":
+        warn(f"  {SLUG}: {outcome} (non-blocking)")
+    else:
+        error(f"  {SLUG}: failed - {outcome}")
     for stream in (result.stdout, result.stderr):
         if stream:
             info(stream)
-    return False
+    return mode == "warn"
 
 
 def run(lockfile: Path, entries: Iterable[IgnoreEntry], mode: str) -> bool:
     """Run osv-scanner against ``lockfile``.
 
     A missing binary fails a ``blocking`` scan in CI and warn-skips
-    everywhere else, like every other quality tool. A missing lockfile, or
-    one that lists no packages, is reported as NOT SCANNED and passes.
+    everywhere else, like every other quality tool. A missing lockfile, one
+    that lists no packages, or an osv.dev that cannot be queried is reported
+    as NOT SCANNED and passes.
 
     When ignore entries are present, the repo's own ``osv-scanner.toml``
     (if any) is merged with them into a file in a temporary directory, the
     scanner is pointed at it, and it is removed after the scan.
 
     Returns:
-        True on pass, skip or a ``warn``-mode finding; False when a
-        ``blocking`` scan failed, could not run in CI, or the repo's
-        config could not be merged.
+        True on pass, skip, NOT SCANNED or a ``warn``-mode finding; False
+        when a ``blocking`` scan found something or errored, could not run
+        in CI, or the repo's config could not be merged.
 
     """
     if mode == "disabled":
