@@ -185,11 +185,11 @@ charset: 2 file(s) excluded (quality.charset_exclude: 1, quality.exclude_paths: 
 
 ### Rust feature matrix: warnings
 
-The feature matrix runs clippy on each feature alone (`cargo clippy --no-default-features`, then `cargo hack --each-feature --no-dev-deps clippy`). Code every combined build uses can be dead in one of those builds, and a lint can fire only when another feature's `cfg` is off. The main clippy pass sees neither, because it runs `--all-features`. The repo's clippy entries in `quality.ignore` apply to every feature set. `quality.rust.feature_matrix.warnings` decides what a warning or lint does. It ships `warn`, and `--strict` upgrades it. A compile error fails in every mode.
+The feature matrix runs clippy on each feature alone (`cargo clippy --no-default-features`, then `cargo hack --each-feature --no-dev-deps clippy`). Code every combined build uses can be dead in one of those builds, and a lint can fire only when another feature's `cfg` is off. The main clippy pass sees neither, because it runs `--all-features`. The repo's clippy entries in `quality.ignore` apply to every feature set, and with `quality.rust.clippy: disabled` the matrix runs `cargo check` instead. `quality.rust.feature_matrix.warnings` decides what a warning or lint does. It ships `warn`, and `--strict` upgrades it. A compile error fails in every mode.
 
 | Mode | Behaviour |
 |---|---|
-| `warn` | Each feature set that warned is named with its first warning or lint, a `::warning::` in CI. |
+| `warn` | Each feature set that warned is named with its first warning or lint, a `::warning::` in CI. Clippy runs with `--cap-lints warn`, so a lint the repo sets to deny is named, not failed. |
 | `blocking` | rustc denies warnings, and `cargo hack --keep-going` names every failing set in one run. |
 | `disabled` | Same commands and environment as before, warnings unread. |
 

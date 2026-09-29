@@ -532,14 +532,21 @@ def _run_feature_matrix(
             )
         ]
 
-    lint_args = ["--", *clippy_allows] if clippy_allows else []
+    lint_tool = "check" if _get_tool_mode("clippy", config) == "disabled" else "clippy"
+    lint_args: list[str] = []
+    if lint_tool == "clippy":
+        # Below blocking, a lint the repo sets to deny only warns, so it names
+        # the feature set instead of failing the matrix.
+        cap = [] if warnings_mode == "blocking" else ["--cap-lints", "warn"]
+        driver_args = [*cap, *clippy_allows]
+        lint_args = ["--", *driver_args] if driver_args else []
 
     # Pass 1 -- bare crate (no default features). Catches "breaks without defaults" bugs.
     if fm_config.get("also_check_no_default_features", True):
         for scope_args, target_args in scopes:
             cmd = [
                 "cargo",
-                "clippy",
+                lint_tool,
                 "--no-default-features",
                 *scope_args,
                 *target_args,
@@ -582,7 +589,7 @@ def _run_feature_matrix(
             "hack",
             "--each-feature",
             "--no-dev-deps",
-            "clippy",
+            lint_tool,
             *scope_args,
             *target_args,
             *tuning,

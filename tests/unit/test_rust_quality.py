@@ -22,6 +22,14 @@ from hyperi_ci.languages.rust.quality import (
 
 _TARGETS_RUN_CMD = "hyperi_ci.languages.rust.targets.run_cmd"
 
+# What the matrix appends under the default warn mode.
+_CAP = ["--", "--cap-lints", "warn"]
+
+
+def _cargo_args(cmd: list[str]) -> list[str]:
+    """The command up to clippy's `--`, where cargo and cargo-hack flags live."""
+    return cmd[: cmd.index("--")] if "--" in cmd else cmd
+
 
 def _make_config(fm: dict[str, Any] | None) -> CIConfig:
     raw: dict[str, Any] = {"quality": {"rust": {}}}
@@ -87,7 +95,13 @@ class TestFeatureMatrixCommandConstruction:
 
         assert len(captured_cmds) == 2
         # First: no-default-features pass
-        assert captured_cmds[0] == ["cargo", "clippy", "--no-default-features", "--lib"]
+        assert captured_cmds[0] == [
+            "cargo",
+            "clippy",
+            "--no-default-features",
+            "--lib",
+            *_CAP,
+        ]
         # Second: each-feature pass
         assert captured_cmds[1] == [
             "cargo",
@@ -96,7 +110,43 @@ class TestFeatureMatrixCommandConstruction:
             "--no-dev-deps",
             "clippy",
             "--lib",
+            *_CAP,
         ]
+
+    def test_blocking_does_not_cap_lints(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Under blocking a deny-level lint must still fail the set."""
+        captured_cmds: list[list[str]] = []
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality.shutil.which", lambda n: f"/usr/bin/{n}"
+        )
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality._run_matrix_pass",
+            lambda name, cmd, label, mode: captured_cmds.append(cmd) or True,
+        )
+
+        assert _run_feature_matrix(_make_config({"warnings": "blocking"})) is True
+
+        assert all("--cap-lints" not in cmd for cmd in captured_cmds)
+
+    def test_clippy_disabled_falls_back_to_check(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A repo that turned clippy off gets the old check matrix, uncapped."""
+        captured_cmds: list[list[str]] = []
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality.shutil.which", lambda n: f"/usr/bin/{n}"
+        )
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality._run_matrix_pass",
+            lambda name, cmd, label, mode: captured_cmds.append(cmd) or True,
+        )
+        config = CIConfig(_raw={"quality": {"rust": {"clippy": "disabled"}}})
+
+        assert _run_feature_matrix(config, clippy_allows=["-Aclippy::x"]) is True
+
+        assert captured_cmds[0] == ["cargo", "check", "--no-default-features", "--lib"]
+        assert captured_cmds[1][4] == "check"
+        assert all("--" not in cmd for cmd in captured_cmds)
 
     def test_the_repo_clippy_allows_reach_every_feature_set(
         self, monkeypatch: pytest.MonkeyPatch
@@ -115,7 +165,7 @@ class TestFeatureMatrixCommandConstruction:
         assert _run_feature_matrix(_make_config(None), clippy_allows=allows) is True
 
         for cmd in captured_cmds:
-            assert cmd[-2:] == ["--", "-Aclippy::unused_self"]
+            assert cmd[-4:] == [*_CAP, "-Aclippy::unused_self"]
 
     def test_disable_no_default_features_pass(
         self, monkeypatch: pytest.MonkeyPatch
@@ -191,7 +241,7 @@ class TestFeatureMatrixCommandConstruction:
 
         config = _make_config({"extra_args": ["--workspace", "--verbose"]})
         assert _run_feature_matrix(config) is True
-        each_feature_cmd = captured_cmds[1]
+        each_feature_cmd = _cargo_args(captured_cmds[1])
         assert each_feature_cmd[-2:] == ["--workspace", "--verbose"]
 
 
@@ -475,6 +525,7 @@ class TestFeatureMatrixBinOnlyProject:
             "clippy",
             "--no-default-features",
             "--bins",
+            *_CAP,
         ]
         assert captured_cmds[1] == [
             "cargo",
@@ -483,6 +534,7 @@ class TestFeatureMatrixBinOnlyProject:
             "--no-dev-deps",
             "clippy",
             "--bins",
+            *_CAP,
         ]
 
 
@@ -525,6 +577,7 @@ class TestFeatureMatrixMixedWorkspace:
             "-p",
             "the-app",
             "--bins",
+            *_CAP,
         ]
         assert captured[1] == [
             "cargo",
@@ -533,8 +586,9 @@ class TestFeatureMatrixMixedWorkspace:
             "-p",
             "the-lib",
             "--lib",
+            *_CAP,
         ]
-        hack = [cmd for cmd in captured if cmd[1] == "hack"]
+        hack = [_cargo_args(cmd) for cmd in captured if cmd[1] == "hack"]
         assert [cmd[-2:] for cmd in hack] == [
             ["the-app", "--bins"],
             ["the-lib", "--lib"],
@@ -566,7 +620,12 @@ class TestFeatureMatrixMixedWorkspace:
         assert _run_feature_matrix(_make_config(None)) is True
 
         assert len(captured) == 2
-        assert captured[0] == ["cargo", "clippy", "--no-default-features", "--lib"]
+        assert _cargo_args(captured[0]) == [
+            "cargo",
+            "clippy",
+            "--no-default-features",
+            "--lib",
+        ]
 
 
 # --- deny.toml advisory-ignore sharing (issue #42) -----------------------
