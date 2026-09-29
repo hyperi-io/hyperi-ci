@@ -94,37 +94,95 @@ def stamp_command(config: CIConfig) -> list[str] | None:
     return argv or None
 
 
-def stamp_paths(config: CIConfig, root: Path) -> list[str]:
-    """Resolve ``release.stamp_paths`` to repo-relative POSIX paths.
+# The files release-commit owns outright: VERSION is written from the release
+# version, CHANGELOG.md by @semantic-release/changelog, and the supplement is
+# deleted once a release consumes it. None of them is ever carried as a stamp
+# output.
+VERSION_FILE = "VERSION"
+CHANGELOG_FILE = "CHANGELOG.md"
+SUPPLEMENT_FILE = ".github/release-notes/NEXT.md"
+RESERVED_PATHS = (VERSION_FILE, CHANGELOG_FILE, SUPPLEMENT_FILE)
 
-    These become paths in a commit written to the default branch, so an entry
-    that is absolute or climbs out of the repo is refused rather than trusted.
+
+def repo_paths(raw: object, root: Path, key: str) -> list[str]:
+    """Resolve a config list of paths to repo-relative POSIX paths inside ``root``.
+
+    An entry that is absolute, holds ``..``, resolves outside the repo (a
+    symlink included) or sits under ``.git`` is refused rather than trusted.
+
+    Args:
+        raw: The configured value.
+        root: Repo root the paths are relative to.
+        key: Config key, for the error message.
 
     Raises:
-        ValueError: The value is not a list, or an entry is not a relative
-            path inside ``root``.
+        ValueError: The value is not a list, or an entry breaks a rule above.
 
     """
-    raw = config.get("release.stamp_paths") or []
+    raw = raw or []
     if not isinstance(raw, list):
-        msg = f"release.stamp_paths must be a list of paths, got {raw!r}"
+        msg = f"{key} must be a list of paths, got {raw!r}"
         raise ValueError(msg)
     base = root.resolve()
     paths: list[str] = []
     for entry in raw:
         if not isinstance(entry, str) or not entry.strip():
-            msg = f"release.stamp_paths: {entry!r} is not a path"
+            msg = f"{key}: {entry!r} is not a path"
             raise ValueError(msg)
         posix = PurePosixPath(entry.strip().replace("\\", "/"))
         if posix.is_absolute() or ".." in posix.parts:
-            msg = f"release.stamp_paths: {entry} must be relative to the repo root"
+            msg = f"{key}: {entry} must be relative to the repo root"
+            raise ValueError(msg)
+        if ".git" in posix.parts:
+            msg = f"{key}: {entry} is inside .git"
             raise ValueError(msg)
         if not (base / posix).resolve().is_relative_to(base):
-            msg = f"release.stamp_paths: {entry} resolves outside the repo"
+            msg = f"{key}: {entry} resolves outside the repo"
             raise ValueError(msg)
         if str(posix) not in paths:
             paths.append(str(posix))
     return paths
+
+
+def stamp_paths(config: CIConfig, root: Path) -> list[str]:
+    """Resolve ``release.stamp_paths`` to repo-relative POSIX paths.
+
+    These become paths in a commit written to the default branch, so the
+    :func:`repo_paths` rules apply.
+
+    Raises:
+        ValueError: See :func:`repo_paths`.
+
+    """
+    return repo_paths(config.get("release.stamp_paths"), root, "release.stamp_paths")
+
+
+def carried_stamp_paths(config: CIConfig, root: Path, *, who: str) -> list[str]:
+    """Return the ``stamp_paths`` a release carries from the stamp to the commit.
+
+    The one filter the prepare snapshot, the restore and release-commit share:
+    a broken list is reported and treated as empty, so VERSION and
+    CHANGELOG.md still land, and the reserved names are dropped with a warning.
+
+    Args:
+        config: Merged config of the checkout.
+        root: Repo root.
+        who: Command name for the log lines.
+
+    """
+    try:
+        listed = stamp_paths(config, root)
+    except ValueError as exc:
+        error(f"{who}: {exc} -- leaving release.stamp_paths out")
+        return []
+    kept: list[str] = []
+    for name in listed:
+        if name in RESERVED_PATHS:
+            if name != VERSION_FILE and name != CHANGELOG_FILE:
+                warn(f"{who}: release.stamp_paths cannot include {name}")
+            continue
+        kept.append(name)
+    return kept
 
 
 def _run_stamp_command(root: Path) -> int:
