@@ -44,6 +44,7 @@ from hyperi_ci.stamp import VERSION_FILE, carried_stamp_paths, stamp_version
 PREPARED_ENV = "HYPERCI_RELEASE_PREPARED"
 MANIFEST_NAME = "prepared.json"
 STAMPED_DIR = "stamped"
+STAMP_MARKER = ".hyperi-ci-stamped.json"
 
 # Bumped when a field changes meaning, so an upload never reads a directory
 # written to a different contract.
@@ -208,6 +209,13 @@ def _stamp_phase(version: str, root: Path, stamped: Path) -> int:
     config = load_config(reload=True, project_dir=root)
     stamped.mkdir(parents=True, exist_ok=True)
     copied = _snapshot(root, config, stamped)
+    # Always one file, so the workflow can require the artefact: a repo with no
+    # stamp_paths would otherwise upload nothing, and its download would fail.
+    (stamped / STAMP_MARKER).write_text(
+        json.dumps({"version": version, "files": copied}) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     info(f"Carried {copied} stamped file(s) for release-commit")
     return 0
 
