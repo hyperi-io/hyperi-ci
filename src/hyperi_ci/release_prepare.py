@@ -10,41 +10,52 @@ The upload holds every publish credential, so nothing the repo controls may run
 beside it: a crate's build script runs under ``cargo semver-checks``, an npm
 package's lifecycle scripts run under ``npm pack``, and ``release.stamp_cmd``
 is the repo's own command (issue #409). ``release-prepare`` runs all of them
-in a job that holds no secrets, and writes what the upload needs into a
-directory the workflow carries to the publish job:
+in a job that holds no secrets, in two phases so each output can leave the job
+before the next phase's code runs:
 
-* ``prepared.json`` -- the version, the language, and the decisions that took
-  repo code to reach, such as whether there is a crate to publish.
-* ``stamped/`` -- ``VERSION`` and the ``release.stamp_paths`` files as the stamp
-  rendered them, for ``release-commit``.
-* whatever the language packs, such as the npm tarball.
+* ``--phase stamp`` stamps the version, runs ``release.stamp_cmd`` and copies
+  the ``release.stamp_paths`` files into the output directory, for
+  ``release-commit``.
+* ``--phase package`` runs the language's checks and packing and writes
+  ``prepared.json`` (version, language, commit, and the decisions that took
+  repo code to reach) plus whatever it packs, such as the npm tarball.
 
-``run release`` with ``HYPERCI_RELEASE_PREPARED`` naming that directory only
-uploads. The directory comes from a job that ran repo code, so everything in it
-is read as data and checked: the version must match the run's, and every path
-must stay inside the directory.
+``run release`` with ``HYPERCI_RELEASE_PREPARED`` naming the package directory
+only uploads, and ``release-commit`` reads the stamp outputs from its
+``stamped/`` subdirectory. Both came from a job that ran repo code, so
+everything in them is read as data and checked: the version and language must
+match the run's, every path must stay inside the directory, and ``VERSION`` is
+never taken from them.
 """
 
 import json
 import os
 import shutil
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 from hyperi_ci.common import error, group, info, run_cmd, success, warn
 from hyperi_ci.config import CIConfig, load_config
 from hyperi_ci.detect import detect_language
-from hyperi_ci.stamp import stamp_paths, stamp_version
+from hyperi_ci.stamp import VERSION_FILE, carried_stamp_paths, stamp_version
 
 PREPARED_ENV = "HYPERCI_RELEASE_PREPARED"
 MANIFEST_NAME = "prepared.json"
 STAMPED_DIR = "stamped"
-VERSION_FILE = "VERSION"
 
 # Bumped when a field changes meaning, so an upload never reads a directory
 # written to a different contract.
-_SCHEMA = 1
+_SCHEMA = 2
+
+
+class Phase(StrEnum):
+    """Which half of ``release-prepare`` to run; ``all`` is both, in order."""
+
+    STAMP = "stamp"
+    PACKAGE = "package"
+    ALL = "all"
 
 
 class PreparedError(Exception):
@@ -58,6 +69,7 @@ class Prepared:
     root: Path
     version: str
     language: str
+    head: str = ""
     facts: dict[str, Any] = field(default_factory=dict)
 
     def file(self, relative: str) -> Path:
@@ -105,17 +117,37 @@ def load() -> Prepared | None:
         raise PreparedError(f"{MANIFEST_NAME} is not schema {_SCHEMA}")
     version = data.get("version")
     language = data.get("language")
+    head = data.get("head", "")
     facts = data.get("facts", {})
     if not isinstance(version, str) or not version:
         raise PreparedError(f"{MANIFEST_NAME} carries no version")
     if not isinstance(language, str) or not language:
         raise PreparedError(f"{MANIFEST_NAME} carries no language")
+    if not isinstance(head, str):
+        raise PreparedError(f"{MANIFEST_NAME} head must be a string")
     if not isinstance(facts, dict):
         raise PreparedError(f"{MANIFEST_NAME} facts must be a mapping")
-    return Prepared(root=root, version=version, language=language, facts=facts)
+    return Prepared(
+        root=root, version=version, language=language, head=head, facts=facts
+    )
 
 
-def _tracked(root: Path, name: str) -> bool:
+def load_or_report(who: str) -> tuple[bool, Prepared | None]:
+    """Load the prepared directory, logging why when it cannot be used.
+
+    Returns:
+        ``(ok, prepared)``. ``ok`` is False when the directory is set but
+        unusable; ``prepared`` is None when it is unset.
+
+    """
+    try:
+        return True, load()
+    except PreparedError as exc:
+        error(f"{who}: {exc}")
+        return False, None
+
+
+def tracked(root: Path, name: str) -> bool:
     """Say whether git tracks ``name``. Outside a git checkout, whether it exists."""
     result = run_cmd(
         ["git", "ls-files", "--error-unmatch", "--", name],
@@ -130,26 +162,25 @@ def _tracked(root: Path, name: str) -> bool:
     return False
 
 
-def _snapshot(root: Path, config: CIConfig, target: Path, *, keep_version: bool) -> int:
-    """Copy ``VERSION`` and the ``release.stamp_paths`` files into ``target``.
+def head_commit(root: Path) -> str:
+    """Return the checkout's HEAD commit, or "" outside a git checkout."""
+    result = run_cmd(
+        ["git", "rev-parse", "HEAD^{commit}"], capture=True, check=False, cwd=root
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
 
-    A repo that commits no ``VERSION`` has opted out of one, so the file the
-    stamp wrote is left behind. A broken ``stamp_paths`` is reported and
-    skipped, the way ``release-commit`` treats it.
+
+def _snapshot(root: Path, config: CIConfig, target: Path) -> int:
+    """Copy the ``release.stamp_paths`` files the stamp rendered into ``target``.
 
     Returns:
         How many files were copied.
 
     """
-    names = [VERSION_FILE] if keep_version else []
-    try:
-        names += stamp_paths(config, root)
-    except ValueError as exc:
-        warn(f"release-prepare: {exc} -- carrying VERSION only")
     copied = 0
-    for name in dict.fromkeys(names):
+    for name in carried_stamp_paths(config, root, who="release-prepare"):
         source = root / name
-        if ".git" in Path(name).parts or source.is_symlink() or not source.is_file():
+        if source.is_symlink() or not source.is_file():
             continue
         destination = target / name
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -170,44 +201,19 @@ def _language_prepare(
     return hook(config, out_dir)
 
 
-def prepare_release(
-    version: str,
-    *,
-    out_dir: Path,
-    project_dir: Path | None = None,
-) -> int:
-    """Stamp the release, run everything that executes repo code, write the result.
-
-    Args:
-        version: Version being released, with or without a leading ``v``.
-        out_dir: Directory the prepared artefacts are written to.
-        project_dir: Project root. Defaults to cwd.
-
-    Returns:
-        0 on success, 1 when the stamp, a check or the packaging fails.
-
-    """
-    version = version.removeprefix("v").strip()
-    if not version:
-        error("release-prepare: empty version")
-        return 1
-    root = (project_dir or Path.cwd()).resolve()
-    language = detect_language(root)
-    if not language:
-        error("release-prepare: could not detect the project language")
-        return 1
-
-    keep_version = _tracked(root, VERSION_FILE)
+def _stamp_phase(version: str, root: Path, stamped: Path) -> int:
     with group("Stamp the release version"):
         if stamp_version(version, project_dir=root) != 0:
             return 1
-
     config = load_config(reload=True, project_dir=root)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    stamped = out_dir / STAMPED_DIR
-    copied = _snapshot(root, config, stamped, keep_version=keep_version)
+    stamped.mkdir(parents=True, exist_ok=True)
+    copied = _snapshot(root, config, stamped)
     info(f"Carried {copied} stamped file(s) for release-commit")
+    return 0
 
+
+def _package_phase(version: str, language: str, root: Path, out_dir: Path) -> int:
+    config = load_config(reload=True, project_dir=root)
     facts: dict[str, Any] = {}
     if config.get("release.enabled", False):
         # Same working directory as the handlers expect when `run` calls them.
@@ -228,8 +234,10 @@ def prepare_release(
         "schema": _SCHEMA,
         "version": version,
         "language": _LANGUAGE_ALIASES.get(language, language),
+        "head": head_commit(root),
         "facts": facts,
     }
+    out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / MANIFEST_NAME).write_text(
         json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n"
     )
@@ -237,12 +245,53 @@ def prepare_release(
     return 0
 
 
+def prepare_release(
+    version: str,
+    *,
+    out_dir: Path,
+    phase: Phase = Phase.ALL,
+    project_dir: Path | None = None,
+) -> int:
+    """Stamp the release and run everything in it that executes repo code.
+
+    Args:
+        version: Version being released, with or without a leading ``v``.
+        out_dir: Directory the phase writes to. ``stamp`` writes the stamped
+            files at their repo paths; ``package`` writes ``prepared.json`` and
+            what it packs; ``all`` does both, the stamped files under
+            ``stamped/``.
+        phase: Which half to run.
+        project_dir: Project root. Defaults to cwd.
+
+    Returns:
+        0 on success, 1 when the stamp, a check or the packaging fails.
+
+    """
+    version = version.removeprefix("v").strip()
+    if not version:
+        error("release-prepare: empty version")
+        return 1
+    root = (project_dir or Path.cwd()).resolve()
+    language = detect_language(root)
+    if not language:
+        error("release-prepare: could not detect the project language")
+        return 1
+
+    if phase is Phase.STAMP:
+        return _stamp_phase(version, root, out_dir)
+    if phase is Phase.ALL:
+        rc = _stamp_phase(version, root, out_dir / STAMPED_DIR)
+        if rc != 0:
+            return rc
+    return _package_phase(version, language, root, out_dir)
+
+
 def restore_stamped(prepared: Prepared, root: Path, names: list[str]) -> list[str]:
     """Copy the named stamped files from the prepared directory into the checkout.
 
     The caller names the files from the checkout's own config. The prepared
     directory was written by a job that ran repo code, so a file it carries
-    under any other name (``.git/config`` included) never leaves it.
+    under any other name never leaves it.
 
     Returns:
         The repo-relative names restored.
@@ -250,7 +299,7 @@ def restore_stamped(prepared: Prepared, root: Path, names: list[str]) -> list[st
     """
     restored: list[str] = []
     for name in dict.fromkeys(names):
-        if ".git" in Path(name).parts:
+        if name == VERSION_FILE or ".git" in Path(name).parts:
             continue
         try:
             source = prepared.file(f"{STAMPED_DIR}/{name}")

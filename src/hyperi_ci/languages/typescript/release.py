@@ -18,20 +18,33 @@ the global ``~/.npmrc`` (see docs/lessons.md, "npm Config Pollution") and never
 the project's.
 """
 
+import json
 import os
+import tarfile
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from hyperi_ci import release_prepare
-from hyperi_ci.common import error, group, info, run_cmd, success, warn
+from hyperi_ci.common import (
+    error,
+    group,
+    info,
+    resolve_release_version,
+    run_cmd,
+    success,
+    warn,
+)
 from hyperi_ci.config import CIConfig, load_org_config
 from hyperi_ci.languages.typescript._common import package_script_env
 
 TARBALL_FACT = "tarball"
 NPMJS_REGISTRY = "https://registry.npmjs.org/"
+GITHUB_NPM_REGISTRY = "https://npm.pkg.github.com/"
+_REGISTRIES = {"npmjs": NPMJS_REGISTRY, "ghcr-npm": GITHUB_NPM_REGISTRY}
 
 
 def prepare(config: CIConfig, out_dir: Path) -> tuple[int, dict[str, Any]]:
@@ -162,7 +175,7 @@ def _publish_ghcr_npm(tarball: Path) -> int:
             f"@{org.github_org}:registry=https://npm.pkg.github.com/{org.github_org}",
             f"//npm.pkg.github.com/:_authToken={token}",
         ],
-        [],
+        ["--registry", GITHUB_NPM_REGISTRY],
     )
     if rc != 0:
         error("GitHub Packages npm publish failed")
@@ -171,18 +184,72 @@ def _publish_ghcr_npm(tarball: Path) -> int:
     return 0
 
 
+def _tarball_manifest(tarball: Path) -> dict[str, Any]:
+    """Read ``package/package.json`` out of an npm tarball.
+
+    Raises:
+        ValueError: The tarball has no readable package.json.
+
+    """
+    try:
+        with tarfile.open(tarball, "r:gz") as archive:
+            member = archive.extractfile("package/package.json")
+            if member is None:
+                raise ValueError("package/package.json is not a file")
+            data = json.loads(member.read().decode("utf-8", errors="replace"))
+    except (tarfile.TarError, KeyError, OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"cannot read package/package.json: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError("package/package.json is not an object")
+    return data
+
+
+def _tarball_problem(tarball: Path, registry: str) -> str | None:
+    """Say why ``tarball`` must not be published to ``registry``, or None.
+
+    The tarball was packed by a job that ran repo code, so it must be this
+    checkout's package at this run's version, and must not send itself to a
+    registry host other than the one this upload names.
+    """
+    try:
+        manifest = _tarball_manifest(tarball)
+    except ValueError as exc:
+        return str(exc)
+    checkout = Path("package.json")
+    try:
+        expected = json.loads(checkout.read_text(encoding="utf-8")).get("name")
+    except (OSError, ValueError, AttributeError):
+        return "cannot read the checkout's package.json name"
+    if manifest.get("name") != expected:
+        return f"the tarball is {manifest.get('name')!r}, the checkout is {expected!r}"
+    version = resolve_release_version()
+    if manifest.get("version") != version:
+        return f"the tarball is version {manifest.get('version')!r}, this run is {version!r}"
+    publish_config = manifest.get("publishConfig") or {}
+    target = (
+        publish_config.get("registry") if isinstance(publish_config, dict) else None
+    )
+    if target and urlparse(str(target)).netloc != urlparse(registry).netloc:
+        return f"its publishConfig.registry {target} is not {registry}"
+    return None
+
+
 def _publish(destinations: list[str], tarball: Path) -> int:
     info(f"Publishing npm package to: {', '.join(destinations)}")
     for dest in destinations:
+        if dest not in _REGISTRIES:
+            error(f"Unknown npm publish destination: {dest}")
+            return 1
+        problem = _tarball_problem(tarball, _REGISTRIES[dest])
+        if problem:
+            error(f"Refusing to publish {tarball.name}: {problem}")
+            return 1
         if dest == "npmjs":
             with group("Publish: npm"):
                 rc = _publish_npm(tarball)
-        elif dest == "ghcr-npm":
+        else:
             with group("Publish: GitHub Packages npm"):
                 rc = _publish_ghcr_npm(tarball)
-        else:
-            error(f"Unknown npm publish destination: {dest}")
-            return 1
         if rc != 0:
             return rc
     return 0
@@ -208,10 +275,8 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         info("No npm publish destinations configured")
         return 0
 
-    try:
-        prepared = release_prepare.load()
-    except release_prepare.PreparedError as exc:
-        error(str(exc))
+    ok, prepared = release_prepare.load_or_report("run release")
+    if not ok:
         return 1
 
     if prepared is not None:

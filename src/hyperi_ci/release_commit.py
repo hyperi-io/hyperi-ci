@@ -38,19 +38,24 @@ from packaging.version import InvalidVersion, Version
 from hyperi_ci import release_prepare
 from hyperi_ci.common import error, info, run_cmd, success, warn
 from hyperi_ci.config import load_config
-from hyperi_ci.stamp import stamp_paths
+from hyperi_ci.stamp import (
+    CHANGELOG_FILE,
+    SUPPLEMENT_FILE,
+    VERSION_FILE,
+    carried_stamp_paths,
+)
 
 # The rendered artefacts. Both are outputs: VERSION is written by
 # `stamp-version`, CHANGELOG.md by @semantic-release/changelog. A repo adds its
 # own through `release.stamp_paths`.
-VERSION = "VERSION"
-CHANGELOG = "CHANGELOG.md"
+VERSION = VERSION_FILE
+CHANGELOG = CHANGELOG_FILE
 RELEASE_ARTEFACTS = (VERSION, CHANGELOG)
 
 # Hand-written notes for the version being cut, printed into the release notes
 # by @semantic-release/exec. Removed in the same commit, so one supplement
 # reaches one release.
-SUPPLEMENT = ".github/release-notes/NEXT.md"
+SUPPLEMENT = SUPPLEMENT_FILE
 
 # `[skip ci]` keeps the commit from triggering another run. Without it the
 # push retriggers CI, which finds no `Release: true` trailer and validates
@@ -98,11 +103,9 @@ def _stamped_artefacts(root: Path) -> list[str]:
     part-way leaves partial output on disk.
     """
     outcome = os.environ.get(STAMP_OUTCOME_ENV, "")
-    try:
-        listed = stamp_paths(load_config(project_dir=root, reload=True), root)
-    except ValueError as exc:
-        error(f"release-commit: {exc} -- committing VERSION and {CHANGELOG} only")
-        return []
+    listed = carried_stamp_paths(
+        load_config(project_dir=root, reload=True), root, who="release-commit"
+    )
     if listed and outcome not in ("", "success"):
         warn(
             f"release-commit: the stamp step ended {outcome} -- "
@@ -112,11 +115,7 @@ def _stamped_artefacts(root: Path) -> list[str]:
     kept: list[str] = []
     for name in listed:
         path = root / name
-        if name in RELEASE_ARTEFACTS:
-            continue
-        if name == SUPPLEMENT or ".git" in Path(name).parts:
-            warn(f"release-commit: release.stamp_paths cannot include {name}")
-        elif path.is_symlink():
+        if path.is_symlink():
             warn(f"release-commit: release.stamp_paths entry {name} is a symlink")
         elif not path.is_file():
             warn(f"release-commit: release.stamp_paths entry {name} is not a file")
@@ -125,36 +124,37 @@ def _stamped_artefacts(root: Path) -> list[str]:
     return kept
 
 
-def _restore_prepared(root: Path) -> bool:
-    """Bring the stamped files over from ``release-prepare``, when a run split it.
+def _restore_prepared(root: Path, version: str) -> bool:
+    """Bring the stamp outputs over from ``release-prepare``, when a run split it.
 
     The publish job runs no stamp of its own, because ``release.stamp_cmd`` is
-    repo code (issue #409). VERSION and the ``stamp_paths`` files come from the
-    prepare job instead, named here from this checkout's config.
+    repo code (issue #409). The ``stamp_paths`` files come from the prepare
+    job, named from this checkout's config, and only when prepare ran on this
+    same commit. VERSION is written here from the release version, never taken
+    from prepare, and only where git tracks it: a repo without one has opted
+    out.
 
     Returns:
         False when the prepared directory is set but unusable.
 
     """
-    try:
-        prepared = release_prepare.load()
-    except release_prepare.PreparedError as exc:
-        error(f"release-commit: {exc}")
+    ok, prepared = release_prepare.load_or_report("release-commit")
+    if not ok:
         return False
     if prepared is None:
         return True
-    names = [VERSION]
-    try:
-        listed = stamp_paths(load_config(project_dir=root, reload=True), root)
-    except ValueError:
-        listed = []
-    names += [
-        name
-        for name in listed
-        if name not in RELEASE_ARTEFACTS
-        and name != SUPPLEMENT
-        and ".git" not in Path(name).parts
-    ]
+    if release_prepare.tracked(root, VERSION):
+        (root / VERSION).write_text(f"{version}\n", encoding="utf-8", newline="\n")
+    here = release_prepare.head_commit(root)
+    if prepared.head and here and prepared.head != here:
+        warn(
+            f"release-commit: prepare ran on {prepared.head[:8]} but this checkout "
+            f"is {here[:8]} -- leaving release.stamp_paths out"
+        )
+        return True
+    names = carried_stamp_paths(
+        load_config(project_dir=root, reload=True), root, who="release-commit"
+    )
     restored = release_prepare.restore_stamped(prepared, root, names)
     info(f"release-commit: restored {', '.join(restored) or 'nothing'} from prepare")
     return True
@@ -316,7 +316,7 @@ def commit_release_artefacts(
         error("release-commit: GITHUB_REPOSITORY not set (must run in CI)")
         return 1
 
-    if not _restore_prepared(root):
+    if not _restore_prepared(root, version):
         return 1
 
     fixed = [name for name in RELEASE_ARTEFACTS if (root / name).is_file()]

@@ -9,18 +9,19 @@
 ``prepare`` runs everything that executes the crate's own code:
 cargo-semver-checks builds it, build scripts and all, and ``cargo package``
 proves it packages before any tag is cut. ``run`` uploads. With
-``HYPERCI_RELEASE_PREPARED`` set it takes every decision from the prepared
-directory, so it never asks cargo a question that would run the repo's
-toolchain file (issue #409).
+``HYPERCI_RELEASE_PREPARED`` set it requires prepare to have checked the crate,
+and still works out for itself whether there is a library to publish, since a
+forged ``prepared.json`` must not put a binary application on crates.io.
 
-cargo has no way to publish a ``.crate`` it did not package itself, so the
-upload repackages the same stamped tree with ``--no-verify``. That builds
-nothing and runs no build script. It runs from an empty directory with
-``--manifest-path``, because cargo reads ``.cargo/config.toml`` and rustup reads
-``rust-toolchain.toml`` from the working directory, and either can name a
-program to run.
+cargo has no way to publish a ``.crate`` it did not pack itself, so the upload
+repackages its own checkout, Cargo.toml re-stamped, with ``--no-verify``. That
+builds nothing and runs no build script. Every cargo call in the upload runs
+from an empty directory with ``--manifest-path``, because cargo reads
+``.cargo/config.toml`` and rustup reads ``rust-toolchain.toml`` from the working
+directory, and either can name a program to run.
 """
 
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -38,9 +39,13 @@ from hyperi_ci.common import (
 )
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.rust import semver_checks
-from hyperi_ci.languages.rust.build import stamp_manifest
+from hyperi_ci.languages.rust.build import binary_targets, stamp_manifest
 
 CRATE_FACT = "crate"
+
+
+class CargoMetadataError(Exception):
+    """``cargo metadata`` failed, so whether there is a crate is unknown."""
 
 
 def _read_version() -> str | None:
@@ -69,15 +74,44 @@ def _sync_cargo_toml_version(version: str) -> bool:
     return True
 
 
-def _publishes_crate(config: CIConfig) -> bool:
+def _cargo_away(root: Path, args: list[str], **kwargs: Any) -> Any:
+    """Run ``cargo <args> --manifest-path <root>/Cargo.toml`` from an empty directory."""
+    with tempfile.TemporaryDirectory(prefix="hyperi-ci-cargo-") as away:
+        return run_cmd(
+            ["cargo", *args, "--manifest-path", str(root / "Cargo.toml")],
+            cwd=away,
+            check=False,
+            **kwargs,
+        )
+
+
+def _binaries(root: Path) -> list[str]:
+    """Return the crate's binary targets, failing rather than guessing.
+
+    Raises:
+        CargoMetadataError: cargo could not answer, so a library crate cannot
+            be told from a binary application.
+
+    """
+    result = _cargo_away(
+        root, ["metadata", "--no-deps", "--format-version=1"], capture=True
+    )
+    if result.returncode != 0:
+        raise CargoMetadataError((result.stderr or "").strip()[-500:])
+    try:
+        return binary_targets(json.loads(result.stdout))
+    except ValueError as exc:
+        raise CargoMetadataError(f"unreadable cargo metadata: {exc}") from exc
+
+
+def _publishes_crate(config: CIConfig, root: Path) -> bool:
     """Say whether this project ships a crate to a registry at all.
 
-    Asks ``cargo metadata``, which runs the repo's toolchain file, so only the
-    prepare half and a single-process run call it.
-    """
-    from hyperi_ci.languages.rust.build import _detect_binary_names
+    Raises:
+        CargoMetadataError: See :func:`_binaries`.
 
-    if _detect_binary_names():
+    """
+    if _binaries(root):
         info("Binary application — skipping crate registry publish")
         info("Binary artifacts will be uploaded by the generic binary publisher")
         return False
@@ -120,7 +154,12 @@ def prepare(config: CIConfig, out_dir: Path) -> tuple[int, dict[str, Any]]:
 
     """
     del out_dir
-    if not _publishes_crate(config):
+    try:
+        publishes = _publishes_crate(config, Path.cwd())
+    except CargoMetadataError as exc:
+        error(f"cargo metadata failed, so the crate cannot be classified: {exc}")
+        return 1, {}
+    if not publishes:
         return 0, {CRATE_FACT: False}
     if _stamp_and_check(config) != 0:
         return 1, {}
@@ -150,21 +189,9 @@ def _publish_crates_io(root: Path) -> int:
         error("CARGO_REGISTRY_TOKEN not set — cannot publish to crates.io")
         return 1
 
-    with tempfile.TemporaryDirectory(prefix="hyperi-ci-cargo-") as away:
-        result = run_cmd(
-            [
-                "cargo",
-                "publish",
-                "--allow-dirty",
-                "--no-verify",
-                "--manifest-path",
-                str(root / "Cargo.toml"),
-            ],
-            cwd=away,
-            capture=True,
-            check=False,
-        )
-
+    result = _cargo_away(
+        root, ["publish", "--allow-dirty", "--no-verify"], capture=True
+    )
     if result.returncode != 0:
         if "already exists" in result.stderr:
             warn("  Crate version already exists on crates.io (skipping)")
@@ -182,9 +209,10 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     """Upload a library crate to its registries.
 
     With ``HYPERCI_RELEASE_PREPARED`` set the checks already ran in the prepare
-    job, and this only stamps the manifest (in Python) and publishes. Without
-    it -- a hand-rolled workflow calling ``run release`` -- the checks run here
-    first, in the same process as the token.
+    job, and this only classifies the crate (from an empty directory), stamps
+    the manifest in Python and publishes. Without it -- a hand-rolled workflow
+    calling ``run release`` -- the checks run here first, in the same process
+    as the token.
 
     Args:
         config: Merged CI configuration.
@@ -194,34 +222,38 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         Exit code (0 = success).
 
     """
-    try:
-        prepared = release_prepare.load()
-    except release_prepare.PreparedError as exc:
-        error(str(exc))
+    ok, prepared = release_prepare.load_or_report("run release")
+    if not ok:
         return 1
 
-    destinations = config.destination_for("cargo")
+    root = Path.cwd()
+    try:
+        publishes = _publishes_crate(config, root)
+    except CargoMetadataError as exc:
+        error(f"cargo metadata failed, so the crate cannot be classified: {exc}")
+        return 1
+    if not publishes:
+        return 0
+
     if prepared is not None:
         if prepared.facts.get(CRATE_FACT) is not True:
-            info("Prepare found no crate to publish")
-            return 0
-        if not destinations:
-            info("No Rust publish destinations configured")
-            return 0
+            error(
+                "This is a library crate with a registry destination, but the "
+                "prepare job did not check and package it — refusing to publish"
+            )
+            return 1
         version = _read_version()
         if version and not _sync_cargo_toml_version(version):
             return 1
-    else:
-        if not _publishes_crate(config):
-            return 0
-        if _stamp_and_check(config) != 0:
-            return 1
+    elif _stamp_and_check(config) != 0:
+        return 1
 
+    destinations = config.destination_for("cargo")
     info(f"Publishing Rust crate to: {', '.join(destinations)}")
     for dest in destinations:
         if dest == "crates-io":
             with group("Publish: crates.io"):
-                rc = _publish_crates_io(Path.cwd())
+                rc = _publish_crates_io(root)
                 if rc != 0:
                     return rc
         else:

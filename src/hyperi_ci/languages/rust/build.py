@@ -963,7 +963,11 @@ def _detect_binary_names() -> list[str]:
     meta = cargo_metadata()
     if meta is None:
         return [Path.cwd().name]
+    return binary_targets(meta)
 
+
+def binary_targets(meta: dict) -> list[str]:
+    """Return the unconditional binary target names in ``cargo metadata`` output."""
     names: list[str] = []
     for package in meta.get("packages", []):
         for target in package.get("targets", []):

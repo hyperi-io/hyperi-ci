@@ -38,6 +38,7 @@ from hyperi_ci.common import (
 from hyperi_ci.config import CIConfig
 from hyperi_ci.native_deps import ensure_aws_cli
 from hyperi_ci.release_branches import effective_release_channel
+from hyperi_ci.stamp import repo_paths
 from hyperi_ci.tools import missing_tool_notice
 
 # R2 bucket and endpoint configuration
@@ -241,7 +242,9 @@ def _collect_artifacts(exclude_python: bool = False) -> list[Path]:
     if not dist.is_dir():
         return []
     files = [
-        f for f in sorted(dist.iterdir()) if f.is_file() and not f.name.startswith(".")
+        f
+        for f in sorted(dist.iterdir())
+        if f.is_file() and not f.is_symlink() and not f.name.startswith(".")
     ]
     if exclude_python:
         files = [f for f in files if not _is_python_dist_artifact(f)]
@@ -264,9 +267,19 @@ def _release_asset_paths(config: CIConfig) -> tuple[list[Path], str | None]:
     if isinstance(assets, str):
         assets = [assets]
 
+    # The same rules as stamp_paths: the upload holds every publish credential,
+    # and an absolute or escaping path would publish whatever it names, such
+    # as /proc/self/environ.
+    try:
+        names = repo_paths(assets, Path.cwd(), "release.assets")
+    except ValueError as exc:
+        return [], str(exc)
+
     paths: list[Path] = []
-    for entry in assets:
-        source = Path(str(entry))
+    for entry in names:
+        source = Path(entry)
+        if source.is_symlink():
+            return [], f"release.assets: {source} is a symlink"
         if not source.exists():
             return [], f"release.assets: {source} does not exist"
         if not source.is_file():

@@ -428,18 +428,27 @@ def stage_build(language: str, config: CIConfig, *, local: bool = False) -> int:
     return 0
 
 
-def _check_prepared(language: str) -> int:
+def check_prepared(language: str) -> int:
     """Refuse a prepared directory written for another version or language.
 
     It came from a job that ran repo code, so it is checked against what this
-    run is releasing before anything reads it.
+    run is releasing before anything reads it. A CI run with no prepared
+    directory is a caller on a release tail that predates the split, and says
+    so, because the repo's own code then runs beside the tokens.
     """
-    try:
-        prepared = release_prepare.load()
-    except release_prepare.PreparedError as exc:
-        error(str(exc))
+    ok, prepared = release_prepare.load_or_report("release")
+    if not ok:
         return 1
     if prepared is None:
+        if is_ci():
+            announce(
+                f"{release_prepare.PREPARED_ENV} is not set, so this release runs "
+                "the repo's own code (semver checks, npm pack) in the process "
+                "that holds the publish tokens. Move the caller to the current "
+                "hyperi-ci release tail (issue #409).",
+                "hyperi-ci release without a prepare job",
+                level="warning",
+            )
         return 0
     version = resolve_release_version()
     if prepared.version != version:
@@ -475,7 +484,7 @@ def stage_release(language: str, config: CIConfig) -> int:
             "private registries was retired in v2.1.4."
         )
 
-    rc = _check_prepared(language)
+    rc = check_prepared(language)
     if rc != 0:
         return rc
 

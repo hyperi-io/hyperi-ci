@@ -1071,6 +1071,17 @@ def release_prepare_cmd(
         str,
         typer.Option("--out", help="Directory to write the prepared artefacts to"),
     ],
+    phase: Annotated[
+        str,
+        typer.Option(
+            "--phase",
+            help=(
+                "stamp: stamp and copy the stamp_paths files to --out. "
+                "package: checks and packing, prepared.json to --out. "
+                "all: both, stamped files under --out/stamped."
+            ),
+        ),
+    ] = "all",
     project_dir: Annotated[
         str | None,
         typer.Option("--project-dir", "-C", help="Project root directory"),
@@ -1080,13 +1091,43 @@ def release_prepare_cmd(
 
     The half of a release that holds no credentials: the version stamp and
     `release.stamp_cmd`, cargo-semver-checks and `cargo package`, `npm pack`.
-    `run release` with HYPERCI_RELEASE_PREPARED naming `--out` then only
-    uploads (issue #409).
+    `run release` with HYPERCI_RELEASE_PREPARED naming the package output then
+    only uploads (issue #409). The two phases exist so the stamp outputs can
+    leave the job before the packaging code runs.
     """
-    from hyperi_ci.release_prepare import prepare_release
+    from hyperi_ci.release_prepare import Phase, prepare_release
 
+    try:
+        chosen = Phase(phase)
+    except ValueError:
+        typer.echo(f"--phase must be one of {', '.join(Phase)}", err=True)
+        raise typer.Exit(1) from None
     dir_path = Path(project_dir) if project_dir else None
-    raise typer.Exit(prepare_release(version, out_dir=Path(out), project_dir=dir_path))
+    raise typer.Exit(
+        prepare_release(version, out_dir=Path(out), phase=chosen, project_dir=dir_path)
+    )
+
+
+@app.command(name="release-verify")
+def release_verify_cmd(
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+) -> None:
+    """Check the prepared release against this run before anything is tagged.
+
+    Reads HYPERCI_RELEASE_PREPARED and HYPERCI_VERSION, and fails when the
+    directory is unusable or was prepared for another version or language.
+    """
+    from hyperi_ci.dispatch import check_prepared
+
+    root = Path(project_dir) if project_dir else Path.cwd()
+    language = detect_language(root)
+    if not language:
+        typer.echo("Could not detect project language", err=True)
+        raise typer.Exit(1)
+    raise typer.Exit(check_prepared(language))
 
 
 @app.command(name="seed-version")
