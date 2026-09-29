@@ -42,7 +42,7 @@ being a distinct step, correctly starts with its own fresh budget.
 
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from hyperi_ci.common import (
@@ -381,6 +381,19 @@ def log_findings(tool: str, findings: list[Finding]) -> None:
             info(line)
     if len(findings) > len(shown):
         info(f"  {tool}: +{len(findings) - len(shown)} more finding(s) not shown")
+
+
+def at_mode(findings: list[Finding], mode: str) -> list[Finding]:
+    """Return ``findings`` as a check running at ``mode`` should surface them.
+
+    Only a ``blocking`` check can fail the job, so only it may raise an
+    ``error`` annotation. Anywhere else an error becomes a warning, which keeps
+    a green job free of red annotations and leaves the step's error budget to
+    the checks that gate. Gate decisions read the original list, not this one.
+    """
+    if mode == "blocking":
+        return findings
+    return [replace(f, level="warning") if f.level == "error" else f for f in findings]
 
 
 def surface(

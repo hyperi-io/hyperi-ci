@@ -19,6 +19,9 @@ default: true
 # it is off rather than merely widened.
 MD013: false
 
+# Table pipe spacing is a formatting preference, and a table renders the same either way.
+MD060: false
+
 # Docs embed raw HTML deliberately - <details> blocks, <img> with sizing, and
 # the anchor spans a generated docs site needs.
 MD033: false

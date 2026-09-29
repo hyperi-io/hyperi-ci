@@ -228,7 +228,7 @@ def run(
             found.extend(scan_links(doc, root))
         found.extend(scan_code_paths(doc, root))
 
-    dropped = fdg.surface("doc-paths", found, sarif_path=sarif_path)
+    dropped = fdg.surface("doc-paths", fdg.at_mode(found, mode), sarif_path=sarif_path)
     if dropped:
         info(f"  doc-paths: +{dropped} more finding(s) in the job summary")
 

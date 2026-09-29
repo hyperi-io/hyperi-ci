@@ -280,7 +280,9 @@ def run(
             )
         )
 
-    dropped = fdg.surface("mermaid-parse", found, sarif_path=sarif_path)
+    dropped = fdg.surface(
+        "mermaid-parse", fdg.at_mode(found, mode), sarif_path=sarif_path
+    )
     if dropped:
         info(f"  mermaid-parse: +{dropped} more finding(s) in the job summary")
 

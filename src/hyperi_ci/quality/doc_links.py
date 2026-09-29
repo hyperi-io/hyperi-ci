@@ -193,7 +193,7 @@ def run(
             return 1
         return 0
 
-    dropped = fdg.surface("doc-links", found, sarif_path=sarif_path)
+    dropped = fdg.surface("doc-links", fdg.at_mode(found, mode), sarif_path=sarif_path)
     if dropped:
         info(f"  doc-links: +{dropped} more finding(s) in the job summary")
 

@@ -159,7 +159,9 @@ def run(
             return 1
         return 0
 
-    dropped = fdg.surface("markdownlint", found, sarif_path=sarif_path)
+    dropped = fdg.surface(
+        "markdownlint", fdg.at_mode(found, mode), sarif_path=sarif_path
+    )
     if dropped:
         info(f"  markdownlint: +{dropped} more finding(s) in the job summary")
 
