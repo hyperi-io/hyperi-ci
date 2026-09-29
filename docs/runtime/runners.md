@@ -110,6 +110,8 @@ live AutoscalingRunnerSets on 2026-09-24:
 
 There is no 2cpu tier.
 
+The 16cpu tier has 1Gi per CPU, and cargo starts one rustc per CPU whatever the memory. Every Rust stage therefore sets `CARGO_BUILD_JOBS` to the smaller of the CPU budget and the memory limit over `build.rust.memory_per_job_gib` (default 2), so 16cpu runs 8 jobs and 8cpu runs 8. The limit comes from cgroup v2 `memory.max`, cgroup v1 `memory.limit_in_bytes`, then total RAM, and the stage log names the source. `build.rust.jobs: <n>` fixes the count. `CARGO_BUILD_JOBS` already in the environment is never touched, and a `[build] jobs` in a cargo config file is left alone unless `build.rust.jobs` names a number.
+
 ## Split-runner multi-arch
 
 Multi-arch builds use **native runners per architecture**, not

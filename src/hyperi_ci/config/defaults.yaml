@@ -364,6 +364,16 @@ build:
   rust:
     # arm64 leg on a releasable merge to main. Read from .hyperi-ci.yaml only, so no env override (#249).
     arm64_on_main: true
+    # CARGO_BUILD_JOBS for every Rust stage (quality, test, build, PGO,
+    # release). `auto` takes the smaller of the CPU budget and the memory
+    # limit divided by `memory_per_job_gib`, because cargo sizes by CPUs alone
+    # and a 16-CPU runner with a 16Gi limit is OOM-killed. A number fixes it.
+    # CARGO_BUILD_JOBS in the environment beats both; a `[build] jobs` in a
+    # cargo config file beats `auto`.
+    jobs: auto
+    # Memory planned per concurrent rustc under `jobs: auto`. Raise it for a
+    # workspace whose big crates each take several GiB.
+    memory_per_job_gib: 2
 
   golang:
     targets:
