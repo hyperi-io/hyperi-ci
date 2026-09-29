@@ -276,6 +276,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          # Keeps the job token away from the code this job runs (issue #402).
+          persist-credentials: false
       - name: Install uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
@@ -303,6 +305,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
+          # Keeps the job token away from the code this job runs (issue #402).
+          persist-credentials: false
 
       - name: Install uv
         if: ${{ runner.environment != 'self-hosted' }}
@@ -338,8 +342,21 @@ jobs:
         # checkout would only see HEAD. Deepen so the scan covers the pushed
         # range. Conventional-commit validation moved to the commit-check job
         # (its own fetch-depth: 0 checkout). Harmless on an already-full clone.
+        # The checkout keeps no credential, so the job token reaches this step
+        # alone, as environment-scoped git config (issue #402).
         if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
-        run: git fetch --deepen=200 origin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GIT_TERMINAL_PROMPT: "0"
+        shell: bash
+        run: |
+          basic="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::$basic"
+          n="${GIT_CONFIG_COUNT:-0}"
+          export GIT_CONFIG_COUNT=$((n + 1))
+          export "GIT_CONFIG_KEY_$n=http.https://github.com/.extraheader"
+          export "GIT_CONFIG_VALUE_$n=AUTHORIZATION: basic $basic"
+          git fetch --deepen=200 origin
 
       - name: Run quality checks
         env:
@@ -378,6 +395,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
+          # Keeps the job token away from the code this job runs (issue #402).
+          persist-credentials: false
 
       - name: Install uv
         if: ${{ runner.environment != 'self-hosted' }}
@@ -409,10 +428,22 @@ jobs:
         run: uv sync --frozen --all-extras
 
       - name: Init submodules
+        # The checkout keeps no credential, so the job token reaches this step
+        # alone, as environment-scoped git config (issue #402).
         if: ${{ inputs.submodules != '' }}
         env:
           SUBMODULES: ${{ inputs.submodules }}
-        run: git submodule update --init --depth 1 $SUBMODULES
+          GH_TOKEN: ${{ github.token }}
+          GIT_TERMINAL_PROMPT: "0"
+        shell: bash
+        run: |
+          basic="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::$basic"
+          n="${GIT_CONFIG_COUNT:-0}"
+          export GIT_CONFIG_COUNT=$((n + 1))
+          export "GIT_CONFIG_KEY_$n=http.https://github.com/.extraheader"
+          export "GIT_CONFIG_VALUE_$n=AUTHORIZATION: basic $basic"
+          git submodule update --init --depth 1 $SUBMODULES
 
       - name: Run tests
         # --tier full only on a full run: a CLI without the flag fails loudly
@@ -452,6 +483,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
+          # Keeps the job token away from the code this job runs (issue #402).
+          persist-credentials: false
 
       - name: Install uv
         if: ${{ runner.environment != 'self-hosted' }}
