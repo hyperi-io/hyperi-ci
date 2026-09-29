@@ -30,6 +30,10 @@ from hyperi_ci.config import CIConfig, load_config
 from hyperi_ci.detect import detect_language
 
 
+class StampError(Exception):
+    """A manifest cannot carry the release version, so the build must not run."""
+
+
 def replace_toml_table_version(text: str, table: str, version: str) -> str:
     """Replace `version = "..."` inside one TOML table, if present.
 
@@ -155,8 +159,8 @@ def stamp_version(version: str, project_dir: Path | None = None) -> int:
         project_dir: Project root. Defaults to cwd.
 
     Returns:
-        0 on success, 1 if ``version`` is empty or ``release.stamp_cmd``
-        fails.
+        0 on success, 1 if ``version`` is empty, the manifest cannot carry
+        it, or ``release.stamp_cmd`` fails.
 
     """
     version = version.removeprefix("v").strip()
@@ -180,7 +184,11 @@ def stamp_version(version: str, project_dir: Path | None = None) -> int:
         # input, so there is no injection surface.
         # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import
         stamp_manifest = getattr(importlib.import_module(module_name), func_name)
-        stamp_manifest(version, root)
+        try:
+            stamp_manifest(version, root)
+        except StampError as exc:
+            error(f"stamp-version: {exc}")
+            return 1
     elif language:
         info(f"No manifest stamp for {language} — VERSION file is authoritative")
     else:

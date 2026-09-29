@@ -189,6 +189,110 @@ class TestPythonManifestStamp:
         assert (tmp_path / "VERSION").read_text() == "7.8.9\n"
 
 
+# The ci-test-python-lib layout: hatch reads the version from __init__.py.
+_HATCH_PYPROJECT = """\
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hatch-lib"
+dynamic = ["version"]
+
+[tool.hatch.version]
+path = "src/hatch_lib/__init__.py"
+{extra}
+[tool.hatch.build.targets.wheel]
+packages = ["src/hatch_lib"]
+"""
+
+_HATCH_INIT = '"""A lib."""\n\n__version__ = "1.0.2"\n\n\ndef f() -> str:\n    return __version__\n'
+
+
+def _hatch_project(root: Path, extra: str = "", init: str = _HATCH_INIT) -> Path:
+    (root / "pyproject.toml").write_text(
+        _HATCH_PYPROJECT.format(extra=extra), encoding="utf-8"
+    )
+    init_path = root / "src" / "hatch_lib" / "__init__.py"
+    init_path.parent.mkdir(parents=True)
+    init_path.write_text(init, encoding="utf-8")
+    return init_path
+
+
+class TestHatchDynamicVersionStamp:
+    """A dynamic version read by hatch from a file gets that file stamped (#386)."""
+
+    def test_the_default_pattern_stamps_dunder_version(self, tmp_path: Path) -> None:
+        init = _hatch_project(tmp_path)
+        assert stamp_version("1.0.6", project_dir=tmp_path) == 0
+        assert init.read_text(encoding="utf-8") == _HATCH_INIT.replace(
+            '"1.0.2"', '"1.0.6"'
+        )
+
+    @pytest.mark.parametrize(
+        ("line", "stamped"),
+        [
+            ("__version__ = '1.0.2'", "__version__ = '1.0.6'"),
+            ('__version__ = "v1.0.2"', '__version__ = "v1.0.6"'),
+            ('VERSION = "1.0.2"', 'VERSION = "1.0.6"'),
+        ],
+    )
+    def test_the_default_pattern_forms_hatch_reads(
+        self, tmp_path: Path, line: str, stamped: str
+    ) -> None:
+        init = _hatch_project(tmp_path, init=f"{line}\n")
+        assert stamp_version("1.0.6", project_dir=tmp_path) == 0
+        assert init.read_text(encoding="utf-8") == f"{stamped}\n"
+
+    def test_a_custom_pattern_is_honoured(self, tmp_path: Path) -> None:
+        init = _hatch_project(
+            tmp_path,
+            extra="pattern = 'RELEASE: (?P<version>\\S+)'\n",
+            init="# RELEASE: 1.0.2\n__version__ = '0.0.0'\n",
+        )
+        assert stamp_version("1.0.6", project_dir=tmp_path) == 0
+        assert init.read_text(encoding="utf-8") == (
+            "# RELEASE: 1.0.6\n__version__ = '0.0.0'\n"
+        )
+
+    def test_no_match_fails_the_stamp(self, tmp_path: Path) -> None:
+        _hatch_project(tmp_path, init="def f() -> None:\n    pass\n")
+        assert stamp_version("1.0.6", project_dir=tmp_path) == 1
+
+    def test_a_missing_version_file_fails_the_stamp(self, tmp_path: Path) -> None:
+        _hatch_project(tmp_path).unlink()
+        assert stamp_version("1.0.6", project_dir=tmp_path) == 1
+
+    def test_a_pattern_without_a_version_group_fails_the_stamp(
+        self, tmp_path: Path
+    ) -> None:
+        _hatch_project(tmp_path, extra="pattern = '__version__'\n")
+        assert stamp_version("1.0.6", project_dir=tmp_path) == 1
+
+    def test_an_unknown_source_fails_the_stamp(self, tmp_path: Path) -> None:
+        _hatch_project(tmp_path, extra='source = "env"\nvariable = "V"\n')
+        assert stamp_version("1.0.6", project_dir=tmp_path) == 1
+
+    @pytest.mark.parametrize("source", ["vcs", "code"])
+    def test_vcs_and_code_sources_are_left_to_the_backend(
+        self, tmp_path: Path, source: str
+    ) -> None:
+        """hatch-vcs reads git and hyperi-ci's own `code` source reads VERSION."""
+        init = _hatch_project(
+            tmp_path, extra=f'source = "{source}"\nexpression = "__version__"\n'
+        )
+        assert stamp_version("1.0.6", project_dir=tmp_path) == 0
+        assert init.read_text(encoding="utf-8") == _HATCH_INIT
+
+    def test_a_static_version_ignores_a_stray_hatch_table(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "x"\nversion = "0.0.0"\n\n'
+            '[tool.hatch.version]\npath = "missing.py"\n',
+            encoding="utf-8",
+        )
+        assert stamp_version("1.0.6", project_dir=tmp_path) == 0
+
+
 class TestTypescriptManifestStamp:
     def test_stamps_package_json_version(self, tmp_path) -> None:
         (tmp_path / "tsconfig.json").write_text("{}")

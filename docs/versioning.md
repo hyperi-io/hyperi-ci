@@ -23,7 +23,10 @@ Everything else that carries a version number is an **output**:
 | `CHANGELOG.md` | `@semantic-release/changelog`, at release time | No |
 | `Cargo.toml` / `pyproject.toml` / `package.json` version | `stamp-version`, at build time | Only to seed a tag-less repo |
 | Files in `release.stamp_paths` | `release.stamp_cmd`, run by `stamp-version` | No |
+| The `[tool.hatch.version] path` file of a `dynamic = ["version"]` project | `stamp-version`, at build time | No |
 | The git tag | `tag-head` / semantic-release, at release time | **Yes** |
+
+A hatch dynamic version read from a file (`path = "src/<pkg>/__init__.py"`) gets the version written where hatch's `pattern` finds it, or hatchling's default `__version__ = "..."` pattern. If the file is missing or the pattern finds nothing, `stamp-version` fails rather than let the build ship a wheel with the old version. The same goes for a hatch version source it does not know. `source = "vcs"` is left to hatch-vcs, which reads git, and `source = "code"` is left to the build, which evaluates it (hyperi-ci's own reads `VERSION`).
 
 Reading an output as an input is what issue #85 was about: `VERSION` froze at
 `2.3.10` in May 2026 across 14 repos, and every code path that fell back to it
