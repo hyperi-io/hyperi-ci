@@ -29,6 +29,7 @@ from hyperi_ci.version_source import (
     declared_version,
     latest_tag_version,
     seed_version,
+    tag_version,
 )
 
 
@@ -291,3 +292,28 @@ class TestStdlibOnly:
         loaded = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(loaded)
         assert loaded.DEFAULT_SEED_VERSION == DEFAULT_SEED_VERSION
+
+
+class TestTagVersion:
+    """A re-published tag names its own version (issue #352)."""
+
+    @pytest.mark.parametrize(
+        ("tag", "version"),
+        [
+            ("v1.0.4", "1.0.4"),
+            ("v10.20.30", "10.20.30"),
+            ("v1.2.0-beta.1", "1.2.0-beta.1"),
+            (" v1.0.4\n", "1.0.4"),
+        ],
+    )
+    def test_strips_the_v(self, tag: str, version: str) -> None:
+        assert tag_version(tag) == version
+
+    @pytest.mark.parametrize(
+        "tag",
+        ["", "1.0.4", "v1.0", "v1.0.4.1", "refs/tags/v1.0.4", "v1.0.4-", "latest"],
+    )
+    def test_refuses_what_is_not_a_release_tag(self, tag: str) -> None:
+        # Publish names the release `v{version}`, so only a tag that round-trips
+        # to that name is re-publishable.
+        assert tag_version(tag) is None

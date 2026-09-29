@@ -284,6 +284,20 @@ class TestFromHeadThreading:
         )
 
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_build_stamps_on_tag_dispatch(self, workflow_name: str) -> None:
+        # The tagged tree carries the release before it: VERSION and the
+        # manifest are committed back after the tag. Skipping the stamp built
+        # the tag as the previous version, and #105's guard refused it (#352).
+        build_steps = _load_workflow(workflow_name)["jobs"]["build"]["steps"]
+        stamp = next(
+            s for s in build_steps if s.get("name") == "Stamp predicted version"
+        )
+        assert "inputs.tag != ''" in str(stamp["if"]), (
+            f"{workflow_name}.build: 'Stamp predicted version' must also run on a "
+            "tag dispatch (issue #352)."
+        )
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
     def test_build_stamps_with_the_shared_command(self, workflow_name: str) -> None:
         # One stamper for Build, Container and Tag & Publish (issue #348): an
         # inline sed/echo copy drifts from stamp_manifest and never runs
@@ -335,8 +349,10 @@ class TestFromHeadThreading:
         assert "inputs.will-publish == 'true'" in ifc, (
             "container stamp must only rewrite the tree on a publish run"
         )
-        assert "inputs.tag == ''" in ifc, (
-            "a tag dispatch checks out a tree that already carries its version"
+        # The tagged tree carries the release before it, so a tag dispatch
+        # stamps the tag's version too (issue #352).
+        assert "inputs.tag" not in ifc, (
+            "container stamp must also run on a tag dispatch"
         )
         assert "stamp-version" in str(stamp["run"]), (
             "container stamp must use the shared `hyperi-ci stamp-version` command"
@@ -762,7 +778,7 @@ _DERIVE_INPUTS = {
     "${{ inputs.branch-build }}": "branch_build",
     "${{ github.ref }}": "git_ref",
     "${{ steps.worthy.outputs.release-worthy }}": "release_worthy",
-    "${{ steps.predict.outputs.version || steps.forced.outputs.version }}": "version",
+    "${{ steps.predict.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}": "version",
 }
 
 _MATRIX_INPUTS = {

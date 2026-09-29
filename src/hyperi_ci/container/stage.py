@@ -42,6 +42,7 @@ from pathlib import Path
 from hyperi_ci.common import (
     error,
     group,
+    holds_latest,
     info,
     normalise_tristate,
     resolve_release_version,
@@ -547,6 +548,13 @@ def _dispatch_build(
         config.get("release.channel", "release"), version
     )
 
+    # Only a GA release-channel push adds `:latest`, so only that one asks.
+    move_latest = not (
+        push_mode == RELEASE
+        and channel == "release"
+        and holds_latest(version, "the GHCR :latest tag")
+    )
+
     tags = resolve_tags(
         registry_bases=registry_bases,
         image_name=image_name,
@@ -555,6 +563,7 @@ def _dispatch_build(
         channel=channel,
         mode=push_mode,
         branch_slug=dev_branch_slug() if push_mode == DEV else "",
+        move_latest=move_latest,
     )
 
     from hyperi_ci.description_source import resolve_description

@@ -46,6 +46,10 @@ of them agree. `common.resolve_release_version` is the single reader:
 `HYPERCI_VERSION` -> `VERSION` (written moments earlier by the stamp step) ->
 latest `v*` tag. Do not re-implement it per stage.
 
+A retroactive `tag` dispatch (`hyperi-ci release vX.Y.Z`) skips semantic-release: `next-version` is the tag's own version, minus the `v`. The tagged tree cannot answer, because `VERSION` and the manifest are committed back after the tag, so Build and Container stamp it like any other release.
+
+Re-publishing a version below the highest stable `v*` tag publishes its versioned artefacts and moves no `latest` pointer. R2 `<project>/latest/`, the GHCR `:latest` tag and the GitHub Release Latest flag stay on the newest release, and the log names each one it held back. `common.holds_latest` makes that call from the local tags, which is why the Container job checks out with `fetch-tags: true`.
+
 ## A repo with no tags
 
 Exactly one question a tag cannot answer: what should the FIRST tag be?

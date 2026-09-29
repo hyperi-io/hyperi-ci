@@ -445,8 +445,8 @@ jobs:
         run: ${{ env.HYPERCI_INSTALL }} install-native-deps python
 
       - name: Stamp predicted version
-        # Stamps VERSION + pyproject.toml before `uv sync` installs the project, on push and from-head dispatch only -- both release HEAD, whose committed tree is stale (issue #35).
-        if: needs.plan.outputs.will-release == 'true' && (github.event_name == 'push' || inputs.from-head == 'true')
+        # Stamps VERSION + pyproject.toml before `uv sync` installs the project, on every release run: push and from-head release HEAD, whose committed tree is stale (issue #35), and a tag dispatch checks out a tag whose tree still carries the release before it (issue #352).
+        if: needs.plan.outputs.will-release == 'true' && (github.event_name == 'push' || inputs.from-head == 'true' || inputs.tag != '')
         env:
           # Via env so the value cannot be read as shell -- stamp-version itself fails on an empty one.
           NEXT_VERSION: ${{ needs.plan.outputs.next-version }}

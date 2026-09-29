@@ -51,6 +51,13 @@ DEFAULT_SEED_VERSION = "0.1.0"
 # usable seed and falls through to the next manifest.
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
+# A release tag is `v` + the version it released, and a prerelease branch cuts
+# `v1.2.0-beta.1`. The `v` is required: publish names the release `v{version}`,
+# so a bare `1.2.3` tag would re-publish onto a release that does not exist.
+_RELEASE_TAG_RE = re.compile(
+    r"^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)$"
+)
+
 
 def _usable(value: object) -> str | None:
     """Normalise a manifest value to a bare ``X.Y.Z``, or reject it."""
@@ -193,6 +200,18 @@ def latest_tag_version(root: Path | None = None) -> str | None:
         if candidate:
             return candidate
     return None
+
+
+def tag_version(tag: str) -> str | None:
+    """Return the version a release tag names, or None when it names none.
+
+    A retroactive ``tag`` dispatch re-publishes exactly this version. The
+    tagged tree cannot answer: ``VERSION`` and the manifest are stamped at
+    build time and committed back after the tag, so the tagged commit still
+    carries the release before it (issue #352).
+    """
+    match = _RELEASE_TAG_RE.match(tag.strip())
+    return match.group(1) if match else None
 
 
 def build_version(root: Path | None = None, *, allow_env: bool = True) -> str:

@@ -18,7 +18,6 @@ import filecmp
 import os
 import re
 import shutil
-import subprocess
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -27,6 +26,7 @@ from pathlib import Path
 from hyperi_ci.common import (
     error,
     group,
+    holds_latest,
     info,
     mask,
     resolve_release_version,
@@ -60,6 +60,17 @@ def _resolve_gh_release_flags(channel: str) -> list[str]:
     """Return extra flags for gh release create based on channel."""
     if channel != "release":
         return ["--prerelease"]
+    return []
+
+
+def _latest_flags(version: str) -> list[str]:
+    """Return ``--latest=false`` when an older version is being released.
+
+    GitHub marks a newly published release Latest unless told otherwise, so
+    back-filling an old tag would take the flag off the newest release.
+    """
+    if holds_latest(version, "the GitHub Release Latest flag"):
+        return ["--latest=false"]
     return []
 
 
@@ -350,12 +361,14 @@ def create_github_release(config: CIConfig) -> int:
 
     channel = _resolve_channel(config, version)
     tag = f"v{version}"
+    latest_flags = _latest_flags(version)
 
     info(f"Creating GitHub Release {tag}")
     with _release_notes_flags(version, config) as notes_flags:
         cmd = ["gh", "release", "create", tag, "--title", tag, "--generate-notes"]
         cmd.extend(notes_flags)
         cmd.extend(_resolve_gh_release_flags(channel))
+        cmd.extend(latest_flags)
         cmd.extend(str(path) for path in assets)
         result = run_cmd(cmd, check=False, capture=True)
     if result.returncode != 0:
@@ -415,12 +428,14 @@ def _upload_binaries_github(
         return 1
 
     tag = f"v{version}"
+    latest_flags = _latest_flags(version)
     info(f"Publishing {len(artifacts)} artifact(s) to GitHub Release {tag}")
 
     with _release_notes_flags(version, config) as notes_flags:
         cmd = ["gh", "release", "create", tag, "--title", tag, "--generate-notes"]
         cmd.extend(notes_flags)
         cmd.extend(_resolve_gh_release_flags(channel))
+        cmd.extend(latest_flags)
         cmd.extend(str(f) for f in artifacts)
         result = run_cmd(cmd, check=False, capture=True)
     if result.returncode != 0:
@@ -436,7 +451,7 @@ def _upload_binaries_github(
             info(f"  GH Release {tag} already exists at HEAD — uploading artifacts")
             upload_cmd = ["gh", "release", "upload", tag, "--clobber"]
             upload_cmd.extend(str(f) for f in artifacts)
-            result = subprocess.run(upload_cmd)
+            result = run_cmd(upload_cmd, check=False)
             if result.returncode != 0:
                 error("GitHub Release upload failed")
                 return result.returncode
@@ -456,6 +471,9 @@ def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False)
     Uploads all files from dist/ to R2. Channel controls path:
       release:  {project}/v{version}/  + {project}/latest/
       other:    {project}/{channel}/v{version}/  + {project}/{channel}/latest/
+
+    ``latest/`` is left untouched when a higher stable ``v*`` tag exists, so
+    re-publishing an older tag cannot move it backwards.
 
     Requires R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY env vars.
 
@@ -488,10 +506,10 @@ def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False)
     version = _read_version() or "unknown"
 
     versioned_prefix, latest_prefix = _resolve_r2_paths(project_name, version, channel)
+    move_latest = not holds_latest(version, f"R2 {latest_prefix}")
 
-    # Common env for aws CLI -- use R2 credentials as AWS credentials
+    # R2 credentials stand in as AWS credentials for the aws CLI.
     aws_env = {
-        **os.environ,
         "AWS_ACCESS_KEY_ID": access_key,
         "AWS_SECRET_ACCESS_KEY": secret_key,
         "AWS_DEFAULT_REGION": "auto",
@@ -499,26 +517,29 @@ def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False)
 
     info(f"Publishing to R2: {R2_PUBLIC_URL}/{project_name}/v{version}/")
 
-    # Clean latest/ before uploading so stale files from previous builds
-    # (e.g. renamed binaries) don't linger alongside new ones
-    info(f"  Cleaning latest/: {latest_prefix}")
-    rm_result = subprocess.run(
-        [
-            "aws",
-            "s3",
-            "rm",
-            latest_prefix,
-            "--recursive",
-            "--endpoint-url",
-            R2_ENDPOINT,
-        ],
-        env=aws_env,
-    )
-    if rm_result.returncode != 0:
-        warn("  Failed to clean latest/ — continuing with upload")
+    destinations = [("versioned", versioned_prefix)]
+    if move_latest:
+        # Clean latest/ before uploading so stale files from previous builds
+        # (e.g. renamed binaries) don't linger alongside new ones
+        info(f"  Cleaning latest/: {latest_prefix}")
+        rm_result = run_cmd(
+            [
+                "aws",
+                "s3",
+                "rm",
+                latest_prefix,
+                "--recursive",
+                "--endpoint-url",
+                R2_ENDPOINT,
+            ],
+            check=False,
+            env=aws_env,
+        )
+        if rm_result.returncode != 0:
+            warn("  Failed to clean latest/ — continuing with upload")
+        destinations.append(("latest", latest_prefix))
 
-    for dest_prefix in (versioned_prefix, latest_prefix):
-        label = "versioned" if "/v" in dest_prefix else "latest"
+    for label, dest_prefix in destinations:
         info(f"  Uploading to {label}: {dest_prefix}")
 
         for artifact in artifacts:
@@ -531,7 +552,7 @@ def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False)
                 "--endpoint-url",
                 R2_ENDPOINT,
             ]
-            result = subprocess.run(cmd, env=aws_env)
+            result = run_cmd(cmd, check=False, env=aws_env)
             if result.returncode != 0:
                 error(f"  R2 upload failed for {artifact.name} ({label})")
                 return result.returncode

@@ -110,6 +110,55 @@ def latest_version_tag() -> str | None:
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
 
+def newer_release_than(version: str | None) -> str | None:
+    """Return the highest stable release when it is above ``version``, else None.
+
+    Reads the local ``v*`` tags, so the checkout must carry them. None also
+    covers a prerelease or unparseable ``version``, which never names a
+    ``latest`` pointer anyway, and a repo with no stable tag at all.
+    """
+    if not version:
+        return None
+    candidate = version.strip().removeprefix("v")
+    if not _SEMVER_RE.match(candidate):
+        return None
+    highest = latest_version_tag()
+    if highest is None:
+        return None
+
+    def key(value: str) -> tuple[int, ...]:
+        return tuple(int(part) for part in value.split("."))
+
+    return highest if key(highest) > key(candidate) else None
+
+
+def holds_latest(version: str | None, pointer: str) -> bool:
+    """Report whether ``pointer`` must stay on a newer release, and say why.
+
+    Re-publishing an older tag (``hyperi-ci release v1.2.3``, back-filling an
+    unreleased tag) republishes that version's own artefacts. Every
+    ``latest`` pointer still belongs to the newest stable release, or
+    ``downloads.hyperi.io/<project>/latest/`` and ``:latest`` go backwards.
+
+    Args:
+        version: Version being published, with or without a leading ``v``.
+        pointer: What would move, for the log line (``"R2 latest/"``).
+
+    Returns:
+        True when a higher stable ``v*`` tag exists, so ``pointer`` stays put.
+
+    """
+    newer = newer_release_than(version)
+    if newer is None:
+        return False
+    shown = (version or "").strip().removeprefix("v")
+    warn(
+        f"Leaving {pointer} on v{newer}: v{shown} is older than the newest "
+        f"stable release. Only its versioned artefacts publish."
+    )
+    return True
+
+
 def explicit_version(value: str | None) -> str | None:
     """Bare ``X.Y.Z`` if ``value`` is an explicit version, else None.
 
