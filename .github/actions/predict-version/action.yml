@@ -22,6 +22,11 @@
 # sending uv off to download an interpreter these stdlib helpers do not need,
 # and `--no-config` keeps the consumer's own uv config (a private index) out
 # of our install.
+#
+# Plan must not fail on a registry. When uv cannot install or cannot fetch
+# PyYAML, the helpers run on the runner's python3 instead, with a warning,
+# and each helper's own "could not be read" warning follows if that python3
+# has neither PyYAML nor yq.
 
 name: Predict version
 description: Detect Publish trigger + run semantic-release dry-run for next version
@@ -100,9 +105,33 @@ runs:
   using: composite
   steps:
     - name: Install uv (config readers)
+      # A failed download must not fail Plan. The next step finds no uv and
+      # falls back to python3, loudly.
+      continue-on-error: true
       uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
       with:
         enable-cache: false
+
+    - name: Choose the config readers' Python
+      # Asked once here rather than with `uv run ... || python3 ...` at each
+      # helper, because `||` also catches the helper's own failure: a tier
+      # typo would fail under uv, re-run on a python3 that cannot read the
+      # config, and pass on core. After one fetch here, later `uv run` calls
+      # are served from uv's cache.
+      id: reader
+      shell: bash
+      env:
+        PYYAML_VERSION: ${{ inputs.pyyaml-version }}
+      run: |
+        uv_python="uv run --no-project --no-config --python 3 --with pyyaml==$PYYAML_VERSION python"
+        # The value is a command and its arguments, so it is split on purpose.
+        # shellcheck disable=SC2086
+        if $uv_python -c "import yaml"; then
+          echo "python=$uv_python" >> "$GITHUB_OUTPUT"
+        else
+          echo "::warning title=config readers::uv could not provide PyYAML $PYYAML_VERSION, so the runner's python3 reads .hyperi-ci.yaml and may not be able to parse it"
+          echo "python=python3" >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Resolve the project's Python version
       # The fleet default answers "what does a project that declares nothing
@@ -394,7 +423,7 @@ runs:
       id: derive
       shell: bash
       env:
-        PYYAML_VERSION: ${{ inputs.pyyaml-version }}
+        CONFIG_PYTHON: ${{ steps.reader.outputs.python }}
       run: |
         set -euo pipefail
         will_publish='${{ steps.gate.outputs.will-publish }}'
@@ -458,7 +487,8 @@ runs:
         # out) is the helper's.
         arm64_check=false
         if [[ "$event_name" == "push" && "$git_ref" == "refs/heads/main" && "$release_worthy" == "true" ]]; then
-          arm64_check=$(uv run --no-project --no-config --python 3 --with "pyyaml==$PYYAML_VERSION" python "$GITHUB_ACTION_PATH/arm64_check.py")
+          # shellcheck disable=SC2086
+          arm64_check=$($CONFIG_PYTHON "$GITHUB_ACTION_PATH/arm64_check.py")
         fi
 
         echo "run-build=$run_build" >> "$GITHUB_OUTPUT"
@@ -482,8 +512,8 @@ runs:
         TIER_EVENT: ${{ github.event_name }}
         TIER_WILL_RELEASE: ${{ steps.gate.outputs.will-publish }}
         TIER_REQUESTED: ${{ inputs.test-tier }}
-        PYYAML_VERSION: ${{ inputs.pyyaml-version }}
-      run: uv run --no-project --no-config --python 3 --with "pyyaml==$PYYAML_VERSION" python "$GITHUB_ACTION_PATH/resolve_tier.py"
+        CONFIG_PYTHON: ${{ steps.reader.outputs.python }}
+      run: $CONFIG_PYTHON "$GITHUB_ACTION_PATH/resolve_tier.py"
 
     - name: Read the project's Rust targets
       # rust-ci.yml builds its matrix from this, so no runner image needs yq
@@ -492,5 +522,5 @@ runs:
       id: targets
       shell: bash
       env:
-        PYYAML_VERSION: ${{ inputs.pyyaml-version }}
-      run: uv run --no-project --no-config --python 3 --with "pyyaml==$PYYAML_VERSION" python "$GITHUB_ACTION_PATH/rust_targets.py"
+        CONFIG_PYTHON: ${{ steps.reader.outputs.python }}
+      run: $CONFIG_PYTHON "$GITHUB_ACTION_PATH/rust_targets.py"

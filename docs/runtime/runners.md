@@ -57,7 +57,7 @@ gets a self-hosted runner without asking.
 | Plan, Commit messages, Gate | `free` -> `GH_RUNNER_DEFAULT` -> `ubuntu-latest` | needs only git, python3 and uv, which vanilla carries. No renovate carve-out: `GH_RUNNER_RENOVATE` is a heavier set than the default |
 | Release tail | `free` -> `GH_RUNNER_PUBLISH` -> `GH_RUNNER_DEFAULT` -> `ubuntu-latest` | see `_release-tail.yml` |
 
-Plan reads `.hyperi-ci.yaml` inside the `predict-version` composite, which runs every config reader under `uv run --with pyyaml`, so no image needs PyYAML or yq. The PyYAML version is `tools.pyyaml` in `versions.yaml`. A config that exists and cannot be read raises a `::warning::` naming the file and the reason, and the settings it holds take their defaults.
+Plan reads `.hyperi-ci.yaml` inside the `predict-version` composite, which runs every config reader under `uv run --with pyyaml`, so no image needs PyYAML or yq. The PyYAML version is `tools.pyyaml` in `versions.yaml`. A config that exists and cannot be read raises a `::warning::` naming the file and the reason, and the settings it holds take their defaults. When uv cannot be installed or cannot fetch PyYAML, the readers run on the runner's own python3 with a `config readers` warning, so a registry outage degrades Plan to those defaults rather than failing it.
 
 ## The runner vocabulary
 

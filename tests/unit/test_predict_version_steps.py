@@ -12,9 +12,11 @@ throwaway repo whose HEAD carries ``Release: true``, so a schedule branch that
 fell through to the trailer check would publish and fail the test.
 
 ``python3`` on the step's PATH is this interpreter by default. The config
-readers run under ``uv run --with pyyaml``, exactly as the composite runs them,
-and :class:`TestAPython3WithoutPyYAML` puts a python3 with no PyYAML first on
-the PATH to prove the answer no longer depends on the runner's own.
+readers run on whatever the composite's ``reader`` step picks, and a step that
+reads its answer runs the real ``reader`` step first under the same PATH and
+environment. :class:`TestAPython3WithoutPyYAML` puts a python3 with no PyYAML
+first on the PATH to prove the answer no longer depends on the runner's own,
+and :class:`TestUvCannotSupplyPyYAML` breaks uv to prove Plan still completes.
 """
 
 import os
@@ -61,6 +63,9 @@ _UV_CACHE = (
 #: The composite's own input default, which versions.yaml keeps in step.
 _INPUTS = {"inputs.pyyaml-version": tool_version("pyyaml")}
 
+#: The interpreter the reader step hands every config-reading step.
+_READER = "steps.reader.outputs.python"
+
 
 def _steps() -> dict[str, dict]:
     action = yaml.safe_load((ACTION_DIR / "action.yml").read_text(encoding="utf-8"))
@@ -92,9 +97,13 @@ def _run_step(
     repo: Path,
     env: dict[str, str] | None = None,
     path_first: Path | None = None,
+    returncode: int = 0,
 ) -> tuple[dict[str, str], str]:
     values = {**_INPUTS, **values}
     step = _steps()[step_id]
+    if _READER in str(step.get("env")) and _READER not in values:
+        reader, _ = _run_step("reader", {}, repo, env=env, path_first=path_first)
+        values[_READER] = reader["python"]
     script = _render(str(step["run"]), values)
     output = repo / ".github_output"
     output.write_text("", encoding="utf-8")
@@ -125,7 +134,7 @@ def _run_step(
         },
         check=False,
     )
-    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.returncode == returncode, result.stdout + result.stderr
     written = dict(
         line.split("=", 1)
         for line in output.read_text(encoding="utf-8").splitlines()
@@ -440,6 +449,29 @@ class TestAPython3WithoutPyYAML:
         )
         assert outputs == {"test-tier": "full", "full-required-for-release": "true"}
 
+    def test_a_tier_typo_still_fails(
+        self, released_head: Path, bare_python3: Path
+    ) -> None:
+        # A per-helper `uv run ... || python3 ...` re-ran this on the bare
+        # python3, which cannot read the file, and passed on core.
+        (released_head / ".hyperi-ci.yaml").write_text(
+            "test:\n  tier: fulll\n", encoding="utf-8"
+        )
+        _, stdout = _run_step(
+            "tier",
+            {
+                "github.event_name": "pull_request",
+                "steps.gate.outputs.will-publish": "false",
+                "inputs.test-tier": "",
+            },
+            released_head,
+            env=self.ENV,
+            path_first=bare_python3,
+            returncode=1,
+        )
+        assert stdout.startswith("::error title=test tier::test.tier")
+        assert "::warning" not in stdout
+
     def test_the_rust_targets_are_read(
         self, released_head: Path, bare_python3: Path
     ) -> None:
@@ -478,6 +510,129 @@ class TestAPython3WithoutPyYAML:
             bare_python3,
         )
         assert outputs["run-arm64-check"] == expected
+
+
+@needs_uv
+class TestUvCannotSupplyPyYAML:
+    """Plan completes when uv cannot supply PyYAML, and says so.
+
+    A PyPI, astral or GitHub download blip must not fail Plan for every
+    consumer. ``offline`` is uv with no network and an empty cache; ``no-uv``
+    is the setup-uv step having failed. Either way the reader step falls back
+    to the runner's python3 and warns, and each helper then warns that the
+    config could not be read on a python3 that has neither PyYAML nor yq.
+    """
+
+    CONFIG = (
+        "test:\n  tier: full\n"
+        f"build:\n  rust:\n    targets:\n      - {_AMD64}\n      - {_ARM64}\n"
+    )
+
+    @pytest.fixture(params=["offline", "no-uv"])
+    def broken_uv(
+        self,
+        request: pytest.FixtureRequest,
+        tmp_path_factory: pytest.TempPathFactory,
+        bare_python3: Path,
+    ) -> dict[str, str]:
+        env = {"UV_PYTHON_PREFERENCE": "only-system"}
+        scratch = tmp_path_factory.mktemp(request.param)
+        if request.param == "offline":
+            env |= {"UV_OFFLINE": "1", "UV_CACHE_DIR": str(scratch)}
+        else:
+            fake_uv = scratch / "uv"
+            fake_uv.write_text("#!/bin/sh\nexit 127\n", encoding="utf-8")
+            fake_uv.chmod(fake_uv.stat().st_mode | stat.S_IXUSR)
+            env["PATH"] = os.pathsep.join(
+                [str(scratch), str(bare_python3), os.environ.get("PATH", "")]
+            )
+        # Guards the guard: a uv that can still supply PyYAML proves nothing.
+        # The probe sees what the step sees, and no VIRTUAL_ENV with PyYAML.
+        probe_env = {
+            "PATH": os.pathsep.join([str(bare_python3), os.environ.get("PATH", "")]),
+            "HOME": str(scratch),
+            **env,
+        }
+        uv = shutil.which("uv", path=probe_env["PATH"])
+        assert uv is not None
+        probe = subprocess.run(
+            [uv, "run", "--no-project", "--no-config", "--python", "3", "--with"]
+            + [f"pyyaml=={tool_version('pyyaml')}", "python", "-c", "import yaml"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=probe_env,
+            # Away from this checkout's .venv, which uv would otherwise use.
+            cwd=scratch,
+            check=False,
+        )
+        assert probe.returncode != 0, "uv could still supply PyYAML"
+        return env
+
+    def test_the_reader_falls_back_to_python3_and_warns(
+        self, released_head: Path, bare_python3: Path, broken_uv: dict[str, str]
+    ) -> None:
+        outputs, stdout = _run_step(
+            "reader", {}, released_head, env=broken_uv, path_first=bare_python3
+        )
+        assert outputs == {"python": "python3"}
+        assert stdout.startswith(
+            "::warning title=config readers::uv could not provide PyYAML"
+        )
+
+    def test_the_tier_step_completes_and_warns(
+        self, released_head: Path, bare_python3: Path, broken_uv: dict[str, str]
+    ) -> None:
+        (released_head / ".hyperi-ci.yaml").write_text(self.CONFIG, encoding="utf-8")
+        outputs, stdout = _run_step(
+            "tier",
+            {
+                "github.event_name": "pull_request",
+                "steps.gate.outputs.will-publish": "false",
+                "inputs.test-tier": "",
+            },
+            released_head,
+            env=broken_uv,
+            path_first=bare_python3,
+        )
+        assert outputs == {"test-tier": "core", "full-required-for-release": "false"}
+        assert "::warning title=test tier core::" in stdout
+        assert ".hyperi-ci.yaml could not be read" in stdout
+
+    def test_the_targets_step_completes_and_warns(
+        self, released_head: Path, bare_python3: Path, broken_uv: dict[str, str]
+    ) -> None:
+        _rust_repo(released_head, self.CONFIG)
+        outputs, stdout = _run_step(
+            "targets", {}, released_head, env=broken_uv, path_first=bare_python3
+        )
+        assert outputs == {"rust-targets": ""}
+        assert "::warning title=rust targets::.hyperi-ci.yaml could not be read" in (
+            stdout
+        )
+        assert "every target builds" in stdout
+
+    def test_the_arm64_check_completes_and_stays_off(
+        self, released_head: Path, bare_python3: Path, broken_uv: dict[str, str]
+    ) -> None:
+        _rust_repo(released_head, self.CONFIG)
+        outputs, _ = _run_step(
+            "derive",
+            {
+                "steps.gate.outputs.will-publish": "false",
+                "github.event_name": "push",
+                "inputs.branch-build": "",
+                "github.ref": "refs/heads/main",
+                "steps.worthy.outputs.release-worthy": "true",
+                "steps.predict.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version": "",
+            },
+            released_head,
+            env=broken_uv,
+            path_first=bare_python3,
+        )
+        assert outputs["run-checks"] == "true"
+        assert outputs["run-arm64-check"] == "false"
 
 
 @needs_uv
