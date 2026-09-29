@@ -183,6 +183,31 @@ Every run that drops a file says so, per source:
 charset: 2 file(s) excluded (quality.charset_exclude: 1, quality.exclude_paths: 1)
 ```
 
+### doc-paths: prescriptive directories
+
+doc-paths cannot tell a stale path from a PRESCRIBED one. A standard saying a project's architecture doc belongs at docs/ARCHITECTURE.md names a file in the consumer's tree, and it is missing from the repo holding the standard because it should be. A repo whose docs tell other repos where to put things lists those directories:
+
+```yaml
+quality:
+  doc_paths:
+    mode: warn
+    prescriptive:
+      - standards
+      - skills
+```
+
+- Empty by default, so a repo that sets nothing is checked as before.
+- Each entry is a directory from the repo root, matched by whole segment: `docs` covers everything under `docs/`, `docs/api/` included, and never `docs-old/`. No globs.
+- Only the inline-code rule skips those docs. Their link destinations are still checked, because a link is navigation within this repo. doc-links and markdownlint are not affected.
+- A value that is not a list of repo-relative directories fails the check.
+- The cost is real rot inside a listed directory: a standard naming this repo's own renamed file goes unreported. List the narrowest directories that prescribe.
+
+Every run that skips a doc says so:
+
+```text
+doc-paths: inline-code paths not checked in 156 file(s) (quality.doc_paths.prescriptive)
+```
+
 ### Rust feature matrix: warnings
 
 The feature matrix builds each feature alone. Code every combined build uses can be dead in one of those builds, and clippy never sees it because it runs `--all-features`. `quality.rust.feature_matrix.warnings` decides what that warning does. It ships `warn`, and `--strict` upgrades it. A compile error fails in every mode.

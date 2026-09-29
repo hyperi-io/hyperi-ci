@@ -33,6 +33,14 @@ Three conditions, each removing a class of non-path:
   missing from a directory full of YAML, so it moved; ``src/main.rs`` names a
   consumer's Rust layout, and this repo's ``src/`` has never held a ``.rs``.
 
+None of the three can tell a stale path from a PRESCRIBED one. A standard
+saying a project's architecture doc belongs at ``docs/ARCHITECTURE.md`` names a
+path in the consumer's tree, and it is missing here because it should be. A
+repo whose docs tell other repos where to put things lists those directories
+under ``quality.doc_paths.prescriptive``, and the inline-code rule skips every
+doc beneath them. Link destinations there are still checked: a link is
+navigation within this repo, whatever the prose around it prescribes.
+
 lychee owns link destinations when it is installed (it also resolves anchors,
 which this cannot), so the link rule turns off where lychee runs at the same
 mode or stricter. Where this check is the stricter of the two, it keeps the
@@ -40,7 +48,7 @@ rule, because a gate a repo promoted cannot be decided by one it did not.
 """
 
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
@@ -63,6 +71,60 @@ _NOT_LITERAL = re.compile(r"[*?{}<>$()\[\]|!\s]")
 
 # A destination that is not a repo path at all.
 _NON_PATH_PREFIX = ("#", "//", "mailto:", "tel:", "data:")
+
+_PRESCRIPTIVE = "quality.doc_paths.prescriptive"
+
+
+def prescriptive_dirs(config: CIConfig) -> list[PurePosixPath]:
+    """Return ``quality.doc_paths.prescriptive``, or raise on a malformed value.
+
+    A malformed entry would otherwise leave the check reporting the rules the
+    repo meant to exempt, with nothing saying why.
+
+    Raises:
+        ValueError: The value is not a list of repo-relative directory paths.
+    """
+    raw = config.get(_PRESCRIPTIVE, [])
+    if not isinstance(raw, list):
+        raise ValueError(
+            f"{_PRESCRIPTIVE} must be a list of repo-relative directories, "
+            f"got {type(raw).__name__}: {raw!r}"
+        )
+    dirs: list[PurePosixPath] = []
+    for entry in raw:
+        path = (
+            PurePosixPath(entry.strip().removeprefix("./"))
+            if isinstance(entry, str)
+            else None
+        )
+        # `.` would exempt the whole repo, which is `doc_paths: disabled`.
+        if (
+            path is None
+            or not path.parts
+            or path.is_absolute()
+            or ".." in path.parts
+            or _NOT_LITERAL.search(str(path))
+        ):
+            raise ValueError(
+                f"{_PRESCRIPTIVE} entries must be repo-relative directory paths "
+                f"with no globs, got {entry!r}"
+            )
+        dirs.append(path)
+    return dirs
+
+
+def is_prescriptive(doc: Path, root: Path, dirs: list[PurePosixPath]) -> bool:
+    """Return True when ``doc`` sits inside one of ``dirs``, measured from ``root``.
+
+    Matched by whole path segment, so ``docs`` covers ``docs/a.md`` and never
+    ``docs-old/a.md``.
+    """
+    try:
+        relative = doc.absolute().relative_to(root.absolute())
+    except ValueError:
+        return False
+    posix = PurePosixPath(relative.as_posix())
+    return any(posix.is_relative_to(d) for d in dirs)
 
 
 def _is_repo_path(dest: str) -> bool:
@@ -210,7 +272,8 @@ def run(
     check gates harder, so a broken link is reported once where the two agree
     and still fails a ``doc_paths: blocking`` repo whose lychee only warns.
 
-    Returns 0 unless a blocking mode found an error-level finding.
+    Returns 0 unless a blocking mode found an error-level finding, or
+    ``quality.doc_paths.prescriptive`` is malformed.
     """
     mode = resolve_cross_tool_mode(config, "doc_paths", "warn")
     if mode == "disabled":
@@ -219,14 +282,28 @@ def run(
     if not files:
         info("  doc-paths: no markdown to check - skipping")
         return 0
+    try:
+        prescriptive = prescriptive_dirs(config)
+    except ValueError as exc:
+        error(f"  doc-paths: {exc}")
+        return 1
 
     check_links = lychee_mode is None or stricter(mode, than=lychee_mode)
     root = Path(root or Path.cwd())
     found: list[fdg.Finding] = []
+    exempt = 0
     for doc in files:
         if check_links:
             found.extend(scan_links(doc, root))
+        if is_prescriptive(doc, root, prescriptive):
+            exempt += 1
+            continue
         found.extend(scan_code_paths(doc, root))
+    if exempt:
+        info(
+            f"  doc-paths: inline-code paths not checked in {exempt} file(s) "
+            f"({_PRESCRIPTIVE})"
+        )
 
     dropped = fdg.surface("doc-paths", found, sarif_path=sarif_path)
     if dropped:

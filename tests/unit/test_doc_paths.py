@@ -13,8 +13,11 @@ those cases carry as much weight as the drift it is meant to catch.
 
 from pathlib import Path
 
+import pytest
+
 from hyperi_ci.config import CIConfig
 from hyperi_ci.quality import doc_paths
+from hyperi_ci.quality import findings as fdg
 
 
 def _config(**overrides: object) -> CIConfig:
@@ -264,3 +267,93 @@ class TestRun:
 
     def test_no_files_is_a_clean_skip(self, tmp_path: Path) -> None:
         assert doc_paths.run([], _config(), root=tmp_path) == 0
+
+
+def _prescriptive(dirs: object, mode: str = "warn") -> CIConfig:
+    return _config(doc_paths={"mode": mode, "prescriptive": dirs})
+
+
+def _standard(root: Path, rel: str, body: str) -> Path:
+    doc = root / rel
+    doc.parent.mkdir(parents=True, exist_ok=True)
+    doc.write_text(body, encoding="utf-8")
+    return doc
+
+
+class TestPrescriptive:
+    """Directories whose inline-code paths name the consumer's tree, not this one."""
+
+    # `config/org.yaml` is drift by every other rule: a YAML file missing from a
+    # directory of YAML.
+    RULE = "Your settings belong in `config/org.yaml`.\n"
+
+    @pytest.fixture(autouse=True)
+    def _capture(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.caught: list[fdg.Finding] = []
+
+        def surface(tool: str, found: list[fdg.Finding], **_: object) -> int:
+            self.caught.extend(found)
+            return 0
+
+        monkeypatch.setattr(doc_paths.fdg, "surface", surface)
+
+    def _found(self, root: Path, docs: list[Path], config: CIConfig) -> list[str]:
+        self.caught.clear()
+        doc_paths.run(docs, config, root=root)
+        return [Path(f.path).relative_to(root).as_posix() for f in self.caught]
+
+    def test_a_listed_dir_is_not_reported(self, tmp_path: Path) -> None:
+        root = _repo(tmp_path)
+        doc = _standard(root, "standards/ci.md", self.RULE)
+        assert self._found(root, [doc], _prescriptive(["standards"])) == []
+
+    def test_the_same_path_outside_a_listed_dir_is_reported(
+        self, tmp_path: Path
+    ) -> None:
+        root = _repo(tmp_path)
+        rule = _standard(root, "standards/ci.md", self.RULE)
+        stale = _standard(root, "docs/a.md", self.RULE)
+        found = self._found(root, [rule, stale], _prescriptive(["standards"]))
+        assert found == ["docs/a.md"]
+
+    def test_the_empty_default_reports_as_before(self, tmp_path: Path) -> None:
+        root = _repo(tmp_path)
+        doc = _standard(root, "standards/ci.md", self.RULE)
+        assert doc_paths.prescriptive_dirs(_config()) == []
+        assert self._found(root, [doc], _config()) == ["standards/ci.md"]
+
+    def test_a_prefix_does_not_swallow_a_sibling(self, tmp_path: Path) -> None:
+        root = _repo(tmp_path)
+        doc = _standard(root, "docs-old/a.md", self.RULE)
+        assert self._found(root, [doc], _prescriptive(["docs"])) == ["docs-old/a.md"]
+
+    def test_a_nested_dir_and_its_spellings_match(self, tmp_path: Path) -> None:
+        root = _repo(tmp_path)
+        doc = _standard(root, "standards/rules/ci.md", self.RULE)
+        for entry in ("standards", "standards/", "./standards", "standards/rules"):
+            assert self._found(root, [doc], _prescriptive([entry])) == [], entry
+
+    def test_link_destinations_are_still_checked(self, tmp_path: Path) -> None:
+        # A link is navigation within this repo, so a broken one is a 404 here.
+        root = _repo(tmp_path)
+        doc = _standard(root, "standards/ci.md", "See [x](docs/gone.md).\n")
+        config = _prescriptive(["standards"], mode="blocking")
+        assert doc_paths.run([doc], config, root=root) == 1
+
+    def test_a_relative_root_matches(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = _repo(tmp_path)
+        _standard(root, "standards/ci.md", self.RULE)
+        monkeypatch.chdir(root)
+        dirs = doc_paths.prescriptive_dirs(_prescriptive(["standards"]))
+        assert doc_paths.is_prescriptive(Path("standards/ci.md"), Path("."), dirs)
+
+    def test_a_bare_mode_string_leaves_the_list_empty(self) -> None:
+        assert doc_paths.prescriptive_dirs(_config(doc_paths="blocking")) == []
+
+    def test_a_malformed_value_fails_the_check(self, tmp_path: Path) -> None:
+        root = _repo(tmp_path)
+        doc = _standard(root, "docs/a.md", "# ok\n")
+        for bad in ("standards", ["/standards"], ["."], ["../x"], ["std/*"], [1], [""]):
+            assert doc_paths.run([doc], _prescriptive(bad), root=root) == 1, bad
