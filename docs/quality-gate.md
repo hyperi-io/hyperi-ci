@@ -522,6 +522,10 @@ This is rule-scoped (not a path exclude), so the rest of the tool's coverage
 stays active. `for_tool` in `src/hyperi_ci/quality/ignores.py` feeds these to
 the tool's native ignore flag.
 
+osv-scanner takes its ignores as a config file, and once it is handed one with `--config` it stops reading the repo's own `osv-scanner.toml` beside the lockfile. So hyperi-ci appends the `quality.ignore` and `deny.toml` ids to a copy of that file, outside the checkout, and the repo's file is never changed. Every setting in the repo's file is kept. Where both name the same id, the repo's entry wins and the generated one is dropped, because osv-scanner honours only the first. A repo file that cannot be extended (invalid TOML, or an inline `IgnoredVulns = [...]` array) stops the scan: it fails a `blocking` gate and warns under `warn`.
+
+A lockfile that lists no packages makes osv-scanner exit 128. hyperi-ci reports that as NOT SCANNED, the same as a missing lockfile: a warning, neither a finding nor a clean result.
+
 ## Missing tool - local vs CI
 
 A tool that is not installed and has no `uv`/`uvx` fallback:
