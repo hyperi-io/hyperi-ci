@@ -28,6 +28,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from hyperi_ci.versions import tool_version
+
 WORKFLOW_DIR = Path(__file__).parent.parent.parent / ".github" / "workflows"
 LANGUAGE_WORKFLOWS = ("rust-ci.yml", "python-ci.yml", "ts-ci.yml", "go-ci.yml")
 
@@ -863,8 +865,8 @@ class TestArm64Parity:
 
     def _derive(self, case: str, tmp_path: Path) -> dict[str, str]:
         """Run the composite's derive step for one case."""
-        if not shutil.which("bash") or not shutil.which("python3"):
-            pytest.skip("rendering the step needs bash + python3")
+        if not shutil.which("bash") or not shutil.which("uv"):
+            pytest.skip("rendering the step needs bash + uv")
         will_publish, event, ref, worthy = self.CASES[case]
         script = _render(
             str(_composite_step("derive")["run"]),
@@ -887,13 +889,19 @@ class TestArm64Parity:
             env={
                 "GITHUB_ACTION_PATH": str(ACTIONS_DIR / "predict-version"),
                 "GITHUB_WORKSPACE": str(root),
+                "PYYAML_VERSION": tool_version("pyyaml"),
             },
         )
 
-    def _matrix(self, gates: dict[str, str], tmp_path: Path) -> list[str]:
+    def _matrix(
+        self, gates: dict[str, str], tmp_path: Path, rust_targets: str = ""
+    ) -> list[str]:
         """Run rust-ci.yml's matrix step and return the os_arch legs it emits."""
         plan = _load_workflow("rust-ci.yml")["jobs"]["plan"]["steps"]
         step = next(s for s in plan if s.get("id") == "matrix")
+        assert step["env"]["RUST_TARGETS"] == (
+            "${{ steps.predict.outputs.rust-targets }}"
+        ), "the matrix must take its targets from the composite's output"
         script = _render(
             str(step["run"]),
             {expression: gates[name] for expression, name in _MATRIX_INPUTS.items()},
@@ -901,8 +909,39 @@ class TestArm64Parity:
         )
         root = tmp_path / "matrix"
         root.mkdir()
-        written = _run_step(script, cwd=root, env={})
+        written = _run_step(script, cwd=root, env={"RUST_TARGETS": rust_targets})
         return [leg["os_arch"] for leg in json.loads(written["matrix"])["include"]]
+
+    @pytest.mark.parametrize(
+        "rust_targets,expected",
+        [
+            ("", ["linux-amd64", "linux-arm64"]),
+            ("x86_64-unknown-linux-gnu", ["linux-amd64"]),
+            ("aarch64-unknown-linux-gnu", ["linux-arm64"]),
+            (
+                "x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu",
+                ["linux-amd64", "linux-arm64"],
+            ),
+            # A list naming neither still builds amd64 rather than nothing.
+            ("riscv64gc-unknown-linux-gnu", ["linux-amd64"]),
+        ],
+    )
+    def test_a_release_builds_the_listed_targets(
+        self, rust_targets: str, expected: list[str], tmp_path: Path
+    ) -> None:
+        # issue #127: a project whose release build does not fit the arm64
+        # runner lists amd64 alone and still releases.
+        gates = {"run-build": "true", "run-arm64-check": "false"}
+        assert self._matrix(gates, tmp_path, rust_targets) == expected
+
+    def test_no_plan_step_reads_the_config_with_yq(self) -> None:
+        # The ARC vanilla image has no yq, and `|| true` read its absence as
+        # "every target" (issue #291).
+        for name in LANGUAGE_WORKFLOWS:
+            for step in _load_workflow(name)["jobs"]["plan"]["steps"]:
+                assert "yq " not in str(step.get("run", "")), (
+                    f"{name}.plan: a step reads config with yq"
+                )
 
     def _build_runs(self, gates: dict[str, str]) -> bool:
         condition = _load_workflow("rust-ci.yml")["jobs"]["build"]["if"]
@@ -1474,7 +1513,8 @@ class TestRunnerSelection:
 
     # Jobs that need no toolchain resolve through the default set alone
     # (issue #291). A renovate carve-out would move them onto a heavier image.
-    TOOLCHAIN_FREE_JOBS = ("commit-check", "gate")
+    # Plan belongs here because the composite brings uv and PyYAML itself.
+    TOOLCHAIN_FREE_JOBS = ("plan", "commit-check", "gate")
     DEFAULT_CHAIN = (
         "${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && "
         "'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"

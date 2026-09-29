@@ -334,6 +334,14 @@ tools:
   ty:
     version: 0.0.81
     pypi: ty
+  # The predict-version helpers read .hyperi-ci.yaml under `uv run --with
+  # pyyaml==<this>`, since a runner's own python3 may have no YAML parser.
+  # Mirrored into that composite's `default:`, which GitHub parses before our
+  # code runs. uv fetches it from PyPI, so there is no release asset to digest.
+  pyyaml:
+    version: 6.0.3
+    pypi: pyyaml
+    pin: .github/actions/predict-version/action.yml
 
 # Upstream capabilities we WANT but that are not ready yet.
 #

@@ -13,6 +13,15 @@
 # The matrix-generation step that follows is language-specific (target
 # triples for Rust/Go, single-arch for Python/TS) and stays in the
 # calling workflow.
+#
+# Every helper that reads .hyperi-ci.yaml runs under `uv run --with pyyaml`,
+# so the answer does not depend on the runner image. A runner's python3 may
+# carry neither PyYAML nor yq -- the ARC vanilla image has neither -- and
+# without one the tier, the arm64 check and the Rust targets all take their
+# defaults (issue #291). `--python 3` stops a consumer's .python-version
+# sending uv off to download an interpreter these stdlib helpers do not need,
+# and `--no-config` keeps the consumer's own uv config (a private index) out
+# of our install.
 
 name: Predict version
 description: Detect Publish trigger + run semantic-release dry-run for next version
@@ -46,6 +55,11 @@ inputs:
     required: false
     # hyperi-ci:pin runtimes.python
     default: "3.14"
+  pyyaml-version:
+    description: "PyYAML the config-reading helpers run with. Set by config/versions.yaml; not a caller setting."
+    required: false
+    # hyperi-ci:pin tools.pyyaml
+    default: "6.0.3"
 
 outputs:
   will-release:
@@ -78,10 +92,18 @@ outputs:
   full-required-for-release:
     description: "'true' iff the project sets test.full.required_for_release, so a release runs full and the Gate fails one handed less"
     value: ${{ steps.tier.outputs.full-required-for-release }}
+  rust-targets:
+    description: "build.rust.targets from the project config, space-separated. Empty means every target, and is what a project without Cargo.toml gets"
+    value: ${{ steps.targets.outputs.rust-targets }}
 
 runs:
   using: composite
   steps:
+    - name: Install uv (config readers)
+      uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      with:
+        enable-cache: false
+
     - name: Resolve the project's Python version
       # The fleet default answers "what does a project that declares nothing
       # get?" -- it is not a version every project is held to. A repo declaring
@@ -359,6 +381,8 @@ runs:
       # || event_name == 'pull_request'` anywhere else, you've drifted.
       id: derive
       shell: bash
+      env:
+        PYYAML_VERSION: ${{ inputs.pyyaml-version }}
       run: |
         set -euo pipefail
         will_publish='${{ steps.gate.outputs.will-publish }}'
@@ -422,7 +446,7 @@ runs:
         # out) is the helper's.
         arm64_check=false
         if [[ "$event_name" == "push" && "$git_ref" == "refs/heads/main" && "$release_worthy" == "true" ]]; then
-          arm64_check=$(python3 "$GITHUB_ACTION_PATH/arm64_check.py")
+          arm64_check=$(uv run --no-project --no-config --python 3 --with "pyyaml==$PYYAML_VERSION" python "$GITHUB_ACTION_PATH/arm64_check.py")
         fi
 
         echo "run-build=$run_build" >> "$GITHUB_OUTPUT"
@@ -446,4 +470,15 @@ runs:
         TIER_EVENT: ${{ github.event_name }}
         TIER_WILL_RELEASE: ${{ steps.gate.outputs.will-publish }}
         TIER_REQUESTED: ${{ inputs.test-tier }}
-      run: python3 "$GITHUB_ACTION_PATH/resolve_tier.py"
+        PYYAML_VERSION: ${{ inputs.pyyaml-version }}
+      run: uv run --no-project --no-config --python 3 --with "pyyaml==$PYYAML_VERSION" python "$GITHUB_ACTION_PATH/resolve_tier.py"
+
+    - name: Read the project's Rust targets
+      # rust-ci.yml builds its matrix from this, so no runner image needs yq
+      # (issue #291). Every language runs it; without a Cargo.toml it writes
+      # an empty list and says nothing.
+      id: targets
+      shell: bash
+      env:
+        PYYAML_VERSION: ${{ inputs.pyyaml-version }}
+      run: uv run --no-project --no-config --python 3 --with "pyyaml==$PYYAML_VERSION" python "$GITHUB_ACTION_PATH/rust_targets.py"

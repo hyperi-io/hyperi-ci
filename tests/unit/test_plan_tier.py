@@ -34,6 +34,7 @@ from hyperi_ci.plan_tier import (
     read_project_tier,
     resolve_tier,
 )
+from hyperi_ci.project_config import NO_PARSER
 
 HELPER = (
     Path(__file__).resolve().parents[2]
@@ -199,7 +200,11 @@ class TestReadProjectTier:
         self, tmp_path: Path
     ) -> None:
         root = self._config(tmp_path, "test: [unclosed\n", ".hyperi-ci.yml")
-        assert read_project_tier(root) == ProjectTier(CORE, False, ".hyperi-ci.yml")
+        project = read_project_tier(root)
+        assert (project.tier, project.full_required) == (CORE, False)
+        assert project.unreadable.startswith(
+            ".hyperi-ci.yml could not be read: it is not valid YAML"
+        )
 
     def test_the_shipped_defaults_match_what_the_code_assumes(self) -> None:
         # The plan job cannot read defaults.yaml, so an unset key must mean
@@ -209,25 +214,30 @@ class TestReadProjectTier:
 
 
 def _run_helper(
-    tmp_path: Path, *, event: str, will_release: str, requested: str
+    tmp_path: Path,
+    *,
+    event: str,
+    will_release: str,
+    requested: str,
+    env: dict[str, str] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, str]]:
     output = tmp_path / "github_output"
     output.touch()
-    env = {
-        "PATH": os.environ.get("PATH", ""),
-        "GITHUB_OUTPUT": str(output),
-        "GITHUB_WORKSPACE": str(tmp_path),
-        "TIER_EVENT": event,
-        "TIER_WILL_RELEASE": will_release,
-        "TIER_REQUESTED": requested,
-    }
     result = subprocess.run(
         [sys.executable, str(HELPER)],
         capture_output=True,
         text=True,
         encoding="utf-8",
         errors="replace",
-        env=env,
+        env={
+            "PATH": os.environ.get("PATH", ""),
+            "GITHUB_OUTPUT": str(output),
+            "GITHUB_WORKSPACE": str(tmp_path),
+            "TIER_EVENT": event,
+            "TIER_WILL_RELEASE": will_release,
+            "TIER_REQUESTED": requested,
+            **(env or {}),
+        },
         check=False,
     )
     return result, _outputs(output)
@@ -282,6 +292,29 @@ class TestTheActionHelper:
         lines = result.stdout.splitlines()
         assert len(lines) == 1
         assert lines[0].startswith("::warning title=test tier core::")
+        assert "not valid YAML" in lines[0]
+
+    def test_no_yaml_parser_warns_and_says_why(self, tmp_path: Path) -> None:
+        # The ARC vanilla image's python3 has no PyYAML. Run bare there, the
+        # helper must say its settings were ignored, never quietly run core.
+        (tmp_path / ".hyperi-ci.yaml").write_text(
+            "test:\n  tier: full\n", encoding="utf-8"
+        )
+        blocker = tmp_path / "blocker"
+        blocker.mkdir()
+        (blocker / "yaml.py").write_text(
+            "raise ImportError('no yaml')\n", encoding="utf-8"
+        )
+        result, outputs = _run_helper(
+            tmp_path,
+            event="pull_request",
+            will_release="false",
+            requested="",
+            env={"PYTHONPATH": str(blocker), "PATH": str(blocker)},
+        )
+        assert outputs["test-tier"] == "core"
+        assert result.stdout.startswith("::warning title=test tier core::")
+        assert NO_PARSER in result.stdout
 
     def test_an_unknown_tier_fails_the_step(self, tmp_path: Path) -> None:
         result, outputs = _run_helper(

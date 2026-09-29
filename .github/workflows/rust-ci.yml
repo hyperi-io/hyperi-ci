@@ -205,10 +205,9 @@ jobs:
   # ---------------------------------------------------------------------------
   plan:
     name: Plan
-    # Stays hosted until the vanilla image carries PyYAML or yq: without either
-    # the composite cannot read .hyperi-ci.yaml, and every setting Plan takes
-    # from it falls back to its default (issue #291).
-    runs-on: ubuntu-latest
+    # The composite installs uv and runs its config readers with PyYAML, so
+    # the default set is enough and no renovate carve-out applies (issue #291).
+    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     # predict-version runs semantic-release, whose git plugin verifies push
     # access (a `git push --dry-run`) on a publish predict - needs write.
     # A fork PR never reaches that: will-publish is false off main, so both
@@ -293,16 +292,18 @@ jobs:
         # cargo.
         id: matrix
         shell: bash
+        env:
+          # Read by the composite, which runs its config readers with PyYAML
+          # supplied, so no runner image needs yq. Env, not interpolation: the
+          # list comes from the project config.
+          RUST_TARGETS: ${{ steps.predict.outputs.rust-targets }}
         run: |
           set -euo pipefail
           run_build="${{ steps.predict.outputs.run-build }}"
           arm64_check="${{ steps.predict.outputs.run-arm64-check }}"
           AMD64_RUNNER="${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE_RUST || vars.GH_RUNNER_RUST || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"
           ARM64_RUNNER="${{ vars.GH_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}"
-          wanted=""
-          if [[ -f .hyperi-ci.yaml ]]; then
-            wanted="$(yq -r '.build.rust.targets // [] | .[]' .hyperi-ci.yaml 2>/dev/null | tr '\n' ' ' || true)"
-          fi
+          wanted="${RUST_TARGETS:+$RUST_TARGETS }"
           want() { [[ -z "$wanted" || " $wanted" == *" $1 "* ]]; }
           amd64='{"target":"x86_64-unknown-linux-gnu","runner":"'"$AMD64_RUNNER"'","os_arch":"linux-amd64"}'
           arm64='{"target":"aarch64-unknown-linux-gnu","runner":"'"$ARM64_RUNNER"'","os_arch":"linux-arm64"}'
