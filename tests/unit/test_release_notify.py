@@ -251,7 +251,7 @@ class _RejectingWebhook(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b"invalid_token")
 
-    def log_message(self, *args: object) -> None:
+    def log_message(self, format: str, *args: object) -> None:
         pass
 
 
