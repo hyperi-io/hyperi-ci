@@ -5,9 +5,11 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
+import json
 import os
 import subprocess
-from typing import Literal
+import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -45,6 +47,7 @@ def isolated_tool_home(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "hyperi_ci.languages.rust.pgo.Path.home", lambda: tmp_path / "home"
     )
+    monkeypatch.setattr(pgo, "_BOLT_LINKER_DIR", tmp_path / "bolt-linker")
     monkeypatch.setenv("PATH", os.environ["PATH"])
 
 
@@ -390,6 +393,13 @@ class TestBoltBuildEnv:
 
 def _bolt_cargo_commands(tmp_path, target: str) -> list[list[str]]:
     """Every `cargo pgo` argv the full PGO + BOLT pipeline builds for `target`."""
+    return [argv for argv, _env in _bolt_cargo_calls(tmp_path, target)]
+
+
+def _bolt_cargo_calls(
+    tmp_path, target: str
+) -> list[tuple[list[str], dict[str, str] | None]]:
+    """Every `cargo pgo` argv and extra env the full PGO + BOLT pipeline builds."""
     bin_dir = tmp_path / "target" / target / "release"
     bin_dir.mkdir(parents=True)
     (bin_dir / "my-bin").touch()
@@ -416,66 +426,255 @@ def _bolt_cargo_commands(tmp_path, target: str) -> list[list[str]]:
             cwd=tmp_path,
         )
     assert rc == 0
-    return [call[0][0] for call in mock_cargo.call_args_list]
+    return [(call[0][0], call[1]["extra_env"]) for call in mock_cargo.call_args_list]
 
 
-class TestDropA53Veneers:
-    """issue #240: the aarch64 BOLT steps drop Cortex-A53 erratum 843419 veneers.
+_AARCH64_LINKER_KEY = "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER"
 
-    The linker's erratum workaround inserts branch veneers, and BOLT refuses a
-    binary carrying them because relaying it invalidates the page offsets they
-    were computed from. cargo-pgo's `--bolt-args` REPLACES its own default BOLT
-    flags rather than extending them, so the defaults have to come back with the
-    extra flag or the optimise step silently loses its whole flag set.
+_FAKE_LINKER = """\
+#!{python}
+import json
+import sys
+from pathlib import Path
+
+files = {{
+    arg: Path(arg[1:]).read_text(encoding="utf-8")
+    for arg in sys.argv[1:]
+    if arg.startswith("@")
+}}
+record = {{"argv0": sys.argv[0], "args": sys.argv[1:], "files": files}}
+Path({record!r}).write_text(json.dumps(record), encoding="utf-8")
+"""
+
+
+def _fake_linker(tmp_path) -> tuple[str, Path]:
+    """A linker driver that records its argv, and any @file contents, as JSON."""
+    record = tmp_path / "linker-record.json"
+    linker = tmp_path / "fake-bin" / "fake-cc"
+    linker.parent.mkdir()
+    linker.write_text(
+        _FAKE_LINKER.format(python=sys.executable, record=str(record)),
+        encoding="utf-8",
+    )
+    linker.chmod(0o755)
+    return str(linker), record
+
+
+def _link_through_wrapper(tmp_path, *args: str) -> dict:
+    """Run the generated wrapper over the fake linker and return what it saw."""
+    real, record = _fake_linker(tmp_path)
+    wrapper = pgo._a53_strip_linker(real)
+    subprocess.run([str(wrapper), *args], check=True)
+    return json.loads(record.read_text(encoding="utf-8"))
+
+
+class TestA53StripLinker:
+    """issue #262: the aarch64 BOLT link runs without the erratum 843419 fix.
+
+    rustc's aarch64-unknown-linux-gnu target spec passes
+    `-Wl,--fix-cortex-a53-843419` to the linker driver, and an Ubuntu gcc adds
+    `--fix-cortex-a53-843419` from its own spec too. The veneers that fix
+    inserts are what llvm-bolt refuses, so the BOLT steps link through a
+    wrapper that drops rustc's flag and adds `-mno-fix-cortex-a53-843419`.
     """
 
-    def test_the_instrument_stage_sends_its_defaults_and_the_flag(self) -> None:
-        args = pgo._bolt_tool_args("aarch64-unknown-linux-gnu", "instrument")
-        assert args[0] == "--bolt-args"
-        assert args[1].split() == [
-            *pgo._CARGO_PGO_INSTRUMENT_BOLT_ARGS,
-            "--drop-cortex-a53-843419-veneers",
-        ]
-
-    def test_the_optimize_stage_sends_its_defaults_and_the_flag(self) -> None:
-        args = pgo._bolt_tool_args("aarch64-unknown-linux-gnu", "optimize")
-        assert args[0] == "--bolt-args"
-        assert args[1].split() == [
-            *pgo._CARGO_PGO_OPTIMIZE_BOLT_ARGS,
-            "--drop-cortex-a53-843419-veneers",
-        ]
-
-    @pytest.mark.parametrize("stage", ["instrument", "optimize"])
-    def test_x86_64_passes_nothing_through(
-        self, stage: Literal["instrument", "optimize"]
+    def test_aarch64_bolt_env_points_the_linker_at_the_wrapper(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """amd64 has no erratum, so cargo-pgo keeps its own defaults untouched."""
-        assert pgo._bolt_tool_args("x86_64-unknown-linux-gnu", stage) == []
+        real, _ = _fake_linker(tmp_path)
+        monkeypatch.setenv(_AARCH64_LINKER_KEY, real)
 
-    def test_both_aarch64_bolt_commands_carry_the_flag(self, tmp_path) -> None:
-        cmds = _bolt_cargo_commands(tmp_path, "aarch64-unknown-linux-gnu")
+        env = pgo._bolt_build_env("aarch64-unknown-linux-gnu")
 
-        bolt_cmds = [cmd for cmd in cmds if cmd[0] == "bolt"]
-        assert len(bolt_cmds) == 2
-        for cmd in bolt_cmds:
-            flags = cmd[cmd.index("--bolt-args") + 1].split()
-            assert "--drop-cortex-a53-843419-veneers" in flags
-            # cargo-pgo's own flag, so it goes before the `--` that starts
-            # the args forwarded to cargo.
-            assert cmd.index("--bolt-args") < cmd.index("--")
+        wrapper = env[_AARCH64_LINKER_KEY]
+        assert wrapper != real
+        assert wrapper.startswith(str(tmp_path / "bolt-linker"))
+        assert os.access(wrapper, os.X_OK)
+        assert real in Path(wrapper).read_text(encoding="utf-8")
 
-        # `cargo pgo build` / `optimize` reject --bolt-args -- it is BOLT-only.
-        pgo_cmds = [cmd for cmd in cmds if cmd[0] != "bolt"]
-        assert pgo_cmds
-        assert all("--bolt-args" not in cmd for cmd in pgo_cmds)
+    def test_x86_64_bolt_env_leaves_the_linker_alone(self, tmp_path) -> None:
+        env = pgo._bolt_build_env("x86_64-unknown-linux-gnu")
 
-    def test_no_x86_64_command_carries_the_flag(self, tmp_path) -> None:
-        cmds = _bolt_cargo_commands(tmp_path, "x86_64-unknown-linux-gnu")
+        assert not any(key.endswith("_LINKER") for key in env)
+        assert not (tmp_path / "bolt-linker").exists()
 
-        assert [cmd for cmd in cmds if cmd[0] == "bolt"]
-        for cmd in cmds:
-            assert "--bolt-args" not in cmd
-            assert not any("843419" in arg for arg in cmd)
+    def test_the_fix_flag_is_dropped_and_everything_else_passes_in_order(
+        self, tmp_path
+    ) -> None:
+        args = [
+            "-Wl,--fix-cortex-a53-843419",
+            "-fuse-ld=lld",
+            "/build/dir with space/main.o",
+            "-Wl,--as-needed",
+            "-Wl,--fix-cortex-a53-843419",
+            "-o",
+            "/build/out",
+        ]
+
+        seen = _link_through_wrapper(tmp_path, *args)
+
+        assert seen["argv0"] == str(tmp_path / "fake-bin" / "fake-cc")
+        assert seen["args"] == [
+            "-fuse-ld=lld",
+            "/build/dir with space/main.o",
+            "-Wl,--as-needed",
+            "-o",
+            "/build/out",
+            "-mno-fix-cortex-a53-843419",
+        ]
+
+    def test_a_similar_but_different_flag_is_kept(self, tmp_path) -> None:
+        seen = _link_through_wrapper(
+            tmp_path, "-Wl,--fix-cortex-a53-835769", "-mfix-cortex-a53-843419"
+        )
+        assert seen["args"] == [
+            "-Wl,--fix-cortex-a53-835769",
+            "-mfix-cortex-a53-843419",
+            "-mno-fix-cortex-a53-843419",
+        ]
+
+    def test_a_response_file_is_rewritten_without_the_flag(self, tmp_path) -> None:
+        """rustc falls back to `@linker-arguments` past ARG_MAX, one arg a line."""
+        response = tmp_path / "rustc-tmp" / "linker-arguments"
+        response.parent.mkdir()
+        lines = [
+            "-Wl,--fix-cortex-a53-843419",
+            "-fuse-ld=lld",
+            "/build/dir\\ with\\ space/main.o",
+            "-Wl,--gc-sections",
+            "-o",
+            "/build/out",
+        ]
+        original = "".join(f"{line}\n" for line in lines)
+        response.write_text(original, encoding="utf-8")
+
+        seen = _link_through_wrapper(tmp_path, f"@{response}")
+
+        rewritten = f"@{response}.no-a53-fix"
+        assert seen["args"] == [rewritten, "-mno-fix-cortex-a53-843419"]
+        assert seen["files"][rewritten] == "".join(f"{line}\n" for line in lines[1:])
+        assert response.read_text(encoding="utf-8") == original
+
+    def test_a_response_file_without_the_flag_passes_unchanged(self, tmp_path) -> None:
+        response = tmp_path / "linker-arguments"
+        response.write_text("-fuse-ld=lld\n-o\n/build/out\n", encoding="utf-8")
+
+        seen = _link_through_wrapper(tmp_path, f"@{response}")
+
+        assert seen["args"] == [f"@{response}", "-mno-fix-cortex-a53-843419"]
+        assert not (tmp_path / "linker-arguments.no-a53-fix").exists()
+
+    def test_the_wrapper_name_follows_its_content(self, tmp_path) -> None:
+        first = pgo._a53_strip_linker("/usr/bin/aarch64-linux-gnu-gcc")
+        again = pgo._a53_strip_linker("/usr/bin/aarch64-linux-gnu-gcc")
+        other = pgo._a53_strip_linker("/usr/bin/cc")
+
+        assert first == again
+        assert other != first
+        assert sorted(p.name for p in (tmp_path / "bolt-linker").iterdir()) == sorted(
+            {first.name, other.name}
+        )
+
+
+class TestRealAarch64Linker:
+    """The wrapper execs the linker the BOLT link would have run without it."""
+
+    _TARGET = "aarch64-unknown-linux-gnu"
+
+    @staticmethod
+    def _which(monkeypatch: pytest.MonkeyPatch, found: dict[str, str]) -> None:
+        monkeypatch.setattr(pgo.shutil, "which", found.get)
+
+    @pytest.mark.parametrize(
+        ("build_env", "process_env", "on_path", "expected"),
+        [
+            (
+                "build-linker",
+                "process-linker",
+                ["aarch64-linux-gnu-gcc", "cc"],
+                "/opt/build-linker",
+            ),
+            (
+                None,
+                "process-linker",
+                ["aarch64-linux-gnu-gcc", "cc"],
+                "/opt/process-linker",
+            ),
+            (None, None, ["aarch64-linux-gnu-gcc", "cc"], "/opt/aarch64-linux-gnu-gcc"),
+            (None, None, ["cc"], "/opt/cc"),
+            ("missing", "missing", ["cc"], "/opt/cc"),
+            (None, None, [], None),
+        ],
+    )
+    def test_resolution_order(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        build_env: str | None,
+        process_env: str | None,
+        on_path: list[str],
+        expected: str | None,
+    ) -> None:
+        found = {name: f"/opt/{name}" for name in on_path}
+        for name in (build_env, process_env):
+            if name and name != "missing":
+                found[name] = f"/opt/{name}"
+        self._which(monkeypatch, found)
+        if process_env:
+            monkeypatch.setenv(_AARCH64_LINKER_KEY, process_env)
+        else:
+            monkeypatch.delenv(_AARCH64_LINKER_KEY, raising=False)
+        extra = {_AARCH64_LINKER_KEY: build_env} if build_env else None
+
+        assert pgo._real_aarch64_linker(self._TARGET, extra) == expected
+
+    def test_no_resolvable_linker_leaves_the_env_without_a_wrapper(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._which(monkeypatch, {})
+        monkeypatch.delenv(_AARCH64_LINKER_KEY, raising=False)
+
+        env = pgo._bolt_build_env(self._TARGET)
+
+        assert _AARCH64_LINKER_KEY not in env
+
+    def test_the_build_env_linker_reaches_the_wrapper(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        real, _ = _fake_linker(tmp_path)
+        monkeypatch.delenv(_AARCH64_LINKER_KEY, raising=False)
+
+        env = pgo._bolt_build_env(self._TARGET, extra_env={_AARCH64_LINKER_KEY: real})
+
+        assert real in Path(env[_AARCH64_LINKER_KEY]).read_text(encoding="utf-8")
+
+
+class TestBoltCommandsAfterTheA53Change:
+    """No BOLT command asks llvm-bolt to drop veneers; the link never made any."""
+
+    def test_aarch64_bolt_commands_link_through_the_wrapper(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        real, _ = _fake_linker(tmp_path)
+        monkeypatch.setenv(_AARCH64_LINKER_KEY, real)
+
+        calls = _bolt_cargo_calls(tmp_path, "aarch64-unknown-linux-gnu")
+
+        bolt_calls = [(argv, env) for argv, env in calls if argv[0] == "bolt"]
+        assert len(bolt_calls) == 2
+        for argv, env in bolt_calls:
+            assert "--bolt-args" not in argv
+            assert not any("843419" in arg for arg in argv)
+            assert env is not None
+            assert env[_AARCH64_LINKER_KEY].startswith(str(tmp_path / "bolt-linker"))
+
+    def test_no_x86_64_command_carries_a_bolt_flag_or_a_linker(self, tmp_path) -> None:
+        calls = _bolt_cargo_calls(tmp_path, "x86_64-unknown-linux-gnu")
+
+        assert [argv for argv, _ in calls if argv[0] == "bolt"]
+        for argv, env in calls:
+            assert "--bolt-args" not in argv
+            assert not any("843419" in arg for arg in argv)
+            assert not any(key.endswith("_LINKER") for key in env or {})
 
 
 class TestBoltOptimizeArgsOverride:
@@ -501,25 +700,9 @@ class TestBoltOptimizeArgsOverride:
             monkeypatch.setenv(pgo.BOLT_OPTIMIZE_ARGS_ENV, raw)
         assert pgo.bolt_optimize_args_override() is None
 
-    @pytest.mark.parametrize(
-        ("target", "expected"),
-        [
-            (
-                _AARCH64,
-                [
-                    "--bolt-args",
-                    " ".join(
-                        [*pgo._CARGO_PGO_OPTIMIZE_BOLT_ARGS, pgo._DROP_A53_VENEERS]
-                    ),
-                ],
-            ),
-            (_X86_64, []),
-        ],
-    )
-    def test_unset_leaves_the_defaults_unchanged(
-        self, target: str, expected: list[str]
-    ) -> None:
-        assert pgo._bolt_tool_args(target, "optimize") == expected
+    def test_unset_passes_no_bolt_args(self) -> None:
+        """Unset keeps cargo-pgo's own llvm-bolt flags, aarch64 included."""
+        assert pgo._bolt_optimize_args() == []
 
     def test_tokens_split_on_any_whitespace(
         self, monkeypatch: pytest.MonkeyPatch
@@ -558,23 +741,11 @@ class TestBoltOptimizeArgsOverride:
         with pytest.raises(ValueError, match="bolt-optimize-args rejects"):
             pgo.bolt_optimize_args_override()
 
-    def test_x86_64_takes_the_override_as_given(
+    def test_the_override_is_passed_as_given(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv(pgo.BOLT_OPTIMIZE_ARGS_ENV, "-relocs -lite=1")
-        assert pgo._bolt_tool_args(self._X86_64, "optimize") == [
-            "--bolt-args",
-            "-relocs -lite=1",
-        ]
-
-    def test_aarch64_still_drops_the_a53_veneers(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv(pgo.BOLT_OPTIMIZE_ARGS_ENV, "-relocs -lite=1")
-        assert pgo._bolt_tool_args(self._AARCH64, "optimize") == [
-            "--bolt-args",
-            "-relocs -lite=1 --drop-cortex-a53-843419-veneers",
-        ]
+        assert pgo._bolt_optimize_args() == ["--bolt-args", "-relocs -lite=1"]
 
     @pytest.mark.parametrize(
         "spelling",
@@ -584,55 +755,46 @@ class TestBoltOptimizeArgsOverride:
             "--drop-cortex-a53-843419-veneers",
         ],
     )
-    def test_an_override_naming_the_veneer_option_owns_it(
+    def test_an_override_naming_the_veneer_option_keeps_it(
         self, monkeypatch: pytest.MonkeyPatch, spelling: str
     ) -> None:
         monkeypatch.setenv(pgo.BOLT_OPTIMIZE_ARGS_ENV, f"-relocs {spelling}")
-        assert pgo._bolt_tool_args(self._AARCH64, "optimize") == [
-            "--bolt-args",
-            f"-relocs {spelling}",
-        ]
+        assert pgo._bolt_optimize_args() == ["--bolt-args", f"-relocs {spelling}"]
 
     @pytest.mark.parametrize("target", [_AARCH64, _X86_64])
-    def test_the_instrument_stage_ignores_the_override(
-        self, monkeypatch: pytest.MonkeyPatch, target: str
-    ) -> None:
-        unset = pgo._bolt_tool_args(target, "instrument")
-        monkeypatch.setenv(pgo.BOLT_OPTIMIZE_ARGS_ENV, "-relocs")
-        assert pgo._bolt_tool_args(target, "instrument") == unset
-
-    def test_the_override_reaches_the_bolt_optimize_command(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+    def test_the_override_reaches_only_the_bolt_optimize_command(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path, target: str
     ) -> None:
         monkeypatch.setenv(pgo.BOLT_OPTIMIZE_ARGS_ENV, "-relocs -lite=1")
-        cmds = _bolt_cargo_commands(tmp_path, self._AARCH64)
+        monkeypatch.setenv(_AARCH64_LINKER_KEY, _fake_linker(tmp_path)[0])
+        cmds = _bolt_cargo_commands(tmp_path, target)
         optimize = next(c for c in cmds if c[:2] == ["bolt", "optimize"])
-        assert optimize[optimize.index("--bolt-args") + 1] == (
-            "-relocs -lite=1 --drop-cortex-a53-843419-veneers"
-        )
+        assert optimize[optimize.index("--bolt-args") + 1] == "-relocs -lite=1"
+        # cargo-pgo's own flag, so it goes before the `--` that starts the args
+        # forwarded to cargo.
+        assert optimize.index("--bolt-args") < optimize.index("--")
         build_cmd = next(c for c in cmds if c[:2] == ["bolt", "build"])
-        assert "-relocs" not in build_cmd[build_cmd.index("--bolt-args") + 1]
+        assert "--bolt-args" not in build_cmd
 
 
 class TestBoltFlagCopiesTrackTheCargoPgoPin:
     """The copied BOLT defaults have to be re-read when `tools.cargo-pgo` moves.
 
     `--bolt-args` replaces cargo-pgo's own default flags rather than extending
-    them, so pgo.py restates them. A pin bump that leaves the copies alone
-    overrides a newer default set with an older one and every other gate stays
-    green, because the flags we pass are all still valid flags.
+    them, so pgo.py restates the optimise set as the start of a flag bisect. A
+    pin bump that leaves the copy alone sends a bisect off from an older default
+    set, and every other gate stays green.
     """
 
     def test_the_copies_were_read_from_the_pinned_version(self) -> None:
         pinned = tool_version("cargo-pgo")
         assert pgo._CARGO_PGO_FLAGS_VERIFIED_AGAINST == pinned, (
-            f"tools.cargo-pgo is now {pinned}, and _CARGO_PGO_INSTRUMENT_BOLT_ARGS "
-            "/ _CARGO_PGO_OPTIMIZE_BOLT_ARGS in "
-            "src/hyperi_ci/languages/rust/pgo.py are copies of cargo-pgo's own "
-            "default BOLT flags, which --bolt-args replaces rather than extends. "
-            "Re-read src/bolt/instrument.rs and src/bolt/optimize.rs at the "
-            f"{pinned} tag of https://github.com/Kobzol/cargo-pgo, update the two "
-            "tuples if the defaults changed, then set "
+            f"tools.cargo-pgo is now {pinned}, and _CARGO_PGO_OPTIMIZE_BOLT_ARGS in "
+            "src/hyperi_ci/languages/rust/pgo.py is a copy of cargo-pgo's own "
+            "default BOLT optimise flags, the starting set for a "
+            "HYPERCI_BOLT_OPTIMIZE_ARGS bisect. Re-read src/bolt/optimize.rs at the "
+            f"{pinned} tag of https://github.com/Kobzol/cargo-pgo, update the "
+            "tuple if the defaults changed, then set "
             f'_CARGO_PGO_FLAGS_VERIFIED_AGAINST = "{pinned}".'
         )
 
