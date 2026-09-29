@@ -11,13 +11,18 @@ its ``fail`` step opens an issue when a release breaks. That plugin is one of
 the two we deliberately never load (issue #37), so both behaviours were simply
 lost: a failed release was visible only as a red run somebody had to notice.
 
-Two notifications, both idempotent because a re-run is normal:
+Three notifications, all idempotent because a re-run is normal:
 
 * **success** -- one comment per issue or PR referenced by the commits in the
   release, saying which version carries it, and the version's own failure
   issue closed when a retry is what shipped it.
 * **failure** -- one open issue per broken version, so a release that dies at
   3am is waiting in the tracker rather than buried in a run log.
+* **commit-back-failed** -- the release shipped but ``release-commit`` could
+  not push ``VERSION`` and ``CHANGELOG.md`` back to main. The job stays green,
+  so one open issue per repo carries it, with a comment for each later version
+  that hits the same wall. The cause is repo configuration rather than the
+  version, which is why it is not one issue per version.
 
 Slack is a third channel, off unless ``notify.slack.webhook_env`` names an
 environment variable holding a webhook URL. Nothing is posted off-org by
@@ -44,6 +49,9 @@ _RELEASE_TAG_RE = re.compile(r"^v\d+\.\d+\.\d+$")
 _MARKER = "<!-- hyperi-ci:release-notify -->"
 
 _FAILURE_TITLE = "Release v{version} failed"
+
+COMMIT_BACK_TITLE = "Release commit-back to main is failing"
+COMMIT_BACK_LABEL = "release-commit-back"
 
 
 def _api(args: list[str], *, body: dict | None = None) -> dict | list | None:
@@ -113,6 +121,23 @@ def referenced_issues(version: str, *, cwd: str | None = None) -> list[int]:
     return sorted(numbers)
 
 
+def mentions_version(text: str, version: str) -> bool:
+    """Check whether ``text`` names ``v{version}`` and not a longer version.
+
+    A substring test reads ``v1.2.30`` and ``v1.2.3-beta.1`` as ``v1.2.3``.
+
+    Args:
+        text: Issue or comment body.
+        version: Bare version, without the leading ``v``.
+
+    Returns:
+        True when ``v{version}`` appears as a whole version.
+
+    """
+    pattern = rf"v{re.escape(version)}(?![0-9A-Za-z.-]*[0-9A-Za-z])"
+    return re.search(pattern, text) is not None
+
+
 def _already_commented(repo: str, number: int, version: str) -> bool:
     """Check whether a previous run already announced this version here."""
     comments = _api([f"repos/{repo}/issues/{number}/comments", "--paginate"])
@@ -120,7 +145,7 @@ def _already_commented(repo: str, number: int, version: str) -> bool:
         return False
     return any(
         _MARKER in str(comment.get("body", ""))
-        and f"v{version}" in str(comment.get("body", ""))
+        and mentions_version(str(comment.get("body", "")), version)
         for comment in comments
     )
 
@@ -282,6 +307,124 @@ def notify_failure(*, version: str, repo: str | None = None, run_url: str = "") 
         error(f"release-notify: could not record the v{version} failure as an issue")
         return 0
     success(f"release-notify: v{version} failure tracked in #{number}")
+    return 0
+
+
+def commit_back_issue(issues: object) -> dict | None:
+    """The open commit-back issue among ``issues``, matched on its exact title.
+
+    Args:
+        issues: The decoded `GET /issues` response, or anything else when the
+            call failed.
+
+    Returns:
+        The first matching issue, or None.
+
+    """
+    if not isinstance(issues, list):
+        return None
+    for issue in issues:
+        if not isinstance(issue, dict) or "number" not in issue:
+            continue
+        if str(issue.get("title", "")) == COMMIT_BACK_TITLE:
+            return issue
+    return None
+
+
+def _commit_back_body(repo: str, version: str, run_url: str) -> str:
+    """Body of a new commit-back issue, first seen on ``version``."""
+    run = run_url or "see the Actions tab"
+    return (
+        f"{_MARKER}\n"
+        f"**v{version} shipped, but main was not updated.**\n\n"
+        f"- The tag, the GitHub Release and the registry uploads are done: "
+        f"https://github.com/{repo}/releases/tag/v{version}\n"
+        f"- `VERSION`, `CHANGELOG.md` and any `release.stamp_paths` files on "
+        f"main were NOT updated, so they still describe an earlier release.\n"
+        f"- Run: {run}\n\n"
+        f"Nothing needs re-publishing. This is not a failed release.\n\n"
+        f"**Likely cause.** main's ruleset takes the commit-back only from the "
+        f"release bot, and the `GH_APP_PRIVATE_KEY` org secret is not visible "
+        f"to this repo, so the run pushed as `github-actions` and GitHub "
+        f"refused it. The run's *Report the release identity* step says which "
+        f"identity it used, and the *Commit rendered release artefacts* step "
+        f"carries GitHub's own refusal.\n\n"
+        f"**Fix.** Add this repo to the `GH_APP_PRIVATE_KEY` org secret's "
+        f"selected repositories. The next release then commits `VERSION` and "
+        f"`CHANGELOG.md` back. Close this issue once one does.\n\n"
+        f"Later releases that hit the same refusal add a comment here rather "
+        f"than a new issue."
+    )
+
+
+def notify_commit_back_failed(
+    *, version: str, repo: str | None = None, run_url: str = ""
+) -> int:
+    """Record a shipped release whose commit-back to main was refused.
+
+    Opens the repo's commit-back issue, or comments on the open one when
+    this version is not on it yet.
+
+    Returns:
+        0 always -- the release shipped, and this step exists so its job can
+        stay green.
+
+    """
+    version = version.removeprefix("v").strip()
+    repo = repo or os.environ.get("GITHUB_REPOSITORY", "")
+    if not repo or not version:
+        warn("release-notify: repository or version unknown -- skipping")
+        return 0
+
+    existing = commit_back_issue(
+        _api(
+            [
+                "-X",
+                "GET",
+                f"repos/{repo}/issues",
+                "-f",
+                "state=open",
+                "-f",
+                f"labels={COMMIT_BACK_LABEL}",
+            ]
+        )
+    )
+    if existing is None:
+        created = _api(
+            ["-X", "POST", f"repos/{repo}/issues"],
+            body={
+                "title": COMMIT_BACK_TITLE,
+                "body": _commit_back_body(repo, version, run_url),
+                "labels": [COMMIT_BACK_LABEL],
+            },
+        )
+        if isinstance(created, dict) and "number" in created:
+            success(
+                f"release-notify: v{version} commit-back failure tracked in "
+                f"#{created['number']}"
+            )
+        else:
+            error(f"release-notify: could not open the v{version} commit-back issue")
+        return 0
+
+    number = int(existing["number"])
+    if mentions_version(str(existing.get("body", "")), version) or (
+        _already_commented(repo, number, version)
+    ):
+        info(f"release-notify: #{number} already records v{version}")
+        return 0
+
+    comment = (
+        f"{_MARKER}\nv{version} shipped too, and its commit-back to main "
+        f"also failed. Run: {run_url or 'see the Actions tab'}"
+    )
+    if _api(
+        ["-X", "POST", f"repos/{repo}/issues/{number}/comments"],
+        body={"body": comment},
+    ):
+        success(f"release-notify: v{version} commit-back failure added to #{number}")
+    else:
+        error(f"release-notify: could not comment on #{number} for v{version}")
     return 0
 
 

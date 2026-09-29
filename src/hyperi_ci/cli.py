@@ -967,11 +967,11 @@ def release_notify_cmd(
     ],
     outcome: Annotated[
         str,
-        typer.Option("--outcome", help="success or failure"),
+        typer.Option("--outcome", help="success, failure or commit-back-failed"),
     ] = "success",
     run_url: Annotated[
         str,
-        typer.Option("--run-url", help="Link to the run, for a failure issue"),
+        typer.Option("--run-url", help="Link to the run, for an issue"),
     ] = "",
     project_dir: Annotated[
         str | None,
@@ -982,23 +982,34 @@ def release_notify_cmd(
 
     `--outcome success` comments on every issue and PR carried by the release;
     `--outcome failure` opens a tracker issue so a release that dies overnight
-    is waiting in the morning. Both are idempotent, and both always exit 0 -- a
-    notification must never be the thing that fails a release.
+    is waiting in the morning; `--outcome commit-back-failed` records a release
+    that shipped but could not push VERSION and CHANGELOG.md back to main. All
+    are idempotent, and all always exit 0 -- a notification must never be the
+    thing that fails a release.
 
     Slack is off unless `notify.slack.webhook_env` names an env var holding a
     webhook URL.
     """
-    from hyperi_ci.release_notify import notify_failure, notify_slack, notify_success
+    from hyperi_ci.release_notify import (
+        notify_commit_back_failed,
+        notify_failure,
+        notify_slack,
+        notify_success,
+    )
 
     dir_path = Path(project_dir) if project_dir else None
     cfg = load_config(reload=True, project_dir=dir_path)
+    bare = version.removeprefix("v")
 
     if outcome == "failure":
         rc = notify_failure(version=version, run_url=run_url)
-        notify_slack(cfg, text=f"Release of v{version.removeprefix('v')} FAILED")
+        notify_slack(cfg, text=f"Release of v{bare} FAILED")
+    elif outcome == "commit-back-failed":
+        rc = notify_commit_back_failed(version=version, run_url=run_url)
+        notify_slack(cfg, text=f"Released v{bare}, but its commit-back to main FAILED")
     else:
         rc = notify_success(version=version, cwd=str(dir_path) if dir_path else None)
-        notify_slack(cfg, text=f"Released v{version.removeprefix('v')}")
+        notify_slack(cfg, text=f"Released v{bare}")
     raise typer.Exit(rc)
 
 

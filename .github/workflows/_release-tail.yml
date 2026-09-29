@@ -646,6 +646,7 @@ jobs:
         #
         # Non-fatal: once the registry has the release, a failure here must
         # not turn a shipped release red.
+        id: releasecommit
         if: steps.publish.outcome == 'success' && inputs.tag == ''
         continue-on-error: true
         env:
@@ -656,6 +657,18 @@ jobs:
         run: >-
           ${{ env.HYPERCI_INSTALL }} release-commit
           "${{ inputs.next-version }}"
+
+      - name: Record a failed commit-back
+        # The commit-back cannot turn the job red, so this issue is the only place a stale VERSION on main shows up.
+        if: steps.releasecommit.outcome == 'failure'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          ${{ env.HYPERCI_INSTALL }} release-notify
+          "${{ inputs.next-version }}"
+          --outcome commit-back-failed
+          --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       - name: Announce the release
         # semantic-release's `success` step: comment on every issue and PR the
