@@ -15,10 +15,13 @@
 #
 #   (here)    container         ← docker build (validate or push, gated
 #                                  on will-publish)
+#   (here)    prepare           ← hyperi-ci release-prepare: stamp, semver
+#                                  checks, cargo package, npm pack -- every
+#                                  step that runs repo code, holding no secret
 #   (here)    tag-and-release   ← npx semantic-release real → tag +
 #                                  CHANGELOG; then hyperi-ci run release
-#                                  → artefacts to crates.io / PyPI / npm /
-#                                  GHCR / GitHub Releases / Cloudflare R2
+#                                  uploads what prepare left → crates.io /
+#                                  PyPI / npm / GitHub Releases / R2
 #
 # Doctrine: tag-on-publish. A git tag exists iff the artefact is in the
 # registry. Aligns with kubernetes/rust/python OSS conventions.
@@ -71,6 +74,11 @@ on:
         type: string
         default: "stable"
         description: "Rust toolchain (only used when language=rust)"
+      node-version:
+        type: string
+        # hyperi-ci:pin runtimes.node
+        default: "24"
+        description: "Node.js runtime the prepare job packs an npm package with (only used when language=typescript)"
       submodules:
         type: string
         default: ""
@@ -245,11 +253,88 @@ jobs:
           HYPERCI_VERSION: ${{ inputs.next-version }}
         run: ${{ env.HYPERCI_INSTALL }} run container
 
+  prepare:
+    name: Prepare release
+    # Tag & Release's own ceiling: this is the half of that job that builds.
+    timeout-minutes: 45
+    # Everything in a release that executes repo code runs here: the stamp and
+    # release.stamp_cmd, cargo-semver-checks (which builds the crate, build
+    # scripts included), `cargo package`, prepublishOnly and `npm pack`. So this
+    # job holds no secret and a read-only token, and Tag & Release only uploads
+    # what it leaves (issue #409).
+    if: inputs.will-publish == 'true'
+    runs-on: ${{ vars.GH_RUNNER_MODE == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - name: Set up Python
+        run: uv python install ${{ inputs.python-version }}
+
+      - name: Download build artifacts
+        # npm pack packages the compiled output the Build job left in dist/.
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: build-dist-*
+          path: .
+          merge-multiple: true
+
+      - name: Install Rust toolchain
+        if: inputs.language == 'rust'
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: ${{ inputs.rust-toolchain }}
+
+      - name: Setup Rust tools
+        # cargo-semver-checks runs after the stamp, and this is the only job that
+        # reaches that path. The quality job installs the same action, but the
+        # check cannot run there: before the stamp the manifest holds the LAST
+        # released version, so the comparison is a release against itself
+        # (issues #186, #199).
+        if: inputs.language == 'rust'
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-rust-tools@main
+
+      - name: Set up Node.js
+        if: inputs.language == 'typescript' && runner.environment != 'self-hosted'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Prepare the release
+        env:
+          # A forced from-head bump is predicted by the plan too, so the plan's
+          # version is the one tag-head cuts. The upload refuses a mismatch.
+          HYPERCI_VERSION: ${{ inputs.next-version }}
+          RELEASE_VERSION: ${{ inputs.next-version }}
+          PREPARED_DIR: ${{ runner.temp }}/release-prepared
+        run: ${{ env.HYPERCI_INSTALL }} release-prepare "$RELEASE_VERSION" --out "$PREPARED_DIR"
+
+      - name: Upload the prepared release
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-prepared
+          path: ${{ runner.temp }}/release-prepared
+          # stamp_paths may name a dotfile.
+          include-hidden-files: true
+          # A re-run of this job replaces the attempt before it.
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 1
+
   tag-and-release:
     name: Tag & Release
     # At least twice the longest successful run across the fleet (issue #262).
     timeout-minutes: 45
-    needs: [container]
+    needs: [container, prepare]
     # Runs iff a release is being published, and is DECOUPLED from the
     # container outcome (issue #33) for projects that do not ship a
     # container: a transient container/registry hiccup must never lose the
@@ -267,8 +352,13 @@ jobs:
     # On push events this creates the git tag (semantic-release) AND
     # uploads artefacts. On workflow_dispatch (retroactive) the tag
     # already exists; only the upload runs.
+    #
+    # Nothing here builds, packs or stamps: those run the repo's code, and this
+    # job holds every publish credential, so they happen in `prepare` and this
+    # job uploads what it left. A failed prepare therefore cuts no tag.
     if: >-
       ${{ always() && inputs.will-publish == 'true'
+          && needs.prepare.result == 'success'
           && (needs.container.result == 'success'
               || needs.container.outputs.ships-container != 'true') }}
     # ARC, like the rest of the tail: the aws CLI this job needs for R2 is
@@ -295,6 +385,16 @@ jobs:
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: false
+
+      - name: Install Rust toolchain
+        # For `cargo publish --no-verify`, which repackages the stamped tree
+        # and builds nothing. Before the checkout, because rustup reads the
+        # working directory's rust-toolchain.toml, and its `path` names a
+        # program to run.
+        if: inputs.language == 'rust'
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: ${{ inputs.rust-toolchain }}
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -343,7 +443,10 @@ jobs:
         uses: hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@main
 
       - name: Set up Python
-        run: uv python install ${{ inputs.python-version }}
+        # --no-config: in the checkout, uv reads the repo's [tool.uv], whose
+        # python-install-mirror picks where the interpreter that then runs
+        # hyperi-ci, credentials and all, is downloaded from.
+        run: uv python install --no-config ${{ inputs.python-version }}
 
       - name: Guard — predicted tag must not already exist off-HEAD
         # Defence-in-depth for issue #37: refuse to tag if the predicted
@@ -417,20 +520,11 @@ jobs:
           path: .
           merge-multiple: true
 
-      - name: Install Rust toolchain
-        if: inputs.language == 'rust'
-        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+      - name: Download the prepared release
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          toolchain: ${{ inputs.rust-toolchain }}
-
-      - name: Setup Rust tools
-        # `run release` calls cargo-semver-checks between stamp-version and the
-        # crates.io push, and this is the only job that reaches that path. The
-        # quality job installs the same action, but the check cannot run there:
-        # before the stamp the manifest holds the LAST released version, so the
-        # comparison is a release against itself (issues #186, #199).
-        if: inputs.language == 'rust'
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-rust-tools@main
+          name: release-prepared
+          path: ${{ runner.temp }}/release-prepared
 
       - name: Tag HEAD (forced bump / explicit version)
         # from-head dispatch with a non-auto bump (issue #35): force a release
@@ -456,6 +550,9 @@ jobs:
           # (the plan's prediction doesn't know the forced bump); otherwise
           # the plan's next-version. publish re-stamps the manifest to this.
           HYPERCI_VERSION: ${{ steps.forcedtag.outputs.version || inputs.next-version }}
+          # Upload-only: the checks and packing already ran in `prepare`, and
+          # the upload refuses a directory prepared for another version.
+          HYPERCI_RELEASE_PREPARED: ${{ runner.temp }}/release-prepared
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
@@ -464,54 +561,32 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: ${{ env.HYPERCI_INSTALL }} run release
 
-      - name: Stamp the released version
-        id: stamp
-        # release-commit reads VERSION off this job's disk, and the commit this
-        # job checked out still carries the pre-release value. The build's
-        # stamp runs on a different runner and only dist/ + ci-tmp/ travel
-        # between them, so without this VERSION never moves.
-        #
-        # Skipped on a tag dispatch: that checkout is an old tag, and its
-        # version committed onto main would move main back.
-        #
-        # Non-fatal, like the commit below: a failure leaves VERSION where it
-        # already was rather than reddening a shipped release.
-        if: steps.publish.outcome == 'success' && inputs.tag == ''
-        continue-on-error: true
-        env:
-          # Via env, not interpolated into the script, so the value cannot be
-          # read as shell.
-          RELEASE_VERSION: ${{ steps.forcedtag.outputs.version || inputs.next-version }}
-        run: |
-          # A repo with no VERSION file has opted out, and creating one here
-          # would commit a file it never had.
-          if [[ -f VERSION ]]; then
-            ${{ env.HYPERCI_INSTALL }} stamp-version "$RELEASE_VERSION"
-          else
-            echo "No VERSION file - nothing to stamp"
-          fi
-
       - name: Commit rendered release artefacts
-        # VERSION (stamped just above) and CHANGELOG.md (rendered by
+        # VERSION and the release.stamp_paths files (stamped in `prepare`, and
+        # restored from its artefact by name) and CHANGELOG.md (rendered by
         # @semantic-release/changelog) have had no owner since
-        # @semantic-release/git was dropped (issue #85).
+        # @semantic-release/git was dropped (issue #85). A repo that commits
+        # no VERSION has opted out of one, and prepare carries none.
         #
         # Runs after the tag exists and adds an untagged commit via the Git
         # Data API, so no tag points at machine-authored history -- the
         # property whose absence caused the #37 orphaning.
         #
+        # Skipped on a tag dispatch: that checkout is an old tag, and its
+        # version committed onto main would move main back.
+        #
         # Non-fatal: once the registry has the release, a failure here must
-        # not turn a shipped release red. Same gate as the stamp above.
+        # not turn a shipped release red.
         if: steps.publish.outcome == 'success' && inputs.tag == ''
         continue-on-error: true
         env:
           # Also a push to the default branch, so it needs the bypass actor
           # for the same reason the tag does.
           GH_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
-          # release.stamp_paths are left out unless the stamp above succeeded:
-          # a stamp_cmd that failed part-way leaves partial files on disk. Env,
-          # not a flag, so an older CLI ignores it rather than failing.
-          HYPERCI_STAMP_OUTCOME: ${{ steps.stamp.outcome }}
+          HYPERCI_RELEASE_PREPARED: ${{ runner.temp }}/release-prepared
+          # release.stamp_paths are left out unless the stamp succeeded: a
+          # stamp_cmd that failed part-way leaves partial files behind.
+          HYPERCI_STAMP_OUTCOME: ${{ needs.prepare.result }}
         run: >-
           ${{ env.HYPERCI_INSTALL }} release-commit
           "${{ steps.forcedtag.outputs.version || inputs.next-version }}"

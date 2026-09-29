@@ -92,7 +92,7 @@ build so the compiled binary embeds the right number (`CARGO_PKG_VERSION`, Go's
 
 It **is** committed back, by CI, at the end of a successful release -- the
 `Commit rendered release artefacts` step in `_release-tail.yml`, which runs
-`hyperi-ci release-commit`. Never edit it by hand; the next release overwrites
+`hyperi-ci release-commit` on the `VERSION` the Prepare release job stamped. Never edit it by hand; the next release overwrites
 whatever you write.
 
 That commit-back is deliberately not `@semantic-release/git`, which did the job
@@ -139,11 +139,11 @@ release:
 
 `stamp-version` runs `stamp_cmd` from the repo root after it writes `VERSION` and the manifest, so the generator reads the new version from `VERSION`. No shell is involved: a string is split the way a shell would split it, a list is the argv. A non-zero exit fails the stamp.
 
-It runs where `stamp-version` runs, and only on a publishing run. The Build job runs it before the build, so a wheel or binary carries the regenerated files. The Container job runs it again on its own checkout before the image build. Tag & Publish runs it a third time, for a repo that commits `VERSION`, so the files are on disk for `release-commit`.
+It runs where `stamp-version` runs, and only on a publishing run. The Build job runs it before the build, so a wheel or binary carries the regenerated files. The Container job runs it again on its own checkout before the image build. The Prepare release job runs it a third time and carries `VERSION` and the `stamp_paths` files to Tag & Release, which runs no repo code, for `release-commit`.
 
 `release-commit` adds `stamp_paths` to the commit that carries `VERSION` and `CHANGELOG.md`, and leaves a file out when:
 
-- the Tag & Publish stamp did not succeed, since a generator that failed part-way leaves partial output;
+- the prepare stamp did not succeed, since a generator that failed part-way leaves partial output;
 - the branch has changed that file since the release's checkout, because a merge during the release, or a retroactive dispatch of an old tag, would otherwise have its newer copy overwritten;
 - it is missing, a directory or a symlink, or it sits under `.git/` or is `.github/release-notes/NEXT.md`.
 

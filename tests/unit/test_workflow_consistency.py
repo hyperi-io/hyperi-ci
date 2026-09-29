@@ -205,60 +205,42 @@ class TestFromHeadThreading:
             "forced-tag step must skip when bump == 'auto' (auto uses semantic-release)"
         )
 
-    def test_release_tail_restamps_before_committing_artefacts(self) -> None:
-        """VERSION must be stamped in the job that commits it.
+    def test_release_tail_commits_the_version_prepare_stamped(self) -> None:
+        """VERSION must reach release-commit stamped, from a job that ran no repo code.
 
         release-commit lists VERSION in RELEASE_ARTEFACTS and reads it off
         disk, but the commit tag-and-release checks out still carries the
-        pre-release value. The build's stamp runs on another runner and only
-        dist/ + ci-tmp/ are passed between them, so without a stamp here the
-        uploaded blob matches the branch, the tree is unchanged for that path,
-        and VERSION never moves in any repo on this pipeline.
+        pre-release value, so without a stamp VERSION never moves in any repo
+        on this pipeline. The stamp runs release.stamp_cmd, which is repo code,
+        so it runs in `prepare` and release-commit restores the stamped files
+        from the prepared directory (issue #409).
         """
-        steps = _load_workflow("_release-tail.yml")["jobs"]["tag-and-release"]["steps"]
+        jobs = _load_workflow("_release-tail.yml")["jobs"]
+        prepare = jobs["prepare"]["steps"]
+        steps = jobs["tag-and-release"]["steps"]
         names = [s.get("name") for s in steps]
 
-        assert "Stamp the released version" in names, (
-            "_release-tail.tag-and-release: no stamp step before release-commit, "
-            "so VERSION can never move"
-        )
-        stamp_at = names.index("Stamp the released version")
-        commit_at = names.index("Commit rendered release artefacts")
-        assert stamp_at < commit_at, (
-            "the stamp must precede release-commit, which reads VERSION off disk"
-        )
+        prepared = next(s for s in prepare if s.get("name") == "Prepare the release")
+        assert "release-prepare" in prepared["run"]
+        assert prepared["env"]["RELEASE_VERSION"] == "${{ inputs.next-version }}"
 
-        stamp = steps[stamp_at]
-        commit = steps[commit_at]
-        # Same gate as the commit it feeds: stamping a release that did not
-        # publish would leave a version on disk nothing shipped.
-        assert str(stamp["if"]) == str(commit["if"]), (
-            "stamp and release-commit must share a condition"
+        commit = steps[names.index("Commit rendered release artefacts")]
+        assert "HYPERCI_RELEASE_PREPARED" in commit["env"], (
+            "release-commit must restore VERSION from the prepared directory"
         )
         # A tag dispatch checks out an old tag, so its VERSION and CHANGELOG.md
         # committed onto main would move the branch backwards (issue #350).
-        assert "inputs.tag == ''" in str(stamp["if"]), (
-            "stamp and release-commit must skip a retroactive tag dispatch"
+        assert "inputs.tag == ''" in str(commit["if"]), (
+            "release-commit must skip a retroactive tag dispatch"
         )
-        assert stamp["continue-on-error"] is True, (
+        assert commit["continue-on-error"] is True, (
             "bookkeeping after a shipped release must not turn it red"
         )
-        # The version arrives by env so it is never read as shell.
-        assert "RELEASE_VERSION" in stamp["env"]
-        assert stamp["env"]["RELEASE_VERSION"] == commit["run"].split('"')[1], (
-            "stamp and release-commit must stamp and commit the SAME version"
-        )
-        # A repo with no VERSION file has opted out; stamp_version would create
-        # one, and release-commit would then commit a file it never had.
-        assert "-f VERSION" in stamp["run"], (
-            "stamp step must not create a VERSION file where none exists"
-        )
         # release.stamp_paths must stay out after a failed stamp_cmd, which can
-        # leave partial output on disk. The outcome goes by env so an older
-        # CLI ignores it instead of rejecting an unknown flag.
+        # leave partial output behind.
         assert commit["env"]["HYPERCI_STAMP_OUTCOME"] == (
-            f"${{{{ steps.{stamp['id']}.outcome }}}}"
-        ), "release-commit must see the stamp step's outcome"
+            "${{ needs.prepare.result }}"
+        ), "release-commit must see the prepare stamp's outcome"
 
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
     def test_build_stamps_on_from_head_dispatch(self, workflow_name: str) -> None:
