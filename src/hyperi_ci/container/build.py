@@ -177,6 +177,7 @@ def resolve_tags(
     channel: str = "release",
     mode: str = "release",
     branch_slug: str = "",
+    move_latest: bool = True,
 ) -> list[str]:
     """Generate image tags spanning all configured registries.
 
@@ -195,6 +196,8 @@ def resolve_tags(
     * ``release``, pre-GA channel  → ``:vX.Y.Z-{channel}``, ``:sha-<short>``
     * ``release``, prerelease version → ``:vX.Y.Z-beta.N``, ``:sha-<short>``
       -- a version off a prerelease branch never moves ``latest``.
+    * ``release`` with ``move_latest`` False → no ``:latest``, so
+      re-publishing an older tag leaves it on the newest release.
 
     The SHA tag is included on every pushed build to give consumers an
     immutable-by-content pin alongside the human-readable tag.
@@ -212,6 +215,8 @@ def resolve_tags(
         branch_slug: Docker-tag-safe branch slug for dev mode
             (:func:`hyperi_ci.release_mode.dev_branch_slug`). Empty →
             the dev image gets a ``dev-sha-<short>`` tag only.
+        move_latest: False when a newer stable release owns ``:latest``
+            (:func:`hyperi_ci.common.holds_latest`).
 
     Returns:
         Flat list of fully-qualified image tags. Empty for ``validate``.
@@ -229,7 +234,9 @@ def resolve_tags(
         else:
             suffixes = [f"dev-sha-{sha}"]
     else:
-        suffixes = _tag_suffixes(version=version, sha=sha, channel=channel)
+        suffixes = _tag_suffixes(
+            version=version, sha=sha, channel=channel, move_latest=move_latest
+        )
 
     tags: list[str] = []
     for base in registry_bases:
@@ -239,11 +246,15 @@ def resolve_tags(
     return tags
 
 
-def _tag_suffixes(*, version: str, sha: str, channel: str) -> list[str]:
+def _tag_suffixes(
+    *, version: str, sha: str, channel: str, move_latest: bool = True
+) -> list[str]:
     # A prerelease version discriminates itself: `latest` belongs to the stable
     # sequence, and a channel suffix would render `v1.2.0-beta.1-beta`.
     if is_prerelease_version(version):
         return [f"v{version}", f"sha-{sha}"]
     if channel == "release":
+        if not move_latest:
+            return [f"v{version}", f"sha-{sha}"]
         return [f"v{version}", "latest", f"sha-{sha}"]
     return [f"v{version}-{channel}", f"sha-{sha}"]

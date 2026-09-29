@@ -147,6 +147,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
+          # The v* tags decide whether this image may take `:latest`: a
+          # re-published older tag must not move it off a newer release.
+          fetch-tags: true
 
       - name: Init submodules
         if: ${{ inputs.submodules != '' }}

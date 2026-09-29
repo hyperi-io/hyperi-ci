@@ -5,8 +5,14 @@
 # License:   BUSL-1.1
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
-from __future__ import annotations
+import subprocess
+from pathlib import Path
+from unittest.mock import patch
 
+import pytest
+
+from hyperi_ci.config import CIConfig, OrgConfig
+from hyperi_ci.container import stage
 from hyperi_ci.container.build import resolve_tags
 
 
@@ -191,3 +197,68 @@ def test_resolve_tags_alpha_and_beta_channels():
         "ghcr.io/hyperi-io/dfe-receiver:v2.0.0-beta",
         "ghcr.io/hyperi-io/dfe-receiver:sha-aaa1111",
     ]
+
+
+def test_resolve_tags_release_without_latest():
+    tags = resolve_tags(
+        registry_bases=["ghcr.io/hyperi-io"],
+        image_name="dfe-loader",
+        version="1.13.5",
+        sha="abc1234",
+        channel="release",
+        move_latest=False,
+    )
+    assert tags == [
+        "ghcr.io/hyperi-io/dfe-loader:v1.13.5",
+        "ghcr.io/hyperi-io/dfe-loader:sha-abc1234",
+    ]
+
+
+class TestLatestStaysOnTheNewestRelease:
+    """A re-published older tag pushes its own tags but never `:latest`."""
+
+    @pytest.fixture
+    def repo(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        for args in (
+            ["init", "-q"],
+            ["commit", "--allow-empty", "-m", "chore: seed"],
+            ["tag", "v1.0.4"],
+            ["tag", "v1.0.5"],
+            ["tag", "v1.0.6-beta.1"],
+        ):
+            subprocess.run(
+                ["git", "-c", "user.email=t@t", "-c", "user.name=t", *args],
+                cwd=tmp_path,
+                check=True,
+                capture_output=True,
+            )
+        (tmp_path / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        return tmp_path
+
+    @staticmethod
+    def _pushed_tags(version: str) -> list[str]:
+        with patch.object(stage, "build_and_push", return_value=0) as pushed:
+            with patch.object(stage, "_read_version", return_value=version):
+                with patch.object(stage, "_read_sha", return_value="deadbee"):
+                    stage._dispatch_build(
+                        dockerfile_path=Path("Dockerfile"),
+                        container_cfg={},
+                        config=CIConfig(_raw={"description": "demo"}),
+                        org=OrgConfig(),
+                        registry_bases=["ghcr.io/hyperi-io"],
+                        push_mode="release",
+                    )
+        return pushed.call_args.kwargs["tags"]
+
+    def test_an_older_tag_does_not_take_latest(self, repo: Path) -> None:
+        assert self._pushed_tags("1.0.4") == [
+            f"ghcr.io/hyperi-io/{repo.name}:v1.0.4",
+            f"ghcr.io/hyperi-io/{repo.name}:sha-deadbee",
+        ]
+
+    def test_the_newest_release_takes_latest(self, repo: Path) -> None:
+        assert f"ghcr.io/hyperi-io/{repo.name}:latest" in self._pushed_tags("1.0.5")
+
+    def test_a_new_release_takes_latest_before_its_tag_exists(self, repo: Path) -> None:
+        assert f"ghcr.io/hyperi-io/{repo.name}:latest" in self._pushed_tags("1.0.6")
