@@ -75,16 +75,16 @@ quality:
       reason: "diskcache CVE-2025-69872 has no upstream fix; mitigated by pod isolation"
 ```
 
-The security set is `gitleaks`, `semgrep`, `bandit`, `pip_audit`, `audit`,
-`deny`, `osv_scanner`, `gosec`, `govulncheck` (`SECURITY_TOOLS` in
-`quality_common.py`). Every
+The security set is `gitleaks`, `semgrep`, `bandit`, `ruff_security`,
+`pip_audit`, `audit`, `deny`, `osv_scanner`, `gosec`, `govulncheck`
+(`SECURITY_TOOLS` in `quality_common.py`). Every
 other tool - `vulture`, `ty`, `eslint`, `fmt`, `clippy`, `ruff` - keeps the bare
 `tool: warn` string and only warns.
 
 **"Turned down" is measured against that tool's own shipped default**, not
-against `blocking`. semgrep and osv-scanner ship `warn`, bandit ships
-`disabled`, so a repo writing `semgrep: warn` is agreeing with us and owes no
-justification; `semgrep: disabled` is below the default and does.
+against `blocking`. semgrep, osv-scanner and ruff_security ship `warn`, bandit
+ships `disabled`, so a repo writing `semgrep: warn` is agreeing with us and owes
+no justification; `semgrep: disabled` is below the default and does.
 
 | shipped | configured | security tool | outcome |
 |---|---|---|---|
@@ -141,7 +141,7 @@ Without one, the stage fails and names the security gates the repo loses: gitlea
 | mermaid-parse | fenced mermaid blocks, real grammar | dispatch + `lint-docs` (`quality/mermaid_parse.py`) |
 | markdownlint-cli2 | mechanical markdown syntax | dispatch + `lint-docs` (`quality/markdownlint.py`) |
 | docs-touched | source changed, no doc did (NEVER gates) | dispatch + `lint-docs` (`quality/docs_touched.py`) |
-| ruff (lint, format, docstrings) | Python | `languages/python/quality.py` |
+| ruff (lint, format, security, docstrings) | Python | `languages/python/quality.py` |
 | ty | Python types | Python handler |
 | pip-audit, bandit, vulture | Python | Python handler |
 | clippy, rustfmt, cargo-audit/deny, osv-scanner | Rust | `languages/rust/quality.py` |
@@ -156,12 +156,19 @@ passed shared excludes.
 
 **A Rust root-package workspace is checked whole.** Where the root Cargo.toml is both a `[package]` and a `[workspace]` with no `default-members`, clippy, cargo deny, the feature matrix and the rustdoc hint take `--workspace`, because cargo otherwise checks the root package alone (cargo fmt and cargo audit already cover every member). The feature matrix keeps its per-member `-p` in a workspace mixing lib and bin-only members, and adds nothing when `feature_matrix.extra_args` names a scope. `--all-features` then turns on every member's features, mutually exclusive ones included, as a virtual workspace already does. Narrow it with `quality.rust.features`, where `|` separates feature sets that run one after another.
 
-**ruff is three keys, not one.** `quality.python.ruff` governs the LINT passes
-only; the formatter is `quality.python.ruff_format` and the D rules are
+**ruff is four keys, not one.** `quality.python.ruff` governs the LINT passes
+only; the formatter is `quality.python.ruff_format`, the S rules are
+`quality.python.ruff_security` and the D rules are
 `quality.python.ruff_docstrings`, each resolved independently. Adopting the
 formatter on an established tree reformats most of it at once, so deferring that
-must not require relaxing the real lint gate. All three default to blocking
-except `ruff_docstrings` (warn).
+must not require relaxing the real lint gate. `ruff` and `ruff_format` default
+to blocking, `ruff_security` and `ruff_docstrings` to warn.
+
+**`ruff_security` is the bandit-class check.** It runs `ruff check --select S
+src/` (flake8-bandit) whatever the repo's own ruff selects, since bandit ships
+`disabled`. `--select` on the command line drops the repo's ruff `ignore` list
+for this pass; `per-file-ignores`, `# noqa` and `quality.ignore` entries for
+`ruff` still apply. It is a security gate, so `disabled` owes a `reason`.
 
 ### charset exclusions
 

@@ -11,6 +11,7 @@ entries translated to the tool's native flag, and the excludes the
 format gate carries.
 """
 
+import copy
 import json
 import subprocess
 import sys
@@ -18,11 +19,12 @@ from pathlib import Path
 
 import pytest
 
-from hyperi_ci.config import CIConfig
+from hyperi_ci.config import CIConfig, packaged_default
 from hyperi_ci.languages.python import quality
 from hyperi_ci.languages.python.quality import (
     _build_pip_audit_cmd,
     _build_ruff_format_cmd,
+    _build_ruff_security_cmd,
 )
 from hyperi_ci.quality.ignores import IgnoreEntry
 from hyperi_ci.versions import tool_version
@@ -112,6 +114,110 @@ class TestRuffFormatCommand:
             ".",
             "--extend-exclude=vendor,*.md",
         ]
+
+
+class TestRuffSecurityCommand:
+    """The S pass selects only the bandit rules, over production code."""
+
+    def test_selects_s_over_src(self) -> None:
+        assert _build_ruff_security_cmd([], []) == [
+            "ruff",
+            "check",
+            "--select",
+            "S",
+            "--output-format=concise",
+            "src/",
+        ]
+
+    def test_handler_excludes_extend_the_repos_own(self) -> None:
+        assert _build_ruff_security_cmd(["vendor", "data"], []) == [
+            "ruff",
+            "check",
+            "--select",
+            "S",
+            "--output-format=concise",
+            "src/",
+            "--extend-exclude=vendor,data",
+        ]
+
+    def test_ruff_ignores_reach_the_pass(self) -> None:
+        cmd = _build_ruff_security_cmd(
+            ["vendor"],
+            [
+                IgnoreEntry("ruff", "S603", "argv is a list, never a shell"),
+                IgnoreEntry("ruff", "S607", "tools resolve off PATH by design"),
+            ],
+        )
+        assert cmd[-2:] == ["--extend-exclude=vendor", "--extend-ignore=S603,S607"]
+
+
+def _passes(
+    monkeypatch: pytest.MonkeyPatch,
+    python: dict[str, object],
+    *,
+    strict: bool = False,
+) -> dict[str, tuple[list[str], str]]:
+    """Run the Python quality stage over the shipped defaults plus ``python``.
+
+    Returns each pass's argv and mode, by pass name.
+    """
+    monkeypatch.delenv("HYPERCI_QUALITY_SKIP", raising=False)
+    if strict:
+        monkeypatch.setenv("HYPERCI_QUALITY_STRICT", "1")
+    else:
+        monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
+    monkeypatch.setattr(quality, "_ruff_format_takes_extend_exclude", lambda: True)
+    seen: dict[str, tuple[list[str], str]] = {}
+
+    def record(name: str, cmd: list[str], mode: str, **_kw: object) -> bool:
+        seen[name] = (cmd, mode)
+        return True
+
+    monkeypatch.setattr(quality, "_run_tool", record)
+    raw = copy.deepcopy(packaged_default("quality"))
+    raw["python"].update(python)
+    raw["exclude_paths"] = ["vendor"]
+    raw["ignore"] = [{"tool": "ruff", "id": "S603", "reason": "list argv only"}]
+    quality.run(CIConfig(_raw={"quality": raw}))
+    return seen
+
+
+class TestRuffSecurityMode:
+    """quality.python.ruff_security decides the pass, independent of `ruff`."""
+
+    def test_ships_warn_with_excludes_and_ignores(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cmd, mode = _passes(monkeypatch, {})["ruff security"]
+        assert mode == "warn"
+        assert cmd[:4] == ["ruff", "check", "--select", "S"]
+        assert "src/" in cmd
+        assert "--extend-ignore=S603" in cmd
+        assert any(a.startswith("--extend-exclude=") and "vendor" in a for a in cmd)
+
+    def test_blocking_is_honoured(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        passes = _passes(monkeypatch, {"ruff_security": "blocking"})
+        assert passes["ruff security"][1] == "blocking"
+
+    def test_disabled_with_a_reason_is_honoured(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        off = {"mode": "disabled", "reason": "bandit runs instead"}
+        passes = _passes(monkeypatch, {"ruff_security": off})
+        assert passes["ruff security"][1] == "disabled"
+
+    def test_the_lint_key_does_not_move_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        passes = _passes(monkeypatch, {"ruff": "warn"})
+        assert passes["ruff check (src)"][1] == "warn"
+        assert passes["ruff security"][1] == "warn"
+        passes = _passes(monkeypatch, {"ruff_security": "blocking"})
+        assert passes["ruff check (src)"][1] == "blocking"
+
+    def test_strict_upgrades_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        passes = _passes(monkeypatch, {}, strict=True)
+        assert passes["ruff security"][1] == "blocking"
 
 
 class TestRuffFormatBelowTheFlagVersion:

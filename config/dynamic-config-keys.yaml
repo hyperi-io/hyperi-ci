@@ -28,6 +28,7 @@ keys:
   quality.python.ruff: src/hyperi_ci/languages/quality_common.py
   quality.python.ruff_format: src/hyperi_ci/languages/quality_common.py
   quality.python.ruff_docstrings: src/hyperi_ci/languages/quality_common.py
+  quality.python.ruff_security: src/hyperi_ci/languages/quality_common.py
   quality.python.ty: src/hyperi_ci/languages/quality_common.py
   quality.python.pyright: src/hyperi_ci/languages/quality_common.py
   quality.python.bandit: src/hyperi_ci/languages/quality_common.py

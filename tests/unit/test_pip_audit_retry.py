@@ -62,7 +62,9 @@ _TRACE_TAIL = (
 def _config() -> CIConfig:
     """Every Python tool off except pip-audit, which blocks."""
     off = ["ruff", "ruff_format", "ty", "pyright", "bandit", "ruff_docstrings"]
-    python = dict.fromkeys([*off, "vulture"], "disabled")
+    python: dict[str, object] = dict.fromkeys([*off, "vulture"], "disabled")
+    # A security gate, so switching it off owes a reason.
+    python["ruff_security"] = {"mode": "disabled", "reason": "not under test here"}
     python["pip_audit"] = "blocking"
     return CIConfig(_raw={"quality": {"python": python}})
 

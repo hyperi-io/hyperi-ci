@@ -414,7 +414,7 @@ release:
 
 | Language | Quality | Test | Build | Publish |
 |---|---|---|---|---|
-| Python | ruff, ty, bandit, pip-audit | pytest | uv build | uv publish (PyPI) |
+| Python | ruff (lint, format, S rules), ty, pip-audit | pytest | uv build | uv publish (PyPI) |
 | Rust | cargo fmt, clippy, audit, deny, **feature_matrix** | cargo test/nextest | cargo build (cross) | cargo publish (crates.io) |
 | TypeScript | eslint, prettier, tsc, npm audit | vitest/jest | npm/pnpm build | npm publish (npmjs / GH Packages) |
 | Go _(beta)_ | gofmt, go vet, golangci-lint, gosec | go test -race | go build (cross) | go proxy, gh release |

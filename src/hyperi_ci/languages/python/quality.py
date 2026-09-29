@@ -1,14 +1,18 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/languages/python/quality.py
-# Purpose:   Python quality checks (ruff, ty, semgrep, bandit, pip-audit, vulture)
+# Purpose:   Python quality checks (ruff, ty, bandit, pip-audit, vulture)
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Python quality checks handler.
 
-Orchestrates quality tools: ruff (lint + format + docstrings), ty, semgrep,
+Orchestrates quality tools: ruff (lint, format, security, docstrings), ty,
 bandit, pip-audit, vulture. Each tool's mode (blocking/warn/disabled) is
-configurable via .hyperi-ci.yaml quality.python section.
+configurable via .hyperi-ci.yaml quality.python section. semgrep runs once at
+dispatch level, not here.
+
+The bandit-class check is ruff's S rules (flake8-bandit), run as their own pass
+whatever the repo's ruff selects. bandit itself ships disabled.
 
 Docstring coverage uses ruff D rules (pydocstyle) instead of interrogate,
 which is unmaintained and pulls in the vulnerable 'py' package.
@@ -163,6 +167,38 @@ def _resolve_tool_cmd(
             return ["uvx", "--from", spec, *cmd]
         return ["uv", "run", *cmd]
     return cmd
+
+
+def _ruff_ignore_flag(ignores: list[IgnoreEntry]) -> list[str]:
+    """Translate ``quality.ignore`` entries for ruff into one ``--extend-ignore``."""
+    if not ignores:
+        return []
+    return [f"--extend-ignore={','.join(e.id for e in ignores)}"]
+
+
+def _build_ruff_security_cmd(
+    excludes: list[str], ignores: list[IgnoreEntry]
+) -> list[str]:
+    """Build the ruff S (flake8-bandit) pass over production code.
+
+    ``--select S`` replaces the repo's rule selection AND its ruff ``ignore``
+    list. ``per-file-ignores``, ``# noqa`` and ``quality.ignore`` entries for
+    ruff still apply. Concise output keeps one finding per line, so the warn
+    tier's line cap shows findings rather than one code frame.
+
+    Args:
+        excludes: Handler excludes, added to the repo's own ruff excludes.
+        ignores: ``quality.ignore`` entries for the ``ruff`` slug.
+
+    Returns:
+        The command, before resolution.
+
+    """
+    return (
+        ["ruff", "check", "--select", "S", "--output-format=concise", "src/"]
+        + _build_exclude_args("ruff", excludes)
+        + _ruff_ignore_flag(ignores)
+    )
 
 
 def _build_pip_audit_cmd(ignores: list[IgnoreEntry]) -> list[str]:
@@ -447,14 +483,12 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # Production pass -- exclude test dirs, full rules
     prod_exclude = exclude_args + [f"--exclude={p}" for p in test_paths]
     ruff_user_ignores = for_tool(ignores, "ruff")
-    ruff_user_ignore_flag = (
-        [f"--extend-ignore={','.join(e.id for e in ruff_user_ignores)}"]
-        if ruff_user_ignores
-        else []
-    )
     if not _run_tool(
         "ruff check (src)",
-        ["ruff", "check", "."] + output_fmt + prod_exclude + ruff_user_ignore_flag,
+        ["ruff", "check", "."]
+        + output_fmt
+        + prod_exclude
+        + _ruff_ignore_flag(ruff_user_ignores),
         mode,
     ):
         had_failure = True
@@ -516,6 +550,15 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         bandit_cmd.extend(["--skip", ",".join(e.id for e in bandit_ignores)])
     bandit_spec = f"bandit=={tool_version('bandit')}"
     if not _run_tool("bandit", bandit_cmd, mode, use_uvx=True, spec=bandit_spec):
+        had_failure = True
+
+    # The bandit-class check. Its own key, so it can ratchet to blocking
+    # without touching the lint gate.
+    if not _run_tool(
+        "ruff security",
+        _build_ruff_security_cmd(excludes, ruff_user_ignores),
+        _get_tool_mode("ruff_security", config),
+    ):
         had_failure = True
 
     # pip-audit vulnerability scanning
