@@ -57,6 +57,14 @@ on:
         type: string
         default: "core"
         description: "core | full. full runs the full test tier on this run; core never lowers a tier. A scheduled run is full, and so is a release once the repo sets test.full.required_for_release."
+      test-github-token:
+        type: string
+        default: ""
+        description: "'true' to give the Run tests step this run's GitHub token as GH_TOKEN and GITHUB_TOKEN, for tests that call the GitHub API. The token is read-only: this repo's contents, plus what is public. Every test and every test dependency can read it, so on a private repo they can read the code. Empty (default) = no token."
+      test-timeout-minutes:
+        type: number
+        default: 360
+        description: "Minutes before the Test job is cancelled, per matrix leg. 360 (default) is GitHub's own limit for a job with none set, and the most a GitHub-hosted runner allows; a self-hosted runner allows up to 7200 (5 days). 0 reads as 360. Pass a number unquoted: a quoted '150' is a string, and GitHub refuses the run before any job starts."
       submodules:
         type: string
         default: ""
@@ -336,6 +344,10 @@ jobs:
     # The tier is in the name so a check list shows what ran. The runner is
     # spelled out so the name stays one bracket: Test (core, arc-native-4cpu).
     name: Test (${{ needs.plan.outputs.test-tier }}, ${{ matrix.os }})
+    # Per caller, not fleet-wide: dfe-engine's Test runs reach 250 minutes, so no
+    # shared limit under 360 leaves them room (issue #262). The fallback covers a
+    # dispatch of this workflow, which has no such input, and a caller's 0.
+    timeout-minutes: ${{ inputs.test-timeout-minutes || 360 }}
     needs: [plan]
     if: needs.plan.outputs.run-checks == 'true'
     runs-on: ${{ matrix.os }}
@@ -392,6 +404,18 @@ jobs:
         # --tier full only on a full run: a CLI without the flag fails loudly
         # rather than running core under a full name, and a core run passes
         # nothing, so the project's own test.tier still applies.
+        if: inputs.test-github-token != 'true'
+        run: ${{ env.HYPERCI_INSTALL }} run test ${{ needs.plan.outputs.test-tier == 'full' && '--tier full' || '' }}
+
+      - name: Run tests with a GitHub token
+        # The caller's test-github-token opt-in, as its own step because an env
+        # entry set to '' still defines the variable, and a test checking only
+        # that GITHUB_TOKEN is set would send an empty one. gh reads GH_TOKEN,
+        # most API clients GITHUB_TOKEN; both carry the job's read-only token.
+        if: inputs.test-github-token == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: ${{ env.HYPERCI_INSTALL }} run test ${{ needs.plan.outputs.test-tier == 'full' && '--tier full' || '' }}
 
       - name: Upload test results
