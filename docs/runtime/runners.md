@@ -49,6 +49,15 @@ picking a runner ad hoc.
 reached when the org variable is unset; with `GH_RUNNER_DEFAULT` set, every repo
 gets a self-hosted runner without asking.
 
+### Which chain each job takes
+
+| Job | Chain | Why |
+|---|---|---|
+| Quality, Test, Build | renovate carve-out -> `free` -> `runner-<job>` input -> `GH_RUNNER_<LANG>` -> `GH_RUNNER_DEFAULT` -> `ubuntu-latest` | needs the language toolchain |
+| Commit messages, Gate | `free` -> `GH_RUNNER_DEFAULT` -> `ubuntu-latest` | needs only git and uv, which vanilla carries. No renovate carve-out: `GH_RUNNER_RENOVATE` is a heavier set than the default |
+| Plan | `ubuntu-latest`, always | the vanilla image has neither PyYAML nor yq, so the `predict-version` composite would read no `.hyperi-ci.yaml` and fall back to defaults: test tier `core`, no arm64 parity check, and on Rust every target regardless of `build.rust.targets`. Moves to the default chain once the image carries one of them (issue #291) |
+| Release tail | `free` -> `GH_RUNNER_PUBLISH` -> `GH_RUNNER_DEFAULT` -> `ubuntu-latest` | see `_release-tail.yml` |
+
 ## The runner vocabulary
 
 The self-hosted fleet is ARC scale sets carrying two axes:
