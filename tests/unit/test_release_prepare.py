@@ -129,6 +129,8 @@ class TestPrepareRelease:
         )
         assert (stamped / "spec.json").is_file()
         assert not (stamped / MANIFEST_NAME).exists()
+        # Always present, so the workflow can require the artefact.
+        assert (stamped / release_prepare.STAMP_MARKER).is_file()
 
         assert (
             prepare_release(
