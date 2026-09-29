@@ -119,8 +119,8 @@ jobs:
     # EVERY merge, not only publish-worthy pushes. Fatal on push to main (what
     # lands) and on merge_group (what is about to land -- the queue's squash
     # commit, range base_sha..head_sha); advisory on pull_request for branch
-    # commits, fatal for the PR title. Runs the LOCAL branch code (uv run) so
-    # this repo's own PRs exercise the change.
+    # commits, fatal for the line a squash would land. Runs the LOCAL branch
+    # code (uv run) so this repo's own PRs exercise the change.
     # See docs/architecture.md, "Under a merge queue".
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||

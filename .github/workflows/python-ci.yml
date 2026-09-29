@@ -264,7 +264,7 @@ jobs:
     # what actually reaches main on EVERY merge, not only publish-worthy
     # pushes (all the quality job covers). Fatal on push to main (what lands);
     # advisory on pull_request for branch commits (they may be squashed away),
-    # fatal for the PR title (a squash lands it) - see commit_validation.run.
+    # fatal for the line a squash would land - see commit_validation.run.
     # Feature-branch pushes skip it, so the fast chore-skip path is untouched.
     # See CLAUDE.md CI gate doctrine.
     if: >-

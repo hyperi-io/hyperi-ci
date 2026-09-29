@@ -782,31 +782,50 @@ _REPO = "hyperi-io/example"
 _PR_NUMBER = 207
 
 
+_PR_PATH = f"repos/{_REPO}/pulls/{_PR_NUMBER}"
+_REPO_PATH = f"repos/{_REPO}"
+
+
+def _squash_setting(value: str) -> dict:
+    return {"squash_merge_commit_title": value}
+
+
 def _write_titled_pr_event(
-    tmp_path: Path, base_sha: str, title: str | None, body: str = ""
+    tmp_path: Path,
+    base_sha: str,
+    title: str | None,
+    body: str = "",
+    commits: int | None = None,
 ) -> Path:
     pr: dict[str, object] = {"number": _PR_NUMBER, "base": {"sha": base_sha}}
     if title is not None:
         pr["title"] = title
         pr["body"] = body
+    if commits is not None:
+        pr["commits"] = commits
     payload = tmp_path / "event.json"
     payload.write_text(json.dumps({"pull_request": pr}))
     return payload
 
 
 class _FakeGh:
-    """Stands in for `gh api`: records each call and answers with one response."""
+    """Stands in for `gh api`: records each call and answers by path.
+
+    A path answered with None fails the way a 404 does. The repo defaults to
+    ``PR_TITLE``, where the title is what lands.
+    """
 
     def __init__(
         self,
         *,
         pr: dict | None = None,
-        returncode: int = 0,
+        repo: dict | None = None,
+        repo_fails: bool = False,
         raises: Exception | None = None,
     ) -> None:
         self.calls: list[list[str]] = []
-        self._stdout = json.dumps(pr) if pr is not None else ""
-        self._returncode = returncode
+        default_repo = None if repo_fails else _squash_setting("PR_TITLE")
+        self._answers = {_PR_PATH: pr, _REPO_PATH: repo or default_repo}
         self._raises = raises
 
     def __call__(
@@ -815,16 +834,19 @@ class _FakeGh:
         self.calls.append(args)
         if self._raises is not None:
             raise self._raises
-        return subprocess.CompletedProcess(
-            ["gh", *args], self._returncode, self._stdout, ""
-        )
+        answer = self._answers.get(args[-1])
+        if answer is None:
+            return subprocess.CompletedProcess(["gh", *args], 1, "", "HTTP 404")
+        return subprocess.CompletedProcess(["gh", *args], 0, json.dumps(answer), "")
 
 
 class _Log:
     def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.infos: list[str] = []
         self.warns: list[str] = []
         self.errors: list[str] = []
         self.successes: list[str] = []
+        monkeypatch.setattr(cv, "info", self.infos.append)
         monkeypatch.setattr(cv, "warn", self.warns.append)
         monkeypatch.setattr(cv, "error", self.errors.append)
         monkeypatch.setattr(cv, "success", self.successes.append)
@@ -832,7 +854,7 @@ class _Log:
 
 @pytest.fixture
 def pr_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Set up a pull_request run over a repo whose branch commits are valid.
+    """Set up a pull_request run over a repo with one valid branch commit.
 
     Returns a callable taking the payload title, the fake `gh`, and whether
     a token is present; it returns the fake so a test can read its calls.
@@ -853,8 +875,9 @@ def pr_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         *,
         token: bool = True,
         body: str = "",
+        commits: int | None = None,
     ) -> _FakeGh:
-        event = _write_titled_pr_event(tmp_path, base, payload_title, body)
+        event = _write_titled_pr_event(tmp_path, base, payload_title, body, commits)
         monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
         if token:
             monkeypatch.setenv("GH_TOKEN", "fake-token")
@@ -876,7 +899,8 @@ class TestRunPrTitle:
         pr_run("fix: GA public tree", _FakeGh(pr={"title": "fix: GA public tree"}))
 
         assert cv.run() == 1
-        assert any("squash merge makes the title" in e for e in log.errors)
+        assert any("squash merge makes it the" in e for e in log.errors)
+        assert any("squash_merge_commit_title=PR_TITLE" in e for e in log.errors)
         assert any("lowercase letter (got 'G')" in e for e in log.errors)
 
     def test_good_title_passes(self, pr_run, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -884,7 +908,7 @@ class TestRunPrTitle:
         pr_run("fix: ga public tree", _FakeGh(pr={"title": "fix: ga public tree"}))
 
         assert cv.run() == 0
-        assert any("PR title passed" in s for s in log.successes)
+        assert any("(PR title; " in s for s in log.successes)
         assert log.errors == []
         assert log.warns == []
 
@@ -895,13 +919,13 @@ class TestRunPrTitle:
         gh = pr_run("fix: GA public tree", _FakeGh(pr={"title": "fix: ga public tree"}))
 
         assert cv.run() == 0
-        assert gh.calls == [["api", f"repos/{_REPO}/pulls/{_PR_NUMBER}"]]
+        assert gh.calls == [["api", _PR_PATH], ["api", _REPO_PATH]]
         assert log.warns == []
 
     @pytest.mark.parametrize(
         "gh",
         [
-            _FakeGh(returncode=1),
+            _FakeGh(repo_fails=True),
             _FakeGh(raises=FileNotFoundError("gh")),
             _FakeGh(raises=subprocess.TimeoutExpired("gh", 30)),
         ],
@@ -911,11 +935,12 @@ class TestRunPrTitle:
         self, pr_run, monkeypatch: pytest.MonkeyPatch, gh: _FakeGh
     ) -> None:
         log = _Log(monkeypatch)
-        pr_run("fix: GA public tree", gh)
+        pr_run("fix: GA public tree", gh, commits=3)
 
         assert cv.run() == 1
         assert any("from the event payload" in w for w in log.warns)
         assert any("re-run" in w for w in log.warns)
+        assert any("assuming GitHub's default" in w for w in log.warns)
 
     def test_no_token_uses_the_payload_without_calling_the_api(
         self, pr_run, monkeypatch: pytest.MonkeyPatch
@@ -1012,6 +1037,108 @@ class TestRunPrTitle:
         assert cv.run() == 0
         assert gh.calls == []
         assert not any("PR title" in m for m in log.warns + log.successes)
+
+
+def _head() -> str:
+    return _git(Path.cwd(), "rev-parse", "HEAD")
+
+
+def _reword_head(message: str) -> None:
+    _git(Path.cwd(), "commit", "--amend", "--allow-empty", "-q", "-m", message)
+
+
+class TestRunSquashSubject:
+    """Under GitHub's default ``COMMIT_OR_PR_TITLE`` a one-commit PR lands
+    that commit's own message, so the line validated as fatal follows the
+    repo's ``squash_merge_commit_title`` rather than always the title."""
+
+    _DEFAULT = _squash_setting("COMMIT_OR_PR_TITLE")
+
+    def test_one_commit_bad_subject_good_title_is_fatal(
+        self, pr_run, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        log = _Log(monkeypatch)
+        _reword_head("Bad Commit Subject")
+        pr = {"title": "fix: good title", "commits": 1, "head": {"sha": _head()}}
+        pr_run("fix: good title", _FakeGh(pr=pr, repo=self._DEFAULT))
+
+        assert cv.run() == 1
+        assert any("one commit failed validation" in e for e in log.errors)
+        assert any("Bad Commit Subject" in e for e in log.errors)
+
+    def test_one_commit_good_subject_bad_title_passes_with_advice(
+        self, pr_run, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        log = _Log(monkeypatch)
+        pr = {"title": "fix: GA public tree", "commits": 1, "head": {"sha": _head()}}
+        pr_run("fix: GA public tree", _FakeGh(pr=pr, repo=self._DEFAULT))
+
+        assert cv.run() == 0
+        assert log.errors == []
+        assert any("will not land" in w for w in log.warns)
+        assert any(
+            "(commit " in s and "fix: good branch commit" in s for s in log.successes
+        )
+
+    def test_several_commits_make_the_title_fatal(
+        self, pr_run, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        log = _Log(monkeypatch)
+        pr = {"title": "fix: GA public tree", "commits": 2, "head": {"sha": _head()}}
+        pr_run("fix: GA public tree", _FakeGh(pr=pr, repo=self._DEFAULT))
+
+        assert cv.run() == 1
+        assert any("COMMIT_OR_PR_TITLE, 2 commit(s)" in e for e in log.errors)
+
+    @pytest.mark.parametrize(("extra_commits", "rc"), [(0, 0), (1, 1)])
+    def test_the_range_counts_when_the_pr_has_no_commits_field(
+        self,
+        pr_run,
+        monkeypatch: pytest.MonkeyPatch,
+        extra_commits: int,
+        rc: int,
+    ) -> None:
+        _Log(monkeypatch)
+        for n in range(extra_commits):
+            _commit(Path.cwd(), f"fix: extra commit {n}")
+        pr = {"title": "fix: GA public tree", "head": {"sha": _head()}}
+        pr_run("fix: GA public tree", _FakeGh(pr=pr, repo=self._DEFAULT))
+
+        # One commit lands its own good message; two land the bad title.
+        assert cv.run() == rc
+
+    @pytest.mark.parametrize("setting", ["COMMIT_MESSAGES", "SOMETHING_NEW"])
+    def test_an_unknown_setting_makes_the_title_fatal(
+        self, pr_run, monkeypatch: pytest.MonkeyPatch, setting: str
+    ) -> None:
+        log = _Log(monkeypatch)
+        pr = {"title": "fix: GA public tree", "commits": 1, "head": {"sha": _head()}}
+        pr_run("fix: GA public tree", _FakeGh(pr=pr, repo=_squash_setting(setting)))
+
+        assert cv.run() == 1
+        assert any(setting in i for i in log.infos)
+        assert any(f"squash_merge_commit_title={setting}" in e for e in log.errors)
+
+    def test_a_failed_repo_read_assumes_the_default(
+        self, pr_run, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        log = _Log(monkeypatch)
+        pr = {"title": "fix: GA public tree", "commits": 1, "head": {"sha": _head()}}
+        pr_run("fix: GA public tree", _FakeGh(pr=pr, repo_fails=True))
+
+        assert cv.run() == 0
+        assert any("assuming GitHub's default" in w for w in log.warns)
+        assert any("will not land" in w for w in log.warns)
+
+    def test_an_unreadable_head_commit_falls_back_to_the_title(
+        self, pr_run, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        log = _Log(monkeypatch)
+        pr = {"title": "fix: GA public tree", "commits": 1, "head": {"sha": "f" * 40}}
+        pr_run("fix: GA public tree", _FakeGh(pr=pr, repo=self._DEFAULT))
+
+        assert cv.run() == 1
+        assert any("Could not read the PR's one commit" in w for w in log.warns)
 
 
 class TestRunLocal:

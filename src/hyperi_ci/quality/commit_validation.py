@@ -78,6 +78,10 @@ _TRUTHY_TRAILER = frozenset({"true", "1", "yes"})
 
 _PR_API_TIMEOUT_SECONDS = 30
 
+# Values of a repo's `squash_merge_commit_title`; the second is GitHub's default.
+_PR_TITLE = "PR_TITLE"
+_COMMIT_OR_PR_TITLE = "COMMIT_OR_PR_TITLE"
+
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -388,8 +392,10 @@ def run(
     - ``pull_request`` -> ADVISORY for the branch commits: failures are
       warned, returns 0. They may be discarded by a squash-merge and are
       never re-validated on the merge push, so a PR gets feedback rather
-      than a hard red. The PR TITLE is FATAL: a squash merge makes it the
-      subject that lands on main, where the push run rejects it.
+      than a hard red. The line a squash merge would LAND is FATAL, because
+      the push run rejects it on main: the PR title, or under GitHub's
+      default ``COMMIT_OR_PR_TITLE`` on a one-commit PR, that commit's
+      message (the title is then advisory).
     - ``merge_group`` (a merge queue entry) -> FATAL. The queue's squash
       commit is the commit main fast-forwards to, so this is the landing
       gate run BEFORE the landing rather than after it.
@@ -406,7 +412,7 @@ def run(
 
     rc, messages = _validate_range()
     if os.environ.get("GITHUB_EVENT_NAME", "") == "pull_request":
-        rc = max(rc, _validate_pr_title(messages))
+        rc = max(rc, _validate_squash_subject(messages))
     return rc
 
 
@@ -483,11 +489,11 @@ def _validate_range() -> tuple[int, list[str]]:
     return 0, messages
 
 
-def _pr_from_api(repo: str, number: object) -> dict | None:
-    """Fetch the pull request from the API, or None when it cannot be read."""
+def _api_object(path: str) -> dict | None:
+    """Fetch one GitHub API object, or None when it cannot be read."""
     try:
         result = gh_run(
-            ["api", f"repos/{repo}/pulls/{number}"],
+            ["api", path],
             check=False,
             timeout=_PR_API_TIMEOUT_SECONDS,
         )
@@ -496,10 +502,17 @@ def _pr_from_api(repo: str, number: object) -> dict | None:
     if result.returncode != 0:
         return None
     try:
-        pr = json.loads(result.stdout)
+        data = json.loads(result.stdout)
     except ValueError:
         return None
-    return pr if isinstance(pr, dict) and isinstance(pr.get("title"), str) else None
+    return data if isinstance(data, dict) else None
+
+
+def _api_ready() -> str | None:
+    """Return the repository to query, or None when the API cannot be used."""
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    has_token = bool(os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"))
+    return repo if repo and has_token else None
 
 
 def _current_pr() -> dict | None:
@@ -511,12 +524,11 @@ def _current_pr() -> dict | None:
     """
     payload_pr = event_payload().get("pull_request") or {}
     number = payload_pr.get("number")
-    repo = os.environ.get("GITHUB_REPOSITORY", "")
-    has_token = bool(os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"))
+    repo = _api_ready()
 
-    if repo and number and has_token:
-        live = _pr_from_api(repo, number)
-        if live is not None:
+    if repo and number:
+        live = _api_object(f"repos/{repo}/pulls/{number}")
+        if live is not None and isinstance(live.get("title"), str):
             return live
         reason = f"could not read PR #{number} from the GitHub API"
     else:
@@ -533,38 +545,141 @@ def _current_pr() -> dict | None:
     return payload_pr
 
 
-def _validate_pr_title(branch_messages: list[str]) -> int:
-    """Validate the PR title, which a squash merge makes the subject on main.
+def _squash_title_setting() -> str:
+    """Return the repo's ``squash_merge_commit_title``, else GitHub's default."""
+    repo = _api_ready()
+    if repo:
+        data = _api_object(f"repos/{repo}")
+        setting = data.get("squash_merge_commit_title") if data else None
+        if isinstance(setting, str) and setting:
+            return setting
+        reason = f"could not read squash_merge_commit_title for {repo}"
+    else:
+        reason = "no GH_TOKEN to read the repo's squash_merge_commit_title"
+    warn(f"{reason}; assuming GitHub's default, {_COMMIT_OR_PR_TITLE}.")
+    return _COMMIT_OR_PR_TITLE
 
-    Fatal, unlike the branch commits. A ``feat:`` title is confirmed by an
-    ``Allow-Feat`` trailer in the PR description or any branch commit, the
-    two sources GitHub builds the squash body from.
 
-    Args:
-        branch_messages: Messages of the pull request's branch commits.
+def _commit_count(pr: dict, branch_messages: list[str]) -> int:
+    """Count the PR's commits, from the API object or else the validated range.
 
-    Returns:
-        1 when the title fails validation, else 0.
+    The range on a ``pull_request`` checkout carries GitHub's synthetic
+    merge commit, which the skip patterns drop from the count.
     """
-    pr = _current_pr()
-    if pr is None:
-        return 0
-    title = pr["title"]
-    result = validate_message(title)
+    count = pr.get("commits")
+    if isinstance(count, int) and not isinstance(count, bool):
+        return count
+    return sum(1 for msg in branch_messages if not _should_skip(msg))
+
+
+def _title_result(pr: dict, branch_messages: list[str]) -> ValidationResult:
+    """Validate the PR title.
+
+    A ``feat:`` title is confirmed by an ``Allow-Feat`` trailer in the PR
+    description or any branch commit, the two sources GitHub builds the
+    squash body from.
+    """
+    result = validate_message(pr["title"])
     if result.error_type == "feat_without_opt_in":
         body = pr.get("body")
         sources = [body if isinstance(body, str) else "", *branch_messages]
         if any(_feat_confirmed(msg) for msg in sources):
             result = ValidationResult(valid=True, reason="", error_type="")
+    return result
 
+
+def _validate_title_lands(pr: dict, branch_messages: list[str], why: str) -> int:
+    """Validate the PR title as the subject a squash merge lands. Fatal."""
+    title = pr["title"]
+    result = _title_result(pr, branch_messages)
     if result.valid:
-        success(f"PR title passed message validation: {title!r}")
+        success(f"Squash subject passed validation (PR title; {why}): {title!r}")
         return 0
 
     error(f"[PR title] {format_rejection(result, title)}")
     error(
-        "The PR title failed validation. A squash merge makes the title the "
+        f"The PR title failed validation ({why}). A squash merge makes it the "
         "commit subject on main, where the push run rejects it. Edit the "
         "title, then push a commit or re-run this job."
     )
     return 1
+
+
+def _validate_one_commit_lands(pr: dict, branch_messages: list[str], why: str) -> int:
+    """Validate the one commit a squash lands under ``COMMIT_OR_PR_TITLE``.
+
+    The commit's own message becomes the squash commit, so it is fatal and
+    the title is advisory.
+    """
+    head_sha = (pr.get("head") or {}).get("sha")
+    rc, commits = (
+        git_log(["-1", head_sha]) if isinstance(head_sha, str) and head_sha else (1, [])
+    )
+    if rc != 0 or not commits:
+        warn(
+            "Could not read the PR's one commit from its head sha; validating "
+            "the PR title as the landing subject instead."
+        )
+        return _validate_title_lands(pr, branch_messages, why)
+
+    commit_hash, message = commits[0]
+    title_result = _title_result(pr, [message])
+    if not title_result.valid:
+        warn(f"[PR title] {format_rejection(title_result, pr['title'])}")
+        warn(
+            f"The PR title will not land ({why}): a squash merge lands the "
+            "commit's own message, so the title is advisory."
+        )
+
+    subject = message.splitlines()[0]
+    result = validate_message(message)
+    if result.valid:
+        success(
+            f"Squash subject passed validation (commit {commit_hash[:8]}; "
+            f"{why}): {subject!r}"
+        )
+        return 0
+
+    error(f"[{commit_hash[:8]}] {format_rejection(result, message)}")
+    error(
+        f"The PR's one commit failed validation ({why}). A squash merge lands "
+        "its message on main, where the push run rejects it. Reword the "
+        "commit and push, or add a second commit so the PR title lands."
+    )
+    return 1
+
+
+def _validate_squash_subject(branch_messages: list[str]) -> int:
+    """Validate the line a squash merge of the PR would land on main.
+
+    GitHub picks it from ``squash_merge_commit_title``: ``PR_TITLE`` lands
+    the title, and ``COMMIT_OR_PR_TITLE`` (the default) lands a one-commit
+    PR's own commit message and the title otherwise. Any other value is
+    treated as ``PR_TITLE``.
+
+    Args:
+        branch_messages: Messages of the pull request's branch commits.
+
+    Returns:
+        1 when the landing line fails validation, else 0.
+    """
+    pr = _current_pr()
+    if pr is None:
+        return 0
+
+    setting = _squash_title_setting()
+    if setting == _COMMIT_OR_PR_TITLE:
+        count = _commit_count(pr, branch_messages)
+        why = f"squash_merge_commit_title={setting}, {count} commit(s)"
+        if count == 1:
+            return _validate_one_commit_lands(pr, branch_messages, why)
+        return _validate_title_lands(pr, branch_messages, why)
+
+    if setting != _PR_TITLE:
+        info(
+            f"squash_merge_commit_title is {setting!r}, not a known value; "
+            "validating the PR title as the landing subject."
+        )
+    return _validate_title_lands(
+        pr, branch_messages, f"squash_merge_commit_title={setting}"
+    )
