@@ -480,6 +480,12 @@ jobs:
           name: release-prepared
           path: ${{ runner.temp }}/release-prepared
 
+      - name: Drop any stamped/ the package phase wrote
+        # The package phase runs the repo's build and package scripts, which
+        # could plant files there for release-commit to restore; only the stamp
+        # phase's own artefact may fill it.
+        run: rm -rf "$RUNNER_TEMP/release-prepared/stamped"
+
       - name: Download the stamp outputs
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:

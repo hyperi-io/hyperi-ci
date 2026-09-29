@@ -76,6 +76,7 @@ ALLOWED_RUN_LINES = {
     "tag-and-release": [
         *_PLACE,
         r"uv python install --no-config \$\{\{ inputs\.python-version \}\}",
+        r'rm -rf "\$RUNNER_TEMP/release-prepared/stamped"',
         rf"{_INSTALL} release-verify",
         r'echo "has=\$\{\{ secrets\.GH_APP_PRIVATE_KEY != \'\' \}\}" >> "\$GITHUB_OUTPUT"',
         r'if \[ "\$\{\{ steps\.bot\.outcome \}\}" = "success" \]; then',
@@ -256,6 +257,25 @@ class TestPublishRunsNoRepoCode:
             "Tag HEAD (forced bump / explicit version)",
         ):
             assert verify < names.index(after)
+
+    def test_only_the_stamp_artefact_fills_stamped(self, job: dict[str, Any]) -> None:
+        """The package phase ran repo code and could plant stamped/<name>."""
+        steps = job["steps"]
+        names = [s.get("name") for s in steps]
+        prepared = names.index("Download the prepared release")
+        stamped = names.index("Download the stamp outputs")
+        drops = [
+            i
+            for i, s in enumerate(steps)
+            if str(s.get("run", "")).strip()
+            == 'rm -rf "$RUNNER_TEMP/release-prepared/stamped"'
+        ]
+        assert drops, "nothing clears stamped/ between the two downloads"
+        assert prepared < drops[0] < stamped
+        assert steps[stamped]["with"]["path"] == (
+            "${{ runner.temp }}/release-prepared/stamped"
+        )
+        assert "continue-on-error" not in steps[drops[0]]
 
     def test_build_artefacts_never_land_on_the_checkout(
         self, job: dict[str, Any]
