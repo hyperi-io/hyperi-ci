@@ -32,10 +32,10 @@ SELF_HOSTED_JOB_LIMIT = 5 * 24 * 60
 # Anything that would put a GitHub credential in front of test code.
 _CREDENTIAL = re.compile(r"github\.token|secrets\.GITHUB_TOKEN|GH_TOKEN|GITHUB_TOKEN")
 
-# Steps that hold the job token without running tests: rust-ci.yml clones a
-# caller's sibling-checkouts with it.
+# Steps that hold the job token without running tests: every workflow inits a
+# caller's submodules with it, and rust-ci.yml clones sibling-checkouts.
 _MAY_HOLD_A_TOKEN = frozenset(
-    {"Run tests with a GitHub token", "Clone sibling checkouts"}
+    {"Run tests with a GitHub token", "Init submodules", "Clone sibling checkouts"}
 )
 
 
