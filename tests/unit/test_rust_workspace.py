@@ -13,12 +13,15 @@ import pytest
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.rust import quality as rust_quality
 from hyperi_ci.languages.rust import test as rust_test
-from hyperi_ci.languages.rust._manifest import is_root_package_workspace
+from hyperi_ci.languages.rust._manifest import PackageScope, is_root_package_workspace
 from hyperi_ci.languages.rust.test import _build_test_cmd, _run_coverage
 from hyperi_ci.languages.tiering import SuiteTier
 
 MODULE = "hyperi_ci.languages.rust.test"
 QUALITY = "hyperi_ci.languages.rust.quality"
+
+WORKSPACE = ("--workspace",)
+WORKSPACE_SCOPES = (PackageScope(args=WORKSPACE),)
 
 ROOT_PACKAGE_WORKSPACE = """\
 [package]
@@ -110,12 +113,12 @@ class TestCommandTakesWorkspace:
         [("nextest", ["cargo", "nextest", "run"]), ("cargo", ["cargo", "test"])],
     )
     def test_core(self, runner: str, prefix: list[str]) -> None:
-        cmd = _build_test_cmd("all", runner=runner, workspace=True)
+        cmd = _build_test_cmd("all", runner=runner, scope=WORKSPACE)
         assert cmd == [*prefix, "--workspace", "--all-features"]
 
     def test_full_nextest(self) -> None:
         cmd = _build_test_cmd(
-            "all", runner="nextest", test_tier=SuiteTier.FULL, workspace=True
+            "all", runner="nextest", test_tier=SuiteTier.FULL, scope=WORKSPACE
         )
         assert cmd == [
             "cargo",
@@ -130,7 +133,7 @@ class TestCommandTakesWorkspace:
 
     def test_full_cargo_keeps_workspace_before_the_separator(self) -> None:
         cmd = _build_test_cmd(
-            "all", runner="cargo", test_tier=SuiteTier.FULL, workspace=True
+            "all", runner="cargo", test_tier=SuiteTier.FULL, scope=WORKSPACE
         )
         assert cmd == [
             "cargo",
@@ -143,7 +146,7 @@ class TestCommandTakesWorkspace:
 
     def test_rust_tier_subset(self) -> None:
         cmd = _build_test_cmd(
-            "default", rust_tier="unit", runner="nextest", workspace=True
+            "default", rust_tier="unit", runner="nextest", scope=WORKSPACE
         )
         assert cmd == ["cargo", "nextest", "run", "--workspace", "--lib"]
 
@@ -185,7 +188,7 @@ class TestCoverageTakesWorkspace:
         self, monkeypatch: pytest.MonkeyPatch, streams: _Streams
     ) -> None:
         _only_tool(monkeypatch, "cargo-llvm-cov")
-        _run_coverage("all", runner="nextest", workspace=True)
+        _run_coverage("all", runner="nextest", scopes=WORKSPACE_SCOPES)
         assert streams.commands == [
             [
                 *LLVM_COV_PREFIX,
@@ -199,7 +202,9 @@ class TestCoverageTakesWorkspace:
         self, monkeypatch: pytest.MonkeyPatch, streams: _Streams
     ) -> None:
         _only_tool(monkeypatch, "cargo-llvm-cov")
-        _run_coverage("all", runner="cargo", test_tier=SuiteTier.FULL, workspace=True)
+        _run_coverage(
+            "all", runner="cargo", test_tier=SuiteTier.FULL, scopes=WORKSPACE_SCOPES
+        )
         assert streams.commands[0][-4:] == [
             "--workspace",
             "--all-features",
@@ -211,7 +216,7 @@ class TestCoverageTakesWorkspace:
         self, monkeypatch: pytest.MonkeyPatch, streams: _Streams
     ) -> None:
         _only_tool(monkeypatch, "cargo-tarpaulin")
-        _run_coverage("all", runner="cargo", workspace=True)
+        _run_coverage("all", runner="cargo", scopes=WORKSPACE_SCOPES)
         assert streams.commands == [
             [*TARPAULIN_PREFIX, "--workspace", "--all-features"]
         ]

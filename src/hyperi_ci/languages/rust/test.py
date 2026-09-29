@@ -18,10 +18,15 @@ reports its run and skipped counts as a ``test tier`` notice.
 Where the root Cargo.toml is both a package and a workspace with no
 ``default-members``, every command takes ``--workspace``: cargo would
 otherwise test the root package alone.
+
+A member named in ``build.rust.isolate_members`` is tested in a cargo
+invocation of its own, after the rest of the workspace runs with an
+``--exclude`` for it, so its compile does not overlap theirs.
 """
 
 import re
 import shutil
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -39,7 +44,11 @@ from hyperi_ci.common import (
     warn,
 )
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.rust._manifest import is_root_package_workspace
+from hyperi_ci.languages.rust._manifest import (
+    PackageScope,
+    is_root_package_workspace,
+    package_scopes,
+)
 from hyperi_ci.languages.tiering import (
     KeptLines,
     SuiteTier,
@@ -171,18 +180,19 @@ def _split_feature_sets(features: str) -> list[str]:
     return [f.strip() for f in features.split("|") if f.strip()]
 
 
-def _scope_args(features: str, *, workspace: bool) -> list[str]:
+def _scope_args(features: str, *, scope: Sequence[str] = ()) -> list[str]:
     """Return the package and feature switches every test command shares.
 
     Args:
         features: ``all``, ``default`` or a feature list.
-        workspace: Whether to pass ``--workspace``.
+        scope: Package switches from :class:`PackageScope`, such as
+            ``--workspace``.
 
     Returns:
-        The switches, ``--workspace`` first.
+        The switches, the package ones first.
 
     """
-    args = ["--workspace"] if workspace else []
+    args = list(scope)
     if features == "all":
         args.append("--all-features")
     elif features != "default":
@@ -260,7 +270,7 @@ def _build_test_cmd(
     runner: str = "cargo",
     test_tier: SuiteTier = SuiteTier.CORE,
     selection: FullSelection = _NO_EXCLUSIONS,
-    workspace: bool = False,
+    scope: Sequence[str] = (),
 ) -> list[str]:
     """Build the cargo test command for the resolved runner.
 
@@ -273,7 +283,8 @@ def _build_test_cmd(
         runner: ``nextest`` or ``cargo``.
         test_tier: The test tier; ``full`` adds the ignored tests.
         selection: What full leaves out; ignored under ``core``.
-        workspace: Pass ``--workspace``, for a root-package workspace.
+        scope: Package switches, such as ``--workspace`` for a root-package
+            workspace.
 
     Returns:
         The command.
@@ -289,7 +300,7 @@ def _build_test_cmd(
     else:
         cmd.append("test")
 
-    cmd.extend(_scope_args(features, workspace=workspace))
+    cmd.extend(_scope_args(features, scope=scope))
 
     if rust_tier == "unit":
         cmd.append("--lib")
@@ -381,6 +392,11 @@ def _run_tests(
     return rc
 
 
+def _scope_what(what: str, scope: PackageScope) -> str:
+    """Add the scope's label, when it has one, to a tier-notice prefix."""
+    return ", ".join(part for part in (what, scope.label) if part)
+
+
 def _note_coverage_runner(runner: str, tool: str) -> None:
     """Report when a coverage tool overrides the resolved runner.
 
@@ -401,72 +417,137 @@ def _run_coverage(
     test_tier: SuiteTier = SuiteTier.CORE,
     selection: FullSelection = _NO_EXCLUSIONS,
     what: str = "",
-    workspace: bool = False,
+    scopes: Sequence[PackageScope] = (PackageScope(),),
 ) -> int:
     """Run tests with coverage using tarpaulin or llvm-cov.
 
     Both tools spell the all-members switch ``--workspace``, as cargo does.
+    With more than one scope, llvm-cov clears old profiles, runs each scope
+    without a report and then writes one report over them all. tarpaulin cannot
+    merge runs, so it writes an isolated member's report under
+    ``test-results/<member>``.
 
     Returns exit code (0 = success), or -1 when neither tool is installed.
     """
     _RESULTS_DIR.mkdir(exist_ok=True)
     full = test_tier is SuiteTier.FULL
+    split = len(scopes) > 1
 
     if shutil.which("cargo-tarpaulin"):
         if full and selection.filterset:
             error(_filterset_unusable("cargo-tarpaulin"))
             return 1
-        cmd = [
-            "cargo",
-            "tarpaulin",
-            "--out",
-            "Lcov",
-            "--out",
-            "Html",
-            "--output-dir",
-            str(_RESULTS_DIR),
-            *_scope_args(features, workspace=workspace),
-        ]
-        if full:
-            cmd.extend(["--", *selection.harness_args(include_ignored=True)])
-
         info("  Running tests with cargo-tarpaulin for coverage...")
         _note_coverage_runner(runner, "cargo-tarpaulin")
-        rc = _run_tests(cmd, test_tier, what)
-        if rc != 0:
-            error("Rust coverage tests failed")
-            return rc
-        info(f"  Coverage report: {_RESULTS_DIR}/tarpaulin-report.html")
+        for scope in scopes:
+            out_dir = _RESULTS_DIR
+            if split and scope.args[:1] == ("-p",):
+                out_dir = _RESULTS_DIR / scope.args[1]
+            cmd = [
+                "cargo",
+                "tarpaulin",
+                "--out",
+                "Lcov",
+                "--out",
+                "Html",
+                "--output-dir",
+                str(out_dir),
+                *_scope_args(features, scope=scope.args),
+            ]
+            if full:
+                cmd.extend(["--", *selection.harness_args(include_ignored=True)])
+
+            rc = _run_tests(cmd, test_tier, _scope_what(what, scope))
+            if rc != 0:
+                error("Rust coverage tests failed")
+                return rc
+            info(f"  Coverage report: {out_dir}/tarpaulin-report.html")
         return 0
 
     if shutil.which("cargo-llvm-cov"):
         lcov_path = _RESULTS_DIR / "lcov.info"
         html_dir = _RESULTS_DIR / "coverage-html"
-        cmd = ["cargo", "llvm-cov"]
-        # `cargo llvm-cov nextest` keeps the resolved runner instead of
-        # swapping it for cargo's harness, so a repo on nextest measures the
-        # tests it actually ships. This composition is why llvm-cov was chosen
-        # over tarpaulin, which cannot do it (issue #140).
-        if runner == "nextest":
-            cmd.append("nextest")
-        cmd.extend(["--lcov", "--output-path", str(lcov_path)])
-        cmd.extend(_scope_args(features, workspace=workspace))
-        if full and runner == "nextest":
-            cmd.extend(selection.nextest_args())
-            if harness := selection.harness_args(include_ignored=False):
-                cmd.extend(["--", *harness])
-        elif full:
-            cmd.extend(["--", *selection.harness_args(include_ignored=True)])
-
         info("  Running tests with cargo-llvm-cov for coverage...")
         _note_coverage_runner(runner, "cargo-llvm-cov")
-        rc = _run_tests(cmd, test_tier, what, env=_LLVM_COV_ENV)
-        if rc != 0:
-            error("Rust coverage tests failed")
-            return rc
+        if split:
+            # A --no-report run keeps the profiles already on disk, so a stale
+            # one from an earlier run would be merged into this report.
+            clean = run_cmd(
+                ["cargo", "llvm-cov", "clean", "--workspace"],
+                check=False,
+                env=_LLVM_COV_ENV,
+            )
+            if clean.returncode != 0:
+                error(f"cargo llvm-cov clean exited {clean.returncode}")
+                return clean.returncode
+        for scope in scopes:
+            cmd = ["cargo", "llvm-cov"]
+            # `cargo llvm-cov nextest` keeps the resolved runner instead of
+            # swapping it for cargo's harness, so a repo on nextest measures the
+            # tests it actually ships. This composition is why llvm-cov was
+            # chosen over tarpaulin, which cannot do it (issue #140).
+            if runner == "nextest":
+                cmd.append("nextest")
+            package_args = list(scope.args)
+            if split:
+                # llvm-cov's own --exclude would drop the member from the report.
+                cmd.append("--no-report")
+                package_args = [
+                    "--exclude-from-test" if arg == "--exclude" else arg
+                    for arg in package_args
+                ]
+            else:
+                cmd.extend(["--lcov", "--output-path", str(lcov_path)])
+            cmd.extend(_scope_args(features, scope=package_args))
+            if full and runner == "nextest":
+                cmd.extend(selection.nextest_args())
+                if harness := selection.harness_args(include_ignored=False):
+                    cmd.extend(["--", *harness])
+            elif full:
+                cmd.extend(["--", *selection.harness_args(include_ignored=True)])
+
+            rc = _run_tests(cmd, test_tier, _scope_what(what, scope), env=_LLVM_COV_ENV)
+            if rc != 0:
+                error("Rust coverage tests failed")
+                return rc
+
+        # `report` has no --workspace, and without a -p per package it reports
+        # the root package alone.
+        report_packages: list[str] = []
+        if split:
+            report_packages = [
+                arg
+                for scope in scopes
+                for name in scope.packages
+                for arg in ("-p", name)
+            ]
+            lcov = run_cmd(
+                [
+                    "cargo",
+                    "llvm-cov",
+                    "report",
+                    "--lcov",
+                    "--output-path",
+                    str(lcov_path),
+                    *report_packages,
+                ],
+                check=False,
+                env=_LLVM_COV_ENV,
+            )
+            if lcov.returncode != 0:
+                error(f"cargo llvm-cov report exited {lcov.returncode}, no lcov report")
+                return lcov.returncode
 
         report = run_cmd(
-            ["cargo", "llvm-cov", "report", "--html", "--output-dir", str(html_dir)],
+            [
+                "cargo",
+                "llvm-cov",
+                "report",
+                "--html",
+                "--output-dir",
+                str(html_dir),
+                *report_packages,
+            ],
             check=False,
             env=_LLVM_COV_ENV,
         )
@@ -520,6 +601,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     workspace = is_root_package_workspace()
     if workspace:
         info("  Root package is also a workspace: --workspace, so every member runs")
+    scopes = package_scopes(config, workspace=workspace)
     features = (extra_env or {}).get("RUST_FEATURES", "all")
     rust_tier = config.get("test.rust.tier", "all")
     feature_sets = _split_feature_sets(features)
@@ -538,7 +620,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
                 test_tier=test_tier,
                 selection=selection,
                 what=what,
-                workspace=workspace,
+                scopes=scopes,
             )
             if rc >= 0:
                 if rc == 0:
@@ -547,39 +629,84 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
                     return rc
                 continue
 
-        # Standard test execution (no coverage tool, or a test.rust.tier subset)
-        if rust_tier == "all":
-            cmd = _build_test_cmd(
+        for scope in scopes:
+            rc = _run_scope(
+                scope,
                 feature_set,
+                rust_tier=rust_tier,
                 runner=runner,
                 test_tier=test_tier,
                 selection=selection,
-                workspace=workspace,
+                what=what,
+                label=label,
             )
-            rc = _run_tests(cmd, test_tier, what)
             if rc != 0:
-                error(f"Rust tests failed{label}")
                 return rc
-            success(f"Rust tests passed{label}")
+
+    return 0
+
+
+def _run_scope(
+    scope: PackageScope,
+    feature_set: str,
+    *,
+    rust_tier: str,
+    runner: str,
+    test_tier: SuiteTier,
+    selection: FullSelection,
+    what: str,
+    label: str,
+) -> int:
+    """Run one feature set's tests, without coverage, over one package scope.
+
+    Args:
+        scope: The packages this invocation covers.
+        feature_set: ``all``, ``default`` or a feature list.
+        rust_tier: ``test.rust.tier``: ``all`` or one of unit, integration, e2e.
+        runner: ``nextest`` or ``cargo``.
+        test_tier: The test tier.
+        selection: What full leaves out.
+        what: Tier-notice prefix naming the feature set, or empty.
+        label: Log suffix naming the feature set, or empty.
+
+    Returns:
+        The first non-zero exit code, else 0.
+
+    """
+    what = _scope_what(what, scope)
+    if scope.label:
+        label = f"{label} ({scope.label})"
+
+    if rust_tier == "all":
+        cmd = _build_test_cmd(
+            feature_set,
+            runner=runner,
+            test_tier=test_tier,
+            selection=selection,
+            scope=scope.args,
+        )
+        rc = _run_tests(cmd, test_tier, what)
+        if rc != 0:
+            error(f"Rust tests failed{label}")
+            return rc
+        success(f"Rust tests passed{label}")
+        return 0
+
+    for kind in ("unit", "integration", "e2e"):
+        if rust_tier != kind:
             continue
-
-        # test.rust.tier subset
-        for kind in ("unit", "integration", "e2e"):
-            if rust_tier != kind:
-                continue
-            cmd = _build_test_cmd(
-                feature_set,
-                rust_tier=kind,
-                runner=runner,
-                test_tier=test_tier,
-                selection=selection,
-                workspace=workspace,
-            )
-            info(f"  Running {kind} tests{label}...")
-            rc = _run_tests(cmd, test_tier, f"{what} {kind}".strip())
-            if rc != 0:
-                error(f"  {kind} tests failed{label}")
-                return rc
-            success(f"  {kind} tests passed{label}")
-
+        cmd = _build_test_cmd(
+            feature_set,
+            rust_tier=kind,
+            runner=runner,
+            test_tier=test_tier,
+            selection=selection,
+            scope=scope.args,
+        )
+        info(f"  Running {kind} tests{label}...")
+        rc = _run_tests(cmd, test_tier, f"{what} {kind}".strip())
+        if rc != 0:
+            error(f"  {kind} tests failed{label}")
+            return rc
+        success(f"  {kind} tests passed{label}")
     return 0

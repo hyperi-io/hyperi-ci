@@ -48,6 +48,8 @@ In CI the reusable workflows pick the tier per run and set `HYPERCI_TEST_TIER`. 
 
 In both tiers, a root Cargo.toml that is both a `[package]` and a `[workspace]` adds `--workspace` to every Rust command, because cargo otherwise tests the root package alone. A virtual workspace (no root `[package]`), a single crate and a workspace that sets `default-members` run unchanged: cargo's default covers the first two, and `default-members` is the repo's own choice of what runs. With `--workspace`, the default `features: all` turns on every member's features at once, mutually exclusive ones included, as a virtual workspace already does. Narrow it with `test.rust.features`, where `|` separates feature sets that run one after another.
 
+A member listed in `build.rust.isolate_members` is tested in a cargo invocation of its own (`-p <member>`), after the rest run as `--workspace --exclude <member>`. llvm-cov merges the runs into one `lcov.info`. tarpaulin cannot, so an isolated member's report goes to `test-results/<member>/`. Why: [runners.md](runtime/runners.md).
+
 **TypeScript.** A `test:<tier>` script runs exactly as package.json writes it, with no `--coverage` appended, because it need not be vitest or jest.
 
 A full run that could only run the core command says so with a `test tier full` warning: TypeScript with no `test:full` script, and Go always.

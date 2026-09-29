@@ -374,6 +374,12 @@ build:
     # Memory planned per concurrent rustc under `jobs: auto`. Raise it for a
     # workspace whose big crates each take several GiB.
     memory_per_job_gib: 2
+    # Workspace members that Quality and Test compile in a cargo invocation of
+    # their own (`-p <member>`), after the rest run as `--workspace --exclude
+    # <member>`. For a member whose single rustc is too big to share the runner
+    # with the others. The job cap cannot help there: it limits how many rustc
+    # run, not how big one gets. Every member is still linted and tested.
+    isolate_members: []
 
   golang:
     targets:

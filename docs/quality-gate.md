@@ -156,6 +156,8 @@ passed shared excludes.
 
 **A Rust root-package workspace is checked whole.** Where the root Cargo.toml is both a `[package]` and a `[workspace]` with no `default-members`, clippy, cargo deny, the feature matrix and the rustdoc hint take `--workspace`, because cargo otherwise checks the root package alone (cargo fmt and cargo audit already cover every member). The feature matrix keeps its per-member `-p` in a workspace mixing lib and bin-only members, and adds nothing when `feature_matrix.extra_args` names a scope. `--all-features` then turns on every member's features, mutually exclusive ones included, as a virtual workspace already does. Narrow it with `quality.rust.features`, where `|` separates feature sets that run one after another.
 
+**`build.rust.isolate_members` splits the workspace-wide passes.** Each listed member gets clippy (both passes), the feature matrix's no-default-features pass and rustdoc in a cargo invocation of its own (`-p <member>`), after the rest run as `--workspace --exclude <member>`. cargo-hack's each-feature pass already runs one cargo per package, and cargo deny reads metadata without compiling, so neither is split. Why a member would need this: [runners.md](runtime/runners.md).
+
 **ruff is four keys, not one.** `quality.python.ruff` governs the LINT passes
 only; the formatter is `quality.python.ruff_format`, the S rules are
 `quality.python.ruff_security` and the D rules are

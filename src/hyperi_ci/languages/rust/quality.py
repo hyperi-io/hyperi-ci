@@ -13,6 +13,12 @@ Each tool's mode (blocking/warn/disabled) is configurable via
 In a root-package workspace, the package-scoped commands (clippy, cargo deny,
 the feature matrix, rustdoc) take ``--workspace`` so members are checked too.
 cargo fmt and cargo audit cover the whole workspace already.
+
+A member named in ``build.rust.isolate_members`` gets clippy, the feature
+matrix's no-default-features pass and rustdoc in a cargo invocation of its own,
+so its compile does not overlap the rest of the workspace's. cargo deny reads
+metadata without compiling, and cargo-hack already runs one cargo per package,
+so neither is split.
 """
 
 import os
@@ -27,7 +33,10 @@ from hyperi_ci.common import announce, error, info, is_ci, strip_ansi, success, 
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import get_test_ignore, resolve_tool_mode
 from hyperi_ci.languages.rust._manifest import (
+    PackageScope,
     is_root_package_workspace,
+    package_has_lib,
+    package_scopes,
     restore_cargo_manifests,
 )
 from hyperi_ci.languages.rust.targets import cargo_metadata
@@ -201,10 +210,7 @@ def _package_lib_map(project_dir: Path | None = None) -> dict[str, bool]:
         name = package.get("name")
         if not name:
             continue
-        lib_map[name] = any(
-            "lib" in target.get("kind", []) or "rlib" in target.get("kind", [])
-            for target in package.get("targets", [])
-        )
+        lib_map[name] = package_has_lib(package)
     return lib_map
 
 
@@ -322,6 +328,8 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             "matrix and rustdoc take --workspace, so every member is checked"
         )
 
+    scopes = package_scopes(config, workspace=workspace)
+
     for feature_set in feature_sets:
         feature_args = []
         if feature_set == "all":
@@ -329,34 +337,39 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         elif feature_set != "default":
             feature_args.extend(["--features", feature_set])
 
-        # Production pass -- lib (when present) + bins, no test/bench targets.
-        # Bin-only crates would fail clippy --lib with "no library targets
-        # found", so we only include --lib when the project actually has one.
-        target_args = ["--lib", "--bins"] if has_lib else ["--bins"]
-        prod_cmd = ["cargo", "clippy", *workspace_args, *target_args, *feature_args]
-        prod_cmd.extend(
-            ["--", "-D", "warnings", "-D", "clippy::dbg_macro", *clippy_user_allows]
-        )
-        if not _run_tool(f"clippy src ({feature_set})", prod_cmd, mode):
-            had_failure = True
+        for scope in scopes:
+            what = f"{feature_set}, {scope.label}" if scope.label else feature_set
 
-        # Test pass -- test + bench targets, relaxed
-        test_cmd = ["cargo", "clippy", *workspace_args, "--tests", "--benches"]
-        test_cmd.extend(feature_args)
-        allow_flags = [f"-A{rule}" for rule in test_ignore]
-        test_cmd.extend(
-            [
-                "--",
-                "-D",
-                "warnings",
-                "-D",
-                "clippy::dbg_macro",
-                *allow_flags,
-                *clippy_user_allows,
-            ]
-        )
-        if not _run_tool(f"clippy tests ({feature_set})", test_cmd, mode):
-            had_failure = True
+            # Production pass -- lib (when present) + bins, no test/bench targets.
+            # Bin-only crates would fail clippy --lib with "no library targets
+            # found", so we only include --lib when the project actually has one.
+            target_args = (
+                ["--lib", "--bins"] if _scope_has_lib(scope, has_lib) else ["--bins"]
+            )
+            prod_cmd = ["cargo", "clippy", *scope.args, *target_args, *feature_args]
+            prod_cmd.extend(
+                ["--", "-D", "warnings", "-D", "clippy::dbg_macro", *clippy_user_allows]
+            )
+            if not _run_tool(f"clippy src ({what})", prod_cmd, mode):
+                had_failure = True
+
+            # Test pass -- test + bench targets, relaxed
+            test_cmd = ["cargo", "clippy", *scope.args, "--tests", "--benches"]
+            test_cmd.extend(feature_args)
+            allow_flags = [f"-A{rule}" for rule in test_ignore]
+            test_cmd.extend(
+                [
+                    "--",
+                    "-D",
+                    "warnings",
+                    "-D",
+                    "clippy::dbg_macro",
+                    *allow_flags,
+                    *clippy_user_allows,
+                ]
+            )
+            if not _run_tool(f"clippy tests ({what})", test_cmd, mode):
+                had_failure = True
 
     # Advisory ignores declared in deny.toml are shared with cargo-audit
     # and osv-scanner so one entry silences all three tools (issue #42).
@@ -403,12 +416,12 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     # Feature matrix check (cargo hack --each-feature)
     if not _run_feature_matrix(
-        config, workspace=workspace, clippy_allows=clippy_user_allows
+        config, workspace=workspace, clippy_allows=clippy_user_allows, scopes=scopes
     ):
         had_failure = True
 
     # Rustdoc compliance hint (non-blocking; default: enabled)
-    _run_rustdoc_hint(config, workspace=workspace)
+    _run_rustdoc_hint(config, workspace=workspace, scopes=scopes)
 
     # Rustflags this repo declares but cannot ship (issue #178). Reads config
     # and .gitignore only, so it costs nothing and runs whatever else ran.
@@ -416,6 +429,11 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         had_failure = True
 
     return 1 if had_failure else 0
+
+
+def _scope_has_lib(scope: PackageScope, workspace_has_lib: bool) -> bool:
+    """Return whether ``scope`` has a lib target, else the workspace-wide answer."""
+    return workspace_has_lib if scope.has_lib is None else scope.has_lib
 
 
 def _names_a_package_scope(args: list[str]) -> bool:
@@ -433,6 +451,7 @@ def _run_feature_matrix(
     *,
     workspace: bool = False,
     clippy_allows: Sequence[str] = (),
+    scopes: Sequence[PackageScope] = (),
 ) -> bool:
     """Run the cargo-hack feature matrix under clippy.
 
@@ -460,6 +479,11 @@ def _run_feature_matrix(
             a scope.
         clippy_allows: ``-A<lint>`` flags from the repo's clippy ignores, so a
             lint the repo allowed is not reported again per feature.
+        scopes: From :func:`package_scopes`. More than one splits the
+            no-default-features pass into one invocation per scope, unless the
+            members are already scoped with ``-p`` or ``extra_args`` names a
+            scope. cargo-hack runs one cargo per package already, so its pass
+            is not split.
 
     Returns:
         True when the check passed or was disabled with a reason.
@@ -514,21 +538,36 @@ def _run_feature_matrix(
     extra = fm_config.get("extra_args", [])
     extra = [str(x) for x in extra] if isinstance(extra, list) else []
 
+    # Each scope is (package switches, target switches, what it covers).
     lib_map = _package_lib_map()
     mixed_workspace = len(lib_map) > 1 and len(set(lib_map.values())) > 1
     if mixed_workspace:
-        scopes = [
-            (["-p", name], ["--lib"] if has_lib else ["--bins"])
+        hack_scopes = [
+            (["-p", name], ["--lib"] if has_lib else ["--bins"], name)
             for name, has_lib in sorted(lib_map.items())
         ]
+        bare_scopes = hack_scopes
     else:
-        widen = workspace and not _names_a_package_scope(extra)
-        scopes = [
+        repo_scoped = _names_a_package_scope(extra)
+        has_lib = _has_lib_target()
+        widen = workspace and not repo_scoped
+        hack_scopes = [
             (
                 ["--workspace"] if widen else [],
-                ["--lib"] if _has_lib_target() else ["--bins"],
+                ["--lib"] if has_lib else ["--bins"],
+                "",
             )
         ]
+        bare_scopes = hack_scopes
+        if len(scopes) > 1 and not repo_scoped:
+            bare_scopes = [
+                (
+                    list(scope.args),
+                    ["--lib"] if _scope_has_lib(scope, has_lib) else ["--bins"],
+                    scope.label,
+                )
+                for scope in scopes
+            ]
 
     lint_tool = "check" if _get_tool_mode("clippy", config) == "disabled" else "clippy"
     lint_args: list[str] = []
@@ -567,7 +606,8 @@ def _run_feature_matrix(
         # Pass 1 -- bare crate (no default features). Catches "breaks without
         # defaults" bugs.
         if fm_config.get("also_check_no_default_features", True):
-            for scope_args, target_args in scopes:
+            split = len(bare_scopes) > 1 and not mixed_workspace
+            for scope_args, target_args, covers in bare_scopes:
                 cmd = [
                     "cargo",
                     lint_tool,
@@ -576,14 +616,17 @@ def _run_feature_matrix(
                     *target_args,
                     *lint_args,
                 ]
-                label = " on ".join(["--no-default-features", *scope_args[1:]])
-                if not _run_matrix_pass(
-                    "feature_matrix (no-default-features)", cmd, label, warnings_mode
-                ):
+                label = "--no-default-features"
+                if covers:
+                    label = f"{label} on {covers}"
+                name = "feature_matrix (no-default-features)"
+                if split:
+                    name = f"feature_matrix (no-default-features, {covers})"
+                if not _run_matrix_pass(name, cmd, label, warnings_mode):
                     had_failure = True
 
         # Pass 2 -- each feature in isolation
-        for scope_args, target_args in scopes:
+        for scope_args, target_args, _covers in hack_scopes:
             cmd = [
                 "cargo",
                 "hack",
@@ -760,7 +803,12 @@ def _run_matrix_pass(
     return True
 
 
-def _run_rustdoc_hint(config: CIConfig, *, workspace: bool = False) -> None:
+def _run_rustdoc_hint(
+    config: CIConfig,
+    *,
+    workspace: bool = False,
+    scopes: Sequence[PackageScope] = (),
+) -> None:
     """Run cargo doc and emit a single concise warning if any issues found.
 
     Non-blocking by design: rustdoc hygiene is a ratchet, not a gate. Reports
@@ -770,6 +818,9 @@ def _run_rustdoc_hint(config: CIConfig, *, workspace: bool = False) -> None:
     Args:
         config: Merged CI configuration.
         workspace: Pass ``--workspace``, for a root-package workspace.
+        scopes: From :func:`package_scopes`; one cargo doc per scope with a
+            lib target, the counts summed. Empty means one run as
+            ``workspace`` says.
 
     """
     rd_config = config.get("quality.rust.rustdoc_hint", {})
@@ -787,35 +838,36 @@ def _run_rustdoc_hint(config: CIConfig, *, workspace: bool = False) -> None:
     if not _has_lib_target():
         return
 
-    # Build with --no-deps + RUSTDOCFLAGS treating warnings as warnings (default)
-    # We just want the count, not to fail.
-    result = subprocess.run(
-        [
-            "cargo",
-            "doc",
-            *(["--workspace"] if workspace else []),
-            "--no-deps",
-            "--lib",
-            "--all-features",
-        ],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        env={
-            **os.environ,
-            "RUSTDOCFLAGS": "-W rustdoc::broken_intra_doc_links "
-            "-W rustdoc::private_intra_doc_links "
-            "-W rustdoc::invalid_codeblock_attributes "
-            "-W rustdoc::invalid_rust_codeblocks "
-            "-W rustdoc::bare_urls",
-        },
-    )
-    combined = (result.stdout or "") + (result.stderr or "")
-    warning_count = combined.count("warning:")
-    # Each documented crate adds one "warning: `x` (lib doc) generated N
-    # warnings" summary line, which is not a finding of its own.
-    warning_count = max(0, warning_count - combined.count("lib doc) generated"))
+    if not scopes:
+        scopes = [PackageScope(args=("--workspace",) if workspace else ())]
+
+    warning_count = 0
+    for scope in scopes:
+        # `cargo doc -p <member> --lib` fails on a bin-only member.
+        if scope.has_lib is False:
+            continue
+        # Build with --no-deps + RUSTDOCFLAGS treating warnings as warnings
+        # (default). We just want the count, not to fail.
+        result = subprocess.run(
+            ["cargo", "doc", *scope.args, "--no-deps", "--lib", "--all-features"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env={
+                **os.environ,
+                "RUSTDOCFLAGS": "-W rustdoc::broken_intra_doc_links "
+                "-W rustdoc::private_intra_doc_links "
+                "-W rustdoc::invalid_codeblock_attributes "
+                "-W rustdoc::invalid_rust_codeblocks "
+                "-W rustdoc::bare_urls",
+            },
+        )
+        combined = (result.stdout or "") + (result.stderr or "")
+        # Each documented crate adds one "warning: `x` (lib doc) generated N
+        # warnings" summary line, which is not a finding of its own.
+        summaries = combined.count("lib doc) generated")
+        warning_count += max(0, combined.count("warning:") - summaries)
 
     if warning_count == 0:
         return
