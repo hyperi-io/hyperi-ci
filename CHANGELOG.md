@@ -3,6 +3,25 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.11.7](https://github.com/hyperi-io/hyperi-ci/compare/v2.11.6...v2.11.7) (2026-09-29)
+
+### Bug Fixes
+
+* **ci:** let a caller give its tests a GitHub token and a Test timeout ([#394](https://github.com/hyperi-io/hyperi-ci/issues/394)) ([13ee5c5](https://github.com/hyperi-io/hyperi-ci/commit/13ee5c5fd54b6497aeaa55b179449689fd6f046f)), closes [#300](https://github.com/hyperi-io/hyperi-ci/issues/300) [#262](https://github.com/hyperi-io/hyperi-ci/issues/262)
+* **ci:** re-publish a tag dispatch under the tag's own version ([#396](https://github.com/hyperi-io/hyperi-ci/issues/396)) ([b07129d](https://github.com/hyperi-io/hyperi-ci/commit/b07129d0351e5a2594f103769e548a7e073d50d8)), closes [#105](https://github.com/hyperi-io/hyperi-ci/issues/105) [#364](https://github.com/hyperi-io/hyperi-ci/issues/364) [#352](https://github.com/hyperi-io/hyperi-ci/issues/352)
+* **ci:** read project config on any runner and run Plan on the GH_RUNNER chain ([#400](https://github.com/hyperi-io/hyperi-ci/issues/400)) ([789594d](https://github.com/hyperi-io/hyperi-ci/commit/789594d85f3d9dc9a9e82f86d7229cb973f5349a)), closes [#291](https://github.com/hyperi-io/hyperi-ci/issues/291)
+* **ci:** run Gate and Commit messages on the GH_RUNNER chain ([#382](https://github.com/hyperi-io/hyperi-ci/issues/382)) ([2bb6a9b](https://github.com/hyperi-io/hyperi-ci/commit/2bb6a9b83633c37a71e5c077f42efa05ac0ba31d)), closes [#291](https://github.com/hyperi-io/hyperi-ci/issues/291)
+* **ci:** run hyperi-ci's own checks on the merge_group event ([#389](https://github.com/hyperi-io/hyperi-ci/issues/389)) ([e912551](https://github.com/hyperi-io/hyperi-ci/commit/e912551ff6986bf3caabc88f8e3aa3c3d75cc1ed)), closes [#228](https://github.com/hyperi-io/hyperi-ci/issues/228)
+* **container:** ship the licence text and index annotations ([#381](https://github.com/hyperi-io/hyperi-ci/issues/381)) ([d57637e](https://github.com/hyperi-io/hyperi-ci/commit/d57637e30c05a2da2923cad8cf6c5f5c3959ee05)), closes [#345](https://github.com/hyperi-io/hyperi-ci/issues/345) [#346](https://github.com/hyperi-io/hyperi-ci/issues/346)
+* **python:** stamp a hatch dynamic version file so the wheel carries the release ([#392](https://github.com/hyperi-io/hyperi-ci/issues/392)) ([e4e07a0](https://github.com/hyperi-io/hyperi-ci/commit/e4e07a024ee0303432d863922bd769e89989335b)), closes [#386](https://github.com/hyperi-io/hyperi-ci/issues/386)
+* **quality:** install and run lychee, markdownlint-cli2 and the mermaid grammar check ([#388](https://github.com/hyperi-io/hyperi-ci/issues/388)) ([109b229](https://github.com/hyperi-io/hyperi-ci/commit/109b2298a67fc772a383412474992aa158d23f45)), closes [#226](https://github.com/hyperi-io/hyperi-ci/issues/226) [#230](https://github.com/hyperi-io/hyperi-ci/issues/230) [#230](https://github.com/hyperi-io/hyperi-ci/issues/230)
+* **quality:** keep a repo's own osv-scanner.toml when hyperi-ci adds ignores ([#383](https://github.com/hyperi-io/hyperi-ci/issues/383)) ([fb7ae25](https://github.com/hyperi-io/hyperi-ci/commit/fb7ae25733ce857dd478d1ecfb552d14054771d7)), closes [#223](https://github.com/hyperi-io/hyperi-ci/issues/223)
+* **quality:** let a repo name the directories whose paths are prescriptive ([#380](https://github.com/hyperi-io/hyperi-ci/issues/380)) ([aab5ed1](https://github.com/hyperi-io/hyperi-ci/commit/aab5ed10679f276533edacd08e397f2ec0a67682)), closes [#253](https://github.com/hyperi-io/hyperi-ci/issues/253)
+* **quality:** report osv-scanner's unreachable-API exit as not scanned ([#397](https://github.com/hyperi-io/hyperi-ci/issues/397)) ([666d34e](https://github.com/hyperi-io/hyperi-ci/commit/666d34e159eae3581efa6da49e7e68cd4df0f7d9)), closes [#384](https://github.com/hyperi-io/hyperi-ci/issues/384)
+* **quality:** run ruff's bandit rules as their own warn-tier pass ([#393](https://github.com/hyperi-io/hyperi-ci/issues/393)) ([945578c](https://github.com/hyperi-io/hyperi-ci/commit/945578c146a1186c5ecd5613143aa378b2c7c7b5)), closes [#347](https://github.com/hyperi-io/hyperi-ci/issues/347)
+* **rust:** let a validate-only dispatch override the BOLT optimise flags ([#395](https://github.com/hyperi-io/hyperi-ci/issues/395)) ([8cc152a](https://github.com/hyperi-io/hyperi-ci/commit/8cc152a6f53f46ad17bb22d8004780c67303ec02)), closes [#262](https://github.com/hyperi-io/hyperi-ci/issues/262)
+* **rust:** lint each feature set with clippy in the feature matrix ([#379](https://github.com/hyperi-io/hyperi-ci/issues/379)) ([0c86ea4](https://github.com/hyperi-io/hyperi-ci/commit/0c86ea4e70a89face1ce1c345bda36118f950625)), closes [#239](https://github.com/hyperi-io/hyperi-ci/issues/239) [#240](https://github.com/hyperi-io/hyperi-ci/issues/240) [#241](https://github.com/hyperi-io/hyperi-ci/issues/241) [#375](https://github.com/hyperi-io/hyperi-ci/issues/375)
+
 ## [2.11.6](https://github.com/hyperi-io/hyperi-ci/compare/v2.11.5...v2.11.6) (2026-09-28)
 
 ### Bug Fixes
