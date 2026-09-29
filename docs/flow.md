@@ -44,15 +44,16 @@ flowchart LR
     test --> rt
     build --> rt
     subgraph rt[Release tail — shared _release-tail.yml]
-      container[Container<br/>build + push GHCR] --> tagpub[Tag & Release]
+      container[Container<br/>build + push GHCR] --> tagpub[Tag & Release<br/>upload only]
+      prepare[Prepare<br/>repo code, no secrets] --> tagpub
     end
     tagpub --> reg[(registries)]
 ```
 
 - Quality / Test / Build run in parallel after Plan.
 - The release tail runs when `run-build` is true, which keeps the arm64-parity
-  build out of it; inside the tail, Tag & Release is `will-release`-only and
-  runs after Container.
+  build out of it; inside the tail, Prepare and Tag & Release are
+  `will-release`-only, and Tag & Release runs after both Container and Prepare.
 
 ## 3. Version - one oracle, used everywhere
 

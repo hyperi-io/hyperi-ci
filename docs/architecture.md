@@ -86,7 +86,7 @@ the single place language divergence is allowed.
 | `quality` | `[plan]` | `run-checks` | Lint / typecheck / security scan |
 | `test` | `[plan]` | `run-checks` | Tests at the plan's `test-tier`, named `Test (<tier>, <runner>)`; a full run passes `--tier full` |
 | `build` | `[plan, quality, test]` | `run-build` | Compile binaries / wheels / packages, stamp version, upload `dist/` |
-| `release-tail` | `[plan, build]` | own gates | Container + tag-and-release, via shared `_release-tail.yml` |
+| `release-tail` | `[plan, build]` | own gates | Container, prepare and tag-and-release, via shared `_release-tail.yml` |
 | `gate` | `[plan, quality, test, build]` | always | `hyperi-ci gate-check`: fails when a required job did not pass, and names the test tier. The context a ruleset should require (issue #177) |
 
 `commit-check` is deliberately **independent of `plan` / `run-checks`**: that
@@ -408,6 +408,18 @@ decoupled from the Container job (`always()`): a transient container/registry
 hiccup surfaces as a red run but the crate/PyPI/npm + GitHub Release still ships
 and the tag is still cut. The container image is a secondary artefact; the
 package is the point of the release.
+
+**Tag & Release runs no repo code (issue #409).** It holds every publish credential, so everything in a release that executes the repo's own code runs first in `prepare`, a job with no secret and a read-only token: the stamp and `release.stamp_cmd`, cargo-semver-checks (which builds the crate), `cargo package`, `prepublishOnly` and `npm pack`. Tag & Release downloads what `prepare` left and only uploads it:
+
+| Ecosystem | Upload | Why no repo code runs |
+|---|---|---|
+| crates.io | `cargo publish --no-verify --manifest-path <repo>/Cargo.toml`, from an empty directory | `--no-verify` builds nothing. cargo cannot publish a `.crate` it did not pack, so it repackages the tree `prepare` stamped. Run outside the repo, cargo reads no `.cargo/config.toml` and rustup no `rust-toolchain.toml`, either of which can name a program. Whether there is a crate at all comes from `prepare`, not `cargo metadata` |
+| npm | the prepared tarball, `--ignore-scripts`, from an empty directory | A tarball publish runs no lifecycle script, and the flag makes that explicit. The token sits in a throwaway user config, so the repo's `.npmrc` is never read. `publish` and `postpublish` scripts no longer run |
+| PyPI | `uv publish --no-config` of the Build job's wheel and sdist | Nothing is built. `--no-config` stops a `[tool.uv] publish-url` sending the token elsewhere, and the token goes by env, not argv |
+| Go | module path read from `go.mod` | `go` is never run |
+| GitHub Release, R2 | `gh release`, `aws s3 cp` of `dist/` | Data only |
+
+The prepared directory comes from a job that ran repo code, so the upload treats it as data: its version and language must match the run's, and `release-commit` restores only `VERSION` and the `release.stamp_paths` files, by name, from the checkout's own config. A failed `prepare` cuts no tag. The Tag step's semantic-release still loads a repo-controlled config, tracked in issue #413.
 
 ## Runner modes (summary)
 
