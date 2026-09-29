@@ -6,9 +6,9 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """OCI-standard label generation for container image builds."""
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
+
+_OCI_KEY_PREFIX = "org.opencontainers.image."
 
 
 def build_oci_labels(
@@ -77,4 +77,26 @@ def labels_to_build_args(labels: dict[str, str]) -> list[str]:
     for key in sorted(labels):
         args.append("--label")
         args.append(f"{key}={labels[key]}")
+    return args
+
+
+def labels_to_index_annotation_args(labels: dict[str, str]) -> list[str]:
+    """Mirror the non-empty ``org.opencontainers.image.*`` labels onto the index.
+
+    GHCR reads a multi-arch package's description from the image index
+    annotations, not from the per-arch image labels.
+
+    Args:
+        labels: Mapping of label keys to values.
+
+    Returns:
+        Flat list of alternating ``--annotation`` flags and
+        ``index:key=value`` strings, sorted by key.
+
+    """
+    args: list[str] = []
+    for key in sorted(labels):
+        if key.startswith(_OCI_KEY_PREFIX) and labels[key]:
+            args.append("--annotation")
+            args.append(f"index:{key}={labels[key]}")
     return args

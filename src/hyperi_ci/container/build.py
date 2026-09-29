@@ -7,11 +7,14 @@
 """Execute docker buildx build with optional multi-registry push."""
 
 import string
-import subprocess
 from collections.abc import Mapping
 from pathlib import Path
 
-from hyperi_ci.common import error, info, success
+from hyperi_ci.common import error, info, run_cmd, success
+from hyperi_ci.container.labels import (
+    labels_to_build_args,
+    labels_to_index_annotation_args,
+)
 from hyperi_ci.release_branches import is_prerelease_version
 
 _BUILD_ARG_PLACEHOLDERS = ("version", "sha")
@@ -87,6 +90,69 @@ def render_build_args(
     return rendered
 
 
+def buildx_command(
+    *,
+    dockerfile_path: Path,
+    context: str = ".",
+    tags: list[str],
+    platforms: list[str],
+    labels: dict[str, str],
+    build_args: dict[str, str] | None = None,
+    push: bool = True,
+) -> list[str]:
+    """Return the ``docker buildx build`` argv :func:`build_and_push` runs.
+
+    A multi-platform build also carries the ``org.opencontainers.image.*``
+    labels as index annotations, which is where GHCR reads a multi-arch
+    package's description from.
+
+    Args:
+        dockerfile_path: Path to the Dockerfile.
+        context: Docker build context directory. Always the last argument.
+        tags: Full image tags spanning all target registries.
+        platforms: Target platforms (e.g. ``["linux/amd64", "linux/arm64"]``).
+        labels: OCI labels dict.
+        build_args: Additional ``--build-arg key=value`` pairs, already
+            rendered by :func:`render_build_args`.
+        push: When True, append ``--push``.
+
+    Returns:
+        The argv list.
+
+    """
+    cmd = [
+        "docker",
+        "buildx",
+        "build",
+        "--file",
+        str(dockerfile_path),
+        "--platform",
+        ",".join(platforms),
+    ]
+
+    for tag in tags:
+        cmd.extend(["--tag", tag])
+
+    cmd.extend(labels_to_build_args(labels))
+
+    # BuildKit refuses index annotations on a single-platform export.
+    if len(platforms) > 1:
+        cmd.extend(labels_to_index_annotation_args(labels))
+
+    if build_args:
+        for key, value in sorted(build_args.items()):
+            cmd.extend(["--build-arg", f"{key}={value}"])
+
+    if push:
+        cmd.append("--push")
+    # No --load / --push: multi-arch builds cannot load into the local
+    # daemon (it only handles one platform at a time). The default
+    # "build and discard" still validates the full Dockerfile.
+
+    cmd.append(context)
+    return cmd
+
+
 def build_and_push(
     *,
     dockerfile_path: Path,
@@ -122,39 +188,21 @@ def build_and_push(
         Exit code (0 = success).
 
     """
-    cmd = [
-        "docker",
-        "buildx",
-        "build",
-        "--file",
-        str(dockerfile_path),
-        "--platform",
-        ",".join(platforms),
-    ]
-
-    for tag in tags:
-        cmd.extend(["--tag", tag])
-
-    for key, value in sorted(labels.items()):
-        cmd.extend(["--label", f"{key}={value}"])
-
-    if build_args:
-        for key, value in sorted(build_args.items()):
-            cmd.extend(["--build-arg", f"{key}={value}"])
-
-    if push:
-        cmd.append("--push")
-    # No --load / --push: multi-arch builds cannot load into the local
-    # daemon (it only handles one platform at a time). The default
-    # "build and discard" still validates the full Dockerfile.
-
-    cmd.append(context)
+    cmd = buildx_command(
+        dockerfile_path=dockerfile_path,
+        context=context,
+        tags=tags,
+        platforms=platforms,
+        labels=labels,
+        build_args=build_args,
+        push=push,
+    )
 
     action = "Pushing" if push else "Validating (no push)"
     info(f"{action}: {', '.join(tags) if tags else '<no tags>'}")
     info(f"Platforms: {', '.join(platforms)}")
 
-    result = subprocess.run(cmd, capture_output=False)
+    result = run_cmd(cmd, check=False)
 
     if result.returncode != 0:
         error("docker buildx build failed")

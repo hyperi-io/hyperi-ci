@@ -5,9 +5,69 @@
 # License:   BUSL-1.1
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
-from __future__ import annotations
+from pathlib import Path
 
-from hyperi_ci.container.build import resolve_tags
+from hyperi_ci.container.build import buildx_command, resolve_tags
+from hyperi_ci.container.labels import build_oci_labels
+
+
+def _annotations(cmd: list[str]) -> list[str]:
+    return [cmd[i + 1] for i, arg in enumerate(cmd) if arg == "--annotation"]
+
+
+class TestIndexAnnotations:
+    """Issue #346: GHCR reads a multi-arch package's description off the index."""
+
+    _LABELS = build_oci_labels(
+        repo="hyperi-io/dfe-loader",
+        revision="abc1234",
+        version="1.13.5",
+        title="dfe-loader",
+        description="Loads events, into ClickHouse",
+    )
+
+    def _cmd(self, platforms: list[str]) -> list[str]:
+        return buildx_command(
+            dockerfile_path=Path("Dockerfile"),
+            context="ctx",
+            tags=["ghcr.io/hyperi-io/dfe-loader:v1.13.5"],
+            platforms=platforms,
+            labels=self._LABELS,
+        )
+
+    def test_multi_arch_build_annotates_the_index(self) -> None:
+        annotations = _annotations(self._cmd(["linux/amd64", "linux/arm64"]))
+        assert (
+            "index:org.opencontainers.image.description=Loads events, into ClickHouse"
+            in annotations
+        )
+        oci_keys = sorted(
+            k for k, v in self._LABELS.items() if k.startswith("org.opencontainers.")
+        )
+        assert annotations == [f"index:{k}={self._LABELS[k]}" for k in oci_keys]
+        # hyperi-specific keys stay labels only.
+        assert not any("io.hyperi." in a for a in annotations)
+
+    def test_empty_values_are_not_annotated(self) -> None:
+        labels = {**self._LABELS, "org.opencontainers.image.description": ""}
+        cmd = buildx_command(
+            dockerfile_path=Path("Dockerfile"),
+            tags=[],
+            platforms=["linux/amd64", "linux/arm64"],
+            labels=labels,
+            push=False,
+        )
+        assert not any("description" in a for a in _annotations(cmd))
+
+    def test_single_platform_build_carries_no_index_annotations(self) -> None:
+        # BuildKit rejects index annotations on a single-platform export.
+        assert _annotations(self._cmd(["linux/amd64"])) == []
+
+    def test_context_stays_last_and_labels_stay(self) -> None:
+        cmd = self._cmd(["linux/amd64", "linux/arm64"])
+        assert cmd[-1] == "ctx"
+        assert cmd[-2] == "--push"
+        assert "org.opencontainers.image.title=dfe-loader" in cmd
 
 
 def test_resolve_tags_validate_mode_returns_no_tags():

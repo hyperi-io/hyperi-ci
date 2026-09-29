@@ -26,13 +26,25 @@ Rewriting only fires when the source file is a bare name that matches a
 ``dist/<name>-linux-*`` artefact. Dockerfiles that already use
 ``COPY dist/<name>-linux-${TARGETARCH} ...`` (the ci-test-* and
 dfe-loader pattern) are left alone.
+
+The same rewrite appends ``COPY LICENSE /licenses/LICENSE`` to the final
+stage when the build context root carries a licence file, so every image
+ships the licence text its ``org.opencontainers.image.licenses`` label
+points at. ``/licenses/`` is the Red Hat container-certification path.
 """
 
+import fnmatch
+import posixpath
 import re
 import tempfile
 from pathlib import Path
 
-from hyperi_ci.common import info
+from hyperi_ci.common import info, warn
+
+LICENCE_DEST = "/licenses/LICENSE"
+
+# Checked in order; the first present wins.
+_LICENCE_NAMES = ("LICENSE", "LICENSE.md", "LICENSE.txt")
 
 # A `COPY <src> <dst>` line we might rewrite. Excludes:
 #   - flag forms (`COPY --from=...`, `COPY --chown=...`)
@@ -63,6 +75,7 @@ def stage_binary_dockerfile(
     dockerfile_path: Path,
     *,
     dist_dir: Path | None = None,
+    context: Path | None = None,
 ) -> Path:
     """Return a path to a Dockerfile with binary COPYs parameterised by arch.
 
@@ -73,9 +86,12 @@ def stage_binary_dockerfile(
     and ``ARG TARGETARCH`` is inserted in the relevant stage if not
     already present.
 
-    If no lines need rewriting (either the Dockerfile uses no bare COPYs
-    or every bare COPY is for a non-binary file), the original
-    ``dockerfile_path`` is returned unchanged -- no temp file is created.
+    When :func:`find_licence_file` finds a licence file in ``context``, a
+    ``COPY <file> /licenses/LICENSE`` line is appended to the final stage.
+
+    If no lines need rewriting and there is no licence file to copy, the
+    original ``dockerfile_path`` is returned unchanged -- no temp file is
+    created.
 
     Otherwise, the rewritten content is written to a NamedTemporaryFile
     (in the cwd, so docker buildx can find it relative to the build
@@ -86,6 +102,8 @@ def stage_binary_dockerfile(
         dockerfile_path: Path to the project's Dockerfile.
         dist_dir: Where to look for ``<name>-linux-<arch>`` artefacts.
             Defaults to ``dist/`` relative to cwd.
+        context: The docker build context directory, searched for a
+            licence file. Defaults to cwd.
 
     Returns:
         Either ``dockerfile_path`` unchanged (if no rewrite was needed)
@@ -97,17 +115,23 @@ def stage_binary_dockerfile(
     original = dockerfile_path.read_text(encoding="utf-8")
 
     rewrites = _find_binary_copy_rewrites(original, dist)
-    if not rewrites:
+    licence = find_licence_file(context or Path("."))
+    if not rewrites and licence is None:
         return dockerfile_path
 
-    rewritten = _apply_rewrites(original, rewrites)
+    rewritten = original
+    if rewrites:
+        rewritten = _apply_rewrites(original, rewrites)
+        info(
+            f"Container: rewriting {len(rewrites)} bare COPY line(s) to use "
+            "${TARGETARCH} for multi-arch builds"
+        )
+        for src in sorted({r.src for r in rewrites}):
+            info(f"  COPY {src} -> COPY dist/{src}-linux-${{TARGETARCH}}")
 
-    info(
-        f"Container: rewriting {len(rewrites)} bare COPY line(s) to use "
-        "${TARGETARCH} for multi-arch builds"
-    )
-    for src in sorted({r.src for r in rewrites}):
-        info(f"  COPY {src} → COPY dist/{src}-linux-${{TARGETARCH}}")
+    if licence is not None:
+        rewritten = _append_licence_copy(rewritten, licence)
+        info(f"Container: copying {licence} into the image at {LICENCE_DEST}")
 
     with tempfile.NamedTemporaryFile(
         mode="w",
@@ -119,6 +143,72 @@ def stage_binary_dockerfile(
     ) as f:
         f.write(rewritten)
         return Path(f.name)
+
+
+def find_licence_file(context: Path) -> str | None:
+    """Return the licence file name to copy from ``context``, or None.
+
+    Looks for ``LICENSE``, then ``LICENSE.md``, then ``LICENSE.txt`` at the
+    context root. A file the context's ``.dockerignore`` excludes is skipped
+    with a warning, because a ``COPY`` of it would fail the build.
+
+    Args:
+        context: The docker build context directory.
+
+    Returns:
+        The file name relative to ``context``, or None when there is no
+        licence file the build can reach.
+
+    """
+    for name in _LICENCE_NAMES:
+        if not (context / name).is_file():
+            continue
+        if _dockerignore_excludes(context, name):
+            warn(
+                f"Container: {name} is excluded by .dockerignore -- the image "
+                f"will not carry the licence text. Add !{name} to .dockerignore."
+            )
+            return None
+        return name
+    return None
+
+
+def _dockerignore_excludes(context: Path, name: str) -> bool:
+    """Return True if ``context/.dockerignore`` excludes the root-level ``name``.
+
+    Follows Docker's rules for a file at the context root: the last matching
+    pattern wins and ``!`` re-includes. A pattern with a directory part can
+    only match a root file through a leading ``**/``, which matches zero
+    directories.
+    """
+    ignore_file = context / ".dockerignore"
+    if not ignore_file.is_file():
+        return False
+
+    excluded = False
+    for raw in ignore_file.read_text(encoding="utf-8", errors="replace").splitlines():
+        pattern = raw.strip()
+        if not pattern or pattern.startswith("#"):
+            continue
+        negate = pattern.startswith("!")
+        if negate:
+            pattern = pattern[1:].strip()
+        pattern = posixpath.normpath(pattern).lstrip("/")
+        while pattern.startswith("**/"):
+            pattern = pattern[3:]
+        if pattern != "**" and "/" in pattern:
+            continue
+        # Go's filepath.Match negates a class with `[^`, fnmatch with `[!`.
+        pattern = pattern.replace("[^", "[!")
+        if pattern == "**" or fnmatch.fnmatchcase(name, pattern):
+            excluded = not negate
+    return excluded
+
+
+def _append_licence_copy(content: str, licence: str) -> str:
+    """Append a ``COPY <licence> /licenses/LICENSE`` line to the final stage."""
+    body = content if content.endswith("\n") or not content else content + "\n"
+    return f"{body}COPY {licence} {LICENCE_DEST}\n"
 
 
 class _CopyRewrite:
