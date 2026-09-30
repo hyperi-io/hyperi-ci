@@ -82,20 +82,26 @@ runs:
       # No `|| true`: the test stage resolves its runner from PATH, so a silent
       # absence here degrades the suite to cargo test semantics.
       shell: bash
+      # Inputs travel as env, so a workflow input is never read as shell.
+      env:
+        PIN_VERSION: ${{ inputs.version }}
+        SHA_AMD64: ${{ inputs.sha256-amd64 }}
+        SHA_ARM64: ${{ inputs.sha256-arm64 }}
+        SHA_MACOS: ${{ inputs.sha256-macos }}
       run: |
         set -euo pipefail
         case "$(uname -s)/$(uname -m)" in
           Linux/x86_64)
             TARGET=x86_64-unknown-linux-musl
-            WANT_SHA="${{ inputs.sha256-amd64 }}"
+            WANT_SHA="$SHA_AMD64"
             ;;
           Linux/aarch64 | Linux/arm64)
             TARGET=aarch64-unknown-linux-musl
-            WANT_SHA="${{ inputs.sha256-arm64 }}"
+            WANT_SHA="$SHA_ARM64"
             ;;
           Darwin/*)
             TARGET=universal-apple-darwin
-            WANT_SHA="${{ inputs.sha256-macos }}"
+            WANT_SHA="$SHA_MACOS"
             ;;
           *)
             echo "::error::unsupported platform $(uname -s)/$(uname -m) for cargo-nextest"
@@ -126,7 +132,7 @@ runs:
         TMP="$(mktemp -d)"
         trap 'rm -rf "$TMP"' EXIT
 
-        VERSION="${{ inputs.version }}"
+        VERSION="$PIN_VERSION"
         URL="https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-${VERSION}/cargo-nextest-${VERSION}-${TARGET}.tar.gz"
 
         # Verification needs the whole file, so the download cannot pipe
@@ -151,16 +157,20 @@ runs:
       # runner that skips this still gets a working nextest above.
       if: runner.os == 'Linux'
       shell: bash
+      env:
+        PIN_VERSION: ${{ inputs.llvm-cov-version }}
+        SHA_AMD64: ${{ inputs.llvm-cov-sha256-amd64 }}
+        SHA_ARM64: ${{ inputs.llvm-cov-sha256-arm64 }}
       run: |
         set -euo pipefail
         case "$(uname -m)" in
           x86_64)
             TARGET=x86_64-unknown-linux-musl
-            WANT_SHA="${{ inputs.llvm-cov-sha256-amd64 }}"
+            WANT_SHA="$SHA_AMD64"
             ;;
           aarch64 | arm64)
             TARGET=aarch64-unknown-linux-musl
-            WANT_SHA="${{ inputs.llvm-cov-sha256-arm64 }}"
+            WANT_SHA="$SHA_ARM64"
             ;;
           *)
             echo "::error::unsupported arch $(uname -m) for cargo-llvm-cov"
@@ -174,7 +184,7 @@ runs:
         TMP="$(mktemp -d)"
         trap 'rm -rf "$TMP"' EXIT
 
-        VERSION="${{ inputs.llvm-cov-version }}"
+        VERSION="$PIN_VERSION"
         URL="https://github.com/taiki-e/cargo-llvm-cov/releases/download/${VERSION}/cargo-llvm-cov-${TARGET}.tar.gz"
 
         curl -fsSL --connect-timeout 10 --max-time 300 --retry 5 --retry-all-errors --retry-delay 2 --retry-max-time 600 -o "$TMP/llvm-cov.tar.gz" "$URL"

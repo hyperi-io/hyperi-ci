@@ -108,6 +108,17 @@ runs:
       # No `|| true`: the quality stage runs these and silent absence would mask
       # supply-chain risks.
       shell: bash
+      # Inputs travel as env, so a workflow input is never read as shell.
+      env:
+        AUDIT_VERSION: ${{ inputs.cargo-audit-version }}
+        DENY_VERSION: ${{ inputs.cargo-deny-version }}
+        SEMVER_VERSION: ${{ inputs.cargo-semver-checks-version }}
+        AUDIT_SHA_AMD64: ${{ inputs.cargo-audit-sha256-amd64 }}
+        DENY_SHA_AMD64: ${{ inputs.cargo-deny-sha256-amd64 }}
+        SEMVER_SHA_AMD64: ${{ inputs.cargo-semver-checks-sha256-amd64 }}
+        AUDIT_SHA_ARM64: ${{ inputs.cargo-audit-sha256-arm64 }}
+        DENY_SHA_ARM64: ${{ inputs.cargo-deny-sha256-arm64 }}
+        SEMVER_SHA_ARM64: ${{ inputs.cargo-semver-checks-sha256-arm64 }}
       run: |
         set -euo pipefail
         case "$(uname -m)" in
@@ -115,18 +126,18 @@ runs:
             AUDIT_TARGET=x86_64-unknown-linux-musl
             DENY_TARGET=x86_64-unknown-linux-musl
             SEMVER_TARGET=x86_64-unknown-linux-gnu
-            AUDIT_SHA="${{ inputs.cargo-audit-sha256-amd64 }}"
-            DENY_SHA="${{ inputs.cargo-deny-sha256-amd64 }}"
-            SEMVER_SHA="${{ inputs.cargo-semver-checks-sha256-amd64 }}"
+            AUDIT_SHA="$AUDIT_SHA_AMD64"
+            DENY_SHA="$DENY_SHA_AMD64"
+            SEMVER_SHA="$SEMVER_SHA_AMD64"
             ;;
           aarch64 | arm64)
             # cargo-audit publishes no aarch64 musl build, only gnu.
             AUDIT_TARGET=aarch64-unknown-linux-gnu
             DENY_TARGET=aarch64-unknown-linux-musl
             SEMVER_TARGET=aarch64-unknown-linux-gnu
-            AUDIT_SHA="${{ inputs.cargo-audit-sha256-arm64 }}"
-            DENY_SHA="${{ inputs.cargo-deny-sha256-arm64 }}"
-            SEMVER_SHA="${{ inputs.cargo-semver-checks-sha256-arm64 }}"
+            AUDIT_SHA="$AUDIT_SHA_ARM64"
+            DENY_SHA="$DENY_SHA_ARM64"
+            SEMVER_SHA="$SEMVER_SHA_ARM64"
             ;;
           *) echo "::error::unsupported arch $(uname -m) for Rust tools"; exit 1 ;;
         esac
@@ -149,7 +160,7 @@ runs:
         TMP="$(mktemp -d)"
         trap 'rm -rf "$TMP"' EXIT
 
-        AUDIT="${{ inputs.cargo-audit-version }}"
+        AUDIT="$AUDIT_VERSION"
         # Monorepo tag: the `/` must be percent-encoded in the download URL.
         fetch \
           "https://github.com/rustsec/rustsec/releases/download/cargo-audit%2F${AUDIT}/cargo-audit-${AUDIT_TARGET}-${AUDIT}.tgz" \
@@ -157,14 +168,14 @@ runs:
         tar xz -C "$HOME/.local/bin" --strip-components=1 -f "$TMP/cargo-audit.tgz" \
           "cargo-audit-${AUDIT_TARGET}-${AUDIT}/cargo-audit"
 
-        DENY="${{ inputs.cargo-deny-version }}"
+        DENY="$DENY_VERSION"
         fetch \
           "https://github.com/EmbarkStudios/cargo-deny/releases/download/${DENY}/cargo-deny-${DENY}-${DENY_TARGET}.tar.gz" \
           "$DENY_SHA" "$TMP/cargo-deny.tar.gz"
         tar xz -C "$HOME/.local/bin" --strip-components=1 -f "$TMP/cargo-deny.tar.gz" \
           "cargo-deny-${DENY}-${DENY_TARGET}/cargo-deny"
 
-        SEMVER="${{ inputs.cargo-semver-checks-version }}"
+        SEMVER="$SEMVER_VERSION"
         # No nesting in this one: the binary is the tarball's only entry, so
         # no --strip-components and no path prefix to name.
         fetch \

@@ -50,10 +50,20 @@ runs:
 
     - name: Set up Python
       shell: bash
+      # Inputs travel as env, so a workflow input is never read as shell.
+      env:
+        PYTHON_VERSION: ${{ inputs.python-version }}
       run: |
         command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
-        command -v python3 || uv python install ${{ inputs.python-version }}
+        command -v python3 || uv python install "$PYTHON_VERSION"
 
     - name: Install native dependencies
       shell: bash
-      run: ${{ inputs.hyperci-install }} install-native-deps ${{ inputs.language }}
+      env:
+        HYPERCI_INSTALL_CMD: ${{ inputs.hyperci-install }}
+        LANGUAGE: ${{ inputs.language }}
+      # The install command is a program and its arguments, split into words
+      # without passing through the shell's parser.
+      run: |
+        read -r -a install <<< "$HYPERCI_INSTALL_CMD"
+        "${install[@]}" install-native-deps "$LANGUAGE"
