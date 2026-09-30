@@ -21,8 +21,6 @@ constraint ``version_source.py`` carries. Adding an import of ``common`` or
 ``config`` here breaks the plan job.
 """
 
-from __future__ import annotations
-
 import json
 import os
 import subprocess
@@ -73,7 +71,8 @@ def is_zero_sha(sha: str) -> bool:
     return len(sha) >= 7 and set(sha) == {"0"}
 
 
-def _event_payload() -> dict:
+def event_payload() -> dict:
+    """Return the Actions event payload, or ``{}`` when there is none to read."""
     path = os.environ.get("GITHUB_EVENT_PATH")
     if not path:
         return {}
@@ -114,7 +113,7 @@ def commits_in_range() -> tuple[list[tuple[str, str]], bool]:
     don't fall through and mis-resolve against a different range.
     """
     event = os.environ.get("GITHUB_EVENT_NAME", "")
-    payload = _event_payload()
+    payload = event_payload()
 
     if event == "push":
         before = str(payload.get("before", ""))
