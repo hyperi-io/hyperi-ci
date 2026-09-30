@@ -167,17 +167,23 @@ runs:
       #   (no version stamp, no tag, no container push, no registry uploads).
       id: gate
       shell: bash
+      # Inputs travel as env, so a workflow input is never read as shell.
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        GIT_REF: ${{ github.ref }}
+        DISPATCH_TAG: ${{ inputs.tag }}
+        FROM_HEAD: ${{ inputs.from-head }}
       run: |
         # A schedule runs on main's HEAD, so the trailer check below would
         # publish any HEAD still carrying `Release: true`. A scheduled run
         # tests; releasing stays a push or a dispatch.
-        if [[ "${{ github.event_name }}" == "schedule" ]]; then
+        if [[ "$EVENT_NAME" == "schedule" ]]; then
           echo "will-publish=false" >> "$GITHUB_OUTPUT"
           echo "::notice::Scheduled run -- tests only, nothing is built, tagged or published"
           exit 0
         fi
 
-        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+        if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
           # A dispatch publishes in exactly one of two modes, each of which
           # resolves a real version: `tag=vX.Y.Z` re-publishes an existing
           # release (version = the tag), and `from-head=true` releases HEAD
@@ -189,7 +195,7 @@ runs:
           # #111): tag-and-release is gated on `will-publish` and the container
           # stage reads HYPERCI_RELEASE_MODE from it, so false reaches no
           # registry.
-          if [[ -z "${{ inputs.tag }}" && "${{ inputs.from-head }}" != "true" ]]; then
+          if [[ -z "$DISPATCH_TAG" && "$FROM_HEAD" != "true" ]]; then
             echo "will-publish=false" >> "$GITHUB_OUTPUT"
             echo "::warning::Bare workflow_dispatch — validate-only run. Quality, test and build run; NOTHING is tagged or published. To release, re-run with from-head=true (bump=auto|patch|minor|X.Y.Z), or tag=vX.Y.Z to re-publish an existing release."
             exit 0
@@ -206,13 +212,13 @@ runs:
         # (issue #144). Stated HERE, at the gate SSOT, rather than relying
         # on downstream job `if:` conditions to catch a trailer on a
         # branch. A trailer on any other ref is ignored LOUDLY.
-        if [[ "${{ github.ref }}" != "refs/heads/main" ]]; then
+        if [[ "$GIT_REF" != "refs/heads/main" ]]; then
           prerelease=$(python3 "$GITHUB_ACTION_PATH/prerelease_branch.py")
           if [[ "$prerelease" != "true" ]]; then
             echo "will-publish=false" >> "$GITHUB_OUTPUT"
             msg=$(git log -1 --format=%B HEAD)
             if printf '%s' "$msg" | grep -qiE '^[[:space:]]*(Release|Publish):[[:space:]]*true[[:space:]]*$'; then
-              echo "::warning::Release trailer on ref '${{ github.ref }}' — ignored. Releasing happens from main, or from a branch declared 'prerelease' in the release config; merge first, or push to a declared prerelease branch."
+              echo "::warning::Release trailer on ref '${GIT_REF}' — ignored. Releasing happens from main, or from a branch declared 'prerelease' in the release config; merge first, or push to a declared prerelease branch."
             fi
             echo "Not a release branch — validate-only run (no tag, no publish)"
             exit 0
@@ -355,9 +361,11 @@ runs:
       id: forced
       if: ${{ steps.gate.outputs.will-publish == 'true' && github.event_name == 'workflow_dispatch' && inputs.from-head == 'true' && inputs.bump != 'auto' && inputs.bump != '' }}
       shell: bash
+      env:
+        BUMP: ${{ inputs.bump }}
       run: |
         set -euo pipefail
-        bump='${{ inputs.bump }}'
+        bump="$BUMP"
 
         # Explicit version override: use it verbatim, no last-tag math.
         if printf '%s' "$bump" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
@@ -424,14 +432,20 @@ runs:
       shell: bash
       env:
         CONFIG_PYTHON: ${{ steps.reader.outputs.python }}
+        WILL_PUBLISH: ${{ steps.gate.outputs.will-publish }}
+        EVENT_NAME: ${{ github.event_name }}
+        BRANCH_BUILD: ${{ inputs.branch-build }}
+        GIT_REF: ${{ github.ref }}
+        RELEASE_WORTHY: ${{ steps.worthy.outputs.release-worthy }}
+        PLANNED_VERSION: ${{ steps.predict.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}
       run: |
         set -euo pipefail
-        will_publish='${{ steps.gate.outputs.will-publish }}'
-        event_name='${{ github.event_name }}'
-        branch_build='${{ inputs.branch-build }}'
-        git_ref='${{ github.ref }}'
-        release_worthy='${{ steps.worthy.outputs.release-worthy }}'
-        version='${{ steps.predict.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}'
+        will_publish="$WILL_PUBLISH"
+        event_name="$EVENT_NAME"
+        branch_build="$BRANCH_BUILD"
+        git_ref="$GIT_REF"
+        release_worthy="$RELEASE_WORTHY"
+        version="$PLANNED_VERSION"
 
         # Version identity: a prerelease component means this run ships on its
         # own sequence and spends no stable number. Read off the version rather

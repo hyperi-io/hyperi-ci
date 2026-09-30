@@ -318,12 +318,14 @@ jobs:
           # supplied, so no runner image needs yq. Env, not interpolation: the
           # list comes from the project config.
           RUST_TARGETS: ${{ steps.predict.outputs.rust-targets }}
+          RUN_BUILD: ${{ steps.predict.outputs.run-build }}
+          ARM64_CHECK: ${{ steps.predict.outputs.run-arm64-check }}
+          AMD64_RUNNER: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE_RUST || vars.GH_RUNNER_RUST || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+          ARM64_RUNNER: ${{ vars.GH_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}
         run: |
           set -euo pipefail
-          run_build="${{ steps.predict.outputs.run-build }}"
-          arm64_check="${{ steps.predict.outputs.run-arm64-check }}"
-          AMD64_RUNNER="${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE_RUST || vars.GH_RUNNER_RUST || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"
-          ARM64_RUNNER="${{ vars.GH_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}"
+          run_build="$RUN_BUILD"
+          arm64_check="$ARM64_CHECK"
           wanted="${RUST_TARGETS:+$RUST_TARGETS }"
           want() { [[ -z "$wanted" || " $wanted" == *" $1 "* ]]; }
           amd64='{"target":"x86_64-unknown-linux-gnu","runner":"'"$AMD64_RUNNER"'","os_arch":"linux-amd64"}'

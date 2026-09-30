@@ -438,7 +438,7 @@ def stage_build(language: str, config: CIConfig, *, local: bool = False) -> int:
 
 
 def check_prepared(language: str) -> int:
-    """Refuse a prepared directory written for another version or language.
+    """Refuse a prepared directory written for another version, language or commit.
 
     It came from a job that ran repo code, so it is checked against what this
     run is releasing before anything reads it. A CI run with no prepared
@@ -469,6 +469,14 @@ def check_prepared(language: str) -> int:
     canonical = _LANGUAGE_ALIASES.get(language, language)
     if prepared.language != canonical:
         error(f"Prepared a {prepared.language} release, but this is {canonical}")
+        return 1
+    here = release_prepare.head_commit(Path.cwd())
+    if prepared.head and here and prepared.head != here:
+        error(
+            f"Prepared from {prepared.head[:8]} but this checkout is {here[:8]} -- "
+            "a commit landed while the release ran, so the tag would go on a "
+            "commit the artefacts were not built from. Re-run the release."
+        )
         return 1
     info(f"Uploading v{version} as prepared; no repo code runs in this stage")
     return 0

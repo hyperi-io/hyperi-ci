@@ -347,7 +347,33 @@ class TestATagDispatch:
     def test_the_version_output_reads_the_step(self) -> None:
         action = yaml.safe_load((ACTION_DIR / "action.yml").read_text(encoding="utf-8"))
         assert "steps.tagged.outputs.version" in action["outputs"]["version"]["value"]
-        assert "steps.tagged.outputs.version" in str(_steps()["derive"]["run"])
+        assert "steps.tagged.outputs.version" in str(_steps()["derive"]["env"])
+
+
+class TestAForcedBump:
+    """The dispatch's `bump` input is data, never shell."""
+
+    def test_an_explicit_version_is_used_verbatim(self, released_head: Path) -> None:
+        outputs, _ = _run_step("forced", {"inputs.bump": "2.0.1"}, released_head)
+        assert outputs == {"version": "2.0.1"}
+
+    def test_a_quote_in_the_input_runs_nothing(self, released_head: Path) -> None:
+        subprocess.run(
+            ["git", "tag", "v1.0.0"],
+            cwd=released_head,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        planted = released_head / "planted"
+        bump = f"patch'; touch {planted}; echo '"
+        _, stdout = _run_step(
+            "forced", {"inputs.bump": bump}, released_head, returncode=1
+        )
+        assert not planted.exists()
+        assert "::error::Invalid bump" in stdout
 
 
 _AMD64 = "x86_64-unknown-linux-gnu"

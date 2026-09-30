@@ -78,6 +78,9 @@ _TRUTHY_TRAILER = frozenset({"true", "1", "yes"})
 
 _PR_API_TIMEOUT_SECONDS = 30
 
+# GitHub appends ` (#N)` to a squash subject; this covers N up to 9999.
+_SQUASH_SUFFIX_RESERVE = 8
+
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -127,11 +130,17 @@ def _feat_confirmed(msg: str) -> bool:
     )
 
 
-def validate_message(msg: str) -> ValidationResult:
+def validate_message(msg: str, *, suffix: str = "") -> ValidationResult:
     """Validate a single commit message subject line.
 
-    Returns ValidationResult with valid=True for skipped messages and
-    valid commits, or valid=False with a descriptive error_type.
+    Args:
+        msg: The full commit message.
+        suffix: Text a later step appends to the subject, such as the
+            ``" (#N)"`` a squash merge adds. It counts towards the length cap.
+
+    Returns:
+        ValidationResult with valid=True for skipped messages and valid
+        commits, or valid=False with a descriptive error_type.
     """
     if _should_skip(msg):
         return ValidationResult(valid=True, reason="", error_type="")
@@ -179,12 +188,16 @@ def validate_message(msg: str) -> ValidationResult:
             error_type="description_too_short",
         )
 
-    if len(description) > _MAX_DESCRIPTION_LENGTH:
+    if len(description) + len(suffix) > _MAX_DESCRIPTION_LENGTH:
+        limit = _MAX_DESCRIPTION_LENGTH - len(suffix)
+        landing = (
+            f", once the squash merge appends {suffix.strip()!r}" if suffix else ""
+        )
         return ValidationResult(
             valid=False,
             reason=(
                 f"description is too long ({len(description)} chars, "
-                f"maximum {_MAX_DESCRIPTION_LENGTH})"
+                f"maximum {limit}{landing})"
             ),
             error_type="description_too_long",
         )
@@ -547,20 +560,45 @@ def _commit_count(pr: dict, branch_messages: list[str]) -> int:
     return sum(1 for msg in branch_messages if not _should_skip(msg))
 
 
-def _title_result(pr: dict, branch_messages: list[str]) -> ValidationResult:
-    """Validate the PR title.
+def _squash_suffix(pr: dict) -> str:
+    """The ``" (#N)"`` GitHub appends to a squash subject, sized when N is unknown."""
+    number = pr.get("number")
+    if isinstance(number, int) and not isinstance(number, bool):
+        return f" (#{number})"
+    return " (#" + "N" * (_SQUASH_SUFFIX_RESERVE - 4) + ")"
 
-    A ``feat:`` title is confirmed by an ``Allow-Feat`` trailer in the PR
-    description or any branch commit, the two sources GitHub builds the
-    squash body from.
+
+def _title_result(pr: dict, branch_messages: list[str]) -> ValidationResult:
+    """Validate the PR title as the subject a squash merge lands.
+
+    A ``feat:`` title is confirmed only by an ``Allow-Feat`` trailer in a
+    branch commit. The squash body is built from the branch's commit
+    messages, so a trailer in the PR description never reaches main and the
+    push run there rejects the ``feat:``.
     """
-    result = validate_message(pr["title"])
-    if result.error_type == "feat_without_opt_in":
-        body = pr.get("body")
-        sources = [body if isinstance(body, str) else "", *branch_messages]
-        if any(_feat_confirmed(msg) for msg in sources):
-            result = ValidationResult(valid=True, reason="", error_type="")
-    return result
+    result = validate_message(pr["title"], suffix=_squash_suffix(pr))
+    if result.error_type != "feat_without_opt_in":
+        return result
+    if any(_feat_confirmed(msg) for msg in branch_messages):
+        return ValidationResult(valid=True, reason="", error_type="")
+    body = pr.get("body")
+    in_description = isinstance(body, str) and _feat_confirmed(body)
+    where = (
+        "The PR description carries the trailer, but a squash merge does not "
+        "land the description. "
+        if in_description
+        else ""
+    )
+    return ValidationResult(
+        valid=False,
+        reason=(
+            f"`feat:` triggers a MINOR bump. {where}Confirm it with "
+            f"`{_ALLOW_FEAT_TRAILER}: true` as a trailer in a commit on the "
+            "branch: the squash body is built from the branch's commit "
+            "messages, so that is the copy that reaches main"
+        ),
+        error_type="feat_without_opt_in",
+    )
 
 
 def _validate_title_lands(pr: dict, branch_messages: list[str], why: str) -> int:
@@ -607,7 +645,7 @@ def _validate_one_commit_lands(pr: dict, branch_messages: list[str], why: str) -
         )
 
     subject = message.splitlines()[0]
-    result = validate_message(message)
+    result = validate_message(message, suffix=_squash_suffix(pr))
     if result.valid:
         success(
             f"Squash subject passed validation (commit {commit_hash[:8]}; "

@@ -263,11 +263,14 @@ jobs:
         # NOT run-build).
         id: matrix
         shell: bash
+        # Inputs travel as env, so a workflow input is never read as shell.
+        env:
+          AMD64_RUNNER: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_GOLANG || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+          ARM64_RUNNER: ${{ vars.GH_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}
+          WILL_RELEASE: ${{ steps.predict.outputs.will-release }}
         run: |
           set -euo pipefail
-          AMD64_RUNNER="${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_GOLANG || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}"
-          ARM64_RUNNER="${{ vars.GH_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}"
-          if [[ "${{ steps.predict.outputs.will-release }}" == "true" ]]; then
+          if [[ "$WILL_RELEASE" == "true" ]]; then
             matrix='{"include":[{"goos":"linux","goarch":"amd64","runner":"'"$AMD64_RUNNER"'","os_arch":"linux-amd64"},{"goos":"linux","goarch":"arm64","runner":"'"$ARM64_RUNNER"'","os_arch":"linux-arm64"}]}'
           else
             matrix='{"include":[{"goos":"linux","goarch":"amd64","runner":"'"$AMD64_RUNNER"'","os_arch":"linux-amd64"}]}'

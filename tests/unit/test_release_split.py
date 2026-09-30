@@ -38,7 +38,8 @@ PUBLISH_CREDENTIALS = (
 )
 
 _INSTALL = r"\$\{\{ env\.HYPERCI_INSTALL \}\}"
-_VERSION = r"\$\{\{ inputs\.next-version \}\}"
+_VERSION = r"\$RELEASE_VERSION"
+_BRACED_VERSION = r"\$\{RELEASE_VERSION\}"
 _RUN_URL = (
     r'--run-url "\$\{\{ github\.server_url \}\}/\$\{\{ github\.repository \}\}'
     r'/actions/runs/\$\{\{ github\.run_id \}\}"'
@@ -58,6 +59,7 @@ ALLOWED_USES = {
         "actions/checkout@",
         "actions/download-artifact@",
         "actions/create-github-app-token@",
+        "actions/setup-node@",
         "hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@main",
     ),
     "prepare": (
@@ -75,7 +77,7 @@ ALLOWED_USES = {
 ALLOWED_RUN_LINES = {
     "tag-and-release": [
         *_PLACE,
-        r"uv python install --no-config \$\{\{ inputs\.python-version \}\}",
+        r'uv python install --no-config "\$PYTHON_VERSION"',
         r'rm -rf "\$RUNNER_TEMP/release-prepared/stamped"',
         rf"{_INSTALL} release-verify",
         r'echo "has=\$\{\{ secrets\.GH_APP_PRIVATE_KEY != \'\' \}\}" >> "\$GITHUB_OUTPUT"',
@@ -84,7 +86,7 @@ ALLOWED_RUN_LINES = {
         r"else",
         r"fi",
         r'echo "::warning::GH_APP_PRIVATE_KEY is not visible to this repo [^"$`;|&]*"',
-        rf'predicted="v{_VERSION}"',
+        rf'predicted="v{_BRACED_VERSION}"',
         r'if git rev-parse -q --verify "refs/tags/\$\{predicted\}\^\{commit\}" '
         r">/dev/null 2>&1",
         r"then",
@@ -95,8 +97,8 @@ ALLOWED_RUN_LINES = {
         r"exit 1",
         r'echo "\$\{predicted\} already exists at HEAD [^"$`;|&]*"',
         r"if \[ -z \"\$\(git tag --list 'v\[0-9\]\*'\)\" \]; then",
-        rf'echo "Tag-less repo [^"$`;|&]*v{_VERSION} from the plan\'s prediction"',
-        rf"{_INSTALL} tag-head --bump {_VERSION}",
+        rf'echo "Tag-less repo [^"$`;|&]*v{_BRACED_VERSION} from the plan\'s prediction"',
+        rf'{_INSTALL} tag-head --bump "{_VERSION}"',
         # Known gap, tracked in #413: the tagger loads a repo-controlled config.
         r"npx semantic-release",
         rf"{_INSTALL} run release",
@@ -108,14 +110,14 @@ ALLOWED_RUN_LINES = {
     ],
     "prepare": [
         *_PLACE,
-        r"uv python install \$\{\{ inputs\.python-version \}\}",
+        r'uv python install "\$PYTHON_VERSION"',
         rf'{_INSTALL} release-prepare "\$RELEASE_VERSION" --out "\$STAMPED_DIR" '
         r"--phase stamp",
         rf'{_INSTALL} release-prepare "\$RELEASE_VERSION" --out "\$PREPARED_DIR" '
         r"--phase package",
     ],
     "prepare-failed": [
-        r"uv python install --no-config \$\{\{ inputs\.python-version \}\}",
+        r'uv python install --no-config "\$PYTHON_VERSION"',
         rf'{_INSTALL} release-notify "{_VERSION}" --outcome failure {_RUN_URL}',
     ],
 }
@@ -305,6 +307,37 @@ class TestPublishRunsNoRepoCode:
         )
         assert rust < checkout
 
+    def test_typescript_gets_node_before_any_checkout(
+        self, job: dict[str, Any]
+    ) -> None:
+        """`npm publish` needs Node on every path, not only where the tagger runs.
+
+        setup-semantic-release is the only other Node, and it is skipped on a
+        tag dispatch and a forced bump, where the publish runner has none.
+        """
+        steps = job["steps"]
+        node = [
+            i
+            for i, s in enumerate(steps)
+            if str(s.get("uses", "")).startswith("actions/setup-node@")
+        ]
+        checkouts = [
+            i
+            for i, s in enumerate(steps)
+            if str(s.get("uses", "")).startswith("actions/checkout@")
+        ]
+        assert len(node) == 1
+        assert node[0] < min(checkouts)
+        step = steps[node[0]]
+        assert step["if"] == "inputs.language == 'typescript'"
+        assert step["with"] == {"node-version": "${{ inputs.node-version }}"}
+        prepare_node = next(
+            s["uses"]
+            for s in _jobs()["prepare"]["steps"]
+            if str(s.get("uses", "")).startswith("actions/setup-node@")
+        )
+        assert step["uses"] == prepare_node
+
     def test_there_is_no_registry_login(self, job: dict[str, Any]) -> None:
         """Nothing in the upload uses docker, so no step writes a docker config."""
         assert not any("login-action" in str(s.get("uses")) for s in job["steps"])
@@ -330,7 +363,10 @@ class TestCommitBackFailureIsRecorded:
         assert record["if"] == "steps.releasecommit.outcome == 'failure'"
         assert "--outcome commit-back-failed" in str(record["run"])
         assert record["continue-on-error"] is True
-        assert record["env"] == {"GH_TOKEN": "${{ secrets.GITHUB_TOKEN }}"}
+        assert record["env"] == {
+            "GH_TOKEN": "${{ secrets.GITHUB_TOKEN }}",
+            "RELEASE_VERSION": "${{ inputs.next-version }}",
+        }
 
     def test_it_runs_after_the_commit_back(self, steps: list[dict[str, Any]]) -> None:
         commit = next(i for i, s in enumerate(steps) if s.get("id") == "releasecommit")

@@ -206,7 +206,8 @@ class TestFromHeadThreading:
         )
         # The plan's resolved version, never the bump: re-resolving `patch` on a
         # re-run after a first attempt tagged picks the next number.
-        assert forced[0]["run"].endswith("tag-head --bump ${{ inputs.next-version }}")
+        assert forced[0]["run"].endswith('tag-head --bump "$RELEASE_VERSION"')
+        assert forced[0]["env"]["RELEASE_VERSION"] == "${{ inputs.next-version }}"
 
     def test_release_tail_commits_the_version_prepare_stamped(self) -> None:
         """VERSION must move, and the stamp must run in a job with no credential.
@@ -230,7 +231,8 @@ class TestFromHeadThreading:
         assert "HYPERCI_RELEASE_PREPARED" in commit["env"], (
             "release-commit must restore stamp_paths from the prepared directory"
         )
-        assert commit["run"].endswith('release-commit "${{ inputs.next-version }}"')
+        assert commit["run"].endswith('release-commit "$RELEASE_VERSION"')
+        assert commit["env"]["RELEASE_VERSION"] == "${{ inputs.next-version }}"
         # A tag dispatch checks out an old tag, so its VERSION and CHANGELOG.md
         # committed onto main would move the branch backwards (issue #350).
         assert "inputs.tag == ''" in str(commit["if"]), (
@@ -378,8 +380,10 @@ class TestMainOnlyPublishGate:
         return next(s for s in action["runs"]["steps"] if s.get("id") == "gate")
 
     def test_push_publish_requires_a_release_ref(self) -> None:
-        run = str(self._gate_step()["run"])
-        assert 'github.ref }}" != "refs/heads/main"' in run, (
+        step = self._gate_step()
+        run = str(step["run"])
+        assert step["env"]["GIT_REF"] == "${{ github.ref }}"
+        assert '"$GIT_REF" != "refs/heads/main"' in run, (
             "gate must test the ref on push before any trailer match"
         )
         # Ordering: the ref guard must EXIT before the trailer match that can
@@ -716,7 +720,7 @@ class TestBranchModeThreading:
         wf = _load_workflow("go-ci.yml")
         plan = wf["jobs"]["plan"]["steps"]
         matrix = next(s for s in plan if s.get("id") == "matrix")
-        run = str(matrix["run"])
+        run = str(matrix["run"]) + str(matrix.get("env", {}))
         assert "steps.predict.outputs.will-release" in run, (
             "go-ci.yml: matrix arch breadth must key off will-release"
         )
@@ -810,6 +814,25 @@ def _render(script: str, substitutions: dict[str, str], *, leftover: str = "") -
     return script
 
 
+def _render_env(
+    step: dict, substitutions: dict[str, str], *, leftover: str = ""
+) -> dict[str, str]:
+    """Substitute GitHub expressions out of a step's env, as the runner does."""
+    env = {key: str(value) for key, value in (step.get("env") or {}).items()}
+    for expression in substitutions:
+        assert any(expression in value for value in env.values()), (
+            f"expression gone from the step's env: {expression}"
+        )
+    rendered: dict[str, str] = {}
+    for key, value in env.items():
+        for expression, replacement in substitutions.items():
+            value = value.replace(expression, replacement)
+        if leftover:
+            value = _GH_EXPRESSION.sub(leftover, value)
+        rendered[key] = value
+    return rendered
+
+
 def _gate_outputs(expression: str) -> set[str]:
     """The plan outputs whose ``'true'`` makes a job's ``if:`` fire.
 
@@ -861,8 +884,9 @@ class TestArm64Parity:
         if not shutil.which("bash"):
             pytest.skip("rendering the step needs bash")
         will_publish, event, ref, worthy = self.CASES[case]
-        script = _render(
-            str(_composite_step("derive")["run"]),
+        step = _composite_step("derive")
+        step_env = _render_env(
+            step,
             {
                 expression: {
                     "will_publish": will_publish,
@@ -875,11 +899,13 @@ class TestArm64Parity:
                 for expression, name in _DERIVE_INPUTS.items()
             },
         )
+        script = _render(str(step["run"]), {})
         root = self._rust_project(tmp_path)
         return _run_step(
             script,
             cwd=root,
             env={
+                **step_env,
                 "GITHUB_ACTION_PATH": str(ACTIONS_DIR / "predict-version"),
                 "GITHUB_WORKSPACE": str(root),
                 # What the reader step hands on; test_predict_version_steps
@@ -897,14 +923,17 @@ class TestArm64Parity:
         assert step["env"]["RUST_TARGETS"] == (
             "${{ steps.predict.outputs.rust-targets }}"
         ), "the matrix must take its targets from the composite's output"
-        script = _render(
-            str(step["run"]),
+        step_env = _render_env(
+            step,
             {expression: gates[name] for expression, name in _MATRIX_INPUTS.items()},
             leftover="a-runner",
         )
+        script = _render(str(step["run"]), {})
         root = tmp_path / "matrix"
         root.mkdir()
-        written = _run_step(script, cwd=root, env={"RUST_TARGETS": rust_targets})
+        written = _run_step(
+            script, cwd=root, env={**step_env, "RUST_TARGETS": rust_targets}
+        )
         return [leg["os_arch"] for leg in json.loads(written["matrix"])["include"]]
 
     @pytest.mark.parametrize(
@@ -1352,7 +1381,8 @@ class TestFirstReleaseAndOrphanGuards:
             "Tag step must branch on the tag-less (-z) predicate"
         )
         idx_if = run.index("if [ -z ")
-        idx_tag_head = run.index("tag-head --bump ${{ inputs.next-version }}")
+        idx_tag_head = run.index('tag-head --bump "$RELEASE_VERSION"')
+        assert sr["env"]["RELEASE_VERSION"] == "${{ inputs.next-version }}"
         idx_else = run.index("else")
         idx_sr = run.index("npx semantic-release")
         assert idx_if < idx_tag_head < idx_else < idx_sr, (
@@ -2120,36 +2150,44 @@ class TestMergeGroup:
             "GITHUB_WORKSPACE": str(root),
             "GITHUB_REF": ref,
         }
+        gate_step = _composite_step("gate")
         gate = _run_step(
-            _render(
-                str(_composite_step("gate")["run"]),
-                {
-                    "${{ github.event_name }}": event,
-                    "${{ github.ref }}": ref,
-                    "${{ inputs.tag }}": "",
-                    "${{ inputs.from-head }}": "",
-                },
-            ),
+            _render(str(gate_step["run"]), {}),
             cwd=root,
-            env=env,
+            env={
+                **_render_env(
+                    gate_step,
+                    {
+                        "${{ github.event_name }}": event,
+                        "${{ github.ref }}": ref,
+                        "${{ inputs.tag }}": "",
+                        "${{ inputs.from-head }}": "",
+                    },
+                ),
+                **env,
+            },
         )
+        derive_step = _composite_step("derive")
         derived = _run_step(
-            _render(
-                str(_composite_step("derive")["run"]),
-                {
-                    expression: {
-                        "will_publish": gate["will-publish"],
-                        "event_name": event,
-                        "branch_build": "",
-                        "git_ref": ref,
-                        "release_worthy": "",
-                        "version": "",
-                    }[name]
-                    for expression, name in _DERIVE_INPUTS.items()
-                },
-            ),
+            _render(str(derive_step["run"]), {}),
             cwd=root,
-            env=env,
+            env={
+                **_render_env(
+                    derive_step,
+                    {
+                        expression: {
+                            "will_publish": gate["will-publish"],
+                            "event_name": event,
+                            "branch_build": "",
+                            "git_ref": ref,
+                            "release_worthy": "",
+                            "version": "",
+                        }[name]
+                        for expression, name in _DERIVE_INPUTS.items()
+                    },
+                ),
+                **env,
+            },
         )
         return {**gate, **derived}
 

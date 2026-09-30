@@ -57,9 +57,13 @@ jobs:
         # reads, so the job token is enough.
         env:
           GH_TOKEN: ${{ github.token }}
+          # Inputs travel as env, so a workflow input is never read as shell.
+          WAIVE_COOLDOWN: ${{ inputs.now }}
         run: |
+          now_flag=""
+          if [ "$WAIVE_COOLDOWN" = "true" ]; then now_flag="--now"; fi
           uv run --no-sources python scripts/update-versions.py \
-            --stable --fail-on-drift ${{ inputs.now && '--now' || '' }}
+            --stable --fail-on-drift $now_flag
 
       - name: Mint a fleet read token
         # The fixtures are private and GITHUB_TOKEN sees only this repo, so the

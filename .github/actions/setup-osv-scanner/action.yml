@@ -49,17 +49,22 @@ runs:
       # No `|| true`: in CI the tool must be present (the quality stage skips
       # it only for local-dev convenience). Pinned; bump deliberately.
       shell: bash
+      # Inputs travel as env, so a workflow input is never read as shell.
+      env:
+        PIN_VERSION: ${{ inputs.version }}
+        SHA_AMD64: ${{ inputs.sha256-amd64 }}
+        SHA_ARM64: ${{ inputs.sha256-arm64 }}
       run: |
         set -euo pipefail
-        OSV_VERSION="${{ inputs.version }}"
+        OSV_VERSION="$PIN_VERSION"
         case "$(uname -m)" in
           x86_64)
             OSV_ARCH=amd64
-            OSV_SHA="${{ inputs.sha256-amd64 }}"
+            OSV_SHA="$SHA_AMD64"
             ;;
           aarch64 | arm64)
             OSV_ARCH=arm64
-            OSV_SHA="${{ inputs.sha256-arm64 }}"
+            OSV_SHA="$SHA_ARM64"
             ;;
           *) echo "::error::unsupported arch $(uname -m) for osv-scanner"; exit 1 ;;
         esac

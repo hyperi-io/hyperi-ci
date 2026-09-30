@@ -244,6 +244,36 @@ class TestTheUploadChecksWhatItWasHanded:
         monkeypatch.setenv("HYPERCI_VERSION", "1.2.3")
         assert dispatch.check_prepared("rust") == 0
 
+    def test_another_commit_is_refused(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A merge that lands mid-release moves the checkout off the prepared tree."""
+        checkout = tmp_path / "repo"
+        checkout.mkdir()
+        _python_project(checkout, track_version=False, release={})
+        prepared_at = release_prepare.head_commit(checkout)
+        run_cmd([*_GIT, "commit", "-q", "--allow-empty", "-m", "later"], cwd=checkout)
+        monkeypatch.chdir(checkout)
+        monkeypatch.setenv(
+            PREPARED_ENV, str(_write_prepared(tmp_path / "p", head=prepared_at))
+        )
+        monkeypatch.setenv("HYPERCI_VERSION", "1.2.3")
+        assert dispatch.check_prepared("rust") == 1
+
+    def test_the_same_commit_passes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        checkout = tmp_path / "repo"
+        checkout.mkdir()
+        _python_project(checkout, track_version=False, release={})
+        head = release_prepare.head_commit(checkout)
+        monkeypatch.chdir(checkout)
+        monkeypatch.setenv(
+            PREPARED_ENV, str(_write_prepared(tmp_path / "p", head=head))
+        )
+        monkeypatch.setenv("HYPERCI_VERSION", "1.2.3")
+        assert dispatch.check_prepared("rust") == 0
+
     def test_ci_without_a_prepared_directory_warns(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
