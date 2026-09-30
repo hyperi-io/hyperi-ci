@@ -3,6 +3,15 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.12.2](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.1...v2.12.2) (2026-09-30)
+
+### Bug Fixes
+
+* **ci:** let a caller raise the Build job's timeout ([#429](https://github.com/hyperi-io/hyperi-ci/issues/429)) ([37e0ab2](https://github.com/hyperi-io/hyperi-ci/commit/37e0ab27d2f045bbbdae2ef249c3e35ff979d8a4)), closes [#394](https://github.com/hyperi-io/hyperi-ci/issues/394) [#262](https://github.com/hyperi-io/hyperi-ci/issues/262)
+* **quality:** validate the PR title as the squash-merge subject ([#421](https://github.com/hyperi-io/hyperi-ci/issues/421)) ([ed067e9](https://github.com/hyperi-io/hyperi-ci/commit/ed067e9453fed89046b0f108ca6aa5f50d031406)), closes [#207](https://github.com/hyperi-io/hyperi-ci/issues/207)
+* **release:** open an issue when the release commit-back fails ([#433](https://github.com/hyperi-io/hyperi-ci/issues/433)) ([94398ee](https://github.com/hyperi-io/hyperi-ci/commit/94398ee1af59d3ffff158b8550094c05eb445bf2))
+* **release:** publish prepared artefacts from a job that runs no repo code ([#416](https://github.com/hyperi-io/hyperi-ci/issues/416)) ([2041679](https://github.com/hyperi-io/hyperi-ci/commit/20416797568073e1402f1ae7db2c358cbd4608d2)), closes [#409](https://github.com/hyperi-io/hyperi-ci/issues/409) [#413](https://github.com/hyperi-io/hyperi-ci/issues/413) [#409](https://github.com/hyperi-io/hyperi-ci/issues/409)
+
 ## [2.12.1](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.0...v2.12.1) (2026-09-29)
 
 ### Bug Fixes
