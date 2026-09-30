@@ -1821,3 +1821,92 @@ class TestMissingInstrumentedBinary:
                 cwd=tmp_path,
             )
         assert rc == 1
+
+
+def _run_pgo_bolt_pipeline(tmp_path, cargo_results):
+    """Run PGO+BOLT for x86_64 with a project env naming sccache; return cargo calls.
+
+    ``cargo_results`` is the exit code of each `cargo pgo` call in order.
+    """
+    bin_dir = tmp_path / "target" / "x86_64-unknown-linux-gnu" / "release"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "my-bin").touch()
+    (bin_dir / "my-bin-bolt-instrumented").touch()
+    with (
+        patch.object(pgo, "_ensure_cargo_pgo_installed", return_value=True),
+        patch.object(pgo, "_ensure_ld_lld_available", return_value=True),
+        patch.object(pgo, "_ensure_llvm_profdata_available", return_value=True),
+        patch.object(pgo, "_ensure_llvm_bolt_available", return_value=True),
+        patch.object(pgo, "_run_workload", return_value=0),
+        patch.object(pgo, "_run_cargo_pgo", side_effect=cargo_results) as cargo,
+    ):
+        rc = run_pgo_build(
+            target="x86_64-unknown-linux-gnu",
+            profile=_make_profile(bolt_enabled=True),
+            binary_name="my-bin",
+            cwd=tmp_path,
+            extra_env={"RUSTC_WRAPPER": "sccache"},
+        )
+    assert rc == 0
+    return [(c.args[0], c.kwargs["extra_env"]) for c in cargo.call_args_list]
+
+
+def _step(args: list[str]) -> str:
+    return " ".join(args[: 2 if args[0] == "bolt" else 1])
+
+
+class TestProfileUseStepsSkipSccache:
+    """Every cargo-pgo step that compiles with a profile runs without sccache (#436)."""
+
+    def test_only_the_instrumented_pgo_build_keeps_the_wrapper(self, tmp_path) -> None:
+        calls = _run_pgo_bolt_pipeline(tmp_path, [0, 0, 0, 0])
+        wrappers = {_step(args): env.get("RUSTC_WRAPPER") for args, env in calls}
+        assert wrappers == {
+            "build": "sccache",
+            "optimize": "",
+            "bolt build": "",
+            "bolt optimize": "",
+        }
+
+    def test_the_no_split_retry_also_skips_it(self, tmp_path) -> None:
+        # The first bolt build fails, so the no-split pass builds again.
+        calls = _run_pgo_bolt_pipeline(tmp_path, [0, 0, 1, 0, 0])
+        assert [_step(args) for args, _ in calls] == [
+            "build",
+            "optimize",
+            "bolt build",
+            "bolt build",
+            "bolt optimize",
+        ]
+        assert [env.get("RUSTC_WRAPPER") for _, env in calls[1:]] == [""] * 4
+
+    def test_the_empty_wrapper_beats_the_runner_env(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("RUSTC_WRAPPER", "sccache")
+        with patch.object(pgo.subprocess, "run") as run:
+            run.return_value.returncode = 0
+            pgo._run_cargo_pgo(
+                ["optimize"], cwd=tmp_path, extra_env=pgo._PROFILE_USE_ENV
+            )
+        assert run.call_args.kwargs["env"]["RUSTC_WRAPPER"] == ""
+
+
+class TestBoltWithPgoPairing:
+    """`bolt build` and `bolt optimize` agree on --with-pgo (#437).
+
+    cargo-pgo applies the BOLT profile to the layout `bolt build` recorded it
+    on, so the flag on one without the other mismatches the two.
+    """
+
+    @pytest.mark.parametrize(
+        "cargo_results", [[0, 0, 0, 0], [0, 0, 1, 0, 0]], ids=["first", "no-split"]
+    )
+    def test_both_bolt_steps_build_on_the_pgo_layout(
+        self, tmp_path, cargo_results
+    ) -> None:
+        calls = _run_pgo_bolt_pipeline(tmp_path, cargo_results)
+        bolt = [args for args, _ in calls if args[0] == "bolt"]
+        assert {args[1] for args in bolt} == {"build", "optimize"}
+        for args in bolt:
+            assert "--with-pgo" in args[: args.index("--")], args

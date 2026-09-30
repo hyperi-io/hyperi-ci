@@ -162,7 +162,7 @@ PersistentVolume - the primary mechanism for fast Rust/C++ builds.
 | Variable | Value | Purpose |
 |---|---|---|
 | `SCCACHE_DIR` | `/mnt/cache/sccache` | sccache compilation cache (NFS) |
-| `RUSTC_WRAPPER` | `sccache` | route rustc through sccache |
+| `RUSTC_WRAPPER` | `sccache` | route rustc through sccache. The profile-use PGO and BOLT steps set `""`, because sccache loses a reply carrying a crate's missing-profile warnings and cargo waits forever |
 | `CCACHE_DIR` | `/mnt/cache/ccache` | C/C++ cache (NFS) |
 | `CARGO_INCREMENTAL` | `0` | disabled - incompatible with sccache. The `cargo llvm-cov` test run sets `1`, because with it off llvm-cov reports "mismatched data" for cross-crate-inlined functions. That run also sets `RUSTC_WRAPPER=""`, so it compiles without sccache |
 | `CARGO_REGISTRIES_CRATES_IO_PROTOCOL` | `sparse` | faster registry metadata |

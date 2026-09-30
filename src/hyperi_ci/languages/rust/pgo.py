@@ -14,9 +14,9 @@ Public API: `run_pgo_build()` is the only entry point. Call it when
 `profile.pgo_enabled` is True; otherwise use the plain build path.
 
 Graceful degradation:
-  - cargo-pgo missing → auto-install; if install fails, skip PGO
-  - llvm-bolt missing → skip BOLT, keep PGO-only result
-  - workload_cmd fails → hard error (bad profile data is worse than no PGO)
+  - cargo-pgo missing -> auto-install; if install fails, skip PGO
+  - llvm-bolt missing -> skip BOLT, keep PGO-only result
+  - workload_cmd fails -> hard error (bad profile data is worse than no PGO)
 """
 
 import hashlib
@@ -41,6 +41,15 @@ from hyperi_ci.versions import tool_version
 # llvm-bolt writes this note into every binary it rewrites, and strip keeps it,
 # so it survives packaging and marks a shipped file as BOLT output.
 BOLT_NOTE_SECTION = ".note.bolt_info"
+
+# Profile-use compiles skip sccache, whose reply carrying a crate's 27.7 MB of
+# missing-profile warnings never arrives, leaving cargo waiting forever (#436).
+# Cargo reads an empty RUSTC_WRAPPER as "no wrapper", over any config.
+_PROFILE_USE_ENV = {"RUSTC_WRAPPER": ""}
+
+# cargo-pgo applies the BOLT profile to the layout `bolt build` recorded it on,
+# so `bolt build` and `bolt optimize` must both carry this flag or neither.
+_BOLT_WITH_PGO = "--with-pgo"
 
 
 def run_pgo_build(
@@ -83,7 +92,7 @@ def run_pgo_build(
 
     if not _ensure_cargo_pgo_installed():
         warn(
-            "cargo-pgo unavailable — falling back to plain release build "
+            "cargo-pgo unavailable -- falling back to plain release build "
             "(Tier 1 optimisations still apply)"
         )
         return _run_plain_release_build(target, feature_args, cwd, extra_env)
@@ -139,7 +148,7 @@ def run_pgo_build(
     if profile.pgo_workload_setup_cmd:
         rc = _run_workload_setup(profile.pgo_workload_setup_cmd, cwd)
         if rc != 0:
-            error("PGO workload setup failed — aborting before profiling")
+            error("PGO workload setup failed -- aborting before profiling")
             return rc
 
     rc = _run_workload(
@@ -149,7 +158,7 @@ def run_pgo_build(
         cwd=cwd,
     )
     if rc != 0:
-        error("PGO workload failed — aborting (bad profile data is worse than no PGO)")
+        error("PGO workload failed -- aborting (bad profile data is worse than no PGO)")
         return rc
 
     # 3. Optimised build using profile data
@@ -157,7 +166,7 @@ def run_pgo_build(
     rc = _run_cargo_pgo(
         ["optimize", "--", "--target", target, *feature_args],
         cwd=cwd,
-        extra_env=build_env,
+        extra_env={**(build_env or {}), **_PROFILE_USE_ENV},
     )
     if rc != 0:
         error(f"PGO optimised build failed for {target}")
@@ -171,7 +180,7 @@ def run_pgo_build(
             target, feature_args, binary_name, profile, cwd, build_env, outcome
         )
         if rc != 0:
-            warn("BOLT step failed — continuing with PGO-only optimised binary")
+            warn("BOLT step failed -- continuing with PGO-only optimised binary")
             # BOLT failure is non-fatal; PGO binary is already built
 
     return 0
@@ -246,7 +255,7 @@ def _ensure_cargo_pgo_installed() -> bool:
 
     install = ["cargo", "install", "cargo-pgo", "--version", pinned, "--locked"]
     found = f"found {installed}" if installed else "not found"
-    info(f"cargo-pgo {found}, pinned {pinned} — installing with '{' '.join(install)}'")
+    info(f"cargo-pgo {found}, pinned {pinned} -- installing with '{' '.join(install)}'")
     result = subprocess.run(install, check=False)
     if result.returncode != 0:
         warn("cargo-pgo install failed")
@@ -531,7 +540,7 @@ def _run_workload(
         return result.returncode
     except subprocess.TimeoutExpired:
         error(
-            f"PGO workload exceeded {timeout_secs}s timeout — "
+            f"PGO workload exceeded {timeout_secs}s timeout -- "
             "workload should self-terminate at duration_secs"
         )
         return 1
@@ -896,12 +905,16 @@ def _attempt_bolt(
     no_split: bool,
     outcome: OptimizationOutcome | None = None,
 ) -> int:
-    """Run one BOLT pass: instrument → workload → optimise.
+    """Run one BOLT pass: instrument -> workload -> optimise.
 
     `bolt build` emits `<binary>-bolt-instrumented`; the workload must run
     against THAT binary so BOLT collects its own branch profile. Skipping
     the workload (the old behaviour) left `bolt optimize` with nothing to
     optimise -- see #29.
+
+    Both builds compile with the PGO profile (`--with-pgo`), so BOLT records
+    and applies its profile on the same PGO-optimised layout, and both run
+    without sccache (see `_PROFILE_USE_ENV`).
 
     Forces lld as the linker and disables strip for both build phases --
     see `_bolt_build_env()`. When `no_split` is True, also disables the
@@ -915,7 +928,7 @@ def _attempt_bolt(
     # env (fuse-ld=lld + strip=none [+ no-split]). BOLT env takes precedence
     # over project config for the target-specific rustflags -- intentional.
     bolt_overrides = _bolt_build_env(target, no_split=no_split, extra_env=extra_env)
-    bolt_env = {**(extra_env or {}), **bolt_overrides}
+    bolt_env = {**(extra_env or {}), **bolt_overrides, **_PROFILE_USE_ENV}
     label = " (no-split)" if no_split else ""
 
     if _target_linker_key(target) in bolt_overrides:
@@ -932,6 +945,7 @@ def _attempt_bolt(
         [
             "bolt",
             "build",
+            _BOLT_WITH_PGO,
             "--",
             "--target",
             target,
@@ -948,7 +962,7 @@ def _attempt_bolt(
     bolt_bin = _instrumented_binary_path(cwd, target, binary_name, variant="bolt")
     if not bolt_bin.exists():
         warn(
-            f"BOLT-instrumented binary not found at {bolt_bin} — "
+            f"BOLT-instrumented binary not found at {bolt_bin} -- "
             "skipping BOLT (PGO-only result stands)"
         )
         return 0  # Non-fatal
@@ -959,7 +973,7 @@ def _attempt_bolt(
         cwd=cwd,
     )
     if rc != 0:
-        warn("BOLT workload failed — skipping BOLT optimise (PGO-only result stands)")
+        warn("BOLT workload failed -- skipping BOLT optimise (PGO-only result stands)")
         return 0  # Non-fatal: PGO binary already built
 
     # 3. BOLT optimise, folding in both the PGO and BOLT profiles
@@ -973,7 +987,7 @@ def _attempt_bolt(
         [
             "bolt",
             "optimize",
-            "--with-pgo",
+            _BOLT_WITH_PGO,
             *optimize_args,
             "--",
             "--target",
@@ -1017,7 +1031,7 @@ def _run_bolt(
     """
     if not _ensure_llvm_bolt_available():
         warn(
-            "BOLT toolchain not complete (llvm-bolt / merge-fdata / ld.lld) — skipping BOLT step"
+            "BOLT toolchain not complete (llvm-bolt / merge-fdata / ld.lld) -- skipping BOLT step"
         )
         return 0  # Non-fatal
 
@@ -1039,7 +1053,7 @@ def _run_bolt(
         # Retry explicitly disabled via HYPERCI_BOLT_EXTRA_RUSTFLAGS="".
         return rc
     warn(
-        "BOLT build failed — retrying once with compiler function-splitting "
+        "BOLT build failed -- retrying once with compiler function-splitting "
         f"disabled ({no_split_flags})"
     )
     return _attempt_bolt(
