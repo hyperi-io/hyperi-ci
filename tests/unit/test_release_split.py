@@ -103,6 +103,8 @@ ALLOWED_RUN_LINES = {
         rf'{_INSTALL} release-commit "{_VERSION}"',
         rf'{_INSTALL} release-notify "{_VERSION}" --outcome success',
         rf'{_INSTALL} release-notify "{_VERSION}" --outcome failure {_RUN_URL}',
+        rf'{_INSTALL} release-notify "{_VERSION}" --outcome commit-back-failed '
+        rf"{_RUN_URL}",
     ],
     "prepare": [
         *_PLACE,
@@ -306,6 +308,41 @@ class TestPublishRunsNoRepoCode:
     def test_there_is_no_registry_login(self, job: dict[str, Any]) -> None:
         """Nothing in the upload uses docker, so no step writes a docker config."""
         assert not any("login-action" in str(s.get("uses")) for s in job["steps"])
+
+
+class TestCommitBackFailureIsRecorded:
+    """A refused commit-back leaves the job green, so it must open an issue."""
+
+    @pytest.fixture
+    def steps(self) -> list[dict[str, Any]]:
+        return _jobs()["tag-and-release"]["steps"]
+
+    def test_the_commit_back_stays_non_fatal(self, steps: list[dict[str, Any]]) -> None:
+        commit = next(s for s in steps if s.get("id") == "releasecommit")
+        assert "release-commit" in str(commit["run"])
+        assert commit["continue-on-error"] is True
+
+    def test_its_failure_opens_the_commit_back_issue(
+        self, steps: list[dict[str, Any]]
+    ) -> None:
+        names = [s.get("name") for s in steps]
+        record = steps[names.index("Record a failed commit-back")]
+        assert record["if"] == "steps.releasecommit.outcome == 'failure'"
+        assert "--outcome commit-back-failed" in str(record["run"])
+        assert record["continue-on-error"] is True
+        assert record["env"] == {"GH_TOKEN": "${{ secrets.GITHUB_TOKEN }}"}
+
+    def test_it_runs_after_the_commit_back(self, steps: list[dict[str, Any]]) -> None:
+        commit = next(i for i, s in enumerate(steps) if s.get("id") == "releasecommit")
+        record = next(
+            i
+            for i, s in enumerate(steps)
+            if "--outcome commit-back-failed" in str(s.get("run", ""))
+        )
+        assert commit < record
+
+    def test_the_job_token_can_open_issues(self) -> None:
+        assert _jobs()["tag-and-release"]["permissions"]["issues"] == "write"
 
 
 def test_only_the_publish_job_holds_a_publish_credential() -> None:
