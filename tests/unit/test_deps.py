@@ -15,9 +15,13 @@ design says must always be sufficient.
 
 import json
 import subprocess
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
+from scalo.logger import logger
 
 from hyperi_ci import deps, pin_marker
 from hyperi_ci.deps import ecosystems, render, renovate, surfaces, versions
@@ -759,6 +763,17 @@ class TestUnclassified:
         assert "capped" in text
 
 
+@contextmanager
+def _capture_debug_reasons() -> Iterator[list[str]]:
+    """Collect the debug-level reasons ``_run_tool`` logs, for a failure message."""
+    reasons: list[str] = []
+    sink_id = logger.add(reasons.append, level="DEBUG", format="{message}")
+    try:
+        yield reasons
+    finally:
+        logger.remove(sink_id)
+
+
 class TestEnrichment:
     """The optional toolchain layer must never be load-bearing."""
 
@@ -769,6 +784,24 @@ class TestEnrichment:
         assert (
             ecosystems._run_tool(["definitely-not-a-real-binary-xyz"], tmp_path) is None
         )
+
+    def test_a_timeout_still_returns_none_but_logs_why(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A tool that hangs must degrade the same as an absent one -- but the
+        # timeout, unlike the miss above, is worth a debug line so a flaky
+        # run can be told apart from a genuinely slow one after the fact.
+        def _raise_timeout(*_args: object, **_kwargs: object) -> None:
+            raise subprocess.TimeoutExpired(cmd=["cargo", "metadata"], timeout=60)
+
+        monkeypatch.setattr(ecosystems.shutil, "which", lambda _name: "/usr/bin/cargo")
+        monkeypatch.setattr(ecosystems.subprocess, "run", _raise_timeout)
+
+        with _capture_debug_reasons() as reasons:
+            result = ecosystems._run_tool(["cargo", "metadata"], tmp_path)
+
+        assert result is None
+        assert any("timed out" in reason for reason in reasons), reasons
 
     def test_parse_wins_and_the_tool_only_adds(self) -> None:
         merged = ecosystems._locked_map(
@@ -1120,8 +1153,13 @@ def _cargo_usable() -> bool:
         return False
 
 
-def _cargo_metadata_diagnosis(root: Path) -> str:
-    """Re-run the command enrich_cargo runs, since it discards cargo's stderr."""
+def _cargo_metadata_diagnosis(root: Path, elapsed: float, reasons: list[str]) -> str:
+    """Re-run the command enrich_cargo runs, since it discards cargo's stderr.
+
+    Carries the elapsed time and the debug reason ``_run_tool`` logged during
+    the failing call, so a genuine timeout reads differently from a warm-run
+    non-zero exit that the retry below cannot reproduce.
+    """
     proc = subprocess.run(
         ["cargo", "metadata", "--format-version", "1", "--offline"],
         cwd=root,
@@ -1132,7 +1170,9 @@ def _cargo_metadata_diagnosis(root: Path) -> str:
         timeout=60,
         check=False,
     )
-    return f"cargo metadata exited {proc.returncode}: {proc.stderr.strip()[-2000:]}"
+    logged = "; ".join(r.strip() for r in reasons) or "no debug reason was logged"
+    retry = f"cargo metadata exited {proc.returncode}: {proc.stderr.strip()[-2000:]}"
+    return f"enrich_cargo gave up after {elapsed:.2f}s ({logged}); retry: {retry}"
 
 
 class TestEnrichmentWithoutLock:
@@ -1164,8 +1204,13 @@ class TestEnrichmentWithoutLock:
         It still needs a working cargo, so it is skipped where there is none.
         """
         _lockless_cargo_workspace(tmp_path)
-        resolved = ecosystems.enrich_cargo(tmp_path).get("member")
-        assert resolved == "0.4.2", _cargo_metadata_diagnosis(tmp_path)
+        started = time.monotonic()
+        with _capture_debug_reasons() as reasons:
+            resolved = ecosystems.enrich_cargo(tmp_path).get("member")
+        elapsed = time.monotonic() - started
+        assert resolved == "0.4.2", _cargo_metadata_diagnosis(
+            tmp_path, elapsed, reasons
+        )
 
     @pytest.mark.skipif(not _cargo_usable(), reason="needs a working cargo toolchain")
     def test_drift_attributes_the_version_to_cargo_when_the_lock_is_absent(

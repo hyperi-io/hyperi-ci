@@ -43,6 +43,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
+from scalo.logger import logger
 
 from hyperi_ci.deps import versions as ver
 from hyperi_ci.deps.surfaces import Surface, load, repo_files
@@ -293,7 +294,8 @@ def _run_tool(cmd: list[str], cwd: Path) -> str | None:
     Probed with ``shutil.which`` on every call: a box without cargo is normal,
     not a finding, so a miss is silent -- no warn, no non-zero exit. Nothing
     here is required for a surface to be reported; the parsing path already
-    produced that.
+    produced that. A probed tool that still gives up logs why, at debug level
+    only, so the silence stays but the reason is not lost.
     """
     if shutil.which(cmd[0]) is None:
         return None
@@ -308,9 +310,18 @@ def _run_tool(cmd: list[str], cwd: Path) -> str | None:
             timeout=60,
             check=False,
         )
-    except (OSError, subprocess.SubprocessError):
+    except subprocess.TimeoutExpired as exc:
+        logger.debug(f"{cmd[0]} timed out after {exc.timeout}s: {' '.join(cmd)}")
         return None
-    return proc.stdout if proc.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.debug(f"{cmd[0]} failed to start: {exc}")
+        return None
+    if proc.returncode != 0:
+        logger.debug(
+            f"{cmd[0]} exited {proc.returncode}: {proc.stderr.strip()[-2000:]}"
+        )
+        return None
+    return proc.stdout
 
 
 def enrich_cargo(cwd: Path) -> dict[str, str]:
