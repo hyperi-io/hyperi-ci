@@ -988,27 +988,35 @@ class TestRunPrTitle:
         assert cv.run() == 1
         assert any("MINOR bump" in e for e in log.errors)
 
-    @pytest.mark.parametrize("where", ["body", "commit"])
-    def test_feat_title_confirmed_by_the_trailer(
-        self, pr_run, monkeypatch: pytest.MonkeyPatch, where: str
+    def test_feat_title_confirmed_by_a_branch_commit_trailer(
+        self, pr_run, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         log = _Log(monkeypatch)
-        pr = _pr("feat: new command", body="")
-        if where == "body":
-            pr["body"] = "Adds the command.\n\nAllow-Feat: true"
-        else:
-            _git(
-                Path.cwd(),
-                "commit",
-                "--allow-empty",
-                "-q",
-                "-m",
-                "feat: new command\n\nAllow-Feat: true",
-            )
-        pr_run("feat: new command", _FakeGh(pr=pr))
+        _git(
+            Path.cwd(),
+            "commit",
+            "--allow-empty",
+            "-q",
+            "-m",
+            "feat: new command\n\nAllow-Feat: true",
+        )
+        pr_run("feat: new command", _FakeGh(pr=_pr("feat: new command", body="")))
 
         assert cv.run() == 0
         assert any("(PR title; " in s for s in log.successes)
+
+    def test_a_trailer_only_in_the_description_does_not_confirm(
+        self, pr_run, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The squash body is the branch's commit messages, so the description
+        # never lands and main's push run rejects the feat:.
+        log = _Log(monkeypatch)
+        pr = _pr("feat: new command", body="Adds the command.\n\nAllow-Feat: true")
+        pr_run("feat: new command", _FakeGh(pr=pr))
+
+        assert cv.run() == 1
+        assert any("does not land the description" in e for e in log.errors)
+        assert any("trailer in a commit on the branch" in e for e in log.errors)
 
     @pytest.mark.parametrize("event", ["push", "merge_group"])
     def test_other_events_never_read_a_title(
@@ -1035,6 +1043,46 @@ class TestRunPrTitle:
         assert cv.run() == 0
         assert gh.calls == []
         assert not any("PR title" in m for m in log.warns + log.successes)
+
+
+class TestTheSquashSuffixCounts:
+    """GitHub appends ` (#N)` to a squash subject, and main's push run
+    measures the subject with it."""
+
+    @staticmethod
+    def _title(length: int) -> str:
+        return "fix: " + "a" * length
+
+    def test_the_real_pr_number_is_reserved(self) -> None:
+        # " (#207)" is 7 characters.
+        fits = cv._title_result({"title": self._title(93), "number": 207}, [])
+        over = cv._title_result({"title": self._title(94), "number": 207}, [])
+        assert fits.valid
+        assert not over.valid
+        assert over.error_type == "description_too_long"
+        assert "maximum 93" in over.reason
+        assert "(#207)" in over.reason
+
+    def test_an_unknown_number_reserves_eight(self) -> None:
+        fits = cv._title_result({"title": self._title(92)}, [])
+        over = cv._title_result({"title": self._title(93)}, [])
+        assert fits.valid
+        assert not over.valid
+        assert "maximum 92" in over.reason
+
+    def test_a_one_commit_squash_reserves_it_too(
+        self, pr_run, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        log = _Log(monkeypatch)
+        _reword_head(self._title(95))
+        pr = _pr("fix: good title", commits=1, head={"sha": _head()}, number=207)
+        pr_run("fix: good title", _FakeGh(pr=pr))
+
+        assert cv.run() == 1
+        assert any("maximum 93" in e for e in log.errors)
+
+    def test_a_plain_commit_keeps_the_full_cap(self) -> None:
+        assert cv.validate_message(self._title(100)).valid
 
 
 def _head() -> str:

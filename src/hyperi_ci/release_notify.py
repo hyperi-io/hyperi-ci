@@ -56,6 +56,19 @@ COMMIT_BACK_LABEL = "release-commit-back"
 
 def _api(args: list[str], *, body: dict | None = None) -> dict | list | None:
     """Call `gh api`, returning the parsed response or None on failure."""
+    return _call(args, body=body)[0]
+
+
+def _call(
+    args: list[str], *, body: dict | None = None
+) -> tuple[dict | list | None, str]:
+    """Call `gh api`, returning the parsed response and, on failure, why.
+
+    Returns:
+        ``(response, "")`` on success, ``(None, reason)`` when the call failed
+        or its output was not JSON.
+
+    """
     tmp_path: str | None = None
     cmd = ["gh", "api", *args]
     if body is not None:
@@ -70,12 +83,14 @@ def _api(args: list[str], *, body: dict | None = None) -> dict | list | None:
     finally:
         if tmp_path:
             Path(tmp_path).unlink(missing_ok=True)
+    endpoint = next((a for a in args if a.startswith("repos/")), args[-1])
     if result.returncode != 0:
-        return None
+        detail = (result.stderr or "").strip() or f"exit {result.returncode}"
+        return None, f"gh api {endpoint} failed: {detail}"
     try:
-        return json.loads(result.stdout)
-    except ValueError:
-        return None
+        return json.loads(result.stdout), ""
+    except ValueError as exc:
+        return None, f"gh api {endpoint} returned no JSON: {exc}"
 
 
 def _previous_tag(version: str, *, cwd: str | None = None) -> str | None:
@@ -376,19 +391,26 @@ def notify_commit_back_failed(
         warn("release-notify: repository or version unknown -- skipping")
         return 0
 
-    existing = commit_back_issue(
-        _api(
-            [
-                "-X",
-                "GET",
-                f"repos/{repo}/issues",
-                "-f",
-                "state=open",
-                "-f",
-                f"labels={COMMIT_BACK_LABEL}",
-            ]
-        )
+    issues, why = _call(
+        [
+            "-X",
+            "GET",
+            f"repos/{repo}/issues",
+            "-f",
+            "state=open",
+            "-f",
+            f"labels={COMMIT_BACK_LABEL}",
+        ]
     )
+    if not isinstance(issues, list):
+        # An unanswered lookup cannot tell "no issue yet" from "one is open".
+        warn(
+            f"release-notify: could not list the open {COMMIT_BACK_LABEL} issues "
+            f"({why or 'the response was not a list'}), so v{version}'s "
+            "commit-back failure is not recorded rather than risk a duplicate"
+        )
+        return 0
+    existing = commit_back_issue(issues)
     if existing is None:
         created = _api(
             ["-X", "POST", f"repos/{repo}/issues"],

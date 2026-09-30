@@ -109,7 +109,7 @@ agnostic. The accepted cost is that it is post-hoc -- the bad message is on
 main by the time it fails, so the fix is a follow-up commit rather than a
 rejected push.
 
-On a `pull_request` the line a squash merge would land is validated as well, and a bad one is fatal. The check assumes GitHub's default squash subject, `COMMIT_OR_PR_TITLE`, which every hyperi-io repo uses: a one-commit PR lands that commit's message, which is fatal while the title is only advised on, and any other PR lands its title. The job token cannot read the repo's merge settings, so the assumption is not checked per repo. The PR is read live from the API with the job token, since the event payload is frozen at trigger time and a re-run replays it. With no token or no API answer it uses the payload's PR and warns.
+On a `pull_request` the line a squash merge would land is validated as well, and a bad one is fatal. The check assumes GitHub's default squash subject, `COMMIT_OR_PR_TITLE`, which every hyperi-io repo uses: a one-commit PR lands that commit's message, which is fatal while the title is only advised on, and any other PR lands its title. The landing subject is measured with the ` (#N)` GitHub appends to it, as main's push run sees it. A `feat:` title is confirmed only by an `Allow-Feat: true` trailer in a branch commit, because the squash body is built from the commit messages and the PR description never lands. The job token cannot read the repo's merge settings, so the assumption is not checked per repo. The PR is read live from the API with the job token, since the event payload is frozen at trigger time and a re-run replays it. With no token or no API answer it uses the payload's PR and warns.
 
 ### Gate outputs (computed in `plan`)
 

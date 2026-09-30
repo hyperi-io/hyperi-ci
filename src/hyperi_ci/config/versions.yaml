@@ -435,6 +435,7 @@ runtimes:
     version: "24"
     pin:
       - .github/workflows/ts-ci.yml
+      - .github/workflows/_release-tail.yml
       - .github/actions/setup-semantic-release/action.yml
   rust: stable
   # LLVM major every Rust job installs bolt-NN and lld-NN from.

@@ -6,8 +6,6 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for scripts/update-versions.py version-pin regexes."""
 
-from __future__ import annotations
-
 import importlib.util
 import json
 import re
@@ -715,6 +713,32 @@ class TestRuntimePins:
         assert len(problems) == 1
         assert "no `# hyperi-ci:pin runtimes.python` marker found" in problems[0]
         assert update_versions._UNFIXABLE in problems[0]
+
+    def test_every_marked_runtime_pin_is_declared(self) -> None:
+        """A marker the SSOT's `pin:` list does not name is held by nothing."""
+        root = Path(__file__).resolve().parents[2]
+        runtimes = update_versions._load_versions()["runtimes"]
+        marker = re.compile(r"#\s*hyperi-ci:pin\s+runtimes\.([\w-]+)\s*$", re.M)
+        undeclared = []
+        for path in sorted((root / ".github").rglob("*.yml")):
+            rel = path.relative_to(root).as_posix()
+            for name in marker.findall(path.read_text(encoding="utf-8")):
+                pins = (runtimes.get(name) or {}).get("pin") or []
+                if rel not in ([pins] if isinstance(pins, str) else pins):
+                    undeclared.append(f"{rel}: runtimes.{name}")
+        assert not undeclared
+
+    def test_the_release_tail_node_default_is_enforced(self) -> None:
+        """Checked against the real tree: a drifted SSOT names the file."""
+        versions = update_versions._load_versions()
+        current = versions["runtimes"]["node"]["version"]
+        versions["runtimes"]["node"]["version"] = "99"
+        problems = update_versions._pin_mismatches(versions)
+        assert any(
+            p.lstrip().startswith(".github/workflows/_release-tail.yml:")
+            and f"runtimes.node {current} " in p
+            for p in problems
+        ), problems
 
     def test_a_bare_runtime_is_not_a_malformed_entry(
         self, tmp_path: Path, monkeypatch

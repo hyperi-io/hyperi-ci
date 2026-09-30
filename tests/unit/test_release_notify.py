@@ -224,6 +224,14 @@ class TestCommitBackIssue:
         assert failure_issue_numbers([_OPEN], "1.2.3") == []
 
 
+def _answers(*values: object) -> list[tuple[object, str]]:
+    """What `_call` returns for each response: a None stands for a failed call."""
+    return [(value, "" if value is not None else "HTTP 502") for value in values]
+
+
+_CALL = "hyperi_ci.release_notify._call"
+
+
 class TestNotifyCommitBackFailed:
     def _open(self, api: MagicMock) -> dict:
         created = api.call_args_list[-1]
@@ -231,9 +239,7 @@ class TestNotifyCommitBackFailed:
         return created.kwargs["body"]
 
     def test_opens_a_labelled_issue(self) -> None:
-        with patch(
-            "hyperi_ci.release_notify._api", side_effect=[[], {"number": 42}]
-        ) as api:
+        with patch(_CALL, side_effect=_answers([], {"number": 42})) as api:
             assert (
                 notify_commit_back_failed(
                     version="v1.2.3", repo=_REPO, run_url="http://run/1"
@@ -246,9 +252,7 @@ class TestNotifyCommitBackFailed:
         assert COMMIT_BACK_LABEL != "release-failure"
 
     def test_the_body_says_it_shipped_and_names_the_fix(self) -> None:
-        with patch(
-            "hyperi_ci.release_notify._api", side_effect=[[], {"number": 42}]
-        ) as api:
+        with patch(_CALL, side_effect=_answers([], {"number": 42})) as api:
             notify_commit_back_failed(
                 version="1.2.3", repo=_REPO, run_url="http://run/1"
             )
@@ -265,9 +269,7 @@ class TestNotifyCommitBackFailed:
 
     def test_a_later_version_comments_on_the_open_issue(self) -> None:
         """One issue per repo: the cause is configuration, not the version."""
-        with patch(
-            "hyperi_ci.release_notify._api", side_effect=[[_OPEN], [], {"id": 1}]
-        ) as api:
+        with patch(_CALL, side_effect=_answers([_OPEN], [], {"id": 1})) as api:
             notify_commit_back_failed(
                 version="1.2.4", repo=_REPO, run_url="http://run/2"
             )
@@ -277,29 +279,48 @@ class TestNotifyCommitBackFailed:
         assert "http://run/2" in posted.kwargs["body"]["body"]
 
     def test_a_rerun_of_the_first_version_posts_nothing(self) -> None:
-        with patch("hyperi_ci.release_notify._api", return_value=[_OPEN]) as api:
+        with patch(_CALL, return_value=([_OPEN], "")) as api:
             notify_commit_back_failed(version="1.2.3", repo=_REPO)
         assert api.call_count == 1
 
     def test_a_rerun_of_a_commented_version_posts_nothing(self) -> None:
         comments = [{"body": "<!-- hyperi-ci:release-notify -->\nv1.2.4 shipped too"}]
-        with patch(
-            "hyperi_ci.release_notify._api", side_effect=[[_OPEN], comments]
-        ) as api:
+        with patch(_CALL, side_effect=_answers([_OPEN], comments)) as api:
             notify_commit_back_failed(version="1.2.4", repo=_REPO)
         assert not [c for c in api.call_args_list if "POST" in c.args[0]]
 
     def test_a_version_prefix_is_not_a_match(self) -> None:
         """v1.2.30 must not read as already recorded because v1.2.3 is."""
-        with patch(
-            "hyperi_ci.release_notify._api", side_effect=[[_OPEN], [], {"id": 1}]
-        ) as api:
+        with patch(_CALL, side_effect=_answers([_OPEN], [], {"id": 1})) as api:
             notify_commit_back_failed(version="1.2.30", repo=_REPO)
         assert "POST" in api.call_args_list[-1].args[0]
 
     def test_an_api_failure_still_returns_zero(self) -> None:
-        with patch("hyperi_ci.release_notify._api", return_value=None):
+        with patch(_CALL, return_value=(None, "HTTP 502")):
             assert notify_commit_back_failed(version="1.2.3", repo=_REPO) == 0
+
+    def test_a_failed_lookup_opens_no_duplicate(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A lookup that failed cannot say no issue is open yet."""
+        warned: list[str] = []
+        monkeypatch.setattr(release_notify, "warn", warned.append)
+        with patch(_CALL, return_value=(None, "gh api x failed: HTTP 502")) as api:
+            assert notify_commit_back_failed(version="1.2.3", repo=_REPO) == 0
+        assert api.call_count == 1
+        assert "GET" in api.call_args_list[0].args[0]
+        assert len(warned) == 1
+        assert "HTTP 502" in warned[0]
+        assert "not recorded" in warned[0]
+
+    def test_the_reason_comes_from_gh(self) -> None:
+        failed = MagicMock(returncode=1, stdout="", stderr="HTTP 502: Bad Gateway\n")
+        with patch("hyperi_ci.release_notify.run_cmd", return_value=failed):
+            response, why = release_notify._call(
+                ["-X", "GET", "repos/x/issues", "-f", "state=open"]
+            )
+        assert response is None
+        assert why == "gh api repos/x/issues failed: HTTP 502: Bad Gateway"
 
 
 def test_the_cli_routes_commit_back_failed_to_its_own_issue() -> None:

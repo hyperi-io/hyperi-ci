@@ -78,7 +78,7 @@ on:
         type: string
         # hyperi-ci:pin runtimes.node
         default: "24"
-        description: "Node.js runtime the prepare job packs an npm package with (only used when language=typescript)"
+        description: "Node.js runtime the prepare job packs an npm package with, and Tag & Release publishes it with (only used when language=typescript)"
       submodules:
         type: string
         default: ""
@@ -228,7 +228,9 @@ jobs:
 
       - name: Set up Python
         if: steps.resolve.outputs.build == 'true'
-        run: uv python install ${{ inputs.python-version }}
+        env:
+          PYTHON_VERSION: ${{ inputs.python-version }}
+        run: uv python install "$PYTHON_VERSION"
 
       - name: Stamp predicted version
         # This job checks out HEAD on its own runner, so the Build job's stamp
@@ -236,7 +238,9 @@ jobs:
         # A `tag` dispatch stamps too: the tagged tree carries the release
         # before it (issue #352). This tree is never committed.
         if: steps.resolve.outputs.build == 'true' && inputs.will-publish == 'true' && inputs.next-version != ''
-        run: ${{ env.HYPERCI_INSTALL }} stamp-version "${{ inputs.next-version }}"
+        env:
+          RELEASE_VERSION: ${{ inputs.next-version }}
+        run: ${{ env.HYPERCI_INSTALL }} stamp-version "$RELEASE_VERSION"
 
       - name: Build container
         # Handler decides validate-only vs push based on HYPERCI_RELEASE_MODE:
@@ -278,7 +282,9 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
-        run: uv python install ${{ inputs.python-version }}
+        env:
+          PYTHON_VERSION: ${{ inputs.python-version }}
+        run: uv python install "$PYTHON_VERSION"
 
       - name: Download build artifacts
         # npm pack packages the compiled output the Build job left in dist/.
@@ -375,16 +381,19 @@ jobs:
           enable-cache: false
 
       - name: Set up Python
-        run: uv python install --no-config ${{ inputs.python-version }}
+        env:
+          PYTHON_VERSION: ${{ inputs.python-version }}
+        run: uv python install --no-config "$PYTHON_VERSION"
 
       - name: Open the release-failure issue
         # No checkout: the issue needs only the repository name and the run.
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.next-version }}
         run: >-
           ${{ env.HYPERCI_INSTALL }} release-notify
-          "${{ inputs.next-version }}"
+          "$RELEASE_VERSION"
           --outcome failure
           --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
@@ -449,6 +458,15 @@ jobs:
         with:
           toolchain: ${{ inputs.rust-toolchain }}
 
+      - name: Set up Node.js
+        # For `npm publish`. setup-semantic-release brings Node only on a push or
+        # a from-head auto dispatch, and the org's publish runners carry none.
+        # Before the checkout, so no repo file can steer which Node is installed.
+        if: inputs.language == 'typescript'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ inputs.node-version }}
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # On push OR a from-head dispatch (issue #35), check out main HEAD
@@ -496,7 +514,9 @@ jobs:
         # --no-config: in the checkout, uv reads the repo's [tool.uv], whose
         # python-install-mirror picks where the interpreter that then runs
         # hyperi-ci, credentials and all, is downloaded from.
-        run: uv python install --no-config ${{ inputs.python-version }}
+        env:
+          PYTHON_VERSION: ${{ inputs.python-version }}
+        run: uv python install --no-config "$PYTHON_VERSION"
 
       - name: Verify the prepared release
         # Before anything is tagged: a prepared version or language that does
@@ -557,8 +577,10 @@ jobs:
         # fast and loud instead. Tags are present locally (fetch-depth: 0).
         # Trivial glue: a tag-existence check + SHA compare.
         if: ${{ github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto') }}
+        env:
+          RELEASE_VERSION: ${{ inputs.next-version }}
         run: |
-          predicted="v${{ inputs.next-version }}"
+          predicted="v${RELEASE_VERSION}"
           if git rev-parse -q --verify "refs/tags/${predicted}^{commit}" >/dev/null 2>&1
           then
             existing=$(git rev-parse "refs/tags/${predicted}^{commit}")
@@ -589,10 +611,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
           GH_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.next-version }}
         run: |
           if [ -z "$(git tag --list 'v[0-9]*')" ]; then
-            echo "Tag-less repo — first release: tagging HEAD v${{ inputs.next-version }} from the plan's prediction"
-            ${{ env.HYPERCI_INSTALL }} tag-head --bump ${{ inputs.next-version }}
+            echo "Tag-less repo — first release: tagging HEAD v${RELEASE_VERSION} from the plan's prediction"
+            ${{ env.HYPERCI_INSTALL }} tag-head --bump "$RELEASE_VERSION"
           else
             npx semantic-release
           fi
@@ -609,7 +632,8 @@ jobs:
         if: ${{ inputs.from-head == 'true' && inputs.bump != 'auto' && inputs.bump != '' }}
         env:
           GH_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
-        run: ${{ env.HYPERCI_INSTALL }} tag-head --bump ${{ inputs.next-version }}
+          RELEASE_VERSION: ${{ inputs.next-version }}
+        run: ${{ env.HYPERCI_INSTALL }} tag-head --bump "$RELEASE_VERSION"
 
       - name: Publish
         # Uploads to all OSS destinations: crates.io / PyPI / npm /
@@ -654,9 +678,10 @@ jobs:
           # for the same reason the tag does.
           GH_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
           HYPERCI_RELEASE_PREPARED: ${{ runner.temp }}/release-prepared
+          RELEASE_VERSION: ${{ inputs.next-version }}
         run: >-
           ${{ env.HYPERCI_INSTALL }} release-commit
-          "${{ inputs.next-version }}"
+          "$RELEASE_VERSION"
 
       - name: Record a failed commit-back
         # The commit-back cannot turn the job red, so this issue is the only place a stale VERSION on main shows up.
@@ -664,9 +689,10 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.next-version }}
         run: >-
           ${{ env.HYPERCI_INSTALL }} release-notify
-          "${{ inputs.next-version }}"
+          "$RELEASE_VERSION"
           --outcome commit-back-failed
           --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
@@ -677,9 +703,10 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.next-version }}
         run: >-
           ${{ env.HYPERCI_INSTALL }} release-notify
-          "${{ inputs.next-version }}"
+          "$RELEASE_VERSION"
           --outcome success
 
       - name: Record a failed release
@@ -689,8 +716,9 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.next-version }}
         run: >-
           ${{ env.HYPERCI_INSTALL }} release-notify
-          "${{ inputs.next-version }}"
+          "$RELEASE_VERSION"
           --outcome failure
           --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
