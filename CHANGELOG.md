@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.12.4](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.3...v2.12.4) (2026-09-30)
+
+### Bug Fixes
+
+* **deps:** say why cargo enrichment gave up, and stop the no-lock test flaking ([#435](https://github.com/hyperi-io/hyperi-ci/issues/435)) ([b7f60a4](https://github.com/hyperi-io/hyperi-ci/commit/b7f60a4419ca395f3524b63f0163f35dec6669af))
+* **rust:** build profile-use steps without sccache, and take the BOLT profile on the PGO layout ([#438](https://github.com/hyperi-io/hyperi-ci/issues/438)) ([bbeb2b0](https://github.com/hyperi-io/hyperi-ci/commit/bbeb2b0eb166a2c84f0a06705f18708852acc326)), closes [#436](https://github.com/hyperi-io/hyperi-ci/issues/436) [#437](https://github.com/hyperi-io/hyperi-ci/issues/437)
+
 ## [2.12.3](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.2...v2.12.3) (2026-09-30)
 
 ### Bug Fixes
