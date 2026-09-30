@@ -86,7 +86,7 @@ the single place language divergence is allowed.
 | `quality` | `[plan]` | `run-checks` | Lint / typecheck / security scan |
 | `test` | `[plan]` | `run-checks` | Tests at the plan's `test-tier`, named `Test (<tier>, <runner>)`; a full run passes `--tier full` |
 | `build` | `[plan, quality, test]` | `run-build` | Compile binaries / wheels / packages, stamp version, upload `dist/` |
-| `release-tail` | `[plan, build]` | own gates | Container + tag-and-release, via shared `_release-tail.yml` |
+| `release-tail` | `[plan, build]` | own gates | Container, prepare and tag-and-release, via shared `_release-tail.yml` |
 | `gate` | `[plan, quality, test, build]` | always | `hyperi-ci gate-check`: fails when a required job did not pass, and names the test tier. The context a ruleset should require (issue #177) |
 
 `commit-check` is deliberately **independent of `plan` / `run-checks`**: that
@@ -411,6 +411,18 @@ decoupled from the Container job (`always()`): a transient container/registry
 hiccup surfaces as a red run but the crate/PyPI/npm + GitHub Release still ships
 and the tag is still cut. The container image is a secondary artefact; the
 package is the point of the release.
+
+**Tag & Release runs no repo code (issue #409).** It holds every publish credential, so everything in a release that executes the repo's own code runs first in `prepare`, a job with no secret and a read-only token. It stamps and runs `release.stamp_cmd`, uploads the `stamp_paths` files, and only then runs cargo-semver-checks (which builds the crate), `cargo package`, `prepublishOnly` and `npm pack`. A failed `prepare` cuts no tag, and the `prepare-failed` job opens the release-failure issue. Tag & Release downloads what `prepare` left, checks it with `hyperi-ci release-verify` before the Guard and Tag steps, and only uploads:
+
+| Ecosystem | Upload | Why no repo code runs |
+|---|---|---|
+| crates.io | `cargo publish --no-verify --manifest-path <repo>/Cargo.toml`, from an empty directory | cargo cannot publish a `.crate` it did not pack, so it repackages Tag & Release's own checkout, Cargo.toml re-stamped, on the toolchain installed before the checkout. `--no-verify` builds nothing. Outside the repo cargo reads no `.cargo/config.toml` and rustup no `rust-toolchain.toml`, either of which can name a program. Whether there is a library to publish comes from `cargo metadata`, run the same way, and prepare must also have checked it |
+| npm | the prepared tarball, `--ignore-scripts --registry <host>`, from an empty directory | A tarball publish runs no lifecycle script, and the flag is a second guard. The tarball's own package.json must name this checkout's package at this run's version, with no `publishConfig.registry` on another host. The token sits in a throwaway user config, so the repo's `.npmrc` is never read. `publish` and `postpublish` scripts no longer run |
+| PyPI | `uv publish --no-config` of the Build job's wheel and sdist | Nothing is built. `--no-config` stops a `[tool.uv] publish-url` sending the token elsewhere, and the token goes by env, not argv |
+| Go | module path read from `go.mod` | `go` is never run |
+| GitHub Release, R2 | `gh release`, `aws s3 cp` of `dist/` | Data only. `release.assets` entries must be relative paths inside the repo, and symlinks are skipped |
+
+The build and prepared artefacts come from jobs that ran repo code, so Tag & Release treats them as data. Build artefacts are downloaded outside the checkout and only `dist/` and `ci-tmp/` are copied in. `release-commit` writes `VERSION` from the release version and restores only the `release.stamp_paths` files, by name from the checkout's own config, and only when `prepare` ran on the same commit. The release App key reaches only the step that mints the bot token. The Tag step's semantic-release still loads a repo-controlled config, tracked in issue #413.
 
 ## Runner modes (summary)
 

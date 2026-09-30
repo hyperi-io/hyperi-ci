@@ -25,7 +25,6 @@ import yaml
 from hyperi_ci import config as config_module
 from hyperi_ci.common import run_cmd
 from hyperi_ci.release_commit import (
-    STAMP_OUTCOME_ENV,
     SUPPLEMENT,
     _local_blob,
     commit_release_artefacts,
@@ -227,7 +226,6 @@ class TestStampPaths:
     def _checkout_head(self, monkeypatch: pytest.MonkeyPatch) -> dict[str, str | None]:
         """Blob shas in the checkout's HEAD; a path not listed carries _HEAD_BLOB."""
         blobs: dict[str, str | None] = {}
-        monkeypatch.delenv(STAMP_OUTCOME_ENV, raising=False)
         monkeypatch.setattr(
             "hyperi_ci.release_commit._local_blob",
             lambda _root, name: blobs.get(name, _HEAD_BLOB),
@@ -328,25 +326,6 @@ class TestStampPaths:
         _checkout_head["openapi-spec/openapi.json"] = None
         commit_release_artefacts(version="3.1.0", project_dir=project)
         assert "openapi-spec/openapi.json" not in self._tree_paths(api)
-
-    def test_a_failed_stamp_step_keeps_its_output_out(
-        self, api: _Api, project: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A generator that died part-way leaves partial files behind."""
-        self._spec(project, "openapi.json")
-        self._configure(project, ["openapi-spec/openapi.json"])
-        monkeypatch.setenv(STAMP_OUTCOME_ENV, "failure")
-        assert commit_release_artefacts(version="3.1.0", project_dir=project) == 0
-        assert self._tree_paths(api) == {"VERSION", "CHANGELOG.md"}
-
-    def test_a_successful_stamp_step_commits_its_output(
-        self, api: _Api, project: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        self._spec(project, "openapi.json")
-        self._configure(project, ["openapi-spec/openapi.json"])
-        monkeypatch.setenv(STAMP_OUTCOME_ENV, "success")
-        commit_release_artefacts(version="3.1.0", project_dir=project)
-        assert "openapi-spec/openapi.json" in self._tree_paths(api)
 
     @pytest.mark.parametrize("name", [".git/config", SUPPLEMENT])
     def test_paths_release_commit_owns_are_refused(

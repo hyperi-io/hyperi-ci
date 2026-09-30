@@ -531,6 +531,7 @@ jobs:
     uses: hyperi-io/hyperi-ci/.github/workflows/_release-tail.yml@main
     with:
       language: typescript
+      node-version: ${{ inputs.node-version }}
       will-publish: ${{ needs.plan.outputs.will-release }}
       next-version: ${{ needs.plan.outputs.next-version }}
       tag: ${{ inputs.tag }}
