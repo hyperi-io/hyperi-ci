@@ -67,6 +67,10 @@ on:
         type: number
         default: 360
         description: "Minutes before the Test job is cancelled, per matrix leg. 360 (default) is GitHub's own limit for a job with none set, and the most a GitHub-hosted runner allows; a self-hosted runner allows up to 7200 (5 days). 0 reads as 360. Pass a number unquoted: a quoted '150' is a string, and GitHub refuses the run before any job starts."
+      build-timeout-minutes:
+        type: number
+        default: 135
+        description: "Minutes before the Build job is cancelled, per matrix leg. 135 (default) is at least twice the longest successful build across the fleet; raise it for a build that outruns that, such as a PGO+BOLT release. 0 reads as 135. A GitHub-hosted runner stops a job at 360 whatever is set, a self-hosted one at 7200 (5 days). Pass a number unquoted: a quoted '200' is a string, and GitHub refuses the run before any job starts."
       submodules:
         type: string
         default: ""
@@ -456,7 +460,9 @@ jobs:
   build:
     name: Build (${{ matrix.os_arch }})
     # At least twice the longest successful run across the fleet (issue #262).
-    timeout-minutes: 135
+    # A caller can raise it for a PGO+BOLT release build that outruns that, and
+    # the fallback covers a dispatch, which has no such input, and a caller's 0.
+    timeout-minutes: ${{ inputs.build-timeout-minutes || 135 }}
     needs: [plan, quality, test]
     if: needs.plan.outputs.run-build == 'true'
     runs-on: ${{ matrix.runner }}

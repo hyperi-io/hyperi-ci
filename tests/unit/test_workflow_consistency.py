@@ -1156,6 +1156,12 @@ class TestJobTimeouts:
     @pytest.mark.parametrize("job", ["quality", "build"])
     def test_language_jobs_carry_a_limit(self, workflow_name: str, job: str) -> None:
         minutes = _load_workflow(workflow_name)["jobs"][job].get("timeout-minutes")
+        # A caller can raise Build's limit, so there the fallback is the limit.
+        if isinstance(minutes, str):
+            fallback = re.fullmatch(
+                r"\$\{\{ inputs\.build-timeout-minutes \|\| (\d+) \}\}", minutes
+            )
+            minutes = int(fallback.group(1)) if fallback else None
         assert isinstance(minutes, int) and 0 < minutes < 360, (
             f"{workflow_name}: {job} needs a timeout-minutes below GitHub's 360"
         )

@@ -100,7 +100,7 @@ What it hands over: a token that is read-only on this repo's contents and can re
 
 **`test-timeout-minutes`** is the Test job's limit, per matrix leg. Default 360, which is GitHub's own limit for a job that sets none, so leaving it out changes nothing. A GitHub-hosted runner stops a job at 360 whatever is set, and a self-hosted one at 7200 (5 days). 0 reads as 360. Pass it as a number, unquoted: a quoted `"300"` is a string, and GitHub refuses the whole run before any job starts.
 
-Quality, Build and the release tail carry fixed limits. Test does not, because one repo's Test run reaches 250 minutes and no shared limit under 360 leaves it room (issue #262).
+Quality and the release tail carry fixed limits. Test does not, because one repo's Test run reaches 250 minutes and no shared limit under 360 leaves it room (issue #262). Build defaults to 135 and a caller raises it with `build-timeout-minutes`: [`rust.md`](languages/rust.md) -> *The Build job's time limit*.
 
 ## Native tools the tests need
 
