@@ -19,14 +19,17 @@ Under ``full`` a skip fails the run unless its reason matches
 ``test.full.python.allow_skip``: a skip there is a test that could not run,
 which the full tier exists to rule out.
 
-Every run lists each skip with its reason (``-r`` with ``s``). In CI both
-tiers also list the slowest tests with ``--durations`` and write JUnit XML to
-``test-results/``, each unless the project sets its own.
+Every run lists each skip with its reason (``-r`` with ``s``), and keeps only
+a failed test's ``tmp_path`` directory rather than pytest's default of every
+test's for the last 3 runs, unless the project sets its own retention policy.
+In CI both tiers also list the slowest tests with ``--durations`` and write
+JUnit XML to ``test-results/``, each unless the project sets its own.
 """
 
 import re
 import shutil
 from dataclasses import dataclass
+from pathlib import Path
 
 from hyperi_ci.common import (
     echo_chunk,
@@ -40,7 +43,11 @@ from hyperi_ci.common import (
 )
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.python.parallel import parallel_args
-from hyperi_ci.languages.python.pytest_args import option_values, project_args
+from hyperi_ci.languages.python.pytest_args import (
+    ini_value,
+    option_values,
+    project_args,
+)
 from hyperi_ci.languages.quality_common import get_python_source_paths
 from hyperi_ci.languages.tiering import (
     KeptLines,
@@ -68,8 +75,6 @@ def _resolve_cmd(cmd: list[str]) -> list[str]:
     uv project (uv.lock present), always go through `uv run` so the
     project's own pytest + plugins are used.
     """
-    from pathlib import Path
-
     if shutil.which("uv") and Path("uv.lock").exists():
         return ["uv", "run", *cmd]
     if shutil.which(cmd[0]):
@@ -393,6 +398,34 @@ def _durations_args(args: list[str]) -> list[str]:
     return [f"--durations={_CI_DURATIONS}"]
 
 
+# pytest 7.3 (2023-04-08) added this ini key; an older pytest only warns on an
+# unknown -o/--override-ini key (PytestConfigWarning), it does not fail the
+# run, so the override is safe to add unconditionally.
+_RETENTION_KEY = "tmp_path_retention_policy"
+
+
+def _retention_args(args: list[str]) -> list[str]:
+    """Return the override keeping only a failed test's ``tmp_path`` dir.
+
+    pytest's own default keeps every test's ``tmp_path`` directory for the
+    last 3 runs, which fills a small /tmp fast on a large suite. Left alone
+    when the project already sets the policy, in its args/addopts/
+    PYTEST_ADDOPTS (an ``-o``/``--override-ini`` for the key) or in its own
+    pytest config file's ini options.
+    """
+    tokens = project_args(args)
+    overrides = option_values(tokens, "--override-ini", "-o")
+    already_set = any(
+        value.split("=", 1)[0].strip() == _RETENTION_KEY for value in overrides
+    )
+    if not already_set:
+        already_set = ini_value(Path.cwd(), _RETENTION_KEY) is not None
+    if already_set:
+        info(f"  Tmp dirs: the project sets its own {_RETENTION_KEY}, leaving it alone")
+        return []
+    return [f"--override-ini={_RETENTION_KEY}=failed"]
+
+
 def _report_chars_arg(args: list[str]) -> str:
     """Return ``-r`` with the project's report chars plus ``s``, for skip reasons."""
     given = option_values(project_args(args), "--report-chars", "-r")
@@ -489,6 +522,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # stays accurate across workers and needs no extra configuration.
     base_args.extend(parallel_args(config, base_args, _resolve_cmd(["pytest"])))
     base_args.extend(_durations_args(base_args))
+    base_args.extend(_retention_args(base_args))
     base_args.append(_report_chars_arg(base_args))
     junit = _junit_wanted(base_args)
 

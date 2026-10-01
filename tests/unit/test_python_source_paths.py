@@ -359,6 +359,7 @@ class TestCoverageFollowsTheSource:
                 "--cov=dfe_schemas",
                 "--cov-report=xml",
                 "--cov-fail-under=80",
+                "--override-ini=tmp_path_retention_policy=failed",
                 "-rfEs",
             ]
         ]
@@ -435,6 +436,7 @@ class TestSrcLayoutIsByteIdentical:
                 "--cov=src",
                 "--cov-report=xml",
                 "--cov-fail-under=80",
+                "--override-ini=tmp_path_retention_policy=failed",
                 "-rfEs",
             ]
         ]

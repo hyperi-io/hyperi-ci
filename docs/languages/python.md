@@ -116,7 +116,7 @@ that must share a worker with xdist's own `@pytest.mark.xdist_group` and run
 
 ## Test output
 
-Every run passes pytest `-r` with `s` added to the project's own report chars, so each skip is listed with its reason. In CI, both tiers also pass `--durations=25` and write JUnit XML to `test-results/junit.xml` for the Test job's upload. A project that sets either option itself keeps its own. Details: [test-tiers.md](../test-tiers.md).
+Every run passes pytest `-r` with `s` added to the project's own report chars, so each skip is listed with its reason, and overrides `tmp_path_retention_policy` to `failed` so a passed test's tmp dir does not sit in `/tmp` for 3 runs. In CI, both tiers also pass `--durations=25` and write JUnit XML to `test-results/junit.xml` for the Test job's upload. A project that sets any of these options itself keeps its own. Details: [test-tiers.md](../test-tiers.md).
 
 ## Test tiers
 
