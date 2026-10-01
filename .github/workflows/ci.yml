@@ -90,6 +90,7 @@ jobs:
         uses: ./.github/actions/predict-version
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ inputs.tag }}
           from-head: ${{ inputs.from-head }}
           bump: ${{ inputs.bump }}
           branch-build: ${{ vars.HYPERCI_BRANCH_BUILD }}

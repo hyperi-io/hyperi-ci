@@ -140,6 +140,45 @@ class TestFromHeadThreading:
             "so the version is resolved on a from-head dispatch (#35)"
         )
 
+    def test_ci_yml_threads_every_dispatch_input_python_ci_threads(self) -> None:
+        # issue #478: ci.yml dogfoods its own version-first pipeline instead of
+        # calling python-ci.yml, so its plan job must forward every
+        # workflow_dispatch input it declares to predict-version the same way
+        # python-ci.yml forwards its own -- else a `tag=` dispatch on hyperi-ci
+        # itself reaches the gate as a bare, validate-only run.
+        python_wf = _load_workflow("python-ci.yml")
+        ci_wf = _load_workflow("ci.yml")
+
+        def predict_with(wf: dict) -> dict:
+            step = next(
+                s
+                for s in wf["jobs"]["plan"]["steps"]
+                if "predict-version" in str(s.get("uses", ""))
+            )
+            return step.get("with", {})
+
+        python_with = predict_with(python_wf)
+        ci_with = predict_with(ci_wf)
+        ci_dispatch_inputs = (
+            (ci_wf.get("on") or ci_wf.get(True, {}))
+            .get("workflow_dispatch", {})
+            .get("inputs", {})
+        )
+
+        for key in ci_dispatch_inputs:
+            if key not in python_with:
+                continue  # python-ci.yml does not thread this one either
+            assert key in ci_with, (
+                f"ci.yml.plan: predict-version is missing `{key}`, which "
+                f"python-ci.yml threads from its own `inputs.{key}` -- a "
+                f"`{key}=` dispatch on hyperi-ci itself never reaches the gate."
+            )
+            assert ci_with[key] == f"${{{{ inputs.{key} }}}}", (
+                f"ci.yml.plan: predict-version's `{key}` is {ci_with[key]!r}, "
+                f"expected the dispatch input forwarded verbatim "
+                f"(${{{{ inputs.{key} }}}})"
+            )
+
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
     def test_release_tail_receives_from_head_and_bump(self, workflow_name: str) -> None:
         wf = _load_workflow(workflow_name)
