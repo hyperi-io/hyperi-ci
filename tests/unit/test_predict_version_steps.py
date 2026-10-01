@@ -262,6 +262,15 @@ class TestAScheduledRun:
         assert _tier("schedule", "false", "core", released_head)["test-tier"] == "full"
 
 
+class TestAMergeQueueEntry:
+    """A queue entry is what main fast-forwards to, so it runs the checks."""
+
+    def test_a_queue_entry_runs_checks_and_no_build(self, released_head: Path) -> None:
+        outputs = _derive("merge_group", "false", released_head)
+        assert outputs["run-checks"] == "true"
+        assert outputs["run-build"] == "false"
+
+
 class TestTheOtherEvents:
     def test_a_pr_runs_core(self, released_head: Path) -> None:
         assert (

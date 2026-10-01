@@ -479,12 +479,15 @@ runs:
           run_build=false
         fi
 
-        # run-checks: a publish run, a PR, a dispatch, a schedule -- and a
-        # merge to main that CARRIES a release, whether or not this run is the
-        # one that ships it (issue #124). run-build deliberately stays
-        # publish-only: compiling a commit nothing ships is the red line the
-        # doctrine draws, so a schedule tests and builds nothing.
-        if [[ "$will_publish" == "true" || "$event_name" == "pull_request" || "$event_name" == "workflow_dispatch" || "$event_name" == "schedule" || "$release_worthy" == "true" ]]; then
+        # run-checks: a publish run, a PR, a merge queue entry, a dispatch, a
+        # schedule -- and a merge to main that CARRIES a release, whether or
+        # not this run is the one that ships it (issue #124). A queue entry is
+        # the commit main fast-forwards to, and a skipped required check counts
+        # as passing, so without it a queue merges untested (issue #468).
+        # run-build deliberately stays publish-only: compiling a commit nothing
+        # ships is the red line the doctrine draws, so a schedule or a queue
+        # entry tests and builds nothing.
+        if [[ "$will_publish" == "true" || "$event_name" == "pull_request" || "$event_name" == "merge_group" || "$event_name" == "workflow_dispatch" || "$event_name" == "schedule" || "$release_worthy" == "true" ]]; then
           run_checks=true
         else
           run_checks=false
