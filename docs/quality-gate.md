@@ -171,6 +171,8 @@ repo's ruff `ignore` list for this pass; `per-file-ignores`, `# noqa` and
 `quality.ignore` entries for `ruff` still apply. It is a security gate, so
 `disabled` owes a `reason`.
 
+**`ruff_docstrings` enforces the D rules whatever the repo selects**, the same way: `--select D` drops the repo's ruff `ignore` list. To accept one D rule, add a `quality.ignore` entry with tool `ruff` and its id (`D100`) and a reason, or use `per-file-ignores` or `# noqa`.
+
 **Python source directories are detected, not configured.** ruff S and D, bandit, vulture and `--cov` scan `src/` when it holds a `.py` file. Otherwise they scan every top-level directory holding a `.py` file, apart from the test paths, hidden directories, `quality.exclude_paths`, the always-pruned set, and `docs`, `build`, `dist`, `env` and `*.egg-info`. Modules at the repo root (`setup.py`, `conftest.py`) are not source. With nothing found each of those tools logs `skipped, no Python source directory found` and the test stage runs without coverage. A project passing its own `--cov` (in `test.python.args` or pytest `addopts`) keeps its own source.
 
 - A test path nested below the top level (`tests/unit/`) does not exclude its parent, so `.py` files beside it make `tests/` count as source. Set `quality.test_paths: [tests/]` or add it to `quality.exclude_paths`.
