@@ -540,9 +540,14 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     bandit_cmd = ["bandit", "-r", *sources, "-ll"]
     if Path("pyproject.toml").exists():
         bandit_cmd.extend(["-c", "pyproject.toml"])
-    if config.get("quality.python.bandit_exclude_tests", True) and test_paths:
-        bandit_cmd.extend(["--exclude", ",".join(test_paths)])
-    bandit_cmd.extend(_build_exclude_args("bandit", excludes))
+    # bandit's --exclude is action="store": a second flag replaces the first
+    # rather than adding to it, so test paths and quality excludes share one.
+    bandit_test_excludes = (
+        test_paths if config.get("quality.python.bandit_exclude_tests", True) else []
+    )
+    bandit_excludes = [*bandit_test_excludes, *_component_patterns(excludes)]
+    if bandit_excludes:
+        bandit_cmd.extend(["--exclude", ",".join(bandit_excludes)])
     bandit_ignores = for_tool(ignores, "bandit")
     if bandit_ignores:
         bandit_cmd.extend(["--skip", ",".join(e.id for e in bandit_ignores)])

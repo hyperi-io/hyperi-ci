@@ -221,6 +221,21 @@ class TestQualityScansTheDetectedSource:
         argv = _scan(_argvs(calls), "bandit", "-r")
         assert argv[argv.index("--exclude") + 1] == "checks/,tests/"
 
+    def test_bandit_carries_test_paths_and_quality_excludes_in_one_flag(
+        self, repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """bandit's --exclude is action="store": a second flag drops the first."""
+        _touch(repo, "app/main.py", "tests/test_a.py")
+        (repo / "vendor").mkdir()
+        calls = _recorder_path(tmp_path, monkeypatch)
+        assert quality.run(CIConfig(_raw={})) == 0
+        argv = _scan(_argvs(calls), "bandit", "-r")
+        exclude_flags = [
+            a for a in argv if a == "--exclude" or a.startswith("--exclude=")
+        ]
+        assert len(exclude_flags) == 1
+        assert argv[argv.index("--exclude") + 1] == "tests/,*/vendor/*"
+
     def test_src_layout_keeps_src(
         self, repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -395,7 +410,7 @@ class TestSrcLayoutIsByteIdentical:
 
         assert _scan(argvs, "bandit", "-r") == [
             "uvx", "--from", bandit, "bandit", "-r", "src/", "-ll",
-            "-c", "pyproject.toml", "--exclude", "tests/", "--exclude=*/vendor/*",
+            "-c", "pyproject.toml", "--exclude", "tests/,*/vendor/*",
         ]  # fmt: skip
         assert _scan(argvs, "--select", "S") == [
             "uv", "run", "ruff", "check", "--select", "S",
