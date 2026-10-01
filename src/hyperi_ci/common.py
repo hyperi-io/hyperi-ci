@@ -1022,8 +1022,6 @@ def stream_cmd(
 
     """
     run_env = {**os.environ, **env} if env else None
-    # The python36 compatibility rules cannot apply on the 3.14 floor.
-    # nosemgrep: python.lang.compatibility.python36.python36-compatibility-Popen1, python.lang.compatibility.python36.python36-compatibility-Popen2
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
