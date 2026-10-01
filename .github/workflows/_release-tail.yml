@@ -160,9 +160,12 @@ jobs:
     steps:
       - name: Install uv
         # Before the checkout, so setup-uv reads no repo `required-version`.
+        # ignore-empty-workdir: the checkout has not run yet, so the workdir
+        # is always empty here -- that is the point, not a problem to warn on.
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: false
+          ignore-empty-workdir: true
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -305,9 +308,12 @@ jobs:
       contents: read
     steps:
       - name: Install uv
+        # Before the checkout, so setup-uv reads no repo `required-version`;
+        # ignore-empty-workdir mutes the resulting (expected) warning.
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: false
+          ignore-empty-workdir: true
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -409,9 +415,13 @@ jobs:
       issues: write
     steps:
       - name: Install uv
+        # This job never checks out the repo (issue needs only the repo
+        # name + run), so the workdir is empty for its whole lifetime;
+        # ignore-empty-workdir mutes the resulting (expected) warning.
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: false
+          ignore-empty-workdir: true
 
       - name: Set up Python
         env:
@@ -477,9 +487,12 @@ jobs:
         # failure notice, runs the HYPERCI_INSTALL uvx command, and hosted
         # runners ship no uv. A checkout failure used to leave the notice with
         # `uvx: command not found` and the failed release unrecorded.
+        # ignore-empty-workdir: the checkout has not run yet, so the workdir
+        # is always empty here -- that is the point, not a problem to warn on.
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: false
+          ignore-empty-workdir: true
 
       - name: Install Rust toolchain
         # For `cargo publish --no-verify`, which repackages the stamped tree

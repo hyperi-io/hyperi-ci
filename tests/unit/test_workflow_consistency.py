@@ -194,6 +194,27 @@ class TestFromHeadThreading:
         names = [s.get("name") for s in steps]
         assert names.count("Install uv") == 1, "one uv install per job"
 
+    @pytest.mark.parametrize(
+        "job_name", ["container", "prepare", "prepare-failed", "tag-and-release"]
+    )
+    def test_pre_checkout_setup_uv_ignores_empty_workdir(self, job_name: str) -> None:
+        # Every "Install uv" step in these jobs runs before checkout (or, for
+        # prepare-failed, in a job that never checks out at all) -- issue #447
+        # put it there deliberately, so setup-uv reads no repo
+        # `required-version` in a job holding registry credentials. setup-uv
+        # then warns "Empty workdir detected" on every run; ignore-empty-workdir
+        # is the upstream-documented way to mute that expected warning without
+        # changing the checkout order (issue #455).
+        steps = _load_workflow("_release-tail.yml")["jobs"][job_name]["steps"]
+        install = next(s for s in steps if s.get("name") == "Install uv")
+        assert "astral-sh/setup-uv" in str(install.get("uses", "")), (
+            f"_release-tail.{job_name}: 'Install uv' step must use astral-sh/setup-uv"
+        )
+        assert install.get("with", {}).get("ignore-empty-workdir") is True, (
+            f"_release-tail.{job_name}: pre-checkout 'Install uv' must set "
+            "ignore-empty-workdir: true (issue #455)"
+        )
+
     def test_release_tail_has_forced_tag_step(self) -> None:
         steps = _load_workflow("_release-tail.yml")["jobs"]["tag-and-release"]["steps"]
         forced = [s for s in steps if s.get("id") == "forcedtag"]
