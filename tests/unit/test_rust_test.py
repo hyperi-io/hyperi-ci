@@ -383,6 +383,93 @@ class TestLlvmCovRunsIncremental:
         assert recorder.streamed[0][1] is None
 
 
+class TestHtmlReportCoversEveryWorkspaceMember:
+    """`cargo llvm-cov report` has no --workspace, so the HTML report names
+    every member with -p, matching what the --workspace run already covers
+    in lcov.info (issue #432)."""
+
+    _PACKAGES = {"packages": [{"name": "root_pkg"}, {"name": "member_a"}]}
+
+    def test_html_report_lists_every_member_with_dash_p(
+        self, monkeypatch: pytest.MonkeyPatch, recorder: _Recorder
+    ) -> None:
+        _coverage_tool(monkeypatch, "cargo-llvm-cov")
+        monkeypatch.setattr(f"{MODULE}.cargo_metadata", lambda: self._PACKAGES)
+        assert _run_coverage("default", runner="cargo", workspace=True) == 0
+        assert recorder.ran == [
+            (
+                [
+                    "cargo",
+                    "llvm-cov",
+                    "report",
+                    "--html",
+                    "--output-dir",
+                    "test-results/coverage-html",
+                    "-p",
+                    "root_pkg",
+                    "-p",
+                    "member_a",
+                ],
+                _INCREMENTAL,
+            )
+        ]
+
+    def test_html_report_and_the_lcov_run_cover_the_same_packages(
+        self, monkeypatch: pytest.MonkeyPatch, recorder: _Recorder
+    ) -> None:
+        """The run that writes lcov.info takes --workspace; the HTML report,
+        which cannot, names the same members explicitly with -p."""
+        _coverage_tool(monkeypatch, "cargo-llvm-cov")
+        monkeypatch.setattr(f"{MODULE}.cargo_metadata", lambda: self._PACKAGES)
+        assert _run_coverage("default", runner="cargo", workspace=True) == 0
+        lcov_cmd = recorder.streamed[0][0]
+        html_cmd = recorder.ran[0][0]
+        assert "--workspace" in lcov_cmd
+        assert html_cmd[html_cmd.index("-p") :] == ["-p", "root_pkg", "-p", "member_a"]
+
+    def test_outside_a_workspace_no_dash_p_is_added(
+        self, monkeypatch: pytest.MonkeyPatch, recorder: _Recorder
+    ) -> None:
+        asked: list[None] = []
+        monkeypatch.setattr(
+            f"{MODULE}.cargo_metadata", lambda: asked.append(None) or self._PACKAGES
+        )
+        _coverage_tool(monkeypatch, "cargo-llvm-cov")
+        assert _run_coverage("default", runner="cargo", workspace=False) == 0
+        assert recorder.ran == [
+            (
+                [
+                    "cargo",
+                    "llvm-cov",
+                    "report",
+                    "--html",
+                    "--output-dir",
+                    "test-results/coverage-html",
+                ],
+                _INCREMENTAL,
+            )
+        ]
+        assert not asked
+
+    def test_metadata_failure_falls_back_to_no_dash_p(
+        self, monkeypatch: pytest.MonkeyPatch, recorder: _Recorder
+    ) -> None:
+        _coverage_tool(monkeypatch, "cargo-llvm-cov")
+        monkeypatch.setattr(f"{MODULE}.cargo_metadata", lambda: None)
+        said: list[str] = []
+        monkeypatch.setattr(f"{MODULE}.warn", said.append)
+        assert _run_coverage("default", runner="cargo", workspace=True) == 0
+        assert recorder.ran[0][0] == [
+            "cargo",
+            "llvm-cov",
+            "report",
+            "--html",
+            "--output-dir",
+            "test-results/coverage-html",
+        ]
+        assert any("cargo metadata failed" in line for line in said)
+
+
 class TestCoverageOnTheFirstFeatureSetOnly:
     """Every coverage run writes the same lcov.info, so only one can be kept."""
 
