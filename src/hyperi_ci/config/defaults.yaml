@@ -167,8 +167,8 @@ quality:
     ruff_format: blocking       # Ruff formatter — its own key, not `ruff` above, so a
                                 # project can defer adopting it (a whole-tree reformat)
                                 # without relaxing the lint gate
-    ruff_security: warn         # Ruff S rules (flake8-bandit) over src/, run whatever
-                                # the repo's own ruff config selects
+    ruff_security: warn         # Ruff S rules (flake8-bandit) over the Python source
+                                # directories, run whatever the repo's own ruff config selects
     ruff_docstrings: warn       # Ruff D rules (pydocstyle) — replaces interrogate
     vulture: warn
     # Rules auto-relaxed in test directories (applied via --extend-ignore)

@@ -120,7 +120,7 @@ class TestRuffSecurityCommand:
     """The S pass selects only the bandit rules, over production code."""
 
     def test_selects_s_over_src(self) -> None:
-        assert _build_ruff_security_cmd([], []) == [
+        assert _build_ruff_security_cmd(["src/"], [], []) == [
             "ruff",
             "check",
             "--select",
@@ -130,7 +130,7 @@ class TestRuffSecurityCommand:
         ]
 
     def test_handler_excludes_extend_the_repos_own(self) -> None:
-        assert _build_ruff_security_cmd(["vendor", "data"], []) == [
+        assert _build_ruff_security_cmd(["src/"], ["vendor", "data"], []) == [
             "ruff",
             "check",
             "--select",
@@ -142,6 +142,7 @@ class TestRuffSecurityCommand:
 
     def test_ruff_ignores_reach_the_pass(self) -> None:
         cmd = _build_ruff_security_cmd(
+            ["src/"],
             ["vendor"],
             [
                 IgnoreEntry("ruff", "S603", "argv is a list, never a shell"),

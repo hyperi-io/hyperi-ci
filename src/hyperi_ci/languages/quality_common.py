@@ -14,13 +14,27 @@ Test paths and ignore lists are configurable via defaults.yaml and
 overridable per project in .hyperi-ci.yaml.
 """
 
+import fnmatch
 import os
 from pathlib import Path
 
-from hyperi_ci.common import announce, env_true, warn
+from hyperi_ci.common import announce, env_true, get_exclude_dirs, info, warn
 from hyperi_ci.config import CIConfig, packaged_default
 
 DEFAULT_TEST_PATHS = ["tests/"]
+
+# Directory names never scanned as Python source, beside the handler's own
+# excludes and every hidden directory.
+_NOT_PYTHON_SOURCE = (
+    "venv",
+    "env",
+    "build",
+    "dist",
+    "docs",
+    "node_modules",
+    "__pycache__",
+    "*.egg-info",
+)
 
 # The only valid quality-tool modes. An out-of-vocabulary value is a typo, not a
 # silent request to disable the gate (see resolve_cross_tool_mode).
@@ -394,6 +408,62 @@ def get_test_paths(config: CIConfig) -> list[str]:
     if not isinstance(configured, list):
         configured = DEFAULT_TEST_PATHS
     return [p for p in configured if Path(p).is_dir()]
+
+
+def _ignored_dir(name: str, excluded: list[str]) -> bool:
+    """Whether a directory called ``name`` is never searched for Python source."""
+    if name.startswith("."):
+        return True
+    return any(fnmatch.fnmatchcase(name, pattern) for pattern in excluded)
+
+
+def _holds_python(top: Path, excluded: list[str]) -> bool:
+    """Whether ``top`` holds a ``.py`` file outside every ignored directory."""
+    for _dirpath, dirnames, filenames in top.walk():
+        if any(name.endswith(".py") for name in filenames):
+            return True
+        dirnames[:] = [d for d in dirnames if not _ignored_dir(d, excluded)]
+    return False
+
+
+def get_python_source_paths(config: CIConfig) -> list[str]:
+    """Find the directories that hold a Python project's source.
+
+    A ``src/`` directory holding a ``.py`` file is the whole answer. Otherwise
+    each top-level directory holding a ``.py`` file at any depth counts, apart from
+    the test paths, hidden directories, the handler's quality excludes, and
+    build, docs and environment directories. Modules at the repo root are
+    left out: ``setup.py``, ``conftest.py`` and ``noxfile.py`` are tooling.
+
+    Args:
+        config: Merged CI configuration, read for the test paths and excludes.
+
+    Returns:
+        Existing directories with a trailing ``/``, sorted, or an empty list
+        when the repo has no Python source directory.
+
+    """
+    excluded = [
+        *_NOT_PYTHON_SOURCE,
+        *(e.rstrip("/") for e in get_exclude_dirs(config._raw)),
+    ]
+    src = Path("src")
+    if src.is_dir() and _holds_python(src, excluded):
+        return ["src/"]
+    tests = {Path(p).as_posix() for p in get_test_paths(config)}
+    found = sorted(
+        entry.name
+        for entry in Path.cwd().iterdir()
+        if entry.is_dir()
+        and entry.name not in tests
+        and not _ignored_dir(entry.name, excluded)
+        and _holds_python(entry, excluded)
+    )
+    if found:
+        info(
+            f"Python source: no src/ package, scanning {', '.join(f'{d}/' for d in found)}"
+        )
+    return [f"{d}/" for d in found]
 
 
 def get_test_ignore(language: str, config: CIConfig, defaults: list[str]) -> list[str]:
