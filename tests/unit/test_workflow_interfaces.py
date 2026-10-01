@@ -14,6 +14,7 @@ regresses vs the last release, so the break never reaches a consumer.
 """
 
 import importlib.util
+import subprocess
 import urllib.error
 from email.message import Message
 from pathlib import Path
@@ -182,15 +183,26 @@ def _args(text: str) -> list[tuple[str, ...]]:
     return [call.args for call in cwi.cli_invocations("w.yml", text).invocations]
 
 
+def _opts(names: set[str], value_taking: set[str] | None = None) -> cwi.CommandOptions:
+    """A `CommandOptions` for one command path, for building `_PUBLISHED`."""
+    return cwi.CommandOptions(
+        names=frozenset(names), value_taking=frozenset(value_taking or set())
+    )
+
+
 # What a published release exposes, keyed the way `_DUMP_OPTIONS` prints it.
 _PUBLISHED = {
-    "": frozenset({"--help", "--version", "-V"}),
-    "run": frozenset({"--help", "--project-dir", "-C", "--tier"}),
-    "stamp-version": frozenset({"--help", "--project-dir", "-C"}),
-    "tag-head": frozenset({"--help", "--bump"}),
-    "release-notify": frozenset({"--help", "--outcome", "--run-url"}),
-    "publish": frozenset({"--help"}),
-    "publish binaries": frozenset({"--help", "--dry-run", "--no-dry-run"}),
+    "": _opts({"--help", "--version", "-V"}),
+    "run": _opts(
+        {"--help", "--project-dir", "-C", "--tier"}, {"--project-dir", "-C", "--tier"}
+    ),
+    "stamp-version": _opts({"--help", "--project-dir", "-C"}, {"--project-dir", "-C"}),
+    "tag-head": _opts({"--help", "--bump"}, {"--bump"}),
+    "release-notify": _opts(
+        {"--help", "--outcome", "--run-url"}, {"--outcome", "--run-url"}
+    ),
+    "publish": _opts({"--help", "--bump", "-b"}, {"--bump", "-b"}),
+    "publish binaries": _opts({"--help", "--dry-run", "--no-dry-run"}),
 }
 
 
@@ -361,6 +373,34 @@ class TestTheCliGate:
         )
         assert _gaps(text) == []
 
+    def test_a_value_taking_option_s_word_is_not_read_as_a_subcommand(self) -> None:
+        """issue #474: `publish --bump patch` -- `patch` is `--bump`'s value,
+        not a subcommand of the `publish` group."""
+        text = _workflow(
+            "      - run: ${{ env.HYPERCI_INSTALL }} publish --bump patch\n"
+        )
+        assert _gaps(text) == []
+
+    def test_a_fused_short_option_s_value_is_not_skipped_again(self) -> None:
+        """`-bpatch` already carries its value; the next word must still be
+        read, not swallowed as a second value."""
+        text = _workflow(
+            "      - run: ${{ env.HYPERCI_INSTALL }} publish -bpatch frobnicate\n"
+        )
+        assert [g.split(": ", 1)[1] for g in _gaps(text)] == [
+            "calls `hyperi-ci publish frobnicate`, absent from the published CLI"
+        ]
+
+    def test_an_equals_form_value_is_not_skipped_again(self) -> None:
+        """`--bump=patch` carries its value inline; the next word must still
+        be read, not swallowed as a second value."""
+        text = _workflow(
+            "      - run: ${{ env.HYPERCI_INSTALL }} publish --bump=patch frobnicate\n"
+        )
+        assert [g.split(": ", 1)[1] for g in _gaps(text)] == [
+            "calls `hyperi-ci publish frobnicate`, absent from the published CLI"
+        ]
+
     def test_a_nested_command_checks_its_own_options(self) -> None:
         text = _workflow(
             "      - run: ${{ env.HYPERCI_INSTALL }} publish binaries --no-dry-run\n"
@@ -409,10 +449,29 @@ class TestTheCliGate:
 
 class TestTheOptionTable:
     def test_parses_the_dump(self) -> None:
-        table = cwi.parse_option_table('{"": ["--help"], "run": ["--tier", "-C"]}')
-        assert table == {"": frozenset({"--help"}), "run": frozenset({"--tier", "-C"})}
+        table = cwi.parse_option_table(
+            '{"": {"--help": false}, "run": {"--tier": true, "-C": true}}'
+        )
+        assert table == {
+            "": cwi.CommandOptions(
+                names=frozenset({"--help"}), value_taking=frozenset()
+            ),
+            "run": cwi.CommandOptions(
+                names=frozenset({"--tier", "-C"}),
+                value_taking=frozenset({"--tier", "-C"}),
+            ),
+        }
 
-    @pytest.mark.parametrize("text", ["[]", '{"run": "--tier"}', "not json"])
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "[]",
+            '{"run": "--tier"}',
+            '{"run": ["--tier"]}',
+            '{"run": {"--tier": "yes"}}',
+            "not json",
+        ],
+    )
     def test_rejects_anything_else(self, text: str) -> None:
         with pytest.raises(ValueError):
             cwi.parse_option_table(text)
@@ -452,6 +511,89 @@ class TestWhatCountsAsPublished:
         assert cwi.published_cli_options() is None
 
 
+class _FakeRun:
+    """Stand-in for `subprocess.run`, always returning one fixed result."""
+
+    def __init__(self, returncode: int, stdout: str = "", stderr: str = "") -> None:
+        self._result = subprocess.CompletedProcess(
+            args=[], returncode=returncode, stdout=stdout, stderr=stderr
+        )
+
+    def __call__(self, *args: object, **kwargs: object) -> subprocess.CompletedProcess:
+        return self._result
+
+
+class TestTheDumpFailureDistinction:
+    """issue #474: tell "uvx could not fetch the wheel" apart from "the dump
+    snippet ran and raised" -- only the second must fail the gate."""
+
+    def test_a_wheel_install_failure_skips(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No marker in stderr means uvx itself failed -- that is a skip."""
+        monkeypatch.setattr(cwi, "latest_published_version", lambda: "9.9.9")
+        monkeypatch.setattr(
+            cwi.subprocess,
+            "run",
+            _FakeRun(returncode=1, stderr="no matching distribution"),
+        )
+        assert cwi.published_cli_options() is None
+
+    def test_a_snippet_failure_raises_not_skips(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(cwi, "latest_published_version", lambda: "9.9.9")
+        monkeypatch.setattr(
+            cwi.subprocess,
+            "run",
+            _FakeRun(
+                returncode=cwi._DUMP_FAILURE_CODE,
+                stderr=f"{cwi._DUMP_FAILURE_MARKER}: AttributeError('is_flag')",
+            ),
+        )
+        with pytest.raises(cwi.CliDumpError, match="is_flag"):
+            cwi.published_cli_options()
+
+    def test_an_exit_code_collision_without_the_marker_still_skips(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """uv could exit 3 for its own unrelated reason -- only the marker
+        proves the snippet ran and raised."""
+        monkeypatch.setattr(cwi, "latest_published_version", lambda: "9.9.9")
+        monkeypatch.setattr(
+            cwi.subprocess,
+            "run",
+            _FakeRun(returncode=cwi._DUMP_FAILURE_CODE, stderr=""),
+        )
+        assert cwi.published_cli_options() is None
+
+    def test_unparseable_output_on_success_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Exit 0 with output the gate cannot parse is a dump bug, not a skip."""
+        monkeypatch.setattr(cwi, "latest_published_version", lambda: "9.9.9")
+        monkeypatch.setattr(
+            cwi.subprocess, "run", _FakeRun(returncode=0, stdout="not json")
+        )
+        with pytest.raises(cwi.CliDumpError):
+            cwi.published_cli_options()
+
+    def test_a_clean_run_returns_the_table(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(cwi, "latest_published_version", lambda: "9.9.9")
+        monkeypatch.setattr(
+            cwi.subprocess,
+            "run",
+            _FakeRun(returncode=0, stdout='{"": {"--help": false}}'),
+        )
+        assert cwi.published_cli_options() == {
+            "": cwi.CommandOptions(
+                names=frozenset({"--help"}), value_taking=frozenset()
+            )
+        }
+
+
 _RETIREMENT = """
 retired:
   - file: .github/workflows/go-ci.yml
@@ -474,6 +616,34 @@ def _entry(**overrides: object) -> str:
     fields.update(overrides)
     body = "\n".join(f"    {k}: {v}" for k, v in fields.items() if v is not None)
     return f"retired:\n  -\n{body}\n"
+
+
+class TestTheCliGateOnADumpFailure:
+    """issue #474: done when a snippet that raises fails the gate (exit 1)."""
+
+    def test_a_dump_failure_fails_the_gate(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(
+            cwi, "workflow_cli_invocations", lambda root: cwi.InvocationScan((), ())
+        )
+
+        def _raise() -> dict[str, cwi.CommandOptions]:
+            raise cwi.CliDumpError("the option dump raised: AttributeError('is_flag')")
+
+        monkeypatch.setattr(cwi, "published_cli_options", _raise)
+        assert cwi._cli_gate() == 1
+        assert "is_flag" in capsys.readouterr().out
+
+    def test_an_unreachable_pypi_still_skips(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(
+            cwi, "workflow_cli_invocations", lambda root: cwi.InvocationScan((), ())
+        )
+        monkeypatch.setattr(cwi, "published_cli_options", lambda: None)
+        assert cwi._cli_gate() == 0
+        assert "unreachable -- skipping" in capsys.readouterr().out
 
 
 class TestRetirementRecords:
