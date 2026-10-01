@@ -1489,6 +1489,19 @@ class TestCommitCheckJob:
         )
 
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_commit_check_runs_on_merge_group(self, workflow_name: str) -> None:
+        # issue #422: commit_validation.run() already treats merge_group as
+        # FATAL, so the job must trigger on it or that path never runs.
+        wf = _load_workflow(workflow_name)
+        ifc = str(wf["jobs"]["commit-check"].get("if", ""))
+        assert "merge_group" in ifc, (
+            f"{workflow_name}: commit-check must run on merge_group (issue #422)"
+        )
+        assert _fires(ifc, {"github.event_name": "merge_group", "github.ref": ""}), (
+            f"{workflow_name}: commit-check's if: does not fire on merge_group"
+        )
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
     def test_commit_check_runs_check_commits(self, workflow_name: str) -> None:
         wf = _load_workflow(workflow_name)
         steps = wf["jobs"]["commit-check"]["steps"]
