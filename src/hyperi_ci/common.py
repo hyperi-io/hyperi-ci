@@ -11,6 +11,7 @@ detection (GitHub Actions workflow commands, Solarized terminal, plain CI).
 """
 
 import codecs
+import errno
 import fnmatch
 import functools
 import http.client
@@ -903,6 +904,10 @@ class _StreamReader:
     It reads its own duplicate of ``fd`` and closes it only at EOF, so a reader
     still running after the caller has closed the original can never read a
     descriptor number the process has since handed to something else.
+
+    A read that fails ends the drain rather than the thread. EIO is how a pty
+    reports that its writer has gone, so it reads as EOF. Any other error is
+    kept in ``read_error`` for the caller to report.
     """
 
     def __init__(
@@ -921,6 +926,7 @@ class _StreamReader:
         self._tail = ""
         self._lock = threading.Lock()
         self.sink_error: BaseException | None = None
+        self.read_error: OSError | None = None
 
     def _call(self, sink: Callable[[str], None] | None, text: str) -> None:
         if sink is None or self.sink_error is not None:
@@ -944,10 +950,22 @@ class _StreamReader:
         for line in pieces:
             self._call(self._on_line, line.removesuffix("\r"))
 
+    def _read(self) -> bytes:
+        """Return the next chunk of output, or empty bytes at EOF."""
+        return os.read(self._fd, _STREAM_READ_BYTES)
+
     def run(self) -> None:
-        """Read until EOF, then hand over any final unterminated line."""
+        """Read until EOF or a failed read, then hand over any unterminated line."""
         try:
-            while chunk := os.read(self._fd, _STREAM_READ_BYTES):
+            while True:
+                try:
+                    chunk = self._read()
+                except OSError as exc:
+                    if exc.errno != errno.EIO:
+                        self.read_error = exc
+                    break
+                if not chunk:
+                    break
                 self._feed(self._decoder.decode(chunk))
         finally:
             os.close(self._fd)
@@ -1031,6 +1049,8 @@ def stream_cmd(
     reader.join(timeout=_STREAM_GIVE_UP_SECONDS)
     if drain.sink_error is not None:
         raise drain.sink_error
+    if drain.read_error is not None:
+        warn(f"  output of {cmd[0]} was cut short: {drain.read_error}")
     return returncode, drain.tail()
 
 

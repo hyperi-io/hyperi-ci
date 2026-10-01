@@ -6,12 +6,14 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 import contextlib
+import errno
 import os
 import signal
 import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
@@ -401,6 +403,65 @@ def _kill_grandchild(pidfile: Path) -> None:
     """Kill the pipe-holding grandchild a test recorded, so no reader outlives it."""
     with contextlib.suppress(FileNotFoundError, ValueError, ProcessLookupError):
         os.kill(int(pidfile.read_text(encoding="utf-8")), signal.SIGKILL)
+
+
+def _failing_read(
+    err: int, monkeypatch: pytest.MonkeyPatch
+) -> Callable[[common._StreamReader], bytes]:
+    """Patch _StreamReader._read to return one real chunk, then raise ``err``."""
+    real = common._StreamReader._read
+    calls = {"n": 0}
+
+    def read(self: common._StreamReader) -> bytes:
+        calls["n"] += 1
+        if calls["n"] > 1:
+            raise OSError(err, os.strerror(err))
+        return real(self)
+
+    monkeypatch.setattr(common._StreamReader, "_read", read)
+    return read
+
+
+class TestStreamReaderReadErrors:
+    """A failed read ends the drain, never the reader thread (issue #426)."""
+
+    def _drain(self, payload: bytes) -> tuple[common._StreamReader, list[str]]:
+        read_end, write_end = os.pipe()
+        os.write(write_end, payload)
+        lines: list[str] = []
+        reader = common._StreamReader(read_end, lines.append, None, 1024)
+        os.close(read_end)
+        reader.run()
+        os.close(write_end)
+        return reader, lines
+
+    def test_an_unexpected_error_is_kept_and_what_was_read_survives(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _failing_read(errno.ENOTCONN, monkeypatch)
+        reader, lines = self._drain(b"one\ntwo")
+        assert isinstance(reader.read_error, OSError)
+        assert reader.read_error.errno == errno.ENOTCONN
+        assert lines == ["one", "two"]
+
+    def test_eio_reads_as_end_of_output(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _failing_read(errno.EIO, monkeypatch)
+        reader, lines = self._drain(b"done\n")
+        assert reader.read_error is None
+        assert lines == ["done"]
+
+    def test_stream_cmd_reports_a_cut_short_drain(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _failing_read(errno.ENOTCONN, monkeypatch)
+        warned: list[str] = []
+        monkeypatch.setattr(common, "warn", warned.append)
+        rc, _ = common.stream_cmd(
+            [sys.executable, "-c", "print('a'); print('b')"], on_line=None
+        )
+        assert rc == 0
+        assert len(warned) == 1
+        assert "cut short" in warned[0]
 
 
 class TestStreamCmd:
