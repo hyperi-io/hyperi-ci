@@ -869,6 +869,10 @@ STREAM_TAIL_CHARS = 64 * 1024
 
 _STREAM_READ_BYTES = 64 * 1024
 
+# Bounded wait for the reader after the child exits, because a grandchild that
+# inherited the pipe can hold it open indefinitely.
+_STREAM_GIVE_UP_SECONDS = 10.0
+
 
 class _StreamReader:
     """Drain a child's output pipe, feeding the sinks and keeping a bounded tail.
@@ -876,6 +880,10 @@ class _StreamReader:
     A sink that raises (a closed stdout under ``| head``) is not allowed to stop
     the draining: an undrained pipe fills and blocks the child. The first such
     exception is kept for the caller to raise once the child has exited.
+
+    It reads its own duplicate of ``fd`` and closes it only at EOF, so a reader
+    still running after the caller has closed the original can never read a
+    descriptor number the process has since handed to something else.
     """
 
     def __init__(
@@ -885,7 +893,7 @@ class _StreamReader:
         on_chunk: Callable[[str], None] | None,
         tail_chars: int,
     ) -> None:
-        self._fd = fd
+        self._fd = os.dup(fd)
         self._on_line = on_line
         self._on_chunk = on_chunk
         self._tail_chars = tail_chars
@@ -919,8 +927,11 @@ class _StreamReader:
 
     def run(self) -> None:
         """Read until EOF, then hand over any final unterminated line."""
-        while chunk := os.read(self._fd, _STREAM_READ_BYTES):
-            self._feed(self._decoder.decode(chunk))
+        try:
+            while chunk := os.read(self._fd, _STREAM_READ_BYTES):
+                self._feed(self._decoder.decode(chunk))
+        finally:
+            os.close(self._fd)
         self._feed(self._decoder.decode(b"", final=True))
         if self._partial:
             self._call(self._on_line, self._partial.removesuffix("\r"))
@@ -986,6 +997,7 @@ def stream_cmd(
     if proc.stdout is None:
         raise OSError(f"no output pipe for {cmd[0]}")
     drain = _StreamReader(proc.stdout.fileno(), on_line, on_chunk, STREAM_TAIL_CHARS)
+    proc.stdout.close()
     reader = threading.Thread(target=drain.run, daemon=True)
     reader.start()
     started = time.monotonic()
@@ -997,9 +1009,7 @@ def stream_cmd(
             if on_heartbeat is not None:
                 on_heartbeat(time.monotonic() - started, proc.pid)
 
-    # Bounded: a grandchild that inherited the pipe can hold it open after the
-    # child exits, and waiting on that would be a new hang.
-    reader.join(timeout=10)
+    reader.join(timeout=_STREAM_GIVE_UP_SECONDS)
     if drain.sink_error is not None:
         raise drain.sink_error
     return returncode, drain.tail()
