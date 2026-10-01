@@ -164,11 +164,17 @@ formatter on an established tree reformats most of it at once, so deferring that
 must not require relaxing the real lint gate. `ruff` and `ruff_format` default
 to blocking, `ruff_security` and `ruff_docstrings` to warn.
 
-**`ruff_security` is the bandit-class check.** It runs `ruff check --select S
-src/` (flake8-bandit) whatever the repo's own ruff selects, since bandit ships
-`disabled`. `--select` on the command line drops the repo's ruff `ignore` list
-for this pass; `per-file-ignores`, `# noqa` and `quality.ignore` entries for
-`ruff` still apply. It is a security gate, so `disabled` owes a `reason`.
+**`ruff_security` is the bandit-class check.** It runs `ruff check --select S`
+(flake8-bandit) over the Python source directories whatever the repo's own ruff
+selects, since bandit ships `disabled`. `--select` on the command line drops the
+repo's ruff `ignore` list for this pass; `per-file-ignores`, `# noqa` and
+`quality.ignore` entries for `ruff` still apply. It is a security gate, so
+`disabled` owes a `reason`.
+
+**Python source directories are detected, not configured.** ruff S and D, bandit, vulture and `--cov` scan `src/` when it holds a `.py` file. Otherwise they scan every top-level directory holding a `.py` file, apart from the test paths, hidden directories, `quality.exclude_paths`, the always-pruned set, and `docs`, `build`, `dist`, `env` and `*.egg-info`. Modules at the repo root (`setup.py`, `conftest.py`) are not source. With nothing found each of those tools logs `skipped, no Python source directory found` and the test stage runs without coverage. A project passing its own `--cov` (in `test.python.args` or pytest `addopts`) keeps its own source.
+
+- A test path nested below the top level (`tests/unit/`) does not exclude its parent, so `.py` files beside it make `tests/` count as source. Set `quality.test_paths: [tests/]` or add it to `quality.exclude_paths`.
+- A top-level symlink to a directory is followed and scanned like any other directory.
 
 ### charset exclusions
 
