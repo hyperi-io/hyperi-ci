@@ -3,6 +3,16 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.12.5](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.4...v2.12.5) (2026-10-01)
+
+### Bug Fixes
+
+* **container:** keep repo-named paths and the version inside the checkout ([#448](https://github.com/hyperi-io/hyperi-ci/issues/448)) ([ddd3ecd](https://github.com/hyperi-io/hyperi-ci/commit/ddd3ecd975631d6ebd63b086b768428400b688cc))
+* **deps:** relock node-tools to take dompurify 3.4.16 ([#445](https://github.com/hyperi-io/hyperi-ci/issues/445)) ([5532eea](https://github.com/hyperi-io/hyperi-ci/commit/5532eeac92c80aed4a755f13d9e088825e812f98))
+* **python:** detect source directories instead of assuming src/ ([#446](https://github.com/hyperi-io/hyperi-ci/issues/446)) ([6a0223f](https://github.com/hyperi-io/hyperi-ci/commit/6a0223fbc38832d268757f097d6cad9508aa8379))
+* **release:** run no repo code in the Container job ([#447](https://github.com/hyperi-io/hyperi-ci/issues/447)) ([71a60a1](https://github.com/hyperi-io/hyperi-ci/commit/71a60a13a7d4e5d67849864c7f82d6d7af72e3b1)), closes [dfe-engine#271](https://github.com/hyperi-io/dfe-engine/issues/271) [#402](https://github.com/hyperi-io/hyperi-ci/issues/402)
+* **rust:** share one cargo profile across PGO+BOLT ([#449](https://github.com/hyperi-io/hyperi-ci/issues/449)) ([816d159](https://github.com/hyperi-io/hyperi-ci/commit/816d159a0227f32c7047750630bd0d7d9ae26bbc)), closes [#444](https://github.com/hyperi-io/hyperi-ci/issues/444)
+
 ## [2.12.4](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.3...v2.12.4) (2026-09-30)
 
 ### Bug Fixes
