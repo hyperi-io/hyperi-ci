@@ -597,7 +597,9 @@ def backoff(retry: int) -> float:
     return random.uniform(0.5, 1.0) * 2 ** (retry - 1)
 
 
-_CURL_RETRIES = 5
+# With backoff() that spans about 1+2+...+64 seconds, long enough to ride out a
+# GitHub release-download 504 burst.
+_CURL_RETRIES = 7
 # No retry starts once this many seconds have passed since the first attempt.
 _CURL_RETRY_MAX_TIME = 600
 _CURL_CONNECT_TIMEOUT = 10
