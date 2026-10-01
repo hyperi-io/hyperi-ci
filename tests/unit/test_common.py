@@ -5,10 +5,14 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
+import contextlib
+import os
+import signal
 import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import Literal
 
 import pytest
@@ -393,20 +397,74 @@ class TestRunCmdMergeStderr:
             run_cmd([sys.executable, "-c", "pass"], merge_stderr=True)
 
 
+def _kill_grandchild(pidfile: Path) -> None:
+    """Kill the pipe-holding grandchild a test recorded, so no reader outlives it."""
+    with contextlib.suppress(FileNotFoundError, ValueError, ProcessLookupError):
+        os.kill(int(pidfile.read_text(encoding="utf-8")), signal.SIGKILL)
+
+
 class TestStreamCmd:
     """A streamed step returns when its child exits, whatever inherited the pipe."""
 
-    def test_a_grandchild_holding_the_pipe_does_not_hang_it(self) -> None:
+    def test_a_grandchild_holding_the_pipe_does_not_hang_it(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         """The backgrounded sleep keeps stdout open for 30s after the child exits."""
+        monkeypatch.setattr(common, "_STREAM_GIVE_UP_SECONDS", 0.5)
+        pidfile = tmp_path / "grandchild.pid"
         started = time.monotonic()
-        rc, output = common.stream_cmd(
-            ["bash", "-c", "echo parent; (sleep 30; echo late) & exit 3"],
-            on_line=lambda _line: None,
-        )
+        try:
+            rc, output = common.stream_cmd(
+                [
+                    "sh",
+                    "-c",
+                    'echo parent; sleep 30 & echo $! > "$1"; exit 3',
+                    "sh",
+                    str(pidfile),
+                ],
+                on_line=lambda _line: None,
+            )
+        finally:
+            _kill_grandchild(pidfile)
         elapsed = time.monotonic() - started
         assert rc == 3
         assert output == "parent"
-        assert elapsed < 20
+        assert elapsed < 5
+
+    def test_a_held_pipe_cannot_feed_it_a_reused_descriptor(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Issue #460: once stream_cmd gives up on a held pipe, the next pipe
+        opened in the process must keep its own bytes."""
+        monkeypatch.setattr(common, "_STREAM_GIVE_UP_SECONDS", 0.2)
+        pidfile = tmp_path / "grandchild.pid"
+        lines: list[str] = []
+        ticker = (
+            "i=0; while [ $i -lt 100 ]; do echo tick; i=$((i+1)); sleep 0.05; done"
+            ' & echo $! > "$1"; exit 0'
+        )
+        try:
+            rc, _ = common.stream_cmd(
+                ["sh", "-c", ticker, "sh", str(pidfile)], on_line=lines.append
+            )
+            read_end, write_end = os.pipe()
+            try:
+                os.write(write_end, b"UNRELATED-DATA\n")
+                # Several ticks, so a reader left on a reused number has its turn.
+                time.sleep(0.5)
+                os.set_blocking(read_end, False)
+                try:
+                    mine = os.read(read_end, 1024)
+                except BlockingIOError:
+                    mine = b""
+            finally:
+                os.close(read_end)
+                os.close(write_end)
+        finally:
+            _kill_grandchild(pidfile)
+        assert rc == 0
+        assert mine == b"UNRELATED-DATA\n"
+        assert "UNRELATED-DATA" not in lines
 
     def test_a_partial_line_passes_through_before_its_newline(self) -> None:
         """A hung test's id, written with no newline, must reach the log."""
