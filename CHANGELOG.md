@@ -3,6 +3,23 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.12.6](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.5...v2.12.6) (2026-10-01)
+
+### Bug Fixes
+
+* **ci:** back off between composite download retries ([#464](https://github.com/hyperi-io/hyperi-ci/issues/464)) ([f9a4c81](https://github.com/hyperi-io/hyperi-ci/commit/f9a4c81983c54e2f9c2ae1424b7742249fbe0522))
+* **ci:** check workflow options against the published CLI ([#463](https://github.com/hyperi-io/hyperi-ci/issues/463)) ([71e889c](https://github.com/hyperi-io/hyperi-ci/commit/71e889c9ecbd3302f2f71f88b5a09043355b89bb)), closes [#443](https://github.com/hyperi-io/hyperi-ci/issues/443)
+* **common:** stop stream_cmd's reader reading a reused fd ([#461](https://github.com/hyperi-io/hyperi-ci/issues/461)) ([b7ae700](https://github.com/hyperi-io/hyperi-ci/commit/b7ae700255d25759c6c6fa12f95e031aa401951d)), closes [#460](https://github.com/hyperi-io/hyperi-ci/issues/460)
+* **deps:** catch up drifted tool pins ([#454](https://github.com/hyperi-io/hyperi-ci/issues/454)) ([e404f2d](https://github.com/hyperi-io/hyperi-ci/commit/e404f2d7d8104e924141c4569058fe143a837f02)), closes [#68](https://github.com/hyperi-io/hyperi-ci/issues/68) [#155](https://github.com/hyperi-io/hyperi-ci/issues/155)
+* **python:** pass bandit one --exclude list ([#458](https://github.com/hyperi-io/hyperi-ci/issues/458)) ([b8a03f0](https://github.com/hyperi-io/hyperi-ci/commit/b8a03f04e1a3895d6a8d654060c01f9615b5579c)), closes [#439](https://github.com/hyperi-io/hyperi-ci/issues/439)
+* **python:** run the pinned quality tool even when another version is on PATH ([#451](https://github.com/hyperi-io/hyperi-ci/issues/451)) ([9f7d305](https://github.com/hyperi-io/hyperi-ci/commit/9f7d30549b62032abf8dce4c112fb38c83c4edd3))
+* **quality:** let a doc-paths marker accept one known reference ([#462](https://github.com/hyperi-io/hyperi-ci/issues/462)) ([a254935](https://github.com/hyperi-io/hyperi-ci/commit/a254935c0f0764ed5b3e178e8353c0a36d1aa89e))
+* **quality:** run pinned semgrep and cargo-hack, warn on local tool version drift ([#453](https://github.com/hyperi-io/hyperi-ci/issues/453)) ([9ec43d6](https://github.com/hyperi-io/hyperi-ci/commit/9ec43d6c05749806a5b7a887da624f7142fbb202)), closes [#452](https://github.com/hyperi-io/hyperi-ci/issues/452) [#451](https://github.com/hyperi-io/hyperi-ci/issues/451) [#452](https://github.com/hyperi-io/hyperi-ci/issues/452)
+* **release:** pass the caller's runner-mode to the release-tail jobs ([#465](https://github.com/hyperi-io/hyperi-ci/issues/465)) ([067e84a](https://github.com/hyperi-io/hyperi-ci/commit/067e84a90717c30ef2e18e5243953f3f4268c5a7)), closes [#442](https://github.com/hyperi-io/hyperi-ci/issues/442)
+* **release:** stop setup-uv warning on the pre-checkout install ([#457](https://github.com/hyperi-io/hyperi-ci/issues/457)) ([7c69fe1](https://github.com/hyperi-io/hyperi-ci/commit/7c69fe19c94b69d7170ababfebdcc57ef09a50b3)), closes [actions/download-artifact#484](https://github.com/actions/download-artifact/issues/484)
+* **rust:** report HTML coverage for every workspace member ([#467](https://github.com/hyperi-io/hyperi-ci/issues/467)) ([1494e82](https://github.com/hyperi-io/hyperi-ci/commit/1494e822efd2216b19eed8e6be1616cfeee074f8)), closes [#432](https://github.com/hyperi-io/hyperi-ci/issues/432)
+* **rust:** report unstripped binaries, use run_cmd ([#459](https://github.com/hyperi-io/hyperi-ci/issues/459)) ([7294d7b](https://github.com/hyperi-io/hyperi-ci/commit/7294d7b676b63a809ac93fc59714d96ead365ffb)), closes [#444](https://github.com/hyperi-io/hyperi-ci/issues/444)
+
 ## [2.12.5](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.4...v2.12.5) (2026-10-01)
 
 ### Bug Fixes
