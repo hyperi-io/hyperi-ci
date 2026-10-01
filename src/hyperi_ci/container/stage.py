@@ -40,6 +40,7 @@ import tempfile
 from pathlib import Path
 
 from hyperi_ci.common import (
+    ReleaseVersionError,
     error,
     group,
     holds_latest,
@@ -69,6 +70,7 @@ from hyperi_ci.release_mode import (
     dev_branch_slug,
     resolve_push_mode,
 )
+from hyperi_ci.repo_path import RepoPathError, confine
 from hyperi_ci.versions import runtime_version
 
 _TEMPLATE_LANGUAGES = {"python", "typescript"}
@@ -192,6 +194,25 @@ def should_build_container(config: CIConfig, *, language: str = "") -> tuple[boo
     return decision.build, decision.reason
 
 
+def _confine_build_paths(container_cfg: dict, project_dir: Path) -> bool:
+    """Refuse a Dockerfile or build context outside the checkout.
+
+    Either one hands docker a file the repo does not hold, on a runner whose
+    ``~/.docker/config.json`` holds the registry logins.
+    """
+    try:
+        for key, default in (("dockerfile", "Dockerfile"), ("context", ".")):
+            confine(
+                str(container_cfg.get(key, default)),
+                project_dir,
+                key=f"release.container.{key}",
+            )
+    except RepoPathError as exc:
+        error(str(exc))
+        return False
+    return True
+
+
 def run(config: CIConfig, *, language: str = "") -> int:
     """Run the container build stage.
 
@@ -203,6 +224,14 @@ def run(config: CIConfig, *, language: str = "") -> int:
         Exit code (0 = success or skipped).
 
     """
+    container_cfg = config.get("release.container", {})
+    if not isinstance(container_cfg, dict):
+        container_cfg = {}
+    project_dir = Path.cwd()
+    # Checked in the resolve step too, so a refusal lands before any login.
+    if not _confine_build_paths(container_cfg, project_dir):
+        return 1
+
     # Resolve-only: emit the build decision for the workflow to gate Docker
     # setup on, then return without any Docker work (issue #33). Keeps
     # libraries from booting Buildx / touching GHCR at all.
@@ -215,10 +244,6 @@ def run(config: CIConfig, *, language: str = "") -> int:
                 fh.write(f"build={'true' if build else 'false'}\n")
         return 0
 
-    container_cfg = config.get("release.container", {})
-    if not isinstance(container_cfg, dict):
-        container_cfg = {}
-
     enabled = normalise_tristate(
         container_cfg.get("enabled", "auto"), key="release.container.enabled"
     )
@@ -227,7 +252,6 @@ def run(config: CIConfig, *, language: str = "") -> int:
         info("Container build disabled (release.container.enabled: false) — skipping")
         return 0
 
-    project_dir = Path.cwd()
     dockerfile_name = container_cfg.get("dockerfile", "Dockerfile")
     decision = detect(
         language=language,
@@ -497,10 +521,16 @@ def _build_from_content(
     in ``.hyperi-ci.yaml`` into the Dockerfile content. See
     ``deployment/overlay/`` and the framework spec.
     """
-    dockerfile_content = _splice_dockerfile_overlays(
-        dockerfile_content=dockerfile_content,
-        container_cfg=container_cfg,
-    )
+    from hyperi_ci.deployment.overlay.errors import OverlayError
+
+    try:
+        dockerfile_content = _splice_dockerfile_overlays(
+            dockerfile_content=dockerfile_content,
+            container_cfg=container_cfg,
+        )
+    except OverlayError as exc:
+        error(f"Container overlays: {exc}")
+        return 1
 
     with tempfile.NamedTemporaryFile(
         mode="w",
@@ -540,7 +570,11 @@ def _dispatch_build(
     binary_backed: bool = True,
 ) -> int:
     image_name = Path.cwd().name
-    version = _read_version()
+    try:
+        version = _read_version()
+    except ReleaseVersionError as exc:
+        error(f"Container: {exc}")
+        return 1
     sha = _read_sha()
     # `release.channel` states where STABLE artefacts go; a prerelease version
     # ships on the channel its own label names (issue #144).

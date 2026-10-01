@@ -453,6 +453,8 @@ release:
   # only to authenticate the Dockerfile's base-image pulls.
   container:
     enabled: auto
+    # Both must resolve inside the checkout, symlinks followed, or the stage
+    # fails: the job holds the registry logins in ~/.docker/config.json.
     dockerfile: Dockerfile
     context: .
     platforms:

@@ -21,6 +21,7 @@ from typing import Any, Protocol, cast
 
 from hyperi_ci import native_tools, release_prepare
 from hyperi_ci.common import (
+    ReleaseVersionError,
     announce,
     error,
     group,
@@ -671,6 +672,9 @@ def run_stage(
         # A relaxed security gate with no reason is a config defect, and a run
         # that continues past it is the silent skip this check exists to stop.
         announce(str(exc), exc.title, level="error")
+        return 1
+    except ReleaseVersionError as exc:
+        error(f"{stage}: {exc}")
         return 1
 
     if rc == 0:

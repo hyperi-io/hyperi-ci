@@ -15,6 +15,7 @@ import pytest
 
 from hyperi_ci import common
 from hyperi_ci.common import (
+    ReleaseVersionError,
     explicit_version,
     holds_latest,
     latest_version_tag,
@@ -66,6 +67,61 @@ def test_empty_hyperci_version_ignored(monkeypatch, tmp_path) -> None:
     (tmp_path / "VERSION").write_text("7.0.0\n")
     monkeypatch.chdir(tmp_path)
     assert resolve_release_version() == "7.0.0"
+
+
+class TestTheVersionMustBeAVersion:
+    """The value lands in image tags, labels and build args, after the logins."""
+
+    @pytest.mark.parametrize(
+        ("raw", "resolved"),
+        [
+            ("1.2.3", "1.2.3"),
+            ("v1.2.3", "1.2.3"),
+            ("1.2.0-beta.1", "1.2.0-beta.1"),
+            ("1.2.3-rc.1+build.5", "1.2.3-rc.1+build.5"),
+        ],
+    )
+    def test_semver_shapes_pass(
+        self, monkeypatch, tmp_path: Path, raw: str, resolved: str
+    ) -> None:
+        monkeypatch.delenv("HYPERCI_VERSION", raising=False)
+        (tmp_path / "VERSION").write_text(f"{raw}\n")
+        monkeypatch.chdir(tmp_path)
+        assert resolve_release_version() == resolved
+
+    @pytest.mark.parametrize(
+        "raw", ["dev", "1.2", "1.2.3 x", '1.2.3"; curl x', "1.2.3-", "{}"]
+    )
+    def test_anything_else_in_the_file_is_refused(
+        self, monkeypatch, tmp_path: Path, raw: str
+    ) -> None:
+        monkeypatch.delenv("HYPERCI_VERSION", raising=False)
+        (tmp_path / "VERSION").write_text(f"{raw}\n")
+        monkeypatch.chdir(tmp_path)
+        with pytest.raises(ReleaseVersionError, match="VERSION"):
+            resolve_release_version()
+
+    def test_anything_else_in_the_env_is_refused(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("HYPERCI_VERSION", "1.2.3$(id)")
+        monkeypatch.chdir(tmp_path)
+        with pytest.raises(ReleaseVersionError, match="HYPERCI_VERSION"):
+            resolve_release_version()
+
+    def test_a_symlinked_version_file_is_refused(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        """Even one pointing at a valid version: the link itself is the attack."""
+        monkeypatch.delenv("HYPERCI_VERSION", raising=False)
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.write_text("1.2.3\n")
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "VERSION").symlink_to(elsewhere)
+        monkeypatch.chdir(repo)
+        with pytest.raises(ReleaseVersionError, match="symlink"):
+            resolve_release_version()
 
 
 class TestLatestVersionTag:
