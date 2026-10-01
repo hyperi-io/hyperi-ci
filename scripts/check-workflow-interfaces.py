@@ -428,7 +428,12 @@ def _cli_gate() -> int:
     scan = workflow_cli_invocations(_ROOT)
     for note in scan.unchecked:
         print(f"  not checked: {note}")
-    published = published_cli_options()
+    try:
+        published = published_cli_options()
+    except CliDumpError as exc:
+        print(f"\nThe published CLI's option dump failed: {exc}")
+        print("That is a typer/click API break in the dump itself, not a PyPI outage.")
+        return 1
     if published is None:
         print("\nPublished CLI unreachable -- skipping the subcommand gate.")
     else:
@@ -718,6 +723,22 @@ def workflow_cli_invocations(root: Path) -> InvocationScan:
     return InvocationScan(tuple(invocations), tuple(unchecked))
 
 
+@dataclass(frozen=True, slots=True)
+class CommandOptions:
+    """Every option name one published command accepts, and which take a value.
+
+    A value-taking option given as `--opt value` consumes the next word too;
+    `--opt=value` and a flag do not. `names` holds every spelling (`--opt` and
+    a short `-o`), `value_taking` the subset that eats the next word.
+    """
+
+    names: frozenset[str]
+    value_taking: frozenset[str]
+
+
+_NO_OPTIONS = CommandOptions(names=frozenset(), value_taking=frozenset())
+
+
 def _option_name(word: str) -> str:
     """The option a word names: `--x=1` is `--x`, `-xVALUE` is `-x`."""
     if word.startswith("--"):
@@ -725,28 +746,35 @@ def _option_name(word: str) -> str:
     return word[:2]
 
 
-def _is_group(path: str, published: dict[str, frozenset[str]]) -> bool:
+def _is_group(path: str, published: dict[str, CommandOptions]) -> bool:
     """Whether the command at `path` has subcommands of its own."""
     prefix = f"{path} " if path else ""
     return any(key != path and key.startswith(prefix) for key in published)
 
 
-def _call_gaps(call: Invocation, published: dict[str, frozenset[str]]) -> list[str]:
+def _call_gaps(call: Invocation, published: dict[str, CommandOptions]) -> list[str]:
     """What one call uses that the published CLI lacks."""
     where = f"{call.file}:{call.line}"
     gaps: list[str] = []
     path = ""
+    skip_value = False
     for word in call.args:
+        if skip_value:
+            skip_value = False
+            continue
         shown = f"hyperi-ci {path}".strip()
         if word == "--":
             break
         if word.startswith("-") and word != "-":
             option = _option_name(word)
-            if option not in published.get(path, frozenset()):
+            opts = published.get(path, _NO_OPTIONS)
+            if option not in opts.names:
                 gaps.append(
                     f"{where}: `{shown}` passes `{option}`, which the published "
                     "CLI does not accept"
                 )
+            elif word == option and option in opts.value_taking:
+                skip_value = True
             continue
         child = f"{path} {word}".strip()
         if child in published:
@@ -769,7 +797,7 @@ def _call_gaps(call: Invocation, published: dict[str, frozenset[str]]) -> list[s
 
 def cli_invocation_gaps(
     invocations: tuple[Invocation, ...] | list[Invocation],
-    published: dict[str, frozenset[str]],
+    published: dict[str, CommandOptions],
 ) -> list[str]:
     """Subcommands and options a workflow uses that the published CLI lacks.
 
@@ -803,44 +831,74 @@ def latest_published_version() -> str | None:
 
 
 # Walks the click model typer builds rather than scraping `--help`, which HIDES
-# some commands (`tag-head` is one) and wraps option names across lines.
-_DUMP_OPTIONS = """
+# some commands (`tag-head` is one) and wraps option names across lines. Any
+# failure inside the try is a typer/click API break, not a missing wheel --
+# it prints the marker `_DUMP_FAILURE_MARKER` and exits `_DUMP_FAILURE_CODE`
+# so the caller can tell that apart from uvx itself failing to fetch the wheel.
+_DUMP_FAILURE_MARKER = "DUMP_OPTIONS_FAILED"
+_DUMP_FAILURE_CODE = 3
+_DUMP_OPTIONS = f"""
 import json
-import typer.main
-from hyperi_ci.cli import app
+import sys
 
-def walk(cmd, path, out):
-    ctx = cmd.context_class(cmd, info_name=path[-1] if path else "hyperi-ci")
-    names = set()
-    for param in cmd.get_params(ctx):
-        if param.param_type_name == "option":
-            names.update(param.opts)
-            names.update(param.secondary_opts)
-    out[" ".join(path)] = sorted(names)
-    for name, sub in getattr(cmd, "commands", {}).items():
-        walk(sub, [*path, name], out)
+try:
+    import typer.main
+    from hyperi_ci.cli import app
 
-table = {}
-walk(typer.main.get_command(app), [], table)
-print(json.dumps(table))
+    def walk(cmd, path, out):
+        ctx = cmd.context_class(cmd, info_name=path[-1] if path else "hyperi-ci")
+        specs = {{}}
+        for param in cmd.get_params(ctx):
+            if param.param_type_name == "option":
+                takes_value = not param.is_flag
+                for name in (*param.opts, *param.secondary_opts):
+                    specs[name] = takes_value
+        out[" ".join(path)] = specs
+        for name, sub in getattr(cmd, "commands", {{}}).items():
+            walk(sub, [*path, name], out)
+
+    table = {{}}
+    walk(typer.main.get_command(app), [], table)
+    print(json.dumps(table))
+except Exception as exc:
+    print(f"{_DUMP_FAILURE_MARKER}: {{exc!r}}", file=sys.stderr)
+    sys.exit({_DUMP_FAILURE_CODE})
 """
 
 
-def parse_option_table(text: str) -> dict[str, frozenset[str]]:
-    """Option names per command path, from the JSON `_DUMP_OPTIONS` prints.
+class CliDumpError(RuntimeError):
+    """The published CLI's own introspection snippet ran and failed -- a fail, not a skip."""
+
+
+def parse_option_table(text: str) -> dict[str, CommandOptions]:
+    """Command paths to their options, from the JSON `_DUMP_OPTIONS` prints.
 
     Raises:
-        ValueError: On anything but a mapping of path to a list of names.
+        ValueError: On anything but a mapping of path to {name: takes_value}.
     """
     data = json.loads(text)
     if not isinstance(data, dict) or not all(
-        isinstance(v, list) for v in data.values()
+        isinstance(v, dict) for v in data.values()
     ):
-        raise ValueError("option table is not a mapping of path to names")
-    return {str(path): frozenset(map(str, names)) for path, names in data.items()}
+        raise ValueError("option table is not a mapping of path to option specs")
+    table: dict[str, CommandOptions] = {}
+    for path, specs in data.items():
+        if not all(
+            isinstance(k, str) and isinstance(v, bool) for k, v in specs.items()
+        ):
+            raise ValueError(
+                f"option spec for '{path}' is not a mapping of name to bool"
+            )
+        table[str(path)] = CommandOptions(
+            names=frozenset(specs),
+            value_taking=frozenset(
+                name for name, takes_value in specs.items() if takes_value
+            ),
+        )
+    return table
 
 
-def published_cli_options() -> dict[str, frozenset[str]] | None:
+def published_cli_options() -> dict[str, CommandOptions] | None:
     """Every command and its options in the LATEST PUBLISHED CLI, or None.
 
     Reads the published wheel, not the working tree, and that inversion is the
@@ -850,8 +908,13 @@ def published_cli_options() -> dict[str, frozenset[str]] | None:
     publish, which is how a Gate job went red across the fleet (issue #181).
 
     Returns:
-        Option names keyed by command path (`""` is the root), or None when
-        PyPI or the wheel cannot be reached.
+        Options keyed by command path (`""` is the root), or None when PyPI
+        or the wheel cannot be reached.
+
+    Raises:
+        CliDumpError: The wheel installed and ran, but the dump snippet itself
+            raised (a typer/click API change) or printed something the gate
+            cannot parse. A broken dump must fail the gate, not skip it.
     """
     version = latest_published_version()
     if version is None:
@@ -873,12 +936,19 @@ def published_cli_options() -> dict[str, frozenset[str]] | None:
         errors="replace",
         check=False,
     )
+    if (
+        result.returncode == _DUMP_FAILURE_CODE
+        and _DUMP_FAILURE_MARKER in result.stderr
+    ):
+        raise CliDumpError(f"the option dump raised: {result.stderr.strip()}")
     if result.returncode != 0:
         return None
     try:
         return parse_option_table(result.stdout)
-    except ValueError:
-        return None
+    except ValueError as exc:
+        raise CliDumpError(
+            f"the option dump printed unparseable output: {exc}"
+        ) from exc
 
 
 if __name__ == "__main__":
