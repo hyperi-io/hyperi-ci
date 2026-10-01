@@ -11,6 +11,7 @@ import pytest
 
 from hyperi_ci.languages.python.pytest_args import (
     config_file_addopts,
+    ini_value,
     option_values,
     project_args,
 )
@@ -108,6 +109,49 @@ class TestConfigFileAddopts:
     def test_an_unbalanced_quote_still_splits(self, tmp_path: Path) -> None:
         _write(tmp_path / "pytest.ini", "[pytest]\naddopts = -n 2 -k 'oops\n")
         assert config_file_addopts(tmp_path)[:2] == ["-n", "2"]
+
+
+class TestIniValue:
+    def test_no_config_file_means_unset(self, tmp_path: Path) -> None:
+        assert ini_value(tmp_path, "tmp_path_retention_policy") is None
+
+    def test_pytest_ini_key(self, tmp_path: Path) -> None:
+        _write(tmp_path / "pytest.ini", "[pytest]\ntmp_path_retention_policy = all\n")
+        assert ini_value(tmp_path, "tmp_path_retention_policy") == "all"
+
+    def test_pyproject_ini_options_key(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path / "pyproject.toml",
+            '[tool.pytest.ini_options]\ntmp_path_retention_policy = "all"\n',
+        )
+        assert ini_value(tmp_path, "tmp_path_retention_policy") == "all"
+
+    def test_pyproject_native_table_key(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path / "pyproject.toml",
+            '[tool.pytest]\ntmp_path_retention_policy = "all"\n',
+        )
+        assert ini_value(tmp_path, "tmp_path_retention_policy") == "all"
+
+    def test_a_key_the_file_does_not_set_is_none(self, tmp_path: Path) -> None:
+        _write(tmp_path / "pytest.ini", "[pytest]\ntestpaths = tests\n")
+        assert ini_value(tmp_path, "tmp_path_retention_policy") is None
+
+    def test_reads_only_the_file_pytest_picks(self, tmp_path: Path) -> None:
+        """pytest.ini outranks pyproject.toml even when it sets a different key."""
+        _write(tmp_path / "pytest.ini", "[pytest]\ntestpaths = tests\n")
+        _write(
+            tmp_path / "pyproject.toml",
+            '[tool.pytest.ini_options]\ntmp_path_retention_policy = "all"\n',
+        )
+        assert ini_value(tmp_path, "tmp_path_retention_policy") is None
+
+    def test_a_non_string_toml_value_is_stringified(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path / "pyproject.toml",
+            "[tool.pytest.ini_options]\ntmp_path_retention_count = 5\n",
+        )
+        assert ini_value(tmp_path, "tmp_path_retention_count") == "5"
 
 
 class TestProjectArgs:

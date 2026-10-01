@@ -1,15 +1,16 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/languages/python/pytest_args.py
-# Purpose:   Read the pytest arguments a project already passes itself
+# Purpose:   Read the pytest arguments and ini settings a project already sets
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""The pytest arguments a project already passes itself.
+"""The pytest arguments and ini settings a project already sets itself.
 
-pytest reads ``addopts`` from one configuration file, then ``PYTEST_ADDOPTS``,
-then the command line, and for a single-valued option the last value wins.
-hyperi-ci reads the same sources to leave alone an option the project has
-already set, and to extend one rather than replace it.
+pytest reads ``addopts`` and every other ini key from one configuration
+file, then ``PYTEST_ADDOPTS``, then the command line, and for a
+single-valued option the last value wins. hyperi-ci reads the same sources
+to leave alone a setting the project has already made, and to extend an
+``addopts``-style one rather than replace it.
 """
 
 import configparser
@@ -19,7 +20,7 @@ import tomllib
 from pathlib import Path
 
 # pytest's own search order. The first file holding pytest configuration is
-# the only one it reads, so a later file's addopts never apply.
+# the only one it reads, so a later file's settings never apply.
 _CONFIG_FILES = (
     "pytest.toml",
     ".pytest.toml",
@@ -53,40 +54,57 @@ def _split(raw: object) -> list[str]:
         return raw.split()
 
 
-def _toml_addopts(path: Path) -> list[str] | None:
-    """Return ``addopts`` from a TOML file, None when it holds no pytest config."""
+def _toml_table(path: Path) -> dict[str, object] | None:
+    """Return the pytest options table a TOML file holds.
+
+    None when the file holds no pytest config pytest itself would read, which
+    tells the caller to keep searching.
+    """
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8", errors="replace"))
     except (OSError, tomllib.TOMLDecodeError):
         return None
     if path.name in _ALWAYS_CONFIG:
         table = data.get("pytest")
-        return _split(table.get("addopts")) if isinstance(table, dict) else []
+        return table if isinstance(table, dict) else {}
     tool = data.get("tool", {})
     pytest_table = tool.get("pytest") if isinstance(tool, dict) else None
     if not isinstance(pytest_table, dict):
         return None
     native = {k: v for k, v in pytest_table.items() if k != "ini_options"}
     if native:
-        return _split(native.get("addopts"))
+        return native
     ini_options = pytest_table.get("ini_options")
-    if isinstance(ini_options, dict):
-        return _split(ini_options.get("addopts"))
-    return None
+    return ini_options if isinstance(ini_options, dict) else None
 
 
-def _ini_addopts(path: Path) -> list[str] | None:
-    """Return ``addopts`` from an ini-style file, None when it holds no pytest config."""
+def _ini_table(path: Path) -> dict[str, str] | None:
+    """Return the pytest section an ini-style file holds, same None rule as above."""
     section = _INI_SECTION[path.name]
-    # pytest does no %-interpolation, so a literal % in addopts must survive.
+    # pytest does no %-interpolation, so a literal % in a value must survive.
     parser = configparser.ConfigParser(interpolation=None)
     try:
         parser.read(path, encoding="utf-8")
     except (OSError, configparser.Error):
         return None
     if parser.has_section(section):
-        return _split(parser.get(section, "addopts", fallback=""))
-    return [] if path.name in _ALWAYS_CONFIG else None
+        return dict(parser.items(section))
+    return {} if path.name in _ALWAYS_CONFIG else None
+
+
+def _config_table(root: Path) -> dict[str, object] | None:
+    """Return the key/value table of the configuration file pytest would read.
+
+    None when no file in the search order holds a pytest section.
+    """
+    for name in _CONFIG_FILES:
+        path = root / name
+        if not path.is_file():
+            continue
+        table = _toml_table(path) if path.suffix == ".toml" else _ini_table(path)
+        if table is not None:
+            return table
+    return None
 
 
 def config_file_addopts(root: Path) -> list[str]:
@@ -99,17 +117,27 @@ def config_file_addopts(root: Path) -> list[str]:
         Split arguments, empty when no file sets any.
 
     """
-    for name in _CONFIG_FILES:
-        path = root / name
-        if not path.is_file():
-            continue
-        if path.suffix == ".toml":
-            found = _toml_addopts(path)
-        else:
-            found = _ini_addopts(path)
-        if found is not None:
-            return found
-    return []
+    table = _config_table(root)
+    return _split((table or {}).get("addopts"))
+
+
+def ini_value(root: Path, key: str) -> str | None:
+    """Return one ini key from the configuration file pytest would read.
+
+    Args:
+        root: The project directory pytest runs from.
+        key: The ini key to read, e.g. ``tmp_path_retention_policy``.
+
+    Returns:
+        The value as a string (TOML's own type, stringified, for
+        pyproject.toml / pytest.toml), None when the file sets nothing for it.
+
+    """
+    table = _config_table(root)
+    if not table:
+        return None
+    value = table.get(key)
+    return None if value is None else str(value)
 
 
 def project_args(args: list[str], root: Path | None = None) -> list[str]:

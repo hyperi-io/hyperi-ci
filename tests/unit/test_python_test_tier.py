@@ -323,7 +323,15 @@ def _allow(*patterns: str, **test: Any) -> CIConfig:
 class TestCommandPerTier:
     def test_core_locally_adds_only_skip_reasons(self, recorder: _Recorder) -> None:
         assert py_test.run(_config(), extra_env={"TEST_TIER": "core"}) == 0
-        assert recorder.commands == [["pytest", "-v", "--tb=short", "-rfEs"]]
+        assert recorder.commands == [
+            [
+                "pytest",
+                "-v",
+                "--tb=short",
+                "--override-ini=tmp_path_retention_policy=failed",
+                "-rfEs",
+            ]
+        ]
 
     def test_no_tier_given_is_core(self, recorder: _Recorder) -> None:
         assert py_test.run(_config()) == 0
@@ -568,6 +576,96 @@ class TestReportChars:
         assert "-rxs" in recorder.commands[0]
 
 
+_RETENTION = "--override-ini=tmp_path_retention_policy=failed"
+
+
+class TestTmpPathRetention:
+    """Keeps only a failed test's tmp_path dir, not pytest's last-3-runs default."""
+
+    def test_core_locally_adds_it(self, recorder: _Recorder) -> None:
+        py_test.run(_config(), extra_env={"TEST_TIER": "core"})
+        assert _RETENTION in recorder.commands[0]
+
+    def test_full_adds_it_too(self, recorder: _Recorder) -> None:
+        py_test.run(_allow("probe"), extra_env={"TEST_TIER": "full"})
+        assert _RETENTION in recorder.commands[0]
+
+    def test_directory_split_adds_it_to_every_run(self, recorder: _Recorder) -> None:
+        py_test.run(_config(use_tiers=True), extra_env={"TEST_TIER": "core"})
+        assert recorder.commands
+        assert all(_RETENTION in cmd for cmd in recorder.commands)
+
+    def test_a_separated_override_in_project_args_wins(
+        self, recorder: _Recorder
+    ) -> None:
+        config = _config(python={"args": ["-o", "tmp_path_retention_policy=all"]})
+        py_test.run(config, extra_env={"TEST_TIER": "core"})
+        assert _RETENTION not in recorder.commands[0]
+        assert any("tmp_path_retention_policy" in m for m in recorder.infos)
+
+    def test_an_attached_short_override_wins(self, recorder: _Recorder) -> None:
+        config = _config(python={"args": ["-otmp_path_retention_policy=all"]})
+        py_test.run(config, extra_env={"TEST_TIER": "core"})
+        assert _RETENTION not in recorder.commands[0]
+
+    def test_a_long_override_wins(self, recorder: _Recorder) -> None:
+        config = _config(
+            python={"args": ["--override-ini=tmp_path_retention_policy=none"]}
+        )
+        py_test.run(config, extra_env={"TEST_TIER": "core"})
+        assert _RETENTION not in recorder.commands[0]
+
+    def test_pytest_addopts_setting_it_wins(
+        self, recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("PYTEST_ADDOPTS", "-o tmp_path_retention_policy=all")
+        py_test.run(_config(), extra_env={"TEST_TIER": "core"})
+        assert _RETENTION not in recorder.commands[0]
+
+    def test_an_override_in_the_config_files_addopts_wins(
+        self, recorder: _Recorder, tmp_path: Path
+    ) -> None:
+        (tmp_path / "pytest.ini").write_text(
+            "[pytest]\naddopts = -o tmp_path_retention_policy=all\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        py_test.run(_config(), extra_env={"TEST_TIER": "core"})
+        assert _RETENTION not in recorder.commands[0]
+
+    @pytest.mark.parametrize(
+        ("filename", "text"),
+        [
+            (
+                "pyproject.toml",
+                '[tool.pytest.ini_options]\ntmp_path_retention_policy = "all"\n',
+            ),
+            ("pyproject.toml", '[tool.pytest]\ntmp_path_retention_policy = "all"\n'),
+            ("pytest.toml", '[pytest]\ntmp_path_retention_policy = "all"\n'),
+            (".pytest.toml", '[pytest]\ntmp_path_retention_policy = "all"\n'),
+            ("pytest.ini", "[pytest]\ntmp_path_retention_policy = all\n"),
+            (".pytest.ini", "[pytest]\ntmp_path_retention_policy = all\n"),
+            ("tox.ini", "[pytest]\ntmp_path_retention_policy = all\n"),
+            ("setup.cfg", "[tool:pytest]\ntmp_path_retention_policy = all\n"),
+        ],
+    )
+    def test_a_config_file_setting_the_ini_key_wins(
+        self, recorder: _Recorder, tmp_path: Path, filename: str, text: str
+    ) -> None:
+        (tmp_path / filename).write_text(text, encoding="utf-8", newline="\n")
+        py_test.run(_config(), extra_env={"TEST_TIER": "core"})
+        assert _RETENTION not in recorder.commands[0]
+
+    def test_an_unrelated_key_in_the_config_file_does_not_suppress_it(
+        self, recorder: _Recorder, tmp_path: Path
+    ) -> None:
+        (tmp_path / "pytest.ini").write_text(
+            "[pytest]\ntestpaths = tests\n", encoding="utf-8", newline="\n"
+        )
+        py_test.run(_config(), extra_env={"TEST_TIER": "core"})
+        assert _RETENTION in recorder.commands[0]
+
+
 class TestSlowestTestsInCI:
     @pytest.fixture
     def in_ci(self, monkeypatch: pytest.MonkeyPatch, recorder: _Recorder) -> _Recorder:
@@ -582,6 +680,7 @@ class TestSlowestTestsInCI:
                 "-v",
                 "--tb=short",
                 "--durations=25",
+                "--override-ini=tmp_path_retention_policy=failed",
                 "-rfEs",
                 "--junitxml=test-results/junit.xml",
             ]
