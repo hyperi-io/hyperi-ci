@@ -52,6 +52,17 @@ _PROFILE_USE_ENV = {"RUSTC_WRAPPER": ""}
 _BOLT_WITH_PGO = "--with-pgo"
 
 
+def _bolt_profile_env() -> dict[str, str]:
+    """Cargo profile settings every compile of a PGO + BOLT pipeline carries.
+
+    Cargo hashes profile settings into symbol names, so every compile that
+    shares a PGO profile must share the profile settings. BOLT needs strip
+    off, because lld refuses `--strip-all` beside `--emit-relocs`, and
+    packaging strips the shipped binary afterwards.
+    """
+    return {"CARGO_PROFILE_RELEASE_STRIP": "none"}
+
+
 def run_pgo_build(
     target: str,
     profile: OptimizationProfile,
@@ -113,9 +124,19 @@ def run_pgo_build(
         )
         return 1
 
+    # Decided before the first compile, because BOLT's profile settings have to
+    # reach the PGO compiles too.
+    bolt = profile.bolt_enabled and _ensure_llvm_bolt_available()
+    if profile.bolt_enabled and not bolt:
+        warn(
+            "BOLT toolchain not complete (llvm-bolt / merge-fdata / ld.lld) -- "
+            "skipping BOLT step"
+        )
+    pipeline_env = {**(extra_env or {}), **_bolt_profile_env()} if bolt else extra_env
+
     # Every later stage links a binary at least as large as the instrumented
     # one, so a linker that rescues this build has to carry forward.
-    build_env = extra_env
+    build_env = pipeline_env
 
     # 1. Instrumented build
     info(f"PGO: building instrumented binary for {target}")
@@ -129,7 +150,7 @@ def run_pgo_build(
             "which bridges branches past the 128 MB limit"
         )
         build_env = {
-            **(extra_env or {}),
+            **(pipeline_env or {}),
             _target_rustflags_key(target): "-C link-arg=-fuse-ld=mold",
         }
         rc = _run_cargo_pgo(instrument_args, cwd=cwd, extra_env=build_env)
@@ -175,7 +196,7 @@ def run_pgo_build(
         outcome.pgo_applied = True
 
     # 4. BOLT (optional, Linux-only)
-    if profile.bolt_enabled:
+    if bolt:
         rc = _run_bolt(
             target, feature_args, binary_name, profile, cwd, build_env, outcome
         )
@@ -774,26 +795,13 @@ def _bolt_build_env(
     no_split: bool = False,
     extra_env: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    """Env overrides for cargo-pgo BOLT build and optimize steps.
+    """Linker env overrides for the cargo-pgo BOLT build and optimize steps.
 
-    BOLT imposes two linker-level requirements that collide with common
-    release-profile settings:
-
-    1. **Linker must be lld.** BOLT's instrumented builds pass
-       `-Wl,-q` (`--emit-relocs`) which mold segfaults on and GNU BFD
-       rejects. lld is the canonical BOLT-compatible linker.
-
-    2. **strip must be disabled.** Rust's `[profile.release] strip = true`
-       appends `-Wl,--strip-all` to the link, which lld refuses to
-       combine with `--emit-relocs`. We override via
-       `CARGO_PROFILE_RELEASE_STRIP=none` for the BOLT steps only --
-       the project's regular release build keeps whatever strip
-       setting it declared. Final binary is stripped by hyperi-ci's
-       post-build packaging separately, so dropping cargo-level strip
-       here doesn't bloat the shipped artefact.
-
-    These overrides apply to both the instrumented build (used only
-    for profile collection) and the final BOLT-optimized build.
+    The linker must be lld: BOLT's builds pass `-Wl,-q` (`--emit-relocs`),
+    which mold segfaults on and GNU BFD rejects. Only RUSTFLAGS and the linker
+    change here, because neither reaches cargo's symbol-name hash. The
+    profile settings BOLT needs come from `_bolt_profile_env` and reach every
+    compile of the pipeline.
 
     Cargo joins the env value onto the project's `target.<triple>.rustflags`,
     so flags declared there (`-C target-cpu=x86-64-v3`) survive and the later
@@ -813,10 +821,7 @@ def _bolt_build_env(
         extra = _bolt_no_split_rustflags()
         if extra:
             bolt_rustflags = f"{bolt_rustflags} {extra}"
-    env = {
-        target_rustflags_key: bolt_rustflags,
-        "CARGO_PROFILE_RELEASE_STRIP": "none",
-    }
+    env = {target_rustflags_key: bolt_rustflags}
     if target.startswith("aarch64") and "linux" in target:
         env.update(_a53_linker_env(target, extra_env))
     return env
@@ -916,17 +921,16 @@ def _attempt_bolt(
     and applies its profile on the same PGO-optimised layout, and both run
     without sccache (see `_PROFILE_USE_ENV`).
 
-    Forces lld as the linker and disables strip for both build phases --
-    see `_bolt_build_env()`. When `no_split` is True, also disables the
-    compiler cold-splitter so BOLT can process the binary (see _run_bolt).
+    Forces lld as the linker for both build phases -- see `_bolt_build_env()`.
+    `extra_env` already carries `_bolt_profile_env`, as every compile of the
+    pipeline does. When `no_split` is True, also disables the compiler
+    cold-splitter so BOLT can process the binary (see _run_bolt).
 
     Returns 0 on success OR a non-fatal skip (missing instrumented binary or
     a failed workload -- PGO-only result stands). Returns non-zero only on a
     BOLT BUILD failure (instrument or optimise), which _run_bolt retries.
     """
-    # Merge project env_overrides (LTO etc.) with the BOLT-step build
-    # env (fuse-ld=lld + strip=none [+ no-split]). BOLT env takes precedence
-    # over project config for the target-specific rustflags -- intentional.
+    # BOLT's target rustflags (fuse-ld=lld [+ no-split]) win over the project's.
     bolt_overrides = _bolt_build_env(target, no_split=no_split, extra_env=extra_env)
     bolt_env = {**(extra_env or {}), **bolt_overrides, **_PROFILE_USE_ENV}
     label = " (no-split)" if no_split else ""
@@ -1025,16 +1029,10 @@ def _run_bolt(
     already optimise cleanly, and degrades to PGO-only (non-fatal) if neither
     attempt succeeds.
 
-    Requires the llvm-bolt + merge-fdata + ld.lld toolchain installed
-    (covered by the `bolt-NN` + `lld-NN` apt packages from apt.llvm.org).
-    Silent skip if any toolchain binary is missing.
+    Requires the llvm-bolt + merge-fdata + ld.lld toolchain, which
+    `run_pgo_build` checks before its first compile (covered by the `bolt-NN`
+    + `lld-NN` apt packages from apt.llvm.org).
     """
-    if not _ensure_llvm_bolt_available():
-        warn(
-            "BOLT toolchain not complete (llvm-bolt / merge-fdata / ld.lld) -- skipping BOLT step"
-        )
-        return 0  # Non-fatal
-
     rc = _attempt_bolt(
         target,
         feature_args,
