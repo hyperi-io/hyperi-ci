@@ -223,13 +223,13 @@ doc-paths: inline-code paths not checked in 156 file(s) (quality.doc_paths.presc
 
 ### doc-paths: ignoring one known reference
 
-`prescriptive` exempts a whole directory, which would also hide real drift added there later. A single reference that is correct on its own merits - a retired file named on purpose, a path in another repo - gets an HTML comment on its own line instead:
+`prescriptive` exempts a whole directory, which would also hide real drift added there later. A single reference that is right as written, such as a retired file named on purpose or a path in another repo, takes an HTML comment on its own line instead:
 
 ```markdown
 The old config lived at `config/legacy.yaml` <!-- doc-paths: ignore -->, retired in v2.
 ```
 
-The marker suppresses every path warning on that line only - the next line still reports normally - and is invisible once the markdown renders. Every run that suppresses a reference says so:
+The marker suppresses every path warning on that line. A path on another, unmarked line still reports. Every run that suppresses a reference says so:
 
 ```text
 doc-paths: 3 reference(s) ignored by marker (doc-paths: ignore)

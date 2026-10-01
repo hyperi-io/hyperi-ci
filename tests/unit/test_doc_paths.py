@@ -239,6 +239,37 @@ class TestIgnoreMarker:
         )
         assert doc_paths.scan_links(doc, root) == []
 
+    def test_a_later_unmarked_occurrence_of_a_marked_path_still_reports(
+        self, tmp_path: Path
+    ) -> None:
+        # The marked occurrence must not populate `seen` and hide a real one.
+        root = _repo(tmp_path)
+        doc = root / "docs" / "a.md"
+        doc.write_text(
+            "First `config/org.yaml` <!-- doc-paths: ignore -->.\n"
+            "Later also `config/org.yaml`.\n",
+            encoding="utf-8",
+        )
+        found = doc_paths.scan_code_paths(doc, root)
+        assert [f.message for f in found] == [
+            "names `config/org.yaml`, which is no longer in the repo"
+        ]
+        assert found[0].line == 2
+
+    def test_a_later_unmarked_link_occurrence_still_reports(
+        self, tmp_path: Path
+    ) -> None:
+        root = _repo(tmp_path)
+        doc = root / "README.md"
+        doc.write_text(
+            "First [x](docs/gone.md) <!-- doc-paths: ignore -->.\n"
+            "Later [y](docs/gone.md) too.\n",
+            encoding="utf-8",
+        )
+        found = doc_paths.scan_links(doc, root)
+        assert [f.rule for f in found] == ["docs/link-missing"]
+        assert found[0].line == 2
+
     def test_the_suppressed_counter_tallies_both_kinds(self, tmp_path: Path) -> None:
         root = _repo(tmp_path)
         doc = root / "docs" / "a.md"
