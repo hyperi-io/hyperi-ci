@@ -25,6 +25,8 @@ from typing import Any
 import pytest
 import yaml
 
+from hyperi_ci.stamp import SKIP_STAMP_CMD_ENV
+
 WORKFLOW = (
     Path(__file__).parent.parent.parent / ".github" / "workflows" / "_release-tail.yml"
 )
@@ -379,6 +381,108 @@ class TestCommitBackFailureIsRecorded:
 
     def test_the_job_token_can_open_issues(self) -> None:
         assert _jobs()["tag-and-release"]["permissions"]["issues"] == "write"
+
+
+class TestContainerRunsNoRepoCode:
+    """The Container job logs in to Docker Hub and GHCR with a packages:write token.
+
+    These tests hold the workflow side: the stamp passes the switch that skips
+    ``release.stamp_cmd``, the checkout keeps no token, uv and Python come up
+    without reading the repo's uv config, and the build artefact places only
+    ``dist/`` and ``ci-tmp/``. The skip itself is the CLI's (``test_stamp.py``)
+    and only takes effect on a CLI release that carries it. Running the stamp
+    before the logins is ordering, not isolation: a ``stamp_cmd`` that does run
+    can still leave a ``$GITHUB_ENV`` line or a process for a later step.
+    """
+
+    @pytest.fixture
+    def steps(self) -> list[dict[str, Any]]:
+        return _jobs()["container"]["steps"]
+
+    @staticmethod
+    def _index(steps: list[dict[str, Any]], prefix: str) -> list[int]:
+        return [
+            i for i, s in enumerate(steps) if str(s.get("uses", "")).startswith(prefix)
+        ]
+
+    def test_uv_is_installed_before_the_checkout(
+        self, steps: list[dict[str, Any]]
+    ) -> None:
+        """setup-uv reads a checked-out repo's `required-version`."""
+        uv = self._index(steps, "astral-sh/setup-uv@")
+        checkout = self._index(steps, "actions/checkout@")
+        assert len(uv) == 1 and len(checkout) == 1
+        assert uv[0] < checkout[0]
+
+    def test_python_is_installed_without_the_repos_uv_config(
+        self, steps: list[dict[str, Any]]
+    ) -> None:
+        """`[tool.uv]` can pick where the interpreter that runs hyperi-ci comes from."""
+        python = next(s for s in steps if s.get("name") == "Set up Python")
+        assert python["run"] == 'uv python install --no-config "$PYTHON_VERSION"'
+
+    def test_build_artefacts_never_land_on_the_checkout(
+        self, steps: list[dict[str, Any]]
+    ) -> None:
+        downloads = self._index(steps, "actions/download-artifact@")
+        assert downloads
+        for i in downloads:
+            assert "runner.temp" in steps[i]["with"]["path"], steps[i]["name"]
+        place = [
+            i for i, s in enumerate(steps) if s.get("name") == "Place dist/ and ci-tmp/"
+        ]
+        assert len(place) == 1
+        assert not _run_lines_outside({"steps": [steps[place[0]]]}, _PLACE)
+        names = [s.get("name") for s in steps]
+        assert max(downloads) < place[0] < names.index("Build container")
+
+    @staticmethod
+    def _stamp(steps: list[dict[str, Any]]) -> tuple[int, dict[str, Any]]:
+        names = [s.get("name") for s in steps]
+        at = names.index("Stamp predicted version")
+        return at, steps[at]
+
+    def test_the_stamp_skips_the_repo_command(
+        self, steps: list[dict[str, Any]]
+    ) -> None:
+        _, stamp = self._stamp(steps)
+        assert stamp["env"][SKIP_STAMP_CMD_ENV] == "1"
+        assert (
+            stamp["run"]
+            == '${{ env.HYPERCI_INSTALL }} stamp-version "$RELEASE_VERSION"'
+        )
+
+    def test_the_stamp_runs_before_every_login(
+        self, steps: list[dict[str, Any]]
+    ) -> None:
+        at, _ = self._stamp(steps)
+        logins = [
+            i
+            for i, s in enumerate(steps)
+            if str(s.get("uses", "")).startswith("docker/login-action@")
+        ]
+        assert len(logins) == 2
+        assert at < min(logins)
+
+    def test_its_checkout_keeps_no_credential(
+        self, steps: list[dict[str, Any]]
+    ) -> None:
+        checkouts = [
+            s for s in steps if str(s.get("uses", "")).startswith("actions/checkout@")
+        ]
+        assert len(checkouts) == 1
+        assert checkouts[0]["with"]["persist-credentials"] is False
+
+    def test_the_job_token_reaches_only_ghcr_and_the_submodules(
+        self, steps: list[dict[str, Any]]
+    ) -> None:
+        holders = [
+            s.get("name")
+            for s in steps
+            if "secrets.GITHUB_TOKEN" in yaml.safe_dump(s)
+            or "github.token" in yaml.safe_dump(s)
+        ]
+        assert holders == ["Init submodules", "GHCR login"]
 
 
 def test_only_the_publish_job_holds_a_publish_credential() -> None:

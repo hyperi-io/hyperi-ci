@@ -40,6 +40,7 @@ from hyperi_ci.common import (
 )
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import (
+    get_python_source_paths,
     get_test_ignore,
     get_test_paths,
     resolve_tool_mode,
@@ -177,7 +178,7 @@ def _ruff_ignore_flag(ignores: list[IgnoreEntry]) -> list[str]:
 
 
 def _build_ruff_security_cmd(
-    excludes: list[str], ignores: list[IgnoreEntry]
+    sources: list[str], excludes: list[str], ignores: list[IgnoreEntry]
 ) -> list[str]:
     """Build the ruff S (flake8-bandit) pass over production code.
 
@@ -187,6 +188,7 @@ def _build_ruff_security_cmd(
     tier's line cap shows findings rather than one code frame.
 
     Args:
+        sources: Source directories to scan, from ``get_python_source_paths``.
         excludes: Handler excludes, added to the repo's own ruff excludes.
         ignores: ``quality.ignore`` entries for the ``ruff`` slug.
 
@@ -195,7 +197,7 @@ def _build_ruff_security_cmd(
 
     """
     return (
-        ["ruff", "check", "--select", "S", "--output-format=concise", "src/"]
+        ["ruff", "check", "--select", "S", "--output-format=concise", *sources]
         + _build_exclude_args("ruff", excludes)
         + _ruff_ignore_flag(ignores)
     )
@@ -408,6 +410,38 @@ def _run_tool(
     return False
 
 
+def _run_source_tool(
+    tool_name: str,
+    cmd: list[str],
+    mode: str,
+    sources: list[str],
+    *,
+    use_uvx: bool = False,
+    spec: str | None = None,
+) -> bool:
+    """Run a tool that scans the source directories, or say why it cannot.
+
+    Pointed at a directory that does not exist, ruff warns, checks no file and
+    exits 0, which reads as a pass.
+
+    Args:
+        tool_name: Name used in every log line.
+        cmd: Command and arguments, before resolution.
+        mode: ``blocking``, ``warn`` or ``disabled``.
+        sources: Source directories the command scans.
+        use_uvx: Run a standalone tool through ``uvx``.
+        spec: Requirement to install for ``use_uvx``.
+
+    Returns:
+        True if the pipeline should continue, False on a blocking failure.
+
+    """
+    if mode != "disabled" and not sources:
+        warn(f"  {tool_name}: skipped, no Python source directory found")
+        return True
+    return _run_tool(tool_name, cmd, mode, use_uvx=use_uvx, spec=spec)
+
+
 def _ruff_format_takes_extend_exclude() -> bool:
     """Whether the project's ruff accepts --extend-exclude on `format`.
 
@@ -537,27 +571,32 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         if not _run_tool("pyright", ["pyright"], pyright_mode):
             had_failure = True
 
+    sources = get_python_source_paths(config)
+
     # Bandit security scanning
     mode = _get_tool_mode("bandit", config)
-    bandit_cmd = ["bandit", "-r", "src/", "-ll"]
+    bandit_cmd = ["bandit", "-r", *sources, "-ll"]
     if Path("pyproject.toml").exists():
         bandit_cmd.extend(["-c", "pyproject.toml"])
-    if config.get("quality.python.bandit_exclude_tests", True):
-        bandit_cmd.extend(["--exclude", "tests/"])
+    if config.get("quality.python.bandit_exclude_tests", True) and test_paths:
+        bandit_cmd.extend(["--exclude", ",".join(test_paths)])
     bandit_cmd.extend(_build_exclude_args("bandit", excludes))
     bandit_ignores = for_tool(ignores, "bandit")
     if bandit_ignores:
         bandit_cmd.extend(["--skip", ",".join(e.id for e in bandit_ignores)])
     bandit_spec = f"bandit=={tool_version('bandit')}"
-    if not _run_tool("bandit", bandit_cmd, mode, use_uvx=True, spec=bandit_spec):
+    if not _run_source_tool(
+        "bandit", bandit_cmd, mode, sources, use_uvx=True, spec=bandit_spec
+    ):
         had_failure = True
 
     # The bandit-class check. Its own key, so it can ratchet to blocking
     # without touching the lint gate.
-    if not _run_tool(
+    if not _run_source_tool(
         "ruff security",
-        _build_ruff_security_cmd(excludes, ruff_user_ignores),
+        _build_ruff_security_cmd(sources, excludes, ruff_user_ignores),
         _get_tool_mode("ruff_security", config),
+        sources,
     ):
         had_failure = True
 
@@ -571,17 +610,18 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     # Docstring coverage via ruff D rules (replaces interrogate)
     mode = _get_tool_mode("ruff_docstrings", config)
-    ruff_doc_cmd = ["ruff", "check", "--select", "D", "src/"] + _build_exclude_args(
-        "ruff", excludes
-    )
-    if not _run_tool("ruff docstrings", ruff_doc_cmd, mode):
+    ruff_doc_cmd = ["ruff", "check", "--select", "D", *sources]
+    ruff_doc_cmd += _build_exclude_args("ruff", excludes)
+    if not _run_source_tool("ruff docstrings", ruff_doc_cmd, mode, sources):
         had_failure = True
 
     # Vulture dead code detection
     mode = _get_tool_mode("vulture", config)
-    vulture_cmd = ["vulture", "src/"] + _build_exclude_args("vulture", excludes)
+    vulture_cmd = ["vulture", *sources] + _build_exclude_args("vulture", excludes)
     vulture_spec = f"vulture=={tool_version('vulture')}"
-    if not _run_tool("vulture", vulture_cmd, mode, use_uvx=True, spec=vulture_spec):
+    if not _run_source_tool(
+        "vulture", vulture_cmd, mode, sources, use_uvx=True, spec=vulture_spec
+    ):
         had_failure = True
 
     return 1 if had_failure else 0

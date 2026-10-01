@@ -53,10 +53,6 @@ PERSISTS: dict[tuple[str, str], str] = {
         )
         for name in LANGUAGE_WORKFLOWS
     },
-    ("_release-tail.yml", "container"): (
-        "release path, left as is: its only repo-controlled code is the "
-        "Dockerfile, whose build context cannot reach $RUNNER_TEMP"
-    ),
 }
 
 # The steps that reach GitHub over git after a credential-free checkout.
@@ -117,7 +113,7 @@ def test_jobs_that_run_repo_code_drop_it(workflow_name: str, job_id: str) -> Non
     assert checkouts[0]["with"]["persist-credentials"] is False
 
 
-@pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+@pytest.mark.parametrize("workflow_name", SCANNED)
 def test_git_network_steps_bring_their_own_token(workflow_name: str) -> None:
     jobs = _load(workflow_name)["jobs"]
     missing = []
@@ -156,7 +152,7 @@ def test_the_token_goes_in_as_step_scoped_config(
 
 
 def test_every_step_scoped_credential_is_the_same_code() -> None:
-    for name in LANGUAGE_WORKFLOWS:
+    for name in SCANNED:
         for job in _load(name)["jobs"].values():
             for step in job.get("steps", []):
                 run = step.get("run", "")

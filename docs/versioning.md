@@ -139,7 +139,7 @@ release:
 
 `stamp-version` runs `stamp_cmd` from the repo root after it writes `VERSION` and the manifest, so the generator reads the new version from `VERSION`. No shell is involved: a string is split the way a shell would split it, a list is the argv. A non-zero exit fails the stamp.
 
-It runs where `stamp-version` runs, and only on a publishing run. The Build job runs it before the build, so a wheel or binary carries the regenerated files. The Container job runs it again on its own checkout before the image build. The Prepare release job runs it a third time and uploads the `stamp_paths` files before its packaging code runs. Tag & Release, which runs no repo code, restores them for `release-commit`, and writes `VERSION` itself from the release version where git tracks one. A stamp that fails fails the prepare job, so nothing is tagged.
+It runs only on a publishing run. The Build job runs it before the build, so a wheel or binary carries the regenerated files. The Container job does NOT: it logs in to Docker Hub and GHCR, so it stamps with `--no-stamp-cmd`, and an image built from the checkout carries the committed copies of the `stamp_paths` files. The Prepare release job runs it a second time and uploads the `stamp_paths` files before its packaging code runs. Tag & Release, which runs no repo code, restores them for `release-commit`, and writes `VERSION` itself from the release version where git tracks one. A stamp that fails fails the prepare job, so nothing is tagged.
 
 `release-commit` adds `stamp_paths` to the commit that carries `VERSION` and `CHANGELOG.md`, and leaves a file out when:
 

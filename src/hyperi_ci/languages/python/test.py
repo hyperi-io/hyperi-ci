@@ -41,6 +41,7 @@ from hyperi_ci.common import (
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.python.parallel import parallel_args
 from hyperi_ci.languages.python.pytest_args import option_values, project_args
+from hyperi_ci.languages.quality_common import get_python_source_paths
 from hyperi_ci.languages.tiering import (
     KeptLines,
     SuiteTier,
@@ -419,6 +420,48 @@ def _junit_args(wanted: bool, filename: str) -> list[str]:
     return [f"--junitxml={_RESULTS_DIR}/{filename}"] if wanted else []
 
 
+def _sets_own_cov(args: list[str]) -> bool:
+    """Report whether the project names its own ``--cov`` source."""
+    return any(t == "--cov" or t.startswith("--cov=") for t in project_args(args))
+
+
+def _coverage_args(config: CIConfig, args: list[str]) -> list[str]:
+    """Return pytest-cov arguments measuring each Python source directory.
+
+    A project that passes its own ``--cov`` keeps its choice of source, since
+    adding an untested directory beside it drags the total under its floor.
+    A repo with no source directory runs without coverage, and says so, since
+    ``--cov`` naming a missing directory measures nothing.
+
+    Args:
+        config: Merged CI configuration.
+        args: The arguments assembled so far from ``test.python.args``.
+
+    Returns:
+        The ``--cov``, ``--cov-report`` and ``--cov-fail-under`` arguments to add.
+
+    """
+    min_cov = config.get("test.min_coverage", 0)
+    if _sets_own_cov(args):
+        info("  Coverage: the project sets its own --cov source, leaving it alone")
+        cov_sources: list[str] = []
+    else:
+        sources = get_python_source_paths(config)
+        if not sources:
+            note = "  Coverage: no Python source directory found, running without it"
+            if min_cov and int(min_cov) > 0:
+                warn(f"{note}; test.min_coverage {min_cov} is not enforced")
+            else:
+                info(note)
+            return []
+        cov_sources = [f"--cov={path.rstrip('/')}" for path in sources]
+    coverage_format = config.get("test.python.coverage_format", "xml")
+    cov_args = [*cov_sources, f"--cov-report={coverage_format}"]
+    if min_cov and int(min_cov) > 0:
+        cov_args.append(f"--cov-fail-under={min_cov}")
+    return cov_args
+
+
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     """Run Python tests.
 
@@ -439,13 +482,8 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     base_args: list[str] = list(config.get("test.python.args", ["-v", "--tb=short"]))
 
-    # Coverage
     if config.get("test.coverage", True):
-        coverage_format = config.get("test.python.coverage_format", "xml")
-        base_args.extend(["--cov=src", f"--cov-report={coverage_format}"])
-        min_cov = config.get("test.min_coverage", 0)
-        if min_cov and int(min_cov) > 0:
-            base_args.append(f"--cov-fail-under={min_cov}")
+        base_args.extend(_coverage_args(config, base_args))
 
     # Worker data is combined by pytest-cov before it reports, so coverage
     # stays accurate across workers and needs no extra configuration.

@@ -18,7 +18,8 @@ per-language branching; language detection routes the manifest stamp.
 A repo whose committed files carry the version somewhere hyperi-ci cannot know
 about (a generated OpenAPI spec) names a command in ``release.stamp_cmd``, run
 after both layers, and the files it writes in ``release.stamp_paths``, which
-``release-commit`` puts back on the branch.
+``release-commit`` puts back on the branch. ``--no-stamp-cmd`` skips the
+command, for the Container job, which logs in to registries.
 """
 
 import re
@@ -28,6 +29,10 @@ from pathlib import Path, PurePosixPath
 from hyperi_ci.common import error, info, run_cmd, warn
 from hyperi_ci.config import CIConfig, load_config
 from hyperi_ci.detect import detect_language
+
+# The env form of `stamp-version --no-stamp-cmd`, which a CLI too old to know
+# the flag ignores rather than rejects.
+SKIP_STAMP_CMD_ENV = "HYPERCI_STAMP_SKIP_CMD"
 
 
 class StampError(Exception):
@@ -206,7 +211,9 @@ def _run_stamp_command(root: Path) -> int:
     return 0
 
 
-def stamp_version(version: str, project_dir: Path | None = None) -> int:
+def stamp_version(
+    version: str, project_dir: Path | None = None, *, run_stamp_cmd: bool = True
+) -> int:
     """Write the version into VERSION and the language manifest.
 
     Then runs ``release.stamp_cmd``, when set, so files generated from the
@@ -215,6 +222,8 @@ def stamp_version(version: str, project_dir: Path | None = None) -> int:
     Args:
         version: Release version, with or without a leading ``v``.
         project_dir: Project root. Defaults to cwd.
+        run_stamp_cmd: False for a job that holds credentials, which must run
+            none of the repo's code.
 
     Returns:
         0 on success, 1 if ``version`` is empty, the manifest cannot carry
@@ -252,4 +261,7 @@ def stamp_version(version: str, project_dir: Path | None = None) -> int:
     else:
         warn("Could not detect language — wrote VERSION only")
 
+    if not run_stamp_cmd:
+        info("Not running release.stamp_cmd: --no-stamp-cmd")
+        return 0
     return _run_stamp_command(root)

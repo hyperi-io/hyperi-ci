@@ -54,6 +54,7 @@ from hyperi_ci.config import CIConfig, load_config
 from hyperi_ci.detect import detect_language
 from hyperi_ci.dispatch import VALID_STAGES, run_stage
 from hyperi_ci.languages.tiering import SuiteTier
+from hyperi_ci.stamp import SKIP_STAMP_CMD_ENV
 from hyperi_ci.version_source import build_version
 
 app = typer.Typer(
@@ -671,6 +672,17 @@ def stamp_version_cmd(
         str | None,
         typer.Option("--project-dir", "-C", help="Project root directory"),
     ] = None,
+    no_stamp_cmd: Annotated[
+        bool,
+        typer.Option(
+            "--no-stamp-cmd",
+            envvar=SKIP_STAMP_CMD_ENV,
+            help=(
+                "Write VERSION and the manifest but do not run release.stamp_cmd, "
+                "for a job holding credentials the repo's code must not reach."
+            ),
+        ),
+    ] = False,
 ) -> None:
     """Stamp the version into VERSION + the language manifest.
 
@@ -682,7 +694,9 @@ def stamp_version_cmd(
     from hyperi_ci.stamp import stamp_version
 
     dir_path = Path(project_dir) if project_dir else None
-    raise typer.Exit(stamp_version(version, project_dir=dir_path))
+    raise typer.Exit(
+        stamp_version(version, project_dir=dir_path, run_stamp_cmd=not no_stamp_cmd)
+    )
 
 
 @app.command()
