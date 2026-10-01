@@ -185,20 +185,18 @@ flowchart LR
 
 ### Under a merge queue
 
-hyperi-ci's own `ci.yml` triggers on `merge_group`, and so do the `<lang>-ci.yml` commit checks and `hyperi-ci init`'s scaffolded caller. A consumer should NOT turn a queue on yet: Quality and Test still skip on a queue entry until #468 lands. A queue tests the squash commit main will fast-forward to, on a temporary `gh-readonly-queue/main/pr-<n>-<sha>` branch, and merges only once every required check reports. A workflow that never triggers, or a required job that skips, stalls the queue or merges untested.
+hyperi-ci's own `ci.yml` triggers on `merge_group`, and so do the `<lang>-ci.yml` workflows and `hyperi-ci init`'s scaffolded caller, so a consumer can turn a queue on. A queue tests the squash commit main will fast-forward to, on a temporary `gh-readonly-queue/main/pr-<n>-<sha>` branch, and merges only once every required check reports. A workflow that never triggers, or a required job that skips, stalls the queue or merges untested.
 
 | Job | Under `merge_group` | Why |
 |---|---|---|
 | `plan` | runs, `will-release=false`, `run-build=false` | The ref is not main, so the gate is validate-only whatever the squash message carries |
 | `commit-check` | runs, FATAL, range `merge_group.base_sha..head_sha` | That commit is what lands, so the landing gate fires before the landing rather than after |
-| `quality`, `test` | `ci.yml`: run, unconditional, as on a PR. `<lang>-ci.yml`: SKIP -- gated on `run-checks`, which `predict-version` does not yet set for `merge_group` | Known gap, tracked in #468: a consumer's queue merges without Quality/Test having run, and `gate` reads the skip as doctrine rather than a hole |
+| `quality`, `test` | run | `predict-version` sets `run-checks=true` for `merge_group`, as for a PR, since a skipped required check counts as passing |
 | `Fixture rehearsal` | skipped | Its record names the PR head commit, and the queue commit is a new SHA nobody can rehearse. The PR already passed it |
 | `build`, `release-tail` | skipped | `run-build` is false, so nothing compiles, tags, publishes or commits back |
-| `gate` | runs | Fails on any failed job, but a `<lang>-ci.yml` run sees Quality/Test skipped rather than failed -- see above |
+| `gate` | runs | Fails on any failed job |
 
 The concurrency group keys on `github.ref`, which is unique per queue entry, so a queue run neither cancels nor is cancelled by a run on main or on the PR. A queue that requires only `Quality` merges past a red Test or a red commit check. Require `Gate` and `Commit messages` alongside it.
-
-Closing the `quality`/`test` gap is tracked in #468: `predict-version` must set `run-checks=true` on `merge_group`. The language workflows gate Quality and Test on it, and a skipped required check counts as passing, so without it a consumer's queue merges untested.
 
 ### Test tiers
 
