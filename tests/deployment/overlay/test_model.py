@@ -112,12 +112,23 @@ class TestOverlayResolve:
         out = o.resolve(base_dir=tmp_path, artefact="container", index=0)
         assert out == "RUN from-file\n"
 
-    def test_file_absolute_path_works(self, tmp_path: Path) -> None:
+    def test_file_absolute_path_inside_the_base_works(self, tmp_path: Path) -> None:
         frag = tmp_path / "abs.dockerfile"
         frag.write_text("RUN abs\n", encoding="utf-8")
         o = Overlay(anchor="before-user", file=frag)
-        out = o.resolve(base_dir=Path("/elsewhere"), artefact="container", index=0)
+        out = o.resolve(base_dir=tmp_path, artefact="container", index=0)
         assert out == "RUN abs\n"
+
+    def test_file_absolute_path_outside_the_base_is_refused(
+        self, tmp_path: Path
+    ) -> None:
+        frag = tmp_path / "abs.dockerfile"
+        frag.write_text("RUN abs\n", encoding="utf-8")
+        base = tmp_path / "repo"
+        base.mkdir()
+        o = Overlay(anchor="before-user", file=frag)
+        with pytest.raises(OverlayValidationError, match="resolves outside"):
+            o.resolve(base_dir=base, artefact="container", index=0)
 
     def test_missing_file_raises_with_path(self, tmp_path: Path) -> None:
         o = Overlay(anchor="before-user", file=Path("does-not-exist.df"))

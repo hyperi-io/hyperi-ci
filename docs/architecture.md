@@ -394,6 +394,8 @@ never pulls buildkit from Docker Hub nor logs in to GHCR.
 
 **Docker Hub login is Container-only (issue #406).** `docker/login-action` leaves the credential in `~/.docker/config.json` until the job ends. Container logs in for base-image pulls, and the Dockerfile's `RUN` steps cannot read it inside BuildKit. The language workflows run repo code in every job, so they log in nowhere and testcontainers pulls anonymously. If that limit starts failing tests, give the runner's Docker daemon a pull-through mirror.
 
+**These repo-named paths stay in the checkout.** `release.container.dockerfile`, `release.container.context`, every overlay `file:` / `patch_file:`, a Helm add's `path:` and `[tool.hatch.version] path` must resolve inside the project root (the chart, for a Helm add), symlinks followed. `hyperi_ci.repo_path.confine` checks them and the stage fails on a miss, because a context or fragment naming `~/.docker/config.json` would copy the registry logins into a pushed image. The release version is held to semver wherever it comes from, and a `VERSION` file that is a symlink is refused: a push to main carries no predicted version, so the container stage reads that file into tags, labels and `{version}` build args.
+
 **Build args can carry the version (issue #342).** `release.container.build_args` becomes `--build-arg NAME=value`. The image labels are invisible to a Dockerfile, so a value may name two placeholders:
 
 - `{version}` -- the version the stage tags the image with and writes to the `org.opencontainers.image.version` label. That is `HYPERCI_VERSION` on a release run. Outside one it falls back to `VERSION`, the latest `v*` tag, the ref name, then `0.0.0`, same as the label.

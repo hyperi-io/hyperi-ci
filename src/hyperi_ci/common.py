@@ -36,6 +36,8 @@ from scalo.logger import logger
 from scalo.logger import setup as _setup_logger
 from scalo.logger.scrub import ScrubConfig, SecretsConfig
 
+from hyperi_ci.repo_path import RepoPathError, confine
+
 if TYPE_CHECKING:
     from hyperi_ci.config import CIConfig
 
@@ -57,6 +59,28 @@ def sanitize_ref_name(ref: str) -> str:
     return ref.replace("/", "-")
 
 
+class ReleaseVersionError(ValueError):
+    """The version a run would carry is not a version, so no stage may use it."""
+
+
+# Semver as semantic-release and stamp-version write it: X.Y.Z, then an
+# optional prerelease and build metadata.
+_RELEASE_VERSION_RE = re.compile(
+    r"\d+\.\d+\.\d+"
+    r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+)
+
+
+def _checked_version(raw: str, source: str) -> str:
+    version = raw.removeprefix("v")
+    if not _RELEASE_VERSION_RE.fullmatch(version):
+        raise ReleaseVersionError(
+            f"{source} holds {raw[:40]!r}, which is not a semver version"
+        )
+    return version
+
+
 def resolve_release_version() -> str | None:
     """Resolve the version being released - single SSoT for every stage.
 
@@ -70,15 +94,31 @@ def resolve_release_version() -> str | None:
     Container, binary and registry publish all call this -- do NOT re-implement
     version reading per stage, or they drift (which is exactly how the GH
     release shipped a stale tag once set-version.py was removed).
+
+    The value reaches image tags, labels and build args in a job holding
+    registry logins, so it must be semver, and ``VERSION`` must be a regular
+    file inside the checkout: a symlink to ``~/.docker/config.json`` would
+    otherwise hand that file to a ``{version}`` build arg.
+
+    Raises:
+        ReleaseVersionError: The value is not semver, or ``VERSION`` is a
+            symlink or resolves outside the working directory.
+
     """
     explicit = os.environ.get("HYPERCI_VERSION", "").strip()
     if explicit:
-        return explicit.removeprefix("v")
+        return _checked_version(explicit, "HYPERCI_VERSION")
     version_file = Path("VERSION")
+    if version_file.is_symlink():
+        raise ReleaseVersionError("VERSION is a symlink, so it is not read")
     if version_file.exists():
-        value = version_file.read_text(encoding="utf-8").strip()
+        try:
+            path = confine(version_file, Path.cwd(), key="VERSION")
+        except RepoPathError as exc:
+            raise ReleaseVersionError(str(exc)) from exc
+        value = path.read_text(encoding="utf-8", errors="replace").strip()
         if value:
-            return value.removeprefix("v")
+            return _checked_version(value, "VERSION")
     return latest_version_tag()
 
 

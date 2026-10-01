@@ -32,8 +32,6 @@ also produce. Patches use the standard Kubernetes strategic-merge
 algorithm via JSON 6902 fallback for list operations.
 """
 
-from __future__ import annotations
-
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,6 +47,7 @@ from hyperi_ci.deployment.overlay.model import (
     HelmAddOverlay,
     HelmPatchOverlay,
 )
+from hyperi_ci.repo_path import RepoPathError, confine
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +71,12 @@ class HelmAnchorResolver:
         """
         written: list[Path] = []
         for index, add in enumerate(adds):
+            try:
+                confine(add.path, chart_dir, key="helm add path")
+            except RepoPathError as exc:
+                raise OverlayValidationError(
+                    str(exc), artefact="helm", overlay_index=index
+                ) from exc
             dest = chart_dir / add.path
             if dest.exists():
                 raise OverlayValidationError(

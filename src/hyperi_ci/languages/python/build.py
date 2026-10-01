@@ -19,6 +19,7 @@ import tomli_w
 
 from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
+from hyperi_ci.repo_path import RepoPathError, confine
 
 # Directories/files that are never part of a Python package -- AI coding agent dirs,
 # org submodules, and tool dirs. Injected into hatchling sdist exclusions at build
@@ -196,7 +197,12 @@ def _stamp_hatch_version(version: str, root: Path, settings: dict) -> None:
     rel_path = settings.get("path")
     if not isinstance(rel_path, str) or not rel_path:
         raise StampError("pyproject.toml: [tool.hatch.version] names no path")
-    target = root / rel_path
+    try:
+        target = confine(
+            rel_path, root, key="pyproject.toml: [tool.hatch.version] path"
+        )
+    except RepoPathError as exc:
+        raise StampError(str(exc)) from exc
     if not target.is_file():
         raise StampError(f"[tool.hatch.version] path {rel_path} does not exist")
 

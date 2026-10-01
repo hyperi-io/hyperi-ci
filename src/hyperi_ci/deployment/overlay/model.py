@@ -21,8 +21,6 @@ and validate at load time. Validation errors surface as
 yaml line of the offending entry can be pin-pointed in error messages.
 """
 
-from __future__ import annotations
-
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -32,6 +30,24 @@ from hyperi_ci.deployment.overlay.errors import (
     OverlayFileMissing,
     OverlayValidationError,
 )
+from hyperi_ci.repo_path import RepoPathError, confine
+
+
+def _read_fragment(file: Path, *, base_dir: Path, artefact: str, index: int) -> str:
+    """Read an overlay's file, refusing one outside ``base_dir``.
+
+    The text lands in a Dockerfile, chart or Application YAML, so a path out of
+    the checkout would copy whatever it names into a published artefact.
+    """
+    try:
+        path = confine(file, base_dir, key="overlay file")
+    except RepoPathError as exc:
+        raise OverlayValidationError(
+            str(exc), artefact=artefact, overlay_index=index
+        ) from exc
+    if not path.exists():
+        raise OverlayFileMissing(path=path, artefact=artefact, overlay_index=index)
+    return path.read_text(encoding="utf-8", errors="replace")
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,10 +72,9 @@ class Overlay:
                 artefact=artefact,
                 overlay_index=index,
             )
-        path = self.file if self.file.is_absolute() else base_dir / self.file
-        if not path.exists():
-            raise OverlayFileMissing(path=path, artefact=artefact, overlay_index=index)
-        return path.read_text(encoding="utf-8", errors="replace")
+        return _read_fragment(
+            self.file, base_dir=base_dir, artefact=artefact, index=index
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,10 +99,9 @@ class HelmAddOverlay:
                 artefact="helm",
                 overlay_index=index,
             )
-        path = self.file if self.file.is_absolute() else base_dir / self.file
-        if not path.exists():
-            raise OverlayFileMissing(path=path, artefact="helm", overlay_index=index)
-        return path.read_text(encoding="utf-8", errors="replace")
+        return _read_fragment(
+            self.file, base_dir=base_dir, artefact="helm", index=index
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,14 +127,9 @@ class HelmPatchOverlay:
                 artefact="helm",
                 overlay_index=index,
             )
-        path = (
-            self.patch_file
-            if self.patch_file.is_absolute()
-            else base_dir / self.patch_file
+        return _read_fragment(
+            self.patch_file, base_dir=base_dir, artefact="helm", index=index
         )
-        if not path.exists():
-            raise OverlayFileMissing(path=path, artefact="helm", overlay_index=index)
-        return path.read_text(encoding="utf-8", errors="replace")
 
 
 @dataclass(frozen=True, slots=True)
