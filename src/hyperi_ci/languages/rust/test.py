@@ -17,7 +17,10 @@ reports its run and skipped counts as a ``test tier`` notice.
 
 Where the root Cargo.toml is both a package and a workspace with no
 ``default-members``, every command takes ``--workspace``: cargo would
-otherwise test the root package alone.
+otherwise test the root package alone. ``cargo llvm-cov report`` has no
+``--workspace`` of its own, so the HTML report names every member with
+``-p`` instead, to match what the ``--workspace`` run already covers in
+lcov.info.
 """
 
 import re
@@ -40,6 +43,7 @@ from hyperi_ci.common import (
 )
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.rust._manifest import is_root_package_workspace
+from hyperi_ci.languages.rust.targets import cargo_metadata
 from hyperi_ci.languages.tiering import (
     KeptLines,
     SuiteTier,
@@ -381,6 +385,30 @@ def _run_tests(
     return rc
 
 
+def _workspace_report_packages(workspace: bool) -> list[str]:
+    """Return a ``-p <name>`` pair per workspace member, for the HTML report.
+
+    ``cargo llvm-cov report`` has no ``--workspace`` switch, unlike the run
+    that writes lcov.info, so without this the HTML report covers the root
+    package alone even after every member ran. Empty outside a root-package
+    workspace, or when cargo metadata fails -- the report then falls back to
+    llvm-cov's own root-only default.
+    """
+    if not workspace:
+        return []
+    metadata = cargo_metadata()
+    if metadata is None:
+        warn(
+            "  cargo metadata failed, so the HTML report may cover the root package only"
+        )
+        return []
+    args: list[str] = []
+    for package in metadata.get("packages", []):
+        if name := package.get("name"):
+            args.extend(["-p", name])
+    return args
+
+
 def _note_coverage_runner(runner: str, tool: str) -> None:
     """Report when a coverage tool overrides the resolved runner.
 
@@ -466,7 +494,15 @@ def _run_coverage(
             return rc
 
         report = run_cmd(
-            ["cargo", "llvm-cov", "report", "--html", "--output-dir", str(html_dir)],
+            [
+                "cargo",
+                "llvm-cov",
+                "report",
+                "--html",
+                "--output-dir",
+                str(html_dir),
+                *_workspace_report_packages(workspace),
+            ],
             check=False,
             env=_LLVM_COV_ENV,
         )

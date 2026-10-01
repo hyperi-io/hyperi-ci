@@ -591,9 +591,7 @@ class TestPgoAndCrossCompilation:
         monkeypatch.setattr(build, "_cross_env", lambda _t, sysroot=None: {})
         monkeypatch.setattr(build, "warn", warnings.append)
         monkeypatch.setattr(
-            build.subprocess,
-            "run",
-            lambda *_a, **_kw: subprocess.CompletedProcess([], 0),
+            build, "run_cmd", lambda *_a, **_kw: subprocess.CompletedProcess([], 0)
         )
         return warnings
 

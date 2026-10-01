@@ -310,7 +310,7 @@ def tools(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _Tools:
     rec = _Tools()
     monkeypatch.setattr(f"{QUALITY}._run_tool", rec.run_tool)
     monkeypatch.setattr(f"{QUALITY}._run_matrix_pass", rec.matrix_pass)
-    monkeypatch.setattr(f"{QUALITY}.subprocess.run", rec.doc)
+    monkeypatch.setattr(f"{QUALITY}.run_cmd", rec.doc)
     monkeypatch.setattr(f"{QUALITY}.shutil.which", lambda n: f"/usr/bin/{n}")
     monkeypatch.setattr(f"{QUALITY}._has_lib_target", lambda *_a: True)
     monkeypatch.setattr(f"{QUALITY}._package_lib_map", lambda *_a: {})
@@ -445,7 +445,7 @@ class TestRustdocCountsEveryCrate:
             "warning: `member` (lib doc) generated 1 warning\n"
         )
         monkeypatch.setattr(
-            f"{QUALITY}.subprocess.run",
+            f"{QUALITY}.run_cmd",
             lambda *_a, **_k: type("Result", (), {"stdout": "", "stderr": stderr})(),
         )
         monkeypatch.setattr(f"{QUALITY}.warn", said.append)

@@ -284,7 +284,7 @@ class TestRustdocHint:
             called.append(args)
             raise AssertionError("subprocess should not run when disabled")
 
-        monkeypatch.setattr("hyperi_ci.languages.rust.quality.subprocess.run", fake_run)
+        monkeypatch.setattr("hyperi_ci.languages.rust.quality.run_cmd", fake_run)
 
         raw = {"quality": {"rust": {"rustdoc_hint": {"enabled": False}}}}
         config = CIConfig(_raw=raw)
@@ -302,7 +302,7 @@ class TestRustdocHint:
             "hyperi_ci.languages.rust.quality.shutil.which", lambda n: f"/usr/bin/{n}"
         )
         monkeypatch.setattr(
-            "hyperi_ci.languages.rust.quality.subprocess.run",
+            "hyperi_ci.languages.rust.quality.run_cmd",
             lambda *a, **kw: FakeResult(),
         )
         monkeypatch.setattr(
@@ -332,7 +332,7 @@ class TestRustdocHint:
             "hyperi_ci.languages.rust.quality.shutil.which", lambda n: f"/usr/bin/{n}"
         )
         monkeypatch.setattr(
-            "hyperi_ci.languages.rust.quality.subprocess.run",
+            "hyperi_ci.languages.rust.quality.run_cmd",
             lambda *a, **kw: FakeResult(),
         )
         monkeypatch.setattr(
@@ -940,14 +940,14 @@ class TestDenyWarnings:
 def _fake_cargo(
     monkeypatch: pytest.MonkeyPatch, returncode: int, output: str
 ) -> list[dict[str, Any]]:
-    """Record every subprocess.run call and answer it with ``output``."""
+    """Record every run_cmd call and answer it with ``output``."""
     calls: list[dict[str, Any]] = []
 
     def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         calls.append({"cmd": cmd, **kwargs})
         return subprocess.CompletedProcess(cmd, returncode, stdout=output)
 
-    monkeypatch.setattr("hyperi_ci.languages.rust.quality.subprocess.run", fake_run)
+    monkeypatch.setattr("hyperi_ci.languages.rust.quality.run_cmd", fake_run)
     monkeypatch.setattr(
         "hyperi_ci.languages.rust.quality.shutil.which", lambda n: f"/usr/bin/{n}"
     )
@@ -977,9 +977,10 @@ class TestRunMatrixPass:
             "function `other` is never used (src/lib.rs:9:4)",
         ]
         assert calls[0]["cmd"] == _HACK_CMD
-        assert calls[0]["env"]["RUSTFLAGS"] == "-C target-cpu=native"
-        assert calls[0]["env"]["CARGO_TERM_COLOR"] == "never"
-        assert calls[0]["stderr"] is subprocess.STDOUT
+        # run_cmd lays these over the process env, so RUSTFLAGS reaches cargo.
+        assert calls[0]["env"] == {"CARGO_TERM_COLOR": "never"}
+        assert calls[0]["capture"] is True
+        assert calls[0]["merge_stderr"] is True
 
     @pytest.mark.parametrize(
         ("mode", "returncode", "output"),

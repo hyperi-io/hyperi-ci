@@ -524,6 +524,7 @@ def run_cmd(
     env: dict[str, str] | None = None,
     timeout: float | None = None,
     stdin_text: str | None = None,
+    merge_stderr: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """Run a subprocess with consistent error handling.
 
@@ -531,6 +532,9 @@ def run_cmd(
         cmd: Command as list of strings.
         check: Raise CalledProcessError on non-zero exit.
         capture: Capture stdout/stderr instead of passing through.
+        merge_stderr: With ``capture``, send stderr down the stdout pipe, so
+            ``stdout`` holds both streams in the order the child wrote them
+            and ``stderr`` is None.
         cwd: Working directory.
         env: Additional env vars (merged with os.environ).
         timeout: Seconds before the child is killed and
@@ -543,15 +547,28 @@ def run_cmd(
     Returns:
         CompletedProcess with text output.
 
+    Raises:
+        ValueError: ``merge_stderr`` without ``capture``, where there is no
+            pipe to merge into.
+
     """
+    if merge_stderr and not capture:
+        raise ValueError("run_cmd: merge_stderr needs capture=True")
+
     run_env = None
     if env:
         run_env = {**os.environ, **env}
 
+    stdout = stderr = None
+    if capture:
+        stdout = subprocess.PIPE
+        stderr = subprocess.STDOUT if merge_stderr else subprocess.PIPE
+
     return subprocess.run(
         cmd,
         check=check,
-        capture_output=capture,
+        stdout=stdout,
+        stderr=stderr,
         text=True,
         encoding="utf-8",
         errors="replace",
@@ -580,7 +597,9 @@ def backoff(retry: int) -> float:
     return random.uniform(0.5, 1.0) * 2 ** (retry - 1)
 
 
-_CURL_RETRIES = 5
+# With backoff() that spans about 1+2+...+64 seconds, long enough to ride out a
+# GitHub release-download 504 burst.
+_CURL_RETRIES = 7
 # No retry starts once this many seconds have passed since the first attempt.
 _CURL_RETRY_MAX_TIME = 600
 _CURL_CONNECT_TIMEOUT = 10

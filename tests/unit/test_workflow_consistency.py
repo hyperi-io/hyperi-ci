@@ -1736,7 +1736,7 @@ def test_the_container_build_resolves_its_runner_through_the_org_variables() -> 
         f"_release-tail.container: the fallback chain must terminate on a real "
         f"runner.\n  actual: {runs_on}"
     )
-    assert "vars.GH_RUNNER_MODE == 'free' && 'ubuntu-latest'" in runs_on, (
+    assert TestRunnerSelection.FREE_MODE in runs_on, (
         f"_release-tail.container: lost the free-mode escape, so an org with "
         f"no self-hosted fleet queues forever.\n  actual: {runs_on}"
     )
@@ -1761,10 +1761,77 @@ def test_the_publish_job_resolves_a_runner_like_the_container_job() -> None:
         f"_release-tail.tag-and-release: the fallback chain must terminate on a "
         f"real runner.\n  actual: {runs_on}"
     )
-    assert "vars.GH_RUNNER_MODE == 'free' && 'ubuntu-latest'" in runs_on, (
+    assert TestRunnerSelection.FREE_MODE in runs_on, (
         f"_release-tail.tag-and-release: lost the free-mode escape, so an org "
         f"with no self-hosted fleet queues forever.\n  actual: {runs_on}"
     )
+
+
+class TestReleaseTailRunnerMode:
+    """issue #442: the tail read `vars.GH_RUNNER_MODE` alone, so a caller's
+    `runner-mode: free` stopped at the language workflow and the release jobs
+    still landed on ARC.
+    """
+
+    TAIL = "_release-tail.yml"
+    FORWARD = "${{ inputs.runner-mode }}"
+
+    def test_the_tail_declares_an_optional_runner_mode_input(self) -> None:
+        # A required input fails every caller that predates it at startup.
+        wf = _load_workflow(self.TAIL)
+        on = wf.get("on") or wf.get(True, {})
+        spec = on["workflow_call"]["inputs"].get("runner-mode")
+        assert spec is not None, f"{self.TAIL}: workflow_call has no runner-mode"
+        assert spec.get("type") == "string"
+        assert spec.get("required", False) is False
+        assert spec.get("default") == ""
+
+    def test_every_tail_job_on_an_org_runner_reads_the_callers_mode(self) -> None:
+        jobs = _load_workflow(self.TAIL)["jobs"]
+        gated = {
+            name: str(job.get("runs-on", ""))
+            for name, job in jobs.items()
+            if "GH_RUNNER" in str(job.get("runs-on", ""))
+        }
+        assert gated, f"{self.TAIL}: no job resolves its runner through GH_RUNNER_*"
+        for job, runs_on in gated.items():
+            assert TestRunnerSelection.FREE_MODE in runs_on, (
+                f"{self.TAIL}.{job}: runs-on ignores the caller's runner-mode.\n"
+                f"  actual: {runs_on}"
+            )
+
+    @pytest.mark.parametrize("workflow_name", (*LANGUAGE_WORKFLOWS, TAIL))
+    def test_no_bare_runner_mode_variable(self, workflow_name: str) -> None:
+        # Covers if:, matrix and env as well as runs-on.
+        text = (WORKFLOW_DIR / workflow_name).read_text(encoding="utf-8")
+        total = text.count("vars.GH_RUNNER_MODE")
+        combined = text.count("(inputs.runner-mode || vars.GH_RUNNER_MODE)")
+        assert total == combined, (
+            f"{workflow_name}: {total - combined} read(s) of vars.GH_RUNNER_MODE "
+            f"skip the caller's runner-mode input"
+        )
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_the_language_workflow_forwards_runner_mode(
+        self, workflow_name: str
+    ) -> None:
+        wf = _load_workflow(workflow_name)
+        on = wf.get("on") or wf.get(True, {})
+        assert "runner-mode" in on["workflow_call"]["inputs"], (
+            f"{workflow_name}: workflow_call has no runner-mode input to forward"
+        )
+        calls = [
+            (name, job)
+            for name, job in wf["jobs"].items()
+            if self.TAIL in str(job.get("uses", ""))
+        ]
+        assert calls, f"{workflow_name}: no job calls {self.TAIL}"
+        for name, job in calls:
+            passed = job.get("with", {}).get("runner-mode")
+            assert passed == self.FORWARD, (
+                f"{workflow_name}.{name}: must pass runner-mode: {self.FORWARD} "
+                f"to {self.TAIL}.\n  actual: {passed!r}"
+            )
 
 
 def test_every_workflow_pins_the_cli_interpreter() -> None:

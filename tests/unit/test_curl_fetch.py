@@ -7,8 +7,8 @@
 """Tests for the one curl helper in ``hyperi_ci.common``.
 
 A fetch that did not retry turned one GitHub or CDN 500 into a failed job or
-a failed runner-image bake. A fetch that retried everything spent five more
-unauthenticated requests on a GitHub rate-limit 403. The helper retries what
+a failed runner-image bake. A fetch that retried everything spent every retry
+on unauthenticated requests against a GitHub rate-limit 403. The helper retries what
 asking again can fix, gives each attempt a time limit, and keeps the body in
 an ``-o`` file so stdout carries only the status it judges the attempt by.
 """
@@ -208,15 +208,17 @@ class TestCurlRetryRule:
         assert len(attempts) == 1
         assert sleeps == []
 
-    def test_gives_up_after_five_retries_with_the_last_failure(
+    def test_gives_up_after_the_last_retry_with_the_last_failure(
         self, scripted_curl: Script, tmp_path: Path
     ) -> None:
         outcomes, attempts, sleeps, _ = scripted_curl
-        outcomes.extend([(22, "503", "")] * 5 + [(28, "000", "")])
+        retries = common._CURL_RETRIES
+        outcomes.extend([(22, "503", "")] * retries + [(28, "000", "")])
         assert _fetch(tmp_path) == 28
-        assert len(attempts) == 6
+        assert len(attempts) == retries + 1
         # Backoff doubles from about a second, each wait shortened by up to half.
-        for waited, ceiling in zip(sleeps, (1.0, 2.0, 4.0, 8.0, 16.0), strict=True):
+        ceilings = [2.0**n for n in range(retries)]
+        for waited, ceiling in zip(sleeps, ceilings, strict=True):
             assert ceiling / 2 <= waited <= ceiling
 
     def test_no_retry_starts_after_the_window(
@@ -267,11 +269,12 @@ class TestCurlRetryRule:
         self, scripted_curl: Script, tmp_path: Path
     ) -> None:
         outcomes, attempts, sleeps, logged = scripted_curl
-        outcomes.extend(_backstop_kill() for _ in range(6))
+        retries = common._CURL_RETRIES
+        outcomes.extend(_backstop_kill() for _ in range(retries + 1))
         result = common.curl_fetch("https://example.invalid/x", tmp_path / "o")
         assert result.returncode == 28
-        assert len(attempts) == 6
-        assert len(sleeps) == 5
+        assert len(attempts) == retries + 1
+        assert len(sleeps) == retries
         assert logged[-1] == (
             "https://example.invalid/x: curl outlived --max-time 180 "
             "and was killed 20s later"
@@ -301,10 +304,12 @@ class TestCurlRetryRule:
         self, scripted_curl: Script, tmp_path: Path
     ) -> None:
         outcomes, _, _, logged = scripted_curl
-        outcomes.extend([(3, "000", "curl: (3) URL rejected: Bad hostname")] * 6)
+        attempts = common._CURL_RETRIES + 1
+        rejected = (3, "000", "curl: (3) URL rejected: Bad hostname")
+        outcomes.extend([rejected] * attempts)
         url = "https://ci-bot:s3cret@[::1/x"
         assert common.curl_fetch(url, tmp_path / "o").returncode == 3
-        assert len(logged) == 6
+        assert len(logged) == attempts
         for line in logged:
             assert line.startswith("<unparseable URL>: curl: (3) URL rejected")
 
@@ -321,7 +326,7 @@ class TestCurlRetryRule:
         assert _fetch(tmp_path) == 22
         retried, final = logged
         assert "error: 503" in retried
-        assert "retry 1 of 5" in retried
+        assert f"retry 1 of {common._CURL_RETRIES}" in retried
         assert final.startswith("https://example.invalid/x: ")
         assert final.endswith("curl: (22) The requested URL returned error: 404")
 
@@ -550,9 +555,10 @@ class TestDownloadArtefact:
         self, scripted_curl: Script, errors: list[str]
     ) -> None:
         outcomes, attempts, _, _ = scripted_curl
-        outcomes.extend(_backstop_kill() for _ in range(6))
+        retries = common._CURL_RETRIES
+        outcomes.extend(_backstop_kill() for _ in range(retries + 1))
         assert common.download_artefact("tool", "https://x.invalid") is None
-        assert len(attempts) == 6
+        assert len(attempts) == retries + 1
         assert errors == ["Failed to download tool (curl exit 28)"]
 
 
@@ -623,9 +629,11 @@ class TestEveryFetchUsesTheHelper:
 
 def test_the_composite_actions_carry_the_helpers_retry_budget() -> None:
     # curl's own retry cannot give up on a 4xx, so the shell copies keep only
-    # the helper's attempt count and window, and those must not drift.
+    # the helper's attempt count and window, and those must not drift. No
+    # --retry-delay: it turns off curl's doubling backoff, which is the shape
+    # backoff() follows.
     retry = (
-        f"--retry {common._CURL_RETRIES} --retry-all-errors --retry-delay 2 "
+        f"--retry {common._CURL_RETRIES} --retry-all-errors "
         f"--retry-max-time {common._CURL_RETRY_MAX_TIME}"
     )
     downloads = [
