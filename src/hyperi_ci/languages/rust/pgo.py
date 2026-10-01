@@ -223,14 +223,9 @@ def _run_plain_release_build(
     Tier 1 optimisations (allocator features, LTO env overrides) are still
     applied via `feature_args` and `extra_env` -- only PGO/BOLT are skipped.
     """
-    env = dict(os.environ)
-    if extra_env:
-        env.update(extra_env)
-
     cmd = ["cargo", "build", "--release", "--target", target, *feature_args]
     info(f"  $ {' '.join(cmd)}")
-    result = subprocess.run(cmd, cwd=cwd, env=env, check=False)
-    return result.returncode
+    return run_cmd(cmd, check=False, cwd=cwd, env=extra_env).returncode
 
 
 def cargo_pgo_version_from(output: str) -> str | None:
@@ -277,7 +272,7 @@ def _ensure_cargo_pgo_installed() -> bool:
     install = ["cargo", "install", "cargo-pgo", "--version", pinned, "--locked"]
     found = f"found {installed}" if installed else "not found"
     info(f"cargo-pgo {found}, pinned {pinned} -- installing with '{' '.join(install)}'")
-    result = subprocess.run(install, check=False)
+    result = run_cmd(install, check=False)
     if result.returncode != 0:
         warn("cargo-pgo install failed")
         return False
@@ -470,16 +465,20 @@ def _run_cargo_pgo(
     cwd: Path,
     extra_env: dict[str, str] | None,
 ) -> int:
-    """Run a `cargo pgo <args>` command with merged env."""
-    env = dict(os.environ)
-    if extra_env:
-        env.update(extra_env)
+    """Run a `cargo pgo <args>` command, its output streaming to the log.
 
+    ``extra_env`` is laid over the process env, so every value in it, an
+    empty one included, reaches cargo exactly as given.
+    """
     cmd = ["cargo", "pgo", *args]
     info(f"  $ {' '.join(cmd)}")
-    result = subprocess.run(cmd, cwd=cwd, env=env, check=False)
-    return result.returncode
+    return run_cmd(cmd, check=False, cwd=cwd, env=extra_env).returncode
 
+
+# SECURITY: `pgo.workload_cmd` and `workload_setup_cmd` are strings from the
+# project's own .hyperi-ci.yaml, run through a shell exactly as `shell=True`
+# runs them on POSIX. A repo that can edit its config can already run code here.
+_SHELL = ("/bin/sh", "-c")
 
 # Bounds the setup step on its own clock, separate from the workload's grace:
 # building a load driver can take far longer than the profiling run.
@@ -495,12 +494,10 @@ def _run_workload_setup(setup_cmd: str, cwd: Path) -> int:
     """
     info(f"  $ {setup_cmd}  (workload setup, timeout={_WORKLOAD_SETUP_TIMEOUT_SECS}s)")
     try:
-        result = subprocess.run(
-            setup_cmd,
-            shell=True,  # noqa: S602  # nosemgrep: subprocess-shell-true -- project-owned config, run in controlled CI env
-            cwd=cwd,
-            env=dict(os.environ),
+        result = run_cmd(
+            [*_SHELL, setup_cmd],
             check=False,
+            cwd=cwd,
             timeout=_WORKLOAD_SETUP_TIMEOUT_SECS,
         )
         return result.returncode
@@ -537,9 +534,10 @@ def _run_workload(
         error("PGO enabled but workload_cmd is empty")
         return 1
 
-    env = dict(os.environ)
-    env["HYPERCI_PGO_INSTRUMENTED_BINARY"] = str(instrumented_binary)
-    env["PGO_WORKLOAD_DURATION_SECS"] = str(duration_secs)
+    env = {
+        "HYPERCI_PGO_INSTRUMENTED_BINARY": str(instrumented_binary),
+        "PGO_WORKLOAD_DURATION_SECS": str(duration_secs),
+    }
 
     # Append the binary path as the first positional argument. Shell
     # quoting handled by shlex.quote so paths with spaces don't break.
@@ -550,12 +548,11 @@ def _run_workload(
     timeout_secs = duration_secs + 600
     info(f"  $ {full_cmd}  (timeout={timeout_secs}s = duration+600s safety grace)")
     try:
-        result = subprocess.run(
-            full_cmd,
-            shell=True,  # noqa: S602  # nosemgrep: subprocess-shell-true -- workload_cmd is project-owned config, run in controlled CI env
+        result = run_cmd(
+            [*_SHELL, full_cmd],
+            check=False,
             cwd=cwd,
             env=env,
-            check=False,
             timeout=timeout_secs,
         )
         return result.returncode
