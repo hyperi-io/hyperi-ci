@@ -41,6 +41,13 @@ under ``quality.doc_paths.prescriptive``, and the inline-code rule skips every
 doc beneath them. Link destinations there are still checked: a link is
 navigation within this repo, whatever the prose around it prescribes.
 
+A single reference that is correct on its own merits - a retired file named on
+purpose, a path in somebody else's repo - gets an HTML comment on its line:
+``<!-- doc-paths: ignore -->``. It suppresses every path warning that line
+would otherwise raise, invisible in rendered markdown, and the run's summary
+counts how many references it covered so the exceptions stay visible instead
+of vanishing into config.
+
 lychee owns link destinations when it is installed (it also resolves anchors,
 which this cannot), so the link rule turns off where lychee runs at the same
 mode or stricter. Where this check is the stricter of the two, it keeps the
@@ -73,6 +80,35 @@ _NOT_LITERAL = re.compile(r"[*?{}<>$()\[\]|!\s]")
 _NON_PATH_PREFIX = ("#", "//", "mailto:", "tel:", "data:")
 
 _PRESCRIPTIVE = "quality.doc_paths.prescriptive"
+
+# Per-line exception. Every file this check scans is markdown, so one HTML
+# comment form covers it - invisible once rendered, unlike a visible aside.
+_IGNORE_MARKER = re.compile(r"<!--\s*doc-paths:\s*ignore\s*-->")
+
+
+class _Suppressed:
+    """Threads a suppression count through the scan functions.
+
+    Kept out of their return value so the existing list-of-Finding contract
+    is unchanged for callers that only want the findings.
+    """
+
+    __slots__ = ("count",)
+
+    def __init__(self) -> None:
+        self.count = 0
+
+
+def _line_at(text: str, pos: int) -> str:
+    """Return the line of ``text`` containing offset ``pos``, newline excluded."""
+    start = text.rfind("\n", 0, pos) + 1
+    end = text.find("\n", pos)
+    return text[start : end if end != -1 else len(text)]
+
+
+def _is_marked(text: str, pos: int) -> bool:
+    """Return True when the line at ``pos`` carries the ``doc-paths: ignore`` marker."""
+    return _IGNORE_MARKER.search(_line_at(text, pos)) is not None
 
 
 def prescriptive_dirs(config: CIConfig) -> list[PurePosixPath]:
@@ -152,8 +188,14 @@ def _strip_fragment(dest: str) -> str:
     return dest.split("#", 1)[0].split("?", 1)[0]
 
 
-def scan_links(doc: Path, root: Path) -> list[fdg.Finding]:
-    """Return one finding per markdown link in ``doc`` whose target is gone."""
+def scan_links(
+    doc: Path, root: Path, *, suppressed: _Suppressed | None = None
+) -> list[fdg.Finding]:
+    """Return one finding per markdown link in ``doc`` whose target is gone.
+
+    A link on a line carrying the ``doc-paths: ignore`` marker is skipped and,
+    when ``suppressed`` is given, tallied there rather than silently dropped.
+    """
     try:
         text = doc.read_text(encoding="utf-8", errors="replace")
     except OSError:
@@ -170,6 +212,10 @@ def scan_links(doc: Path, root: Path) -> list[fdg.Finding]:
                 continue
             seen.add(dest)
             if _resolve(dest, doc, root):
+                continue
+            if _is_marked(text, match.start()):
+                if suppressed is not None:
+                    suppressed.count += 1
                 continue
             out.append(
                 fdg.Finding(
@@ -219,11 +265,15 @@ def _siblings_share_the_kind(token: str, doc: Path, root: Path) -> bool:
     return False
 
 
-def scan_code_paths(doc: Path, root: Path) -> list[fdg.Finding]:
+def scan_code_paths(
+    doc: Path, root: Path, *, suppressed: _Suppressed | None = None
+) -> list[fdg.Finding]:
     """Return one finding per inline-code path in ``doc`` that no longer exists.
 
     Filtered by :func:`looks_like_a_file` and :func:`_siblings_share_the_kind` -
-    see the module docstring for what each one removes.
+    see the module docstring for what each one removes. A token on a line
+    carrying the ``doc-paths: ignore`` marker is skipped and, when
+    ``suppressed`` is given, tallied there rather than silently dropped.
     """
     try:
         text = doc.read_text(encoding="utf-8", errors="replace")
@@ -243,6 +293,10 @@ def scan_code_paths(doc: Path, root: Path) -> list[fdg.Finding]:
             if not _siblings_share_the_kind(token, doc, root):
                 continue
         except OSError:
+            continue
+        if _is_marked(stripped, match.start()):
+            if suppressed is not None:
+                suppressed.count += 1
             continue
         out.append(
             fdg.Finding(
@@ -292,17 +346,23 @@ def run(
     root = Path(root or Path.cwd())
     found: list[fdg.Finding] = []
     exempt = 0
+    suppressed = _Suppressed()
     for doc in files:
         if check_links:
-            found.extend(scan_links(doc, root))
+            found.extend(scan_links(doc, root, suppressed=suppressed))
         if is_prescriptive(doc, root, prescriptive):
             exempt += 1
             continue
-        found.extend(scan_code_paths(doc, root))
+        found.extend(scan_code_paths(doc, root, suppressed=suppressed))
     if exempt:
         info(
             f"  doc-paths: inline-code paths not checked in {exempt} file(s) "
             f"({_PRESCRIPTIVE})"
+        )
+    if suppressed.count:
+        info(
+            f"  doc-paths: {suppressed.count} reference(s) ignored by marker "
+            "(doc-paths: ignore)"
         )
 
     dropped = fdg.surface("doc-paths", fdg.at_mode(found, mode), sarif_path=sarif_path)
