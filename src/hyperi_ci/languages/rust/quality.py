@@ -18,7 +18,6 @@ cargo fmt and cargo audit cover the whole workspace already.
 import os
 import re
 import shutil
-import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -275,9 +274,7 @@ def _run_tool(
 
     if pinned:
         warn_on_pin_drift(pinned)
-    result = subprocess.run(
-        resolved, capture_output=True, text=True, encoding="utf-8", errors="replace"
-    )
+    result = run_cmd(resolved, check=False, capture=True)
 
     if result.returncode == 0:
         success(f"  {tool_name}: passed")
@@ -781,17 +778,8 @@ def _run_matrix_pass(
             cmd = [*cmd[:2], "--keep-going", *cmd[2:]]
 
     # One pipe keeps cargo-hack's set names (stdout under GitHub Actions) in order
-    # with the diagnostics (stderr), and it is read at exit because stream_cmd
-    # cannot set env.
-    result = subprocess.run(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        env={**os.environ, **env},
-    )
+    # with the diagnostics (stderr).
+    result = run_cmd(cmd, check=False, capture=True, merge_stderr=True, env=env)
     output = strip_ansi(result.stdout or "")
 
     if result.returncode != 0:
@@ -846,7 +834,7 @@ def _run_rustdoc_hint(config: CIConfig, *, workspace: bool = False) -> None:
 
     # Build with --no-deps + RUSTDOCFLAGS treating warnings as warnings (default)
     # We just want the count, not to fail.
-    result = subprocess.run(
+    result = run_cmd(
         [
             "cargo",
             "doc",
@@ -855,12 +843,9 @@ def _run_rustdoc_hint(config: CIConfig, *, workspace: bool = False) -> None:
             "--lib",
             "--all-features",
         ],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
+        check=False,
+        capture=True,
         env={
-            **os.environ,
             "RUSTDOCFLAGS": "-W rustdoc::broken_intra_doc_links "
             "-W rustdoc::private_intra_doc_links "
             "-W rustdoc::invalid_codeblock_attributes "

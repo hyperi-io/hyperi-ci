@@ -524,6 +524,7 @@ def run_cmd(
     env: dict[str, str] | None = None,
     timeout: float | None = None,
     stdin_text: str | None = None,
+    merge_stderr: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """Run a subprocess with consistent error handling.
 
@@ -531,6 +532,9 @@ def run_cmd(
         cmd: Command as list of strings.
         check: Raise CalledProcessError on non-zero exit.
         capture: Capture stdout/stderr instead of passing through.
+        merge_stderr: With ``capture``, send stderr down the stdout pipe, so
+            ``stdout`` holds both streams in the order the child wrote them
+            and ``stderr`` is None.
         cwd: Working directory.
         env: Additional env vars (merged with os.environ).
         timeout: Seconds before the child is killed and
@@ -548,10 +552,16 @@ def run_cmd(
     if env:
         run_env = {**os.environ, **env}
 
+    stdout = stderr = None
+    if capture:
+        stdout = subprocess.PIPE
+        stderr = subprocess.STDOUT if merge_stderr else subprocess.PIPE
+
     return subprocess.run(
         cmd,
         check=check,
-        capture_output=capture,
+        stdout=stdout,
+        stderr=stderr,
         text=True,
         encoding="utf-8",
         errors="replace",

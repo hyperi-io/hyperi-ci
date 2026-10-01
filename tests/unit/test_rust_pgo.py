@@ -85,7 +85,7 @@ class TestCargoPgoInstallGate:
                 "hyperi_ci.languages.rust.pgo._installed_cargo_pgo_version",
                 return_value=tool_version("cargo-pgo"),
             ),
-            patch("hyperi_ci.languages.rust.pgo.subprocess.run") as mock_run,
+            patch("hyperi_ci.languages.rust.pgo.run_cmd") as mock_run,
         ):
             assert _ensure_cargo_pgo_installed() is True
             mock_run.assert_not_called()
@@ -105,7 +105,7 @@ class TestCargoPgoInstallGate:
                 return_value="/bin/cargo-pgo",
             ),
             patch(
-                "hyperi_ci.languages.rust.pgo.subprocess.run",
+                "hyperi_ci.languages.rust.pgo.run_cmd",
                 return_value=MagicMock(returncode=0),
             ) as mock_run,
         ):
@@ -124,7 +124,7 @@ class TestCargoPgoInstallGate:
                 side_effect=lambda _: next(which_responses),
             ),
             patch(
-                "hyperi_ci.languages.rust.pgo.subprocess.run",
+                "hyperi_ci.languages.rust.pgo.run_cmd",
                 return_value=MagicMock(returncode=0),
             ) as mock_run,
         ):
@@ -140,7 +140,7 @@ class TestCargoPgoInstallGate:
         with (
             patch("hyperi_ci.languages.rust.pgo.shutil.which", return_value=None),
             patch(
-                "hyperi_ci.languages.rust.pgo.subprocess.run",
+                "hyperi_ci.languages.rust.pgo.run_cmd",
                 return_value=MagicMock(returncode=1),
             ),
         ):
@@ -924,7 +924,7 @@ class TestWorkloadExecution:
     def test_workload_sets_env_var_with_binary_path(self, tmp_path) -> None:
         binary = tmp_path / "my-bin"
         with patch(
-            "hyperi_ci.languages.rust.pgo.subprocess.run",
+            "hyperi_ci.languages.rust.pgo.run_cmd",
             return_value=MagicMock(returncode=0),
         ) as mock_run:
             rc = _run_workload(
@@ -944,7 +944,7 @@ class TestWorkloadExecution:
         """
         binary = tmp_path / "my-bin with spaces"  # exercises shell quoting
         with patch(
-            "hyperi_ci.languages.rust.pgo.subprocess.run",
+            "hyperi_ci.languages.rust.pgo.run_cmd",
             return_value=MagicMock(returncode=0),
         ) as mock_run:
             _run_workload(
@@ -953,9 +953,9 @@ class TestWorkloadExecution:
                 instrumented_binary=binary,
                 cwd=tmp_path,
             )
-        # subprocess.run was called with the full shell command as its
-        # first positional argument -- binary path appended + properly quoted.
-        call_cmd = mock_run.call_args.args[0]
+        # The shell runs the full command line -- binary path appended + quoted.
+        shell, flag, call_cmd = mock_run.call_args.args[0]
+        assert (shell, flag) == ("/bin/sh", "-c")
         assert call_cmd.startswith("bash scripts/pgo-workload.sh ")
         assert str(binary) in call_cmd
         # shlex.quote should have wrapped the path with spaces in quotes
@@ -964,7 +964,7 @@ class TestWorkloadExecution:
     def test_workload_passes_cwd(self, tmp_path) -> None:
         binary = tmp_path / "bin"
         with patch(
-            "hyperi_ci.languages.rust.pgo.subprocess.run",
+            "hyperi_ci.languages.rust.pgo.run_cmd",
             return_value=MagicMock(returncode=0),
         ) as mock_run:
             _run_workload(
@@ -975,7 +975,7 @@ class TestWorkloadExecution:
     def test_workload_enforces_grace_timeout(self, tmp_path) -> None:
         binary = tmp_path / "bin"
         with patch(
-            "hyperi_ci.languages.rust.pgo.subprocess.run",
+            "hyperi_ci.languages.rust.pgo.run_cmd",
             return_value=MagicMock(returncode=0),
         ) as mock_run:
             _run_workload(
@@ -995,7 +995,7 @@ class TestWorkloadExecution:
     def test_workload_failure_returns_nonzero(self, tmp_path) -> None:
         binary = tmp_path / "bin"
         with patch(
-            "hyperi_ci.languages.rust.pgo.subprocess.run",
+            "hyperi_ci.languages.rust.pgo.run_cmd",
             return_value=MagicMock(returncode=42),
         ):
             rc = _run_workload(
@@ -1871,12 +1871,16 @@ class TestProfileUseStepsSkipSccache:
         self, tmp_path, monkeypatch
     ) -> None:
         monkeypatch.setenv("RUSTC_WRAPPER", "sccache")
-        with patch.object(pgo.subprocess, "run") as run:
-            run.return_value.returncode = 0
+        with patch.object(subprocess, "Popen") as popen:
+            popen.return_value.__enter__.return_value.communicate.return_value = (
+                None,
+                None,
+            )
+            popen.return_value.__enter__.return_value.poll.return_value = 0
             pgo._run_cargo_pgo(
                 ["optimize"], cwd=tmp_path, extra_env=pgo._PROFILE_USE_ENV
             )
-        assert run.call_args.kwargs["env"]["RUSTC_WRAPPER"] == ""
+        assert popen.call_args.kwargs["env"]["RUSTC_WRAPPER"] == ""
 
 
 class TestBoltWithPgoPairing:
