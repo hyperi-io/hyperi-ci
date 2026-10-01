@@ -221,6 +221,20 @@ Every run that skips a doc says so:
 doc-paths: inline-code paths not checked in 156 file(s) (quality.doc_paths.prescriptive)
 ```
 
+### doc-paths: ignoring one known reference
+
+`prescriptive` exempts a whole directory, which would also hide real drift added there later. A single reference that is right as written, such as a retired file named on purpose or a path in another repo, takes an HTML comment on its own line instead:
+
+```markdown
+The old config lived at `config/legacy.yaml` <!-- doc-paths: ignore -->, retired in v2.
+```
+
+The marker suppresses every path warning on that line. A path on another, unmarked line still reports. Every run that suppresses a reference says so:
+
+```text
+doc-paths: 3 reference(s) ignored by marker (doc-paths: ignore)
+```
+
 ### Rust feature matrix: warnings
 
 The feature matrix runs clippy on each feature alone (`cargo clippy --no-default-features`, then `cargo hack --each-feature --no-dev-deps clippy`). Code every combined build uses can be dead in one of those builds, and a lint can fire only when another feature's `cfg` is off. The main clippy pass sees neither, because it runs `--all-features`. The repo's clippy entries in `quality.ignore` apply to every feature set, and with `quality.rust.clippy: disabled` the matrix runs `cargo check` instead. `quality.rust.feature_matrix.warnings` decides what a warning or lint does. It ships `warn`, and `--strict` upgrades it. A compile error fails in every mode.
