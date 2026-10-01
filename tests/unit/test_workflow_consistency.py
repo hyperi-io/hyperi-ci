@@ -2206,9 +2206,9 @@ def _split_top(expression: str, operator: str) -> list[str]:
 def _fires(expression: str, context: dict[str, str]) -> bool:
     """Evaluate a job ``if:`` of the shapes ci.yml uses, for one event.
 
-    Handles ``||``, ``&&``, parentheses, ``always()`` and ``name ==/!= 'value'``.
-    Any other clause, or a name missing from ``context``, fails the test rather
-    than reading as false.
+    Handles ``||``, ``&&``, parentheses, ``always()`` and ``name ==/!= 'value'``
+    or a bare ``true``/``false``. Any other clause, or a name missing from
+    ``context``, fails the test rather than reading as false.
     """
     expression = expression.strip()
     ors = _split_top(expression, "||")
@@ -2221,10 +2221,11 @@ def _fires(expression: str, context: dict[str, str]) -> bool:
         return _fires(expression[1:-1], context)
     if expression == "always()":
         return True
-    match = re.fullmatch(r"([\w.-]+) (==|!=) '([^']*)'", expression)
+    match = re.fullmatch(r"([\w.-]+) (==|!=) (?:'([^']*)'|(true|false))", expression)
     assert match, f"clause this model cannot read: {expression!r}"
-    name, operator, value = match.groups()
+    name, operator, quoted, literal = match.groups()
     assert name in context, f"no value for {name} in the model"
+    value = quoted if quoted is not None else literal
     return (context[name] == value) == (operator == "==")
 
 
@@ -2396,3 +2397,61 @@ class TestMergeGroup:
         group = _load_workflow("ci.yml")["concurrency"]["group"]
         assert "github.ref" in group
         assert "base_ref" not in group and "refs/heads/main" not in group
+
+
+class TestContainerJobGate:
+    """Which events run _release-tail.yml's Container job (issue #479).
+
+    Tag & Release goes ahead when ``ships-container`` is empty, and a skipped
+    Container job leaves it empty. So a publish run that skips Container ships
+    its release with no image behind it.
+    """
+
+    _BETA = "refs/heads/beta"
+
+    # (event, ref, will-publish, fork PR, Container runs). A fork value of ""
+    # stands for the null GitHub reads on any event but a pull_request.
+    CASES = (
+        ("push", "refs/heads/main", "true", "", True),
+        ("push", "refs/heads/main", "false", "", True),
+        ("push", _BETA, "true", "", True),
+        ("push", _BETA, "false", "", False),
+        ("push", "refs/heads/feature/x", "false", "", False),
+        ("workflow_dispatch", "refs/heads/main", "true", "", True),
+        ("workflow_dispatch", _BETA, "true", "", True),
+        ("workflow_dispatch", "refs/heads/feature/x", "false", "", True),
+        ("pull_request", "refs/pull/1/merge", "false", "false", True),
+        ("pull_request", "refs/pull/1/merge", "false", "true", False),
+        ("schedule", "refs/heads/main", "false", "", False),
+        ("merge_group", _QUEUE_REF, "false", "", False),
+    )
+
+    @staticmethod
+    def _runs(event: str, ref: str, will_publish: str, fork: str) -> bool:
+        condition = str(_load_workflow("_release-tail.yml")["jobs"]["container"]["if"])
+        return _fires(
+            condition,
+            {
+                "github.event_name": event,
+                "github.ref": ref,
+                "inputs.will-publish": will_publish,
+                "github.event.pull_request.head.repo.fork": fork,
+            },
+        )
+
+    @pytest.mark.parametrize(("event", "ref", "will_publish", "fork", "runs"), CASES)
+    def test_container_runs_on(
+        self, event: str, ref: str, will_publish: str, fork: str, runs: bool
+    ) -> None:
+        assert self._runs(event, ref, will_publish, fork) is runs, (
+            f"Container on {event} {ref} will-publish={will_publish} "
+            f"fork={fork or 'null'}: expected runs={runs}"
+        )
+
+    def test_every_publish_run_builds_the_image(self) -> None:
+        for event, ref, will_publish, fork, _ in self.CASES:
+            if will_publish == "true" and fork != "true":
+                assert self._runs(event, ref, will_publish, fork), (
+                    f"a publish run on {event} {ref} skips Container, so Tag & "
+                    f"Release ships with no image (issue #479)"
+                )
