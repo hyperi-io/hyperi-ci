@@ -124,17 +124,20 @@ jobs:
     name: Container
     # At least twice the longest successful run across the fleet (issue #262).
     timeout-minutes: 135
-    # Raw branch pushes never reach this workflow (caller gates on
-    # quality+test+build pre-needs). Pushes to main, workflow_dispatch,
-    # and branch-mode pull_request runs (caller's branch-build opt-in)
-    # reach here:
+    # A non-release branch push never reaches this workflow (caller gates on
+    # quality+test+build pre-needs). Every publish run, pushes to main,
+    # workflow_dispatch, and branch-mode pull_request runs (caller's
+    # branch-build opt-in) reach here:
     #
+    # - Publish (will-publish == 'true'): docker build + push to all
+    #   configured registries. Admitted on will-publish itself, so a push
+    #   to a declared prerelease branch ships its image too (issue #479).
+    #   Tag & Release goes ahead when this job skips, so a publish run that
+    #   skipped it would release with no image behind the tag.
     # - Validate-only (push to main, will-publish == 'false'):
     #   docker build runs to catch Dockerfile breakages, but no push
     #   to any registry -- verifies the Dockerfile is producible
     #   BEFORE we ever try to publish from it.
-    # - Publish (will-publish == 'true'): docker build + push to all
-    #   configured registries.
     # - pull_request (branch-mode): docker build; pushed as a DEV image
     #   (branch-<slug> + sha tags, GHCR only) iff the project sets
     #   publish.container.dev_push -- else validate-only. Fork PRs are
@@ -144,6 +147,7 @@ jobs:
     # (the SSOT), keyed off HYPERCI_RELEASE_MODE + the event context.
     if: |
       github.event.pull_request.head.repo.fork != true && (
+        inputs.will-publish == 'true' ||
         (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
         github.event_name == 'workflow_dispatch' ||
         github.event_name == 'pull_request'
