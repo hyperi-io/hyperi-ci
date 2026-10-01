@@ -181,6 +181,17 @@ class TestRenderTemplates:
                 f"{workflow_file}: merge_group must request checks"
             )
 
+    def test_push_skips_the_merge_queue_branches(self) -> None:
+        # A queue entry also pushes gh-readonly-queue/..., and that push run
+        # shares the merge_group run's concurrency group, so one would cancel
+        # the other and eject the PR from the queue.
+        for workflow_file in ("python-ci.yml", "rust-ci.yml", "ts-ci.yml", "go-ci.yml"):
+            doc = yaml.safe_load(_render_workflow("my-project", workflow_file))
+            branches = doc["on"]["push"]["branches"]
+            assert "!gh-readonly-queue/**" in branches, (
+                f"{workflow_file}: push must exclude the merge queue's branches"
+            )
+
 
 class TestRenderContributing:
     """CONTRIBUTING.md template tells external contributors they don't

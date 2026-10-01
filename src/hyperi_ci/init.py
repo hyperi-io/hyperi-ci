@@ -299,7 +299,7 @@ def _render_workflow(
         "\n"
         '"on":\n'
         "  push:\n"
-        '    branches: ["**"]\n'
+        '    branches: ["**", "!gh-readonly-queue/**"]\n'
         "  pull_request:\n"
         "    branches: [main]\n"
         "  merge_group:\n"
