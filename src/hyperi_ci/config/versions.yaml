@@ -317,6 +317,14 @@ tools:
     version: 0.3.0
     repo: Kobzol/cargo-pgo
     tag_prefix: v
+  # The quality stage's feature matrix (`cargo hack --each-feature`). Source-
+  # built by `cargo install --locked --version` on first use, and reinstalled
+  # when the copy found differs. Same spelling as cargo-pgo: the bare version
+  # `cargo install` takes, with `tag_prefix` stripping the `v` off the tags.
+  cargo-hack:
+    version: 0.6.45
+    repo: taiki-e/cargo-hack
+    tag_prefix: v
   # Baked into the generated cargo-chef Dockerfile by container/compose.py,
   # which reads it from here.
   cargo-chef:

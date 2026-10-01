@@ -23,7 +23,16 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from hyperi_ci.common import announce, error, info, is_ci, strip_ansi, success, warn
+from hyperi_ci.common import (
+    announce,
+    error,
+    info,
+    is_ci,
+    run_cmd,
+    strip_ansi,
+    success,
+    warn,
+)
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import get_test_ignore, resolve_tool_mode
 from hyperi_ci.languages.rust._manifest import (
@@ -33,6 +42,8 @@ from hyperi_ci.languages.rust._manifest import (
 from hyperi_ci.languages.rust.targets import cargo_metadata
 from hyperi_ci.quality import cargo_flags, osv_scanner
 from hyperi_ci.quality.ignores import IgnoreEntry, for_tool, load_ignores
+from hyperi_ci.tools import matches_pin, version_output, warn_on_pin_drift
+from hyperi_ci.versions import tool_version
 
 try:
     import tomllib
@@ -238,8 +249,13 @@ def _run_tool(
     cmd: list[str],
     mode: str,
     use_uvx: bool = False,
+    pinned: str | None = None,
 ) -> bool:
-    """Run a quality tool. Returns True if pipeline should continue."""
+    """Run a quality tool. Returns True if pipeline should continue.
+
+    ``pinned`` names the ``versions.yaml`` key of the binary behind the
+    command, whose PATH copy is checked against the pin before it runs.
+    """
     if mode == "disabled":
         info(f"  {tool_name}: disabled")
         return True
@@ -257,6 +273,8 @@ def _run_tool(
         warn(f"  {tool_name}: not installed (skipping locally)")
         return True
 
+    if pinned:
+        warn_on_pin_drift(pinned)
     result = subprocess.run(
         resolved, capture_output=True, text=True, encoding="utf-8", errors="replace"
     )
@@ -375,7 +393,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     )
     for entry in audit_ignores:
         audit_cmd.extend(["--ignore", entry.id])
-    if not _run_tool("cargo audit", audit_cmd, mode):
+    if not _run_tool("cargo audit", audit_cmd, mode, pinned="cargo-audit"):
         had_failure = True
 
     # osv-scanner - malicious-package (MAL-*) scan. cargo audit uses the
@@ -398,7 +416,12 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             "gated by cargo audit; a deny.toml would add licence, ban and "
             "source checks."
         )
-    elif not _run_tool("cargo deny", ["cargo", "deny", *workspace_args, "check"], mode):
+    elif not _run_tool(
+        "cargo deny",
+        ["cargo", "deny", *workspace_args, "check"],
+        mode,
+        pinned="cargo-deny",
+    ):
         had_failure = True
 
     # Feature matrix check (cargo hack --each-feature)
@@ -426,6 +449,53 @@ def _names_a_package_scope(args: list[str]) -> bool:
     """
     scope_flags = {"--workspace", "--all", "-p", "--package"}
     return any(a in scope_flags or a.startswith("--package=") for a in args)
+
+
+def _cargo_hack_version() -> str | None:
+    """What ``cargo hack --version`` prints, or None when cargo-hack is absent."""
+    if not shutil.which("cargo-hack"):
+        return None
+    return version_output(["cargo", "hack", "--version"])
+
+
+def _ensure_cargo_hack() -> bool:
+    """Make the pinned cargo-hack the one ``cargo hack`` runs.
+
+    A runner home or dev box can carry any cargo-hack, and a feature set that
+    warns under one version and not another makes the gate disagree with CI.
+    So a different version is reinstalled at the pin, as cargo-pgo is.
+
+    Returns:
+        False when the pinned cargo-hack could not be installed.
+
+    """
+    pinned = tool_version("cargo-hack")
+    found = _cargo_hack_version()
+    if found and matches_pin(pinned, found):
+        return True
+
+    seen = f"found '{found.splitlines()[0]}'" if found else "not found"
+    install = ["cargo", "install", "--locked", "cargo-hack", "--version", pinned]
+    info(f"  feature_matrix: cargo-hack {seen}, pinned {pinned} -- installing")
+    try:
+        result = run_cmd(install, check=False, capture=True)
+    except OSError as exc:
+        error(f"  feature_matrix: cannot install cargo-hack {pinned}: {exc}")
+        return False
+    if result.returncode != 0:
+        error(f"  feature_matrix: failed to install cargo-hack {pinned}")
+        if result.stderr:
+            info(result.stderr)
+        return False
+
+    after = _cargo_hack_version()
+    if not after or not matches_pin(pinned, after):
+        # cargo install wrote the pin, but another cargo-hack still answers first.
+        warn(
+            f"  feature_matrix: installed cargo-hack {pinned}, but `cargo hack` "
+            f"still reports '{(after or 'nothing').splitlines()[0]}' -- check PATH"
+        )
+    return True
 
 
 def _run_feature_matrix(
@@ -482,21 +552,8 @@ def _run_feature_matrix(
         info(f"  feature_matrix: disabled - {reason}")
         return True
 
-    # Install cargo-hack if missing (scalo-rs-style: idempotent, fail-soft)
-    if not shutil.which("cargo-hack"):
-        info("  feature_matrix: installing cargo-hack...")
-        result = subprocess.run(
-            ["cargo", "install", "--locked", "cargo-hack"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-        if result.returncode != 0:
-            error("  feature_matrix: failed to install cargo-hack")
-            if result.stderr:
-                info(result.stderr)
-            return False
+    if not _ensure_cargo_hack():
+        return False
 
     had_failure = False
     warnings_mode = resolve_tool_mode(

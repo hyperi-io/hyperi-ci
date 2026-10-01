@@ -16,10 +16,12 @@ overridable per project in .hyperi-ci.yaml.
 
 import fnmatch
 import os
+import shutil
 from pathlib import Path
 
 from hyperi_ci.common import announce, env_true, get_exclude_dirs, info, warn
 from hyperi_ci.config import CIConfig, packaged_default
+from hyperi_ci.tools import installed_version
 
 DEFAULT_TEST_PATHS = ["tests/"]
 
@@ -396,6 +398,76 @@ def checked_mode(key: str, raw: object, default: str) -> tuple[str, str]:
         )
         mode = default
     return mode, reason
+
+
+def resolve_tool_cmd(
+    cmd: list[str],
+    use_uvx: bool = False,
+    use_uv_with: bool = False,
+    spec: str | None = None,
+) -> list[str]:
+    """Resolve a tool command, preferring a pinned spec over whatever is on PATH.
+
+    A pinned ``spec`` (one with an exact ``==`` version) names the version
+    hyperi-ci validated and CI runs; a same-named tool on PATH at a
+    different version makes `hyperi-ci check` pass or fail differently from
+    CI, silently, because `shutil.which` found it first. So a pin wins
+    whenever uv can install it, whether or not the tool is already on PATH.
+
+    An unpinned ``spec`` (the bare command name -- ruff, pytest, the
+    project's own dependencies) keeps the PATH-first behaviour: those
+    resolve through the project's venv, not a version this module tracks.
+
+    When hyperi-ci runs via uvx, project tools (ruff, pytest, etc.)
+    live in the project's .venv, not on PATH. Prefix with 'uv run'
+    to execute within the project's virtual environment.
+
+    Args:
+        cmd: Command and arguments.
+        use_uvx: If True, use 'uvx' instead of 'uv run' for tools
+            that are standalone (not project deps).
+        use_uv_with: If True, use 'uv run --with <tool>' to install
+            the tool temporarily and run it within the project's
+            venv. Use for tools that scan installed packages
+            (e.g. pip-audit) and must see the project's deps.
+        spec: Requirement to install, e.g. ``bandit==1.9.4`` from the
+            versions SSOT. Defaults to the bare command name, which lets
+            the resolver take whatever PyPI serves that morning.
+
+    Returns:
+        The command to run. It equals ``cmd`` both when the PATH copy is the
+        answer and when nothing can run it, so a caller tells the two apart
+        with ``shutil.which(cmd[0])``.
+
+    """
+    spec = spec or cmd[0]
+    pinned = "==" in spec
+    wants_uv_form = use_uvx or use_uv_with
+    uv = shutil.which("uv")
+
+    if pinned and wants_uv_form and uv:
+        if use_uv_with:
+            return ["uv", "run", "--with", spec, "--", *cmd]
+        # --from, not `uvx <spec>`: the package to install and the command
+        # to run are different strings once the version is pinned on.
+        return ["uvx", "--from", spec, *cmd]
+
+    if shutil.which(cmd[0]):
+        if pinned and wants_uv_form:
+            installed = installed_version(cmd[0])
+            seen = f" ({installed})" if installed else ""
+            warn(
+                f"  {cmd[0]}: uv is not on PATH, so the pinned {spec} cannot be "
+                f"installed -- running the PATH copy instead{seen}"
+            )
+        return cmd
+    if uv:
+        if use_uv_with:
+            return ["uv", "run", "--with", spec, "--", *cmd]
+        if use_uvx:
+            return ["uvx", "--from", spec, *cmd]
+        return ["uv", "run", *cmd]
+    return cmd
 
 
 def get_test_paths(config: CIConfig) -> list[str]:

@@ -86,4 +86,20 @@ runs:
 
         install -m 0755 "$TMP/osv-scanner" "$HOME/.local/bin/osv-scanner"
         echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-        "$HOME/.local/bin/osv-scanner" --version
+
+    - name: Verify osv-scanner matches the pin
+      # ASSERT, don't just print - see the note in setup-go-tools. Separate step
+      # so the install step's GITHUB_PATH prepend is live, which is what makes
+      # the pinned copy shadow a baked or cache-restored one.
+      shell: bash
+      env:
+        OSV_WANT: ${{ inputs.version }}
+      run: |
+        set -uo pipefail
+        got="$(osv-scanner --version 2>&1)"
+        if printf '%s' "$got" | grep -qF -- "${OSV_WANT#v}"; then
+          echo "ok   osv-scanner: ${OSV_WANT#v}"
+        else
+          echo "::error::osv-scanner: expected version ${OSV_WANT#v}, got: $got"
+          exit 1
+        fi

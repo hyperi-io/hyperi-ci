@@ -20,14 +20,20 @@ gets a sane generic notice. Callers pick the emit level:
     exe = find_tool("gitleaks", recommended=True)  # nice-to-have -> warn-skip
     if not shutil.which("gh"):                   # required -> caller fails
         error(missing_tool_notice("gh")); return False
+
+A tool that IS present can still be the wrong one: :func:`warn_on_pin_drift`
+names a PATH copy whose version differs from ``versions.yaml``, for the tools
+CI installs pinned but a dev box carries at whatever version it has.
 """
 
-from __future__ import annotations
-
+import re
 import shutil
+import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass
 
-from hyperi_ci.common import info, warn
+from hyperi_ci.common import info, run_cmd, warn
+from hyperi_ci.versions import tool_version
 
 
 @dataclass(frozen=True)
@@ -275,3 +281,60 @@ def find_tool(
     notice = missing_tool_notice(name, purpose=purpose, install=install, url=url)
     (warn if recommended else info)(notice)
     return None
+
+
+# Tools whose version flag is not ``--version``.
+_VERSION_ARGS: dict[str, tuple[str, ...]] = {"govulncheck": ("-version",)}
+
+
+def version_output(argv: Sequence[str]) -> str | None:
+    """Return what a version probe printed, stdout first, or None if it printed nothing.
+
+    A tool's version output has no fixed shape, so a probe that cannot run only
+    thins the message that names it -- it never blocks the caller.
+    """
+    try:
+        result = run_cmd(list(argv), check=False, capture=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    output = "\n".join(s.strip() for s in (result.stdout, result.stderr) if s).strip()
+    return output or None
+
+
+def installed_version(binary: str) -> str | None:
+    """First line of ``binary --version``, or None when it prints nothing."""
+    output = version_output([binary, "--version"])
+    return output.splitlines()[0] if output else None
+
+
+def matches_pin(pin: str, output: str) -> bool:
+    """Return True when ``output`` names the pinned version as a whole number.
+
+    The leading ``v`` is dropped because tools print ``2.6.0`` for tag
+    ``v2.6.0``, and the digit boundaries keep ``0.20.2`` from matching
+    ``0.20.21``.
+    """
+    bare = re.escape(pin.removeprefix("v"))
+    return re.search(rf"(?<![\d.]){bare}(?!\.?\d)", output) is not None
+
+
+def warn_on_pin_drift(name: str) -> None:
+    """Warn when the ``name`` on PATH is not the version ``versions.yaml`` pins.
+
+    The setup actions install and assert the pin in CI, but a local run uses
+    whatever is on PATH, so its result can differ from CI's. A tool that is
+    absent is the missing-tool path's business, so this stays quiet about it.
+    """
+    exe = shutil.which(name)
+    if exe is None:
+        return
+    pin = tool_version(name)
+    output = version_output([exe, *_VERSION_ARGS.get(name, ("--version",))])
+    if output is None:
+        warn(f"  {name}: could not read the version of {exe} -- hyperi-ci pins {pin}")
+        return
+    if not matches_pin(pin, output):
+        warn(
+            f"  {name}: {exe} reports '{output.splitlines()[0]}' but hyperi-ci "
+            f"pins {pin}, so this result can differ from CI's"
+        )
