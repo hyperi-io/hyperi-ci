@@ -240,6 +240,18 @@ flowchart LR
 | `hyperi-ci release <tag>` | dispatch existing tag - **idempotent retry** (publish handlers skip artefacts already in their registry; a GH Release no longer hard-blocks) | A partial release where the tag is cut but some registries missed |
 | Actions UI -> Run workflow | same three modes via `tag` / `from-head` / `bump` inputs | No local checkout; one-click from the GitHub UI |
 
+### Which ref a from-head dispatch releases from
+
+The dispatch ref decides whether a from-head run releases (#471). `hyperi-ci release` dispatches on the default branch, but the Actions UI and `gh workflow run --ref` can pick any branch:
+
+| Ref | `bump=auto` | forced `patch` / `minor` / `X.Y.Z` |
+|---|---|---|
+| main | releases | releases |
+| declared prerelease branch (`beta`) | releases on the prerelease sequence (`1.2.0-beta.1`) | validate-only, warns -- a forced bump would cut a stable version |
+| any other branch | validate-only, warns | validate-only, warns |
+
+A `tag` dispatch re-publishes from any ref, because the tag already names the commit.
+
 **Why the CI does the tagging:** one source of truth (the workflow), the
 `GITHUB_TOKEN` cuts the tag (works under branch protection), and the CLI +
 UI button are byte-identical operations. The plan job resolves the version
