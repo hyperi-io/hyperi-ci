@@ -297,15 +297,11 @@ class TestBoltAvailabilityCheck:
 
 
 class TestBoltBuildEnv:
-    """BOLT steps need TWO env overrides to get a clean linker pass:
+    """BOLT steps link with lld through `CARGO_TARGET_<TRIPLE>_RUSTFLAGS`.
 
-    1. `CARGO_TARGET_<TRIPLE>_RUSTFLAGS` with `-C link-arg=-fuse-ld=lld` --
-       mold segfaults on `--emit-relocs`, GNU BFD rejects it, lld is the
-       canonical BOLT-compatible linker.
-    2. `CARGO_PROFILE_RELEASE_STRIP=none` -- lld refuses to combine
-       `--strip-all` with `--emit-relocs`, so projects with
-       `[profile.release] strip = true` otherwise fail the BOLT build.
-       Final binary is stripped by hyperi-ci's post-build packaging.
+    mold segfaults on `--emit-relocs` and GNU BFD rejects it. The strip
+    override lives in `_bolt_profile_env`, which every compile carries
+    (TestEveryCompileSharesTheProfile).
     """
 
     def test_amd64_linux_forces_lld_via_target_rustflags(self, monkeypatch) -> None:
@@ -368,19 +364,20 @@ class TestBoltBuildEnv:
             "-C link-arg=-fuse-ld=lld"
         )
 
-    def test_disables_strip_for_bolt_steps(self) -> None:
-        """strip=true + --emit-relocs is rejected by lld -- override to none."""
+    def test_sets_no_profile_settings(self) -> None:
+        """A profile setting here would rename symbols in the BOLT steps alone."""
         from hyperi_ci.languages.rust.pgo import _bolt_build_env
 
-        env = _bolt_build_env("x86_64-unknown-linux-gnu")
-        assert env["CARGO_PROFILE_RELEASE_STRIP"] == "none"
+        for triple in ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"):
+            for no_split in (False, True):
+                env = _bolt_build_env(triple, no_split=no_split)
+                assert not [k for k in env if k.startswith("CARGO_PROFILE_")], env
 
     def test_arm64_linux_triple_produces_correct_env_key(self) -> None:
         from hyperi_ci.languages.rust.pgo import _bolt_build_env
 
         env = _bolt_build_env("aarch64-unknown-linux-gnu")
         assert "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS" in env
-        assert env["CARGO_PROFILE_RELEASE_STRIP"] == "none"
 
     def test_triple_with_dots_is_sanitised_to_underscores(self) -> None:
         """Some triples have dots (e.g. Apple targets) -- must become underscores."""
@@ -814,7 +811,6 @@ class TestRunBoltRetry:
     def test_no_retry_when_first_attempt_succeeds(self, monkeypatch, tmp_path) -> None:
         from hyperi_ci.languages.rust import pgo
 
-        monkeypatch.setattr(pgo, "_ensure_llvm_bolt_available", lambda: True)
         calls: list[bool] = []
 
         def fake_attempt(*_a: object, no_split: bool, **_k: object) -> int:
@@ -831,7 +827,6 @@ class TestRunBoltRetry:
     ) -> None:
         from hyperi_ci.languages.rust import pgo
 
-        monkeypatch.setattr(pgo, "_ensure_llvm_bolt_available", lambda: True)
         monkeypatch.delenv("HYPERCI_BOLT_EXTRA_RUSTFLAGS", raising=False)
         calls: list[bool] = []
 
@@ -847,7 +842,6 @@ class TestRunBoltRetry:
     def test_no_retry_when_env_disables_it(self, monkeypatch, tmp_path) -> None:
         from hyperi_ci.languages.rust import pgo
 
-        monkeypatch.setattr(pgo, "_ensure_llvm_bolt_available", lambda: True)
         monkeypatch.setenv("HYPERCI_BOLT_EXTRA_RUSTFLAGS", "")  # disables the retry
         calls: list[bool] = []
 
@@ -859,21 +853,6 @@ class TestRunBoltRetry:
         rc = pgo._run_bolt("t", [], "bin", self._profile(), tmp_path, None)
         assert rc == 1
         assert calls == [False]  # no retry
-
-    def test_skips_when_toolchain_missing(self, monkeypatch, tmp_path) -> None:
-        from hyperi_ci.languages.rust import pgo
-
-        monkeypatch.setattr(pgo, "_ensure_llvm_bolt_available", lambda: False)
-        calls: list[bool] = []
-
-        def fake_attempt(*_a: object, no_split: bool, **_k: object) -> int:
-            calls.append(no_split)
-            return 0
-
-        monkeypatch.setattr(pgo, "_attempt_bolt", fake_attempt)
-        rc = pgo._run_bolt("t", [], "bin", self._profile(), tmp_path, None)
-        assert rc == 0  # non-fatal skip
-        assert calls == []  # never attempted
 
 
 class TestWorkloadDurationAndSetup:
@@ -1823,12 +1802,20 @@ class TestMissingInstrumentedBinary:
         assert rc == 1
 
 
-def _run_pgo_bolt_pipeline(tmp_path, cargo_results):
-    """Run PGO+BOLT for x86_64 with a project env naming sccache; return cargo calls.
+def _run_pgo_bolt_pipeline(
+    tmp_path,
+    cargo_results,
+    *,
+    target: str = "x86_64-unknown-linux-gnu",
+    bolt_enabled: bool = True,
+    bolt_toolchain: bool = True,
+    extra_env: dict[str, str] | None = None,
+):
+    """Run PGO (+BOLT) with a project env naming sccache; return cargo calls.
 
     ``cargo_results`` is the exit code of each `cargo pgo` call in order.
     """
-    bin_dir = tmp_path / "target" / "x86_64-unknown-linux-gnu" / "release"
+    bin_dir = tmp_path / "target" / target / "release"
     bin_dir.mkdir(parents=True)
     (bin_dir / "my-bin").touch()
     (bin_dir / "my-bin-bolt-instrumented").touch()
@@ -1836,16 +1823,16 @@ def _run_pgo_bolt_pipeline(tmp_path, cargo_results):
         patch.object(pgo, "_ensure_cargo_pgo_installed", return_value=True),
         patch.object(pgo, "_ensure_ld_lld_available", return_value=True),
         patch.object(pgo, "_ensure_llvm_profdata_available", return_value=True),
-        patch.object(pgo, "_ensure_llvm_bolt_available", return_value=True),
+        patch.object(pgo, "_ensure_llvm_bolt_available", return_value=bolt_toolchain),
         patch.object(pgo, "_run_workload", return_value=0),
         patch.object(pgo, "_run_cargo_pgo", side_effect=cargo_results) as cargo,
     ):
         rc = run_pgo_build(
-            target="x86_64-unknown-linux-gnu",
-            profile=_make_profile(bolt_enabled=True),
+            target=target,
+            profile=_make_profile(bolt_enabled=bolt_enabled),
             binary_name="my-bin",
             cwd=tmp_path,
-            extra_env={"RUSTC_WRAPPER": "sccache"},
+            extra_env=extra_env or {"RUSTC_WRAPPER": "sccache"},
         )
     assert rc == 0
     return [(c.args[0], c.kwargs["extra_env"]) for c in cargo.call_args_list]
@@ -1910,3 +1897,78 @@ class TestBoltWithPgoPairing:
         assert {args[1] for args in bolt} == {"build", "optimize"}
         for args in bolt:
             assert "--with-pgo" in args[: args.index("--")], args
+
+
+def _profile_settings(env: dict[str, str]) -> dict[str, str]:
+    return {
+        key: value for key, value in env.items() if key.startswith("CARGO_PROFILE_")
+    }
+
+
+class TestEveryCompileSharesTheProfile:
+    """Every compile that shares a PGO profile shares the cargo profile.
+
+    Cargo hashes profile settings, strip included, into `-C metadata` and so
+    into every symbol name, and the PGO profile is keyed on those names.
+    """
+
+    _PROJECT_ENV = {"RUSTC_WRAPPER": "sccache", "CARGO_PROFILE_RELEASE_LTO": "fat"}
+
+    @pytest.mark.parametrize(
+        ("cargo_results", "steps"),
+        [
+            ([0, 0, 0, 0], ["build", "optimize", "bolt build", "bolt optimize"]),
+            (
+                [0, 0, 1, 0, 0],
+                ["build", "optimize", "bolt build", "bolt build", "bolt optimize"],
+            ),
+        ],
+        ids=["first", "no-split"],
+    )
+    def test_bolt_pipeline_compiles_with_one_profile(
+        self, tmp_path, cargo_results, steps
+    ) -> None:
+        calls = _run_pgo_bolt_pipeline(
+            tmp_path, cargo_results, extra_env=self._PROJECT_ENV
+        )
+        assert [_step(args) for args, _ in calls] == steps
+        settings = [_profile_settings(env) for _, env in calls]
+        assert settings == [settings[0]] * len(calls)
+        assert settings[0] == {
+            "CARGO_PROFILE_RELEASE_LTO": "fat",
+            "CARGO_PROFILE_RELEASE_STRIP": "none",
+        }
+
+    def test_mold_retry_keeps_the_shared_profile(self, tmp_path) -> None:
+        # The aarch64 instrumented build fails once, so it relinks with mold.
+        with patch.object(pgo.shutil, "which", side_effect=lambda n: f"/usr/bin/{n}"):
+            calls = _run_pgo_bolt_pipeline(
+                tmp_path,
+                [1, 0, 0, 0, 0],
+                target="aarch64-unknown-linux-gnu",
+                extra_env=self._PROJECT_ENV,
+            )
+        assert [_step(args) for args, _ in calls][:2] == ["build", "build"]
+        settings = [_profile_settings(env) for _, env in calls]
+        assert settings == [settings[0]] * len(calls)
+        assert settings[0]["CARGO_PROFILE_RELEASE_STRIP"] == "none"
+
+    @pytest.mark.parametrize(
+        ("bolt_enabled", "bolt_toolchain"),
+        [(False, True), (True, False)],
+        ids=["bolt-off", "no-toolchain"],
+    )
+    def test_pgo_only_steps_keep_the_project_profile(
+        self, tmp_path, bolt_enabled, bolt_toolchain
+    ) -> None:
+        calls = _run_pgo_bolt_pipeline(
+            tmp_path,
+            [0, 0],
+            bolt_enabled=bolt_enabled,
+            bolt_toolchain=bolt_toolchain,
+        )
+        assert calls == [
+            (calls[0][0], {"RUSTC_WRAPPER": "sccache"}),
+            (calls[1][0], {"RUSTC_WRAPPER": ""}),
+        ]
+        assert [_step(args) for args, _ in calls] == ["build", "optimize"]
