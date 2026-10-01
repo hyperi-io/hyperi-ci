@@ -115,7 +115,7 @@ On a `pull_request` the line a squash merge would land is validated as well, and
 
 | Output | True when | Effect |
 |---|---|---|
-| `will-release` | push to **main** with `Release: true` trailer, OR `workflow_dispatch` carrying `tag` or `from-head: true` | The underlying release signal. A trailer on a non-main ref is ignored LOUDLY (`::warning::`) - main is the sole release path (branch-mode decision 1). A dispatch carrying neither is validate-only and warns that nothing was released. A `schedule` run is never a release, whatever HEAD's trailer says |
+| `will-release` | push to **main** with `Release: true` trailer, OR `workflow_dispatch` carrying `tag`, OR `from-head: true` dispatched on main | The underlying release signal. A trailer on a non-main ref is ignored LOUDLY (`::warning::`) - main is the sole release path (branch-mode decision 1). A from-head dispatch follows the same rule (issue #471): on a declared prerelease branch only `bump=auto` releases, and on any other ref it is validate-only and warns. A `tag` dispatch releases from any ref. A dispatch carrying neither is validate-only and warns that nothing was released. A `schedule` run is never a release, whatever HEAD's trailer says |
 | `run-checks` | `will-release`, OR a **release-worthy push to main** (the pushed range carries a `feat:` / `fix:` / `perf:`; a range that cannot be resolved counts as worthy, so the gate fails open), OR `pull_request`, OR `workflow_dispatch`, OR `schedule` | Run quality + test. A release-worthy merge is TESTED, never shipped - `run-build` stays release-only |
 | `test-tier` | `full` on `schedule`, when the `test-tier` input is `full`, when the project's own `test.tier` is `full`, or on `will-release` with `full-required-for-release`; else `core` | The tier the Test job runs. Nothing lowers it, so a caller forwarding `core` on every event cannot lower a scheduled or opted-in release run. An unknown value, from the input or the project, fails Plan |
 | `full-required-for-release` | the project sets `test.full.required_for_release: true` | A release runs `full`. The Gate fails a release handed any other tier. Off by default |
@@ -185,20 +185,20 @@ flowchart LR
 
 ### Under a merge queue
 
-hyperi-ci's own `ci.yml` triggers on `merge_group`. The `<lang>-ci.yml` workflows do not yet, so a consumer repo cannot turn a queue on. A queue tests the squash commit main will fast-forward to, on a temporary `gh-readonly-queue/main/pr-<n>-<sha>` branch, and merges only once every required check reports. A workflow that never triggers, or a required job that skips, stalls the queue or merges untested.
+hyperi-ci's own `ci.yml` triggers on `merge_group`, and so do the `<lang>-ci.yml` commit checks and `hyperi-ci init`'s scaffolded caller. A consumer should NOT turn a queue on yet: Quality and Test still skip on a queue entry until #468 lands. A queue tests the squash commit main will fast-forward to, on a temporary `gh-readonly-queue/main/pr-<n>-<sha>` branch, and merges only once every required check reports. A workflow that never triggers, or a required job that skips, stalls the queue or merges untested.
 
 | Job | Under `merge_group` | Why |
 |---|---|---|
 | `plan` | runs, `will-release=false`, `run-build=false` | The ref is not main, so the gate is validate-only whatever the squash message carries |
 | `commit-check` | runs, FATAL, range `merge_group.base_sha..head_sha` | That commit is what lands, so the landing gate fires before the landing rather than after |
-| `quality`, `test` | run | Unconditional in `ci.yml`, as on a PR |
+| `quality`, `test` | `ci.yml`: run, unconditional, as on a PR. `<lang>-ci.yml`: SKIP -- gated on `run-checks`, which `predict-version` does not yet set for `merge_group` | Known gap, tracked in #468: a consumer's queue merges without Quality/Test having run, and `gate` reads the skip as doctrine rather than a hole |
 | `Fixture rehearsal` | skipped | Its record names the PR head commit, and the queue commit is a new SHA nobody can rehearse. The PR already passed it |
 | `build`, `release-tail` | skipped | `run-build` is false, so nothing compiles, tags, publishes or commits back |
-| `gate` | runs | Fails on any failed job. `predict-version` does not count `merge_group` as `run-checks` yet, so its reason line reads as a doctrine skip even though Quality and Test ran |
+| `gate` | runs | Fails on any failed job, but a `<lang>-ci.yml` run sees Quality/Test skipped rather than failed -- see above |
 
 The concurrency group keys on `github.ref`, which is unique per queue entry, so a queue run neither cancels nor is cancelled by a run on main or on the PR. A queue that requires only `Quality` merges past a red Test or a red commit check. Require `Gate` and `Commit messages` alongside it.
 
-Rolling this out to consumers needs one change beyond the trigger: `predict-version` must set `run-checks=true` on `merge_group`. The language workflows gate Quality and Test on it, and a skipped required check counts as passing, so without it a consumer's queue merges untested.
+Closing the `quality`/`test` gap is tracked in #468: `predict-version` must set `run-checks=true` on `merge_group`. The language workflows gate Quality and Test on it, and a skipped required check counts as passing, so without it a consumer's queue merges untested.
 
 ### Test tiers
 
@@ -289,9 +289,11 @@ Quality job, not with a frozen graph. Full rationale, the trilemma, and the
 branch-protection precondition: [dependencies/WORKFLOW-PINNING.md](dependencies/workflow-pinning.md).
 Third-party pinning policy: [dependencies/DEPS-PINNING.md](dependencies/deps-pinning.md).
 
-That gate covers the workflow INTERFACE -- inputs, outputs, secrets -- and cannot see the version split underneath it. A consumer resolves the YAML at `@main`, so a push is live instantly; the runner installs `uvx hyperi-ci` from PyPI, so CLI code is live only once a release finishes. A commit whose workflow needs new CLI behaviour is broken until that release lands, and hyperi-ci's own release run is the first caller of the workflow it is shipping.
+That interface comparison covers inputs, outputs and secrets, and cannot see the version split underneath it. A consumer resolves the YAML at `@main`, so a push is live instantly; the runner installs `uvx hyperi-ci` from PyPI, so CLI code is live only once a release finishes. A commit whose workflow needs new CLI behaviour is broken until that release lands, and hyperi-ci's own release run is the first caller of the workflow it is shipping.
 
 **A workflow change on main must work against the CLI already released to PyPI.** Ship the capability as its own commit, release it, then switch the workflow on in a second commit. The reverse order is safe: CLI code needing a new workflow input finds it already there.
+
+The gate enforces the names, not the behaviour: every subcommand and option a workflow or composite passes to the PyPI CLI (`${{ env.HYPERCI_INSTALL }}`, `$HYPERCI_INSTALL` or an unpinned `uvx hyperi-ci`) must exist in the latest release, read from that wheel's typer model. `uv run hyperi-ci` runs the checkout's own CLI and is not checked.
 
 ## CLI surface
 

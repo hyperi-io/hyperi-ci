@@ -66,6 +66,11 @@ _INPUTS = {"inputs.pyyaml-version": tool_version("pyyaml")}
 #: The interpreter the reader step hands every config-reading step.
 _READER = "steps.reader.outputs.python"
 
+_MAIN = "refs/heads/main"
+#: The central default.releaserc.json declares beta a prerelease branch.
+_BETA = "refs/heads/beta"
+_FEATURE = "refs/heads/feature/x"
+
 
 def _steps() -> dict[str, dict]:
     action = yaml.safe_load((ACTION_DIR / "action.yml").read_text(encoding="utf-8"))
@@ -129,6 +134,8 @@ def _run_step(
             "GITHUB_OUTPUT": str(output),
             "GITHUB_ACTION_PATH": str(ACTION_DIR),
             "GITHUB_WORKSPACE": str(repo),
+            # The runner sets GITHUB_REF to github.ref, and helpers read it.
+            **({"GITHUB_REF": values["github.ref"]} if "github.ref" in values else {}),
             **step_env,
             **(env or {}),
         },
@@ -172,17 +179,30 @@ def released_head(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def _gate(event: str, repo: Path) -> dict[str, str]:
+def _gate_run(
+    event: str,
+    repo: Path,
+    *,
+    ref: str = "refs/heads/main",
+    tag: str = "",
+    from_head: str = "",
+    bump: str = "auto",
+) -> tuple[dict[str, str], str]:
     return _run_step(
         "gate",
         {
             "github.event_name": event,
-            "github.ref": "refs/heads/main",
-            "inputs.tag": "",
-            "inputs.from-head": "",
+            "github.ref": ref,
+            "inputs.tag": tag,
+            "inputs.from-head": from_head,
+            "inputs.bump": bump,
         },
         repo,
-    )[0]
+    )
+
+
+def _gate(event: str, repo: Path) -> dict[str, str]:
+    return _gate_run(event, repo)[0]
 
 
 def _derive(event: str, will_publish: str, repo: Path) -> dict[str, str]:
@@ -308,15 +328,15 @@ class TestATagDispatch:
     """A `tag` dispatch re-publishes the tag's own version (issue #352)."""
 
     def test_a_tag_dispatch_publishes(self, released_head: Path) -> None:
-        outputs, _ = _run_step(
-            "gate",
-            {
-                "github.event_name": "workflow_dispatch",
-                "github.ref": "refs/heads/main",
-                "inputs.tag": "v1.0.4",
-                "inputs.from-head": "",
-            },
-            released_head,
+        outputs, _ = _gate_run("workflow_dispatch", released_head, tag="v1.0.4")
+        assert outputs["will-publish"] == "true"
+
+    def test_a_tag_dispatch_publishes_from_a_feature_branch(
+        self, released_head: Path
+    ) -> None:
+        # The tag already names the commit, so the dispatch ref does not matter.
+        outputs, _ = _gate_run(
+            "workflow_dispatch", released_head, ref=_FEATURE, tag="v1.0.4"
         )
         assert outputs["will-publish"] == "true"
 
@@ -357,6 +377,96 @@ class TestATagDispatch:
         action = yaml.safe_load((ACTION_DIR / "action.yml").read_text(encoding="utf-8"))
         assert "steps.tagged.outputs.version" in action["outputs"]["version"]["value"]
         assert "steps.tagged.outputs.version" in str(_steps()["derive"]["env"])
+
+
+class TestAFromHeadDispatch:
+    """A from-head dispatch releases only from a release branch (issue #471).
+
+    beta is the central config's declared prerelease branch. A forced bump
+    is cut by tag-head through the GitHub API, which ignores the release
+    config, so the gate is the only thing that can refuse it.
+    """
+
+    @pytest.mark.parametrize(
+        ("ref", "bump"),
+        [
+            (_MAIN, "auto"),
+            (_MAIN, "patch"),
+            (_MAIN, "2.0.1"),
+            (_BETA, "auto"),
+        ],
+    )
+    def test_a_release_branch_publishes(
+        self, released_head: Path, ref: str, bump: str
+    ) -> None:
+        outputs, stdout = _gate_run(
+            "workflow_dispatch", released_head, ref=ref, from_head="true", bump=bump
+        )
+        assert outputs == {"will-publish": "true"}
+        assert "::warning" not in stdout
+
+    @pytest.mark.parametrize("bump", ["auto", "patch", "minor", "2.0.1"])
+    def test_a_feature_branch_publishes_nothing(
+        self, released_head: Path, bump: str
+    ) -> None:
+        outputs, stdout = _gate_run(
+            "workflow_dispatch",
+            released_head,
+            ref=_FEATURE,
+            from_head="true",
+            bump=bump,
+        )
+        assert outputs == {"will-publish": "false"}
+        assert f"::warning::from-head dispatch on ref '{_FEATURE}'" in stdout
+        assert "validate-only" in stdout
+
+    @pytest.mark.parametrize("bump", ["patch", "minor", "2.0.1"])
+    def test_a_forced_bump_on_a_prerelease_branch_publishes_nothing(
+        self, released_head: Path, bump: str
+    ) -> None:
+        # The forced step computes a plain X.Y.Z, so it would cut a stable
+        # release off beta.
+        outputs, stdout = _gate_run(
+            "workflow_dispatch", released_head, ref=_BETA, from_head="true", bump=bump
+        )
+        assert outputs == {"will-publish": "false"}
+        assert f"::warning::Forced bump '{bump}' on prerelease branch" in stdout
+        assert "bump=auto" in stdout
+
+    def test_the_repo_config_names_the_prerelease_branch(
+        self, released_head: Path
+    ) -> None:
+        (released_head / ".releaserc.json").write_text(
+            '{"branches": ["main", {"name": "next", "prerelease": true}],'
+            ' "plugins": ["@semantic-release/exec"]}\n',
+            encoding="utf-8",
+        )
+        next_ref, _ = _gate_run(
+            "workflow_dispatch",
+            released_head,
+            ref="refs/heads/next",
+            from_head="true",
+        )
+        beta_ref, _ = _gate_run(
+            "workflow_dispatch", released_head, ref=_BETA, from_head="true"
+        )
+        assert next_ref == {"will-publish": "true"}
+        assert beta_ref == {"will-publish": "false"}
+
+    def test_a_tag_does_not_unlock_from_head_on_a_feature_branch(
+        self, released_head: Path
+    ) -> None:
+        # tag-head runs on from-head alone, so a tag beside it must not
+        # carry a forced bump past the branch rule.
+        outputs, _ = _gate_run(
+            "workflow_dispatch",
+            released_head,
+            ref=_FEATURE,
+            tag="v1.0.4",
+            from_head="true",
+            bump="patch",
+        )
+        assert outputs == {"will-publish": "false"}
 
 
 class TestAForcedBump:

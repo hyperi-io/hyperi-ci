@@ -416,7 +416,7 @@ class TestFeatureMatrixRestoresManifests:
         self, monkeypatch: pytest.MonkeyPatch, workspace: _Workspace
     ) -> None:
         hack = _CargoHack(workspace)
-        monkeypatch.setattr(f"{QUALITY}.subprocess.run", hack.run)
+        monkeypatch.setattr(f"{QUALITY}.run_cmd", hack.run)
 
         assert _run_feature_matrix(_config(), workspace=True) is True
 
@@ -427,9 +427,9 @@ class TestFeatureMatrixRestoresManifests:
     def test_ctrl_c_during_cargo_hack_still_restores(
         self, monkeypatch: pytest.MonkeyPatch, workspace: _Workspace
     ) -> None:
-        """subprocess.run kills cargo-hack 0.25s after Ctrl-C, mid-restore."""
+        """run_cmd's subprocess.run kills cargo-hack 0.25s after Ctrl-C, mid-restore."""
         monkeypatch.setattr(
-            f"{QUALITY}.subprocess.run", _CargoHack(workspace, interrupt=True).run
+            f"{QUALITY}.run_cmd", _CargoHack(workspace, interrupt=True).run
         )
 
         with pytest.raises(KeyboardInterrupt):
@@ -447,7 +447,7 @@ class TestFeatureMatrixRestoresManifests:
             hack.run(cmd, **kw)
             return subprocess.CompletedProcess(cmd, 101, stdout="error: boom\n")
 
-        monkeypatch.setattr(f"{QUALITY}.subprocess.run", fail)
+        monkeypatch.setattr(f"{QUALITY}.run_cmd", fail)
 
         assert _run_feature_matrix(_config(), workspace=True) is False
 

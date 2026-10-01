@@ -45,6 +45,11 @@ on:
         type: string
         required: true
         description: "'true' if this run should push to registries (from caller's setup output)"
+      runner-mode:
+        type: string
+        required: false
+        default: ""
+        description: "The caller's runner-mode input: 'free' forces ubuntu-latest. Empty falls back to the GH_RUNNER_MODE variable."
       next-version:
         type: string
         default: ""
@@ -143,7 +148,7 @@ jobs:
         github.event_name == 'workflow_dispatch' ||
         github.event_name == 'pull_request'
       )
-    runs-on: ${{ vars.GH_RUNNER_MODE == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     permissions:
       contents: read
       packages: write
@@ -303,7 +308,7 @@ jobs:
     # job holds no secret and a read-only token, and Tag & Release only uploads
     # what it leaves (issue #409).
     if: inputs.will-publish == 'true'
-    runs-on: ${{ vars.GH_RUNNER_MODE == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     permissions:
       contents: read
     steps:
@@ -409,7 +414,7 @@ jobs:
     # notice never fires. Its own job, because prepare holds no write token.
     needs: [prepare]
     if: failure() && needs.prepare.result == 'failure'
-    runs-on: ${{ vars.GH_RUNNER_MODE == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     permissions:
       contents: read
       issues: write
@@ -474,7 +479,7 @@ jobs:
     # ARC, like the rest of the tail: the aws CLI this job needs for R2 is
     # absent from the image, so hyperi-ci installs AWS's signed v2 bundle on
     # demand (native_deps.ensure_aws_cli).
-    runs-on: ${{ vars.GH_RUNNER_MODE == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     permissions:
       contents: write
       issues: write
@@ -714,6 +719,9 @@ jobs:
         # Skipped on a tag dispatch: that checkout is an old tag, and its
         # version committed onto main would move main back.
         #
+        # Lands on the branch that released, which a push and a from-head
+        # dispatch both check out, so a beta release never writes main (issue #417).
+        #
         # Non-fatal: once the registry has the release, a failure here must
         # not turn a shipped release red.
         id: releasecommit
@@ -725,8 +733,10 @@ jobs:
           GH_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
           HYPERCI_RELEASE_PREPARED: ${{ runner.temp }}/release-prepared
           RELEASE_VERSION: ${{ inputs.next-version }}
+          RELEASE_BRANCH: ${{ github.ref_name }}
         run: >-
           ${{ env.HYPERCI_INSTALL }} release-commit
+          --branch "$RELEASE_BRANCH"
           "$RELEASE_VERSION"
 
       - name: Record a failed commit-back

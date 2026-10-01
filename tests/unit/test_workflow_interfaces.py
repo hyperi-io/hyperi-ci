@@ -14,6 +14,7 @@ regresses vs the last release, so the break never reaches a consumer.
 """
 
 import importlib.util
+import subprocess
 import urllib.error
 from email.message import Message
 from pathlib import Path
@@ -168,30 +169,312 @@ class TestRemovedPipelineFiles:
         assert cwi.removed_pipeline_files(old, cur) == []
 
 
-class TestTheCliSubcommandGate:
-    """A workflow may only call a subcommand the PUBLISHED CLI already has.
+def _workflow(steps: str) -> str:
+    """A workflow whose one job runs `steps`, given at step-list indentation."""
+    return "on: push\njobs:\n  j:\n    runs-on: x\n    steps:\n" + steps
 
-    Workflows float `@main` and reach a consumer instantly; the CLI arrives
-    only on a release. A subcommand added in the same commit as its caller is
-    therefore missing on every runner until the next publish (issue #181).
+
+def _line_of(text: str, needle: str) -> int:
+    """1-based number of the first line containing `needle`."""
+    return next(n for n, line in enumerate(text.splitlines(), 1) if needle in line)
+
+
+def _args(text: str) -> list[tuple[str, ...]]:
+    return [call.args for call in cwi.cli_invocations("w.yml", text).invocations]
+
+
+def _opts(names: set[str], value_taking: set[str] | None = None) -> cwi.CommandOptions:
+    """A `CommandOptions` for one command path, for building `_PUBLISHED`."""
+    return cwi.CommandOptions(
+        names=frozenset(names), value_taking=frozenset(value_taking or set())
+    )
+
+
+# What a published release exposes, keyed the way `_DUMP_OPTIONS` prints it.
+_PUBLISHED = {
+    "": _opts({"--help", "--version", "-V"}),
+    "run": _opts(
+        {"--help", "--project-dir", "-C", "--tier"}, {"--project-dir", "-C", "--tier"}
+    ),
+    "stamp-version": _opts({"--help", "--project-dir", "-C"}, {"--project-dir", "-C"}),
+    "tag-head": _opts({"--help", "--bump"}, {"--bump"}),
+    "release-notify": _opts(
+        {"--help", "--outcome", "--run-url"}, {"--outcome", "--run-url"}
+    ),
+    "publish": _opts({"--help", "--bump", "-b"}, {"--bump", "-b"}),
+    "publish binaries": _opts({"--help", "--dry-run", "--no-dry-run"}),
+}
+
+
+def _gaps(text: str) -> list[str]:
+    scan = cwi.cli_invocations("w.yml", text)
+    return cwi.cli_invocation_gaps(scan.invocations, _PUBLISHED)
+
+
+class TestFindingCliCalls:
+    """Every shape a workflow uses to call the published CLI is read as the shell would."""
+
+    def test_a_plain_scalar_call(self) -> None:
+        text = _workflow(
+            '      - run: ${{ env.HYPERCI_INSTALL }} stamp-version "$V" -C dir\n'
+        )
+        scan = cwi.cli_invocations("w.yml", text)
+        assert [c.args for c in scan.invocations] == [
+            ("stamp-version", "$V", "-C", "dir")
+        ]
+        assert scan.invocations[0].line == _line_of(text, "stamp-version")
+
+    def test_a_folded_block_is_one_command(self) -> None:
+        text = _workflow(
+            "      - run: >-\n"
+            "          ${{ env.HYPERCI_INSTALL }} release-notify\n"
+            '          "$RELEASE_VERSION"\n'
+            "          --outcome failure\n"
+            '          --run-url "${{ github.server_url }}/${{ github.run_id }}"\n'
+        )
+        scan = cwi.cli_invocations("w.yml", text)
+        assert [c.args for c in scan.invocations] == [
+            (
+                "release-notify",
+                "$RELEASE_VERSION",
+                "--outcome",
+                "failure",
+                "--run-url",
+                "<expr>",
+            )
+        ]
+        assert scan.invocations[0].line == _line_of(text, "release-notify")
+
+    def test_a_literal_block_with_continuations_and_several_calls(self) -> None:
+        text = _workflow(
+            "      - run: |\n"
+            '          if [ -z "$(git tag --list)" ]; then\n'
+            '            ${{ env.HYPERCI_INSTALL }} tag-head --bump "$V"\n'
+            "          else\n"
+            "            npx semantic-release\n"
+            "          fi\n"
+            "          ${{ env.HYPERCI_INSTALL }} release-notify \\\n"
+            "            --outcome success && echo done\n"
+        )
+        scan = cwi.cli_invocations("w.yml", text)
+        assert [c.args for c in scan.invocations] == [
+            ("tag-head", "--bump", "$V"),
+            ("release-notify", "--outcome", "success"),
+        ]
+        assert [c.line for c in scan.invocations] == [
+            _line_of(text, "tag-head"),
+            _line_of(text, "release-notify"),
+        ]
+
+    def test_two_calls_on_one_line(self) -> None:
+        text = _workflow(
+            "      - run: ${{ env.HYPERCI_INSTALL }} run build; "
+            "${{ env.HYPERCI_INSTALL }} run test --tier=full\n"
+        )
+        assert _args(text) == [("run", "build"), ("run", "test", "--tier=full")]
+
+    def test_an_option_inside_an_expression_is_read(self) -> None:
+        """`--tier` reaches the CLI on one branch of the expression."""
+        text = _workflow(
+            "      - run: ${{ env.HYPERCI_INSTALL }} run test "
+            "${{ needs.plan.outputs.tier == 'full' && '--tier full' || '' }}\n"
+        )
+        assert _args(text) == [("run", "test", "--tier", "full")]
+
+    def test_a_shell_variable_and_an_unpinned_uvx_are_calls(self) -> None:
+        text = _workflow(
+            "      - run: $HYPERCI_INSTALL run quality\n"
+            "      - run: uvx --python 3.14 --refresh hyperi-ci gate-check\n"
+        )
+        assert _args(text) == [("run", "quality"), ("gate-check",)]
+
+    def test_a_pinned_or_local_cli_is_not_a_call(self) -> None:
+        """Only the latest PyPI release is what the gate compares against."""
+        text = _workflow(
+            "      - run: uvx hyperi-ci==2.0.0 run quality\n"
+            "      - run: uvx --from git+https://x/y@b hyperi-ci run quality\n"
+            "      - run: uv run --no-sources hyperi-ci run quality\n"
+        )
+        assert _args(text) == []
+
+    def test_a_quoted_mention_is_not_a_call(self) -> None:
+        text = _workflow(
+            '      - run: echo "use ${{ env.HYPERCI_INSTALL }} run --bogus"\n'
+        )
+        assert _args(text) == []
+
+    def test_an_apostrophe_in_a_comment_does_not_open_a_quote(self) -> None:
+        text = _workflow(
+            "      - run: |\n"
+            "          # don't stamp twice\n"
+            '          ${{ env.HYPERCI_INSTALL }} stamp-version "$V"\n'
+        )
+        assert _args(text) == [("stamp-version", "$V")]
+
+    def test_composite_steps_are_read_and_a_non_shell_step_is_not(self) -> None:
+        text = (
+            "runs:\n"
+            "  using: composite\n"
+            "  steps:\n"
+            "    - shell: bash\n"
+            "      run: |\n"
+            '        "$HYPERCI_INSTALL" install-native-deps python\n'
+            "    - shell: python\n"
+            "      run: print('$HYPERCI_INSTALL run --x')\n"
+        )
+        assert _args(text) == [("install-native-deps", "python")]
+
+    def test_an_unsplittable_line_is_reported_not_dropped(self) -> None:
+        text = _workflow("      - run: ${{ env.HYPERCI_INSTALL }} run 'build\n")
+        scan = cwi.cli_invocations("w.yml", text)
+        assert scan.invocations == ()
+        assert len(scan.unchecked) == 1
+        line = _line_of(text, "'build")
+        assert scan.unchecked[0].startswith(f"w.yml:{line}:")
+
+
+class TestTheCliGate:
+    """A workflow may only use a subcommand or option the PUBLISHED CLI has.
+
+    Workflows float `@main` and reach a consumer instantly, the CLI arrives
+    only on a release. Anything added in the same commit as its caller is
+    missing on every runner until the next publish (issues #181 and #443).
     """
 
+    def test_an_option_the_release_lacks_fails(self) -> None:
+        """The #443 shape: main has `--no-stamp-cmd`, the release does not."""
+        text = _workflow(
+            '      - run: ${{ env.HYPERCI_INSTALL }} stamp-version "$V" '
+            "--no-stamp-cmd\n"
+        )
+        gaps = _gaps(text)
+        assert gaps == [
+            f"w.yml:{_line_of(text, 'stamp-version')}: `hyperi-ci stamp-version` "
+            "passes `--no-stamp-cmd`, which the published CLI does not accept"
+        ]
+
+    def test_published_options_pass_in_every_spelling(self) -> None:
+        text = _workflow(
+            "      - run: ${{ env.HYPERCI_INSTALL }} run test --tier=full -C dir\n"
+            "      - run: ${{ env.HYPERCI_INSTALL }} --version\n"
+            "      - run: ${{ env.HYPERCI_INSTALL }} stamp-version -Cdir --help\n"
+        )
+        assert _gaps(text) == []
+
+    def test_an_unknown_short_flag_fails(self) -> None:
+        text = _workflow("      - run: ${{ env.HYPERCI_INSTALL }} run test -Z\n")
+        assert [g.split(": ", 1)[1] for g in _gaps(text)] == [
+            "`hyperi-ci run` passes `-Z`, which the published CLI does not accept"
+        ]
+
+    def test_arguments_after_a_double_dash_are_not_checked(self) -> None:
+        text = _workflow(
+            "      - run: ${{ env.HYPERCI_INSTALL }} run test -- --anything -x\n"
+        )
+        assert _gaps(text) == []
+
+    def test_a_value_taking_option_s_word_is_not_read_as_a_subcommand(self) -> None:
+        """issue #474: `publish --bump patch` -- `patch` is `--bump`'s value,
+        not a subcommand of the `publish` group."""
+        text = _workflow(
+            "      - run: ${{ env.HYPERCI_INSTALL }} publish --bump patch\n"
+        )
+        assert _gaps(text) == []
+
+    def test_a_fused_short_option_s_value_is_not_skipped_again(self) -> None:
+        """`-bpatch` already carries its value; the next word must still be
+        read, not swallowed as a second value."""
+        text = _workflow(
+            "      - run: ${{ env.HYPERCI_INSTALL }} publish -bpatch frobnicate\n"
+        )
+        assert [g.split(": ", 1)[1] for g in _gaps(text)] == [
+            "calls `hyperi-ci publish frobnicate`, absent from the published CLI"
+        ]
+
+    def test_an_equals_form_value_is_not_skipped_again(self) -> None:
+        """`--bump=patch` carries its value inline; the next word must still
+        be read, not swallowed as a second value."""
+        text = _workflow(
+            "      - run: ${{ env.HYPERCI_INSTALL }} publish --bump=patch frobnicate\n"
+        )
+        assert [g.split(": ", 1)[1] for g in _gaps(text)] == [
+            "calls `hyperi-ci publish frobnicate`, absent from the published CLI"
+        ]
+
+    def test_a_nested_command_checks_its_own_options(self) -> None:
+        text = _workflow(
+            "      - run: ${{ env.HYPERCI_INSTALL }} publish binaries --no-dry-run\n"
+            "      - run: ${{ env.HYPERCI_INSTALL }} publish binaries --tier x\n"
+        )
+        assert [g.split(": ", 1)[1] for g in _gaps(text)] == [
+            "`hyperi-ci publish binaries` passes `--tier`, which the published "
+            "CLI does not accept"
+        ]
+
     def test_a_missing_subcommand_is_reported(self) -> None:
-        gaps = cwi.cli_command_gaps({"a.yml": {"run", "gate-check"}}, {"run"})
-        assert len(gaps) == 1
-        assert "gate-check" in gaps[0]
-        assert "a.yml" in gaps[0]
+        text = _workflow("      - run: ${{ env.HYPERCI_INSTALL }} gate-check\n")
+        assert [g.split(": ", 1)[1] for g in _gaps(text)] == [
+            "calls `hyperi-ci gate-check`, absent from the published CLI"
+        ]
 
-    def test_a_published_subcommand_is_not_reported(self) -> None:
-        assert cwi.cli_command_gaps({"a.yml": {"run", "watch"}}, {"run", "watch"}) == []
-
-    def test_every_workflow_is_named(self) -> None:
-        gaps = cwi.cli_command_gaps({"a.yml": {"new"}, "b.yml": {"new"}}, set())
-        assert len(gaps) == 2
+    def test_a_missing_nested_subcommand_is_reported(self) -> None:
+        text = _workflow("      - run: ${{ env.HYPERCI_INSTALL }} publish docs\n")
+        assert [g.split(": ", 1)[1] for g in _gaps(text)] == [
+            "calls `hyperi-ci publish docs`, absent from the published CLI"
+        ]
 
     def test_a_hidden_command_counts_as_published(self) -> None:
-        """`--help` hides some commands, so the enumeration must not scrape it."""
-        assert cwi.cli_command_gaps({"a.yml": {"tag-head"}}, {"tag-head"}) == []
+        """`--help` hides `tag-head`, so the table must not come from scraping it."""
+        text = _workflow(
+            '      - run: ${{ env.HYPERCI_INSTALL }} tag-head --bump "$V"\n'
+        )
+        assert _gaps(text) == []
+
+    def test_a_subcommand_from_an_expression_is_not_silently_passed(self) -> None:
+        text = _workflow(
+            "      - run: ${{ env.HYPERCI_INSTALL }} ${{ inputs.command }}\n"
+        )
+        assert [g.split(": ", 1)[1] for g in _gaps(text)] == [
+            "the subcommand after `hyperi-ci` comes from an expression, so the "
+            "gate cannot check it"
+        ]
+
+    def test_every_location_is_named(self) -> None:
+        text = _workflow(
+            "      - run: ${{ env.HYPERCI_INSTALL }} new-thing\n"
+            "      - run: ${{ env.HYPERCI_INSTALL }} new-thing\n"
+        )
+        assert len(_gaps(text)) == 2
+
+
+class TestTheOptionTable:
+    def test_parses_the_dump(self) -> None:
+        table = cwi.parse_option_table(
+            '{"": {"--help": false}, "run": {"--tier": true, "-C": true}}'
+        )
+        assert table == {
+            "": cwi.CommandOptions(
+                names=frozenset({"--help"}), value_taking=frozenset()
+            ),
+            "run": cwi.CommandOptions(
+                names=frozenset({"--tier", "-C"}),
+                value_taking=frozenset({"--tier", "-C"}),
+            ),
+        }
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "[]",
+            '{"run": "--tier"}',
+            '{"run": ["--tier"]}',
+            '{"run": {"--tier": "yes"}}',
+            "not json",
+        ],
+    )
+    def test_rejects_anything_else(self, text: str) -> None:
+        with pytest.raises(ValueError):
+            cwi.parse_option_table(text)
 
 
 class TestWhatCountsAsPublished:
@@ -225,7 +508,90 @@ class TestWhatCountsAsPublished:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(cwi, "latest_published_version", lambda: None)
-        assert cwi.published_cli_commands() is None
+        assert cwi.published_cli_options() is None
+
+
+class _FakeRun:
+    """Stand-in for `subprocess.run`, always returning one fixed result."""
+
+    def __init__(self, returncode: int, stdout: str = "", stderr: str = "") -> None:
+        self._result = subprocess.CompletedProcess(
+            args=[], returncode=returncode, stdout=stdout, stderr=stderr
+        )
+
+    def __call__(self, *args: object, **kwargs: object) -> subprocess.CompletedProcess:
+        return self._result
+
+
+class TestTheDumpFailureDistinction:
+    """issue #474: tell "uvx could not fetch the wheel" apart from "the dump
+    snippet ran and raised" -- only the second must fail the gate."""
+
+    def test_a_wheel_install_failure_skips(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No marker in stderr means uvx itself failed -- that is a skip."""
+        monkeypatch.setattr(cwi, "latest_published_version", lambda: "9.9.9")
+        monkeypatch.setattr(
+            cwi.subprocess,
+            "run",
+            _FakeRun(returncode=1, stderr="no matching distribution"),
+        )
+        assert cwi.published_cli_options() is None
+
+    def test_a_snippet_failure_raises_not_skips(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(cwi, "latest_published_version", lambda: "9.9.9")
+        monkeypatch.setattr(
+            cwi.subprocess,
+            "run",
+            _FakeRun(
+                returncode=cwi._DUMP_FAILURE_CODE,
+                stderr=f"{cwi._DUMP_FAILURE_MARKER}: AttributeError('is_flag')",
+            ),
+        )
+        with pytest.raises(cwi.CliDumpError, match="is_flag"):
+            cwi.published_cli_options()
+
+    def test_an_exit_code_collision_without_the_marker_still_skips(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """uv could exit 3 for its own unrelated reason -- only the marker
+        proves the snippet ran and raised."""
+        monkeypatch.setattr(cwi, "latest_published_version", lambda: "9.9.9")
+        monkeypatch.setattr(
+            cwi.subprocess,
+            "run",
+            _FakeRun(returncode=cwi._DUMP_FAILURE_CODE, stderr=""),
+        )
+        assert cwi.published_cli_options() is None
+
+    def test_unparseable_output_on_success_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Exit 0 with output the gate cannot parse is a dump bug, not a skip."""
+        monkeypatch.setattr(cwi, "latest_published_version", lambda: "9.9.9")
+        monkeypatch.setattr(
+            cwi.subprocess, "run", _FakeRun(returncode=0, stdout="not json")
+        )
+        with pytest.raises(cwi.CliDumpError):
+            cwi.published_cli_options()
+
+    def test_a_clean_run_returns_the_table(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(cwi, "latest_published_version", lambda: "9.9.9")
+        monkeypatch.setattr(
+            cwi.subprocess,
+            "run",
+            _FakeRun(returncode=0, stdout='{"": {"--help": false}}'),
+        )
+        assert cwi.published_cli_options() == {
+            "": cwi.CommandOptions(
+                names=frozenset({"--help"}), value_taking=frozenset()
+            )
+        }
 
 
 _RETIREMENT = """
@@ -250,6 +616,34 @@ def _entry(**overrides: object) -> str:
     fields.update(overrides)
     body = "\n".join(f"    {k}: {v}" for k, v in fields.items() if v is not None)
     return f"retired:\n  -\n{body}\n"
+
+
+class TestTheCliGateOnADumpFailure:
+    """issue #474: done when a snippet that raises fails the gate (exit 1)."""
+
+    def test_a_dump_failure_fails_the_gate(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(
+            cwi, "workflow_cli_invocations", lambda root: cwi.InvocationScan((), ())
+        )
+
+        def _raise() -> dict[str, cwi.CommandOptions]:
+            raise cwi.CliDumpError("the option dump raised: AttributeError('is_flag')")
+
+        monkeypatch.setattr(cwi, "published_cli_options", _raise)
+        assert cwi._cli_gate() == 1
+        assert "is_flag" in capsys.readouterr().out
+
+    def test_an_unreachable_pypi_still_skips(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(
+            cwi, "workflow_cli_invocations", lambda root: cwi.InvocationScan((), ())
+        )
+        monkeypatch.setattr(cwi, "published_cli_options", lambda: None)
+        assert cwi._cli_gate() == 0
+        assert "unreachable -- skipping" in capsys.readouterr().out
 
 
 class TestRetirementRecords:

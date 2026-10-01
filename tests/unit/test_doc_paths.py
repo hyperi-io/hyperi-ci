@@ -192,6 +192,125 @@ class TestInlineCodePaths:
         assert len(doc_paths.scan_code_paths(doc, root)) == 1
 
 
+class TestIgnoreMarker:
+    """`<!-- doc-paths: ignore -->` suppresses the warnings on its own line."""
+
+    def test_a_marked_bad_path_is_not_reported(self, tmp_path: Path) -> None:
+        root = _repo(tmp_path)
+        doc = root / "docs" / "a.md"
+        doc.write_text(
+            "See `config/org.yaml` <!-- doc-paths: ignore -->.\n", encoding="utf-8"
+        )
+        assert doc_paths.scan_code_paths(doc, root) == []
+
+    def test_an_unmarked_bad_path_on_another_line_still_reports(
+        self, tmp_path: Path
+    ) -> None:
+        root = _repo(tmp_path)
+        doc = root / "docs" / "a.md"
+        doc.write_text(
+            "See `config/org.yaml` <!-- doc-paths: ignore -->.\n"
+            "Also see `config/other.yaml`.\n",
+            encoding="utf-8",
+        )
+        found = doc_paths.scan_code_paths(doc, root)
+        assert [f.message for f in found] == [
+            "names `config/other.yaml`, which is no longer in the repo"
+        ]
+        assert found[0].line == 2
+
+    def test_a_marker_does_not_suppress_the_next_line(self, tmp_path: Path) -> None:
+        root = _repo(tmp_path)
+        doc = root / "docs" / "a.md"
+        doc.write_text(
+            "<!-- doc-paths: ignore -->\nSee `config/org.yaml`.\n", encoding="utf-8"
+        )
+        found = doc_paths.scan_code_paths(doc, root)
+        assert [f.message for f in found] == [
+            "names `config/org.yaml`, which is no longer in the repo"
+        ]
+
+    def test_a_marked_bad_link_is_not_reported(self, tmp_path: Path) -> None:
+        root = _repo(tmp_path)
+        doc = root / "README.md"
+        doc.write_text(
+            "See [the guide](docs/gone.md) <!-- doc-paths: ignore -->.\n",
+            encoding="utf-8",
+        )
+        assert doc_paths.scan_links(doc, root) == []
+
+    def test_a_later_unmarked_occurrence_of_a_marked_path_still_reports(
+        self, tmp_path: Path
+    ) -> None:
+        # The marked occurrence must not populate `seen` and hide a real one.
+        root = _repo(tmp_path)
+        doc = root / "docs" / "a.md"
+        doc.write_text(
+            "First `config/org.yaml` <!-- doc-paths: ignore -->.\n"
+            "Later also `config/org.yaml`.\n",
+            encoding="utf-8",
+        )
+        found = doc_paths.scan_code_paths(doc, root)
+        assert [f.message for f in found] == [
+            "names `config/org.yaml`, which is no longer in the repo"
+        ]
+        assert found[0].line == 2
+
+    def test_a_later_unmarked_link_occurrence_still_reports(
+        self, tmp_path: Path
+    ) -> None:
+        root = _repo(tmp_path)
+        doc = root / "README.md"
+        doc.write_text(
+            "First [x](docs/gone.md) <!-- doc-paths: ignore -->.\n"
+            "Later [y](docs/gone.md) too.\n",
+            encoding="utf-8",
+        )
+        found = doc_paths.scan_links(doc, root)
+        assert [f.rule for f in found] == ["docs/link-missing"]
+        assert found[0].line == 2
+
+    def test_the_suppressed_counter_tallies_both_kinds(self, tmp_path: Path) -> None:
+        root = _repo(tmp_path)
+        doc = root / "docs" / "a.md"
+        doc.write_text(
+            "See `config/org.yaml` <!-- doc-paths: ignore -->.\n"
+            "And [x](docs/gone.md) <!-- doc-paths: ignore -->.\n",
+            encoding="utf-8",
+        )
+        counter = doc_paths._Suppressed()
+        assert doc_paths.scan_links(doc, root, suppressed=counter) == []
+        assert doc_paths.scan_code_paths(doc, root, suppressed=counter) == []
+        assert counter.count == 2
+
+    def test_run_reports_zero_findings_and_logs_the_suppressed_count(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Loguru bypasses capsys/capfd/caplog, so `info` is monkeypatched.
+        lines: list[str] = []
+        monkeypatch.setattr(doc_paths, "info", lines.append)
+        root = _repo(tmp_path)
+        doc = root / "docs" / "a.md"
+        doc.write_text(
+            "See `config/org.yaml` <!-- doc-paths: ignore -->.\n", encoding="utf-8"
+        )
+        assert doc_paths.run([doc], _config(), root=root) == 0
+        assert any("1 reference(s) ignored by marker" in line for line in lines)
+
+    def test_a_marked_good_path_stays_silent_and_uncounted(
+        self, tmp_path: Path
+    ) -> None:
+        root = _repo(tmp_path)
+        doc = root / "docs" / "a.md"
+        doc.write_text(
+            "See `config/defaults.yaml` <!-- doc-paths: ignore -->.\n",
+            encoding="utf-8",
+        )
+        counter = doc_paths._Suppressed()
+        assert doc_paths.scan_code_paths(doc, root, suppressed=counter) == []
+        assert counter.count == 0
+
+
 class TestLooksLikeAFile:
     """The segment + extension rule, stated directly."""
 

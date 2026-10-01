@@ -17,6 +17,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from hyperi_ci.common import (
@@ -24,11 +25,13 @@ from hyperi_ci.common import (
     error,
     group,
     info,
+    is_ci,
     is_linux,
     is_macos,
     is_prerelease_build,
     optimize_tier,
     release_unoptimized,
+    run_cmd,
     sanitize_ref_name,
     skip_optimize,
     success,
@@ -112,13 +115,7 @@ def _get_native_target() -> str:
 
 def _get_native_triple() -> str:
     """Get the native GNU triple (e.g. x86_64-linux-gnu)."""
-    result = subprocess.run(
-        ["gcc", "-dumpmachine"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    result = run_cmd(["gcc", "-dumpmachine"], check=False, capture=True)
     if result.returncode == 0 and result.stdout.strip():
         return result.stdout.strip()
     return "x86_64-linux-gnu"
@@ -157,11 +154,11 @@ def _widen_custom_repos_for_arch(arch: str) -> bool:
             continue
         new_archs = ",".join(current_archs + [arch])
         new_content = re.sub(pattern, rf"\g<1>{new_archs}", content)
-        subprocess.run(
+        run_cmd(
             ["sudo", "tee", str(list_file)],
-            input=new_content.encode(),
-            capture_output=True,
             check=False,
+            capture=True,
+            stdin_text=new_content,
         )
         info(f"  Widened {list_file.name} arch to include {arch}")
         widened = True
@@ -176,50 +173,37 @@ def _ensure_cross_apt_metadata(arch: str) -> None:
     We also scope existing deb822 sources to amd64 to prevent apt from
     trying to fetch arm64 from archive.ubuntu.com (which doesn't serve it).
     """
-    result = subprocess.run(
-        ["dpkg", "--print-foreign-architectures"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
+    result = run_cmd(
+        ["dpkg", "--print-foreign-architectures"], check=False, capture=True
     )
     arch_registered = arch in result.stdout
 
     if not arch_registered:
         info(f"  Adding apt architecture: {arch}")
-        subprocess.run(["sudo", "dpkg", "--add-architecture", arch], check=False)
+        run_cmd(["sudo", "dpkg", "--add-architecture", arch], check=False)
 
         ports_list = Path("/etc/apt/sources.list.d/arm64-ports.list")
         if arch == "arm64" and not ports_list.exists():
             info("  Adding arm64 apt sources from ports.ubuntu.com")
-            codename_result = subprocess.run(
-                ["lsb_release", "-cs"],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-            )
+            codename_result = run_cmd(["lsb_release", "-cs"], check=False, capture=True)
             codename = codename_result.stdout.strip() or "noble"
             lines = [
                 f"deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports {codename} main restricted universe",
                 f"deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports {codename}-updates main restricted universe",
                 f"deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports {codename}-security main restricted universe",
             ]
-            subprocess.run(
+            run_cmd(
                 ["sudo", "tee", str(ports_list)],
-                input="\n".join(lines) + "\n",
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                capture_output=True,
                 check=False,
+                capture=True,
+                stdin_text="\n".join(lines) + "\n",
             )
             deb822_sources = Path("/etc/apt/sources.list.d/ubuntu.sources")
             if deb822_sources.exists():
                 content = deb822_sources.read_text(encoding="utf-8")
                 if "Architectures:" not in content:
                     info("  Scoping deb822 sources to amd64")
-                    subprocess.run(
+                    run_cmd(
                         [
                             "sudo",
                             "sed",
@@ -245,11 +229,7 @@ def _ensure_cross_apt_metadata(arch: str) -> None:
     )
     if needs_update:
         info("  Updating apt package cache...")
-        subprocess.run(
-            ["sudo", "apt-get", "update", "-qq"],
-            capture_output=True,
-            check=False,
-        )
+        run_cmd(["sudo", "apt-get", "update", "-qq"], check=False, capture=True)
 
 
 def _detect_native_dev_packages(native_triple: str) -> list[str]:
@@ -258,23 +238,17 @@ def _detect_native_dev_packages(native_triple: str) -> list[str]:
     Scans dpkg for packages that own .pc files under the native triple's
     pkgconfig directory. These are the packages we need cross-arch equivalents for.
     """
-    result = subprocess.run(
+    result = run_cmd(
         ["dpkg", "-S", f"/usr/lib/{native_triple}/pkgconfig/*.pc"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
+        check=False,
+        capture=True,
     )
     if result.returncode != 0:
         return []
 
     packages: set[str] = set()
-    native_arch = subprocess.run(
-        ["dpkg", "--print-architecture"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
+    native_arch = run_cmd(
+        ["dpkg", "--print-architecture"], check=False, capture=True
     ).stdout.strip()
 
     for line in result.stdout.splitlines():
@@ -304,11 +278,7 @@ def _resolve_cross_packages(
     pending: list[str] = []
     for pkg in dev_pkgs:
         cross_pkg = f"{pkg}:{cross_arch}"
-        result = subprocess.run(
-            ["apt-cache", "show", cross_pkg],
-            capture_output=True,
-            check=False,
-        )
+        result = run_cmd(["apt-cache", "show", cross_pkg], check=False, capture=True)
         if result.returncode == 0:
             pending.append(cross_pkg)
             seen.add(cross_pkg)
@@ -320,14 +290,7 @@ def _resolve_cross_packages(
         next_pending: list[str] = []
         for pkg in pending:
             to_download.append(pkg)
-            result = subprocess.run(
-                ["apt-cache", "depends", pkg],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                check=False,
-            )
+            result = run_cmd(["apt-cache", "depends", pkg], check=False, capture=True)
             for line in result.stdout.splitlines():
                 line = line.strip()
                 if not line.startswith("Depends:"):
@@ -343,11 +306,7 @@ def _resolve_cross_packages(
                 if dep in seen:
                     continue
                 seen.add(dep)
-                check = subprocess.run(
-                    ["apt-cache", "show", dep],
-                    capture_output=True,
-                    check=False,
-                )
+                check = run_cmd(["apt-cache", "show", dep], check=False, capture=True)
                 if check.returncode == 0:
                     next_pending.append(dep)
         pending = next_pending
@@ -401,7 +360,7 @@ def _apply_usrmerge(sysroot: Path) -> None:
 
     if lib_dir.is_dir() and not lib_dir.is_symlink():
         usr_lib.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
+        run_cmd(
             ["cp", "-a"] + [str(p) for p in lib_dir.iterdir()] + [str(usr_lib) + "/"],
             check=False,
         )
@@ -461,11 +420,8 @@ def _setup_cross_sysroot(cross_arch: str, cross_triple: str) -> Path | None:
     deb_dir.mkdir(parents=True, exist_ok=True)
 
     for pkg in cross_pkgs:
-        result = subprocess.run(
-            ["apt-get", "download", pkg],
-            cwd=str(deb_dir),
-            capture_output=True,
-            check=False,
+        result = run_cmd(
+            ["apt-get", "download", pkg], check=False, capture=True, cwd=deb_dir
         )
         if result.returncode == 0:
             info(f"    OK: {pkg}")
@@ -479,10 +435,7 @@ def _setup_cross_sysroot(cross_arch: str, cross_triple: str) -> Path | None:
 
     info(f"  Extracting {len(debs)} packages to {sysroot}/")
     for deb in debs:
-        subprocess.run(
-            ["dpkg-deb", "-x", str(deb), str(sysroot) + "/"],
-            check=False,
-        )
+        run_cmd(["dpkg-deb", "-x", str(deb), str(sysroot) + "/"], check=False)
 
     _apply_usrmerge(sysroot)
 
@@ -643,13 +596,7 @@ def _ensure_target_installed(target: str) -> bool:
     if target == native:
         return True
 
-    result = subprocess.run(
-        ["rustup", "target", "add", target],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    result = run_cmd(["rustup", "target", "add", target], check=False, capture=True)
     if result.returncode != 0:
         error(f"  Failed to install target {target}: {result.stderr.strip()}")
         return False
@@ -678,10 +625,8 @@ def _ensure_cross_toolchain(target: str) -> None:
         packages.append(f"g++-{toolchain['triple']}")
 
     # libc6-dev provides dynamic linker + standard libs for cross-arch
-    result = subprocess.run(
-        ["dpkg", "-s", f"libc6-dev:{cross_arch}"],
-        capture_output=True,
-        check=False,
+    result = run_cmd(
+        ["dpkg", "-s", f"libc6-dev:{cross_arch}"], check=False, capture=True
     )
     if result.returncode != 0:
         _ensure_cross_apt_metadata(cross_arch)
@@ -689,10 +634,7 @@ def _ensure_cross_toolchain(target: str) -> None:
 
     if packages:
         info(f"  Installing cross-compilation packages: {' '.join(packages)}")
-        subprocess.run(
-            ["sudo", "apt-get", "install", "-y", "-qq"] + packages,
-            check=False,
-        )
+        run_cmd(["sudo", "apt-get", "install", "-y", "-qq"] + packages, check=False)
 
 
 _ELF_MACHINE_MAP = {
@@ -733,14 +675,7 @@ def _verify_binary(binary: Path, target: str, native_target: str) -> bool:
         info(f"    OK: Size {_human_size(size)}")
 
     if shutil.which("file"):
-        result = subprocess.run(
-            ["file", str(binary)],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-        )
+        result = run_cmd(["file", str(binary)], check=False, capture=True)
         if "ELF" not in result.stdout:
             error(f"    Not an ELF binary: {result.stdout.strip()}")
             errors += 1
@@ -750,14 +685,7 @@ def _verify_binary(binary: Path, target: str, native_target: str) -> bool:
     if shutil.which("readelf"):
         expected = _target_to_elf_machine(target)
         if expected:
-            result = subprocess.run(
-                ["readelf", "-h", str(binary)],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                check=False,
-            )
+            result = run_cmd(["readelf", "-h", str(binary)], check=False, capture=True)
             for line in result.stdout.splitlines():
                 if "Machine:" in line:
                     actual = line.split("Machine:")[1].strip()
@@ -770,14 +698,7 @@ def _verify_binary(binary: Path, target: str, native_target: str) -> bool:
                         errors += 1
                     break
 
-        result = subprocess.run(
-            ["readelf", "-d", str(binary)],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-        )
+        result = run_cmd(["readelf", "-d", str(binary)], check=False, capture=True)
         deps = []
         for line in result.stdout.splitlines():
             if "NEEDED" in line and "[" in line:
@@ -792,14 +713,8 @@ def _verify_binary(binary: Path, target: str, native_target: str) -> bool:
     if target == native_target:
         for flag in ("--version", "--help"):
             try:
-                result = subprocess.run(
-                    [str(binary), flag],
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    check=False,
-                    timeout=10,
+                result = run_cmd(
+                    [str(binary), flag], check=False, capture=True, timeout=10
                 )
                 if result.returncode == 0:
                     first_line = result.stdout.splitlines()[0] if result.stdout else ""
@@ -820,24 +735,59 @@ def _verify_binary(binary: Path, target: str, native_target: str) -> bool:
     return True
 
 
-def _strip_binary(binary: Path, target: str) -> None:
-    """Strip debug symbols from binary."""
-    strip_cmd = None
-    if target.startswith("x86_64-unknown-linux") or target.startswith("x86_64-apple"):
-        strip_cmd = "strip"
-    elif target.startswith("aarch64-unknown-linux"):
-        strip_cmd = "aarch64-linux-gnu-strip"
-    elif target.startswith("aarch64-apple"):
-        strip_cmd = "strip"
+def _strip_tool(target: str) -> str | None:
+    """Return the strip binary for ``target``, or None when none is known."""
+    if target.startswith(("x86_64-unknown-linux", "x86_64-apple", "aarch64-apple")):
+        return "strip"
+    if target.startswith("aarch64-unknown-linux"):
+        return "aarch64-linux-gnu-strip"
+    return None
 
-    if strip_cmd and shutil.which(strip_cmd):
-        size_before = binary.stat().st_size
-        subprocess.run([strip_cmd, str(binary)], check=False)
-        size_after = binary.stat().st_size
-        saved = _human_size(size_before - size_after)
-        info(
-            f"    Stripped: {_human_size(size_before)} -> {_human_size(size_after)} (saved {saved})"
-        )
+
+def _ships_unstripped(binary: Path, reason: str) -> bool:
+    """Report a binary that ships unstripped. Returns True if packaging may go on.
+
+    The PGO + BOLT compiles all run with `strip=none`, so packaging is the
+    only step that strips a BOLT-optimised binary. In CI that gap fails the
+    build, the way a missing blocking tool does. Locally it warns.
+    """
+    msg = f"{binary.name} ships unstripped: {reason}"
+    if is_ci():
+        announce(msg, "hyperi-ci binary not stripped", level="error")
+        return False
+    warn(f"    {msg} (a CI build fails here)")
+    return True
+
+
+def _strip_binary(binary: Path, target: str) -> bool:
+    """Strip symbols from a packaged binary.
+
+    Returns:
+        False when the binary could not be stripped and the run is in CI,
+        which fails packaging. True otherwise, a non-Linux target with no
+        strip tool (Windows) included.
+
+    """
+    strip_cmd = _strip_tool(target)
+    if strip_cmd is None:
+        if "linux" in target:
+            return _ships_unstripped(
+                binary, f"no strip tool is known for target {target}"
+            )
+        return True
+    if not shutil.which(strip_cmd):
+        return _ships_unstripped(binary, f"{strip_cmd} is not on PATH")
+
+    size_before = binary.stat().st_size
+    result = run_cmd([strip_cmd, str(binary)], check=False)
+    if result.returncode != 0:
+        return _ships_unstripped(binary, f"{strip_cmd} exited {result.returncode}")
+    size_after = binary.stat().st_size
+    saved = _human_size(size_before - size_after)
+    info(
+        f"    Stripped: {_human_size(size_before)} -> {_human_size(size_after)} (saved {saved})"
+    )
+    return True
 
 
 def _resolve_build_channel(config: CIConfig) -> str:
@@ -1081,7 +1031,8 @@ def _package_binaries(
             shutil.copy2(src_bin, output_path)
             output_path.chmod(0o755)
 
-            _strip_binary(output_path, target)
+            if not _strip_binary(output_path, target):
+                return 1
 
             info(
                 f"  Created: {output_path.name} ({_human_size(output_path.stat().st_size)})"
@@ -1184,40 +1135,38 @@ def _rlib_has_wrong_arch(rlib: Path, expected_arch_substr: str) -> bool:
 
     Extracts the first .o file from the rlib (ar archive) and checks its
     ELF machine type using `file`. Returns True if the arch is wrong.
+
+    The member is extracted to a scratch directory rather than piped, because
+    run_cmd decodes output as text and an object file is binary.
     """
     ar_cmd = shutil.which("ar")
     file_cmd = shutil.which("file")
     if not ar_cmd or not file_cmd:
         return False
 
-    list_result = subprocess.run(
-        [ar_cmd, "t", str(rlib)],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
+    archive = str(rlib.resolve())
+    list_result = run_cmd([ar_cmd, "t", archive], check=False, capture=True)
     if list_result.returncode != 0:
         return False
 
     for obj_name in list_result.stdout.splitlines():
         if not obj_name.endswith(".o"):
             continue
-        extract_result = subprocess.run(
-            [ar_cmd, "p", str(rlib), obj_name],
-            capture_output=True,
-            check=False,
-        )
-        if extract_result.returncode != 0 or not extract_result.stdout:
-            continue
-        file_result = subprocess.run(
-            [file_cmd, "-"],
-            input=extract_result.stdout,
-            capture_output=True,
-            check=False,
-        )
-        output = file_result.stdout.decode(errors="replace")
+        with tempfile.TemporaryDirectory(prefix="hyperi-ci-rlib-") as scratch:
+            member = Path(scratch) / obj_name
+            extract_result = run_cmd(
+                [ar_cmd, "x", archive, obj_name],
+                check=False,
+                capture=True,
+                cwd=scratch,
+            )
+            if extract_result.returncode != 0 or not member.is_file():
+                continue
+            if member.stat().st_size == 0:
+                continue
+            output = run_cmd(
+                [file_cmd, "-b", str(member)], check=False, capture=True
+            ).stdout
         if not output:
             continue
         return expected_arch_substr not in output
@@ -1267,10 +1216,7 @@ def _clean_stale_sys_crates(target: str) -> None:
 
     for pkg in set(to_clean):
         info(f"  Cleaning stale -sys package: {pkg} --target {target}")
-        subprocess.run(
-            ["cargo", "clean", "--package", pkg, "--target", target],
-            check=False,
-        )
+        run_cmd(["cargo", "clean", "--package", pkg, "--target", target], check=False)
 
 
 def _build_for_target(
@@ -1338,9 +1284,7 @@ def _build_for_target(
     feature_args = cargo_feature_args(profile, features, all_features=all_features)
     cmd = ["cargo", "build", "--release", "--target", target, *feature_args]
 
-    env = dict(os.environ)
-    if extra_env:
-        env.update(extra_env)
+    env = dict(extra_env or {})
 
     # Set cross-compilation env vars for C/C++ dependencies
     native = _get_native_target()
@@ -1362,8 +1306,7 @@ def _build_for_target(
         env.update(_cross_env(target, sysroot=sysroot))
 
     info(f"  Building for {target}...")
-    result = subprocess.run(cmd, env=env)
-    return result.returncode
+    return run_cmd(cmd, check=False, env=env).returncode
 
 
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:

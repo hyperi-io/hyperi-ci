@@ -579,6 +579,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     mode = _get_tool_mode("ruff_docstrings", config)
     ruff_doc_cmd = ["ruff", "check", "--select", "D", *sources]
     ruff_doc_cmd += _build_exclude_args("ruff", excludes)
+    ruff_doc_cmd += _ruff_ignore_flag(ruff_user_ignores)
     if not _run_source_tool("ruff docstrings", ruff_doc_cmd, mode, sources):
         had_failure = True
 

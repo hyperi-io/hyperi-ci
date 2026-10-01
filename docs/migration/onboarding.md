@@ -94,6 +94,7 @@ semantics. The biggest user-visible changes:
      with no tag, or dispatch with `from-head: true` (optionally
      `bump: patch | minor | X.Y.Z`) from the Actions UI. The CI cuts the
      tag and publishes in one run (issue #35).
+     Off main it validates only, bar `bump: auto` on `beta` (#471).
 
 ### What you don't have to do
 

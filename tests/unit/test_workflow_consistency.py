@@ -252,7 +252,7 @@ class TestFromHeadThreading:
         assert "HYPERCI_RELEASE_PREPARED" in commit["env"], (
             "release-commit must restore stamp_paths from the prepared directory"
         )
-        assert commit["run"].endswith('release-commit "$RELEASE_VERSION"')
+        assert commit["run"].endswith('"$RELEASE_VERSION"')
         assert commit["env"]["RELEASE_VERSION"] == "${{ inputs.next-version }}"
         # A tag dispatch checks out an old tag, so its VERSION and CHANGELOG.md
         # committed onto main would move the branch backwards (issue #350).
@@ -262,6 +262,20 @@ class TestFromHeadThreading:
         assert commit["continue-on-error"] is True, (
             "bookkeeping after a shipped release must not turn it red"
         )
+
+    def test_release_commit_lands_on_the_branch_that_released(self) -> None:
+        """A beta release commits back to beta, never main (issue #417).
+
+        The checkout is ``github.ref`` on a push and on a from-head dispatch,
+        so its branch is where the release came from. release-commit defaults
+        to main, which put a ``1.4.0-beta.1`` VERSION onto main.
+        """
+        steps = _load_workflow("_release-tail.yml")["jobs"]["tag-and-release"]["steps"]
+        commit = next(
+            s for s in steps if s.get("name") == "Commit rendered release artefacts"
+        )
+        assert commit["env"].get("RELEASE_BRANCH") == "${{ github.ref_name }}"
+        assert '--branch "$RELEASE_BRANCH"' in commit["run"]
 
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
     def test_build_stamps_on_from_head_dispatch(self, workflow_name: str) -> None:
@@ -1489,6 +1503,19 @@ class TestCommitCheckJob:
         )
 
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_commit_check_runs_on_merge_group(self, workflow_name: str) -> None:
+        # issue #422: commit_validation.run() already treats merge_group as
+        # FATAL, so the job must trigger on it or that path never runs.
+        wf = _load_workflow(workflow_name)
+        ifc = str(wf["jobs"]["commit-check"].get("if", ""))
+        assert "merge_group" in ifc, (
+            f"{workflow_name}: commit-check must run on merge_group (issue #422)"
+        )
+        assert _fires(ifc, {"github.event_name": "merge_group", "github.ref": ""}), (
+            f"{workflow_name}: commit-check's if: does not fire on merge_group"
+        )
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
     def test_commit_check_runs_check_commits(self, workflow_name: str) -> None:
         wf = _load_workflow(workflow_name)
         steps = wf["jobs"]["commit-check"]["steps"]
@@ -1736,7 +1763,7 @@ def test_the_container_build_resolves_its_runner_through_the_org_variables() -> 
         f"_release-tail.container: the fallback chain must terminate on a real "
         f"runner.\n  actual: {runs_on}"
     )
-    assert "vars.GH_RUNNER_MODE == 'free' && 'ubuntu-latest'" in runs_on, (
+    assert TestRunnerSelection.FREE_MODE in runs_on, (
         f"_release-tail.container: lost the free-mode escape, so an org with "
         f"no self-hosted fleet queues forever.\n  actual: {runs_on}"
     )
@@ -1761,10 +1788,77 @@ def test_the_publish_job_resolves_a_runner_like_the_container_job() -> None:
         f"_release-tail.tag-and-release: the fallback chain must terminate on a "
         f"real runner.\n  actual: {runs_on}"
     )
-    assert "vars.GH_RUNNER_MODE == 'free' && 'ubuntu-latest'" in runs_on, (
+    assert TestRunnerSelection.FREE_MODE in runs_on, (
         f"_release-tail.tag-and-release: lost the free-mode escape, so an org "
         f"with no self-hosted fleet queues forever.\n  actual: {runs_on}"
     )
+
+
+class TestReleaseTailRunnerMode:
+    """issue #442: the tail read `vars.GH_RUNNER_MODE` alone, so a caller's
+    `runner-mode: free` stopped at the language workflow and the release jobs
+    still landed on ARC.
+    """
+
+    TAIL = "_release-tail.yml"
+    FORWARD = "${{ inputs.runner-mode }}"
+
+    def test_the_tail_declares_an_optional_runner_mode_input(self) -> None:
+        # A required input fails every caller that predates it at startup.
+        wf = _load_workflow(self.TAIL)
+        on = wf.get("on") or wf.get(True, {})
+        spec = on["workflow_call"]["inputs"].get("runner-mode")
+        assert spec is not None, f"{self.TAIL}: workflow_call has no runner-mode"
+        assert spec.get("type") == "string"
+        assert spec.get("required", False) is False
+        assert spec.get("default") == ""
+
+    def test_every_tail_job_on_an_org_runner_reads_the_callers_mode(self) -> None:
+        jobs = _load_workflow(self.TAIL)["jobs"]
+        gated = {
+            name: str(job.get("runs-on", ""))
+            for name, job in jobs.items()
+            if "GH_RUNNER" in str(job.get("runs-on", ""))
+        }
+        assert gated, f"{self.TAIL}: no job resolves its runner through GH_RUNNER_*"
+        for job, runs_on in gated.items():
+            assert TestRunnerSelection.FREE_MODE in runs_on, (
+                f"{self.TAIL}.{job}: runs-on ignores the caller's runner-mode.\n"
+                f"  actual: {runs_on}"
+            )
+
+    @pytest.mark.parametrize("workflow_name", (*LANGUAGE_WORKFLOWS, TAIL))
+    def test_no_bare_runner_mode_variable(self, workflow_name: str) -> None:
+        # Covers if:, matrix and env as well as runs-on.
+        text = (WORKFLOW_DIR / workflow_name).read_text(encoding="utf-8")
+        total = text.count("vars.GH_RUNNER_MODE")
+        combined = text.count("(inputs.runner-mode || vars.GH_RUNNER_MODE)")
+        assert total == combined, (
+            f"{workflow_name}: {total - combined} read(s) of vars.GH_RUNNER_MODE "
+            f"skip the caller's runner-mode input"
+        )
+
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    def test_the_language_workflow_forwards_runner_mode(
+        self, workflow_name: str
+    ) -> None:
+        wf = _load_workflow(workflow_name)
+        on = wf.get("on") or wf.get(True, {})
+        assert "runner-mode" in on["workflow_call"]["inputs"], (
+            f"{workflow_name}: workflow_call has no runner-mode input to forward"
+        )
+        calls = [
+            (name, job)
+            for name, job in wf["jobs"].items()
+            if self.TAIL in str(job.get("uses", ""))
+        ]
+        assert calls, f"{workflow_name}: no job calls {self.TAIL}"
+        for name, job in calls:
+            passed = job.get("with", {}).get("runner-mode")
+            assert passed == self.FORWARD, (
+                f"{workflow_name}.{name}: must pass runner-mode: {self.FORWARD} "
+                f"to {self.TAIL}.\n  actual: {passed!r}"
+            )
 
 
 def test_every_workflow_pins_the_cli_interpreter() -> None:

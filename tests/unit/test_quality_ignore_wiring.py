@@ -221,6 +221,17 @@ class TestRuffSecurityMode:
         assert passes["ruff security"][1] == "blocking"
 
 
+class TestRuffDocstringsIgnores:
+    """`--select D` drops the repo's ruff ignore list, so quality.ignore is the way in."""
+
+    def test_quality_ignore_entries_reach_the_d_pass(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cmd, _ = _passes(monkeypatch, {})["ruff docstrings"]
+        assert cmd[:4] == ["ruff", "check", "--select", "D"]
+        assert "--extend-ignore=S603" in cmd
+
+
 class TestRuffFormatBelowTheFlagVersion:
     """ruff under 0.15.21 rejects --extend-exclude, and never walks Markdown."""
 

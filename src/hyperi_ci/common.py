@@ -11,6 +11,7 @@ detection (GitHub Actions workflow commands, Solarized terminal, plain CI).
 """
 
 import codecs
+import errno
 import fnmatch
 import functools
 import http.client
@@ -524,6 +525,7 @@ def run_cmd(
     env: dict[str, str] | None = None,
     timeout: float | None = None,
     stdin_text: str | None = None,
+    merge_stderr: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """Run a subprocess with consistent error handling.
 
@@ -531,6 +533,9 @@ def run_cmd(
         cmd: Command as list of strings.
         check: Raise CalledProcessError on non-zero exit.
         capture: Capture stdout/stderr instead of passing through.
+        merge_stderr: With ``capture``, send stderr down the stdout pipe, so
+            ``stdout`` holds both streams in the order the child wrote them
+            and ``stderr`` is None.
         cwd: Working directory.
         env: Additional env vars (merged with os.environ).
         timeout: Seconds before the child is killed and
@@ -543,15 +548,28 @@ def run_cmd(
     Returns:
         CompletedProcess with text output.
 
+    Raises:
+        ValueError: ``merge_stderr`` without ``capture``, where there is no
+            pipe to merge into.
+
     """
+    if merge_stderr and not capture:
+        raise ValueError("run_cmd: merge_stderr needs capture=True")
+
     run_env = None
     if env:
         run_env = {**os.environ, **env}
 
+    stdout = stderr = None
+    if capture:
+        stdout = subprocess.PIPE
+        stderr = subprocess.STDOUT if merge_stderr else subprocess.PIPE
+
     return subprocess.run(
         cmd,
         check=check,
-        capture_output=capture,
+        stdout=stdout,
+        stderr=stderr,
         text=True,
         encoding="utf-8",
         errors="replace",
@@ -580,7 +598,9 @@ def backoff(retry: int) -> float:
     return random.uniform(0.5, 1.0) * 2 ** (retry - 1)
 
 
-_CURL_RETRIES = 5
+# With backoff() that spans about 1+2+...+64 seconds, long enough to ride out a
+# GitHub release-download 504 burst.
+_CURL_RETRIES = 7
 # No retry starts once this many seconds have passed since the first attempt.
 _CURL_RETRY_MAX_TIME = 600
 _CURL_CONNECT_TIMEOUT = 10
@@ -869,6 +889,10 @@ STREAM_TAIL_CHARS = 64 * 1024
 
 _STREAM_READ_BYTES = 64 * 1024
 
+# Bounded wait for the reader after the child exits, because a grandchild that
+# inherited the pipe can hold it open indefinitely.
+_STREAM_GIVE_UP_SECONDS = 10.0
+
 
 class _StreamReader:
     """Drain a child's output pipe, feeding the sinks and keeping a bounded tail.
@@ -876,6 +900,14 @@ class _StreamReader:
     A sink that raises (a closed stdout under ``| head``) is not allowed to stop
     the draining: an undrained pipe fills and blocks the child. The first such
     exception is kept for the caller to raise once the child has exited.
+
+    It reads its own duplicate of ``fd`` and closes it only at EOF, so a reader
+    still running after the caller has closed the original can never read a
+    descriptor number the process has since handed to something else.
+
+    A read that fails ends the drain rather than the thread. EIO is how a pty
+    reports that its writer has gone, so it reads as EOF. Any other error is
+    kept in ``read_error`` for the caller to report.
     """
 
     def __init__(
@@ -885,7 +917,7 @@ class _StreamReader:
         on_chunk: Callable[[str], None] | None,
         tail_chars: int,
     ) -> None:
-        self._fd = fd
+        self._fd = os.dup(fd)
         self._on_line = on_line
         self._on_chunk = on_chunk
         self._tail_chars = tail_chars
@@ -894,6 +926,7 @@ class _StreamReader:
         self._tail = ""
         self._lock = threading.Lock()
         self.sink_error: BaseException | None = None
+        self.read_error: OSError | None = None
 
     def _call(self, sink: Callable[[str], None] | None, text: str) -> None:
         if sink is None or self.sink_error is not None:
@@ -917,10 +950,25 @@ class _StreamReader:
         for line in pieces:
             self._call(self._on_line, line.removesuffix("\r"))
 
+    def _read(self) -> bytes:
+        """Return the next chunk of output, or empty bytes at EOF."""
+        return os.read(self._fd, _STREAM_READ_BYTES)
+
     def run(self) -> None:
-        """Read until EOF, then hand over any final unterminated line."""
-        while chunk := os.read(self._fd, _STREAM_READ_BYTES):
-            self._feed(self._decoder.decode(chunk))
+        """Read until EOF or a failed read, then hand over any unterminated line."""
+        try:
+            while True:
+                try:
+                    chunk = self._read()
+                except OSError as exc:
+                    if exc.errno != errno.EIO:
+                        self.read_error = exc
+                    break
+                if not chunk:
+                    break
+                self._feed(self._decoder.decode(chunk))
+        finally:
+            os.close(self._fd)
         self._feed(self._decoder.decode(b"", final=True))
         if self._partial:
             self._call(self._on_line, self._partial.removesuffix("\r"))
@@ -986,6 +1034,7 @@ def stream_cmd(
     if proc.stdout is None:
         raise OSError(f"no output pipe for {cmd[0]}")
     drain = _StreamReader(proc.stdout.fileno(), on_line, on_chunk, STREAM_TAIL_CHARS)
+    proc.stdout.close()
     reader = threading.Thread(target=drain.run, daemon=True)
     reader.start()
     started = time.monotonic()
@@ -997,11 +1046,11 @@ def stream_cmd(
             if on_heartbeat is not None:
                 on_heartbeat(time.monotonic() - started, proc.pid)
 
-    # Bounded: a grandchild that inherited the pipe can hold it open after the
-    # child exits, and waiting on that would be a new hang.
-    reader.join(timeout=10)
+    reader.join(timeout=_STREAM_GIVE_UP_SECONDS)
     if drain.sink_error is not None:
         raise drain.sink_error
+    if drain.read_error is not None:
+        warn(f"  output of {cmd[0]} was cut short: {drain.read_error}")
     return returncode, drain.tail()
 
 

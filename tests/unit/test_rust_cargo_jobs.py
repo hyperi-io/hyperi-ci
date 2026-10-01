@@ -230,7 +230,7 @@ def test_the_cap_reaches_a_quality_cargo_call(
     monkeypatch.setattr(_jobs, "cpu_budget", lambda: 16)
     monkeypatch.setattr(_jobs, "memory_limit", lambda: SIXTEEN_GIB)
     rec = _Recorder()
-    monkeypatch.setattr(f"{QUALITY}.subprocess.run", rec.run)
+    monkeypatch.setattr(f"{QUALITY}.run_cmd", rec.run)
     monkeypatch.setattr(f"{QUALITY}._run_matrix_pass", rec.matrix_pass)
     monkeypatch.setattr(f"{QUALITY}.shutil.which", lambda n: f"/usr/bin/{n}")
     monkeypatch.setattr(f"{QUALITY}._has_lib_target", lambda *_a: True)

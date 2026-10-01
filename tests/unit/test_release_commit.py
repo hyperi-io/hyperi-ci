@@ -88,7 +88,7 @@ class _Api:
                 return {"sha": "version-sha", "content": encoded}
             sha = self.tip_blobs.get(path, _HEAD_BLOB)
             return {"sha": sha} if sha else None
-        if endpoint.endswith("/git/ref/heads/main"):
+        if "/git/ref/heads/" in endpoint:
             tip = self.tips[min(self.ref_reads, len(self.tips) - 1)]
             self.ref_reads += 1
             return {"object": {"sha": tip}}
@@ -467,6 +467,63 @@ class TestTheBranchNeverMovesBackwards:
         api.tip_version = "9.9.9\n"
         commit_release_artefacts(version="3.1.0", project_dir=tmp_path)
         assert not [e for e in api.endpoints() if "/contents/VERSION" in e]
+        assert api.bodies_for("/git/commits")
+
+
+class TestAPrereleaseStaysOnItsBranch:
+    """A beta release must not write its VERSION and CHANGELOG onto main (issue #417)."""
+
+    @pytest.fixture
+    def beta(self, api: _Api, project: Path) -> Path:
+        (project / "VERSION").write_text("1.4.0-beta.1\n", encoding="utf-8")
+        api.tip_version = "1.3.0\n"
+        return project
+
+    def test_a_prerelease_never_commits_to_main(self, api: _Api, beta: Path) -> None:
+        rc = commit_release_artefacts(
+            version="1.4.0-beta.1", branch="main", project_dir=beta
+        )
+        assert rc == 1
+        assert not api.bodies_for("/git/commits")
+        assert not api.bodies_for("/git/refs/heads/")
+
+    def test_the_default_branch_refuses_a_prerelease(
+        self, api: _Api, beta: Path
+    ) -> None:
+        assert commit_release_artefacts(version="1.4.0-beta.1", project_dir=beta) == 1
+        assert not api.bodies_for("/git/commits")
+
+    def test_a_prerelease_commits_back_to_its_own_branch(
+        self, api: _Api, beta: Path
+    ) -> None:
+        rc = commit_release_artefacts(
+            version="1.4.0-beta.1", branch="beta", project_dir=beta
+        )
+        assert rc == 0
+        updated = [e for e in api.endpoints() if "/git/refs/heads/" in e]
+        assert updated == ["repos/hyperi-io/hyperi-ci/git/refs/heads/beta"]
+
+    def test_a_branch_the_repo_does_not_declare_refuses_it(
+        self, api: _Api, beta: Path
+    ) -> None:
+        (beta / ".releaserc.json").write_text(
+            '{"branches": ["main"]}\n', encoding="utf-8"
+        )
+        rc = commit_release_artefacts(
+            version="1.4.0-beta.1", branch="beta", project_dir=beta
+        )
+        assert rc == 1
+        assert not api.bodies_for("/git/commits")
+
+    def test_a_stable_version_still_commits_to_main(
+        self, api: _Api, project: Path
+    ) -> None:
+        assert (
+            commit_release_artefacts(
+                version="3.1.0", branch="main", project_dir=project
+            )
+            == 0
+        )
         assert api.bodies_for("/git/commits")
 
 
