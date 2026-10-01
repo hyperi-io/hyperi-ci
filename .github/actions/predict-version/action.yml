@@ -40,7 +40,7 @@ inputs:
     required: false
     default: ""
   from-head:
-    description: "'true' on a from-head dispatch (issue #35): resolve version for tagging HEAD"
+    description: "'true' on a from-head dispatch (issue #35): resolve version for tagging HEAD. Releases only on main, or on a declared prerelease branch with bump=auto (issue #471)"
     required: false
     default: ""
   bump:
@@ -157,7 +157,9 @@ runs:
       # Gate the entire publish flow on one signal: `will-publish`.
       #
       # - workflow_dispatch with a tag input → always publish (retroactive).
-      # - workflow_dispatch with from-head: true → publish HEAD.
+      # - workflow_dispatch with from-head: true -> publish HEAD, from main or
+      #   from a declared prerelease branch with bump=auto. Any other ref, or
+      #   a forced bump on a prerelease branch, is validate-only (issue #471).
       # - push to main with `Release: true` trailer in HEAD commit → release.
       # - push to a declared prerelease branch with the same trailer →
       #   release on that branch's own sequence (1.2.0-beta.1), which spends
@@ -173,6 +175,7 @@ runs:
         GIT_REF: ${{ github.ref }}
         DISPATCH_TAG: ${{ inputs.tag }}
         FROM_HEAD: ${{ inputs.from-head }}
+        BUMP: ${{ inputs.bump }}
       run: |
         # A schedule runs on main's HEAD, so the trailer check below would
         # publish any HEAD still carrying `Release: true`. A scheduled run
@@ -199,6 +202,25 @@ runs:
             echo "will-publish=false" >> "$GITHUB_OUTPUT"
             echo "::warning::Bare workflow_dispatch — validate-only run. Quality, test and build run; NOTHING is tagged or published. To release, re-run with from-head=true (bump=auto|patch|minor|X.Y.Z), or tag=vX.Y.Z to re-publish an existing release."
             exit 0
+          fi
+
+          # tag-head cuts a forced bump on any ref it is handed, ignoring the
+          # release config, and runs on from-head even beside a tag, so the
+          # branch rule is applied here (issue #471).
+          if [[ "$FROM_HEAD" == "true" && "$GIT_REF" != "refs/heads/main" ]]; then
+            prerelease=$(python3 "$GITHUB_ACTION_PATH/prerelease_branch.py")
+            if [[ "$prerelease" != "true" ]]; then
+              echo "will-publish=false" >> "$GITHUB_OUTPUT"
+              echo "::warning::from-head dispatch on ref '${GIT_REF}' -- validate-only run, NOTHING is tagged or published. Releasing happens from main, or from a branch declared 'prerelease' in the release config. Merge to main and dispatch there, or dispatch on a declared prerelease branch with bump=auto."
+              exit 0
+            fi
+            # The forced step computes a plain X.Y.Z, so on a prerelease
+            # branch it would cut a stable release.
+            if [[ -n "$BUMP" && "$BUMP" != "auto" ]]; then
+              echo "will-publish=false" >> "$GITHUB_OUTPUT"
+              echo "::warning::Forced bump '${BUMP}' on prerelease branch '${GIT_REF}' -- validate-only run, NOTHING is tagged or published. A forced bump cuts a stable version, never a prerelease one. Re-run with bump=auto to release on this branch's prerelease sequence."
+              exit 0
+            fi
           fi
           echo "will-publish=true" >> "$GITHUB_OUTPUT"
           echo "::notice::Triggered by workflow_dispatch — publish run"
