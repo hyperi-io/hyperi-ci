@@ -13,6 +13,7 @@ from hyperi_ci.common import error, info, is_ci, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import get_test_ignore, resolve_tool_mode
 from hyperi_ci.quality.ignores import for_tool, load_ignores
+from hyperi_ci.tools import warn_on_pin_drift
 
 _DEFAULT_GO_TEST_IGNORE = ["errcheck", "gosec"]
 
@@ -35,7 +36,13 @@ def _run_tool(
     cmd: list[str],
     mode: str,
     use_uvx: bool = False,
+    pinned: str | None = None,
 ) -> bool:
+    """Run a quality tool. Returns True if the pipeline should continue.
+
+    ``pinned`` names the ``versions.yaml`` key of the binary behind the
+    command, whose PATH copy is checked against the pin before it runs.
+    """
     if mode == "disabled":
         info(f"  {tool_name}: disabled")
         return True
@@ -53,6 +60,8 @@ def _run_tool(
         warn(f"  {tool_name}: not installed (skipping locally)")
         return True
 
+    if pinned:
+        warn_on_pin_drift(pinned)
     result = subprocess.run(
         resolved, capture_output=True, text=True, encoding="utf-8", errors="replace"
     )
@@ -63,14 +72,14 @@ def _run_tool(
     if mode == "warn":
         warn(f"  {tool_name}: issues found (non-blocking)")
         if result.stdout:
-            print(result.stdout)
+            info(result.stdout)
         return True
 
     error(f"  {tool_name}: failed")
     if result.stdout:
-        print(result.stdout)
+        info(result.stdout)
     if result.stderr:
-        print(result.stderr)
+        info(result.stderr)
     return False
 
 
@@ -94,11 +103,13 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     gci_user_ignores = for_tool(ignores, "golangci-lint")
     gci_user_disable = [f"--disable={e.id}" for e in gci_user_ignores]
 
-    # Production pass -- skip test files
+    # Production pass -- skip test files. The pin is checked here only, so the
+    # test pass does not repeat the warning.
     if not _run_tool(
         "golangci-lint (src)",
         ["golangci-lint", "run", "--tests=false", "--timeout", "5m"] + gci_user_disable,
         mode,
+        pinned="golangci-lint",
     ):
         had_failure = True
 
@@ -120,7 +131,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if gosec_ignores:
         gosec_cmd.extend(["-exclude", ",".join(e.id for e in gosec_ignores)])
     gosec_cmd.append("./...")
-    if not _run_tool("gosec", gosec_cmd, mode):
+    if not _run_tool("gosec", gosec_cmd, mode, pinned="gosec"):
         had_failure = True
 
     # govulncheck has no native --ignore flag; emit a notice when entries
@@ -133,7 +144,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             "no CLI ignore flag. Use //vuln:ignore source annotations or run "
             "via warn mode."
         )
-    if not _run_tool("govulncheck", ["govulncheck", "./..."], mode):
+    if not _run_tool(
+        "govulncheck", ["govulncheck", "./..."], mode, pinned="govulncheck"
+    ):
         had_failure = True
 
     return 1 if had_failure else 0

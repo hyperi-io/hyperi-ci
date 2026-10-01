@@ -561,6 +561,14 @@ what hyperi-ci needs the tool for and the exact install command(s) + docs URL.
 `missing_tool_notice()` / `find_tool()` are used by gitleaks, semgrep, gh,
 helm, aws, and the alint advisory below.
 
+## Installed tool - pinned vs PATH
+
+A tool on PATH at a version other than `versions.yaml` gives a local result CI would not.
+
+- **semgrep and the Python tools** (vulture, bandit, ty, pip-audit) run the pin through `uvx` / `uv run --with` whenever `uv` is installed, whatever is on PATH. Without `uv` the PATH copy runs, with a warning naming the pin.
+- **cargo-hack** is installed at the pin with `cargo install --locked --version`, and a different version is reinstalled over it.
+- **cargo-audit, cargo-deny, osv-scanner, golangci-lint, gosec, govulncheck** are not installed locally. When the PATH copy's version is not the pin, the stage warns once per tool and names both. In CI the setup actions install and assert the pin, so the warning stays quiet there.
+
 ## Advisory (non-blocking) checks
 
 Two hygiene nudges run in the quality stage. Neither can ever fail a build -

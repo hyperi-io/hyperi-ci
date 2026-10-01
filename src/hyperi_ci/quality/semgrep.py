@@ -26,6 +26,7 @@ from hyperi_ci.languages.quality_common import (
     checked_mode,
     is_skipped,
     note_gate_downgrade,
+    resolve_tool_cmd,
 )
 from hyperi_ci.quality.ignores import for_tool, load_ignores
 from hyperi_ci.tools import missing_tool_notice
@@ -77,12 +78,10 @@ def run(config: CIConfig, *, language: str | None = None) -> int:
         info("  semgrep: disabled")
         return 0
 
-    if shutil.which("semgrep"):
-        cmd = ["semgrep"]
-    elif shutil.which("uvx"):
-        # Pinned from the SSOT, else uvx takes whatever PyPI serves that morning.
-        cmd = ["uvx", "--from", f"semgrep=={tool_version('semgrep')}", "semgrep"]
-    else:
+    # The pin wins over a semgrep on PATH whenever uv can install it.
+    spec = f"semgrep=={tool_version('semgrep')}"
+    cmd = resolve_tool_cmd(["semgrep"], use_uvx=True, spec=spec)
+    if cmd == ["semgrep"] and not shutil.which("semgrep"):
         # Fail only in CI, where every tool must be present, and warn-skip locally.
         notice = missing_tool_notice("semgrep")
         if mode == "blocking" and is_ci():

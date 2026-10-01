@@ -31,6 +31,17 @@ def _cargo_args(cmd: list[str]) -> list[str]:
     return cmd[: cmd.index("--")] if "--" in cmd else cmd
 
 
+@pytest.fixture(autouse=True)
+def _pinned_cargo_hack(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Treat the pinned cargo-hack as present, so no test probes or installs it.
+
+    The install itself is covered in test_tool_pins.py.
+    """
+    monkeypatch.setattr(
+        "hyperi_ci.languages.rust.quality._ensure_cargo_hack", lambda: True
+    )
+
+
 def _make_config(fm: dict[str, Any] | None) -> CIConfig:
     raw: dict[str, Any] = {"quality": {"rust": {}}}
     if fm is not None:

@@ -15,7 +15,8 @@ import shutil
 
 import pytest
 
-from hyperi_ci.languages.python import quality
+from hyperi_ci.languages import quality_common
+from hyperi_ci.languages.quality_common import resolve_tool_cmd
 
 
 class TestPinnedSpecBeatsPath:
@@ -25,7 +26,7 @@ class TestPinnedSpecBeatsPath:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
-        resolved = quality._resolve_tool_cmd(
+        resolved = resolve_tool_cmd(
             ["vulture", "src/"], use_uvx=True, spec="vulture==2.16"
         )
         assert resolved == ["uvx", "--from", "vulture==2.16", "vulture", "src/"]
@@ -34,9 +35,7 @@ class TestPinnedSpecBeatsPath:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
-        resolved = quality._resolve_tool_cmd(
-            ["ty", "check"], use_uv_with=True, spec="ty==0.1.0"
-        )
+        resolved = resolve_tool_cmd(["ty", "check"], use_uv_with=True, spec="ty==0.1.0")
         assert resolved == ["uv", "run", "--with", "ty==0.1.0", "--", "ty", "check"]
 
     def test_unpinned_spec_on_path_is_unchanged(
@@ -44,7 +43,7 @@ class TestPinnedSpecBeatsPath:
     ) -> None:
         """ruff/pytest resolve via the project's own venv -- PATH still wins."""
         monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
-        resolved = quality._resolve_tool_cmd(["ruff", "check", "."])
+        resolved = resolve_tool_cmd(["ruff", "check", "."])
         assert resolved == ["ruff", "check", "."]
 
     def test_pinned_spec_falls_back_to_path_when_uv_is_absent(
@@ -55,10 +54,10 @@ class TestPinnedSpecBeatsPath:
 
         monkeypatch.setattr(shutil, "which", which)
         said: list[str] = []
-        monkeypatch.setattr(quality, "warn", said.append)
-        monkeypatch.setattr(quality, "_installed_version", lambda _binary: None)
+        monkeypatch.setattr(quality_common, "warn", said.append)
+        monkeypatch.setattr(quality_common, "installed_version", lambda _binary: None)
 
-        resolved = quality._resolve_tool_cmd(
+        resolved = resolve_tool_cmd(
             ["vulture", "src/"], use_uvx=True, spec="vulture==2.16"
         )
 

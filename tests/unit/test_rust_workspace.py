@@ -283,7 +283,12 @@ class _Tools:
         self.commands: dict[str, list[str]] = {}
 
     def run_tool(
-        self, tool_name: str, cmd: list[str], mode: str, use_uvx: bool = False
+        self,
+        tool_name: str,
+        cmd: list[str],
+        mode: str,
+        use_uvx: bool = False,
+        pinned: str | None = None,
     ) -> bool:
         self.commands[tool_name] = cmd
         return True
