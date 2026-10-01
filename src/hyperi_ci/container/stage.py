@@ -601,7 +601,7 @@ def _dispatch_build(
     )
 
     from hyperi_ci.description_source import resolve_description
-    from hyperi_ci.init import detect_license
+    from hyperi_ci.init import find_license
 
     # GHCR renders this label as the package page's description, so an empty
     # one leaves the page blank.
@@ -625,7 +625,8 @@ def _dispatch_build(
         version=version,
         title=image_name,
         description=description,
-        licenses=detect_license(Path.cwd()),
+        classification=config.classification,
+        licenses=find_license(Path.cwd()),
         optimized=not skip_optimize(config),
     )
     if extra_labels:

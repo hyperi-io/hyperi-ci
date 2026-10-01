@@ -392,6 +392,16 @@ finds a signal - a Dockerfile, or a Rust binary using scalo's contract.
 container.** The decision is resolved *before* Docker Buildx boots, so a library
 never pulls buildkit from Docker Hub nor logs in to GHCR.
 
+**Vendor and licence labels follow the classification (issue #441).** `ownership_labels` in `container/labels.py` decides both from the declared `classification` and the licence `init.find_license` reads: `license:` in `.hyperi-ci.yaml`, then `LICENSE`, then source headers.
+
+| Classification | `org.opencontainers.image.vendor` | `org.opencontainers.image.licenses` |
+|---|---|---|
+| `internal`, `product` | `HYPERI PTY LIMITED` | the licence found, else `BUSL-1.1` |
+| `fork`, `general-oss` | none | the licence found, else none |
+| not declared | none | the licence found, else none |
+
+A missing label is honest and a guessed one is not. The GitHub org custom property is not read here, so a repo that declares its category only there builds as undeclared. `release.container.labels` still overrides any label.
+
 **Docker Hub login is Container-only (issue #406).** `docker/login-action` leaves the credential in `~/.docker/config.json` until the job ends. Container logs in for base-image pulls, and the Dockerfile's `RUN` steps cannot read it inside BuildKit. The language workflows run repo code in every job, so they log in nowhere and testcontainers pulls anonymously. If that limit starts failing tests, give the runner's Docker daemon a pull-through mirror.
 
 **Container skips `release.stamp_cmd`.** It holds those logins and a `packages:write` token, so its stamp sets `HYPERCI_STAMP_SKIP_CMD=1` (the env form of `stamp-version --no-stamp-cmd`), and Build and Prepare run the command instead. The skip is the protection, and only a CLI release carrying it honours the variable. On an older CLI, or under a `HYPERCI_INSTALL_OVERRIDE` pin, `stamp_cmd` still runs here and can write `$GITHUB_ENV` or `$GITHUB_PATH` or leave a process for the steps after the logins, so running the stamp before them is not enough on its own. The variable rather than the flag keeps the workflow working on those older CLIs. The job also installs uv before the checkout, sets up Python with `--no-config`, keeps no token in its checkout, and places only `dist/` and `ci-tmp/` from the build artefact.
