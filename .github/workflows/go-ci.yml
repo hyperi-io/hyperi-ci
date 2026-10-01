@@ -363,7 +363,7 @@ jobs:
         # (its own fetch-depth: 0 checkout). Harmless on an already-full clone.
         # The checkout keeps no credential, so the job token reaches this step
         # alone, as environment-scoped git config (issue #402).
-        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
+        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
         env:
           GH_TOKEN: ${{ github.token }}
           GIT_TERMINAL_PROMPT: "0"

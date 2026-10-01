@@ -84,6 +84,10 @@ class TestFromHeadThreading:
         assert names[i + 1] == "Run quality checks", (
             f"{workflow_name}: deepen step must run immediately before quality"
         )
+        # Quality runs on a merge queue entry, so the scan needs the history there.
+        assert "merge_group" in str(steps[i].get("if", "")), (
+            f"{workflow_name}: deepen step must run on merge_group too"
+        )
 
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
     def test_workflow_call_accepts_submodules(self, workflow_name: str) -> None:
