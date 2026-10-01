@@ -736,7 +736,7 @@ def _verify_binary(binary: Path, target: str, native_target: str) -> bool:
 
 
 def _strip_tool(target: str) -> str | None:
-    """Return the strip binary for ``target``, or None for a target never stripped."""
+    """Return the strip binary for ``target``, or None when none is known."""
     if target.startswith(("x86_64-unknown-linux", "x86_64-apple", "aarch64-apple")):
         return "strip"
     if target.startswith("aarch64-unknown-linux"):
@@ -764,12 +764,16 @@ def _strip_binary(binary: Path, target: str) -> bool:
 
     Returns:
         False when the binary could not be stripped and the run is in CI,
-        which fails packaging. True otherwise, a target never stripped
-        (Windows) included.
+        which fails packaging. True otherwise, a non-Linux target with no
+        strip tool (Windows) included.
 
     """
     strip_cmd = _strip_tool(target)
     if strip_cmd is None:
+        if "linux" in target:
+            return _ships_unstripped(
+                binary, f"no strip tool is known for target {target}"
+            )
         return True
     if not shutil.which(strip_cmd):
         return _ships_unstripped(binary, f"{strip_cmd} is not on PATH")

@@ -475,8 +475,9 @@ def _run_cargo_pgo(
     return run_cmd(cmd, check=False, cwd=cwd, env=extra_env).returncode
 
 
-# The workload commands are project-owned shell command lines, run the way
-# `shell=True` runs them on POSIX.
+# SECURITY: `pgo.workload_cmd` and `workload_setup_cmd` are strings from the
+# project's own .hyperi-ci.yaml, run through a shell exactly as `shell=True`
+# runs them on POSIX. A repo that can edit its config can already run code here.
 _SHELL = ("/bin/sh", "-c")
 
 # Bounds the setup step on its own clock, separate from the workload's grace:

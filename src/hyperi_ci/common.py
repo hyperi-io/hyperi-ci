@@ -547,7 +547,14 @@ def run_cmd(
     Returns:
         CompletedProcess with text output.
 
+    Raises:
+        ValueError: ``merge_stderr`` without ``capture``, where there is no
+            pipe to merge into.
+
     """
+    if merge_stderr and not capture:
+        raise ValueError("run_cmd: merge_stderr needs capture=True")
+
     run_env = None
     if env:
         run_env = {**os.environ, **env}

@@ -6,7 +6,6 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 import ast
-import os
 import platform
 import shutil
 import subprocess
@@ -98,6 +97,24 @@ class TestMissingStripTool:
 
         assert build._strip_binary(binary, _NATIVE) is False
         assert "exited 3" in reports.announced[0]
+
+    @pytest.mark.parametrize(
+        "target",
+        [
+            "armv7-unknown-linux-gnueabihf",
+            "riscv64gc-unknown-linux-gnu",
+            "i686-unknown-linux-gnu",
+        ],
+    )
+    def test_a_linux_target_with_no_known_tool_is_named(
+        self, tmp_path, monkeypatch, target
+    ) -> None:
+        reports = _Reports(monkeypatch, ci=True)
+        binary = _binary(tmp_path)
+
+        assert build._strip_binary(binary, target) is False
+        assert binary.name in reports.announced[0]
+        assert target in reports.announced[0]
 
     def test_a_target_never_stripped_says_nothing(self, tmp_path, monkeypatch) -> None:
         reports = _Reports(monkeypatch, ci=True)
@@ -221,12 +238,44 @@ def launches(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     monkeypatch.setattr(subprocess, "Popen", _FakePopen)
     monkeypatch.setenv("HYPERCI_TEST_RUNNER_ENV", "kept")
     monkeypatch.setenv("RUSTC_WRAPPER", "sccache")
+    monkeypatch.setenv("CARGO_PROFILE_RELEASE_STRIP", "symbols")
+    for name in _WATCHED:
+        if name not in _RUNNER_SET:
+            monkeypatch.delenv(name, raising=False)
     return _FakePopen.launches
 
 
-def _effective_env(launch: dict[str, Any]) -> dict[str, str]:
-    env = launch.get("env")
-    return dict(os.environ) if env is None else dict(env)
+_RUNNER_SET = (
+    "HYPERCI_TEST_RUNNER_ENV",
+    "RUSTC_WRAPPER",
+    "CARGO_PROFILE_RELEASE_STRIP",
+)
+_RUSTFLAGS = "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS"
+_WATCHED = (
+    *_RUNNER_SET,
+    "CARGO_PROFILE_RELEASE_LTO",
+    "RUST_FEATURES",
+    "RUST_ALL_FEATURES",
+    "CARGO_TERM_COLOR",
+    _RUSTFLAGS,
+)
+
+
+def _watched_env(launch: dict[str, Any]) -> dict[str, str | None]:
+    """The keys the fixture controls, as the launched process would see them."""
+    env = launch["env"]
+    assert env is not None, "the launch inherited the env instead of receiving one"
+    return {name: env.get(name) for name in _WATCHED}
+
+
+def _expect(**values: str) -> dict[str, str | None]:
+    """The watched keys with the fixture's runner values under ``values``."""
+    runner = {
+        "HYPERCI_TEST_RUNNER_ENV": "kept",
+        "RUSTC_WRAPPER": "sccache",
+        "CARGO_PROFILE_RELEASE_STRIP": "symbols",
+    }
+    return {name: {**runner, **values}.get(name) for name in _WATCHED}
 
 
 class TestCargoLaunchesKeepTheirShape:
@@ -274,15 +323,10 @@ class TestCargoLaunchesKeepTheirShape:
         )
 
         assert rc == 0
-        runner = dict(os.environ)
-        shared = {**runner, **self._PROJECT_ENV, "CARGO_PROFILE_RELEASE_STRIP": "none"}
+        # The runner env is merged in, and the pipeline's profile env beats it.
+        shared = _expect(**self._PROJECT_ENV, CARGO_PROFILE_RELEASE_STRIP="none")
         profile_use = {**shared, "RUSTC_WRAPPER": ""}
-        bolt = {
-            **profile_use,
-            "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS": (
-                "-C link-arg=-fuse-ld=lld"
-            ),
-        }
+        bolt = {**profile_use, _RUSTFLAGS: "-C link-arg=-fuse-ld=lld"}
         expected = [
             (["cargo", "pgo", "build", "--", "--target", _NATIVE], shared),
             (["cargo", "pgo", "optimize", "--", "--target", _NATIVE], profile_use),
@@ -297,7 +341,7 @@ class TestCargoLaunchesKeepTheirShape:
                 bolt,
             ),
         ]
-        assert [(launch["args"], _effective_env(launch)) for launch in launches] == (
+        assert [(launch["args"], _watched_env(launch)) for launch in launches] == (
             expected
         )
         for launch in launches:
@@ -322,7 +366,7 @@ class TestCargoLaunchesKeepTheirShape:
             "--features",
             "jemalloc",
         ]
-        assert _effective_env(launch) == {**os.environ, **self._PROJECT_ENV}
+        assert _watched_env(launch) == _expect(**self._PROJECT_ENV)
         assert launch.get("cwd") == tmp_path
         assert launch.get("stdout") is None
         assert launch.get("stderr") is None
@@ -338,10 +382,7 @@ class TestCargoLaunchesKeepTheirShape:
         assert rc == 0
         (launch,) = launches
         assert launch["args"] == ["cargo", "build", "--release", "--target", _NATIVE]
-        assert _effective_env(launch) == {
-            **os.environ,
-            "CARGO_PROFILE_RELEASE_LTO": "fat",
-        }
+        assert _watched_env(launch) == _expect(CARGO_PROFILE_RELEASE_LTO="fat")
         assert launch.get("stdout") is None
         assert launch.get("stderr") is None
 
@@ -355,4 +396,4 @@ def test_the_feature_matrix_reads_one_merged_pipe(monkeypatch, launches) -> None
     (launch,) = launches
     assert launch["stdout"] is subprocess.PIPE
     assert launch["stderr"] is subprocess.STDOUT
-    assert _effective_env(launch) == {**os.environ, "CARGO_TERM_COLOR": "never"}
+    assert _watched_env(launch) == _expect(CARGO_TERM_COLOR="never")

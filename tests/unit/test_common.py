@@ -372,6 +372,27 @@ class TestRunCmdTimeout:
         assert time.monotonic() - started < 3
 
 
+class TestRunCmdMergeStderr:
+    """Both streams arrive in one string, in the order the child wrote them."""
+
+    def test_stderr_lands_in_stdout_in_order(self) -> None:
+        script = (
+            "import sys\n"
+            "print('one', flush=True)\n"
+            "print('two', file=sys.stderr, flush=True)\n"
+            "print('three', flush=True)\n"
+        )
+        result = run_cmd(
+            [sys.executable, "-c", script], capture=True, merge_stderr=True
+        )
+        assert result.stdout.split() == ["one", "two", "three"]
+        assert result.stderr is None
+
+    def test_without_capture_it_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="merge_stderr needs capture"):
+            run_cmd([sys.executable, "-c", "pass"], merge_stderr=True)
+
+
 class TestStreamCmd:
     """A streamed step returns when its child exits, whatever inherited the pipe."""
 

@@ -219,7 +219,7 @@ A virtual workspace root (only `[workspace]`) counts as a Rust project for
 the `bolt-NN` / `lld-NN` install, and the allocator check reads the root
 manifest's `[features]` unioned with every member's.
 
-When BOLT will run, every compile of the pipeline builds with `CARGO_PROFILE_RELEASE_STRIP=none` whatever your `[profile.release]` declares, because cargo hashes profile settings into symbol names and the PGO profile matches only names compiled under the same settings. Packaging strips the shipped binary when the strip tool is on PATH. Thousands of `no profile data available` warnings in the BOLT optimise step mean the profile did not match.
+When BOLT will run, every compile of the pipeline builds with `CARGO_PROFILE_RELEASE_STRIP=none` whatever your `[profile.release]` declares, because cargo hashes profile settings into symbol names and the PGO profile matches only names compiled under the same settings. Packaging strips the shipped binary. When it cannot, a CI build fails naming the binary, and a local build warns. Thousands of `no profile data available` warnings in the BOLT optimise step mean the profile did not match.
 
 ### LLVM version
 
