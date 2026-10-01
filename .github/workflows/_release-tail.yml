@@ -151,26 +151,45 @@ jobs:
       # Whether this project ships a container at all, so tag-and-release can
       # tell "the deliverable failed" from "there was never a container".
       ships-container: ${{ steps.resolve.outputs.build }}
+    # This job holds registry logins and a packages:write token, so its stamp
+    # skips release.stamp_cmd (Build and Prepare run it). The skip is the
+    # protection, and it needs a CLI release that carries it: on an older CLI,
+    # or under a HYPERCI_INSTALL_OVERRIDE pin, stamp_cmd still runs here and can
+    # write $GITHUB_ENV or $GITHUB_PATH or leave a process behind for the steps
+    # after the logins. Stamping before the logins does not stop that.
     steps:
+      - name: Install uv
+        # Before the checkout, so setup-uv reads no repo `required-version`.
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: false
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
           # The v* tags decide whether this image may take `:latest`: a
           # re-published older tag must not move it off a newer release.
           fetch-tags: true
+          # A persisted token sits on disk for every later step to read.
+          persist-credentials: false
 
       - name: Init submodules
+        # The checkout keeps no credential, so the job token reaches this step
+        # alone, as environment-scoped git config (issue #402).
         if: ${{ inputs.submodules != '' }}
         env:
           SUBMODULES: ${{ inputs.submodules }}
-        run: git submodule update --init --depth 1 $SUBMODULES
-
-      - name: Install uv
-        # Needed to run the resolve step below. Cheap, no Docker Hub --
-        # so a library never pays the Buildx/Docker-Hub cost (issue #33).
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
-        with:
-          enable-cache: false
+          GH_TOKEN: ${{ github.token }}
+          GIT_TERMINAL_PROMPT: "0"
+        shell: bash
+        run: |
+          basic="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::$basic"
+          n="${GIT_CONFIG_COUNT:-0}"
+          export GIT_CONFIG_COUNT=$((n + 1))
+          export "GIT_CONFIG_KEY_$n=http.https://github.com/.extraheader"
+          export "GIT_CONFIG_VALUE_$n=AUTHORIZATION: basic $basic"
+          git submodule update --init --depth 1 $SUBMODULES
 
       - name: Resolve container build (app vs library)
         # Decide BEFORE booting Buildx whether this project ships a
@@ -183,6 +202,28 @@ jobs:
         env:
           HYPERCI_CONTAINER_RESOLVE_ONLY: "1"
         run: ${{ env.HYPERCI_INSTALL }} run container
+
+      - name: Set up Python
+        # --no-config: in the checkout, uv reads the repo's [tool.uv], whose
+        # python-install-mirror picks where the interpreter that then runs
+        # hyperi-ci, credentials and all, is downloaded from.
+        if: steps.resolve.outputs.build == 'true'
+        env:
+          PYTHON_VERSION: ${{ inputs.python-version }}
+        run: uv python install --no-config "$PYTHON_VERSION"
+
+      - name: Stamp predicted version
+        # This job checks out HEAD on its own runner, so the Build job's stamp
+        # never reaches the tree the Dockerfile copies (issue dfe-engine#271).
+        # A `tag` dispatch stamps too: the tagged tree carries the release
+        # before it (issue #352). This tree is never committed.
+        if: steps.resolve.outputs.build == 'true' && inputs.will-publish == 'true' && inputs.next-version != ''
+        env:
+          RELEASE_VERSION: ${{ inputs.next-version }}
+          # Env, not the --no-stamp-cmd flag: a CLI release older than the flag
+          # ignores the variable, where it would reject the flag.
+          HYPERCI_STAMP_SKIP_CMD: "1"
+        run: ${{ env.HYPERCI_INSTALL }} stamp-version "$RELEASE_VERSION"
 
       - name: Docker Hub login (authenticated pulls only)
         # Docker Hub is not a publish target -- login is solely to bypass
@@ -215,32 +256,24 @@ jobs:
 
       - name: Download build artifacts
         # The build-dist-* artifact carries both dist/ (binaries) and
-        # ci-tmp/ (deployment artefacts produced by the Build stage).
-        # Download into the project root so both trees land at their
-        # original paths -- Container stage looks for dist/<binary> and
+        # ci-tmp/ (deployment artefacts produced by the Build stage); the
+        # Container stage looks for dist/<binary> and
         # ci-tmp/container-manifest.json relative to cwd.
         if: steps.resolve.outputs.build == 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: build-dist-*
-          path: .
+          path: ${{ runner.temp }}/build-dist
           merge-multiple: true
 
-      - name: Set up Python
+      - name: Place dist/ and ci-tmp/
+        # Only those two trees, so an artefact from a job that ran repo code
+        # cannot overwrite .hyperi-ci.yaml, the Dockerfile or any other checkout file.
         if: steps.resolve.outputs.build == 'true'
-        env:
-          PYTHON_VERSION: ${{ inputs.python-version }}
-        run: uv python install "$PYTHON_VERSION"
-
-      - name: Stamp predicted version
-        # This job checks out HEAD on its own runner, so the Build job's stamp
-        # never reaches the tree the Dockerfile copies (issue dfe-engine#271).
-        # A `tag` dispatch stamps too: the tagged tree carries the release
-        # before it (issue #352). This tree is never committed.
-        if: steps.resolve.outputs.build == 'true' && inputs.will-publish == 'true' && inputs.next-version != ''
-        env:
-          RELEASE_VERSION: ${{ inputs.next-version }}
-        run: ${{ env.HYPERCI_INSTALL }} stamp-version "$RELEASE_VERSION"
+        run: |
+          for tree in dist ci-tmp; do
+            if [ -d "$RUNNER_TEMP/build-dist/$tree" ]; then cp -RL "$RUNNER_TEMP/build-dist/$tree" .; fi
+          done
 
       - name: Build container
         # Handler decides validate-only vs push based on HYPERCI_RELEASE_MODE:

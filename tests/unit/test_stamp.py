@@ -13,10 +13,12 @@ from pathlib import Path
 
 import pytest
 import yaml
+from typer.testing import CliRunner
 
 from hyperi_ci import config as config_module
+from hyperi_ci.cli import app
 from hyperi_ci.config import load_config
-from hyperi_ci.stamp import stamp_paths, stamp_version
+from hyperi_ci.stamp import SKIP_STAMP_CMD_ENV, stamp_paths, stamp_version
 
 
 @pytest.fixture(autouse=True)
@@ -83,6 +85,75 @@ class TestStampCommand:
     def test_unset_runs_nothing(self, tmp_path: Path) -> None:
         _configure(tmp_path, {"stamp_cmd": ""})
         assert stamp_version("1.4.0", project_dir=tmp_path) == 0
+
+
+class TestSkippingTheStampCommand:
+    """The Container job stamps the image's tree while holding registry logins.
+
+    So it stamps with ``--no-stamp-cmd``: VERSION and the manifest are written,
+    and the repo's own command does not run.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_inherited_switch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv(SKIP_STAMP_CMD_ENV, raising=False)
+
+    def test_the_switch_writes_version_and_skips_the_command(
+        self, tmp_path: Path
+    ) -> None:
+        _configure(tmp_path, {"stamp_cmd": [sys.executable, "-c", _COPY_VERSION]})
+        assert stamp_version("1.4.0", project_dir=tmp_path, run_stamp_cmd=False) == 0
+        assert (tmp_path / "VERSION").read_text() == "1.4.0\n"
+        assert not (tmp_path / "spec.json").exists()
+
+    def test_the_switch_still_stamps_the_manifest(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "0.0.1"\n', encoding="utf-8"
+        )
+        _configure(tmp_path, {"stamp_cmd": [sys.executable, "-c", _COPY_VERSION]})
+        assert stamp_version("1.4.0", project_dir=tmp_path, run_stamp_cmd=False) == 0
+        assert 'version = "1.4.0"' in (tmp_path / "pyproject.toml").read_text()
+        assert not (tmp_path / "spec.json").exists()
+
+    def test_a_malformed_command_does_not_fail_a_skipped_stamp(
+        self, tmp_path: Path
+    ) -> None:
+        """The prepare job runs the command and reports a bad value."""
+        _configure(tmp_path, {"stamp_cmd": {"run": "generate"}})
+        assert stamp_version("1.4.0", project_dir=tmp_path, run_stamp_cmd=False) == 0
+
+    @pytest.mark.parametrize(
+        ("args", "env"),
+        [
+            (["--no-stamp-cmd"], {}),
+            ([], {SKIP_STAMP_CMD_ENV: "1"}),
+            ([], {SKIP_STAMP_CMD_ENV: "true"}),
+        ],
+    )
+    def test_the_cli_skips_the_command(
+        self, tmp_path: Path, args: list[str], env: dict[str, str]
+    ) -> None:
+        _configure(tmp_path, {"stamp_cmd": [sys.executable, "-c", _COPY_VERSION]})
+        result = CliRunner().invoke(
+            app, ["stamp-version", "1.4.0", "-C", str(tmp_path), *args], env=env
+        )
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "VERSION").read_text() == "1.4.0\n"
+        assert not (tmp_path / "spec.json").exists()
+
+    @pytest.mark.parametrize(
+        "env",
+        [{}, {SKIP_STAMP_CMD_ENV: "0"}, {SKIP_STAMP_CMD_ENV: "false"}],
+    )
+    def test_the_cli_runs_the_command_otherwise(
+        self, tmp_path: Path, env: dict[str, str]
+    ) -> None:
+        _configure(tmp_path, {"stamp_cmd": [sys.executable, "-c", _COPY_VERSION]})
+        result = CliRunner().invoke(
+            app, ["stamp-version", "1.4.0", "-C", str(tmp_path)], env=env
+        )
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "spec.json").read_text() == '{"version": "1.4.0"}'
 
 
 class TestStampPaths:
