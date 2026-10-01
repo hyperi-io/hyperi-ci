@@ -289,9 +289,11 @@ Quality job, not with a frozen graph. Full rationale, the trilemma, and the
 branch-protection precondition: [dependencies/WORKFLOW-PINNING.md](dependencies/workflow-pinning.md).
 Third-party pinning policy: [dependencies/DEPS-PINNING.md](dependencies/deps-pinning.md).
 
-That gate covers the workflow INTERFACE -- inputs, outputs, secrets -- and cannot see the version split underneath it. A consumer resolves the YAML at `@main`, so a push is live instantly; the runner installs `uvx hyperi-ci` from PyPI, so CLI code is live only once a release finishes. A commit whose workflow needs new CLI behaviour is broken until that release lands, and hyperi-ci's own release run is the first caller of the workflow it is shipping.
+That interface comparison covers inputs, outputs and secrets, and cannot see the version split underneath it. A consumer resolves the YAML at `@main`, so a push is live instantly; the runner installs `uvx hyperi-ci` from PyPI, so CLI code is live only once a release finishes. A commit whose workflow needs new CLI behaviour is broken until that release lands, and hyperi-ci's own release run is the first caller of the workflow it is shipping.
 
 **A workflow change on main must work against the CLI already released to PyPI.** Ship the capability as its own commit, release it, then switch the workflow on in a second commit. The reverse order is safe: CLI code needing a new workflow input finds it already there.
+
+The gate enforces the names, not the behaviour: every subcommand and option a workflow or composite passes to the PyPI CLI (`${{ env.HYPERCI_INSTALL }}`, `$HYPERCI_INSTALL` or an unpinned `uvx hyperi-ci`) must exist in the latest release, read from that wheel's typer model. `uv run hyperi-ci` runs the checkout's own CLI and is not checked.
 
 ## CLI surface
 

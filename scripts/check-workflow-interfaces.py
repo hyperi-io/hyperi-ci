@@ -14,12 +14,16 @@ at startup -- 0 jobs, no logs, and it breaks consumers RETROACTIVELY.
 
 This gate compares each reusable workflow + composite interface in the working
 tree against the LAST RELEASE TAG and fails on a backward-incompatible delta:
-removed input/output/secret, a newly-required input, or optional→required. Run
+removed input/output/secret, a newly-required input, or optional->required. Run
 in hyperi-ci's own CI so a break is caught before it ever reaches a consumer.
 
 Comparing interface to interface cannot express "nothing consumes this", so a
 deliberate retirement reads as a regression too. `config/retired-interfaces.yaml`
 carries the evidence for one, and this gate honours and reports it.
+
+It also reads every call to the PyPI CLI in the workflows and composites, and
+fails on a subcommand or option the latest release does not have. Consumers
+take the workflow from @main at once and the CLI only when it is released.
 
 Usage:  uv run scripts/check-workflow-interfaces.py
 Exit 1 if any interface regressed; 0 otherwise.
@@ -27,6 +31,7 @@ Exit 1 if any interface regressed; 0 otherwise.
 
 import json
 import re
+import shlex
 import subprocess
 import sys
 import urllib.request
@@ -415,14 +420,21 @@ def main() -> int:
             "or cut a deliberate major break."
         )
         return 1
-    invoked = workflow_cli_commands(_ROOT)
-    published = published_cli_commands()
+    return _cli_gate()
+
+
+def _cli_gate() -> int:
+    """Fail when a workflow calls a subcommand or option PyPI does not ship."""
+    scan = workflow_cli_invocations(_ROOT)
+    for note in scan.unchecked:
+        print(f"  not checked: {note}")
+    published = published_cli_options()
     if published is None:
         print("\nPublished CLI unreachable -- skipping the subcommand gate.")
     else:
-        gaps = cli_command_gaps(invoked, published)
+        gaps = cli_invocation_gaps(scan.invocations, published)
         if gaps:
-            print("\nWorkflow calls a subcommand the PUBLISHED CLI lacks:")
+            print("\nWorkflow calls a subcommand or option the PUBLISHED CLI lacks:")
             for gap in gaps:
                 print(f"  - {gap}")
             print(
@@ -432,37 +444,344 @@ def main() -> int:
             )
             return 1
         print(
-            f"\nEvery invoked subcommand exists in the published CLI "
-            f"({len(published)})."
+            f"\nEvery invoked subcommand and option exists in the published CLI "
+            f"({len(scan.invocations)} calls checked)."
         )
 
     print("\nAll interfaces backward-compatible.")
     return 0
 
 
-# A workflow line invoking the CLI: `${{ env.HYPERCI_INSTALL }} <subcommand>`.
-_CLI_CALL = re.compile(r"HYPERCI_INSTALL\s*\}\}\s+([a-z][a-z0-9-]*)")
+@dataclass(frozen=True, slots=True)
+class Invocation:
+    """One call to the published CLI, as the shell would pass its arguments."""
 
-# Introspects typer's registry rather than scraping `--help`, which HIDES some
-# commands (`tag-head` is one) and would report them as missing.
-_LIST_COMMANDS = (
-    "from hyperi_ci.cli import app; "
-    "print(chr(10).join(sorted((c.name or c.callback.__name__).replace('_','-') "
-    "for c in app.registered_commands)))"
+    file: str
+    line: int
+    args: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class InvocationScan:
+    """Every call found, plus the lines that name the CLI but could not be read."""
+
+    invocations: tuple[Invocation, ...]
+    unchecked: tuple[str, ...]
+
+
+# GitHub substitutes `${{ }}` before the shell runs, so each one is swapped for
+# a placeholder word before the line is split.
+_GH_EXPR = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
+_EXPR_REF = re.compile(r"__GHEXPR(\d+)__")
+_EXPR_LITERAL = re.compile(r"'((?:[^']|'')*)'")
+_INSTALL_EXPR = "env.HYPERCI_INSTALL"
+_INSTALL_VARS = frozenset({"$HYPERCI_INSTALL", "${HYPERCI_INSTALL}"})
+_OPAQUE = "<expr>"
+
+# Words that may precede the command itself in a simple command.
+_COMMAND_PREFIXES = frozenset(
+    {"if", "then", "else", "elif", "do", "while", "until", "!", "time", "exec"}
+)
+_SHELL_SEPARATORS = frozenset({";", "&", "&&", "|", "||", "(", ")", ";;"})
+_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+# uvx options that consume the next word, so it is not read as the package.
+_UVX_VALUE_OPTIONS = frozenset(
+    {
+        "--python",
+        "-p",
+        "--with",
+        "--with-editable",
+        "--with-requirements",
+        "--index",
+        "--default-index",
+        "--index-url",
+        "--extra-index-url",
+        "--find-links",
+        "-f",
+        "--cache-dir",
+        "--python-preference",
+        "--exclude-newer",
+        "--config-file",
+        "--directory",
+        "--project",
+        "--color",
+        "--constraints",
+        "-c",
+        "--overrides",
+    }
 )
 
 
-def workflow_cli_commands(root: Path) -> dict[str, set[str]]:
-    """Return each workflow's set of invoked ``hyperi-ci`` subcommands."""
-    out: dict[str, set[str]] = {}
-    workflows = root / ".github" / "workflows"
-    if not workflows.is_dir():
-        return out
-    for path in sorted(workflows.glob("*.yml")):
-        found = set(_CLI_CALL.findall(path.read_text(encoding="utf-8")))
-        if found:
-            out[path.relative_to(root).as_posix()] = found
+def _expression_words(expr: str) -> list[str]:
+    """Words an expression can expand to that the CLI would read as options.
+
+    `${{ cond && '--tier full' || '' }}` passes `--tier` on one branch, so a
+    literal that opens with an option counts. Anything else is an opaque value.
+    """
+    words: list[str] = []
+    for literal in _EXPR_LITERAL.findall(expr):
+        split = literal.replace("''", "'").split()
+        if split and split[0].startswith("-"):
+            words.extend(split)
+    return words or [_OPAQUE]
+
+
+def _logical_lines(script: str) -> list[tuple[int, str]]:
+    """Split shell text into (line offset, command line) pairs.
+
+    A newline inside quotes or after a backslash does not end a command, and a
+    `#` comment is dropped so an apostrophe in it cannot open a quote.
+    """
+    out: list[tuple[int, str]] = []
+    buf: list[str] = []
+    quote: str | None = None
+    line = start = 0
+    i = 0
+    while i < len(script):
+        ch = script[i]
+        nxt = script[i + 1] if i + 1 < len(script) else ""
+        if ch == "\\" and quote != "'" and nxt:
+            if nxt == "\n":
+                buf.append(" ")
+                line += 1
+            else:
+                buf.append(ch + nxt)
+            i += 2
+            continue
+        if ch == "#" and quote is None and (not buf or buf[-1] in " \t;&|("):
+            while i < len(script) and script[i] != "\n":
+                i += 1
+            continue
+        if ch in "'\"" and quote in (None, ch):
+            quote = None if quote else ch
+        if ch == "\n":
+            line += 1
+            if quote is None:
+                out.append((start, "".join(buf)))
+                buf, start = [], line
+                i += 1
+                continue
+        buf.append(ch)
+        i += 1
+    out.append((start, "".join(buf)))
     return out
+
+
+def _simple_commands(words: list[str]) -> list[list[str]]:
+    """Split shell words into simple commands at `;`, `&&`, `|` and friends."""
+    commands: list[list[str]] = [[]]
+    for word in words:
+        if word in _SHELL_SEPARATORS:
+            commands.append([])
+        else:
+            commands[-1].append(word)
+    return [c for c in commands if c]
+
+
+def _uvx_cli_args(words: list[str]) -> list[str] | None:
+    """Arguments after `uvx ... hyperi-ci`, or None unless it runs latest PyPI.
+
+    `uvx hyperi-ci==X` and `uvx --from <spec>` run something other than the
+    latest release, so the gate has nothing to compare them with.
+    """
+    i = 1
+    while i < len(words):
+        word = words[i]
+        if word == "--from" or word.startswith("--from="):
+            return None
+        if not word.startswith("-"):
+            return words[i + 1 :] if word == "hyperi-ci" else None
+        i += 2 if word in _UVX_VALUE_OPTIONS else 1
+    return None
+
+
+def _cli_args(command: list[str], exprs: list[str]) -> list[str] | None:
+    """The CLI's arguments when this simple command runs the published CLI."""
+    i = 0
+    while i < len(command) and (
+        command[i] in _COMMAND_PREFIXES or _ASSIGNMENT.match(command[i])
+    ):
+        i += 1
+    if i == len(command):
+        return None
+    head = command[i]
+    rest = command[i + 1 :]
+    match = _EXPR_REF.fullmatch(head)
+    if match and exprs[int(match.group(1))].strip() == _INSTALL_EXPR:
+        args = rest
+    elif head in _INSTALL_VARS:
+        args = rest
+    elif head == "uvx":
+        uvx_args = _uvx_cli_args(command[i:])
+        if uvx_args is None:
+            return None
+        args = uvx_args
+    else:
+        return None
+    expanded: list[str] = []
+    for word in args:
+        match = _EXPR_REF.fullmatch(word)
+        if match:
+            expanded.extend(_expression_words(exprs[int(match.group(1))]))
+        elif "__GHEXPR" in word:
+            expanded.append(_OPAQUE)
+        else:
+            expanded.append(word)
+    return expanded
+
+
+def _shell_scripts(yaml_text: str) -> list[tuple[int, str]]:
+    """Every shell `run:` value in a workflow or action, with its first line.
+
+    Line numbers are 1-based. A block scalar's text starts on the line after
+    its `|` or `>` indicator. A step with a non-shell `shell:` is skipped.
+    """
+    root = yaml.compose(yaml_text, Loader=yaml.SafeLoader)
+    out: list[tuple[int, str]] = []
+    stack = [root] if root is not None else []
+    while stack:
+        node = stack.pop()
+        if isinstance(node, yaml.MappingNode):
+            pairs = {
+                k.value: v for k, v in node.value if isinstance(k, yaml.ScalarNode)
+            }
+            shell = pairs.get("shell")
+            program = str(shell.value).split()[:1] if shell is not None else []
+            is_shell = program in ([], ["bash"], ["sh"])
+            run = pairs.get("run")
+            if isinstance(run, yaml.ScalarNode) and is_shell:
+                block = run.style in ("|", ">")
+                out.append((run.start_mark.line + 1 + block, run.value))
+            stack.extend(v for _, v in node.value)
+        elif isinstance(node, yaml.SequenceNode):
+            stack.extend(node.value)
+    return sorted(out)
+
+
+def cli_invocations(rel: str, yaml_text: str) -> InvocationScan:
+    """Calls to the latest published CLI in one workflow or action file.
+
+    A call is `${{ env.HYPERCI_INSTALL }}`, `$HYPERCI_INSTALL` or an unpinned
+    `uvx ... hyperi-ci` in command position. `uv run hyperi-ci` is not one:
+    it runs the checkout's own CLI, which is never behind the workflow.
+
+    Args:
+        rel: Repo-relative path, used in every location reported.
+        yaml_text: Contents of the file.
+
+    Returns:
+        The calls found, and the lines that name the CLI but could not be split.
+    """
+    invocations: list[Invocation] = []
+    unchecked: list[str] = []
+    for first_line, script in _shell_scripts(yaml_text):
+        exprs = _GH_EXPR.findall(script)
+        counter = iter(range(len(exprs)))
+        text = _GH_EXPR.sub(lambda _: f"__GHEXPR{next(counter)}__", script)
+        for offset, line in _logical_lines(text):
+            where = first_line + offset
+            lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
+            lexer.whitespace_split = True
+            try:
+                words = list(lexer)
+            except ValueError as exc:
+                if (
+                    "HYPERCI_INSTALL" in line
+                    or "hyperi-ci" in line
+                    or any(
+                        exprs[int(n)].strip() == _INSTALL_EXPR
+                        for n in _EXPR_REF.findall(line)
+                    )
+                ):
+                    unchecked.append(f"{rel}:{where}: {exc}")
+                continue
+            for command in _simple_commands(words):
+                args = _cli_args(command, exprs)
+                if args is not None:
+                    invocations.append(Invocation(rel, where, tuple(args)))
+    return InvocationScan(tuple(invocations), tuple(unchecked))
+
+
+def workflow_cli_invocations(root: Path) -> InvocationScan:
+    """Calls to the published CLI across every workflow and composite action."""
+    invocations: list[Invocation] = []
+    unchecked: list[str] = []
+    files = sorted((root / ".github" / "workflows").glob("*.yml"))
+    files += sorted((root / ".github" / "actions").glob("*/action.yml"))
+    for path in files:
+        scan = cli_invocations(
+            path.relative_to(root).as_posix(), path.read_text(encoding="utf-8")
+        )
+        invocations.extend(scan.invocations)
+        unchecked.extend(scan.unchecked)
+    return InvocationScan(tuple(invocations), tuple(unchecked))
+
+
+def _option_name(word: str) -> str:
+    """The option a word names: `--x=1` is `--x`, `-xVALUE` is `-x`."""
+    if word.startswith("--"):
+        return word.split("=", 1)[0]
+    return word[:2]
+
+
+def _is_group(path: str, published: dict[str, frozenset[str]]) -> bool:
+    """Whether the command at `path` has subcommands of its own."""
+    prefix = f"{path} " if path else ""
+    return any(key != path and key.startswith(prefix) for key in published)
+
+
+def _call_gaps(call: Invocation, published: dict[str, frozenset[str]]) -> list[str]:
+    """What one call uses that the published CLI lacks."""
+    where = f"{call.file}:{call.line}"
+    gaps: list[str] = []
+    path = ""
+    for word in call.args:
+        shown = f"hyperi-ci {path}".strip()
+        if word == "--":
+            break
+        if word.startswith("-") and word != "-":
+            option = _option_name(word)
+            if option not in published.get(path, frozenset()):
+                gaps.append(
+                    f"{where}: `{shown}` passes `{option}`, which the published "
+                    "CLI does not accept"
+                )
+            continue
+        child = f"{path} {word}".strip()
+        if child in published:
+            path = child
+        elif not _is_group(path, published):
+            continue
+        elif word == _OPAQUE:
+            gaps.append(
+                f"{where}: the subcommand after `{shown}` comes from an "
+                "expression, so the gate cannot check it"
+            )
+            break
+        else:
+            gaps.append(
+                f"{where}: calls `hyperi-ci {child}`, absent from the published CLI"
+            )
+            break
+    return gaps
+
+
+def cli_invocation_gaps(
+    invocations: tuple[Invocation, ...] | list[Invocation],
+    published: dict[str, frozenset[str]],
+) -> list[str]:
+    """Subcommands and options a workflow uses that the published CLI lacks.
+
+    Args:
+        invocations: Calls found in the workflows.
+        published: Option names per command path, `""` for the root and
+            `"publish binaries"` for a nested command.
+
+    Returns:
+        One message per gap, naming the file, line, command and option.
+    """
+    return sorted({gap for call in invocations for gap in _call_gaps(call, published)})
 
 
 _PYPI_JSON = "https://pypi.org/pypi/hyperi-ci/json"
@@ -483,14 +802,56 @@ def latest_published_version() -> str | None:
         return None
 
 
-def published_cli_commands() -> set[str] | None:
-    """Subcommands the LATEST PUBLISHED CLI exposes, or None when unreachable.
+# Walks the click model typer builds rather than scraping `--help`, which HIDES
+# some commands (`tag-head` is one) and wraps option names across lines.
+_DUMP_OPTIONS = """
+import json
+import typer.main
+from hyperi_ci.cli import app
+
+def walk(cmd, path, out):
+    ctx = cmd.context_class(cmd, info_name=path[-1] if path else "hyperi-ci")
+    names = set()
+    for param in cmd.get_params(ctx):
+        if param.param_type_name == "option":
+            names.update(param.opts)
+            names.update(param.secondary_opts)
+    out[" ".join(path)] = sorted(names)
+    for name, sub in getattr(cmd, "commands", {}).items():
+        walk(sub, [*path, name], out)
+
+table = {}
+walk(typer.main.get_command(app), [], table)
+print(json.dumps(table))
+"""
+
+
+def parse_option_table(text: str) -> dict[str, frozenset[str]]:
+    """Option names per command path, from the JSON `_DUMP_OPTIONS` prints.
+
+    Raises:
+        ValueError: On anything but a mapping of path to a list of names.
+    """
+    data = json.loads(text)
+    if not isinstance(data, dict) or not all(
+        isinstance(v, list) for v in data.values()
+    ):
+        raise ValueError("option table is not a mapping of path to names")
+    return {str(path): frozenset(map(str, names)) for path, names in data.items()}
+
+
+def published_cli_options() -> dict[str, frozenset[str]] | None:
+    """Every command and its options in the LATEST PUBLISHED CLI, or None.
 
     Reads the published wheel, not the working tree, and that inversion is the
     whole point. Workflows float ``@main`` and reach a consumer instantly; the
-    CLI arrives only on a release. A subcommand added in the same commit as its
-    caller is therefore missing on every runner until the next publish, which
-    is how a Gate job went red across the fleet (issue #181).
+    CLI arrives only on a release. A subcommand or option added in the same
+    commit as its caller is therefore missing on every runner until the next
+    publish, which is how a Gate job went red across the fleet (issue #181).
+
+    Returns:
+        Option names keyed by command path (`""` is the root), or None when
+        PyPI or the wheel cannot be reached.
     """
     version = latest_published_version()
     if version is None:
@@ -504,7 +865,7 @@ def published_cli_commands() -> set[str] | None:
             "3.14",
             "python",
             "-c",
-            _LIST_COMMANDS,
+            _DUMP_OPTIONS,
         ],
         capture_output=True,
         text=True,
@@ -514,16 +875,10 @@ def published_cli_commands() -> set[str] | None:
     )
     if result.returncode != 0:
         return None
-    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
-
-
-def cli_command_gaps(invoked: dict[str, set[str]], published: set[str]) -> list[str]:
-    """Subcommands a workflow calls that the published CLI does not have."""
-    return sorted(
-        f"{workflow}: calls `hyperi-ci {command}`, absent from the published CLI"
-        for workflow, commands in invoked.items()
-        for command in commands - published
-    )
+    try:
+        return parse_option_table(result.stdout)
+    except ValueError:
+        return None
 
 
 if __name__ == "__main__":
