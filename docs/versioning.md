@@ -113,6 +113,8 @@ recomputed the same version and died on `tag vX already exists` (issue #37).
 
 It never moves the branch backwards. A retroactive `tag` dispatch skips the stamp and the commit-back, since its checkout is the old tag. `release-commit` also commits nothing when the tip's `VERSION` is newer than the disk's, which catches a forced `bump=X.Y.Z` below the latest tag. A missing or unparseable `VERSION` on either side skips that check.
 
+It lands on the branch that released, and refuses a prerelease version on any branch not declared `prerelease`, so `1.2.0-beta.1` never reaches `main`.
+
 The build back-end no longer depends on the file being present or fresh.
 `build_version()` in `version_source.py` resolves `HYPERCI_VERSION` -> `VERSION`
 -> latest `v*` tag -> seed version, so a fresh clone builds and the run's

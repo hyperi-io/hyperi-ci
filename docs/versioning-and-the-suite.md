@@ -34,18 +34,9 @@ in dfe-infra's `suite.yaml`, written `alpha -> beta -> rc -> ga`.
 
 `rc` is a suite maturity only and never appears in a per-repo version.
 semantic-release ships `alpha` and `beta` as its default prerelease branch
-names and has no `rc`, so a per-repo prerelease is spelled `beta`. Every suite
-repo tags off `main` alone, either through the central config in
-`.github/actions/setup-semantic-release/default.releaserc.json` or through a
-repo config that also declares `main`, so in practice no app repo cuts a
-prerelease at all.
+names and has no `rc`, so a per-repo prerelease is spelled `beta`. The central config in `.github/actions/setup-semantic-release/default.releaserc.json` declares `beta` as a prerelease branch, so a repo with no `.releaserc` of its own cuts one by pushing to `beta` ([prereleases.md](prereleases.md)). A repo config that declares only `main` cannot.
 
 ## A beta cycle, worked through
-
-Not wired yet. The central config at
-`.github/actions/setup-semantic-release/default.releaserc.json` declares
-`branches: ["main"]`, so no prerelease branch exists on any repo today. This
-section is how a beta branch behaves once one is enabled.
 
 Say `v1.1.1` is out and work carries on for a while on a `beta` branch cut from
 `main`. semantic-release reads the conventional commits since `v1.1.1`. They are
