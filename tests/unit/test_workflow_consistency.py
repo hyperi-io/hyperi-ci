@@ -252,7 +252,7 @@ class TestFromHeadThreading:
         assert "HYPERCI_RELEASE_PREPARED" in commit["env"], (
             "release-commit must restore stamp_paths from the prepared directory"
         )
-        assert commit["run"].endswith('release-commit "$RELEASE_VERSION"')
+        assert commit["run"].endswith('"$RELEASE_VERSION"')
         assert commit["env"]["RELEASE_VERSION"] == "${{ inputs.next-version }}"
         # A tag dispatch checks out an old tag, so its VERSION and CHANGELOG.md
         # committed onto main would move the branch backwards (issue #350).
@@ -262,6 +262,20 @@ class TestFromHeadThreading:
         assert commit["continue-on-error"] is True, (
             "bookkeeping after a shipped release must not turn it red"
         )
+
+    def test_release_commit_lands_on_the_branch_that_released(self) -> None:
+        """A beta release commits back to beta, never main (issue #417).
+
+        The checkout is ``github.ref`` on a push and on a from-head dispatch,
+        so its branch is where the release came from. release-commit defaults
+        to main, which put a ``1.4.0-beta.1`` VERSION onto main.
+        """
+        steps = _load_workflow("_release-tail.yml")["jobs"]["tag-and-release"]["steps"]
+        commit = next(
+            s for s in steps if s.get("name") == "Commit rendered release artefacts"
+        )
+        assert commit["env"].get("RELEASE_BRANCH") == "${{ github.ref_name }}"
+        assert '--branch "$RELEASE_BRANCH"' in commit["run"]
 
     @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
     def test_build_stamps_on_from_head_dispatch(self, workflow_name: str) -> None:

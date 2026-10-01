@@ -104,7 +104,7 @@ ALLOWED_RUN_LINES = {
         # Known gap, tracked in #413: the tagger loads a repo-controlled config.
         r"npx semantic-release",
         rf"{_INSTALL} run release",
-        rf'{_INSTALL} release-commit "{_VERSION}"',
+        rf'{_INSTALL} release-commit --branch "\$RELEASE_BRANCH" "{_VERSION}"',
         rf'{_INSTALL} release-notify "{_VERSION}" --outcome success',
         rf'{_INSTALL} release-notify "{_VERSION}" --outcome failure {_RUN_URL}',
         rf'{_INSTALL} release-notify "{_VERSION}" --outcome commit-back-failed '

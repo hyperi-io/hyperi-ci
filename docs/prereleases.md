@@ -22,6 +22,8 @@ git switch -c beta origin/main
 hyperi-ci push --publish
 ```
 
+`VERSION` and the `CHANGELOG.md` entry commit back to `beta`, never `main`.
+
 Promotion is a merge to `main`, not a second publish. A version is unique
 regardless of channel, so a beta and a stable can never share a number.
 

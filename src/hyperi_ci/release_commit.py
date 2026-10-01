@@ -39,6 +39,7 @@ from packaging.version import InvalidVersion, Version
 from hyperi_ci import release_prepare
 from hyperi_ci.common import error, info, run_cmd, success, warn
 from hyperi_ci.config import load_config
+from hyperi_ci.release_branches import is_prerelease_version, repo_prerelease_branches
 from hyperi_ci.stamp import (
     CHANGELOG_FILE,
     SUPPLEMENT_FILE,
@@ -289,9 +290,14 @@ def commit_release_artefacts(
     The same commit deletes ``.github/release-notes/NEXT.md`` when the
     release consumed one.
 
+    A prerelease version is refused on any branch the release config does not
+    declare ``prerelease``, so a beta release cannot put its VERSION and
+    CHANGELOG entry onto ``main`` (issue #417).
+
     Args:
         version: Version just released, used in the commit subject.
-        branch: Branch to update. Defaults to ``main``.
+        branch: Branch to update. Defaults to ``main``. The release workflow
+            passes the branch it released from.
         project_dir: Project root. Defaults to cwd.
         dry_run: Report what would be committed, change nothing.
 
@@ -304,6 +310,14 @@ def commit_release_artefacts(
     version = version.removeprefix("v").strip()
     if not version:
         error("release-commit: empty version")
+        return 1
+
+    if is_prerelease_version(version) and branch not in repo_prerelease_branches(root):
+        error(
+            f"release-commit: v{version} is a prerelease and {branch} is not a "
+            "prerelease branch in the release config -- committing nothing. "
+            "Pass --branch with the branch the release was cut from."
+        )
         return 1
 
     repo = os.environ.get("GITHUB_REPOSITORY", "")

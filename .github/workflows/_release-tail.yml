@@ -714,6 +714,9 @@ jobs:
         # Skipped on a tag dispatch: that checkout is an old tag, and its
         # version committed onto main would move main back.
         #
+        # Lands on the branch that released, which a push and a from-head
+        # dispatch both check out, so a beta release never writes main (issue #417).
+        #
         # Non-fatal: once the registry has the release, a failure here must
         # not turn a shipped release red.
         id: releasecommit
@@ -725,8 +728,10 @@ jobs:
           GH_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
           HYPERCI_RELEASE_PREPARED: ${{ runner.temp }}/release-prepared
           RELEASE_VERSION: ${{ inputs.next-version }}
+          RELEASE_BRANCH: ${{ github.ref_name }}
         run: >-
           ${{ env.HYPERCI_INSTALL }} release-commit
+          --branch "$RELEASE_BRANCH"
           "$RELEASE_VERSION"
 
       - name: Record a failed commit-back
