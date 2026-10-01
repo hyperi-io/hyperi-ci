@@ -302,6 +302,8 @@ def _render_workflow(
         '    branches: ["**"]\n'
         "  pull_request:\n"
         "    branches: [main]\n"
+        "  merge_group:\n"
+        "    types: [checks_requested]\n"
         "  workflow_dispatch:\n"
         "    inputs:\n"
         "      tag:\n"

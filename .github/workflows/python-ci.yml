@@ -270,10 +270,13 @@ jobs:
     # advisory on pull_request for branch commits (they may be squashed away),
     # fatal for the line a squash would land - see commit_validation.run.
     # Feature-branch pushes skip it, so the fast chore-skip path is untouched.
+    # Fatal on merge_group too: the queue's squash commit is what main fast-
+    # forwards to, so it is the landing gate before the landing (issue #422).
     # See CLAUDE.md CI gate doctrine.
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      github.event_name == 'pull_request'
+      github.event_name == 'pull_request' ||
+      github.event_name == 'merge_group'
     # Needs only git and uv, so no language variable and no renovate carve-out:
     # the default set is already the lightest one (issue #291).
     runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}

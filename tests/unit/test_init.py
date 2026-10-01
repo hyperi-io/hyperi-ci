@@ -171,6 +171,16 @@ class TestRenderTemplates:
                 f"{workflow_file}: tag input not forwarded to language workflow"
             )
 
+    def test_workflow_subscribes_to_merge_group(self) -> None:
+        # issue #422: without this trigger a repo that turns on a merge
+        # queue gets no commit check on the commit that actually lands.
+        for workflow_file in ("python-ci.yml", "rust-ci.yml", "ts-ci.yml", "go-ci.yml"):
+            doc = yaml.safe_load(_render_workflow("my-project", workflow_file))
+            assert "merge_group" in doc["on"], f"{workflow_file}: missing merge_group"
+            assert doc["on"]["merge_group"]["types"] == ["checks_requested"], (
+                f"{workflow_file}: merge_group must request checks"
+            )
+
 
 class TestRenderContributing:
     """CONTRIBUTING.md template tells external contributors they don't
