@@ -18,6 +18,7 @@ from hyperi_ci.init import (
     _render_makefile,
     _render_workflow,
     detect_license,
+    find_license,
     init_project,
 )
 
@@ -49,6 +50,14 @@ class TestLicenseConfig:
 
     def test_default_is_busl(self, tmp_path: Path) -> None:
         assert detect_license(tmp_path) == "BUSL-1.1"
+
+    def test_find_license_has_no_default(self, tmp_path: Path) -> None:
+        assert find_license(tmp_path) is None
+
+    def test_find_license_honours_the_declaration(self, tmp_path: Path) -> None:
+        (tmp_path / "LICENSE").write_text("Apache License\nLicensed under the Apache")
+        (tmp_path / ".hyperi-ci.yaml").write_text("language: rust\nlicense: MIT\n")
+        assert find_license(tmp_path) == "MIT"
 
     def test_scaffold_includes_license_key(self, tmp_path: Path) -> None:
         content = _render_hyperi_ci_yaml("python", "p", tmp_path)

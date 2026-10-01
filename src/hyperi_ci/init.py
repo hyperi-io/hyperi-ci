@@ -64,6 +64,22 @@ def detect_license(project_dir: Path) -> str:
         License identifier string (e.g. "BUSL-1.1").
 
     """
+    return find_license(project_dir) or _DEFAULT_LICENSE
+
+
+def find_license(project_dir: Path) -> str | None:
+    """Find the project licence without falling back to a default.
+
+    Same order as :func:`detect_license`: an explicit ``license:`` in
+    ``.hyperi-ci.yaml``, then the LICENSE file, then source-file headers.
+
+    Args:
+        project_dir: Project root directory.
+
+    Returns:
+        License identifier string, or None when nothing names one.
+
+    """
     ci_config = project_dir / ".hyperi-ci.yaml"
     if ci_config.exists():
         try:
@@ -106,7 +122,7 @@ def detect_license(project_dir: Path) -> str:
                 if any(m in header for m in markers):
                     return license_id
 
-    return _DEFAULT_LICENSE
+    return None
 
 
 def _detect_submodules(project_dir: Path) -> str:
