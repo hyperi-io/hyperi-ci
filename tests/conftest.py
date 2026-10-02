@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Self
 
 import pytest
+from scalo.logger import setup as setup_logger
 
 from hyperi_ci import channel, common
 from hyperi_ci.common import is_ci, run_cmd
@@ -168,6 +169,19 @@ def fake_urlopen(
     monkeypatch.setattr(urllib.request, "urlopen", urlopen)
     monkeypatch.setattr(common.time, "sleep", sleeps.append)
     return outcomes, asked, sleeps
+
+
+@pytest.fixture(autouse=True, scope="session")
+def plain_logger() -> None:
+    """Log as a terminal would, even when the suite runs inside GitHub Actions.
+
+    common.py picks the logger's sink once, at import. Under Actions that sink
+    turns every warn() and error() a test's fixture provokes into a real
+    ::warning:: or ::error:: annotation on the run, so a green suite printed
+    hundreds of them and filled the per-step annotation cap. A test that needs
+    the Actions sink starts its own process with its own environment.
+    """
+    setup_logger(ci_mode=False, scrub_config=common.SCRUB_CONFIG)
 
 
 @pytest.fixture(autouse=True)
