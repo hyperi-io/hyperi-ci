@@ -142,7 +142,7 @@ class TestStaleCompatRules:
         excluded = semgrep._stale_compat_rules("3.6")
         expected = {
             rid
-            for rid, target in semgrep._PYTHON_COMPAT_RULES.items()
+            for rid, target in semgrep.PYTHON_COMPAT_RULES.items()
             if target == "3.6"
         }
         assert set(excluded) == expected
@@ -150,7 +150,7 @@ class TestStaleCompatRules:
 
     def test_a_floor_above_both_families_excludes_all_20(self) -> None:
         excluded = semgrep._stale_compat_rules("3.14")
-        assert set(excluded) == set(semgrep._PYTHON_COMPAT_RULES)
+        assert set(excluded) == set(semgrep.PYTHON_COMPAT_RULES)
         assert len(excluded) == 20
 
 
@@ -184,7 +184,7 @@ class TestCompatExcludesInArgv:
 
         assert semgrep.run(_cfg()) == 0
         [cmd] = calls
-        assert set(semgrep._PYTHON_COMPAT_RULES).issubset(_exclude_rule_ids(cmd))
+        assert set(semgrep.PYTHON_COMPAT_RULES).issubset(_exclude_rule_ids(cmd))
 
     def test_no_declared_floor_keeps_every_compat_rule(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -196,7 +196,7 @@ class TestCompatExcludesInArgv:
 
         assert semgrep.run(_cfg()) == 0
         [cmd] = calls
-        assert _exclude_rule_ids(cmd).isdisjoint(semgrep._PYTHON_COMPAT_RULES)
+        assert _exclude_rule_ids(cmd).isdisjoint(semgrep.PYTHON_COMPAT_RULES)
 
     def test_a_floor_below_the_family_keeps_every_compat_rule(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -209,4 +209,4 @@ class TestCompatExcludesInArgv:
 
         assert semgrep.run(_cfg()) == 0
         [cmd] = calls
-        assert _exclude_rule_ids(cmd).isdisjoint(semgrep._PYTHON_COMPAT_RULES)
+        assert _exclude_rule_ids(cmd).isdisjoint(semgrep.PYTHON_COMPAT_RULES)
