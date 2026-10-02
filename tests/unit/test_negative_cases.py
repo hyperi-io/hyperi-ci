@@ -352,6 +352,9 @@ class TestTheReasonIsAFailureNotAName:
             (_GO_CASE, _GO_VULN_LOG),
             (_SCHEMA_CASE, _SCHEMA_LOG),
         ],
+        # The logs carry ##[error] lines, which the runner annotates when pytest
+        # -v prints a parameter id built from them.
+        ids=["hadolint", "rust-audit", "go-govulncheck", "schema"],
     )
     def test_each_real_case_log_still_passes(self, case, log) -> None:
         assert negative.missing_evidence(case, log) == ""
