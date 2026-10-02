@@ -366,10 +366,13 @@ tools:
     version: 2.10.1
     pypi: pip-audit
   # Quoted: bare 2.16 reads as a YAML float, and a later 2.20 would come back
-  # as "2.2".
+  # as "2.2". Mirrored into ci.yml's Test job: the real-binary vulture test
+  # needs it on PATH directly, not through the uvx-wrapped invocation the
+  # quality stage uses.
   vulture:
     version: "2.16"
     pypi: vulture
+    pin: .github/workflows/ci.yml
   ty:
     version: "0.0.83"
     pypi: ty

@@ -230,6 +230,25 @@ jobs:
       - name: Install dependencies
         run: uv sync --no-sources
 
+      - name: Install vulture + hyperi-ci as uv tools
+        # Real-binary tests skip without these; uv's tool bin dir is not on PATH by default.
+        run: |
+          echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"
+          # hyperi-ci:pin tools.vulture
+          VULTURE_VERSION="2.16"
+          uv tool install "vulture==${VULTURE_VERSION}"
+          uv tool install .
+
+      - name: Install osv-scanner (real-binary test, Linux only)
+        # The pinned osv-scanner asset is Linux-only, so macOS keeps skipping these tests.
+        if: matrix.os == 'ubuntu-latest'
+        uses: ./.github/actions/setup-osv-scanner
+
+      - name: Install lychee + alint (real-binary tests, Linux only)
+        # The quality stage's own pinned installers fetch Linux assets only.
+        if: matrix.os == 'ubuntu-latest'
+        run: uv run --no-sources python scripts/install-test-tools.py
+
       - name: Run tests
         run: uv run --no-sources pytest tests/ -v --tb=short
 
