@@ -711,7 +711,7 @@ def init_project(
             "elif command -v uvx >/dev/null 2>&1; then\n"
             '    uvx hyperi-ci check-commit "$1"\n'
             "else\n"
-            '    echo "Warning: hyperi-ci not found — skipping commit validation" >&2\n'
+            '    echo "Warning: hyperi-ci not found -- skipping commit validation" >&2\n'
             "    exit 0\n"
             "fi\n",
             encoding="utf-8",

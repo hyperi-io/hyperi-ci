@@ -512,7 +512,7 @@ def normalise_tristate(raw: object, *, key: str) -> str:
     # Anything else (a bare `1`, a float, a list) is a config mistake.
     # `producer: 1` reads as "on" to a human and would otherwise do the
     # opposite in silence.
-    warn(f"Unknown {key} value {raw!r} — falling back to 'auto'")
+    warn(f"Unknown {key} value {raw!r} -- falling back to 'auto'")
     return "auto"
 
 

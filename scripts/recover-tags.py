@@ -151,7 +151,7 @@ def _print_report(plans: list[Plan]) -> None:
     """Print actionable rows (MOVE/CREATE); OK/KEEP are summarised elsewhere."""
     actionable = [p for p in plans if p.action in ("MOVE", "CREATE")]
     if not actionable:
-        print("No tags need repair — all dangling tags either point at a valid")
+        print("No tags need repair -- all dangling tags either point at a valid")
         print("commit (KEEP) or are already correct (OK).")
         return
     print(f"{'TAG':<14} {'ACTION':<7} {'TARGET':<10} CURRENT")
@@ -210,7 +210,7 @@ def main() -> int:
         plans = [p for p in plans if p.action != "CREATE"]
     if not plans:
         print(
-            f"No 'chore: version X.Y.Z' release commits on {args.branch} — "
+            f"No 'chore: version X.Y.Z' release commits on {args.branch} -- "
             "nothing to recover (repo may never have used @semantic-release/git).",
         )
         return 0
@@ -241,12 +241,12 @@ def main() -> int:
     if unrecoverable:
         print(
             f"\n{len(unrecoverable)} dangling tag(s) have NO 'chore: version' "
-            "source commit and cannot be auto-rebuilt — handle by hand:",
+            "source commit and cannot be auto-rebuilt -- handle by hand:",
         )
         print("    " + " ".join(unrecoverable))
 
     if not args.apply:
-        print("\nDry run — nothing changed. Re-run with --apply to set local tags.")
+        print("\nDry run -- nothing changed. Re-run with --apply to set local tags.")
         return 0
 
     for p in todo:

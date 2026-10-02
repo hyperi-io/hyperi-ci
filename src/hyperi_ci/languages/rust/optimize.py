@@ -346,9 +346,9 @@ def validate_profile(
     """Validate a profile against the project's Cargo.toml + build target.
 
     Applies graceful fallbacks:
-      - Allocator feature missing → warn, fall back to system.
-      - PGO enabled but no workload_cmd → disable PGO (config error).
-      - BOLT on non-Linux target → silent disable.
+      - Allocator feature missing -> warn, fall back to system.
+      - PGO enabled but no workload_cmd -> disable PGO (config error).
+      - BOLT on non-Linux target -> silent disable.
 
     Never raises. Returns a possibly-modified profile with warnings
     attached.
@@ -373,14 +373,14 @@ def validate_profile(
     if allocator in ("jemalloc", "mimalloc") and allocator not in cargo_features:
         warnings.append(
             f"allocator '{allocator}' requested but feature not declared in "
-            f"Cargo.toml — falling back to system allocator"
+            f"Cargo.toml -- falling back to system allocator"
         )
         allocator = "system"
 
     # PGO needs a workload_cmd
     if pgo_enabled and not profile.pgo_workload_cmd:
         warnings.append(
-            "pgo.enabled=true but no workload_cmd configured — disabling PGO"
+            "pgo.enabled=true but no workload_cmd configured -- disabling PGO"
         )
         pgo_enabled = False
         bolt_enabled = False  # BOLT needs PGO
@@ -388,7 +388,7 @@ def validate_profile(
     # BOLT is Linux-only (ELF + llvm-bolt)
     if bolt_enabled and target and not _is_linux_target(target):
         warnings.append(
-            f"BOLT requested but target '{target}' is not Linux — skipping BOLT"
+            f"BOLT requested but target '{target}' is not Linux -- skipping BOLT"
         )
         bolt_enabled = False
 

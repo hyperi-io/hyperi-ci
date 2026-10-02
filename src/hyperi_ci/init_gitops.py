@@ -62,7 +62,7 @@ def init_gitops(
     for tpl in _walk_templates(templates_root):
         rel = Path(str(tpl)).relative_to(str(templates_root))
 
-        # Rewrite workflow files: workflows/ → .github/workflows/
+        # Rewrite workflow files: workflows/ -> .github/workflows/
         if rel.parts and rel.parts[0] == "workflows":
             dest = target / ".github" / "workflows" / rel.relative_to("workflows")
         else:
@@ -180,7 +180,7 @@ def init_topology(
     (topo_dir / "README.md").write_text(readme, encoding="utf-8", newline="\n")
 
     if not apps:
-        warn(f"topology {name!r} has no apps — edit topology.yaml to add some")
+        warn(f"topology {name!r} has no apps -- edit topology.yaml to add some")
 
     success(f"Scaffolded topology at {topo_dir}")
     return 0

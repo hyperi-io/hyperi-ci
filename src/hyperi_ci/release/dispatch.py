@@ -43,7 +43,7 @@ def _dispatch_cmd(workflow: str, inputs: dict[str, str]) -> list[str]:
     unknown = sorted(set(inputs) - set(DISPATCH_INPUTS))
     if unknown:
         raise ValueError(
-            f"dispatch input(s) {unknown} not in DISPATCH_INPUTS — add them "
+            f"dispatch input(s) {unknown} not in DISPATCH_INPUTS -- add them "
             f"there so audit-callers requires consumers to declare them"
         )
     cmd = ["gh", "workflow", "run", workflow]
@@ -196,7 +196,7 @@ def dispatch_from_head(*, bump: str = "auto", dry_run: bool = False) -> int:
     explicit = explicit_version(bump)
     if explicit is None and bump not in ("auto", "patch", "minor"):
         error(
-            f"Invalid version/bump '{bump}' — expected auto, patch, minor, "
+            f"Invalid version/bump '{bump}' -- expected auto, patch, minor, "
             "or an explicit X.Y.Z version"
         )
         return 1
@@ -205,7 +205,7 @@ def dispatch_from_head(*, bump: str = "auto", dry_run: bool = False) -> int:
 
     if not _head_in_sync_with_origin():
         warn(
-            "Local HEAD differs from origin/main — the CI tags origin/main "
+            "Local HEAD differs from origin/main -- the CI tags origin/main "
             "HEAD. Push your commits first, or expect to release what's on "
             "the remote."
         )
@@ -252,7 +252,7 @@ def dispatch_publish(tag: str, dry_run: bool = False) -> int:
         error(f"Tag '{tag}' does not exist")
         info(
             "To release the current HEAD instead, run `hyperi-ci publish` "
-            "(no tag) — the CI will create the tag."
+            "(no tag) -- the CI will create the tag."
         )
         info("Available tags:")
         for t in tags[:10]:
@@ -261,7 +261,7 @@ def dispatch_publish(tag: str, dry_run: bool = False) -> int:
 
     if _tag_has_release(tag):
         warn(
-            f"GH Release already exists for {tag} — re-dispatching to fill "
+            f"GH Release already exists for {tag} -- re-dispatching to fill "
             "any registries a partial publish missed (publish is idempotent)."
         )
 

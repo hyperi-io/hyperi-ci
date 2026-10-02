@@ -87,7 +87,7 @@ def _resolve_channel(config: CIConfig, version: str | None) -> str:
     configured = config.get("release.channel", "release")
     resolved = effective_release_channel(configured, version)
     if resolved != configured:
-        info(f"Prerelease version {version} — publishing on channel {resolved}")
+        info(f"Prerelease version {version} -- publishing on channel {resolved}")
     return resolved
 
 
@@ -325,7 +325,7 @@ def stage_release_assets(config: CIConfig) -> int:
     """
     paths, problem = _release_asset_paths(config)
     if problem:
-        error(f"{problem} — refusing to release")
+        error(f"{problem} -- refusing to release")
         return 1
     if not paths:
         return 0
@@ -338,12 +338,12 @@ def stage_release_assets(config: CIConfig) -> int:
         if target.exists() and not filecmp.cmp(source, target, shallow=False):
             error(
                 f"release.assets: dist/{source.name} already exists with different "
-                f"content — rename the asset rather than clobbering a built artefact"
+                f"content -- rename the asset rather than clobbering a built artefact"
             )
             return 1
 
         shutil.copy2(source, target)
-        info(f"  staged {source} → dist/{source.name}")
+        info(f"  staged {source} -> dist/{source.name}")
 
     success(f"Staged {len(paths)} release asset(s) into dist/")
     return 0
@@ -364,12 +364,12 @@ def create_github_release(config: CIConfig) -> int:
     """
     version = _read_version()
     if not version:
-        error("No VERSION file — cannot determine release tag")
+        error("No VERSION file -- cannot determine release tag")
         return 1
 
     assets, problem = _release_asset_paths(config)
     if problem:
-        error(f"{problem} — refusing to release")
+        error(f"{problem} -- refusing to release")
         return 1
 
     channel = _resolve_channel(config, version)
@@ -393,10 +393,10 @@ def create_github_release(config: CIConfig) -> int:
             # (issue #105). The git tag is the source of truth for what commit
             # the release shipped from.
             if _release_targets_head(tag):
-                info(f"  GH Release {tag} already exists at HEAD — idempotent re-run")
+                info(f"  GH Release {tag} already exists at HEAD -- idempotent re-run")
                 return _upload_release_assets(tag, assets)
             error(
-                f"GH Release {tag} already exists at a commit other than HEAD — "
+                f"GH Release {tag} already exists at a commit other than HEAD -- "
                 f"refusing to overwrite a shipped release (issue #105). A bare "
                 f"dispatch or a stale manifest seed resolved an old version; ship "
                 f"a new version instead of re-publishing {tag}."
@@ -432,12 +432,12 @@ def _upload_binaries_github(
     """
     artifacts = _collect_artifacts(exclude_python=exclude_python)
     if not artifacts:
-        warn("No artifacts found in dist/ — skipping GitHub Release upload")
+        warn("No artifacts found in dist/ -- skipping GitHub Release upload")
         return 0
 
     version = _read_version()
     if not version:
-        error("No VERSION file — cannot determine release tag")
+        error("No VERSION file -- cannot determine release tag")
         return 1
 
     tag = f"v{version}"
@@ -458,10 +458,10 @@ def _upload_binaries_github(
             if not _release_targets_head(tag):
                 error(
                     f"GH Release {tag} already exists at a commit other than "
-                    f"HEAD — refusing to clobber its assets (issue #105)."
+                    f"HEAD -- refusing to clobber its assets (issue #105)."
                 )
                 return 1
-            info(f"  GH Release {tag} already exists at HEAD — uploading artifacts")
+            info(f"  GH Release {tag} already exists at HEAD -- uploading artifacts")
             upload_cmd = ["gh", "release", "upload", tag, "--clobber"]
             upload_cmd.extend(str(f) for f in artifacts)
             result = run_cmd(upload_cmd, check=False)
@@ -498,7 +498,7 @@ def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False)
     secret_key = os.environ.get("R2_SECRET_ACCESS_KEY")
     if not access_key or not secret_key:
         warn(
-            "R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY not set — skipping R2 binary publish"
+            "R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY not set -- skipping R2 binary publish"
         )
         return 0
 
@@ -512,7 +512,7 @@ def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False)
 
     artifacts = _collect_artifacts(exclude_python=exclude_python)
     if not artifacts:
-        warn("No artifacts found in dist/ — skipping R2 binary publish")
+        warn("No artifacts found in dist/ -- skipping R2 binary publish")
         return 0
 
     project_name = Path.cwd().name
@@ -549,7 +549,7 @@ def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False)
             env=aws_env,
         )
         if rm_result.returncode != 0:
-            warn("  Failed to clean latest/ — continuing with upload")
+            warn("  Failed to clean latest/ -- continuing with upload")
         destinations.append(("latest", latest_prefix))
 
     for label, dest_prefix in destinations:
@@ -571,7 +571,7 @@ def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False)
                 return result.returncode
 
     success(
-        f"Published {len(artifacts)} artifact(s) to R2 — "
+        f"Published {len(artifacts)} artifact(s) to R2 -- "
         f"{R2_PUBLIC_URL}/{project_name}/v{version}/"
     )
     return 0
@@ -603,7 +603,7 @@ def publish_binaries(config: CIConfig) -> int:
 
     artifacts = _collect_artifacts(exclude_python=exclude_python)
     if not artifacts:
-        info("No dist/ artifacts — skipping binary publish")
+        info("No dist/ artifacts -- skipping binary publish")
         return 0
 
     channel = _resolve_channel(config, _read_version())

@@ -27,7 +27,7 @@ _SHN_XINDEX = 0xFFFF
 
 
 def human_size(size: int) -> str:
-    """Convert bytes to human-readable size (e.g. 1024 → "1K").
+    """Convert bytes to human-readable size (e.g. 1024 -> "1K").
 
     Public alias used to be ``_human_size`` in rust/build.py and
     golang/build.py. Identical behaviour.

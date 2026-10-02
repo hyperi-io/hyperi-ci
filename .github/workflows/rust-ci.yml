@@ -22,7 +22,7 @@ on:
       publish-target:
         type: string
         default: "oss"
-        description: "Publish destination (legacy field, ignored — every publish goes to OSS registries)"
+        description: "Publish destination (legacy field, ignored -- every publish goes to OSS registries)"
       rust-toolchain:
         type: string
         default: "stable"
@@ -50,11 +50,11 @@ on:
       from-head:
         type: string
         default: ""
-        description: "'true' on a from-head dispatch (issue #35): release/retry HEAD — the CI creates the tag."
+        description: "'true' on a from-head dispatch (issue #35): release/retry HEAD -- the CI creates the tag."
       bump:
         type: string
         default: "auto"
-        description: "Version resolution for from-head: auto | patch | minor (forced — release even with no release-worthy commit) | X.Y.Z (exact version)."
+        description: "Version resolution for from-head: auto | patch | minor (forced -- release even with no release-worthy commit) | X.Y.Z (exact version)."
       test-tier:
         type: string
         default: "core"
@@ -126,7 +126,7 @@ on:
         type: string
         required: false
         default: ""
-        description: "'true' to release/retry the current HEAD — the CI creates the tag (issue #35). Mutually exclusive with `tag`."
+        description: "'true' to release/retry the current HEAD -- the CI creates the tag (issue #35). Mutually exclusive with `tag`."
       bump:
         type: string
         required: false
@@ -145,7 +145,7 @@ on:
       publish-target:
         type: string
         default: "oss"
-        description: "Publish destination (legacy field, ignored — every publish goes to OSS registries)"
+        description: "Publish destination (legacy field, ignored -- every publish goes to OSS registries)"
       rust-toolchain:
         type: string
         default: "stable"
@@ -250,7 +250,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
-          fetch-depth: 0  # full history — semantic-release dry-run reads it
+          fetch-depth: 0  # full history -- semantic-release dry-run reads it
 
       - name: Predict version + derive gates
         id: predict

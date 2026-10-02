@@ -149,8 +149,8 @@ def _resolve_mode(*, language: str, decision: Decision, container_cfg: dict) -> 
     1. Explicit ``container.mode`` set by the project.
     2. The detector's recommended mode (``contract``, ``template``,
        ``custom``) when the artefact was actually detected.
-    3. Language default fallback (Rust → contract, Python/TS → template,
-       otherwise → custom).
+    3. Language default fallback (Rust -> contract, Python/TS -> template,
+       otherwise -> custom).
     """
     explicit = container_cfg.get("mode", "")
     if explicit:
@@ -271,7 +271,7 @@ def run(config: CIConfig, *, language: str = "") -> int:
     # libraries from booting Buildx / touching GHCR at all.
     if os.environ.get("HYPERCI_CONTAINER_RESOLVE_ONLY"):
         build, reason = should_build_container(config, language=language)
-        info(f"Container resolve: build={'true' if build else 'false'} — {reason}")
+        info(f"Container resolve: build={'true' if build else 'false'} -- {reason}")
         _write_output("build", "true" if build else "false")
         return 0
 
@@ -280,7 +280,7 @@ def run(config: CIConfig, *, language: str = "") -> int:
     )
 
     if enabled == "false":
-        info("Container build disabled (release.container.enabled: false) — skipping")
+        info("Container build disabled (release.container.enabled: false) -- skipping")
         return 0
 
     dockerfile_name = container_cfg.get("dockerfile", "Dockerfile")
@@ -301,7 +301,7 @@ def run(config: CIConfig, *, language: str = "") -> int:
             # nothing to ship, so a required build is a hard fail.
             if language in _TEMPLATE_LANGUAGES:
                 info(
-                    "release.container.enabled: true — building "
+                    "release.container.enabled: true -- building "
                     f"{language} via template despite: {decision.reason}"
                 )
                 decision = Decision(
@@ -315,14 +315,14 @@ def run(config: CIConfig, *, language: str = "") -> int:
             else:
                 error(
                     "release.container.enabled: true but no container artefact "
-                    f"detected — {decision.reason}",
+                    f"detected -- {decision.reason}",
                 )
                 return 1
         else:
-            info(f"Container build skipped — {decision.reason}")
+            info(f"Container build skipped -- {decision.reason}")
             return 0
 
-    info(f"Container build will run — {decision.reason}")
+    info(f"Container build will run -- {decision.reason}")
     _log_builder_cgroups()
 
     target = config.get("release.target", "internal")
@@ -509,7 +509,7 @@ def _build_contract(
         error(
             "No deployment artefacts found. Looked in ci-tmp/, ci/, and "
             ".ci/ for container-manifest.json. The Build stage runs "
-            "`hyperi-ci run generate` to produce these — check that the "
+            "`hyperi-ci run generate` to produce these -- check that the "
             "Build job uploaded ci-tmp/ as part of build-dist-* and that "
             "the Container job's download-artifact step picked it up. "
             "For local Container builds, run `hyperi-ci run generate` "
@@ -644,7 +644,7 @@ def _dispatch_build(
     else:
         description = ""
         warn(
-            "No project description found — the image label and the GHCR "
+            "No project description found -- the image label and the GHCR "
             "package page will be blank. Add one to the manifest "
             "(Cargo.toml [workspace.package] for a workspace), or set "
             "`description:` in .hyperi-ci.yaml."
@@ -701,7 +701,7 @@ def _dispatch_build(
             )
             if not platforms:
                 # No silent-success -- if the project has container builds
-                # enabled, missing binaries means the Build → Container
+                # enabled, missing binaries means the Build -> Container
                 # artefact handoff is broken. Fail loud so we never report
                 # "container green" without actually producing an image.
                 error(
@@ -752,7 +752,7 @@ def _dispatch_build(
         success("Container Dockerfile validated (no push on push-to-main)")
     elif rc == 0 and push_mode == DEV:
         success(
-            "Dev image pushed (branch artifact class — GHCR only, "
+            "Dev image pushed (branch artifact class -- GHCR only, "
             "mutable branch tag; GA publish untouched)"
         )
     return rc
@@ -806,7 +806,7 @@ def _filter_platforms_to_available_binaries(
             kept.append(platform)
         else:
             info(
-                f"  Container: skipping {platform} — "
+                f"  Container: skipping {platform} -- "
                 f"{candidate} not present (not built by current Build job)"
             )
     return kept

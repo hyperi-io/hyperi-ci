@@ -275,7 +275,7 @@ def rust_binary_name(
     for member_dir in resolve_workspace_members(project_dir, text):
         leaf = member_dir.name  # e.g. "archiver" for "crates/archiver"
         # Prefer leaves that match the workspace directory loosely
-        # ("dfe-archiver" → "archiver"). Fall back to declaration order.
+        # ("dfe-archiver" -> "archiver"). Fall back to declaration order.
         rank = 0 if leaf in workspace_name or workspace_name in leaf else 1
         candidate = rust_binary_name(member_dir, _seen)
         if candidate:

@@ -81,11 +81,11 @@ runs:
         then
           if grep -qE '@semantic-release/(git|github)' "$GITHUB_WORKSPACE"/.releaserc*
           then
-            echo "::warning::Ignoring repo .releaserc* — it references @semantic-release/git or @semantic-release/github, the issue #37 tag-rewrite plugins. Using the central tagger-only config. Remove those plugins (stamping is 'hyperi-ci stamp-version', publishing is the publish stage)."
+            echo "::warning::Ignoring repo .releaserc* -- it references @semantic-release/git or @semantic-release/github, the issue #37 tag-rewrite plugins. Using the central tagger-only config. Remove those plugins (stamping is 'hyperi-ci stamp-version', publishing is the publish stage)."
             rm -f "$GITHUB_WORKSPACE"/.releaserc*
           else
             keep="yes"
-            echo "Repo .releaserc* has no destructive plugins — honouring it (legitimate exception)."
+            echo "Repo .releaserc* has no destructive plugins -- honouring it (legitimate exception)."
           fi
         fi
         if [ -z "$keep" ]

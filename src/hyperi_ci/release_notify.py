@@ -214,7 +214,7 @@ def _close_resolved_failures(repo: str, version: str) -> None:
     numbers = failure_issue_numbers(_open_failure_issues(repo), version)
     for number in numbers:
         comment = (
-            f"{_MARKER}\nA later run shipped **v{version}** — "
+            f"{_MARKER}\nA later run shipped **v{version}** -- "
             f"https://github.com/{repo}/releases/tag/v{version}"
         )
         _api(
@@ -228,7 +228,7 @@ def _close_resolved_failures(repo: str, version: str) -> None:
         if closed:
             info(f"release-notify: closed #{number}, v{version} shipped on a retry")
         else:
-            warn(f"release-notify: could not close #{number} — close it by hand")
+            warn(f"release-notify: could not close #{number} -- close it by hand")
 
 
 def notify_success(
@@ -247,7 +247,7 @@ def notify_success(
     version = version.removeprefix("v").strip()
     repo = repo or os.environ.get("GITHUB_REPOSITORY", "")
     if not repo:
-        warn("release-notify: GITHUB_REPOSITORY not set — skipping")
+        warn("release-notify: GITHUB_REPOSITORY not set -- skipping")
         return 0
 
     _close_resolved_failures(repo, version)
@@ -258,7 +258,7 @@ def notify_success(
         return 0
 
     body = (
-        f"{_MARKER}\nReleased in **v{version}** — "
+        f"{_MARKER}\nReleased in **v{version}** -- "
         f"https://github.com/{repo}/releases/tag/v{version}"
     )
     posted = 0
@@ -273,7 +273,7 @@ def notify_success(
         else:
             # A #123 in a commit message may be a reference to another repo,
             # or an issue since deleted.
-            info(f"release-notify: could not comment on #{number} — skipping")
+            info(f"release-notify: could not comment on #{number} -- skipping")
     success(f"release-notify: announced v{version} on {posted} issue(s)/PR(s)")
     return 0
 
@@ -289,7 +289,7 @@ def _open_failure_issue(repo: str, version: str, run_url: str) -> int | None:
         f"{_MARKER}\n"
         f"The release of **v{version}** failed.\n\n"
         f"- Run: {run_url or 'see the Actions tab'}\n"
-        f"- The tag and the registry artefact may disagree — check both before "
+        f"- The tag and the registry artefact may disagree -- check both before "
         f"re-running.\n\n"
         f"Retry with `hyperi-ci publish --version {version}` once the cause is "
         f"fixed, or `hyperi-ci publish --bump patch` to ship past it."
@@ -314,7 +314,7 @@ def notify_failure(*, version: str, repo: str | None = None, run_url: str = "") 
     version = version.removeprefix("v").strip()
     repo = repo or os.environ.get("GITHUB_REPOSITORY", "")
     if not repo or not version:
-        warn("release-notify: repository or version unknown — skipping")
+        warn("release-notify: repository or version unknown -- skipping")
         return 0
 
     number = _open_failure_issue(repo, version, run_url)
@@ -463,7 +463,7 @@ def notify_slack(config: CIConfig, *, text: str) -> int:
         return 0
     webhook = os.environ.get(variable, "")
     if not webhook:
-        warn(f"release-notify: {variable} names no webhook — skipping Slack")
+        warn(f"release-notify: {variable} names no webhook -- skipping Slack")
         return 0
 
     # -f turns a rejected webhook into a failed exit, and no retry flags,

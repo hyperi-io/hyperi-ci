@@ -258,7 +258,7 @@ class TestPublishRunsNoRepoCode:
         ):
             assert names.index(before) < verify
         for after in (
-            "Guard — predicted tag must not already exist off-HEAD",
+            "Guard -- predicted tag must not already exist off-HEAD",
             "Tag (semantic-release)",
             "Tag HEAD (forced bump / explicit version)",
         ):

@@ -112,7 +112,7 @@ def _publishes_crate(config: CIConfig, root: Path) -> bool:
 
     """
     if _binaries(root):
-        info("Binary application — skipping crate registry publish")
+        info("Binary application -- skipping crate registry publish")
         info("Binary artifacts will be uploaded by the generic binary publisher")
         return False
     if not config.destination_for("cargo"):
@@ -135,7 +135,7 @@ def _stamp_and_check(config: CIConfig) -> int:
             return 1
     else:
         warn(
-            "No release version resolved — publishing with existing Cargo.toml version"
+            "No release version resolved -- publishing with existing Cargo.toml version"
         )
     with group("Public API compatibility"):
         return semver_checks.run(config)
@@ -171,7 +171,7 @@ def prepare(config: CIConfig, out_dir: Path) -> tuple[int, dict[str, Any]]:
             check=False,
         )
         if result.returncode != 0:
-            error("cargo package failed — nothing is tagged or published")
+            error("cargo package failed -- nothing is tagged or published")
             return result.returncode, {}
     return 0, {CRATE_FACT: True}
 
@@ -186,7 +186,7 @@ def _publish_crates_io(root: Path) -> int:
 
     """
     if not os.environ.get("CARGO_REGISTRY_TOKEN"):
-        error("CARGO_REGISTRY_TOKEN not set — cannot publish to crates.io")
+        error("CARGO_REGISTRY_TOKEN not set -- cannot publish to crates.io")
         return 1
 
     result = _cargo_away(
@@ -239,7 +239,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         if prepared.facts.get(CRATE_FACT) is not True:
             error(
                 "This is a library crate with a registry destination, but the "
-                "prepare job did not check and package it — refusing to publish"
+                "prepare job did not check and package it -- refusing to publish"
             )
             return 1
         version = _read_version()

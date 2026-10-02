@@ -59,7 +59,7 @@ from hyperi_ci.version_source import build_version
 
 app = typer.Typer(
     name="hyperi-ci",
-    help="HyperI CI — polyglot CI/CD tool",
+    help="HyperI CI -- polyglot CI/CD tool",
     no_args_is_help=True,
 )
 
@@ -124,7 +124,7 @@ def _checkout_version(checkout: str) -> str:
         from hyperi_ci.common import warn
 
         warn(
-            f"cannot resolve the checkout's version ({exc}) — showing the installed one"
+            f"cannot resolve the checkout's version ({exc}) -- showing the installed one"
         )
         return __version__
 
@@ -474,7 +474,7 @@ def push(
             "--release",
             "--publish",  # deprecated spelling, still accepted
             help=(
-                "Stamp HEAD with the `Release: true` trailer before pushing — "
+                "Stamp HEAD with the `Release: true` trailer before pushing -- "
                 "the single CI run tags and publishes via the version-first "
                 "pipeline. (--publish is the deprecated spelling.)"
             ),
@@ -515,7 +515,7 @@ def push(
         typer.Option(
             "--allow-feat",
             help=(
-                "Equivalent to setting HYPERCI_ALLOW_FEAT=1 — opts in to a "
+                "Equivalent to setting HYPERCI_ALLOW_FEAT=1 -- opts in to a "
                 "feat: commit (MINOR bump). Required when HEAD is a feat: "
                 "commit and you're using --release, since the trailer "
                 "amend re-invokes the commit-msg hook gate."
@@ -527,7 +527,7 @@ def push(
         typer.Option(
             "--allow-breaking",
             help=(
-                "Equivalent to setting HYPERCI_ALLOW_BREAKING=1 — opts in "
+                "Equivalent to setting HYPERCI_ALLOW_BREAKING=1 -- opts in "
                 "to a commit containing the BREAKING-CHANGE marker (MAJOR "
                 "bump). Required when HEAD has the marker and you're "
                 "using --release."
@@ -581,7 +581,7 @@ def push(
         raise typer.Exit(1)
     bump = "patch" if bump_patch else "minor" if bump_minor else None
 
-    # CLI flag → env var: the commit-msg hook (which fires during the
+    # CLI flag -> env var: the commit-msg hook (which fires during the
     # trailer amend inside _publish_push) reads HYPERCI_ALLOW_FEAT /
     # HYPERCI_ALLOW_BREAKING. Setting them here means a single
     # `hyperi-ci push --release --allow-feat` works without exporting
@@ -906,7 +906,7 @@ def audit_gates(
         error("Use --org or --repo, not both")
         raise typer.Exit(2)
     if not org and not repo:
-        error("Give --org or --repo — there is no local equivalent to audit")
+        error("Give --org or --repo -- there is no local equivalent to audit")
         raise typer.Exit(2)
 
     targets = org_repos(org) if org else [repo or ""]
@@ -928,7 +928,7 @@ def audit_gates(
         if prerelease:
             targets = [t for t in targets if t not in set(prerelease)]
             info(
-                f"Skipping {len(prerelease)} pre-GA repo(s) — a dormant gate is "
+                f"Skipping {len(prerelease)} pre-GA repo(s) -- a dormant gate is "
                 f"expected there: {', '.join(sorted(prerelease))}"
             )
 
@@ -1411,7 +1411,7 @@ def watch(
             "-R",
             help=(
                 "Target repo as owner/name (e.g. hyperi-io/dfe-loader). "
-                "Defaults to the cwd's git remote — set this when watching "
+                "Defaults to the cwd's git remote -- set this when watching "
                 "a run in a different repo than your cwd."
             ),
         ),
@@ -1996,7 +1996,7 @@ def _release_impl(
         normalised = explicit_version(version)
         if normalised is None:
             typer.echo(
-                f"Invalid --version '{version}' — expected an explicit X.Y.Z.",
+                f"Invalid --version '{version}' -- expected an explicit X.Y.Z.",
                 err=True,
             )
             raise typer.Exit(1)
@@ -2005,7 +2005,7 @@ def _release_impl(
     if tag and bump:
         typer.echo(
             "Pass either a TAG (re-publish an existing tag) or --bump "
-            "(release the current HEAD) — not both.",
+            "(release the current HEAD) -- not both.",
             err=True,
         )
         raise typer.Exit(1)
@@ -2015,7 +2015,7 @@ def _release_impl(
         rc = dispatch_publish(tag, dry_run=dry_run)
         raise typer.Exit(rc)
 
-    # No tag → release/retry the current HEAD. The CI resolves the version,
+    # No tag -> release/retry the current HEAD. The CI resolves the version,
     # creates the tag, and publishes -- no artificial commit, no local tag
     # push (issue #35). `bump` defaults to auto (semantic-release picks the
     # version from commits); --bump patch|minor forces a release; an explicit
@@ -2043,7 +2043,7 @@ def release(
         typer.Option(
             "--version",
             help="Release the current HEAD at an exact X.Y.Z version. Tags HEAD "
-            "directly — use to step past a taken/orphaned tag (issue #37).",
+            "directly -- use to step past a taken/orphaned tag (issue #37).",
         ),
     ] = None,
     list_tags: Annotated[
@@ -2511,9 +2511,9 @@ def stitch_cmd(
     # Compute output directory
     out_path = Path(output_dir) if output_dir else Path("stitched") / topology_name
 
-    _info(f"Topology: {topology_name!r} → {out_path}")
+    _info(f"Topology: {topology_name!r} -> {out_path}")
 
-    # Build chart → version-range map for hyperi-io apps
+    # Build chart -> version-range map for hyperi-io apps
     hyperi_charts: dict[str, str] = {
         app.name: app.version for app in topology.spec.apps
     }
@@ -2558,7 +2558,7 @@ def stitch_cmd(
         _error(f"Stitch failed: {exc}")
         raise typer.Exit(4) from exc
 
-    _success(f"Stitched {topology_name!r} → {result.chart_dir}")
+    _success(f"Stitched {topology_name!r} -> {result.chart_dir}")
     for chart_name, version in sorted(result.resolved_versions.items()):
         typer.echo(f"  {chart_name}: {version}")
     raise typer.Exit(0)

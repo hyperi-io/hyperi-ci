@@ -391,7 +391,7 @@ def _fix_releaserc(
 
     if dropped_destructive:
         info(
-            "  Dropped @semantic-release/git/github — the issue #37 tag-rewrite "
+            "  Dropped @semantic-release/git/github -- the issue #37 tag-rewrite "
             "plugins (tagging is central, stamping is `hyperi-ci stamp-version`)"
         )
 
@@ -404,7 +404,7 @@ def _fix_releaserc(
     if dropped_destructive and not surviving_exceptions:
         releaserc_path.unlink()
         success(
-            f"  Removed redundant {releaserc_path.name} — the central "
+            f"  Removed redundant {releaserc_path.name} -- the central "
             "tagger-only config now applies (issue #28)"
         )
         return True
@@ -438,7 +438,7 @@ def _clean_broken_ci_symlinks(project_dir: Path) -> int:
             if target.startswith("ci/") or "/ci/" in target:
                 rel = path.relative_to(project_dir)
                 path.unlink()
-                info(f"  Removed broken symlink: {rel} → {target}")
+                info(f"  Removed broken symlink: {rel} -> {target}")
                 count += 1
     return count
 
@@ -514,7 +514,7 @@ def migrate_project(
     releaserc_path = _find_releaserc(project_dir)
 
     if not has_submodule and not has_dir and not old_workflows:
-        info("No old CI submodule or workflows found — nothing to migrate")
+        info("No old CI submodule or workflows found -- nothing to migrate")
         info("Use 'hyperi-ci init' for new project setup")
         return 0
 

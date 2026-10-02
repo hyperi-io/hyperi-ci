@@ -82,8 +82,8 @@ class TestStatusLineFormat:
         "status,expected_substring",
         [
             ("ga", "Project status: ga"),
-            ("beta", "Project status: beta — pre-GA, polishing"),
-            ("legacy", "Project status: legacy — being phased out, plan migration"),
+            ("beta", "Project status: beta -- pre-GA, polishing"),
+            ("legacy", "Project status: legacy -- being phased out, plan migration"),
         ],
     )
     def test_format_matches_clarifier_map(

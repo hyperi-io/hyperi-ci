@@ -537,7 +537,7 @@ def _run_upgrade_cmd(cmd: list[str]) -> int:
         return result.returncode
     except PermissionError:
         logger.warning(
-            "Permission denied — try running with sudo or fix install permissions"
+            "Permission denied -- try running with sudo or fix install permissions"
         )
         return 1
     except FileNotFoundError as exc:
@@ -555,7 +555,7 @@ def _re_exec() -> None:
     try:
         os.execvpe(sys.argv[0], sys.argv, env)  # noqa: S606 -- re-execs this process's own argv, no shell involved
     except OSError:
-        logger.warning("Upgrade installed but re-exec failed — run your command again")
+        logger.warning("Upgrade installed but re-exec failed -- run your command again")
         raise SystemExit(0)
 
 

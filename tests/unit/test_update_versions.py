@@ -690,7 +690,7 @@ class TestRuntimePins:
         problems = update_versions._pin_mismatches(self._versions())
         assert len(problems) == 1
         assert "wf.yml:7:" in problems[0]
-        assert "runtimes.python 3.11 → 3.12" in problems[0]
+        assert "runtimes.python 3.11 -> 3.12" in problems[0]
 
     def test_apply_rewrites_it(self, tmp_path: Path, monkeypatch) -> None:
         workflow = self._tree(tmp_path, monkeypatch, self.WORKFLOW)
