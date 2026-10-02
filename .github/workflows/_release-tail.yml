@@ -152,7 +152,7 @@ jobs:
         github.event_name == 'workflow_dispatch' ||
         github.event_name == 'pull_request'
       )
-    runs-on: canary-native
+    runs-on: arc-native-16cpu-canary
     permissions:
       contents: read
       packages: write
