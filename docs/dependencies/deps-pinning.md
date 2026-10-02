@@ -32,7 +32,7 @@ pinning its version at the consumer just freezes consumers off CI fixes
 (it stuck scalo-py on v2.6.1, dfe-receiver on v2.6.4). Consumers call
 `<lang>-ci.yml@main` and always get latest; safety for `@main` is hyperi-ci's
 internal interface gate (see [workflow-pinning.md](workflow-pinning.md), issue
-#31), not a consumer pin. A deliberate pin (`@vN`, or `@sha` for a known
+\#31), not a consumer pin. A deliberate pin (`@vN`, or `@sha` for a known
 reason) is still allowed - the carve-out only stops Renovate *imposing* one.
 
 - The org Renovate preset lives in `hyperi-io/renovate-config` but is governed
@@ -143,7 +143,7 @@ Renovate's `rangeStrategy: bump` only rewrites a floor when a NEW upstream
 release triggers a PR. Nothing anywhere tells you your floor is already behind
 your own lock:
 
-```
+```text
 pytest          >=8.0.0   locked 9.0.3   major
 pytest-asyncio  >=0.23.0  locked 1.3.0   major
 mypy            >=1.0.0   locked 2.1.0   major
@@ -275,4 +275,3 @@ needs to install.
 Adding a tool: add the `tools:` entry (`version`, `repo`, `pin`), put the marker
 above the line that carries the version, run `--check`. No script change needed -
 the marker is generic.
-

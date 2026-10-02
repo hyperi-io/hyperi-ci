@@ -19,11 +19,14 @@ RECEIVER_BIN="$1"
 ```
 
 So if your `.hyperi-ci.yaml` says:
+
 ```yaml
 pgo:
   workload_cmd: "bash scripts/pgo-workload.sh"
 ```
+
 hyperi-ci effectively runs:
+
 ```bash
 bash scripts/pgo-workload.sh /path/to/target/<triple>/release/<binary>
 ```

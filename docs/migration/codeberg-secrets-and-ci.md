@@ -215,7 +215,7 @@ composite actions under `.github/actions/` are all referenced `@main`
 by deliberate design (see [workflow-pinning.md](../dependencies/workflow-pinning.md)).
 Forgejo's cross-instance `@main` resolution amplifies exactly the
 issue-#31 failure mode - a floating sibling that breaks pinned callers
- - so the interface backward-compat gate (`check-workflow-interfaces.py`)
+\- so the interface backward-compat gate (`check-workflow-interfaces.py`)
 must run on the destination CI too. It is host-agnostic Python, so it
 ports unchanged.
 

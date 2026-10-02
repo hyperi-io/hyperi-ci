@@ -9,7 +9,7 @@ and in GitHub Actions. No bash scripts, no composite actions, no submodules.
 your head commit is the single signal that a push is a release. The CI
 run predicts the next version up front, stamps it into Cargo.toml /
 VERSION / pyproject.toml / package.json **before** the build, then tags
-+ uploads to all configured registries — all in one workflow. No second
+\+ uploads to all configured registries — all in one workflow. No second
 "catch-up" build, no version-stamp drift between binary and tag.
 
 **Tag-on-publish.** A git tag exists iff the artefact is in the
@@ -171,14 +171,14 @@ running `hyperi-ci push --release` on the next conventional commit.
 
 Conventional commits are enforced by a git hook and CI. The format:
 
-```
+```text
 <type>: <description>
 <type>(scope): <description>
 ```
 
 Get it wrong and you'll hear about it:
 
-```
+```text
 Computer says no.
 
   Unknown commit type: "yolo"
@@ -245,7 +245,7 @@ prerelease and prefix R2 paths. Stable releases require `channel: release`.
 
 ### Graduating to GA
 
-```
+```text
 alpha -> beta -> release
 ```
 
@@ -299,7 +299,7 @@ its replacement. No project has to change anything to keep building.
 
 ## How It Works
 
-```
+```text
 Your Project                          hyperi-ci
 ├── .github/workflows/ci.yml          ├── .github/
 │   (5 lines — calls reusable)        │   ├── workflows/
@@ -350,7 +350,7 @@ One workflow, one tag, one release.
 
 `.hyperi-ci.yaml` in the project root. Cascade (highest wins):
 
-```
+```text
 CLI flags -> ENV vars (HYPERCI_*) -> .hyperi-ci.yaml -> defaults.yaml -> hardcoded
 ```
 

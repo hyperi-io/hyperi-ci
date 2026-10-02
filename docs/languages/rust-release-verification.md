@@ -8,7 +8,7 @@ The tiers themselves and the `.hyperi-ci.yaml` keys are [rust.md](rust.md).
 
 ## Release dispatch flow
 
-```
+```text
 0:00  Setup: runners claimed (arc-runner-16cpu on amd64, ubuntu-24.04-arm on arm64)
 0:30  Native deps install — bolt-23, binutils via apt.llvm.org
 1:00  cargo install cargo-pgo --locked
@@ -85,7 +85,7 @@ either - memchr and friends dispatch AVX2 at run time.
 Grep the Build job log for these. hyperi-ci emits each one itself, so a
 missing line here does mean the stage did not run:
 
-```
+```text
 Rust build optimisation: channel=release, allocator=jemalloc, lto=fat, pgo=on, bolt=on
 PGO: building instrumented binary for <triple>
 PGO: building optimised binary for <triple>

@@ -130,7 +130,7 @@ env.
 - Adding `io.hyperi.contract.app-name` - only if a cross-artefact
   correlation use case emerges that name + namespace cannot satisfy.
 - Adding `io.hyperi.contract.profile` (production / canary / staging)
- - only if profile-specific gitops routing needs it.
+  \- only if profile-specific gitops routing needs it.
 
 Keep v1 to three fields. Resist additions until a real grep / audit
 query is blocked.

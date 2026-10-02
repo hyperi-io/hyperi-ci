@@ -164,7 +164,7 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 - [migration/JFROG.md](migration/jfrog.md) - the registry migration record; also
   the artifact repos that still serve Telstra production
 - [migration/CODEBERG-SECRETS-AND-CI.md](migration/codeberg-secrets-and-ci.md)
- - Codeberg + Buildkite portability notes (aspirational)
+- Codeberg + Buildkite portability notes (aspirational)
 - [lessons.md](lessons.md) - the war stories: every gotcha that cost a
   re-dispatch, by language and subsystem
 
