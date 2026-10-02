@@ -210,7 +210,7 @@ often the cleanest approach (so you can reuse the project's protobuf
 types, TLS config, etc.).
 
 Template: `multi-protocol.sh` (reference: dfe-receiver's
-`src/bin/pgo-driver.rs` + `scripts/pgo-workload.sh`)
+`src/bin/pgo-driver.rs` + `scripts/pgo-workload.sh`) <!-- doc-paths: ignore -->
 
 ## Choosing a workload command
 
@@ -304,7 +304,7 @@ Start from `_CARGO_PGO_OPTIMIZE_BOLT_ARGS` in `src/hyperi_ci/languages/rust/pgo.
 `dfe-receiver` is the first shipping DFE binary with Tier 2. Its
 workload implementation is a template for multi-protocol services:
 
-- `scripts/pgo-workload.sh` - orchestrator (Kafka container + binary
+- `scripts/pgo-workload.sh` <!-- doc-paths: ignore --> - orchestrator (Kafka container + binary
   lifecycle + cleanup trap)
 - `src/bin/pgo-driver.rs` - feature-gated Rust binary that drives HTTP,
   Prometheus Remote Write (snappy+protobuf), Splunk HEC, OTLP HTTP

@@ -19,7 +19,7 @@ follow.
 
 ## How to use a template
 
-1. Copy to `scripts/pgo-workload.sh` in your project.
+1. Copy to `scripts/pgo-workload.sh` in your project. <!-- doc-paths: ignore -->
 2. Make it executable: `chmod +x scripts/pgo-workload.sh`.
 3. Customise the placeholders (marked `# TODO:`):
    - Binary path handling (how to locate your app's binary)
@@ -66,4 +66,4 @@ possible.
 ## Reference implementations
 
 - `dfe-receiver` → `multi-protocol.sh` pattern (see that project's
-  `scripts/pgo-workload.sh` + `src/bin/pgo-driver.rs`)
+  `scripts/pgo-workload.sh` <!-- doc-paths: ignore --> + `src/bin/pgo-driver.rs`)

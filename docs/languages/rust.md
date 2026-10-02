@@ -71,7 +71,7 @@ below cover each step.
 - [ ] `Cargo.toml`: `tikv-jemallocator` optional dep, `jemalloc` feature declared, **not** in default features
 - [ ] `src/main.rs`: `#[global_allocator]` wired behind `#[cfg(feature = "jemalloc")]`
 - [ ] `[profile.release]`: `lto = "thin"` (hyperi-ci overrides to fat), `codegen-units = 1`, `panic = "abort"`, `strip = true`
-- [ ] `scripts/pgo-workload.sh`: exercises real hot paths, takes `$1` as binary path, self-terminates at `duration_secs`
+- [ ] `scripts/pgo-workload.sh`: exercises real hot paths, takes `$1` as binary path, self-terminates at `duration_secs` <!-- doc-paths: ignore -->
 - [ ] Workload driver binary (if Rust): declared as `[[bin]]` with `required-features`
 - [ ] `.hyperi-ci.yaml`: `build.rust.optimize` stanza with pgo + bolt enabled
 - [ ] Release through a release run - `hyperi-ci push --release` or `hyperi-ci release`; Tier 2 never fires on an ordinary push

@@ -187,7 +187,7 @@ hands back an opaque token, not a string with a known prefix).
 
 ### 4. `gh secret set --org` and `secrets-access.yaml` sync
 
-`scripts/sync-secrets-access.py` is the source-of-truth driver for
+`scripts/sync-secrets-access.py` is the source-of-truth driver for <!-- doc-paths: ignore -->
 which secret reaches which repo. It currently shells to `gh`. To
 support both backends:
 
@@ -258,7 +258,7 @@ Independently of any actual migration, the following are
 
 | Build item | Useful on GitHub? | Useful on Forgejo? |
 |---|---|---|
-| `SecretBackend` interface in `scripts/sync-secrets-access.py` | Yes (clarity) | Yes (required) |
+| `SecretBackend` interface in `scripts/sync-secrets-access.py` <!-- doc-paths: ignore --> | Yes (clarity) | Yes (required) |
 | OpenBao -> CI populator script (one-shot, idempotent) | Yes (replace ad-hoc `gh secret set`) | Yes (only path) |
 | Token broker service (issues short-lived creds from OpenBao) | Yes (reduce App dependency) | Yes (only path) |
 | `.github/` <-> `.forgejo/` generator in `hyperi-ci init` (workflows + composite actions) | No until cutover | Required for dual-run |
@@ -294,10 +294,10 @@ Phases 4-7 are only worth starting under a forcing function.
 |---|---|---|
 | Inventory all org + repo secrets/vars | We don't have a clean list. Every migration plan starts here. | New script in `scripts/`, output to OpenBao for reference |
 | Trace every secret to OpenBao | Anything that isn't traceable is a future migration tax | OpenBao `kv/services/` namespace |
-| Refactor `sync-secrets-access.py` behind a `SecretBackend` interface | One-time lift, makes future dual-run cheap | `scripts/sync-secrets-access.py` |
+| Refactor `sync-secrets-access.py` behind a `SecretBackend` interface | One-time lift, makes future dual-run cheap | `scripts/sync-secrets-access.py` <!-- doc-paths: ignore --> |
 | Stop introducing new GitHub App dependencies | Every new App is migration debt | `.hyperi-ci.yaml` review, RFC discipline |
 | Audit code for hard-coded `gh*_` token format checks | Cheap to find now, expensive to find under time pressure | `rg` patterns above |
-| Confirm `secrets-access.yaml` is the only place secret access is declared | If there are other ad-hoc grants, fold them in | `config/secrets-access.yaml` |
+| Confirm `secrets-access.yaml` is the only place secret access is declared | If there are other ad-hoc grants, fold them in | `config/secrets-access.yaml` <!-- doc-paths: ignore --> |
 
 ## What we should NOT do
 
@@ -315,9 +315,9 @@ Phases 4-7 are only worth starting under a forcing function.
 - [Codeberg migration overview](codeberg.md) - parent doc
 - [Tier 3 deployment contract](../deployment/tiers.md) -
   contract layer is host-agnostic
-- `config/secrets-access.yaml` (in the private **hyperi-infra** repo) -
+- `config/secrets-access.yaml` <!-- doc-paths: ignore --> (in the private **hyperi-infra** repo) -
   source of truth for repo <-> secret mapping. Moved out of this public
   repo so the org's secret <-> repo topology is not world-readable.
-- `scripts/sync-secrets-access.py` (in **hyperi-infra**) - the driver,
+- `scripts/sync-secrets-access.py` <!-- doc-paths: ignore --> (in **hyperi-infra**) - the driver,
   target of the `SecretBackend` refactor
 - [Forgejo Actions secrets docs](https://forgejo.org/docs/latest/user/actions/#secrets)
