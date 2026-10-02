@@ -228,7 +228,7 @@ jobs:
     name: Plan
     # The composite installs uv and runs its config readers with PyYAML, so
     # the default set is enough and no renovate carve-out applies (issue #291).
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-26.04' || vars.GH_RUNNER_DEFAULT || 'ubuntu-26.04' }}
     # predict-version runs semantic-release, whose git plugin verifies push
     # access (a `git push --dry-run`) on a publish predict - needs write.
     # A fork PR never reaches that: will-publish is false off main, so both
@@ -254,7 +254,7 @@ jobs:
 
       - name: Predict version + derive gates
         id: predict
-        uses: hyperi-io/hyperi-ci/.github/actions/predict-version@main
+        uses: hyperi-io/hyperi-ci/.github/actions/predict-version@rehearse/501-ubuntu26
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ inputs.tag }}
@@ -320,7 +320,7 @@ jobs:
           RUST_TARGETS: ${{ steps.predict.outputs.rust-targets }}
           RUN_BUILD: ${{ steps.predict.outputs.run-build }}
           ARM64_CHECK: ${{ steps.predict.outputs.run-arm64-check }}
-          AMD64_RUNNER: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE_RUST || vars.GH_RUNNER_RUST || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+          AMD64_RUNNER: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE_RUST || vars.GH_RUNNER_RUST || 'ubuntu-26.04') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-26.04' || inputs.runner-build || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-26.04' }}
           ARM64_RUNNER: ${{ vars.GH_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}
         run: |
           set -euo pipefail
@@ -363,7 +363,7 @@ jobs:
       github.event_name == 'merge_group'
     # Needs only git and uv, so no language variable and no renovate carve-out:
     # the default set is already the lightest one (issue #291).
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-26.04' || vars.GH_RUNNER_DEFAULT || 'ubuntu-26.04' }}
     # pull-requests: read reads the PR title live. A job-level block replaces
     # the workflow default, so contents: read is restated.
     permissions:
@@ -392,7 +392,7 @@ jobs:
     needs: [plan]
     if: needs.plan.outputs.run-checks == 'true'
     # Renovate branches use lightweight runners -- dependency update PRs don't need 16cpu
-    runs-on: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE_RUST || vars.GH_RUNNER_RUST || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE_RUST || vars.GH_RUNNER_RUST || 'ubuntu-26.04') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-26.04' || inputs.runner-quality || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-26.04' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -401,7 +401,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup runtime (uv + Python + native deps)
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@rehearse/501-ubuntu26
         with:
           language: rust
 
@@ -432,10 +432,10 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Setup Rust tools
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-rust-tools@main
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-rust-tools@rehearse/501-ubuntu26
 
       - name: Setup osv-scanner
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-osv-scanner@main
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-osv-scanner@rehearse/501-ubuntu26
 
       - name: Deepen history for secret scan
         # gitleaks scans the branch git log for committed secrets; a depth-1
@@ -476,7 +476,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: ${{ fromJson(startsWith(github.head_ref || github.ref_name, 'renovate/') && format('["{0}"]', vars.GH_RUNNER_RENOVATE_RUST || vars.GH_RUNNER_RUST || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
+        os: ${{ fromJson(startsWith(github.head_ref || github.ref_name, 'renovate/') && format('["{0}"]', vars.GH_RUNNER_RENOVATE_RUST || vars.GH_RUNNER_RUST || 'ubuntu-26.04') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && '["ubuntu-26.04"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-26.04')) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -485,7 +485,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup runtime (uv + Python + native deps)
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@rehearse/501-ubuntu26
         with:
           language: rust
 
@@ -508,7 +508,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Setup cargo-nextest
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-nextest@main
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-nextest@rehearse/501-ubuntu26
 
       - name: Init submodules
         # The checkout keeps no credential, so the job token reaches this step
@@ -606,7 +606,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup runtime (uv + Python + native deps)
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@rehearse/501-ubuntu26
         with:
           language: rust
 
@@ -690,7 +690,7 @@ jobs:
       packages: write
       issues: write
       pull-requests: write
-    uses: hyperi-io/hyperi-ci/.github/workflows/_release-tail.yml@main
+    uses: hyperi-io/hyperi-ci/.github/workflows/_release-tail.yml@rehearse/501-ubuntu26
     with:
       language: rust
       runner-mode: ${{ inputs.runner-mode }}
@@ -726,7 +726,7 @@ jobs:
     # already fires on every push and works as a required context by itself.
     needs: [plan, quality, test, build]
     # Needs only uv; same chain as commit-check (issue #291).
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-26.04' || vars.GH_RUNNER_DEFAULT || 'ubuntu-26.04' }}
     steps:
       # The CLI ships via uvx, which a bare runner does not have. Without this
       # the gate exits 127 and fails a run that was otherwise green.

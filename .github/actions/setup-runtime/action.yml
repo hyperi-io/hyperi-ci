@@ -12,7 +12,7 @@
 # setup-node) stay in the SME's workflow, AFTER this step.
 #
 # Referenced from reusable workflows as
-#   hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
+#   hyperi-io/hyperi-ci/.github/actions/setup-runtime@rehearse/501-ubuntu26
 # (a local ./ ref would resolve to the CONSUMER repo, which lacks it).
 
 name: Setup hyperi-ci runtime

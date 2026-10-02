@@ -203,7 +203,7 @@ jobs:
     name: Plan
     # The composite installs uv and runs its config readers with PyYAML, so
     # the default set is enough and no renovate carve-out applies (issue #291).
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-26.04' || vars.GH_RUNNER_DEFAULT || 'ubuntu-26.04' }}
     # predict-version runs semantic-release, whose git plugin verifies push
     # access (a `git push --dry-run`) on a publish predict - needs write.
     # A fork PR never reaches that: will-publish is false off main, so both
@@ -226,7 +226,7 @@ jobs:
 
       - name: Predict version + derive gates
         id: predict
-        uses: hyperi-io/hyperi-ci/.github/actions/predict-version@main
+        uses: hyperi-io/hyperi-ci/.github/actions/predict-version@rehearse/501-ubuntu26
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ inputs.tag }}
@@ -274,7 +274,7 @@ jobs:
       github.event_name == 'merge_group'
     # Needs only git and uv, so no language variable and no renovate carve-out:
     # the default set is already the lightest one (issue #291).
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-26.04' || vars.GH_RUNNER_DEFAULT || 'ubuntu-26.04' }}
     # pull-requests: read reads the PR title live. A job-level block replaces
     # the workflow default, so contents: read is restated.
     permissions:
@@ -301,7 +301,7 @@ jobs:
     timeout-minutes: 45
     needs: [plan]
     if: needs.plan.outputs.run-checks == 'true'
-    runs-on: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_TYPESCRIPT || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE || 'ubuntu-26.04') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-26.04' || inputs.runner-quality || vars.GH_RUNNER_TYPESCRIPT || vars.GH_RUNNER_DEFAULT || 'ubuntu-26.04' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -339,7 +339,7 @@ jobs:
         # Malicious-package (MAL-*) scanner -- covers the OSSF
         # malicious-packages feed that npm/pnpm/yarn audit (CVE-only) do
         # not. Most of ossf/malicious-packages#1276 lived in npm.
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-osv-scanner@main
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-osv-scanner@rehearse/501-ubuntu26
 
       - name: Deepen history for secret scan
         # gitleaks scans the branch git log for committed secrets; a depth-1
@@ -380,7 +380,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: ${{ fromJson(startsWith(github.head_ref || github.ref_name, 'renovate/') && format('["{0}"]', vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && '["ubuntu-latest"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_TYPESCRIPT || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest')) }}
+        os: ${{ fromJson(startsWith(github.head_ref || github.ref_name, 'renovate/') && format('["{0}"]', vars.GH_RUNNER_RENOVATE || 'ubuntu-26.04') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && '["ubuntu-26.04"]' || inputs.test-matrix || format('["{0}"]', inputs.runner-test || vars.GH_RUNNER_TYPESCRIPT || vars.GH_RUNNER_DEFAULT || 'ubuntu-26.04')) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -469,7 +469,7 @@ jobs:
     timeout-minutes: ${{ inputs.build-timeout-minutes || 135 }}
     needs: [plan, quality, test]
     if: needs.plan.outputs.run-build == 'true'
-    runs-on: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-build || vars.GH_RUNNER_TYPESCRIPT || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE || 'ubuntu-26.04') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-26.04' || inputs.runner-build || vars.GH_RUNNER_TYPESCRIPT || vars.GH_RUNNER_DEFAULT || 'ubuntu-26.04' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -539,7 +539,7 @@ jobs:
       packages: write
       issues: write
       pull-requests: write
-    uses: hyperi-io/hyperi-ci/.github/workflows/_release-tail.yml@main
+    uses: hyperi-io/hyperi-ci/.github/workflows/_release-tail.yml@rehearse/501-ubuntu26
     with:
       language: typescript
       runner-mode: ${{ inputs.runner-mode }}
@@ -575,7 +575,7 @@ jobs:
     # already fires on every push and works as a required context by itself.
     needs: [plan, quality, test, build]
     # Needs only uv; same chain as commit-check (issue #291).
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-26.04' || vars.GH_RUNNER_DEFAULT || 'ubuntu-26.04' }}
     steps:
       # The CLI ships via uvx, which a bare runner does not have. Without this
       # the gate exits 127 and fails a run that was otherwise green.
