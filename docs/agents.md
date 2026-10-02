@@ -7,7 +7,7 @@ Binding on coding agents, and on anyone sending a patch by hand.
 ## Read before the first edit
 
 - **[lessons.md](lessons.md)** before implementing or debugging any handler. Every entry cost a re-dispatch to learn: the mold linker, multi-arch package conflicts, the sysroot approach, integration-test threading. Skipping it means rediscovering them.
-- **[architecture.md](architecture.md)** before changing a workflow. The gate model lives there, and re-deriving it from the YAML goes wrong -- `run-checks` and `run-build` are separate gates with different triggers, and the `commit-check` job sits outside both on purpose.
+- **[architecture.md](architecture.md)** and **[ci-job-contract.md](ci-job-contract.md)** before changing a workflow. The gate model lives in the latter, and re-deriving it from the YAML goes wrong -- `run-checks` and `run-build` are separate gates with different triggers, and the `commit-check` job sits outside both on purpose.
 
 ## Conventions no linter enforces
 
@@ -51,7 +51,8 @@ A race symptom -- ConnectionRefused, a timeout during startup, port-in-use, "no 
 
 | Topic | Read |
 |---|---|
-| Gate model, job contract, why same-org refs stay `@main` | [architecture.md](architecture.md) |
+| Gate model, job contract | [ci-job-contract.md](ci-job-contract.md) |
+| Why same-org refs stay `@main` | [workflow-composites.md](workflow-composites.md) |
 | Keeping the local CLI in step with the runner image | [self-update.md](self-update.md) |
 | The dep-install SSoT, the YAML schema, `bake: false` | [runtime/runner-image.md](runtime/runner-image.md) |
 | Per-tool quality modes, `--strict`, forced skips | [quality-gate.md](quality-gate.md) |

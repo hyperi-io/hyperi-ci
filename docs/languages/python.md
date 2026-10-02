@@ -25,7 +25,7 @@ Python publishes to public PyPI only. A legacy `publish.target` in
 
 ## Where the source is
 
-A `src/` holding Python scans `src/`. A flat layout (`mypkg/` or `scripts/` at the root) scans each top-level directory holding Python, so ruff S and D, bandit, vulture and coverage need no setting. [quality-gate.md](../quality-gate.md) has the full rule.
+A `src/` holding Python scans `src/`. A flat layout (`mypkg/` or `scripts/` at the root) scans each top-level directory holding Python, so ruff S and D, bandit, vulture and coverage need no setting. [quality-gate-tools.md](../quality-gate-tools.md) has the full rule.
 
 ## Which Python version CI uses
 

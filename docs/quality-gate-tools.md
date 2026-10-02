@@ -1,0 +1,287 @@
+<!--
+Project:   HyperI CI
+File:      docs/quality-gate-tools.md
+Purpose:   Per-tool reference for the quality stage -- what each tool scans and its config knobs
+
+License:   BUSL-1.1 -- HYPERI PTY LIMITED
+Copyright: (c) 2026 HYPERI PTY LIMITED
+-->
+
+# Quality gate: tools
+
+What each quality tool covers and where it runs, then the tools that take their own configuration: charset, doc-paths, the Rust feature matrix, gitleaks, and the container, k8s and IaC linters. Mode resolution and the override mechanisms are in [quality-gate.md](quality-gate.md).
+
+## Tools
+
+| Tool | Scope | Where |
+|---|---|---|
+| gitleaks | cross-language secret scan | dispatch (`quality/gitleaks.py`) |
+| semgrep | cross-language SAST (`--config auto`) | dispatch (`quality/semgrep.py`) |
+| charset | typography a keyboard cannot type, ASCII-art | dispatch (`quality/charset.py`) |
+| hadolint | Dockerfile lint GATE (shellcheck-on-`RUN`) | dispatch (`quality/hadolint.py`) |
+| droast | Dockerfile ADVISORY (cache / dockerignore) | dispatch (`quality/droast.py`) |
+| kubeconform | k8s manifest schema GATE | `lint-manifests` verb (`quality/kubeconform.py`) |
+| kube-linter | k8s best-practice ADVISORY | `lint-manifests` verb (`quality/kube_linter.py`) |
+| checkov | IaC security ADVISORY (k8s/helm/tf) | `lint-manifests` verb (`quality/checkov.py`) |
+| compose-config | compose resolution GATE | `lint-compose` verb (`quality/compose_config.py`) |
+| compose-pins | compose image-pin GATE | `lint-compose` verb (`quality/compose_pins.py`) |
+| doc-paths | docs naming a file that is gone | dispatch + `lint-docs` (`quality/doc_paths.py`) |
+| lychee | internal doc links + anchors, offline | dispatch + `lint-docs` (`quality/doc_links.py`) |
+| mermaid-parse | fenced mermaid blocks, real grammar | dispatch + `lint-docs` (`quality/mermaid_parse.py`) |
+| markdownlint-cli2 | mechanical markdown syntax | dispatch + `lint-docs` (`quality/markdownlint.py`) |
+| docs-touched | source changed, no doc did (NEVER gates) | dispatch + `lint-docs` (`quality/docs_touched.py`) |
+| ruff (lint, format, security, docstrings) | Python | `languages/python/quality.py` |
+| ty | Python types | Python handler |
+| pip-audit, bandit, vulture | Python | Python handler |
+| clippy, rustfmt, cargo-audit/deny, osv-scanner | Rust | `languages/rust/quality.py` |
+| eslint, prettier, tsc, npm audit, osv-scanner | TypeScript | `languages/typescript/quality.py` |
+| gofmt, govet, golangci-lint, gosec, govulncheck | Go | `languages/golang/quality.py` |
+
+semgrep and gitleaks moved to the dispatch level because their rulesets are
+language-agnostic - running them once avoids the drift where only one handler
+passed shared excludes.
+
+**`quality.exclude_paths` takes names and paths.** A bare name (`data`, or `data/`) excludes every directory of that name at any depth. An entry with any other `/` (`docs/generated`) is a path from the repo root and is dropped unless it is a directory. An entry that excludes nothing gets one info line per run, not a warning, since it may guard a directory only some checkouts have.
+
+**A Rust root-package workspace is checked whole.** Where the root Cargo.toml is both a `[package]` and a `[workspace]` with no `default-members`, clippy, cargo deny, the feature matrix and the rustdoc hint take `--workspace`, because cargo otherwise checks the root package alone (cargo fmt and cargo audit already cover every member). The feature matrix keeps its per-member `-p` in a workspace mixing lib and bin-only members, and adds nothing when `feature_matrix.extra_args` names a scope. `--all-features` then turns on every member's features, mutually exclusive ones included, as a virtual workspace already does. Narrow it with `quality.rust.features`, where `|` separates feature sets that run one after another.
+
+**ruff is four keys, not one.** `quality.python.ruff` governs the LINT passes
+only; the formatter is `quality.python.ruff_format`, the S rules are
+`quality.python.ruff_security` and the D rules are
+`quality.python.ruff_docstrings`, each resolved independently. Adopting the
+formatter on an established tree reformats most of it at once, so deferring that
+must not require relaxing the real lint gate. `ruff` and `ruff_format` default
+to blocking, `ruff_security` and `ruff_docstrings` to warn.
+
+**`ruff_security` is the bandit-class check.** It runs `ruff check --select S`
+(flake8-bandit) over the Python source directories whatever the repo's own ruff
+selects, since bandit ships `disabled`. `--select` on the command line drops the
+repo's ruff `ignore` list for this pass; `per-file-ignores`, `# noqa` and
+`quality.ignore` entries for `ruff` still apply. It is a security gate, so
+`disabled` owes a `reason`.
+
+**`ruff_docstrings` enforces the D rules whatever the repo selects**, the same way: `--select D` drops the repo's ruff `ignore` list. To accept one D rule, add a `quality.ignore` entry with tool `ruff` and its id (`D100`) and a reason, or use `per-file-ignores` or `# noqa`.
+
+**Python source directories are detected, not configured.** ruff S and D, bandit, vulture and `--cov` scan `src/` when it holds a `.py` file. Otherwise they scan every top-level directory holding a `.py` file, apart from the test paths, hidden directories, `quality.exclude_paths`, the always-pruned set, and `docs`, `build`, `dist`, `env` and `*.egg-info`. Modules at the repo root (`setup.py`, `conftest.py`) are not source. With nothing found each of those tools logs `skipped, no Python source directory found` and the test stage runs without coverage. A project passing its own `--cov` (in `test.python.args` or pytest `addopts`) keeps its own source.
+
+- A test path nested below the top level (`tests/unit/`) does not exclude its parent, so `.py` files beside it make `tests/` count as source. Set `quality.test_paths: [tests/]` or add it to `quality.exclude_paths`.
+- A top-level symlink to a directory is followed and scanned like any other directory.
+
+## charset exclusions
+
+charset scans `src/`, `scripts/` and `.github/`. It skips the same directories as every other discovery here: `quality.exclude_paths` (a bare name or a repo-relative path) and the always-pruned set (`.git`, `node_modules`, `.venv`, ...).
+
+Where a banned character is correct DATA -- a registry's official name in a TOML table -- list the file under `quality.charset_exclude`:
+
+```yaml
+quality:
+  charset_exclude:
+    - "src/*/data/**"
+```
+
+Each glob matches the WHOLE repo-relative path, and `**` spans directories. So `*.toml` only matches a top-level file, and `**/*.toml` matches at any depth. A value that is not a list of relative glob strings fails the stage. There is no inline pragma, because a comment would change the data or is not possible in JSON.
+
+Every run that drops a file says so, per source:
+
+```text
+charset: 2 file(s) excluded (quality.charset_exclude: 1, quality.exclude_paths: 1)
+```
+
+## doc-paths: prescriptive directories
+
+doc-paths cannot tell a stale path from a PRESCRIBED one. A standard saying a project's architecture doc belongs at docs/ARCHITECTURE.md names a file in the consumer's tree, and it is missing from the repo holding the standard because it should be. A repo whose docs tell other repos where to put things lists those directories:
+
+```yaml
+quality:
+  doc_paths:
+    mode: warn
+    prescriptive:
+      - standards
+      - skills
+```
+
+- Empty by default, so a repo that sets nothing is checked as before.
+- Each entry is a directory from the repo root, matched by whole segment: `docs` covers everything under `docs/`, `docs/api/` included, and never `docs-old/`. No globs.
+- Only the inline-code rule skips those docs. Their link destinations are still checked, because a link is navigation within this repo. doc-links and markdownlint are not affected.
+- A value that is not a list of repo-relative directories fails the check.
+- The cost is real rot inside a listed directory: a standard naming this repo's own renamed file goes unreported. List the narrowest directories that prescribe.
+
+Every run that skips a doc says so:
+
+```text
+doc-paths: inline-code paths not checked in 156 file(s) (quality.doc_paths.prescriptive)
+```
+
+## doc-paths: ignoring one known reference
+
+`prescriptive` exempts a whole directory, which would also hide real drift added there later. A single reference that is right as written, such as a retired file named on purpose or a path in another repo, takes an HTML comment on its own line instead:
+
+```markdown
+The old config lived at `config/legacy.yaml` <!-- doc-paths: ignore -->, retired in v2.
+```
+
+The marker suppresses every path warning on that line. A path on another, unmarked line still reports. Every run that suppresses a reference says so:
+
+```text
+doc-paths: 3 reference(s) ignored by marker (doc-paths: ignore)
+```
+
+## Rust feature matrix: warnings
+
+The feature matrix runs clippy on each feature alone (`cargo clippy --no-default-features`, then `cargo hack --each-feature --no-dev-deps clippy`). Code every combined build uses can be dead in one of those builds, and a lint can fire only when another feature's `cfg` is off. The main clippy pass sees neither, because it runs `--all-features`. The repo's clippy entries in `quality.ignore` apply to every feature set, and with `quality.rust.clippy: disabled` the matrix runs `cargo check` instead. `quality.rust.feature_matrix.warnings` decides what a warning or lint does. It ships `warn`, and `--strict` upgrades it. A compile error fails in every mode.
+
+| Mode | Behaviour |
+|---|---|
+| `warn` | Each feature set that warned is named with its first warning or lint, a `::warning::` in CI. Clippy runs with `--cap-lints warn`, so a lint the repo sets to deny is named, not failed. |
+| `blocking` | rustc denies warnings, and `cargo hack --keep-going` names every failing set in one run. |
+| `disabled` | Same commands and environment as before, warnings unread. |
+
+`warn` and `blocking` run cargo with `CARGO_TERM_COLOR=never` and strip any escapes that still arrive, since coloured output hides the lines the report is read from.
+
+The deny is its own `target.'cfg(all())'` rustflags entry, passed with `--config`. Cargo joins all matching target entries, so the repo's `[target.*]` flags and the ARC runner's `CARGO_TARGET_*_RUSTFLAGS` survive. `RUSTFLAGS` would discard both, `--cfg` flags included. Where `RUSTFLAGS` or `CARGO_ENCODED_RUSTFLAGS` is already set, cargo reads only that, so the deny is appended there. A repo with only `[build] rustflags`, on a machine with no target entry, loses them for these two passes. They are not copied into the deny: cargo ignores `[build]` whenever any target entry matches, and a copy would add flags wherever one does.
+
+New flags mean a new fingerprint: the first blocking run re-checks every dependency once, and both builds then stay cached.
+
+## gitleaks config
+
+If your repo has a `.gitleaks.toml` (or `ci/.gitleaks.toml`), hyperi-ci passes
+it with `--config`. **It must name a source of rules**, or gitleaks scans every
+byte, matches nothing, and reports "no leaks found" - a green gate that checked
+nothing. That is not hypothetical; it is what issue #64 turned out to be.
+
+A config with allowlists but no `[[rules]]` and no `[extend]` **replaces** the
+default ruleset with an empty one rather than narrowing it:
+
+```toml
+# BLIND - allowlist only, no rules, no extend. Every scan passes.
+[[allowlists]]
+paths = ['''testdata/''']
+```
+
+```toml
+# CORRECT - keep the default rules, then narrow them.
+[extend]
+useDefault = true
+
+[[allowlists]]
+paths = ['''testdata/''']
+```
+
+hyperi-ci refuses to report success from a rule-less scan: `blocking` fails the
+stage, `warn` warns.
+
+### The canary
+
+Reading the TOML only says where the rules come FROM. It cannot tell you that
+`[allowlist] paths = ['''.*''']`, `regexes = ['''.*''']` or an `[extend]
+disabledRules` entry has neutered an otherwise valid ruleset - all three report
+"no leaks found" over a planted PAT.
+
+So before the real scan, hyperi-ci runs the config against a **canary**: a
+synthetic fixture carrying one planted secret per rule (`github-pat`,
+`aws-access-token`), scanned with `gitleaks dir` through the config the real
+scan is about to use. Cost is one extra invocation, about 0.6s.
+
+The fixture is a bare filename with no directory part or extension and the
+values are synthetic, so an allowlist aimed at real repo content cannot reach it
+without being a catch-all. Two rules, not ten, because a planted value has to
+survive living in a git repo - a well-formed Slack or Stripe token is rejected
+by GitHub push protection, and working around that would mean hiding a secret
+from a scanner on purpose.
+
+**Three outcomes, not two**, because those two rules are gitleaks' OWN and a
+config need not carry them:
+
+| Canary result | Config's rule source | Outcome |
+|---|---|---|
+| planted secrets come back | any | pass - the config can report a secret |
+| nothing comes back | `[extend] useDefault = true`, or no config at all | **fail** at the mode's severity - the rules were in scope and got suppressed |
+| nothing comes back | own `[[rules]]`, or `[extend] path` | **could not determine** - warns, never blocks |
+
+The third row would otherwise be a lie in either direction. A config bringing
+only its own narrow rules never had `github-pat` in scope, so the canary has
+measured its own fixture rather than the config: failing would hard-fail a repo
+whose scanner is fine, and staying quiet would sell the canary's blind spot as
+a pass. It says which, and leaves the real scan to run. An `[extend] path` is
+not followed, so what the extended file brings is unknown here too.
+
+It proves those two rules survive the config, not that every rule does: a
+`disabledRules` entry naming some other rule still passes. It also says nothing
+about `.gitleaksignore`, which is out of scope - the canary is scanned from its
+own temporary directory.
+
+`GITLEAKS_CONFIG` / `GITLEAKS_CONFIG_TOML` are honoured by gitleaks itself. A
+repo config passed via `--config` beats them, but with no repo config they take
+over silently - so hyperi-ci warns when one is set and there is nothing to
+override it. Prefer a committed `.gitleaks.toml`: it gets reviewed.
+
+## Container + k8s + IaC linting
+
+Five tools cover three artefact classes, each with a **gate** (blocks) and an
+**advisory** (warns, never blocks):
+
+| Layer | Dockerfiles | k8s manifests | IaC |
+|---|---|---|---|
+| Gate (blocking) | hadolint | kubeconform | - |
+| Advisory (warn) | droast | kube-linter | checkov (k8s/helm/kustomize/terraform) |
+
+They deliver through two paths, because the target repos differ in kind:
+
+- **Path A - the quality stage.** hadolint + droast auto-detect Dockerfiles
+  inside `hyperi-ci run quality`, like gitleaks/semgrep. A repo with no
+  Dockerfile just info-skips - no opt-out config needed.
+- **Path B - the `lint-manifests` verb.** `hyperi-ci lint-manifests <dir>` runs
+  kubeconform + kube-linter + checkov. Built for GitHub-Actions-native gitops /
+  infra repos that have no `.hyperi-ci.yaml` and no language pipeline - the
+  existing workflow calls the verb instead of adopting the whole pipeline. It
+  renders Helm charts (`helm template`) for kubeconform, which validates
+  RENDERED manifests.
+- **Path C - the `lint-compose` verb.** `hyperi-ci lint-compose <dir>` runs
+  compose-config + compose-pins over a repo whose deliverable IS the compose
+  stack - no language pipeline for Path A, no chart or manifest for Path B.
+  compose-config resolves each standalone file (placeholders injected for the
+  keys the file declares mandatory, so the check stays hermetic); compose-pins
+  reads every file statically and fails an `image:` that resolves to `latest`
+  with nothing set.
+
+## Advisory (non-blocking) checks
+
+Two hygiene nudges run in the quality stage. Neither can ever fail a build -
+they surface a recommendation and carry on.
+
+- **Deprecated-file check.** A packaged table
+  (`src/hyperi_ci/config/deprecated-files.yaml`) maps a retired project file to
+  the nudge shown if it is present (a `::warning::` in CI). Driver:
+  `src/hyperi_ci/quality/deprecated_files.py`. Runs on `hyperi-ci check` and in
+  CI. Currently flags a legacy `.releaserc.yaml`.
+- **Repo-hygiene advisory (`alint`).** Optional, profile-aware repo hygiene via
+  the external `alint` linter (missing `.gitignore` / `.editorconfig`, tracked
+  build artefacts, absent lockfile, ...). hyperi-ci ships an opinionated default
+  config (`src/hyperi_ci/config/alint/hyperi.alint.yml` - alint's own bundled
+  baseline for our four languages, fact-gated) and passes it with `alint check
+  -c`, so no per-repo `.alint.yml` is needed; a repo's own `.alint.yml` wins.
+  The default is primary-language-scoped: alint's root-only manifest/lockfile
+  rules (`go-mod-exists`, `node-package-json-exists`, ...) are disabled for
+  every ecosystem EXCEPT the repo's resolved language, because the bundled
+  `has_<lang>` facts match nested monorepo packages and would otherwise demand
+  a secondary ecosystem's manifest at the repo root (issue #75 - a TS monorepo
+  with `packages/*/go.mod` got a red `go-mod-exists`). Per-file rules
+  (Trojan-Source, hygiene) stay active for every ecosystem. A Rust-primary repo with no bin target in any workspace member also gets `rust-cargo-lock-exists` off, since committing a library's `Cargo.lock` is the maintainer's call (https://blog.rust-lang.org/2023/08/29/committing-lockfiles/). A feature-gated bin still counts as an app. Implemented as a
+  generated single-file layer that `extends:` the shipped default - alint
+  0.13's repeatable `-c` only honours the first file (0.14 rejects a second
+  outright), so two `-c` layers do not compose. The layer carries
+  `allow_out_of_root: true`: it and the packaged default both live outside
+  the linted repo, which alint 0.14's `extends:` confinement would otherwise
+  reject. Controlled by `quality.alint` (`auto` = run if installed else
+  info-skip; `enabled` = warn if missing; `disabled` = off). alint is not a
+  hyperi-ci dependency; locally it info-skips (with an install hint) when
+  absent, while in CI a missing alint is fetched as the pinned prebuilt
+  binary (`tools.alint` in `src/hyperi_ci/config/versions.yaml`, static musl, exec'd by
+  path - no sudo) so the advisory actually runs on vanilla runners.
+  Driver: `src/hyperi_ci/quality/repo_advisor.py`.
+
+## See also
+
+- [quality-gate.md](quality-gate.md) -- mode resolution and the override mechanisms
+- [quality-gate-doc-linting.md](quality-gate-doc-linting.md) -- the five doc checks in `lint-docs`
+- [quality-gate-overrides.md](quality-gate-overrides.md) -- `--strict`, `HYPERCI_QUALITY_SKIP`, `quality.ignore`

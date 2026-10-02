@@ -73,14 +73,26 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
   alike: what to read before editing, the conventions no linter enforces, what
   counts as evidence. Pairs with CONTRIBUTING.md's "For coding agents", which
   owns the `ci-test-*` fixture rules
-- [architecture.md](architecture.md) - the two sides (workflows + CLI), the
-  two-level workflow model, the job contract, what's shared vs duplicated, why
+- [architecture.md](architecture.md) - the two sides (workflows + CLI) and the
+  two-level workflow model; the job contract, composite-sharing rule and
+  container build are split into their own pages, linked from here
+- [ci-job-contract.md](ci-job-contract.md) - the job list, the gate outputs
+  `plan` computes, what runs for which trigger, branch-mode, a merge queue,
+  and arm64 parity
+- [container-builds.md](container-builds.md) - the release-tail's container
+  job: auto-detected modes, build-arg placeholders, when a container failure
+  blocks the release
+- [workflow-composites.md](workflow-composites.md) - what's shared vs
+  duplicated across languages, and why our own workflow refs stay `@main`
 - [test-tiers.md](test-tiers.md) - the core and full test tiers, `--tier`, and
   the per-run notice of what was left out; the Test job's token and timeout inputs
 - [flow.md](flow.md) - push/dispatch -> gate -> version -> build -> tag -> publish,
   one semantic-release computation driving every stage
 - [versioning.md](versioning.md) - the git tag is the only truth; VERSION and
   CHANGELOG are outputs; how a tag-less repo gets its first version
+- [versioning-commit-back.md](versioning-commit-back.md) - how VERSION gets
+  committed back after a release, why not `@semantic-release/git`, and the
+  other stamped files
 - [versioning-and-the-suite.md](versioning-and-the-suite.md) - per-repo versions
   vs DFE stack versions, and which ladder owns `rc`
 - [prereleases.md](prereleases.md) - cut `1.2.0-beta.1` off a branch, stable
@@ -91,6 +103,13 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 - [self-update.md](self-update.md) - how the CLI keeps itself current: the
   `live` / `stable` channels, freeze, and the gates that hold an update back
 
+### Quality gate
+
+- [quality-gate.md](quality-gate.md) - mode resolution (blocking/warn/disabled), relaxing a security gate, missing/mispinned tools locally vs CI
+- [quality-gate-tools.md](quality-gate-tools.md) - the per-tool reference: what each tool scans, its config knobs, Container + k8s + IaC linting, the advisory checks
+- [quality-gate-doc-linting.md](quality-gate-doc-linting.md) - the five `lint-docs` checks, gate semantics, adoption impact
+- [quality-gate-overrides.md](quality-gate-overrides.md) - `--strict`, `HYPERCI_QUALITY_SKIP`, and `quality.ignore`
+
 ### Dependencies & supply chain
 
 - [dependencies/DEPS-PINNING.md](dependencies/deps-pinning.md) - `/deps` script + `src/hyperi_ci/config/versions.yaml` SHA-pin Actions; Renovate as PR-only watchdog; 7-day cooldown; the hard rules
@@ -100,7 +119,8 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 
 ### Languages
 
-- [languages/RUST.md](languages/rust.md) - channel-gated optimisation (jemalloc + LTO, PGO, BOLT), the `.hyperi-ci.yaml` keys, skip-optimize, the Build job's time limit
+- [languages/RUST.md](languages/rust.md) - what channel-gated optimisation buys (jemalloc + LTO, PGO, BOLT), the build-channel matrix, Tier 1, the Build job's time limit
+- [languages/rust-tier2.md](languages/rust-tier2.md) - the Tier 2 (PGO + BOLT) `.hyperi-ci.yaml` opt-in, workload script contract, skip-optimize, opt-out
 - [languages/RUST-RELEASE-VERIFICATION.md](languages/rust-release-verification.md) - the Tier 2 dispatch timeline, binary and log markers, release cost
 - [languages/RUST-TROUBLESHOOTING.md](languages/rust-troubleshooting.md) - symptom-to-fix tables, canary lessons
 - [languages/RUST-LOCAL-DEV.md](languages/rust-local-dev.md) - per-project target dirs, sccache, mold, parallelism
