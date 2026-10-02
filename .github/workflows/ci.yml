@@ -230,6 +230,68 @@ jobs:
       - name: Install dependencies
         run: uv sync --no-sources
 
+      - name: Install vulture + hyperi-ci as uv tools
+        # A handful of unit tests run the REAL binary rather than a stub, and
+        # skip themselves when it is missing (tests/conftest.py then prints an
+        # annotation per skip). Both of these install the same on every OS in
+        # the matrix, unlike the Linux-only tools below.
+        #
+        # `uv tool install` puts shims in a directory that is not on PATH by
+        # default on either runner image, so GITHUB_PATH is set explicitly
+        # rather than assumed.
+        run: |
+          echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"
+          # hyperi-ci:pin tools.vulture
+          VULTURE_VERSION="2.16"
+          uv tool install "vulture==${VULTURE_VERSION}"
+          uv tool install .
+
+      - name: Install osv-scanner (real-binary test, Linux only)
+        # test_osv_scanner.py::TestRealBinary needs the binary on PATH. The
+        # composite already does this for the Quality job; osv-scanner ships
+        # no macOS asset this pins, so the macOS leg keeps skipping those two
+        # tests (see docs/dependencies/deps-pinning.md for the pin).
+        if: matrix.os == 'ubuntu-latest'
+        uses: ./.github/actions/setup-osv-scanner
+
+      - name: Install lychee + alint (real-binary tests, Linux only)
+        # test_lint_docs.py::TestLycheeInvocation and
+        # test_repo_advisor.py::test_override_layer_suppresses_nested_go_mod_with_real_alint
+        # need both on PATH. Reuses the SAME pinned-fetch-and-verify helpers
+        # the quality stage calls (hyperi_ci.quality.doc_links._install_lychee,
+        # hyperi_ci.quality.repo_advisor._install_alint) rather than
+        # duplicating the download/checksum logic here. Both helpers are
+        # Linux-only by design (asamarts/alint and lycheeverse/lychee are
+        # pinned to musl Linux assets only), so the macOS leg keeps skipping
+        # these tests.
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          uv run --no-sources python - <<'PY'
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          from hyperi_ci.quality.doc_links import _install_lychee
+          from hyperi_ci.quality.repo_advisor import _install_alint
+
+          lychee = _install_lychee()
+          if lychee is None:
+              sys.exit("lychee install failed")
+          print(f"lychee installed: {lychee}")
+
+          fetch_dir = Path("/tmp/alint-fetch")
+          fetch_dir.mkdir(parents=True, exist_ok=True)
+          alint = _install_alint(fetch_dir)
+          if alint is None:
+              sys.exit("alint install failed")
+          # _install_alint places the binary in a scratch dir and leaves PATH
+          # alone (it is normally exec'd by absolute path) - put a copy on
+          # PATH the same way install_ci_binary does for lychee above.
+          target = "/usr/local/bin/alint"
+          subprocess.run(["sudo", "install", "-m", "0755", alint, target], check=True)
+          print(f"alint installed: {target}")
+          PY
+
       - name: Run tests
         run: uv run --no-sources pytest tests/ -v --tb=short
 
