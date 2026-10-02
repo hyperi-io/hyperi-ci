@@ -408,9 +408,11 @@ class TestSrcLayoutIsByteIdentical:
         argvs = _argvs(calls)
         bandit = f"bandit=={tool_version('bandit')}"
         vulture = f"vulture=={tool_version('vulture')}"
+        # The project declares no Python, so the AST tools take the running one.
+        python = f"{sys.version_info.major}.{sys.version_info.minor}"
 
         assert _scan(argvs, "bandit", "-r") == [
-            "uvx", "--from", bandit, "bandit", "-r", "src/", "-ll",
+            "uvx", "--python", python, "--from", bandit, "bandit", "-r", "src/", "-ll",
             "-c", "pyproject.toml", "--exclude", "tests/,*/vendor/*",
         ]  # fmt: skip
         assert _scan(argvs, "--select", "S") == [
@@ -422,7 +424,8 @@ class TestSrcLayoutIsByteIdentical:
             "--extend-exclude=vendor",
         ]  # fmt: skip
         assert _scan(argvs, "vulture") == [
-            "uvx", "--from", vulture, "vulture", "src/", "--exclude=*/vendor/*",
+            "uvx", "--python", python, "--from", vulture, "vulture", "src/",
+            "--exclude=*/vendor/*",
         ]  # fmt: skip
 
     def test_pytest_argv(self, repo: Path, pytest_run: _Pytest) -> None:

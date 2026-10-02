@@ -22,6 +22,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -46,6 +47,7 @@ from hyperi_ci.languages.quality_common import (
     resolve_tool_cmd,
     resolve_tool_mode,
 )
+from hyperi_ci.python_version import resolve as resolve_python_version
 from hyperi_ci.quality.ignores import IgnoreEntry, for_tool, load_ignores
 from hyperi_ci.versions import tool_version
 
@@ -85,10 +87,11 @@ _ARGV_REJECTION = (
     "no such option",
 )
 
-# `uv run <tool>` says this when the tool is not in the environment at all. The
-# missing-tool check above the run cannot see it, because the command was
-# rewritten to start with `uv`, which IS on PATH.
-_SPAWN_FAILURE = "failed to spawn"
+# uv says one of these when the tool never started: `uv run <tool>` with the
+# tool missing from the environment, or `uvx --python X` with no X installed and
+# downloads off. The missing-tool check above the run cannot see either, because
+# the command was rewritten to start with `uv`, which IS on PATH.
+_SPAWN_FAILURES = ("failed to spawn", "no interpreter found")
 
 # pip-audit's summary line when it has vulnerabilities to report.
 _PIP_AUDIT_FINDING = re.compile(r"^Found \d+ known vulnerabilit", re.MULTILINE)
@@ -186,6 +189,40 @@ def _build_pip_audit_cmd(ignores: list[IgnoreEntry]) -> list[str]:
     return base
 
 
+_BANDIT_SKIPPED = re.compile(r"^Files skipped \((\d+)\):$", re.MULTILINE)
+
+
+def _version_key(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.split("."))
+
+
+def _parse_python() -> str:
+    """Return the interpreter version for tools that parse source with ``ast``.
+
+    bandit and vulture read only the syntax of the Python they run on, so they
+    take the project's declared Python, or the running one when that is newer.
+    """
+    running = f"{sys.version_info.major}.{sys.version_info.minor}"
+    declared, _ = resolve_python_version()
+    if not declared:
+        return running
+    return max(declared, running, key=_version_key)
+
+
+def _warn_bandit_skips(stdout: str | None) -> int:
+    """Name the files bandit could not parse, and return how many there were.
+
+    bandit still exits 0 over them, so without this they read as scanned.
+    """
+    match = _BANDIT_SKIPPED.search(stdout or "")
+    if not match or match.group(1) == "0":
+        return 0
+    warn(f"  bandit: {match.group(1)} file(s) could not be parsed and were NOT scanned")
+    listed = (stdout or "")[match.end() :].strip().splitlines()
+    _emit_tool_output("bandit", "\n".join(listed), cap=_WARN_OUTPUT_CAP)
+    return int(match.group(1))
+
+
 # A non-blocking tool gets this many lines inline before the rest is counted.
 # vulture alone emits 111 at 60 percent confidence, which buried the real
 # cause of a failed `push` under ~130 lines of advisory noise (issue #212).
@@ -275,6 +312,7 @@ def _run_tool(
     use_uv_with: bool = False,
     spec: str | None = None,
     retry_unreachable: bool = False,
+    python: str | None = None,
 ) -> bool:
     """Run a quality tool and handle its result based on mode.
 
@@ -288,6 +326,7 @@ def _run_tool(
         retry_unreachable: The tool is pip-audit, so a run that could not
             reach the advisory DB is made again. One that never reaches it
             still fails.
+        python: Interpreter version for a ``uvx`` run.
 
     Returns:
         True if the pipeline should continue, False on a blocking failure.
@@ -298,7 +337,7 @@ def _run_tool(
         return True
 
     resolved = resolve_tool_cmd(
-        cmd, use_uvx=use_uvx, use_uv_with=use_uv_with, spec=spec
+        cmd, use_uvx=use_uvx, use_uv_with=use_uv_with, spec=spec, python=python
     )
     if resolved == cmd and not shutil.which(cmd[0]):
         # A missing tool fails the gate only in CI, where every tool MUST
@@ -316,6 +355,7 @@ def _run_tool(
         result = _run_until_reachable(tool_name, resolved)
     else:
         result = run_cmd(resolved, check=False, capture=True)
+    skipped = _warn_bandit_skips(result.stdout) if tool_name == "bandit" else 0
     unreachable_note = ""
     if retry_unreachable and _advisory_db_unreachable(result):
         unreachable_note = (
@@ -324,12 +364,16 @@ def _run_tool(
         )
 
     if result.returncode == 0:
+        # A blocking scan that left files unread has no clean result to report.
+        if skipped and mode == "blocking":
+            error(f"  {tool_name}: failed, {skipped} file(s) were not scanned")
+            return False
         success(f"  {tool_name}: passed")
         return True
 
     # A tool that could not start checked nothing: that is neither a pass nor
     # a finding, and reporting it as "issues found" hid it for months.
-    if _SPAWN_FAILURE in (result.stderr or "").lower():
+    if any(marker in (result.stderr or "").lower() for marker in _SPAWN_FAILURES):
         if mode == "blocking" and is_ci():
             error(f"  {tool_name}: could not start (required)")
             _emit_tool_output(tool_name, result.stderr)
@@ -380,6 +424,7 @@ def _run_source_tool(
     *,
     use_uvx: bool = False,
     spec: str | None = None,
+    python: str | None = None,
 ) -> bool:
     """Run a tool that scans the source directories, or say why it cannot.
 
@@ -393,6 +438,7 @@ def _run_source_tool(
         sources: Source directories the command scans.
         use_uvx: Run a standalone tool through ``uvx``.
         spec: Requirement to install for ``use_uvx``.
+        python: Interpreter version for a ``uvx`` run.
 
     Returns:
         True if the pipeline should continue, False on a blocking failure.
@@ -401,7 +447,7 @@ def _run_source_tool(
     if mode != "disabled" and not sources:
         warn(f"  {tool_name}: skipped, no Python source directory found")
         return True
-    return _run_tool(tool_name, cmd, mode, use_uvx=use_uvx, spec=spec)
+    return _run_tool(tool_name, cmd, mode, use_uvx=use_uvx, spec=spec, python=python)
 
 
 def _ruff_format_takes_extend_exclude() -> bool:
@@ -534,6 +580,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             had_failure = True
 
     sources = get_python_source_paths(config)
+    parse_python = _parse_python()
 
     # Bandit security scanning
     mode = _get_tool_mode("bandit", config)
@@ -553,7 +600,13 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         bandit_cmd.extend(["--skip", ",".join(e.id for e in bandit_ignores)])
     bandit_spec = f"bandit=={tool_version('bandit')}"
     if not _run_source_tool(
-        "bandit", bandit_cmd, mode, sources, use_uvx=True, spec=bandit_spec
+        "bandit",
+        bandit_cmd,
+        mode,
+        sources,
+        use_uvx=True,
+        spec=bandit_spec,
+        python=parse_python,
     ):
         had_failure = True
 
@@ -588,7 +641,13 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     vulture_cmd = ["vulture", *sources] + _build_exclude_args("vulture", excludes)
     vulture_spec = f"vulture=={tool_version('vulture')}"
     if not _run_source_tool(
-        "vulture", vulture_cmd, mode, sources, use_uvx=True, spec=vulture_spec
+        "vulture",
+        vulture_cmd,
+        mode,
+        sources,
+        use_uvx=True,
+        spec=vulture_spec,
+        python=parse_python,
     ):
         had_failure = True
 
