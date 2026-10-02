@@ -153,7 +153,7 @@ flowchart LR
   `1.3.0-dev.8`) - there is no `release` branch and no dev pre-release track.
 - Rust build-opt is skippable for a single run with the `skip-optimize`
   dispatch input, for when a fast pre-GA image beats an optimised one.
-  See [languages/rust.md](languages/rust.md) - *Skipping optimisation for one run*.
+  See [languages/rust-tier2.md](languages/rust-tier2.md) - *Skipping optimisation for one run*.
 - GA vs prerelease follows the channel: `alpha` / `beta` are GitHub
   prereleases, `release` is GA. The arch set does not - the arm64 leg is added
   when `will-release` is true, whatever the channel.

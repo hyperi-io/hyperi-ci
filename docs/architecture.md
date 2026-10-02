@@ -72,226 +72,22 @@ No `_setup.yml`/`_ci.yml` orchestrator chains. Web research (astral-sh/uv,
 tokio-rs/tokio, vercel/turborepo) shows mature multi-language repos keep CI
 flat with a plan job + gates, not chained reusable workflows.
 
-## The job contract every language follows
+## Workflow internals: job contract and composites
 
 Each `<lang>-ci.yml` is a `workflow_call` reusable workflow with the same jobs,
 same order, gating on the same `plan` outputs. Only the *internals* of
 quality/test/build differ per language (tools, toolchain, cache keys) - that is
-the single place language divergence is allowed.
+the single place language divergence is allowed. The full job list, the gate
+outputs the `plan` job computes, what runs for which trigger (including
+branch-mode, a merge queue and arm64 parity) and the test-tier gate are in
+[ci-job-contract.md](ci-job-contract.md).
 
-| Job | needs | if | Purpose |
-|---|---|---|---|
-| `plan` | - | always | Decide whether this run is a release; emit gate outputs |
-| `commit-check` | - | push-to-main OR `pull_request` | Conventional-commit **landing gate** - fatal on push to main (validates what lands); on PRs advisory for branch commits, fatal for the line a squash would land. NOT `run-checks`-gated (see below) |
-| `quality` | `[plan]` | `run-checks` | Lint / typecheck / security scan |
-| `test` | `[plan]` | `run-checks` | Tests at the plan's `test-tier`, named `Test (<tier>, <runner>)`; a full run passes `--tier full` |
-| `build` | `[plan, quality, test]` | `run-build` | Compile binaries / wheels / packages, stamp version, upload `dist/` |
-| `release-tail` | `[plan, build]` | own gates | Container, prepare and tag-and-release, via shared `_release-tail.yml` |
-| `gate` | `[plan, quality, test, build]` | always | `hyperi-ci gate-check`: fails when a required job did not pass, and names the test tier. The context a ruleset should require (issue #177) |
-
-`commit-check` is deliberately **independent of `plan` / `run-checks`**: that
-gate skips the quality job on non-release-worthy merges to main, so a bad
-conventional-commit message could otherwise land unvalidated. It is a cheap
-git-log + regex check (no compile/publish), fatal on the push that actually
-reaches main and advisory on PRs (branch commits may be squashed away - only
-the squash subject lands). Feature-branch pushes skip it, preserving the
-chore-skip fast path. Logic: `hyperi_ci.quality.commit_validation.run`; the
-local `hyperi-ci check` runs the same validation over `origin/main..HEAD`.
-
-What drove the split: dfe-ui#81 red-flagged nine `feat:` WIP commits on one of
-Kaz's branches, none of which reached main. The gate was right that they were
-mislabelled and wrong about which commits mattered -- it validated throwaway
-branch commits while the squash subject that actually landed went unchecked. A
-second gap sits behind it: a team merging through the GitHub UI never invokes
-`hyperi-ci push`, so the local bump guard never runs and the PR-time check is
-their only one. Validating what LANDS covers both, and is merge-method
-agnostic. The accepted cost is that it is post-hoc -- the bad message is on
-main by the time it fails, so the fix is a follow-up commit rather than a
-rejected push.
-
-On a `pull_request` the line a squash merge would land is validated as well, and a bad one is fatal. The check assumes GitHub's default squash subject, `COMMIT_OR_PR_TITLE`, which every hyperi-io repo uses: a one-commit PR lands that commit's message, which is fatal while the title is only advised on, and any other PR lands its title. The landing subject is measured with the ` (#N)` GitHub appends to it, as main's push run sees it. A `feat:` title is confirmed only by an `Allow-Feat: true` trailer in a branch commit, because the squash body is built from the commit messages and the PR description never lands. The job token cannot read the repo's merge settings, so the assumption is not checked per repo. The PR is read live from the API with the job token, since the event payload is frozen at trigger time and a re-run replays it. With no token or no API answer it uses the payload's PR and warns.
-
-### Gate outputs (computed in `plan`)
-
-| Output | True when | Effect |
-|---|---|---|
-| `will-release` | push to **main** with `Release: true` trailer, OR `workflow_dispatch` carrying `tag`, OR `from-head: true` dispatched on main | The underlying release signal. A trailer on a non-main ref is ignored LOUDLY (`::warning::`) - main is the sole release path (branch-mode decision 1). A from-head dispatch follows the same rule (issue #471): on a declared prerelease branch only `bump=auto` releases, and on any other ref it is validate-only and warns. A `tag` dispatch releases from any ref. A dispatch carrying neither is validate-only and warns that nothing was released. A `schedule` run is never a release, whatever HEAD's trailer says |
-| `run-checks` | `will-release`, OR a **release-worthy push to main** (the pushed range carries a `feat:` / `fix:` / `perf:`; a range that cannot be resolved counts as worthy, so the gate fails open), OR `pull_request`, OR `workflow_dispatch`, OR `schedule` | Run quality + test. A release-worthy merge is TESTED, never shipped - `run-build` stays release-only |
-| `test-tier` | `full` on `schedule`, when the `test-tier` input is `full`, when the project's own `test.tier` is `full`, or on `will-release` with `full-required-for-release`; else `core` | The tier the Test job runs. Nothing lowers it, so a caller forwarding `core` on every event cannot lower a scheduled or opted-in release run. An unknown value, from the input or the project, fails Plan |
-| `full-required-for-release` | the project sets `test.full.required_for_release: true` | A release runs `full`. The Gate fails a release handed any other tier. Off by default |
-| `run-build` | `will-release`, OR `workflow_dispatch`, OR `pull_request` with the `branch-build` opt-in | Run build + container (the release tail stays `will-release`-only) |
-| `run-arm64-check` | a **release-worthy push to main** on a Rust project that ships `aarch64-unknown-linux-gnu` and has not set `build.rust.arm64_on_main: false` | Run the Build job with an arm64-ONLY matrix. Read by `rust-ci.yml` alone; the release tail does not run, so this compiles one leg and ships nothing |
-| `next-version` | `will-release` | The version this run releases: semantic-release dry-run on a push or a from-head `auto` dispatch, the forced version on a from-head `patch` / `minor` / `X.Y.Z`, and the tag's own version (minus the `v`) on a `tag` dispatch |
-| `python-version` | always | The interpreter every job builds and tests on: a pegged `.python-version`, else the `requires-python` FLOOR, else the `versions.yaml` default. The floor, because testing above it hides the bug it exists to catch - a 3.14-only feature in a repo that promises 3.12 |
-| `build-matrix` | always | Both arches whenever `run-build` is true, so a validate-only dispatch and a branch-mode PR build arm64 too. `run-arm64-check` alone yields the arm64 leg by itself. A project that lists `build.rust.targets` in `.hyperi-ci.yaml` gets legs for those targets only, so one that cannot build arm64 still releases amd64 |
-
-A push to a release branch with NO trailer is validate-only, which is correct and reads exactly like a release run. The gate asks `unreleased.py` what the last `v*` tag does not include and raises a `::warning::` naming the count, the tag and its age; it stays quiet when nothing releasable is waiting, and says separately when there is no tag to measure against.
-
-The `_release-tail.yml` **input** is still named `will-publish`, as is the
-`publish-target` input on each `<lang>-ci.yml`. GitHub validates reusable-workflow
-inputs before any of our code runs and hard-errors on an undeclared one, so a
-deprecation warning can never reach them. They keep their names.
-
-**Two derived gates** because PR runs need quality+test (review feedback) but
-never build or release, and `chore:`/`docs:` pushes to main need no heavy compute.
-
-### Branch-mode (opt-in PR build + dev images)
-
-`branch-build: "true"` (workflow input, or the `HYPERCI_BRANCH_BUILD` repo
-variable) makes pull_request runs also build + container-validate - the FULL
-pipeline short of publishing. Separately, `release.container.dev_push: true`
-in `.hyperi-ci.yaml` makes that PR container push a **dev image**: mutable
-`branch-<slug>` (pointer) + immutable `branch-<slug>-sha-<short>` (pin),
-GHCR only, never a version tag, `latest`, or a bare `sha-<short>` - the GA
-namespace stays untouched, which is what makes pruning safe. Dev images are
-ephemeral: projects with `dev_push` add a tiny cron workflow calling the
-shared `_ghcr-prune.yml` (dataaxiom/ghcr-cleanup-action, multi-arch-safe),
-which globs `branch-*` / `dev-sha-*` plus untagged layers. Dev images are a
-different artifact class from a GA release - main + an explicit release remains
-the ONLY path to PyPI / crates.io / R2 / GA container tags. Mode resolution
-(release / dev / validate) is one SSOT: `hyperi_ci.release_mode`, shared by
-the container, helm, and argocd stages (helm/argocd treat dev as validate).
-Design: `docs/plans/2026-07-branch-mode/PLAN.md`.
-
-```mermaid
-flowchart LR
-    E["GitHub event"] --> P["plan"]
-    P --> WP{will-release?}
-    WP -->|true| RB["run-build=true<br/>run-checks=true"]
-    WP -->|false| PR{pull_request?}
-    PR -->|true| RC["run-checks=true<br/>run-build=false"]
-    PR -->|false| RW{release-worthy<br/>push to main?}
-    RW -->|true| RCA["run-checks=true<br/>run-build=false<br/>run-arm64-check=true<br/>arm64 leg only"]
-    RW -->|false| SK["everything skips<br/>(plan only)"]
-    style RB fill:#dcfce7,color:#000
-    style RC fill:#fef3c7,color:#000
-    style RCA fill:#fef3c7,color:#000
-    style SK fill:#fee2e2,color:#000
-```
-
-### What runs when
-
-| Push type | plan | commit-check | quality | test | build | container | tag+publish |
-|---|---|---|---|---|---|---|---|
-| `chore:` / `docs:` to main | yes | yes | no | no | no | no | no |
-| `feat:`/`fix:` to main, no `Release:` trailer | yes | yes | yes | yes | arm64 only, Rust | no | no |
-| `feat:`/`fix:` to main + `Release: true` | yes | yes | yes | yes | yes | yes | yes |
-| Pull request | yes | yes advisory | yes | yes | no | no | no |
-| Pull request + `branch-build` opt-in | yes | yes advisory | yes | yes | yes | yes validate / dev push | no |
-| `workflow_dispatch` with `tag` / `from-head` (release) | yes | no | yes | yes | yes | yes | yes |
-| `workflow_dispatch`, bare (validate-only) | yes | no | yes | yes | yes | yes validate | no |
-| `schedule` (a caller's cron) | yes | no | yes | yes, full tier | no | no | no |
-| push to a feature branch | yes | no | no | no | no | no | no |
-
-### Under a merge queue
-
-hyperi-ci's own `ci.yml` triggers on `merge_group`, and so do the `<lang>-ci.yml` workflows and `hyperi-ci init`'s scaffolded caller, so a consumer can turn a queue on. A queue tests the squash commit main will fast-forward to, on a temporary `gh-readonly-queue/main/pr-<n>-<sha>` branch, and merges only once every required check reports. A workflow that never triggers, or a required job that skips, stalls the queue or merges untested.
-
-| Job | Under `merge_group` | Why |
-|---|---|---|
-| `plan` | runs, `will-release=false`, `run-build=false` | The ref is not main, so the gate is validate-only whatever the squash message carries |
-| `commit-check` | runs, FATAL, range `merge_group.base_sha..head_sha` | That commit is what lands, so the landing gate fires before the landing rather than after |
-| `quality`, `test` | run | `predict-version` sets `run-checks=true` for `merge_group`, as for a PR, since a skipped required check counts as passing |
-| `Fixture rehearsal` | skipped | Its record names the PR head commit, and the queue commit is a new SHA nobody can rehearse. The PR already passed it |
-| `build`, `release-tail` | skipped | `run-build` is false, so nothing compiles, tags, publishes or commits back |
-| `gate` | runs | Fails on any failed job |
-
-The concurrency group keys on `github.ref`, which is unique per queue entry, so a queue run neither cancels nor is cancelled by a run on main or on the PR. A queue that requires only `Quality` merges past a red Test or a red commit check. Require `Gate` and `Commit messages` alongside it.
-
-### Test tiers
-
-`core` is what a PR and a push run. `full` adds every test the project deselects or ignores by default, and runs on a `schedule`, on a run given `test-tier: full`, and in a project whose own `test.tier` is `full`. Plan resolves the tier once (`hyperi_ci.plan_tier`, loaded by path from the composite, reading every config spelling `load_config` accepts). The Test job passes `--tier full` on a full run and nothing on a core run, so a core run leaves the project's own `test.tier` in charge.
-
-A release runs `core`, as it did before tiers, and the Gate says so. A project opts its releases into `full`:
-
-```yaml
-# .hyperi-ci.yaml
-test:
-  full:
-    required_for_release: true   # releases run full
-```
-
-The Gate job has no checkout, so Plan reads this key and passes it as the `full-required-for-release` output. A caller reaches `test-tier: full` on a dispatch only once its own `ci.yml` declares the input and forwards it. `hyperi-ci init` scaffolds both, and `hyperi-ci audit-callers` notes a caller without it rather than counting it as drift. A `schedule` and a dispatch that publishes nothing each get their own concurrency group, so neither can cancel a release on main or be cancelled by a push.
-
-Three things enforce a full release, and the Gate is none of them. Plan forces `full` when the project opts in. The Test job passes `--tier full`, which a CLI without the flag rejects, so a full run never quietly runs core. Build needs Test, and the release tail needs Build. The Gate runs beside the release tail and cannot stop it: it names the tier in its reason line, and fails the run after the fact if an opted-in release was handed anything but `full`.
-
-Tag-on-publish doctrine: a commit landing on main produces no tag and no
-artefacts. The operator opts in with `hyperi-ci push --release` (adds the
-`Release: true` trailer). See [flow.md](flow.md).
-
-### arm64 parity
-
-arm64 legs once keyed off `will-release`, so the first execution of arm64 code was the run meant to ship it. A BOLT refusal over Cortex-A53 veneers was found mid-publish on dfe-receiver, and the fix for it could not be exercised except by attempting another release (issue #249). Two changes narrow that:
-
-- **Arch breadth follows `run-build`.** A validate-only `workflow_dispatch` and a branch-mode PR build both arches, so arm64 is reachable on demand without publishing anything.
-- **`run-arm64-check` builds the arm64 leg alone on a release-worthy merge to main**, where a regression is still attributable to the change that caused it. Rust only; `rust-ci.yml` is the sole reader.
-
-Neither runs PGO or BOLT. Both build below the release tier (`channel` resolves to alpha when the run does not publish), so they catch arm64 compile and link defects, and a BOLT-stage defect like #249's still first runs in a release.
-
-The red line is unchanged: a merge that ships nothing still compiles nothing. `run-build` does not widen, a non-bumping merge runs no build job at all, and the release tail is gated on `run-build` so the parity build runs no container and publishes nothing.
-
-A Rust project opts out with `build.rust.arm64_on_main: false` in `.hyperi-ci.yaml`. The default is on wherever `build.rust.targets` names `aarch64-unknown-linux-gnu` or names nothing (which means every target); it is inert elsewhere.
-
-## What's shared vs duplicated - and the rule
-
-The rule: **language-agnostic and identical across languages -> shared; anything
-that needs a per-language carve-out -> stays in the language SME's domain in its
-complete form.** Shared pieces must help the SME, never hobble them.
-
-| Concern | Shared? | Where |
-|---|---|---|
-| Predict-and-gate (version oracle + gate outputs) | YES | `actions/predict-version` composite |
-| Toolchain + dep install (uv, language runtime) | YES | `actions/setup-runtime` composite |
-| OSV vulnerability scan | YES | `actions/setup-osv-scanner` composite |
-| semantic-release toolchain + default config | YES | `actions/setup-semantic-release` composite |
-| Release tail (container + tag + publish) | YES | `_release-tail.yml` reusable workflow |
-| Version stamping (VERSION file) | YES | CLI `stamp-version` (central), see below |
-| Build commands, cache keys, `_run_tool` carve-outs | NO | Inline per language in `<lang>-ci.yml` + handlers |
-| Plan-job structure, gate `if:` strings | DUPLICATED inline | small and identical across the four workflows; cheaper than the abstraction - drift caught by `tests/unit/test_workflow_consistency.py` |
-
-**When we extract a composite vs inline:** when the shared steps are more than a
-few lines *and* identical across languages (runtime setup, the OSV scan, the
-semantic-release toolchain). A short repeated snippet stays inlined - composite
-indirection would cost more than it saves, and the consistency lint catches
-drift. This is a refinement of the earlier "inline everything" stance: the four
-composites above earned extraction; nothing smaller has.
-
-### Central vs language-specific (the VERSION example)
-
-Version writing is identical regardless of language, so it is central:
-`stamp-version` writes the `VERSION` file, then delegates only the
-*manifest* edit (Cargo.toml `[package]`, pyproject `[project]`, package.json)
-to a per-language `stamp_manifest`. The release version itself resolves once,
-the same way everywhere - `HYPERCI_VERSION` env -> `VERSION` file
-(`common.resolve_release_version`) - so build, container and publish never
-disagree. See [flow.md](flow.md) section 3.
-
-`VERSION` is a stamp TARGET, not a version the project maintains. The value is
-derived from the git tags (semantic-release, in `predict-version`), written on the
-runner before packaging, and never committed back -- the other half of
-tag-on-publish: the released version IS the git tag. So the committed value is
-whatever it was last stamped to by hand, in every repo on hyperi-ci, and it goes
-stale immediately. It bites only where someone runs a package from its own
-checkout, which is why `hyperi-ci --version` names the checkout path when the
-install is editable.
-
-## Same-org refs stay `@main` - made safe by a gate
-
-Third-party actions are SHA-pinned (`/deps` script + `src/hyperi_ci/config/versions.yaml`,
-7-day cooldown). Our **own** reusable workflows and composites reference their
-siblings at `@main`, deliberately - pinning them would freeze the dev loop. A
-consumer SHA-pinning the *caller* still floats those `@main` internals, so a
-breaking interface change on `main` could break pinned consumers retroactively.
-We stop that **at source** with an interface backward-compat gate in our own
-Quality job, not with a frozen graph. Full rationale, the trilemma, and the
-branch-protection precondition: [dependencies/WORKFLOW-PINNING.md](dependencies/workflow-pinning.md).
-Third-party pinning policy: [dependencies/DEPS-PINNING.md](dependencies/deps-pinning.md).
-
-That interface comparison covers inputs, outputs and secrets, and cannot see the version split underneath it. A consumer resolves the YAML at `@main`, so a push is live instantly; the runner installs `uvx hyperi-ci` from PyPI, so CLI code is live only once a release finishes. A commit whose workflow needs new CLI behaviour is broken until that release lands, and hyperi-ci's own release run is the first caller of the workflow it is shipping.
-
-**A workflow change on main must work against the CLI already released to PyPI.** Ship the capability as its own commit, release it, then switch the workflow on in a second commit. The reverse order is safe: CLI code needing a new workflow input finds it already there.
-
-The gate enforces the names, not the behaviour: every subcommand and option a workflow or composite passes to the PyPI CLI (`${{ env.HYPERCI_INSTALL }}`, `$HYPERCI_INSTALL` or an unpinned `uvx hyperi-ci`) must exist in the latest release, read from that wheel's typer model. `uv run hyperi-ci` runs the checkout's own CLI and is not checked.
+Language-agnostic and identical-across-languages logic is a shared composite;
+anything needing a per-language carve-out stays inline in the language's own
+workflow. Our own reusable workflows reference each other at `@main` rather
+than a pinned SHA, made safe by an interface backward-compat gate rather than
+a frozen graph. The rule, the VERSION-stamping example, and the gate's
+mechanics: [workflow-composites.md](workflow-composites.md).
 
 ## CLI surface
 
@@ -372,63 +168,12 @@ serving production: [migration/JFROG.md](migration/jfrog.md).
 
 ## Container builds
 
-The `release-tail` builds and pushes an OCI image to GHCR for **apps**. Three
-auto-detected modes:
-
-| Mode | Language | Dockerfile source |
-|---|---|---|
-| **contract** | Rust + scalo | generated from the binary's `container-manifest.json` |
-| **template** | Python, TypeScript | built-in uv / pnpm templates |
-| **custom** | any | repo's own `Dockerfile` + injected OCI labels |
-
-Push-to-main builds single-arch (`:sha-…`); a release builds multi-arch
-(`:vX` + `:latest`). Auth via the `hyperi-container-mgt` GitHub App. Artefact
-generation from the contract: [deployment/CONTRACT.md](deployment/contract.md).
-
-**App-only, resolved before Docker (issue #33).** `release.container.enabled` is
-`auto` (default) | `true` | `false`. Under `auto` the stage builds only when it
-finds a signal - a Dockerfile, or a Rust binary using scalo's contract.
-**Libraries (a Rust crate, a Python package) have no signal and ship no
-container.** The decision is resolved *before* Docker Buildx boots, so a library
-never pulls buildkit from Docker Hub nor logs in to GHCR.
-
-**Docker Hub login is Container-only (issue #406).** `docker/login-action` leaves the credential in `~/.docker/config.json` until the job ends. Container logs in for base-image pulls, and the Dockerfile's `RUN` steps cannot read it inside BuildKit. The language workflows run repo code in every job, so they log in nowhere and testcontainers pulls anonymously. If that limit starts failing tests, give the runner's Docker daemon a pull-through mirror.
-
-**Container skips `release.stamp_cmd`.** It holds those logins and a `packages:write` token, so its stamp sets `HYPERCI_STAMP_SKIP_CMD=1` (the env form of `stamp-version --no-stamp-cmd`), and Build and Prepare run the command instead. The skip is the protection, and only a CLI release carrying it honours the variable. On an older CLI, or under a `HYPERCI_INSTALL_OVERRIDE` pin, `stamp_cmd` still runs here and can write `$GITHUB_ENV` or `$GITHUB_PATH` or leave a process for the steps after the logins, so running the stamp before them is not enough on its own. The variable rather than the flag keeps the workflow working on those older CLIs. The job also installs uv before the checkout, sets up Python with `--no-config`, keeps no token in its checkout, and places only `dist/` and `ci-tmp/` from the build artefact.
-
-**These repo-named paths stay in the checkout.** `release.container.dockerfile`, `release.container.context`, every overlay `file:` / `patch_file:`, a Helm add's `path:` and `[tool.hatch.version] path` must resolve inside the project root (the chart, for a Helm add), symlinks followed. `hyperi_ci.repo_path.confine` checks them and the stage fails on a miss, because a context or fragment naming `~/.docker/config.json` would copy the registry logins into a pushed image. The release version is held to semver wherever it comes from, and a `VERSION` file that is a symlink is refused: a push to main carries no predicted version, so the container stage reads that file into tags, labels and `{version}` build args.
-
-**Build args can carry the version (issue #342).** `release.container.build_args` becomes `--build-arg NAME=value`. The image labels are invisible to a Dockerfile, so a value may name two placeholders:
-
-- `{version}` -- the version the stage tags the image with and writes to the `org.opencontainers.image.version` label. That is `HYPERCI_VERSION` on a release run. Outside one it falls back to `VERSION`, the latest `v*` tag, the ref name, then `0.0.0`, same as the label.
-- `{sha}` -- the commit on the `org.opencontainers.image.revision` label: the full `GITHUB_SHA` in CI, the short `HEAD` hash locally.
-
-```yaml
-release:
-  container:
-    build_args:
-      CODE_VERSION: "{version}"
-```
-
-A Dockerfile with `ARG CODE_VERSION` then sees the release version. Any other `{...}`, `{verison}` included, fails the container stage and names the offender. Write a literal brace as `{{` or `}}`. A value with no braces passes through unchanged. Nothing is passed unasked: docker warns about every build arg a Dockerfile does not declare.
-
-**Container failure never blocks the release (issue #33).** Tag & Release is
-decoupled from the Container job (`always()`): a transient container/registry
-hiccup surfaces as a red run but the crate/PyPI/npm + GitHub Release still ships
-and the tag is still cut. The container image is a secondary artefact; the
-package is the point of the release.
-
-**Tag & Release runs no repo code (issue #409).** It holds every publish credential, so everything in a release that executes the repo's own code runs first in `prepare`, a job with no secret and a read-only token. It stamps and runs `release.stamp_cmd`, uploads the `stamp_paths` files, and only then runs cargo-semver-checks (which builds the crate), `cargo package`, `prepublishOnly` and `npm pack`. A failed `prepare` cuts no tag, and the `prepare-failed` job opens the release-failure issue. Tag & Release downloads what `prepare` left, checks it with `hyperi-ci release-verify` before the Guard and Tag steps, and only uploads:
-
-| Ecosystem | Upload | Why no repo code runs |
-|---|---|---|
-| crates.io | `cargo publish --no-verify --manifest-path <repo>/Cargo.toml`, from an empty directory | cargo cannot publish a `.crate` it did not pack, so it repackages Tag & Release's own checkout, Cargo.toml re-stamped, on the toolchain installed before the checkout. `--no-verify` builds nothing. Outside the repo cargo reads no `.cargo/config.toml` and rustup no `rust-toolchain.toml`, either of which can name a program. Whether there is a library to publish comes from `cargo metadata`, run the same way, and prepare must also have checked it |
-| npm | the prepared tarball, `--ignore-scripts --registry <host>`, from an empty directory | A tarball publish runs no lifecycle script, and the flag is a second guard. The tarball's own package.json must name this checkout's package at this run's version, with no `publishConfig.registry` on another host. The token sits in a throwaway user config, so the repo's `.npmrc` is never read. `publish` and `postpublish` scripts no longer run |
-| PyPI | `uv publish --no-config` of the Build job's wheel and sdist | Nothing is built. `--no-config` stops a `[tool.uv] publish-url` sending the token elsewhere, and the token goes by env, not argv |
-| Go | module path read from `go.mod` | `go` is never run |
-| GitHub Release, R2 | `gh release`, `aws s3 cp` of `dist/` | Data only. `release.assets` entries must be relative paths inside the repo, and symlinks are skipped |
-
-The build and prepared artefacts come from jobs that ran repo code, so Tag & Release treats them as data. Build artefacts are downloaded outside the checkout and only `dist/` and `ci-tmp/` are copied in. `release-commit` writes `VERSION` from the release version and restores only the `release.stamp_paths` files, by name from the checkout's own config, and only when `prepare` ran on the same commit. The release App key reaches only the step that mints the bot token. The Tag step's semantic-release still loads a repo-controlled config, tracked in issue #413.
+The release-tail auto-detects three Dockerfile modes (contract / template /
+custom), resolves app-vs-library before Docker boots, and scopes the Docker
+Hub login to the container job alone. A container failure blocks the release
+only where a container is the deliverable. Full detail, including the build-arg
+placeholders and why Tag & Release runs no repo code, is
+[container-builds.md](container-builds.md).
 
 ## Runner modes (summary)
 
@@ -445,7 +190,7 @@ detail - tiers, cache, cross-compile (dormant) - is
 [runtime/runners.md](runtime/runners.md), and the dep-install SSOT is
 [runtime/runner-image.md](runtime/runner-image.md).
 
-## Design principles
+## Design principles and repo layout
 
 1. **No bash.** All logic is Python; `subprocess.run([...])` with list args.
 2. **One version oracle.** semantic-release dry-run in `plan` predicts the
@@ -457,8 +202,6 @@ detail - tiers, cache, cross-compile (dormant) - is
 5. **Self-hosting** - hyperi-ci runs its own pipeline through its own workflow.
 6. **KISS** - a maintained third-party tool that's good enough beats bespoke CI code.
    Over-engineered CI kills small teams; we reject custom machinery (see #31).
-
-## Repo layout
 
 ```
 .github/

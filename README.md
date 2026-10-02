@@ -259,7 +259,7 @@ No code changes, no workflow changes.
 | `hyperi-ci check` | Pre-push validation (quality + test) |
 | `hyperi-ci check --quick` | Quality only |
 | `hyperi-ci check --full` | Quality + test + build |
-| `hyperi-ci check --strict` | Also fail on warn-tier findings - see [docs/quality-gate.md](docs/quality-gate.md) |
+| `hyperi-ci check --strict` | Also fail on warn-tier findings - see [docs/quality-gate-overrides.md](docs/quality-gate-overrides.md) |
 | `hyperi-ci push` | Push -- ships nothing, quality + test if release-worthy |
 | `hyperi-ci push --release` | Stamp `Release: true` trailer, push, single-run release |
 | `hyperi-ci push --bump-patch` | Force +0.0.1 release even with no-bump commits |

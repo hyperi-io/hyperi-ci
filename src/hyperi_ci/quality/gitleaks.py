@@ -211,7 +211,7 @@ def _report_no_ruleset(cfg: str, mode: str) -> int:
             "  help: add this stanza to scan with the default ruleset:",
             "    [extend]",
             "    useDefault = true",
-            "  docs: docs/quality-gate.md#gitleaks-config",
+            "  docs: docs/quality-gate-tools.md#gitleaks-config",
         )
     )
     if mode == "blocking":
@@ -390,7 +390,7 @@ def _report_inconclusive_canary(
             "report a secret is unknown.",
             "  help: `[extend] useDefault = true` puts the default ruleset - and "
             "the canary with it - back in scope.",
-            "  docs: docs/quality-gate.md#gitleaks-config",
+            "  docs: docs/quality-gate-tools.md#gitleaks-config",
         )
     )
     warn(f"  {notice}")
@@ -443,7 +443,7 @@ def _report_canary(cfg: str | None, mode: str) -> int:
             "rule - a config that scans reports all of them.",
             "  help: narrow `[allowlist] paths` / `regexes` to the real false "
             f"positives, and drop any `disabledRules` entry covering {suppressed}.",
-            "  docs: docs/quality-gate.md#gitleaks-config",
+            "  docs: docs/quality-gate-tools.md#gitleaks-config",
         )
     )
     if mode == "blocking":
