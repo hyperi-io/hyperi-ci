@@ -86,6 +86,10 @@ uv run hyperi-ci install-toolchains --dry-run \
   --project-dir /projects/dfe-receiver
 ```
 
+### Check the buildx builder sits inside the pod
+
+The Container job asks the runner's dind which cgroup it gives job containers, then creates the buildx builder there, so the pod's memory limit covers the build. Left to itself, buildx puts the builder at `/docker/buildx`, at the node root. The job's "Build container" step logs `Buildx builder cgroup: buildx_buildkit_<name>0 under <parent>`, which on a pod-scoped dind reads `/kubepods...scope/jobs`. The probe step logs why when it sets nothing, and the `HYPERCI_BUILDX_CGROUP_PARENT` variable overrides it.
+
 ## Rollout when a dep-install change lands
 
 ```mermaid
