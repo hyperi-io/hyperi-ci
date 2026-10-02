@@ -3,6 +3,22 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.12.7](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.6...v2.12.7) (2026-10-02)
+
+### Bug Fixes
+
+* **ci:** pass the dispatch tag through hyperi-ci's own workflow ([#481](https://github.com/hyperi-io/hyperi-ci/issues/481)) ([ea8ff90](https://github.com/hyperi-io/hyperi-ci/commit/ea8ff90d529154b6f40528fa4c73d9c2b8ab065f)), closes [#478](https://github.com/hyperi-io/hyperi-ci/issues/478)
+* **ci:** run Quality and Test on merge queue entries ([#469](https://github.com/hyperi-io/hyperi-ci/issues/469)) ([8787066](https://github.com/hyperi-io/hyperi-ci/commit/8787066cbb4d9e9ea47fc284b90263ccc7a25d20)), closes [#468](https://github.com/hyperi-io/hyperi-ci/issues/468)
+* **ci:** run the commit check on merge queue entries ([#466](https://github.com/hyperi-io/hyperi-ci/issues/466)) ([379c1d9](https://github.com/hyperi-io/hyperi-ci/commit/379c1d91b7f29d97c03493a6006c93467eb3e8c5)), closes [#422](https://github.com/hyperi-io/hyperi-ci/issues/422) [#468](https://github.com/hyperi-io/hyperi-ci/issues/468)
+* **ci:** skip option values and fail on a broken CLI dump in the interface gate ([#476](https://github.com/hyperi-io/hyperi-ci/issues/476)) ([7ecf890](https://github.com/hyperi-io/hyperi-ci/commit/7ecf890c6c3c6a0a6360c59fd0c7b2464af8b16d)), closes [#463](https://github.com/hyperi-io/hyperi-ci/issues/463) [#474](https://github.com/hyperi-io/hyperi-ci/issues/474) [#474](https://github.com/hyperi-io/hyperi-ci/issues/474)
+* **common:** end stream_cmd's drain on a failed read ([#473](https://github.com/hyperi-io/hyperi-ci/issues/473)) ([8539d1e](https://github.com/hyperi-io/hyperi-ci/commit/8539d1ed98e103d04bf7f32b43847b9e075efe43)), closes [#460](https://github.com/hyperi-io/hyperi-ci/issues/460) [#426](https://github.com/hyperi-io/hyperi-ci/issues/426)
+* **python:** apply quality.ignore ruff entries to the docstring pass ([#477](https://github.com/hyperi-io/hyperi-ci/issues/477)) ([7a5aff9](https://github.com/hyperi-io/hyperi-ci/commit/7a5aff90d2885db60e8121170470d26478c0aef4))
+* **python:** keep only failed tests' tmp dirs ([#485](https://github.com/hyperi-io/hyperi-ci/issues/485)) ([63ae9cf](https://github.com/hyperi-io/hyperi-ci/commit/63ae9cf403b2d5d1c79df452723ba37acef6dce5)), closes [#484](https://github.com/hyperi-io/hyperi-ci/issues/484)
+* **quality:** skip semgrep's Python compatibility rules below the project's floor ([#483](https://github.com/hyperi-io/hyperi-ci/issues/483)) ([0148357](https://github.com/hyperi-io/hyperi-ci/commit/014835767af2b2c3a7efdf832049d6744211b38b)), closes [#482](https://github.com/hyperi-io/hyperi-ci/issues/482)
+* **release:** build the container image for a push-triggered prerelease ([#480](https://github.com/hyperi-io/hyperi-ci/issues/480)) ([33b5272](https://github.com/hyperi-io/hyperi-ci/commit/33b527223c877c0dd158959bb9004e225cdc8c46)), closes [#479](https://github.com/hyperi-io/hyperi-ci/issues/479)
+* **release:** commit a beta release back to beta, not main ([#470](https://github.com/hyperi-io/hyperi-ci/issues/470)) ([2ba15ab](https://github.com/hyperi-io/hyperi-ci/commit/2ba15ab5a56f29aa827a1daae7251b13331640e0)), closes [#417](https://github.com/hyperi-io/hyperi-ci/issues/417)
+* **release:** publish a from-head dispatch only from a release branch ([#472](https://github.com/hyperi-io/hyperi-ci/issues/472)) ([3af9e0f](https://github.com/hyperi-io/hyperi-ci/commit/3af9e0f2a96a312d29e88068da1c3cd826af9058)), closes [#471](https://github.com/hyperi-io/hyperi-ci/issues/471)
+
 ## [2.12.6](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.5...v2.12.6) (2026-10-01)
 
 ### Bug Fixes
