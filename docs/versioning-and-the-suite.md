@@ -79,5 +79,5 @@ than resolving it from a range.
 
 - [versioning.md](versioning.md) -- where a per-repo version comes from
 - dfe-infra `suite.yaml` and `versions.yaml` -- the suite SSoT
-- dfe-infra `docs/SUITE-AND-REPO-VERSIONING.md` -- the counterpart page, written
+- dfe-infra `docs/SUITE-AND-REPO-VERSIONING.md` -- the counterpart page, written <!-- doc-paths: ignore -->
   for a dfe-infra reader

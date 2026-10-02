@@ -349,7 +349,7 @@ Remove dependency on JFrog remote proxy repos for base image pulls.
 
 - [ ] Widen `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` scope to `ci-consumers`
 - [ ] Add `docker/login-action` step to all 4 reusable workflows
-- [ ] Update `config/secrets-access.yaml`
+- [ ] Update `config/secrets-access.yaml` <!-- doc-paths: ignore -->
 - [ ] Run `sync-secrets-access.py --apply`
 - [ ] Test CI runs pull base images without JFrog proxy
 
@@ -395,7 +395,7 @@ Narrow JFrog's role in `destinations_internal` to PyPI + Cargo only.
     binaries: r2-binaries     # UNCHANGED — Cloudflare R2
     go: go-proxy              # CHANGED — direct
   ```
-- [ ] Update `config/org.yaml`: add `dockerhub` section, mark jfrog repos deprecated
+- [ ] Update `src/hyperi_ci/config/org.yaml`: add `dockerhub` section, mark jfrog repos deprecated
 - [ ] Update `config.py` `OrgConfig`: keep JFrog fields for PyPI/Cargo only
 - [ ] Update `publish_binaries.py`: remove `_publish_jfrog_binaries()`
 - [ ] Remove `_publish_jfrog()` from `golang/publish.py` (if it exists)

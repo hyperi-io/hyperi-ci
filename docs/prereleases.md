@@ -54,7 +54,7 @@ stable version. Every combination is legitimate:
 
 The Tier 2 column says "the default" because a release profiles itself when a
 workload resolves -- the project's own `pgo.workload_cmd`, else
-`scripts/pgo-workload.sh` if the file is there. A project with nothing to
+`scripts/pgo-workload.sh` if the file is there. <!-- doc-paths: ignore --> A project with nothing to
 profile stays at Tier 1 whatever it pushes, and its left column needs neither
 flag.
 

@@ -118,7 +118,7 @@ Rough budget on a 4GB runner during a PGO workload:
 ## Current state (the duplication problem)
 
 The setup above is **copy-pasted** into each canary project's
-`scripts/pgo-workload.sh` (dfe-archiver, dfe-transform-vector,
+`scripts/pgo-workload.sh` <!-- doc-paths: ignore --> (dfe-archiver, dfe-transform-vector,
 dfe-transform-vrl). The same Redpanda bugs (topic pre-create, readiness,
 entrypoint form) had to be fixed in each. That triplication is the smell the
 next section addresses.
