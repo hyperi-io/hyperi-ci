@@ -278,7 +278,7 @@ runs:
       # version is resolved in plan (the build then stamps the correct value).
       # Forced bumps use the inline semver step below and skip semantic-release.
       if: ${{ steps.gate.outputs.will-publish == 'true' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.from-head == 'true' && inputs.bump == 'auto')) }}
-      uses: hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@main
+      uses: hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@rehearse/488-internal
 
     - name: Predict next version
       # Run semantic-release in --dry-run to determine the version that

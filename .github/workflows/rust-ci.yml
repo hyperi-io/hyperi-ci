@@ -254,7 +254,7 @@ jobs:
 
       - name: Predict version + derive gates
         id: predict
-        uses: hyperi-io/hyperi-ci/.github/actions/predict-version@main
+        uses: hyperi-io/hyperi-ci/.github/actions/predict-version@rehearse/488-internal
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ inputs.tag }}
@@ -401,7 +401,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup runtime (uv + Python + native deps)
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@rehearse/488-internal
         with:
           language: rust
 
@@ -432,10 +432,10 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Setup Rust tools
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-rust-tools@main
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-rust-tools@rehearse/488-internal
 
       - name: Setup osv-scanner
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-osv-scanner@main
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-osv-scanner@rehearse/488-internal
 
       - name: Deepen history for secret scan
         # gitleaks scans the branch git log for committed secrets; a depth-1
@@ -485,7 +485,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup runtime (uv + Python + native deps)
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@rehearse/488-internal
         with:
           language: rust
 
@@ -508,7 +508,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Setup cargo-nextest
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-nextest@main
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-nextest@rehearse/488-internal
 
       - name: Init submodules
         # The checkout keeps no credential, so the job token reaches this step
@@ -606,7 +606,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup runtime (uv + Python + native deps)
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@rehearse/488-internal
         with:
           language: rust
 
@@ -690,7 +690,7 @@ jobs:
       packages: write
       issues: write
       pull-requests: write
-    uses: hyperi-io/hyperi-ci/.github/workflows/_release-tail.yml@main
+    uses: hyperi-io/hyperi-ci/.github/workflows/_release-tail.yml@rehearse/488-internal
     with:
       language: rust
       runner-mode: ${{ inputs.runner-mode }}

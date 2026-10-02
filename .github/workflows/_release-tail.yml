@@ -152,7 +152,7 @@ jobs:
         github.event_name == 'workflow_dispatch' ||
         github.event_name == 'pull_request'
       )
-    runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
+    runs-on: canary-native
     permissions:
       contents: read
       packages: write
@@ -373,7 +373,7 @@ jobs:
         # released version, so the comparison is a release against itself
         # (issues #186, #199).
         if: inputs.language == 'rust'
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-rust-tools@main
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-rust-tools@rehearse/488-internal
 
       - name: Set up Node.js
         # No self-hosted skip: the org's publish runners carry no Node.
@@ -631,7 +631,7 @@ jobs:
         # dispatch (release/retry HEAD letting semantic-release pick the
         # version from commits). Forced bumps use tag-head instead.
         if: ${{ github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto') }}
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@main
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@rehearse/488-internal
 
       - name: Guard — predicted tag must not already exist off-HEAD
         # Defence-in-depth for issue #37: refuse to tag if the predicted

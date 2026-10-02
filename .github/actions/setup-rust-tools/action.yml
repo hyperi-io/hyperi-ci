@@ -49,7 +49,7 @@
 # digests rest on our own download rather than a second source.
 #
 # Referenced from reusable workflows as
-#   hyperi-io/hyperi-ci/.github/actions/setup-rust-tools@main
+#   hyperi-io/hyperi-ci/.github/actions/setup-rust-tools@rehearse/488-internal
 
 name: Setup Rust tools
 description: Install the pinned cargo-audit, cargo-deny and cargo-semver-checks (Linux runners)

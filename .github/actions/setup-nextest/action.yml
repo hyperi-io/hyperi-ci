@@ -33,7 +33,7 @@
 # `.sha256` per asset, so these were cross-checked at pin time.
 #
 # Referenced from reusable workflows as
-#   hyperi-io/hyperi-ci/.github/actions/setup-nextest@main
+#   hyperi-io/hyperi-ci/.github/actions/setup-nextest@rehearse/488-internal
 
 name: Setup cargo-nextest
 description: Install the pinned cargo-nextest (Linux and macOS runners)
