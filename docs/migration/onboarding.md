@@ -5,7 +5,7 @@
 The quality stage now runs hadolint as a **blocking Dockerfile gate** (plus the
 droast advisory), and a new `hyperi-ci lint-manifests` verb covers gitops / infra
 repos (kubeconform gate + kube-linter/checkov advisories). Full reference:
-[quality-gate.md](../quality-gate.md).
+[quality-gate-tools.md](../quality-gate-tools.md).
 
 **Behaviour change before you bump:** a repo that HAS a Dockerfile with an
 **error-severity** hadolint finding (chiefly a broken `RUN` shell caught by

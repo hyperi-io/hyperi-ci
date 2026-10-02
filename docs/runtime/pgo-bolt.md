@@ -34,12 +34,12 @@ knowledge. A **good** workload gives the compiler a realistic picture
 of production and yields 10-20% speedup. A **bad** workload mis-teaches
 the compiler and produces measurably slower code.
 
-For the CI contract, see [`rust.md`](../languages/rust.md) -> *Tier 2 - PGO + BOLT*.
+For the CI contract, see [`rust-tier2.md`](../languages/rust-tier2.md) -> *Tier 2 - PGO + BOLT*.
 For copy-paste starting points, see `templates/pgo-workload/`.
 
 `skip-optimize` drops PGO and BOLT for a single run, for a pre-GA iteration
 that does not need them. See
-[`rust.md`](../languages/rust.md) -> *Skipping optimisation for one run*.
+[`rust-tier2.md`](../languages/rust-tier2.md) -> *Skipping optimisation for one run*.
 
 `optimize-tier: release` does the opposite: PGO and BOLT on a run that
 publishes nothing, to test a workload or a BOLT fix without a release. See

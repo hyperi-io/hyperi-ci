@@ -121,7 +121,7 @@ quality:
 
   # k8s + IaC linting (Path B - `hyperi-ci lint-manifests`, gitops/infra repos).
   # Also honoured if a language project ships charts/manifests. May be a mode
-  # string OR a dict with `mode` + tool options (see docs/quality-gate.md).
+  # string OR a dict with `mode` + tool options (see docs/quality-gate-tools.md).
   kubeconform: blocking      # k8s schema-validation GATE (rendered manifests)
   kube_linter: warn          # k8s best-practice ADVISORY; never gates
   checkov: warn              # IaC security ADVISORY (k8s/helm/kustomize/terraform); never gates by default
