@@ -45,6 +45,7 @@ from hyperi_ci.common import (
     group,
     holds_latest,
     info,
+    is_github_actions,
     normalise_tristate,
     resolve_release_version,
     skip_optimize,
@@ -58,6 +59,7 @@ from hyperi_ci.container.build import (
     render_build_args,
     resolve_tags,
 )
+from hyperi_ci.container.cgroup import builder_cgroup_parents, probe_cgroup_parent
 from hyperi_ci.container.detect import Decision, detect
 from hyperi_ci.container.labels import build_oci_labels
 from hyperi_ci.container.registry import resolve_registry_bases
@@ -194,6 +196,25 @@ def should_build_container(config: CIConfig, *, language: str = "") -> tuple[boo
     return decision.build, decision.reason
 
 
+def _write_output(key: str, value: str) -> None:
+    """Append ``key=value`` to ``$GITHUB_OUTPUT`` when it is set."""
+    gh_out = os.environ.get("GITHUB_OUTPUT")
+    if gh_out:
+        with open(gh_out, "a", encoding="utf-8", newline="\n") as fh:
+            fh.write(f"{key}={value}\n")
+
+
+def _log_builder_cgroups() -> None:
+    """Name the cgroup parent each buildx builder got, so a run log shows it."""
+    if not is_github_actions():
+        return
+    builders = builder_cgroup_parents()
+    if not builders:
+        info("Buildx builder cgroup: no docker-container builder found")
+    for name, parent in builders:
+        info(f"Buildx builder cgroup: {name} under {parent or 'the daemon default'}")
+
+
 def _confine_build_paths(container_cfg: dict, project_dir: Path) -> bool:
     """Refuse a Dockerfile or build context outside the checkout.
 
@@ -232,16 +253,26 @@ def run(config: CIConfig, *, language: str = "") -> int:
     if not _confine_build_paths(container_cfg, project_dir):
         return 1
 
+    # Ahead of resolve-only, which the workflow also sets so that a CLI release
+    # without the probe resolves instead of building (issue #284).
+    if os.environ.get("HYPERCI_CONTAINER_CGROUP_PROBE"):
+        found = probe_cgroup_parent()
+        if found.parent:
+            info(f"Buildx cgroup parent: {found.parent} ({found.reason})")
+        else:
+            info(
+                f"Buildx cgroup parent: not set, buildx keeps its default ({found.reason})"
+            )
+        _write_output("cgroup-parent", found.parent or "")
+        return 0
+
     # Resolve-only: emit the build decision for the workflow to gate Docker
     # setup on, then return without any Docker work (issue #33). Keeps
     # libraries from booting Buildx / touching GHCR at all.
     if os.environ.get("HYPERCI_CONTAINER_RESOLVE_ONLY"):
         build, reason = should_build_container(config, language=language)
         info(f"Container resolve: build={'true' if build else 'false'} — {reason}")
-        gh_out = os.environ.get("GITHUB_OUTPUT")
-        if gh_out:
-            with open(gh_out, "a", encoding="utf-8", newline="\n") as fh:
-                fh.write(f"build={'true' if build else 'false'}\n")
+        _write_output("build", "true" if build else "false")
         return 0
 
     enabled = normalise_tristate(
@@ -292,6 +323,7 @@ def run(config: CIConfig, *, language: str = "") -> int:
             return 0
 
     info(f"Container build will run — {decision.reason}")
+    _log_builder_cgroups()
 
     target = config.get("release.target", "internal")
     org = load_org_config()

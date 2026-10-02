@@ -257,14 +257,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Find the runner pod's job cgroup for the builder
+        # After the Docker Hub login: the probe pulls the buildkit image setup-buildx uses next.
+        id: cgroup
+        if: steps.resolve.outputs.build == 'true' && vars.HYPERCI_BUILDX_CGROUP_PARENT == ''
+        continue-on-error: true
+        env:
+          HYPERCI_CONTAINER_CGROUP_PROBE: "1"
+          # A CLI release without the probe ignores the variable above, and this makes it only resolve.
+          HYPERCI_CONTAINER_RESOLVE_ONLY: "1"
+        run: ${{ env.HYPERCI_INSTALL }} run container
+
       - name: Set up Docker Buildx
         if: steps.resolve.outputs.build == 'true'
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-        # The builder's default cgroup parent, /docker/buildx, sits at the node
-        # root and escapes a runner pod's memory limit (issue #284); a runner
-        # whose dind nests jobs under the pod sets this variable, e.g. jobs/buildx.
+        # The builder's default cgroup parent, /docker/buildx, sits at the node root outside a runner pod's memory limit (issue #284). HYPERCI_BUILDX_CGROUP_PARENT overrides the probe, and with neither set buildx keeps its default.
         with:
-          driver-opts: ${{ vars.HYPERCI_BUILDX_CGROUP_PARENT && format('cgroup-parent={0}', vars.HYPERCI_BUILDX_CGROUP_PARENT) || '' }}
+          driver-opts: ${{ (vars.HYPERCI_BUILDX_CGROUP_PARENT || steps.cgroup.outputs.cgroup-parent) && format('cgroup-parent={0}', vars.HYPERCI_BUILDX_CGROUP_PARENT || steps.cgroup.outputs.cgroup-parent) || '' }}
 
       - name: Download build artifacts
         # The build-dist-* artifact carries both dist/ (binaries) and

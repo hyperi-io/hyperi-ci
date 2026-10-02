@@ -1133,21 +1133,78 @@ class TestArm64Parity:
 
 
 class TestBuildxCgroupParent:
-    """issue #284: the buildx builder can be placed under the runner pod's cgroup."""
+    """issue #284: the buildx builder goes under the runner pod's job cgroup.
+
+    The probe step runs the PUBLISHED CLI, which consumers get only on a
+    release while they take this workflow from @main at once. Every test here
+    that mentions an older CLI pins the fallback that keeps them green.
+    """
+
+    _PARENT = "vars.HYPERCI_BUILDX_CGROUP_PARENT || steps.cgroup.outputs.cgroup-parent"
+
+    def _steps(self) -> list[dict]:
+        return _load_workflow("_release-tail.yml")["jobs"]["container"]["steps"]
+
+    def _index(self, pred) -> int:
+        return next(i for i, s in enumerate(self._steps()) if pred(s))
+
+    def _probe_step(self) -> dict:
+        return next(s for s in self._steps() if s.get("id") == "cgroup")
 
     def _buildx_step(self) -> dict:
-        steps = _load_workflow("_release-tail.yml")["jobs"]["container"]["steps"]
+        steps = self._steps()
         return next(s for s in steps if "setup-buildx-action" in str(s.get("uses", "")))
 
-    def test_the_cgroup_parent_comes_from_the_variable(self) -> None:
-        opts = str(self._buildx_step().get("with", {}).get("driver-opts", ""))
-        assert "vars.HYPERCI_BUILDX_CGROUP_PARENT" in opts
-        assert "cgroup-parent=" in opts
+    def test_the_probe_runs_after_docker_hub_login_and_before_buildx(self) -> None:
+        # After the login, so its buildkit pull is authenticated.
+        hub = self._index(lambda s: s.get("name", "").startswith("Docker Hub login"))
+        probe = self._index(lambda s: s.get("id") == "cgroup")
+        buildx = self._index(lambda s: "setup-buildx-action" in str(s.get("uses", "")))
+        assert hub < probe < buildx
 
-    def test_it_is_off_unless_the_variable_is_set(self) -> None:
-        # The stock-dind fleet must keep the builder where it is today.
+    def test_the_probe_is_gated_like_every_docker_step(self) -> None:
+        cond = str(self._probe_step().get("if", ""))
+        assert "steps.resolve.outputs.build == 'true'" in cond
+
+    def test_the_variable_skips_the_probe(self) -> None:
+        cond = str(self._probe_step().get("if", ""))
+        assert "vars.HYPERCI_BUILDX_CGROUP_PARENT == ''" in cond
+
+    def test_the_probe_runs_the_published_cli_s_container_stage(self) -> None:
+        # `run container` exists in every published release, so no consumer
+        # can hit "No such command" before this CLI ships.
+        assert self._probe_step()["run"].split() == [
+            "${{",
+            "env.HYPERCI_INSTALL",
+            "}}",
+            "run",
+            "container",
+        ]
+
+    def test_an_older_cli_only_resolves(self) -> None:
+        # A release without the probe ignores HYPERCI_CONTAINER_CGROUP_PROBE.
+        # Resolve-only keeps it from building the image here instead.
+        env = self._probe_step().get("env", {})
+        assert env.get("HYPERCI_CONTAINER_CGROUP_PROBE") == "1"
+        assert env.get("HYPERCI_CONTAINER_RESOLVE_ONLY") == "1"
+
+    def test_a_failed_probe_never_fails_the_job(self) -> None:
+        assert self._probe_step().get("continue-on-error") is True
+
+    def test_driver_opts_fall_back_to_today_when_there_is_no_parent(self) -> None:
+        # Variable unset and the probe output empty (older CLI, failed probe,
+        # GitHub-hosted runner) => no driver-opts, buildx's own default.
         opts = str(self._buildx_step().get("with", {}).get("driver-opts", ""))
-        assert opts.rstrip().endswith("|| '' }}"), opts
+        assert opts == (
+            f"${{{{ ({self._PARENT}) && "
+            f"format('cgroup-parent={{0}}', {self._PARENT}) || '' }}}}"
+        )
+
+    def test_the_variable_beats_the_probe(self) -> None:
+        opts = str(self._buildx_step().get("with", {}).get("driver-opts", ""))
+        assert opts.index("vars.HYPERCI_BUILDX_CGROUP_PARENT") < opts.index(
+            "steps.cgroup.outputs.cgroup-parent"
+        )
 
 
 SKIP_OPTIMIZE_ENV = "${{ inputs.skip-optimize || vars.HYPERCI_SKIP_OPTIMIZE }}"
