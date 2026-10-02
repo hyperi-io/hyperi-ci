@@ -91,7 +91,7 @@ mechanics: [workflow-composites.md](workflow-composites.md).
 
 ## CLI surface
 
-```
+```text
 hyperi-ci run <stage>      quality | test | build | release; test takes --tier core|full
 hyperi-ci check [--quick|--full|--strict|--tier full]  pre-push: quality(+test)(+build); --strict fails on warn-tier findings; --tier full runs the ignored tests too
 hyperi-ci push [--release]         commit + push, opt-in Release: true trailer
@@ -115,13 +115,13 @@ hyperi-ci autoupdate               channel (live|stable) / enable / freeze -- se
 `dispatch.py` imports `hyperi_ci.languages.<lang>.<stage>` and calls
 `run(config, extra_env) -> int`.
 
-```
+```text
 src/hyperi_ci/languages/<lang>/{quality,test,build,release}.py
 ```
 
 ### Configuration cascade
 
-```
+```text
 CLI flags → ENV (HYPERCI_*) → .hyperi-ci.yaml → config/defaults.yaml → hardcoded
 ```
 
@@ -203,7 +203,7 @@ detail - tiers, cache, cross-compile (dormant) - is
 6. **KISS** - a maintained third-party tool that's good enough beats bespoke CI code.
    Over-engineered CI kills small teams; we reject custom machinery (see #31).
 
-```
+```text
 .github/
   workflows/   ci.yml (self-host) · {python,rust,ts,go}-ci.yml · _release-tail.yml
   actions/     predict-version · setup-runtime · setup-semantic-release

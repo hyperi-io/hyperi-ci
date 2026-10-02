@@ -66,7 +66,7 @@ promise, and semver reserves `0.x` for that.
 
 ```bash
 hyperi-ci seed-version            # 0.1.0
-hyperi-ci seed-version --source   # 0.1.0	default
+hyperi-ci seed-version --source   # 0.1.0 default
 hyperi-ci seed-tag --dry-run      # what it would create, and from where
 hyperi-ci seed-tag                # create it
 ```

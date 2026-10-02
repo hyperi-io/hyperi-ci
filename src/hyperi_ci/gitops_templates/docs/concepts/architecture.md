@@ -2,7 +2,7 @@
 
 ## Repository layout
 
-```
+```text
 <gitops-repo>/
 ├── topologies/         # Deployment topology specs
 │   └── <name>/
@@ -21,7 +21,7 @@
 
 ## Deployment pipeline
 
-```
+```text
 Developer
     │
     ▼
@@ -55,7 +55,7 @@ A single topology definition is deployed to multiple environments by varying onl
 the values. The ApplicationSet generator iterates over a list of environments;
 each generates an ArgoCD Application pointing at the same chart version.
 
-```
+```text
 topology.yaml   ──► stitched umbrella chart ──► GHCR OCI registry
                                                       │
                                            ┌──────────┼──────────┐

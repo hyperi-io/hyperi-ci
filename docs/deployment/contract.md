@@ -75,7 +75,7 @@ the second:
 Either way the repo falls through to step 3, then step 4 - it skips,
 and says why in the Build log:
 
-```
+```text
 Generate: detected tier 'none' - depends on scalo but declares no
 [project.scripts] entry point (library consumer, not a
 deployment-artefact producer)
@@ -209,7 +209,7 @@ version when:
 - Changing a field's type
 
 You do **not** need to bump for adding an optional field with a default
- - consumers ignore unknown fields gracefully when they're optional.
+\- consumers ignore unknown fields gracefully when they're optional.
 
 ## Exit codes
 

@@ -23,7 +23,7 @@ See [`docs/quickstart.md`](docs/quickstart.md).
 
 ## How a deployment ships
 
-```
+```text
 per-app repo (scalo-rs/scalo-py)
    │  emit-chart → helm push to OCI
    ▼
@@ -47,7 +47,7 @@ K8s cluster
 
 ## Repository structure
 
-```
+```text
 .
 ├── .github/workflows/        # CI: validate, stitch+publish, docs
 ├── .gitbook.yaml             # GitBook GitHub Sync config

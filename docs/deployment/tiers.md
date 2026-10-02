@@ -10,7 +10,7 @@ Adopting the deployment contract means:
   single source-of-truth JSON contract.
 - Letting `hyperi-ci emit-artefacts` regenerate the Dockerfile, Helm
   chart, ArgoCD `Application`, and container manifest from that contract
- - same logic that Rust and Python apps use, no per-language drift.
+  \- same logic that Rust and Python apps use, no per-language drift.
 - Getting a CI-enforced drift check that fails when committed artefacts
   diverge from what the contract says.
 

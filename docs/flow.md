@@ -183,7 +183,7 @@ release:
 Unified naming across languages - `{name}-{os}-{arch}[.exe]`, **version in the
 path, not the filename**:
 
-```
+```text
 dfe-receiver/vX/dfe-receiver-linux-amd64
 dfe-receiver/vX/dfe-receiver-linux-amd64.sha256
 dfe-receiver/vX/dfe-receiver-linux-arm64

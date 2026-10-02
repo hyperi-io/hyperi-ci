@@ -1,8 +1,14 @@
+<!-- markdownlint-disable MD025 -- source-style file header: each line is an intentional top-level line, not a heading -->
 # Project:   HyperI CI
+
 # File:      docs/quality-gate.md
+
 # Purpose:   Reference for the quality stage - tools, modes, --strict, skip hatch
+
 #
+
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
+
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
 # Quality gate
