@@ -56,7 +56,7 @@ so rather than shipping a blank label.
 
 ## Resolution order
 
-```
+```text
 .hyperi-ci.yaml  description:     the cascade opt-out
   -> manifest top-level           the normal case
   -> GitHub repo description      what docker/metadata-action falls back to

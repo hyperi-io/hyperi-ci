@@ -16,7 +16,7 @@ Replace `<name>` with a lowercase RFC-1123-style identifier, e.g. `prod-au` or
 
 This creates:
 
-```
+```text
 topologies/<name>/
 ├── topology.yaml   # Generated spec — edit to add chart sources, sync waves
 ├── values.yaml     # Per-app value overrides

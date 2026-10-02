@@ -16,6 +16,7 @@ Source: `hyperi-io/ci` (to be archived once cutover is complete).
 ### Cross-Compilation (Critical)
 
 **The mold linker problem:**
+
 - GitHub runners may have `mold` as default linker (`-fuse-ld=mold`)
 - Cross-compilers (e.g. `aarch64-linux-gnu-gcc`) cannot find `ld.mold` for
   non-native targets, causing CMake test compilations to fail
@@ -24,6 +25,7 @@ Source: `hyperi-io/ci` (to be archived once cutover is complete).
   cross-compilation CMake builds
 
 **Private sysroot approach (proven pattern):**
+
 - Many `-dev` packages (e.g. `libsasl2-dev`) are NOT `Multi-Arch: same` -
   installing arm64 replaces amd64, breaking native builds
 - **Solution:** Download cross-arch `.deb` files, extract to private sysroot
@@ -33,17 +35,20 @@ Source: `hyperi-io/ci` (to be archived once cutover is complete).
 - Also install `libc6-dev:arm64` (provides dynamic linker and standard libs)
 
 **Linker wrapper script:**
+
 - Creates wrapper around cross-compiler that injects sysroot library paths
 - Uses `-fuse-ld=bfd` (forces GNU BFD linker, not mold)
 - Includes `-L` and `-rpath-link` flags for transitive `.so` dependencies
 - Example: `libsasl2.so` needs `libcrypto.so.3` - linker needs `-rpath-link`
 
 **GNU LD script path patching:**
+
 - Some `.so` files are ASCII linker scripts with absolute paths:
   `GROUP ( /lib/aarch64-linux-gnu/libm.so.6 ... )`
 - These absolute paths don't exist on host - rewrite to point at sysroot
 
 **Environment variables for cross-compilation:**
+
 - `CC_<TARGET>`, `CXX_<TARGET>`, `AR_<TARGET>` for cross-compiler binaries
 - `CARGO_TARGET_<TARGET>_LINKER` for Rust to use the linker wrapper
 - `PKG_CONFIG_PATH`, `PKG_CONFIG_SYSROOT_DIR`, `PKG_CONFIG_ALLOW_CROSS=1`
@@ -52,13 +57,16 @@ Source: `hyperi-io/ci` (to be archived once cutover is complete).
 - Clear `LDFLAGS`, `CFLAGS`, `CXXFLAGS` to prevent host flag leakage
 
 **Build ordering:**
+
 - Build native target FIRST, then cross targets
 - Avoids multi-arch package conflicts
 
 **Target installation:**
+
 - Run `rustup target add <target>` for each non-native target before building
 
 **Post-build verification:**
+
 - Check binary exists and is not suspiciously small (<100KB)
 - Verify ELF format with `file(1)` and machine type with `readelf -h`
 - Native: smoke test with `--version` or `--help`
@@ -192,6 +200,7 @@ A workaround exists (`UV_INDEX_STRATEGY=unsafe-best-match`) but is fragile
 and changes resolver semantics across all packages.
 
 **Correct approach:**
+
 - Leave workflow install steps as `uv sync --frozen --all-extras` with NO
   extra index env vars
 - Projects that need packages from a private index configure `[tool.uv.index]` with
@@ -212,6 +221,7 @@ This comment is in-code in all four reusable workflows. Do not remove it.
 
 Hatchling's sdist includes all git-tracked files by default. This causes
 problems when the repo has:
+
 - AI agent config dirs (`.claude/`, `.cursor/`, `.gemini/`, `.windsurf/`)
 - AI-related symlinks (`.claude/rules/user-standards.md` -> outside project)
 - Org submodules (`hyperi-ai/`, `ci/`) with their own content
@@ -221,7 +231,8 @@ manager that temporarily patches `pyproject.toml` before `uv build` to add
 standard exclusions, then restores the original file after.
 
 Standard exclusions applied automatically to every Python sdist build:
-```
+
+```text
 /.claude  /CLAUDE.md  /.cursor  /CURSOR.md  /.gemini  /GEMINI.md
 /.github/copilot-instructions.md  /.windsurf  /STATE.md  /hyperi-ai  /ci
 ```
@@ -550,7 +561,7 @@ about yesterday's wheel, and the error is identical either way.
 
 Caught once by two timestamps:
 
-```
+```text
 run createdAt              2026-09-23T02:36:31Z
 the wheel's upload_time    2026-09-23T04:18:14Z
 ```
@@ -724,6 +735,7 @@ for itself, written down anyway, is a defect waiting for its first reader.
 ### Configuration Cascade
 
 Priority (highest wins):
+
 1. CLI flags / function arguments
 2. Environment variables (`HYPERCI_*`)
 3. `.hyperi-ci.yaml` project config
@@ -734,6 +746,7 @@ Priority (highest wins):
 ### Tool Mode System
 
 Every quality tool supports three modes:
+
 - `blocking` (default): fails CI
 - `warn`/`non-blocking`: logs warning, continues
 - `disabled`: skipped entirely
@@ -743,6 +756,7 @@ Resolution: `HYPERCI_QUALITY_<LANG>_<TOOL>` env > `.hyperi-ci.yaml` > default
 ### Exclusion Handling
 
 Three-layer:
+
 1. Auto-detect git submodules from `.gitmodules`
 2. Fallback: always exclude `ci/`, `ai/`
 3. Common artifacts: `.venv`, `node_modules`, `target`, `dist`, etc.

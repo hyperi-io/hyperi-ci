@@ -7,7 +7,7 @@ kept named `terraform/` by convention.
 
 ## Directory layout
 
-```
+```text
 terraform/
 ├── aws/
 │   ├── environments/   # Per-environment tfvars (staging.tfvars, production.tfvars)

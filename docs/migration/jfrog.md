@@ -149,7 +149,7 @@ Pre-release channels (`spike`, `alpha`, `beta`) automatically force
 registry publish to internal destinations only (JFrog staging), regardless
 of the configured `publish.target`. This is enforced in `dispatch.py`.
 
-```
+```text
 1. Set channel: spike, target: oss  → JFrog staging only (channel overrides target)
 2. Graduate: alpha → beta           → still JFrog staging only
 3. Graduate: release                → now target kicks in → publishes to PyPI/crates.io
@@ -201,7 +201,7 @@ From `oci://hypersec.jfrog.io/hyperi-helm-local` to
 GitHub Packages supports private npm with `@hyperi` scope. Direct
 replacement for `hyperi-npm-local`.
 
-```
+```bash
 npm config set @hyperi:registry https://npm.pkg.github.com
 ```
 
@@ -361,6 +361,7 @@ Remove dependency on JFrog remote proxy repos for base image pulls.
 - [ ] Move Helm charts to `oci://ghcr.io/hyperi-io/charts`
 - [ ] Update ARC runner pod specs if they reference JFrog ci-runner image
 - [ ] Add GHCR login step to workflows that push containers:
+
   ```yaml
   - name: GHCR login
     uses: docker/login-action@v3
@@ -369,6 +370,7 @@ Remove dependency on JFrog remote proxy repos for base image pulls.
       username: ${{ github.actor }}
       password: ${{ secrets.GITHUB_TOKEN }}
   ```
+
 - [ ] Set GHCR packages to private (default) - make public per-package when OSS
 - [ ] Test container publish end-to-end
 
@@ -385,6 +387,7 @@ Remove dependency on JFrog remote proxy repos for base image pulls.
 Narrow JFrog's role in `destinations_internal` to PyPI + Cargo only.
 
 - [ ] Update `src/hyperi_ci/config/defaults.yaml`:
+
   ```yaml
   destinations_internal:
     python: jfrog-pypi        # KEEP — private staging
@@ -395,6 +398,7 @@ Narrow JFrog's role in `destinations_internal` to PyPI + Cargo only.
     binaries: r2-binaries     # UNCHANGED — Cloudflare R2
     go: go-proxy              # CHANGED — direct
   ```
+
 - [ ] Update `config/org.yaml`: add `dockerhub` section, mark jfrog repos deprecated
 - [ ] Update `config.py` `OrgConfig`: keep JFrog fields for PyPI/Cargo only
 - [ ] Update `publish_binaries.py`: remove `_publish_jfrog_binaries()`
@@ -408,6 +412,7 @@ Narrow JFrog's role in `destinations_internal` to PyPI + Cargo only.
 private Python or Rust packages.
 
 - [ ] Create new group in `secrets-access.yaml`:
+
   ```yaml
   # Repos that publish private packages to JFrog staging
   jfrog-staging:
@@ -415,6 +420,7 @@ private Python or Rust packages.
     - dfe-core            # Private Python (pre-GA)
     # Add new repos here only if they need private staging
   ```
+
 - [ ] Change `JFROG_TOKEN` visibility from `ci-consumers` to `jfrog-staging`
 - [ ] Change `JFROG_USERNAME` visibility from `ci-consumers` to `jfrog-staging`
 - [ ] Remove `JFROG_ACCESS_TOKEN` (redundant with `JFROG_TOKEN`)

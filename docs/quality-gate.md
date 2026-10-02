@@ -1,9 +1,16 @@
+<!--
 # Project:   HyperI CI
+
 # File:      docs/quality-gate.md
+
 # Purpose:   Reference for the quality stage - tools, modes, --strict, skip hatch
+
 #
+
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
+
 # Copyright: (c) 2026 HYPERI PTY LIMITED
+-->
 
 # Quality gate
 
@@ -128,8 +135,7 @@ The per-tool table (gitleaks, semgrep, charset, hadolint, the language
 handlers, ...), the config knobs (`quality.exclude_paths`, the ruff keys,
 the Rust feature matrix, gitleaks config and its canary), the Container +
 k8s + IaC linting paths, and the two advisory hygiene nudges are all in
-[quality-gate-tools.md](quality-gate-tools.md) -- a reference, kept
-exhaustive rather than capped.
+[quality-gate-tools.md](quality-gate-tools.md).
 
 `hyperi-ci lint-docs <dir>` and the same five checks inside the quality
 stage (doc-paths, lychee, mermaid-parse, markdownlint, docs-touched): gate
