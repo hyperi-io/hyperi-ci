@@ -161,8 +161,8 @@ class TestCompositeToolsPinDigestsInTheSSOT:
     """The digests those actions mirror have to exist here first."""
 
     # Fetched and vouched for by someone else: govulncheck via the Go module
-    # proxy and sum.golang.org, pyyaml by uv from PyPI.
-    DELEGATED = {"govulncheck", "pyyaml"}
+    # proxy and sum.golang.org, pyyaml and vulture by uv from PyPI.
+    DELEGATED = {"govulncheck", "pyyaml", "vulture"}
 
     def test_every_action_pinned_tool_pins_a_digest(self) -> None:
         data = yaml.safe_load(versions.VERSIONS_FILE.read_text(encoding="utf-8"))
