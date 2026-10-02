@@ -405,6 +405,7 @@ def resolve_tool_cmd(
     use_uvx: bool = False,
     use_uv_with: bool = False,
     spec: str | None = None,
+    python: str | None = None,
 ) -> list[str]:
     """Resolve a tool command, preferring a pinned spec over whatever is on PATH.
 
@@ -433,6 +434,9 @@ def resolve_tool_cmd(
         spec: Requirement to install, e.g. ``bandit==1.9.4`` from the
             versions SSOT. Defaults to the bare command name, which lets
             the resolver take whatever PyPI serves that morning.
+        python: Interpreter version for a ``uvx`` run, e.g. ``3.14``. A tool
+            that parses source with ``ast`` reads only the syntax of the Python
+            it runs on, and uvx otherwise picks whatever interpreter it finds.
 
     Returns:
         The command to run. It equals ``cmd`` both when the PATH copy is the
@@ -444,13 +448,14 @@ def resolve_tool_cmd(
     pinned = "==" in spec
     wants_uv_form = use_uvx or use_uv_with
     uv = shutil.which("uv")
+    uvx = ["uvx", "--python", python] if python else ["uvx"]
 
     if pinned and wants_uv_form and uv:
         if use_uv_with:
             return ["uv", "run", "--with", spec, "--", *cmd]
         # --from, not `uvx <spec>`: the package to install and the command
         # to run are different strings once the version is pinned on.
-        return ["uvx", "--from", spec, *cmd]
+        return [*uvx, "--from", spec, *cmd]
 
     if shutil.which(cmd[0]):
         if pinned and wants_uv_form:
@@ -465,7 +470,7 @@ def resolve_tool_cmd(
         if use_uv_with:
             return ["uv", "run", "--with", spec, "--", *cmd]
         if use_uvx:
-            return ["uvx", "--from", spec, *cmd]
+            return [*uvx, "--from", spec, *cmd]
         return ["uv", "run", *cmd]
     return cmd
 
