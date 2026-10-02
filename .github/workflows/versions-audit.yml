@@ -86,6 +86,12 @@ jobs:
           GH_TOKEN: ${{ steps.bot.outputs.token }}
         run: uv run --no-sources python scripts/check-fixture-fleet.py
 
+      - name: Check semgrep's compatibility rules against the registry
+        # The registry serves the pack at scan time, so an id can drift with no
+        # semgrep release to bump, and a stale exclude fails silently (issue #486).
+        if: always()
+        run: uv run --no-sources python scripts/check-semgrep-compat-rules.py
+
   digests:
     # `--stable` compares VERSIONS. A release asset re-uploaded under the same
     # tag changes the sha256 and nothing above notices, so run the composites

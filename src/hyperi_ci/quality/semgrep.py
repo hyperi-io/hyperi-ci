@@ -41,8 +41,9 @@ _SHIPPED_KEY = "quality.semgrep"
 # The `r/python.lang.compatibility` pack at semgrep 1.178.0 - 20 rules, each
 # targeting the Python version named in its own id (python36, python37, ...).
 # Enumerated via `semgrep scan --config r/python.lang.compatibility --verbose`
-# (semgrep has no rule-listing subcommand).
-_PYTHON_COMPAT_RULES: dict[str, str] = {
+# (semgrep has no rule-listing subcommand). The registry serves the pack at scan
+# time, so scripts/check-semgrep-compat-rules.py re-checks it weekly.
+PYTHON_COMPAT_RULES: dict[str, str] = {
     "python.lang.compatibility.python36.python36-compatibility-Popen1": "3.6",
     "python.lang.compatibility.python36.python36-compatibility-Popen2": "3.6",
     "python.lang.compatibility.python36.python36-compatibility-ssl": "3.6",
@@ -77,7 +78,7 @@ def _stale_compat_rules(floor: str | None) -> list[str]:
     floor_tuple = tuple(int(p) for p in floor.split("."))
     return [
         rule_id
-        for rule_id, target in _PYTHON_COMPAT_RULES.items()
+        for rule_id, target in PYTHON_COMPAT_RULES.items()
         if floor_tuple >= tuple(int(p) for p in target.split("."))
     ]
 
