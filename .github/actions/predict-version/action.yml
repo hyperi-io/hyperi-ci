@@ -77,7 +77,7 @@ outputs:
     description: "Version this run releases (without 'v' prefix): predicted on push and on from-head dispatch, the tag's own on a tag dispatch"
     value: ${{ steps.predict.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version }}
   prerelease:
-    description: "'true' iff the predicted version carries a prerelease component (1.2.0-beta.1) — this run does not consume a stable version"
+    description: "'true' iff the predicted version carries a prerelease component (1.2.0-beta.1) -- this run does not consume a stable version"
     value: ${{ steps.derive.outputs.prerelease }}
   run-checks:
     description: "'true' iff quality + test should run (publish-worthy commit OR pull_request)"
@@ -156,16 +156,16 @@ runs:
     - name: Detect publish trigger
       # Gate the entire publish flow on one signal: `will-publish`.
       #
-      # - workflow_dispatch with a tag input → always publish (retroactive).
+      # - workflow_dispatch with a tag input -> always publish (retroactive).
       # - workflow_dispatch with from-head: true -> publish HEAD, from main or
       #   from a declared prerelease branch with bump=auto. Any other ref, or
       #   a forced bump on a prerelease branch, is validate-only (issue #471).
-      # - push to main with `Release: true` trailer in HEAD commit → release.
-      # - push to a declared prerelease branch with the same trailer →
+      # - push to main with `Release: true` trailer in HEAD commit -> release.
+      # - push to a declared prerelease branch with the same trailer ->
       #   release on that branch's own sequence (1.2.0-beta.1), which spends
       #   no stable version (issue #144).
       # - schedule -> never publishes, whatever HEAD's trailer says.
-      # - everything else, a bare workflow_dispatch included → validate-only
+      # - everything else, a bare workflow_dispatch included -> validate-only
       #   (no version stamp, no tag, no container push, no registry uploads).
       id: gate
       shell: bash
@@ -200,7 +200,7 @@ runs:
           # registry.
           if [[ -z "$DISPATCH_TAG" && "$FROM_HEAD" != "true" ]]; then
             echo "will-publish=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Bare workflow_dispatch — validate-only run. Quality, test and build run; NOTHING is tagged or published. To release, re-run with from-head=true (bump=auto|patch|minor|X.Y.Z), or tag=vX.Y.Z to re-publish an existing release."
+            echo "::warning::Bare workflow_dispatch -- validate-only run. Quality, test and build run; NOTHING is tagged or published. To release, re-run with from-head=true (bump=auto|patch|minor|X.Y.Z), or tag=vX.Y.Z to re-publish an existing release."
             exit 0
           fi
 
@@ -223,7 +223,7 @@ runs:
             fi
           fi
           echo "will-publish=true" >> "$GITHUB_OUTPUT"
-          echo "::notice::Triggered by workflow_dispatch — publish run"
+          echo "::notice::Triggered by workflow_dispatch -- publish run"
           exit 0
         fi
 
@@ -240,9 +240,9 @@ runs:
             echo "will-publish=false" >> "$GITHUB_OUTPUT"
             msg=$(git log -1 --format=%B HEAD)
             if printf '%s' "$msg" | grep -qiE '^[[:space:]]*(Release|Publish):[[:space:]]*true[[:space:]]*$'; then
-              echo "::warning::Release trailer on ref '${GIT_REF}' — ignored. Releasing happens from main, or from a branch declared 'prerelease' in the release config; merge first, or push to a declared prerelease branch."
+              echo "::warning::Release trailer on ref '${GIT_REF}' -- ignored. Releasing happens from main, or from a branch declared 'prerelease' in the release config; merge first, or push to a declared prerelease branch."
             fi
-            echo "Not a release branch — validate-only run (no tag, no publish)"
+            echo "Not a release branch -- validate-only run (no tag, no publish)"
             exit 0
           fi
         fi
@@ -253,10 +253,10 @@ runs:
         msg=$(git log -1 --format=%B HEAD)
         if printf '%s' "$msg" | grep -qiE '^[[:space:]]*(Release|Publish):[[:space:]]*true[[:space:]]*$'; then
           echo "will-publish=true" >> "$GITHUB_OUTPUT"
-          echo "::notice::Release trailer detected — this run tags and publishes"
+          echo "::notice::Release trailer detected -- this run tags and publishes"
         else
           echo "will-publish=false" >> "$GITHUB_OUTPUT"
-          echo "No release trailer — validate-only run (no tag, no publish)"
+          echo "No release trailer -- validate-only run (no tag, no publish)"
           # Validate-only is correct, and it reads exactly like a release run:
           # the same green rollup, and no line saying the repo is falling
           # behind. That silence left scalo-rs 13 releasable commits and 26
@@ -273,7 +273,7 @@ runs:
           fi
         fi
 
-    - name: Setup semantic-release (shared toolchain — single source of truth)
+    - name: Setup semantic-release (shared toolchain -- single source of truth)
       # Runs on push, and on a from-head `auto` dispatch (issue #35) so the
       # version is resolved in plan (the build then stamps the correct value).
       # Forced bumps use the inline semver step below and skip semantic-release.
@@ -308,7 +308,7 @@ runs:
         echo "$dry_output"
 
         if [[ $dry_rc -ne 0 ]]; then
-          echo "::error::semantic-release --dry-run exited $dry_rc — see log above"
+          echo "::error::semantic-release --dry-run exited $dry_rc -- see log above"
           exit $dry_rc
         fi
 
@@ -332,7 +332,7 @@ runs:
         tags_all=$(git tag --list 'v[0-9]*')
         tags_reachable=$(git tag --list 'v[0-9]*' --merged HEAD)
         if [[ -n "$tags_all" && -z "$tags_reachable" ]]; then
-          echo "::error::v* tags exist but none are reachable from HEAD — orphaned by a past history rewrite (issue #37). semantic-release is blind to them and predicted v${version}, which would collide or regress. Recover the tags with scripts/recover-tags.py, or ship past them with 'hyperi-ci publish --version X.Y.Z'."
+          echo "::error::v* tags exist but none are reachable from HEAD -- orphaned by a past history rewrite (issue #37). semantic-release is blind to them and predicted v${version}, which would collide or regress. Recover the tags with scripts/recover-tags.py, or ship past them with 'hyperi-ci publish --version X.Y.Z'."
           exit 1
         fi
 
@@ -351,7 +351,7 @@ runs:
         if [[ -z "$tags_all" && "$version" != *-* ]]; then
           start=$(python3 "$GITHUB_ACTION_PATH/seed_version.py")
           if [[ -n "$start" && "$start" != "$version" ]]; then
-            echo "::notice::First release on a tag-less repo — starting at $start (semantic-release default was $version)"
+            echo "::notice::First release on a tag-less repo -- starting at $start (semantic-release default was $version)"
             version="$start"
           fi
         fi
@@ -363,7 +363,7 @@ runs:
           existing=$(git rev-parse "refs/tags/v${version}^{commit}")
           head_sha=$(git rev-parse "HEAD^{commit}")
           if [[ "$existing" != "$head_sha" ]]; then
-            echo "::error::Predicted v${version} already exists at ${existing} (HEAD is ${head_sha}) — refusing to re-release it (issue #37). Ship past it with 'hyperi-ci publish --version X.Y.Z' (or --bump patch), or recover orphaned tags with scripts/recover-tags.py."
+            echo "::error::Predicted v${version} already exists at ${existing} (HEAD is ${head_sha}) -- refusing to re-release it (issue #37). Ship past it with 'hyperi-ci publish --version X.Y.Z' (or --bump patch), or recover orphaned tags with scripts/recover-tags.py."
             exit 1
           fi
         fi
@@ -402,14 +402,14 @@ runs:
           latest=$(python3 "$GITHUB_ACTION_PATH/seed_version.py")
         fi
         if [[ -z "$latest" ]]; then
-          echo "::error::No v* tag and no declared version — cannot compute forced bump."
+          echo "::error::No v* tag and no declared version -- cannot compute forced bump."
           exit 1
         fi
         IFS='.' read -r maj min pat <<< "$latest"
         case "$bump" in
           patch) pat=$((pat + 1)) ;;
           minor) min=$((min + 1)); pat=0 ;;
-          *) echo "::error::Invalid bump '$bump' — expected patch, minor, or X.Y.Z"; exit 1 ;;
+          *) echo "::error::Invalid bump '$bump' -- expected patch, minor, or X.Y.Z"; exit 1 ;;
         esac
         version="${maj}.${min}.${pat}"
         echo "version=$version" >> "$GITHUB_OUTPUT"

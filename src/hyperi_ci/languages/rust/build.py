@@ -312,7 +312,9 @@ def _resolve_cross_packages(
         pending = next_pending
 
         if depth == max_depth - 1:
-            warn(f"  Hit max dependency depth ({max_depth}) — some deps may be missing")
+            warn(
+                f"  Hit max dependency depth ({max_depth}) -- some deps may be missing"
+            )
 
     return sorted(set(to_download))
 
@@ -401,7 +403,9 @@ def _setup_cross_sysroot(cross_arch: str, cross_triple: str) -> Path | None:
     dev_pkgs = _detect_native_dev_packages(native_triple)
 
     if not dev_pkgs:
-        info("  No native -dev packages with pkg-config files found — skipping sysroot")
+        info(
+            "  No native -dev packages with pkg-config files found -- skipping sysroot"
+        )
         return None
 
     info(f"  Detected {len(dev_pkgs)} native -dev packages with .pc files:")
@@ -411,7 +415,7 @@ def _setup_cross_sysroot(cross_arch: str, cross_triple: str) -> Path | None:
     cross_pkgs = _resolve_cross_packages(dev_pkgs, cross_arch)
 
     if not cross_pkgs:
-        info("  No cross-arch packages available — skipping sysroot")
+        info("  No cross-arch packages available -- skipping sysroot")
         return None
 
     info(f"  Downloading {len(cross_pkgs)} cross-arch packages...")
@@ -430,7 +434,7 @@ def _setup_cross_sysroot(cross_arch: str, cross_triple: str) -> Path | None:
 
     debs = list(deb_dir.glob("*.deb"))
     if not debs:
-        warn("  No .deb packages downloaded — sysroot will be empty")
+        warn("  No .deb packages downloaded -- sysroot will be empty")
         return None
 
     info(f"  Extracting {len(debs)} packages to {sysroot}/")
@@ -514,7 +518,7 @@ def _cross_env(target: str, sysroot: Path | None = None) -> dict[str, str]:
 
     cc = toolchain["cc"]
     if not shutil.which(cc):
-        warn(f"  Cross-compiler {cc} not found — build may fail")
+        warn(f"  Cross-compiler {cc} not found -- build may fail")
         return env
 
     # cc crate uses lowercase target with underscores: CC_aarch64_unknown_linux_gnu
@@ -669,7 +673,7 @@ def _verify_binary(binary: Path, target: str, native_target: str) -> bool:
 
     size = binary.stat().st_size
     if size < 102400:
-        error(f"    Binary too small ({size} bytes) — likely corrupt")
+        error(f"    Binary too small ({size} bytes) -- likely corrupt")
         errors += 1
     else:
         info(f"    OK: Size {_human_size(size)}")
@@ -798,7 +802,7 @@ def _resolve_build_channel(config: CIConfig) -> str:
          `inputs.tag` is non-empty, i.e. `hyperi-ci release` dispatch)
       2. `optimize-tier: release` on this run (`HYPERCI_OPTIMIZE_TIER`), which
          builds the release tier on a run that publishes nothing (issue #257)
-      3. Tag-ref inference: `GITHUB_REF_TYPE == "tag"` → "release"
+      3. Tag-ref inference: `GITHUB_REF_TYPE == "tag"` -> "release"
       4. `RUST_VERSION` / `CI_COMMIT_TAG` env vars (semantic-release-
          style tagged builds set these when checking out the tag)
       5. "alpha" (default for push-event CI)
@@ -1460,7 +1464,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     with group("Binary packaging"):
         binary_names = _detect_binary_names()
         if not binary_names:
-            info("Library-only crate — skipping binary packaging")
+            info("Library-only crate -- skipping binary packaging")
         else:
             version = _detect_version()
             rc = _package_binaries(targets, binary_names, version, native)

@@ -232,19 +232,19 @@ def resolve_tags(
     Tag matrix per registry base, by push mode
     (:mod:`hyperi_ci.release_mode`):
 
-    * ``validate``                 → no tags (build-and-discard)
-    * ``dev``                      → ``:branch-<slug>`` (mutable pointer) +
+    * ``validate``                 -> no tags (build-and-discard)
+    * ``dev``                      -> ``:branch-<slug>`` (mutable pointer) +
       ``:branch-<slug>-sha-<short>`` (immutable pin) -- the branch
       dev-image artifact class (plan decision 3). NEVER a version tag,
       NEVER ``latest``, and NEVER a bare ``sha-<short>``: that namespace
       belongs to the GA publish, and the distinct ``branch-*`` /
       ``dev-sha-*`` prefixes are what lets the scheduled GHCR pruner
       (``_ghcr-prune.yml``) glob dev tags without ever touching GA pins.
-    * ``release``, release channel → ``:vX.Y.Z``, ``:latest``, ``:sha-<short>``
-    * ``release``, pre-GA channel  → ``:vX.Y.Z-{channel}``, ``:sha-<short>``
-    * ``release``, prerelease version → ``:vX.Y.Z-beta.N``, ``:sha-<short>``
+    * ``release``, release channel -> ``:vX.Y.Z``, ``:latest``, ``:sha-<short>``
+    * ``release``, pre-GA channel  -> ``:vX.Y.Z-{channel}``, ``:sha-<short>``
+    * ``release``, prerelease version -> ``:vX.Y.Z-beta.N``, ``:sha-<short>``
       -- a version off a prerelease branch never moves ``latest``.
-    * ``release`` with ``move_latest`` False → no ``:latest``, so
+    * ``release`` with ``move_latest`` False -> no ``:latest``, so
       re-publishing an older tag leaves it on the newest release.
 
     The SHA tag is included on every pushed build to give consumers an
@@ -261,7 +261,7 @@ def resolve_tags(
         channel: Release channel (``alpha`` | ``beta`` | ``release``).
         mode: Push mode -- ``release`` | ``dev`` | ``validate``.
         branch_slug: Docker-tag-safe branch slug for dev mode
-            (:func:`hyperi_ci.release_mode.dev_branch_slug`). Empty →
+            (:func:`hyperi_ci.release_mode.dev_branch_slug`). Empty ->
             the dev image gets a ``dev-sha-<short>`` tag only.
         move_latest: False when a newer stable release owns ``:latest``
             (:func:`hyperi_ci.common.holds_latest`).

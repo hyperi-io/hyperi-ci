@@ -8,19 +8,19 @@
 # Reusable workflow called by language-specific *-ci.yml files. Owns
 # the post-build half of the version-first single-run pipeline:
 #
-#   (caller)  setup     ← uses .github/actions/predict-version
-#   (caller)  build     ← stamps Cargo.toml/VERSION with next-version
+#   (caller)  setup     <- uses .github/actions/predict-version
+#   (caller)  build     <- stamps Cargo.toml/VERSION with next-version
 #                         BEFORE building, uploads dist/ + ci-tmp/
 #                         artefacts
 #
-#   (here)    container         ← docker build (validate or push, gated
+#   (here)    container         <- docker build (validate or push, gated
 #                                  on will-publish)
-#   (here)    prepare           ← hyperi-ci release-prepare: stamp, semver
+#   (here)    prepare           <- hyperi-ci release-prepare: stamp, semver
 #                                  checks, cargo package, npm pack -- every
 #                                  step that runs repo code, holding no secret
-#   (here)    tag-and-release   ← npx semantic-release real → tag +
+#   (here)    tag-and-release   <- npx semantic-release real -> tag +
 #                                  CHANGELOG; then hyperi-ci run release
-#                                  uploads what prepare left → crates.io /
+#                                  uploads what prepare left -> crates.io /
 #                                  PyPI / npm / GitHub Releases / R2
 #
 # Doctrine: tag-on-publish. A git tag exists iff the artefact is in the
@@ -57,15 +57,15 @@ on:
       tag:
         type: string
         default: ""
-        description: "Tag input — set on workflow_dispatch from caller"
+        description: "Tag input -- set on workflow_dispatch from caller"
       from-head:
         type: string
         default: ""
-        description: "'true' on a from-head dispatch (issue #35): release/retry the current HEAD — the CI creates the tag. Mutually exclusive with `tag`."
+        description: "'true' on a from-head dispatch (issue #35): release/retry the current HEAD -- the CI creates the tag. Mutually exclusive with `tag`."
       bump:
         type: string
         default: "auto"
-        description: "Version resolution for from-head: auto (semantic-release picks from commits) | patch | minor (forced — release even with no release-worthy commit) | X.Y.Z (exact version)."
+        description: "Version resolution for from-head: auto (semantic-release picks from commits) | patch | minor (forced -- release even with no release-worthy commit) | X.Y.Z (exact version)."
       publish-target:
         type: string
         default: "internal"
@@ -205,7 +205,7 @@ jobs:
 
       - name: Resolve container build (app vs library)
         # Decide BEFORE booting Buildx whether this project ships a
-        # container. enabled:false → no; enabled:true → yes; auto →
+        # container. enabled:false -> no; enabled:true -> yes; auto ->
         # filesystem signal (Dockerfile or rustlib contract; a crate/
         # library has none). Gating every Docker step on this means a
         # library (e.g. a Rust crate -- no GHCR deployment) never pulls
@@ -298,8 +298,8 @@ jobs:
 
       - name: Build container
         # Handler decides validate-only vs push based on HYPERCI_RELEASE_MODE:
-        # unset/false → docker build only, no registry push;
-        # true        → docker build + push to all configured registries.
+        # unset/false -> docker build only, no registry push;
+        # true        -> docker build + push to all configured registries.
         if: steps.resolve.outputs.build == 'true'
         env:
           HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
@@ -623,17 +623,17 @@ jobs:
           if [ "${{ steps.bot.outcome }}" = "success" ]; then
             echo "Tagging and pushing as hypersec-ci-bot."
           else
-            echo "::warning::GH_APP_PRIVATE_KEY is not visible to this repo — tagging as github-actions. Required status checks cannot be bypassed, and the release push will trigger no workflows. Add this repo to the GH_APP_PRIVATE_KEY org secret's selected list to fix both."
+            echo "::warning::GH_APP_PRIVATE_KEY is not visible to this repo -- tagging as github-actions. Required status checks cannot be bypassed, and the release push will trigger no workflows. Add this repo to the GH_APP_PRIVATE_KEY org secret's selected list to fix both."
           fi
 
-      - name: Setup semantic-release (shared toolchain — single source of truth)
+      - name: Setup semantic-release (shared toolchain -- single source of truth)
         # Runs the version oracle on a push, and on a from-head `auto`
         # dispatch (release/retry HEAD letting semantic-release pick the
         # version from commits). Forced bumps use tag-head instead.
         if: ${{ github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto') }}
         uses: hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@main
 
-      - name: Guard — predicted tag must not already exist off-HEAD
+      - name: Guard -- predicted tag must not already exist off-HEAD
         # Defence-in-depth for issue #37: refuse to tag if the predicted
         # version already exists as a tag pointing somewhere other than
         # HEAD. A collision means semantic-release mispredicted (blind to
@@ -651,10 +651,10 @@ jobs:
             head=$(git rev-parse "HEAD^{commit}")
             if [ "$existing" != "$head" ]
             then
-              echo "::error::Predicted ${predicted} already exists at ${existing} but HEAD is ${head} — likely an orphaned tag from a past history rewrite (semantic-release is blind to tags not reachable from HEAD, so it re-predicted a taken version). Refusing to auto-tag: that would rewrite release history (issue #37). To ship past it, force an explicit version from HEAD: 'hyperi-ci publish --bump patch' (next free patch) or 'hyperi-ci publish --version X.Y.Z'. Both bypass this guard and tag HEAD directly."
+              echo "::error::Predicted ${predicted} already exists at ${existing} but HEAD is ${head} -- likely an orphaned tag from a past history rewrite (semantic-release is blind to tags not reachable from HEAD, so it re-predicted a taken version). Refusing to auto-tag: that would rewrite release history (issue #37). To ship past it, force an explicit version from HEAD: 'hyperi-ci publish --bump patch' (next free patch) or 'hyperi-ci publish --version X.Y.Z'. Both bypass this guard and tag HEAD directly."
               exit 1
             fi
-            echo "${predicted} already exists at HEAD — nothing to tag."
+            echo "${predicted} already exists at HEAD -- nothing to tag."
           fi
 
       - name: Tag (semantic-release)
@@ -678,7 +678,7 @@ jobs:
           RELEASE_VERSION: ${{ inputs.next-version }}
         run: |
           if [ -z "$(git tag --list 'v[0-9]*')" ]; then
-            echo "Tag-less repo — first release: tagging HEAD v${RELEASE_VERSION} from the plan's prediction"
+            echo "Tag-less repo -- first release: tagging HEAD v${RELEASE_VERSION} from the plan's prediction"
             ${{ env.HYPERCI_INSTALL }} tag-head --bump "$RELEASE_VERSION"
           else
             npx semantic-release

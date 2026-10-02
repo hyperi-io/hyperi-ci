@@ -1,7 +1,7 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/helm/stage.py
-# Purpose:   Helm stage orchestrator: emit-chart → adds → lint → template
-#            → patches → package → push (oci://ghcr.io/hyperi-io/helm-charts)
+# Purpose:   Helm stage orchestrator: emit-chart -> adds -> lint -> template
+#            -> patches -> package -> push (oci://ghcr.io/hyperi-io/helm-charts)
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
@@ -44,7 +44,7 @@ def run(config: CIConfig) -> int:
     if not isinstance(helm_cfg, dict):
         helm_cfg = {}
     if not helm_cfg.get("enabled"):
-        info("Helm release disabled (release.helm.enabled: false) — skipping")
+        info("Helm release disabled (release.helm.enabled: false) -- skipping")
         return 0
 
     if helm_cfg.get("topology_mode"):
@@ -127,7 +127,7 @@ def _emit_chart(*, binary_name: str, chart_dir: Path) -> int:
         return proc.returncode
     if not chart_dir.exists() or not (chart_dir / "Chart.yaml").exists():
         error(
-            f"emit-chart returned 0 but no Chart.yaml at {chart_dir} — "
+            f"emit-chart returned 0 but no Chart.yaml at {chart_dir} -- "
             "consumer's emit-chart subcommand is broken"
         )
         return 1
@@ -303,10 +303,10 @@ def _helm_push(*, tgz_path: Path, registry: str) -> int:
     """``helm push <tgz> <registry>`` to GHCR OCI."""
     if not registry.startswith("oci://"):
         warn(
-            f"helm registry {registry!r} doesn't look OCI — push semantics "
+            f"helm registry {registry!r} doesn't look OCI -- push semantics "
             "may differ. Expected oci://ghcr.io/hyperi-io/helm-charts."
         )
-    info(f"  helm: pushing {tgz_path.name} → {registry}")
+    info(f"  helm: pushing {tgz_path.name} -> {registry}")
 
     # Helm reads $HELM_REGISTRY_USERNAME / $HELM_REGISTRY_PASSWORD for OCI
     # auth. For GHCR the username can be anything non-empty; the password
@@ -326,7 +326,7 @@ def _helm_push(*, tgz_path: Path, registry: str) -> int:
             env["HELM_REGISTRY_PASSWORD"] = token
         else:
             warn(
-                "No GHCR / GH token in environment — `helm push` will fail "
+                "No GHCR / GH token in environment -- `helm push` will fail "
                 "if the registry requires auth"
             )
 
@@ -345,7 +345,7 @@ def _helm_push(*, tgz_path: Path, registry: str) -> int:
         if proc.stderr:
             error(proc.stderr.rstrip())
         return proc.returncode
-    success(f"Helm chart published: {tgz_path.name} → {registry}")
+    success(f"Helm chart published: {tgz_path.name} -> {registry}")
     return 0
 
 

@@ -1,6 +1,6 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/argocd/stage.py
-# Purpose:   ArgoCD stage orchestrator: emit-argocd → splice → push to gitops
+# Purpose:   ArgoCD stage orchestrator: emit-argocd -> splice -> push to gitops
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
@@ -46,7 +46,7 @@ def run(config: CIConfig) -> int:
     if not isinstance(argocd_cfg, dict):
         argocd_cfg = {}
     if not argocd_cfg.get("enabled"):
-        info("ArgoCD release disabled (release.argocd.enabled: false) — skipping")
+        info("ArgoCD release disabled (release.argocd.enabled: false) -- skipping")
         return 0
 
     project_dir = Path.cwd()
@@ -149,7 +149,7 @@ def _push_to_gitops(
     from hyperi_ci.argocd.gitops_push import GitopsPushConfig, push
 
     if not envs:
-        warn("release.argocd.enabled: true but no envs declared — nothing to push")
+        warn("release.argocd.enabled: true but no envs declared -- nothing to push")
         return 0
 
     app = Path.cwd().name
@@ -173,7 +173,7 @@ def _push_to_gitops(
 def _resolve_envs(argocd_cfg: dict) -> list[tuple[str, str]]:
     """Read ``release.argocd.envs`` into ``[(env_name, push_mode), ...]``.
 
-    Defaults: prod → pr, others → direct. If a single string env name
+    Defaults: prod -> pr, others -> direct. If a single string env name
     is given, treat as direct unless its name is "prod".
     """
     raw = argocd_cfg.get("envs") or []

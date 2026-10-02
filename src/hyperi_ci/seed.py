@@ -76,12 +76,12 @@ def seed_tag(
         ["git", "rev-parse", "--verify", "HEAD"], capture=True, check=False, cwd=cwd
     )
     if head.returncode != 0 or not head.stdout.strip():
-        error("seed-tag: no commits yet — commit something before seeding a version")
+        error("seed-tag: no commits yet -- commit something before seeding a version")
         return 1
 
     existing = existing_version_tags(root)
     if existing:
-        info(f"seed-tag: {existing[0]} already exists — nothing to seed")
+        info(f"seed-tag: {existing[0]} already exists -- nothing to seed")
         return 0
 
     version, source = seed_version(root)
@@ -101,7 +101,7 @@ def seed_tag(
             "-m",
             f"Seed version {tag}\n\n"
             f"Starting point for hyperi-ci's version pipeline, {origin}.\n"
-            f"Not a published release — the first release bumps from here.\n",
+            f"Not a published release -- the first release bumps from here.\n",
         ],
         check=False,
         cwd=cwd,

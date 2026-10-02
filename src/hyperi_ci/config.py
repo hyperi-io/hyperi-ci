@@ -333,7 +333,7 @@ def load_config(
             from hyperi_ci.common import warn
 
             warn(
-                f"Unknown project.status '{status}' — expected one of "
+                f"Unknown project.status '{status}' -- expected one of "
                 f"{', '.join(VALID_PROJECT_STATUSES)} (or unset). "
                 f"Treating as unset for logging purposes."
             )

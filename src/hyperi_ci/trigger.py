@@ -154,7 +154,7 @@ def trigger_workflow(
 
     branch = ref or get_current_branch()
     if not branch:
-        error("Could not detect current branch — use --ref to specify")
+        error("Could not detect current branch -- use --ref to specify")
         return 1
 
     target = workflow if repo else resolve_workflow_file(workflow, project_dir)
@@ -190,7 +190,7 @@ def trigger_workflow(
         warn("Run did not appear within 60 seconds")
         return 2
 
-    info(f"Run {run_id} started — watching...")
+    info(f"Run {run_id} started -- watching...")
 
     from hyperi_ci.watch import watch_run
 

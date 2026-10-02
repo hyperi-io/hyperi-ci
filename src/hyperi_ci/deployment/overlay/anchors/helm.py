@@ -20,9 +20,9 @@ mechanisms apply:
 Both operate at distinct points in the helm pipeline:
 
   1. Generate base chart  (consumer's ``emit-chart`` subcommand)
-  2. apply_adds()         ← writes new templates into chart/templates/
+  2. apply_adds()         <- writes new templates into chart/templates/
   3. helm template        (renders chart with default values)
-  4. apply_patches()      ← rewrites rendered YAML
+  4. apply_patches()      <- rewrites rendered YAML
   5. helm package         (final tarball)
   6. helm push            (oci://ghcr.io/hyperi-io/helm-charts)
 

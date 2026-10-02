@@ -402,7 +402,7 @@ def watch_run(
             if consecutive_failures >= _MAX_CONSECUTIVE_FETCH_FAILURES:
                 error(
                     f"  Failed to fetch run status "
-                    f"{consecutive_failures} times in a row — giving up. "
+                    f"{consecutive_failures} times in a row -- giving up. "
                     f"Last known status: {last_known_status}. "
                     f"Resume: {_resume_command(run_id, timeout, repo=repo)}"
                 )
@@ -410,7 +410,7 @@ def watch_run(
             warn(
                 f"  Failed to fetch run status "
                 f"({consecutive_failures}/{_MAX_CONSECUTIVE_FETCH_FAILURES}) "
-                f"— retrying"
+                f"-- retrying"
             )
             time.sleep(_poll_interval(interval, attempt))
             continue
@@ -450,7 +450,7 @@ def watch_run(
     # resume command so the caller can decide whether to re-watch (still
     # in progress) or investigate (stuck / silently failing).
     error(
-        f"Timeout after {timeout} seconds — run still {last_known_status}. "
+        f"Timeout after {timeout} seconds -- run still {last_known_status}. "
         f"Resume: {_resume_command(run_id, timeout, repo=repo)} "
         f"(or use --timeout 0 to disable timeout)"
     )

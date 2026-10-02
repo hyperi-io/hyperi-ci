@@ -147,13 +147,13 @@ def check_publish_credentials(
             names = ", ".join(absent)
             if requirement.blocking:
                 error(
-                    f"  {requirement.destination}: {names} not set — "
+                    f"  {requirement.destination}: {names} not set -- "
                     f"{requirement.consequence}"
                 )
                 missing_blocking.append(requirement)
             else:
                 warn(
-                    f"  {requirement.destination}: {names} not set — "
+                    f"  {requirement.destination}: {names} not set -- "
                     f"{requirement.consequence}"
                 )
 
@@ -182,7 +182,7 @@ def run_preflight(config: CIConfig, *, project_dir: Path | None = None) -> int:
 
     """
     if not is_ci():
-        info("Preflight: not in CI — credentials are a CI concern, skipping")
+        info("Preflight: not in CI -- credentials are a CI concern, skipping")
         return 0
     info("Preflight: verifying publish credentials")
     return check_publish_credentials(config, project_dir=project_dir)

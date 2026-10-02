@@ -121,11 +121,11 @@ def resolve_tier(repo_root: Path, *, require_producer: bool = True) -> TierDecis
 
     Order of precedence:
       1. Cargo.toml + scalo (or legacy hyperi-rustlib) in deps, and the
-         crate builds a binary → :attr:`Tier.RUST`
+         crate builds a binary -> :attr:`Tier.RUST`
       2. pyproject.toml + scalo in deps, and a ``[project.scripts]``
-         console script is declared → :attr:`Tier.PYTHON`
-      3. ``ci/deployment-contract.json`` exists → :attr:`Tier.OTHER`
-      4. Otherwise → :attr:`Tier.NONE`
+         console script is declared -> :attr:`Tier.PYTHON`
+      3. ``ci/deployment-contract.json`` exists -> :attr:`Tier.OTHER`
+      4. Otherwise -> :attr:`Tier.NONE`
 
     A repo may have multiple manifests (e.g. a Rust workspace with a
     Python subdir). The first match wins so the dispatch ordering is

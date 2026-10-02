@@ -257,9 +257,9 @@ def stamp_version(
             error(f"stamp-version: {exc}")
             return 1
     elif language:
-        info(f"No manifest stamp for {language} — VERSION file is authoritative")
+        info(f"No manifest stamp for {language} -- VERSION file is authoritative")
     else:
-        warn("Could not detect language — wrote VERSION only")
+        warn("Could not detect language -- wrote VERSION only")
 
     if not run_stamp_cmd:
         info("Not running release.stamp_cmd: --no-stamp-cmd")

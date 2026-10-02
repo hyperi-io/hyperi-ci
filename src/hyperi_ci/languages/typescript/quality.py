@@ -227,7 +227,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         if not _run_tool("eslint", ["npx", "eslint", "."], mode):
             had_failure = True
     else:
-        warn("  eslint: no 'lint' script and no eslint config — skipping")
+        warn("  eslint: no 'lint' script and no eslint config -- skipping")
 
     # --- prettier ---
     # `npm run format --check` is unsafe: many projects define `format`
@@ -245,13 +245,13 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         if not _run_tool("prettier", ["npx", "prettier", "--check", "."], mode):
             had_failure = True
     else:
-        warn("  prettier: no 'format:check' script and no prettier config — skipping")
+        warn("  prettier: no 'format:check' script and no prettier config -- skipping")
 
     # --- tsc ---
     # Try typecheck script, else fall back to `npx tsc --noEmit` only if
     # a tsconfig.json exists. Skipping without tsconfig avoids tsc
     # crawling cwd with default settings (noisy / error-prone on pure-JS
-    # projects that pass detection via the javascript→typescript alias).
+    # projects that pass detection via the javascript->typescript alias).
     mode = _get_tool_mode("tsc", config)
     tsc_script = _find_npm_script(["typecheck", "check-types"], pm)
     if tsc_script:
@@ -261,7 +261,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         if not _run_tool("tsc", ["npx", "tsc", "--noEmit"], mode):
             had_failure = True
     else:
-        warn("  tsc: no typecheck script and no tsconfig.json — skipping")
+        warn("  tsc: no typecheck script and no tsconfig.json -- skipping")
 
     # --- audit + semgrep -- run on any JS/TS project; orthogonal to npm scripts ---
     mode = _get_tool_mode("audit", config)

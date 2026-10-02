@@ -144,12 +144,12 @@ def breaking_deltas(
     old_in, new_in = old["inputs"], new["inputs"]
     for name, spec in new_in.items():
         was = old_in.get(name)
-        # New required input with no default → old callers don't pass it.
+        # New required input with no default -> old callers don't pass it.
         if was is None and spec["required"] and not spec["has_default"]:
             deltas.append(f"input '{name}' added as required (no default)")
         # Existing input tightened to required.
         elif was is not None and spec["required"] and not was["required"]:
-            deltas.append(f"input '{name}' changed optional → required")
+            deltas.append(f"input '{name}' changed optional -> required")
 
     old_sec, new_sec = old["secrets"], new["secrets"]
     for name, spec in new_sec.items():
@@ -157,7 +157,7 @@ def breaking_deltas(
         if was is None and spec["required"]:
             deltas.append(f"secret '{name}' added as required")
         elif was is not None and spec["required"] and not was["required"]:
-            deltas.append(f"secret '{name}' changed optional → required")
+            deltas.append(f"secret '{name}' changed optional -> required")
 
     return deltas
 
@@ -345,13 +345,13 @@ def _report_retirements(
             record, tree_ifaces.get(record.file), tag_ifaces.get(record.file)
         )
         print(f"  {state:8} {record.file}: {record.kind} '{record.name}'")
-        print(f"           checked {record.checked} — {record.reason}")
+        print(f"           checked {record.checked} -- {record.reason}")
         if state == "prunable":
             prunable.append(record)
     if prunable:
         noun = "entry" if len(prunable) == 1 else "entries"
         print(
-            f"\n  {len(prunable)} {noun} no longer clear anything — absent from "
+            f"\n  {len(prunable)} {noun} no longer clear anything -- absent from "
             f"{tag} as well as the tree. Delete them from "
             f"{_RETIREMENTS.relative_to(_ROOT).as_posix()}."
         )
@@ -361,7 +361,7 @@ def main() -> int:
     """Fail on a backward-incompatible change to a published call interface."""
     tag = _last_release_tag()
     if not tag:
-        print("No release tag to compare against — skipping interface gate.")
+        print("No release tag to compare against -- skipping interface gate.")
         return 0
 
     try:
@@ -373,7 +373,7 @@ def main() -> int:
     for record in retirements:
         retired_by_file.setdefault(record.file, set()).add(record.member)
 
-    print(f"Interface compat gate — working tree vs {tag}\n")
+    print(f"Interface compat gate -- working tree vs {tag}\n")
     regressions = 0
     tree_ifaces: dict[str, dict] = {}
     tag_ifaces: dict[str, dict] = {}
@@ -385,7 +385,7 @@ def main() -> int:
         tree_ifaces[rel] = new_iface
         old_text = _file_at(tag, rel)
         if old_text is None:
-            print(f"  {rel}: new since {tag} — no baseline, OK")
+            print(f"  {rel}: new since {tag} -- no baseline, OK")
             continue
         old_iface = parse_interface(old_text)
         if old_iface["kind"] == "other":

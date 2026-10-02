@@ -9,15 +9,15 @@
 Sits between Build and Container in the pipeline. Auto-detects the
 producer tier and dispatches:
 
-  Tier 1 (RUST)   → subprocess `<app> generate-artefacts --output-dir <out>`
+  Tier 1 (RUST)   -> subprocess `<app> generate-artefacts --output-dir <out>`
                     (binary built by the Build stage; scalo 2.7+
                     provides the subcommand)
-  Tier 2 (PYTHON) → subprocess `<app> generate-artefacts --output-dir <out>`
+  Tier 2 (PYTHON) -> subprocess `<app> generate-artefacts --output-dir <out>`
                     (entry point installed via uv; scalo 2.x provides
                     the subcommand)
-  Tier 3 (OTHER)  → in-process call to ``hyperi_ci.deployment.cli.emit_artefacts``
+  Tier 3 (OTHER)  -> in-process call to ``hyperi_ci.deployment.cli.emit_artefacts``
                     (Tier 3 templater)
-  None            → log + skip with success (no contract = nothing to
+  None            -> log + skip with success (no contract = nothing to
                     generate)
 
 The Container stage then reads from ``ci-tmp/Dockerfile.runtime`` and
@@ -176,11 +176,11 @@ def _resolve_producer(
     producer = normalise_tristate(config.get(PRODUCER_KEY, "auto"), key=PRODUCER_KEY)
 
     if producer == "false":
-        info(f"Generate: {PRODUCER_KEY}: false — skipping")
+        info(f"Generate: {PRODUCER_KEY}: false -- skipping")
         return None, EXIT_OK
 
     decision = resolve_tier(project_dir, require_producer=producer != "true")
-    info(f"Generate: detected tier '{decision.tier.value}' — {decision.reason}")
+    info(f"Generate: detected tier '{decision.tier.value}' -- {decision.reason}")
 
     if decision.tier != Tier.NONE:
         return decision.tier, EXIT_OK
@@ -188,7 +188,7 @@ def _resolve_producer(
     if producer == "true":
         error(
             f"Generate: {PRODUCER_KEY}: true but no producer tier resolved "
-            f"— {decision.reason}"
+            f"-- {decision.reason}"
         )
         info(
             "A forced producer still needs a scalo dep in Cargo.toml / "
@@ -196,7 +196,7 @@ def _resolve_producer(
         )
         return None, EXIT_PRODUCER_MISSING
 
-    info(f"Generate: skipping — {decision.reason}")
+    info(f"Generate: skipping -- {decision.reason}")
     if decision.demoted:
         info(
             f"Set `{PRODUCER_KEY}: true` if this repo really does emit "
@@ -264,7 +264,7 @@ def check_drift(
         # This is distinct from "drift detected" (a real problem) -- log
         # at info, return success.
         info(
-            f"Drift check: no committed {committed} directory — "
+            f"Drift check: no committed {committed} directory -- "
             "nothing to compare against. Run "
             "`hyperi-ci emit-artefacts ci/` and commit the result."
         )
@@ -347,7 +347,7 @@ def _run_tier2(output_dir: Path, project_dir: Path) -> int:
         # gets here (issue #76).
         error(
             "Generate (Tier 2): no [project.scripts] entry point found in "
-            f"{project_dir}/pyproject.toml — scalo's generate-artefacts "
+            f"{project_dir}/pyproject.toml -- scalo's generate-artefacts "
             "subcommand needs an installed CLI entry."
         )
         info(
@@ -375,7 +375,7 @@ def _run_tier2(output_dir: Path, project_dir: Path) -> int:
     binary = shutil.which(script_name)
     if binary is None:
         error(
-            f"Generate (Tier 2): {script_name!r} not resolvable — "
+            f"Generate (Tier 2): {script_name!r} not resolvable -- "
             "uv not on PATH and no globally installed script."
         )
         info(

@@ -91,12 +91,12 @@ VALID_STAGES = (
 # without having to consult the docs. `ga` and `legacy` defaults are
 # bare -- the clarifier carries the signal only where it adds something.
 _STATUS_CLARIFIER: dict[str, str] = {
-    "experimental": " — pre-GA, no API commitment",
-    "alpha": " — pre-GA, expect breaks",
-    "beta": " — pre-GA, polishing",
+    "experimental": " -- pre-GA, no API commitment",
+    "alpha": " -- pre-GA, expect breaks",
+    "beta": " -- pre-GA, polishing",
     "ga": "",
-    "legacy": " — being phased out, plan migration",
-    "deprecated": " — do not adopt, scheduled for removal",
+    "legacy": " -- being phased out, plan migration",
+    "deprecated": " -- do not adopt, scheduled for removal",
 }
 
 # Languages that share a handler package. The left-hand name is what
@@ -634,12 +634,12 @@ def run_stage(
     # cargo/uv/npm by moving the process to the resolved root (issue #109).
     project_dir = (project_dir or Path.cwd()).resolve()
     os.chdir(project_dir)
-    info(f"HyperI CI — {stage}")
+    info(f"HyperI CI -- {stage}")
 
     language = detect_language(project_dir)
     if not language:
         if stage == "test":
-            warn("Could not detect project language — skipping tests")
+            warn("Could not detect project language -- skipping tests")
             return 0
         error("Could not detect project language")
         return 1

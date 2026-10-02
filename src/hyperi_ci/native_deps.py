@@ -232,7 +232,7 @@ def _load_dep_groups(language: str, category: str = "native-deps") -> list[DepGr
             # with a confusing "package not found" message. Warn loudly.
             logger.warning(
                 f"entry {entry.get('name', '<unnamed>')!r} in "
-                f"{config_file} has empty `versions:` — skipping"
+                f"{config_file} has empty `versions:` -- skipping"
             )
         else:
             # Multi-version expansion: one DepGroup per version
@@ -928,7 +928,7 @@ def _install_language_tools(language: str) -> int:
         # here before `Install Rust toolchain` runs, so cargo may not exist.
         if shutil.which(cmd[0]) is None:
             logger.warning(
-                f"[{tool.name}] {cmd[0]} not on PATH — skipping; dependent CI "
+                f"[{tool.name}] {cmd[0]} not on PATH -- skipping; dependent CI "
                 "stages will handle the missing tool"
             )
             continue
@@ -937,7 +937,7 @@ def _install_language_tools(language: str) -> int:
         result = subprocess.run(cmd, check=False)
         if result.returncode != 0:
             logger.warning(
-                f"[{tool.name}] install failed (exit {result.returncode}) — "
+                f"[{tool.name}] install failed (exit {result.returncode}) -- "
                 "dependent CI stages will handle the missing tool"
             )
             # Non-fatal: downstream has graceful fallback

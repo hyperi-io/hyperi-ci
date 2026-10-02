@@ -133,7 +133,7 @@ def load_ignores(config_raw: dict[str, Any]) -> list[IgnoreEntry]:
             for _id in ids:
                 warn(
                     f"quality.ignore lapsed: {tool} {_id} expired "
-                    f"{expires.isoformat()} — re-evaluate or remove the entry"
+                    f"{expires.isoformat()} -- re-evaluate or remove the entry"
                 )
             continue
 

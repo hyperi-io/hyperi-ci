@@ -79,7 +79,7 @@ def init_contract(
         error(f"invalid app_name: {app_name!r}")
         info(
             "must be lowercase, hyphen-separated, "
-            "start with a letter, end alphanumeric, 3–50 chars."
+            "start with a letter, end alphanumeric, 3-50 chars."
         )
         info("examples: dfe-loader, my-app, ci-test-rust-app")
         return EXIT_INVALID_NAME
@@ -107,7 +107,7 @@ def init_contract(
     )
     info(
         "Then run `hyperi-ci emit-artefacts ci/` "
-        "to generate Dockerfile, chart/, etc. (Phase 2 — coming once "
+        "to generate Dockerfile, chart/, etc. (Phase 2 -- coming once "
         "scalo 2.8.0 ships the parity fixtures)."
     )
     return EXIT_OK
@@ -120,9 +120,9 @@ def _starter_contract(app_name: str) -> DeploymentContract:
     contract works without further editing:
 
       - ``binary_name`` defaults to app_name (scalo's fallback).
-      - ``env_prefix`` is the SCREAMING_SNAKE form (``my-app`` →
+      - ``env_prefix`` is the SCREAMING_SNAKE form (``my-app`` ->
         ``MY_APP``). DFE convention.
-      - ``metric_prefix`` is the snake form (``my-app`` → ``my_app``).
+      - ``metric_prefix`` is the snake form (``my-app`` -> ``my_app``).
         Becomes the Prometheus namespace.
       - ``config_mount_path`` follows ``/etc/<app>/<app>.yaml`` --
         same convention as dfe-loader / dfe-receiver.

@@ -68,7 +68,7 @@ def prepare(config: CIConfig, out_dir: Path) -> tuple[int, dict[str, Any]]:
             ["npm", "run", "prepublishOnly", "--if-present"], check=False, env=env
         )
         if result.returncode != 0:
-            error("prepublishOnly failed — nothing is tagged or published")
+            error("prepublishOnly failed -- nothing is tagged or published")
             return result.returncode, {}
 
         pack_dir = out_dir / "npm"
@@ -79,7 +79,7 @@ def prepare(config: CIConfig, out_dir: Path) -> tuple[int, dict[str, Any]]:
             env=env,
         )
         if result.returncode != 0:
-            error("npm pack failed — nothing is tagged or published")
+            error("npm pack failed -- nothing is tagged or published")
             return result.returncode, {}
 
     tarballs = sorted(pack_dir.glob("*.tgz"))
@@ -138,7 +138,7 @@ def _publish_npm(tarball: Path) -> int:
     """
     token = os.environ.get("NPM_TOKEN")
     if not token:
-        error("NPM_TOKEN not set — cannot publish to npm")
+        error("NPM_TOKEN not set -- cannot publish to npm")
         return 1
 
     rc = _npm_publish(
@@ -165,7 +165,7 @@ def _publish_ghcr_npm(tarball: Path) -> int:
     """
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not token:
-        error("GH_TOKEN/GITHUB_TOKEN not set — cannot publish to GitHub Packages")
+        error("GH_TOKEN/GITHUB_TOKEN not set -- cannot publish to GitHub Packages")
         return 1
 
     org = load_org_config()
@@ -282,7 +282,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if prepared is not None:
         relative = prepared.facts.get(TARBALL_FACT)
         if not isinstance(relative, str):
-            error("The prepare job packed no npm tarball — nothing to publish")
+            error("The prepare job packed no npm tarball -- nothing to publish")
             return 1
         try:
             tarball = prepared.file(relative)

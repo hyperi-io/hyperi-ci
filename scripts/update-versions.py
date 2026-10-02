@@ -275,7 +275,7 @@ def _pin_mismatches(versions: dict) -> list[str]:
             if match.group(2) != version:
                 line_num = content[: match.start(2)].count("\n") + 1
                 problems.append(
-                    f"  {rel_path}:{line_num}: {key} {match.group(2)} → {version}"
+                    f"  {rel_path}:{line_num}: {key} {match.group(2)} -> {version}"
                 )
     return problems
 
@@ -386,7 +386,7 @@ def _resolve_tag_sha(owner_repo: str, tag: str) -> str | None:
         return None
     obj: Any = cast("dict[str, Any]", ref).get("object", {})
     if obj.get("type") == "tag":
-        # annotated tag → deref to the commit it points at
+        # annotated tag -> deref to the commit it points at
         tag_obj = _gh_json(f"/repos/{owner_repo}/git/tags/{obj.get('sha')}")
         if isinstance(tag_obj, dict):
             inner: Any = cast("dict[str, Any]", tag_obj).get("object", {})
@@ -582,7 +582,7 @@ def _check(versions: dict) -> int:
                 expected = pattern.sub(replacement, match.group(0))
                 if match.group(0) != expected:
                     line_num = content[: match.start()].count("\n") + 1
-                    print(f"  {rel_path}:{line_num}: {match.group(0)} → {expected}")
+                    print(f"  {rel_path}:{line_num}: {match.group(0)} -> {expected}")
                     mismatches += 1
 
     tool_problems = _pin_mismatches(versions)
@@ -681,7 +681,7 @@ def _apply(versions: dict) -> int:
     """Update workflows, composites and tool pins to match SSOT."""
     total_changes, unenforceable = _rewrite_to_ssot(versions, verb="Updated")
     if total_changes == 0:
-        print("No changes needed — all files match versions.yaml")
+        print("No changes needed -- all files match versions.yaml")
     else:
         print(f"\nApplied {total_changes} change(s)")
     if unenforceable:
@@ -711,7 +711,7 @@ def _fix(versions: dict) -> int:
         return 0
 
     print(
-        f"\nFixed {total_changes} version mismatch(es) — files updated, please re-stage."
+        f"\nFixed {total_changes} version mismatch(es) -- files updated, please re-stage."
     )
     return 1
 
@@ -751,7 +751,7 @@ def _stable(versions: dict, *, fail_on_drift: bool = False) -> int:
             continue
         if spec["version"] != cur_version or spec["sha"] != cur_sha:
             print(
-                f"  {owner_repo}: {cur_version} → {spec['version']} ({spec['sha'][:12]})"
+                f"  {owner_repo}: {cur_version} -> {spec['version']} ({spec['sha'][:12]})"
             )
             updates_available += 1
         else:
@@ -766,7 +766,9 @@ def _stable(versions: dict, *, fail_on_drift: bool = False) -> int:
         cur_version = spec.get("version")
         source = spec.get("repo") or spec.get("pypi") or spec.get("npm")
         if not source:
-            print(f"  {name}: {cur_version} (no `repo:`/`pypi:`/`npm:` — cannot check)")
+            print(
+                f"  {name}: {cur_version} (no `repo:`/`pypi:`/`npm:` -- cannot check)"
+            )
             continue
         # Resolve through the SAME helper --auto-update uses. Reporting and
         # bumping must never drift apart: when this loop had its own copy of the
@@ -779,12 +781,12 @@ def _stable(versions: dict, *, fail_on_drift: bool = False) -> int:
             f"{name} ({source})" if str(spec.get("tag_prefix") or "") else str(source)
         )
         if status == "ok":
-            print(f"  {label}: {cur_version} → {latest_tag}")
+            print(f"  {label}: {cur_version} -> {latest_tag}")
             updates_available += 1
         elif status == "lookup-failed":
             # Never render a failed lookup as "up to date" - that is a silent
             # skip wearing a green hat.
-            print(f"  {label}: {cur_version} (COULD NOT CHECK — treat as unknown)")
+            print(f"  {label}: {cur_version} (COULD NOT CHECK -- treat as unknown)")
             lookup_failures += 1
         elif status == "no-candidate":
             print(f"  {label}: {cur_version} (nothing aged past cooldown)")
@@ -794,7 +796,7 @@ def _stable(versions: dict, *, fail_on_drift: bool = False) -> int:
     runtimes = versions.get("runtimes", {})
     print()
     for name, spec in runtimes.items():
-        print(f"  {name}: {_runtime_value(spec)} (manual — check release notes)")
+        print(f"  {name}: {_runtime_value(spec)} (manual -- check release notes)")
 
     _report_watchlist(versions)
 
@@ -814,7 +816,7 @@ def _stable(versions: dict, *, fail_on_drift: bool = False) -> int:
             latest_sr_major = latest_sr.split(".")[0] if latest_sr else "?"
             if latest_sr_major != sr_core:
                 print(
-                    f"\n  semantic-release: {sr_core} → {latest_sr_major} "
+                    f"\n  semantic-release: {sr_core} -> {latest_sr_major} "
                     f"(latest: {latest_sr})"
                 )
                 updates_available += 1
@@ -832,7 +834,7 @@ def _stable(versions: dict, *, fail_on_drift: bool = False) -> int:
         # "All up to date" would be a lie when we could not reach upstream.
         print(
             f"\n{lookup_failures} tool(s) COULD NOT BE CHECKED (API error / rate"
-            " limit?) — their status is unknown, not current. Re-run before"
+            " limit?) -- their status is unknown, not current. Re-run before"
             " trusting this report."
         )
     # A scheduled caller needs a signal, but a human running this wants the
@@ -927,7 +929,7 @@ def _set_action_spec_in_yaml(text: str, short_name: str, version: str, sha: str)
             if re.match(r"^    sha:\s", line):
                 out.append(f"    sha: {sha}\n")
                 continue
-            if re.match(r"^  \S", line):  # next 2-space key/comment → block ended
+            if re.match(r"^  \S", line):  # next 2-space key/comment -> block ended
                 in_block = False
         out.append(line)
     return "".join(out)
@@ -1050,7 +1052,7 @@ def _report_watchlist(versions: dict) -> None:
     watch = versions.get("watch") or {}
     if not watch:
         return
-    print("\nWatchlist — recheck these while you are updating deps:")
+    print("\nWatchlist -- recheck these while you are updating deps:")
     for name, spec in watch.items():
         if not isinstance(spec, dict):
             continue
@@ -1175,7 +1177,7 @@ def _auto_update(versions: dict) -> int:
         if spec and (spec["version"] != cur_version or spec["sha"] != cur_sha):
             action_updates[short_name] = spec
             print(
-                f"  {_ACTION_OWNERS[short_name]}: {cur_version} → "
+                f"  {_ACTION_OWNERS[short_name]}: {cur_version} -> "
                 f"{spec['version']} ({spec['sha'][:12]})"
             )
 
@@ -1186,7 +1188,7 @@ def _auto_update(versions: dict) -> int:
         latest_sr = _get_latest_npm_major("semantic-release")
         if latest_sr and latest_sr != sr_core:
             sr_update = (sr_core, latest_sr)
-            print(f"  semantic-release: {sr_core} → {latest_sr}")
+            print(f"  semantic-release: {sr_core} -> {latest_sr}")
 
     tool_updates: dict[str, str] = {}
     for name, spec in (versions.get("tools") or {}).items():
@@ -1204,15 +1206,15 @@ def _auto_update(versions: dict) -> int:
         latest, status = _latest_tool_release(spec, now)
         if status == "ok" and latest:
             tool_updates[name] = latest
-            print(f"  {name}: {spec.get('version')} → {latest}")
+            print(f"  {name}: {spec.get('version')} -> {latest}")
         elif status == "lookup-failed":
             # Say so. A tool we could not reach is not a tool that is current.
-            print(f"  {name}: {spec.get('version')} (COULD NOT CHECK — skipped)")
+            print(f"  {name}: {spec.get('version')} (COULD NOT CHECK -- skipped)")
 
     runtimes = versions.get("runtimes", {})
     for name in _AUTO_UPDATE_SKIP:
         if runtimes.get(name):
-            print(f"  {name}: {_runtime_value(runtimes[name])} (manual — skipped)")
+            print(f"  {name}: {_runtime_value(runtimes[name])} (manual -- skipped)")
 
     if not action_updates and not sr_update and not tool_updates:
         print("\nNo auto-updates available.")

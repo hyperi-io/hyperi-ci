@@ -67,7 +67,7 @@ _AUTO_STAGE_LOCKFILES: frozenset[str] = frozenset(
     }
 )
 
-# Bump → conventional-commits type that semantic-release will treat as
+# Bump -> conventional-commits type that semantic-release will treat as
 # the corresponding semver bump. We deliberately exclude "major" -- major
 # bumps require a human to write `BREAKING CHANGE:` in the commit body
 # (per HyperI commit-type discipline). Forcing a major via flag would
@@ -186,7 +186,7 @@ def _publish_push(
       forced release" rather than smuggling a fake fix into source.
 
     Either way, the resulting CI run goes through the version-first
-    pipeline: predict → stamp → build → tag + publish in one workflow.
+    pipeline: predict -> stamp -> build -> tag + publish in one workflow.
     """
     if not require_gh():
         return 1
@@ -233,7 +233,7 @@ def _publish_push(
         next_version = _compute_next_version(bump=bump, cwd=cwd)
         if next_version is None:
             error(
-                f"Cannot compute next {bump} version — the starting version "
+                f"Cannot compute next {bump} version -- the starting version "
                 f"is not plain X.Y.Z. Check the latest v* tag, or the version "
                 f"declared in pyproject.toml / Cargo.toml / package.json."
             )
@@ -270,7 +270,7 @@ def _publish_push(
             return 1
 
         if _has_publish_trailer(head_msg):
-            info("HEAD already carries the release trailer — pushing as-is")
+            info("HEAD already carries the release trailer -- pushing as-is")
         else:
             if dry_run:
                 info(
@@ -384,13 +384,13 @@ def tag_head(*, bump: str, dry_run: bool = False, cwd: str | None = None) -> int
             if existing_sha != sha:
                 error(
                     f"tag-head: {tag} already exists at {existing_sha[:8]} but "
-                    f"HEAD is {sha[:8]} — refusing to publish over it (issue #37). "
+                    f"HEAD is {sha[:8]} -- refusing to publish over it (issue #37). "
                     "Pick a free version with --version, or use --bump patch."
                 )
                 return 1
             # Already at HEAD -- idempotent; nothing to create.
             _emit_gh_output(version=next_version, tag=tag)
-            success(f"tag-head: {tag} already at HEAD ({sha[:8]}) — nothing to tag.")
+            success(f"tag-head: {tag} already at HEAD ({sha[:8]}) -- nothing to tag.")
             return 0
 
     # Create the tag ref remotely via the GitHub API. Uses GITHUB_TOKEN, so
@@ -463,7 +463,7 @@ def _compute_next_version(*, bump: str, cwd: str | None) -> str | None:
     if not latest:
         cwd_path = Path(cwd) if cwd else Path.cwd()
         latest, source = seed_version(cwd_path)
-        info(f"No release tags — bumping from {latest} ({source})")
+        info(f"No release tags -- bumping from {latest} ({source})")
 
     parts = latest.split(".")
     while len(parts) < 3:
@@ -818,7 +818,7 @@ def _bump_gate(*, cwd: str | None, forced_bump: str | None) -> int:
     warn(
         "This can happen when a merge / cherry-pick brings already-committed "
         "feat!/BREAKING history into reachability without you authoring it "
-        "(issue #26 — how rustlib shipped an unintended v3.0.0)."
+        "(issue #26 -- how rustlib shipped an unintended v3.0.0)."
     )
     if reasons:
         info(f"  Commits driving the {prediction.bump} bump:")
@@ -858,7 +858,7 @@ def _pull_rebase(*, branch: str | None = None, cwd: str | None = None) -> int:
     try:
         run_cmd(rebase_cmd, cwd=cwd)
     except subprocess.CalledProcessError:
-        error("Rebase failed — resolve conflicts and try again")
+        error("Rebase failed -- resolve conflicts and try again")
         return 1
     return 0
 
@@ -883,7 +883,7 @@ def _rebase_and_push(
         if not current:
             error("Cannot determine current branch to push")
             return 1
-        info(f"No upstream for '{current}' — first push, setting upstream")
+        info(f"No upstream for '{current}' -- first push, setting upstream")
         return _push_with_env(args=["-u", "origin", current], cwd=cwd)
 
     if rc := _pull_rebase(branch=branch, cwd=cwd):
