@@ -67,7 +67,7 @@ permissions:
 jobs:
   plan:
     name: Plan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # predict-version runs semantic-release, whose git plugin verifies push
     # access (a `git push --dry-run`) on a publish predict - needs write.
     # A fork PR never reaches that: will-publish is false off main, so both
@@ -127,7 +127,7 @@ jobs:
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'pull_request' ||
       github.event_name == 'merge_group'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # pull-requests: read reads the PR title live. A job-level block replaces
     # the workflow default, so contents: read is restated.
     permissions:
@@ -154,7 +154,7 @@ jobs:
 
   quality:
     name: Quality
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -213,7 +213,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-26.04, macos-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -257,7 +257,7 @@ jobs:
     # held the change to its record; the fleet sweep covers what lands.
     # ---------------------------------------------------------------------
     if: always() && github.event_name != 'merge_group'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -309,7 +309,7 @@ jobs:
     name: Build
     needs: [plan, quality, test]
     if: needs.plan.outputs.run-build == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -410,7 +410,7 @@ jobs:
     # commit-check is deliberately absent: it is not run-checks-gated, so it
     # already fires on every push and works as a required context by itself.
     needs: [plan, quality, test, build]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install uv
