@@ -29,6 +29,7 @@ from collections.abc import Callable
 
 import yaml
 
+from hyperi_ci.common import URL_ERRORS, url_read
 from hyperi_ci.quality.semgrep import PYTHON_COMPAT_RULES
 
 PACK_URL = "https://semgrep.dev/c/r/python.lang.compatibility"
@@ -44,9 +45,10 @@ def fetch_pack() -> str | None:
     otherwise both read as "every rule was removed".
     """
     try:
-        with urllib.request.urlopen(PACK_URL, timeout=30) as response:  # noqa: S310
-            return response.read().decode("utf-8", errors="replace")
-    except OSError:
+        return url_read(urllib.request.Request(PACK_URL), timeout=30).decode(
+            "utf-8", errors="replace"
+        )
+    except URL_ERRORS:
         return None
 
 

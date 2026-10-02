@@ -16,6 +16,8 @@ from pathlib import Path
 
 import yaml
 
+from hyperi_ci.common import warn
+
 LANGUAGE_MARKERS: dict[str, list[str]] = {
     "python": ["pyproject.toml", "setup.py", "requirements.txt", "setup.cfg"],
     "typescript": ["tsconfig.json"],
@@ -51,8 +53,8 @@ def _get_override_language(project_dir: Path | None = None) -> str | None:
                     lang = config.get("language")
                     if lang and str(lang).lower().strip() != "none":
                         return str(lang).lower().strip()
-        except Exception:
-            pass
+        except (OSError, yaml.YAMLError) as exc:
+            warn(f"{config_file}: could not read a language override ({exc})")
 
     return None
 

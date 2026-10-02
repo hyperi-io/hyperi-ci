@@ -64,3 +64,8 @@ quality:
       ids:
         - yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
       reason: "gitops_templates/ ships floating @vN action refs as a readable starting point; downstream repos pin via their own Renovate. This repo's own workflows are SHA-pinned (versions.yaml + pre-commit hook) so the rule is redundant here. Rule-scoped, not a path exclude, so other semgrep rules still cover the templates."
+    - tool: ruff
+      ids:
+        - S603
+        - S607
+      reason: "hyperi-ci is a CI orchestration CLI -- every subprocess call passes a fixed list of argv, never a shell string built from untrusted input (docs/agents.md, 'Never roll your own subprocess.run'). A partial executable path (S607) resolves through PATH by design, same as every other tool invocation here."
