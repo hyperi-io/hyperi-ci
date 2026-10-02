@@ -3,6 +3,14 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.12.8](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.7...v2.12.8) (2026-10-02)
+
+### Bug Fixes
+
+* **container:** nest buildx builder in pod cgroup ([#488](https://github.com/hyperi-io/hyperi-ci/issues/488)) ([ab65ef7](https://github.com/hyperi-io/hyperi-ci/commit/ab65ef721a920aed91b96eac141d0efa73a6cdb6)), closes [#284](https://github.com/hyperi-io/hyperi-ci/issues/284)
+* **python:** run bandit and vulture on the project's Python ([#492](https://github.com/hyperi-io/hyperi-ci/issues/492)) ([88461b8](https://github.com/hyperi-io/hyperi-ci/commit/88461b8a4ced99b9cca78d0112052883f34ac387))
+* **quality:** check semgrep's compatibility-rule table against the registry weekly ([#487](https://github.com/hyperi-io/hyperi-ci/issues/487)) ([d6bd6af](https://github.com/hyperi-io/hyperi-ci/commit/d6bd6af8f2c42dfa191dbadcc813e87530b177c2)), closes [#486](https://github.com/hyperi-io/hyperi-ci/issues/486)
+
 ## [2.12.7](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.6...v2.12.7) (2026-10-02)
 
 ### Bug Fixes
