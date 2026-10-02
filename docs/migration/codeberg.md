@@ -228,7 +228,7 @@ speculative migration.
 ## See also
 
 - [Codeberg migration - CI, secrets, variables](codeberg-secrets-and-ci.md)
- - deep-dive on the single largest part of the cost. Read this if
+  \- deep-dive on the single largest part of the cost. Read this if
   the migration ever becomes real.
 - [hyperi-ci CI lessons](../lessons.md) - pattern catalogue from the
   old CI; relevant when planning Forgejo Actions parity.

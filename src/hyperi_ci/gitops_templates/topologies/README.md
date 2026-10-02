@@ -6,7 +6,7 @@ as a unit.
 
 ## Structure
 
-```
+```text
 topologies/
 └── <topology-name>/
     ├── topology.yaml   # Declarative spec (apps, charts, ArgoCD config)

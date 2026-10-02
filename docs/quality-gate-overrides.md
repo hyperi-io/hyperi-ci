@@ -60,7 +60,7 @@ HYPERCI_QUALITY_SKIP=semgrep hyperi-ci run quality
 ## Suppressing a specific rule (the reviewed path)
 
 To silence one noisy rule permanently, use `quality.ignore` in `.hyperi-ci.yaml`
-- it is committed, diffable, and carries a `reason`:
+\- it is committed, diffable, and carries a `reason`:
 
 ```yaml
 quality:

@@ -160,4 +160,4 @@ the opt-out: a bare `scalo` imports cleanly on 2.30.0 with no extras.
 hyperi-ci is itself a Python project and runs its own pipeline through
 `python-ci.yml`. The same handlers that build a consumer's wheel build
 hyperi-ci's. Publishing hyperi-ci to PyPI is a `workflow_dispatch` (manual) step
- - see [flow.md](../flow.md).
+\- see [flow.md](../flow.md).

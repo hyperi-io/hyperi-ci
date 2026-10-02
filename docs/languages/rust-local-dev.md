@@ -40,7 +40,7 @@ CI impact: none. `build.py` falls back to `target/` when
 ### sccache (object-level dedup)
 
 With per-project targets, duplication across projects is still possible
- - sccache caches the compiled objects themselves, independent of target
+\- sccache caches the compiled objects themselves, independent of target
 directory.
 
 ```bash

@@ -79,7 +79,7 @@ producer/consumer, multi-protocol) live in
 Every Tier 2 skip is warn-only, so a green run does not prove the pass ran.
 Each arch's build group ends with one line stating what that arch got:
 
-```
+```text
 optimised: pgo=yes bolt=no allocator=jemalloc
 ```
 
@@ -134,7 +134,7 @@ Skipping optimisation and shipping a release are two separate consents. On
 `release`, where the project would otherwise run PGO or BOLT, the build
 refuses before compiling anything:
 
-```
+```text
 Refusing to build a release with the optimisation stage skipped: ...
 Re-run with the 'release-unoptimized: true' dispatch input ...
 ```
@@ -154,7 +154,7 @@ never refused.
 Either way the build emits a `::warning::` annotation on the run and
 `optimize=skipped` in the profile line:
 
-```
+```text
 Rust build optimisation: channel=release, allocator=jemalloc, lto=fat, optimize=skipped
 ```
 

@@ -5,7 +5,7 @@ reconciled into target clusters.
 
 ## Directory layout
 
-```
+```text
 argocd/
 ├── appprojects/        # AppProject manifests (one per team / environment boundary)
 ├── applicationsets/    # ApplicationSet manifests (one per topology, drives App-of-Apps)
