@@ -5,12 +5,11 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import pytest
 
+from hyperi_ci import detect
 from hyperi_ci.detect import detect_language
 
 
@@ -67,3 +66,29 @@ class TestDetectLanguage:
         (tmp_path / ".hyperi-ci.yaml").write_text("language: golang\n")
         (tmp_path / "pyproject.toml").write_text("[project]\n")
         assert detect_language(tmp_path) == "golang"
+
+
+class TestAMalformedConfigFileIsNotFatal:
+    """A config file detection cannot parse warns and falls through, never crashes."""
+
+    def test_malformed_yaml_warns_and_falls_back_to_marker_detection(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config_file = tmp_path / ".hyperi-ci.yaml"
+        config_file.write_text("language: [unterminated\n")
+        (tmp_path / "pyproject.toml").write_text("[project]\n")
+        warned: list[str] = []
+        monkeypatch.setattr(detect, "warn", warned.append)
+        assert detect_language(tmp_path) == "python"
+        assert any(str(config_file) in w for w in warned)
+
+    def test_an_unreadable_config_warns_and_falls_back(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config_dir = tmp_path / ".hyperi-ci.yaml"
+        config_dir.mkdir()  # exists(), but open() raises IsADirectoryError
+        (tmp_path / "pyproject.toml").write_text("[project]\n")
+        warned: list[str] = []
+        monkeypatch.setattr(detect, "warn", warned.append)
+        assert detect_language(tmp_path) == "python"
+        assert any(str(config_dir) in w for w in warned)

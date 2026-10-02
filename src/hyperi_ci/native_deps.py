@@ -292,7 +292,9 @@ def _repo_has_codename(repo_url: str, codename: str) -> bool:
     """
     url = f"{repo_url.rstrip('/')}/dists/{codename}/Release"
     try:
-        url_read(urllib.request.Request(url, method="HEAD"), timeout=10)
+        # repo_url comes from this package's own shipped native-deps/toolchains
+        # YAML, never from a consumer's config -- always a fixed https URL.
+        url_read(urllib.request.Request(url, method="HEAD"), timeout=10)  # noqa: S310
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             return False

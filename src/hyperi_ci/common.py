@@ -595,7 +595,7 @@ def backoff(retry: int) -> float:
     About 1, 2, 4 and so on, each cut by up to half at random so parallel jobs
     do not retry in step.
     """
-    return random.uniform(0.5, 1.0) * 2 ** (retry - 1)
+    return random.uniform(0.5, 1.0) * 2 ** (retry - 1)  # noqa: S311 -- retry jitter, not a cryptographic use
 
 
 # With backoff() that spans about 1+2+...+64 seconds, long enough to ride out a
@@ -813,7 +813,7 @@ URL_ERRORS = (OSError, http.client.HTTPException)
 
 
 def _url_read_once(request: urllib.request.Request, timeout: float) -> bytes:
-    with urllib.request.urlopen(request, timeout=timeout) as resp:  # nosec B310  # nosemgrep: dynamic-urllib-use-detected -- callers pass fixed https URLs
+    with urllib.request.urlopen(request, timeout=timeout) as resp:  # noqa: S310  # nosec B310  # nosemgrep: dynamic-urllib-use-detected -- callers pass fixed https URLs
         return resp.read()
 
 

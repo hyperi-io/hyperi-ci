@@ -68,7 +68,7 @@ def _tokens_claim_parallelism(tokens: list[str]) -> bool:
             return True
         if token.startswith("--numprocesses="):
             return True
-        if token == "-p" and index + 1 < len(tokens):
+        if token == "-p" and index + 1 < len(tokens):  # noqa: S105 -- a CLI arg token, not a password
             if tokens[index + 1] in _XDIST_DISABLED:
                 return True
         if token.startswith("-p") and token[2:] in _XDIST_DISABLED:

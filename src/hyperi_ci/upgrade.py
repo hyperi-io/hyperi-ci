@@ -59,7 +59,7 @@ def _parse_latest_version(
             continue
         try:
             v = Version(ver_str)
-        except Exception:
+        except InvalidVersion:
             continue
         all_versions.append(v)
         if not v.is_prerelease and not v.is_devrelease:
@@ -553,7 +553,7 @@ def _re_exec() -> None:
     env = os.environ.copy()
     env["_HYPERCI_UPGRADING"] = "1"
     try:
-        os.execvpe(sys.argv[0], sys.argv, env)
+        os.execvpe(sys.argv[0], sys.argv, env)  # noqa: S606 -- re-execs this process's own argv, no shell involved
     except OSError:
         logger.warning("Upgrade installed but re-exec failed — run your command again")
         raise SystemExit(0)
