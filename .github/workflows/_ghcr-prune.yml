@@ -31,7 +31,7 @@
 #     prune:
 #       permissions:
 #         packages: write
-#       uses: hyperi-io/hyperi-ci/.github/workflows/_ghcr-prune.yml@main
+#       uses: hyperi-io/hyperi-ci/.github/workflows/_ghcr-prune.yml@rehearse/502-internal
 
 name: GHCR prune (shared)
 

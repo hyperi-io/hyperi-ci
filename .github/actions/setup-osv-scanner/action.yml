@@ -18,7 +18,7 @@
 # The download lands in a scratch dir, so a mismatch never reaches PATH.
 #
 # Referenced from reusable workflows as
-#   hyperi-io/hyperi-ci/.github/actions/setup-osv-scanner@main
+#   hyperi-io/hyperi-ci/.github/actions/setup-osv-scanner@rehearse/502-internal
 
 name: Setup osv-scanner
 description: Install the pinned osv-scanner onto PATH (Linux runners)

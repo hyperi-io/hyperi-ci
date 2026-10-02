@@ -39,7 +39,7 @@
 # Go module proxy and is verified against the sum.golang.org transparency log.
 #
 # Referenced from reusable workflows as
-#   hyperi-io/hyperi-ci/.github/actions/setup-go-tools@main
+#   hyperi-io/hyperi-ci/.github/actions/setup-go-tools@rehearse/502-internal
 
 name: Setup Go tools
 description: Install the pinned golangci-lint, gosec and govulncheck (Linux runners)

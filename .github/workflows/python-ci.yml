@@ -230,7 +230,7 @@ jobs:
 
       - name: Predict version + derive gates
         id: predict
-        uses: hyperi-io/hyperi-ci/.github/actions/predict-version@main
+        uses: hyperi-io/hyperi-ci/.github/actions/predict-version@rehearse/502-internal
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ inputs.tag }}
@@ -552,7 +552,7 @@ jobs:
       packages: write
       issues: write
       pull-requests: write
-    uses: hyperi-io/hyperi-ci/.github/workflows/_release-tail.yml@main
+    uses: hyperi-io/hyperi-ci/.github/workflows/_release-tail.yml@rehearse/502-internal
     with:
       language: python
       runner-mode: ${{ inputs.runner-mode }}
