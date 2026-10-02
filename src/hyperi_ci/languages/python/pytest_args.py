@@ -78,7 +78,7 @@ def _toml_table(path: Path) -> dict[str, object] | None:
     return ini_options if isinstance(ini_options, dict) else None
 
 
-def _ini_table(path: Path) -> dict[str, str] | None:
+def _ini_table(path: Path) -> dict[str, object] | None:
     """Return the pytest section an ini-style file holds, same None rule as above."""
     section = _INI_SECTION[path.name]
     # pytest does no %-interpolation, so a literal % in a value must survive.

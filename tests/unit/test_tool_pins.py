@@ -162,7 +162,7 @@ class TestCargoHackRunsItsPin:
         said: list[str] = []
         cargo = _Cargo(installed="0.6.30")
         monkeypatch.setattr(rust_quality, "warn", said.append)
-        cargo.run = _shadowed(cargo.run)
+        monkeypatch.setattr(cargo, "run", _shadowed(cargo.run))
         assert self._matrix(monkeypatch, cargo) is True
         assert any("0.6.30" in w and "check PATH" in w for w in said), said
 
