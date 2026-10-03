@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.12.12](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.11...v2.12.12) (2026-10-03)
+
+### Bug Fixes
+
+* **ci:** stop the Gate job warning about an empty workdir ([#512](https://github.com/hyperi-io/hyperi-ci/issues/512)) ([f7eef4d](https://github.com/hyperi-io/hyperi-ci/commit/f7eef4d8545d62a9981f52aa32e134ecf1efdcf3))
+* **python:** keep a capped tool's last line, its own count ([#513](https://github.com/hyperi-io/hyperi-ci/issues/513)) ([5214371](https://github.com/hyperi-io/hyperi-ci/commit/5214371fde6a5fbe5a1f6c2262eff9e2a4eb8178))
+
 ## [2.12.11](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.10...v2.12.11) (2026-10-03)
 
 ### Bug Fixes
