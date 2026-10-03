@@ -52,6 +52,28 @@ def _load_workflow(name: str) -> dict:
         return yaml.safe_load(f)
 
 
+class TestSetupRuntimeInstall:
+    """setup-runtime runs `install-native-deps` through its own `hyperci-install`
+    input, so a caller that omits it installs native deps with the published
+    release and ignores HYPERCI_INSTALL_OVERRIDE."""
+
+    def test_every_call_forwards_the_workflow_install_command(self) -> None:
+        calls = []
+        for path in sorted(WORKFLOW_DIR.glob("*.yml")):
+            jobs = _load_workflow(path.name).get("jobs") or {}
+            for job_name, job in jobs.items():
+                for step in job.get("steps") or []:
+                    if "actions/setup-runtime@" in str(step.get("uses", "")):
+                        calls.append((path.name, job_name, step))
+        assert calls, "no setup-runtime calls found -- the test is looking wrong"
+        for wf, job_name, step in calls:
+            forwarded = (step.get("with") or {}).get("hyperci-install")
+            assert forwarded == "${{ env.HYPERCI_INSTALL }}", (
+                f"{wf}.{job_name}: setup-runtime must get "
+                "`hyperci-install: ${{ env.HYPERCI_INSTALL }}`"
+            )
+
+
 class TestFromHeadThreading:
     """issue #35: from-head + bump inputs must thread through every layer --
     consumer ci.yml -> <lang>-ci.yml workflow_call -> predict-version (plan) ->
