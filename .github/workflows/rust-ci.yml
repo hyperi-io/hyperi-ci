@@ -406,12 +406,18 @@ jobs:
           language: rust
           hyperci-install: ${{ env.HYPERCI_INSTALL }}
 
+      # Runs on ARC too, so every job of a run compiles with the requested
+      # toolchain rather than whatever the runner image baked in (issue #509).
       - name: Install Rust toolchain
-        if: ${{ runner.environment != 'self-hosted' }}
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
           components: clippy, rustfmt
+
+      - name: Show Rust toolchain
+        run: |
+          rustc --version
+          cargo clippy --version
 
       - name: Cache cargo
         if: ${{ runner.environment != 'self-hosted' }}
@@ -491,11 +497,15 @@ jobs:
           language: rust
           hyperci-install: ${{ env.HYPERCI_INSTALL }}
 
+      # Runs on ARC too, so every job of a run compiles with the requested
+      # toolchain rather than whatever the runner image baked in (issue #509).
       - name: Install Rust toolchain
-        if: ${{ runner.environment != 'self-hosted' }}
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
+
+      - name: Show Rust toolchain
+        run: rustc --version
 
       - name: Cache cargo
         if: ${{ runner.environment != 'self-hosted' }}
@@ -621,11 +631,15 @@ jobs:
           NEXT_VERSION: ${{ needs.plan.outputs.next-version }}
         run: ${{ env.HYPERCI_INSTALL }} stamp-version "$NEXT_VERSION"
 
+      # Runs on ARC too, so every job of a run compiles with the requested
+      # toolchain rather than whatever the runner image baked in (issue #509).
       - name: Install Rust toolchain
-        if: ${{ runner.environment != 'self-hosted' }}
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: ${{ inputs.rust-toolchain }}
+
+      - name: Show Rust toolchain
+        run: rustc --version
 
       - name: Cache cargo
         if: ${{ runner.environment != 'self-hosted' }}
