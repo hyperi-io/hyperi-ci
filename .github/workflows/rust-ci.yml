@@ -735,6 +735,10 @@ jobs:
       # the gate exits 127 and fails a run that was otherwise green.
       - name: Install uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        # Gate never checks out the repo, so its workdir is always empty.
+        with:
+          enable-cache: false
+          ignore-empty-workdir: true
       - name: Report what actually ran
         env:
           HYPERCI_GATE_RUN_CHECKS: ${{ needs.plan.outputs.run-checks }}
