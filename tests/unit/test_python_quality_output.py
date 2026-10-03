@@ -49,10 +49,32 @@ class TestAdvisoryNoiseIsCapped:
         monkeypatch.setattr(quality, "info", said.append)
         findings = "\n".join(f"finding {i}" for i in range(111))
         quality._emit_tool_output("vulture", findings, cap=quality._WARN_OUTPUT_CAP)
-        assert len(said) == quality._WARN_OUTPUT_CAP + 1
+        assert len(said) == quality._WARN_OUTPUT_CAP + 2
         # It counts LINES. A tool that prints a code frame per finding would read
         # as ten times its real backlog if this said findings.
-        assert "+86 more lines from vulture" in said[-1]
+        assert "+85 more lines from vulture" in said[-2]
+
+    def test_the_last_line_survives_the_cap(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ty and ruff end on their own count, the number a reader wants."""
+        said: list[str] = []
+        monkeypatch.setattr(quality, "info", said.append)
+        frames = "\n".join(f"frame line {i}" for i in range(9027))
+        quality._emit_tool_output(
+            "ty", f"{frames}\nFound 919 diagnostics", cap=quality._WARN_OUTPUT_CAP
+        )
+        assert said[-1].strip() == "Found 919 diagnostics"
+
+    def test_one_line_over_the_cap_shows_everything(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said: list[str] = []
+        monkeypatch.setattr(quality, "info", said.append)
+        cap = quality._WARN_OUTPUT_CAP
+        quality._emit_tool_output("ruff", "\n".join(map(str, range(cap + 1))), cap=cap)
+        assert len(said) == cap + 1
+        assert not any("more lines from" in line for line in said)
 
     def test_output_under_the_cap_is_not_truncated(
         self, monkeypatch: pytest.MonkeyPatch

@@ -241,15 +241,20 @@ def _emit_tool_output(
     if not output or not output.strip():
         return
     lines = output.rstrip().splitlines()
-    shown = lines if cap is None else lines[:cap]
-    for line in shown:
+    if cap is None or len(lines) <= cap:
+        for line in lines:
+            info(f"    {line}")
+        return
+    for line in lines[:cap]:
         info(f"    {line}")
-    dropped = len(lines) - len(shown)
-    if dropped:
+    hidden = len(lines) - cap - 1
+    if hidden:
         info(
-            f"    ... +{dropped} more lines from {tool_name}; "
+            f"    ... +{hidden} more lines from {tool_name}; "
             "raise its mode to see them all"
         )
+    # The last line is kept: ruff and ty end on their own finding count.
+    info(f"    {lines[-1]}")
 
 
 def _advisory_db_unreachable(result: subprocess.CompletedProcess[str]) -> bool:
