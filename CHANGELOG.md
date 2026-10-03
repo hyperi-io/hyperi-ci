@@ -3,6 +3,17 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.12.9](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.8...v2.12.9) (2026-10-03)
+
+### Bug Fixes
+
+* **charset:** clear banned typography across src, scripts and .github ([#502](https://github.com/hyperi-io/hyperi-ci/issues/502)) ([8547dbb](https://github.com/hyperi-io/hyperi-ci/commit/8547dbb56eb8adb125042643123d55ab7a0e6154)), closes [#169](https://github.com/hyperi-io/hyperi-ci/issues/169)
+* **ci:** install the real-binary test tools in hyperi-ci's own Test job ([#504](https://github.com/hyperi-io/hyperi-ci/issues/504)) ([1cf72b6](https://github.com/hyperi-io/hyperi-ci/commit/1cf72b6fc4a782501fd007567def746eab2bd581))
+* **python:** resolve ruff security and semgrep findings in hyperi-ci's own code ([#497](https://github.com/hyperi-io/hyperi-ci/issues/497)) ([ec85f17](https://github.com/hyperi-io/hyperi-ci/commit/ec85f17c0518ff3f28ec23bbe9cbf6023d2d2aae))
+* **python:** resolve ty findings in pytest_args and test_tool_pins ([#495](https://github.com/hyperi-io/hyperi-ci/issues/495)) ([7f20e6e](https://github.com/hyperi-io/hyperi-ci/commit/7f20e6eb999d3ec608e694f8a97c56cf6a295f06))
+* **tests:** stop negative-case test ids annotating the CI run ([#496](https://github.com/hyperi-io/hyperi-ci/issues/496)) ([925f395](https://github.com/hyperi-io/hyperi-ci/commit/925f3956aee2dca6fd459df8681dccca0829edfe))
+* **tests:** stop test fixtures annotating the CI run ([#493](https://github.com/hyperi-io/hyperi-ci/issues/493)) ([84e3f39](https://github.com/hyperi-io/hyperi-ci/commit/84e3f397dc37eeb458675e9fe33751ec51c18c35))
+
 ## [2.12.8](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.7...v2.12.8) (2026-10-02)
 
 ### Bug Fixes
