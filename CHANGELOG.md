@@ -3,6 +3,14 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.12.10](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.9...v2.12.10) (2026-10-03)
+
+### Bug Fixes
+
+* **go:** let the govulncheck install fetch the Go toolchain it needs ([#506](https://github.com/hyperi-io/hyperi-ci/issues/506)) ([ab4ab90](https://github.com/hyperi-io/hyperi-ci/commit/ab4ab9048cd23725f0c8128644a8fc4649fa64be)), closes [#501](https://github.com/hyperi-io/hyperi-ci/issues/501)
+* **rust:** install native deps with the workflow's hyperi-ci, not the release ([#508](https://github.com/hyperi-io/hyperi-ci/issues/508)) ([c39ee0a](https://github.com/hyperi-io/hyperi-ci/commit/c39ee0a2d2efffdb9b68e15dc221cccbebd0fa58)), closes [#501](https://github.com/hyperi-io/hyperi-ci/issues/501)
+* **rust:** install the dev packages rdkafka.pc requires ([#507](https://github.com/hyperi-io/hyperi-ci/issues/507)) ([0c9af68](https://github.com/hyperi-io/hyperi-ci/commit/0c9af6831ce42f98b9205d12c41939d3193c86ab)), closes [#501](https://github.com/hyperi-io/hyperi-ci/issues/501)
+
 ## [2.12.9](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.8...v2.12.9) (2026-10-03)
 
 ### Bug Fixes
