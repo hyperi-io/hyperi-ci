@@ -50,8 +50,9 @@ class TestAdvisoryNoiseIsCapped:
         findings = "\n".join(f"finding {i}" for i in range(111))
         quality._emit_tool_output("vulture", findings, cap=quality._WARN_OUTPUT_CAP)
         assert len(said) == quality._WARN_OUTPUT_CAP + 1
-        assert "+86 more" in said[-1]
-        assert "vulture" in said[-1]
+        # It counts LINES. A tool that prints a code frame per finding would read
+        # as ten times its real backlog if this said findings.
+        assert "+86 more lines from vulture" in said[-1]
 
     def test_output_under_the_cap_is_not_truncated(
         self, monkeypatch: pytest.MonkeyPatch
@@ -60,7 +61,7 @@ class TestAdvisoryNoiseIsCapped:
         monkeypatch.setattr(quality, "info", said.append)
         quality._emit_tool_output("ruff", "one\ntwo", cap=quality._WARN_OUTPUT_CAP)
         assert len(said) == 2
-        assert not any("more from" in line for line in said)
+        assert not any("more lines from" in line for line in said)
 
     def test_a_blocking_failure_is_never_capped(
         self, monkeypatch: pytest.MonkeyPatch
