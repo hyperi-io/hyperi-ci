@@ -404,6 +404,7 @@ jobs:
         uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
         with:
           language: rust
+          hyperci-install: ${{ env.HYPERCI_INSTALL }}
 
       - name: Install Rust toolchain
         if: ${{ runner.environment != 'self-hosted' }}
@@ -488,6 +489,7 @@ jobs:
         uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
         with:
           language: rust
+          hyperci-install: ${{ env.HYPERCI_INSTALL }}
 
       - name: Install Rust toolchain
         if: ${{ runner.environment != 'self-hosted' }}
@@ -609,6 +611,7 @@ jobs:
         uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
         with:
           language: rust
+          hyperci-install: ${{ env.HYPERCI_INSTALL }}
 
       - name: Stamp predicted version
         # Stamps VERSION + Cargo.toml before `cargo build` so CARGO_PKG_VERSION matches the tag, on every release run: push and from-head release HEAD, whose committed tree is stale (issue #35), and a tag dispatch checks out a tag whose tree still carries the release before it (issue #352).
