@@ -373,7 +373,7 @@ jobs:
         # released version, so the comparison is a release against itself
         # (issues #186, #199).
         if: inputs.language == 'rust'
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-rust-tools@rehearse/501-ubuntu26b
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-rust-tools@rehearse/rdkafka-26
 
       - name: Set up Node.js
         # No self-hosted skip: the org's publish runners carry no Node.
@@ -631,7 +631,7 @@ jobs:
         # dispatch (release/retry HEAD letting semantic-release pick the
         # version from commits). Forced bumps use tag-head instead.
         if: ${{ github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto') }}
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@rehearse/501-ubuntu26b
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@rehearse/rdkafka-26
 
       - name: Guard -- predicted tag must not already exist off-HEAD
         # Defence-in-depth for issue #37: refuse to tag if the predicted
