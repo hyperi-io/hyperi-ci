@@ -194,7 +194,10 @@ class TestQualityScansTheDetectedSource:
 
     def test_ruff_docstrings(self, flat: list[list[str]]) -> None:
         argv = _scan(flat, "--select", "D")
-        assert argv[argv.index("D") + 1 :][:2] == ["pkg/", "scripts/"]
+        assert argv[argv.index("--output-format=concise") + 1 :][:2] == [
+            "pkg/",
+            "scripts/",
+        ]
         assert "src/" not in argv
 
     def test_bandit(self, flat: list[list[str]]) -> None:
@@ -420,8 +423,8 @@ class TestSrcLayoutIsByteIdentical:
             "--output-format=concise", "src/", "--extend-exclude=vendor",
         ]  # fmt: skip
         assert _scan(argvs, "--select", "D") == [
-            "uv", "run", "ruff", "check", "--select", "D", "src/",
-            "--extend-exclude=vendor",
+            "uv", "run", "ruff", "check", "--select", "D",
+            "--output-format=concise", "src/", "--extend-exclude=vendor",
         ]  # fmt: skip
         assert _scan(argvs, "vulture") == [
             "uvx", "--python", python, "--from", vulture, "vulture", "src/",

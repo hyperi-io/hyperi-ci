@@ -247,7 +247,8 @@ def _emit_tool_output(
     dropped = len(lines) - len(shown)
     if dropped:
         info(
-            f"    ... +{dropped} more from {tool_name}; raise its mode to see them all"
+            f"    ... +{dropped} more lines from {tool_name}; "
+            "raise its mode to see them all"
         )
 
 
@@ -628,9 +629,12 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if not _run_tool("pip-audit", pip_audit_cmd, mode, retry_unreachable=True):
         had_failure = True
 
-    # Docstring coverage via ruff D rules (replaces interrogate)
+    # Docstring coverage via ruff D rules (replaces interrogate). Concise output
+    # is one finding per line, so the warn tier's line cap counts findings.
     mode = _get_tool_mode("ruff_docstrings", config)
-    ruff_doc_cmd = ["ruff", "check", "--select", "D", *sources]
+    ruff_doc_cmd = [
+        "ruff", "check", "--select", "D", "--output-format=concise", *sources
+    ]  # fmt: skip
     ruff_doc_cmd += _build_exclude_args("ruff", excludes)
     ruff_doc_cmd += _ruff_ignore_flag(ruff_user_ignores)
     if not _run_source_tool("ruff docstrings", ruff_doc_cmd, mode, sources):
