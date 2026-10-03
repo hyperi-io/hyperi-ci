@@ -100,17 +100,17 @@ the compiler estate is actually needed.
 
 ARC runner scale sets are sized in tiers. The k8s manifests in hyperi-infra
 are the SSoT, including each set's `maxRunners`; the sizing, as read from the
-live AutoscalingRunnerSets on 2026-09-24:
+live AutoscalingRunnerSets on 2026-10-03:
 
 | Tier | CPUs | RAM | Typical use |
 |---|---|---|---|
 | 4cpu | 4 | 8Gi | lint, test, publish, tag; Python / Node.js builds, small Rust crates |
 | 8cpu | 8 | 16Gi | medium Rust / C++ builds, integration tests |
-| 16cpu | 16 | 16Gi | large Rust / C++ release builds, ClickHouse |
+| 16cpu | 16 | 24Gi | large Rust / C++ release builds, ClickHouse |
 
 There is no 2cpu tier.
 
-The 16cpu tier has 1Gi per CPU, and cargo starts one rustc per CPU whatever the memory. Every Rust stage therefore sets `CARGO_BUILD_JOBS` to the smaller of the CPU budget and the memory limit over `build.rust.memory_per_job_gib` (default 2), so 16cpu runs 8 jobs and 8cpu runs 8. The limit comes from cgroup v2 `memory.max`, cgroup v1 `memory.limit_in_bytes`, then total RAM, and the stage log names the source. `build.rust.jobs: <n>` fixes the count. `CARGO_BUILD_JOBS` already in the environment is never touched, and a `[build] jobs` in a cargo config file is left alone unless `build.rust.jobs` names a number.
+The 16cpu tier has 1.5Gi per CPU, and cargo starts one rustc per CPU whatever the memory. Every Rust stage therefore sets `CARGO_BUILD_JOBS` to the smaller of the CPU budget and the memory limit over `build.rust.memory_per_job_gib` (default 2), so 16cpu runs 12 jobs, 8cpu runs 8 and 4cpu runs 4. A workspace whose large crates take several GiB each still overruns 24Gi at 12 jobs, so raise `memory_per_job_gib` for it (6 gives 4 jobs). The limit comes from cgroup v2 `memory.max`, cgroup v1 `memory.limit_in_bytes`, then total RAM, and the stage log names the source. `build.rust.jobs: <n>` fixes the count. `CARGO_BUILD_JOBS` already in the environment is never touched, and a `[build] jobs` in a cargo config file is left alone unless `build.rust.jobs` names a number.
 
 ## Split-runner multi-arch
 
