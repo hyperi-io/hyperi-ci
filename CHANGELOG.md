@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.12.11](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.10...v2.12.11) (2026-10-03)
+
+### Bug Fixes
+
+* **python:** count warn-tier overflow as lines ([#511](https://github.com/hyperi-io/hyperi-ci/issues/511)) ([ebce38a](https://github.com/hyperi-io/hyperi-ci/commit/ebce38a7ebf740bdc51b145046e109446b6a2c12))
+
 ## [2.12.10](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.9...v2.12.10) (2026-10-03)
 
 ### Bug Fixes
