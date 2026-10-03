@@ -254,7 +254,7 @@ jobs:
 
       - name: Predict version + derive gates
         id: predict
-        uses: hyperi-io/hyperi-ci/.github/actions/predict-version@rehearse/501-ubuntu26b
+        uses: hyperi-io/hyperi-ci/.github/actions/predict-version@rehearse/rdkafka-26b
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ inputs.tag }}
@@ -401,7 +401,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup runtime (uv + Python + native deps)
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@rehearse/501-ubuntu26b
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@rehearse/rdkafka-26b
         with:
           language: rust
           hyperci-install: ${{ env.HYPERCI_INSTALL }}
@@ -433,10 +433,10 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Setup Rust tools
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-rust-tools@rehearse/501-ubuntu26b
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-rust-tools@rehearse/rdkafka-26b
 
       - name: Setup osv-scanner
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-osv-scanner@rehearse/501-ubuntu26b
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-osv-scanner@rehearse/rdkafka-26b
 
       - name: Deepen history for secret scan
         # gitleaks scans the branch git log for committed secrets; a depth-1
@@ -486,7 +486,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup runtime (uv + Python + native deps)
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@rehearse/501-ubuntu26b
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@rehearse/rdkafka-26b
         with:
           language: rust
           hyperci-install: ${{ env.HYPERCI_INSTALL }}
@@ -510,7 +510,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Setup cargo-nextest
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-nextest@rehearse/501-ubuntu26b
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-nextest@rehearse/rdkafka-26b
 
       - name: Init submodules
         # The checkout keeps no credential, so the job token reaches this step
@@ -608,7 +608,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup runtime (uv + Python + native deps)
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@rehearse/501-ubuntu26b
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@rehearse/rdkafka-26b
         with:
           language: rust
           hyperci-install: ${{ env.HYPERCI_INSTALL }}
@@ -693,7 +693,7 @@ jobs:
       packages: write
       issues: write
       pull-requests: write
-    uses: hyperi-io/hyperi-ci/.github/workflows/_release-tail.yml@rehearse/501-ubuntu26b
+    uses: hyperi-io/hyperi-ci/.github/workflows/_release-tail.yml@rehearse/rdkafka-26b
     with:
       language: rust
       runner-mode: ${{ inputs.runner-mode }}
