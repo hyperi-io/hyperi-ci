@@ -226,7 +226,7 @@ jobs:
 
       - name: Predict version + derive gates
         id: predict
-        uses: hyperi-io/hyperi-ci/.github/actions/predict-version@rehearse/501-ubuntu26b
+        uses: hyperi-io/hyperi-ci/.github/actions/predict-version@rehearse/501-rust-2404
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ inputs.tag }}
@@ -339,7 +339,7 @@ jobs:
         # Malicious-package (MAL-*) scanner -- covers the OSSF
         # malicious-packages feed that npm/pnpm/yarn audit (CVE-only) do
         # not. Most of ossf/malicious-packages#1276 lived in npm.
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-osv-scanner@rehearse/501-ubuntu26b
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-osv-scanner@rehearse/501-rust-2404
 
       - name: Deepen history for secret scan
         # gitleaks scans the branch git log for committed secrets; a depth-1
@@ -539,7 +539,7 @@ jobs:
       packages: write
       issues: write
       pull-requests: write
-    uses: hyperi-io/hyperi-ci/.github/workflows/_release-tail.yml@rehearse/501-ubuntu26b
+    uses: hyperi-io/hyperi-ci/.github/workflows/_release-tail.yml@rehearse/501-rust-2404
     with:
       language: typescript
       runner-mode: ${{ inputs.runner-mode }}

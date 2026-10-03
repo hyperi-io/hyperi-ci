@@ -152,7 +152,7 @@ jobs:
         github.event_name == 'workflow_dispatch' ||
         github.event_name == 'pull_request'
       )
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
@@ -321,7 +321,7 @@ jobs:
     # job holds no secret and a read-only token, and Tag & Release only uploads
     # what it leaves (issue #409).
     if: inputs.will-publish == 'true'
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -373,7 +373,7 @@ jobs:
         # released version, so the comparison is a release against itself
         # (issues #186, #199).
         if: inputs.language == 'rust'
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-rust-tools@rehearse/501-ubuntu26b
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-rust-tools@rehearse/501-rust-2404
 
       - name: Set up Node.js
         # No self-hosted skip: the org's publish runners carry no Node.
@@ -427,7 +427,7 @@ jobs:
     # notice never fires. Its own job, because prepare holds no write token.
     needs: [prepare]
     if: failure() && needs.prepare.result == 'failure'
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       issues: write
@@ -492,7 +492,7 @@ jobs:
     # ARC, like the rest of the tail: the aws CLI this job needs for R2 is
     # absent from the image, so hyperi-ci installs AWS's signed v2 bundle on
     # demand (native_deps.ensure_aws_cli).
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       issues: write
@@ -631,7 +631,7 @@ jobs:
         # dispatch (release/retry HEAD letting semantic-release pick the
         # version from commits). Forced bumps use tag-head instead.
         if: ${{ github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto') }}
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@rehearse/501-ubuntu26b
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@rehearse/501-rust-2404
 
       - name: Guard -- predicted tag must not already exist off-HEAD
         # Defence-in-depth for issue #37: refuse to tag if the predicted

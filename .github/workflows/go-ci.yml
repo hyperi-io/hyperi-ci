@@ -226,7 +226,7 @@ jobs:
 
       - name: Predict version + derive gates
         id: predict
-        uses: hyperi-io/hyperi-ci/.github/actions/predict-version@rehearse/501-ubuntu26b
+        uses: hyperi-io/hyperi-ci/.github/actions/predict-version@rehearse/501-rust-2404
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ inputs.tag }}
@@ -337,7 +337,7 @@ jobs:
           go-version-file: ${{ inputs.go-version-file }}
 
       - name: Setup Go tools
-        uses: hyperi-io/hyperi-ci/.github/actions/setup-go-tools@rehearse/501-ubuntu26b
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-go-tools@rehearse/501-rust-2404
 
       - name: Install uv
         if: ${{ runner.environment != 'self-hosted' }}
@@ -551,7 +551,7 @@ jobs:
       packages: write
       issues: write
       pull-requests: write
-    uses: hyperi-io/hyperi-ci/.github/workflows/_release-tail.yml@rehearse/501-ubuntu26b
+    uses: hyperi-io/hyperi-ci/.github/workflows/_release-tail.yml@rehearse/501-rust-2404
     with:
       language: golang
       runner-mode: ${{ inputs.runner-mode }}
