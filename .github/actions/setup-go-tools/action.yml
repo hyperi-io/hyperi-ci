@@ -160,8 +160,9 @@ runs:
 
         # govulncheck: upstream publishes no binaries, so compile - but pinned,
         # and with GOBIN forced into our dir so it cannot silently resolve to a
-        # baked copy on PATH.
-        GOBIN="$HOME/.local/bin" \
+        # baked copy on PATH. GOTOOLCHAIN=auto because setup-go pins `local` to
+        # the project's go.mod version, which is older than govulncheck needs.
+        GOTOOLCHAIN=auto GOBIN="$HOME/.local/bin" \
           go install "golang.org/x/vuln/cmd/govulncheck@${GOVULN_VERSION}"
 
     - name: Verify Go tools match the pin
