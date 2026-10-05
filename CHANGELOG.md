@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.12.13](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.12...v2.12.13) (2026-10-05)
+
+### Bug Fixes
+
+* **rust:** install the requested toolchain on ARC runners too ([#510](https://github.com/hyperi-io/hyperi-ci/issues/510)) ([cbdd4b4](https://github.com/hyperi-io/hyperi-ci/commit/cbdd4b42d5ab1f123b7930b10c17d62301a60051)), closes [#509](https://github.com/hyperi-io/hyperi-ci/issues/509)
+
 ## [2.12.12](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.11...v2.12.12) (2026-10-03)
 
 ### Bug Fixes
