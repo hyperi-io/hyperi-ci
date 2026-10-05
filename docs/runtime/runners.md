@@ -6,6 +6,15 @@ What the runner image holds and how apt dependencies reach it -- the dep-install
 
 Rebuilding that image, redeploying the scale sets and rolling a dep-install change across the fleet are in [arc-operations.md](arc-operations.md).
 
+## Runner policy
+
+- x64 jobs run on ARC.
+- arm64 jobs run on GitHub-hosted runners. ARC has no arm64 nodes.
+- Anything else is a project-specific exception, set as a repo-level variable on that repo only.
+- Every build ships for both x64 and arm64 by default: binaries, packages and GHCR images (`release.container.platforms` lists `linux/amd64` and `linux/arm64`). Building for one architecture only is a project-specific exception too.
+
+The GitHub-hosted x64 larger runners are kept so x64 can move off ARC with a variable change, as described in [hosted-larger-runners.md](hosted-larger-runners.md). They are not the fix for a failing ARC job. Fix the ARC runner.
+
 ## Runner modes
 
 | Mode | Runners | Cache | Toolchain |
@@ -108,7 +117,7 @@ live AutoscalingRunnerSets on 2026-10-03:
 | 8cpu | 8 | 16Gi | medium Rust / C++ builds, integration tests |
 | 16cpu | 16 | 24Gi | large Rust / C++ release builds, ClickHouse |
 
-There is no 2cpu tier.
+There is no 2cpu tier. GitHub-hosted equivalents of these tiers, and how to switch to them: [hosted-larger-runners.md](hosted-larger-runners.md).
 
 The 16cpu tier has 1.5Gi per CPU, and cargo starts one rustc per CPU whatever the memory. Every Rust stage therefore sets `CARGO_BUILD_JOBS` to the smaller of the CPU budget and the memory limit over `build.rust.memory_per_job_gib` (default 2), so 16cpu runs 12 jobs, 8cpu runs 8 and 4cpu runs 4. A workspace whose large crates take several GiB each still overruns 24Gi at 12 jobs, so raise `memory_per_job_gib` for it (6 gives 4 jobs). The limit comes from cgroup v2 `memory.max`, cgroup v1 `memory.limit_in_bytes`, then total RAM, and the stage log names the source. `build.rust.jobs: <n>` fixes the count. `CARGO_BUILD_JOBS` already in the environment is never touched, and a `[build] jobs` in a cargo config file is left alone unless `build.rust.jobs` names a number.
 
