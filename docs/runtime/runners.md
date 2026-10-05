@@ -6,6 +6,15 @@ What the runner image holds and how apt dependencies reach it -- the dep-install
 
 Rebuilding that image, redeploying the scale sets and rolling a dep-install change across the fleet are in [arc-operations.md](arc-operations.md).
 
+## Runner policy
+
+- x64 jobs run on ARC.
+- arm64 jobs run on GitHub-hosted runners. ARC has no arm64 nodes.
+- Anything else is a project-specific exception, set as a repo-level variable on that repo only.
+- Every build ships for both x64 and arm64 by default: binaries, packages and GHCR images (`release.container.platforms` lists `linux/amd64` and `linux/arm64`). Building for one architecture only is a project-specific exception too.
+
+The GitHub-hosted x64 larger runners are kept so x64 can move off ARC with a variable change, as described in [hosted-larger-runners.md](hosted-larger-runners.md). They are not the fix for a failing ARC job. Fix the ARC runner.
+
 ## Runner modes
 
 | Mode | Runners | Cache | Toolchain |

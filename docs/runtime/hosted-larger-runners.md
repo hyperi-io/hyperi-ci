@@ -1,13 +1,15 @@
 # GitHub-hosted larger runners
 
-The org keeps GitHub-hosted larger runners that mirror the ARC tiers. Moving a repo, or the whole org, off ARC is a variable change, with no workflow edit. All four are in the Default runner group (visible to every repo), run the Ubuntu 24.04 image, and scale to 16 concurrent jobs each.
+The org keeps GitHub-hosted larger runners in both architectures. Per the [runner policy](runners.md#runner-policy), arm64 jobs run on them, and x64 jobs stay on ARC. The x64 labels mirror the ARC tiers, so moving a repo, or the whole org, off ARC is a variable change, with no workflow edit. All six are in the Default runner group (visible to every repo), run the Ubuntu 24.04 image, and scale to 16 concurrent jobs each.
 
-| Label | Arch | CPUs | RAM | Disk | Replaces |
-|---|---|---|---|---|---|
-| `ubuntu-24.04-4core` | x64 | 4 | 16 GB | 150 GB | `arc-*-4cpu` (8Gi) |
-| `ubuntu-24.04-16core` | x64 | 16 | 64 GB | 600 GB | `arc-*-16cpu` (24Gi) |
-| `ubuntu-24.04-arm-4core` | arm64 | 4 | 16 GB | 150 GB | standard `ubuntu-24.04-arm` |
-| `ubuntu-24.04-arm-16core` | arm64 | 16 | 64 GB | 600 GB | standard `ubuntu-24.04-arm`, for crates that need the memory |
+| Label | Arch | CPUs | RAM | Use |
+|---|---|---|---|---|
+| `ubuntu-24.04-4core` | x64 | 4 | 16 GB | swap target for `arc-*-4cpu` |
+| `ubuntu-24.04-8core` | x64 | 8 | 32 GB | swap target for `arc-*-8cpu` |
+| `ubuntu-24.04-16core` | x64 | 16 | 64 GB | swap target for `arc-*-16cpu` |
+| `ubuntu-24.04-arm-4core` | arm64 | 4 | 16 GB | arm64 jobs that outgrow the standard `ubuntu-24.04-arm` |
+| `ubuntu-24.04-arm-8core` | arm64 | 8 | 32 GB | arm64 Node and mid-size builds |
+| `ubuntu-24.04-arm-16core` | arm64 | 16 | 64 GB | arm64 Rust builds that need the memory |
 
 ## Moving off ARC
 
