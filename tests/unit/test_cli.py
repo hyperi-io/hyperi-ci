@@ -5,12 +5,12 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
-from __future__ import annotations
-
 import os
 import subprocess
 import sys
 from unittest.mock import patch
+
+from hyperi_ci.versions import runtime_version
 
 # Disable auto-update in subprocess-based CLI tests to prevent real PyPI queries
 _TEST_ENV = {**os.environ, "HYPERCI_AUTO_UPDATE": "false"}
@@ -229,22 +229,29 @@ class TestRunnerImageBake:
         ):
             assert expected in combined, f"install-all skipped {expected}"
 
-    def test_install_all_excludes_bake_false_entries(self, tmp_path) -> None:
-        """`bake: false` stays install-on-demand even in a full bake.
+    def test_install_all_bakes_only_the_default_llvm(self, tmp_path) -> None:
+        """The toolchain LLVM is versions.yaml `llvm`, whatever the env says.
 
-        Non-coinstallable toolsets declare Conflicts, so baking one version
-        would lock out jobs needing another.
+        The image's clang and ld.lld alternatives point at that same default,
+        so a toolchain bake that followed HYPERCI_LLVM_VERSION would leave them
+        dangling. The native-deps groups in the same run DO follow it (see
+        test_native_deps `test_a_bake_splits_default_and_designated`).
         """
         result = subprocess.run(
             [sys.executable, "-m", "hyperi_ci.cli", "install-all", "--dry-run"],
             capture_output=True,
             text=True,
             cwd=str(tmp_path),
-            env=_TEST_ENV,
+            env={**_TEST_ENV, "HYPERCI_LLVM_VERSION": "19"},
         )
         assert result.returncode == 0
         combined = result.stdout + result.stderr
-        assert "llvm-non-coinstallable: skip" in combined
+        baked = [
+            line.strip().split(":")[0]
+            for line in combined.splitlines()
+            if line.strip().startswith("llvm-toolchain v")
+        ]
+        assert baked == [f"llvm-toolchain v{runtime_version('llvm')}"]
 
     def test_install_native_deps_defaults_to_every_language(self, tmp_path) -> None:
         """Bare `install-native-deps --all` fans out, matching install-toolchains."""

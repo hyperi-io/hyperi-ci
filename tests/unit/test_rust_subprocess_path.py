@@ -299,6 +299,7 @@ class TestCargoLaunchesKeepTheirShape:
         for name in (
             "_ensure_cargo_pgo_installed",
             "_ensure_ld_lld_available",
+            "_ensure_clang_available",
             "_ensure_llvm_profdata_available",
             "_ensure_llvm_bolt_available",
             "_install_bolt_output",

@@ -80,6 +80,7 @@ You benefit from the fix already being in hyperi-ci v1.10.4+; knowing
 
 6. **LLVM version is a parameter.** The `HYPERCI_LLVM_VERSION` env var,
    then `build.rust.llvm_version` in `.hyperi-ci.yaml`, then versions.yaml
-   `runtimes.llvm` (`23`) decide which bolt-NN and lld-NN get used. That
-   major wins over the runner's unversioned `ld.lld`. Consumer projects
-   don't override unless they need a specific LLVM major.
+   `runtimes.llvm` (`23`) decide which bolt-NN, lld-NN and clang-NN get
+   used. That major wins over the runner's unversioned `ld.lld` and
+   `clang`. Consumer projects don't override unless they need a specific
+   LLVM major.

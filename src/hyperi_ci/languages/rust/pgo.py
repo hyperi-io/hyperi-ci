@@ -128,6 +128,13 @@ def run_pgo_build(
             "no ld.lld on PATH -- a project selecting -fuse-ld=lld in its own "
             "cargo config will fail this build with \"cannot find 'ld'\""
         )
+    if not _ensure_clang_available(cwd):
+        warn(
+            "no clang of a known LLVM major to shim -- a project with "
+            'linker = "clang" in its own cargo config links with whatever clang '
+            'PATH holds, of an unknown major, or fails with "linker `clang` not '
+            'found" if there is none'
+        )
 
     # Checked before the workload rather than after it: without profdata the
     # optimise step fails, and the 300s of profiling is spent for nothing.
@@ -432,6 +439,21 @@ def _ensure_ld_lld_available(project_dir: Path | None = None) -> bool:
     holds the .hyperi-ci.yaml the designated major is read from.
     """
     return _shim_llvm_tools(("ld.lld",), project_dir)
+
+
+def _ensure_clang_available(project_dir: Path | None = None) -> bool:
+    """Put the designated LLVM major's `clang` and `clang++` first on PATH.
+
+    A project with `linker = "clang"` runs whatever `clang` PATH finds, and
+    under `-fuse-ld=lld` that clang takes the `ld.lld` from its own install
+    first, so the designated major has to own the driver as well. The
+    `clang-NN` apt package ships only the suffixed names. Shimmed apart from
+    `ld.lld`, so a runner without `clang-NN` leaves the `ld.lld` on PATH at
+    the designated major. A clang that falls back to another major still
+    links with that major's own lld. ``project_dir`` holds the
+    .hyperi-ci.yaml the designated major is read from.
+    """
+    return _shim_llvm_tools(("clang", "clang++"), project_dir)
 
 
 # LLVM majors scanned, newest first, when the designated one is incomplete.

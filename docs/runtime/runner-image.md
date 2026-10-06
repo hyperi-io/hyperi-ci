@@ -14,18 +14,18 @@ on-demand via `pip install hyperi-ci`.
 ```mermaid
 flowchart TB
     subgraph HCI["hyperi-ci (this repo) - published to PyPI"]
-        TC["config/toolchains/*.yaml<br/>(LLVM, GCC families)"]
+        TC["config/toolchains/*.yaml<br/>(default LLVM, GCC)"]
         ND["config/native-deps/*.yaml<br/>(per-language)"]
         DRV["native_deps.py (driver)"]
     end
     subgraph INFRA["hyperi-infra - runner image bake"]
-        DF["containers/arc-runner{,-debian}/Dockerfile"]
-        IMG["arc-runner image → Harbor<br/>harbor.devex.hyperi.io:8443"]
+        DF["containers/arc-runner-native/Dockerfile"]
+        IMG["arc-runner-native image → Harbor<br/>harbor.devex.hyperi.io:8443"]
     end
     subgraph CIJOB["CI job on vanilla GH runner"]
         AUTO["hyperi-ci install-* (conditional)<br/>installs only what the project manifest triggers"]
     end
-    HCI -->|"hyperi-ci install-toolchains --all<br/>(unconditional bake)"| DF --> IMG
+    HCI -->|"hyperi-ci install-all<br/>(unconditional bake)"| DF --> IMG
     HCI -->|"pip install hyperi-ci"| AUTO
 ```
 
@@ -36,28 +36,25 @@ means bumping hyperi-ci at its next release.
 
 | Mode | Who uses it | Behaviour |
 |---|---|---|
-| `install-toolchains --all` / `install-native-deps <lang> --all` | runner-image bake (hyperi-infra Dockerfile) | Install every entry unconditionally. Ignores manifest patterns. Entries with `bake: false` are skipped (see below). |
+| `install-all`, or `install-toolchains --all` / `install-native-deps <lang> --all` | runner-image bake (hyperi-infra Dockerfile) | Install every entry unconditionally. Ignores manifest patterns. Entries with `bake: false` are skipped (see below). |
 | `install-toolchains` / `install-native-deps <lang>` | CI-time on vanilla `ubuntu-latest` or arm64 GH runners | Conditional. Install only entries whose `patterns` match files named in `manifest_files` in the project. |
 
 ## YAML schema
 
 Shared across `config/native-deps/*.yaml` (per-language conditional deps) and
-`config/toolchains/*.yaml` (multi-version apt families).
+`config/toolchains/*.yaml` (the apt families the image bakes).
 
-The fields that decide whether an entry fires:
+The `llvm-clang` entry from `native-deps/rust.yaml` shows every field. The ones that decide whether it fires:
 
 ```yaml
-- name: <label for log lines>
-  bake: true                        # optional, default true; see below
-  versions: [19, 20, 21, 22, 23]    # optional; expands {V} into N entries
+- name: llvm-clang                  # label for log lines
   patterns:                         # substrings searched in manifest_files
-    - "Cargo.toml"
-    - "CMakeLists.txt"
-  manifest_files:                   # relative to project root
-    - Cargo.toml
-    - CMakeLists.txt
-    - .hyperi-ci.yaml
-  dpkg_check: clang-{V}             # skip if dpkg -s succeeds
+    - 'linker = "clang'
+    - "linker=clang"
+  manifest_files:                   # relative to project root; missing ones are skipped
+    - .cargo/config.toml
+    - .cargo/config
+  dpkg_check: clang-${HYPERCI_LLVM_VERSION}   # skip if dpkg -s succeeds
 ```
 
 The fields that say what it installs:
@@ -66,63 +63,46 @@ The fields that say what it installs:
   apt_repos:                        # optional repos to add before install
     - key_url: https://apt.llvm.org/llvm-snapshot.gpg.key
       keyring: /usr/share/keyrings/llvm.gpg
+      key_fingerprint: 6084F3CF814B57C1CF12EFD515CF4D18AF4F7421
       url: https://apt.llvm.org/${OS_CODENAME}/
-      codename: llvm-toolchain-${OS_CODENAME}-{V}
+      codename: llvm-toolchain-${OS_CODENAME}-${HYPERCI_LLVM_VERSION}
   apt_packages:
-    - clang-{V}
-    - clang-tools-{V}
-    - bolt-{V}
+    - clang-${HYPERCI_LLVM_VERSION}
 ```
+
+Two optional fields: `bake: false` (below), and `versions: [13, 14]`, which expands the entry once per version with `{V}` substituted, as `toolchains/gcc.yaml` does for `gcc-{V}`.
 
 | Placeholder | Source | Example |
 |---|---|---|
-| `{V}` | per-version expansion (when `versions:` is set) | `19`, `20`, `21`, `22`, `23` |
+| `{V}` | per-version expansion (when `versions:` is set) | `13`, `14` |
 | `${OS_CODENAME}` | `lsb_release -cs` or `OS_CODENAME` env var | `noble`, `trixie`, `resolute` |
-| `${HYPERCI_LLVM_VERSION}` | the designated LLVM major: `HYPERCI_LLVM_VERSION` env var, then `build.rust.llvm_version` in `.hyperi-ci.yaml`, then versions.yaml `runtimes.llvm` (`23`) | used by native-deps/rust.yaml for the BOLT version pin |
+| `${HYPERCI_LLVM_VERSION}` | the designated LLVM major: `HYPERCI_LLVM_VERSION` env var, then `build.rust.llvm_version` in `.hyperi-ci.yaml`, then versions.yaml `runtimes.llvm` (`23`) | native-deps/rust.yaml, for the job-time bolt, lld and clang |
+| `${HYPERCI_LLVM_DEFAULT}` | versions.yaml `runtimes.llvm` (`23`) alone | toolchains/llvm.yaml, so the bake never follows the env var or a project pin |
 
 ## The `bake: false` flag - non-coinstallable toolsets
 
 When an apt package declares `Conflicts: <package>-x.y`, only one version may be
-installed at a time. Examples on apt.llvm.org: `libc++-N-dev`, `libc++abi-N-dev`,
-`libomp-N-dev`, `libunwind-N-dev`, and `lldb-N` (via its `python3-lldb-N` dep).
-Baking a default would lock out any CI job needing a different version.
+installed at a time, so baking one would lock out any CI job needing another.
 
 Pattern: put the non-coinstallable packages in a **single entry with
 `bake: false`**. It becomes install-on-demand only - the runner image skips it
 (`--all` ignores `bake: false`), and CI-time installs apply it conditionally
-when project patterns match.
-
-```yaml
-- name: llvm-non-coinstallable
-  bake: false                       # skipped in --all; installed on-demand
-  patterns: ["Cargo.toml", "CMakeLists.txt"]
-  manifest_files: [Cargo.toml, CMakeLists.txt, .hyperi-ci.yaml]
-  dpkg_check: libc++-22-dev
-  apt_repos: [...]                  # apt.llvm.org for v22
-  apt_packages:
-    - lldb-22
-    - libc++-22-dev
-    - libc++abi-22-dev
-    - libomp-22-dev
-    - libunwind-22-dev
-```
-
-This pattern applies to any toolset - not just LLVM. Future families (GCC beta
-versions, JDK preview builds, etc.) follow the same convention.
+when project patterns match. No shipped entry uses it today.
 
 ## What the runner image contains
 
-The `containers/arc-runner/Dockerfile` (Ubuntu noble) and
-`containers/arc-runner-debian/Dockerfile` (Debian trixie) both do:
+Only hyperi-infra's `containers/arc-runner-native/Dockerfile` (Ubuntu noble) bakes from hyperi-ci. It runs the exact release `build.sh` resolved, from a throwaway uv environment, so hyperi-ci itself is not left in the image:
 
 ```dockerfile
-RUN pip install --no-cache-dir --break-system-packages 'hyperi-ci>=X.Y' && \
-    OS_CODENAME=noble hyperi-ci install-toolchains --all
+RUN CI=true OS_CODENAME=noble \
+    uvx --from "hyperi-ci==${HYPERI_CI_VERSION}" hyperi-ci install-all
 ```
+
+`install-all` runs the language toolchains (rustup, Go, Node), then `config/toolchains/`, then every language's `config/native-deps/`. The next step reads `runtime_version('llvm')` into `/etc/hyperi-llvm-version` and points the unversioned alternatives at that major. `arc-runner-vanilla` and `arc-runner-debian` carry no toolchain on purpose.
 
 This produces the pre-baked toolchains below, per the shipped YAML.
 
-### LLVM (coinstallable v19/20/21/22/23)
+### LLVM (the versions.yaml default only)
 
 `clang-N`, `clang-tools-N`, `clangd-N`, `lld-N`, `llvm-N`, `llvm-N-dev`,
 `llvm-N-tools`, `libclang-N-dev`, `libclang-rt-N-dev`, `bolt-N`
@@ -133,27 +113,14 @@ This produces the pre-baked toolchains below, per the shipped YAML.
 
 ### Default `clang`, `lld`, `ld.lld` alternatives
 
-Point at the versions.yaml `runtimes.llvm` default. BOLT's cargo-pgo flow invokes the
-unversioned `ld.lld`, so these defaults do NOT decide a gcc-driven Rust link. A PGO build
-shims the designated major's `ld.lld-NN`, `llvm-bolt-NN` and `merge-fdata-NN`
+Point at the versions.yaml `runtimes.llvm` default, the one major the image bakes. Quality, test and a plain release build link with these. A PGO build
+shims the designated major's `ld.lld-NN`, `clang-NN`, `clang++-NN`, `llvm-bolt-NN` and `merge-fdata-NN`
 into `~/.local/bin` and puts it first on PATH, ahead of the image's own links. The
 designated major is `HYPERCI_LLVM_VERSION`, then `build.rust.llvm_version` in
-`.hyperi-ci.yaml`, then versions.yaml `runtimes.llvm`. The image only has to
-carry that major. The build log names it: `LLVM 23 (versions.yaml): ld.lld -> /usr/bin/ld.lld-23`.
+`.hyperi-ci.yaml`, then versions.yaml `runtimes.llvm`. The build log names it: `LLVM 23 (versions.yaml): ld.lld -> /usr/bin/ld.lld-23`.
 
-The shim governs links DRIVEN BY gcc, which finds `ld.lld` on PATH. A project with `linker = "clang"` links with the `ld.lld` beside whichever clang it runs, so on ARC it follows the image's default major, NOT a non-default designated one. Clang-driven links follow any designated major once hyperi-ci#519 installs `clang-NN` and shims `clang`.
-
-### Skipped at image bake (install-on-demand)
-
-`lldb-22`, `libc++-22-dev`, `libc++abi-22-dev`, `libomp-22-dev`,
-`libunwind-22-dev` - the `bake: false` entries. Jobs that need them incur a
-~5s apt-get at runtime. Projects that need a different version install theirs
-themselves.
+The `clang` shim covers a project with `linker = "clang"`: the shimmed clang takes `ld.lld` from its own install before PATH, so a clang-driven link follows the designated major the same way a gcc-driven one does.
 
 ### Still baked inline in the Dockerfile
 
-Bootstrap packages (`python3`, `python3-pip`, `curl`, `gnupg`,
-`ca-certificates`), the internal CA chain, base apt packages (`build-essential`,
-`cmake`, `ninja-build`, `mold`, ...), Python/Rust/Node runtimes, CI tool
-binaries (`gh`, `hadolint`, `shellcheck`, `actionlint`), arm64 cross-compile
-sources. Folding these into hyperi-ci is planned later-phase work.
+Compilers and headers the native-deps entries assume (`build-essential`, `cmake`, `ninja-build`, `ccache`, `pkg-config`, the autotools, `shellcheck`, `python3`), the arm64 cross gcc and its ports sources, and pnpm plus the semantic-release plugins. The vanilla base supplies the internal CA chain, the docker CLI and uv. Folding these into hyperi-ci is planned later-phase work.

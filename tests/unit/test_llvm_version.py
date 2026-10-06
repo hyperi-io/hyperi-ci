@@ -9,10 +9,12 @@ from pathlib import Path
 
 import pytest
 
+from hyperi_ci import llvm_version
 from hyperi_ci.llvm_version import (
     LLVM_VERSION_ENV,
     DesignatedLLVM,
     LLVMVersionError,
+    default_llvm_major,
     designated_llvm_version,
 )
 from hyperi_ci.versions import runtime_version
@@ -72,6 +74,40 @@ class TestPrecedence:
         root = _project(tmp_path, "build:\n  rust:\n    llvm_version: 21\n")
         monkeypatch.chdir(root)
         assert designated_llvm_version().major == 21
+
+
+class TestDefaultMajor:
+    """The default is versions.yaml alone; nothing designated can move it."""
+
+    def test_is_versions_yaml(self) -> None:
+        assert default_llvm_major() == int(runtime_version("llvm"))
+
+    def test_ignores_env_and_project_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = _project(tmp_path, "build:\n  rust:\n    llvm_version: 21\n")
+        monkeypatch.chdir(root)
+        monkeypatch.setenv(LLVM_VERSION_ENV, "20")
+        assert default_llvm_major() == int(runtime_version("llvm"))
+
+    def test_a_bad_versions_yaml_value_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(llvm_version, "runtime_version", lambda _name: "23.1")
+        with pytest.raises(LLVMVersionError, match=r"runtimes\.llvm"):
+            default_llvm_major()
+
+    def test_a_missing_versions_yaml_key_is_an_llvm_version_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Callers catch LLVMVersionError, so a KeyError would be a traceback."""
+
+        def missing(_name: str) -> str:
+            raise KeyError("`runtimes.llvm` is missing from versions.yaml")
+
+        monkeypatch.setattr(llvm_version, "runtime_version", missing)
+        with pytest.raises(LLVMVersionError, match=r"runtimes\.llvm.*missing"):
+            default_llvm_major()
 
 
 class TestValidation:

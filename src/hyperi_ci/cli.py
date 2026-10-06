@@ -1716,17 +1716,18 @@ def install_toolchains(
         bool,
         typer.Option(
             "--all",
-            help="Install every version unconditionally (bypass manifest matching). "
+            help="Install every entry unconditionally (bypass manifest matching). "
             "Used for runner image bake. Default is conditional install.",
         ),
     ] = False,
 ) -> None:
-    """Install multi-version toolchain families (LLVM, GCC).
+    """Install the apt toolchain families: the default LLVM major, GCC 13/14.
 
     By default fans out across every family in `config/toolchains/` and
     matches project manifests to decide what to install. Pass `--all` on
-    a runner image bake to install every version of every family
-    regardless of manifest.
+    a runner image bake to install every entry of every family regardless
+    of manifest. LLVM is always versions.yaml `llvm`, never the designated
+    major.
 
     Examples:
         hyperi-ci install-toolchains --all        # bake everything
@@ -1788,13 +1789,16 @@ def install_all_cmd(
     so wasted the image build). Baking BY this command keeps the image and the
     CI-time install path the same code, so they cannot drift.
 
-    Entries marked `bake: false` are excluded -- non-coinstallable toolsets
-    stay install-on-demand so baking a default cannot lock out a job needing a
-    different version.
+    Entries marked `bake: false` are excluded and stay install-on-demand. That
+    is for a toolset whose packages declare `Conflicts` across versions, where
+    baking one version would lock out a job needing another.
 
     Covers three things, in order: the language toolchains from
-    `config/bootstrap.yaml` (rustup, Go, Node), the multi-version apt families
-    from `config/toolchains/`, then every language's `config/native-deps/`.
+    `config/bootstrap.yaml` (rustup, Go, Node), the apt families from
+    `config/toolchains/`, then every language's `config/native-deps/`. The
+    toolchain LLVM is always versions.yaml `llvm`. The native-deps entries
+    follow the designated major, so HYPERCI_LLVM_VERSION or a `.hyperi-ci.yaml`
+    in the working directory moves the bolt, lld and clang they install.
 
     Examples:
         hyperi-ci install-all                   # bake everything
