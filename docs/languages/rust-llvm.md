@@ -20,6 +20,10 @@ Every Rust build links with `ld.lld` and, on a Tier 2 release, rewrites the bina
 
 `llvm-profdata` is the exception: it comes from the rustc sysroot (`llvm-tools-preview`), so the profile is merged by the LLVM that wrote it.
 
+## Older majors on the runner image
+
+The ARC image has carried LLVM 19, 20, 21 and 22 beside the default, and its unversioned `clang` and `ld.lld` used to point at 19. That was ONLY for the ClickHouse server fork's C++ build (LLVM 19 for ClickHouse OSS compatibility, 21 for the fork's own CI). It was never a Rust default, and the fork is no longer built. Don't read a leftover major on a runner as a requirement: the only default is `versions.yaml` `llvm`. The image is being trimmed to that one major (#519).
+
 ## Choosing the major
 
 Highest wins:
