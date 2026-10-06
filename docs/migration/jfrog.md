@@ -101,18 +101,13 @@ flowchart TB
 
 | Image | Repo | Last Pulled | User | Status |
 |---|---|---|---|---|
-| `utils/topic-partion-scaler` | hypersec-docker-local | 2026-03-30 | anonymous | **Active production** |
-| `utils/helmfile` | hypersec-docker-local | 2026-01-12 | telstra-prod | **Active** |
-| `xdr-data-engine` | hypersec-docker-local | 2025-11-06 | telstra-prod | Likely still deployed |
-| `xdr-control-plane-backend` | hypersec-docker-local | 2025-10-02 | telstra-prod | Possibly running |
-| `xdr-control-plane-frontend` | hypersec-docker-local | 2025-09-08 | telstra-prod | Possibly running |
+| `utils/helmfile` | hypersec-docker-local | 2026-09-22 | telstra-prod | **Active production** |
 
-Pulled by Telstra K8s clusters directly from `hypersec.jfrog.io`. Changing
-the pull URL requires Telstra to update deployment manifests. Do not touch.
+That is the only image Telstra still pulls, per hyperi-infra's 120-day pull census. It pulls directly from `hypersec.jfrog.io`, so changing the pull URL needs Telstra to update its deployment manifests. Do not touch it.
 
-The Last Pulled column understates current use: hyperi-infra measured 18
-pulls of `hypersec-docker-local/utils/helmfile/` in the 30 days to
-2026-09-23.
+`telstra-prod` authenticates with a password, not an access token. Access tokens on the instance were cut to two on 2026-10-06, and neither is used for Telstra pulls.
+
+Pruned 2026-09-23: `utils/topic-partion-scaler` (last pulled 2026-05-28), `xdr-data-engine`, `xdr-control-plane-backend` and `xdr-control-plane-frontend` (no pulls in the census window). All four were archived and checksum-verified before the prune, and they are restorable. The archive location and restore steps are in hyperi-infra's JFrog decommission record.
 
 ---
 
@@ -123,7 +118,7 @@ pulls of `hypersec-docker-local/utils/helmfile/` in the 30 days to
 `hypersec-docker-local` - read-only, no CI changes needed. These images
 were built by the old CI system (`hyperi-io/ci`), not `hyperi-ci`.
 
-**Action:** Do nothing. When Telstra decommissions DFE 2.1, delete the repo.
+**Action:** Do nothing beyond keeping `utils/helmfile` pullable. When Telstra decommissions DFE 2.1, delete the repo.
 
 **Cleanup opportunity:** Set a retention policy to delete tags older than
 12 months (except Telstra-active tags). Reclaim most of 52 GB.
