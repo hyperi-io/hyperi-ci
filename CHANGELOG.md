@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.12.16](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.15...v2.12.16) (2026-10-06)
+
+### Bug Fixes
+
+* **rust:** scope PGO and BOLT builds to the shipped binary ([#527](https://github.com/hyperi-io/hyperi-ci/issues/527)) ([481cd4a](https://github.com/hyperi-io/hyperi-ci/commit/481cd4a6b0dae0d5a422c79fdf4cc9f902f1e4fe)), closes [#526](https://github.com/hyperi-io/hyperi-ci/issues/526)
+
 ## [2.12.15](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.14...v2.12.15) (2026-10-06)
 
 ### Bug Fixes
