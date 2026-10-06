@@ -125,7 +125,7 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 - [languages/RUST-RELEASE-VERIFICATION.md](languages/rust-release-verification.md) - the Tier 2 dispatch timeline, binary and log markers, release cost
 - [languages/RUST-TROUBLESHOOTING.md](languages/rust-troubleshooting.md) - symptom-to-fix tables, canary lessons
 - [languages/RUST-LOCAL-DEV.md](languages/rust-local-dev.md) - per-project target dirs, sccache, mold, parallelism
-- [languages/PYTHON.md](languages/python.md) - uv, wheel/sdist, Nuitka, PyPI
+- [languages/PYTHON.md](languages/python.md) - uv, wheel/sdist, PyPI
   publish, the eager-import and sdist-exclude gotchas
 - [languages/TYPESCRIPT.md](languages/typescript.md) - npm/yarn/pnpm detection,
   Corepack, `install-deps`

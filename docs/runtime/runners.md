@@ -161,7 +161,7 @@ alone and ships amd64. The build legs do not fail fast, so a leg that dies on
 its runner leaves the other's artefact in place.
 
 Applies across languages: Rust/Go build native per arch. Python wheels and
-TypeScript are arch-independent (single runner). Python Nuitka builds native.
+TypeScript are arch-independent (single runner).
 
 ## Build cache (Rust, C/C++)
 
