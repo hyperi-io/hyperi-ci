@@ -71,6 +71,7 @@ def run_pgo_build(
     cwd: Path,
     extra_env: dict[str, str] | None = None,
     outcome: OptimizationOutcome | None = None,
+    shipped_binaries: list[str] | None = None,
 ) -> int:
     """Run the PGO (and optionally BOLT) pipeline for one target.
 
@@ -88,6 +89,9 @@ def run_pgo_build(
         outcome: Filled in with the stages that actually completed, so the
                  caller can report a skip that this function warns about
                  but does not fail on.
+        shipped_binaries: Every binary packaging ships. Each `cargo pgo`
+                          step builds these and nothing else. Defaults to
+                          ``[binary_name]``.
 
     Returns:
         0 on success, non-zero on failure.
@@ -101,6 +105,10 @@ def run_pgo_build(
         env_features.get("RUST_FEATURES", ""),
         all_features=env_features.get("RUST_ALL_FEATURES") == "true",
     )
+    cargo_args = [
+        *_bin_scope_args(shipped_binaries or [binary_name]),
+        *feature_args,
+    ]
 
     if not _ensure_cargo_pgo_installed():
         warn(
@@ -147,7 +155,7 @@ def run_pgo_build(
 
     # 1. Instrumented build
     info(f"PGO: building instrumented binary for {target}")
-    instrument_args = ["build", "--", "--target", target, *feature_args]
+    instrument_args = ["build", "--", "--target", target, *cargo_args]
     rc = _run_cargo_pgo(instrument_args, cwd=cwd, extra_env=build_env)
     if rc != 0 and target.startswith("aarch64") and shutil.which("mold"):
         # Profile counters push a large binary's text past the +/-128 MB
@@ -192,7 +200,7 @@ def run_pgo_build(
     # 3. Optimised build using profile data
     info(f"PGO: building optimised binary for {target}")
     rc = _run_cargo_pgo(
-        ["optimize", "--", "--target", target, *feature_args],
+        ["optimize", "--", "--target", target, *cargo_args],
         cwd=cwd,
         extra_env={**(build_env or {}), **_PROFILE_USE_ENV},
     )
@@ -205,7 +213,7 @@ def run_pgo_build(
     # 4. BOLT (optional, Linux-only)
     if bolt:
         rc = _run_bolt(
-            target, feature_args, binary_name, profile, cwd, build_env, outcome
+            target, cargo_args, binary_name, profile, cwd, build_env, outcome
         )
         if rc != 0:
             warn("BOLT step failed -- continuing with PGO-only optimised binary")
@@ -217,6 +225,20 @@ def run_pgo_build(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _bin_scope_args(binaries: list[str]) -> list[str]:
+    """Render one ``--bin`` per shipped binary for a `cargo pgo` step.
+
+    Without a target filter cargo builds every bin whose required features are
+    on, so `--all-features` compiles a feature-gated workload driver against a
+    profile that does not cover it (#526). ``--bin`` filters targets only, so
+    package selection and feature resolution are unchanged.
+    """
+    args: list[str] = []
+    for name in binaries:
+        args.extend(["--bin", name])
+    return args
 
 
 def _run_plain_release_build(
@@ -965,7 +987,7 @@ def _bolt_optimize_args() -> list[str]:
 
 def _attempt_bolt(
     target: str,
-    feature_args: list[str],
+    cargo_args: list[str],
     binary_name: str,
     profile: OptimizationProfile,
     cwd: Path,
@@ -975,6 +997,9 @@ def _attempt_bolt(
     outcome: OptimizationOutcome | None = None,
 ) -> int:
     """Run one BOLT pass: instrument -> workload -> optimise.
+
+    ``cargo_args`` follows ``--target`` on both builds: the ``--bin`` scope
+    and the feature flags, the same as the PGO steps.
 
     `bolt build` emits `<binary>-bolt-instrumented`; the workload must run
     against THAT binary so BOLT collects its own branch profile. Skipping
@@ -1017,7 +1042,7 @@ def _attempt_bolt(
             "--",
             "--target",
             target,
-            *feature_args,
+            *cargo_args,
         ],
         cwd=cwd,
         extra_env=bolt_env,
@@ -1060,7 +1085,7 @@ def _attempt_bolt(
             "--",
             "--target",
             target,
-            *feature_args,
+            *cargo_args,
         ],
         cwd=cwd,
         extra_env=bolt_env,
@@ -1075,7 +1100,7 @@ def _attempt_bolt(
 
 def _run_bolt(
     target: str,
-    feature_args: list[str],
+    cargo_args: list[str],
     binary_name: str,
     profile: OptimizationProfile,
     cwd: Path,
@@ -1099,7 +1124,7 @@ def _run_bolt(
     """
     rc = _attempt_bolt(
         target,
-        feature_args,
+        cargo_args,
         binary_name,
         profile,
         cwd,
@@ -1120,7 +1145,7 @@ def _run_bolt(
     )
     return _attempt_bolt(
         target,
-        feature_args,
+        cargo_args,
         binary_name,
         profile,
         cwd,

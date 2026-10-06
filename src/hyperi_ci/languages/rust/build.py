@@ -1266,14 +1266,15 @@ def _build_for_target(
                 "PGO requested but crate has no binaries -- falling back to plain build"
             )
         else:
-            # Use the first binary for PGO (projects with multiple bins can
-            # extend this later; the common case is one binary per crate).
+            # The workload profiles the first binary; every cargo-pgo step still
+            # builds all the binaries packaging ships, and only those.
             from hyperi_ci.languages.rust.pgo import run_pgo_build
 
             return run_pgo_build(
                 target=target,
                 profile=profile,
                 binary_name=binary_names[0],
+                shipped_binaries=binary_names,
                 cwd=Path.cwd(),
                 # RUST_FEATURES / RUST_ALL_FEATURES are where the PGO path
                 # reads the declared features for its own cargo lines.

@@ -1815,6 +1815,7 @@ def _run_pgo_bolt_pipeline(
     bolt_enabled: bool = True,
     bolt_toolchain: bool = True,
     extra_env: dict[str, str] | None = None,
+    shipped_binaries: list[str] | None = None,
 ):
     """Run PGO (+BOLT) with a project env naming sccache; return cargo calls.
 
@@ -1838,6 +1839,7 @@ def _run_pgo_bolt_pipeline(
             binary_name="my-bin",
             cwd=tmp_path,
             extra_env=extra_env or {"RUSTC_WRAPPER": "sccache"},
+            shipped_binaries=shipped_binaries,
         )
     assert rc == 0
     return [(c.args[0], c.kwargs["extra_env"]) for c in cargo.call_args_list]
@@ -1906,6 +1908,132 @@ class TestBoltWithPgoPairing:
         assert {args[1] for args in bolt} == {"build", "optimize"}
         for args in bolt:
             assert "--with-pgo" in args[: args.index("--")], args
+
+
+def _cargo_build_args(args: list[str]) -> list[str]:
+    """What cargo-pgo forwards to `cargo build`: everything after `--`."""
+    return args[args.index("--") + 1 :]
+
+
+class TestBuildsAreScopedToTheShippedBinaries:
+    """Every cargo-pgo step builds the shipped binaries and nothing else (#526).
+
+    An app's feature-gated workload driver compiled under `--all-features` in
+    the profile-use step, logging thousands of no-profile-data warnings for a
+    binary that never ships.
+    """
+
+    _ALL_FEATURES = {"RUSTC_WRAPPER": "sccache", "RUST_ALL_FEATURES": "true"}
+
+    @pytest.mark.parametrize(
+        ("cargo_results", "steps"),
+        [
+            ([0, 0, 0, 0], ["build", "optimize", "bolt build", "bolt optimize"]),
+            (
+                [0, 0, 1, 0, 0],
+                ["build", "optimize", "bolt build", "bolt build", "bolt optimize"],
+            ),
+        ],
+        ids=["first", "no-split"],
+    )
+    def test_every_step_names_the_binary_before_the_features(
+        self, tmp_path, cargo_results, steps
+    ) -> None:
+        calls = _run_pgo_bolt_pipeline(
+            tmp_path, cargo_results, extra_env=self._ALL_FEATURES
+        )
+        assert [_step(args) for args, _ in calls] == steps
+        for args, _ in calls:
+            assert _cargo_build_args(args) == [
+                "--target",
+                "x86_64-unknown-linux-gnu",
+                "--bin",
+                "my-bin",
+                "--all-features",
+            ], args
+
+    def test_pgo_only_steps_are_scoped_too(self, tmp_path) -> None:
+        calls = _run_pgo_bolt_pipeline(tmp_path, [0, 0], bolt_enabled=False)
+        assert [_step(args) for args, _ in calls] == ["build", "optimize"]
+        for args, _ in calls:
+            assert _cargo_build_args(args)[2:4] == ["--bin", "my-bin"], args
+
+    def test_every_shipped_binary_is_built_and_no_other(self, tmp_path) -> None:
+        calls = _run_pgo_bolt_pipeline(
+            tmp_path,
+            [0, 0, 0, 0],
+            extra_env=self._ALL_FEATURES,
+            shipped_binaries=["my-bin", "my-bin-admin"],
+        )
+        assert len(calls) == 4
+        for args, _ in calls:
+            forwarded = _cargo_build_args(args)
+            bins = [
+                forwarded[i + 1] for i, arg in enumerate(forwarded) if arg == "--bin"
+            ]
+            assert bins == ["my-bin", "my-bin-admin"], args
+            assert "--workspace" not in forwarded
+            assert "-p" not in forwarded
+
+    def test_an_empty_list_falls_back_to_the_profiled_binary(self, tmp_path) -> None:
+        calls = _run_pgo_bolt_pipeline(
+            tmp_path, [0, 0], bolt_enabled=False, shipped_binaries=[]
+        )
+        for args, _ in calls:
+            assert _cargo_build_args(args).count("--bin") == 1, args
+            assert "my-bin" in _cargo_build_args(args), args
+
+    def test_the_plain_fallback_is_unchanged(self, tmp_path) -> None:
+        with (
+            patch.object(pgo, "_ensure_cargo_pgo_installed", return_value=False),
+            patch.object(
+                pgo, "run_cmd", return_value=MagicMock(returncode=0)
+            ) as run_cmd,
+        ):
+            rc = run_pgo_build(
+                target="x86_64-unknown-linux-gnu",
+                profile=_make_profile(allocator="system"),
+                binary_name="my-bin",
+                cwd=tmp_path,
+                shipped_binaries=["my-bin"],
+            )
+        assert rc == 0
+        assert run_cmd.call_args.args[0] == [
+            "cargo",
+            "build",
+            "--release",
+            "--target",
+            "x86_64-unknown-linux-gnu",
+        ]
+
+    def test_the_build_stage_hands_over_every_packaged_binary(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        from hyperi_ci.languages.rust import build
+
+        monkeypatch.chdir(tmp_path)
+        bin_dir = tmp_path / "target" / "x86_64-unknown-linux-gnu" / "release"
+        bin_dir.mkdir(parents=True)
+        (bin_dir / "my-bin").touch()
+        monkeypatch.setattr(build, "_ensure_target_installed", lambda _target: True)
+        monkeypatch.setattr(
+            build, "_detect_binary_names", lambda: ["my-bin", "my-bin-admin"]
+        )
+
+        with (
+            patch.object(pgo, "_ensure_cargo_pgo_installed", return_value=True),
+            patch.object(pgo, "_run_cargo_pgo", return_value=0) as cargo,
+            patch.object(pgo, "_run_workload", return_value=0) as workload,
+        ):
+            rc = build._build_for_target(
+                "x86_64-unknown-linux-gnu", "", False, {}, profile=_make_profile()
+            )
+
+        assert rc == 0
+        assert str(workload.call_args.args[2]).endswith("/my-bin")
+        for call in cargo.call_args_list:
+            forwarded = _cargo_build_args(call.args[0])
+            assert forwarded[2:6] == ["--bin", "my-bin", "--bin", "my-bin-admin"]
 
 
 def _profile_settings(env: dict[str, str]) -> dict[str, str]:

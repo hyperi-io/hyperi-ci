@@ -327,19 +327,12 @@ class TestCargoLaunchesKeepTheirShape:
         shared = _expect(**self._PROJECT_ENV, CARGO_PROFILE_RELEASE_STRIP="none")
         profile_use = {**shared, "RUSTC_WRAPPER": ""}
         bolt = {**profile_use, _RUSTFLAGS: "-C link-arg=-fuse-ld=lld"}
+        scope = ["--target", _NATIVE, "--bin", "app"]
         expected = [
-            (["cargo", "pgo", "build", "--", "--target", _NATIVE], shared),
-            (["cargo", "pgo", "optimize", "--", "--target", _NATIVE], profile_use),
-            (
-                ["cargo", "pgo", "bolt", "build", "--with-pgo", "--"]
-                + ["--target", _NATIVE],
-                bolt,
-            ),
-            (
-                ["cargo", "pgo", "bolt", "optimize", "--with-pgo", "--"]
-                + ["--target", _NATIVE],
-                bolt,
-            ),
+            (["cargo", "pgo", "build", "--", *scope], shared),
+            (["cargo", "pgo", "optimize", "--", *scope], profile_use),
+            (["cargo", "pgo", "bolt", "build", "--with-pgo", "--", *scope], bolt),
+            (["cargo", "pgo", "bolt", "optimize", "--with-pgo", "--", *scope], bolt),
         ]
         assert [(launch["args"], _watched_env(launch)) for launch in launches] == (
             expected
