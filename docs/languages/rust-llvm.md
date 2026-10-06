@@ -15,14 +15,16 @@ Every Rust build links with `ld.lld` and, on a Tier 2 release, rewrites the bina
 
 1. CI accepts any LLVM major a project asks for.
 2. A project that asks for nothing gets the hyperi-ci default, `llvm` in `src/hyperi_ci/config/versions.yaml`. We keep it at upstream's latest stable.
-3. The Rust tooling for that major runs together: `ld.lld`, `llvm-bolt` and `merge-fdata`. If they aren't on the runner, they are installed at job time from apt.llvm.org (`bolt-NN`, `lld-NN`).
-4. The ARC runner images pre-bake the default, and their own unversioned `clang` and `ld.lld` point at it. A non-default major costs a job-time install, nothing more.
+3. The Rust tooling for that major runs together: `ld.lld`, `clang`, `llvm-bolt` and `merge-fdata`. If they aren't on the runner, they are installed at job time from apt.llvm.org: `bolt-NN` and `lld-NN` for every Rust repo, `clang-NN` only for a repo whose `.cargo/config.toml` links through clang (`linker = "clang"` or `-C linker=clang`).
+4. The ARC runner images pre-bake the default and no other major, and their own unversioned `clang` and `ld.lld` point at it. A non-default major costs a job-time install, nothing more.
 
 `llvm-profdata` is the exception: it comes from the rustc sysroot (`llvm-tools-preview`), so the profile is merged by the LLVM that wrote it.
 
-## Older majors on the runner image
+## One major on the runner image
 
-The ARC image has carried LLVM 19, 20, 21 and 22 beside the default, and its unversioned `clang` and `ld.lld` used to point at 19. That was ONLY for the ClickHouse server fork's C++ build (LLVM 19 for ClickHouse OSS compatibility, 21 for the fork's own CI). It was never a Rust default, and the fork is no longer built. Don't read a leftover major on a runner as a requirement: the only default is `versions.yaml` `llvm`. The image is being trimmed to that one major (#519).
+`config/toolchains/llvm.yaml` bakes exactly `versions.yaml` `llvm`, read through `${HYPERCI_LLVM_DEFAULT}`. It carries no list of its own, and neither `HYPERCI_LLVM_VERSION` nor `build.rust.llvm_version` reaches it, so the image and its `clang` / `ld.lld` alternatives always agree.
+
+The image used to carry LLVM 19 to 22 as well, with its unversioned `clang` and `ld.lld` on 19. Those were for the ClickHouse server fork's C++ build, which is no longer built. A runner that still has them is an old image, not a requirement.
 
 ## Choosing the major
 
@@ -50,16 +52,21 @@ One line per shim step names the major, where it came from, and every tool's pat
 
 ```text
 LLVM 23 (.hyperi-ci.yaml): ld.lld -> /usr/bin/ld.lld-23
+LLVM 23 (.hyperi-ci.yaml): clang -> /usr/bin/clang-23, clang++ -> /usr/bin/clang++-23
 LLVM 23 (.hyperi-ci.yaml): llvm-bolt -> /usr/bin/llvm-bolt-23, merge-fdata -> /usr/bin/merge-fdata-23, ld.lld -> /usr/bin/ld.lld-23
 ```
 
-The designated major's tools are symlinked into `~/.local/bin`, first on PATH, ahead of whatever unversioned `ld.lld` the runner carries. If the designated major is incomplete, the build warns, names both majors, and still keeps the link and BOLT on one major.
+The designated major's tools are symlinked into `~/.local/bin`, first on PATH, ahead of whatever unversioned `ld.lld` and `clang` the runner carries. If the designated major is incomplete, the build warns, names both majors, and still keeps the link and BOLT on one major.
 
-That governs links driven by gcc, which finds `ld.lld` on PATH. A project with `linker = "clang"` links with the `ld.lld` beside whichever clang it runs, so on ARC it follows the image's default major, NOT a non-default designated one. Clang-driven links follow any designated major once #519 installs `clang-NN` and shims `clang`.
+A gcc-driven link finds `ld.lld` on PATH. A project with `linker = "clang"` runs the shimmed `clang`, which takes `ld.lld` from its own install before PATH, so both kinds of link follow the designated major. `clang` is shimmed apart from `ld.lld`, so a runner without `clang-NN` leaves the `ld.lld` on PATH at the designated major. The clang it falls back to still links with its own major's lld, and the warning names that major.
+
+ARC bakes `clang-NN` at the default major. Elsewhere, a repo that does not link through clang never installs it: it would cost every job an apt.llvm.org fetch, and the `libclang1-NN` that comes with it can change which libclang bindgen picks.
+
+The shims run in a PGO build only. Quality, test and a plain release build link with the runner's unversioned `clang` and `ld.lld`, which on ARC are the default major.
 
 ## Moving to a new LLVM
 
 1. Bump `llvm` in `versions.yaml` and release hyperi-ci.
-2. Rebuild the ARC runner images (hyperi-infra). The image points its `clang` and `ld.lld` at the `versions.yaml` default. Until #519 lands, the majors it bakes still come from the `versions:` list in `config/toolchains/llvm.yaml`, so add the new major there too.
+2. Rebuild the ARC runner images (hyperi-infra). The image bakes the new default and points its `clang` and `ld.lld` at it. There is no second list to edit.
 
 Projects that pin keep their major until they change the pin. There is nothing to edit in the workflows or the Rust handlers.

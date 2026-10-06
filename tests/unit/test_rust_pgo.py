@@ -1128,6 +1128,7 @@ class TestProfdataReachesCargoPgo:
         """The failure this exists to stop: 300s of profiling, then no merge."""
         monkeypatch.setattr(pgo, "_ensure_cargo_pgo_installed", lambda: True)
         monkeypatch.setattr(pgo, "_ensure_ld_lld_available", lambda *_a, **_k: True)
+        monkeypatch.setattr(pgo, "_ensure_clang_available", lambda *_a, **_k: True)
         monkeypatch.setattr(pgo, "_ensure_llvm_profdata_available", lambda: False)
         workload: list[str] = []
         monkeypatch.setattr(
@@ -1828,6 +1829,7 @@ def _run_pgo_bolt_pipeline(
     with (
         patch.object(pgo, "_ensure_cargo_pgo_installed", return_value=True),
         patch.object(pgo, "_ensure_ld_lld_available", return_value=True),
+        patch.object(pgo, "_ensure_clang_available", return_value=True),
         patch.object(pgo, "_ensure_llvm_profdata_available", return_value=True),
         patch.object(pgo, "_ensure_llvm_bolt_available", return_value=bolt_toolchain),
         patch.object(pgo, "_run_workload", return_value=0),
@@ -2229,6 +2231,83 @@ class TestDesignatedLlvmWins:
 
         for name in self._BOLT:
             assert self._resolves_to(name) == (usr_bin / f"{name}-23").resolve()
+
+    def test_designated_clang_wins_over_the_unversioned_one(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """A linker = "clang" link runs the designated clang, not the image's."""
+        usr_bin = self._image(tmp_path, {23: ("clang", "clang++")})
+        llvm19 = tmp_path / "usr-lib" / "llvm-19" / "bin"
+        for name in ("clang", "clang++"):
+            (usr_bin / name).symlink_to(_executable(llvm19 / name))
+        monkeypatch.setenv("PATH", str(usr_bin))
+        monkeypatch.setenv("HYPERCI_LLVM_VERSION", "23")
+        warnings = self._capture(monkeypatch, "warn")
+
+        assert pgo._ensure_clang_available() is True
+
+        for name in ("clang", "clang++"):
+            assert self._resolves_to(name) == (usr_bin / f"{name}-23").resolve()
+        assert warnings == []
+
+    def test_missing_designated_clang_does_not_move_ld_lld(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """clang falls back on its own, so ld.lld stays on the designated major."""
+        usr_bin = self._image(tmp_path, {23: ("ld.lld",), 21: ("clang", "clang++")})
+        monkeypatch.setenv("PATH", str(usr_bin))
+        monkeypatch.setenv("HYPERCI_LLVM_VERSION", "23")
+        warnings = self._capture(monkeypatch, "warn")
+
+        assert _ensure_ld_lld_available() is True
+        assert pgo._ensure_clang_available() is True
+
+        assert self._resolves_to("ld.lld") == (usr_bin / "ld.lld-23").resolve()
+        assert self._resolves_to("clang") == (usr_bin / "clang-21").resolve()
+        assert warnings == [
+            "designated LLVM 23 (HYPERCI_LLVM_VERSION) is incomplete, "
+            "clang-23, clang++-23 not found -- using LLVM 21 instead"
+        ]
+
+    def test_no_clang_at_all_is_reported(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+        assert pgo._ensure_clang_available() is False
+
+    def test_a_clang_of_unknown_major_is_reported_too(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """A wrapper such as ccache's clang is on PATH but names no major."""
+        local_bin = tmp_path / "usr-local-bin"
+        for name in ("clang", "clang++"):
+            _executable(local_bin / name)
+        monkeypatch.setenv("PATH", str(local_bin))
+        monkeypatch.setenv("HYPERCI_LLVM_VERSION", "23")
+        assert pgo._ensure_clang_available() is False
+        assert pgo.shutil.which("clang") == str(local_bin / "clang")
+
+    def test_the_pgo_build_shims_clang_for_the_project_it_builds(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """The shim reads the project's pin, and a miss names the failure it causes."""
+        monkeypatch.setattr(pgo, "_ensure_cargo_pgo_installed", lambda: True)
+        monkeypatch.setattr(pgo, "_ensure_ld_lld_available", lambda *_a, **_k: True)
+        seen: list[Path | None] = []
+        monkeypatch.setattr(
+            pgo, "_ensure_clang_available", lambda cwd=None: seen.append(cwd) or False
+        )
+        monkeypatch.setattr(pgo, "_ensure_llvm_profdata_available", lambda: False)
+        warnings = self._capture(monkeypatch, "warn")
+
+        rc = run_pgo_build(
+            target="x86_64-unknown-linux-gnu",
+            profile=_make_profile(),
+            binary_name="app",
+            cwd=tmp_path,
+        )
+
+        assert rc == 1
+        assert seen == [tmp_path]
+        assert any('linker = "clang"' in line for line in warnings)
 
     def test_incomplete_designated_bolt_moves_ld_lld_with_it(
         self, tmp_path, monkeypatch

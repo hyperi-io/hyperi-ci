@@ -6,9 +6,9 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """The designated LLVM major, the version every Rust job installs and uses.
 
-A runner image can carry several LLVM majors, and its unversioned ``clang`` and
-``ld.lld`` point at whichever one the image picked. The designated major is the
-one CI uses regardless. Highest wins:
+A runner's unversioned ``clang`` and ``ld.lld`` point at whichever major the
+image picked, such as the distro's own on a hosted Ubuntu runner. The designated
+major is the one CI uses regardless. Highest wins:
 
 1. ``HYPERCI_LLVM_VERSION`` in the environment.
 2. ``build.rust.llvm_version`` in the project's ``.hyperi-ci.yaml``.
@@ -78,6 +78,25 @@ def _configured(project_dir: Path) -> tuple[object, str]:
     return node, project.name
 
 
+def default_llvm_major() -> int:
+    """Return the hyperi-ci default LLVM major, ``runtimes.llvm`` in versions.yaml.
+
+    The runner image bakes this major alone, whatever a project or the
+    environment designates, so a bake never depends on where it runs.
+
+    Raises:
+        LLVMVersionError: ``runtimes.llvm`` is missing, or is not a positive
+            whole number.
+
+    """
+    source = "runtimes.llvm in versions.yaml"
+    try:
+        value = runtime_version("llvm")
+    except KeyError as exc:
+        raise LLVMVersionError(f"{source} is missing: {exc}") from exc
+    return _as_major(value, source)
+
+
 def designated_llvm_version(project_dir: Path | None = None) -> DesignatedLLVM:
     """Return the LLVM major CI installs and puts first on PATH.
 
@@ -90,7 +109,8 @@ def designated_llvm_version(project_dir: Path | None = None) -> DesignatedLLVM:
 
     Raises:
         LLVMVersionError: The winning source holds something other than a
-            positive whole number.
+            positive whole number, or it falls through to a versions.yaml
+            with no ``runtimes.llvm``.
 
     """
     from_env = os.environ.get(LLVM_VERSION_ENV, "").strip()
@@ -102,5 +122,4 @@ def designated_llvm_version(project_dir: Path | None = None) -> DesignatedLLVM:
         major = _as_major(configured, f"{LLVM_VERSION_KEY} in {config_name}")
         return DesignatedLLVM(major, config_name)
 
-    major = _as_major(runtime_version("llvm"), "runtimes.llvm in versions.yaml")
-    return DesignatedLLVM(major, "versions.yaml")
+    return DesignatedLLVM(default_llvm_major(), "versions.yaml")

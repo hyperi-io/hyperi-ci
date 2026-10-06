@@ -42,9 +42,14 @@ from hyperi_ci.common import (
     url_read,
     warn,
 )
-from hyperi_ci.llvm_version import LLVMVersionError, designated_llvm_version
+from hyperi_ci.llvm_version import (
+    LLVMVersionError,
+    default_llvm_major,
+    designated_llvm_version,
+)
 
 _LLVM_PLACEHOLDER = "${HYPERCI_LLVM_VERSION}"
+_LLVM_DEFAULT_PLACEHOLDER = "${HYPERCI_LLVM_DEFAULT}"
 
 # Codenames to try as fallbacks when a given APT repo doesn't ship
 # packages for the current OS codename. Ordered by preference (newest
@@ -77,7 +82,8 @@ def _sudo_prefix() -> list[str]:
 # Semantic difference:
 #   native-deps: conditional by default (install only if manifest matches)
 #   toolchains:  conditional in --auto mode; --all bypasses pattern check.
-#                Covers multi-version apt families (LLVM 19-22, GCC 13/14).
+#                Covers the apt families the runner image bakes (the default
+#                LLVM major, GCC 13/14).
 _CATEGORY_DIRS: dict[str, Path] = {
     "native-deps": _NATIVE_DEPS_DIR,
     "toolchains": _TOOLCHAINS_DIR,
@@ -112,11 +118,10 @@ class DepGroup:
                        into the runner image for every matching category.
       False:           SKIP in --all mode. The entry still installs
                        conditionally at CI job time when manifest patterns
-                       match. Use for non-coinstallable toolsets (e.g.
-                       `libc++-N-dev` and friends declare Conflicts:x.y,
-                       so only one version may be present at a time --
-                       baking a default would lock out jobs needing a
-                       different version).
+                       match. Use for a toolset whose packages declare
+                       `Conflicts:` across versions, so only one version
+                       may be present at a time -- baking a default would
+                       lock out jobs needing a different version.
     """
 
     name: str
@@ -141,6 +146,10 @@ def _expand_template_vars(text: str, project_dir: Path | None = None) -> str:
                               ``llvm_version.designated_llvm_version``: the
                               env var, then `build.rust.llvm_version` in
                               .hyperi-ci.yaml, then versions.yaml `llvm`.
+      HYPERCI_LLVM_DEFAULT  -- versions.yaml `llvm` alone, from
+                              ``llvm_version.default_llvm_major``. The runner
+                              image bakes this one, so neither the env var
+                              nor a stray .hyperi-ci.yaml can move the bake.
       OS_CODENAME           -- current OS codename from lsb_release -cs
                               (e.g. noble, trixie, resolute). Lets a single
                               YAML reference distro-specific apt.llvm.org
@@ -155,14 +164,16 @@ def _expand_template_vars(text: str, project_dir: Path | None = None) -> str:
         project_dir: Project root whose .hyperi-ci.yaml is read. Defaults to cwd.
 
     Raises:
-        LLVMVersionError: The text names the LLVM placeholder and the
-            designated version is not a whole-number major.
+        LLVMVersionError: The text names an LLVM placeholder and the version
+            it resolves to is not a whole-number major.
 
     """
     # Resolved only when named, so a bad value cannot fail a YAML that never uses it.
     if _LLVM_PLACEHOLDER in text:
         llvm_version = str(designated_llvm_version(project_dir).major)
         text = text.replace(_LLVM_PLACEHOLDER, llvm_version)
+    if _LLVM_DEFAULT_PLACEHOLDER in text:
+        text = text.replace(_LLVM_DEFAULT_PLACEHOLDER, str(default_llvm_major()))
     os_codename = os.environ.get("OS_CODENAME") or _get_os_codename() or "noble"
     return text.replace("${OS_CODENAME}", os_codename)
 
@@ -473,8 +484,9 @@ def _add_apt_repo(repo: AptRepo) -> int:
          handles self-hosted runners where admins have pre-configured
          upstream repos under a different filename.
 
-    Multi-version note: many entries can share a keyring (e.g. LLVM 19/20/
-    21/22 all use `/usr/share/keyrings/llvm.gpg`). The sources filename is
+    Multi-version note: many entries can share a keyring (every apt.llvm.org
+    entry uses `/usr/share/keyrings/llvm.gpg`, and a project's designated
+    LLVM major can differ from the baked default). The sources filename is
     derived from the keyring stem, so multiple AptRepo writes collide on
     one file. We APPEND -- multiple `deb` lines in the same .list pointing
     at the same keyring is valid apt syntax.
@@ -532,7 +544,7 @@ def _add_apt_repo(repo: AptRepo) -> int:
 
     # Skip if the exact `deb` line is already present in the file. Substring
     # check (not equality) -- the file may contain other entries for different
-    # versions of the same toolchain (e.g. llvm.list holds v19/v20/v21/v22).
+    # versions of the same toolchain (llvm.list holds one line per LLVM major).
     if sources_path.exists() and sources_line in sources_path.read_text(
         encoding="utf-8"
     ):

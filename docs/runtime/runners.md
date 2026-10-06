@@ -48,11 +48,8 @@ gh variable set GH_RUNNER_RUST --org hyperi-io --body arc-native-16cpu
 A repo overrides the org default with a repo-level variable of the same name,
 or per job with the `runner-quality` / `runner-build` workflow inputs.
 
-`GH_RUNNER_CPP` is set org-wide to `arc-native-16cpu`. Nothing reads it yet -
-there is no C++ reusable workflow, only the LLVM and GCC toolchains the native
-image bakes - so a C++ job names it in `runs-on` directly. It is declared now so
-the answer is already agreed when that workflow lands, rather than someone
-picking a runner ad hoc.
+There is no C++ reusable workflow and no C++ runner chain. The org-wide
+`GH_RUNNER_CPP` variable is read by nothing and is being deleted under #517.
 
 `ubuntu-latest` is the last-resort literal in every expression. It is only
 reached when the org variable is unset; with `GH_RUNNER_DEFAULT` set, every repo
@@ -86,8 +83,8 @@ The self-hosted fleet is ARC scale sets carrying two axes:
 |---|---|
 | `arc-vanilla-4cpu` | what a repo gets when it asks for nothing |
 | `arc-vanilla-16cpu` | grunt without the compiler estate |
-| `arc-native-4cpu` | a hyperi-ci project that is not Rust or C++: it wants the pre-baked toolchain, not sixteen cores to run ruff |
-| `arc-native-16cpu` | Rust and C++ |
+| `arc-native-4cpu` | a hyperi-ci project that is not Rust: it wants the pre-baked toolchain, not sixteen cores to run ruff |
+| `arc-native-16cpu` | Rust |
 | `arc-debian-4cpu` | .deb packaging |
 | `arc-debian-16cpu` | .deb packaging that needs the cores |
 
@@ -114,8 +111,8 @@ live AutoscalingRunnerSets on 2026-10-03:
 | Tier | CPUs | RAM | Typical use |
 |---|---|---|---|
 | 4cpu | 4 | 8Gi | lint, test, publish, tag; Python / Node.js builds, small Rust crates |
-| 8cpu | 8 | 16Gi | medium Rust / C++ builds, integration tests |
-| 16cpu | 16 | 24Gi | large Rust / C++ release builds, ClickHouse |
+| 8cpu | 8 | 16Gi | medium Rust builds, integration tests |
+| 16cpu | 16 | 24Gi | large Rust release builds, ClickHouse |
 
 There is no 2cpu tier. GitHub-hosted equivalents of these tiers, and how to switch to them: [hosted-larger-runners.md](hosted-larger-runners.md).
 

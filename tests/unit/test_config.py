@@ -5,8 +5,6 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import pytest
@@ -182,6 +180,19 @@ class TestLoadConfig:
         monkeypatch.setenv("HYPERCI_LANGUAGE", "golang")
         config = load_config(reload=True, project_dir=tmp_path)
         assert config.get("language") == "golang"
+
+    def test_go_default_targets_are_linux_and_darwin(self, tmp_path: Path) -> None:
+        """No Windows build unless a project asks for one."""
+        import hyperi_ci.config as cfg_mod
+
+        cfg_mod._config_cache = None
+        config = load_config(reload=True, project_dir=tmp_path)
+        assert config.get("build.golang.targets") == [
+            "linux/amd64",
+            "linux/arm64",
+            "darwin/amd64",
+            "darwin/arm64",
+        ]
 
 
 class TestProjectStatus:

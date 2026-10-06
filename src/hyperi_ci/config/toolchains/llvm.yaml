@@ -1,121 +1,42 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/config/toolchains/llvm.yaml
-# Purpose:   Multi-version LLVM/Clang toolchain install from apt.llvm.org
+# Purpose:   The default LLVM/Clang toolchain the runner image bakes, from apt.llvm.org
 #
-# Schema (shared with native-deps/, plus the `versions:` list):
-#   name:           Human-readable label (log line gets " v{V}" suffix per version)
-#   versions:       List of LLVM major versions. Each entry below is expanded
-#                   into N DepGroups with `{V}` substituted everywhere.
-#   patterns:       Manifest substrings that trigger install in conditional
-#                   mode. Ignored in `--all` mode (runner image bake).
-#   manifest_files: Files to search for patterns.
-#   dpkg_check:     dpkg package name -- skips install if present.
-#   apt_repos:      APT repos to add before installing. An entry may carry
-#                   key_fingerprint: the primary-key fingerprint the downloaded
-#                   key must match, else the install is refused.
-#   apt_packages:   Packages to install.
+# Schema: the native-deps schema (see native-deps/rust.yaml), plus `bake:`
+# (see docs/runtime/runner-image.md).
 #
-# Per LLVM/Clang standards (23 BOLT/lld default, 22 C++ stable, 21 for
-# ClickHouse fork CI, 20 as intermediate, 19 for ClickHouse OSS
-# compatibility). BOLT (post-link optimiser) bundled per-version, ld.lld
-# linker required for BOLT's `--emit-relocs` flow.
+# One major only: `${HYPERCI_LLVM_DEFAULT}`, which is versions.yaml
+# `runtimes.llvm`. Moving to a new LLVM is that one line, and the image
+# follows it on its next bake. The env var and `build.rust.llvm_version` do
+# not apply here, so where the bake runs cannot change what it bakes. A
+# project that designates another major gets bolt-NN, lld-NN and clang-NN at
+# job time from native-deps/rust.yaml.
 #
 # apt.llvm.org provides llvm-toolchain-{noble,trixie,resolute}-NN repos
-# for each version. The `${OS_CODENAME}` placeholder (used in apt_repos
-# below) is resolved at load time from the `$OS_CODENAME` env var or
-# `lsb_release -cs`.
+# per major. `${OS_CODENAME}` is resolved at load time from the
+# `$OS_CODENAME` env var or `lsb_release -cs`.
 
-- name: llvm-toolchain
-  versions: [19, 20, 21, 22, 23]
-  # Conditional triggers (ignored in --all): any C/C++/Rust/CMake project
+- name: llvm-toolchain v${HYPERCI_LLVM_DEFAULT}
+  # Conditional triggers (ignored in --all): a Rust package or workspace root.
   patterns:
-    - "Cargo.toml"                   # Rust workspace marker
-    - "[package]"                    # Rust package marker (Cargo.toml)
-    - "CMakeLists.txt"               # CMake project
-    - "configure.ac"                 # Autotools project
-    - "c_std"                        # Meson C/C++ project
-    - "cpp_std"
-  manifest_files:
-    - Cargo.toml
-    - Cargo.lock
-    - CMakeLists.txt
-    - configure.ac
-    - meson.build
-    - .hyperi-ci.yaml
-  dpkg_check: clang-{V}
-  apt_repos:
-    - key_url: https://apt.llvm.org/llvm-snapshot.gpg.key
-      keyring: /usr/share/keyrings/llvm.gpg
-      # Published at https://apt.llvm.org/ -- a mismatch refuses the install.
-      key_fingerprint: 6084F3CF814B57C1CF12EFD515CF4D18AF4F7421
-      # ${OS_CODENAME} is substituted at load time from lsb_release -cs,
-      # so the same YAML works on noble, trixie, and resolute. {V} is
-      # substituted per-version by the multi-version expander.
-      url: https://apt.llvm.org/${OS_CODENAME}/
-      codename: llvm-toolchain-${OS_CODENAME}-{V}
-  # Only coinstallable-across-versions packages are listed here. apt.llvm.org
-  # marks the following with `Conflicts: <pkg>-x.y` so at most one version of
-  # each may be installed at a time:
-  #   - libc++-N-dev, libc++abi-N-dev, libomp-N-dev, libunwind-N-dev
-  #   - lldb-N  (via its `python3-lldb-N` dep which declares the conflict)
-  # Installing all four versions together fails with "held broken packages".
-  # BOLT and cargo-pgo do not require them (they operate on ELF post-link);
-  # projects that need lldb or libc++ runtime install the matching version
-  # themselves.
-  apt_packages:
-    - clang-{V}
-    - clang-tools-{V}
-    - clangd-{V}
-    - lld-{V}
-    - llvm-{V}
-    - llvm-{V}-dev
-    - llvm-{V}-tools
-    - libclang-{V}-dev
-    - libclang-rt-{V}-dev
-    - bolt-{V}
-
-# ---- Non-coinstallable toolset: install-on-demand standard ----
-#
-# lldb-N, libc++-N-dev, libc++abi-N-dev, libomp-N-dev, libunwind-N-dev all
-# declare `Conflicts: <pkg>-x.y` (or via a transitive dep that does) -- at most
-# one version may be installed concurrently. We cannot bake every version into
-# the runner image.
-#
-# Standard pattern: mark the entry `bake: false`. The `--all` mode (runner
-# image bake) SKIPS such entries entirely; they still install conditionally
-# at CI job time when the project's manifest patterns match. Jobs that need
-# these packages pay the ~5s apt-get cost once per runner pod.
-#
-# The YAML picks ONE version (22) for the single install-on-demand target.
-# Projects that need a different version install it themselves (version N's
-# `-dev` package uninstalls version M's, by apt's Conflicts).
-- name: llvm-non-coinstallable
-  bake: false
-  patterns:
-    - "Cargo.toml"
     - "[package]"
-    - "CMakeLists.txt"
-    - "configure.ac"
-    - "c_std"
-    - "cpp_std"
+    - "[workspace]"
   manifest_files:
     - Cargo.toml
-    - Cargo.lock
-    - CMakeLists.txt
-    - configure.ac
-    - meson.build
-    - .hyperi-ci.yaml
-  dpkg_check: libc++-22-dev
+  dpkg_check: clang-${HYPERCI_LLVM_DEFAULT}
   apt_repos:
     - key_url: https://apt.llvm.org/llvm-snapshot.gpg.key
       keyring: /usr/share/keyrings/llvm.gpg
       # Published at https://apt.llvm.org/ -- a mismatch refuses the install.
       key_fingerprint: 6084F3CF814B57C1CF12EFD515CF4D18AF4F7421
       url: https://apt.llvm.org/${OS_CODENAME}/
-      codename: llvm-toolchain-${OS_CODENAME}-22
+      codename: llvm-toolchain-${OS_CODENAME}-${HYPERCI_LLVM_DEFAULT}
   apt_packages:
-    - lldb-22
-    - libc++-22-dev
-    - libc++abi-22-dev
-    - libomp-22-dev
-    - libunwind-22-dev
+    - clang-${HYPERCI_LLVM_DEFAULT}
+    - lld-${HYPERCI_LLVM_DEFAULT}
+    - llvm-${HYPERCI_LLVM_DEFAULT}
+    - llvm-${HYPERCI_LLVM_DEFAULT}-dev
+    - llvm-${HYPERCI_LLVM_DEFAULT}-tools
+    - libclang-${HYPERCI_LLVM_DEFAULT}-dev
+    - libclang-rt-${HYPERCI_LLVM_DEFAULT}-dev
+    - bolt-${HYPERCI_LLVM_DEFAULT}

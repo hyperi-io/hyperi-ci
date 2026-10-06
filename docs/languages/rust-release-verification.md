@@ -90,6 +90,7 @@ Rust build optimisation: channel=release, allocator=jemalloc, lto=fat, pgo=on, b
 PGO: building instrumented binary for <triple>
 PGO: building optimised binary for <triple>
 LLVM 23 (versions.yaml): ld.lld -> /usr/bin/ld.lld-23
+LLVM 23 (versions.yaml): clang -> /usr/bin/clang-23, clang++ -> /usr/bin/clang++-23
 LLVM 23 (versions.yaml): llvm-bolt -> /usr/bin/llvm-bolt-23, merge-fdata -> /usr/bin/merge-fdata-23, ld.lld -> /usr/bin/ld.lld-23
 BOLT: building instrumented binary for <triple> (linker forced to lld)
 BOLT: optimising binary for <triple> (using PGO + BOLT profiles, linker=lld)

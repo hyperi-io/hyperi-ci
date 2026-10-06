@@ -20,7 +20,6 @@
 # mold: fast linker (5-10x faster linking). Selected either by a repo's own
 # .cargo/config.toml, or by hyperi-ci itself when a large aarch64 PGO
 # instrument link overflows the R_AARCH64_CALL26 branch and needs thunks.
-# Does NOT affect C++ builds - this is Rust-only config.
 #
 # A virtual workspace root has only `[workspace]` and no `[package]`, so
 # matching `[package]` alone skipped the install for a repo that does set
@@ -36,7 +35,9 @@
   apt_packages:
     - mold
 
-# sccache build dep: clang is needed as the linker when mold is configured
+# Unversioned `clang`, for a repo whose cargo config drives the link with
+# `linker = "clang"`: quality, test and a plain build run no shim, so they
+# link with whatever major this is.
 - name: clang linker
   patterns:
     - "[package]"
@@ -46,6 +47,33 @@
   dpkg_check: clang
   apt_packages:
     - clang
+
+# clang at the designated LLVM major. The distro's unversioned `clang` is
+# whatever major the runner's Ubuntu ships, so a PGO build's link takes this
+# one instead: pgo.py shims `clang`/`clang++` to it, the way it does `ld.lld`.
+# Same apt.llvm.org source and placeholder as the llvm-bolt entry below.
+#
+# Only a repo whose cargo config links through clang gets it. Every other
+# Rust job would pay an apt.llvm.org fetch it never uses, and libclang1-NN,
+# which comes with it, can change the libclang bindgen picks.
+- name: llvm-clang
+  patterns:
+    - 'linker = "clang'
+    - 'linker="clang'
+    - "linker=clang"
+  manifest_files:
+    - .cargo/config.toml
+    - .cargo/config
+  dpkg_check: clang-${HYPERCI_LLVM_VERSION}
+  apt_repos:
+    - key_url: https://apt.llvm.org/llvm-snapshot.gpg.key
+      keyring: /usr/share/keyrings/llvm.gpg
+      # Published at https://apt.llvm.org/ -- a mismatch refuses the install.
+      key_fingerprint: 6084F3CF814B57C1CF12EFD515CF4D18AF4F7421
+      url: https://apt.llvm.org/${OS_CODENAME}/
+      codename: llvm-toolchain-${OS_CODENAME}-${HYPERCI_LLVM_VERSION}
+  apt_packages:
+    - clang-${HYPERCI_LLVM_VERSION}
 
 # --- LLVM BOLT (post-link optimisation) ---
 # Tier 2 release-track optimisation. Always installed for Rust projects
@@ -60,9 +88,7 @@
 # placeholder: the env var, then `build.rust.llvm_version` in
 # .hyperi-ci.yaml, then versions.yaml `llvm`. The distro
 # subpath is `${OS_CODENAME}` (from $OS_CODENAME or lsb_release -cs) so
-# the same entry works on noble, trixie and resolute. C++/ClickHouse
-# fork uses its own pinned toolchain (no conflict, every binary is
-# version-suffixed).
+# the same entry works on noble, trixie and resolute.
 #
 # Idempotency: hyperi-ci's _add_apt_repo scans ALL files in
 # /etc/apt/sources.list{,.d} before writing, so if the runner image

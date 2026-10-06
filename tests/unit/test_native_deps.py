@@ -18,7 +18,8 @@ from unittest.mock import patch
 
 import pytest
 
-from hyperi_ci import common, native_deps
+from hyperi_ci import common, llvm_version, native_deps
+from hyperi_ci.llvm_version import LLVMVersionError
 from hyperi_ci.native_deps import (
     AptRepo,
     _add_apt_repo,
@@ -27,6 +28,7 @@ from hyperi_ci.native_deps import (
     _repo_already_configured,
     _sudo_prefix,
 )
+from hyperi_ci.versions import runtime_version
 
 
 def _seed_apt_tree(tmp_path: Path, files: dict[str, str]) -> tuple[Path, Path]:
@@ -273,8 +275,9 @@ class TestAddAptRepoIdempotency:
     ) -> None:
         """Multiple _add_apt_repo calls sharing a keyring must accumulate.
 
-        Multi-version toolchains (LLVM 19/20/21/22) reuse one keyring file,
-        which derives one sources filename. Before v1.11.1 the writer used
+        Every apt.llvm.org entry reuses one keyring file, and the baked default
+        and a project's designated major can differ, so one sources filename
+        carries a line per major. Before v1.11.1 the writer used
         `tee` (overwrite), so only the last version's `deb` line survived.
         Regression check: after four calls the file contains four lines.
         """
@@ -600,7 +603,88 @@ class TestDepGroupLoading:
         monkeypatch.setenv("OS_CODENAME", "noble")
         assert _expand_template_vars("pkg-${OS_CODENAME}") == "pkg-noble"
 
-    # The three groups every Rust project gets regardless of its dependencies.
+    def test_rust_yaml_clang_follows_the_designated_major(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """clang-NN comes from the same apt.llvm.org major as bolt-NN."""
+        monkeypatch.delenv("HYPERCI_LLVM_VERSION", raising=False)
+        monkeypatch.setenv("OS_CODENAME", "noble")
+        (tmp_path / ".hyperi-ci.yaml").write_text(
+            "build:\n  rust:\n    llvm_version: 21\n", encoding="utf-8"
+        )
+        groups = _load_dep_groups("rust", project_dir=tmp_path)
+        clang = next(g for g in groups if g.name == "llvm-clang")
+        bolt = next(g for g in groups if g.name == "llvm-bolt")
+        assert clang.dpkg_check == "clang-21"
+        assert clang.apt_packages == ["clang-21"]
+        assert clang.apt_repos[0].codename == bolt.apt_repos[0].codename
+        assert clang.apt_repos[0].key_fingerprint == bolt.apt_repos[0].key_fingerprint
+
+    def test_rust_yaml_clang_defaults_to_versions_yaml(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.delenv("HYPERCI_LLVM_VERSION", raising=False)
+        monkeypatch.setenv("OS_CODENAME", "noble")
+        groups = _load_dep_groups("rust", project_dir=tmp_path)
+        clang = next(g for g in groups if g.name == "llvm-clang")
+        assert clang.dpkg_check == f"clang-{runtime_version('llvm')}"
+
+    @staticmethod
+    def _conditional_install(
+        monkeypatch: pytest.MonkeyPatch, project: Path
+    ) -> list[str]:
+        """Packages a CI-time `install-native-deps rust` would install."""
+        monkeypatch.delenv("HYPERCI_LLVM_VERSION", raising=False)
+        monkeypatch.setenv("OS_CODENAME", "noble")
+        monkeypatch.setattr(native_deps.platform, "system", lambda: "Linux")
+        monkeypatch.setattr(native_deps, "_is_dpkg_installed", lambda *_a: False)
+        monkeypatch.setattr(native_deps, "_add_apt_repo", lambda _repo: 0)
+        monkeypatch.setattr(native_deps, "_install_language_tools", lambda _l: 0)
+        installed: list[str] = []
+        monkeypatch.setattr(
+            native_deps, "_apt_install", lambda pkgs: installed.extend(pkgs) or 0
+        )
+        assert native_deps.install_native_deps("rust", project_dir=project) == 0
+        return installed
+
+    @pytest.mark.parametrize(
+        "cargo_config",
+        [
+            '[target.x86_64-unknown-linux-gnu]\nlinker = "clang"\n',
+            '[target.aarch64-unknown-linux-gnu]\nlinker="clang"\n',
+            '[build]\nrustflags = ["-C", "linker=clang"]\n',
+        ],
+    )
+    def test_clang_nn_installs_for_a_repo_that_links_through_clang(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, cargo_config: str
+    ) -> None:
+        (tmp_path / "Cargo.toml").write_text('[package]\nname = "app"\n')
+        (tmp_path / ".cargo").mkdir()
+        (tmp_path / ".cargo" / "config.toml").write_text(cargo_config)
+        installed = self._conditional_install(monkeypatch, tmp_path)
+        assert f"clang-{runtime_version('llvm')}" in installed
+
+    @pytest.mark.parametrize(
+        "cargo_config",
+        [
+            None,
+            '[target.x86_64-unknown-linux-gnu]\nlinker = "gcc"\n',
+            '[target.aarch64-unknown-linux-gnu]\nlinker = "aarch64-linux-gnu-gcc"\n',
+        ],
+    )
+    def test_clang_nn_stays_off_a_repo_that_does_not(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, cargo_config: str | None
+    ) -> None:
+        """No apt.llvm.org clang, and no libclang1-NN, for a gcc-linked repo."""
+        (tmp_path / "Cargo.toml").write_text('[package]\nname = "app"\n')
+        if cargo_config is not None:
+            (tmp_path / ".cargo").mkdir()
+            (tmp_path / ".cargo" / "config.toml").write_text(cargo_config)
+        installed = self._conditional_install(monkeypatch, tmp_path)
+        assert f"clang-{runtime_version('llvm')}" not in installed
+        assert f"bolt-{runtime_version('llvm')}" in installed
+
+    # The groups every Rust project gets regardless of its dependencies.
     _ALWAYS_ON = ("mold linker", "clang linker", "llvm-bolt")
 
     @pytest.mark.parametrize("group_name", _ALWAYS_ON)
@@ -615,61 +699,112 @@ class TestDepGroupLoading:
     def test_rust_yaml_always_on_group_matches_a_virtual_workspace_root(
         self, group_name: str
     ) -> None:
-        """A virtual workspace root has no [package] and still needs all three."""
+        """A virtual workspace root has no [package] and still needs every one."""
         group = next(g for g in _load_dep_groups("rust") if g.name == group_name)
         manifest = '[workspace]\nmembers = ["crates/archiver"]\nresolver = "2"\n'
         assert native_deps._patterns_match(manifest, group.patterns)
 
 
 class TestMultiVersionToolchains:
-    """Toolchains category expands `versions:` list into N DepGroups.
+    """The toolchains category, and its `versions:` expansion.
 
-    One YAML entry with `versions: [19, 20, 21, 22]` becomes four DepGroups
-    with `{V}` substituted in `dpkg_check`, `apt_repos[*].codename`, and
-    every `apt_packages[*]`. The `name` is suffixed " vN" so log lines
-    distinguish versions.
+    One YAML entry with `versions: [13, 14]` becomes two DepGroups with `{V}`
+    substituted in `dpkg_check`, `apt_repos[*].codename`, and every
+    `apt_packages[*]`. The `name` is suffixed " vN" so log lines distinguish
+    versions. LLVM carries no list: it bakes versions.yaml `llvm` alone.
     """
 
-    def test_llvm_yaml_expands_to_one_group_per_version(
+    def test_llvm_yaml_bakes_one_group_for_the_default_major(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("OS_CODENAME", "noble")
+        major = runtime_version("llvm")
         groups = _load_dep_groups("llvm", category="toolchains")
-        # LLVM YAML: versions [19,20,21,22,23] expand to 5 coinstallable
-        # groups plus 1 non-coinstallable singleton (bake: false) = 6 total.
-        multi_names = [g.name for g in groups if g.name.startswith("llvm-toolchain v")]
-        singleton_names = [g.name for g in groups if g.name == "llvm-non-coinstallable"]
-        assert multi_names == [
-            "llvm-toolchain v19",
-            "llvm-toolchain v20",
-            "llvm-toolchain v21",
-            "llvm-toolchain v22",
-            "llvm-toolchain v23",
-        ]
-        assert singleton_names == ["llvm-non-coinstallable"]
-        assert len(groups) == 6
+        assert [g.name for g in groups] == [f"llvm-toolchain v{major}"]
+        llvm = groups[0]
+        assert llvm.bake is True
+        assert llvm.dpkg_check == f"clang-{major}"
+        assert {f"clang-{major}", f"lld-{major}", f"bolt-{major}"} <= set(
+            llvm.apt_packages
+        )
+        assert llvm.apt_repos[0].codename == f"llvm-toolchain-noble-{major}"
+        assert not any("${" in p for p in llvm.apt_packages)
 
-    def test_llvm_non_coinstallable_entry_is_install_on_demand(
+    def test_llvm_yaml_ignores_the_designated_major(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Neither the env var nor a project pin can move what the image bakes."""
+        monkeypatch.setenv("OS_CODENAME", "noble")
+        monkeypatch.setenv("HYPERCI_LLVM_VERSION", "19")
+        (tmp_path / ".hyperi-ci.yaml").write_text(
+            "build:\n  rust:\n    llvm_version: 21\n", encoding="utf-8"
+        )
+        major = runtime_version("llvm")
+        groups = _load_dep_groups("llvm", category="toolchains", project_dir=tmp_path)
+        assert [g.dpkg_check for g in groups] == [f"clang-{major}"]
+
+    def test_bad_default_llvm_fails_the_bake(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The non-coinstallable entry bundles the one-version-only packages.
+        monkeypatch.setattr(llvm_version, "runtime_version", lambda _name: "latest")
+        with pytest.raises(LLVMVersionError, match="runtimes.llvm"):
+            _load_dep_groups("llvm", category="toolchains")
 
-        Marked bake: false -- skipped in --all mode (runner image), installed
-        conditionally at CI job time when manifest patterns match.
+    def test_a_bake_splits_default_and_designated(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """install-all with HYPERCI_LLVM_VERSION set bakes two majors.
+
+        toolchains/llvm.yaml stays on versions.yaml `llvm`, while the
+        native-deps bolt, lld and clang follow the designated major.
         """
         monkeypatch.setenv("OS_CODENAME", "noble")
-        groups = _load_dep_groups("llvm", category="toolchains")
-        non_coinst = next(g for g in groups if g.name == "llvm-non-coinstallable")
-        # These all declare Conflicts: <pkg>-x.y on apt.llvm.org
-        assert "lldb-22" in non_coinst.apt_packages
-        assert "libc++-22-dev" in non_coinst.apt_packages
-        assert "libc++abi-22-dev" in non_coinst.apt_packages
-        assert "libomp-22-dev" in non_coinst.apt_packages
-        assert "libunwind-22-dev" in non_coinst.apt_packages
-        # Entry must NOT include the coinstallable multi-version packages
-        assert "clang-22" not in non_coinst.apt_packages
-        # Most importantly: marked install-on-demand
-        assert non_coinst.bake is False
+        monkeypatch.setenv("HYPERCI_LLVM_VERSION", "19")
+        major = runtime_version("llvm")
+
+        toolchain = _load_dep_groups(
+            "llvm", category="toolchains", project_dir=tmp_path
+        )
+        rust = _load_dep_groups("rust", project_dir=tmp_path)
+
+        assert [g.dpkg_check for g in toolchain] == [f"clang-{major}"]
+        assert next(g for g in rust if g.name == "llvm-bolt").dpkg_check == "bolt-19"
+        assert next(g for g in rust if g.name == "llvm-clang").dpkg_check == "clang-19"
+
+    @staticmethod
+    def _no_llvm_runtime(_name: str) -> str:
+        raise KeyError("`runtimes.llvm` is missing from versions.yaml")
+
+    def test_missing_default_llvm_fails_the_bake_cleanly(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """An error line and exit 1, never a KeyError traceback."""
+        monkeypatch.setattr(llvm_version, "runtime_version", self._no_llvm_runtime)
+        monkeypatch.setattr(native_deps.platform, "system", lambda: "Linux")
+        errors: list[str] = []
+        monkeypatch.setattr(native_deps.logger, "error", errors.append)
+
+        rc = native_deps.install_native_deps(
+            "llvm", project_dir=tmp_path, category="toolchains", all_mode=True
+        )
+
+        assert rc == 1
+        assert len(errors) == 1
+        assert "runtimes.llvm" in errors[0]
+
+    def test_missing_default_llvm_on_dry_run_is_an_error_not_a_traceback(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setattr(llvm_version, "runtime_version", self._no_llvm_runtime)
+        errors: list[str] = []
+        monkeypatch.setattr(native_deps.logger, "error", errors.append)
+
+        native_deps.print_needed(
+            "llvm", project_dir=tmp_path, category="toolchains", all_mode=True
+        )
+
+        assert len(errors) == 1
+        assert "runtimes.llvm" in errors[0]
 
 
 class TestBakeFlag:
@@ -685,8 +820,8 @@ class TestBakeFlag:
     ) -> None:
         """Existing YAMLs without a `bake` key stay unconditionally baked."""
         monkeypatch.setenv("OS_CODENAME", "noble")
-        groups = _load_dep_groups("llvm", category="toolchains")
-        multi = next(g for g in groups if g.name == "llvm-toolchain v22")
+        groups = _load_dep_groups("gcc", category="toolchains")
+        multi = next(g for g in groups if g.name == "gcc-toolchain v14")
         assert multi.bake is True
 
     def test_all_mode_skips_bake_false_entries(
@@ -780,24 +915,22 @@ class TestBakeFlag:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("OS_CODENAME", "noble")
-        groups = _load_dep_groups("llvm", category="toolchains")
-        v22 = next(g for g in groups if g.name.endswith("v22"))
-        assert v22.dpkg_check == "clang-22"
-        assert "clang-22" in v22.apt_packages
-        assert "bolt-22" in v22.apt_packages
-        assert "libclang-rt-22-dev" in v22.apt_packages
+        groups = _load_dep_groups("gcc", category="toolchains")
+        v14 = next(g for g in groups if g.name.endswith("v14"))
+        assert v14.dpkg_check == "gcc-14"
+        assert v14.apt_packages == ["gcc-14", "g++-14", "libstdc++-14-dev"]
         # {V} must not leak into the final packages
-        assert not any("{V}" in p for p in v22.apt_packages)
+        assert not any("{V}" in p for p in v14.apt_packages)
 
     def test_substitutes_os_codename_and_version_in_repo(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Repo URL takes OS codename; repo codename takes both OS + version."""
         monkeypatch.setenv("OS_CODENAME", "resolute")
+        major = runtime_version("llvm")
         groups = _load_dep_groups("llvm", category="toolchains")
-        v21 = next(g for g in groups if g.name.endswith("v21"))
-        assert v21.apt_repos[0].url == "https://apt.llvm.org/resolute/"
-        assert v21.apt_repos[0].codename == "llvm-toolchain-resolute-21"
+        assert groups[0].apt_repos[0].url == "https://apt.llvm.org/resolute/"
+        assert groups[0].apt_repos[0].codename == f"llvm-toolchain-resolute-{major}"
 
     def test_gcc_expansion_no_repos(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """GCC uses distro repos -- empty apt_repos after expansion."""
