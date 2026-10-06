@@ -14,9 +14,9 @@
 > path in the codebase anymore.
 >
 > **The publishing migration is done; the storage is not.** The repos
-> below marked Keep still serve Telstra production and the Nuitka
-> licence, so "Current State", "Active Telstra Pulls" and "What Stays
-> on JFrog" are LIVE operational facts. Read everything else as a
+> below marked Keep still serve Telstra production, so "Current State",
+> "Active Telstra Pulls" and "What Stays on JFrog" are LIVE operational
+> facts. Read everything else as a
 > record of the v1 -> v2 transition.
 
 Reduce JFrog to two roles: Telstra artifact delivery and private package
@@ -87,7 +87,7 @@ flowchart TB
 | Repository | Size | Purpose | Verdict |
 |---|---|---|---|
 | `hypersec-docker-local` | 52.3 GB | Legacy DFE 1.x + Telstra images | **Keep (Telstra)** |
-| `hypersec-pypi-local` | 7.4 GB | Nuitka-Commercial + legacy packages | **Keep (Nuitka license)** |
+| `hypersec-pypi-local` | - | Nuitka-Commercial + legacy packages | **Pruned 2026-09-23** (archived, restorable) |
 | `hyperi-docker-local` | 6.6 GB | ci-runner + dfe-loader container | **Migrate to GHCR** |
 | `hyperi-binaries` | 2.0 GB | dfe-loader binary artifacts | **Delete (already on R2 + GH Releases)** |
 | `hypersec-terraform` | 1.3 GB | Terraform state backend | **Keep (or move to S3 later)** |
@@ -167,7 +167,7 @@ through GitHub regardless of target.
 
 | Repository | Purpose | Exit condition |
 |---|---|---|
-| `hypersec-pypi-local` | Nuitka-Commercial license delivery (auto-synced) | Drop Nuitka or find alt delivery |
+| `hypersec-pypi-local` | Was Nuitka-Commercial licence delivery. Pruned 2026-09-23 after an archive; nothing compiles with Nuitka any more | Done |
 | `hypersec-terraform` | Terraform state backend (1.3 GB, 577 files) | Migrate to S3 / OpenTofu Cloud |
 
 ---
