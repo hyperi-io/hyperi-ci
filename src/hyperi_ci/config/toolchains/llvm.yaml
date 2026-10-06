@@ -33,8 +33,6 @@
       codename: llvm-toolchain-${OS_CODENAME}-${HYPERCI_LLVM_DEFAULT}
   apt_packages:
     - clang-${HYPERCI_LLVM_DEFAULT}
-    - clang-tools-${HYPERCI_LLVM_DEFAULT}
-    - clangd-${HYPERCI_LLVM_DEFAULT}
     - lld-${HYPERCI_LLVM_DEFAULT}
     - llvm-${HYPERCI_LLVM_DEFAULT}
     - llvm-${HYPERCI_LLVM_DEFAULT}-dev

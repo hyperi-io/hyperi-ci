@@ -104,7 +104,7 @@ This produces the pre-baked toolchains below, per the shipped YAML.
 
 ### LLVM (the versions.yaml default only)
 
-`clang-N`, `clang-tools-N`, `clangd-N`, `lld-N`, `llvm-N`, `llvm-N-dev`,
+`clang-N`, `lld-N`, `llvm-N`, `llvm-N-dev`,
 `llvm-N-tools`, `libclang-N-dev`, `libclang-rt-N-dev`, `bolt-N`
 
 ### GCC (coinstallable v13/14)
