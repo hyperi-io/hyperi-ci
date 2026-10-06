@@ -33,7 +33,7 @@ from hyperi_ci.languages.rust.pgo import (
     cargo_pgo_version_from,
     run_pgo_build,
 )
-from hyperi_ci.versions import tool_version
+from hyperi_ci.versions import runtime_version, tool_version
 
 
 @pytest.fixture(autouse=True)
@@ -49,6 +49,7 @@ def isolated_tool_home(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(pgo, "_BOLT_LINKER_DIR", tmp_path / "bolt-linker")
     monkeypatch.setenv("PATH", os.environ["PATH"])
+    monkeypatch.delenv("HYPERCI_LLVM_VERSION", raising=False)
 
 
 def _make_profile(
@@ -1976,3 +1977,202 @@ class TestEveryCompileSharesTheProfile:
             (calls[1][0], {"RUSTC_WRAPPER": ""}),
         ]
         assert [_step(args) for args, _ in calls] == ["build", "optimize"]
+
+
+class TestDesignatedLlvmWins:
+    """The designated LLVM major is the one linked with, whatever else is on PATH.
+
+    Mirrors the ARC image: `/usr/bin/ld.lld` is an alternatives link into LLVM
+    19 while `*-23` binaries sit beside it. Real executables on a real PATH, so
+    `shutil.which` answers the way it does on the runner.
+    """
+
+    _BOLT = ("llvm-bolt", "merge-fdata", "ld.lld")
+
+    @staticmethod
+    def _image(tmp_path: Path, majors: dict[int, tuple[str, ...]]) -> Path:
+        """Build a fake /usr/bin: an unversioned ld.lld into LLVM 19, plus ``majors``."""
+        usr_bin = tmp_path / "usr-bin"
+        llvm19_lld = _executable(tmp_path / "usr-lib" / "llvm-19" / "bin" / "lld")
+        usr_bin.mkdir(parents=True, exist_ok=True)
+        (usr_bin / "ld.lld").symlink_to(llvm19_lld)
+        for major, names in majors.items():
+            for name in names:
+                _executable(usr_bin / f"{name}-{major}")
+        return usr_bin
+
+    @staticmethod
+    def _shim_dir(tmp_path: Path) -> Path:
+        return tmp_path / "home" / ".local" / "bin"
+
+    @staticmethod
+    def _capture(monkeypatch, name: str) -> list[str]:
+        lines: list[str] = []
+        monkeypatch.setattr(pgo, name, lines.append)
+        return lines
+
+    @staticmethod
+    def _resolves_to(name: str) -> Path:
+        """The real file a child process gets when it runs ``name``."""
+        found = pgo.shutil.which(name)
+        assert found is not None, f"{name} is not on PATH"
+        return Path(found).resolve()
+
+    def test_designated_ld_lld_wins_over_the_unversioned_one(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        usr_bin = self._image(tmp_path, {19: ("ld.lld",), 23: ("ld.lld",)})
+        monkeypatch.setenv("PATH", str(usr_bin))
+        monkeypatch.setenv("HYPERCI_LLVM_VERSION", "23")
+        warnings = self._capture(monkeypatch, "warn")
+
+        assert _ensure_ld_lld_available() is True
+
+        shim_dir = self._shim_dir(tmp_path)
+        assert os.environ["PATH"].split(os.pathsep)[0] == str(shim_dir)
+        assert pgo.shutil.which("ld.lld") == str(shim_dir / "ld.lld")
+        assert self._resolves_to("ld.lld") == (usr_bin / "ld.lld-23").resolve()
+        assert warnings == []
+
+    def test_shim_dir_already_on_path_is_moved_ahead_of_usr_bin(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        usr_bin = self._image(tmp_path, {23: ("ld.lld",)})
+        shim_dir = self._shim_dir(tmp_path)
+        monkeypatch.setenv("PATH", os.pathsep.join([str(usr_bin), str(shim_dir)]))
+        monkeypatch.setenv("HYPERCI_LLVM_VERSION", "23")
+
+        assert _ensure_ld_lld_available() is True
+
+        entries = os.environ["PATH"].split(os.pathsep)
+        assert entries == [str(shim_dir), str(usr_bin)]
+        assert pgo.shutil.which("ld.lld") == str(shim_dir / "ld.lld")
+
+    def test_info_line_names_version_source_and_paths(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """The release log has to show which lld linked, and why that one."""
+        major = int(runtime_version("llvm"))
+        usr_bin = self._image(tmp_path, {major: ("ld.lld",)})
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("PATH", str(usr_bin))
+        lines = self._capture(monkeypatch, "info")
+
+        assert _ensure_ld_lld_available() is True
+
+        assert lines == [
+            f"LLVM {major} (versions.yaml): ld.lld -> {usr_bin / f'ld.lld-{major}'}"
+        ]
+
+    def test_info_line_names_the_project_config(self, tmp_path, monkeypatch) -> None:
+        usr_bin = self._image(tmp_path, {21: self._BOLT})
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / ".hyperi-ci.yaml").write_text(
+            "build:\n  rust:\n    llvm_version: 21\n", encoding="utf-8"
+        )
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("PATH", str(usr_bin))
+        lines = self._capture(monkeypatch, "info")
+
+        assert _ensure_llvm_bolt_available() is True
+
+        assert lines == [
+            "LLVM 21 (.hyperi-ci.yaml): "
+            f"llvm-bolt -> {usr_bin / 'llvm-bolt-21'}, "
+            f"merge-fdata -> {usr_bin / 'merge-fdata-21'}, "
+            f"ld.lld -> {usr_bin / 'ld.lld-21'}"
+        ]
+
+    def test_bolt_and_ld_lld_resolve_to_the_same_major(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """The ARC bug: ld.lld hit the unversioned 19 while BOLT took 23."""
+        usr_bin = self._image(tmp_path, {19: self._BOLT, 23: self._BOLT})
+        monkeypatch.setenv("PATH", str(usr_bin))
+        monkeypatch.setenv("HYPERCI_LLVM_VERSION", "23")
+
+        assert _ensure_ld_lld_available() is True
+        assert _ensure_llvm_bolt_available() is True
+
+        for name in self._BOLT:
+            assert self._resolves_to(name) == (usr_bin / f"{name}-23").resolve()
+
+    def test_incomplete_designated_bolt_moves_ld_lld_with_it(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """24 has only lld, so BOLT falls back to 23 and takes ld.lld along."""
+        usr_bin = self._image(tmp_path, {23: self._BOLT, 24: ("ld.lld",)})
+        monkeypatch.setenv("PATH", str(usr_bin))
+        monkeypatch.setenv("HYPERCI_LLVM_VERSION", "24")
+        warnings = self._capture(monkeypatch, "warn")
+
+        assert _ensure_ld_lld_available() is True
+        assert _ensure_llvm_bolt_available() is True
+
+        for name in self._BOLT:
+            assert self._resolves_to(name) == (usr_bin / f"{name}-23").resolve()
+        assert len(warnings) == 1
+        assert "designated LLVM 24" in warnings[0]
+        assert "llvm-bolt-24, merge-fdata-24 not found" in warnings[0]
+        assert "using LLVM 23 instead" in warnings[0]
+
+    def test_scan_fallback_warns_with_both_majors(self, tmp_path, monkeypatch) -> None:
+        usr_bin = tmp_path / "usr-bin"
+        _executable(usr_bin / "ld.lld-21")
+        monkeypatch.setenv("PATH", str(usr_bin))
+        monkeypatch.setenv("HYPERCI_LLVM_VERSION", "23")
+        warnings = self._capture(monkeypatch, "warn")
+        lines = self._capture(monkeypatch, "info")
+
+        assert _ensure_ld_lld_available() is True
+
+        assert warnings == [
+            "designated LLVM 23 (HYPERCI_LLVM_VERSION) is incomplete, "
+            "ld.lld-23 not found -- using LLVM 21 instead"
+        ]
+        assert lines == [
+            f"LLVM 21 (fallback from 23): ld.lld -> {usr_bin / 'ld.lld-21'}"
+        ]
+
+    def test_unversioned_fallback_warns_and_names_the_real_binary(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        usr_bin = self._image(tmp_path, {})
+        monkeypatch.setenv("PATH", str(usr_bin))
+        monkeypatch.setenv("HYPERCI_LLVM_VERSION", "23")
+        warnings = self._capture(monkeypatch, "warn")
+        lines = self._capture(monkeypatch, "info")
+
+        assert _ensure_ld_lld_available() is True
+
+        assert len(warnings) == 1
+        assert "designated LLVM 23" in warnings[0]
+        assert "unversioned tools already on PATH" in warnings[0]
+        real = (tmp_path / "usr-lib" / "llvm-19" / "bin" / "lld").resolve()
+        assert lines == [f"LLVM unversioned (fallback from 23): ld.lld -> {real}"]
+        assert not (self._shim_dir(tmp_path) / "ld.lld").exists()
+
+    def test_a_bad_designated_version_fails_the_build_up_front(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("HYPERCI_LLVM_VERSION", "latest")
+        monkeypatch.setattr(pgo, "_ensure_cargo_pgo_installed", lambda: True)
+        errors = self._capture(monkeypatch, "error")
+        cargo: list[str] = []
+        monkeypatch.setattr(
+            pgo, "_run_cargo_pgo", lambda *a, **k: cargo.append("ran") or 0
+        )
+
+        rc = run_pgo_build(
+            target="x86_64-unknown-linux-gnu",
+            profile=_make_profile(),
+            binary_name="app",
+            cwd=tmp_path,
+        )
+
+        assert rc == 1
+        assert cargo == []
+        assert len(errors) == 1
+        assert "HYPERCI_LLVM_VERSION" in errors[0]
+        assert "'latest'" in errors[0]

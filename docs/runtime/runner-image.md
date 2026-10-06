@@ -78,7 +78,7 @@ The fields that say what it installs:
 |---|---|---|
 | `{V}` | per-version expansion (when `versions:` is set) | `19`, `20`, `21`, `22`, `23` |
 | `${OS_CODENAME}` | `lsb_release -cs` or `OS_CODENAME` env var | `noble`, `trixie`, `resolute` |
-| `${HYPERCI_LLVM_VERSION}` | `HYPERCI_LLVM_VERSION` env var (default `23`) | used by native-deps/rust.yaml for the BOLT version pin |
+| `${HYPERCI_LLVM_VERSION}` | the designated LLVM major: `HYPERCI_LLVM_VERSION` env var, then `build.rust.llvm_version` in `.hyperi-ci.yaml`, then versions.yaml `runtimes.llvm` (`23`) | used by native-deps/rust.yaml for the BOLT version pin |
 
 ## The `bake: false` flag - non-coinstallable toolsets
 
@@ -134,9 +134,12 @@ This produces the pre-baked toolchains below, per the shipped YAML.
 ### Default `clang`, `lld`, `ld.lld` alternatives
 
 Point at v19 (ClickHouse OSS compatibility). BOLT's cargo-pgo flow invokes the
-unversioned `ld.lld`. hyperi-ci's `_ensure_llvm_bolt_available()` in
-`languages/rust/pgo.py` shims versioned binaries into `~/.local/bin` at runtime
-when a specific `HYPERCI_LLVM_VERSION` is requested.
+unversioned `ld.lld`, so these defaults do NOT decide the Rust link. A PGO build
+shims the designated major's `ld.lld-NN`, `llvm-bolt-NN` and `merge-fdata-NN`
+into `~/.local/bin` and puts it first on PATH, ahead of the v19 links. The
+designated major is `HYPERCI_LLVM_VERSION`, then `build.rust.llvm_version` in
+`.hyperi-ci.yaml`, then versions.yaml `runtimes.llvm`. The image only has to
+carry that major. The build log names it: `LLVM 23 (versions.yaml): ld.lld -> /usr/bin/ld.lld-23`.
 
 ### Skipped at image bake (install-on-demand)
 

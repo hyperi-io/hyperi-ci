@@ -71,12 +71,15 @@ You benefit from the fix already being in hyperi-ci v1.10.4+; knowing
 4. **`bolt-NN` ships binaries version-suffixed only.** No unversioned
    `/usr/bin/llvm-bolt` or `/usr/bin/merge-fdata`. hyperi-ci's
    `_ensure_llvm_bolt_available()` shims both into `~/.local/bin/` at
-   the configured LLVM version.
+   the designated LLVM version, with `ld.lld`, ahead of anything else on
+   PATH.
 
 5. **apt.llvm.org isn't in default Ubuntu repos.** hyperi-ci adds it via
    `native-deps/rust.yaml` if missing; self-hosted runners that
    pre-provision trigger our scheme-agnostic dedup and are left alone.
 
-6. **LLVM version is a parameter.** `HYPERCI_LLVM_VERSION` env var
-   (default `23`) controls which bolt-NN gets used. Consumer projects
+6. **LLVM version is a parameter.** The `HYPERCI_LLVM_VERSION` env var,
+   then `build.rust.llvm_version` in `.hyperi-ci.yaml`, then versions.yaml
+   `runtimes.llvm` (`23`) decide which bolt-NN and lld-NN get used. That
+   major wins over the runner's unversioned `ld.lld`. Consumer projects
    don't override unless they need a specific LLVM major.

@@ -95,9 +95,9 @@ When BOLT will run, every compile of the pipeline builds with `CARGO_PROFILE_REL
 
 ## LLVM version and running without a release
 
-`HYPERCI_LLVM_VERSION` (default `23`) controls which `bolt-NN` +
-`llvm-bolt-NN` + `merge-fdata-NN` + `ld.lld-NN` get used. Bump it in your project only
-if you need a specific LLVM major - otherwise trust the default.
+The designated LLVM major decides which `bolt-NN` + `llvm-bolt-NN` + `merge-fdata-NN` + `ld.lld-NN` get installed and used. Highest wins: the `HYPERCI_LLVM_VERSION` env var, then `build.rust.llvm_version` in `.hyperi-ci.yaml`, then versions.yaml `runtimes.llvm` (`23`). Set it only if you need a specific LLVM major.
+
+The designated major wins over a runner's own unversioned `ld.lld`, which on the ARC image points at LLVM 19. If it is not fully installed, the build warns, names the major it used instead, and still keeps the link and BOLT on one major.
 
 A run that publishes nothing builds Tier 1. The `optimize-tier: release` dispatch input builds Tier 2 on one validate-only run, so a PGO or BOLT fix no longer needs a release to test. How to run it, and what it costs: [`pgo-bolt.md`](../runtime/pgo-bolt.md) -> *Validating your workload locally* -> *Testing it in CI without a release*.
 

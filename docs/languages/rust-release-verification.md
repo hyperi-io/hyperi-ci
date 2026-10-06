@@ -20,7 +20,7 @@ The tiers themselves and the `.hyperi-ci.yaml` keys are [rust.md](rust.md).
 12:00 Workload complete, profile data: ~5 MiB collected
 12:00 PGO: building optimised binary (fresh compile with profile data)
 16:00 PGO-optimised build complete
-16:00 llvm-bolt + merge-fdata + ld.lld shim: ~/.local/bin/* -> /usr/bin/*-23
+16:00 LLVM 23 (versions.yaml): llvm-bolt, merge-fdata, ld.lld -> /usr/bin/*-23
 16:00 BOLT: building instrumented binary
 18:00 BOLT: applying profile, emitting final binary
 18:00 Artifact upload
@@ -89,9 +89,8 @@ missing line here does mean the stage did not run:
 Rust build optimisation: channel=release, allocator=jemalloc, lto=fat, pgo=on, bolt=on
 PGO: building instrumented binary for <triple>
 PGO: building optimised binary for <triple>
-llvm-bolt shim: ~/.local/bin/llvm-bolt -> /usr/bin/llvm-bolt-23
-merge-fdata shim: ~/.local/bin/merge-fdata -> /usr/bin/merge-fdata-23
-ld.lld shim: ~/.local/bin/ld.lld -> /usr/bin/ld.lld-23
+LLVM 23 (versions.yaml): ld.lld -> /usr/bin/ld.lld-23
+LLVM 23 (versions.yaml): llvm-bolt -> /usr/bin/llvm-bolt-23, merge-fdata -> /usr/bin/merge-fdata-23, ld.lld -> /usr/bin/ld.lld-23
 BOLT: building instrumented binary for <triple> (linker forced to lld)
 BOLT: optimising binary for <triple> (using PGO + BOLT profiles, linker=lld)
 BOLT: <bin>-bolt-optimized installed as <bin> for packaging

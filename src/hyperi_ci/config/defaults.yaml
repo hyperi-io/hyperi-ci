@@ -64,9 +64,6 @@ classification: ""
 # Minimum Python version for CI scripts themselves
 ci_min_python_version: "3.9"
 
-# LLVM/BOLT version is NOT configured here either: `native_deps` reads
-# HYPERCI_LLVM_VERSION, falling back to versions.yaml `llvm`.
-
 # Quality Checks
 quality:
   # `enabled: false` switches off every gate below at once, the security gates
@@ -374,6 +371,10 @@ build:
     # Memory planned per concurrent rustc under `jobs: auto`. Raise it for a
     # workspace whose big crates each take several GiB.
     memory_per_job_gib: 2
+    # LLVM major for bolt-NN / lld-NN, shimmed ahead of the runner's own
+    # unversioned ld.lld. HYPERCI_LLVM_VERSION beats this key, and versions.yaml
+    # `runtimes.llvm` is the default, so no value is set here.
+    # llvm_version: 23
 
   golang:
     targets:

@@ -449,8 +449,8 @@ runtimes:
       - .github/workflows/_release-tail.yml
       - .github/actions/setup-semantic-release/action.yml
   rust: stable
-  # LLVM major every Rust job installs bolt-NN and lld-NN from.
-  # HYPERCI_LLVM_VERSION overrides it per run.
+  # LLVM major every Rust job installs bolt-NN and lld-NN from. HYPERCI_LLVM_VERSION,
+  # then `build.rust.llvm_version` in .hyperi-ci.yaml, override it.
   llvm: "23"
 
 # npm packages (semantic-release toolchain)
