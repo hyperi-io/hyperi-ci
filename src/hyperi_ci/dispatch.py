@@ -80,7 +80,6 @@ VALID_STAGES = (
     "quality",
     "test",
     "build",
-    "generate",
     "container",
     "release",
     "publish",
@@ -526,67 +525,12 @@ def stage_container(language: str, config: CIConfig) -> int:
     return container_run(config, language=language)
 
 
-def stage_helm(language: str, config: CIConfig) -> int:
-    """Helm stage -- package + push (oci://ghcr.io/hyperi-io/helm-charts).
-
-    Cross-language: subprocesses into the consumer's ``emit-chart``
-    subcommand, applies overlays per ``release.helm.overlays``, lints,
-    packages, pushes to GHCR OCI Helm.
-    """
-    del language  # unused -- helm is language-agnostic
-    from hyperi_ci.helm.stage import run as helm_run
-
-    return helm_run(config)
-
-
-def stage_argocd(language: str, config: CIConfig) -> int:
-    """ArgoCD stage -- generate Application + push to central GitOps repo.
-
-    Cross-language: subprocesses into the consumer's ``emit-argocd``,
-    applies overlays per ``release.argocd.overlays``, pushes resulting
-    YAML into ``hyperi-io/gitops`` per the env push policy
-    (direct for dev/staging, PR for prod).
-    """
-    del language  # unused -- argocd is language-agnostic
-    from hyperi_ci.argocd.stage import run as argocd_run
-
-    return argocd_run(config)
-
-
-def stage_generate(
-    language: str,
-    config: CIConfig,
-) -> int:
-    """Deployment-artefact generation -- cross-tier stage.
-
-    Sits between Build and Container in the pipeline. Auto-detects the
-    producer tier from the project shape (scalo-rs dep / scalo-py dep /
-    bare contract.json) and dispatches to the appropriate producer.
-
-    The ``language`` argument is unused here -- tier detection is
-    independent of language detection so a polyglot repo (Rust app
-    with a Python tools subdir) routes by which producer framework is
-    actually present.
-
-    The config IS used: ``deployment.producer`` gates the stage, so a
-    scalo library consumer can opt out of artefact generation instead
-    of failing the Build job (issue #76).
-    """
-    del language  # unused -- see docstring
-    from hyperi_ci.deployment.stage import run as generate_run
-
-    return generate_run(config=config)
-
-
 _STAGE_HANDLERS = {
     "setup": stage_setup,
     "quality": stage_quality,
     "test": stage_test,
     "build": stage_build,
-    "generate": stage_generate,
     "container": stage_container,
-    "helm": stage_helm,
-    "argocd": stage_argocd,
     "release": stage_release,
 }
 

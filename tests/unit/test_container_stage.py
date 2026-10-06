@@ -1,6 +1,6 @@
 # Project:   HyperI CI
 # File:      tests/unit/test_container_stage.py
-# Purpose:   Tests for container stage gate, mode resolution, validate vs push
+# Purpose:   Tests for container stage gate, validate vs push
 #
 # License:   BUSL-1.1
 # Copyright: (c) 2026 HYPERI PTY LIMITED
@@ -17,7 +17,6 @@ from hyperi_ci.container import stage as stage_module
 from hyperi_ci.container.detect import Decision
 from hyperi_ci.container.stage import (
     _read_version,
-    _resolve_mode,
     run,
     should_build_container,
 )
@@ -53,7 +52,7 @@ class TestShouldBuildContainer:
         monkeypatch.setattr(
             stage_module,
             "detect",
-            lambda **_: Decision(build=True, reason="Dockerfile found", mode="custom"),
+            lambda **_: Decision(build=True, reason="Dockerfile found"),
         )
         build, _ = should_build_container(self._cfg("auto"), language="rust")
         assert build is True
@@ -115,7 +114,7 @@ class TestResolveOnlyEnv:
         monkeypatch.setattr(
             stage_module,
             "detect",
-            lambda **_: Decision(build=True, reason="Dockerfile found", mode="custom"),
+            lambda **_: Decision(build=True, reason="Dockerfile found"),
         )
 
         def _no_build(**_):  # pragma: no cover - must not run
@@ -178,55 +177,6 @@ class TestReadVersion:
         monkeypatch.delenv("HYPERCI_VERSION", raising=False)
         monkeypatch.setenv("GITHUB_REF_NAME", "v9.9.9")
         assert _read_version() == "9.9.9"
-
-
-# --- _resolve_mode -------------------------------------------------------
-
-
-def _decision(mode: str = "") -> Decision:
-    return Decision(build=True, reason="test", mode=mode)
-
-
-def test_resolve_mode_explicit_overrides_decision() -> None:
-    container_cfg = {"mode": "custom"}
-    assert (
-        _resolve_mode(
-            language="rust", decision=_decision("contract"), container_cfg=container_cfg
-        )
-        == "custom"
-    )
-
-
-def test_resolve_mode_uses_decision_when_no_explicit() -> None:
-    assert (
-        _resolve_mode(language="rust", decision=_decision("contract"), container_cfg={})
-        == "contract"
-    )
-
-
-def test_resolve_mode_falls_back_to_language_default() -> None:
-    assert (
-        _resolve_mode(language="rust", decision=_decision(), container_cfg={})
-        == "contract"
-    )
-    assert (
-        _resolve_mode(language="python", decision=_decision(), container_cfg={})
-        == "template"
-    )
-    assert (
-        _resolve_mode(language="golang", decision=_decision(), container_cfg={})
-        == "custom"
-    )
-
-
-def test_resolve_mode_explicit_empty_string_treated_as_unset() -> None:
-    container_cfg = {"mode": ""}
-    assert (
-        _resolve_mode(
-            language="python", decision=_decision(), container_cfg=container_cfg
-        )
-        == "template"
-    )
 
 
 # --- run() top-level gate ------------------------------------------------
@@ -384,120 +334,6 @@ def test_run_validate_fails_loud_when_no_dist_binaries(
     fake_build.assert_not_called()
 
 
-_FAKE_MANIFEST_JSON = (
-    '{"binary_name": "myapp", "base_image": "ubuntu:24.04", '
-    '"runtime_packages": [], "labels": {}, "env": {}, '
-    '"user": {"uid": 10001}}'
-)
-
-
-@pytest.mark.parametrize("artefact_dir", ["ci-tmp", "ci", ".ci"])
-def test_build_contract_uses_pre_generated_artefacts(
-    tmp_path: Path, monkeypatch, artefact_dir: str
-) -> None:
-    """Container stage MUST consume pre-generated artefacts, not subprocess the binary.
-
-    The Build stage runs `hyperi-ci run generate` on a runner with the
-    Rust toolchain's runtime libs (librdkafka, libssl, ...) installed.
-    The Container stage runs on a bare runner that can't load those
-    libs, so subprocess-invoking the binary there fails with
-    `error while loading shared libraries: librdkafka.so.1`.
-
-    Lookup precedence: ci-tmp/ (CI Build output) → ci/ (committed
-    artefacts for local builds) → .ci/ (legacy back-compat).
-    """
-    project_root = tmp_path / "myapp"
-    project_root.mkdir()
-    monkeypatch.chdir(project_root)
-
-    (project_root / "Cargo.toml").write_text(
-        '[package]\nname = "myapp"\nversion = "0.1.0"\n[dependencies]\nscalo = "2.7"\n',
-    )
-    (project_root / "src").mkdir()
-    (project_root / "src" / "main.rs").write_text("fn main() {}\n")
-    (project_root / "VERSION").write_text("0.1.0\n")
-
-    # The pre-generated manifest is the ONLY input the Container stage
-    # needs from the contract producer. The binary itself comes from
-    # dist/ but isn't invoked here.
-    artefacts = project_root / artefact_dir
-    artefacts.mkdir()
-    (artefacts / "container-manifest.json").write_text(_FAKE_MANIFEST_JSON)
-
-    dist = project_root / "dist"
-    dist.mkdir()
-    (dist / "myapp-linux-amd64").write_bytes(b"\x7fELF...")
-
-    monkeypatch.setenv("GITHUB_SHA", "abc12345abc12345abc")
-    monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
-    monkeypatch.delenv("GITHUB_REF", raising=False)
-
-    cfg = _ci_config(container={"enabled": "auto"}, target="oss")
-
-    # Fail the test if Container subprocess-invokes the binary in dist/
-    # -- that's the path that previously hit librdkafka.so.1 errors.
-    # Other subprocesses (cargo metadata, git rev-parse) are fine.
-    real_run = stage_module.subprocess.run
-    binary_path = str(dist / "myapp-linux-amd64")
-
-    def _no_binary_subprocess(cmd, *args, **kwargs):
-        if isinstance(cmd, (list, tuple)) and cmd and str(cmd[0]) == binary_path:
-            raise AssertionError(
-                f"Container stage must not subprocess the binary. cmd={cmd!r}"
-            )
-        return real_run(cmd, *args, **kwargs)
-
-    monkeypatch.setattr(stage_module.subprocess, "run", _no_binary_subprocess)
-
-    fake_build = MagicMock(return_value=0)
-    monkeypatch.setattr(stage_module, "build_and_push", fake_build)
-
-    rc = run(cfg, language="rust")
-    assert rc == 0, f"contract build failed: {rc}"
-    fake_build.assert_called_once()
-
-
-def test_build_contract_fails_loud_when_no_artefacts_present(
-    tmp_path: Path, monkeypatch
-) -> None:
-    """Missing artefacts in ci-tmp/, ci/, .ci/ MUST fail loud -- never subprocess.
-
-    Regression: pre-fix, the Container stage fell back to invoking the
-    binary directly, which only worked on a runner with the Rust
-    toolchain's runtime libs installed. We now reject that path
-    entirely; the Build stage is responsible for producing artefacts.
-    """
-    project_root = tmp_path / "myapp"
-    project_root.mkdir()
-    monkeypatch.chdir(project_root)
-
-    (project_root / "Cargo.toml").write_text(
-        '[package]\nname = "myapp"\nversion = "0.1.0"\n[dependencies]\nscalo = "2.7"\n',
-    )
-    (project_root / "src").mkdir()
-    (project_root / "src" / "main.rs").write_text("fn main() {}\n")
-    (project_root / "VERSION").write_text("0.1.0\n")
-
-    # Binary present but NO ci-tmp/, ci/, .ci/ -- exactly the failure
-    # mode that previously masqueraded as success.
-    dist = project_root / "dist"
-    dist.mkdir()
-    (dist / "myapp-linux-amd64").write_bytes(b"\x7fELF...")
-
-    monkeypatch.setenv("GITHUB_SHA", "abc12345abc12345abc")
-    monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
-    monkeypatch.delenv("GITHUB_REF", raising=False)
-
-    cfg = _ci_config(container={"enabled": "auto"}, target="oss")
-
-    fake_build = MagicMock(return_value=0)
-    monkeypatch.setattr(stage_module, "build_and_push", fake_build)
-
-    rc = run(cfg, language="rust")
-    assert rc == 1, f"expected hard fail, got {rc}"
-    fake_build.assert_not_called()
-
-
 def test_run_python_library_with_cli_auto_skips(tmp_path: Path, monkeypatch) -> None:
     """Python library that ships a console-script auto-skips (issue #51).
 
@@ -520,74 +356,66 @@ def test_run_python_library_with_cli_auto_skips(tmp_path: Path, monkeypatch) -> 
     fake_build.assert_not_called()
 
 
-def test_run_python_service_opts_in_via_enabled_true(
-    tmp_path: Path, monkeypatch
-) -> None:
-    """A genuine Python service opts in with ``enabled: true`` (issue #51).
+class TestNoDockerfile:
+    """The repo Dockerfile is the only build source; without one nothing crashes."""
 
-    Now that a bare console-script no longer auto-containerises, a real
-    service sets ``publish.container.enabled: true`` and the stage builds
-    it via the python template even with no Dockerfile detected -- it must
-    NOT hard-fail the way a Rust crate (contract language) would.
-    """
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "mysvc"\nversion = "0.1.0"\n'
-        '[project.scripts]\nmysvc = "mysvc.cli:main"\n'
-    )
-    (tmp_path / "VERSION").write_text("0.1.0\n")
+    @staticmethod
+    def _rust_app(root: Path) -> None:
+        (root / "Cargo.toml").write_text(
+            '[package]\nname = "myapp"\nversion = "0.1.0"\n'
+            '[dependencies]\nscalo = "2.7"\n'
+        )
+        (root / "src").mkdir()
+        (root / "src" / "main.rs").write_text("fn main() {}\n")
 
-    monkeypatch.setenv("GITHUB_SHA", "abc12345abc12345abc")
-    monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
-    monkeypatch.delenv("GITHUB_REF", raising=False)
-    monkeypatch.setenv("HYPERCI_RELEASE_MODE", "true")
+    @staticmethod
+    def _logs(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
+        seen: dict[str, list[str]] = {"warn": [], "error": []}
+        monkeypatch.setattr(stage_module, "warn", seen["warn"].append)
+        monkeypatch.setattr(stage_module, "error", seen["error"].append)
+        return seen
 
-    cfg = _ci_config(container={"enabled": True}, target="oss")
+    def test_auto_skips_a_runnable_app_with_a_warning(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        self._rust_app(tmp_path)
+        seen = self._logs(monkeypatch)
+        fake_build = MagicMock(return_value=0)
+        monkeypatch.setattr(stage_module, "build_and_push", fake_build)
 
-    fake_build = MagicMock(return_value=0)
-    monkeypatch.setattr(stage_module, "build_and_push", fake_build)
+        assert run(_ci_config(container={"enabled": "auto"}), language="rust") == 0
+        fake_build.assert_not_called()
+        assert len(seen["warn"]) == 1
+        assert "builds images only from a repo Dockerfile" in seen["warn"][0]
 
-    assert run(cfg, language="python") == 0
-    fake_build.assert_called_once()
+    @pytest.mark.parametrize("mode", ["template", "contract"])
+    def test_a_retired_mode_skips_rather_than_crashing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        self._rust_app(tmp_path)
+        seen = self._logs(monkeypatch)
+        cfg = _ci_config(container={"enabled": "auto", "mode": mode})
 
+        assert run(cfg, language="rust") == 0
+        assert seen["error"] == []
 
-def test_run_template_validate_needs_no_dist_binaries(
-    tmp_path: Path, monkeypatch
-) -> None:
-    """Template images build from source -- a validate/dev run must NOT
-    demand dist/<name>-linux-<arch> binaries (the ts-app finding: the
-    dist filter always came up empty for template mode and hard-failed,
-    so a node/python template container could never validate or dev-push).
-    It constrains to a single arch instead.
-    """
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "mysvc"\nversion = "0.1.0"\n'
-        '[project.scripts]\nmysvc = "mysvc.cli:main"\n'
-    )
-    (tmp_path / "VERSION").write_text("0.1.0\n")
-    # Deliberately NO dist/ directory at all.
+    def test_enabled_true_fails_with_one_clear_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "mysvc"\nversion = "0.1.0"\n'
+        )
+        seen = self._logs(monkeypatch)
+        fake_build = MagicMock(return_value=0)
+        monkeypatch.setattr(stage_module, "build_and_push", fake_build)
 
-    monkeypatch.setenv("GITHUB_SHA", "abc12345abc12345abc")
-    monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
-    monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
-    monkeypatch.setenv("HYPERCI_RELEASE_MODE", "false")
-
-    cfg = _ci_config(
-        container={
-            "enabled": True,
-            "platforms": ["linux/amd64", "linux/arm64"],
-        },
-        target="oss",
-    )
-
-    fake_build = MagicMock(return_value=0)
-    monkeypatch.setattr(stage_module, "build_and_push", fake_build)
-
-    assert run(cfg, language="python") == 0
-    fake_build.assert_called_once()
-    assert fake_build.call_args.kwargs["platforms"] == ["linux/amd64"]
-    assert fake_build.call_args.kwargs["push"] is False
+        assert run(_ci_config(container={"enabled": True}), language="python") == 1
+        fake_build.assert_not_called()
+        assert len(seen["error"]) == 1
+        assert "no Dockerfile" in seen["error"][0]
 
 
 def test_run_custom_python_dockerfile_needs_no_dist(

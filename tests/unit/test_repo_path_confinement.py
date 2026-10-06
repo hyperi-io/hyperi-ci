@@ -6,9 +6,9 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """The repo-named paths hyperi-ci confines to the checkout, call site by call site.
 
-Covered: ``release.container.dockerfile`` and ``.context``, overlay ``file:``
-and ``patch_file:``, a Helm add's ``path:``, ``[tool.hatch.version] path`` and
-the ``VERSION`` file the release version falls back to. The Container job
+Covered: ``release.container.dockerfile`` and ``.context``,
+``[tool.hatch.version] path`` and the ``VERSION`` file the release version
+falls back to. The Container job
 reads them after ``docker/login-action`` has written the Docker Hub token and
 the GHCR login to ``~/.docker/config.json``, so a path naming that file would
 put it into an image the job pushes, or into a build arg. Each is held to the
@@ -25,13 +25,6 @@ import pytest
 from hyperi_ci import config as config_module
 from hyperi_ci.config import CIConfig
 from hyperi_ci.container import stage as stage_module
-from hyperi_ci.deployment.overlay.anchors.helm import HelmAnchorResolver
-from hyperi_ci.deployment.overlay.errors import OverlayError
-from hyperi_ci.deployment.overlay.model import (
-    HelmAddOverlay,
-    HelmPatchOverlay,
-    Overlay,
-)
 from hyperi_ci.repo_path import RepoPathError, confine
 from hyperi_ci.stamp import stamp_version
 
@@ -186,93 +179,6 @@ class TestContainerPaths:
         )
         assert rc == 0
         self.build.assert_called_once()
-
-
-# --- overlay fragments -----------------------------------------------------
-
-
-class TestOverlayReaders:
-    """Fragment text is spliced into a Dockerfile, chart or Application YAML."""
-
-    @staticmethod
-    def _read_all(base: Path, file: str) -> list[str]:
-        path = Path(file)
-        return [
-            Overlay(anchor="final", file=path).resolve(
-                base_dir=base, artefact="container", index=0
-            ),
-            HelmAddOverlay(path="templates/x.yaml", file=path).resolve(
-                base_dir=base, index=0
-            ),
-            HelmPatchOverlay(target={"kind": "Service"}, patch_file=path).resolve_patch(
-                base_dir=base, index=0
-            ),
-        ]
-
-    @pytest.mark.parametrize(
-        "reader",
-        ["container", "helm-add", "helm-patch"],
-    )
-    @pytest.mark.parametrize("which", range(3), ids=ESCAPE_IDS)
-    def test_an_escape_is_refused(
-        self, layout: tuple[Path, Path], reader: str, which: int
-    ) -> None:
-        repo, outside = layout
-        path = Path(_escapes(repo, outside, "config.json")[which])
-        with pytest.raises(OverlayError, match="outside"):
-            if reader == "container":
-                Overlay(anchor="final", file=path).resolve(
-                    base_dir=repo, artefact="container", index=0
-                )
-            elif reader == "helm-add":
-                HelmAddOverlay(path="templates/x.yaml", file=path).resolve(
-                    base_dir=repo, index=0
-                )
-            else:
-                HelmPatchOverlay(
-                    target={"kind": "Service"}, patch_file=path
-                ).resolve_patch(base_dir=repo, index=0)
-
-    def test_a_relative_fragment_is_read(self, layout: tuple[Path, Path]) -> None:
-        repo, _ = layout
-        (repo / "overlays").mkdir()
-        (repo / "overlays" / "frag.txt").write_text("RUN true\n", encoding="utf-8")
-        assert self._read_all(repo, "overlays/frag.txt") == ["RUN true\n"] * 3
-
-    @pytest.mark.parametrize("which", range(3), ids=ESCAPE_IDS)
-    def test_a_helm_add_cannot_write_outside_the_chart(
-        self, layout: tuple[Path, Path], which: int
-    ) -> None:
-        repo, outside = layout
-        chart = repo / "chart"
-        chart.mkdir()
-        (chart / "escape").symlink_to(outside)
-        dest = [
-            str(outside / "planted.yaml"),
-            f"../../{outside.name}/planted.yaml",
-            "escape/planted.yaml",
-        ][which]
-        with pytest.raises(OverlayError, match="outside"):
-            HelmAnchorResolver().apply_adds(
-                chart_dir=chart,
-                adds=[HelmAddOverlay(path=dest, content="kind: ConfigMap\n")],
-                base_dir=repo,
-            )
-        assert not (outside / "planted.yaml").exists()
-
-    def test_a_helm_add_inside_the_chart_is_written(
-        self, layout: tuple[Path, Path]
-    ) -> None:
-        repo, _ = layout
-        chart = repo / "chart"
-        chart.mkdir()
-        written = HelmAnchorResolver().apply_adds(
-            chart_dir=chart,
-            adds=[HelmAddOverlay(path="templates/cm.yaml", content="kind: x\n")],
-            base_dir=repo,
-        )
-        assert written == [chart / "templates" / "cm.yaml"]
-        assert (chart / "templates" / "cm.yaml").read_text() == "kind: x\n"
 
 
 # --- the hatch version file stamp-version writes ---------------------------

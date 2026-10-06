@@ -232,9 +232,6 @@ speculative migration.
   the migration ever becomes real.
 - [hyperi-ci CI lessons](../lessons.md) - pattern catalogue from the
   old CI; relevant when planning Forgejo Actions parity.
-- [Tier 3 deployment contract](../deployment/tiers.md) - the
-  contract abstraction is host-agnostic and would survive a migration
-  unchanged.
 - [Forgejo Actions docs](https://forgejo.org/docs/latest/user/actions/)
 - [Codeberg docs](https://docs.codeberg.org/)
 - [`@semantic-release/gitea`](https://github.com/saitho/semantic-release-gitea)

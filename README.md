@@ -18,9 +18,8 @@ more orphan tags from "tag every fix:, publish later" mode.
 
 **100% FOSS pipeline.** Every artefact publishes to public registries:
 crates.io, PyPI, npm, GHCR, GitHub Releases, and Cloudflare R2
-(`downloads.hyperi.io`). The legacy `publish.target` knob is accepted
-in `.hyperi-ci.yaml` for backward compatibility but **ignored at
-runtime**. The only switch left to flip for full open-source visibility
+(`downloads.hyperi.io`). The legacy `publish.target` knob in
+`.hyperi-ci.yaml` is **read by nothing** and warns. The only switch left to flip for full open-source visibility
 is making the source repos themselves public.
 
 See [docs/migration/onboarding.md](docs/migration/onboarding.md) for the v1 -> v2
@@ -222,15 +221,16 @@ Every artefact publishes to the OSS registry stack:
 | npm packages | npmjs.com |
 | Binaries (per-tag) | GitHub Releases |
 | Binaries (web-downloadable) | Cloudflare R2 (`downloads.hyperi.io`) |
-| Helm charts | OCI under GHCR |
 
-The `publish.target` config field is still accepted in `.hyperi-ci.yaml` for
-backward compatibility — values like `internal` or `both` are read,
-preserved on the `CIConfig` object, and **silently routed to the OSS
-destination map**. It is a different thing from the `publish-target`
-workflow input, which is still live. The only
+The `publish.target` config field is read by nothing, and a warning names it
+until it is deleted. The `publish-target` workflow input is still declared so
+existing callers keep starting, and nothing reads it either. The only
 remaining toggle for full FOSS visibility is making the source repos
 themselves public on GitHub.
+
+A config key hyperi-ci no longer reads gets one warning per key:
+`<key> is no longer read by hyperi-ci and can be deleted`. It never fails the
+build. The list is `REMOVED_KEYS` in `src/hyperi_ci/vocabulary.py`.
 
 ### Channel behaviour
 
@@ -267,12 +267,7 @@ No code changes, no workflow changes.
 | `hyperi-ci push --no-ci` | Push with `[skip ci]` (skip CI entirely) |
 | `hyperi-ci release <tag>` | Retroactive: dispatch a release on an existing tag |
 | `hyperi-ci release --list` | List unreleased version tags |
-| `hyperi-ci run quality\|test\|build\|generate\|container\|publish` | Run a single stage locally |
-| `hyperi-ci init-contract --app-name <name>` | Scaffold `ci/deployment-contract.json` (Tier 3) |
-| `hyperi-ci emit-artefacts <output-dir>` | Generate Dockerfile + chart + ArgoCD app from contract |
-| `hyperi-ci stitch <dir>` | Compose a deployment topology into an umbrella Helm chart |
-| `hyperi-ci init-gitops <dir>` | Scaffold a new gitops monorepo |
-| `hyperi-ci init-topology <name>` | Scaffold a new topology in existing gitops repo |
+| `hyperi-ci run quality\|test\|build\|container\|publish` | Run a single stage locally |
 | `hyperi-ci check-commit --list` | Show all accepted commit types |
 | `hyperi-ci detect` | Show detected language |
 | `hyperi-ci config` | Show merged config |
@@ -358,7 +353,6 @@ CLI flags -> ENV vars (HYPERCI_*) -> .hyperi-ci.yaml -> defaults.yaml -> hardcod
 language: rust              # Auto-detected if omitted
 release:                    # was `publish:` -- still accepted, warns
   enabled: true
-  target: oss               # legacy no-op, any value routes to OSS
   channel: release          # alpha | beta | release
 build:
   strategies: [native]
@@ -370,31 +364,11 @@ quality:
   gitleaks: blocking
 ```
 
-## Container Builds & Deployment Artefacts
+## Container Builds
 
-Every app emits its container image, Helm chart, and ArgoCD `Application`
-from a single language-agnostic JSON contract — `ci/deployment-contract.json`.
-The Build stage regenerates these via `hyperi-ci run generate`, and the
-Quality stage drift-checks the committed `ci/` against the contract.
-
-Three-tier producer model (auto-detected):
-
-| Tier | Detected by | Producer |
-|---|---|---|
-| **Tier 1** (`rust`) | Cargo.toml + `scalo` dep | `<app> generate-artefacts` (scalo) |
-| **Tier 2** (`python`) | pyproject.toml + `scalo` dep | `<app> generate-artefacts` (scalo) |
-| **Tier 3** (`other`) | `ci/deployment-contract.json` only | `hyperi-ci emit-artefacts` |
-| (none) | nothing | container stage no-ops silently |
-
-All three tiers emit **byte-identical** output for the same JSON contract —
-verified by the cross-tier parity test suite.
-
-For Tier 3 onboarding: `hyperi-ci init-contract --app-name my-app`
-scaffolds a starter `ci/deployment-contract.json`, then commit it and
-run `hyperi-ci emit-artefacts ci/` to regenerate.
-
-See [`docs/deployment/contract.md`](docs/deployment/contract.md) for the
-user guide.
+The container stage builds from the repo's own Dockerfile and nothing else.
+With no Dockerfile, `enabled: auto` skips (with a warning for a runnable
+project) and `enabled: true` fails the stage.
 
 Images push to GHCR (`ghcr.io/hyperi-io/<app>`). Tags:
 

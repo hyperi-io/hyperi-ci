@@ -64,16 +64,12 @@ point. It pins the per-repo versions hyperi-ci produced. Under stack
 None of those carries a prerelease suffix. A suite rc pins app GAs, and the
 rc-ness lives entirely at stack level.
 
-## Range resolution is stable-only
+## Prerelease pins
 
-`hyperi-ci stitch` filters prereleases out when resolving a semver range, and
-raises `no stable versions found` if none remain -- see
-`src/hyperi_ci/deployment/topology/resolve.py`. dfe-infra's `scripts/dfe-stack`
-sorts on a SemVer 2.0 precedence key that ranks a release above any prerelease
-of the same `X.Y.Z`, so the suite can pin a prerelease app version.
-
-A rehearsal stack that wants a prerelease app names that pin explicitly rather
-than resolving it from a range.
+dfe-infra's `scripts/dfe-stack` sorts on a SemVer 2.0 precedence key that ranks
+a release above any prerelease of the same `X.Y.Z`, so the suite can pin a
+prerelease app version. A rehearsal stack that wants a prerelease app names
+that pin explicitly.
 
 ## See also
 

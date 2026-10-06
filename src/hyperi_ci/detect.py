@@ -17,6 +17,7 @@ from pathlib import Path
 import yaml
 
 from hyperi_ci.common import warn
+from hyperi_ci.project_config import CONFIG_FILES
 
 LANGUAGE_MARKERS: dict[str, list[str]] = {
     "python": ["pyproject.toml", "setup.py", "requirements.txt", "setup.cfg"],
@@ -24,25 +25,17 @@ LANGUAGE_MARKERS: dict[str, list[str]] = {
     "javascript": ["package.json"],
     "rust": ["Cargo.toml"],
     "golang": ["go.mod", "go.sum"],
-    "bash": [],
 }
 
 
 def _get_override_language(project_dir: Path | None = None) -> str | None:
     """Check for language override from environment or config file."""
-    env_lang = os.environ.get("HYPERI_CI_LANGUAGE") or os.environ.get(
-        "HYPERSEC_CI_LANGUAGE",
-    )
+    env_lang = os.environ.get("HYPERI_CI_LANGUAGE")
     if env_lang:
         return env_lang.lower().strip()
 
     project_dir = project_dir or Path.cwd()
-    for config_name in (
-        ".hyperi-ci.yaml",
-        ".hyperi-ci.yml",
-        ".hypersec-ci.yaml",
-        ".hypersec-ci.yml",
-    ):
+    for config_name in CONFIG_FILES:
         config_file = project_dir / config_name
         if not config_file.exists():
             continue
@@ -57,15 +50,6 @@ def _get_override_language(project_dir: Path | None = None) -> str | None:
             warn(f"{config_file}: could not read a language override ({exc})")
 
     return None
-
-
-def _has_bats_tests(project_dir: Path | None = None) -> bool:
-    """Check if project has BATS test files."""
-    project_dir = project_dir or Path.cwd()
-    for d in (project_dir / "tests", project_dir / "test"):
-        if d.exists() and d.is_dir() and list(d.glob("*.bats")):
-            return True
-    return False
 
 
 def detect_language(project_dir: Path | None = None) -> str | None:
@@ -85,12 +69,9 @@ def detect_language(project_dir: Path | None = None) -> str | None:
         return override
 
     for lang, markers in LANGUAGE_MARKERS.items():
-        if markers and any((project_dir / marker).exists() for marker in markers):
+        if any((project_dir / marker).exists() for marker in markers):
             if lang == "javascript" and (project_dir / "tsconfig.json").exists():
                 continue
             return lang
-
-    if _has_bats_tests(project_dir):
-        return "bash"
 
     return None

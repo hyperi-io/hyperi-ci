@@ -71,7 +71,6 @@ _TARGET_MAP = {
     "aarch64-unknown-linux-gnu": ("linux", "arm64"),
     "x86_64-apple-darwin": ("darwin", "amd64"),
     "aarch64-apple-darwin": ("darwin", "arm64"),
-    "x86_64-pc-windows-msvc": ("windows", "amd64"),
 }
 
 _CROSS_TOOLCHAIN = {
@@ -769,7 +768,7 @@ def _strip_binary(binary: Path, target: str) -> bool:
     Returns:
         False when the binary could not be stripped and the run is in CI,
         which fails packaging. True otherwise, a non-Linux target with no
-        strip tool (Windows) included.
+        known strip tool included.
 
     """
     strip_cmd = _strip_tool(target)
@@ -988,6 +987,11 @@ def _detect_version() -> str:
     return "dev"
 
 
+def windows_targets(targets: list[str]) -> list[str]:
+    """Return the Windows triples in ``targets``, which the build does not support."""
+    return [t for t in targets if "-windows" in t]
+
+
 def _target_to_os_arch(target: str) -> str:
     """Map Rust target triple to os-arch naming (matches Go convention)."""
     pair = _TARGET_MAP.get(target)
@@ -1022,10 +1026,6 @@ def _package_binaries(
         for bin_name in binary_names:
             src_bin = profile_dir / bin_name
             output_name = f"{bin_name}-{os_arch}"
-
-            if "windows" in target:
-                src_bin = src_bin.with_suffix(".exe")
-                output_name += ".exe"
 
             if not src_bin.exists():
                 error(f"Binary not found: {src_bin}")
@@ -1352,6 +1352,12 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         targets = [t.strip() for t in targets_str.split(",") if t.strip()]
     else:
         targets = [_get_native_target()]
+    if unsupported := windows_targets(targets):
+        error(
+            f"Windows targets are not supported: {', '.join(unsupported)}. "
+            "Remove them from build.rust.targets."
+        )
+        return 1
 
     # On macOS, only build native targets
     if is_macos():

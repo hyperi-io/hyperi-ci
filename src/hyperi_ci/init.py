@@ -7,8 +7,8 @@
 """Project initialisation for hyperi-ci.
 
 Generates the files consumer projects need for CI integration.
-Existing-project-aware: detects deprecated configs, existing Makefiles
-with CI targets, and generates language-appropriate defaults.
+Existing-project-aware: detects existing Makefiles with CI targets, and
+generates language-appropriate defaults.
 
 Generated files:
   - .hyperi-ci.yaml (CI configuration, language-specific defaults)
@@ -41,11 +41,6 @@ _LANGUAGE_WORKFLOW_MAP: dict[str, str] = {
     "typescript": "ts-ci.yml",
     "golang": "go-ci.yml",
 }
-
-_DEPRECATED_CONFIG_NAMES = (
-    ".hypersec-ci.yaml",
-    ".hypersec-ci.yml",
-)
 
 _LICENSE_MARKERS = licenses.LICENSE_MARKERS
 
@@ -136,39 +131,9 @@ def _license_header_text(license_id: str) -> str:
     return f"{license_id} - HYPERI PTY LIMITED"
 
 
-def _detect_python_build_type(project_dir: Path) -> str:
-    """Detect whether a Python project is an app or a package.
-
-    Checks pyproject.toml for entry points or scripts which indicate
-    an application (vs a library/package).
-
-    Args:
-        project_dir: Project root directory.
-
-    Returns:
-        "app" if entry points found, "package" otherwise.
-
-    """
-    pyproject = project_dir / "pyproject.toml"
-    if not pyproject.exists():
-        return "package"
-
-    content = pyproject.read_text(encoding="utf-8")
-    app_markers = (
-        "[project.scripts]",
-        "[project.gui-scripts]",
-        "entry_points",
-        "[tool.poetry.scripts]",
-    )
-    if any(marker in content for marker in app_markers):
-        return "app"
-    return "package"
-
-
 def _render_hyperi_ci_yaml(
     language: str,
     project_name: str,
-    project_dir: Path,
     license_id: str = _DEFAULT_LICENSE,
     submodules: str = "",
 ) -> str:
@@ -193,14 +158,10 @@ def _render_hyperi_ci_yaml(
     }
 
     # Widen the build section to Any: ty narrows config["build"] to the literal
-    # value type (dict[str, bool | list[str]]), which rejects the str/dict
+    # value type (dict[str, bool | list[str]]), which rejects the dict
     # additions below. Same dict object, so the mutations apply to config.
     build_section: dict[str, Any] = config["build"]
-    if language == "python":
-        build_type = _detect_python_build_type(project_dir)
-        build_section["type"] = build_type
-
-    elif language == "rust":
+    if language == "rust":
         config["test"]["coverage"] = False
         build_section["rust"] = {
             "features": "all",
@@ -280,7 +241,6 @@ def _render_workflow(
     project_name: str,
     workflow_file: str,
     license_id: str = _DEFAULT_LICENSE,
-    publish_target: str = "internal",
     submodules: str = "",
 ) -> str:
     """Render consumer .github/workflows/ci.yml content."""
@@ -369,70 +329,11 @@ def _render_workflow(
     if rust:
         base += "      bolt-optimize-args: ${{ inputs.bolt-optimize-args || '' }}\n"
 
-    if publish_target != "internal":
-        base += f"      publish-target: {publish_target}\n"
-
     if submodules:
         base += f"      submodules: {submodules}\n"
 
     base += "    secrets: inherit\n"
     return base
-
-
-def _build_prepare_cmd(language: str) -> str:
-    """Build the prepareCmd for semantic-release @semantic-release/exec.
-
-    Generates a Python one-liner that writes the VERSION file and
-    updates the language-specific manifest (pyproject.toml, Cargo.toml, etc.).
-
-    Args:
-        language: Detected project language.
-
-    Returns:
-        Shell command string for prepareCmd.
-
-    """
-    base = "from pathlib import Path; "
-    version_write = "Path('VERSION').write_text('${nextRelease.version}\\n')"
-
-    if language == "python":
-        return (
-            'python3 -c "'
-            f"{base}import re; "
-            f"{version_write}; "
-            "p=Path('pyproject.toml'); t=p.read_text(); "
-            't=re.sub(r\'^version\\\\s*=\\\\s*\\"[^\\"]*\\"\', '
-            "'version = \\\"${nextRelease.version}\\\"', "
-            "t, count=1, flags=re.MULTILINE); "
-            'p.write_text(t)"'
-        )
-
-    if language == "rust":
-        return (
-            'python3 -c "'
-            f"{base}import re; "
-            f"{version_write}; "
-            "ct=Path('Cargo.toml').read_text(); "
-            'ct=re.sub(r\'^version\\\\s*=\\\\s*\\"[^\\"]*\\"\', '
-            "'version = \\\"${nextRelease.version}\\\"', "
-            "ct, count=1, flags=re.MULTILINE); "
-            "Path('Cargo.toml').write_text(ct)\""
-        )
-
-    if language == "typescript":
-        return (
-            'python3 -c "'
-            f"{base}import json; "
-            f"{version_write}; "
-            "p=Path('package.json'); d=json.loads(p.read_text()); "
-            "d['version']='${nextRelease.version}'; "
-            "p.write_text(json.dumps(d, indent=2)+'\\n')\""
-        )
-
-    if language == "golang":
-        return f'python3 -c "{base}{version_write}"'
-
-    return f'python3 -c "{base}{version_write}"'
 
 
 def _render_contributing(project_name: str) -> str:
@@ -548,15 +449,6 @@ def _write_file(path: Path, content: str, *, force: bool) -> bool:
     return True
 
 
-def _check_deprecated_config(project_dir: Path) -> None:
-    """Warn about deprecated config file names."""
-    for name in _DEPRECATED_CONFIG_NAMES:
-        deprecated = project_dir / name
-        if deprecated.exists():
-            warn(f"  Found deprecated {name}")
-            info("  Rename to .hyperi-ci.yaml")
-
-
 def _makefile_has_ci_targets(project_dir: Path) -> bool:
     """Check if an existing Makefile already has CI targets.
 
@@ -598,9 +490,8 @@ def init_project(
 ) -> int:
     """Initialise a consumer project for hyperi-ci.
 
-    Existing-project-aware: detects deprecated configs, skips
-    Makefiles that already have CI targets, and generates
-    language-specific defaults.
+    Existing-project-aware: skips Makefiles that already have CI targets,
+    and generates language-specific defaults.
 
     Args:
         project_dir: Project root directory.
@@ -614,8 +505,6 @@ def init_project(
     """
     project_dir = project_dir.resolve()
     project_name = project_dir.name
-
-    _check_deprecated_config(project_dir)
 
     detected = language or detect_language(project_dir)
     if not detected:
@@ -637,7 +526,6 @@ def init_project(
     config_content = _render_hyperi_ci_yaml(
         detected,
         project_name,
-        project_dir,
         license_id=license_id,
         submodules=submodules,
     )

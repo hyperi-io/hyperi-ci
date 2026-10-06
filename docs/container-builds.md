@@ -11,26 +11,20 @@ Copyright: (c) 2026 HYPERI PTY LIMITED
 
 The release tail's Container job: when it runs, what scopes it, and how a container failure interacts with the rest of a release.
 
-The `release-tail` builds and pushes an OCI image to GHCR for **apps**. Three
-auto-detected modes:
-
-| Mode | Language | Dockerfile source |
-|---|---|---|
-| **contract** | Rust + scalo | generated from the binary's `container-manifest.json` |
-| **template** | Python, TypeScript | built-in uv / pnpm templates |
-| **custom** | any | repo's own `Dockerfile` + injected OCI labels |
+The `release-tail` builds and pushes an OCI image to GHCR from the repo's own
+`Dockerfile`, with injected OCI labels.
 
 Push-to-main builds single-arch (`:sha-...`); a release builds multi-arch
-(`:vX` + `:latest`). Auth via the `hyperi-container-mgt` GitHub App. Artefact
-generation from the contract: [deployment/CONTRACT.md](deployment/contract.md).
+(`:vX` + `:latest`). Auth via the `hyperi-container-mgt` GitHub App.
 
-## App-only, resolved before Docker (issue #33)
+## Dockerfile-only, resolved before Docker (issue #33)
 
-`release.container.enabled` is `auto` (default) | `true` | `false`. Under `auto` the stage builds only when it
-finds a signal - a Dockerfile, or a Rust binary using scalo's contract.
-**Libraries (a Rust crate, a Python package) have no signal and ship no
-container.** The decision is resolved *before* Docker Buildx boots, so a library
-never pulls buildkit from Docker Hub nor logs in to GHCR.
+`release.container.enabled` is `auto` (default) | `true` | `false`. Under `auto` the stage builds only when the
+Dockerfile exists. **A repo with no Dockerfile ships no container**: a library
+skips quietly, and a runnable project (a Rust binary, a TypeScript server, a Go
+`main`) skips with a warning saying so. Under `true` a missing Dockerfile fails
+the stage. The decision is resolved *before* Docker Buildx boots, so a repo with
+no Dockerfile never pulls buildkit from Docker Hub nor logs in to GHCR.
 
 ## Docker Hub login is Container-only (issue #406)
 
@@ -38,11 +32,11 @@ never pulls buildkit from Docker Hub nor logs in to GHCR.
 
 ## Container skips `release.stamp_cmd`
 
-It holds those logins and a `packages:write` token, so its stamp sets `HYPERCI_STAMP_SKIP_CMD=1` (the env form of `stamp-version --no-stamp-cmd`), and Build and Prepare run the command instead. The skip is the protection, and only a CLI release carrying it honours the variable. On an older CLI, or under a `HYPERCI_INSTALL_OVERRIDE` pin, `stamp_cmd` still runs here and can write `$GITHUB_ENV` or `$GITHUB_PATH` or leave a process for the steps after the logins, so running the stamp before them is not enough on its own. The variable rather than the flag keeps the workflow working on those older CLIs. The job also installs uv before the checkout, sets up Python with `--no-config`, keeps no token in its checkout, and places only `dist/` and `ci-tmp/` from the build artefact.
+It holds those logins and a `packages:write` token, so its stamp sets `HYPERCI_STAMP_SKIP_CMD=1` (the env form of `stamp-version --no-stamp-cmd`), and Build and Prepare run the command instead. The skip is the protection, and only a CLI release carrying it honours the variable. On an older CLI, or under a `HYPERCI_INSTALL_OVERRIDE` pin, `stamp_cmd` still runs here and can write `$GITHUB_ENV` or `$GITHUB_PATH` or leave a process for the steps after the logins, so running the stamp before them is not enough on its own. The variable rather than the flag keeps the workflow working on those older CLIs. The job also installs uv before the checkout, sets up Python with `--no-config`, keeps no token in its checkout, and places only `dist/` from the build artefact.
 
 ## Repo-named paths stay in the checkout
 
-`release.container.dockerfile`, `release.container.context`, every overlay `file:` / `patch_file:`, a Helm add's `path:` and `[tool.hatch.version] path` must resolve inside the project root (the chart, for a Helm add), symlinks followed. `hyperi_ci.repo_path.confine` checks them and the stage fails on a miss, because a context or fragment naming `~/.docker/config.json` would copy the registry logins into a pushed image. The release version is held to semver wherever it comes from, and a `VERSION` file that is a symlink is refused: a push to main carries no predicted version, so the container stage reads that file into tags, labels and `{version}` build args.
+`release.container.dockerfile`, `release.container.context` and `[tool.hatch.version] path` must resolve inside the project root, symlinks followed. `hyperi_ci.repo_path.confine` checks them and the stage fails on a miss, because a context naming `~/.docker/config.json` would copy the registry logins into a pushed image. The release version is held to semver wherever it comes from, and a `VERSION` file that is a symlink is refused: a push to main carries no predicted version, so the container stage reads that file into tags, labels and `{version}` build args.
 
 ## Build args can carry the version (issue #342)
 
@@ -78,10 +72,9 @@ It holds every publish credential, so everything in a release that executes the 
 | Go | module path read from `go.mod` | `go` is never run |
 | GitHub Release, R2 | `gh release`, `aws s3 cp` of `dist/` | Data only. `release.assets` entries must be relative paths inside the repo, and symlinks are skipped |
 
-The build and prepared artefacts come from jobs that ran repo code, so Tag & Release treats them as data. Build artefacts are downloaded outside the checkout and only `dist/` and `ci-tmp/` are copied in. `release-commit` writes `VERSION` from the release version and restores only the `release.stamp_paths` files, by name from the checkout's own config, and only when `prepare` ran on the same commit. The release App key reaches only the step that mints the bot token. The Tag step's semantic-release still loads a repo-controlled config, tracked in issue #413.
+The build and prepared artefacts come from jobs that ran repo code, so Tag & Release treats them as data. Build artefacts are downloaded outside the checkout and only `dist/` is copied in. `release-commit` writes `VERSION` from the release version and restores only the `release.stamp_paths` files, by name from the checkout's own config, and only when `prepare` ran on the same commit. The release App key reaches only the step that mints the bot token. The Tag step's semantic-release still loads a repo-controlled config, tracked in issue #413.
 
 ## See also
 
 - [architecture.md](architecture.md) -- the two-sides overview
 - [ci-job-contract.md](ci-job-contract.md) -- the release-tail's place in the job graph
-- [deployment/contract.md](deployment/contract.md) -- the deployment contract the `contract` mode generates from

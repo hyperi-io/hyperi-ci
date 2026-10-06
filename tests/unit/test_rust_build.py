@@ -570,6 +570,31 @@ class TestNativeTargetFollowsTheMachine:
         assert build._get_native_target() == "aarch64-unknown-linux-gnu"
 
 
+class TestWindowsIsRefused:
+    """A Windows triple fails at target resolution, not at 'Binary not found'."""
+
+    def test_windows_triples_are_found(self) -> None:
+        assert build.windows_targets(
+            ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+        ) == ["x86_64-pc-windows-msvc"]
+
+    def test_build_fails_early_on_a_windows_triple(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(build.shutil, "which", lambda _name: "/usr/bin/cargo")
+        monkeypatch.setattr(build, "_bolt_override_refusal", lambda: None)
+        monkeypatch.setattr(build, "bolt_optimize_args_override", lambda: [])
+        errors: list[str] = []
+        monkeypatch.setattr(build, "error", errors.append)
+
+        rc = build.run(
+            CIConfig(_raw={}),
+            extra_env={"RUST_BUILD_TARGETS": "x86_64-pc-windows-gnu"},
+        )
+        assert rc == 1
+        assert "Windows targets are not supported" in errors[0]
+
+
 class TestPgoAndCrossCompilation:
     """The PGO path returns before the cross setup, so the two cannot combine."""
 

@@ -118,9 +118,9 @@ class TestMissingStripTool:
 
     def test_a_target_never_stripped_says_nothing(self, tmp_path, monkeypatch) -> None:
         reports = _Reports(monkeypatch, ci=True)
-        binary = _binary(tmp_path, "app-windows-amd64.exe")
+        binary = _binary(tmp_path, "app.wasm")
 
-        assert build._strip_binary(binary, "x86_64-pc-windows-msvc") is True
+        assert build._strip_binary(binary, "wasm32-unknown-unknown") is True
         assert reports.warnings == reports.announced == []
 
     @pytest.mark.skipif(

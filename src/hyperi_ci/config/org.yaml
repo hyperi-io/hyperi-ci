@@ -6,25 +6,11 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # This file is the SINGLE SOURCE OF TRUTH for organisation-specific settings.
-# All values can be overridden by environment variables of the same name
-# (uppercased, with dots replaced by underscores).
+# GITHUB_ORG in the environment overrides github.org.
 
 github:
   org: hyperi-io
-  base_url: https://github.com/hyperi-io
-  ci_repo_url: https://github.com/hyperi-io/hyperi-ci.git
-  ai_repo_url: https://github.com/hyperi-io/ai.git
 
 ghcr:
   registry: ghcr.io
   org: hyperi-io
-  charts_url: oci://ghcr.io/hyperi-io/charts
-
-# Deprecated URL patterns for auto-migration from old repo names
-deprecated_ci_urls:
-  - "*/hypersec-io/ci.git"
-  - "*/hypersec-io/ci"
-  - "*/hyperi-io/hyperci.git"
-  - "*/hyperi-io/hyperci"
-  - "*/hyperi-io/hs-ci.git"
-  - "*/hyperi-io/hs-ci"

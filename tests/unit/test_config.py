@@ -75,13 +75,8 @@ class TestCIConfig:
         config = CIConfig(_raw={"language": "rust"})
         assert config.get("language") == "rust"
 
-    def test_publish_target_defaults_to_oss(self) -> None:
-        config = CIConfig(_raw={})
-        assert config.publish_target == "oss"
-
     def test_destination_for_oss(self) -> None:
         config = CIConfig(
-            publish_target="oss",
             _raw={
                 "publish": {
                     "destinations_oss": {
@@ -98,7 +93,6 @@ class TestCIConfig:
         # A private Python service ships only its GHCR container: python
         # is opted out with `false`, container still resolves.
         config = CIConfig(
-            publish_target="oss",
             _raw={
                 "publish": {
                     "destinations_oss": {
@@ -111,45 +105,17 @@ class TestCIConfig:
         assert config.destination_for("python") == []
         assert config.destination_for("container") == ["ghcr"]
 
-    def test_legacy_target_internal_routes_to_oss(self) -> None:
-        """Legacy ``target: internal`` is accepted for back-compat but
-        ignored -- every publish goes to OSS destinations.
-        """
+    def test_legacy_target_routes_to_oss(self) -> None:
+        """A legacy ``target`` changes nothing: every publish goes to OSS."""
         config = CIConfig(
-            publish_target="internal",
             _raw={
                 "publish": {
+                    "target": "internal",
                     "destinations_oss": {"python": "pypi"},
                 },
             },
         )
         assert config.destination_for("python") == ["pypi"]
-
-    def test_legacy_target_both_routes_to_oss(self) -> None:
-        """Legacy ``target: both`` is accepted for back-compat but
-        treated as OSS.
-        """
-        config = CIConfig(
-            publish_target="both",
-            _raw={
-                "publish": {
-                    "destinations_oss": {"python": "pypi"},
-                },
-            },
-        )
-        assert config.destination_for("python") == ["pypi"]
-
-    def test_publish_target_from_env(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        import hyperi_ci.config as cfg_mod
-
-        cfg_mod._config_cache = None
-        monkeypatch.setenv("HYPERCI_PUBLISH_TARGET", "oss")
-        config = load_config(reload=True, project_dir=tmp_path)
-        assert config.publish_target == "oss"
 
 
 class TestLoadConfig:
@@ -182,7 +148,7 @@ class TestLoadConfig:
         assert config.get("language") == "golang"
 
     def test_go_default_targets_are_linux_and_darwin(self, tmp_path: Path) -> None:
-        """No Windows build unless a project asks for one."""
+        """Go builds Linux and macOS by default."""
         import hyperi_ci.config as cfg_mod
 
         cfg_mod._config_cache = None

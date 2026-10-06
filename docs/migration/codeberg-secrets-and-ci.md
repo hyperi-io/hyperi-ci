@@ -313,8 +313,6 @@ Phases 4-7 are only worth starting under a forcing function.
 ## See also
 
 - [Codeberg migration overview](codeberg.md) - parent doc
-- [Tier 3 deployment contract](../deployment/tiers.md) -
-  contract layer is host-agnostic
 - `config/secrets-access.yaml` <!-- doc-paths: ignore --> (in the private **hyperi-infra** repo) -
   source of truth for repo <-> secret mapping. Moved out of this public
   repo so the org's secret <-> repo topology is not world-readable.

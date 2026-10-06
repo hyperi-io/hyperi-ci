@@ -239,3 +239,129 @@ def report_deprecated_config(keys: list[str]) -> None:
     if os.environ.get("GITHUB_ACTIONS") == "true":
         print(f"::warning::{message}")
     warn(message)
+
+
+# Keys nothing reads, each naming its subtree: setting one warns, never fails.
+REMOVED_KEYS: tuple[str, ...] = (
+    "build.type",
+    "build.typescript.package_manager",
+    "ci_min_python_version",
+    "container",
+    "deployment",
+    "golang",
+    "release.argocd",
+    "release.binaries",
+    "release.container.binary_name",
+    "release.container.cmd",
+    "release.container.entrypoint",
+    "release.container.health_path",
+    "release.container.mode",
+    "release.container.node_version",
+    "release.container.overlays",
+    "release.container.port",
+    "release.container.python_version",
+    "release.container.registry",
+    "release.destinations.helm",
+    "release.destinations_oss.helm",
+    "release.helm",
+    "runners",
+    "typescript.package_manager",
+    "workspace",
+)
+
+_reported_removed_keys: set[str] = set()
+
+
+def _is_removed_path(dotted: str) -> bool:
+    """Report whether ``dotted`` is a removed key or under one, either spelling."""
+    for key in REMOVED_KEYS:
+        for spelled in key_candidates(key):
+            if dotted == spelled or dotted.startswith(f"{spelled}."):
+                return True
+    return False
+
+
+def _fully_removed(node: Any, dotted: str) -> bool:
+    if _is_removed_path(dotted):
+        return True
+    if not isinstance(node, dict) or not node:
+        return False
+    return all(
+        _fully_removed(child, f"{dotted}.{name}") for name, child in node.items()
+    )
+
+
+def _node_at(doc: dict[str, Any], dotted: str) -> Any:
+    node: Any = doc
+    for part in dotted.split("."):
+        node = node.get(part) if isinstance(node, dict) else None
+    return node
+
+
+def drop_removed_notices(keys: list[str], doc: Any) -> list[str]:
+    """Drop the rename or move notice for a legacy key whose every setting is removed.
+
+    Telling someone to rename ``publish.helm`` and, in the next line, that it
+    can be deleted is two instructions for one line. ``doc`` is the project
+    config as written, before the ``publish:`` fold.
+    """
+    if not isinstance(doc, dict):
+        return keys
+    kept: list[str] = []
+    for key in keys:
+        spellings = [s for s in key_candidates(key) if _has_path(doc, s)]
+        if spellings and all(_fully_removed(_node_at(doc, s), s) for s in spellings):
+            continue
+        kept.append(key)
+    return kept
+
+
+def _has_path(doc: dict[str, Any], dotted: str) -> bool:
+    node: Any = doc
+    for part in dotted.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return False
+        node = node[part]
+    return True
+
+
+def find_removed_keys(doc: Any) -> list[str]:
+    """Return each removed key a project config sets, spelled as it is written.
+
+    Checked before the ``publish:`` fold, so a ``publish.helm`` is named as
+    ``publish.helm`` rather than as the ``release.helm`` it would fold into.
+    One entry per removed key, however many of its children are set.
+    """
+    if not isinstance(doc, dict):
+        return []
+    found: list[str] = []
+    for key in REMOVED_KEYS:
+        spelled = next((c for c in key_candidates(key) if _has_path(doc, c)), None)
+        if spelled is not None:
+            found.append(spelled)
+    return found
+
+
+def removed_key_message(key: str) -> str:
+    """Build the one-line notice for a removed key."""
+    return f"{key} is no longer read by hyperi-ci and can be deleted"
+
+
+def report_removed_keys(keys: list[str]) -> None:
+    """Warn once per removed key per process, as an annotation under GitHub Actions.
+
+    A stage reloads the config several times, and each reload would otherwise
+    repeat every annotation.
+    """
+    fresh = [key for key in keys if key not in _reported_removed_keys]
+    if not fresh:
+        return
+    from hyperi_ci.common import announce
+
+    for key in fresh:
+        _reported_removed_keys.add(key)
+        announce(
+            removed_key_message(key),
+            "Removed config key in .hyperi-ci.yaml",
+            level="warning",
+        )

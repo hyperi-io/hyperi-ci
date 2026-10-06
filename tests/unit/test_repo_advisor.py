@@ -209,25 +209,6 @@ def test_language_falls_back_to_config_attribute(
     assert "rust-cargo-toml-exists" not in layer
 
 
-def test_bash_primary_disables_all_ecosystem_root_rules(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # bash has no alint ruleset: every ecosystem is non-primary, so all four
-    # groups' root-only rules go off.
-    configs = _stub_run_capture_cfg(monkeypatch)
-    _have_alint(monkeypatch)
-    monkeypatch.setattr(repo_advisor, "is_ci", lambda: False)
-    assert repo_advisor.run(_cfg("auto"), tmp_path, language="bash") == 0
-    (layer,) = configs
-    for rule in (
-        "python-manifest-exists",
-        "rust-cargo-toml-exists",
-        "node-package-json-exists",
-        "go-mod-exists",
-    ):
-        assert f"- id: {rule}\n    level: off" in layer
-
-
 _CARGO_LOCK_OFF = "- id: rust-cargo-lock-exists\n    level: off"
 
 

@@ -7,7 +7,7 @@
 """Release destination routing tests.
 
 Tests the config-level routing logic that determines WHERE artifacts
-are published based on publish_target. Does NOT test actual publishing
+are published. Does NOT test actual publishing
 (subprocess calls to uv/cargo/npm) -- that requires real registries
 and is tested via integration tests against test projects.
 """
@@ -20,28 +20,25 @@ import pytest
 from hyperi_ci.config import CIConfig, load_config
 
 
-def _make_config(publish_target: str = "oss") -> CIConfig:
+def _make_config(legacy_target: str = "oss") -> CIConfig:
     """Create a CIConfig with the OSS destination map populated.
 
-    The legacy ``destinations_internal`` block was removed in v2.1.4; the
-    ``publish_target`` field is still accepted for back-compat with
-    downstream ``.hyperi-ci.yaml`` files but is ignored at runtime.
+    ``legacy_target`` fills the inert ``target`` key, which routes nothing.
     """
     raw = {
         "publish": {
-            "target": publish_target,
+            "target": legacy_target,
             "destinations_oss": {
                 "python": "pypi",
                 "npm": "npmjs",
                 "cargo": "crates-io",
                 "container": "ghcr",
-                "helm": "ghcr-charts",
                 "binaries": "r2-binaries",
                 "go": "go-proxy",
             },
         },
     }
-    return CIConfig(publish_target=publish_target, _raw=raw)
+    return CIConfig(_raw=raw)
 
 
 class TestPublishDestinationRouting:
@@ -54,7 +51,6 @@ class TestPublishDestinationRouting:
             ("npm", ["npmjs"]),
             ("cargo", ["crates-io"]),
             ("container", ["ghcr"]),
-            ("helm", ["ghcr-charts"]),
             ("binaries", ["r2-binaries"]),
             ("go", ["go-proxy"]),
         ],
@@ -81,12 +77,11 @@ class TestPublishDestinationRouting:
         assert config.destination_for("unknown") == []
 
     def test_no_destinations_configured(self) -> None:
-        config = CIConfig(publish_target="oss", _raw={})
+        config = CIConfig(_raw={})
         assert config.destination_for("python") == []
 
     def test_empty_destinations_map(self) -> None:
         config = CIConfig(
-            publish_target="oss",
             _raw={"publish": {"destinations_oss": {}}},
         )
         assert config.destination_for("python") == []
@@ -109,26 +104,8 @@ class TestPublishDestinations:
         assert dests[0]["python"] == "pypi"
 
     def test_no_raw_publish_section_returns_empty(self) -> None:
-        config = CIConfig(publish_target="oss", _raw={})
+        config = CIConfig(_raw={})
         assert config.publish_destinations() == []
-
-
-class TestPublishTargetFromEnv:
-    """``HYPERCI_PUBLISH_TARGET`` env var feeds ``publish_target`` for back-compat."""
-
-    @pytest.mark.parametrize("value", ["oss", "internal", "both"])
-    def test_env_sets_target(
-        self,
-        value: str,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        import hyperi_ci.config as cfg_mod
-
-        cfg_mod._config_cache = None
-        monkeypatch.setenv("HYPERCI_PUBLISH_TARGET", value)
-        config = cfg_mod.load_config(reload=True, project_dir=tmp_path)
-        assert config.publish_target == value
 
 
 class TestOSSDestinationHygiene:
@@ -139,7 +116,6 @@ class TestOSSDestinationHygiene:
         "npmjs",
         "crates-io",
         "ghcr",
-        "ghcr-charts",
         "r2-binaries",
         "go-proxy",
     }
@@ -263,7 +239,6 @@ class TestPythonDistExclusion:
     def test_python_false_opts_out_but_keeps_binaries(self) -> None:
         # The dfe-engine shape: python opted out, binaries still defaulted on.
         config = CIConfig(
-            publish_target="oss",
             _raw={
                 "publish": {
                     "destinations_oss": {"python": False, "binaries": "r2-binaries"}
@@ -345,7 +320,7 @@ class TestReleaseAssetsReachTheRelease:
 
     @staticmethod
     def _config(assets: object) -> CIConfig:
-        return CIConfig(publish_target="oss", _raw={"release": {"assets": assets}})
+        return CIConfig(_raw={"release": {"assets": assets}})
 
     @staticmethod
     def _patched(
@@ -414,7 +389,7 @@ class TestReleaseAssets:
 
     @staticmethod
     def _config(assets: object) -> CIConfig:
-        return CIConfig(publish_target="oss", _raw={"release": {"assets": assets}})
+        return CIConfig(_raw={"release": {"assets": assets}})
 
     def test_no_assets_configured_is_a_no_op(self, tmp_path, monkeypatch) -> None:
         monkeypatch.chdir(tmp_path)

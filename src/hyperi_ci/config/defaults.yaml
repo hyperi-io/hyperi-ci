@@ -61,9 +61,6 @@ classification: ""
 # free is a workflow-level decision. A `runners:` block in .hyperi-ci.yaml is
 # read by nothing.
 
-# Minimum Python version for CI scripts themselves
-ci_min_python_version: "3.9"
-
 # Quality Checks
 quality:
   # `enabled: false` switches off every gate below at once, the security gates
@@ -393,7 +390,6 @@ build:
 # `.hyperi-ci.yaml` files but ignored at runtime.
 release:
   enabled: true
-  target: oss
 
   # Destination mapping (OSS only). Was `destinations_oss`, which still works.
   #
@@ -405,7 +401,6 @@ release:
     npm: npmjs                 # npmjs.com @hyperi/* (OIDC)
     cargo: crates-io           # crates.io (API token)
     container: ghcr            # ghcr.io/hyperi-io/*
-    helm: ghcr-charts          # oci://ghcr.io/hyperi-io/charts
     binaries: r2-binaries      # downloads.hyperi.io (Cloudflare R2) ONLY -- set
                                # `github-releases` to attach built binaries to
                                # the Release instead (`release.assets` always do)
@@ -413,7 +408,7 @@ release:
 
   # No per-language `repository`/`registry` keys and no `s3:` block: the
   # destinations map above is what routes a publish, and the R2 bucket is a
-  # constant in publish/binaries.py. Those keys routed nothing.
+  # constant in release/binaries.py. Those keys routed nothing.
 
   # Extra files to ship with the release. They are attached to the GitHub
   # Release directly, so they arrive whatever `destinations.binaries` is, and
@@ -435,13 +430,12 @@ release:
 
   # Container build & publish.
   #
+  # The image is always built from the repo's own Dockerfile.
+  #
   # `enabled` is three-state:
-  #   auto  (default) - build when a container artefact is detected
-  #                      (Dockerfile in repo, or scalo contract source);
-  #                      library projects skip silently.
-  #   true            - build is required; fail loudly if no artefact
-  #                      detected (regression detector for projects that
-  #                      want strict container hygiene).
+  #   auto  (default) - build when the Dockerfile exists; skip otherwise.
+  #   true            - build is required; fail loudly if there is no
+  #                      Dockerfile.
   #   false           - explicit skip.
   #
   # Every container is published to GHCR (ghcr.io/<org>). There is
@@ -463,11 +457,6 @@ release:
     # commit on its revision label): `CODE_VERSION: "{version}"`. Any other
     # `{...}` fails the build. Write a literal brace as `{{` or `}}`.
     build_args: {}
-
-  helm:
-    enabled: false
-    chart_path: ""
-    registry_url: "oci://ghcr.io/hyperi-io/charts"
 
 # One-line project description, duplicated by every registry that wants one:
 # PyPI, crates.io, npm, the OCI image label, GHCR's package page, the GitHub
@@ -498,41 +487,5 @@ notify:
 # No `standards:` block: commit-message validation is unconditional
 # (quality/commit_validation.py + the commit-msg hook), and branch naming is
 # not enforced at all. Those toggles switched nothing.
-
-# Deployment Contract
-#
-# Three-tier producer model for app deployment artefacts:
-#   Tier 1 -- scalo emits via DeploymentContract + generate_*
-#   Tier 2 -- scalo emits via Application.deployment_contract()
-#   Tier 3 -- hyperi-ci emit-artefacts templates from ci/deployment-contract.json
-#
-# max_supported_schema_version: highest schema version this hyperi-ci can
-# consume. Bumped in lockstep with scalo-rs + scalo-py on shape changes.
-# Consumers fail fast if a contract declares a higher schema_version.
-#
-# `producer` gates the generate stage (and the drift check that mirrors
-# it). Most repos are not producers at all and never touch this - they
-# have no scalo dep and no contract, so the stage skips silently as it
-# always has.
-#
-# The key exists because a scalo DEPENDENCY is not a scalo ServiceApp.
-# A VPN container that uses scalo for logging/config and ships its own
-# Dockerfile has the dep but nothing to run `generate-artefacts` on.
-#
-#   auto  (default) - dispatch on the detected tier: a Tier 1/2 marker
-#                     dep plus a POSITIVE producer signal (a Rust
-#                     binary target AND the crate's `deployment`
-#                     feature, or a `[project.scripts]` console
-#                     script), or a committed Tier 3 contract. A
-#                     library consumer skips silently.
-#   false           - explicit skip, for a library consumer that does
-#                     have a CLI of its own and would otherwise look
-#                     like a producer.
-#   true            - force. The marker dep alone selects the tier, for
-#                     a genuine producer whose shape detection misses.
-#                     Fails loudly if no tier resolves at all.
-deployment:
-  max_supported_schema_version: 2
-  producer: auto
 
 # No `integrations:` block: the Linear integration was never built.

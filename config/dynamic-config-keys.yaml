@@ -85,10 +85,6 @@ keys:
   # quality.docs_touched is NOT here: it reads its key as a literal, because
   # `--strict` must not be able to promote a nudge into a gate.
 
-  # Deliberate mirror of the Python constant, declared so an operator can see
-  # the supported schema version in `hyperi-ci config` output.
-  deployment.max_supported_schema_version: src/hyperi_ci/config.py
-
 # Keys declared ahead of the reader that lands with separate work. Each has NO
 # reader yet; the value says what will read it. The audit reports every pending
 # key on each run, and fails once a reader exists, so the entry is removed in

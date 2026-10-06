@@ -252,3 +252,127 @@ class TestConfigReadsBothSpellings:
         assert legacy.destination_for("python") == ["pypi"]
         current = CIConfig(_raw={"release": {"destinations": {"python": "pypi"}}})
         assert current.destination_for("python") == ["pypi"]
+
+
+class TestRemovedKeys:
+    """A key hyperi-ci no longer reads warns once and never fails the build."""
+
+    @pytest.fixture(autouse=True)
+    def _fresh(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(vocabulary, "_reported_removed_keys", set())
+        monkeypatch.setattr(config_module, "_config_cache", None)
+
+    @staticmethod
+    def _announced(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        from hyperi_ci import common
+
+        seen: list[str] = []
+        monkeypatch.setattr(
+            common,
+            "announce",
+            lambda msg, title, *, level="warning": seen.append(msg),
+        )
+        return seen
+
+    def _load(self, tmp_path, monkeypatch, body: str) -> list[str]:
+        seen = self._announced(monkeypatch)
+        (tmp_path / ".hyperi-ci.yaml").write_text(body, encoding="utf-8")
+        load_config(reload=True, project_dir=tmp_path)
+        return seen
+
+    def test_a_removed_key_warns_once(self, tmp_path, monkeypatch) -> None:
+        seen = self._load(
+            tmp_path,
+            monkeypatch,
+            "language: python\nrelease:\n  helm:\n    enabled: true\n"
+            "    chart_path: chart\n",
+        )
+        assert seen == [
+            "release.helm is no longer read by hyperi-ci and can be deleted"
+        ]
+
+    def test_a_reload_does_not_repeat_the_warning(self, tmp_path, monkeypatch) -> None:
+        seen = self._load(tmp_path, monkeypatch, "build:\n  type: app\n")
+        load_config(reload=True, project_dir=tmp_path)
+        load_config(reload=True, project_dir=tmp_path)
+        assert seen == [vocabulary.removed_key_message("build.type")]
+
+    def test_a_current_key_does_not_warn(self, tmp_path, monkeypatch) -> None:
+        seen = self._load(
+            tmp_path,
+            monkeypatch,
+            "language: python\nrelease:\n  destinations:\n    python: false\n"
+            "  container:\n    enabled: auto\n",
+        )
+        assert seen == []
+
+    @pytest.mark.parametrize(
+        ("body", "key"),
+        [
+            ("typescript:\n  package_manager: yarn\n", "typescript.package_manager"),
+            ("golang:\n  targets: [linux/amd64]\n", "golang"),
+            ("deployment:\n  producer: false\n", "deployment"),
+            ("release:\n  container:\n    mode: template\n", "release.container.mode"),
+        ],
+    )
+    def test_top_level_and_container_keys_warn(
+        self, tmp_path, monkeypatch, body: str, key: str
+    ) -> None:
+        assert self._load(tmp_path, monkeypatch, body) == [
+            vocabulary.removed_key_message(key)
+        ]
+
+    def test_the_legacy_spelling_is_named_as_written(self) -> None:
+        found = vocabulary.find_removed_keys({"publish": {"binaries": "both"}})
+        assert found == ["publish.binaries"]
+
+    def test_a_removed_legacy_key_gets_no_rename_notice(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        self._announced(monkeypatch)
+        (tmp_path / ".hyperi-ci.yaml").write_text(
+            "publish:\n  helm:\n    enabled: true\n  channel: beta\n",
+            encoding="utf-8",
+        )
+        config = load_config(reload=True, project_dir=tmp_path)
+        assert config.deprecated_keys == ["publish.channel"]
+
+    def test_a_partly_removed_block_keeps_its_rename_notice(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        self._announced(monkeypatch)
+        (tmp_path / ".hyperi-ci.yaml").write_text(
+            "publish:\n  container:\n    registry: ghcr.io\n    enabled: auto\n",
+            encoding="utf-8",
+        )
+        config = load_config(reload=True, project_dir=tmp_path)
+        assert config.deprecated_keys == ["publish.container"]
+
+    def test_a_removed_key_does_not_fail_the_load(self, tmp_path, monkeypatch) -> None:
+        self._announced(monkeypatch)
+        (tmp_path / ".hyperi-ci.yaml").write_text(
+            "language: rust\nbuild:\n  type: app\n", encoding="utf-8"
+        )
+        config = load_config(reload=True, project_dir=tmp_path)
+        assert config.language == "rust"
+
+    def test_config_json_stays_parseable(self, tmp_path, monkeypatch) -> None:
+        """Under GitHub Actions the annotation goes to stdout, so --json skips it."""
+        import json
+
+        from typer.testing import CliRunner
+
+        from hyperi_ci.cli import app
+
+        monkeypatch.setenv("GITHUB_ACTIONS", "true")
+        (tmp_path / ".hyperi-ci.yaml").write_text(
+            "language: rust\nrunners:\n  default: arc\n", encoding="utf-8"
+        )
+        result = CliRunner().invoke(app, ["config", "--json", "-C", str(tmp_path)])
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["runners"] == {"default": "arc"}
+
+    def test_every_removed_key_is_absent_from_the_shipped_defaults(self) -> None:
+        """A removed key the defaults still ship would read as a live knob."""
+        for key in vocabulary.REMOVED_KEYS:
+            assert packaged_default(key) is None, key

@@ -46,11 +46,19 @@ class TestDetectLanguage:
         (tmp_path / "go.mod").write_text("module example.com/test\n")
         assert detect_language(tmp_path) == "golang"
 
-    def test_detects_bash_from_bats_tests(self, tmp_path: Path) -> None:
+    def test_bats_tests_alone_are_not_a_language(self, tmp_path: Path) -> None:
         tests_dir = tmp_path / "tests"
         tests_dir.mkdir()
         (tests_dir / "test_basic.bats").write_text("@test 'example' { true; }\n")
-        assert detect_language(tmp_path) == "bash"
+        assert detect_language(tmp_path) is None
+
+    def test_retired_hypersec_names_are_not_read(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYPERSEC_CI_LANGUAGE", "rust")
+        (tmp_path / ".hypersec-ci.yaml").write_text("language: golang\n")
+        (tmp_path / "pyproject.toml").write_text("[project]\n")
+        assert detect_language(tmp_path) == "python"
 
     def test_returns_none_for_empty_dir(self, tmp_path: Path) -> None:
         assert detect_language(tmp_path) is None

@@ -152,18 +152,10 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
   under a fixture's `.ci-negative/`, and the runner that refuses the ones that
   go green
 
-### Deployment artefacts
-
-- [deployment/CONTRACT.md](deployment/contract.md) - the deployment contract a
-  binary emits; how container/Helm/ArgoCD artefacts are generated
-- [deployment/CONTRACT-IDENTITY.md](deployment/contract-identity.md) - contract
-  identity annotation scheme
-- [deployment/TIERS.md](deployment/tiers.md) - three-tier deployment rollout
-
 ### Migration & history
 
-- [migration/JFROG.md](migration/jfrog.md) - the registry migration record; also
-  the artifact repos that still serve Telstra production
+- The JFrog registry migration record, and the artifact repos that still serve
+  Telstra production, live in hyperi-infra docs/JFROG.md
 - [migration/CODEBERG-SECRETS-AND-CI.md](migration/codeberg-secrets-and-ci.md)
 - Codeberg + Buildkite portability notes (aspirational)
 - [lessons.md](lessons.md) - the war stories: every gotcha that cost a

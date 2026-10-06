@@ -21,7 +21,7 @@ flowchart LR
 ```
 
 Python publishes to public PyPI only. A legacy `publish.target` in
-`.hyperi-ci.yaml` is read but ignored.
+`.hyperi-ci.yaml` is read by nothing and warns.
 
 ## Where the source is
 

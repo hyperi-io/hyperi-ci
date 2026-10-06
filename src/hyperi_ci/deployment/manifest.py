@@ -4,15 +4,14 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Cheap manifest readers shared by tier detection and the generate stage.
+"""Cheap manifest readers for tier detection.
 
-Both :mod:`hyperi_ci.deployment.detect` (which tier is this repo?) and
-:mod:`hyperi_ci.deployment.stage` (what do I invoke?) need to pull a
-handful of fields out of ``Cargo.toml`` / ``pyproject.toml``. They live
-here so there is one copy, not one per caller.
+:mod:`hyperi_ci.deployment.detect` (which tier is this repo?) and anything
+that needs the producer's binary or entry point pull a handful of fields out
+of ``Cargo.toml`` / ``pyproject.toml``. They live here so there is one copy.
 
-**Substring-based, not a TOML parse.** These answers only pick which
-subprocess to run, so a line-scoped scan is enough and avoids hauling
+**Substring-based, not a TOML parse.** These answers only name a producer,
+so a line-scoped scan is enough and avoids hauling
 ``tomllib`` into the hot path. It also tolerates every form a stricter
 parse would have to special-case one at a time (workspace inheritance,
 dependency extras, inline comments).

@@ -71,10 +71,6 @@ _ROOT = Path(__file__).resolve().parent.parent
 _VERSIONS_FILE = _ROOT / "src" / "hyperi_ci" / "config" / "versions.yaml"
 _WORKFLOWS_DIR = _ROOT / ".github" / "workflows"
 _ACTIONS_DIR = _ROOT / ".github" / "actions"
-# Relative to _ROOT, resolved per call rather than at import: _check() reports
-# every hit as relative_to(_ROOT), so a frozen absolute path would raise the
-# moment _ROOT is repointed.
-_TEMPLATES_SUBDIR = Path("src") / "hyperi_ci" / "gitops_templates" / "workflows"
 
 # How long a release must have existed before we'll pin it. Mirrors the org
 # Renovate preset's `minimumReleaseAge` -- a release sitting untouched for a
@@ -108,9 +104,6 @@ _ACTION_OWNERS: dict[str, str] = {
     "docker-login": "docker/login-action",
     "docker-setup-buildx": "docker/setup-buildx-action",
     "ghcr-cleanup": "dataaxiom/ghcr-cleanup-action",
-    # Used only by the gitops_templates scaffold, not our own pipeline.
-    "setup-helm": "azure/setup-helm",
-    "setup-opentofu": "opentofu/setup-opentofu",
 }
 
 
@@ -207,8 +200,8 @@ def _marker_pins(
 
             # The composite runs before hyperi-ci exists, so the digest is
             # mirrored there too (issue #66). A workflow hands the version to an
-            # installer action (the gitops scaffold's azure/setup-helm), which
-            # does its own fetching, so it carries no digest.
+            # installer action, which does its own fetching, so it carries no
+            # digest.
             digests = spec.get("sha256")
             if digests is None or _ACTIONS_DIR not in path.parents:
                 continue
@@ -286,17 +279,10 @@ def _find_workflow_files() -> list[Path]:
     Composite actions under `.github/actions/*/action.yml` pin third-party
     actions too (setup-node, etc.), so they must be scanned or they'd drift
     unpinned -- the gap that hid the unpinned refs during the deps review.
-
-    The `init-gitops` templates are scanned for the same reason one step
-    removed: they are not our pipeline, they are the pipeline we hand to every
-    repo we scaffold.
     """
-    templates_dir = _ROOT / _TEMPLATES_SUBDIR
     files: list[Path] = []
     for pattern in ("*.yml", "*.yaml"):
         files.extend(_WORKFLOWS_DIR.glob(pattern))
-        if templates_dir.is_dir():
-            files.extend(templates_dir.glob(pattern))
     if _ACTIONS_DIR.is_dir():
         for pattern in ("**/action.yml", "**/action.yaml"):
             files.extend(_ACTIONS_DIR.glob(pattern))

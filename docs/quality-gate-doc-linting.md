@@ -137,8 +137,7 @@ back to `blocking`.
   schema gate (kube-linter/checkov still run without it). A CRD-heavy cluster repo
   will want `quality.kubeconform.schema_locations` for its operators and a
   `quality.checkov.skip` list for known false positives (e.g. External-Secrets
-  `ExternalSecret` CRs). The gitops scaffold (`hyperi-ci init-gitops`) ships a
-  `validate.yaml` that already calls the verb.
+  `ExternalSecret` CRs).
 - **An external / third-party project you are migrating in** - start every tool at
   `warn` (advisory) so the first run is a report, not a wall of failures; triage
   the findings; then promote hadolint (and, if wanted, checkov) to `blocking` once
