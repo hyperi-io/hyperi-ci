@@ -10,13 +10,13 @@ other languages and have each cost a real failure.
 |---|---|
 | quality | `ruff check`, `ruff format --check`, `ruff check --select S` (security), `ty` (typecheck), `pip-audit`, `vulture` |
 | test | `pytest` with coverage |
-| build | `uv build` (wheel + sdist); optional Nuitka native binary |
+| build | `uv build` (wheel + sdist) |
 | publish | `uv publish` -> pypi.org |
 
 ```mermaid
 flowchart LR
     Q["quality<br/>ruff · ty · pip-audit"] --> T["test<br/>pytest + coverage"]
-    T --> B["build<br/>uv build (wheel+sdist)<br/>+ Nuitka (optional)"]
+    T --> B["build<br/>uv build (wheel+sdist)"]
     B --> PYPI["pypi.org"]
 ```
 

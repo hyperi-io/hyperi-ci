@@ -352,8 +352,6 @@ build:
   strategies:
     - native
 
-  # No `python:` block: Nuitka is not implemented (languages/python/build.py
-  # `_build_nuitka` is a stub), so its settings configured nothing.
 
   # No `typescript.package_manager`: detect_package_manager() resolves it from
   # the package.json `packageManager` field, the lockfile, then npm.

@@ -415,22 +415,6 @@ def stage_build(language: str, config: CIConfig, *, local: bool = False) -> int:
                 if rc != 0:
                     return rc
 
-            elif strategy == "nuitka":
-                if language != "python":
-                    warn(f"Nuitka strategy is Python-only, skipping for {language}")
-                    continue
-                rc = _dispatch_to_handler(
-                    language,
-                    "build",
-                    config,
-                    extra_env=extra_env,
-                )
-                if rc == -1:
-                    error("Nuitka build handler not found for Python")
-                    return 1
-                if rc != 0:
-                    return rc
-
             else:
                 error(f"Unknown build strategy: {strategy}")
                 return 1
