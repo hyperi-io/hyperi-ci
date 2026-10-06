@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.12.14](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.13...v2.12.14) (2026-10-06)
+
+### Bug Fixes
+
+* **rust:** link and BOLT with the designated LLVM version ([#520](https://github.com/hyperi-io/hyperi-ci/issues/520)) ([832f091](https://github.com/hyperi-io/hyperi-ci/commit/832f091385da64b18e635c835081dd6531396c36)), closes [#519](https://github.com/hyperi-io/hyperi-ci/issues/519)
+
 ## [2.12.13](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.12...v2.12.13) (2026-10-05)
 
 ### Bug Fixes
