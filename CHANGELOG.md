@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.12.15](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.14...v2.12.15) (2026-10-06)
+
+### Bug Fixes
+
+* **python:** remove the Nuitka build strategy ([#525](https://github.com/hyperi-io/hyperi-ci/issues/525)) ([e33809a](https://github.com/hyperi-io/hyperi-ci/commit/e33809a23fb398ff2d6c0fbae9bea7e912eb61aa))
+
 ## [2.12.14](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.13...v2.12.14) (2026-10-06)
 
 ### Bug Fixes
