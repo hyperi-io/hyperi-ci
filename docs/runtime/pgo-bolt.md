@@ -234,14 +234,14 @@ reuse the project's proto types and TLS config.
 
 ## Validating your workload locally
 
-Before pushing a `.hyperi-ci.yaml` opt-in, test the pipeline locally:
+Before pushing a `.hyperi-ci.yaml` opt-in, test the pipeline locally. CI passes `--bin` for each binary it ships on every `cargo pgo` step, so a feature-gated driver in the same package never compiles against the profile. Do the same here:
 
 ```bash
 cargo install cargo-pgo
 rustup component add llvm-tools-preview
 
 # 1. Instrument
-cargo pgo build -- --features jemalloc
+cargo pgo build -- --bin <your-binary> --features jemalloc
 
 # 2. Run your workload against the instrumented binary
 bash scripts/pgo-workload.sh ./target/x86_64-unknown-linux-gnu/release/<your-binary>
@@ -259,7 +259,7 @@ llvm-profdata show --topn=20 target/pgo-profiles/merged.profdata
 # Red flag: your startup / config-loading functions at the top.
 
 # 6. Build optimised
-cargo pgo optimize build -- --features jemalloc
+cargo pgo optimize build -- --bin <your-binary> --features jemalloc
 ```
 
 If step 5 shows startup code at the top, your workload needs more
