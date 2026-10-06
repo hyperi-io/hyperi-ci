@@ -538,6 +538,68 @@ class TestDepGroupLoading:
         assert "bolt-19" in bolt.apt_packages
         assert bolt.apt_repos[0].codename == "llvm-toolchain-noble-19"
 
+    def test_rust_yaml_bolt_version_from_project_config(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.delenv("HYPERCI_LLVM_VERSION", raising=False)
+        monkeypatch.setenv("OS_CODENAME", "noble")
+        (tmp_path / ".hyperi-ci.yaml").write_text(
+            "build:\n  rust:\n    llvm_version: 21\n", encoding="utf-8"
+        )
+        groups = _load_dep_groups("rust", project_dir=tmp_path)
+        bolt = next(g for g in groups if g.name == "llvm-bolt")
+        assert bolt.dpkg_check == "bolt-21"
+        assert {"bolt-21", "lld-21"} <= set(bolt.apt_packages)
+        assert bolt.apt_repos[0].codename == "llvm-toolchain-noble-21"
+
+    def test_env_beats_project_config(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("HYPERCI_LLVM_VERSION", "20")
+        monkeypatch.setenv("OS_CODENAME", "noble")
+        (tmp_path / ".hyperi-ci.yaml").write_text(
+            "build:\n  rust:\n    llvm_version: 21\n", encoding="utf-8"
+        )
+        groups = _load_dep_groups("rust", project_dir=tmp_path)
+        bolt = next(g for g in groups if g.name == "llvm-bolt")
+        assert bolt.dpkg_check == "bolt-20"
+
+    def test_bad_llvm_version_fails_the_install(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("HYPERCI_LLVM_VERSION", "latest")
+        monkeypatch.setattr(native_deps.platform, "system", lambda: "Linux")
+        errors: list[str] = []
+        monkeypatch.setattr(native_deps.logger, "error", errors.append)
+        installed: list[str] = []
+        monkeypatch.setattr(
+            native_deps, "_apt_install", lambda pkgs: installed.extend(pkgs) or 0
+        )
+
+        assert native_deps.install_native_deps("rust", project_dir=tmp_path) == 1
+        assert installed == []
+        assert len(errors) == 1
+        assert "HYPERCI_LLVM_VERSION" in errors[0]
+
+    def test_bad_llvm_version_on_dry_run_is_an_error_not_a_traceback(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("HYPERCI_LLVM_VERSION", "latest")
+        errors: list[str] = []
+        monkeypatch.setattr(native_deps.logger, "error", errors.append)
+
+        native_deps.print_needed("rust", project_dir=tmp_path)
+
+        assert len(errors) == 1
+        assert "HYPERCI_LLVM_VERSION" in errors[0]
+
+    def test_bad_llvm_version_does_not_touch_yaml_without_the_placeholder(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYPERCI_LLVM_VERSION", "latest")
+        monkeypatch.setenv("OS_CODENAME", "noble")
+        assert _expand_template_vars("pkg-${OS_CODENAME}") == "pkg-noble"
+
     # The three groups every Rust project gets regardless of its dependencies.
     _ALWAYS_ON = ("mold linker", "clang linker", "llvm-bolt")
 

@@ -121,6 +121,7 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 
 - [languages/RUST.md](languages/rust.md) - what channel-gated optimisation buys (jemalloc + LTO, PGO, BOLT), the build-channel matrix, Tier 1, the Build job's time limit
 - [languages/rust-tier2.md](languages/rust-tier2.md) - the Tier 2 (PGO + BOLT) `.hyperi-ci.yaml` opt-in, workload script contract, skip-optimize, opt-out
+- [languages/rust-llvm.md](languages/rust-llvm.md) - how the LLVM major for linking and BOLT is chosen, installed and pinned, and how to move to a new one
 - [languages/RUST-RELEASE-VERIFICATION.md](languages/rust-release-verification.md) - the Tier 2 dispatch timeline, binary and log markers, release cost
 - [languages/RUST-TROUBLESHOOTING.md](languages/rust-troubleshooting.md) - symptom-to-fix tables, canary lessons
 - [languages/RUST-LOCAL-DEV.md](languages/rust-local-dev.md) - per-project target dirs, sccache, mold, parallelism

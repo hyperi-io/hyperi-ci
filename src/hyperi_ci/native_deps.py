@@ -42,7 +42,9 @@ from hyperi_ci.common import (
     url_read,
     warn,
 )
-from hyperi_ci.versions import runtime_version
+from hyperi_ci.llvm_version import LLVMVersionError, designated_llvm_version
+
+_LLVM_PLACEHOLDER = "${HYPERCI_LLVM_VERSION}"
 
 # Codenames to try as fallbacks when a given APT repo doesn't ship
 # packages for the current OS codename. Ordered by preference (newest
@@ -127,7 +129,7 @@ class DepGroup:
     bake: bool = True
 
 
-def _expand_template_vars(text: str) -> str:
+def _expand_template_vars(text: str, project_dir: Path | None = None) -> str:
     """Expand ${VAR} placeholders in YAML configs.
 
     Supports a small set of hyperi-ci-controlled variables -- keeps the
@@ -135,7 +137,10 @@ def _expand_template_vars(text: str) -> str:
     editing code.
 
     Recognised variables:
-      HYPERCI_LLVM_VERSION  -- LLVM/BOLT major (default: versions.yaml `llvm`)
+      HYPERCI_LLVM_VERSION  -- the designated LLVM/BOLT major, from
+                              ``llvm_version.designated_llvm_version``: the
+                              env var, then `build.rust.llvm_version` in
+                              .hyperi-ci.yaml, then versions.yaml `llvm`.
       OS_CODENAME           -- current OS codename from lsb_release -cs
                               (e.g. noble, trixie, resolute). Lets a single
                               YAML reference distro-specific apt.llvm.org
@@ -144,12 +149,22 @@ def _expand_template_vars(text: str) -> str:
     Unknown ${VAR} placeholders pass through unchanged so apt-cache
     surfaces a clear "package not found" error instead of a silent
     mis-resolve.
+
+    Args:
+        text: The raw YAML text.
+        project_dir: Project root whose .hyperi-ci.yaml is read. Defaults to cwd.
+
+    Raises:
+        LLVMVersionError: The text names the LLVM placeholder and the
+            designated version is not a whole-number major.
+
     """
-    llvm_version = os.environ.get("HYPERCI_LLVM_VERSION") or runtime_version("llvm")
+    # Resolved only when named, so a bad value cannot fail a YAML that never uses it.
+    if _LLVM_PLACEHOLDER in text:
+        llvm_version = str(designated_llvm_version(project_dir).major)
+        text = text.replace(_LLVM_PLACEHOLDER, llvm_version)
     os_codename = os.environ.get("OS_CODENAME") or _get_os_codename() or "noble"
-    return text.replace("${HYPERCI_LLVM_VERSION}", llvm_version).replace(
-        "${OS_CODENAME}", os_codename
-    )
+    return text.replace("${OS_CODENAME}", os_codename)
 
 
 def _substitute_version(text: str, version: str) -> str:
@@ -198,13 +213,18 @@ def _dep_group_from_entry(entry: dict, version: str | None = None) -> DepGroup:
     )
 
 
-def _load_dep_groups(language: str, category: str = "native-deps") -> list[DepGroup]:
+def _load_dep_groups(
+    language: str,
+    category: str = "native-deps",
+    project_dir: Path | None = None,
+) -> list[DepGroup]:
     """Load dep group definitions from bundled config.
 
     Entries with a `versions:` list expand into one DepGroup per version,
     with `{V}` substituted in `dpkg_check`, `apt_repos[*].codename`, and
     every `apt_packages[*]`. Entries without `versions:` are loaded as-is
-    (backward-compatible with existing native-deps YAMLs).
+    (backward-compatible with existing native-deps YAMLs). ``project_dir``
+    is where the designated LLVM version's project config is read from.
     """
     config_dir = _CATEGORY_DIRS.get(category)
     if config_dir is None:
@@ -216,7 +236,8 @@ def _load_dep_groups(language: str, category: str = "native-deps") -> list[DepGr
         logger.warning(f"No {category} config for: {language}")
         return []
 
-    raw = yaml.safe_load(_expand_template_vars(config_file.read_text(encoding="utf-8")))
+    text = config_file.read_text(encoding="utf-8")
+    raw = yaml.safe_load(_expand_template_vars(text, project_dir))
     if not raw:
         return []
 
@@ -767,7 +788,11 @@ def install_native_deps(
         logger.info(f"Skipping {category} on {platform.system()}")
         return 0
 
-    dep_groups = _load_dep_groups(language, category=category)
+    try:
+        dep_groups = _load_dep_groups(language, category=category, project_dir=cwd)
+    except LLVMVersionError as exc:
+        logger.error(str(exc))
+        return 1
     if not dep_groups:
         logger.info(f"No {category} groups defined for {language}")
         return 0
@@ -952,7 +977,11 @@ def print_needed(
 ) -> None:
     """Print which dep groups would be triggered (dry-run helper)."""
     cwd = project_dir or Path.cwd()
-    dep_groups = _load_dep_groups(language, category=category)
+    try:
+        dep_groups = _load_dep_groups(language, category=category, project_dir=cwd)
+    except LLVMVersionError as exc:
+        logger.error(str(exc))
+        return
 
     for group in dep_groups:
         if all_mode:

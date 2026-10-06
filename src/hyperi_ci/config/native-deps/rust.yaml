@@ -57,7 +57,8 @@
 # We pull from apt.llvm.org (LLVM's official upstream repo) so we
 # always get the latest BOLT regardless of what the base Ubuntu
 # release ships. The LLVM major is the `${HYPERCI_LLVM_VERSION}`
-# placeholder, which falls back to versions.yaml `llvm`, and the distro
+# placeholder: the env var, then `build.rust.llvm_version` in
+# .hyperi-ci.yaml, then versions.yaml `llvm`. The distro
 # subpath is `${OS_CODENAME}` (from $OS_CODENAME or lsb_release -cs) so
 # the same entry works on noble, trixie and resolute. C++/ClickHouse
 # fork uses its own pinned toolchain (no conflict, every binary is
@@ -70,9 +71,8 @@
 # This keeps us working on both vanilla GH runners and pre-provisioned
 # self-hosted runners.
 #
-# Installs /usr/bin/llvm-bolt-${HYPERCI_LLVM_VERSION} (version-suffixed
-# only -- pgo.py's _ensure_llvm_bolt_available() falls back to versioned
-# names and shims ~/.local/bin/llvm-bolt -> the versioned binary).
+# Installs version-suffixed binaries only (/usr/bin/llvm-bolt-NN, ld.lld-NN),
+# which pgo.py shims into ~/.local/bin ahead of any unversioned copy on PATH.
 # Linux only (apt); non-Linux runners skip this whole file.
 #
 # A virtual workspace root has only `[workspace]` (the binary lives in a
