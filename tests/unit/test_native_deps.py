@@ -581,6 +581,18 @@ class TestDepGroupLoading:
         assert len(errors) == 1
         assert "HYPERCI_LLVM_VERSION" in errors[0]
 
+    def test_bad_llvm_version_on_dry_run_is_an_error_not_a_traceback(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("HYPERCI_LLVM_VERSION", "latest")
+        errors: list[str] = []
+        monkeypatch.setattr(native_deps.logger, "error", errors.append)
+
+        native_deps.print_needed("rust", project_dir=tmp_path)
+
+        assert len(errors) == 1
+        assert "HYPERCI_LLVM_VERSION" in errors[0]
+
     def test_bad_llvm_version_does_not_touch_yaml_without_the_placeholder(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

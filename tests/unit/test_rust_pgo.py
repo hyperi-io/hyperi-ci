@@ -188,12 +188,16 @@ class TestBoltAvailabilityCheck:
     # work -- ld.lld is the linker BOLT requires for --emit-relocs metadata).
     _BOLT_TOOLS = ("llvm-bolt", "merge-fdata", "ld.lld")
 
-    def test_all_tools_unversioned_present(self) -> None:
-        """Fast path: all three unversioned binaries already on PATH."""
+    def test_all_tools_unversioned_present(self, tmp_path) -> None:
+        """Fallback: all three unversioned binaries on PATH, from one major."""
+        llvm19 = tmp_path / "llvm-19" / "bin"
+        llvm19.mkdir(parents=True)
+        for name in self._BOLT_TOOLS:
+            (llvm19 / name).touch()
         with patch(
             "hyperi_ci.languages.rust.pgo.shutil.which",
             side_effect=lambda name: (
-                f"/usr/bin/{name}" if name in self._BOLT_TOOLS else None
+                str(llvm19 / name) if name in self._BOLT_TOOLS else None
             ),
         ):
             assert _ensure_llvm_bolt_available() is True
@@ -1123,7 +1127,7 @@ class TestProfdataReachesCargoPgo:
     ) -> None:
         """The failure this exists to stop: 300s of profiling, then no merge."""
         monkeypatch.setattr(pgo, "_ensure_cargo_pgo_installed", lambda: True)
-        monkeypatch.setattr(pgo, "_ensure_ld_lld_available", lambda: True)
+        monkeypatch.setattr(pgo, "_ensure_ld_lld_available", lambda *_a, **_k: True)
         monkeypatch.setattr(pgo, "_ensure_llvm_profdata_available", lambda: False)
         workload: list[str] = []
         monkeypatch.setattr(
@@ -1982,7 +1986,7 @@ class TestEveryCompileSharesTheProfile:
 class TestDesignatedLlvmWins:
     """The designated LLVM major is the one linked with, whatever else is on PATH.
 
-    Mirrors the ARC image: `/usr/bin/ld.lld` is an alternatives link into LLVM
+    Mirrors an image whose `/usr/bin/ld.lld` is an alternatives link into LLVM
     19 while `*-23` binaries sit beside it. Real executables on a real PATH, so
     `shutil.which` answers the way it does on the runner.
     """
@@ -2148,10 +2152,61 @@ class TestDesignatedLlvmWins:
 
         assert len(warnings) == 1
         assert "designated LLVM 23" in warnings[0]
-        assert "unversioned tools already on PATH" in warnings[0]
+        assert "using the LLVM 19 tools already on PATH instead" in warnings[0]
         real = (tmp_path / "usr-lib" / "llvm-19" / "bin" / "lld").resolve()
-        assert lines == [f"LLVM unversioned (fallback from 23): ld.lld -> {real}"]
+        assert lines == [f"LLVM 19 (fallback from 23, on PATH): ld.lld -> {real}"]
         assert not (self._shim_dir(tmp_path) / "ld.lld").exists()
+
+    def test_unversioned_bolt_from_another_major_is_not_mixed_with_ld_lld(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """ld.lld shims to 23; an unversioned llvm-bolt from 19 must not join it."""
+        usr_bin = self._image(tmp_path, {23: ("ld.lld",)})
+        llvm19 = tmp_path / "usr-lib" / "llvm-19" / "bin"
+        for name in ("llvm-bolt", "merge-fdata"):
+            (usr_bin / name).symlink_to(_executable(llvm19 / name))
+        monkeypatch.setenv("PATH", str(usr_bin))
+        monkeypatch.setenv("HYPERCI_LLVM_VERSION", "23")
+
+        assert _ensure_ld_lld_available() is True
+        assert self._resolves_to("ld.lld") == (usr_bin / "ld.lld-23").resolve()
+
+        assert _ensure_llvm_bolt_available() is False
+        assert self._resolves_to("ld.lld") == (usr_bin / "ld.lld-23").resolve()
+
+    def test_mixed_unversioned_tools_fall_through_to_a_whole_major(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """The scan then picks a complete major and moves ld.lld with it."""
+        usr_bin = self._image(tmp_path, {19: self._BOLT, 23: ("ld.lld",)})
+        llvm22 = tmp_path / "usr-lib" / "llvm-22" / "bin"
+        for name in ("llvm-bolt", "merge-fdata"):
+            (usr_bin / name).symlink_to(_executable(llvm22 / name))
+        monkeypatch.setenv("PATH", str(usr_bin))
+        monkeypatch.setenv("HYPERCI_LLVM_VERSION", "23")
+        warnings = self._capture(monkeypatch, "warn")
+
+        assert _ensure_ld_lld_available() is True
+        assert _ensure_llvm_bolt_available() is True
+
+        for name in self._BOLT:
+            assert self._resolves_to(name) == (usr_bin / f"{name}-19").resolve()
+        assert warnings[-1].endswith("using LLVM 19 instead")
+
+    @pytest.mark.parametrize(
+        ("path", "major"),
+        [
+            ("/usr/lib/llvm-19/bin/lld", 19),
+            ("/usr/bin/ld.lld-23", 23),
+            ("/usr/lib/llvm-22/bin/llvm-bolt", 22),
+            ("/usr/local/bin/ld.lld", None),
+            ("/opt/llvm/bin/ld.lld", None),
+        ],
+    )
+    def test_major_is_read_from_the_resolved_path(
+        self, path: str, major: int | None
+    ) -> None:
+        assert pgo._llvm_major_of(Path(path)) == major
 
     def test_a_bad_designated_version_fails_the_build_up_front(
         self, tmp_path, monkeypatch

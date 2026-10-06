@@ -110,12 +110,12 @@ def run_pgo_build(
         return _run_plain_release_build(target, feature_args, cwd, extra_env)
 
     try:
-        designated_llvm_version()
+        designated_llvm_version(cwd)
     except LLVMVersionError as exc:
         error(str(exc))
         return 1
 
-    if not _ensure_ld_lld_available():
+    if not _ensure_ld_lld_available(cwd):
         warn(
             "no ld.lld on PATH -- a project selecting -fuse-ld=lld in its own "
             "cargo config will fail this build with \"cannot find 'ld'\""
@@ -133,7 +133,7 @@ def run_pgo_build(
 
     # Decided before the first compile, because BOLT's profile settings have to
     # reach the PGO compiles too.
-    bolt = profile.bolt_enabled and _ensure_llvm_bolt_available()
+    bolt = profile.bolt_enabled and _ensure_llvm_bolt_available(cwd)
     if profile.bolt_enabled and not bolt:
         warn(
             "BOLT toolchain not complete (llvm-bolt / merge-fdata / ld.lld) -- "
@@ -304,7 +304,7 @@ def _ensure_cargo_pgo_installed() -> bool:
 _BOLT_TOOLCHAIN_BINARIES = ("llvm-bolt", "merge-fdata", "ld.lld")
 
 
-def _ensure_llvm_bolt_available() -> bool:
+def _ensure_llvm_bolt_available(project_dir: Path | None = None) -> bool:
     """Check BOLT toolchain is discoverable; shim versioned binaries onto PATH.
 
     Ubuntu's `bolt-NN` apt package installs version-suffixed binaries
@@ -324,8 +324,9 @@ def _ensure_llvm_bolt_available() -> bool:
     directly or via shim). cargo-pgo's BOLT step fails silently on
     partial toolchain -- all-or-nothing is the safer contract.
     No auto-install -- the apt package is added by native_deps.py.
+    ``project_dir`` holds the .hyperi-ci.yaml the designated major is read from.
     """
-    return _shim_llvm_tools(_BOLT_TOOLCHAIN_BINARIES)
+    return _shim_llvm_tools(_BOLT_TOOLCHAIN_BINARIES, project_dir)
 
 
 def _rustc_sysroot_bin() -> Path | None:
@@ -398,16 +399,17 @@ def _ensure_llvm_profdata_available() -> bool:
     return False
 
 
-def _ensure_ld_lld_available() -> bool:
+def _ensure_ld_lld_available(project_dir: Path | None = None) -> bool:
     """Put the designated LLVM major's `ld.lld` first on PATH, unversioned.
 
     gcc's `-fuse-ld=lld` looks for a binary named exactly `ld.lld`, and the
     `lld-NN` apt package ships only the suffixed one. A runner's own
     unversioned `ld.lld` may belong to another major, so the designated one
     is shimmed over it. Run before the PGO steps, so a project that selects
-    lld in its own cargo config links with it in every stage.
+    lld in its own cargo config links with it in every stage. ``project_dir``
+    holds the .hyperi-ci.yaml the designated major is read from.
     """
-    return _shim_llvm_tools(("ld.lld",))
+    return _shim_llvm_tools(("ld.lld",), project_dir)
 
 
 # LLVM majors scanned, newest first, when the designated one is incomplete.
@@ -451,18 +453,33 @@ def _describe_tools(resolved: dict[str, str]) -> str:
     return ", ".join(f"{name} -> {path}" for name, path in resolved.items())
 
 
-def _shim_llvm_tools(names: tuple[str, ...]) -> bool:
+def _llvm_major_of(real: Path) -> int | None:
+    """Return the LLVM major a resolved tool path belongs to, or None if unknown.
+
+    apt.llvm.org installs into ``/usr/lib/llvm-NN/``, and its ``/usr/bin``
+    entries carry a ``-NN`` suffix, so either one names the major.
+    """
+    for part in reversed(real.parent.parts):
+        if match := re.fullmatch(r"llvm-(\d+)", part):
+            return int(match.group(1))
+    if match := re.search(r"-(\d+)$", real.name):
+        return int(match.group(1))
+    return None
+
+
+def _shim_llvm_tools(names: tuple[str, ...], project_dir: Path | None = None) -> bool:
     """Make every tool in ``names`` resolvable unversioned, from ONE LLVM major.
 
     The designated major wins: when ``<name>-<major>`` exists for every name,
     those are shimmed into ``~/.local/bin`` ahead of the rest of PATH, over any
     unversioned copy the runner already has. Only when it is incomplete does
-    this fall back to the unversioned tools already on PATH, then to the
-    newest major that provides them all, warning which major was missing.
+    this fall back to the unversioned tools already on PATH, provided they all
+    resolve into one known major, then to the newest major that provides them
+    all, warning which major was missing.
 
     Returns True when all of them resolve.
     """
-    designated = designated_llvm_version()
+    designated = designated_llvm_version(project_dir)
     resolved = _versioned_tools(names, designated.major)
     if resolved is not None:
         _install_shims(resolved)
@@ -483,12 +500,15 @@ def _shim_llvm_tools(names: tuple[str, ...]) -> bool:
     )
 
     on_path = {name: found for name in names if (found := shutil.which(name))}
-    if len(on_path) == len(names):
-        real = {name: str(Path(path).resolve()) for name, path in on_path.items()}
-        warn(f"{reason} -- using the unversioned tools already on PATH instead")
-        info(
-            f"LLVM unversioned (fallback from {designated.major}): {_describe_tools(real)}"
-        )
+    real = {name: Path(path).resolve() for name, path in on_path.items()}
+    majors = [_llvm_major_of(path) for path in real.values()]
+    # A tool whose major cannot be read is never assumed to match the others.
+    one_major = None not in majors and len(set(majors)) == 1
+    if len(on_path) == len(names) and one_major:
+        major = majors[0]
+        described = _describe_tools({name: str(path) for name, path in real.items()})
+        warn(f"{reason} -- using the LLVM {major} tools already on PATH instead")
+        info(f"LLVM {major} (fallback from {designated.major}, on PATH): {described}")
         return True
 
     for major in _LLVM_FALLBACK_SCAN:

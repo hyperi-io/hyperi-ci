@@ -977,7 +977,11 @@ def print_needed(
 ) -> None:
     """Print which dep groups would be triggered (dry-run helper)."""
     cwd = project_dir or Path.cwd()
-    dep_groups = _load_dep_groups(language, category=category, project_dir=cwd)
+    try:
+        dep_groups = _load_dep_groups(language, category=category, project_dir=cwd)
+    except LLVMVersionError as exc:
+        logger.error(str(exc))
+        return
 
     for group in dep_groups:
         if all_mode:
