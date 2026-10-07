@@ -4,12 +4,13 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Pinned native tools a project's tests opt into through ``test.native_tools``.
+"""Pinned native tools for a project's tests and for ``lint-iac``.
 
-The test stage installs every listed tool before the language handler runs, so
-a test that shells out to one finds the pinned build on PATH. The runner images
-carry none of them, and the opt-in keeps every other repo's Test job from
-paying for the download.
+The test stage installs every tool listed in ``test.native_tools`` before the
+language handler runs, so a test that shells out to one finds the pinned build
+on PATH. The runner images carry none of them, and the opt-in keeps every other
+repo's Test job from paying for the download. ``lint-iac`` fetches helm, tofu
+and kustomize through :func:`ci_binary` on the same terms.
 
 Each tool comes from its upstream release, is checked against the digest in
 versions.yaml, and is unpacked into the hyperi-ci cache, one directory per
@@ -31,7 +32,7 @@ import tarfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from hyperi_ci.common import error, info, run_cmd, warn
+from hyperi_ci.common import error, info, is_ci, run_cmd, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.quality.install import fetch_verified
 from hyperi_ci.tools import missing_tool_notice
@@ -46,8 +47,9 @@ class NativeTool:
     """One tool's Linux release asset and how to confirm the install runs.
 
     ``url`` and ``member`` are format strings over ``{version}`` (verbatim from
-    versions.yaml) and ``{arch}`` (the asset's own spelling, which is also the
-    key of its digest in versions.yaml).
+    versions.yaml), ``{bare}`` (the version without its leading ``v``) and
+    ``{arch}`` (the asset's own spelling, which is also the key of its digest
+    in versions.yaml).
     """
 
     url: str
@@ -60,6 +62,22 @@ _TOOLS: dict[str, NativeTool] = {
         url="https://get.helm.sh/helm-{version}-linux-{arch}.tar.gz",
         member="linux-{arch}/helm",
         probe=("version", "--short"),
+    ),
+    "kustomize": NativeTool(
+        url=(
+            "https://github.com/kubernetes-sigs/kustomize/releases/download/"
+            "kustomize%2F{version}/kustomize_{version}_linux_{arch}.tar.gz"
+        ),
+        member="kustomize",
+        probe=("version",),
+    ),
+    "tofu": NativeTool(
+        url=(
+            "https://github.com/opentofu/opentofu/releases/download/"
+            "{version}/tofu_{bare}_linux_{arch}.tar.gz"
+        ),
+        member="tofu",
+        probe=("version",),
     ),
 }
 
@@ -150,12 +168,13 @@ def install_tool(name: str, cache_dir: Path = CACHE_DIR) -> Path | None:
     if binary.is_file():
         return bin_dir
 
-    url = tool.url.format(version=version, arch=arch)
+    bare = version.removeprefix("v")
+    url = tool.url.format(version=version, bare=bare, arch=arch)
     payload = fetch_verified(name, url, tool_sha256(name, arch))
     if payload is None:
         return None
 
-    member = tool.member.format(version=version, arch=arch)
+    member = tool.member.format(version=version, bare=bare, arch=arch)
     try:
         with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
             extracted = archive.extractfile(member)
@@ -174,6 +193,22 @@ def install_tool(name: str, cache_dir: Path = CACHE_DIR) -> Path | None:
     partial.chmod(0o755)
     partial.replace(binary)
     return bin_dir
+
+
+def ci_binary(name: str) -> str | None:
+    """Return ``name`` from PATH, else the pinned build installed on Linux CI.
+
+    The quality-gate rule for a missing tool: a local run uses what the
+    developer has and the caller warn-skips when it is absent, while CI gets
+    the pinned build. Returns None off CI or off Linux when nothing is on PATH.
+    """
+    exe = shutil.which(name)
+    if exe:
+        return exe
+    if not is_ci() or _linux_arch() is None:
+        return None
+    bin_dir = install_tool(name)
+    return str(bin_dir / name) if bin_dir else None
 
 
 def prepare(config: CIConfig) -> int:

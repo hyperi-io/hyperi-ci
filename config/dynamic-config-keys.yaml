@@ -76,6 +76,10 @@ keys:
   quality.kube_linter: src/hyperi_ci/quality/kube_linter.py
   quality.compose_config: src/hyperi_ci/quality/compose_config.py
   quality.compose_pins: src/hyperi_ci/quality/compose_pins.py
+  quality.tofu: src/hyperi_ci/quality/tofu.py
+  quality.ansible_lint: src/hyperi_ci/quality/ansible_lint.py
+  quality.iac_generated: src/hyperi_ci/quality/lint_iac.py
+  quality.render_stable: src/hyperi_ci/quality/lint_iac.py
   quality.charset: src/hyperi_ci/quality/charset.py
   quality.cargo_flags: src/hyperi_ci/quality/cargo_flags.py
   quality.doc_paths: src/hyperi_ci/quality/doc_paths.py
