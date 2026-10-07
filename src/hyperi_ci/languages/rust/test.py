@@ -50,6 +50,7 @@ from hyperi_ci.languages.tiering import (
     announce_tier,
     handler_tier,
 )
+from hyperi_ci.versions import tool_version
 
 _RESULTS_DIR = Path("test-results")
 
@@ -246,10 +247,10 @@ def _resolve_runner(config: CIConfig) -> str | None:
             f"{_DIVERGENCE}"
         )
         info(
-            "  The ARC runner image bakes cargo-nextest in (bootstrap.yaml "
-            "`rust.cargo_tools`); a hosted/free runner does not. Install it "
-            "with `cargo binstall cargo-nextest`, run on ARC, or set "
-            f"`{_NEXTEST_KEY}: auto` to accept the cargo-test fallback."
+            "  The CI Test job installs the pinned cargo-nextest "
+            "(setup-nextest). Locally, install it with `cargo install "
+            f"cargo-nextest --locked --version {tool_version('cargo-nextest')}`, "
+            f"or set `{_NEXTEST_KEY}: auto` to accept the cargo-test fallback."
         )
         return None
 

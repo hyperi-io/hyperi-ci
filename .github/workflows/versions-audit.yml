@@ -97,8 +97,8 @@ jobs:
     # tag changes the sha256 and nothing above notices, so run the composites
     # that verify a digest and let `sha256sum -c` be the signal (#66).
     name: Digest audit
-    # Not the vars-driven runner: the ARC image bakes these tools, and this job
-    # is here to exercise the download-and-verify path on a clean machine.
+    # Not the vars-driven runner: this job is here to exercise the
+    # download-and-verify path on a clean machine.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

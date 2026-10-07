@@ -11,22 +11,24 @@ go.dev, nvm) rather than apt, and because hyperi-ci does NOT install them per
 job -- it assumes they exist. `languages/rust/build.py` calls `rustup target
 add` with no bootstrap behind it.
 
-That assumption is exactly why baking them pays: the cargo tools are source
-builds costing tens of minutes cold, and nothing reinstalls them over the top.
-The linters are the opposite case and are deliberately not here.
+The one cargo tool baked is sccache: the ARC image sets ``RUSTC_WRAPPER=sccache``
+and no CI step installs it. cargo-audit, cargo-deny and cargo-nextest are not
+baked, because the setup-rust-tools and setup-nextest composites install their
+pinned builds on every job whatever the image carries.
 
-Every step is idempotent -- an already-present toolchain is left alone, so a
-rebuild over a warm cache is cheap and a partial failure can be re-run.
+Every step is idempotent, so a partial failure can be re-run.
 
 Linux only. No-ops elsewhere, so importing this on a macOS workstation is
 safe but does nothing useful.
 """
 
+import io
 import os
 import platform
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -35,6 +37,8 @@ import yaml
 from scalo import logger
 
 from hyperi_ci.common import curl_fetch, curl_read
+from hyperi_ci.quality.install import fetch_verified
+from hyperi_ci.versions import tool_sha256, tool_version
 
 _CONFIG_FILE = Path(__file__).resolve().parent / "config" / "bootstrap.yaml"
 
@@ -44,7 +48,17 @@ _RUSTUP_URL = "https://sh.rustup.rs"
 _GO_VERSION_URL = "https://go.dev/VERSION?m=text"
 _GO_DOWNLOAD_BASE = "https://go.dev/dl"
 _NVM_INSTALL_BASE = "https://raw.githubusercontent.com/nvm-sh/nvm"
-_CARGO_BINSTALL_URL = "https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh"
+_SCCACHE_URL = (
+    "https://github.com/mozilla/sccache/releases/download/{version}/"
+    "sccache-{version}-{arch}-unknown-linux-musl.tar.gz"
+)
+# platform.machine() -> the arch as sccache's assets and its digest keys spell it.
+_SCCACHE_ARCH = {
+    "x86_64": "x86_64",
+    "amd64": "x86_64",
+    "aarch64": "aarch64",
+    "arm64": "aarch64",
+}
 # The Go tarball is about 70 MB, so a 300-second attempt still finishes at 250 KB/s.
 _GO_TARBALL_MAX_TIME = 300
 
@@ -56,7 +70,6 @@ class RustSpec:
     channels: list[str] = field(default_factory=lambda: ["stable"])
     components: list[str] = field(default_factory=list)
     targets: list[str] = field(default_factory=list)
-    cargo_tools: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -119,7 +132,6 @@ def load_spec() -> tuple[RustSpec, bool, NodeSpec]:
         channels=[str(c) for c in rust_raw.get("channels", ["stable"])],
         components=[str(c) for c in rust_raw.get("components", [])],
         targets=[str(t) for t in rust_raw.get("targets", [])],
-        cargo_tools=[str(t) for t in rust_raw.get("cargo_tools", [])],
     )
     node = NodeSpec(
         versions=[str(v) for v in node_raw.get("versions", [])],
@@ -133,64 +145,54 @@ def load_spec() -> tuple[RustSpec, bool, NodeSpec]:
 # ---------------------------------------------------------------------------
 
 
-def _install_cargo_tools(tools: list[str]) -> int:
-    """Install cargo binaries, preferring prebuilt releases.
+def install_sccache(bin_dir: Path) -> int:
+    """Install the versions.yaml sccache into ``bin_dir``, replacing any copy there.
 
-    `cargo install` compiles from source: sccache, cargo-deny, cargo-audit and
-    cargo-nextest together are tens of minutes. All four publish prebuilt
-    binaries, so cargo-binstall fetches those instead and the image build drops
-    to minutes. Falls back to a source build per tool if binstall is
-    unavailable or a fetch fails -- slow, but the image is still correct.
+    The download is checked against the pinned digest before anything is
+    unpacked, and a mismatch installs nothing.
+
+    Args:
+        bin_dir: Directory on the image's PATH, normally ``$CARGO_HOME/bin``.
+
+    Returns:
+        0 on success, 1 on an unknown CPU, a failed download, a digest
+        mismatch or a tarball without the binary.
+
     """
-    if not tools:
-        return 0
-
-    if not _have("cargo-binstall"):
-        logger.info("Installing cargo-binstall (prebuilt cargo tool fetcher)")
-        # The installer script is fetched and piped to a shell. Upstream ships
-        # no signed artefact for it; the alternative is a source build of
-        # binstall itself, which defeats the point.
-        rc, script = curl_read(_CARGO_BINSTALL_URL)
-        if rc == 0 and script:
-            rc = subprocess.run(["bash"], input=script, check=False).returncode
-            if rc != 0:
-                logger.warning(
-                    "cargo-binstall install failed - falling back to source builds"
-                )
-        else:
-            logger.warning(
-                "cargo-binstall download failed - falling back to source builds"
-            )
-
-    failed: list[str] = []
-    for tool in tools:
-        binary = tool
-        if _have(binary):
-            logger.info(f"[{tool}] already installed")
-            continue
-
-        installed = False
-        if _have("cargo-binstall"):
-            logger.info(f"Installing {tool} (prebuilt)")
-            installed = _run(["cargo", "binstall", "--no-confirm", tool]) == 0
-            if not installed:
-                logger.warning(f"[{tool}] binstall failed - building from source")
-
-        if not installed:
-            logger.info(f"Installing {tool} (source build)")
-            installed = _run(["cargo", "install", tool, "--locked"]) == 0
-
-        if not installed:
-            failed.append(tool)
-
-    if failed:
-        logger.error(f"cargo tools failed to install: {failed}")
+    arch = _SCCACHE_ARCH.get(platform.machine().lower())
+    if arch is None:
+        logger.error(f"No pinned sccache build for {platform.machine()}")
         return 1
+
+    version = tool_version("sccache")
+    url = _SCCACHE_URL.format(version=version, arch=arch)
+    logger.info(f"Installing sccache {version}")
+    payload = fetch_verified("sccache", url, tool_sha256("sccache", arch))
+    if payload is None:
+        return 1
+
+    member = f"sccache-{version}-{arch}-unknown-linux-musl/sccache"
+    try:
+        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+            extracted = archive.extractfile(member)
+            data = extracted.read() if extracted else b""
+    except (tarfile.TarError, KeyError, OSError):
+        data = b""
+    if not data:
+        logger.error(f"'{member}' not found in {url}")
+        return 1
+
+    # Renamed into place, because overwriting a running sccache in place fails.
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    partial = bin_dir / ".sccache.partial"
+    partial.write_bytes(data)
+    partial.chmod(0o755)
+    partial.replace(bin_dir / "sccache")
     return 0
 
 
 def install_rust(spec: RustSpec) -> int:
-    """Install rustup, the requested channels, components, targets and tools.
+    """Install rustup, the requested channels, components and targets, and sccache.
 
     Honours RUSTUP_HOME / CARGO_HOME if the caller set them (a runner image
     puts them on a shared path so every job sees the same toolchain).
@@ -248,7 +250,7 @@ def install_rust(spec: RustSpec) -> int:
             logger.error(f"rustup target add {target} failed")
             return rc
 
-    return _install_cargo_tools(spec.cargo_tools)
+    return install_sccache(cargo_bin)
 
 
 # ---------------------------------------------------------------------------
@@ -435,7 +437,7 @@ def print_bootstrap_plan() -> None:
     print(f"    channels:    {', '.join(rust.channels) or '-'}", file=out)
     print(f"    components:  {', '.join(rust.components) or '-'}", file=out)
     print(f"    targets:     {', '.join(rust.targets) or '-'}", file=out)
-    print(f"    cargo tools: {', '.join(rust.cargo_tools) or '-'}", file=out)
+    print(f"    sccache:     {tool_version('sccache')}", file=out)
     print(f"  go: {'current stable' if go_enabled else 'disabled'}", file=out)
     print(
         f"  node: {', '.join(node.versions) or '-'} (default {node.default or '-'})",

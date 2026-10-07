@@ -102,6 +102,15 @@ RUN CI=true OS_CODENAME=noble \
 
 This produces the pre-baked toolchains below, per the shipped YAML.
 
+### Language toolchains (`src/hyperi_ci/config/bootstrap.yaml`)
+
+- Rust stable and nightly through rustup, with `clippy`, `rustfmt` and the `aarch64-unknown-linux-gnu` target.
+- sccache at versions.yaml `tools.sccache`, checked against its pinned sha256 before it is unpacked. The image sets `RUSTC_WRAPPER=sccache`, and no CI step installs it.
+- Go, the current stable from go.dev.
+- Node 20 and 22 through nvm, 22 the default on PATH.
+
+cargo-audit, cargo-deny and cargo-nextest are not baked. The setup-rust-tools and setup-nextest composites install their versions.yaml pins on every Rust job, so a baked copy would never run.
+
 ### LLVM (the versions.yaml default only)
 
 `clang-N`, `lld-N`, `llvm-N`, `llvm-N-dev`,
