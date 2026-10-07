@@ -284,12 +284,23 @@ class TestRemovedKeys:
         seen = self._load(
             tmp_path,
             monkeypatch,
-            "language: python\nrelease:\n  helm:\n    enabled: true\n"
-            "    chart_path: chart\n",
+            "language: python\nrelease:\n  argocd:\n    enabled: true\n"
+            "    app: chart\n",
         )
         assert seen == [
-            "release.helm is no longer read by hyperi-ci and can be deleted"
+            "release.argocd is no longer read by hyperi-ci and can be deleted"
         ]
+
+    def test_release_helm_is_read_again(self, tmp_path, monkeypatch) -> None:
+        seen = self._load(
+            tmp_path,
+            monkeypatch,
+            "release:\n  helm:\n    enabled: true\n    charts: [chart]\n",
+        )
+        assert seen == []
+        assert load_config(reload=True, project_dir=tmp_path).get(
+            "release.helm.charts"
+        ) == ["chart"]
 
     def test_a_reload_does_not_repeat_the_warning(self, tmp_path, monkeypatch) -> None:
         seen = self._load(tmp_path, monkeypatch, "build:\n  type: app\n")
@@ -331,7 +342,7 @@ class TestRemovedKeys:
     ) -> None:
         self._announced(monkeypatch)
         (tmp_path / ".hyperi-ci.yaml").write_text(
-            "publish:\n  helm:\n    enabled: true\n  channel: beta\n",
+            "publish:\n  argocd:\n    enabled: true\n  channel: beta\n",
             encoding="utf-8",
         )
         config = load_config(reload=True, project_dir=tmp_path)

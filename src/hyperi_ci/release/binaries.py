@@ -37,6 +37,7 @@ from hyperi_ci.common import (
 )
 from hyperi_ci.config import CIConfig
 from hyperi_ci.native_deps import ensure_aws_cli
+from hyperi_ci.release.charts import release_notes as chart_release_notes
 from hyperi_ci.release_branches import effective_release_channel
 from hyperi_ci.stamp import repo_paths
 from hyperi_ci.tools import missing_tool_notice
@@ -195,11 +196,12 @@ def _release_notes_flags(version: str, config: CIConfig) -> Iterator[list[str]]:
     GitHub puts the body above its own generated notes, so the release page
     gets the curated entry and the commit list. An unoptimised build says so
     first: the artefact is indistinguishable from a full release until
-    someone benchmarks it, and by then it is deployed.
+    someone benchmarks it, and by then it is deployed. Helm charts pushed
+    earlier in the job add their digest table last.
 
-    Yields no flags when there is nothing to add -- no banner, and no
-    CHANGELOG.md whose top entry matches this version -- which leaves the
-    generated notes on their own.
+    Yields no flags when there is nothing to add -- no banner, no chart
+    table, and no CHANGELOG.md whose top entry matches this version -- which
+    leaves the generated notes on their own.
 
     Args:
         version: Version being released, matched against the changelog.
@@ -215,7 +217,7 @@ def _release_notes_flags(version: str, config: CIConfig) -> Iterator[list[str]]:
             version, changelog.read_text(encoding="utf-8", errors="replace")
         )
     banner = UNOPTIMIZED_RELEASE_BANNER if skip_optimize(config) else None
-    sections = [s for s in (banner, entry) if s]
+    sections = [s for s in (banner, entry, chart_release_notes()) if s]
     if not sections:
         yield []
         return
