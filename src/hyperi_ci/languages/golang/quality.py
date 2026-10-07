@@ -37,11 +37,14 @@ def _run_tool(
     mode: str,
     use_uvx: bool = False,
     pinned: str | None = None,
+    output_is_finding: bool = False,
 ) -> bool:
     """Run a quality tool. Returns True if the pipeline should continue.
 
     ``pinned`` names the ``versions.yaml`` key of the binary behind the
     command, whose PATH copy is checked against the pin before it runs.
+    ``output_is_finding`` treats any stdout as a finding, for a tool such as
+    ``gofmt -l`` that lists what it found and still exits 0.
     """
     if mode == "disabled":
         info(f"  {tool_name}: disabled")
@@ -65,7 +68,8 @@ def _run_tool(
     result = subprocess.run(
         resolved, capture_output=True, text=True, encoding="utf-8", errors="replace"
     )
-    if result.returncode == 0:
+    found = output_is_finding and bool(result.stdout.strip())
+    if result.returncode == 0 and not found:
         success(f"  {tool_name}: passed")
         return True
 
@@ -90,7 +94,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     had_failure = False
 
     mode = _get_tool_mode("gofmt", config)
-    if not _run_tool("gofmt", ["gofmt", "-l", "."], mode):
+    if not _run_tool("gofmt", ["gofmt", "-l", "."], mode, output_is_finding=True):
         had_failure = True
 
     mode = _get_tool_mode("govet", config)
