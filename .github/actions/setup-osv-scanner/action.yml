@@ -11,7 +11,7 @@
 #
 # The version AND the per-arch sha256 are pinned in
 # src/hyperi_ci/config/versions.yaml (`tools:`) and mirrored here by
-# scripts/update-versions.py --fix. Do not hand-edit the marked lines.
+# scripts/update-versions.py --apply. Do not hand-edit the marked lines.
 #
 # The digest is the pin that matters: a release asset can be deleted and
 # re-uploaded under the same tag, so a tag alone is not integrity (issue #66).
@@ -28,7 +28,7 @@ inputs:
     description: osv-scanner release tag to pin
     required: false
     # Mirrors `tools.osv-scanner` in src/hyperi_ci/config/versions.yaml - the SSoT. Kept in
-    # step by scripts/update-versions.py --fix; do not hand-edit.
+    # step by scripts/update-versions.py --apply; do not hand-edit.
     # hyperi-ci:pin tools.osv-scanner
     default: v2.6.0
   sha256-amd64:
