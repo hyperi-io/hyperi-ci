@@ -6,10 +6,10 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # The hyperi-ci CLI is Python, so EVERY job (any language) needs uv + Python
-# + the project's native build deps before it can run `hyperi-ci ...`. That
-# trio was copy-pasted into every quality/test/build job of all four language
-# workflows -- collapsed here. Language-specific toolchains (rustup, setup-go,
-# setup-node) stay in the SME's workflow, AFTER this step.
+# + the project's native build deps before it can run `hyperi-ci ...`, and
+# every quality/test/build job of the four language workflows calls this.
+# Language toolchains (rustup, setup-go, setup-node) and project dependency
+# installs (uv sync, install-deps) stay in the language workflow.
 #
 # Referenced from reusable workflows as
 #   hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
@@ -20,16 +20,20 @@ description: Install uv + Python + the project's native build dependencies
 
 inputs:
   language:
-    description: Project language for native deps (rust | python | typescript | go)
+    description: Project language for native deps (rust | python | typescript | golang)
     required: true
   python-version:
-    description: Python version for the hyperi-ci CLI runtime
+    description: Python version to install
     required: false
-    # The CLI runtime, not the project's interpreter. Rust/Go/TS repos have no
-    # Python of their own, so the fleet default is the right answer here;
-    # python-ci.yml resolves its version from the project instead (issue #150).
+    # Rust/Go/TS repos have no Python of their own, so the fleet default runs
+    # the CLI; python-ci.yml passes the project's resolved version (issue #150).
     # hyperi-ci:pin runtimes.python
     default: "3.14"
+  force-python-install:
+    description: "'true' installs python-version even when the runner already has a python3"
+    required: false
+    # Every runner ships SOME python3, so a project interpreter needs the force.
+    default: "false"
   enable-uv-cache:
     description: setup-uv cache -- true for Python (deps dominate), false for Rust (cargo cache dominates)
     required: false
@@ -53,17 +57,22 @@ runs:
       # Inputs travel as env, so a workflow input is never read as shell.
       env:
         PYTHON_VERSION: ${{ inputs.python-version }}
+        FORCE_PYTHON_INSTALL: ${{ inputs.force-python-install }}
       run: |
         command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
-        command -v python3 || uv python install "$PYTHON_VERSION"
+        if [ "$FORCE_PYTHON_INSTALL" = "true" ]; then
+          uv python install "$PYTHON_VERSION"
+        else
+          command -v python3 || uv python install "$PYTHON_VERSION"
+        fi
 
     - name: Install native dependencies
       shell: bash
       env:
-        HYPERCI_INSTALL_CMD: ${{ inputs.hyperci-install }}
+        INSTALL_CMD: ${{ inputs.hyperci-install }}
         LANGUAGE: ${{ inputs.language }}
-      # The install command is a program and its arguments, split into words
-      # without passing through the shell's parser.
+      # The install command is split into words without the shell's parser, and
+      # its variable avoids the HYPERCI_ prefix that load_config reads as config.
       run: |
-        read -r -a install <<< "$HYPERCI_INSTALL_CMD"
+        read -r -a install <<< "$INSTALL_CMD"
         "${install[@]}" install-native-deps "$LANGUAGE"

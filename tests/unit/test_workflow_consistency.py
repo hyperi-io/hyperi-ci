@@ -73,6 +73,38 @@ class TestSetupRuntimeInstall:
                 "`hyperci-install: ${{ env.HYPERCI_INSTALL }}`"
             )
 
+    @pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+    @pytest.mark.parametrize("job_name", ["quality", "test", "build"])
+    def test_language_jobs_install_the_runtime_through_the_composite(
+        self, workflow_name: str, job_name: str
+    ) -> None:
+        steps = _load_workflow(workflow_name)["jobs"][job_name]["steps"]
+        calls = [s for s in steps if "actions/setup-runtime@" in str(s.get("uses", ""))]
+        assert len(calls) == 1, f"{workflow_name}.{job_name}: one setup-runtime call"
+        inline = [
+            s.get("name")
+            for s in steps
+            if re.search(
+                r"install-native-deps|uv python install", str(s.get("run", ""))
+            )
+        ]
+        assert not inline, (
+            f"{workflow_name}.{job_name}: {inline} copy what setup-runtime does"
+        )
+
+    @pytest.mark.parametrize("job_name", ["quality", "test", "build"])
+    def test_python_jobs_force_the_project_interpreter(self, job_name: str) -> None:
+        # Every runner ships SOME python3, so without the force the project ran
+        # on whatever the image carried rather than its declared floor (#150).
+        steps = _load_workflow("python-ci.yml")["jobs"][job_name]["steps"]
+        call = next(
+            s for s in steps if "actions/setup-runtime@" in str(s.get("uses", ""))
+        )
+        assert call["with"]["python-version"] == (
+            "${{ needs.plan.outputs.python-version }}"
+        )
+        assert call["with"]["force-python-install"] == "true"
+
 
 class TestFromHeadThreading:
     """issue #35: from-head + bump inputs must thread through every layer --
@@ -399,11 +431,10 @@ class TestFromHeadThreading:
             f"{workflow_name}.build: the stamp must run before the build"
         )
         # HYPERCI_INSTALL is `uvx ...`, so uv has to be on the runner first.
-        uv_actions = ("astral-sh/setup-uv", "actions/setup-runtime")
         uv_ready = [
             i
             for i, s in enumerate(steps)
-            if any(action in str(s.get("uses", "")) for action in uv_actions)
+            if "actions/setup-runtime@" in str(s.get("uses", ""))
         ]
         assert uv_ready and uv_ready[0] < stamp_at, (
             f"{workflow_name}.build: stamp-version runs through uvx, so uv must be "

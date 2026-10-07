@@ -20,7 +20,8 @@ complete form.** Shared pieces must help the SME, never hobble them.
 | Concern | Shared? | Where |
 |---|---|---|
 | Predict-and-gate (version oracle + gate outputs) | YES | `actions/predict-version` composite |
-| Toolchain + dep install (uv, language runtime) | NO | Inline per language. `actions/setup-runtime` exists but only `rust-ci.yml` calls it |
+| CLI runtime (uv, Python, native build deps) | YES | `actions/setup-runtime` composite, called by all four `<lang>-ci.yml` in every quality / test / build job |
+| Language toolchain + project deps (rustup, setup-go, setup-node, `uv sync`, `install-deps`) | NO | Inline per language in `<lang>-ci.yml` |
 | OSV vulnerability scan | YES | `actions/setup-osv-scanner` composite |
 | semantic-release toolchain + default config | YES | `actions/setup-semantic-release` composite |
 | Release tail (container + tag + publish) | YES | `_release-tail.yml` reusable workflow |
@@ -29,7 +30,7 @@ complete form.** Shared pieces must help the SME, never hobble them.
 | Plan-job structure, gate `if:` strings | DUPLICATED inline | small and identical across the four workflows; cheaper than the abstraction - drift caught by `tests/unit/test_workflow_consistency.py` |
 
 **When we extract a composite vs inline:** when the shared steps are more than a
-few lines *and* identical across languages (the OSV scan, the
+few lines *and* identical across languages (the CLI runtime, the OSV scan, the
 semantic-release toolchain). A short repeated snippet stays inlined - composite
 indirection would cost more than it saves, and the consistency lint catches
 drift.
