@@ -62,6 +62,7 @@ from typing import Any, cast
 import yaml
 
 from hyperi_ci import pin_marker
+from hyperi_ci.channel import COOLDOWN_DAYS
 
 _ROOT = Path(__file__).resolve().parent.parent
 # Inside the package, so it ships in the wheel and runtime reads the SSOT
@@ -69,11 +70,6 @@ _ROOT = Path(__file__).resolve().parent.parent
 _VERSIONS_FILE = _ROOT / "src" / "hyperi_ci" / "config" / "versions.yaml"
 _WORKFLOWS_DIR = _ROOT / ".github" / "workflows"
 _ACTIONS_DIR = _ROOT / ".github" / "actions"
-
-# How long a release must have existed before we'll pin it. Mirrors the org
-# Renovate preset's `minimumReleaseAge` -- a release sitting untouched for a
-# week is far less likely to be a compromised/yanked supply-chain attack.
-_COOLDOWN_DAYS = 7
 
 # Waived by --now for a supervised update. Deliberately a per-run override
 # rather than a config value: the soak is the supply-chain control, so skipping
@@ -85,7 +81,7 @@ def _cooldown(explicit: int | None = None) -> int:
     """Days a release must have soaked before it counts as a candidate."""
     if explicit is not None:
         return explicit
-    return _COOLDOWN_DAYS if _COOLDOWN_OVERRIDE is None else _COOLDOWN_OVERRIDE
+    return COOLDOWN_DAYS if _COOLDOWN_OVERRIDE is None else _COOLDOWN_OVERRIDE
 
 
 # Maps action short names in versions.yaml to their full GitHub owner/repo

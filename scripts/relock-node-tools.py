@@ -23,11 +23,9 @@ import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from hyperi_ci.channel import COOLDOWN_DAYS
 from hyperi_ci.common import error, run_cmd, success
 from hyperi_ci.quality.node_tools import LOCKFILE, manifest
-
-# The release-age soak update-versions.py applies to every other pin.
-_COOLDOWN_DAYS = 7
 
 
 def main() -> int:
@@ -43,7 +41,7 @@ def main() -> int:
         )
         # --before holds the TRANSITIVE tree to the same soak as the direct pins;
         # without it a dependency published this morning lands in the lock.
-        before = (datetime.now(UTC) - timedelta(days=_COOLDOWN_DAYS)).date()
+        before = (datetime.now(UTC) - timedelta(days=COOLDOWN_DAYS)).date()
         result = run_cmd(
             [
                 npm,
