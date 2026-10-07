@@ -313,31 +313,17 @@ jobs:
           # Keeps the job token away from the code this job runs (issue #402).
           persist-credentials: false
 
-      - name: Install uv
-        if: ${{ runner.environment != 'self-hosted' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: Setup runtime (uv + Python + native deps)
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
         with:
-          enable-cache: true
-
-      - name: Set up Python
-        # Installed unconditionally, not behind `command -v python3`: every
-        # runner already ships SOME python3, so that guard skipped the install
-        # and left the project on whatever the image happened to carry.
-        env:
-          PROJECT_PYTHON: ${{ needs.plan.outputs.python-version }}
-        run: |
-          command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
-          uv python install "$PROJECT_PYTHON"
-
-      - name: Install native dependencies
-        run: ${{ env.HYPERCI_INSTALL }} install-native-deps python
+          language: python
+          python-version: ${{ needs.plan.outputs.python-version }}
+          force-python-install: "true"
+          enable-uv-cache: "true"
+          hyperci-install: ${{ env.HYPERCI_INSTALL }}
 
       - name: Install dependencies
-        # UV_PYTHON is scoped to this step ON PURPOSE. It picks the interpreter
-        # for the PROJECT venv, which every later `uv run` inherits. At workflow
-        # level it would also capture `uvx hyperi-ci`, forcing the CLI onto the
-        # project's interpreter -- which fails outright once the CLI's own
-        # requires-python floor is above it.
+        # Step-scoped: workflow-wide UV_PYTHON would also capture `uvx hyperi-ci` (docs/languages/python.md).
         env:
           UV_PYTHON: ${{ needs.plan.outputs.python-version }}
         run: uv sync --frozen --all-extras
@@ -394,31 +380,17 @@ jobs:
           # Keeps the job token away from the code this job runs (issue #402).
           persist-credentials: false
 
-      - name: Install uv
-        if: ${{ runner.environment != 'self-hosted' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: Setup runtime (uv + Python + native deps)
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
         with:
-          enable-cache: true
-
-      - name: Set up Python
-        # Installed unconditionally, not behind `command -v python3`: every
-        # runner already ships SOME python3, so that guard skipped the install
-        # and left the project on whatever the image happened to carry.
-        env:
-          PROJECT_PYTHON: ${{ needs.plan.outputs.python-version }}
-        run: |
-          command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
-          uv python install "$PROJECT_PYTHON"
-
-      - name: Install native dependencies
-        run: ${{ env.HYPERCI_INSTALL }} install-native-deps python
+          language: python
+          python-version: ${{ needs.plan.outputs.python-version }}
+          force-python-install: "true"
+          enable-uv-cache: "true"
+          hyperci-install: ${{ env.HYPERCI_INSTALL }}
 
       - name: Install dependencies
-        # UV_PYTHON is scoped to this step ON PURPOSE. It picks the interpreter
-        # for the PROJECT venv, which every later `uv run` inherits. At workflow
-        # level it would also capture `uvx hyperi-ci`, forcing the CLI onto the
-        # project's interpreter -- which fails outright once the CLI's own
-        # requires-python floor is above it.
+        # Step-scoped: workflow-wide UV_PYTHON would also capture `uvx hyperi-ci` (docs/languages/python.md).
         env:
           UV_PYTHON: ${{ needs.plan.outputs.python-version }}
         run: uv sync --frozen --all-extras
@@ -484,24 +456,14 @@ jobs:
           # Keeps the job token away from the code this job runs (issue #402).
           persist-credentials: false
 
-      - name: Install uv
-        if: ${{ runner.environment != 'self-hosted' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: Setup runtime (uv + Python + native deps)
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
         with:
-          enable-cache: true
-
-      - name: Set up Python
-        # Installed unconditionally, not behind `command -v python3`: every
-        # runner already ships SOME python3, so that guard skipped the install
-        # and left the project on whatever the image happened to carry.
-        env:
-          PROJECT_PYTHON: ${{ needs.plan.outputs.python-version }}
-        run: |
-          command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
-          uv python install "$PROJECT_PYTHON"
-
-      - name: Install native dependencies
-        run: ${{ env.HYPERCI_INSTALL }} install-native-deps python
+          language: python
+          python-version: ${{ needs.plan.outputs.python-version }}
+          force-python-install: "true"
+          enable-uv-cache: "true"
+          hyperci-install: ${{ env.HYPERCI_INSTALL }}
 
       - name: Stamp predicted version
         # Stamps VERSION + pyproject.toml before `uv sync` installs the project, on every release run: push and from-head release HEAD, whose committed tree is stale (issue #35), and a tag dispatch checks out a tag whose tree still carries the release before it (issue #352).
@@ -512,11 +474,7 @@ jobs:
         run: ${{ env.HYPERCI_INSTALL }} stamp-version "$NEXT_VERSION"
 
       - name: Install dependencies
-        # UV_PYTHON is scoped to this step ON PURPOSE. It picks the interpreter
-        # for the PROJECT venv, which every later `uv run` inherits. At workflow
-        # level it would also capture `uvx hyperi-ci`, forcing the CLI onto the
-        # project's interpreter -- which fails outright once the CLI's own
-        # requires-python floor is above it.
+        # Step-scoped: workflow-wide UV_PYTHON would also capture `uvx hyperi-ci` (docs/languages/python.md).
         env:
           UV_PYTHON: ${{ needs.plan.outputs.python-version }}
         run: uv sync --frozen --all-extras
