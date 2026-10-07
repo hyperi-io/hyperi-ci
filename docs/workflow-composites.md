@@ -20,7 +20,8 @@ complete form.** Shared pieces must help the SME, never hobble them.
 | Concern | Shared? | Where |
 |---|---|---|
 | Predict-and-gate (version oracle + gate outputs) | YES | `actions/predict-version` composite |
-| Toolchain + dep install (uv, language runtime) | YES | `actions/setup-runtime` composite |
+| CLI runtime (uv, Python, native build deps) | YES | `actions/setup-runtime` composite, in every quality / test / build job |
+| Language toolchain + project deps (rustup, setup-go, setup-node, `uv sync`, `install-deps`) | NO | Inline per language in `<lang>-ci.yml` |
 | OSV vulnerability scan | YES | `actions/setup-osv-scanner` composite |
 | semantic-release toolchain + default config | YES | `actions/setup-semantic-release` composite |
 | Release tail (container + tag + publish) | YES | `_release-tail.yml` reusable workflow |
