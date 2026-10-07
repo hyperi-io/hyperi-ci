@@ -47,7 +47,7 @@ def pin_pattern(name: str) -> re.Pattern[str]:
     """Match ONE named pin, splitting the prefix from the version token.
 
     Group 1 is everything up to the version, so ``re.sub`` can swap the version
-    and keep the prefix (``--apply`` / ``--fix``). Group 2 (``ver``) is the
+    and keep the prefix (``--apply``). Group 2 (``ver``) is the
     version alone, so a report can point at the pin's line, not the marker's.
     """
     marker = MARKER.format(name=re.escape(name))

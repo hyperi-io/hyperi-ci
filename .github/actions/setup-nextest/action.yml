@@ -25,7 +25,7 @@
 #
 # Version AND per-platform sha256 digests are pinned in
 # src/hyperi_ci/config/versions.yaml (`tools.cargo-nextest`) and mirrored here
-# by scripts/update-versions.py --fix. Do not hand-edit the marked lines.
+# by scripts/update-versions.py --apply. Do not hand-edit the marked lines.
 #
 # The digest is the pin that matters: a release asset can be deleted and
 # re-uploaded under the same tag, so a tag alone is not integrity (issue #66).

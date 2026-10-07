@@ -8,8 +8,8 @@
 """Pin GitHub Actions across the pipeline from the central versions SSOT.
 
 This is the /deps tool for hyperi-ci. Actions pin to a commit SHA with a
-`# <version>` comment (a tag can be force-moved, a SHA can't); the pre-commit
-hook enforces it. Scans both .github/workflows/ and .github/actions/. Policy
+`# <version>` comment (a tag can be force-moved, a SHA can't); `--check` in CI
+enforces it. Scans both .github/workflows/ and .github/actions/. Policy
 + the Renovate split: docs/dependencies/deps-pinning.md.
 
 Usage:
@@ -30,9 +30,7 @@ green.
 cooldown: the soak is the supply-chain control, not a formality.
 
 `--stable` reports the SOAKED release, matching the `stable` channel in
-`hyperi-ci autoupdate`. It was spelled `--latest`, which read backwards: in the
-installer `@latest` means the edge, the opposite of what this resolves.
-`--latest` still works as a silent alias.
+`hyperi-ci autoupdate`.
 
 Update behaviour:
   - Actions resolve to the newest release that has aged past the 7-day
@@ -607,10 +605,8 @@ def _rewrite_to_ssot(versions: dict, *, verb: str) -> tuple[int, int]:
     which is the whole failure this design exists to prevent. Callers must treat
     it as failure, not as a warning they scroll past.
 
-    ONE rewrite path, shared by --apply and --fix. They previously carried
-    near-identical copies of the workflow loop, which is how --fix (the
-    pre-commit hook, i.e. the thing that actually ENFORCES the SSOT) ended up
-    without the tool-pin half.
+    --apply is the only caller, so the workflow loop and the tool-pin loop
+    cannot diverge.
     """
     replacements = _build_replacements(versions)
     total_changes = 0
@@ -676,30 +672,6 @@ def _apply(versions: dict) -> int:
         _report_unenforceable(unenforceable)
         return 1
     return 0
-
-
-def _fix(versions: dict) -> int:
-    """Apply fixes and return 1 if changes were needed (pre-commit hook mode).
-
-    Unlike --apply, --fix returns 1 when files were modified. This tells the
-    pre-commit framework to re-stage and retry.
-
-    It ALSO returns 1 for an unenforceable pin, which --fix cannot repair by
-    rewriting. --check and --fix must agree: --check is not wired into CI
-    anywhere, so this hook is the ONLY automated gate - if it waves through a
-    deleted marker, nothing else catches it.
-    """
-    total_changes, unenforceable = _rewrite_to_ssot(versions, verb="Fixed")
-    if unenforceable:
-        _report_unenforceable(unenforceable)
-        return 1
-    if total_changes == 0:
-        return 0
-
-    print(
-        f"\nFixed {total_changes} version mismatch(es) -- files updated, please re-stage."
-    )
-    return 1
 
 
 def _stable(versions: dict, *, fail_on_drift: bool = False) -> int:
@@ -1292,22 +1264,10 @@ def main() -> int:
         action="store_true",
         help="Report the newest release of each pin that has soaked past the cooldown",
     )
-    # Kept working, kept out of --help: the old name for --stable.
-    group.add_argument(
-        "--latest",
-        dest="stable",
-        action="store_true",
-        help=argparse.SUPPRESS,
-    )
     group.add_argument(
         "--auto-update",
         action="store_true",
         help="Update non-runtime versions, validate locally, revert on fail",
-    )
-    group.add_argument(
-        "--fix",
-        action="store_true",
-        help="Apply fixes and exit 1 if changes were made (for pre-commit hooks)",
     )
     # Not in the mutually-exclusive group: it MODIFIES --stable rather than
     # replacing it.
@@ -1333,8 +1293,6 @@ def main() -> int:
         return _auto_update(versions)
     if args.stable:
         return _stable(versions, fail_on_drift=args.fail_on_drift)
-    if args.fix:
-        return _fix(versions)
     if args.apply:
         return _apply(versions)
     return _check(versions)
