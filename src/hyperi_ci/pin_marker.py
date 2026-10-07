@@ -6,15 +6,15 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """The `# hyperi-ci:pin <key>` marker convention.
 
-A version that has to be MIRRORED into source -- a Python constant, a
-composite action's `default:` -- is invisible to every dependency manager,
+A version that has to be MIRRORED into source -- a composite action's
+`default:`, a workflow input's -- is invisible to every dependency manager,
 Renovate included. The marker is our answer::
-
-    # hyperi-ci:pin tools.gitleaks
-    _GITLEAKS_VERSION = "v8.30.1"
 
     # hyperi-ci:pin tools.osv-scanner
     default: v2.4.0
+
+    # hyperi-ci:pin runtimes.python
+    default: "3.14"
 
 One explicit marker beats a per-tool regex guessing at each file's shape: it
 reads the same in Python and YAML, survives the line being reworded, and lets
@@ -24,7 +24,7 @@ to the same version.
 Two callers, one definition:
 
 - ``scripts/update-versions.py`` ENFORCES a marked pin against
-  ``the versions SSOT`` for this repo, and rewrites it on drift.
+  ``src/hyperi_ci/config/versions.yaml`` for this repo, and rewrites it on drift.
 - ``hyperi_ci.deps`` DISCOVERS marked pins in any repo, with no SSOT to compare
   against -- it only reports what the marker declares.
 
