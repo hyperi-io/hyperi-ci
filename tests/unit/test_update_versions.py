@@ -14,6 +14,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from hyperi_ci.channel import COOLDOWN_DAYS
+
 _SPEC = importlib.util.spec_from_file_location(
     "update_versions",
     Path(__file__).resolve().parents[2] / "scripts" / "update-versions.py",
@@ -242,7 +244,7 @@ class TestNowWaivesTheSoak:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # rust-toolchain pins a branch head, which has its own cooldown path.
-        assert update_versions._cooldown() == update_versions._COOLDOWN_DAYS
+        assert update_versions._cooldown() == COOLDOWN_DAYS
         monkeypatch.setattr(update_versions, "_COOLDOWN_OVERRIDE", 0)
         assert update_versions._cooldown() == 0
 
