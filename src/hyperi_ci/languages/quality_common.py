@@ -37,7 +37,7 @@ _NOT_PYTHON_SOURCE = (
 )
 
 # The only valid quality-tool modes. An out-of-vocabulary value is a typo, not a
-# silent request to disable the gate (see resolve_cross_tool_mode).
+# silent request to disable the gate (see resolve_tool_mode).
 _VALID_MODES = {"blocking", "warn", "disabled"}
 
 _MODE_STRENGTH = {"disabled": 0, "warn": 1, "blocking": 2}
@@ -330,45 +330,26 @@ def note_quality_disabled(language: str, reason: str = "") -> None:
     )
 
 
-def resolve_cross_tool_mode(
-    config: CIConfig, tool: str, default: str = "blocking"
-) -> str:
-    """Resolve mode for a cross-language quality tool (``quality.<tool>``).
-
-    Unlike :func:`resolve_tool_mode` (per-language ``quality.<lang>.<tool>``),
-    this reads the top-level ``quality.<tool>`` key shared by gitleaks, semgrep,
-    hadolint, droast, kubeconform, kube-linter and Checkov.
-
-    ``quality.<tool>`` may be a plain mode string (``blocking`` / ``warn`` /
-    ``disabled``) OR a dict carrying a ``mode`` plus tool options (Checkov's
-    ``frameworks`` / ``skip``, kubeconform's ``schema_locations``, and the
-    ``reason`` a relaxed security gate needs) - a bare string keeps the options
-    at their defaults. A force-skip wins; otherwise strict upgrades a ``warn``
-    to ``blocking``.
-
-    Raises:
-        GateReasonRequiredError: A security gate is relaxed with no reason.
-
-    """
-    if is_skipped(tool):
-        return "disabled"
-    key = f"quality.{tool}"
-    mode, reason = checked_mode(key, config.get(key, default), default)
-    note_gate_downgrade(key, mode, reason)
-    return apply_strict(mode)
-
-
 def resolve_tool_mode(
-    tool: str, config: CIConfig, language: str, default: str = "blocking"
+    tool: str,
+    config: CIConfig,
+    *,
+    language: str | None = None,
+    default: str = "blocking",
 ) -> str:
     """Resolve a quality tool's mode: ``blocking``, ``warn`` or ``disabled``.
 
-    Reads ``quality.<language>.<tool>`` from config (``default`` when unset),
-    which takes the same bare-string-or-mapping shapes as
-    :func:`resolve_cross_tool_mode`. A force-skip (:func:`is_skipped`) wins -
-    the tool is ``disabled`` for this run. Otherwise, under strict mode
-    (:func:`strict_quality`) a ``warn`` tool is upgraded to ``blocking``;
-    ``disabled`` is left untouched.
+    Reads ``quality.<language>.<tool>`` for a per-language tool, or the
+    top-level ``quality.<tool>`` when ``language`` is None (the cross-language
+    checks: gitleaks, hadolint, Checkov, the doc and charset checks and the
+    rest). ``default`` applies when the key is unset.
+
+    The value may be a plain mode string OR a mapping carrying a ``mode`` plus
+    tool options (Checkov's ``frameworks`` / ``skip``, kubeconform's
+    ``schema_locations``, and the ``reason`` a relaxed security gate needs). A
+    force-skip (:func:`is_skipped`) wins and makes the tool ``disabled`` for
+    this run. Otherwise, under strict mode (:func:`strict_quality`) a ``warn``
+    tool is upgraded to ``blocking``; ``disabled`` is left untouched.
 
     Raises:
         GateReasonRequiredError: A security gate is relaxed with no reason.
@@ -376,7 +357,7 @@ def resolve_tool_mode(
     """
     if is_skipped(tool):
         return "disabled"
-    key = f"quality.{language}.{tool}"
+    key = f"quality.{language}.{tool}" if language else f"quality.{tool}"
     mode, reason = checked_mode(key, config.get(key, default), default)
     note_gate_downgrade(key, mode, reason)
     return apply_strict(mode)

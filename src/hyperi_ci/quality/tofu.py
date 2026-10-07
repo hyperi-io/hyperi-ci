@@ -22,7 +22,7 @@ from typing import Any
 
 from hyperi_ci.common import info, scratch_dir, stage_tree
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import resolve_cross_tool_mode
+from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.native_tools import ci_binary
 from hyperi_ci.quality import findings as fdg
 from hyperi_ci.tools import missing_tool
@@ -195,7 +195,7 @@ def run(
 
     Scratch copies keep each path's place relative to the cwd.
     """
-    mode = resolve_cross_tool_mode(config, "tofu", "blocking")
+    mode = resolve_tool_mode("tofu", config)
     if mode == "disabled":
         info("  tofu: disabled")
         return 0

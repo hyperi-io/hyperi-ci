@@ -32,7 +32,7 @@ from pathlib import Path, PurePosixPath
 
 from hyperi_ci.common import error, get_exclude_dirs, info, success, warn
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import resolve_cross_tool_mode
+from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.quality import findings as fdg
 from hyperi_ci.quality import targets
 
@@ -303,7 +303,7 @@ def run(
         malformed.
 
     """
-    mode = resolve_cross_tool_mode(config, "charset", "warn")
+    mode = resolve_tool_mode("charset", config, default="warn")
     if mode == "disabled":
         info(f"  {_TOOL}: disabled")
         return 0

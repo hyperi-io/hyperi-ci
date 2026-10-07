@@ -16,10 +16,6 @@ from hyperi_ci.quality.ignores import for_tool, load_ignores
 from hyperi_ci.tools import warn_on_pin_drift
 
 
-def _get_tool_mode(tool: str, config: CIConfig) -> str:
-    return resolve_tool_mode(tool, config, "golang")
-
-
 def _resolve_tool_cmd(cmd: list[str], use_uvx: bool = False) -> list[str]:
     """Resolve tool command, using uvx for standalone tools not on PATH."""
     if shutil.which(cmd[0]):
@@ -91,16 +87,16 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     ignores = load_ignores(config._raw)
     had_failure = False
 
-    mode = _get_tool_mode("gofmt", config)
+    mode = resolve_tool_mode("gofmt", config, language="golang")
     if not _run_tool("gofmt", ["gofmt", "-l", "."], mode, output_is_finding=True):
         had_failure = True
 
-    mode = _get_tool_mode("govet", config)
+    mode = resolve_tool_mode("govet", config, language="golang")
     if not _run_tool("go vet", ["go", "vet", "./..."], mode):
         had_failure = True
 
     # golangci-lint -- two-pass: production (strict) + test (relaxed)
-    mode = _get_tool_mode("golangci_lint", config)
+    mode = resolve_tool_mode("golangci_lint", config, language="golang")
     test_ignore = get_test_ignore("golang", config)
     gci_user_ignores = for_tool(ignores, "golangci-lint")
     gci_user_disable = [f"--disable={e.id}" for e in gci_user_ignores]
@@ -127,7 +123,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         ):
             had_failure = True
 
-    mode = _get_tool_mode("gosec", config)
+    mode = resolve_tool_mode("gosec", config, language="golang")
     gosec_cmd = ["gosec", "-quiet", "-tests=false"]
     gosec_ignores = for_tool(ignores, "gosec")
     if gosec_ignores:
@@ -138,7 +134,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     # govulncheck has no native --ignore flag; emit a notice when entries
     # exist for it so operators understand why their config isn't applied.
-    mode = _get_tool_mode("govulncheck", config)
+    mode = resolve_tool_mode("govulncheck", config, language="golang")
     govuln_ignores = for_tool(ignores, "govulncheck")
     if govuln_ignores:
         warn(

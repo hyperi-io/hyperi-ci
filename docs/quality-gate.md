@@ -48,7 +48,7 @@ flowchart TB
 ```
 
 Resolution lives in `src/hyperi_ci/languages/quality_common.py`
-(`resolve_tool_mode`, `resolve_cross_tool_mode`, `note_gate_downgrade`,
+(`resolve_tool_mode`, `note_gate_downgrade`,
 `apply_strict`, `is_skipped`) and is shared by the per-language handlers and
 the dispatch-level gitleaks / semgrep modules, so the precedence is identical
 everywhere.

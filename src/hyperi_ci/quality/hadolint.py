@@ -39,7 +39,7 @@ from hyperi_ci.common import (
     warn,
 )
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import resolve_cross_tool_mode
+from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.quality import findings as fdg
 from hyperi_ci.quality.install import install_ci_binary
 from hyperi_ci.quality.targets import discover_dockerfiles
@@ -108,11 +108,6 @@ def _parse(stdout: str) -> list[fdg.Finding]:
     return out
 
 
-def _resolve_mode(config: CIConfig) -> str:
-    """Resolve hadolint's mode: ``blocking`` (default) / ``warn`` / ``disabled``."""
-    return resolve_cross_tool_mode(config, "hadolint", "blocking")
-
-
 def run(
     config: CIConfig,
     *,
@@ -129,7 +124,7 @@ def run(
     error-severity finding, a run that timed out, or the tool is
     required-but-missing in CI).
     """
-    mode = _resolve_mode(config)
+    mode = resolve_tool_mode("hadolint", config, default="blocking")
     if mode == "disabled":
         info("  hadolint: disabled")
         return 0

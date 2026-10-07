@@ -40,7 +40,7 @@ from pathlib import Path
 
 from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import resolve_cross_tool_mode
+from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.quality import findings as fdg
 
 _IMAGE_LINE = re.compile(r"^\s*image:\s*(?P<ref>\S.*?)\s*$")
@@ -189,7 +189,7 @@ def run(
     0 = every reference pinned or mandatory / notices only / disabled / no files;
     1 = a blocking gate found a reference that resolves to ``latest``.
     """
-    mode = resolve_cross_tool_mode(config, "compose_pins", "blocking")
+    mode = resolve_tool_mode("compose_pins", config, default="blocking")
     if mode == "disabled":
         info("  compose-pins: disabled")
         return 0

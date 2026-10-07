@@ -27,7 +27,7 @@ from pathlib import Path
 
 from hyperi_ci.common import get_exclude_dirs, info, run_cmd, warn
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import resolve_cross_tool_mode
+from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.quality import findings as fdg
 from hyperi_ci.quality.targets import discover_dockerfiles
 from hyperi_ci.tools import find_tool
@@ -46,7 +46,7 @@ def run(config: CIConfig, *, sarif_path: str | Path | None = None) -> int:
     ``quality.droast: disabled`` skips it. Otherwise findings surface through
     the shared layer at their configured severity and the build carries on.
     """
-    if resolve_cross_tool_mode(config, "droast", "warn") == "disabled":
+    if resolve_tool_mode("droast", config, default="warn") == "disabled":
         info("  droast: disabled")
         return 0
 

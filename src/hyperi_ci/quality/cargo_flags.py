@@ -35,7 +35,7 @@ from pathlib import Path
 
 from hyperi_ci.common import info, success, warn
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import resolve_cross_tool_mode
+from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.quality import findings as fdg
 
 _TOOL = "cargo-flags"
@@ -176,7 +176,7 @@ def run(
         0 unless a blocking mode found something.
 
     """
-    mode = resolve_cross_tool_mode(config, "cargo_flags", "warn")
+    mode = resolve_tool_mode("cargo_flags", config, default="warn")
     if mode == "disabled":
         info(f"  {_TOOL}: disabled")
         return 0
