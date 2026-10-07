@@ -1285,36 +1285,27 @@ class TestReportWatchlist:
 
 
 class TestRewriteReturnCodes:
-    """--check and --fix MUST agree.
+    """--check and --apply MUST agree on an unenforceable pin."""
 
-    --check is not wired into CI anywhere, so the pre-commit hook (--fix) is
-    the only automated gate. They previously disagreed on a missing marker
-    (check=1, fix=0), which made every automated gate green for a pin nobody
-    was holding.
-    """
-
-    def test_missing_marker_fails_check_apply_and_fix(
+    def test_missing_marker_fails_check_and_apply(
         self, tmp_path: Path, monkeypatch
     ) -> None:
         _pin_tree(tmp_path, monkeypatch, '_VERSION = "v8.30.1"\n')
         assert update_versions._check(_pin_versions()) == 1
         assert update_versions._apply(_pin_versions()) == 1
-        assert update_versions._fix(_pin_versions()) == 1
 
-    def test_bad_pin_path_fails_check_apply_and_fix(
+    def test_bad_pin_path_fails_check_and_apply(
         self, tmp_path: Path, monkeypatch
     ) -> None:
         _pin_tree(tmp_path, monkeypatch)
         versions = _pin_versions(pin="gone.py")
         assert update_versions._check(versions) == 1
         assert update_versions._apply(versions) == 1
-        assert update_versions._fix(versions) == 1
 
     def test_in_step_pin_is_green_everywhere(self, tmp_path: Path, monkeypatch) -> None:
         _pin_tree(tmp_path, monkeypatch)
         assert update_versions._check(_pin_versions()) == 0
         assert update_versions._apply(_pin_versions()) == 0
-        assert update_versions._fix(_pin_versions()) == 0
 
     def test_rewrite_counts_a_missing_marker_as_unenforceable(
         self, tmp_path: Path, monkeypatch
@@ -1330,8 +1321,6 @@ class TestRewriteReturnCodes:
     def test_rewrite_pulls_a_drifted_pin_back_to_ssot(
         self, tmp_path: Path, monkeypatch
     ) -> None:
-        # --fix (the hook) shares this one path with --apply. It once carried
-        # its own copy of the loop and simply lacked the tool-pin half.
         pin = _pin_tree(tmp_path, monkeypatch, _DRIFTED_BODY)
         assert update_versions._rewrite_to_ssot(_pin_versions(), verb="Updated") == (
             1,
@@ -1339,22 +1328,9 @@ class TestRewriteReturnCodes:
         )
         assert pin.read_text(encoding="utf-8") == _PIN_BODY
 
-    def test_apply_exits_zero_on_drift_but_fix_exits_one(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:
-        # --fix is the pre-commit hook: a rewrite must exit non-zero so the
-        # framework re-stages the file. --apply is the "make it so" verb.
-        pin = _pin_tree(tmp_path, monkeypatch, _DRIFTED_BODY)
-        assert update_versions._apply(_pin_versions()) == 0
-        assert pin.read_text(encoding="utf-8") == _PIN_BODY
 
-        pin.write_text(_DRIFTED_BODY, encoding="utf-8")
-        assert update_versions._fix(_pin_versions()) == 1
-        assert pin.read_text(encoding="utf-8") == _PIN_BODY
-
-
-class TestStableFlagAndItsAlias:
-    """`--stable` is the name; `--latest` keeps working, unadvertised."""
+class TestStableFlag:
+    """`--stable` reports, and no flag defaults to `--check`."""
 
     def _dispatch(self, monkeypatch, argv: list[str], verb: str) -> list[str]:
         called: list[str] = []
@@ -1370,9 +1346,6 @@ class TestStableFlagAndItsAlias:
 
     def test_stable_dispatches_the_report(self, monkeypatch) -> None:
         assert self._dispatch(monkeypatch, ["--stable"], "_stable") == ["_stable"]
-
-    def test_latest_still_dispatches_the_same_report(self, monkeypatch) -> None:
-        assert self._dispatch(monkeypatch, ["--latest"], "_stable") == ["_stable"]
 
     def test_no_flag_still_defaults_to_check(self, monkeypatch) -> None:
         assert self._dispatch(monkeypatch, [], "_check") == ["_check"]

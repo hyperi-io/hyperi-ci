@@ -13,12 +13,12 @@ deps` is **preventative** - it runs on your machine BEFORE the change lands and
 tells you what you are about to leave stale. Renovate is **remediation** - it
 runs on the forge AFTER the fact and raises a PR for what already went stale.
 `update-versions.py` is **enforcement** for this repo's own pipeline, at commit
-time. None of them replaces another, and "Renovate is configured" must never be
+push time. None of them replaces another, and "Renovate is configured" must never be
 read as "the surfaces are covered" (see [the blind spots](#what-renovate-never-sees)).
 
 | Dependency | Owner | How | Cooldown |
 |---|---|---|---|
-| GitHub Actions (on hyperi-ci) | `/deps` script (`scripts/update-versions.py`) + `src/hyperi_ci/config/versions.yaml` | SHA-pinned at commit time via the pre-commit hook | 7 days, enforced by the script |
+| GitHub Actions (on hyperi-ci) | `/deps` script (`scripts/update-versions.py`) + `src/hyperi_ci/config/versions.yaml` | SHA-pinned by `--apply`, held by the `--check` CI gate | 7 days, enforced by the script |
 | **External CLI tools** (gitleaks, osv-scanner) | same script + `src/hyperi_ci/config/versions.yaml` `tools:` | **tag-pinned** (see the exemption below), mirrored into source via a `# hyperi-ci:pin` marker | 7 days, enforced by the script |
 | GitHub Actions (other repos) | Renovate org preset | SHA digest pin (`helpers:pinGitHubActionDigests`) | 7 days |
 | **hyperi-ci reusable-workflow caller** (other repos) | **nobody - floats `@main`** | **NOT pinned. Carved out of digest pinning in the org preset** (`hyperi-io/renovate-config`) | n/a |
@@ -77,8 +77,8 @@ flowchart TD
       DRIFT --> YOU
       GAPS --> YOU
     end
-    subgraph SCRIPT["ENFORCEMENT — hyperi-ci Actions, at commit time"]
-      V["src/hyperi_ci/config/versions.yaml<br/>version + sha"] --> H["pre-commit hook<br/>update-versions.py --fix"]
+    subgraph SCRIPT["ENFORCEMENT — hyperi-ci Actions, in CI"]
+      V["src/hyperi_ci/config/versions.yaml<br/>version + sha"] --> H["update-versions.py --apply<br/>--check gates CI"]
       H --> W["workflows + composites<br/>pinned @sha # version"]
       L["--stable / --auto-update"] -->|newest release 7+ days old| V
     end
@@ -204,23 +204,20 @@ the full pipeline, not just top-level workflows.
 |---|---|
 | `--check` (default) | show drift between `versions.yaml` and the pinned refs |
 | `--apply` | rewrite workflows + composites to match the SSOT |
-| `--fix` | `--apply` + non-zero exit when it changed something (pre-commit) |
 | `--stable` | report the newest release of each Action that's >=7 days old |
 | `--auto-update` | bump `versions.yaml` to those, test on the `ci-test-*` projects, commit or revert |
 
 `--stable` is the SOAKED release, not the newest one - the same sense as the
-`stable` channel in [self-update.md](../self-update.md). It was spelled
-`--latest`, which read backwards: `@latest` in an installer means the edge, the
-opposite of what this resolves. `--latest` still works as a silent alias.
+`stable` channel in [self-update.md](../self-update.md).
 
 `src/hyperi_ci/config/versions.yaml` is the SSOT. Two maps matter here:
 
 - `actions: {name: {version, sha}}` - rewritten into `uses:` refs.
 - `tools: {name: {version, repo, pin}}` - external CLI tools we install.
 
-**Never hand-edit a `uses:` ref or a mirrored tool pin** - the pre-commit hook
-reverts both to match the SSOT. To change a pin, edit `versions.yaml` and let
-`--fix` rewrite it.
+**Never hand-edit a `uses:` ref or a mirrored tool pin** - the `--check` gate in
+CI fails on both. To change a pin, edit `versions.yaml` and let `--apply`
+rewrite it.
 
 The "newest version that's >=7 days old, pin *that* version's SHA now" rule means
 we always adopt a release only after its cooldown, and we pin the immutable SHA
@@ -261,16 +258,9 @@ missing, **and** a `pin:` path that does not exist. All three are failures, not
 warnings: a pattern silently matching zero lines is exactly how the gitleaks pin
 sat 9 versions stale (v8.21.2 vs v8.30.1) while the check stayed green.
 
-**Where it is enforced.** Two places, and both matter:
-
-- `.github/workflows/ci.yml` -> the **Version SSOT gate** runs `--check` on
-  every push. This is the backstop, and it is offline (local files only) so it
-  cannot flake.
-- `scripts/pre-commit-versions.sh` -> `--fix`, for the local tight loop.
-
-The hook alone is NOT enforcement: it lives in `.git/hooks/`, which no fresh
-clone and no runner ever has. The gate that catches drift has to be one nobody
-needs to install.
+**Where it is enforced.** `.github/workflows/ci.yml` -> the **Version SSOT
+gate** runs `--check` on every push. It is offline (local files only), so it
+cannot flake, and nobody has to install it.
 
 Adding a tool: add the `tools:` entry (`version`, `repo`, `pin`), put the marker
 above the line that carries the version, run `--check`. No script change needed -

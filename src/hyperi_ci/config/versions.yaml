@@ -6,7 +6,7 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # SSOT for every versioned dependency in the CI workflows AND composite
-# actions. The pre-commit hook (scripts/update-versions.py --fix) keeps the
+# actions. The `--check` gate in CI (scripts/update-versions.py) keeps the
 # pipeline pinned to these exact SHAs.
 #
 # Actions pin to a commit SHA with a `# <version>` comment -- a tag can be
@@ -16,7 +16,6 @@
 # Update script: uv run scripts/update-versions.py
 #   --check         current vs SSOT (dry run, default)
 #   --apply         rewrite workflows + composites to match this file
-#   --fix           --apply + non-zero exit on change (pre-commit hook)
 #   --stable        report newest release >= 7 days old per action
 #   --auto-update   bump to those, validate LOCALLY, revert on failure. It
 #                   does not commit and does not trigger remote CI - the

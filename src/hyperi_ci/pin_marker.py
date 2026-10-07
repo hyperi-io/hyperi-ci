@@ -60,7 +60,7 @@ def pin_pattern(name: str) -> re.Pattern[str]:
     """Match ONE named pin, splitting the prefix from the version token.
 
     Group 1 is everything up to the version, so ``re.sub`` can swap the version
-    while keeping the prefix -- that is what ``--apply`` / ``--fix`` rely on.
+    while keeping the prefix -- that is what ``--apply`` relies on.
     Group 2 (also named ``ver``) is the version on its own, so a report can
     point its line number at the pin rather than at the marker above it.
     """
