@@ -663,6 +663,7 @@ class TestDepGroupLoading:
         (tmp_path / ".cargo" / "config.toml").write_text(cargo_config)
         installed = self._conditional_install(monkeypatch, tmp_path)
         assert f"clang-{runtime_version('llvm')}" in installed
+        assert "clang" not in installed
 
     @pytest.mark.parametrize(
         "cargo_config",
@@ -682,10 +683,11 @@ class TestDepGroupLoading:
             (tmp_path / ".cargo" / "config.toml").write_text(cargo_config)
         installed = self._conditional_install(monkeypatch, tmp_path)
         assert f"clang-{runtime_version('llvm')}" not in installed
+        assert "clang" not in installed
         assert f"bolt-{runtime_version('llvm')}" in installed
 
     # The groups every Rust project gets regardless of its dependencies.
-    _ALWAYS_ON = ("mold linker", "clang linker", "llvm-bolt")
+    _ALWAYS_ON = ("mold linker", "llvm-bolt")
 
     @pytest.mark.parametrize("group_name", _ALWAYS_ON)
     def test_rust_yaml_always_on_group_matches_a_plain_package_root(

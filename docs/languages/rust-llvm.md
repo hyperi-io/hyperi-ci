@@ -62,7 +62,7 @@ A gcc-driven link finds `ld.lld` on PATH. A project with `linker = "clang"` runs
 
 ARC bakes `clang-NN` at the default major. Elsewhere, a repo that does not link through clang never installs it: it would cost every job an apt.llvm.org fetch, and the `libclang1-NN` that comes with it can change which libclang bindgen picks.
 
-The shims run in a PGO build only. Quality, test and a plain release build link with the runner's unversioned `clang` and `ld.lld`, which on ARC are the default major.
+The shims run in a PGO build only. Quality, test and a plain release build link with the runner's unversioned `clang` and `ld.lld`, which on ARC are the default major. hyperi-ci never installs the distro's unversioned `clang`: on noble it is 18 and would add a second LLVM.
 
 ## Moving to a new LLVM
 

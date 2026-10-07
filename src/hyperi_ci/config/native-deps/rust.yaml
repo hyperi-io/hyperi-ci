@@ -35,23 +35,10 @@
   apt_packages:
     - mold
 
-# Unversioned `clang`, for a repo whose cargo config drives the link with
-# `linker = "clang"`: quality, test and a plain build run no shim, so they
-# link with whatever major this is.
-- name: clang linker
-  patterns:
-    - "[package]"
-    - "[workspace]"
-  manifest_files:
-    - Cargo.toml
-  dpkg_check: clang
-  apt_packages:
-    - clang
-
-# clang at the designated LLVM major. The distro's unversioned `clang` is
-# whatever major the runner's Ubuntu ships, so a PGO build's link takes this
-# one instead: pgo.py shims `clang`/`clang++` to it, the way it does `ld.lld`.
-# Same apt.llvm.org source and placeholder as the llvm-bolt entry below.
+# clang at the designated LLVM major, the only clang hyperi-ci installs: the
+# distro's unversioned `clang` (18 on noble) would add a second LLVM. pgo.py
+# shims `clang`/`clang++` to it the way it does `ld.lld`. Same apt.llvm.org
+# source and placeholder as the llvm-bolt entry below.
 #
 # Only a repo whose cargo config links through clang gets it. Every other
 # Rust job would pay an apt.llvm.org fetch it never uses, and libclang1-NN,
