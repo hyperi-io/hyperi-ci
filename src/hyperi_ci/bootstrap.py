@@ -38,9 +38,10 @@ from scalo import logger
 
 from hyperi_ci.common import curl_fetch, curl_read
 from hyperi_ci.quality.install import fetch_verified
-from hyperi_ci.versions import tool_sha256, tool_version
+from hyperi_ci.versions import runtime_version, tool_sha256, tool_version
 
 _CONFIG_FILE = Path(__file__).resolve().parent / "config" / "bootstrap.yaml"
+_NVM_PROFILE = Path("/etc/profile.d/nvm.sh")
 
 # Vendor install channels. Not configurable: changing where Rust comes from is
 # not a knob, it is a different decision entirely.
@@ -72,14 +73,6 @@ class RustSpec:
     targets: list[str] = field(default_factory=list)
 
 
-@dataclass
-class NodeSpec:
-    """Node majors to preload via nvm, and which is default on PATH."""
-
-    versions: list[str] = field(default_factory=list)
-    default: str = ""
-
-
 def _is_linux() -> bool:
     return platform.system() == "Linux"
 
@@ -95,18 +88,10 @@ def _sudo_prefix() -> list[str]:
     return [] if os.geteuid() == 0 else ["sudo"]
 
 
-def _run(cmd: list[str], *, shell_input: str | None = None) -> int:
+def _run(cmd: list[str]) -> int:
     """Run a command, streaming output. Returns the exit code."""
     logger.info(f"  $ {' '.join(cmd)}")
-    result = subprocess.run(
-        cmd,
-        input=shell_input,
-        text=True if shell_input is not None else False,
-        encoding="utf-8" if shell_input is not None else None,
-        errors="replace" if shell_input is not None else None,
-        check=False,
-    )
-    return result.returncode
+    return subprocess.run(cmd, check=False).returncode
 
 
 def _fetch_text(url: str) -> tuple[int, str]:
@@ -119,13 +104,12 @@ def _have(binary: str) -> bool:
     return shutil.which(binary) is not None
 
 
-def load_spec() -> tuple[RustSpec, bool, NodeSpec]:
-    """Read bootstrap.yaml into (rust, go_enabled, node)."""
+def load_spec() -> tuple[RustSpec, bool]:
+    """Read bootstrap.yaml into (rust, go_enabled)."""
     with _CONFIG_FILE.open(encoding="utf-8") as fh:
         raw = yaml.safe_load(fh) or {}
 
     rust_raw = raw.get("rust", {}) or {}
-    node_raw = raw.get("node", {}) or {}
     go_enabled = bool((raw.get("go", {}) or {}).get("enabled", False))
 
     rust = RustSpec(
@@ -133,11 +117,7 @@ def load_spec() -> tuple[RustSpec, bool, NodeSpec]:
         components=[str(c) for c in rust_raw.get("components", [])],
         targets=[str(t) for t in rust_raw.get("targets", [])],
     )
-    node = NodeSpec(
-        versions=[str(v) for v in node_raw.get("versions", [])],
-        default=str(node_raw.get("default", "")),
-    )
-    return rust, go_enabled, node
+    return rust, go_enabled
 
 
 # ---------------------------------------------------------------------------
@@ -306,27 +286,22 @@ def install_go() -> int:
 # ---------------------------------------------------------------------------
 
 
-def install_node(spec: NodeSpec) -> int:
-    """Install nvm and preload every requested Node major.
+def install_node() -> int:
+    """Install nvm and the versions.yaml ``runtimes.node`` major as the default.
 
-    Why nvm rather than NodeSource: NodeSource ships one Node per system.
-    Carrying every active LTS lets repos pin via .nvmrc or engines.node
-    without `actions/setup-node` re-downloading Node on every job.
+    One major only, the one the CI workflows default to, so a bump in
+    versions.yaml moves the image with it.
 
-    Why the majors are installed with --latest-npm: `npm install -g npm@latest`
-    over an existing npm leaves a broken dependency tree
-    (MODULE_NOT_FOUND: promise-retry). nvm does the upgrade atomically during
-    install instead.
+    Why --latest-npm: `npm install -g npm@latest` over an existing npm leaves a
+    broken dependency tree (MODULE_NOT_FOUND: promise-retry). nvm does the
+    upgrade atomically during install instead.
     """
     if not _is_linux():
         logger.info("Skipping Node bootstrap on non-Linux")
         return 0
-    if not spec.versions:
-        logger.info("No Node versions requested")
-        return 0
 
     nvm_dir = Path(os.environ.get("NVM_DIR", "/usr/local/nvm"))
-    default = spec.default or spec.versions[-1]
+    major = runtime_version("node")
 
     if not (nvm_dir / "nvm.sh").exists():
         rc, tag = _fetch_text("https://api.github.com/repos/nvm-sh/nvm/releases/latest")
@@ -354,12 +329,11 @@ def install_node(spec: NodeSpec) -> int:
             return rc
 
     # nvm is a shell function, not a binary -- every call has to source it.
-    installs = " && ".join(f'nvm install "{v}" --latest-npm' for v in spec.versions)
     script = (
         f'export NVM_DIR="{nvm_dir}"\n'
         f'. "$NVM_DIR/nvm.sh"\n'
-        f"{installs} && "
-        f'nvm alias default "{default}" && '
+        f'nvm install "{major}" --latest-npm && '
+        f'nvm alias default "{major}" && '
         f"nvm cache clear\n"
         # Symlink the default major onto PATH so a job that never sources nvm
         # still finds node/npm/npx/corepack.
@@ -367,14 +341,14 @@ def install_node(spec: NodeSpec) -> int:
         f'for b in node npm npx corepack; do ln -sf "$DEFAULT_BIN/$b" '
         f'"/usr/local/bin/$b"; done\n'
     )
-    logger.info(f"Installing Node majors: {spec.versions} (default {default})")
-    rc = subprocess.run(["bash", "-c", script], check=False).returncode
+    logger.info(f"Installing Node {major}")
+    rc = _run(["bash", "-c", script])
     if rc != 0:
         logger.error("Node install failed")
         return rc
 
     # Written so an interactive shell on the runner also gets nvm.
-    profile = Path("/etc/profile.d/nvm.sh")
+    profile = _NVM_PROFILE
     try:
         profile.write_text(
             f'export NVM_DIR="{nvm_dir}"\n'
@@ -398,12 +372,12 @@ def install_node(spec: NodeSpec) -> int:
 
 
 def install_toolchain_bootstrap() -> int:
-    """Install every language toolchain in bootstrap.yaml. Returns exit code."""
+    """Install Rust, Go and Node for the runner image. Returns exit code."""
     if not _is_linux():
         logger.info(f"Skipping toolchain bootstrap on {platform.system()}")
         return 0
 
-    rust, go_enabled, node = load_spec()
+    rust, go_enabled = load_spec()
 
     logger.info("=== toolchain bootstrap: Rust ===")
     rc = install_rust(rust)
@@ -417,7 +391,7 @@ def install_toolchain_bootstrap() -> int:
             return rc
 
     logger.info("=== toolchain bootstrap: Node ===")
-    rc = install_node(node)
+    rc = install_node()
     if rc != 0:
         return rc
 
@@ -431,7 +405,7 @@ def print_bootstrap_plan() -> None:
     stderr, matching `native_deps.print_needed`, so the two interleave in
     install order rather than splitting across streams.
     """
-    rust, go_enabled, node = load_spec()
+    rust, go_enabled = load_spec()
     out = sys.stderr
     print("  rust:", file=out)
     print(f"    channels:    {', '.join(rust.channels) or '-'}", file=out)
@@ -439,7 +413,4 @@ def print_bootstrap_plan() -> None:
     print(f"    targets:     {', '.join(rust.targets) or '-'}", file=out)
     print(f"    sccache:     {tool_version('sccache')}", file=out)
     print(f"  go: {'current stable' if go_enabled else 'disabled'}", file=out)
-    print(
-        f"  node: {', '.join(node.versions) or '-'} (default {node.default or '-'})",
-        file=out,
-    )
+    print(f"  node: {runtime_version('node')}", file=out)

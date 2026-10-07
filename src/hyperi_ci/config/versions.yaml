@@ -450,7 +450,8 @@ runtimes:
       - .github/actions/setup-runtime/action.yml
       - .github/actions/predict-version/action.yml
   # 24 is Active LTS. 22 dropped to Maintenance on 2025-10-21, and 26 does not
-  # reach LTS until 2026-10-28 (nodejs/Release schedule.json).
+  # reach LTS until 2026-10-28 (nodejs/Release schedule.json). The runner image
+  # bakes this major alone (bootstrap.py).
   node:
     version: "24"
     pin:

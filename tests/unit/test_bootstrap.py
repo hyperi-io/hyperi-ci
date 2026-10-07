@@ -21,6 +21,7 @@ import tarfile
 from pathlib import Path
 
 import pytest
+import yaml
 
 from hyperi_ci import bootstrap, common, versions
 
@@ -31,7 +32,7 @@ class TestLoadSpec:
     """The bootstrap.yaml contract."""
 
     def test_parses_shipped_config(self) -> None:
-        rust, go_enabled, node = bootstrap.load_spec()
+        rust, go_enabled = bootstrap.load_spec()
 
         # stable must come first -- it is the rustup default-toolchain.
         assert rust.channels[0] == "stable"
@@ -39,7 +40,34 @@ class TestLoadSpec:
         assert {"clippy", "rustfmt"} <= set(rust.components)
         assert "aarch64-unknown-linux-gnu" in rust.targets
         assert go_enabled is True
-        assert node.default in node.versions
+
+
+class TestNodeIsTheVersionsDefault:
+    """The image bakes versions.yaml `runtimes.node` and nothing else."""
+
+    def test_installs_one_major_and_makes_it_default(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        ran: list[list[str]] = []
+        monkeypatch.setattr(bootstrap.platform, "system", lambda: "Linux")
+        monkeypatch.setattr(bootstrap, "_have", lambda _b: False)
+        monkeypatch.setattr(bootstrap, "_run", lambda cmd: ran.append(cmd) or 0)
+        monkeypatch.setattr(bootstrap, "_NVM_PROFILE", tmp_path / "nvm.sh")
+        monkeypatch.setenv("NVM_DIR", str(tmp_path))
+        (tmp_path / "nvm.sh").write_text("", encoding="utf-8")
+
+        assert bootstrap.install_node() == 0
+
+        major = versions.runtime_version("node")
+        [(shell, flag, script)] = ran
+        assert (shell, flag) == ("bash", "-c")
+        assert re.findall(r'nvm install "([^"]+)"', script) == [major]
+        assert f'nvm alias default "{major}"' in script
+
+    def test_bootstrap_yaml_lists_no_node_majors(self) -> None:
+        """A second list beside versions.yaml drifts from the CI default."""
+        raw = yaml.safe_load(bootstrap._CONFIG_FILE.read_text(encoding="utf-8"))
+        assert "node" not in raw
 
 
 def _sccache_tarball(arch: str) -> bytes:
@@ -84,7 +112,7 @@ class TestNothingUnpinned:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         seen = self._wire(monkeypatch, tmp_path, _sccache_tarball("x86_64"))
-        rust, _, _ = bootstrap.load_spec()
+        rust, _ = bootstrap.load_spec()
 
         assert bootstrap.install_rust(rust) == 0
 
@@ -153,10 +181,10 @@ class TestNonLinuxGuard:
         reason="asserts the non-Linux branch; on Linux these really install",
     )
     def test_all_installers_noop(self) -> None:
-        rust, _, node = bootstrap.load_spec()
+        rust, _ = bootstrap.load_spec()
         assert bootstrap.install_rust(rust) == 0
         assert bootstrap.install_go() == 0
-        assert bootstrap.install_node(node) == 0
+        assert bootstrap.install_node() == 0
         assert bootstrap.install_toolchain_bootstrap() == 0
 
     def test_sudo_prefix_empty_off_linux(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -243,6 +271,7 @@ class TestInstallAllWiring:
         combined = result.stdout + result.stderr
         assert "language toolchains" in combined
         assert f"sccache:     {versions.tool_version('sccache')}" in combined
+        assert f"node: {versions.runtime_version('node')}\n" in combined
 
     def test_toolchains_planned_before_apt_deps(self, tmp_path) -> None:
         """Ordering matters: the apt families include BOLT and the

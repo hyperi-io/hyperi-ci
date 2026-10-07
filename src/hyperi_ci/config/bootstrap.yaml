@@ -23,8 +23,9 @@
 # is baked as well, at its versions.yaml pin, because the ARC image sets
 # RUSTC_WRAPPER=sccache and no CI step installs it.
 #
-# Rust channels track current. sccache's version and digests are
-# versions.yaml `tools.sccache`.
+# Rust channels and Go track current. Node is not configured here: the image
+# bakes the one major in versions.yaml `runtimes.node`, the CI default.
+# sccache's version and digests are versions.yaml `tools.sccache`.
 
 rust:
   # stable for builds, nightly for the fmt/lint features some repos use.
@@ -40,12 +41,3 @@ rust:
 
 go:
   enabled: true
-
-node:
-  # Every active LTS, so repos can pin via .nvmrc without setup-node
-  # re-downloading per job. Adding a major is a capacity decision - the image
-  # carries every one listed.
-  versions:
-    - "20"
-    - "22"
-  default: "22"
