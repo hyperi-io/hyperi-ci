@@ -15,8 +15,6 @@ from hyperi_ci.languages.quality_common import get_test_ignore, resolve_tool_mod
 from hyperi_ci.quality.ignores import for_tool, load_ignores
 from hyperi_ci.tools import warn_on_pin_drift
 
-_DEFAULT_GO_TEST_IGNORE = ["errcheck", "gosec"]
-
 
 def _get_tool_mode(tool: str, config: CIConfig) -> str:
     return resolve_tool_mode(tool, config, "golang")
@@ -103,7 +101,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     # golangci-lint -- two-pass: production (strict) + test (relaxed)
     mode = _get_tool_mode("golangci_lint", config)
-    test_ignore = get_test_ignore("golang", config, _DEFAULT_GO_TEST_IGNORE)
+    test_ignore = get_test_ignore("golang", config)
     gci_user_ignores = for_tool(ignores, "golangci-lint")
     gci_user_disable = [f"--disable={e.id}" for e in gci_user_ignores]
 

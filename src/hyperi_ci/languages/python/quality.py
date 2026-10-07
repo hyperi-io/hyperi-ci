@@ -51,28 +51,6 @@ from hyperi_ci.python_version import resolve as resolve_python_version
 from hyperi_ci.quality.ignores import IgnoreEntry, for_tool, load_ignores
 from hyperi_ci.versions import tool_version
 
-_DEFAULT_PYTHON_TEST_IGNORE = [
-    "S101",
-    "S104",
-    "S105",
-    "S108",
-    "S311",
-    "T201",
-    "PT003",
-    "PT006",
-    "PT011",
-    "PT012",
-    "PT017",
-    "PT018",
-    "PT001",
-    "PT021",
-    "S106",
-    "N803",
-    "RUF003",
-    "RUF015",
-    "RUF043",
-]
-
 # `ruff format` accepts --extend-exclude from 0.15.21. Markdown formatting
 # arrived separately in 0.16, so a 0.15.21 or 0.15.22 project still honours its
 # own excludes here even though the `*.md` entry buys it nothing.
@@ -526,7 +504,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     output_fmt = ["--output-format=github"] if os.environ.get("GITHUB_ACTIONS") else []
 
     test_paths = get_test_paths(config)
-    test_ignore = get_test_ignore("python", config, _DEFAULT_PYTHON_TEST_IGNORE)
+    test_ignore = get_test_ignore("python", config)
 
     # Production pass -- exclude test dirs, full rules
     prod_exclude = exclude_args + [f"--exclude={p}" for p in test_paths]
