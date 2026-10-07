@@ -12,17 +12,14 @@
 # upstream already ships as a static binary.
 #
 # NO `command -v` SHORT-CIRCUIT, DELIBERATELY.
-# The obvious "skip if already installed" guard makes the pin inert on BOTH
-# runner paths we actually use:
-#   - ARC (the org default for rust jobs - vars.GH_RUNNER_RUST =
-#     arc-runner-16cpu) BAKES `cargo install cargo-audit cargo-deny` into the
-#     image, unpinned, and puts /opt/rust/cargo/bin on PATH.
-#   - hosted runners restore `~/.cargo/bin` from the cargo cache, so a repo with
-#     a warm pre-migration entry keeps resolving its OLD binaries (measured: a
-#     cached cargo-audit 0.18.3 satisfying a v0.22.2 pin, exit 0, green).
-# Either way the download is skipped, the pin never lands, and versions.yaml
-# ends up asserting a cooldown and clamp that were never applied. Downloading
-# unconditionally costs seconds; GITHUB_PATH PREPENDS, so the pinned copy wins.
+# The obvious "skip if already installed" guard makes the pin inert wherever a
+# copy is already on PATH: hosted runners restore `~/.cargo/bin` from the cargo
+# cache, so a repo with a warm pre-migration entry keeps resolving its OLD
+# binaries (measured: a cached cargo-audit 0.18.3 satisfying a v0.22.2 pin,
+# exit 0, green), and an older ARC image still bakes unpinned copies. The
+# download is skipped, the pin never lands, and versions.yaml ends up asserting
+# a cooldown and clamp that were never applied. Downloading unconditionally
+# costs seconds; GITHUB_PATH PREPENDS, so the pinned copy wins.
 #
 # Naming is inconsistent between the two upstreams, which is why this does not
 # collapse into one loop:

@@ -335,10 +335,10 @@ test:
     # test under nextest and shared under cargo test - a suite passes under one
     # and fails under the other. Doctests run only under cargo test.
     #
-    # The ARC runner image bakes nextest in (bootstrap.yaml
-    # `rust.cargo_tools`); a hosted/free runner does not. `auto` therefore
-    # varies test semantics by runner, and warns loudly when it degrades. Set
-    # `true` in a repo whose suite depends on process isolation.
+    # The CI Test job installs the pinned nextest on every runner
+    # (setup-nextest), so `auto` varies only where nothing does, such as a
+    # local `hyperi-ci check`, and warns loudly when it degrades. Set `true`
+    # in a repo whose suite depends on process isolation.
     nextest: auto
 
 # Build

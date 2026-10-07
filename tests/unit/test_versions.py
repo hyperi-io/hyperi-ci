@@ -85,6 +85,7 @@ class TestEveryDownloadedToolIsPinnedAndVerifiable:
         "kube-linter",
         "cargo-chef",
         "helm",
+        "sccache",
     )
 
     @pytest.mark.parametrize("tool", DOWNLOADED)

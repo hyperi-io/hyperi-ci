@@ -11,22 +11,24 @@ go.dev, nvm) rather than apt, and because hyperi-ci does NOT install them per
 job -- it assumes they exist. `languages/rust/build.py` calls `rustup target
 add` with no bootstrap behind it.
 
-That assumption is exactly why baking them pays: the cargo tools are source
-builds costing tens of minutes cold, and nothing reinstalls them over the top.
-The linters are the opposite case and are deliberately not here.
+The one cargo tool baked is sccache: the ARC image sets ``RUSTC_WRAPPER=sccache``
+and no CI step installs it. cargo-audit, cargo-deny and cargo-nextest are not
+baked, because the setup-rust-tools and setup-nextest composites install their
+pinned builds on every job whatever the image carries.
 
-Every step is idempotent -- an already-present toolchain is left alone, so a
-rebuild over a warm cache is cheap and a partial failure can be re-run.
+Every step is idempotent, so a partial failure can be re-run.
 
 Linux only. No-ops elsewhere, so importing this on a macOS workstation is
 safe but does nothing useful.
 """
 
+import io
 import os
 import platform
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -35,8 +37,11 @@ import yaml
 from scalo import logger
 
 from hyperi_ci.common import curl_fetch, curl_read
+from hyperi_ci.quality.install import fetch_verified
+from hyperi_ci.versions import runtime_version, tool_sha256, tool_version
 
 _CONFIG_FILE = Path(__file__).resolve().parent / "config" / "bootstrap.yaml"
+_NVM_PROFILE = Path("/etc/profile.d/nvm.sh")
 
 # Vendor install channels. Not configurable: changing where Rust comes from is
 # not a knob, it is a different decision entirely.
@@ -44,7 +49,17 @@ _RUSTUP_URL = "https://sh.rustup.rs"
 _GO_VERSION_URL = "https://go.dev/VERSION?m=text"
 _GO_DOWNLOAD_BASE = "https://go.dev/dl"
 _NVM_INSTALL_BASE = "https://raw.githubusercontent.com/nvm-sh/nvm"
-_CARGO_BINSTALL_URL = "https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh"
+_SCCACHE_URL = (
+    "https://github.com/mozilla/sccache/releases/download/{version}/"
+    "sccache-{version}-{arch}-unknown-linux-musl.tar.gz"
+)
+# platform.machine() -> the arch as sccache's assets and its digest keys spell it.
+_SCCACHE_ARCH = {
+    "x86_64": "x86_64",
+    "amd64": "x86_64",
+    "aarch64": "aarch64",
+    "arm64": "aarch64",
+}
 # The Go tarball is about 70 MB, so a 300-second attempt still finishes at 250 KB/s.
 _GO_TARBALL_MAX_TIME = 300
 
@@ -56,15 +71,6 @@ class RustSpec:
     channels: list[str] = field(default_factory=lambda: ["stable"])
     components: list[str] = field(default_factory=list)
     targets: list[str] = field(default_factory=list)
-    cargo_tools: list[str] = field(default_factory=list)
-
-
-@dataclass
-class NodeSpec:
-    """Node majors to preload via nvm, and which is default on PATH."""
-
-    versions: list[str] = field(default_factory=list)
-    default: str = ""
 
 
 def _is_linux() -> bool:
@@ -82,18 +88,10 @@ def _sudo_prefix() -> list[str]:
     return [] if os.geteuid() == 0 else ["sudo"]
 
 
-def _run(cmd: list[str], *, shell_input: str | None = None) -> int:
+def _run(cmd: list[str]) -> int:
     """Run a command, streaming output. Returns the exit code."""
     logger.info(f"  $ {' '.join(cmd)}")
-    result = subprocess.run(
-        cmd,
-        input=shell_input,
-        text=True if shell_input is not None else False,
-        encoding="utf-8" if shell_input is not None else None,
-        errors="replace" if shell_input is not None else None,
-        check=False,
-    )
-    return result.returncode
+    return subprocess.run(cmd, check=False).returncode
 
 
 def _fetch_text(url: str) -> tuple[int, str]:
@@ -106,26 +104,20 @@ def _have(binary: str) -> bool:
     return shutil.which(binary) is not None
 
 
-def load_spec() -> tuple[RustSpec, bool, NodeSpec]:
-    """Read bootstrap.yaml into (rust, go_enabled, node)."""
+def load_spec() -> tuple[RustSpec, bool]:
+    """Read bootstrap.yaml into (rust, go_enabled)."""
     with _CONFIG_FILE.open(encoding="utf-8") as fh:
         raw = yaml.safe_load(fh) or {}
 
     rust_raw = raw.get("rust", {}) or {}
-    node_raw = raw.get("node", {}) or {}
     go_enabled = bool((raw.get("go", {}) or {}).get("enabled", False))
 
     rust = RustSpec(
         channels=[str(c) for c in rust_raw.get("channels", ["stable"])],
         components=[str(c) for c in rust_raw.get("components", [])],
         targets=[str(t) for t in rust_raw.get("targets", [])],
-        cargo_tools=[str(t) for t in rust_raw.get("cargo_tools", [])],
     )
-    node = NodeSpec(
-        versions=[str(v) for v in node_raw.get("versions", [])],
-        default=str(node_raw.get("default", "")),
-    )
-    return rust, go_enabled, node
+    return rust, go_enabled
 
 
 # ---------------------------------------------------------------------------
@@ -133,64 +125,54 @@ def load_spec() -> tuple[RustSpec, bool, NodeSpec]:
 # ---------------------------------------------------------------------------
 
 
-def _install_cargo_tools(tools: list[str]) -> int:
-    """Install cargo binaries, preferring prebuilt releases.
+def install_sccache(bin_dir: Path) -> int:
+    """Install the versions.yaml sccache into ``bin_dir``, replacing any copy there.
 
-    `cargo install` compiles from source: sccache, cargo-deny, cargo-audit and
-    cargo-nextest together are tens of minutes. All four publish prebuilt
-    binaries, so cargo-binstall fetches those instead and the image build drops
-    to minutes. Falls back to a source build per tool if binstall is
-    unavailable or a fetch fails -- slow, but the image is still correct.
+    The download is checked against the pinned digest before anything is
+    unpacked, and a mismatch installs nothing.
+
+    Args:
+        bin_dir: Directory on the image's PATH, normally ``$CARGO_HOME/bin``.
+
+    Returns:
+        0 on success, 1 on an unknown CPU, a failed download, a digest
+        mismatch or a tarball without the binary.
+
     """
-    if not tools:
-        return 0
-
-    if not _have("cargo-binstall"):
-        logger.info("Installing cargo-binstall (prebuilt cargo tool fetcher)")
-        # The installer script is fetched and piped to a shell. Upstream ships
-        # no signed artefact for it; the alternative is a source build of
-        # binstall itself, which defeats the point.
-        rc, script = curl_read(_CARGO_BINSTALL_URL)
-        if rc == 0 and script:
-            rc = subprocess.run(["bash"], input=script, check=False).returncode
-            if rc != 0:
-                logger.warning(
-                    "cargo-binstall install failed - falling back to source builds"
-                )
-        else:
-            logger.warning(
-                "cargo-binstall download failed - falling back to source builds"
-            )
-
-    failed: list[str] = []
-    for tool in tools:
-        binary = tool
-        if _have(binary):
-            logger.info(f"[{tool}] already installed")
-            continue
-
-        installed = False
-        if _have("cargo-binstall"):
-            logger.info(f"Installing {tool} (prebuilt)")
-            installed = _run(["cargo", "binstall", "--no-confirm", tool]) == 0
-            if not installed:
-                logger.warning(f"[{tool}] binstall failed - building from source")
-
-        if not installed:
-            logger.info(f"Installing {tool} (source build)")
-            installed = _run(["cargo", "install", tool, "--locked"]) == 0
-
-        if not installed:
-            failed.append(tool)
-
-    if failed:
-        logger.error(f"cargo tools failed to install: {failed}")
+    arch = _SCCACHE_ARCH.get(platform.machine().lower())
+    if arch is None:
+        logger.error(f"No pinned sccache build for {platform.machine()}")
         return 1
+
+    version = tool_version("sccache")
+    url = _SCCACHE_URL.format(version=version, arch=arch)
+    logger.info(f"Installing sccache {version}")
+    payload = fetch_verified("sccache", url, tool_sha256("sccache", arch))
+    if payload is None:
+        return 1
+
+    member = f"sccache-{version}-{arch}-unknown-linux-musl/sccache"
+    try:
+        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+            extracted = archive.extractfile(member)
+            data = extracted.read() if extracted else b""
+    except (tarfile.TarError, KeyError, OSError):
+        data = b""
+    if not data:
+        logger.error(f"'{member}' not found in {url}")
+        return 1
+
+    # Renamed into place, because overwriting a running sccache in place fails.
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    partial = bin_dir / ".sccache.partial"
+    partial.write_bytes(data)
+    partial.chmod(0o755)
+    partial.replace(bin_dir / "sccache")
     return 0
 
 
 def install_rust(spec: RustSpec) -> int:
-    """Install rustup, the requested channels, components, targets and tools.
+    """Install rustup, the requested channels, components and targets, and sccache.
 
     Honours RUSTUP_HOME / CARGO_HOME if the caller set them (a runner image
     puts them on a shared path so every job sees the same toolchain).
@@ -248,7 +230,7 @@ def install_rust(spec: RustSpec) -> int:
             logger.error(f"rustup target add {target} failed")
             return rc
 
-    return _install_cargo_tools(spec.cargo_tools)
+    return install_sccache(cargo_bin)
 
 
 # ---------------------------------------------------------------------------
@@ -304,27 +286,22 @@ def install_go() -> int:
 # ---------------------------------------------------------------------------
 
 
-def install_node(spec: NodeSpec) -> int:
-    """Install nvm and preload every requested Node major.
+def install_node() -> int:
+    """Install nvm and the versions.yaml ``runtimes.node`` major as the default.
 
-    Why nvm rather than NodeSource: NodeSource ships one Node per system.
-    Carrying every active LTS lets repos pin via .nvmrc or engines.node
-    without `actions/setup-node` re-downloading Node on every job.
+    One major only, the one the CI workflows default to, so a bump in
+    versions.yaml moves the image with it.
 
-    Why the majors are installed with --latest-npm: `npm install -g npm@latest`
-    over an existing npm leaves a broken dependency tree
-    (MODULE_NOT_FOUND: promise-retry). nvm does the upgrade atomically during
-    install instead.
+    Why --latest-npm: `npm install -g npm@latest` over an existing npm leaves a
+    broken dependency tree (MODULE_NOT_FOUND: promise-retry). nvm does the
+    upgrade atomically during install instead.
     """
     if not _is_linux():
         logger.info("Skipping Node bootstrap on non-Linux")
         return 0
-    if not spec.versions:
-        logger.info("No Node versions requested")
-        return 0
 
     nvm_dir = Path(os.environ.get("NVM_DIR", "/usr/local/nvm"))
-    default = spec.default or spec.versions[-1]
+    major = runtime_version("node")
 
     if not (nvm_dir / "nvm.sh").exists():
         rc, tag = _fetch_text("https://api.github.com/repos/nvm-sh/nvm/releases/latest")
@@ -352,12 +329,11 @@ def install_node(spec: NodeSpec) -> int:
             return rc
 
     # nvm is a shell function, not a binary -- every call has to source it.
-    installs = " && ".join(f'nvm install "{v}" --latest-npm' for v in spec.versions)
     script = (
         f'export NVM_DIR="{nvm_dir}"\n'
         f'. "$NVM_DIR/nvm.sh"\n'
-        f"{installs} && "
-        f'nvm alias default "{default}" && '
+        f'nvm install "{major}" --latest-npm && '
+        f'nvm alias default "{major}" && '
         f"nvm cache clear\n"
         # Symlink the default major onto PATH so a job that never sources nvm
         # still finds node/npm/npx/corepack.
@@ -365,14 +341,14 @@ def install_node(spec: NodeSpec) -> int:
         f'for b in node npm npx corepack; do ln -sf "$DEFAULT_BIN/$b" '
         f'"/usr/local/bin/$b"; done\n'
     )
-    logger.info(f"Installing Node majors: {spec.versions} (default {default})")
-    rc = subprocess.run(["bash", "-c", script], check=False).returncode
+    logger.info(f"Installing Node {major}")
+    rc = _run(["bash", "-c", script])
     if rc != 0:
         logger.error("Node install failed")
         return rc
 
     # Written so an interactive shell on the runner also gets nvm.
-    profile = Path("/etc/profile.d/nvm.sh")
+    profile = _NVM_PROFILE
     try:
         profile.write_text(
             f'export NVM_DIR="{nvm_dir}"\n'
@@ -396,12 +372,12 @@ def install_node(spec: NodeSpec) -> int:
 
 
 def install_toolchain_bootstrap() -> int:
-    """Install every language toolchain in bootstrap.yaml. Returns exit code."""
+    """Install Rust, Go and Node for the runner image. Returns exit code."""
     if not _is_linux():
         logger.info(f"Skipping toolchain bootstrap on {platform.system()}")
         return 0
 
-    rust, go_enabled, node = load_spec()
+    rust, go_enabled = load_spec()
 
     logger.info("=== toolchain bootstrap: Rust ===")
     rc = install_rust(rust)
@@ -415,7 +391,7 @@ def install_toolchain_bootstrap() -> int:
             return rc
 
     logger.info("=== toolchain bootstrap: Node ===")
-    rc = install_node(node)
+    rc = install_node()
     if rc != 0:
         return rc
 
@@ -429,15 +405,12 @@ def print_bootstrap_plan() -> None:
     stderr, matching `native_deps.print_needed`, so the two interleave in
     install order rather than splitting across streams.
     """
-    rust, go_enabled, node = load_spec()
+    rust, go_enabled = load_spec()
     out = sys.stderr
     print("  rust:", file=out)
     print(f"    channels:    {', '.join(rust.channels) or '-'}", file=out)
     print(f"    components:  {', '.join(rust.components) or '-'}", file=out)
     print(f"    targets:     {', '.join(rust.targets) or '-'}", file=out)
-    print(f"    cargo tools: {', '.join(rust.cargo_tools) or '-'}", file=out)
+    print(f"    sccache:     {tool_version('sccache')}", file=out)
     print(f"  go: {'current stable' if go_enabled else 'disabled'}", file=out)
-    print(
-        f"  node: {', '.join(node.versions) or '-'} (default {node.default or '-'})",
-        file=out,
-    )
+    print(f"  node: {runtime_version('node')}", file=out)

@@ -258,10 +258,10 @@ tools:
       amd64: 9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f
       arm64: 995c82be0defc7a025cae49a2aa2644ce8245c9a3318fc4103907c6a285e8c7d
   # Fetched by a composite action like the tools above, but for the TEST job
-  # rather than quality. The ARC image bakes nextest in and a hosted/free runner
-  # does not, so without this the runner chosen depends on where the job landed
-  # - and nextest and cargo test are not interchangeable (see
-  # `test.rust.nextest` in defaults.yaml).
+  # rather than quality. Nothing else puts a pinned nextest on the Test
+  # runner's PATH, so without this the runner the job resolves depends on what
+  # it happens to find - and nextest and cargo test are not interchangeable
+  # (see `test.rust.nextest` in defaults.yaml).
   #
   # MONOREPO like rustsec: nextest-runner and nextest-filtering tag from the
   # same repo, so tag_prefix is what stops the release scan picking one of them.
@@ -325,6 +325,15 @@ tools:
     version: 0.6.45
     repo: taiki-e/cargo-hack
     tag_prefix: v
+  # Baked into the ARC runner image by bootstrap.py, because the image sets
+  # RUSTC_WRAPPER=sccache and no CI step installs it. musl on both arches.
+  # Digests cross-checked against upstream's `.sha256` files at pin time.
+  sccache:
+    version: v0.18.0
+    repo: mozilla/sccache
+    sha256:
+      x86_64: 45f1447fbe231e3037bde351ef70677dd212216c8d62ae7ca409fecc4d6acc89
+      aarch64: 2b3284d5da3b46a47dc4229e75bb7b88ac4aa99c8d754fb7d2f84997e5a4354a
   # Baked into the generated cargo-chef Dockerfile by container/compose.py,
   # which reads it from here.
   cargo-chef:
@@ -441,7 +450,8 @@ runtimes:
       - .github/actions/setup-runtime/action.yml
       - .github/actions/predict-version/action.yml
   # 24 is Active LTS. 22 dropped to Maintenance on 2025-10-21, and 26 does not
-  # reach LTS until 2026-10-28 (nodejs/Release schedule.json).
+  # reach LTS until 2026-10-28 (nodejs/Release schedule.json). The runner image
+  # bakes this major alone (bootstrap.py).
   node:
     version: "24"
     pin:

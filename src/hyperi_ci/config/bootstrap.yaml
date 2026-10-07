@@ -14,18 +14,18 @@
 #
 # A pre-baked tool only pays off if it is what would have been installed
 # anyway. The linters fail that test - hyperi-ci reinstalls them per job, so
-# baking them is either wasted or a silent override of a pinned version.
+# baking them is either wasted or a silent override of a pinned version. So do
+# cargo-audit, cargo-deny and cargo-nextest, which the setup-rust-tools and
+# setup-nextest composites install pinned on every Rust job.
 #
 # These pass it, because hyperi-ci does NOT install them per job: it assumes
-# they are already there (`rust/build.py` calls `rustup target add`). And they
-# are expensive - the cargo tools below are SOURCE builds, tens of minutes on
-# a cold runner. Paying that once per image instead of once per job is the
-# reason a pre-built runner image exists at all.
+# they are already there (`rust/build.py` calls `rustup target add`). sccache
+# is baked as well, at its versions.yaml pin, because the ARC image sets
+# RUSTC_WRAPPER=sccache and no CI step installs it.
 #
-# NO VERSIONS HERE, DELIBERATELY. Channels and majors, not point releases.
-# The image is rebuilt on a cadence and rolled back by re-tagging, so it
-# tracks current rather than pinning. What IS listed is the stuff that is a
-# capacity or compatibility decision rather than a version bump.
+# Rust channels and Go track current. Node is not configured here: the image
+# bakes the one major in versions.yaml `runtimes.node`, the CI default.
+# sccache's version and digests are versions.yaml `tools.sccache`.
 
 rust:
   # stable for builds, nightly for the fmt/lint features some repos use.
@@ -38,23 +38,6 @@ rust:
   # Cross-compilation targets to preinstall. arm64 release builds need this.
   targets:
     - aarch64-unknown-linux-gnu
-  # Installed with cargo-binstall where a prebuilt release exists, falling
-  # back to `cargo install --locked`. All four publish binaries, so the
-  # common path avoids a source build each.
-  cargo_tools:
-    - sccache
-    - cargo-audit
-    - cargo-deny
-    - cargo-nextest
 
 go:
   enabled: true
-
-node:
-  # Every active LTS, so repos can pin via .nvmrc without setup-node
-  # re-downloading per job. Adding a major is a capacity decision - the image
-  # carries every one listed.
-  versions:
-    - "20"
-    - "22"
-  default: "22"

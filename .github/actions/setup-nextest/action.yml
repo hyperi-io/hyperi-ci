@@ -7,15 +7,15 @@
 #
 # The Rust test stage picks its runner from what is on PATH, and cargo nextest
 # and cargo test are NOT interchangeable: nextest isolates each test in its own
-# process, cargo test shares one across threads. The ARC image bakes nextest in
-# (bootstrap.yaml `rust.cargo_tools`) and a hosted/free runner does not, so
-# without this step the semantics of the suite followed the runner it landed on.
+# process, cargo test shares one across threads. No runner image bakes a pinned
+# nextest, so without this step the semantics of the suite follow whatever the
+# runner happens to have on PATH.
 #
 # NO `command -v` SHORT-CIRCUIT, DELIBERATELY - same reasoning as
-# setup-rust-tools: ARC bakes an UNPINNED nextest and hosted runners restore
-# ~/.cargo/bin from the cargo cache, so a skip-if-present guard makes the pin
-# inert on both paths we actually use. Downloading unconditionally costs
-# seconds; GITHUB_PATH PREPENDS, so the pinned copy wins.
+# setup-rust-tools: hosted runners restore ~/.cargo/bin from the cargo cache
+# and an older ARC image still bakes an UNPINNED nextest, so a skip-if-present
+# guard makes the pin inert. Downloading unconditionally costs seconds;
+# GITHUB_PATH PREPENDS, so the pinned copy wins.
 #
 # Asset shape (differs from the other Rust tools, hence no shared loop):
 #   tag     `cargo-nextest-X.Y.Z`  - monorepo prefix, no leading `v`
