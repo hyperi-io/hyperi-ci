@@ -36,7 +36,6 @@ from hyperi_ci.gh import get_current_branch, require_gh
 from hyperi_ci.release_branches import repo_prerelease_branches
 from hyperi_ci.version_source import seed_version
 from hyperi_ci.vocabulary import (
-    LEGACY_TRAILER_KEY,
     TRAILER_KEY,
     TRAILER_VALUE,
     has_release_trailer,
@@ -44,11 +43,6 @@ from hyperi_ci.vocabulary import (
 
 RELEASE_TRAILER_KEY = TRAILER_KEY
 RELEASE_TRAILER_VALUE = TRAILER_VALUE
-
-# The old spelling, kept so an out-of-tree caller importing it still reads a
-# trailer this repo accepts. New commits are stamped `Release: true`.
-PUBLISH_TRAILER_KEY = LEGACY_TRAILER_KEY
-PUBLISH_TRAILER_VALUE = TRAILER_VALUE
 
 # Lockfile basenames we auto-stage into the release-marker commit when
 # they show up modified in the working tree at commit time. Cargo

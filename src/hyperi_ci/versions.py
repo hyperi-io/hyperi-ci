@@ -99,11 +99,6 @@ def tool_sha256(name: str, arch: str) -> str:
     return str(digests[arch])
 
 
-def tool_names() -> list[str]:
-    """Every tool key in the SSOT, sorted."""
-    return sorted((_data().get("tools") or {}).keys())
-
-
 def action_names() -> list[str]:
     """Every action key in the SSOT, sorted."""
     return sorted((_data().get("actions") or {}).keys())
