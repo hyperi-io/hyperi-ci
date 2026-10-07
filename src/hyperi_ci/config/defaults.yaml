@@ -113,14 +113,15 @@ quality:
   hadolint: blocking         # Dockerfile GATE - blocks on ERROR severity only (shellcheck-on-RUN)
   droast: warn               # Dockerfile ADVISORY - cache order / .dockerignore / npm ci; never gates
 
-  # k8s + IaC linting (Path B - `hyperi-ci lint-manifests`, gitops/infra repos).
-  # Also honoured if a language project ships charts/manifests. May be a mode
-  # string OR a dict with `mode` + tool options (see docs/quality-gate-tools.md).
-  kubeconform: blocking      # k8s schema-validation GATE (rendered manifests)
+  # IaC linting (`hyperi-ci lint-iac`). May be a mode string OR a dict with
+  # `mode` + tool options (see docs/quality-gate-tools.md).
+  kubeconform: blocking      # k8s schema GATE; also gates helm/kustomize render failures
+  render_stable: blocking    # Two helm/kustomize renders must be byte-equal (test hooks excluded)
   kube_linter: warn          # k8s best-practice ADVISORY; never gates
   checkov: warn              # IaC security ADVISORY (k8s/helm/kustomize/terraform); never gates by default
-
-  # docker-compose linting (Path C - `hyperi-ci lint-compose`, compose packaging repos).
+  tofu: blocking             # OpenTofu fmt -check, init -backend=false, validate per root
+  ansible_lint: warn         # ansible-lint (+ yamllint where the repo has a .yamllint)
+  iac_generated: blocking    # iac.generated entries: regenerate, fail on a diff
   compose_config: blocking   # `docker compose config` resolution GATE
   compose_pins: blocking     # image-pin GATE - an image resolving to `latest` fails
 
@@ -479,6 +480,20 @@ description: ""
 notify:
   slack:
     webhook_env: ""
+
+# IaC linting (`hyperi-ci lint-iac`). Every dimension detects its own targets;
+# these only tune it. Modes live under `quality:` (kubeconform, tofu, ...).
+iac:
+  timeout_seconds: 600       # Per external tool call; a run past it fails a blocking gate
+  memory_limit_mb: 4096      # RLIMIT_AS for the Python tools (checkov, ansible-lint, yamllint)
+  helm:
+    values: []               # Value files (repo-relative) added to every chart render
+    set: {}                  # `key: value` pairs passed as --set to every chart render
+  # Regenerate-and-diff: run `command` from the repo root, fail if `paths` change.
+  #   generated:
+  #     - paths: [docs/schema.json]
+  #       command: "uv run scripts/gen-schema.py"
+  generated: []
 
 # No `workspace:` block: Rust workspaces are detected by parsing Cargo.toml
 # (`[workspace]` / `[workspace.package]`), never declared in config. Nothing

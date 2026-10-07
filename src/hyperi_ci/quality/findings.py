@@ -35,21 +35,26 @@ silently lost.
 
 In practice the budget couples the ``surface()`` users that run in the same
 process: hadolint + droast inside ``hyperi-ci run quality`` (gitleaks/semgrep
-emit their own output and do not use this surface), and kubeconform +
-kube-linter + Checkov inside the separate ``lint-manifests`` process - which,
-being a distinct step, correctly starts with its own fresh budget.
+emit their own output and do not use this surface), and the IaC tools inside
+the separate ``lint-iac`` process - which, being a distinct step, correctly
+starts with its own fresh budget.
 """
 
 import json
 import os
+import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Any
 
 from hyperi_ci.common import (
     error,
     escape_command_data,
     info,
     is_github_actions,
+    run_cmd,
+    success,
     warn,
 )
 
@@ -137,6 +142,15 @@ class _AnnotationBudget:
 
 
 _BUDGET = _AnnotationBudget()
+
+# Findings surfaced in this process, keyed by tool, so an orchestrator can
+# report a per-dimension count without each tool returning one.
+_TALLY: dict[str, int] = {}
+
+
+def surfaced_count() -> int:
+    """Return how many findings :func:`surface` has handled in this process."""
+    return sum(_TALLY.values())
 
 
 def reset_annotation_budget() -> None:
@@ -406,9 +420,57 @@ def surface(
     summary and, when ``sarif_path`` is set, in the SARIF file. Off CI, where
     neither GitHub surface exists, the findings go to the log instead.
     """
+    _TALLY[tool] = _TALLY.get(tool, 0) + len(findings)
     dropped = emit_annotations(findings)
     append_job_summary(tool, findings)
     log_findings(tool, findings)
     if sarif_path is not None:
         write_sarif(tool, findings, sarif_path)
     return dropped
+
+
+def relpath(path: Path, root: Path = Path()) -> str:
+    """Return ``path`` relative to ``root`` (default: the cwd), where annotations attach."""
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def report(
+    tool: str, findings: list[Finding], mode: str, *, sarif_path: str | Path | None
+) -> None:
+    """Surface ``findings`` as a check at ``mode``, noting any the budget dropped."""
+    dropped = surface(tool, at_mode(findings, mode), sarif_path=sarif_path)
+    if dropped:
+        info(f"  {tool}: +{dropped} more finding(s) in the job summary")
+
+
+def verdict(tool: str, errors: int, mode: str, ok: str) -> int:
+    """Log a check's verdict on ``errors`` error-level findings; return its exit code."""
+    if not errors:
+        success(f"  {tool}: {ok}")
+        return 0
+    if mode == "blocking":
+        error(f"  {tool}: {errors} finding(s) must be fixed")
+        return 1
+    warn(f"  {tool}: {errors} finding(s) (non-blocking)")
+    return 0
+
+
+def run_tool(
+    cmd: list[str],
+    fail: Callable[[str, str], Finding],
+    *,
+    timeout: float | None,
+    **kwargs: Any,
+) -> subprocess.CompletedProcess[str] | Finding:
+    """Run a check's command; return its result, or ``fail(kind, why)`` if it never finished."""
+    try:
+        return run_cmd(
+            cmd, check=False, capture=True, timeout=timeout, own_group=True, **kwargs
+        )
+    except subprocess.TimeoutExpired:
+        return fail("timeout", f"no result within {timeout}s")
+    except OSError as exc:
+        return fail("unrunnable", f"could not run ({exc})")

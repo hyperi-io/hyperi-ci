@@ -27,10 +27,9 @@ in the log rather than silently dropped or falsely failed. ``compose-pins``
 still reads it, because a fragment can override an image.
 """
 
-from __future__ import annotations
-
 import re
 import shutil
+import subprocess
 from pathlib import Path
 
 from hyperi_ci.common import error, info, is_ci, run_cmd, success, warn
@@ -97,7 +96,7 @@ def compose_available() -> bool:
         return False
 
 
-def _validate(path: Path) -> fdg.Finding | None:
+def _validate(path: Path, timeout: float | None = None) -> fdg.Finding | None:
     """Run ``docker compose config -q`` over one file; return a finding on failure."""
     try:
         result = run_cmd(
@@ -106,6 +105,17 @@ def _validate(path: Path) -> fdg.Finding | None:
             capture=True,
             cwd=path.parent,
             env=placeholder_env(path),
+            timeout=timeout,
+            own_group=True,
+        )
+    except subprocess.TimeoutExpired:
+        return fdg.Finding(
+            tool="compose-config",
+            path=str(path),
+            line=None,
+            level="error",
+            rule="compose/timeout",
+            message=f"`docker compose config` gave no result within {timeout}s",
         )
     except OSError as exc:
         return fdg.Finding(
@@ -134,6 +144,7 @@ def run(
     config: CIConfig,
     *,
     sarif_path: str | Path | None = None,
+    timeout: float | None = None,
 ) -> int:
     """Resolve every standalone compose file in ``files``. Returns exit code.
 
@@ -169,7 +180,7 @@ def run(
         return 0
 
     info(f"  compose-config: resolving {len(stacks)} compose file(s)...")
-    found = [f for f in (_validate(p) for p in stacks) if f is not None]
+    found = [f for f in (_validate(p, timeout) for p in stacks) if f is not None]
 
     dropped = fdg.surface("compose-config", found, sarif_path=sarif_path)
     if dropped:

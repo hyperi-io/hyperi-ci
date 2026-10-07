@@ -32,7 +32,7 @@ import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from hyperi_ci.common import info, run_cmd, warn
+from hyperi_ci.common import error, info, is_ci, run_cmd, warn
 from hyperi_ci.versions import tool_version
 
 
@@ -210,6 +210,32 @@ _REGISTRY: dict[str, ToolInfo] = {
         install=("brew install helm",),
         url="https://helm.sh/docs/intro/install/",
     ),
+    "tofu": ToolInfo(
+        name="tofu",
+        purpose="OpenTofu fmt and validate (lint-iac)",
+        # On Linux CI hyperi-ci installs the pinned release; this is for local dev.
+        install=(
+            "brew install opentofu",
+            "download a release binary: https://github.com/opentofu/opentofu/releases/latest",
+        ),
+        url="https://opentofu.org/docs/intro/install/",
+    ),
+    "kustomize": ToolInfo(
+        name="kustomize",
+        purpose="rendering kustomizations for schema validation (lint-iac)",
+        install=(
+            "brew install kustomize",
+            "download a release binary: https://github.com/kubernetes-sigs/kustomize/releases",
+        ),
+        url="https://kubectl.docs.kubernetes.io/installation/kustomize/",
+    ),
+    "ansible-lint": ToolInfo(
+        name="ansible-lint",
+        purpose="ansible playbook and role linting (lint-iac)",
+        # uv is already a hard dependency, so uvx needs nothing new.
+        install=("uvx ansible-lint --version", "uv tool install ansible-lint"),
+        url="https://ansible.readthedocs.io/projects/lint/installing/",
+    ),
     "aws": ToolInfo(
         name="aws",
         purpose="S3-compatible upload to Cloudflare R2",
@@ -258,6 +284,15 @@ def missing_tool_notice(
     if url:
         lines.append(f"  docs: {url}")
     return "\n".join(lines)
+
+
+def missing_tool(name: str, mode: str) -> int:
+    """Report a missing tool: fail a blocking gate in CI (returns 1), else warn-skip."""
+    if mode == "blocking" and is_ci():
+        error(missing_tool_notice(name))
+        return 1
+    warn(missing_tool_notice(name))
+    return 0
 
 
 def find_tool(

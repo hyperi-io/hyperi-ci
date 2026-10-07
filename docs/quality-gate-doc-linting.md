@@ -100,11 +100,11 @@ No, by design - the failure surface is deliberately narrow:
 
 - **No Dockerfile, no k8s, no `.tf` -> nothing runs.** hadolint/droast auto-detect
   Dockerfiles and info-skip a repo with none. The k8s/IaC tools only run when you
-  explicitly call `lint-manifests`. A plain Rust/Python library sees zero change.
+  explicitly call `lint-iac`. A plain Rust/Python library sees zero change.
 - **The k8s/IaC tools never run in the normal quality stage.** kubeconform,
-  kube-linter and checkov are *only* reachable through the `lint-manifests` verb
-  (Path B). Bumping hyperi-ci does not add them to any language project's CI - a
-  gitops repo has to opt in by calling the verb.
+  kube-linter, checkov, tofu and ansible-lint are *only* reachable through the
+  `lint-iac` verb. Bumping hyperi-ci does not add them to any language project's
+  CI - a gitops repo has to opt in by calling the verb.
 - **The one gate that auto-runs (hadolint) fails on ERROR severity only.** Routine
   Dockerfile noise (DL3008 unpinned apt, DL4006 pipefail, base-image pinning) is
   warning-tier and is surfaced, not failed. Only a genuine defect - chiefly a
@@ -133,8 +133,8 @@ back to `blocking`.
   the linting is part of the quality stage it scaffolds. No extra wiring.
 - **A gitops / infra repo (Helm charts, k8s manifests, `.tf`)** - even one that is
   GitHub-Actions-native with no `.hyperi-ci.yaml` - add one step to its workflow:
-  `hyperi-ci lint-manifests .`. It needs `helm` on the runner for the kubeconform
-  schema gate (kube-linter/checkov still run without it). A CRD-heavy cluster repo
+  `hyperi-ci lint-iac .`. In CI it fetches the pinned helm, tofu and kustomize
+  when the runner has none. A CRD-heavy cluster repo
   will want `quality.kubeconform.schema_locations` for its operators and a
   `quality.checkov.skip` list for known false positives (e.g. External-Secrets
   `ExternalSecret` CRs).

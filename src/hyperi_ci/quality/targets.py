@@ -18,13 +18,17 @@ tool info-skips - no opt-out config needed for a repo that has no target.
 """
 
 import os
-from collections.abc import Iterable
+import subprocess
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from hyperi_ci.common import run_cmd
 from hyperi_ci.deps import surfaces
+
+KUSTOMIZATION_FILES = ("kustomization.yaml", "kustomization.yml", "Kustomization")
 
 # Always pruned, regardless of config: VCS internals, worktree duplicate trees
 # (dfe-infra keeps two full checkouts under .worktrees/ - scanning them doubles
@@ -66,17 +70,9 @@ def discover_dockerfiles(
     ``exclude_dirs`` (typically ``get_exclude_dirs(config)``) is added to the
     always-pruned set. Paths are returned sorted for deterministic output.
     """
-    root = Path(root)
-    prune = prune_set(exclude_dirs)
     found: list[Path] = []
-    for dirpath, dirnames, filenames in os.walk(root):
-        # Prune in place so os.walk does not descend into excluded dirs.
-        dirnames[:] = [
-            d for d in dirnames if not is_pruned(Path(dirpath) / d, root, prune)
-        ]
-        for fn in filenames:
-            if _is_dockerfile(fn):
-                found.append(Path(dirpath) / fn)
+    for here, filenames in walk(root, prune_set(exclude_dirs)):
+        found += [here / fn for fn in filenames if _is_dockerfile(fn)]
     return sorted(found)
 
 
@@ -104,6 +100,38 @@ def is_pruned(candidate: Path, root: Path, prune: set[str]) -> bool:
     except ValueError:
         return False
     return relative in prune
+
+
+def walk(
+    root: Path | str, prune: set[str], *, skip_hidden: bool = False
+) -> Iterator[tuple[Path, list[str]]]:
+    """Yield ``(directory, filenames)`` under ``root``, never entering a pruned dir."""
+    root = Path(root)
+    for dirpath, dirnames, filenames in os.walk(root):
+        here = Path(dirpath)
+        dirnames[:] = [
+            d
+            for d in dirnames
+            if not (skip_hidden and d.startswith("."))
+            and not is_pruned(here / d, root, prune)
+        ]
+        yield here, filenames
+
+
+def first_file(directory: Path, names: Iterable[str]) -> Path | None:
+    """Return the first of ``names`` that is a file in ``directory``, else None."""
+    return next((directory / n for n in names if (directory / n).is_file()), None)
+
+
+def yaml_mapping(path: Path | None) -> dict:
+    """Return the YAML mapping in ``path``; {} when absent, unreadable or not a mapping."""
+    if path is None:
+        return {}
+    try:
+        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return {}
+    return doc if isinstance(doc, dict) else {}
 
 
 class _TolerantLoader(yaml.SafeLoader):
@@ -166,13 +194,8 @@ def discover_compose_files(
     surface = _compose_surface()
     if surface is None:
         return []
-    prune = prune_set(exclude_dirs)
     out: list[Path] = []
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [
-            d for d in dirnames if not is_pruned(Path(dirpath) / d, root, prune)
-        ]
-        here = Path(dirpath)
+    for here, filenames in walk(root, prune_set(exclude_dirs)):
         for fn in filenames:
             rel = (here / fn).relative_to(root).as_posix()
             if not surfaces.matches(surface, rel):
@@ -211,20 +234,53 @@ def discover_markdown_files(
     that hold markdown as test DATA (:data:`_DOC_PRUNE`) - a fixture with a
     deliberately broken link must stay broken.
     """
-    root = Path(root)
-    prune = prune_set(exclude_dirs) | _DOC_PRUNE
     found: list[Path] = []
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [
-            d for d in dirnames if not is_pruned(Path(dirpath) / d, root, prune)
-        ]
+    for here, filenames in walk(root, prune_set(exclude_dirs) | _DOC_PRUNE):
         for fn in filenames:
             if not fn.endswith((".md", ".markdown")):
                 continue
             if Path(fn).stem.upper() in _DOC_SKIP_STEMS:
                 continue
-            found.append(Path(dirpath) / fn)
+            found.append(here / fn)
     return sorted(found)
+
+
+def git_ignored_dirs(root: Path | str) -> list[str]:
+    """Return the directories git ignores under ``root``, repo-relative.
+
+    Fed to discovery as extra excludes, so a developer's tree is linted the
+    way a CI checkout is: agent worktrees, installed collections and caches
+    the repo ignores hold copies, not sources. Empty outside a git checkout.
+    """
+    try:
+        result = run_cmd(
+            [
+                "git",
+                "-C",
+                str(root),
+                "ls-files",
+                "--others",
+                "--ignored",
+                "--exclude-standard",
+                "--directory",
+                "-z",
+            ],
+            check=False,
+            capture=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if result.returncode != 0:
+        return []
+    return [e.rstrip("/") for e in result.stdout.split("\0") if e.endswith("/")]
+
+
+def walk_iac(
+    root: Path | str, *, exclude_dirs: Iterable[str] = ()
+) -> Iterator[tuple[Path, list[str]]]:
+    """Walk ``root`` for IaC, also skipping hidden dirs (agent worktrees, ``.terraform``)."""
+    return walk(root, prune_set(exclude_dirs), skip_hidden=True)
 
 
 def discover_helm_charts(
@@ -239,19 +295,13 @@ def discover_helm_charts(
     * subcharts - a ``Chart.yaml`` nested under another chart's ``charts/`` dir
       is a vendored dependency, rendered by its parent, not a target itself.
 
-    Pruned dirs (``.worktrees`` etc) never descend, so a duplicate worktree
+    Pruned dirs (:func:`walk_iac`) never descend, so a duplicate worktree
     checkout does not double every chart.
     """
-    root = Path(root)
-    prune = prune_set(exclude_dirs)
     charts: list[Path] = []
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [
-            d for d in dirnames if not is_pruned(Path(dirpath) / d, root, prune)
-        ]
+    for chart_dir, filenames in walk_iac(root, exclude_dirs=exclude_dirs):
         if "Chart.yaml" not in filenames:
             continue
-        chart_dir = Path(dirpath)
         # A chart inside another chart's charts/ dir is a subchart - skip it.
         if (
             chart_dir.parent.name == "charts"
@@ -266,11 +316,7 @@ def discover_helm_charts(
 
 def _is_library_chart(chart_yaml: Path) -> bool:
     """Return True when Chart.yaml declares ``type: library`` (renders nothing)."""
-    try:
-        data = yaml.safe_load(chart_yaml.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError):
-        return False
-    return isinstance(data, dict) and str(data.get("type", "")).lower() == "library"
+    return str(yaml_mapping(chart_yaml).get("type", "")).lower() == "library"
 
 
 def _looks_like_manifest(path: Path) -> bool:
@@ -307,31 +353,148 @@ def _inside_chart(dirpath: Path, root: Path) -> bool:
         d = d.parent
 
 
+def kustomization(directory: Path) -> dict:
+    """Return the parsed kustomization in ``directory``; {} when it has none."""
+    return yaml_mapping(first_file(directory, KUSTOMIZATION_FILES))
+
+
+# Keys whose values are lists of paths relative to the kustomization.
+_KUSTOMIZE_PATH_LISTS = (
+    "resources",
+    "bases",
+    "components",
+    "crds",
+    "patchesStrategicMerge",
+    "configurations",
+    "generators",
+    "transformers",
+    "validators",
+)
+# Keys holding a list of mappings, and the field in each that is a path.
+_KUSTOMIZE_PATH_FIELDS = (
+    ("patches", "path"),
+    ("patchesJson6902", "path"),
+    ("replacements", "path"),
+    ("helmCharts", "valuesFile"),
+)
+
+
+def _items(doc: dict, key: str) -> list:
+    value = doc.get(key)
+    return value if isinstance(value, list) else []
+
+
+def kustomization_refs(directory: Path) -> list[Path]:
+    """Return the local files and directories a kustomization references, resolved.
+
+    Remote URLs and inline patches are not paths and are skipped.
+    """
+    doc = kustomization(directory)
+    raw: list[object] = []
+    for key in _KUSTOMIZE_PATH_LISTS:
+        raw += _items(doc, key)
+    for key, name in _KUSTOMIZE_PATH_FIELDS:
+        raw += [e.get(name) for e in _items(doc, key) if isinstance(e, dict)]
+    for key in ("configMapGenerator", "secretGenerator"):
+        for entry in _items(doc, key):
+            if isinstance(entry, dict):
+                files = [f for f in _items(entry, "files") if isinstance(f, str)]
+                raw += [f.split("=", 1)[-1] for f in files] + _items(entry, "envs")
+    refs: list[Path] = []
+    for entry in raw:
+        text = entry.strip() if isinstance(entry, str) else ""
+        if not text or "\n" in text or "://" in text:
+            continue
+        if text.startswith(("github.com", "git@")):
+            continue
+        target = (directory / text).resolve()
+        if target.exists():
+            refs.append(target)
+    return refs
+
+
+def kustomize_owned_files(kustomizations: Iterable[Path]) -> set[Path]:
+    """Return the resolved files some kustomization references directly.
+
+    Those are validated through ``kustomize build``; a strategic-merge patch
+    carries ``apiVersion`` and ``kind`` but only the fields it changes, so it
+    must not be schema-checked on its own. A YAML file beside a kustomization
+    that no kustomization lists is NOT owned, and stays a plain manifest.
+    """
+    owned: set[Path] = set()
+    for directory in kustomizations:
+        own = first_file(directory, KUSTOMIZATION_FILES)
+        if own is not None:
+            owned.add(own.resolve())
+        owned.update(ref for ref in kustomization_refs(directory) if ref.is_file())
+    return owned
+
+
+def discover_kustomizations(
+    root: Path | str, *, exclude_dirs: Iterable[str] = ()
+) -> list[Path]:
+    """Return every directory under ``root`` holding a kustomization file, sorted."""
+    return sorted(
+        here
+        for here, filenames in walk_iac(root, exclude_dirs=exclude_dirs)
+        if any(name in filenames for name in KUSTOMIZATION_FILES)
+    )
+
+
+def discover_tofu_dirs(
+    root: Path | str, *, exclude_dirs: Iterable[str] = ()
+) -> list[Path]:
+    """Return every directory under ``root`` holding ``.tf`` or ``.tofu`` files."""
+    return sorted(
+        here
+        for here, filenames in walk_iac(root, exclude_dirs=exclude_dirs)
+        if any(fn.endswith((".tf", ".tofu")) for fn in filenames)
+    )
+
+
+def discover_ansible_projects(
+    root: Path | str, *, exclude_dirs: Iterable[str] = ()
+) -> list[Path]:
+    """Return every ansible project directory under ``root``, sorted.
+
+    A project is a directory holding ``ansible.cfg``, or one holding both a
+    ``playbooks/`` and a ``roles/`` directory.
+    """
+    found: list[Path] = []
+    for here, filenames in walk_iac(root, exclude_dirs=exclude_dirs):
+        laid_out = (here / "playbooks").is_dir() and (here / "roles").is_dir()
+        if "ansible.cfg" in filenames or laid_out:
+            found.append(here)
+    return sorted(found)
+
+
 def discover_manifests(
     root: Path | str, *, exclude_dirs: Iterable[str] = ()
 ) -> list[Path]:
     """Return plain (already-rendered) k8s manifest YAML files under ``root``.
 
     A file counts only if it holds at least one ``apiVersion``+``kind`` doc
-    (:func:`_looks_like_manifest`) AND is not inside a Helm chart
-    (:func:`_inside_chart`) - chart content is rendered separately. This yields
-    the loose manifests (Argo CRs, plain Deployments) that need direct schema
+    (:func:`_looks_like_manifest`), is not inside a Helm chart
+    (:func:`_inside_chart`), and is not a file a kustomization references
+    (:func:`kustomize_owned_files`) - those are rendered separately. YAML
+    lacking either key, such as a Helm values file, is skipped. This yields the
+    loose manifests (Argo CRs, plain Deployments) that need direct schema
     validation. Pruned dirs never descend.
     """
     root = Path(root)
-    prune = prune_set(exclude_dirs)
+    owned = kustomize_owned_files(
+        discover_kustomizations(root, exclude_dirs=exclude_dirs)
+    )
     out: list[Path] = []
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [
-            d for d in dirnames if not is_pruned(Path(dirpath) / d, root, prune)
-        ]
-        here = Path(dirpath)
+    for here, filenames in walk_iac(root, exclude_dirs=exclude_dirs):
         if _inside_chart(here, root):
             continue
         for fn in filenames:
             if not fn.endswith((".yaml", ".yml")):
                 continue
             p = here / fn
+            if p.resolve() in owned:
+                continue
             if _looks_like_manifest(p):
                 out.append(p)
     return sorted(out)
