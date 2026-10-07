@@ -18,7 +18,7 @@ Usage:
     uv run scripts/update-versions.py --apply        # rewrite pipeline to SSOT
     uv run scripts/update-versions.py --stable       # report newest release >=7d old
     uv run scripts/update-versions.py --stable --now # ... as of now, soak waived
-    uv run scripts/update-versions.py --auto-update  # bump SSOT, test via CI, commit/revert
+    uv run scripts/update-versions.py --auto-update  # bump SSOT, validate locally, revert on fail
 
 `--check` proves the MIRRORS match the SSOT; it never asks upstream whether the
 SSOT itself is behind. `--stable` is that half, and `--fail-on-drift` turns its
@@ -1011,11 +1011,11 @@ def _report_watchlist(versions: dict) -> None:
 
 
 def _latest_tool_release(spec: dict, now: datetime) -> tuple[str | None, str]:
-    """Newest compatible release for a `tools:` entry, past cooldown.
+    """Newest release of a `tools:` entry, past cooldown, across every major.
 
     Returns (tag_or_None, status) where status is one of `ok` (tag is a real
-    upgrade), `current`, `no-candidate` (nothing aged past the cooldown within
-    the compatibility clamp), or `lookup-failed`.
+    upgrade), `current`, `no-candidate` (no release has aged past the
+    cooldown), or `lookup-failed`.
 
     The status is NOT decoration. Collapsing all of these into a bare None made
     the report render an API failure as "(up to date)" - so a rate-limited `gh`
@@ -1169,9 +1169,8 @@ def _auto_update(versions: dict) -> int:
 
     original_yaml = _VERSIONS_FILE.read_text(encoding="utf-8")
     # Snapshot the tool pin files too, not just the pipeline YAML: --apply
-    # rewrites the mirrored constants (e.g. gitleaks.py) as well, and a revert
-    # that skipped them would leave the SSOT and the source diverged - in the
-    # very path whose job is to restore safety.
+    # rewrites the marked pins in composite actions as well, and a revert that
+    # skipped them would leave the SSOT and the pins diverged.
     original_files = {
         str(p): p.read_text(encoding="utf-8")
         for p in {*_find_workflow_files(), *(pin[0] for pin in _all_pins(versions)[0])}
