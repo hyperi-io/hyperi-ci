@@ -353,9 +353,7 @@ class TestEveryThirdPartyActionIsShaPinned:
     the class rather than the instance.
 
     Same-org refs are exempt: they float `@main` by design (docs/dependencies/
-    workflow-pinning.md). Scope is every file the rewriter walks, which
-    includes the `init-gitops` templates - an unpinned ref there ships in the
-    wheel and lands in someone else's repo (issue #98).
+    workflow-pinning.md). Scope is every file the rewriter walks.
     """
 
     def _offenders(self, text: str) -> list[str]:
@@ -383,7 +381,6 @@ class TestEveryThirdPartyActionIsShaPinned:
         assert self._offenders(ok) == []
 
     def test_the_real_pipeline_has_none(self) -> None:
-        # Every file the rewriter walks, so the templates are covered too.
         offenders = []
         for path in update_versions._find_workflow_files():
             offenders += [
@@ -392,19 +389,12 @@ class TestEveryThirdPartyActionIsShaPinned:
             ]
         assert not offenders, "not SHA-pinned: " + "; ".join(offenders)
 
-    def test_the_scaffold_templates_are_in_scope(self) -> None:
-        """The gap that let them ship unpinned was discovery, not the rule."""
-        walked = update_versions._find_workflow_files()
-        assert any("gitops_templates" in str(p) for p in walked)
-
 
 class TestDiscoveryIsByContentNotLocation:
     """Every workflow-shaped YAML in the repo must be one the rewriter walks.
 
-    The templates shipped unpinned for months because both guards - this
-    script and Renovate - key on LOCATION (`.github/`), and they are workflow
-    files that do not live where workflow files live. Neither was wrong about
-    the rule; both were looking in the wrong places.
+    Both guards - this script and Renovate - key on LOCATION (`.github/`), so
+    a workflow file kept anywhere else goes unpinned and nothing reports it.
 
     So this asserts the inverse: find files by SHAPE, then require discovery to
     cover them. A new workflow-shaped YAML anywhere in the tree fails here
@@ -858,9 +848,8 @@ class TestToolPins:
     ) -> None:
         """A workflow handing the version to an installer action takes no digest.
 
-        The gitops scaffold passes helm's version to azure/setup-helm, which
-        fetches the binary itself, while hyperi-ci checks the same tool's
-        digests when it installs helm for a project's tests.
+        The installer action fetches the binary itself, so only a composite
+        action, which runs before hyperi-ci exists, carries the digest.
         """
         _pin_tree(tmp_path, monkeypatch)
         action = tmp_path / "actions" / "setup-x" / "action.yml"

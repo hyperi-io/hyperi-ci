@@ -268,8 +268,7 @@ class TestProducerSignal:
     The culvert case: a VPN container that uses scalo for logging /
     config / secrets, builds from its own Dockerfile, and commits its
     deployment artefacts by hand. It carries the marker dep but has
-    nothing to run `generate-artefacts` on, so the Build job used to
-    die at the generate stage with exit 7.
+    nothing to run `generate-artefacts` on, so it is not a producer.
     """
 
     def test_python_library_consumer_is_none(self, tmp_path: Path) -> None:
@@ -446,8 +445,8 @@ class TestProducerSignal:
         assert decision.demoted
 
     def test_require_producer_false_takes_the_dep_alone(self, tmp_path: Path) -> None:
-        # What `deployment.producer: true` does: the marker dep alone
-        # selects the tier, for a producer whose shape we can't see.
+        # The marker dep alone selects the tier, for a producer whose shape
+        # detection can't see.
         (tmp_path / "pyproject.toml").write_text(
             '[project]\nname = "culvert"\ndependencies = ["scalo>=2.28"]\n',
             encoding="utf-8",
@@ -455,9 +454,8 @@ class TestProducerSignal:
         assert resolve_tier(tmp_path, require_producer=False).tier == Tier.PYTHON
 
     def test_no_marker_dep_is_not_demoted(self, tmp_path: Path) -> None:
-        # `demoted` marks "has the dep, lacks the producer" specifically
-        # -- a plain repo with neither shouldn't be nudged towards
-        # deployment.producer: true.
+        # `demoted` marks "has the dep, lacks the producer" specifically,
+        # not a plain repo with neither.
         decision = resolve_tier(tmp_path)
         assert decision.tier == Tier.NONE
         assert not decision.demoted

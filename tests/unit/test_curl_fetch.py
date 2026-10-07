@@ -33,7 +33,7 @@ _ROOT = Path(__file__).resolve().parents[2]
 _SRC = _ROOT / "src" / "hyperi_ci"
 _ACTIONS = _ROOT / ".github" / "actions"
 # These POST data, and a retried POST is not safe to repeat.
-_SENDERS = frozenset({"argocd/gitops_push.py", "release_notify.py"})
+_SENDERS = frozenset({"release_notify.py"})
 _HELPER = ("common.py", "curl_fetch")
 
 

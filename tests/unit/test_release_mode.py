@@ -119,7 +119,6 @@ class TestBoolView:
         assert is_release_mode(env={"HYPERCI_RELEASE_MODE": "true"}) is True
 
     def test_is_release_mode_dev_is_not_release(self) -> None:
-        # helm / argocd treat dev as validate -- never a release.
         assert is_release_mode(env={"HYPERCI_RELEASE_MODE": "dev"}) is False
 
 

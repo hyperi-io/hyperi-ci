@@ -50,11 +50,15 @@ class TestReading:
         assert project.unreadable == ""
 
     def test_the_first_spelling_wins(self, tmp_path: Path) -> None:
-        _write(tmp_path, "a: 1\n", ".hyperi-ci.yml")
-        _write(tmp_path, "a: 2\n", ".hypersec-ci.yaml")
+        _write(tmp_path, "a: 1\n", ".hyperi-ci.yaml")
+        _write(tmp_path, "a: 2\n", ".hyperi-ci.yml")
         assert read_project_config(tmp_path) == ProjectConfig(
-            {"a": 1}, ".hyperi-ci.yml", ""
+            {"a": 1}, ".hyperi-ci.yaml", ""
         )
+
+    def test_the_retired_hypersec_spelling_is_not_read(self, tmp_path: Path) -> None:
+        _write(tmp_path, "a: 2\n", ".hypersec-ci.yaml")
+        assert read_project_config(tmp_path).data == {}
 
 
 class TestUnreadable:

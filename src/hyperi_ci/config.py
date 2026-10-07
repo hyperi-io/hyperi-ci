@@ -38,32 +38,14 @@ VALID_PROJECT_STATUSES: tuple[str, ...] = (
     "deprecated",
 )
 
-# Re-exported for callers that just want the constant without going through
-# the full CIConfig load (e.g. quality-stage drift checks). Authoritative
-# value is defined alongside the Pydantic model that uses it as a field
-# validator. Mirrored as `deployment.max_supported_schema_version` in
-# defaults.yaml for operator visibility.
-from hyperi_ci.deployment.contract import (  # noqa: E402,F401
-    MAX_SUPPORTED_SCHEMA_VERSION,
-)
-
 
 @dataclass
 class OrgConfig:
     """Organisation-specific configuration loaded from config/org.yaml."""
 
     github_org: str = "hyperi-io"
-    github_base_url: str = "https://github.com/hyperi-io"
     ghcr_registry: str = "ghcr.io"
     ghcr_org: str = "hyperi-io"
-
-    # Derived URLs
-    ghcr_charts_url: str = ""
-
-    def __post_init__(self) -> None:
-        """Derive URLs from base config."""
-        if not self.ghcr_charts_url:
-            self.ghcr_charts_url = f"oci://{self.ghcr_registry}/{self.ghcr_org}/charts"
 
 
 @dataclass
@@ -71,7 +53,6 @@ class CIConfig:
     """Full CI configuration after merging all sources."""
 
     language: str = "none"
-    ci_min_python_version: str = "3.9"
 
     # Declared repo category, "" when no marker declares one. Read
     # `classification_effective` to decide anything: an undeclared repo
@@ -79,11 +60,6 @@ class CIConfig:
     classification: str = ""
     classification_source: str = "undeclared"
     classification_effective: str = "internal"
-
-    # Kept for backwards compatibility with downstream .hyperi-ci.yaml files
-    # that still set `publish.target`. Ignored at runtime -- see
-    # publish_destinations().
-    publish_target: str = "oss"
 
     # Legacy `publish.*` keys found in the project's own config, so
     # `hyperi-ci check` can name them before a push rather than only in CI.
@@ -115,13 +91,7 @@ class CIConfig:
         return default
 
     def publish_destinations(self) -> list[dict[str, str]]:
-        """Return the destination map to publish to (OSS only).
-
-        The legacy ``publish_target`` field (``internal`` / ``oss`` / ``both``)
-        is accepted for backward compatibility with downstream
-        ``.hyperi-ci.yaml`` files but ignored at runtime -- every value
-        routes to the OSS destination map.
-        """
+        """Return the destination map to publish to (OSS only)."""
         dest = self.get("release.destinations", {})
         dest = dict(dest) if isinstance(dest, dict) else {}
         # Merged, not a fallback: the defaults always populate `destinations`,
@@ -143,7 +113,7 @@ class CIConfig:
         ``publish.destinations_oss`` spelling still works.
 
         Args:
-            artifact_type: One of python, npm, cargo, container, helm, binaries, go.
+            artifact_type: One of python, npm, cargo, container, binaries, go.
 
         Returns:
             List of destination identifiers (e.g. ['pypi'], ['ghcr']).
@@ -214,7 +184,6 @@ def load_org_config(*, reload: bool = False) -> OrgConfig:
 
     _org_cache = OrgConfig(
         github_org=os.environ.get("GITHUB_ORG", github.get("org", "hyperi-io")),
-        github_base_url=github.get("base_url", "https://github.com/hyperi-io"),
         ghcr_registry=ghcr.get("registry", "ghcr.io"),
         ghcr_org=ghcr.get("org", "hyperi-io"),
     )
@@ -251,6 +220,7 @@ def load_config(
     *,
     reload: bool = False,
     project_dir: Path | None = None,
+    report_removed: bool = True,
 ) -> CIConfig:
     """Load and merge CI configuration from all sources.
 
@@ -262,6 +232,8 @@ def load_config(
     Args:
         reload: Force re-read from files.
         project_dir: Project root to search for .hyperi-ci.yaml. Defaults to cwd.
+        report_removed: Warn about removed keys. Off where stdout must stay
+            parseable, since a GitHub annotation is written to stdout.
 
     Returns:
         Merged CIConfig instance.
@@ -286,22 +258,28 @@ def load_config(
     from hyperi_ci.vocabulary import (
         CONFIG_NAMESPACE,
         LEGACY_CONFIG_NAMESPACE,
+        drop_removed_notices,
+        find_removed_keys,
         fold_legacy_config,
         report_deprecated_config,
+        report_removed_keys,
     )
 
     deprecated_keys: list[str] = []
+    removed_keys: list[str] = []
     for name in CONFIG_FILES:
         config_file = project_dir / name
         if config_file.exists():
             with open(config_file, encoding="utf-8") as f:
                 loaded = yaml.safe_load(f)
                 if loaded:
+                    removed_keys = find_removed_keys(loaded)
                     # Folded BEFORE the merge: the two namespaces cannot coexist
                     # in the merged config, because a shipped `release.x` default
                     # would outrank a project's `publish.x` and never apply.
-                    loaded, deprecated_keys = fold_legacy_config(loaded)
-                    config = _merge_deep(config, loaded)
+                    folded, deprecated_keys = fold_legacy_config(loaded)
+                    deprecated_keys = drop_removed_notices(deprecated_keys, loaded)
+                    config = _merge_deep(config, folded)
             break
 
     # Apply HYPERCI_* env overrides
@@ -316,11 +294,8 @@ def load_config(
             _set_nested(config, path, _parse_env_value(value))
 
     report_deprecated_config(deprecated_keys)
-
-    release = config.get(CONFIG_NAMESPACE, {})
-    publish_target = (
-        release.get("target", "oss") if isinstance(release, dict) else "oss"
-    )
+    if report_removed:
+        report_removed_keys(removed_keys)
 
     # Validate project.status if set. Warn on unknown values rather than
     # failing -- the field is information-only and a typo shouldn't break
@@ -377,11 +352,9 @@ def load_config(
 
     _config_cache = CIConfig(
         language=config.get("language", "none"),
-        ci_min_python_version=config.get("ci_min_python_version", "3.9"),
         classification=resolved.value,
         classification_source=resolved.source,
         classification_effective=resolved.effective,
-        publish_target=publish_target,
         deprecated_keys=deprecated_keys,
         _raw=config,
     )

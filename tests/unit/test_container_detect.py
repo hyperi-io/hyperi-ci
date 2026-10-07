@@ -50,47 +50,23 @@ def test_rust_binary_with_dockerfile_uses_custom_mode(tmp_path: Path) -> None:
     (tmp_path / "Dockerfile").write_text("FROM scratch\n")
     decision = detect(language="rust", project_dir=tmp_path)
     assert decision.build is True
-    assert decision.mode == "custom"
 
 
-def test_rust_binary_with_scalo_dep_uses_contract_mode(tmp_path: Path) -> None:
-    _write_cargo_toml(
-        tmp_path,
-        '[package]\nname = "myapp"\nversion = "0.1.0"\n[dependencies]\nscalo = "2.9"\n',
-    )
-    (tmp_path / "src").mkdir()
-    (tmp_path / "src" / "main.rs").write_text("fn main() {}\n")
-    decision = detect(language="rust", project_dir=tmp_path)
-    assert decision.build is True
-    assert decision.mode == "contract"
-
-
-def test_rust_binary_with_legacy_rustlib_dep_uses_contract_mode(
-    tmp_path: Path,
+@pytest.mark.parametrize("deps", ["", '[dependencies]\nscalo = "2.9"\n'])
+def test_rust_binary_without_dockerfile_skips_with_a_notice(
+    tmp_path: Path, deps: str
 ) -> None:
-    # hyperi-rustlib is deprecated but still recognised mid-migration.
+    # A scalo dep is not a build source; only the Dockerfile is.
     _write_cargo_toml(
         tmp_path,
-        '[package]\nname = "myapp"\nversion = "0.1.0"\n'
-        '[dependencies]\nhyperi-rustlib = "2.5"\n',
-    )
-    (tmp_path / "src").mkdir()
-    (tmp_path / "src" / "main.rs").write_text("fn main() {}\n")
-    decision = detect(language="rust", project_dir=tmp_path)
-    assert decision.build is True
-    assert decision.mode == "contract"
-
-
-def test_rust_binary_no_dockerfile_no_scalo_skips(tmp_path: Path) -> None:
-    _write_cargo_toml(
-        tmp_path,
-        '[package]\nname = "myapp"\nversion = "0.1.0"\n',
+        f'[package]\nname = "myapp"\nversion = "0.1.0"\n{deps}',
     )
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "main.rs").write_text("fn main() {}\n")
     decision = detect(language="rust", project_dir=tmp_path)
     assert decision.build is False
-    assert "no container artefact" in decision.reason
+    assert decision.notice is True
+    assert "builds images only from a repo Dockerfile" in decision.reason
 
 
 def test_rust_workspace_with_bin_target(tmp_path: Path) -> None:
@@ -104,7 +80,6 @@ def test_rust_workspace_with_bin_target(tmp_path: Path) -> None:
     (tmp_path / "Dockerfile").write_text("FROM scratch\n")
     decision = detect(language="rust", project_dir=tmp_path)
     assert decision.build is True
-    assert decision.mode == "custom"
 
 
 # --- Python --------------------------------------------------------------
@@ -128,7 +103,6 @@ def test_python_with_console_script_and_dockerfile(tmp_path: Path) -> None:
     (tmp_path / "Dockerfile").write_text("FROM python:3.12-slim\n")
     decision = detect(language="python", project_dir=tmp_path)
     assert decision.build is True
-    assert decision.mode == "custom"
 
 
 def test_python_with_console_script_no_dockerfile_is_library(tmp_path: Path) -> None:
@@ -174,17 +148,19 @@ def test_typescript_library_only_skips(tmp_path: Path) -> None:
     assert decision.build is False
 
 
-def test_typescript_with_bin_uses_template(tmp_path: Path) -> None:
+def test_typescript_with_bin_and_no_dockerfile_skips_with_a_notice(
+    tmp_path: Path,
+) -> None:
     _write_package_json(
         tmp_path,
         {"name": "mycli", "version": "0.1.0", "bin": {"mycli": "dist/cli.js"}},
     )
     decision = detect(language="typescript", project_dir=tmp_path)
-    assert decision.build is True
-    assert decision.mode == "template"
+    assert decision.build is False
+    assert decision.notice is True
 
 
-def test_typescript_with_start_script_uses_template(tmp_path: Path) -> None:
+def test_typescript_with_start_script_and_no_dockerfile_skips(tmp_path: Path) -> None:
     _write_package_json(
         tmp_path,
         {
@@ -194,7 +170,8 @@ def test_typescript_with_start_script_uses_template(tmp_path: Path) -> None:
         },
     )
     decision = detect(language="typescript", project_dir=tmp_path)
-    assert decision.build is True
+    assert decision.build is False
+    assert decision.notice is True
 
 
 def test_typescript_library_with_dockerfile_builds_custom(tmp_path: Path) -> None:
@@ -208,7 +185,6 @@ def test_typescript_library_with_dockerfile_builds_custom(tmp_path: Path) -> Non
     (tmp_path / "Dockerfile").write_text("FROM node:22-alpine\n")
     decision = detect(language="typescript", project_dir=tmp_path)
     assert decision.build is True
-    assert decision.mode == "custom"
 
 
 def test_typescript_monorepo_root_with_dockerfile_builds(tmp_path: Path) -> None:
@@ -221,18 +197,18 @@ def test_typescript_monorepo_root_with_dockerfile_builds(tmp_path: Path) -> None
     (tmp_path / "Dockerfile").write_text("FROM node:22-alpine\n")
     decision = detect(language="typescript", project_dir=tmp_path)
     assert decision.build is True
-    assert decision.mode == "custom"
 
 
 def test_typescript_monorepo_root_is_not_library(tmp_path: Path) -> None:
-    # A `workspaces` root with no start script and no Dockerfile is a
-    # monorepo, not a plain library -- it should build (template), not skip.
+    # A `workspaces` root with no Dockerfile is a monorepo, not a plain
+    # library, so its skip carries the notice.
     _write_package_json(
         tmp_path,
         {"name": "root", "private": True, "workspaces": ["apps/*"]},
     )
     decision = detect(language="typescript", project_dir=tmp_path)
-    assert decision.build is True
+    assert decision.build is False
+    assert decision.notice is True
 
 
 # --- Go ------------------------------------------------------------------
@@ -244,7 +220,6 @@ def test_go_with_main_package_and_dockerfile(tmp_path: Path) -> None:
     (tmp_path / "Dockerfile").write_text("FROM golang:1.22-alpine\n")
     decision = detect(language="golang", project_dir=tmp_path)
     assert decision.build is True
-    assert decision.mode == "custom"
 
 
 def test_go_library_only_skips(tmp_path: Path) -> None:
@@ -252,6 +227,7 @@ def test_go_library_only_skips(tmp_path: Path) -> None:
     (tmp_path / "lib.go").write_text("package mylib\n")
     decision = detect(language="golang", project_dir=tmp_path)
     assert decision.build is False
+    assert decision.notice is False
 
 
 # --- Unknown languages ---------------------------------------------------
@@ -261,7 +237,6 @@ def test_unknown_language_with_dockerfile_uses_custom(tmp_path: Path) -> None:
     (tmp_path / "Dockerfile").write_text("FROM scratch\n")
     decision = detect(language="bash", project_dir=tmp_path)
     assert decision.build is True
-    assert decision.mode == "custom"
 
 
 def test_unknown_language_without_dockerfile_skips(tmp_path: Path) -> None:
@@ -288,7 +263,6 @@ def test_custom_dockerfile_path_honoured(tmp_path: Path) -> None:
         dockerfile="container/Dockerfile.runtime",
     )
     assert decision.build is True
-    assert decision.mode == "custom"
 
 
 @pytest.mark.parametrize("dockerfile_name", ["Dockerfile", "Containerfile.app"])
@@ -303,7 +277,6 @@ def test_dockerfile_at_named_path(tmp_path: Path, dockerfile_name: str) -> None:
 
     decision = detect(language="rust", project_dir=tmp_path, dockerfile=dockerfile_name)
     assert decision.build is True
-    assert decision.mode == "custom"
 
 
 class TestCargoMissingDoesNotCrashTheResolve:

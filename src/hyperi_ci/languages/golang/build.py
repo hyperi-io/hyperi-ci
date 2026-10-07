@@ -8,7 +8,7 @@
 
 Builds Go projects with ldflags version injection, cross-compilation,
 binary stripping, and SHA256 checksums. Output follows the naming
-convention: {binary}-{os}-{arch}[.exe]
+convention: {binary}-{os}-{arch}
 Version is in the R2/release path, not the filename.
 """
 
@@ -36,7 +36,6 @@ _TARGET_SHORTCUTS = {
     ],
     "linux": ["linux/amd64", "linux/arm64"],
     "darwin": ["darwin/amd64", "darwin/arm64"],
-    "windows": ["windows/amd64", "windows/arm64"],
 }
 
 
@@ -138,6 +137,11 @@ def _expand_targets(targets: list[str]) -> list[str]:
     return expanded
 
 
+def windows_targets(targets: list[str]) -> list[str]:
+    """Return the Windows targets in ``targets``, which the build does not support."""
+    return [t for t in targets if t.split("/", 1)[0] == "windows"]
+
+
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     """Run Golang build.
 
@@ -160,6 +164,12 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if isinstance(targets_raw, str):
         targets_raw = [t.strip() for t in targets_raw.split(",") if t.strip()]
     targets = _expand_targets(targets_raw)
+    if unsupported := windows_targets(targets):
+        error(
+            f"Windows targets are not supported: {', '.join(unsupported)}. "
+            "Remove them from build.golang.targets."
+        )
+        return 1
 
     cgo = config.get("build.golang.cgo", False)
     version_pkg = extra.get("GO_VERSION_PKG", "")
@@ -186,8 +196,6 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
         goos, goarch = parts
         output_name = f"{binary_name}-{goos}-{goarch}"
-        if goos == "windows":
-            output_name += ".exe"
         output_path = output_dir / output_name
 
         with group(f"Build: {goos}/{goarch}"):

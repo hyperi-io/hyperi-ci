@@ -6,8 +6,8 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Release-mode resolution -- the single source of truth.
 
-One tri-state mode, resolved here so the container, helm and argocd stages
-cannot drift apart on the push decision:
+One tri-state mode, resolved here so every reader of the push decision gets
+the same answer:
 
 * ``release``  -- GA release run (``will-release`` true / dispatch). Full
   tag set, pushed to every configured registry.
@@ -18,9 +18,8 @@ cannot drift apart on the push decision:
   sole GA release path.
 * ``validate`` -- build and discard (the push-to-main / local default).
 
-Helm and ArgoCD stages consume only the bool view (:func:`is_release_mode`)
--- a dev-mode run behaves as validate for them; dev artifacts are container
-images only (plan decision 3).
+The bool view (:func:`is_release_mode`) reads a dev-mode run as not a
+release; dev artifacts are container images only.
 
 The mode is resolved from ``HYPERCI_RELEASE_MODE`` (set by the workflows
 from the plan job's ``will-release`` output) plus the standard GitHub
@@ -122,7 +121,7 @@ def is_branch_ci_context(*, env: Mapping[str, str] | None = None) -> bool:
 
 
 def is_release_mode(*, env: Mapping[str, str] | None = None) -> bool:
-    """Bool view for stages with no dev mode (helm, argocd): release or not."""
+    """Bool view for a caller with no dev mode: release or not."""
     return resolve_push_mode(env=env) == RELEASE
 
 

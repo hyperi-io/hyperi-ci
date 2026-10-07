@@ -21,11 +21,9 @@ Private-registry publishing was removed entirely in v2.1.4. Every artefact
 now publishes to the OSS registry stack: GHCR, crates.io, PyPI, npm,
 GitHub Releases, and Cloudflare R2 (`downloads.hyperi.io`).
 
-If your `.hyperi-ci.yaml` still has `publish.target: internal` or
-`publish.target: both`: **leave it**. The field is read for backward
-compatibility and silently routed to OSS. There is no private-registry
-code path left to enable. New projects should set `target: oss` (or omit
-the field - `oss` is the default).
+If your `.hyperi-ci.yaml` still has `publish.target`, delete it. Nothing reads
+it, every value routes to OSS, and it warns until it is gone. There is no
+private-registry code path left to enable.
 
 The only remaining toggle for full open-source visibility is making
 the source repos themselves public on GitHub.
@@ -46,14 +44,9 @@ semantics. The biggest user-visible changes:
 
 ### What you have to do
 
-1. **Update `.hyperi-ci.yaml`** - `target` no longer matters (private
-   publishing went in v2.1.4; every value routes to OSS), but flip to
-   `oss` for clarity:
-
-   ```yaml
-   release:        # was `publish:` -- a `publish:` block still works, and warns
-     target: oss   # internal/both still accepted, both go to OSS
-   ```
+1. **Update `.hyperi-ci.yaml`** - delete `target`. Private publishing went in
+   v2.1.4, and every value routes to OSS. Rename `publish:` to `release:`;
+   a `publish:` block still works, and warns.
 
 2. **Bump `hyperi-ci` to >= 2.0.0** in any local install:
 

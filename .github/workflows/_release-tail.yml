@@ -10,8 +10,7 @@
 #
 #   (caller)  setup     <- uses .github/actions/predict-version
 #   (caller)  build     <- stamps Cargo.toml/VERSION with next-version
-#                         BEFORE building, uploads dist/ + ci-tmp/
-#                         artefacts
+#                         BEFORE building, uploads dist/ artefacts
 #
 #   (here)    container         <- docker build (validate or push, gated
 #                                  on will-publish)
@@ -69,7 +68,7 @@ on:
       publish-target:
         type: string
         default: "internal"
-        description: "Publish destination: internal, oss, or both"
+        description: "Legacy, read by nothing -- every publish goes to OSS registries. Declared so existing callers keep starting."
       python-version:
         type: string
         # hyperi-ci:pin runtimes.python
@@ -110,7 +109,6 @@ env:
   # interpreter the runner has -- the project's -- and silently back-solves to
   # an old hyperi-ci that allowed it, rather than failing (issue #157).
   HYPERCI_INSTALL: ${{ vars.HYPERCI_INSTALL_OVERRIDE || 'uvx --python 3.14 --no-cache --refresh hyperi-ci' }}
-  HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
   # The container and release jobs read the same switches the build did, or an
   # unoptimised image ships with no record that it is one. The skip falls back
   # to the repo variable exactly as the build's does: `vars` in a nested
@@ -276,10 +274,8 @@ jobs:
           driver-opts: ${{ (vars.HYPERCI_BUILDX_CGROUP_PARENT || steps.cgroup.outputs.cgroup-parent) && format('cgroup-parent={0}', vars.HYPERCI_BUILDX_CGROUP_PARENT || steps.cgroup.outputs.cgroup-parent) || '' }}
 
       - name: Download build artifacts
-        # The build-dist-* artifact carries both dist/ (binaries) and
-        # ci-tmp/ (deployment artefacts produced by the Build stage); the
-        # Container stage looks for dist/<binary> and
-        # ci-tmp/container-manifest.json relative to cwd.
+        # The build-dist-* artifact carries dist/; the Container stage looks
+        # for dist/<binary> relative to cwd.
         if: steps.resolve.outputs.build == 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -287,12 +283,12 @@ jobs:
           path: ${{ runner.temp }}/build-dist
           merge-multiple: true
 
-      - name: Place dist/ and ci-tmp/
-        # Only those two trees, so an artefact from a job that ran repo code
+      - name: Place dist/
+        # Only that tree, so an artefact from a job that ran repo code
         # cannot overwrite .hyperi-ci.yaml, the Dockerfile or any other checkout file.
         if: steps.resolve.outputs.build == 'true'
         run: |
-          for tree in dist ci-tmp; do
+          for tree in dist; do
             if [ -d "$RUNNER_TEMP/build-dist/$tree" ]; then cp -RL "$RUNNER_TEMP/build-dist/$tree" .; fi
           done
 
@@ -302,7 +298,6 @@ jobs:
         # true        -> docker build + push to all configured registries.
         if: steps.resolve.outputs.build == 'true'
         env:
-          HYPERCI_PUBLISH_TARGET: ${{ inputs.publish-target }}
           HYPERCI_RELEASE_MODE: ${{ inputs.will-publish }}
           # Authoritative version for the image tag -- same value Build
           # stamps and Tag-and-Release releases. Without this the stage
@@ -352,11 +347,11 @@ jobs:
           path: ${{ runner.temp }}/build-dist
           merge-multiple: true
 
-      - name: Place dist/ and ci-tmp/
-        # Only those two trees, so an artefact cannot overwrite checkout files.
+      - name: Place dist/
+        # Only that tree, so an artefact cannot overwrite checkout files.
         if: inputs.language == 'typescript'
         run: |
-          for tree in dist ci-tmp; do
+          for tree in dist; do
             if [ -d "$RUNNER_TEMP/build-dist/$tree" ]; then cp -RL "$RUNNER_TEMP/build-dist/$tree" .; fi
           done
 
@@ -541,18 +536,18 @@ jobs:
           persist-credentials: false
 
       - name: Download build artifacts
-        # Build job uploads both dist/ and ci-tmp/ trees.
+        # The Build job uploads dist/.
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: build-dist-*
           path: ${{ runner.temp }}/build-dist
           merge-multiple: true
 
-      - name: Place dist/ and ci-tmp/
-        # Only those two trees, so an artefact from a job that ran repo code
+      - name: Place dist/
+        # Only that tree, so an artefact from a job that ran repo code
         # cannot overwrite .hyperi-ci.yaml or any other checkout file.
         run: |
-          for tree in dist ci-tmp; do
+          for tree in dist; do
             if [ -d "$RUNNER_TEMP/build-dist/$tree" ]; then cp -RL "$RUNNER_TEMP/build-dist/$tree" .; fi
           done
 

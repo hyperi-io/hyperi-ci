@@ -6,21 +6,15 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Container build stage.
 
-Three-state ``release.container.enabled`` gate:
+The image is always built from the repo's own Dockerfile. Three-state
+``release.container.enabled`` gate:
 
-* ``auto`` (default): build when a container artefact is detected
-  (Dockerfile in repo, or scalo contract source). Library projects
-  and projects with no signal skip silently.
-* ``true``: build is required. Template languages (python /
-  typescript) build from the language template even with no detected
-  artefact -- this is how a Python/TS service opts in now that a bare
-  console-script no longer auto-containerises (issue #51). Contract /
-  custom languages fail loudly if no signal is present -- surfaces a
-  regression where a project lost its containerisable artefact.
+* ``auto`` (default): build when the Dockerfile exists. A library skips
+  quietly; a runnable project with no Dockerfile skips with a warning.
+* ``true``: build is required; no Dockerfile fails the stage.
 * ``false``: explicit skip.
 
-Every container is built and (in release mode) pushed to GHCR. The
-legacy ``release.target`` field is accepted for back-compat but ignored.
+Every container is built and (in release mode) pushed to GHCR.
 
 Push modes (resolved by :mod:`hyperi_ci.release_mode` -- the SSOT):
 
@@ -36,7 +30,6 @@ Push modes (resolved by :mod:`hyperi_ci.release_mode` -- the SSOT):
 import os
 import re
 import subprocess
-import tempfile
 from pathlib import Path
 
 from hyperi_ci.common import (
@@ -60,10 +53,9 @@ from hyperi_ci.container.build import (
     resolve_tags,
 )
 from hyperi_ci.container.cgroup import builder_cgroup_parents, probe_cgroup_parent
-from hyperi_ci.container.detect import Decision, detect
+from hyperi_ci.container.detect import detect
 from hyperi_ci.container.labels import build_oci_labels
 from hyperi_ci.container.registry import resolve_registry_bases
-from hyperi_ci.python_version import resolve as resolve_python
 from hyperi_ci.release_branches import effective_release_channel
 from hyperi_ci.release_mode import (
     DEV,
@@ -73,10 +65,7 @@ from hyperi_ci.release_mode import (
     resolve_push_mode,
 )
 from hyperi_ci.repo_path import RepoPathError, confine
-from hyperi_ci.versions import runtime_version
 
-_TEMPLATE_LANGUAGES = {"python", "typescript"}
-_CONTRACT_LANGUAGES = {"rust"}
 # Languages whose Build stage ships per-arch dist/ binaries that custom
 # Dockerfiles consume (directly or via the binary_stage COPY rewrite).
 _BINARY_LANGUAGES = {"rust", "golang"}
@@ -141,40 +130,15 @@ def _dev_push_opt_in(container_cfg: dict) -> bool:
     return bool(raw)
 
 
-def _resolve_mode(*, language: str, decision: Decision, container_cfg: dict) -> str:
-    """Pick the build mode.
-
-    Order of precedence:
-
-    1. Explicit ``container.mode`` set by the project.
-    2. The detector's recommended mode (``contract``, ``template``,
-       ``custom``) when the artefact was actually detected.
-    3. Language default fallback (Rust -> contract, Python/TS -> template,
-       otherwise -> custom).
-    """
-    explicit = container_cfg.get("mode", "")
-    if explicit:
-        return explicit
-    if decision.mode:
-        return decision.mode
-    if language in _CONTRACT_LANGUAGES:
-        return "contract"
-    if language in _TEMPLATE_LANGUAGES:
-        return "template"
-    return "custom"
-
-
 def should_build_container(config: CIConfig, *, language: str = "") -> tuple[bool, str]:
     """Resolve whether the container stage will build -- filesystem only.
 
     Mirrors :func:`run`'s gate so the workflow can decide BEFORE booting
     Docker Buildx (issue #33): ``enabled: false`` never builds;
-    ``enabled: true`` always builds -- template languages via the language
-    template when no artefact is detected (the Python/TS service opt-in,
-    issue #51), contract/custom languages then fail loudly in :func:`run`;
-    ``enabled: auto`` builds iff :func:`detect` finds a signal. A library
-    (e.g. a Rust crate -- no GHCR deployment) has no signal, so the job
-    never pulls buildkit from Docker Hub nor logs in to GHCR.
+    ``enabled: true`` always builds, and :func:`run` then fails loudly when
+    there is no Dockerfile; ``enabled: auto`` builds iff the Dockerfile
+    exists. A repo with none never pulls buildkit from Docker Hub nor logs
+    in to GHCR.
 
     Returns ``(build, reason)``.
     """
@@ -292,86 +256,37 @@ def run(config: CIConfig, *, language: str = "") -> int:
 
     if not decision.build:
         if enabled == "true":
-            # Build is required. Template languages (python / typescript)
-            # can always build from the language template with no detected
-            # artefact -- this is how a genuine Python service opts in now
-            # that a bare console-script no longer auto-containerises
-            # (issue #51). Contract / custom languages (e.g. a Rust crate
-            # with no Dockerfile and no scalo contract) genuinely have
-            # nothing to ship, so a required build is a hard fail.
-            if language in _TEMPLATE_LANGUAGES:
-                info(
-                    "release.container.enabled: true -- building "
-                    f"{language} via template despite: {decision.reason}"
-                )
-                decision = Decision(
-                    build=True,
-                    reason=(
-                        f"forced by release.container.enabled: true "
-                        f"({language} template)"
-                    ),
-                    mode="template",
-                )
-            else:
-                error(
-                    "release.container.enabled: true but no container artefact "
-                    f"detected -- {decision.reason}",
-                )
-                return 1
+            error(
+                f"release.container.enabled: true, but there is no Dockerfile at "
+                f"{dockerfile_name} -- hyperi-ci builds images only from a repo "
+                "Dockerfile"
+            )
+            return 1
+        if decision.notice:
+            warn(f"Container build skipped -- {decision.reason}")
         else:
             info(f"Container build skipped -- {decision.reason}")
-            return 0
+        return 0
 
     info(f"Container build will run -- {decision.reason}")
     _log_builder_cgroups()
 
-    target = config.get("release.target", "internal")
     org = load_org_config()
-    try:
-        registry_bases = resolve_registry_bases(target=target, org=org)
-    except ValueError as exc:
-        error(str(exc))
-        return 1
+    registry_bases = resolve_registry_bases(org=org)
 
     push_mode = resolve_push_mode(dev_push=_dev_push_opt_in(container_cfg))
-    mode = _resolve_mode(
-        language=language,
-        decision=decision,
-        container_cfg=container_cfg,
-    )
-    info(f"Container build mode: {mode} ({push_mode})")
+    info(f"Container build from {dockerfile_name} ({push_mode})")
 
-    with group(f"Container Build ({mode})"):
-        if mode == "contract":
-            return _build_contract(
-                config=config,
-                container_cfg=container_cfg,
-                org=org,
-                registry_bases=registry_bases,
-                push_mode=push_mode,
-            )
-        if mode == "template":
-            return _build_template(
-                language=language,
-                config=config,
-                container_cfg=container_cfg,
-                org=org,
-                registry_bases=registry_bases,
-                push_mode=push_mode,
-            )
-        if mode == "custom":
-            return _build_custom(
-                container_cfg=container_cfg,
-                config=config,
-                org=org,
-                registry_bases=registry_bases,
-                push_mode=push_mode,
-                dockerfile_name=dockerfile_name,
-                language=language,
-            )
-
-        error(f"Unknown container mode: {mode!r}")
-        return 1
+    with group(f"Container Build ({dockerfile_name})"):
+        return _build_custom(
+            container_cfg=container_cfg,
+            config=config,
+            org=org,
+            registry_bases=registry_bases,
+            push_mode=push_mode,
+            dockerfile_name=dockerfile_name,
+            language=language,
+        )
 
 
 def _build_custom(
@@ -397,7 +312,7 @@ def _build_custom(
     # CONTEXT (e.g. shipping a compiled sidecar); a python/node Dockerfile
     # running pip/npm install -- including multi-stage builds whose
     # internal compile output happens to be named dist/ -- has no CI dist
-    # binaries to filter on, same class as a template image.
+    # binaries to filter on.
     binary_backed = language in _BINARY_LANGUAGES or bool(
         _DIST_CONTEXT_COPY.search(dockerfile.read_text(encoding="utf-8"))
     )
@@ -413,183 +328,6 @@ def _build_custom(
     )
 
 
-def _project_python() -> str:
-    """Return the Python version this project declares, else the fleet default.
-
-    A generated image has to run the version the project promises: building a
-    repo that declares ``>=3.12`` on 3.14 ships an image its own manifest does
-    not support (issue #150). ``release.container.python_version`` overrides it
-    for an image that deliberately differs from the project.
-    """
-    version, _source = resolve_python(Path.cwd(), default=runtime_version("python"))
-    return version
-
-
-def _build_template(
-    *,
-    language: str,
-    config: CIConfig,
-    container_cfg: dict,
-    org: OrgConfig,
-    registry_bases: list[str],
-    push_mode: str,
-) -> int:
-    from hyperi_ci.container.templates import (
-        render_node_template,
-        render_python_template,
-    )
-
-    if language == "python":
-        dockerfile_content = render_python_template(
-            python_version=container_cfg.get("python_version") or _project_python(),
-            port=container_cfg.get("port", 8080),
-            health_path=container_cfg.get("health_path", "/healthz"),
-            entrypoint=container_cfg.get("entrypoint", Path.cwd().name),
-            cmd=container_cfg.get("cmd", "run"),
-        )
-    elif language == "typescript":
-        # Unset follows the SSOT rather than a literal that had drifted a major
-        # behind it.
-        dockerfile_content = render_node_template(
-            node_version=container_cfg.get("node_version"),
-            port=container_cfg.get("port", 3000),
-        )
-    else:
-        error(f"No template available for language: {language!r}")
-        return 1
-
-    return _build_from_content(
-        dockerfile_content=dockerfile_content,
-        container_cfg=container_cfg,
-        config=config,
-        org=org,
-        registry_bases=registry_bases,
-        push_mode=push_mode,
-        # Template images (python/node) build from SOURCE inside the
-        # Dockerfile -- there are no dist/ binaries to stage or filter on.
-        binary_backed=False,
-    )
-
-
-def _build_contract(
-    *,
-    config: CIConfig,
-    container_cfg: dict,
-    org: OrgConfig,
-    registry_bases: list[str],
-    push_mode: str,
-) -> int:
-    from hyperi_ci.container.compose import compose_contract_dockerfile
-    from hyperi_ci.container.manifest import load_manifest
-
-    # Lookup order:
-    #   1. ci-tmp/ -- produced fresh by the Build stage (`hyperi-ci run
-    #      generate`). The canonical CI path.
-    #   2. ci/    -- committed-and-regenerated artefacts (drift-checked
-    #      by the Quality stage). Used for local Container builds where
-    #      you skip the Build stage.
-    #   3. .ci/   -- legacy path from before the Build/Container split.
-    #      Kept for one release for back-compat.
-    #
-    # We deliberately do NOT fall back to subprocess-invoking the binary
-    # here. The Container runner is bare -- it has no Rust toolchain
-    # installed and so lacks runtime libs (librdkafka, libssl, libgit2,
-    # ...) that the binary dynamically links against. The Build runner
-    # has all of these via `install-native-deps rust`, which is why
-    # generate-artefacts now runs there.
-    manifest_path: Path | None = None
-    for candidate_dir in (Path("ci-tmp"), Path("ci"), Path(".ci")):
-        candidate = candidate_dir / "container-manifest.json"
-        if candidate.exists():
-            manifest_path = candidate
-            info(f"Using deployment artefacts from: {candidate_dir}/")
-            break
-
-    if manifest_path is None:
-        error(
-            "No deployment artefacts found. Looked in ci-tmp/, ci/, and "
-            ".ci/ for container-manifest.json. The Build stage runs "
-            "`hyperi-ci run generate` to produce these -- check that the "
-            "Build job uploaded ci-tmp/ as part of build-dist-* and that "
-            "the Container job's download-artifact step picked it up. "
-            "For local Container builds, run `hyperi-ci run generate` "
-            "first to populate ci-tmp/."
-        )
-        return 1
-
-    manifest = load_manifest(manifest_path)
-    info(f"Contract manifest: {manifest.binary_name} on {manifest.base_image}")
-
-    rust_version = _detect_rust_version()
-    dockerfile_content = compose_contract_dockerfile(
-        manifest, rust_version=rust_version
-    )
-
-    return _build_from_content(
-        dockerfile_content=dockerfile_content,
-        container_cfg=container_cfg,
-        config=config,
-        org=org,
-        registry_bases=registry_bases,
-        push_mode=push_mode,
-        extra_labels=manifest.labels,
-    )
-
-
-def _build_from_content(
-    *,
-    dockerfile_content: str,
-    container_cfg: dict,
-    config: CIConfig,
-    org: OrgConfig,
-    registry_bases: list[str],
-    push_mode: str,
-    extra_labels: dict[str, str] | None = None,
-    binary_backed: bool = True,
-) -> int:
-    """Write ``dockerfile_content`` to a temp file then build.
-
-    Before writing, splice any ``release.container.overlays:`` declared
-    in ``.hyperi-ci.yaml`` into the Dockerfile content. See
-    ``deployment/overlay/`` and the framework spec.
-    """
-    from hyperi_ci.deployment.overlay.errors import OverlayError
-
-    try:
-        dockerfile_content = _splice_dockerfile_overlays(
-            dockerfile_content=dockerfile_content,
-            container_cfg=container_cfg,
-        )
-    except OverlayError as exc:
-        error(f"Container overlays: {exc}")
-        return 1
-
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        suffix=".Dockerfile",
-        delete=False,
-        dir=".",
-        encoding="utf-8",
-        newline="\n",
-    ) as f:
-        f.write(dockerfile_content)
-        dockerfile_path = Path(f.name)
-
-    try:
-        return _dispatch_build(
-            dockerfile_path=dockerfile_path,
-            container_cfg=container_cfg,
-            config=config,
-            org=org,
-            registry_bases=registry_bases,
-            push_mode=push_mode,
-            extra_labels=extra_labels,
-            binary_backed=binary_backed,
-        )
-    finally:
-        dockerfile_path.unlink(missing_ok=True)
-
-
 def _dispatch_build(
     *,
     dockerfile_path: Path,
@@ -598,7 +336,6 @@ def _dispatch_build(
     org: OrgConfig,
     registry_bases: list[str],
     push_mode: str,
-    extra_labels: dict[str, str] | None = None,
     binary_backed: bool = True,
 ) -> int:
     image_name = Path.cwd().name
@@ -660,8 +397,6 @@ def _dispatch_build(
         licenses=detect_license(Path.cwd()),
         optimized=not skip_optimize(config),
     )
-    if extra_labels:
-        labels.update(extra_labels)
     cfg_labels = container_cfg.get("labels", {})
     if cfg_labels:
         labels.update(cfg_labels)
@@ -681,17 +416,16 @@ def _dispatch_build(
     # Outside a GA publish the Build job only produces linux-amd64 (saves
     # CI time on push-to-main validates AND branch dev builds).
     #
-    # Binary-backed images (contract/custom -- the Dockerfile COPYs from
+    # Binary-backed images (the Dockerfile COPYs from
     # dist/<name>-linux-<arch>): constrain to platforms whose binaries are
     # actually present, and fail loud when NONE are (broken Build ->
     # Container artefact handoff).
     #
-    # Template images (python/node -- built from SOURCE inside the
+    # Source-built images (python/node -- built from SOURCE inside the
     # Dockerfile) have no dist/ binaries AT ALL, so the dist filter would
-    # always come up empty and hard-fail (the ts-app finding: its
-    # container path could never succeed). Constrain them to a single
-    # arch instead -- same only-shipping-runs-pay-for-arm64 doctrine,
-    # decided explicitly rather than via dist contents.
+    # always come up empty and hard-fail. Constrain them to a single arch
+    # instead -- same only-shipping-runs-pay-for-arm64 doctrine, decided
+    # explicitly rather than via dist contents.
     if push_mode != RELEASE:
         configured_platforms = list(platforms)
         if binary_backed:
@@ -717,7 +451,7 @@ def _dispatch_build(
             platforms = _template_platforms(platforms)
             if platforms != configured_platforms:
                 info(
-                    f"  Container: template {push_mode} build constrained "
+                    f"  Container: source-built {push_mode} build constrained "
                     f"to {platforms} (multi-arch only on release)"
                 )
 
@@ -765,7 +499,7 @@ _PLATFORM_TO_OS_ARCH = {
 
 
 def _template_platforms(platforms: list[str]) -> list[str]:
-    """Single-arch subset for template-image validate/dev builds.
+    """Single-arch subset for a source-built image's validate/dev builds.
 
     Prefers linux/amd64 (the runner's native arch -- arm64 would go via
     qemu); falls back to the first configured platform when amd64 isn't
@@ -810,54 +544,3 @@ def _filter_platforms_to_available_binaries(
                 f"{candidate} not present (not built by current Build job)"
             )
     return kept
-
-
-def _splice_dockerfile_overlays(
-    *,
-    dockerfile_content: str,
-    container_cfg: dict,
-) -> str:
-    """Apply ``release.container.overlays`` to ``dockerfile_content``.
-
-    No-op when no overlays are declared. Imports the overlay module
-    lazily so projects without overlays don't pay the import cost.
-
-    Anchor catalog + splice mechanics live in
-    ``hyperi_ci.deployment.overlay.anchors.dockerfile``. Errors (missing
-    anchor, missing fragment file, malformed declaration) propagate so
-    the build fails loudly with an actionable message.
-    """
-    raw_overlays = container_cfg.get("overlays")
-    if not raw_overlays:
-        return dockerfile_content
-
-    from hyperi_ci.deployment.overlay import apply_overlays
-    from hyperi_ci.deployment.overlay.anchors.dockerfile import (
-        DockerfileAnchorResolver,
-    )
-    from hyperi_ci.deployment.overlay.model import parse_simple_overlays
-
-    overlays = parse_simple_overlays(raw_overlays, artefact="container")
-    binary_name = container_cfg.get("binary_name") or Path.cwd().name
-    resolver = DockerfileAnchorResolver(binary_name=binary_name)
-
-    info(
-        f"  Container: applying {len(overlays)} overlay(s) to Dockerfile "
-        f"(anchors used: {sorted({o.anchor for o in overlays})})"
-    )
-    return apply_overlays(
-        base=dockerfile_content,
-        overlays=overlays,
-        resolver=resolver,
-        base_dir=Path.cwd(),
-        artefact="container",
-    )
-
-
-def _detect_rust_version() -> str:
-    toolchain_file = Path("rust-toolchain.toml")
-    if toolchain_file.exists():
-        for line in toolchain_file.read_text(encoding="utf-8").splitlines():
-            if "channel" in line and "=" in line:
-                return line.split("=")[1].strip().strip('"').strip("'")
-    return "stable"

@@ -230,9 +230,7 @@ class TestNoVersionLiteralsInSource:
 class TestCopiesOnlyWhereGitHubParsesThem:
     """The one legitimate exception, bounded and asserted."""
 
-    # The scaffold's workflows land in a generated repo's .github/, so GitHub
-    # parses them there for exactly the same reason.
-    PARSED_BY_GITHUB = (".github/", "src/hyperi_ci/gitops_templates/workflows/")
+    PARSED_BY_GITHUB = (".github/",)
 
     @staticmethod
     def _pins() -> list[tuple[str, str]]:

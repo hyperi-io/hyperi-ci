@@ -10,7 +10,6 @@ from pathlib import Path
 import yaml
 
 from hyperi_ci.init import (
-    _detect_python_build_type,
     _has_releaserc,
     _makefile_has_ci_targets,
     _render_contributing,
@@ -51,18 +50,18 @@ class TestLicenseConfig:
         assert detect_license(tmp_path) == "BUSL-1.1"
 
     def test_scaffold_includes_license_key(self, tmp_path: Path) -> None:
-        content = _render_hyperi_ci_yaml("python", "p", tmp_path)
+        content = _render_hyperi_ci_yaml("python", "p")
         assert "license: BUSL-1.1" in content
 
     def test_scaffold_uses_the_release_namespace(self, tmp_path: Path) -> None:
-        content = _render_hyperi_ci_yaml("python", "p", tmp_path)
+        content = _render_hyperi_ci_yaml("python", "p")
         assert "release:" in content
         assert "publish:" not in content
 
     def test_scaffold_omits_the_removed_target_key(self, tmp_path: Path) -> None:
         # `target` is inert and is removed in December 2026 (#151) -- a new
         # project must not start with a key we are deleting.
-        content = _render_hyperi_ci_yaml("python", "p", tmp_path)
+        content = _render_hyperi_ci_yaml("python", "p")
         assert "target:" not in content
 
 
@@ -70,11 +69,11 @@ class TestRenderTemplates:
     """Template rendering produces valid content."""
 
     def test_yaml_contains_language(self, tmp_path: Path) -> None:
-        content = _render_hyperi_ci_yaml("python", "my-project", tmp_path)
+        content = _render_hyperi_ci_yaml("python", "my-project")
         assert "language: python" in content
 
     def test_yaml_contains_project_name(self, tmp_path: Path) -> None:
-        content = _render_hyperi_ci_yaml("rust", "my-project", tmp_path)
+        content = _render_hyperi_ci_yaml("rust", "my-project")
         assert "my-project" in content
 
     def test_makefile_contains_targets(self) -> None:
@@ -244,23 +243,6 @@ class TestRenderContributing:
         assert "hyperi-ci push" in content
 
 
-class TestDetectPythonBuildType:
-    """Python build type detection from pyproject.toml."""
-
-    def test_app_with_scripts(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            "[project]\n[project.scripts]\nmycli = 'myapp:main'\n"
-        )
-        assert _detect_python_build_type(tmp_path) == "app"
-
-    def test_package_without_scripts(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'mylib'\n")
-        assert _detect_python_build_type(tmp_path) == "package"
-
-    def test_no_pyproject(self, tmp_path: Path) -> None:
-        assert _detect_python_build_type(tmp_path) == "package"
-
-
 class TestMakefileHasCiTargets:
     """Makefile CI target detection."""
 
@@ -294,12 +276,10 @@ class TestHasReleaserc:
 class TestLanguageSpecificConfig:
     """Language-specific config defaults in generated YAML."""
 
-    def test_python_build_type(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            "[project]\n[project.scripts]\ncli = 'app:main'\n"
-        )
-        content = _render_hyperi_ci_yaml("python", "test", tmp_path)
-        assert "type: app" in content
+    def test_python_scaffolds_no_build_type(self) -> None:
+        """`build.type` is read by nothing, so a new project does not get one."""
+        parsed = yaml.safe_load(_render_hyperi_ci_yaml("python", "test"))
+        assert "type" not in parsed["build"]
 
     def test_rust_workspace_scaffolds_no_workspace_block(self, tmp_path: Path) -> None:
         """Workspaces are detected from Cargo.toml, never declared in config.
@@ -308,7 +288,7 @@ class TestLanguageSpecificConfig:
         read by nothing; Rust workspace handling parses `[workspace]` directly.
         """
         (tmp_path / "Cargo.toml").write_text("[workspace]\nmembers = []\n")
-        content = _render_hyperi_ci_yaml("rust", "test", tmp_path)
+        content = _render_hyperi_ci_yaml("rust", "test")
         assert "workspace:" not in content
 
     def test_golang_targets_land_where_the_handler_reads_them(
@@ -320,7 +300,7 @@ class TestLanguageSpecificConfig:
         `golang:` block parses fine and is read by nothing, so the project
         silently builds the single default target instead of these four.
         """
-        content = _render_hyperi_ci_yaml("golang", "test", tmp_path)
+        content = _render_hyperi_ci_yaml("golang", "test")
         parsed = yaml.safe_load(content)
         assert parsed["build"]["golang"]["targets"] == [
             "linux/amd64",
@@ -335,7 +315,7 @@ class TestLanguageSpecificConfig:
         self, tmp_path: Path
     ) -> None:
         """detect_package_manager() never consults config, at any path."""
-        parsed = yaml.safe_load(_render_hyperi_ci_yaml("typescript", "test", tmp_path))
+        parsed = yaml.safe_load(_render_hyperi_ci_yaml("typescript", "test"))
         assert "typescript" not in parsed
         assert "package_manager" not in str(parsed)
 
@@ -426,9 +406,3 @@ class TestInitProject:
         rc = init_project(tmp_path)
         assert rc == 0
         assert (tmp_path / ".releaserc.yaml").read_text() == "branches: [main]\n"
-
-    def test_deprecated_config_does_not_block(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text("[project]\n")
-        (tmp_path / ".hypersec-ci.yaml").write_text("old: true\n")
-        rc = init_project(tmp_path)
-        assert rc == 0

@@ -88,8 +88,8 @@ shared `_ghcr-prune.yml` (dataaxiom/ghcr-cleanup-action, multi-arch-safe),
 which globs `branch-*` / `dev-sha-*` plus untagged layers. Dev images are a
 different artifact class from a GA release - main + an explicit release remains
 the ONLY path to PyPI / crates.io / R2 / GA container tags. Mode resolution
-(release / dev / validate) is one SSOT: `hyperi_ci.release_mode`, shared by
-the container, helm, and argocd stages (helm/argocd treat dev as validate).
+(release / dev / validate) is one SSOT: `hyperi_ci.release_mode`, read by the
+container stage.
 Design: `docs/plans/2026-07-branch-mode/PLAN.md`.
 
 ```mermaid

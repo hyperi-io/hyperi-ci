@@ -8,10 +8,9 @@
 
 A path in ``.hyperi-ci.yaml`` or ``pyproject.toml`` is whatever the repo says
 it is, and the Container job holds ``~/.docker/config.json`` after its logins.
-The callers: ``release.container.dockerfile`` and ``.context``, overlay
-``file:`` and ``patch_file:``, a Helm add's ``path:``, ``[tool.hatch.version]
-path`` and the ``VERSION`` file. Other repo-named paths are not routed through
-here.
+The callers: ``release.container.dockerfile`` and ``.context``,
+``[tool.hatch.version] path`` and the ``VERSION`` file. Other repo-named paths
+are not routed through here.
 """
 
 from pathlib import Path

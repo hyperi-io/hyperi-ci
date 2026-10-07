@@ -34,8 +34,6 @@ from typing import Any, NamedTuple
 CONFIG_FILES = (
     ".hyperi-ci.yaml",
     ".hyperi-ci.yml",
-    ".hypersec-ci.yaml",
-    ".hypersec-ci.yml",
 )
 
 #: The reason given when this interpreter has no way to parse YAML at all.

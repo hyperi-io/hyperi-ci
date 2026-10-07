@@ -162,12 +162,9 @@ class TestReadProjectTier:
     def test_the_opt_in_is_read(self, tmp_path: Path) -> None:
         assert read_project_tier(self._config(tmp_path, _OPT_IN)).full_required
 
-    @pytest.mark.parametrize(
-        "name", [".hyperi-ci.yml", ".hypersec-ci.yaml", ".hypersec-ci.yml"]
-    )
-    def test_every_config_spelling_is_read(self, tmp_path: Path, name: str) -> None:
-        # An opted-in repo on a legacy spelling must not fail open.
-        root = self._config(tmp_path, _OPT_IN + "  tier: full\n", name)
+    def test_the_yml_spelling_is_read(self, tmp_path: Path) -> None:
+        # An opted-in repo on the other spelling must not fail open.
+        root = self._config(tmp_path, _OPT_IN + "  tier: full\n", ".hyperi-ci.yml")
         assert read_project_tier(root) == ProjectTier(FULL, True, "")
 
     def test_the_first_spelling_wins_as_in_load_config(self, tmp_path: Path) -> None:

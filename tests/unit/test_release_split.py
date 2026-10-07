@@ -46,9 +46,9 @@ _RUN_URL = (
     r'--run-url "\$\{\{ github\.server_url \}\}/\$\{\{ github\.repository \}\}'
     r'/actions/runs/\$\{\{ github\.run_id \}\}"'
 )
-# The placement of dist/ and ci-tmp/ out of the downloaded build artefact.
+# The placement of dist/ out of the downloaded build artefact.
 _PLACE = [
-    r"for tree in dist ci-tmp; do",
+    r"for tree in dist; do",
     r'if \[ -d "\$RUNNER_TEMP/build-dist/\$tree" \]; then '
     r'cp -RL "\$RUNNER_TEMP/build-dist/\$tree" \.; fi',
     r"done",
@@ -389,7 +389,7 @@ class TestContainerRunsNoRepoCode:
     These tests hold the workflow side: the stamp passes the switch that skips
     ``release.stamp_cmd``, the checkout keeps no token, uv and Python come up
     without reading the repo's uv config, and the build artefact places only
-    ``dist/`` and ``ci-tmp/``. The skip itself is the CLI's (``test_stamp.py``)
+    ``dist/``. The skip itself is the CLI's (``test_stamp.py``)
     and only takes effect on a CLI release that carries it. Running the stamp
     before the logins is ordering, not isolation: a ``stamp_cmd`` that does run
     can still leave a ``$GITHUB_ENV`` line or a process for a later step.
@@ -428,9 +428,7 @@ class TestContainerRunsNoRepoCode:
         assert downloads
         for i in downloads:
             assert "runner.temp" in steps[i]["with"]["path"], steps[i]["name"]
-        place = [
-            i for i, s in enumerate(steps) if s.get("name") == "Place dist/ and ci-tmp/"
-        ]
+        place = [i for i, s in enumerate(steps) if s.get("name") == "Place dist/"]
         assert len(place) == 1
         assert not _run_lines_outside({"steps": [steps[place[0]]]}, _PLACE)
         names = [s.get("name") for s in steps]

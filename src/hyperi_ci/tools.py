@@ -206,7 +206,7 @@ _REGISTRY: dict[str, ToolInfo] = {
     ),
     "helm": ToolInfo(
         name="helm",
-        purpose="Helm chart packaging / topology stitching",
+        purpose="Helm chart rendering for manifest linting",
         install=("brew install helm",),
         url="https://helm.sh/docs/intro/install/",
     ),

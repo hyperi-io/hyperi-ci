@@ -59,8 +59,7 @@ actions:
     sha: 3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
   # Mints the bot token the release tail pushes tags with: the highest-
   # privilege action in the pipeline, and the last `uses:` in .github/ still on
-  # a moveable tag. (The gitops_templates/ scaffold still ships bare tags - a
-  # separate surface, tracked separately.)
+  # a moveable tag.
   #
   # max_major is the price of pinning it. `@v3` could never reach v4; a SHA pin
   # can, and auto-update's "a breaking major shows up as a red CI run" does not
@@ -88,15 +87,6 @@ actions:
   ghcr-cleanup:
     version: v1.2.2
     sha: d52806a0dc70b430571a37da1fde39733ffd640f
-  # The next two appear ONLY in src/hyperi_ci/gitops_templates/workflows/, the
-  # pipeline `init-gitops` hands to a scaffolded repo. Pinned here so that repo
-  # starts on SHAs rather than the moveable tags it used to ship (issue #98).
-  setup-helm:
-    version: v5.0.1
-    sha: 9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310
-  setup-opentofu:
-    version: v2.0.2
-    sha: a1320f892987e89d278cc92dc5adc984fb93aca4
 
 # External CLI tools hyperi-ci installs at CI time.
 #
@@ -334,30 +324,22 @@ tools:
     sha256:
       x86_64: 45f1447fbe231e3037bde351ef70677dd212216c8d62ae7ca409fecc4d6acc89
       aarch64: 2b3284d5da3b46a47dc4229e75bb7b88ac4aa99c8d754fb7d2f84997e5a4354a
-  # Baked into the generated cargo-chef Dockerfile by container/compose.py,
-  # which reads it from here.
+  # hyperi-developer's pinned install mirrors this entry; nothing in hyperi-ci reads it.
   cargo-chef:
     version: v0.1.78
     repo: LukeMathWalker/cargo-chef
     sha256:
       x86_64: aca691abfbfbbe00d482e0ed2249eec3091b65e96a0ce92947fb5b254d48b16d
       aarch64: cd59b90fce5fa84c4189648fec33404ec5491791eebdb812df5e7fca8336408d
-  # Helm itself, not the action that installs it. Two consumers share this one
-  # version. azure/setup-helm takes it as a `with:` input in the gitops
-  # scaffold's workflows, and fetches the binary itself. native_tools.py fetches
-  # it from get.helm.sh for a project's tests (`test.native_tools`), and checks
-  # these digests. They were cross-checked against upstream's `.sha256sum`
-  # files and the release notes at pin time. The scaffold carries no digest
-  # marker: update-versions.py mirrors digests into composite actions only.
+  # native_tools.py fetches Helm from get.helm.sh for a project's tests
+  # (`test.native_tools`), and checks these digests. They were cross-checked
+  # against upstream's `.sha256sum` files and the release notes at pin time.
   helm:
     version: v4.3.0
     repo: helm/helm
     sha256:
       amd64: 86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb
       arm64: 31c5794dd55c66a51e6b7d2e2ac7a114ae8b1de41ff1d9ba51748ac973b06a08
-    pin:
-      - src/hyperi_ci/gitops_templates/workflows/validate.yaml
-      - src/hyperi_ci/gitops_templates/workflows/stitch-and-publish.yaml
 
   # Quality tools resolved at JOB TIME through uvx / `uv run --with`. Unpinned,
   # each job took whatever PyPI served that morning, so a bad release could

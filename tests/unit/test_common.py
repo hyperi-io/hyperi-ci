@@ -164,13 +164,13 @@ class TestNormaliseTristate:
         # itself; the loguru sink doesn't flush to stderr until teardown.
         warnings: list[str] = []
         monkeypatch.setattr(common, "warn", warnings.append)
-        normalise_tristate("yes-please", key="deployment.producer")
-        assert warnings and "deployment.producer" in warnings[0]
+        normalise_tristate("yes-please", key="release.container.enabled")
+        assert warnings and "release.container.enabled" in warnings[0]
 
     def test_known_value_is_silent(self, monkeypatch: pytest.MonkeyPatch) -> None:
         warnings: list[str] = []
         monkeypatch.setattr(common, "warn", warnings.append)
-        normalise_tristate("auto", key="deployment.producer")
+        normalise_tristate("auto", key="release.container.enabled")
         assert not warnings
 
 

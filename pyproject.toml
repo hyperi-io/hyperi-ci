@@ -41,9 +41,7 @@ dependencies = [
     # No [metrics] extra: hyperi-ci is a CLI, not a long-running service,
     # so it takes scalo's opt-out and skips the Prometheus + OTel SDK stack.
     "scalo>=2.30.3",
-    "oras>=0.2.42",
     "packaging>=26.0",
-    "pydantic>=2.13",
     "pyyaml>=6.0",
     "tomli-w>=1.2.0",
     # typer is used directly by src/hyperi_ci/cli.py -- declare
@@ -87,7 +85,6 @@ line-length = 88
 target-version = "py312"
 extend-exclude = [
     "test-projects",                             # vendored fixture trees (node_modules, .venv etc.)
-    "src/hyperi_ci/gitops_templates",            # template data files, not Python source
 ]
 
 [tool.ruff.lint]

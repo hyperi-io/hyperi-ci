@@ -6,26 +6,21 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Container artefact detection.
 
-A project ships a container if:
+A project ships a container exactly when it has a Dockerfile at the
+configured path. There is no generated image: the repo's own Dockerfile
+is the only build source.
 
-  * it is **not** a library, AND
-  * it has a build signal -- either a Dockerfile at the configured path,
-    or (Rust only) the project's binary supports the scalo contract
-    `generate-artefacts` subcommand.
-
-Libraries skip silently -- there is nothing to ship. A Rust crate with
-no ``[[bin]]`` is a library; a Python package is treated as library-only
-regardless of any ``[project.scripts]`` CLI (a console-script is not a
-service -- see issue #51); a TypeScript package with no ``bin``/``main`` /
-server entry is a library. A genuine Python/TS service opts in with a
-Dockerfile or ``release.container.enabled: true``.
+Without one, a library skips quietly. A runnable project with no
+Dockerfile (a Rust ``[[bin]]``, a TypeScript server, a Go ``main``) is
+flagged with ``notice`` so the stage says out loud that no image is
+built. A Python package always reads as a library (a console script is
+not a service -- issue #51).
 
 The detector returns a ``Decision`` so callers can both gate the build
 and present a clear reason to the developer.
 """
 
 import json
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,14 +35,14 @@ class Decision:
         build: Whether the container stage should run.
         reason: Human-readable explanation. Always present, used for log
             output regardless of outcome.
-        mode: Suggested build mode (``contract`` | ``template`` | ``custom``)
-            when ``build`` is True. Empty string when ``build`` is False.
+        notice: True when a runnable project has no Dockerfile, so the
+            skip is worth a warning rather than an info line.
 
     """
 
     build: bool
     reason: str
-    mode: str = ""
+    notice: bool = False
 
 
 def detect(
@@ -64,40 +59,21 @@ def detect(
         ``Decision`` describing the outcome.
 
     """
-    # An explicit Dockerfile is an unambiguous "ship a container" signal
-    # and must win over the library heuristic -- otherwise a monorepo root
-    # with a Dockerfile (whose runnable start script lives in a workspace,
-    # not the root package.json) is wrongly declared library-only and the
-    # Dockerfile is never used.
-    dockerfile_path = project_dir / dockerfile
-    if dockerfile_path.exists():
-        return Decision(
-            build=True, reason=f"Dockerfile found at {dockerfile}", mode="custom"
-        )
+    # A Dockerfile wins over the library heuristic: a monorepo root whose
+    # runnable start script lives in a workspace still ships its image.
+    if (project_dir / dockerfile).exists():
+        return Decision(build=True, reason=f"Dockerfile found at {dockerfile}")
 
     if _is_library(language=language, project_dir=project_dir):
         return Decision(build=False, reason=f"{language} project is library-only")
 
-    if language == "rust" and _rust_supports_contract(project_dir):
-        return Decision(
-            build=True,
-            reason="Rust binary supports scalo generate-artefacts contract",
-            mode="contract",
-        )
-
-    if language in {"python", "typescript"}:
-        return Decision(
-            build=True,
-            reason=f"{language} template applies (no Dockerfile required)",
-            mode="template",
-        )
-
     return Decision(
         build=False,
         reason=(
-            f"no container artefact detected for {language} "
-            f"(no {dockerfile}, no contract source)"
+            f"no {dockerfile} in this {language} project, and hyperi-ci builds "
+            "images only from a repo Dockerfile -- add one to ship a container"
         ),
+        notice=True,
     )
 
 
@@ -114,27 +90,6 @@ def _is_library(*, language: str, project_dir: Path) -> bool:
     return False
 
 
-def _rust_supports_contract(project_dir: Path) -> bool:
-    """Return True if the Rust project depends on scalo (contract source).
-
-    The contract source is scalo's ``DfeApp::generate_artefacts`` code
-    path, which is exposed by every binary that uses scalo's CLI
-    harness. Presence of ``scalo`` (or the deprecated predecessor
-    ``hyperi-rustlib``) in the project's manifest is a sufficient
-    signal -- projects opting out of contract mode can still set
-    ``release.container.mode: custom`` explicitly.
-    """
-    cargo_toml = project_dir / "Cargo.toml"
-    if not cargo_toml.exists():
-        return False
-    try:
-        manifest = tomllib.loads(cargo_toml.read_text(encoding="utf-8"))
-    except Exception:
-        return False
-    deps = manifest.get("dependencies", {})
-    return "scalo" in deps or "hyperi-rustlib" in deps
-
-
 def _python_is_library(project_dir: Path) -> bool:
     """Python packages are library-only by default (issue #51).
 
@@ -142,18 +97,9 @@ def _python_is_library(project_dir: Path) -> bool:
     ``console_scripts`` entry point) is NOT a "ship a container" signal.
     The most common Python shape is a library that ALSO exposes a CLI -
     ruff, black, pytest, uv, httpie, pip-audit all declare
-    ``[project.scripts]`` and none of them are container workloads. The
-    old heuristic treated any console-script as "build a container", so
-    every hyperi-io Python library that shipped a CLI got a spurious,
-    failing ``Release tail / Container`` job on every release.
-
+    ``[project.scripts]`` and none of them are container workloads.
     There is no reliable pyproject signal for "this is a deployable
-    service", so Python defaults to library-only. A genuine Python
-    service opts in explicitly with a Dockerfile (wins over this
-    heuristic in :func:`detect`) or ``release.container.enabled: true``
-    (forces the template build in the stage handler). This mirrors the
-    rust/golang behaviour - a container needs a bin/main target or a
-    Dockerfile, not merely "has a CLI".
+    service", so a Python service ships its own Dockerfile.
     """
     return (project_dir / "pyproject.toml").exists()
 

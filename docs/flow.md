@@ -104,14 +104,13 @@ per-language carve-out stays in the SME's domain.
 
 ## 5. Release routing
 
-Everything goes to the OSS registry stack. The legacy `release.target`
-config field (`internal`/`oss`/`both`) is still read for
-back-compat but every value routes to the same OSS destination map. It is not the
-`publish-target` workflow input, which is live.
+Everything goes to the OSS registry stack, through one destination map. The
+legacy `release.target` config field and the `publish-target` workflow input
+are both read by nothing; the input stays declared so existing callers start.
 
 ```mermaid
 flowchart LR
-    PUB[hyperi-ci run release] --> M["OSS destination map<br/>(release.target ignored)"]
+    PUB[hyperi-ci run release] --> M["OSS destination map"]
     M --> PY[pypi.org]
     M --> CR[crates.io]
     M --> NPM[npmjs.com]

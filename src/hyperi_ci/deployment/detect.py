@@ -6,9 +6,6 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Detect which producer tier a repository belongs to.
 
-Used by Quality drift checks and the Generate stage to dispatch to the
-right producer:
-
   Tier 1 (RUST)   -- Cargo.toml depends on scalo (or legacy
                     hyperi-rustlib) AND the crate builds a binary; the
                     binary itself emits artefacts via
@@ -16,10 +13,8 @@ right producer:
   Tier 2 (PYTHON) -- pyproject.toml depends on scalo AND declares a
                     `[project.scripts]` console script; that entry point
                     emits via `<app> generate-artefacts`.
-  Tier 3 (OTHER)  -- repo commits ``ci/deployment-contract.json``;
-                    hyperi-ci's own templater emits.
-  NONE            -- no contract at all; generate + container stages skip
-                    silently.
+  Tier 3 (OTHER)  -- repo commits ``ci/deployment-contract.json``.
+  NONE            -- no contract at all.
 
 Most repos are none of these and resolve to NONE -- that is the normal
 case, not a failure.
@@ -29,16 +24,11 @@ library consumer -- a VPN container that uses scalo for
 logging/config/secrets and ships its own Dockerfile, say -- has the dep
 but nothing to invoke ``generate-artefacts`` on. Tier 1/2 detection
 therefore needs a POSITIVE producer signal (a real binary / console
-script) on top of the dep, otherwise the Build job dies on a repo that
-was never a ServiceApp (issue #76). Tier 3 needs no such check: the
+script) on top of the dep (issue #76). Tier 3 needs no such check: the
 committed contract IS the positive signal.
 
-Where auto-detection still gets it wrong in either direction, the
-``deployment.producer`` cascade key is the override -- see
-:func:`hyperi_ci.deployment.stage.run`.
-
 Detection is **cheap and string-based** -- we don't fully parse manifests
-because the answer only needs to choose which subprocess to invoke.
+because the answer only needs to say which producer a repo has.
 """
 
 from __future__ import annotations
@@ -70,13 +60,9 @@ class Tier(StrEnum):
 class TierDecision(NamedTuple):
     """A tier plus the human-readable reason it was chosen.
 
-    The reason is what the Generate stage logs, so a repo that gets
-    skipped says WHY it was skipped rather than going quiet.
-
     ``demoted`` marks the one case worth a nudge: a marker dep IS
     present but the producer signal isn't, so the repo reads as a
-    library consumer. If that call is wrong, ``deployment.producer:
-    true`` is the override -- but only this case should suggest it.
+    library consumer.
     """
 
     tier: Tier
@@ -144,8 +130,8 @@ def resolve_tier(repo_root: Path, *, require_producer: bool = True) -> TierDecis
         repo_root: Directory containing the repo's manifests. Usually
             the working directory of a CI run.
         require_producer: When False, the marker dep alone selects the
-            tier. Set by ``deployment.producer: true`` for a genuine
-            producer whose shape auto-detection can't see.
+            tier, for a genuine producer whose shape auto-detection
+            can't see.
 
     Returns:
         The detected :class:`TierDecision`.
@@ -219,10 +205,8 @@ def _enables_deployment_feature(repo_root: Path, dep_name: str) -> bool:
     In scalo-rs, ``deployment`` is a cargo feature, so the artefact
     emission inside ``generate-artefacts`` is ``#[cfg]``-compiled out
     when it's off. The subcommand still EXISTS and still exits 0 -- it
-    just writes no Dockerfile.runtime or container-manifest.json. The
-    container stage then fails much later with "no deployment artefacts
-    found", pointing at the wrong cause. Detecting it here turns that
-    into a clean skip.
+    just writes no Dockerfile.runtime or container-manifest.json, so a
+    crate without the feature is not a producer.
 
     Checks the repo root, then any workspace member (a member declaring
     ``scalo.workspace = true`` inherits the root's feature list, which

@@ -1,14 +1,12 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/container/registry.py
-# Purpose:   Resolve release.target into concrete container registry bases
+# Purpose:   Resolve the container registry bases to push to
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Container registry resolution.
 
-Every container publishes to GHCR (``ghcr.io/<github-org>``). The legacy
-``release.target`` config key is accepted for backward compatibility with
-downstream ``.hyperi-ci.yaml`` files but ignored at runtime.
+Every container publishes to GHCR (``ghcr.io/<github-org>``).
 
 Docker Hub is intentionally NOT a target. The Container job logs in to it,
 gated on ``vars.DOCKERHUB_USERNAME``, only to authenticate the Dockerfile's
@@ -18,17 +16,14 @@ base-image pulls.
 from hyperi_ci.config import OrgConfig
 
 
-def resolve_registry_bases(*, target: str, org: OrgConfig) -> list[str]:
+def resolve_registry_bases(*, org: OrgConfig) -> list[str]:
     """Return the list of registry bases to push to.
 
     Args:
-        target: Legacy ``release.target`` value, accepted but ignored.
         org: Loaded organisation config.
 
     Returns:
-        Always ``[ghcr.io/<org>]``. The ``target`` argument is retained
-        for back-compat with callers that still pass it.
+        Always ``[ghcr.io/<org>]``.
 
     """
-    del target  # ignored -- every publish goes to GHCR
     return [f"{org.ghcr_registry}/{org.ghcr_org}"]

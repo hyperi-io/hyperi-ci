@@ -1,13 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["github>hyperi-io/renovate-config"],
-  "github-actions": {
-    "description": "The scaffold templates in src/hyperi_ci/gitops_templates/workflows/ are real workflows that do not live under .github/, so they match none of the manager's default patterns. They shipped on moveable tags for months because BOTH guards - update-versions.py and Renovate - keyed on location. $default keeps the defaults and adds them, so the watchdog sees them too.",
-    "managerFilePatterns": [
-      "$default",
-      "/(^|/)gitops_templates/workflows/.+\\.ya?ml$/"
-    ]
-  },
   "docker-compose": {
     "description": "The testenv fixtures are named <service>.compose.yaml, and the manager's default patterns anchor on a name STARTING with compose, so they matched nothing and the surface read as absent rather than unwatched. $default keeps the defaults and adds that naming.",
     "managerFilePatterns": [

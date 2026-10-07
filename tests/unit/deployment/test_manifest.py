@@ -365,6 +365,49 @@ class TestPythonEntryPoint:
         assert python_entry_point(tmp_path) == "demo"
 
 
+class TestRustBinarySelection:
+    """With several ``[[bin]]`` blocks the package-name binary wins.
+
+    dfe-receiver declared a PGO driver first, and picking the first block ran
+    the wrong binary.
+    """
+
+    def test_picks_package_name_when_matching_bin_present(self, tmp_path: Path) -> None:
+        (tmp_path / "Cargo.toml").write_text(
+            '[package]\nname = "dfe-receiver"\nversion = "1.0.0"\n'
+            '[[bin]]\nname = "pgo-driver"\npath = "src/bin/pgo-driver.rs"\n'
+            '[[bin]]\nname = "dfe-receiver"\npath = "src/main.rs"\n',
+            encoding="utf-8",
+        )
+        assert rust_binary_name(tmp_path) == "dfe-receiver"
+
+    def test_picks_package_name_when_no_explicit_bin(self, tmp_path: Path) -> None:
+        (tmp_path / "Cargo.toml").write_text(
+            '[package]\nname = "myapp"\nversion = "1.0.0"\n', encoding="utf-8"
+        )
+        assert rust_binary_name(tmp_path) == "myapp"
+
+    def test_falls_back_to_first_bin_when_no_package_name(self, tmp_path: Path) -> None:
+        (tmp_path / "Cargo.toml").write_text(
+            '[[bin]]\nname = "first-bin"\npath = "src/a.rs"\n'
+            '[[bin]]\nname = "second-bin"\npath = "src/b.rs"\n',
+            encoding="utf-8",
+        )
+        assert rust_binary_name(tmp_path) == "first-bin"
+
+    def test_workspace_returns_none_when_no_member_has_binary(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "Cargo.toml").write_text(
+            '[workspace]\nmembers = ["crates/lib-only"]\n', encoding="utf-8"
+        )
+        (tmp_path / "crates" / "lib-only").mkdir(parents=True)
+        (tmp_path / "crates" / "lib-only" / "Cargo.toml").write_text(
+            "[lib]\n", encoding="utf-8"
+        )
+        assert rust_binary_name(tmp_path) is None
+
+
 def _write_member(path: Path, name: str, *, binary: bool) -> None:
     """Write a workspace member crate, with or without a binary target."""
     path.mkdir(parents=True)

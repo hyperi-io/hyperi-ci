@@ -15,7 +15,6 @@ the tagging + publishing.
 
 from __future__ import annotations
 
-import importlib
 import subprocess
 from pathlib import Path
 
@@ -316,37 +315,3 @@ class TestTagHead:
 
         monkeypatch.setattr(push, "run_cmd", fake_run_cmd)
         assert push.tag_head(bump="patch") == 0
-
-
-# These tests import the deprecated paths on purpose; their warning is the
-# expected behaviour, not a finding.
-@pytest.mark.filterwarnings("ignore::DeprecationWarning")
-class TestDeprecatedImportPaths:
-    """The package moved to `hyperi_ci.release`, and the old dotted paths
-    still resolve -- submodules included, not just the top-level names."""
-
-    def test_package_shim_re_exports(self) -> None:
-        from hyperi_ci.publish import dispatch_from_head, publish_binaries
-
-        assert callable(dispatch_from_head)
-        assert callable(publish_binaries)
-
-    def test_binaries_submodule_path_still_imports(self) -> None:
-        # The old dotted path resolves through a sys.modules alias, so
-        # import_module is what exercises it -- a static import would not.
-        shimmed = importlib.import_module("hyperi_ci.publish.binaries")
-        canonical = importlib.import_module("hyperi_ci.release.binaries")
-
-        assert shimmed is canonical
-
-    def test_dispatch_submodule_path_still_imports(self) -> None:
-        shimmed = importlib.import_module("hyperi_ci.publish.dispatch")
-        canonical = importlib.import_module("hyperi_ci.release.dispatch")
-
-        assert shimmed is canonical
-
-    def test_publish_binaries_module_shim_still_imports(self) -> None:
-        from hyperi_ci.publish_binaries import publish_binaries as shimmed
-        from hyperi_ci.release.binaries import publish_binaries as canonical
-
-        assert shimmed is canonical

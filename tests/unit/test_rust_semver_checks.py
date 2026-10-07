@@ -25,7 +25,6 @@ from hyperi_ci.languages.rust import semver_checks
 
 def _config(mode: str = "warn") -> CIConfig:
     return CIConfig(
-        publish_target="oss",
         _raw={"quality": {"rust": {"semver_checks": mode}}},
     )
 

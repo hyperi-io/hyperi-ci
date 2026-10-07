@@ -16,23 +16,10 @@ test:
     parallel: true
 
 # hyperi-ci ships as a pip-installable CLI (PyPI), not a containerised
-# service. The container stage treats a project with a [project.scripts]
-# entry point as an "app" and tries to build a template image, which is
-# both wrong here and fails (uv sync in the generated Dockerfile). The
-# version-first pipeline (adopted in ci.yml) routes through _release-tail,
-# which includes the container job -- so opt out explicitly.
+# service, and _release-tail includes the container job.
 release:
   container:
     enabled: false
-
-# Same shape one layer down: hyperi-ci depends on scalo and declares a
-# [project.scripts] entry, so tier detection reads it as a Tier 2
-# deployment-artefact producer. It isn't one -- the CLI has no
-# generate-artefacts subcommand, so `run generate` would exit 8. The
-# self-hosting ci.yml doesn't call that stage today; this keeps it
-# correct if it ever converges on the shared python-ci.yml.
-deployment:
-  producer: false
 
 # Quality-gate suppressions. semgrep's auto ruleset flags importlib.resources as
 # a pre-3.9 backport-compat issue; this repo pins requires-python >= 3.12, so the
@@ -60,10 +47,6 @@ quality:
         - python.lang.compatibility.python36.python36-compatibility-importlib2
         - python.lang.compatibility.python37.python37-compatibility-importlib2
       reason: "importlib.resources is stdlib; repo requires-python >= 3.12, no py<3.9 support"
-    - tool: semgrep
-      ids:
-        - yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
-      reason: "gitops_templates/ ships floating @vN action refs as a readable starting point; downstream repos pin via their own Renovate. This repo's own workflows are SHA-pinned (versions.yaml + pre-commit hook) so the rule is redundant here. Rule-scoped, not a path exclude, so other semgrep rules still cover the templates."
     - tool: ruff
       ids:
         - S603

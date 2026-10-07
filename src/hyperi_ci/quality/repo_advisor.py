@@ -106,9 +106,7 @@ def _install_alint(dest_dir: Path) -> str | None:
     return str(binary)
 
 
-# hyperi-ci language -> the alint bundled-ruleset group it maps to. bash has
-# no alint ruleset (absent here), so a bash-primary repo disables every
-# group's root-only rules below.
+# hyperi-ci language -> the alint bundled-ruleset group it maps to.
 _ALINT_GROUP: dict[str, str] = {
     "python": "python",
     "rust": "rust",
