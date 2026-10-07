@@ -19,7 +19,7 @@ read as "the surfaces are covered" (see [the blind spots](#what-renovate-never-s
 | Dependency | Owner | How | Cooldown |
 |---|---|---|---|
 | GitHub Actions (on hyperi-ci) | `/deps` script (`scripts/update-versions.py`) + `src/hyperi_ci/config/versions.yaml` | SHA-pinned by `--apply`, held by the `--check` CI gate | 7 days, enforced by the script |
-| **External CLI tools** (gitleaks, osv-scanner) | same script + `src/hyperi_ci/config/versions.yaml` `tools:` | **tag-pinned** (see the exemption below), mirrored into source via a `# hyperi-ci:pin` marker | 7 days, enforced by the script |
+| **External CLI tools** (gitleaks, osv-scanner) | same script + `src/hyperi_ci/config/versions.yaml` `tools:` | **tag-pinned** with a `sha256` per release asset (see the exemption below), mirrored into composite actions via a `# hyperi-ci:pin` marker | 7 days, enforced by the script |
 | GitHub Actions (other repos) | Renovate org preset | SHA digest pin (`helpers:pinGitHubActionDigests`) | 7 days |
 | **hyperi-ci reusable-workflow caller** (other repos) | **nobody - floats `@main`** | **NOT pinned. Carved out of digest pinning in the org preset** (`hyperi-io/renovate-config`) | n/a |
 | cargo / pip / npm / docker (all repos) | Renovate org preset | version PRs | 7 days |
@@ -57,11 +57,9 @@ reason) is still allowed - the carve-out only stops Renovate *imposing* one.
   `owner/repo@<sha> # <version>`.
   - **Known exemption: external CLI tools pin by tag** (`tools:` in
     `versions.yaml`). We fetch a release *asset*, not a git ref, so a moved tag
-    is not the threat - but an asset can be deleted and re-uploaded under the
-    same tag, and no install path verifies a digest today. So tools are
-    currently *less* protected than actions, not more. Closing that gap (a
-    `sha256:` per asset, verified on download) is **#66**. Until then, treat the
-    tool pins as reproducibility, not integrity.
+    is not the threat. An asset can be deleted and re-uploaded under the same
+    tag, so each tool also carries a `sha256` per asset, and the install fails
+    closed on a mismatch.
 - **Same-org packages skip the cooldown.** We publish those ourselves; our own
   CI gates govern the risk, not external-attacker cooldown logic.
 
@@ -154,7 +152,7 @@ floor is a lie about what it supports, and it stays a lie until someone reads
 it. `deps drift` is the standing audit, reported per GROUP so a rotting `dev`
 extra is visibly separate from runtime.
 
-The 0.x rule matches the clamp table above: under
+The 0.x rule: under
 [semver section 4](https://semver.org/#spec-item-4) minor is the breaking axis
 for 0.x, so `>=0.23` against a locked 0.40 is flagged the same as `>=1` against
 a locked 2.
@@ -204,8 +202,8 @@ the full pipeline, not just top-level workflows.
 |---|---|
 | `--check` (default) | show drift between `versions.yaml` and the pinned refs |
 | `--apply` | rewrite workflows + composites to match the SSOT |
-| `--stable` | report the newest release of each Action that's >=7 days old |
-| `--auto-update` | bump `versions.yaml` to those, test on the `ci-test-*` projects, commit or revert |
+| `--stable` | report the newest release of each Action and tool that's >=7 days old |
+| `--auto-update` | bump `versions.yaml` to those, validate locally, revert on failure. It does not commit and does not trigger remote CI |
 
 `--stable` is the SOAKED release, not the newest one - the same sense as the
 `stable` channel in [self-update.md](../self-update.md).
@@ -224,13 +222,11 @@ we always adopt a release only after its cooldown, and we pin the immutable SHA
 at adoption time rather than tracking a movable tag. Tools follow the same
 cooldown, but pin by tag (see the exemption above).
 
-**The clamp follows semver's compatibility axis, which is not always the major.**
-`--auto-update` never crosses it; that bump is a human edit.
-
-| Pin | Clamp | Why |
-|---|---|---|
-| `1.x` and up | major | `gitleaks v8 -> v9` never auto-lands. That exact breaking-CLI change (`detect` removed) is what produced #64. |
-| `0.x` | major **and** minor | Under [semver §4](https://semver.org/#spec-item-4) anything may change in 0.x, so `0.20 -> 0.21` **is** the breaking bump. `cargo-deny` (0.20.2) and `cargo-audit` (v0.22.2) are both 0.x - clamping only the major there would wave through the breaking axis while blocking the safe `1.0.0` move. |
+**Majors are included.** `--auto-update` takes the newest release past the
+cooldown, whatever its major. Every bump goes through a PR, and a tool whose
+flags changed shows up as a red quality stage on the `ci-test-*` fleet. An
+action that has to stay on one major opts out with `max_major:` in
+`versions.yaml`.
 
 The cooldown applies to **our own pins too**, not just to what `--auto-update`
 picks: pinning a release younger than 7 days is the same policy breach whoever
@@ -238,15 +234,11 @@ types it.
 
 ### Tool pins live in source, and why
 
-`config/` ships **outside** the wheel (`pyproject.toml`: `packages =
-["src/hyperi_ci"]`), so runtime code cannot read `versions.yaml`. A tool version
-is therefore *copied* into the file that uses it, and the copy is anchored with
-an explicit marker:
-
-```python
-# hyperi-ci:pin tools.gitleaks
-_GITLEAKS_VERSION = "v8.30.1"
-```
+`versions.yaml` ships inside the wheel (`src/hyperi_ci/config/`), and Python
+reads it through `hyperi_ci.versions`, so Python code carries no copy of a
+version. A copy is needed only where GitHub parses the file before any of our
+code runs: a composite action's `default:` or a workflow input's `default:`.
+That copy is anchored with an explicit marker:
 
 ```yaml
 # hyperi-ci:pin tools.osv-scanner
