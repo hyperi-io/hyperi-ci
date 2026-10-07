@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.12.18](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.17...v2.12.18) (2026-10-07)
+
+### Bug Fixes
+
+* **bootstrap:** drop the unpinned binstall bake, pin sccache, bake one Node ([#536](https://github.com/hyperi-io/hyperi-ci/issues/536)) ([664a5d5](https://github.com/hyperi-io/hyperi-ci/commit/664a5d511296f1bd7d3b56d0cba0c6e1aecc40a3)), closes [#535](https://github.com/hyperi-io/hyperi-ci/issues/535)
+* **rust:** stop installing the distro's unversioned clang ([#534](https://github.com/hyperi-io/hyperi-ci/issues/534)) ([9117d30](https://github.com/hyperi-io/hyperi-ci/commit/9117d303e1b0951fa4f57a42d86f483d7105cf43)), closes [#533](https://github.com/hyperi-io/hyperi-ci/issues/533)
+
 ## [2.12.17](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.16...v2.12.17) (2026-10-06)
 
 ### Bug Fixes
