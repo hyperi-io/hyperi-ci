@@ -34,7 +34,7 @@ from pathlib import Path
 
 from hyperi_ci.common import error, info, is_ci, run_cmd, success, warn
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import resolve_cross_tool_mode
+from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.quality import findings as fdg
 from hyperi_ci.quality.install import install_ci_binary
 from hyperi_ci.tools import missing_tool_notice
@@ -72,7 +72,7 @@ def _install_lychee() -> str | None:
 
 def resolve_mode(config: CIConfig) -> str:
     """Resolve lychee's mode: ``warn`` (default) / ``blocking`` / ``disabled``."""
-    return resolve_cross_tool_mode(config, "doc_links", "warn")
+    return resolve_tool_mode("doc_links", config, default="warn")
 
 
 def planned_mode(config: CIConfig) -> str | None:

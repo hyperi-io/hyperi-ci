@@ -34,7 +34,7 @@ from hyperi_ci.common import (
     warn,
 )
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import resolve_cross_tool_mode
+from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.native_tools import ci_binary
 from hyperi_ci.quality import (
     ansible_lint,
@@ -131,7 +131,7 @@ def _render_gate(
 
     Returns 1 when either gate fails.
     """
-    stable_mode = resolve_cross_tool_mode(ctx.config, "render_stable", "blocking")
+    stable_mode = resolve_tool_mode("render_stable", ctx.config)
     failed = [r.finding for r in renders if r.finding is not None and not r.unstable]
     unstable = [r.finding for r in renders if r.finding is not None and r.unstable]
     if stable_mode == "disabled":
@@ -170,7 +170,7 @@ def _rendered(
     if not targets:
         info(f"  {tool}: nothing to render - skipping")
         return 0, 0, []
-    mode = resolve_cross_tool_mode(ctx.config, "kubeconform", "blocking")
+    mode = resolve_tool_mode("kubeconform", ctx.config)
     if mode == "disabled":
         info(f"  {tool}: kubeconform is disabled, so nothing is rendered")
         return len(targets), 0, []
@@ -445,7 +445,7 @@ def _generated(ctx: _Context) -> tuple[int, int]:
     if not entries and not problems:
         info("  generated: no iac.generated entry - skipping")
         return 0, 0
-    mode = resolve_cross_tool_mode(ctx.config, "iac_generated", "blocking")
+    mode = resolve_tool_mode("iac_generated", ctx.config)
     if mode == "disabled":
         info("  generated: disabled")
         return len(entries), 0

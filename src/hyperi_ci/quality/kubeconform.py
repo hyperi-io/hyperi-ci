@@ -41,7 +41,7 @@ from pathlib import Path
 
 from hyperi_ci.common import error, info, is_ci, run_cmd, success, truthy, warn
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import resolve_cross_tool_mode
+from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.quality import findings as fdg
 from hyperi_ci.quality.install import install_ci_binary
 from hyperi_ci.tools import missing_tool_notice
@@ -124,11 +124,6 @@ def _parse(stdout: str) -> list[fdg.Finding]:
     return out
 
 
-def _resolve_mode(config: CIConfig) -> str:
-    """Resolve kubeconform's mode: ``blocking`` (default) / ``warn`` / ``disabled``."""
-    return resolve_cross_tool_mode(config, "kubeconform", "blocking")
-
-
 def strict(config: CIConfig) -> bool:
     """Return whether ``-strict`` is on: ``quality.kubeconform.strict``, default on.
 
@@ -168,7 +163,7 @@ def run(
     an invalid manifest, a run that timed out, or the tool is
     required-but-missing in CI.
     """
-    mode = _resolve_mode(config)
+    mode = resolve_tool_mode("kubeconform", config, default="blocking")
     if mode == "disabled":
         info("  kubeconform: disabled")
         return 0

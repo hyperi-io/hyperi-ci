@@ -34,7 +34,7 @@ from pathlib import Path
 
 from hyperi_ci.common import error, info, is_ci, run_cmd, success, warn
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import resolve_cross_tool_mode
+from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.quality import findings as fdg
 from hyperi_ci.quality.targets import compose_document
 from hyperi_ci.tools import missing_tool_notice
@@ -151,7 +151,7 @@ def run(
     0 = every stack resolved / disabled / nothing to resolve; 1 = a blocking gate
     hit a file that does not resolve, or docker compose is missing in CI.
     """
-    mode = resolve_cross_tool_mode(config, "compose_config", "blocking")
+    mode = resolve_tool_mode("compose_config", config, default="blocking")
     if mode == "disabled":
         info("  compose-config: disabled")
         return 0

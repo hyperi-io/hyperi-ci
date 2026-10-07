@@ -87,11 +87,6 @@ _ADVISORY_DB_UNREACHABLE = re.compile(
 )
 
 
-def _get_tool_mode(tool: str, config: CIConfig) -> str:
-    """Get quality tool mode: blocking, warn, or disabled."""
-    return resolve_tool_mode(tool, config, "python")
-
-
 def _component_patterns(excludes: list[str]) -> list[str]:
     """Rewrite each bare name as a glob that matches it as a whole path component.
 
@@ -498,7 +493,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     had_failure = False
 
     # Ruff lint -- two-pass: production (strict) + test (relaxed)
-    mode = _get_tool_mode("ruff", config)
+    mode = resolve_tool_mode("ruff", config, language="python")
     exclude_args = _build_exclude_args("ruff", excludes)
     # Use GitHub-native annotations in CI for inline PR feedback
     output_fmt = ["--output-format=github"] if os.environ.get("GITHUB_ACTIONS") else []
@@ -545,13 +540,13 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if not _run_tool(
         "ruff format",
         _build_ruff_format_cmd(excludes, extend_exclude=format_extend_exclude),
-        _get_tool_mode("ruff_format", config),
+        resolve_tool_mode("ruff_format", config, language="python"),
     ):
         had_failure = True
 
     # Type checking (ty from Astral, or pyright as fallback)
-    ty_mode = _get_tool_mode("ty", config)
-    pyright_mode = _get_tool_mode("pyright", config)
+    ty_mode = resolve_tool_mode("ty", config, language="python")
+    pyright_mode = resolve_tool_mode("pyright", config, language="python")
     if ty_mode != "disabled":
         # In the project's environment, so it resolves the project's imports.
         ty_spec = f"ty=={tool_version('ty')}"
@@ -567,7 +562,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     parse_python = _parse_python()
 
     # Bandit security scanning
-    mode = _get_tool_mode("bandit", config)
+    mode = resolve_tool_mode("bandit", config, language="python")
     bandit_cmd = ["bandit", "-r", *sources, "-ll"]
     if Path("pyproject.toml").exists():
         bandit_cmd.extend(["-c", "pyproject.toml"])
@@ -599,7 +594,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if not _run_source_tool(
         "ruff security",
         _build_ruff_security_cmd(sources, excludes, ruff_user_ignores),
-        _get_tool_mode("ruff_security", config),
+        resolve_tool_mode("ruff_security", config, language="python"),
         sources,
     ):
         had_failure = True
@@ -607,14 +602,14 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # pip-audit vulnerability scanning
     # Always run via 'uv run --with' to ensure it scans the PROJECT's
     # installed packages, not ~/.venv or the system Python.
-    mode = _get_tool_mode("pip_audit", config)
+    mode = resolve_tool_mode("pip_audit", config, language="python")
     pip_audit_cmd = _build_pip_audit_cmd(for_tool(ignores, "pip-audit"))
     if not _run_tool("pip-audit", pip_audit_cmd, mode, retry_unreachable=True):
         had_failure = True
 
     # Docstring coverage via ruff D rules (replaces interrogate). Concise output
     # is one finding per line, so the warn tier's line cap counts findings.
-    mode = _get_tool_mode("ruff_docstrings", config)
+    mode = resolve_tool_mode("ruff_docstrings", config, language="python")
     ruff_doc_cmd = [
         "ruff", "check", "--select", "D", "--output-format=concise", *sources
     ]  # fmt: skip
@@ -624,7 +619,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         had_failure = True
 
     # Vulture dead code detection
-    mode = _get_tool_mode("vulture", config)
+    mode = resolve_tool_mode("vulture", config, language="python")
     vulture_cmd = ["vulture", *sources] + _build_exclude_args("vulture", excludes)
     vulture_spec = f"vulture=={tool_version('vulture')}"
     if not _run_source_tool(

@@ -30,7 +30,7 @@ from pathlib import Path
 
 from hyperi_ci.common import error, info, is_ci, run_cmd, success, warn
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import resolve_cross_tool_mode
+from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.quality import findings as fdg
 from hyperi_ci.quality import node_tools
 from hyperi_ci.tools import missing_tool_notice
@@ -107,7 +107,7 @@ def run(
     0 = clean / advisory mode / disabled / no files; 1 = a blocking check found
     a violation, or markdownlint-cli2 is required-but-missing in CI.
     """
-    mode = resolve_cross_tool_mode(config, "markdownlint", "warn")
+    mode = resolve_tool_mode("markdownlint", config, default="warn")
     if mode == "disabled":
         info("  markdownlint: disabled")
         return 0

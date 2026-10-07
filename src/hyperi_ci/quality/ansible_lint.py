@@ -22,7 +22,7 @@ from pathlib import Path
 
 from hyperi_ci.common import info, scratch_dir
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import resolve_cross_tool_mode, resolve_tool_cmd
+from hyperi_ci.languages.quality_common import resolve_tool_cmd, resolve_tool_mode
 from hyperi_ci.quality import findings as fdg
 from hyperi_ci.quality.targets import first_file, yaml_mapping
 from hyperi_ci.tools import missing_tool
@@ -254,7 +254,7 @@ def run(
     memory_limit_bytes: int | None = None,
 ) -> int:
     """Install requirements, then run ansible-lint and yamllint; return the exit code."""
-    mode = resolve_cross_tool_mode(config, "ansible_lint", "warn")
+    mode = resolve_tool_mode("ansible_lint", config, default="warn")
     if mode == "disabled":
         info("  ansible: disabled")
         return 0

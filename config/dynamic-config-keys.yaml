@@ -66,8 +66,8 @@ keys:
   # Read off .hyperi-ci.yaml by chained .get(), not by dotted path.
   build.rust.arm64_on_main: src/hyperi_ci/arm64_check.py
 
-  # resolve_cross_tool_mode() builds `quality.<tool>` for the tools that run
-  # once at dispatch level rather than per language.
+  # resolve_tool_mode() with no language builds `quality.<tool>` for the tools
+  # that run once at dispatch level rather than per language.
   quality.gitleaks: src/hyperi_ci/quality/gitleaks.py
   quality.kubeconform: src/hyperi_ci/quality/kubeconform.py
   quality.checkov: src/hyperi_ci/quality/checkov.py

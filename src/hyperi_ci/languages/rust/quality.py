@@ -226,11 +226,6 @@ def _split_feature_sets(features: str) -> list[str]:
     return [f.strip() for f in features.split("|") if f.strip()]
 
 
-def _get_tool_mode(tool: str, config: CIConfig) -> str:
-    """Get quality tool mode: blocking, warn, or disabled."""
-    return resolve_tool_mode(tool, config, "rust")
-
-
 def _resolve_tool_cmd(cmd: list[str], use_uvx: bool = False) -> list[str]:
     """Resolve tool command, using uvx for standalone tools not on PATH."""
     if shutil.which(cmd[0]):
@@ -323,12 +318,12 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     had_failure = False
 
     # cargo fmt --check
-    mode = _get_tool_mode("fmt", config)
+    mode = resolve_tool_mode("fmt", config, language="rust")
     if not _run_tool("cargo fmt", ["cargo", "fmt", "--check"], mode):
         had_failure = True
 
     # cargo clippy -- two-pass: production (strict) + test (relaxed)
-    mode = _get_tool_mode("clippy", config)
+    mode = resolve_tool_mode("clippy", config, language="rust")
     features = (extra_env or {}).get("RUST_FEATURES", "all")
     feature_sets = _split_feature_sets(features)
     test_ignore = get_test_ignore("rust", config)
@@ -389,7 +384,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         )
 
     # cargo audit - one --ignore <RUSTSEC-id> per entry
-    mode = _get_tool_mode("audit", config)
+    mode = resolve_tool_mode("audit", config, language="rust")
     audit_cmd = ["cargo", "audit"]
     audit_ignores = _merge_deny_advisory_ignores(
         for_tool(ignores, "cargo-audit"), "cargo-audit", deny_advisory_ids
@@ -402,7 +397,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # osv-scanner - malicious-package (MAL-*) scan. cargo audit uses the
     # RustSec DB, which does NOT ingest the OSSF malicious-packages feed;
     # osv-scanner does. Defence-in-depth behind the 7-day Renovate cooldown.
-    mode = _get_tool_mode("osv_scanner", config)
+    mode = resolve_tool_mode("osv_scanner", config, language="rust")
     osv_ignores = _merge_deny_advisory_ignores(
         for_tool(ignores, osv_scanner.SLUG), osv_scanner.SLUG, deny_advisory_ids
     )
@@ -410,7 +405,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         had_failure = True
 
     # cargo deny (requires deny.toml -- useless without project-specific config)
-    mode = _get_tool_mode("deny", config)
+    mode = resolve_tool_mode("deny", config, language="rust")
     if not Path("deny.toml").exists():
         # A bare "skipped" under a blocking mode reads as though advisories
         # went unchecked; cargo audit above covers them from the same DB.
@@ -560,7 +555,7 @@ def _run_feature_matrix(
 
     had_failure = False
     warnings_mode = resolve_tool_mode(
-        "feature_matrix.warnings", config, "rust", default="warn"
+        "feature_matrix.warnings", config, language="rust", default="warn"
     )
 
     # Both passes use --lib when a lib target exists, --bins otherwise.
@@ -590,7 +585,11 @@ def _run_feature_matrix(
             )
         ]
 
-    lint_tool = "check" if _get_tool_mode("clippy", config) == "disabled" else "clippy"
+    lint_tool = (
+        "check"
+        if resolve_tool_mode("clippy", config, language="rust") == "disabled"
+        else "clippy"
+    )
     lint_args: list[str] = []
     if lint_tool == "clippy":
         # Below blocking, a lint the repo sets to deny only warns, so it names

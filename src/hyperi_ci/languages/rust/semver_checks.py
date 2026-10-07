@@ -70,7 +70,7 @@ def run(config: CIConfig, *, project_root: Path | None = None) -> int:
         0 when the API is compatible, skipped, or the mode is not blocking.
 
     """
-    mode = resolve_tool_mode("semver_checks", config, "rust")
+    mode = resolve_tool_mode("semver_checks", config, language="rust")
     if mode == "disabled":
         info(f"  {_TOOL}: disabled")
         return 0
