@@ -502,11 +502,6 @@ def _build_replacements(versions: dict) -> list[tuple[re.Pattern, str, str]]:
         replacement = rf"\g<1>{python_ver}"
         replacements.append((pattern, replacement, f"Python {python_ver}"))
 
-        # Also match the default value in workflow inputs
-        pattern = re.compile(r'(python-version:.*\n\s+default:\s*)"([^"]+)"')
-        replacement = rf'\g<1>"{python_ver}"'
-        replacements.append((pattern, replacement, f"Python default {python_ver}"))
-
         # The interpreter the CLI itself runs on. Left to drift, uvx takes the
         # project's Python and silently installs an older hyperi-ci that
         # allowed it (issue #157).
@@ -520,11 +515,6 @@ def _build_replacements(versions: dict) -> list[tuple[re.Pattern, str, str]]:
         pattern = re.compile(r"(node-version: )(\d[\d.]*)")
         replacement = rf"\g<1>{node_ver}"
         replacements.append((pattern, replacement, f"Node.js {node_ver}"))
-
-        # Also match the default value in workflow inputs
-        pattern = re.compile(r'(node-version:.*\n\s+default:\s*)"([^"]+)"')
-        replacement = rf'\g<1>"{node_ver}"'
-        replacements.append((pattern, replacement, f"Node.js default {node_ver}"))
 
     rust_ver = _runtime_value(runtimes.get("rust"))
     if rust_ver:
