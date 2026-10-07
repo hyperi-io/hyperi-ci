@@ -71,13 +71,6 @@ def _has_any(markers: tuple[str, ...]) -> bool:
     return any(Path(m).exists() for m in markers)
 
 
-_DEFAULT_TS_TEST_IGNORE = [
-    "@typescript-eslint/no-explicit-any",
-    "@typescript-eslint/no-non-null-assertion",
-    "no-console",
-]
-
-
 def _find_npm_script(
     candidates: list[str],
     pm: str,

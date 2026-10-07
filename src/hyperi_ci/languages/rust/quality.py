@@ -53,13 +53,6 @@ try:
 except ModuleNotFoundError:  # pragma: no cover -- Python < 3.11
     import tomli as tomllib  # type: ignore[no-redef]  # ty: ignore[unresolved-import]
 
-_DEFAULT_RUST_TEST_IGNORE = [
-    "clippy::unwrap_used",
-    "clippy::expect_used",
-    "clippy::panic",
-    "clippy::indexing_slicing",
-]
-
 # A target entry of its own joins the repo's and the runner's target rustflags,
 # where RUSTFLAGS would discard them.
 _DENY_WARNINGS_CONFIG = "target.'cfg(all())'.rustflags=[\"-Dwarnings\"]"
@@ -338,7 +331,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     mode = _get_tool_mode("clippy", config)
     features = (extra_env or {}).get("RUST_FEATURES", "all")
     feature_sets = _split_feature_sets(features)
-    test_ignore = get_test_ignore("rust", config, _DEFAULT_RUST_TEST_IGNORE)
+    test_ignore = get_test_ignore("rust", config)
     clippy_user_allows = [f"-A{e.id}" for e in for_tool(ignores, "clippy")]
 
     has_lib = _has_lib_target()

@@ -23,8 +23,6 @@ from hyperi_ci.common import announce, env_true, get_exclude_dirs, info, warn
 from hyperi_ci.config import CIConfig, packaged_default
 from hyperi_ci.tools import installed_version
 
-DEFAULT_TEST_PATHS = ["tests/"]
-
 # Directory names never scanned as Python source, beside the handler's own
 # excludes and every hidden directory.
 _NOT_PYTHON_SOURCE = (
@@ -478,12 +476,12 @@ def resolve_tool_cmd(
 def get_test_paths(config: CIConfig) -> list[str]:
     """Get configured test directories that exist on disk.
 
-    Reads quality.test_paths from config, defaults to ["tests/"].
+    Reads quality.test_paths from config, falling back to the shipped default.
     Only returns paths that actually exist as directories.
     """
-    configured = config.get("quality.test_paths", DEFAULT_TEST_PATHS)
+    configured = config.get("quality.test_paths")
     if not isinstance(configured, list):
-        configured = DEFAULT_TEST_PATHS
+        configured = packaged_default("quality.test_paths", [])
     return [p for p in configured if Path(p).is_dir()]
 
 
@@ -543,14 +541,14 @@ def get_python_source_paths(config: CIConfig) -> list[str]:
     return [f"{d}/" for d in found]
 
 
-def get_test_ignore(language: str, config: CIConfig, defaults: list[str]) -> list[str]:
-    """Get test_ignore rules for a language, with fallback to defaults.
+def get_test_ignore(language: str, config: CIConfig) -> list[str]:
+    """Get test_ignore rules for a language.
 
-    Projects override entirely via quality.<language>.test_ignore
-    in .hyperi-ci.yaml. If not set, uses the provided defaults
-    (which come from defaults.yaml).
+    Projects override entirely via quality.<language>.test_ignore in
+    .hyperi-ci.yaml. Otherwise the shipped defaults.yaml list applies, and a
+    language that ships none gets an empty list.
     """
-    configured = config.get(f"quality.{language}.test_ignore", None)
-    if configured is not None and isinstance(configured, list):
-        return [str(r) for r in configured]
-    return defaults
+    configured = config.get(f"quality.{language}.test_ignore")
+    if not isinstance(configured, list):
+        configured = packaged_default(f"quality.{language}.test_ignore", [])
+    return [str(r) for r in configured]
