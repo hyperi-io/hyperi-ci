@@ -84,7 +84,7 @@ Source: `hyperi-io/ci` (to be archived once cutover is complete).
 ### Quality
 
 - `cargo deny` requires `deny.toml` - skip if not present
-- `cargo audit` may fail with "error loading advisory database" - skip gracefully
+- `cargo audit` may fail with "error loading advisory database" - retry with backoff; a `blocking` gate fails if it never loads, as pip-audit does
 - Clippy: force `-D clippy::dbg_macro` to prevent debug macros in production
 - Multi-feature testing: pipe-separated `RUST_FEATURES` runs clippy per set
 
