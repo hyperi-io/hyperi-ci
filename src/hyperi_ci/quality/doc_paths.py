@@ -307,9 +307,7 @@ def run(
             "(doc-paths: ignore)"
         )
 
-    dropped = fdg.surface("doc-paths", fdg.at_mode(found, mode), sarif_path=sarif_path)
-    if dropped:
-        info(f"  doc-paths: +{dropped} more finding(s) in the job summary")
+    fdg.report("doc-paths", found, mode, sarif_path=sarif_path)
 
     if not found:
         success(f"  doc-paths: every path named in {len(files)} file(s) resolves")

@@ -21,7 +21,7 @@ import tomllib
 from collections.abc import Iterable
 from pathlib import Path
 
-from hyperi_ci.common import error, info, is_ci, run_cmd, success, warn
+from hyperi_ci.common import announce, error, info, is_ci, run_cmd, success, warn
 from hyperi_ci.quality.ignores import IgnoreEntry
 from hyperi_ci.tools import missing_tool, warn_on_pin_drift
 
@@ -154,9 +154,9 @@ def _not_scanned(why: str, mode: str) -> None:
         f"This is not a clean result."
     )
     if is_ci() and mode == "blocking":
-        print(
-            f"::warning title=osv-scanner scanned nothing::{SLUG} is "
-            f"{mode} but {why}, so it gated nothing here."
+        announce(
+            f"{SLUG} is {mode} but {why}, so it gated nothing here.",
+            "osv-scanner scanned nothing",
         )
 
 

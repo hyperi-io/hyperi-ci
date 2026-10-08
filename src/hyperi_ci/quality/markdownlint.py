@@ -17,7 +17,7 @@ import re
 import shutil
 from pathlib import Path
 
-from hyperi_ci.common import error, info, is_ci, run_cmd, success, warn
+from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.quality import findings as fdg
@@ -116,34 +116,20 @@ def run(
     args += [f":{_relative(f, root)}" for f in files]
 
     info(f"  markdownlint: linting {len(files)} markdown file(s)...")
-    try:
-        result = run_cmd(args, check=False, capture=True, cwd=root)
-    except OSError as exc:
-        warn(f"  markdownlint-cli2 could not be run ({exc})")
-        if mode == "blocking" and is_ci():
-            error("  markdownlint: the check is blocking and could not run")
-            return 1
-        return 0
-
-    # cli2 writes findings to stderr today; both streams are read in case that moves.
-    found = parse(f"{result.stdout}\n{result.stderr}")
-
-    # Exit 1 is violations; any other failing exit with nothing parsed is a tool error.
-    if result.returncode not in (0, 1) and not found:
-        warn(
-            f"  markdownlint-cli2 exited {result.returncode} with no parseable "
-            "output - tool error, not a clean pass"
-        )
-        if mode == "blocking" and is_ci():
-            error("  markdownlint: the check is blocking and could not complete")
-            return 1
-        return 0
-
-    dropped = fdg.surface(
-        "markdownlint", fdg.at_mode(found, mode), sarif_path=sarif_path
+    # cli2 writes findings to stderr today; both streams are read in case that
+    # moves. Exit 1 is violations.
+    found = fdg.run_check(
+        "markdownlint",
+        args,
+        mode,
+        lambda result: parse(f"{result.stdout}\n{result.stderr}"),
+        ok_exits=(0, 1),
+        cwd=root,
     )
-    if dropped:
-        info(f"  markdownlint: +{dropped} more finding(s) in the job summary")
+    if isinstance(found, int):
+        return found
+
+    fdg.report("markdownlint", found, mode, sarif_path=sarif_path)
 
     if not found:
         success(f"  markdownlint: {len(files)} file(s) clean")

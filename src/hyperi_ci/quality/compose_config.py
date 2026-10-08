@@ -17,7 +17,6 @@ rejects standalone, so it is named in the log and skipped.
 import os
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 from hyperi_ci.common import error, info, run_cmd, success, warn
@@ -90,34 +89,22 @@ def compose_available() -> bool:
 
 def _validate(path: Path, timeout: float | None = None) -> fdg.Finding | None:
     """Run ``docker compose config -q`` over one file; return a finding on failure."""
-    try:
-        result = run_cmd(
-            ["docker", "compose", "-f", path.name, "config", "-q"],
-            check=False,
-            capture=True,
-            cwd=path.parent,
-            env=placeholder_env(path),
-            timeout=timeout,
-            own_group=True,
-        )
-    except subprocess.TimeoutExpired:
-        return fdg.Finding(
-            tool="compose-config",
-            path=str(path),
-            line=None,
-            level="error",
-            rule="compose/timeout",
-            message=f"`docker compose config` gave no result within {timeout}s",
-        )
-    except OSError as exc:
-        return fdg.Finding(
-            tool="compose-config",
-            path=str(path),
-            line=None,
-            level="error",
-            rule="compose/unrunnable",
-            message=f"`docker compose config` could not be run ({exc})",
-        )
+    result = fdg.run_tool(
+        ["docker", "compose", "-f", path.name, "config", "-q"],
+        lambda kind, why: fdg.Finding(
+            "compose-config",
+            str(path),
+            None,
+            "error",
+            f"compose/{kind}",
+            f"`docker compose config`: {why}",
+        ),
+        timeout=timeout,
+        cwd=path.parent,
+        env=placeholder_env(path),
+    )
+    if isinstance(result, fdg.Finding):
+        return result
     if result.returncode == 0:
         return None
     detail = (result.stderr or result.stdout).strip().splitlines()
@@ -171,9 +158,7 @@ def run(
     info(f"  compose-config: resolving {len(stacks)} compose file(s)...")
     found = [f for f in (_validate(p, timeout) for p in stacks) if f is not None]
 
-    dropped = fdg.surface("compose-config", found, sarif_path=sarif_path)
-    if dropped:
-        info(f"  compose-config: +{dropped} more finding(s) in the job summary")
+    fdg.report("compose-config", found, mode, sarif_path=sarif_path)
 
     if not found:
         success(f"  compose-config: all {len(stacks)} compose file(s) resolve")

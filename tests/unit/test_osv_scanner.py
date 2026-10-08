@@ -322,11 +322,13 @@ class TestRun:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
     ) -> None:
         self._runner(monkeypatch, 1)
-        monkeypatch.setattr(osv_scanner, "is_ci", lambda: True)
+        monkeypatch.setenv("GITHUB_ACTIONS", "true")
         osv_scanner.run(tmp_path / "absent.lock", [], "blocking")
         assert (
-            "::warning title=osv-scanner scanned nothing::" in capsys.readouterr().out
-        )
+            "::warning title=osv-scanner scanned nothing::"
+            f"{osv_scanner.SLUG} is blocking but there is no absent.lock in this "
+            "repo, so it gated nothing here.\n"
+        ) in capsys.readouterr().out
 
     def test_no_entries_means_no_config_flag(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -450,7 +452,7 @@ class TestRun:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
     ) -> None:
         self._runner(monkeypatch, 128)
-        monkeypatch.setattr(osv_scanner, "is_ci", lambda: True)
+        monkeypatch.setenv("GITHUB_ACTIONS", "true")
         osv_scanner.run(self._lockfile(tmp_path), [], "blocking")
         assert (
             "::warning title=osv-scanner scanned nothing::" in capsys.readouterr().out
@@ -492,7 +494,7 @@ class TestRun:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
     ) -> None:
         self._runner(monkeypatch, 127, stderr=OSV_DEV_UNREACHABLE_STDERR)
-        monkeypatch.setattr(osv_scanner, "is_ci", lambda: True)
+        monkeypatch.setenv("GITHUB_ACTIONS", "true")
         osv_scanner.run(self._lockfile(tmp_path), [], "blocking")
         assert (
             "::warning title=osv-scanner scanned nothing::" in capsys.readouterr().out

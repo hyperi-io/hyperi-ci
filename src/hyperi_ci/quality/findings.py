@@ -19,6 +19,10 @@ Each tool parses its output into :class:`Finding` objects and hands them to
 GitHub keeps 10 error and 10 warning annotations per step and silently drops
 the rest, so every tool in one process draws from one :class:`_AnnotationBudget`.
 ``lint-iac`` is a separate step and process, so it gets a fresh budget.
+
+A check surfaces through :func:`report`, which downgrades errors outside
+``blocking``. :func:`run_check` runs a check's tool and decides the exit code
+when the tool timed out, could not start or printed nothing parseable.
 """
 
 import json
@@ -33,6 +37,7 @@ from hyperi_ci.common import (
     error,
     escape_command_data,
     info,
+    is_ci,
     is_github_actions,
     run_cmd,
     success,
@@ -408,3 +413,50 @@ def run_tool(
         return fail("timeout", f"no result within {timeout}s")
     except OSError as exc:
         return fail("unrunnable", f"could not run ({exc})")
+
+
+def _checked_nothing(tool: str, mode: str, why: str) -> int:
+    """Warn that ``tool`` checked nothing; return 1 if that fails a blocking check in CI."""
+    warn(f"  {tool}: {why}")
+    if mode == "blocking" and is_ci():
+        error(f"  {tool}: could not complete - failing the gate")
+        return 1
+    return 0
+
+
+def run_check(
+    tool: str,
+    cmd: list[str],
+    mode: str,
+    parse: Callable[[subprocess.CompletedProcess[str]], list[Finding]],
+    *,
+    ok_exits: tuple[int, ...] = (0,),
+    timeout: float | None = None,
+    **kwargs: Any,
+) -> list[Finding] | int:
+    """Run a check's command and parse its findings, or return the exit code if it gave none.
+
+    A timeout fails a ``blocking`` check. A command that could not run, or that
+    exited outside ``ok_exits`` with nothing parsed, checked nothing: that fails
+    a ``blocking`` check in CI and warns elsewhere, as a missing tool does.
+    """
+    result = run_tool(
+        cmd,
+        lambda kind, why: Finding(tool, "", None, "error", kind, why),
+        timeout=timeout,
+        **kwargs,
+    )
+    if isinstance(result, Finding):
+        if result.rule != "timeout":
+            return _checked_nothing(tool, mode, result.message)
+        message = f"  {tool}: {result.message}"
+        if mode == "blocking":
+            error(f"{message} - failing the gate")
+            return 1
+        warn(message)
+        return 0
+    found = parse(result)
+    if result.returncode not in ok_exits and not found:
+        why = f"exited {result.returncode} with no parseable output - tool error, not a clean pass"
+        return _checked_nothing(tool, mode, why)
+    return found
