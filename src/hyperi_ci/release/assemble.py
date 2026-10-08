@@ -9,8 +9,9 @@
 The contract comes from the app (``<binary> generate-artefacts``) or from a
 committed file. It is validated against the JSON Schema the scalo-service
 library chart ships for its ``schema_version``, then written with the library's
-skeleton into a chart that depends on scalo-service. Every generated file has
-sorted keys and no timestamp, so the same inputs give the same bytes.
+skeleton into a chart that depends on scalo-service. ``files/contract.json`` is
+the contract's own bytes. The files derived from it have sorted keys and no
+timestamp, so the same inputs give the same bytes.
 
 The library pulls ``<image_registry>/<app_name>`` at the chart's appVersion and
 the digest in values, so the image given must be that repository.
@@ -24,6 +25,7 @@ dials commented out, so the app's own defaults stand until one is set.
 """
 
 import json
+import math
 import os
 import re
 import shutil
@@ -221,18 +223,51 @@ def validate_contract(contract: dict, schema: dict) -> None:
         raise ChartError("the contract fails its schema:\n" + "\n".join(lines))
 
 
-def _read_json(path: Path, what: str) -> dict:
+def _read_bytes(path: Path, what: str) -> bytes:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
+        return path.read_bytes()
+    except OSError as exc:
         raise ChartError(f"cannot read {what} {path}: {exc}") from exc
+
+
+def _refuse_constant(name: str) -> object:
+    raise ValueError(f"{name} is not a JSON number")
+
+
+def _finite(text: str) -> float:
+    number = float(text)
+    if not math.isfinite(number):
+        raise ValueError(f"{text} is out of range for a JSON number")
+    return number
+
+
+def _parse_json(raw: bytes, what: str) -> dict:
+    """Parse ``raw`` as the library reads it: UTF-8, finite numbers only.
+
+    Raises:
+        ChartError: ``raw`` is not UTF-8, not JSON, carries NaN or Infinity,
+            or is not an object.
+
+    """
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise ChartError(f"{what} is not UTF-8: {exc}") from exc
+    try:
+        data = json.loads(text, parse_constant=_refuse_constant, parse_float=_finite)
+    except ValueError as exc:
+        raise ChartError(f"{what} is not JSON: {exc}") from exc
     if not isinstance(data, dict):
-        raise ChartError(f"{what} {path} is not a JSON object")
+        raise ChartError(f"{what} is not a JSON object")
     return data
 
 
+def _read_json(path: Path, what: str) -> dict:
+    return _parse_json(_read_bytes(path, what), f"{what} {path}")
+
+
 def assemble(
-    contract: dict,
+    raw_contract: bytes,
     library_dir: Path,
     out_dir: Path,
     *,
@@ -241,10 +276,11 @@ def assemble(
     library: str,
     registry: str,
 ) -> Path:
-    """Write the thin chart for ``contract`` to ``out_dir/<app_name>``.
+    """Write the thin chart for a contract to ``out_dir/<app_name>``.
 
     Args:
-        contract: The deployment contract.
+        raw_contract: The deployment contract as the app emitted or the repo
+            commits it. ``files/contract.json`` is these bytes unchanged.
         library_dir: An unpacked scalo-service chart.
         out_dir: Where the chart directory is created.
         version: The chart version, the release version.
@@ -266,6 +302,7 @@ def assemble(
     ref = IMAGE_RE.fullmatch(image)
     if ref is None:
         raise ChartError(f"image {image!r} is not <repo>:<tag>@sha256:<digest>")
+    contract = _parse_json(raw_contract, "the contract")
     name = contract.get("app_name")
     if not isinstance(name, str) or not NAME_RE.fullmatch(name):
         raise ChartError(
@@ -296,7 +333,10 @@ def assemble(
     if chart.exists():
         raise ChartError(f"{chart} already exists")
 
-    config_schema = contract.get("config_schema") or {}
+    config_schema = contract.get("config_schema")
+    # An absent, null or boolean config_schema has no nodes, so no dials.
+    if not isinstance(config_schema, dict):
+        config_schema = {}
     dials = find_dials(config_schema)
     try:
         meta = yaml.safe_load((skeleton / "Chart.yaml").read_text(encoding="utf-8"))
@@ -322,13 +362,13 @@ def assemble(
     shutil.copytree(skeleton, chart)
     files = {
         "Chart.yaml": yaml.safe_dump(meta, sort_keys=True),
-        "files/contract.json": _json(contract),
         "values.yaml": values_yaml(ref["digest"], dials),
         VALUES_SCHEMA: _json(schema),
     }
-    (chart / "files").mkdir(exist_ok=True)
     for rel, text in files.items():
         (chart / rel).write_text(text, encoding="utf-8", newline="\n")
+    (chart / "files").mkdir(exist_ok=True)
+    (chart / "files" / "contract.json").write_bytes(raw_contract)
     return chart
 
 
@@ -358,8 +398,10 @@ def producer_command(root: Path, binary: str | None = None) -> list[str]:
     raise ChartError(f"release.helm.contract is emit, but {decision.reason}")
 
 
-def load_contract(setting: str, root: Path, scratch: Path, binary: str | None) -> dict:
-    """Return the contract ``release.helm.contract`` names: ``emit`` or a path.
+def load_contract(setting: str, root: Path, scratch: Path, binary: str | None) -> bytes:
+    """Return the bytes of the contract ``release.helm.contract`` names.
+
+    The setting is ``emit`` or the path of a committed contract.
 
     Raises:
         ChartError: The producer failed, or the contract cannot be read.
@@ -370,7 +412,7 @@ def load_contract(setting: str, root: Path, scratch: Path, binary: str | None) -
             path = confine(setting, root, key="release.helm.contract")
         except RepoPathError as exc:
             raise ChartError(str(exc)) from exc
-        return _read_json(path, "contract")
+        return _read_bytes(path, "contract")
     cmd = [*producer_command(root, binary), "generate-artefacts"]
     info(f"Emitting the contract: {' '.join(cmd)}")
     emitted = scratch / "emitted"
@@ -386,7 +428,7 @@ def load_contract(setting: str, root: Path, scratch: Path, binary: str | None) -
         raise ChartError(f"cannot run {cmd[0]}: {exc}") from exc
     if result.returncode != 0:
         raise ChartError(f"{' '.join(cmd)} failed:\n{result.stdout}")
-    return _read_json(emitted / CONTRACT_FILE, "emitted contract")
+    return _read_bytes(emitted / CONTRACT_FILE, "emitted contract")
 
 
 def _pull_library(registry: str, library: str, scratch: Path) -> Path:
@@ -459,14 +501,14 @@ def assemble_chart(
     try:
         with tempfile.TemporaryDirectory(prefix="hyperi-ci-assemble-") as tmp:
             scratch = Path(tmp)
-            contract = load_contract(str(setting), root, scratch, binary)
+            raw_contract = load_contract(str(setting), root, scratch, binary)
             if library_dir is None:
                 if not _ensure_helm():
                     return 1, None
                 library_dir = _pull_library(registry, str(library), scratch)
             out.mkdir(parents=True, exist_ok=True)
             chart = assemble(
-                contract,
+                raw_contract,
                 library_dir,
                 out,
                 version=str(version),
