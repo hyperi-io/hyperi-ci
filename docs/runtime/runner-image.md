@@ -98,7 +98,7 @@ RUN CI=true OS_CODENAME=noble \
     uvx --from "hyperi-ci==${HYPERI_CI_VERSION}" hyperi-ci install-all
 ```
 
-`install-all` runs the language toolchains (rustup, Go, Node), then `config/toolchains/`, then every language's `config/native-deps/`. The next step reads `runtime_version('llvm')` into `/etc/hyperi-llvm-version` and points the unversioned alternatives at that major. `arc-runner-vanilla` and `arc-runner-debian` carry no toolchain on purpose.
+`install-all` runs the language toolchains (rustup, Go, Node, Python), then `config/toolchains/`, then every language's `config/native-deps/`. The next step reads `runtime_version('llvm')` into `/etc/hyperi-llvm-version` and points the unversioned alternatives at that major. `arc-runner-vanilla` and `arc-runner-debian` carry no toolchain on purpose.
 
 This produces the pre-baked toolchains below, per the shipped YAML.
 
@@ -108,6 +108,7 @@ This produces the pre-baked toolchains below, per the shipped YAML.
 - sccache at versions.yaml `tools.sccache`, checked against its pinned sha256 before it is unpacked. The image sets `RUSTC_WRAPPER=sccache`, and no CI step installs it.
 - Go, the current stable from go.dev.
 - Node at versions.yaml `runtimes.node` through nvm, the one major baked and the default on PATH.
+- Python at versions.yaml `runtimes.python` through `uv python install`, into the image's `UV_PYTHON_INSTALL_DIR` (set image-side, never by hyperi-ci), so a job's `uvx hyperi-ci` finds it without a download.
 
 cargo-audit, cargo-deny and cargo-nextest are not baked. The setup-rust-tools and setup-nextest composites install their versions.yaml pins on every Rust job, so a baked copy would never run.
 
