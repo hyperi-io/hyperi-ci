@@ -391,6 +391,10 @@ build:
 # `.hyperi-ci.yaml` files but ignored at runtime.
 release:
   enabled: true
+  # spike | alpha | beta | release. Pre-GA channels ship a GitHub prerelease and
+  # an R2 channel path and skip the package registries. A prerelease version
+  # carries its own label, which wins over this.
+  channel: release
 
   # Destination mapping (OSS only). Was `destinations_oss`, which still works.
   #

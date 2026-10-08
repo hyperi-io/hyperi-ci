@@ -317,9 +317,7 @@ def _dispatch_build(
     sha = _read_sha()
     # `release.channel` states where STABLE artefacts go; a prerelease version
     # ships on the channel its own label names (issue #144).
-    channel = effective_release_channel(
-        config.get("release.channel", "release"), version
-    )
+    channel = effective_release_channel(config.setting("release.channel"), version)
 
     # Only a GA release-channel push adds `:latest`, so only that one asks.
     move_latest = not (
