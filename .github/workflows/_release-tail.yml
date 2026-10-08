@@ -17,7 +17,8 @@
 #   (here)    prepare           <- hyperi-ci release-prepare: stamp, semver
 #                                  checks, cargo package, npm pack -- every
 #                                  step that runs repo code, holding no secret
-#   (here)    tag-and-release   <- npx semantic-release real -> tag +
+#   (here)    tag-and-release   <- hyperi-ci publish-charts (when enabled),
+#                                  then npx semantic-release real -> tag +
 #                                  CHANGELOG; then hyperi-ci run release
 #                                  uploads what prepare left -> crates.io /
 #                                  PyPI / npm / GitHub Releases / R2
@@ -492,7 +493,8 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
-      # The ghcr-npm destination publishes to GitHub Packages with the job token.
+      # The ghcr-npm destination and Helm charts publish to GitHub Packages
+      # with the job token.
       packages: write
     steps:
       - name: Install uv
@@ -651,6 +653,17 @@ jobs:
             fi
             echo "${predicted} already exists at HEAD -- nothing to tag."
           fi
+
+      - name: Publish Helm charts
+        # Before the tag, like the container, so a chart that fails to push
+        # cuts no tag. The CLI does nothing unless release.helm.enabled, and
+        # leaves the digest table in RUNNER_TEMP for the GitHub Release body.
+        # GITHUB_TOKEN, not the App token: GHCR refuses App tokens.
+        if: hashFiles('**/Chart.yaml') != ''
+        env:
+          HYPERCI_VERSION: ${{ inputs.next-version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ${{ env.HYPERCI_INSTALL }} publish-charts
 
       - name: Tag (semantic-release)
         # Real run (no --dry-run) -- analyzes commits, renders CHANGELOG.md,
