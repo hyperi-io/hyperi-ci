@@ -142,11 +142,7 @@ stage (doc-paths, lychee, mermaid-parse, markdownlint, docs-touched): gate
 semantics, how findings surface, config, coverage caveats and adoption
 impact are in [quality-gate-doc-linting.md](quality-gate-doc-linting.md).
 
-Three ways to change what a tool decides: `hyperi-ci check --strict` upgrades
-every warning for a pre-push check, `HYPERCI_QUALITY_SKIP` force-disables a
-tool for one run (the rare escape hatch), and `quality.ignore` silences one
-rule permanently and reviewably. Full detail:
-[quality-gate-overrides.md](quality-gate-overrides.md).
+`--strict`, `HYPERCI_QUALITY_SKIP` and `quality.ignore` are in [quality-gate-overrides.md](quality-gate-overrides.md).
 
 ## Missing tool - local vs CI
 

@@ -72,7 +72,7 @@ flowchart TD
 - semantic-release tags **HEAD** (not a CI-authored commit), so the tag is
   always reachable and the next run computes the correct next version.
 - `@semantic-release/git` is dropped - hyperi-ci stamps the version itself
-  (version-first), so there is no commit-back that could rewrite tags (issue #37).
+  (version-first). After publish, `release-commit` adds an untagged `chore(release): vX [skip ci]` commit, so no tag can be rewritten (issue #37). See [versioning-commit-back.md](versioning-commit-back.md).
 
 ## 4. What is done where - and why
 
@@ -104,9 +104,8 @@ per-language carve-out stays in the SME's domain.
 
 ## 5. Release routing
 
-Everything goes to the OSS registry stack, through one destination map. The
-legacy `release.target` config field and the `publish-target` workflow input
-are both read by nothing; the input stays declared so existing callers start.
+Everything goes to the OSS registry stack, through one destination map (`config.publish_destinations()`). The legacy `release.target` config field (`internal` / `oss` / `both`) and the `publish-target` workflow input
+are both read by nothing; the field warns until it is deleted and the input stays declared so existing callers start. The config namespace is `release:`. A `publish:` block still works: it folds into `release:` at load time and each moved key is named in a warning.
 
 ```mermaid
 flowchart LR
@@ -119,6 +118,15 @@ flowchart LR
     GA -->|yes| R2[GitHub Releases + Cloudflare R2<br/>downloads.hyperi.io]
     GA -->|pre-GA| GHO[GitHub Releases only]
 ```
+
+| Artefact | Destination |
+|---|---|
+| Python wheel/sdist | pypi.org |
+| Rust crate | crates.io |
+| npm package | npmjs.com |
+| Container | GHCR (`ghcr.io/hyperi-io`) |
+| Binaries (Rust/Go) | GitHub Releases + Cloudflare R2 (`downloads.hyperi.io`) for GA |
+| Go module | go-proxy (by tag) |
 
 - One artefact type -> one destination; there is no private/internal path.
 - `release.channel` controls prerelease vs GA (next section), not destination.
