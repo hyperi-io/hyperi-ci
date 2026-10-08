@@ -23,14 +23,10 @@
 #                                  uploads what prepare left -> crates.io /
 #                                  PyPI / npm / GitHub Releases / R2
 #
-# Doctrine: tag-on-publish. A git tag exists iff the artefact is in the
-# registry. Aligns with kubernetes/rust/python OSS conventions.
+# Tag-on-publish: a git tag exists iff the artefact is in the registry.
 #
-# Why a shared workflow?
-#  - The container, semantic-release, and publish jobs were byte-identical
-#    across rust/go/python/ts (the publish job was 100% duplicated).
-#  - Future CI plumbing changes (action version pins, registry tweaks,
-#    semver discipline) apply once instead of 4×.
+# Shared because the container, semantic-release and publish jobs are identical
+# across rust/go/python/ts, so a plumbing change applies once instead of four times.
 
 name: Release tail (shared)
 
@@ -102,18 +98,15 @@ on:
         description: "'release' if this run asked for the release optimisation tier. It overrides skip-optimize, so the image label and release notes match the binary."
 
 env:
-  # Rehearsal / incident escape hatch: the HYPERCI_INSTALL_OVERRIDE repo
-  # variable replaces the CLI install command wholesale -- a branch rehearsal
-  # points it at `uvx --from git+...@<branch> hyperi-ci`; an incident pins
-  # the repo to a known-good `uvx hyperi-ci==X.Y.Z`. Unset = latest PyPI.
-  # `--python` pins the CLI's OWN interpreter. Without it uvx takes whatever
-  # interpreter the runner has -- the project's -- and silently back-solves to
-  # an old hyperi-ci that allowed it, rather than failing (issue #157).
+  # The HYPERCI_INSTALL_OVERRIDE repo variable replaces the CLI install command: a
+  # rehearsal points it at `uvx --from git+...@<branch> hyperi-ci`, an incident pins
+  # `uvx hyperi-ci==X.Y.Z`. Unset = latest PyPI.
+  # `--python` pins the CLI's OWN interpreter. Without it uvx takes the project's
+  # interpreter and silently back-solves to an old hyperi-ci (issue #157).
   HYPERCI_INSTALL: ${{ vars.HYPERCI_INSTALL_OVERRIDE || 'uvx --python 3.14 --no-cache --refresh hyperi-ci' }}
   # The container and release jobs read the same switches the build did, or an
-  # unoptimised image ships with no record that it is one. The skip falls back
-  # to the repo variable exactly as the build's does: `vars` in a nested
-  # workflow are the consumer repo's.
+  # unoptimised image ships with no record that it is one. `vars` in a nested
+  # workflow are the consumer repo's, so the skip falls back to them as the build's does.
   HYPERCI_SKIP_OPTIMIZE: ${{ inputs.skip-optimize || vars.HYPERCI_SKIP_OPTIMIZE }}
   HYPERCI_RELEASE_UNOPTIMIZED: ${{ inputs.release-unoptimized }}
   HYPERCI_OPTIMIZE_TIER: ${{ inputs.optimize-tier }}
@@ -123,27 +116,24 @@ jobs:
     name: Container
     # At least twice the longest successful run across the fleet (issue #262).
     timeout-minutes: 135
-    # A non-release branch push never reaches this workflow (caller gates on
-    # quality+test+build pre-needs). Every publish run, pushes to main,
-    # workflow_dispatch, and branch-mode pull_request runs (caller's
-    # branch-build opt-in) reach here:
+    # A non-release branch push never reaches this workflow (the caller gates on
+    # quality+test+build). Pushes to main, workflow_dispatch and branch-mode
+    # pull_request runs (the caller's branch-build opt-in) do:
     #
-    # - Publish (will-publish == 'true'): docker build + push to all
-    #   configured registries. Admitted on will-publish itself, so a push
-    #   to a declared prerelease branch ships its image too (issue #479).
-    #   Tag & Release goes ahead when this job skips, so a publish run that
-    #   skipped it would release with no image behind the tag.
-    # - Validate-only (push to main, will-publish == 'false'):
-    #   docker build runs to catch Dockerfile breakages, but no push
-    #   to any registry -- verifies the Dockerfile is producible
-    #   BEFORE we ever try to publish from it.
-    # - pull_request (branch-mode): docker build; pushed as a DEV image
+    # - Publish (will-publish == 'true'): docker build + push to all configured
+    #   registries. Admitted on will-publish itself, so a push to a declared
+    #   prerelease branch ships its image too (issue #479). Tag & Release goes
+    #   ahead when this job skips, so skipping here would release with no image
+    #   behind the tag.
+    # - Validate-only (push to main, will-publish == 'false'): docker build to
+    #   catch Dockerfile breakage, no push.
+    # - pull_request (branch-mode): docker build, pushed as a DEV image
     #   (branch-<slug> + sha tags, GHCR only) iff the project sets
-    #   publish.container.dev_push -- else validate-only. Fork PRs are
-    #   excluded outright (first clause; no secrets, no pushes).
+    #   publish.container.dev_push, else validate-only. Fork PRs are excluded
+    #   outright (first clause), as they have no secrets.
     #
-    # The release/dev/validate decision lives in hyperi_ci.release_mode
-    # (the SSOT), keyed off HYPERCI_RELEASE_MODE + the event context.
+    # The decision lives in hyperi_ci.release_mode, keyed off
+    # HYPERCI_RELEASE_MODE + the event context.
     if: |
       github.event.pull_request.head.repo.fork != true && (
         inputs.will-publish == 'true' ||
@@ -159,17 +149,16 @@ jobs:
       # Whether this project ships a container at all, so tag-and-release can
       # tell "the deliverable failed" from "there was never a container".
       ships-container: ${{ steps.resolve.outputs.build }}
-    # This job holds registry logins and a packages:write token, so its stamp
-    # skips release.stamp_cmd (Build and Prepare run it). The skip is the
-    # protection, and it needs a CLI release that carries it: on an older CLI,
-    # or under a HYPERCI_INSTALL_OVERRIDE pin, stamp_cmd still runs here and can
-    # write $GITHUB_ENV or $GITHUB_PATH or leave a process behind for the steps
-    # after the logins. Stamping before the logins does not stop that.
+    # This job holds registry logins and a packages:write token, so its stamp skips
+    # release.stamp_cmd (Build and Prepare run it). The skip needs a CLI release
+    # that carries it: on an older CLI, or under a HYPERCI_INSTALL_OVERRIDE pin,
+    # stamp_cmd still runs here and can write $GITHUB_ENV or $GITHUB_PATH or leave a
+    # process behind for the steps after the logins. Stamping before the logins
+    # does not stop that.
     steps:
       - name: Install uv
-        # Before the checkout, so setup-uv reads no repo `required-version`.
-        # ignore-empty-workdir: the checkout has not run yet, so the workdir
-        # is always empty here -- that is the point, not a problem to warn on.
+        # Before the checkout, so setup-uv reads no repo `required-version`. The
+        # workdir is empty by design, hence ignore-empty-workdir.
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: false
@@ -185,8 +174,8 @@ jobs:
           persist-credentials: false
 
       - name: Init submodules
-        # The checkout keeps no credential, so the job token reaches this step
-        # alone, as environment-scoped git config (issue #402).
+        # The checkout keeps no credential, so the job token reaches this step alone,
+        # as environment-scoped git config (issue #402).
         if: ${{ inputs.submodules != '' }}
         env:
           SUBMODULES: ${{ inputs.submodules }}
@@ -203,21 +192,20 @@ jobs:
           git submodule update --init --depth 1 $SUBMODULES
 
       - name: Resolve container build (app vs library)
-        # Decide BEFORE booting Buildx whether this project ships a
-        # container. enabled:false -> no; enabled:true -> yes; auto ->
-        # filesystem signal (Dockerfile or rustlib contract; a crate/
-        # library has none). Gating every Docker step on this means a
-        # library (e.g. a Rust crate -- no GHCR deployment) never pulls
-        # buildkit from Docker Hub nor logs in to GHCR (issue #33).
+        # Decide before booting Buildx whether this project ships a container:
+        # enabled:false -> no, enabled:true -> yes, auto -> filesystem signal
+        # (Dockerfile or rustlib contract). Gating every Docker step on this keeps a
+        # library from pulling buildkit from Docker Hub or logging in to GHCR
+        # (issue #33).
         id: resolve
         env:
           HYPERCI_CONTAINER_RESOLVE_ONLY: "1"
         run: ${{ env.HYPERCI_INSTALL }} run container
 
       - name: Set up Python
-        # --no-config: in the checkout, uv reads the repo's [tool.uv], whose
-        # python-install-mirror picks where the interpreter that then runs
-        # hyperi-ci, credentials and all, is downloaded from.
+        # --no-config: in the checkout uv reads the repo's [tool.uv], whose
+        # python-install-mirror picks where the interpreter that runs hyperi-ci,
+        # credentials and all, is downloaded from.
         if: steps.resolve.outputs.build == 'true'
         env:
           PYTHON_VERSION: ${{ inputs.python-version }}
@@ -237,9 +225,8 @@ jobs:
         run: ${{ env.HYPERCI_INSTALL }} stamp-version "$RELEASE_VERSION"
 
       - name: Docker Hub login (authenticated pulls only)
-        # Docker Hub is not a publish target -- login is solely to bypass
-        # anonymous rate limits when the Dockerfile pulls a Hub base
-        # image. Conditional on the org var being set; no-op otherwise.
+        # Docker Hub is not a publish target. The login only avoids anonymous rate
+        # limits when the Dockerfile pulls a Hub base image, and needs the org var.
         if: steps.resolve.outputs.build == 'true' && vars.DOCKERHUB_USERNAME != ''
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -247,8 +234,8 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: GHCR login
-        # GITHUB_TOKEN via job-level packages:write permission -- can create
-        # new repo-owned packages on first push.
+        # GITHUB_TOKEN with job-level packages:write can create repo-owned packages
+        # on first push.
         if: steps.resolve.outputs.build == 'true'
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -275,8 +262,8 @@ jobs:
           driver-opts: ${{ (vars.HYPERCI_BUILDX_CGROUP_PARENT || steps.cgroup.outputs.cgroup-parent) && format('cgroup-parent={0}', vars.HYPERCI_BUILDX_CGROUP_PARENT || steps.cgroup.outputs.cgroup-parent) || '' }}
 
       - name: Download build artifacts
-        # The build-dist-* artifact carries dist/; the Container stage looks
-        # for dist/<binary> relative to cwd.
+        # The build-dist-* artifact carries dist/, and the Container stage looks for
+        # dist/<binary> relative to cwd.
         if: steps.resolve.outputs.build == 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -294,16 +281,14 @@ jobs:
           done
 
       - name: Build container
-        # Handler decides validate-only vs push based on HYPERCI_RELEASE_MODE:
-        # unset/false -> docker build only, no registry push;
-        # true        -> docker build + push to all configured registries.
+        # HYPERCI_RELEASE_MODE unset/false -> docker build only. true -> build and
+        # push to all configured registries.
         if: steps.resolve.outputs.build == 'true'
         env:
           HYPERCI_RELEASE_MODE: ${{ inputs.will-publish }}
-          # Authoritative version for the image tag -- same value Build
-          # stamps and Tag-and-Release releases. Without this the stage
-          # falls back to the checked-out VERSION file, which is stale on
-          # a shallow/tagless container checkout (issue #27).
+          # Authoritative image-tag version, the value Build stamps and
+          # Tag-and-Release releases. The VERSION file fallback is stale on a
+          # shallow/tagless container checkout (issue #27).
           HYPERCI_VERSION: ${{ inputs.next-version }}
         run: ${{ env.HYPERCI_INSTALL }} run container
 
@@ -312,18 +297,18 @@ jobs:
     # Tag & Release's own ceiling: this is the half of that job that builds.
     timeout-minutes: 45
     # Everything in a release that executes repo code runs here: the stamp and
-    # release.stamp_cmd, cargo-semver-checks (which builds the crate, build
-    # scripts included), `cargo package`, prepublishOnly and `npm pack`. So this
-    # job holds no secret and a read-only token, and Tag & Release only uploads
-    # what it leaves (issue #409).
+    # release.stamp_cmd, cargo-semver-checks (which builds the crate, build scripts
+    # included), `cargo package`, prepublishOnly and `npm pack`. So this job holds
+    # no secret and a read-only token, and Tag & Release only uploads what it
+    # leaves (issue #409).
     if: inputs.will-publish == 'true'
     runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     permissions:
       contents: read
     steps:
       - name: Install uv
-        # Before the checkout, so setup-uv reads no repo `required-version`;
-        # ignore-empty-workdir mutes the resulting (expected) warning.
+        # Before the checkout, so setup-uv reads no repo `required-version`. The
+        # workdir is empty by design, hence ignore-empty-workdir.
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: false
@@ -363,10 +348,9 @@ jobs:
           toolchain: ${{ inputs.rust-toolchain }}
 
       - name: Setup Rust tools
-        # cargo-semver-checks runs after the stamp, and this is the only job that
-        # reaches that path. The quality job installs the same action, but the
-        # check cannot run there: before the stamp the manifest holds the LAST
-        # released version, so the comparison is a release against itself
+        # cargo-semver-checks runs after the stamp, and only this job reaches that
+        # path. In the quality job the manifest still holds the LAST released
+        # version, so the comparison would be a release against itself
         # (issues #186, #199).
         if: inputs.language == 'rust'
         uses: hyperi-io/hyperi-ci/.github/actions/setup-rust-tools@main
@@ -429,9 +413,8 @@ jobs:
       issues: write
     steps:
       - name: Install uv
-        # This job never checks out the repo (issue needs only the repo
-        # name + run), so the workdir is empty for its whole lifetime;
-        # ignore-empty-workdir mutes the resulting (expected) warning.
+        # This job never checks out the repo, so the workdir is empty throughout,
+        # hence ignore-empty-workdir.
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: false
@@ -459,23 +442,19 @@ jobs:
     # At least twice the longest successful run across the fleet (issue #262).
     timeout-minutes: 45
     needs: [container, prepare]
-    # Runs iff a release is being published, and is DECOUPLED from the
-    # container outcome (issue #33) for projects that do not ship a
-    # container: a transient container/registry hiccup must never lose the
-    # crate/PyPI/npm + GitHub Release or skip the tag.
+    # Runs iff a release is being published. For a project with no container it is
+    # decoupled from the container outcome (issue #33), so a transient registry
+    # hiccup cannot lose the crate/PyPI/npm + GitHub Release or skip the tag.
     #
-    # For a project that DOES ship a container the container IS the
-    # deliverable, so the same decoupling published a lie: dfe-loader
-    # v1.18.19 cut its tag and GitHub Release while a Docker Hub 502 failed
-    # the build, leaving `latest` advertising a version GHCR never had, and
-    # anything pinning from the release page got an image that did not exist
-    # (issue #102). Those projects skip the crate registry anyway (a binary
-    # application has no crate to publish), so blocking here loses nothing
-    # that #33 set out to protect.
+    # For a project that ships a container, the container IS the deliverable:
+    # dfe-loader v1.18.19 cut its tag and GitHub Release while a Docker Hub 502
+    # failed the build, so `latest` advertised a version GHCR never had (issue
+    # #102). Those projects publish no crate, so blocking here loses nothing #33
+    # protects.
     #
-    # On push events this creates the git tag (semantic-release) AND
-    # uploads artefacts. On workflow_dispatch (retroactive) the tag
-    # already exists; only the upload runs.
+    # On push events this creates the git tag (semantic-release) AND uploads
+    # artefacts. On workflow_dispatch (retroactive) the tag exists and only the
+    # upload runs.
     #
     # Nothing here builds, packs or stamps: those run the repo's code, and this
     # job holds every publish credential, so they happen in `prepare` and this
@@ -485,9 +464,9 @@ jobs:
           && needs.prepare.result == 'success'
           && (needs.container.result == 'success'
               || needs.container.outputs.ships-container != 'true') }}
-    # ARC, like the rest of the tail: the aws CLI this job needs for R2 is
-    # absent from the image, so hyperi-ci installs AWS's signed v2 bundle on
-    # demand (native_deps.ensure_aws_cli).
+    # ARC, like the rest of the tail. The image lacks the aws CLI needed for R2, so
+    # hyperi-ci installs AWS's signed v2 bundle on demand
+    # (native_deps.ensure_aws_cli).
     runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_PUBLISH || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     permissions:
       contents: write
@@ -499,11 +478,8 @@ jobs:
     steps:
       - name: Install uv
         # First, before anything that can fail: every later step, including the
-        # failure notice, runs the HYPERCI_INSTALL uvx command, and hosted
-        # runners ship no uv. A checkout failure used to leave the notice with
-        # `uvx: command not found` and the failed release unrecorded.
-        # ignore-empty-workdir: the checkout has not run yet, so the workdir
-        # is always empty here -- that is the point, not a problem to warn on.
+        # failure notice, runs the HYPERCI_INSTALL uvx command, and hosted runners
+        # ship no uv. The workdir is empty by design, hence ignore-empty-workdir.
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: false
@@ -530,9 +506,9 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # On push OR a from-head dispatch (issue #35), check out main HEAD
-          # so the tag is created there. On a tag dispatch (retroactive
-          # re-publish), check out the existing tag (no tagging needed).
+          # A push or from-head dispatch (issue #35) checks out main HEAD so the tag
+          # is created there. A tag dispatch (retroactive re-publish) checks out the
+          # existing tag.
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
           persist-credentials: false
@@ -560,9 +536,9 @@ jobs:
           path: ${{ runner.temp }}/release-prepared
 
       - name: Drop any stamped/ the package phase wrote
-        # The package phase runs the repo's build and package scripts, which
-        # could plant files there for release-commit to restore; only the stamp
-        # phase's own artefact may fill it.
+        # The package phase runs the repo's build and package scripts, which could
+        # plant files there for release-commit to restore. Only the stamp phase's
+        # artefact may fill it.
         run: rm -rf "$RUNNER_TEMP/release-prepared/stamped"
 
       - name: Download the stamp outputs
@@ -572,9 +548,9 @@ jobs:
           path: ${{ runner.temp }}/release-prepared/stamped
 
       - name: Set up Python
-        # --no-config: in the checkout, uv reads the repo's [tool.uv], whose
-        # python-install-mirror picks where the interpreter that then runs
-        # hyperi-ci, credentials and all, is downloaded from.
+        # --no-config: in the checkout uv reads the repo's [tool.uv], whose
+        # python-install-mirror picks where the interpreter that runs hyperi-ci,
+        # credentials and all, is downloaded from.
         env:
           PYTHON_VERSION: ${{ inputs.python-version }}
         run: uv python install --no-config "$PYTHON_VERSION"
@@ -594,13 +570,11 @@ jobs:
         run: echo "has=${{ secrets.GH_APP_PRIVATE_KEY != '' }}" >> "$GITHUB_OUTPUT"
 
       - name: Mint the release bot token
-        # Tag, commit and release-commit all PUSH. As `github-actions` those
-        # pushes cannot be excepted from a branch ruleset -- rulesets only
-        # accept org-installed apps as bypass actors and GitHub refuses the
-        # first-party integration -- so a repo wanting required status checks
-        # cannot have them (issue #86). A GITHUB_TOKEN push also triggers no
-        # workflows, leaving the release commit invisible to anything that
-        # should react to it.
+        # Tag, commit and release-commit all PUSH. As `github-actions` those pushes
+        # cannot be excepted from a branch ruleset (rulesets accept only
+        # org-installed apps as bypass actors), so a repo wanting required status
+        # checks cannot have them (issue #86). A GITHUB_TOKEN push also triggers no
+        # workflows.
         id: bot
         if: steps.appkey.outputs.has == 'true'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -614,8 +588,8 @@ jobs:
           permission-pull-requests: write
 
       - name: Report the release identity
-        # A silent fall back to github-actions is what makes a missing ruleset
-        # bypass look like a working release, so say which identity is in use.
+        # A silent fall back to github-actions makes a missing ruleset bypass look
+        # like a working release, so say which identity is in use.
         run: |
           if [ "${{ steps.bot.outcome }}" = "success" ]; then
             echo "Tagging and pushing as hypersec-ci-bot."
@@ -631,12 +605,10 @@ jobs:
         uses: hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@main
 
       - name: Guard -- predicted tag must not already exist off-HEAD
-        # Defence-in-depth for issue #37: refuse to tag if the predicted
-        # version already exists as a tag pointing somewhere other than
-        # HEAD. A collision means semantic-release mispredicted (blind to
-        # existing tags) -- proceeding would rewrite release history. Fail
-        # fast and loud instead. Tags are present locally (fetch-depth: 0).
-        # Trivial glue: a tag-existence check + SHA compare.
+        # Refuse to tag if the predicted version already exists as a tag pointing
+        # anywhere but HEAD (issue #37). A collision means semantic-release
+        # mispredicted, and proceeding would rewrite release history. Tags are
+        # present locally (fetch-depth: 0).
         if: ${{ github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto') }}
         env:
           RELEASE_VERSION: ${{ inputs.next-version }}
@@ -666,19 +638,16 @@ jobs:
         run: ${{ env.HYPERCI_INSTALL }} publish-charts
 
       - name: Tag (semantic-release)
-        # Real run (no --dry-run) -- analyzes commits, renders CHANGELOG.md,
-        # and creates and pushes the git tag. Same version `next-version`
-        # predicted in plan (deterministic). Also handles a from-head
-        # `auto` dispatch (#35): re-runs the tagger on HEAD.
+        # Real run: analyses commits, renders CHANGELOG.md, and creates and pushes
+        # the git tag at the version `next-version` predicted in plan. Also handles
+        # a from-head `auto` dispatch (#35).
         #
-        # First release on a tag-less repo (issue #37 follow-up): the real
-        # semantic-release run would tag its own 1.0.0 default, diverging
-        # from the plan's resolved starting version (a committed VERSION
-        # file overrides the default at predict time). The plan is the ONE
-        # version oracle -- materialise its next-version via tag-head (the
-        # explicit-version primitive: idempotent, off-HEAD-guarded, works
-        # with persist-credentials: false) instead of re-running the
-        # oracle. Once the first tag exists this branch never fires again.
+        # First release on a tag-less repo (issue #37): the real run would tag its
+        # own 1.0.0 default, diverging from the plan's starting version (a committed
+        # VERSION file overrides the default at predict time). The plan is the ONE
+        # version oracle, so its next-version is materialised via tag-head
+        # (idempotent, off-HEAD-guarded, works with persist-credentials: false).
+        # Once the first tag exists this branch never fires again.
         if: ${{ github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto') }}
         env:
           GITHUB_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
@@ -693,13 +662,12 @@ jobs:
           fi
 
       - name: Tag HEAD (forced bump / explicit version)
-        # from-head dispatch with a non-auto bump (issue #35): force a release
-        # of HEAD at the version the plan already resolved for it (last tag +
-        # bump, or the explicit X.Y.Z), and which Build and Prepare stamped.
-        # Passing the version rather than the bump keeps a re-run idempotent:
-        # re-resolving `patch` after the first attempt tagged would pick the
-        # next number and orphan a tag. tag-head creates the tag at HEAD via
-        # the GitHub API (works with persist-credentials: false).
+        # from-head dispatch with a non-auto bump (issue #35): release HEAD at the
+        # version the plan resolved (last tag + bump, or the explicit X.Y.Z), which
+        # Build and Prepare stamped. Passing the version rather than the bump keeps a
+        # re-run idempotent, because re-resolving `patch` after the first attempt
+        # tagged would pick the next number and orphan a tag. tag-head creates the
+        # tag at HEAD via the GitHub API (works with persist-credentials: false).
         id: forcedtag
         if: ${{ inputs.from-head == 'true' && inputs.bump != 'auto' && inputs.bump != '' }}
         env:
@@ -712,8 +680,8 @@ jobs:
         # GitHub Releases / Cloudflare R2.
         id: publish
         env:
-          # Version being released -- same SSoT as Build, Container and Prepare
-          # (#27). Forced bumps are cut at this same version.
+          # Version being released, the same SSoT as Build, Container and Prepare
+          # (#27).
           HYPERCI_VERSION: ${{ inputs.next-version }}
           # Upload-only: the checks and packing already ran in `prepare`, and
           # the upload refuses a directory prepared for another version.
@@ -727,24 +695,22 @@ jobs:
         run: ${{ env.HYPERCI_INSTALL }} run release
 
       - name: Commit rendered release artefacts
-        # VERSION (written from the release version where git tracks it), the
-        # release.stamp_paths files (stamped in `prepare` and restored by name
-        # when prepare ran on this commit) and CHANGELOG.md (rendered by
-        # @semantic-release/changelog) have had no owner since
-        # @semantic-release/git was dropped (issue #85).
+        # Commits back VERSION (where git tracks it), the release.stamp_paths files
+        # (stamped in `prepare`, restored by name when prepare ran on this commit)
+        # and CHANGELOG.md (rendered by @semantic-release/changelog), which nothing
+        # owns since @semantic-release/git was dropped (issue #85).
         #
-        # Runs after the tag exists and adds an untagged commit via the Git
-        # Data API, so no tag points at machine-authored history -- the
-        # property whose absence caused the #37 orphaning.
+        # Runs after the tag exists and adds an untagged commit via the Git Data
+        # API, so no tag points at machine-authored history (the #37 orphaning).
         #
-        # Skipped on a tag dispatch: that checkout is an old tag, and its
-        # version committed onto main would move main back.
+        # Skipped on a tag dispatch: that checkout is an old tag, and committing its
+        # version onto main would move main back.
         #
-        # Lands on the branch that released, which a push and a from-head
-        # dispatch both check out, so a beta release never writes main (issue #417).
+        # Lands on the branch that released, so a beta release never writes main
+        # (issue #417).
         #
-        # Non-fatal: once the registry has the release, a failure here must
-        # not turn a shipped release red.
+        # Non-fatal: once the registry has the release, a failure here must not
+        # turn a shipped release red.
         id: releasecommit
         if: steps.publish.outcome == 'success' && inputs.tag == ''
         continue-on-error: true

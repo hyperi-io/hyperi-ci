@@ -6,8 +6,8 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # osv-scanner covers the OSSF malicious-packages (MAL-*) feed that cargo-audit
-# (RustSec) and pip-audit do not. The install block was duplicated in rust-ci
-# and ts-ci -- collapsed here so the pin + arch logic live once.
+# (RustSec) and pip-audit do not. Shared by rust-ci and ts-ci so the pin and arch
+# logic live once.
 #
 # The version AND the per-arch sha256 are pinned in
 # src/hyperi_ci/config/versions.yaml (`tools:`) and mirrored here by

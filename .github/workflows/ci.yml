@@ -5,18 +5,15 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
-# quality + test run the LOCAL working tree (uv run --no-sources) so a
-# change to hyperi-ci's own code is exercised by that code, not by the
-# published version. The publish half (plan + build + release-tail) is the
-# SAME version-first pipeline consumers get, wired to the local copies of
-# the predict-version action and _release-tail.yml so a workflow change is
-# caught here before it reaches a consumer.
+# quality + test run the LOCAL working tree (uv run --no-sources), so hyperi-ci's
+# own code is exercised by itself, not by the published version. The publish half
+# (plan + build + release-tail) is the pipeline consumers get, wired to the local
+# predict-version action and _release-tail.yml so a workflow change is caught here
+# first.
 #
 # Publish trigger: a push to main whose HEAD commit carries a `Release: true`
-# trailer (written by `hyperi-ci push --publish`) tags HEAD and publishes;
-# every other push validates only. This replaces the old bespoke jobs that
-# tagged EVERY push but only published on a manual workflow_dispatch - the
-# cause of the tag/PyPI version drift (tags ran ahead, PyPI lagged).
+# trailer (written by `hyperi-ci push --release`) tags HEAD and publishes. Every
+# other push validates only.
 
 name: CI
 
@@ -25,10 +22,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  # A merge queue runs the required checks on a temporary
-  # gh-readonly-queue/main/* branch and waits for them. Without this trigger
-  # they never report and the queue stalls (issue #228). A queue run is
-  # validate-only: its ref is not main, so Plan resolves will-release=false.
+  # The merge queue runs required checks on a gh-readonly-queue/main/* branch
+  # and stalls without this trigger (issue #228). Its ref is not main, so Plan
+  # resolves will-release=false.
   merge_group:
     types: [checks_requested]
   workflow_dispatch:
@@ -50,17 +46,14 @@ on:
         description: "Version resolution for from-head: auto | patch | minor (forced) | X.Y.Z (exact version)."
 
 # A queue entry's github.ref is its own gh-readonly-queue/main/pr-<n>-<sha>
-# branch, so a queue run shares a group with neither main nor another entry.
-# Cancelling one would fail a required check and eject the PR.
+# branch, so it shares a group with nothing. Cancelling one would eject the PR.
 concurrency:
   group: ${{ github.workflow }}-${{ inputs.tag || github.ref }}
   cancel-in-progress: true
 
-# Least-privilege GITHUB_TOKEN default for every job (CodeQL
-# actions/missing-workflow-permissions). Two jobs elevate: release-tail
-# (passes write down to _release-tail.yml - semantic-release commit/tag +
-# GHCR) and plan (semantic-release push-access verify on a publish predict).
-# commit-check / quality / test / build are read-only.
+# Least-privilege default (CodeQL actions/missing-workflow-permissions). Two jobs
+# elevate: release-tail (passes write down to _release-tail.yml) and plan
+# (semantic-release push-access verify on a publish predict).
 permissions:
   contents: read
 
@@ -68,11 +61,9 @@ jobs:
   plan:
     name: Plan
     runs-on: ubuntu-latest
-    # predict-version runs semantic-release, whose git plugin verifies push
-    # access (a `git push --dry-run`) on a publish predict - needs write.
-    # A fork PR never reaches that: will-publish is false off main, so both
-    # semantic-release steps skip and the read-only token a fork gets is
-    # enough to resolve the gates.
+    # semantic-release's git plugin verifies push access (`git push --dry-run`)
+    # on a publish predict, which needs write. A fork PR never reaches that
+    # (will-publish is false off main), so its read-only token resolves the gates.
     permissions:
       contents: write
     outputs:
@@ -102,9 +93,8 @@ jobs:
           enable-cache: false
 
       - name: Preflight publish credentials
-        # semantic-release's verifyConditions equivalent: prove the tokens
-        # exist before anything compiles. Runs the LOCAL branch code, so this
-        # repo's own PRs exercise the change.
+        # semantic-release's verifyConditions equivalent: prove the tokens exist
+        # before anything compiles.
         if: steps.predict.outputs.will-release == 'true'
         env:
           PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
@@ -114,22 +104,19 @@ jobs:
 
   commit-check:
     name: Commit messages
-    # Landing gate for conventional-commit messages - dogfoods the same job
-    # the reusable <lang>-ci.yml workflows now ship. Deliberately NOT gated on
-    # plan.outputs.run-checks: it must validate what actually reaches main on
-    # EVERY merge, not only publish-worthy pushes. Fatal on push to main (what
-    # lands) and on merge_group (what is about to land -- the queue's squash
-    # commit, range base_sha..head_sha); advisory on pull_request for branch
-    # commits, fatal for the line a squash would land. Runs the LOCAL branch
-    # code (uv run) so this repo's own PRs exercise the change.
+    # Landing gate for conventional-commit messages, the same job the
+    # <lang>-ci.yml workflows ship. NOT gated on plan.outputs.run-checks: it must
+    # validate every merge, not only publish-worthy pushes. Fatal on push to main
+    # and on merge_group (the queue's squash commit, base_sha..head_sha), advisory
+    # on pull_request for branch commits, fatal for the line a squash would land.
     # See docs/ci-job-contract.md, "Under a merge queue".
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'pull_request' ||
       github.event_name == 'merge_group'
     runs-on: ubuntu-latest
-    # pull-requests: read reads the PR title live. A job-level block replaces
-    # the workflow default, so contents: read is restated.
+    # pull-requests: read reads the PR title live. A job-level block replaces the
+    # workflow default, so contents: read is restated.
     permissions:
       contents: read
       pull-requests: read
@@ -159,8 +146,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
-          # Full history + tags: the interface gate diffs against the last
-          # release tag (issue #31).
+          # Full history + tags: the interface gate diffs against the last release
+          # tag (issue #31).
           fetch-depth: 0
 
       - name: Install uv
@@ -181,29 +168,25 @@ jobs:
         run: uv run --no-sources ruff format --check src/ tests/
 
       - name: Workflow interface compat gate (#31)
-        # Fail if a reusable-workflow/composite interface regressed vs the last
-        # release - a consumer pinned to an older caller would fail at startup.
+        # A regressed reusable-workflow/composite interface fails a consumer pinned
+        # to an older caller at startup.
         run: uv run --no-sources python scripts/check-workflow-interfaces.py
 
       - name: Version SSOT gate
-        # src/hyperi_ci/config/versions.yaml is the SSOT for external CLI tools
-        # and runtimes, but until now NOTHING enforced it in CI: the only wired caller
-        # was a .git/hooks/pre-commit symlink, which a fresh clone (and every
-        # runner) simply does not have. That is how the gitleaks pin sat 9
-        # versions stale while every gate stayed green.
+        # versions.yaml is the SSOT for external CLI tools and runtimes. The
+        # pre-commit symlink that enforced it does not exist on a fresh clone or
+        # runner, so this is the only CI enforcement.
         #
-        # Offline: --check only reads local files, so no API calls, no cooldown
-        # logic, no flakiness. It fails on drifted pins, on a missing
-        # `# hyperi-ci:pin` marker, and on a `pin:` path that does not exist.
+        # Offline: --check reads local files only. It fails on drifted pins, a
+        # missing `# hyperi-ci:pin` marker, and a `pin:` path that does not exist.
         run: uv run --no-sources python scripts/update-versions.py --check
 
       - name: Install native dependencies
         run: uv run --no-sources hyperi-ci install-native-deps python
 
       - name: Run quality checks
-        # The gate set every consumer gets. Until this step existed, this repo
-        # ran four lint steps under a job named Quality, so a tool hyperi-ci
-        # ships and nobody can install looked fine from here.
+        # The gate set every consumer gets, so a tool hyperi-ci ships but nobody
+        # can install fails here too.
         env:
           GITLEAKS_GH_ACTIONS_KEY: ${{ secrets.GITLEAKS_GH_ACTIONS_KEY }}
         run: uv run --no-sources hyperi-ci run quality
@@ -231,7 +214,7 @@ jobs:
         run: uv sync --no-sources
 
       - name: Install vulture + hyperi-ci as uv tools
-        # Real-binary tests skip without these; uv's tool bin dir is not on PATH by default.
+        # Real-binary tests skip without these. uv's tool bin dir is not on PATH.
         run: |
           echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"
           # hyperi-ci:pin tools.vulture
@@ -255,25 +238,21 @@ jobs:
   rehearsal:
     name: Fixture rehearsal
     # ---------------------------------------------------------------------
-    # A workflow or composite-action change is live on every consumer the
-    # moment it merges, while the CLI waits for a PyPI release. That split
-    # broke the fleet twice in one week (issue #215), and nothing local
-    # caught either one.
+    # A workflow or composite-action change is live on every consumer the moment
+    # it merges, while the CLI waits for a PyPI release (issue #215).
     #
-    # ALWAYS runs, and decides internally. A `paths:` filter would skip the
-    # job on a PR that touches nothing, and GitHub counts a skipped required
-    # check as satisfied - the same trap the Gate job documents (#177).
+    # ALWAYS runs and decides internally: a `paths:` filter would skip the job,
+    # and GitHub counts a skipped required check as satisfied (#177).
     #
     # It VERIFIES a rehearsal rather than running one: pushing a rewritten
-    # workflow to a fixture needs a GitHub App with `workflows: write` and
-    # the install override needs `variables: write`, and hypersec-ci-bot has
-    # neither. A developer runs scripts/rehearse-branch.py; this holds the
-    # PR to the record it leaves.
+    # workflow to a fixture needs a GitHub App with `workflows: write` and the
+    # install override needs `variables: write`, and hypersec-ci-bot has neither.
+    # A developer runs scripts/rehearse-branch.py and this holds the PR to the
+    # record it leaves.
     #
-    # Skipped in the merge queue. The record names the PR head commit, and
-    # the queue's squash commit is a new SHA nobody can rehearse, so running
-    # here could only pass vacuously or block every entry. The PR already
-    # held the change to its record; the fleet sweep covers what lands.
+    # Skipped in the merge queue: the record names the PR head commit and the
+    # queue's squash commit is a new SHA nobody can rehearse. The fleet sweep
+    # covers what lands.
     # ---------------------------------------------------------------------
     if: always() && github.event_name != 'merge_group'
     runs-on: ubuntu-latest
@@ -292,9 +271,9 @@ jobs:
         run: uv sync --no-sources
 
       - name: Mint a fleet read token
-        # The fixtures are private, so reading their rehearsal records needs
-        # more than GITHUB_TOKEN. A fork PR cannot mint one; the gate then
-        # says so and stays red rather than passing on an unreadable fleet.
+        # The fixtures are private, so reading their records needs more than
+        # GITHUB_TOKEN. A fork PR cannot mint one and the gate stays red rather
+        # than passing on an unreadable fleet.
         id: bot
         continue-on-error: true
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -335,11 +314,10 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
 
       - name: Stamp predicted version
-        # Version-first: write the version we are about to tag into
-        # pyproject.toml + VERSION BEFORE building, so the wheel and
-        # importlib.metadata.version("hyperi-ci") carry the published value.
-        # Push and from-head both release HEAD (stale tree); a plain `tag`
-        # dispatch is skipped (the tag's tree is already correct).
+        # Write the version about to be tagged into pyproject.toml + VERSION before
+        # building, so the wheel and importlib.metadata carry the published value.
+        # Push and from-head release HEAD (stale tree). A plain `tag` dispatch is
+        # skipped because the tag's tree is already correct.
         if: github.event_name == 'push' || inputs.from-head == 'true'
         run: |
           version="${{ needs.plan.outputs.next-version }}"
@@ -369,12 +347,9 @@ jobs:
         run: uv build
 
       - name: Upload build artifacts
-        # Upload VERSION alongside dist/ so the artifact root is the workspace,
-        # not dist/. A single `path: dist/` makes upload-artifact strip the
-        # dist/ prefix (the dir becomes the common ancestor), so the tag-publish
-        # job's `uv publish` (globs dist/*) finds nothing - the cause of the
-        # v2.6.12 "No files found to publish" failure. The language workflows
-        # pin the root the same way.
+        # Upload VERSION alongside dist/ so the artifact root is the workspace. A
+        # single `path: dist/` makes upload-artifact strip the dist/ prefix, so the
+        # publish job's `uv publish` (globs dist/*) finds nothing (v2.6.12).
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: build-dist-default
@@ -387,18 +362,17 @@ jobs:
   release-tail:
     name: Release tail
     needs: [plan, build]
-    # Elevated + passed to _release-tail.yml: its tag-and-release job commits +
-    # tags (contents), pushes GHCR (packages) and runs the semantic-release GH
-    # plugin (issues + pull-requests). Capped by the caller's grant.
+    # Passed to _release-tail.yml: its tag-and-release job commits + tags
+    # (contents), pushes GHCR (packages) and runs the semantic-release GH plugin
+    # (issues + pull-requests). Capped by the caller's grant.
     permissions:
       contents: write
       packages: write
       issues: write
       pull-requests: write
-    # Local ref (dogfood): a change to the shared release tail is exercised
-    # on hyperi-ci's own CI before any consumer pins it. The tail's own
-    # tag-and-release job is gated on will-publish == 'true', so a non-release
-    # run reaches here only when build ran (run-build == will-publish).
+    # Local ref, so a change to the shared tail runs here before any consumer
+    # pins it. Its tag-and-release job is gated on will-publish == 'true', so a
+    # non-release run reaches it only when build ran (run-build == will-publish).
     uses: ./.github/workflows/_release-tail.yml
     with:
       language: python
@@ -416,12 +390,9 @@ jobs:
   # gate -- the terminal context branch protection should require.
   #
   # Requiring `ci / Quality` does not work: GitHub counts a SKIPPED required
-  # check as satisfied, so the doctrine's deliberate skip and a gate that never
-  # fired are the same green tick from outside. This job ALWAYS runs, so the
-  # context it publishes cannot be satisfied by a skip (issue #177).
-  #
-  # Runs the LOCAL branch code, like every other job here, so this repo's own
-  # PRs exercise the change rather than the published CLI.
+  # check as satisfied, so a deliberate skip and a gate that never fired look
+  # the same. This job ALWAYS runs, so a skip cannot satisfy its context
+  # (issue #177).
   # ---------------------------------------------------------------------------
   gate:
     name: Gate

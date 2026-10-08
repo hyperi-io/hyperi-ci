@@ -6,23 +6,18 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
-# These were `cargo install --locked cargo-audit` / `cargo-deny` inline in
-# rust-ci.yml: unpinned AND compiled from source. Both are substantial Rust
-# programs, so that was minutes of every Rust job spent rebuilding a linter that
-# upstream already ships as a static binary.
+# Upstream ships static binaries, so these are fetched rather than compiled with
+# `cargo install`.
 #
-# NO `command -v` SHORT-CIRCUIT, DELIBERATELY.
-# The obvious "skip if already installed" guard makes the pin inert wherever a
-# copy is already on PATH: hosted runners restore `~/.cargo/bin` from the cargo
-# cache, so a repo with a warm pre-migration entry keeps resolving its OLD
-# binaries (measured: a cached cargo-audit 0.18.3 satisfying a v0.22.2 pin,
-# exit 0, green), and an older ARC image still bakes unpinned copies. The
-# download is skipped, the pin never lands, and versions.yaml ends up asserting
-# a cooldown and clamp that were never applied. Downloading unconditionally
-# costs seconds; GITHUB_PATH PREPENDS, so the pinned copy wins.
+# NO `command -v` SHORT-CIRCUIT, DELIBERATELY. A "skip if already installed" guard
+# makes the pin inert wherever a copy is already on PATH: hosted runners restore
+# `~/.cargo/bin` from the cargo cache, so a warm pre-migration entry keeps
+# resolving OLD binaries (measured: a cached cargo-audit 0.18.3 satisfying a
+# v0.22.2 pin, exit 0, green), and an older ARC image still bakes unpinned copies.
+# Downloading unconditionally costs seconds, and GITHUB_PATH PREPENDS, so the
+# pinned copy wins.
 #
-# Naming is inconsistent between the two upstreams, which is why this does not
-# collapse into one loop:
+# Upstream naming differs, which is why this does not collapse into one loop:
 #   cargo-audit  rustsec/rustsec, MONOREPO - tag `cargo-audit/vX.Y.Z`,
 #                asset `cargo-audit-<target>-vX.Y.Z.tgz`  (version LAST, .tgz)
 #                and aarch64 ships gnu only, no musl.

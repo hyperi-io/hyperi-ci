@@ -5,11 +5,10 @@
 # License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
-# The hyperi-ci CLI is Python, so EVERY job (any language) needs uv + Python
-# + the project's native build deps before it can run `hyperi-ci ...`, and
-# every quality/test/build job of the four language workflows calls this.
-# Language toolchains (rustup, setup-go, setup-node) and project dependency
-# installs (uv sync, install-deps) stay in the language workflow.
+# The hyperi-ci CLI is Python, so every job of every language needs uv + Python +
+# the project's native build deps before it can run `hyperi-ci ...`. Language
+# toolchains (rustup, setup-go, setup-node) and project dependency installs
+# (uv sync, install-deps) stay in the language workflow.
 #
 # Referenced from reusable workflows as
 #   hyperi-io/hyperi-ci/.github/actions/setup-runtime@main

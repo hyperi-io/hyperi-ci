@@ -5,10 +5,9 @@
 # License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
-# Rust-specific stages: quality, test, setup, build (with version stamp).
-# Container + tag-and-release are delegated to the shared
-# _release-tail.yml workflow. Setup uses the shared predict-version
-# composite action to avoid duplicating gate+dry-run across languages.
+# Rust stages: quality, test, setup, build (with version stamp). Container and
+# tag-and-release are delegated to _release-tail.yml, and setup uses the shared
+# predict-version composite action.
 
 name: Rust CI
 
@@ -172,24 +171,20 @@ on:
         description: "Debug only: space-separated llvm-bolt flags replacing the BOLT optimise-stage defaults, for bisecting a BOLT fault. Needs optimize-tier=release; any run that ships refuses it. Empty = the reviewed defaults."
 
 concurrency:
-  # A schedule and a dispatch that publishes nothing each get their own
-  # group: sharing main's, either could cancel a release in flight or be
-  # cancelled by the next push.
+  # A schedule and a no-publish dispatch get their own group: sharing main's, either
+  # could cancel a release in flight or be cancelled by the next push.
   group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'schedule' || github.event_name == 'workflow_dispatch' && inputs.tag == '' && inputs.from-head != 'true' && format('dispatch-{0}', github.ref) || inputs.tag || github.ref }}
   cancel-in-progress: true
 
 env:
-  # Rehearsal / incident escape hatch: the HYPERCI_INSTALL_OVERRIDE repo
-  # variable replaces the CLI install command wholesale -- a branch rehearsal
-  # points it at `uvx --from git+...@<branch> hyperi-ci`; an incident pins
-  # the repo to a known-good `uvx hyperi-ci==X.Y.Z`. Unset = latest PyPI.
-  # `--python` pins the CLI's OWN interpreter. Without it uvx takes whatever
-  # interpreter the runner has -- the project's -- and silently back-solves to
-  # an old hyperi-ci that allowed it, rather than failing (issue #157).
+  # The HYPERCI_INSTALL_OVERRIDE repo variable replaces the CLI install command: a
+  # rehearsal points it at `uvx --from git+...@<branch> hyperi-ci`, an incident pins
+  # `uvx hyperi-ci==X.Y.Z`. Unset = latest PyPI.
+  # `--python` pins the CLI's OWN interpreter. Without it uvx takes the project's
+  # interpreter and silently back-solves to an old hyperi-ci (issue #157).
   HYPERCI_INSTALL: ${{ vars.HYPERCI_INSTALL_OVERRIDE || 'uvx --python 3.14 --no-cache --refresh hyperi-ci' }}
-  # Rare edge-case escape hatch: set the HYPERCI_QUALITY_SKIP repo/org
-  # variable (e.g. "semgrep") to force-skip a quality tool whose false
-  # positive is halting CI, until the real fix lands. Empty when unset.
+  # HYPERCI_QUALITY_SKIP (repo/org variable, e.g. "semgrep") force-skips a quality
+  # tool whose false positive is halting CI until the real fix lands.
   HYPERCI_QUALITY_SKIP: ${{ vars.HYPERCI_QUALITY_SKIP }}
   # Skip the optimisation stage: per-run via the input, repo-wide via the
   # variable. Empty = optimisation on.
@@ -202,37 +197,31 @@ env:
   # BOLT to every build it reaches (issue #257).
   HYPERCI_OPTIMIZE_TIER: ${{ inputs.optimize-tier }}
 
-# Least-privilege GITHUB_TOKEN default for every job (CodeQL
-# actions/missing-workflow-permissions). Two jobs elevate: release-tail
-# (passes write down to _release-tail.yml - semantic-release commit/tag +
-# GHCR) and plan (semantic-release push-access verify on a publish predict).
-# commit-check / quality / test / build are read-only.
+# Least-privilege default (CodeQL actions/missing-workflow-permissions). Two jobs
+# elevate: release-tail (passes write down to _release-tail.yml) and plan
+# (semantic-release push-access verify on a publish predict).
 permissions:
   contents: read
 
 jobs:
   # ---------------------------------------------------------------------------
-  # plan -- runs FIRST. Computes gate outputs that every downstream job
-  # reads. See docs/ci-job-contract.md for the full contract.
+  # plan -- runs FIRST. Computes gate outputs that every downstream job reads.
+  # See docs/ci-job-contract.md.
   #
-  # Doctrine: a non-bumping commit (chore/docs/test/refactor/style/build/
-  # ci/cleanup/...) MUST NOT cause cargo to compile or docker buildx to
-  # push. Even quality + test are skipped on push events that won't ship
-  # -- only PR review and release-worthy pushes run them. The gate is
-  # computed ONCE here and consumed by every downstream `if:`; do not
-  # re-implement the condition string elsewhere -- a pytest test
-  # (tests/unit/test_workflow_consistency.py) enforces this.
+  # A non-bumping commit MUST NOT cause cargo to compile or docker buildx to
+  # push, and quality + test are skipped on pushes that won't ship. The gate is
+  # computed ONCE here and consumed by every downstream `if:`.
+  # tests/unit/test_workflow_consistency.py enforces that the condition string is
+  # not re-implemented elsewhere.
   # ---------------------------------------------------------------------------
   plan:
     name: Plan
     # The composite installs uv and runs its config readers with PyYAML, so
     # the default set is enough and no renovate carve-out applies (issue #291).
     runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
-    # predict-version runs semantic-release, whose git plugin verifies push
-    # access (a `git push --dry-run`) on a publish predict - needs write.
-    # A fork PR never reaches that: will-publish is false off main, so both
-    # semantic-release steps skip and the read-only token a fork gets is
-    # enough to resolve the gates.
+    # semantic-release's git plugin verifies push access (`git push --dry-run`)
+    # on a publish predict, which needs write. A fork PR never reaches that
+    # (will-publish is false off main), so its read-only token resolves the gates.
     permissions:
       contents: write
     outputs:
@@ -269,11 +258,10 @@ jobs:
           enable-cache: false
 
       - name: Preflight publish credentials
-        # semantic-release's verifyConditions equivalent: prove the tokens
-        # exist before anything compiles. A missing CARGO_REGISTRY_TOKEN
-        # otherwise surfaces at the publish stage, after a full build.
-        # Blocks only where the publish handler hard-fails without the
-        # credential; PyPI (OIDC fallback) and R2 warn.
+        # semantic-release's verifyConditions equivalent: a missing
+        # CARGO_REGISTRY_TOKEN would otherwise surface after a full build. Blocks
+        # only where the publish handler hard-fails without the credential. PyPI
+        # (OIDC fallback) and R2 warn.
         if: steps.predict.outputs.will-release == 'true'
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
@@ -284,38 +272,28 @@ jobs:
         run: ${{ env.HYPERCI_INSTALL }} preflight
 
       - name: Generate build matrix
-        # Arch breadth keys off run-build: every run that builds at all builds
-        # both arches. That covers a validate-only dispatch and a branch-mode
-        # PR, which are the two on-demand ways to exercise arm64 without
-        # publishing. Keying it off will-release meant arm64 first executed on
-        # the run meant to ship it, so a Cortex-A53 BOLT refusal was found
-        # mid-publish and its fix could not be tested except by publishing
-        # again (issue #249).
+        # Arch breadth keys off run-build: every run that builds at all builds both
+        # arches, including a validate-only dispatch and a branch-mode PR. Keying it
+        # off will-release meant arm64 first ran on the release meant to ship it
+        # (a Cortex-A53 BOLT refusal, issue #249).
         #
-        # run-arm64-check is the one case that builds where run-build is
-        # false: a release-worthy merge to main, which ships, so the doctrine's
-        # red line (a merge that ships nothing compiles nothing) is untouched.
-        # That leg is arm64 ALONE -- it exists to catch arm64-specific
-        # breakage while the change is still attributable, not to rebuild
-        # amd64 that every other gate already covered.
+        # run-arm64-check is the one case that builds where run-build is false: a
+        # release-worthy merge to main. That leg is arm64 ALONE, to catch
+        # arm64-specific breakage while the change is still attributable.
         #
-        # A project that lists `build.rust.targets` in .hyperi-ci.yaml ships
-        # only those arches, so one whose release build does not fit the
-        # arm64 runner can still release amd64 (issue #127). A project that
-        # lists none keeps both.
+        # A project listing `build.rust.targets` in .hyperi-ci.yaml ships only those
+        # arches, so one whose release build does not fit the arm64 runner can still
+        # release amd64 (issue #127). One listing none keeps both.
         #
-        # The renovate/ carve-out must land on a runner with cargo: Rust does
-        # not bootstrap its toolchain at job time, and GH_RUNNER_RENOVATE /
-        # GH_RUNNER_DEFAULT point at vanilla sets that carry none (issue #91).
-        # Chain: GH_RUNNER_RENOVATE_RUST (set e.g. arc-native-4cpu to shed
-        # bot load) -> GH_RUNNER_RUST -> hosted ubuntu-latest, which ships
-        # cargo.
+        # The renovate/ carve-out must land on a runner with cargo, because Rust does
+        # not bootstrap its toolchain at job time and GH_RUNNER_RENOVATE /
+        # GH_RUNNER_DEFAULT carry none (issue #91). Chain: GH_RUNNER_RENOVATE_RUST
+        # -> GH_RUNNER_RUST -> hosted ubuntu-latest, which ships cargo.
         id: matrix
         shell: bash
         env:
-          # Read by the composite, which runs its config readers with PyYAML
-          # supplied, so no runner image needs yq. Env, not interpolation: the
-          # list comes from the project config.
+          # Env, not interpolation, because the list comes from the project config.
+          # The composite reads it with PyYAML, so no runner image needs yq.
           RUST_TARGETS: ${{ steps.predict.outputs.rust-targets }}
           RUN_BUILD: ${{ steps.predict.outputs.run-build }}
           ARM64_CHECK: ${{ steps.predict.outputs.run-arm64-check }}
@@ -346,25 +324,22 @@ jobs:
 
   commit-check:
     name: Commit messages
-    # Landing gate for conventional-commit messages. Deliberately NOT gated
-    # on plan.outputs.run-checks: a cheap git-log + regex check must validate
-    # what actually reaches main on EVERY merge, not only publish-worthy
-    # pushes (all the quality job covers). Fatal on push to main (what lands);
-    # advisory on pull_request for branch commits (they may be squashed away),
-    # fatal for the line a squash would land - see commit_validation.run.
-    # Feature-branch pushes skip it, so the fast chore-skip path is untouched.
-    # Fatal on merge_group too: the queue's squash commit is what main fast-
-    # forwards to, so it is the landing gate before the landing (issue #422).
-    # See CLAUDE.md CI gate doctrine.
+    # Landing gate for conventional-commit messages. NOT gated on
+    # plan.outputs.run-checks: it must validate every merge, not only
+    # publish-worthy pushes. Fatal on push to main and on merge_group (the queue's
+    # squash commit is what main fast-forwards to, issue #422), advisory on
+    # pull_request for branch commits (they may be squashed away), fatal for the
+    # line a squash would land - see commit_validation.run. Feature-branch pushes
+    # skip it. See CLAUDE.md CI gate doctrine.
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'pull_request' ||
       github.event_name == 'merge_group'
-    # Needs only git and uv, so no language variable and no renovate carve-out:
-    # the default set is already the lightest one (issue #291).
+    # Needs only git and uv, so no language variable and no renovate carve-out
+    # (issue #291).
     runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
-    # pull-requests: read reads the PR title live. A job-level block replaces
-    # the workflow default, so contents: read is restated.
+    # pull-requests: read reads the PR title live. A job-level block replaces the
+    # workflow default, so contents: read is restated.
     permissions:
       contents: read
       pull-requests: read
@@ -390,7 +365,7 @@ jobs:
     timeout-minutes: 90
     needs: [plan]
     if: needs.plan.outputs.run-checks == 'true'
-    # Renovate branches use lightweight runners -- dependency update PRs don't need 16cpu
+    # Renovate branches use lightweight runners.
     runs-on: ${{ startsWith(github.head_ref || github.ref_name, 'renovate/') && (vars.GH_RUNNER_RENOVATE_RUST || vars.GH_RUNNER_RUST || 'ubuntu-latest') || (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || inputs.runner-quality || vars.GH_RUNNER_RUST || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -405,8 +380,8 @@ jobs:
           language: rust
           hyperci-install: ${{ env.HYPERCI_INSTALL }}
 
-      # Runs on ARC too, so every job of a run compiles with the requested
-      # toolchain rather than whatever the runner image baked in (issue #509).
+      # Runs on ARC too, so every job compiles with the requested toolchain, not
+      # the one the runner image baked in (issue #509).
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
@@ -422,14 +397,11 @@ jobs:
         if: ${{ runner.environment != 'self-hosted' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          # NOT ~/.cargo/bin/ in THIS job: it only ever held cargo-audit /
-          # cargo-deny, which now arrive pinned from setup-rust-tools into
-          # ~/.local/bin. Restoring a pre-migration entry puts STALE tool
-          # binaries back on PATH (observed: a cached cargo-audit 0.18.3 under a
-          # v0.22.2 pin). The key hashes Cargo.lock, so a repo with a stable
-          # lockfile would keep that entry warm indefinitely. setup-rust-tools
-          # already wins via a GITHUB_PATH prepend; dropping the dir removes the
-          # ambiguity rather than relying on PATH order alone.
+          # NOT ~/.cargo/bin/ in this job: cargo-audit and cargo-deny arrive pinned
+          # from setup-rust-tools into ~/.local/bin, and a restored old entry puts
+          # stale binaries back on PATH (observed: cached cargo-audit 0.18.3 under a
+          # v0.22.2 pin). The key hashes Cargo.lock, so a stable lockfile would keep
+          # that entry warm indefinitely.
           path: |
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
@@ -444,12 +416,10 @@ jobs:
         uses: hyperi-io/hyperi-ci/.github/actions/setup-osv-scanner@main
 
       - name: Deepen history for secret scan
-        # gitleaks scans the branch git log for committed secrets; a depth-1
-        # checkout would only see HEAD. Deepen so the scan covers the pushed
-        # range. Conventional-commit validation moved to the commit-check job
-        # (its own fetch-depth: 0 checkout). Harmless on an already-full clone.
-        # The checkout keeps no credential, so the job token reaches this step
-        # alone, as environment-scoped git config (issue #402).
+        # gitleaks scans the branch git log, which a depth-1 checkout cuts to HEAD,
+        # so deepen to cover the pushed range. The checkout keeps no credential, so
+        # the job token reaches this step alone, as environment-scoped git config
+        # (issue #402).
         if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
         env:
           GH_TOKEN: ${{ github.token }}
@@ -470,12 +440,12 @@ jobs:
         run: ${{ env.HYPERCI_INSTALL }} run quality
 
   test:
-    # The tier is in the name so a check list shows what ran. The runner is
-    # spelled out so the name stays one bracket: Test (core, arc-native-4cpu).
+    # The tier is in the name so a check list shows what ran. The runner is spelled
+    # out so the name stays one bracket: Test (core, arc-native-4cpu).
     name: Test (${{ needs.plan.outputs.test-tier }}, ${{ matrix.os }})
     # Per caller, not fleet-wide: dfe-engine's Test runs reach 250 minutes, so no
-    # shared limit under 360 leaves them room (issue #262). The fallback covers a
-    # dispatch of this workflow, which has no such input, and a caller's 0.
+    # shared limit under 360 fits (issue #262). The fallback covers a dispatch,
+    # which has no such input, and a caller's 0.
     timeout-minutes: ${{ inputs.test-timeout-minutes || 360 }}
     needs: [plan]
     if: needs.plan.outputs.run-checks == 'true'
@@ -496,8 +466,8 @@ jobs:
           language: rust
           hyperci-install: ${{ env.HYPERCI_INSTALL }}
 
-      # Runs on ARC too, so every job of a run compiles with the requested
-      # toolchain rather than whatever the runner image baked in (issue #509).
+      # Runs on ARC too, so every job compiles with the requested toolchain, not
+      # the one the runner image baked in (issue #509).
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
@@ -522,8 +492,8 @@ jobs:
         uses: hyperi-io/hyperi-ci/.github/actions/setup-nextest@main
 
       - name: Init submodules
-        # The checkout keeps no credential, so the job token reaches this step
-        # alone, as environment-scoped git config (issue #402).
+        # The checkout keeps no credential, so the job token reaches this step alone,
+        # as environment-scoped git config (issue #402).
         if: ${{ inputs.submodules != '' }}
         env:
           SUBMODULES: ${{ inputs.submodules }}
@@ -546,8 +516,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GIT_TERMINAL_PROMPT: "0"
         # The token goes in as environment-scoped git config, as actions/checkout
-        # does it, so it never reaches argv or a sibling's .git/config, where the
-        # test step could read it.
+        # does, so it never reaches argv or a sibling's .git/config.
         run: |
           basic="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
           echo "::add-mask::$basic"
@@ -565,17 +534,17 @@ jobs:
           done
 
       - name: Run tests
-        # --tier full only on a full run: a CLI without the flag fails loudly
-        # rather than running core under a full name, and a core run passes
-        # nothing, so the project's own test.tier still applies.
+        # --tier full only on a full run: a CLI without the flag fails loudly rather
+        # than running core under a full name. A core run passes nothing, so the
+        # project's own test.tier applies.
         if: inputs.test-github-token != 'true'
         run: ${{ env.HYPERCI_INSTALL }} run test ${{ needs.plan.outputs.test-tier == 'full' && '--tier full' || '' }}
 
       - name: Run tests with a GitHub token
-        # The caller's test-github-token opt-in, as its own step because an env
-        # entry set to '' still defines the variable, and a test checking only
-        # that GITHUB_TOKEN is set would send an empty one. gh reads GH_TOKEN,
-        # most API clients GITHUB_TOKEN; both carry the job's read-only token.
+        # The caller's test-github-token opt-in is its own step because an env entry
+        # set to '' still defines the variable, and a test checking only that
+        # GITHUB_TOKEN is set would send an empty one. gh reads GH_TOKEN, most API
+        # clients GITHUB_TOKEN. Both carry the job's read-only token.
         if: inputs.test-github-token == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -593,20 +562,18 @@ jobs:
 
   build:
     name: Build (${{ matrix.os_arch }})
-    # At least twice the longest successful run across the fleet (issue #262).
-    # A caller can raise it for a PGO+BOLT release build that outruns that, and
-    # the fallback covers a dispatch, which has no such input, and a caller's 0.
+    # At least twice the longest successful run across the fleet (issue #262). A
+    # caller can raise it for a PGO+BOLT release build that outruns that. The
+    # fallback covers a dispatch, which has no such input, and a caller's 0.
     timeout-minutes: ${{ inputs.build-timeout-minutes || 135 }}
     needs: [plan, quality, test]
     # The second clause is the arm64-parity case (issue #249): a release-worthy
-    # merge to main builds the arm64 leg alone, so an arm64 regression is found
-    # where it is still attributable rather than during the release that ships
-    # it. The matrix holds arm64 only there; see the plan job's matrix step.
+    # merge to main builds the arm64 leg alone. See the plan job's matrix step.
     if: needs.plan.outputs.run-build == 'true' || needs.plan.outputs.run-arm64-check == 'true'
     runs-on: ${{ matrix.runner }}
     strategy:
-      # A leg that dies on its runner must not cancel a leg that finished:
-      # the amd64 binary is worth keeping when the arm64 runner starves.
+      # A leg that dies on its runner must not cancel one that finished, so the
+      # amd64 binary survives an arm64 runner starving.
       fail-fast: false
       matrix: ${{ fromJson(needs.plan.outputs.build-matrix) }}
     steps:
@@ -630,8 +597,8 @@ jobs:
           NEXT_VERSION: ${{ needs.plan.outputs.next-version }}
         run: ${{ env.HYPERCI_INSTALL }} stamp-version "$NEXT_VERSION"
 
-      # Runs on ARC too, so every job of a run compiles with the requested
-      # toolchain rather than whatever the runner image baked in (issue #509).
+      # Runs on ARC too, so every job compiles with the requested toolchain, not
+      # the one the runner image baked in (issue #509).
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
@@ -655,20 +622,19 @@ jobs:
       - name: Run build
         env:
           RUST_BUILD_TARGETS: ${{ matrix.target }}
-          # Optimisation TIER. Tier 2 (PGO + BOLT) adds ~14 min per arch, so it
-          # runs for a build that ships -- the same signal that gates the stamp
-          # step above -- or when a dispatch asks for it with optimize-tier,
-          # which the build reads from HYPERCI_OPTIMIZE_TIER (issue #257). A
-          # prerelease ships, so it is built at the release tier by default:
-          # that is the release rehearsal (issue #144).
+          # Optimisation TIER. Tier 2 (PGO + BOLT) adds ~14 min per arch, so it runs
+          # for a build that ships (the signal that gates the stamp step above) or
+          # when a dispatch asks via optimize-tier, read from HYPERCI_OPTIMIZE_TIER
+          # (issue #257). A prerelease ships, so it builds at the release tier as
+          # the release rehearsal (issue #144).
           HYPERCI_CHANNEL: ${{ needs.plan.outputs.will-release == 'true' && 'release' || '' }}
-          # Version IDENTITY, independent of the tier above. True when the
-          # build spends no stable version, which is what lets `skip-optimize`
-          # cut a fast prerelease without the release-unoptimized consent.
+          # Version IDENTITY, independent of the tier above. True when the build
+          # spends no stable version, so `skip-optimize` can cut a fast prerelease
+          # without the release-unoptimized consent.
           HYPERCI_PRERELEASE: ${{ needs.plan.outputs.prerelease }}
-          # Debug-only BOLT optimise flags, per-run input only (issue #262).
-          # Through env so a dispatch value is never shell; the build refuses
-          # it on any run that ships.
+          # Debug-only BOLT optimise flags, per-run input only (issue #262). Through
+          # env so a dispatch value is never shell. The build refuses it on a run
+          # that ships.
           HYPERCI_BOLT_OPTIMIZE_ARGS: ${{ inputs.bolt-optimize-args }}
         run: ${{ env.HYPERCI_INSTALL }} run build
 
@@ -686,14 +652,13 @@ jobs:
   release-tail:
     name: Release tail
     needs: [plan, build]
-    # The tail used to be reached exactly when Build ran, since both keyed off
-    # run-build. The arm64-parity build (issue #249) breaks that: it compiles
-    # one leg to catch a regression and ships nothing, so the container build
-    # the tail would run is cost with no deliverable behind it.
+    # The arm64-parity build (issue #249) compiles one leg and ships nothing, so
+    # the tail's container build would be cost with no deliverable. That build
+    # has run-build false, so the tail skips it.
     if: needs.plan.outputs.run-build == 'true'
-    # Elevated + passed to _release-tail.yml: its tag-and-release job commits +
-    # tags (contents), pushes GHCR (packages) and runs the semantic-release GH
-    # plugin (issues + pull-requests). Capped by the caller's grant.
+    # Passed to _release-tail.yml: its tag-and-release job commits + tags
+    # (contents), pushes GHCR (packages) and runs the semantic-release GH plugin
+    # (issues + pull-requests). Capped by the caller's grant.
     permissions:
       contents: write
       packages: write
@@ -720,25 +685,24 @@ jobs:
   # gate -- the terminal context branch protection should require.
   #
   # Requiring `ci / Quality` does not work: GitHub counts a SKIPPED required
-  # check as satisfied, so the doctrine's deliberate skip and a gate that never
-  # fired are the same green tick from outside. This job ALWAYS runs, so the
-  # context it publishes cannot be satisfied by a skip (issue #177).
+  # check as satisfied, so a deliberate skip and a gate that never fired look
+  # the same. This job ALWAYS runs, so a skip cannot satisfy its context
+  # (issue #177).
   #
-  # It does not re-implement the gate. It reads what the plan job decided and
-  # what the jobs below actually did; the verdict lives in
-  # hyperi_ci.gate_result so it is testable rather than inline shell.
+  # It reads what the plan job decided and what the jobs below did. The verdict
+  # lives in hyperi_ci.gate_result so it is testable.
   # ---------------------------------------------------------------------------
   gate:
     name: Gate
     if: always()
-    # commit-check is deliberately absent: it is not run-checks-gated, so it
-    # already fires on every push and works as a required context by itself.
+    # commit-check is absent: it is not run-checks-gated, so it fires on every
+    # push and works as a required context by itself.
     needs: [plan, quality, test, build]
     # Needs only uv; same chain as commit-check (issue #291).
     runs-on: ${{ (inputs.runner-mode || vars.GH_RUNNER_MODE) == 'free' && 'ubuntu-latest' || vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
     steps:
-      # The CLI ships via uvx, which a bare runner does not have. Without this
-      # the gate exits 127 and fails a run that was otherwise green.
+      # The CLI ships via uvx, which a bare runner lacks, so the gate would exit 127
+      # on an otherwise green run.
       - name: Install uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         # Gate never checks out the repo, so its workdir is always empty.
