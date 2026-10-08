@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "object",
+      "properties": {
+        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "replicas": {"type": "integer", "minimum": 0},
+    "configOverrides": {"type": "object"},
+    "extraEnv": {"type": "array"}
+  }
+}
