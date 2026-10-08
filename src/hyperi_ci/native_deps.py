@@ -39,6 +39,7 @@ from hyperi_ci.common import (
     download_artefact,
     info,
     run_cmd,
+    sudo_prefix,
     url_read,
     warn,
 )
@@ -58,17 +59,6 @@ _FALLBACK_CODENAMES = ["resolute", "noble", "jammy", "focal", "trixie"]
 _CONFIG_ROOT = Path(__file__).resolve().parent / "config"
 _NATIVE_DEPS_DIR = _CONFIG_ROOT / "native-deps"
 _TOOLCHAINS_DIR = _CONFIG_ROOT / "toolchains"
-
-
-def _sudo_prefix() -> list[str]:
-    """Return ``["sudo"]`` when non-root, ``[]`` when already root.
-
-    The runner image bake (Dockerfile ``RUN``) runs as root with no sudoers
-    entry, so sudo there fails with 'root is not in the sudoers file'.
-    """
-    if platform.system() != "Linux":
-        return []
-    return [] if os.geteuid() == 0 else ["sudo"]
 
 
 # Categories map to config subdirectories sharing one YAML schema (patterns,
@@ -459,7 +449,7 @@ def _add_apt_repo(repo: AptRepo) -> int:
 
         dearmor = subprocess.run(
             [
-                *_sudo_prefix(),
+                *sudo_prefix(),
                 "gpg",
                 "--batch",
                 "--yes",
@@ -501,7 +491,7 @@ def _add_apt_repo(repo: AptRepo) -> int:
     # The leading newline keeps an appended line off the last one.
     prefix = "" if not sources_path.exists() else "\n"
     result = subprocess.run(
-        [*_sudo_prefix(), "tee", "-a", str(sources_path)],
+        [*sudo_prefix(), "tee", "-a", str(sources_path)],
         input=f"{prefix}{sources_line}\n".encode(),
         capture_output=True,
     )
@@ -542,7 +532,7 @@ def _apt_install(packages: list[str]) -> int:
     The update is re-run on the ``apt_retry`` schedule because a mirror
     mid-sync fails the fetch outright (see that module).
     """
-    apt_get = [*_sudo_prefix(), "apt-get", *APT_RETRY_OPTION.split()]
+    apt_get = [*sudo_prefix(), "apt-get", *APT_RETRY_OPTION.split()]
     for attempt in range(1, APT_UPDATE_ATTEMPTS + 1):
         if run_cmd([*apt_get, "update"], check=False).returncode == 0:
             break
@@ -686,7 +676,7 @@ def ensure_aws_cli() -> str | None:
         # --update lets a re-run succeed over an existing install.
         result = subprocess.run(
             [
-                *_sudo_prefix(),
+                *sudo_prefix(),
                 str(installer),
                 "--update",
                 "-i",

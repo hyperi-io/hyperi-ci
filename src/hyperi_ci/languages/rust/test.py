@@ -30,7 +30,10 @@ from hyperi_ci.common import (
     warn,
 )
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.rust._manifest import is_root_package_workspace
+from hyperi_ci.languages.rust._manifest import (
+    is_root_package_workspace,
+    split_feature_sets,
+)
 from hyperi_ci.languages.rust.targets import cargo_metadata
 from hyperi_ci.languages.tiering import (
     KeptLines,
@@ -149,13 +152,6 @@ _DIVERGENCE = (
     "(metrics recorders, OnceLock, env vars a test sets) behaves differently - "
     "and doctests run only under cargo test."
 )
-
-
-def _split_feature_sets(features: str) -> list[str]:
-    """Split pipe-separated feature sets into individual sets."""
-    if features in ("all", "default"):
-        return [features]
-    return [f.strip() for f in features.split("|") if f.strip()]
 
 
 def _scope_args(features: str, *, workspace: bool) -> list[str]:
@@ -505,7 +501,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         info("  Root package is also a workspace: --workspace, so every member runs")
     features = (extra_env or {}).get("RUST_FEATURES", "all")
     rust_tier = config.get("test.rust.tier", "all")
-    feature_sets = _split_feature_sets(features)
+    feature_sets = split_feature_sets(features)
     coverage = config.get("test.coverage", True) and rust_tier == "all"
 
     for index, feature_set in enumerate(feature_sets):

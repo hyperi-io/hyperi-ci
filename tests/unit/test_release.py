@@ -335,7 +335,7 @@ class TestReleaseAssetsReachTheRelease:
             return subprocess.CompletedProcess(cmd, 0, "", "")
 
         monkeypatch.setattr(binaries, "run_cmd", fake_run_cmd)
-        monkeypatch.setattr(binaries, "_read_version", lambda: "1.2.3")
+        monkeypatch.setattr(binaries, "resolve_release_version", lambda: "1.2.3")
         monkeypatch.setattr(binaries, "_release_targets_head", lambda _tag: True)
         return binaries
 
@@ -727,7 +727,7 @@ class TestBothReleasePathsReadTheConfigSkip:
             return subprocess.CompletedProcess(cmd, 0, "", "")
 
         monkeypatch.setattr(binaries, "run_cmd", fake_run_cmd)
-        monkeypatch.setattr(binaries, "_read_version", lambda: "1.2.3")
+        monkeypatch.setattr(binaries, "resolve_release_version", lambda: "1.2.3")
         return sent
 
     def test_create_github_release(self, bodies: list[str]) -> None:
@@ -796,7 +796,7 @@ class TestLatestStaysOnTheNewestRelease:
             return subprocess.CompletedProcess(cmd, 0, "", "")
 
         monkeypatch.setattr(binaries, "run_cmd", fake_run_cmd)
-        monkeypatch.setattr(binaries, "_read_version", lambda: version)
+        monkeypatch.setattr(binaries, "resolve_release_version", lambda: version)
         monkeypatch.setattr(binaries, "ensure_aws_cli", lambda: "/usr/bin/aws")
         return sent
 
@@ -891,7 +891,7 @@ class TestR2SettingsComeFromOrgConfig:
             return subprocess.CompletedProcess(cmd, 0, "", "")
 
         monkeypatch.setattr(binaries, "run_cmd", fake_run_cmd)
-        monkeypatch.setattr(binaries, "_read_version", lambda: "2.0.0")
+        monkeypatch.setattr(binaries, "resolve_release_version", lambda: "2.0.0")
         monkeypatch.setattr(binaries, "ensure_aws_cli", lambda: "/usr/bin/aws")
         monkeypatch.setattr(
             binaries,

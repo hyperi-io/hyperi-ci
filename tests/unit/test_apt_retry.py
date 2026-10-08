@@ -30,7 +30,7 @@ def test_native_deps_reruns_update_with_retry_option(
         rc = 100 if cmd[-1] == "update" and updates_so_far == 1 else 0
         return subprocess.CompletedProcess(cmd, rc)
 
-    monkeypatch.setattr(native_deps, "_sudo_prefix", lambda: [])
+    monkeypatch.setattr(native_deps, "sudo_prefix", lambda: [])
     monkeypatch.setattr(native_deps, "run_cmd", fake_run_cmd)
     monkeypatch.setattr(native_deps.time, "sleep", slept.append)
 

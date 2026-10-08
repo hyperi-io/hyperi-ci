@@ -791,9 +791,9 @@ def audit_callers(
         RUST_OPTIONAL_CALLER_INPUTS,
         audit_local,
         audit_repo,
-        org_repos,
     )
     from hyperi_ci.common import error, info, success, warn
+    from hyperi_ci.gh import org_repos
 
     if org and repo:
         error("Use --org or --repo, not both")
@@ -894,7 +894,8 @@ def audit_gates(
     Never writes.
     """
     from hyperi_ci.common import error, info, success, warn
-    from hyperi_ci.gate_audit import audit_repo, is_prerelease, org_repos
+    from hyperi_ci.gate_audit import audit_repo, is_prerelease
+    from hyperi_ci.gh import org_repos
 
     if org and repo:
         error("Use --org or --repo, not both")

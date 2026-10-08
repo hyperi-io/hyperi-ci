@@ -21,9 +21,7 @@ that did not move is a ruleset or permission refusal and fails at once.
 
 import base64
 import binascii
-import json
 import os
-import tempfile
 from pathlib import Path
 from urllib.parse import quote
 
@@ -32,6 +30,7 @@ from packaging.version import InvalidVersion, Version
 from hyperi_ci import release_prepare
 from hyperi_ci.common import error, info, run_cmd, success, warn
 from hyperi_ci.config import load_config
+from hyperi_ci.gh import gh_api
 from hyperi_ci.release_branches import is_prerelease_version, repo_prerelease_branches
 from hyperi_ci.stamp import (
     CHANGELOG_FILE,
@@ -63,28 +62,10 @@ _last_api_error = ""
 def _api(args: list[str], *, body: dict | None = None) -> dict | None:
     """Call `gh api`, returning the parsed response or None on failure."""
     global _last_api_error
-    tmp_path: str | None = None
-    cmd = ["gh", "api", *args]
-    if body is not None:
-        # A tree is an array of objects, which `-f key=value` cannot express.
-        with tempfile.NamedTemporaryFile(
-            "w", suffix=".json", delete=False, encoding="utf-8", newline="\n"
-        ) as handle:
-            json.dump(body, handle)
-            tmp_path = handle.name
-        cmd += ["--input", tmp_path]
-    try:
-        result = run_cmd(cmd, capture=True, check=False)
-    finally:
-        if tmp_path:
-            Path(tmp_path).unlink(missing_ok=True)
-    if result.returncode != 0:
-        _last_api_error = (result.stderr or "").strip()
-        return None
-    try:
-        return json.loads(result.stdout)
-    except ValueError:
-        return None
+    outcome = gh_api(args, body=body)
+    if outcome.stderr is not None:
+        _last_api_error = outcome.stderr
+    return outcome.data
 
 
 def _stamped_artefacts(root: Path) -> list[str]:

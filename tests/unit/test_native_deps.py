@@ -26,7 +26,6 @@ from hyperi_ci.native_deps import (
     _expand_template_vars,
     _load_dep_groups,
     _repo_already_configured,
-    _sudo_prefix,
 )
 from hyperi_ci.versions import runtime_version
 
@@ -288,7 +287,7 @@ class TestAddAptRepoIdempotency:
         # Force ``["sudo"]`` prefix regardless of platform/uid -- the macOS
         # CI runner is non-Linux (so _sudo_prefix returns []), Linux CI is
         # non-root. Both cases land in this test; pin to the sudo path.
-        monkeypatch.setattr(native_deps, "_sudo_prefix", lambda: ["sudo"])
+        monkeypatch.setattr(native_deps, "sudo_prefix", lambda: ["sudo"])
 
         target_file = sources_dir / "llvm.list"
 
@@ -338,7 +337,7 @@ class TestAddAptRepoIdempotency:
         fake_keyring.write_bytes(b"fake-key")
         sources_list, sources_dir = _seed_apt_tree(tmp_path, {})
         _patch_apt_paths(monkeypatch, sources_list, sources_dir)
-        monkeypatch.setattr(native_deps, "_sudo_prefix", lambda: ["sudo"])
+        monkeypatch.setattr(native_deps, "sudo_prefix", lambda: ["sudo"])
         target_file = sources_dir / "llvm.list"
 
         writes = {"count": 0}
@@ -395,7 +394,7 @@ class TestAptKeyFingerprint:
         """Run _add_apt_repo against a fake gpg; return (rc, commands invoked)."""
         sources_list, sources_dir = _seed_apt_tree(tmp_path, {})
         _patch_apt_paths(monkeypatch, sources_list, sources_dir)
-        monkeypatch.setattr(native_deps, "_sudo_prefix", lambda: [])
+        monkeypatch.setattr(native_deps, "sudo_prefix", lambda: [])
 
         invoked: list[list[str]] = []
 
@@ -487,7 +486,7 @@ class TestAptKeyFingerprint:
 
 
 class TestSudoPrefix:
-    """`_sudo_prefix()` skips sudo when already root.
+    """`sudo_prefix()` skips sudo when already root.
 
     Runner image bake (Dockerfile ``RUN``) runs as root where sudo isn't
     configured; the previous 'sudo apt-get install' produced
@@ -495,19 +494,19 @@ class TestSudoPrefix:
     """
 
     def test_non_root_prepends_sudo(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(native_deps.platform, "system", lambda: "Linux")
-        monkeypatch.setattr(native_deps.os, "geteuid", lambda: 1000)
-        assert _sudo_prefix() == ["sudo"]
+        monkeypatch.setattr(common.sys, "platform", "linux")
+        monkeypatch.setattr(common.os, "geteuid", lambda: 1000)
+        assert common.sudo_prefix() == ["sudo"]
 
     def test_root_skips_sudo(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(native_deps.platform, "system", lambda: "Linux")
-        monkeypatch.setattr(native_deps.os, "geteuid", lambda: 0)
-        assert _sudo_prefix() == []
+        monkeypatch.setattr(common.sys, "platform", "linux")
+        monkeypatch.setattr(common.os, "geteuid", lambda: 0)
+        assert common.sudo_prefix() == []
 
     def test_non_linux_skips_sudo(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # macOS dev path -- apt isn't used, but the helper must be safe to call
-        monkeypatch.setattr(native_deps.platform, "system", lambda: "Darwin")
-        assert _sudo_prefix() == []
+        monkeypatch.setattr(common.sys, "platform", "darwin")
+        assert common.sudo_prefix() == []
 
 
 class TestDepGroupLoading:

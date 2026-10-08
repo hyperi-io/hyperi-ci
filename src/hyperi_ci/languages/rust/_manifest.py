@@ -20,6 +20,17 @@ def _root_manifest(project_dir: Path | None) -> dict[str, Any] | None:
         return None
 
 
+def split_feature_sets(features: str) -> list[str]:
+    """Split pipe-separated feature sets, each run on its own.
+
+    cargo's ``--features`` is additive, so mutually exclusive sets such as
+    jemalloc and mimalloc need separate invocations.
+    """
+    if features in ("all", "default"):
+        return [features]
+    return [f.strip() for f in features.split("|") if f.strip()]
+
+
 def _table(data: dict[str, Any], key: str) -> dict[str, Any]:
     value = data.get(key)
     return value if isinstance(value, dict) else {}

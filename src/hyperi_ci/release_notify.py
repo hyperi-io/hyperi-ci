@@ -26,12 +26,11 @@ holding a webhook URL.
 import json
 import os
 import re
-import tempfile
-from pathlib import Path
 
 from hyperi_ci.common import error, info, run_cmd, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.curl_config import config_line
+from hyperi_ci.gh import gh_api
 
 # `#123`, but not a colour literal (`#abc`) or a trailing digit of a word.
 _ISSUE_REF = re.compile(r"(?:^|[\s(\[,])#(\d+)\b")
@@ -63,28 +62,8 @@ def _call(
         or its output was not JSON.
 
     """
-    tmp_path: str | None = None
-    cmd = ["gh", "api", *args]
-    if body is not None:
-        with tempfile.NamedTemporaryFile(
-            "w", suffix=".json", delete=False, encoding="utf-8", newline="\n"
-        ) as handle:
-            json.dump(body, handle)
-            tmp_path = handle.name
-        cmd += ["--input", tmp_path]
-    try:
-        result = run_cmd(cmd, capture=True, check=False)
-    finally:
-        if tmp_path:
-            Path(tmp_path).unlink(missing_ok=True)
-    endpoint = next((a for a in args if a.startswith("repos/")), args[-1])
-    if result.returncode != 0:
-        detail = (result.stderr or "").strip() or f"exit {result.returncode}"
-        return None, f"gh api {endpoint} failed: {detail}"
-    try:
-        return json.loads(result.stdout), ""
-    except ValueError as exc:
-        return None, f"gh api {endpoint} returned no JSON: {exc}"
+    outcome = gh_api(args, body=body)
+    return outcome.data, outcome.reason
 
 
 def _previous_tag(version: str, *, cwd: str | None = None) -> str | None:

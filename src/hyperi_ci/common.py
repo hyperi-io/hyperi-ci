@@ -228,6 +228,17 @@ def is_linux() -> bool:
     return sys.platform.startswith("linux")
 
 
+def sudo_prefix() -> list[str]:
+    """Return ``["sudo"]`` when non-root on Linux, else ``[]``.
+
+    A Dockerfile ``RUN`` runs as root with no sudoers entry, so sudo there
+    fails with 'root is not in the sudoers file'.
+    """
+    if not is_linux():
+        return []
+    return [] if os.geteuid() == 0 else ["sudo"]
+
+
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
 _FALSY = frozenset({"0", "false", "no", "off"})
 

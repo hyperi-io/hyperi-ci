@@ -91,11 +91,6 @@ def _resolve_r2_paths(project_name: str, version: str, channel: str) -> tuple[st
     return versioned, latest
 
 
-def _read_version() -> str | None:
-    """Return the version being published, via ``resolve_release_version``."""
-    return resolve_release_version()
-
-
 _PYTHON_DIST_SUFFIXES = (".whl", ".tar.gz", ".zip")
 
 
@@ -315,7 +310,7 @@ def create_github_release(config: CIConfig) -> int:
         Exit code (0 = success).
 
     """
-    version = _read_version()
+    version = resolve_release_version()
     if not version:
         error("No VERSION file -- cannot determine release tag")
         return 1
@@ -381,7 +376,7 @@ def _upload_binaries_github(
         warn("No artifacts found in dist/ -- skipping GitHub Release upload")
         return 0
 
-    version = _read_version()
+    version = resolve_release_version()
     if not version:
         error("No VERSION file -- cannot determine release tag")
         return 1
@@ -456,7 +451,7 @@ def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False)
     org = load_org_config()
     endpoint = org.r2_endpoint
     project_name = Path.cwd().name
-    version = _read_version() or "unknown"
+    version = resolve_release_version() or "unknown"
     public_url = f"{org.r2_public_url}/{project_name}/v{version}/"
 
     versioned_prefix, latest_prefix = _resolve_r2_paths(project_name, version, channel)
@@ -536,7 +531,7 @@ def publish_binaries(config: CIConfig) -> int:
         info("No dist/ artifacts -- skipping binary publish")
         return 0
 
-    channel = _resolve_channel(config, _read_version())
+    channel = _resolve_channel(config, resolve_release_version())
     info(f"Binary publish destinations: {', '.join(destinations)}")
     if channel != "release":
         info(f"Channel: {channel} (prerelease)")

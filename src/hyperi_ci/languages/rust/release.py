@@ -44,11 +44,6 @@ class CargoMetadataError(Exception):
     """``cargo metadata`` failed, so whether there is a crate is unknown."""
 
 
-def _read_version() -> str | None:
-    """Return the version being published, via ``resolve_release_version``."""
-    return resolve_release_version()
-
-
 def _sync_cargo_toml_version(version: str) -> bool:
     """Stamp the committed Cargo.toml to the release version before publish.
 
@@ -115,7 +110,7 @@ def _stamp_and_check(config: CIConfig) -> int:
     The order is required: before the stamp, semver-checks compares the last
     release against itself and passes vacuously (issue #186).
     """
-    version = _read_version()
+    version = resolve_release_version()
     if version:
         info(f"Publishing version {version}")
         if not _sync_cargo_toml_version(version):
@@ -226,7 +221,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
                 "prepare job did not check and package it -- refusing to publish"
             )
             return 1
-        version = _read_version()
+        version = resolve_release_version()
         if version and not _sync_cargo_toml_version(version):
             return 1
     elif _stamp_and_check(config) != 0:

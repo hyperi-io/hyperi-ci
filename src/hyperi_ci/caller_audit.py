@@ -32,14 +32,13 @@ counted as drift.
 Report-only: the caller file belongs to the consumer repo.
 """
 
-import json
 import re
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
 
+from hyperi_ci.gh import repo_file
 from hyperi_ci.release.dispatch import DISPATCH_INPUTS
 
 # Inputs a person sends from the Actions UI, which `hyperi-ci init` scaffolds
@@ -200,58 +199,12 @@ def audit_local(root: Path | None = None) -> CallerReport:
     return audit_text(name, path.read_text(encoding="utf-8"))
 
 
-def _gh_json(args: list[str]) -> object | None:
-    """Run a gh command and decode its JSON, or None on any failure."""
-    result = subprocess.run(
-        ["gh", *args],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    if result.returncode != 0:
-        return None
-    try:
-        return json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return None
-
-
 def audit_repo(full_name: str) -> CallerReport:
     """Audit one repo's ci.yml as it stands on the DEFAULT BRANCH.
 
     A local clone parked on a fix branch would report a fix that main lacks.
     """
-    result = subprocess.run(
-        [
-            "gh",
-            "api",
-            f"repos/{full_name}/contents/.github/workflows/ci.yml",
-            "--header",
-            "Accept: application/vnd.github.raw+json",
-        ],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    if result.returncode != 0:
+    text = repo_file(full_name, ".github/workflows/ci.yml")
+    if text is None:
         return CallerReport(repo=full_name, error="no .github/workflows/ci.yml")
-    return audit_text(full_name, result.stdout)
-
-
-def org_repos(org: str) -> list[str]:
-    """Return every non-archived repo in the org."""
-    data = _gh_json(
-        ["api", f"orgs/{org}/repos?per_page=100&type=all", "--paginate"],
-    )
-    if not isinstance(data, list):
-        return []
-    names: list[str] = []
-    for entry in data:
-        if not isinstance(entry, dict) or entry.get("archived"):
-            continue
-        full_name = entry.get("full_name")
-        if isinstance(full_name, str):
-            names.append(full_name)
-    return names
+    return audit_text(full_name, text)

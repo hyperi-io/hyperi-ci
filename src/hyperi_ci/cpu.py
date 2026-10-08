@@ -14,6 +14,8 @@ cgroup CPU quota, so a worker pool matches what the scheduler honours.
 import os
 from pathlib import Path
 
+from hyperi_ci.memory import own_cgroup_path
+
 _CGROUP_ROOT = Path("/sys/fs/cgroup")
 _PROC_SELF_CGROUP = Path("/proc/self/cgroup")
 
@@ -65,25 +67,6 @@ def _quota_from_v2(directory: Path) -> float | None:
     return quota / period
 
 
-def _own_cgroup_path() -> str:
-    """Return this process's cgroup v2 path, or ``/`` when there is none.
-
-    Returns:
-        The path recorded on the ``0::`` line of ``/proc/self/cgroup``.
-
-    """
-    try:
-        lines = _PROC_SELF_CGROUP.read_text(
-            encoding="utf-8", errors="replace"
-        ).splitlines()
-    except OSError:
-        return "/"
-    for line in lines:
-        if line.startswith("0::"):
-            return line[3:].strip() or "/"
-    return "/"
-
-
 def _cgroup_v2_cpus() -> float | None:
     """Tightest cgroup v2 CPU quota applying to this process.
 
@@ -95,7 +78,7 @@ def _cgroup_v2_cpus() -> float | None:
         CPUs allowed, or None when no level sets a quota.
 
     """
-    relative = _own_cgroup_path().strip("/")
+    relative = own_cgroup_path(_PROC_SELF_CGROUP).strip("/")
     directory = _CGROUP_ROOT / relative if relative else _CGROUP_ROOT
     limits: list[float] = []
     while True:

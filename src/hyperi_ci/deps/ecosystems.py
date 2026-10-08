@@ -21,7 +21,6 @@ its ``source``: ``parse`` or the tool's name.
 import json
 import shutil
 import subprocess
-import tomllib
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,6 +30,7 @@ from scalo.logger import logger
 
 from hyperi_ci.deps import versions as ver
 from hyperi_ci.deps.surfaces import Surface, load, repo_files
+from hyperi_ci.version_source import load_toml
 
 
 @dataclass
@@ -50,13 +50,6 @@ class Ecosystem:
 # ---------------------------------------------------------------------------
 # File loading
 # ---------------------------------------------------------------------------
-
-
-def _load_toml(path: Path) -> dict:
-    try:
-        return tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError):
-        return {}
 
 
 def _load_json(path: Path) -> dict:
@@ -133,7 +126,7 @@ def packages_from_toml_lock(path: Path) -> dict[str, str]:
     has to cover.
     """
     out: dict[str, str] = {}
-    for package in _load_toml(path).get("package") or []:
+    for package in load_toml(path).get("package") or []:
         if not isinstance(package, dict):
             continue
         name, version = package.get("name"), package.get("version")
@@ -418,7 +411,7 @@ def _compare(
 def python_ecosystem(root: Path, rel: str, by_id: dict[str, Surface]) -> Ecosystem:
     """pyproject.toml against uv.lock / poetry.lock (plus uv, when installed)."""
     manifest = root / rel
-    data = _load_toml(manifest)
+    data = load_toml(manifest)
     lock_names = tuple(dict.fromkeys(by_id["pep621"].lock + by_id["poetry"].lock))
     lock = find_lock(manifest.parent, root, lock_names)
     parsed = packages_from_toml_lock(lock) if lock is not None else {}
@@ -439,7 +432,7 @@ def python_ecosystem(root: Path, rel: str, by_id: dict[str, Surface]) -> Ecosyst
 def rust_ecosystem(root: Path, rel: str, by_id: dict[str, Surface]) -> Ecosystem:
     """Cargo.toml against Cargo.lock (plus cargo metadata, when installed)."""
     manifest = root / rel
-    data = _load_toml(manifest)
+    data = load_toml(manifest)
     lock = find_lock(manifest.parent, root, by_id["cargo"].lock)
     parsed = packages_from_toml_lock(lock) if lock is not None else {}
     locked = _locked_map(parsed, enrich_cargo(manifest.parent), "cargo", ver.norm_cargo)

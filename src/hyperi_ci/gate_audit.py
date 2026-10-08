@@ -34,7 +34,6 @@ finding and never changes the exit status.
 Report-only: it never writes to the repos it audits.
 """
 
-import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -43,7 +42,7 @@ from datetime import UTC, datetime
 import yaml
 
 from hyperi_ci.common import info, warn
-from hyperi_ci.gh import gh_run
+from hyperi_ci.gh import gh_json_or_none, repo_file
 
 # Supplies one run's jobs, injected so tests need no network.
 JobsLookup = Callable[[object], list[dict]]
@@ -212,35 +211,16 @@ class RepoReport:
         return not self.findings and self.error is None
 
 
-def _gh_json(args: list[str]) -> object | None:
-    """Run a gh command and decode its JSON, or None on any failure."""
-    result = gh_run(args, check=False)
-    if result.returncode != 0:
-        return None
-    try:
-        return json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return None
-
-
 def _repo_yaml(full_name: str, path: str) -> dict | None:
     """Fetch one YAML file from a repo's default branch as a mapping.
 
     None when the file is missing, unreadable, or not a mapping.
     """
-    result = gh_run(
-        [
-            "api",
-            f"repos/{full_name}/contents/{path}",
-            "--header",
-            "Accept: application/vnd.github.raw+json",
-        ],
-        check=False,
-    )
-    if result.returncode != 0:
+    text = repo_file(full_name, path)
+    if text is None:
         return None
     try:
-        doc = yaml.safe_load(result.stdout)
+        doc = yaml.safe_load(text)
     except yaml.YAMLError:
         return None
     return doc if isinstance(doc, dict) else None
@@ -273,7 +253,7 @@ def workflow_runs(
     query = f"?per_page={limit}&status=completed"
     if event:
         query += f"&event={event}"
-    data = _gh_json(
+    data = gh_json_or_none(
         ["api", f"repos/{full_name}/actions/workflows/{workflow}/runs{query}"],
     )
     if not isinstance(data, dict):
@@ -286,7 +266,7 @@ def workflow_runs(
 
 def run_jobs(full_name: str, run_id: object) -> list[dict]:
     """Return the jobs of one run."""
-    data = _gh_json(
+    data = gh_json_or_none(
         ["api", f"repos/{full_name}/actions/runs/{run_id}/jobs?per_page=100"],
     )
     if not isinstance(data, dict):
@@ -566,18 +546,3 @@ def is_prerelease(full_name: str) -> bool:
     """Return True when a repo declares a pre-GA channel."""
     channel = repo_channel(full_name)
     return channel is not None and channel.lower() in PRERELEASE_CHANNELS
-
-
-def org_repos(org: str) -> list[str]:
-    """Return every non-archived repo in the org."""
-    data = _gh_json(["api", f"orgs/{org}/repos?per_page=100&type=all", "--paginate"])
-    if not isinstance(data, list):
-        return []
-    names: list[str] = []
-    for entry in data:
-        if not isinstance(entry, dict) or entry.get("archived"):
-            continue
-        full_name = entry.get("full_name")
-        if isinstance(full_name, str):
-            names.append(full_name)
-    return names
