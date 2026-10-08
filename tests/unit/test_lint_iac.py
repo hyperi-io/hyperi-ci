@@ -236,6 +236,30 @@ class TestCli:
         result = CliRunner().invoke(app, ["lint-iac", "--help"])
         assert result.exit_code == 0
 
+    @pytest.mark.parametrize("flag", ["-C", "--project-dir"])
+    def test_project_dir_names_the_root(
+        self, flag: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        roots: list[Path] = []
+        monkeypatch.setattr(
+            lint_iac, "run", lambda root, cfg, **kw: roots.append(root) or 0
+        )
+        result = CliRunner().invoke(app, ["lint-iac", flag, str(tmp_path)])
+        assert result.exit_code == 0, result.output
+        assert roots == [tmp_path]
+
+    def test_project_dir_and_a_different_directory_are_refused(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        roots: list[Path] = []
+        monkeypatch.setattr(
+            lint_iac, "run", lambda root, cfg, **kw: roots.append(root) or 0
+        )
+        other = tmp_path / "other"
+        result = CliRunner().invoke(app, ["lint-iac", str(other), "-C", str(tmp_path)])
+        assert result.exit_code == 2
+        assert roots == []
+
     @pytest.mark.parametrize(
         ("verb", "dims"),
         [

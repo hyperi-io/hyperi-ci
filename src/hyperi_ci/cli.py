@@ -292,6 +292,12 @@ def lint_iac_cmd(
         ),
     ] = ".",
     sarif: Annotated[str | None, typer.Option("--sarif", help=_SARIF_HELP)] = None,
+    project_dir: Annotated[
+        str | None,
+        typer.Option(
+            "--project-dir", "-C", help="Project root directory (same as DIRECTORY)"
+        ),
+    ] = None,
 ) -> None:
     """Lint the infrastructure code in a repo, every dimension it holds.
 
@@ -306,7 +312,12 @@ def lint_iac_cmd(
     (``iac.timeout_seconds``). It never plans, applies, installs a chart or
     starts a cluster, so the job needs no credentials.
     """
-    raise typer.Exit(_lint_iac(directory, sarif))
+    if project_dir is not None and directory not in (".", project_dir):
+        raise typer.BadParameter(
+            f"DIRECTORY {directory!r} and --project-dir {project_dir!r} disagree; "
+            "pass one of them"
+        )
+    raise typer.Exit(_lint_iac(project_dir or directory, sarif))
 
 
 def _deprecated_verb(old: str) -> None:
