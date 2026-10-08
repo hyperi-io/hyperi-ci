@@ -101,6 +101,8 @@ ALLOWED_RUN_LINES = {
         r"if \[ -z \"\$\(git tag --list 'v\[0-9\]\*'\)\" \]; then",
         rf'echo "Tag-less repo [^"$`;|&]*v{_BRACED_VERSION} from the plan\'s prediction"',
         rf'{_INSTALL} tag-head --bump "{_VERSION}"',
+        # helm dependency build, package and push render no template and run no hook.
+        rf"{_INSTALL} publish-charts",
         # Known gap, tracked in #413: the tagger loads a repo-controlled config.
         r"npx semantic-release",
         rf"{_INSTALL} run release",
