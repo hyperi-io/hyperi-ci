@@ -318,6 +318,15 @@ class TestTheTableIsWhatTheHandlersPass:
         _golang_calls(monkeypatch, tmp_path, calls)
         assert calls.options["gofmt"].get("output_is_finding") is True
 
+    def test_bandit_counts_the_files_it_could_not_scan(
+        self, calls: _Calls, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setattr(
+            python_quality, "get_python_source_paths", lambda _c: ["src"]
+        )
+        _python_calls(monkeypatch, tmp_path, calls)
+        assert calls.options["bandit"]["unscanned"] is python_quality._warn_bandit_skips
+
 
 class TestOutputGoesThroughOneStream:
     """Ordering is the defect. Two streams cannot be kept in order."""
