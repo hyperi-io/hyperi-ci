@@ -263,40 +263,76 @@ def check(
     raise typer.Exit(0)
 
 
+_SARIF_HELP = (
+    "Write combined SARIF here (opt-in). The workflow uploads it to "
+    "code scanning only where GitHub Code Security is enabled."
+)
+
+
+def _lint_iac(
+    directory: str, sarif: str | None, dimensions: tuple[str, ...] | None = None
+) -> int:
+    """Load the directory's config and run lint-iac over it."""
+    from hyperi_ci.config import load_config
+    from hyperi_ci.quality import lint_iac
+
+    root = Path(directory)
+    config = load_config(project_dir=root)
+    return lint_iac.run(
+        root, config, sarif_path=sarif, dimensions=dimensions or lint_iac.DIMENSIONS
+    )
+
+
+@app.command(name="lint-iac")
+def lint_iac_cmd(
+    directory: Annotated[
+        str,
+        typer.Argument(
+            help="Directory to lint (charts, manifests, tofu, ansible, compose)"
+        ),
+    ] = ".",
+    sarif: Annotated[str | None, typer.Option("--sarif", help=_SARIF_HELP)] = None,
+) -> None:
+    """Lint the infrastructure code in a repo, every dimension it holds.
+
+    Each dimension switches on by marker: Dockerfiles (hadolint), compose files
+    (resolution and image pins), Helm charts (render per ci values, render
+    twice, kubeconform -strict), kustomizations, plain manifests, kube-linter
+    and Checkov (advisory), OpenTofu (fmt, init, validate per root), ansible
+    (galaxy install, ansible-lint, yamllint), and ``iac.generated`` entries
+    (regenerate and fail on a diff).
+
+    Dimensions run one at a time with a per-tool timeout
+    (``iac.timeout_seconds``). It never plans, applies, installs a chart or
+    starts a cluster, so the job needs no credentials.
+    """
+    raise typer.Exit(_lint_iac(directory, sarif))
+
+
+def _deprecated_verb(old: str) -> None:
+    """Say once that ``old`` is now an alias of lint-iac."""
+    from hyperi_ci.common import announce
+
+    announce(
+        f"`hyperi-ci {old}` is deprecated and runs part of `hyperi-ci lint-iac`; "
+        "call lint-iac instead",
+        "hyperi-ci deprecated verb",
+    )
+
+
 @app.command(name="lint-manifests")
 def lint_manifests_cmd(
     directory: Annotated[
         str,
         typer.Argument(help="Directory to lint (Helm charts / k8s manifests / IaC)"),
     ] = ".",
-    sarif: Annotated[
-        str | None,
-        typer.Option(
-            "--sarif",
-            help=(
-                "Write combined SARIF here (opt-in). The workflow uploads it to "
-                "code scanning only where GitHub Code Security is enabled."
-            ),
-        ),
-    ] = None,
+    sarif: Annotated[str | None, typer.Option("--sarif", help=_SARIF_HELP)] = None,
 ) -> None:
-    """Lint Kubernetes manifests, Helm charts and IaC in a gitops / infra repo.
+    """Deprecated: runs lint-iac's helm, kustomize, manifests, kube-linter and checkov."""
+    from hyperi_ci.quality import lint_iac
 
-    Runs kubeconform (schema-validation GATE), kube-linter (best-practice
-    ADVISORY) and Checkov (IaC security ADVISORY). Only kubeconform gates: a
-    schema-invalid manifest exits non-zero; the advisories never fail the build.
-
-    Built for GitHub-Actions-native gitops repos (no ``.hyperi-ci.yaml``, no
-    language pipeline) - call it from the existing workflow instead of adopting
-    the whole hyperi-ci pipeline.
-    """
-    from hyperi_ci.config import load_config
-    from hyperi_ci.quality import lint_manifests
-
-    root = Path(directory)
-    config = load_config(project_dir=root)
-    rc = lint_manifests.run(root, config, sarif_path=sarif)
-    raise typer.Exit(rc)
+    _deprecated_verb("lint-manifests")
+    raise typer.Exit(_lint_iac(directory, sarif, lint_iac.MANIFEST_DIMENSIONS))
 
 
 @app.command(name="lint-compose")
@@ -305,35 +341,13 @@ def lint_compose_cmd(
         str,
         typer.Argument(help="Directory to lint (docker-compose files)"),
     ] = ".",
-    sarif: Annotated[
-        str | None,
-        typer.Option(
-            "--sarif",
-            help=(
-                "Write combined SARIF here (opt-in). The workflow uploads it to "
-                "code scanning only where GitHub Code Security is enabled."
-            ),
-        ),
-    ] = None,
+    sarif: Annotated[str | None, typer.Option("--sarif", help=_SARIF_HELP)] = None,
 ) -> None:
-    """Lint the docker-compose files in a compose packaging repo.
+    """Deprecated: runs lint-iac's compose dimension."""
+    from hyperi_ci.quality import lint_iac
 
-    Runs compose-config (``docker compose config`` resolution GATE) and
-    compose-pins (image-pin GATE). An image with no tag, or one resolving to
-    ``latest`` when nothing is set, fails: compose is a deploy target, so which
-    image runs must not be the registry's call.
-
-    Built for a repo whose deliverable IS the compose stack (no
-    ``.hyperi-ci.yaml``, no language pipeline, no Helm chart) - call it from the
-    existing workflow beside ``lint-manifests``.
-    """
-    from hyperi_ci.config import load_config
-    from hyperi_ci.quality import lint_compose
-
-    root = Path(directory)
-    config = load_config(project_dir=root)
-    rc = lint_compose.run(root, config, sarif_path=sarif)
-    raise typer.Exit(rc)
+    _deprecated_verb("lint-compose")
+    raise typer.Exit(_lint_iac(directory, sarif, lint_iac.COMPOSE_DIMENSIONS))
 
 
 @app.command(name="lint-docs")
@@ -342,16 +356,7 @@ def lint_docs_cmd(
         str,
         typer.Argument(help="Directory to lint (markdown documentation)"),
     ] = ".",
-    sarif: Annotated[
-        str | None,
-        typer.Option(
-            "--sarif",
-            help=(
-                "Write combined SARIF here (opt-in). The workflow uploads it to "
-                "code scanning only where GitHub Code Security is enabled."
-            ),
-        ),
-    ] = None,
+    sarif: Annotated[str | None, typer.Option("--sarif", help=_SARIF_HELP)] = None,
 ) -> None:
     """Check the markdown documentation in this repo.
 

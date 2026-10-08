@@ -343,7 +343,7 @@ tools:
       x86_64: aca691abfbfbbe00d482e0ed2249eec3091b65e96a0ce92947fb5b254d48b16d
       aarch64: cd59b90fce5fa84c4189648fec33404ec5491791eebdb812df5e7fca8336408d
   # native_tools.py fetches Helm from get.helm.sh for a project's tests
-  # (`test.native_tools`), and checks these digests. They were cross-checked
+  # (`test.native_tools`) and for lint-iac, and checks these digests. They were cross-checked
   # against upstream's `.sha256sum` files and the release notes at pin time.
   helm:
     version: v4.3.0
@@ -351,6 +351,23 @@ tools:
     sha256:
       amd64: 86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb
       arm64: 31c5794dd55c66a51e6b7d2e2ac7a114ae8b1de41ff1d9ba51748ac973b06a08
+  # lint-iac fetches these two through native_tools.py on Linux CI when the
+  # runner has none. Digests cross-checked against upstream's SHA256SUMS and
+  # checksums.txt at pin time.
+  tofu:
+    version: v1.12.6
+    repo: opentofu/opentofu
+    sha256:
+      amd64: 50a6106fa4de523d09c87af85f3db1dd47535fc005727fdca6852146476b88ec
+      arm64: 9bd0228a81bcd0c88f7045c74378f45a815779f19897191dff7d9efba9976b9e
+  # MONOREPO like rustsec: api/, kyaml/ and cmd/config/ tag from the same repo.
+  kustomize:
+    version: v5.8.1
+    repo: kubernetes-sigs/kustomize
+    tag_prefix: kustomize/
+    sha256:
+      amd64: 029a7f0f4e1932c52a0476cf02a0fd855c0bb85694b82c338fc648dcb53a819d
+      arm64: 0953ea3e476f66d6ddfcd911d750f5167b9365aa9491b2326398e289fef2c142
 
   # Quality tools resolved at JOB TIME through uvx / `uv run --with`. Unpinned,
   # each job took whatever PyPI served that morning, so a bad release could
@@ -378,6 +395,17 @@ tools:
   ty:
     version: "0.0.83"
     pypi: ty
+  checkov:
+    version: 3.3.20
+    pypi: checkov
+  # lint-iac's ansible dimension. ansible-galaxy runs from the ansible-lint
+  # environment, so the ansible-core it installs with matches the linter's.
+  ansible-lint:
+    version: 26.9.0
+    pypi: ansible-lint
+  yamllint:
+    version: 1.38.0
+    pypi: yamllint
   # The predict-version helpers read .hyperi-ci.yaml under `uv run --with
   # pyyaml==<this>`, since a runner's own python3 may have no YAML parser.
   # Mirrored into that composite's `default:`, which GitHub parses before our

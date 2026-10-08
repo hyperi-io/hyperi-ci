@@ -11,6 +11,7 @@ detection (GitHub Actions workflow commands, Solarized terminal, plain CI).
 """
 
 import codecs
+import contextlib
 import errno
 import fnmatch
 import functools
@@ -18,6 +19,8 @@ import http.client
 import os
 import random
 import re
+import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -26,7 +29,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -516,6 +519,56 @@ def normalise_tristate(raw: object, *, key: str) -> str:
     return "auto"
 
 
+@contextmanager
+def scratch_dir(path: Path) -> Iterator[Path]:
+    """Yield ``path`` as a directory, removed with everything in it afterwards."""
+    path.mkdir(parents=True, exist_ok=True)
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
+
+
+def stage_tree(
+    start: Path,
+    root: Path,
+    stage: Path,
+    refs: Callable[[Path], list[Path]],
+    ignore: Callable[[str, list[str]], Iterable[str]],
+) -> Path:
+    """Copy ``start`` and every path ``refs`` reaches from it under ``stage``.
+
+    Each copy keeps its path relative to ``root``, so relative references
+    resolve in the copy as they do in the tree. Returns the copy of ``start``.
+    """
+    base = root.resolve()
+
+    def place(path: Path) -> Path:
+        if path.is_relative_to(base):
+            return stage / path.relative_to(base)
+        return stage / "outside" / path.name
+
+    queue, seen = [start.resolve()], set()
+    while queue:
+        current = queue.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        if current.is_dir():
+            shutil.copytree(
+                current,
+                place(current),
+                symlinks=True,
+                dirs_exist_ok=True,
+                ignore=ignore,
+            )
+            queue += refs(current)
+        elif current.is_file():
+            place(current).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(current, place(current))
+    return place(start.resolve())
+
+
 def run_cmd(
     cmd: list[str],
     *,
@@ -526,6 +579,8 @@ def run_cmd(
     timeout: float | None = None,
     stdin_text: str | None = None,
     merge_stderr: bool = False,
+    memory_limit_bytes: int | None = None,
+    own_group: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """Run a subprocess with consistent error handling.
 
@@ -540,10 +595,16 @@ def run_cmd(
         env: Additional env vars (merged with os.environ).
         timeout: Seconds before the child is killed and
             ``subprocess.TimeoutExpired`` raised. None waits for it to exit.
+        own_group: With ``timeout``, on POSIX, kill the child's whole process
+            group on timeout or interrupt, so a wrapper's children
+            (``uvx checkov``) cannot outlive it.
         stdin_text: Text written to the child's stdin, which is then closed.
             The way to hand a child a secret: argv is readable by any process
             on the host through ``/proc/<pid>/cmdline``, stdin is not. None
             leaves stdin inherited.
+        memory_limit_bytes: ``RLIMIT_AS`` for the child, Linux only, and
+            ``MALLOC_ARENA_MAX=2`` unless ``env`` names it. For Python tools
+            only: a Go runtime reserves far more address space than it uses.
 
     Returns:
         CompletedProcess with text output.
@@ -556,6 +617,14 @@ def run_cmd(
     if merge_stderr and not capture:
         raise ValueError("run_cmd: merge_stderr needs capture=True")
 
+    preexec = None
+    if memory_limit_bytes is not None and sys.platform == "linux":
+        import resource
+
+        limit = (memory_limit_bytes, memory_limit_bytes)
+        preexec = functools.partial(resource.setrlimit, resource.RLIMIT_AS, limit)
+        env = {"MALLOC_ARENA_MAX": "2", **(env or {})}
+
     run_env = None
     if env:
         run_env = {**os.environ, **env}
@@ -564,6 +633,30 @@ def run_cmd(
     if capture:
         stdout = subprocess.PIPE
         stderr = subprocess.STDOUT if merge_stderr else subprocess.PIPE
+
+    if own_group and timeout is not None and os.name == "posix":
+        with subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE if stdin_text is not None else None,
+            stdout=stdout,
+            stderr=stderr,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=cwd,
+            env=run_env,
+            preexec_fn=preexec,
+            start_new_session=True,
+        ) as proc:
+            try:
+                out, err = proc.communicate(stdin_text, timeout=timeout)
+            except BaseException:
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.killpg(proc.pid, signal.SIGKILL)
+                raise
+        if check and proc.returncode:
+            raise subprocess.CalledProcessError(proc.returncode, cmd, out, err)
+        return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
 
     return subprocess.run(
         cmd,
@@ -577,6 +670,7 @@ def run_cmd(
         env=run_env,
         timeout=timeout,
         input=stdin_text,
+        preexec_fn=preexec,
     )
 
 

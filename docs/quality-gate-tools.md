@@ -9,7 +9,7 @@ Copyright: (c) 2026 HYPERI PTY LIMITED
 
 # Quality gate: tools
 
-What each quality tool covers and where it runs, then the tools that take their own configuration: charset, doc-paths, the Rust feature matrix, gitleaks, and the container, k8s and IaC linters. Mode resolution and the override mechanisms are in [quality-gate.md](quality-gate.md).
+What each quality tool covers and where it runs, then the tools that take their own configuration: charset, doc-paths, the Rust feature matrix, gitleaks, and the container and IaC linters. Mode resolution and the override mechanisms are in [quality-gate.md](quality-gate.md).
 
 ## Tools
 
@@ -20,11 +20,14 @@ What each quality tool covers and where it runs, then the tools that take their 
 | charset | typography a keyboard cannot type, ASCII-art | dispatch (`quality/charset.py`) |
 | hadolint | Dockerfile lint GATE (shellcheck-on-`RUN`) | dispatch (`quality/hadolint.py`) |
 | droast | Dockerfile ADVISORY (cache / dockerignore) | dispatch (`quality/droast.py`) |
-| kubeconform | k8s manifest schema GATE | `lint-manifests` verb (`quality/kubeconform.py`) |
-| kube-linter | k8s best-practice ADVISORY | `lint-manifests` verb (`quality/kube_linter.py`) |
-| checkov | IaC security ADVISORY (k8s/helm/tf) | `lint-manifests` verb (`quality/checkov.py`) |
-| compose-config | compose resolution GATE | `lint-compose` verb (`quality/compose_config.py`) |
-| compose-pins | compose image-pin GATE | `lint-compose` verb (`quality/compose_pins.py`) |
+| kubeconform | k8s manifest schema GATE (`-strict`) | `lint-iac` verb (`quality/kubeconform.py`) |
+| helm, kustomize | chart / overlay render GATE (render twice) | `lint-iac` verb (`quality/render.py`) |
+| kube-linter | k8s best-practice ADVISORY | `lint-iac` verb (`quality/kube_linter.py`) |
+| checkov | IaC security ADVISORY (k8s/helm/tf) | `lint-iac` verb (`quality/checkov.py`) |
+| tofu | OpenTofu fmt / init / validate GATE | `lint-iac` verb (`quality/tofu.py`) |
+| ansible-lint, yamllint | ansible lint (warn) | `lint-iac` verb (`quality/ansible_lint.py`) |
+| compose-config | compose resolution GATE | `lint-iac` verb (`quality/compose_config.py`) |
+| compose-pins | compose image-pin GATE | `lint-iac` verb (`quality/compose_pins.py`) |
 | doc-paths | docs naming a file that is gone | dispatch + `lint-docs` (`quality/doc_paths.py`) |
 | lychee | internal doc links + anchors, offline | dispatch + `lint-docs` (`quality/doc_links.py`) |
 | mermaid-parse | fenced mermaid blocks, real grammar | dispatch + `lint-docs` (`quality/mermaid_parse.py`) |
@@ -215,34 +218,34 @@ repo config passed via `--config` beats them, but with no repo config they take
 over silently - so hyperi-ci warns when one is set and there is nothing to
 override it. Prefer a committed `.gitleaks.toml`: it gets reviewed.
 
-## Container + k8s + IaC linting
+## Container + IaC linting
 
-Five tools cover three artefact classes, each with a **gate** (blocks) and an
-**advisory** (warns, never blocks):
+hadolint and droast auto-detect Dockerfiles inside `hyperi-ci run quality`, like gitleaks and semgrep. Everything else runs through `hyperi-ci lint-iac [dir]`, built for infra, gitops and compose repos with no language pipeline. Each dimension switches on by marker, so a repo configures nothing to adopt it.
 
-| Layer | Dockerfiles | k8s manifests | IaC |
+| Dimension | Marker | Checks | Mode key (default) |
 |---|---|---|---|
-| Gate (blocking) | hadolint | kubeconform | - |
-| Advisory (warn) | droast | kube-linter | checkov (k8s/helm/kustomize/terraform) |
+| dockerfile | `Dockerfile` / `Containerfile` | hadolint | `hadolint` (blocking) |
+| compose | compose file with `services` | `docker compose config`, image pins | `compose_config`, `compose_pins` (blocking) |
+| helm | `Chart.yaml`, not a library or subchart | dependency build, `helm template --skip-tests` per `ci/*-values.yaml` else defaults, render twice, kubeconform | `kubeconform` (blocking); `render_stable` (blocking) for two differing renders |
+| kustomize | `kustomization.yaml` | `kustomize build` twice, kubeconform | `kubeconform` (blocking); `render_stable` (blocking) |
+| manifests | YAML with `apiVersion` and `kind`, outside charts and not referenced by a kustomization | kubeconform | `kubeconform` (blocking) |
+| kube-linter | charts, manifests, built kustomizations | kube-linter plus `liveness-without-startup-probe` | `kube_linter` (warn) |
+| checkov | the tree | Checkov, pinned in `versions.yaml` | `checkov` (warn) |
+| tofu | `.tf` / `.tofu` | `fmt -check`; `init -backend=false` and `validate` per root | `tofu` (blocking) |
+| ansible | `ansible.cfg`, or `playbooks/` + `roles/` | `ansible-galaxy install -r`, ansible-lint, yamllint if `.yamllint*` exists | `ansible_lint` (warn) |
+| generated | `iac.generated` entries | run the command, fail if its paths change | `iac_generated` (blocking) |
 
-They deliver through two paths, because the target repos differ in kind:
+- **lint-iac never writes into the tree it lints.** `helm dependency build`, `kustomize --enable-helm`, `tofu init`, `ansible-galaxy install` and `iac.generated` commands all run on a copy in scratch, removed afterwards.
+- **kubeconform runs `-strict`**, which fails an unknown field and a duplicate key. `quality.kubeconform.strict` set to `false`, `no` or `0` turns it off. Schemas come from the k8s defaults, the datreeio CRDs-catalog and `quality.kubeconform.schema_locations`, cached under `~/.cache/hyperi-ci` per kubeconform pin for at most 7 days.
+- **A chart renders twice and the outputs must be byte-equal.** `randAlphaNum`, `genCA` and `now` fail it, because every ArgoCD sync then reports drift. Helm test hooks are left out of the comparison. `quality.render_stable` relaxes this gate without touching kubeconform. `iac.helm.values` (repo-relative files) and `iac.helm.set` (`key: value`) apply to every render.
+- **A kustomization owns only what it references** (`resources`, `bases`, `components`, patches, generator files). A manifest beside it that no kustomization lists is still validated as a plain manifest.
+- **A root module** is one no other module calls by a local `source`. Called modules are validated through their callers, copied beside the root at the same relative path. Providers come from `TF_PLUGIN_CACHE_DIR` (default `~/.cache/hyperi-ci/tofu-plugins`).
+- **ansible-lint** runs once from the repo root under the repo's `.ansible-lint`, `--offline`. Galaxy requirements install into scratch through `ANSIBLE_COLLECTIONS_PATH` and `ANSIBLE_ROLES_PATH`, and the lint sees the scratch roles first, then each project's `roles_path`. A project under `exclude_paths` is not linted.
+- **Hidden and git-ignored directories are skipped** by every IaC discovery: `.claude` worktrees, `.ansible` collections and `.terraform` caches are copies, not sources.
 
-- **Path A - the quality stage.** hadolint + droast auto-detect Dockerfiles
-  inside `hyperi-ci run quality`, like gitleaks/semgrep. A repo with no
-  Dockerfile just info-skips - no opt-out config needed.
-- **Path B - the `lint-manifests` verb.** `hyperi-ci lint-manifests <dir>` runs
-  kubeconform + kube-linter + checkov. Built for GitHub-Actions-native gitops /
-  infra repos that have no `.hyperi-ci.yaml` and no language pipeline - the
-  existing workflow calls the verb instead of adopting the whole pipeline. It
-  renders Helm charts (`helm template`) for kubeconform, which validates
-  RENDERED manifests.
-- **Path C - the `lint-compose` verb.** `hyperi-ci lint-compose <dir>` runs
-  compose-config + compose-pins over a repo whose deliverable IS the compose
-  stack - no language pipeline for Path A, no chart or manifest for Path B.
-  compose-config resolves each standalone file (placeholders injected for the
-  keys the file declares mandatory, so the check stays hermetic); compose-pins
-  reads every file statically and fails an `image:` that resolves to `latest`
-  with nothing set.
+Guardrails: dimensions run one at a time, each in its own log group, and one that crashes does not stop the rest. Every tool call times out at `iac.timeout_seconds` (600), kills the tool's whole process group, and fails a blocking gate. Checkov, ansible-lint and yamllint run under `RLIMIT_AS` of `iac.memory_limit_mb` (4096); the Go binaries do not, since they reserve more address space than they use. Nothing plans, applies, installs a chart or starts a cluster. A missing tool warn-skips locally and fails a blocking gate in CI, where helm, tofu and kustomize are fetched at the versions pinned in `versions.yaml`.
+
+`lint-manifests` and `lint-compose` are deprecated aliases. They print one notice and run lint-iac's helm, kustomize, manifests, kube-linter and checkov dimensions, or its compose dimension.
 
 ## Advisory (non-blocking) checks
 

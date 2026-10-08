@@ -1,25 +1,28 @@
 # Project:   HyperI CI
 # File:      tests/unit/test_lint_compose.py
-# Purpose:   Tests for compose discovery, the resolution gate and the orchestrator
+# Purpose:   Tests for compose discovery, the resolution gate and lint-iac's compose dimension
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Tests for the compose linting dimension (Path C).
+"""Tests for the compose linting dimension.
 
 Discovery and the fragment/stack split run against real compose files in
 tmp_path. ``docker compose`` itself is only exercised through its absence: the
 gate has to fail in CI when it cannot run, and warn-skip locally.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import pytest
 
 from hyperi_ci.config import CIConfig
-from hyperi_ci.quality import compose_config, lint_compose
+from hyperi_ci.quality import compose_config, lint_iac
 from hyperi_ci.quality.targets import discover_compose_files
+
+
+def _lint_compose(root: Path, cfg: CIConfig) -> int:
+    return lint_iac.run(root, cfg, dimensions=lint_iac.COMPOSE_DIMENSIONS)
+
 
 _STACK = """\
 services:
@@ -131,7 +134,7 @@ class TestMissingCompose:
 
 class TestRun:
     def test_no_compose_files_is_not_a_failure(self, tmp_path: Path) -> None:
-        assert lint_compose.run(tmp_path, _cfg()) == 0
+        assert _lint_compose(tmp_path, _cfg()) == 0
 
     def test_pin_gate_fails_without_docker(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -143,7 +146,7 @@ class TestRun:
             tmp_path / "docker-compose.yml",
             "services:\n  app:\n    image: nginx\n",
         )
-        assert lint_compose.run(tmp_path, _cfg()) == 1
+        assert _lint_compose(tmp_path, _cfg()) == 1
 
     def test_both_gates_disabled_passes(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -154,4 +157,4 @@ class TestRun:
             "services:\n  app:\n    image: nginx\n",
         )
         cfg = _cfg(compose_config="disabled", compose_pins="disabled")
-        assert lint_compose.run(tmp_path, cfg) == 0
+        assert _lint_compose(tmp_path, cfg) == 0

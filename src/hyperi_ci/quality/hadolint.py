@@ -24,10 +24,9 @@ Findings surface through the shared layer (:mod:`hyperi_ci.quality.findings`):
 bounded annotations + full job-summary table + optional SARIF.
 """
 
-from __future__ import annotations
-
 import json
 import platform
+import subprocess
 from pathlib import Path
 
 from hyperi_ci.common import (
@@ -114,20 +113,31 @@ def _resolve_mode(config: CIConfig) -> str:
     return resolve_cross_tool_mode(config, "hadolint", "blocking")
 
 
-def run(config: CIConfig, *, sarif_path: str | Path | None = None) -> int:
-    """Run hadolint over every Dockerfile in the repo.
+def run(
+    config: CIConfig,
+    *,
+    sarif_path: str | Path | None = None,
+    root: Path | None = None,
+    timeout: float | None = None,
+    exclude_dirs: list[str] | None = None,
+) -> int:
+    """Run hadolint over every Dockerfile under ``root`` (default: the cwd).
+
+    ``exclude_dirs`` replaces the configured exclude list when given.
 
     Returns exit code (0 = pass / advisory / skipped; 1 = a blocking gate hit an
-    error-severity finding, or the tool is required-but-missing in CI).
+    error-severity finding, a run that timed out, or the tool is
+    required-but-missing in CI).
     """
     mode = _resolve_mode(config)
     if mode == "disabled":
         info("  hadolint: disabled")
         return 0
 
-    dockerfiles = discover_dockerfiles(
-        Path.cwd(), exclude_dirs=get_exclude_dirs(config._raw)
-    )
+    base = (root or Path.cwd()).resolve()
+    if exclude_dirs is None:
+        exclude_dirs = get_exclude_dirs(config._raw)
+    dockerfiles = discover_dockerfiles(base, exclude_dirs=exclude_dirs)
     if not dockerfiles:
         info("  hadolint: no Dockerfile found - skipping")
         return 0
@@ -143,12 +153,24 @@ def run(config: CIConfig, *, sarif_path: str | Path | None = None) -> int:
     # --no-fail: hadolint always exits 0 and emits the full JSON report; WE
     # decide the gate from the parsed severities, so all gate logic is in one
     # place (and testable) rather than split across hadolint's exit code.
-    rels = [str(p.relative_to(Path.cwd())) for p in dockerfiles]
+    rels = [str(p.relative_to(base)) for p in dockerfiles]
     info(f"  hadolint: linting {len(rels)} Dockerfile(s)...")
     try:
         result = run_cmd(
-            [exe, "--no-fail", "--format", "json", *rels], check=False, capture=True
+            [exe, "--no-fail", "--format", "json", *rels],
+            check=False,
+            capture=True,
+            cwd=base,
+            timeout=timeout,
+            own_group=True,
         )
+    except subprocess.TimeoutExpired:
+        message = f"  hadolint: no result within {timeout}s"
+        if mode == "blocking":
+            error(f"{message} - failing the gate")
+            return 1
+        warn(message)
+        return 0
     except OSError as exc:
         # exec failure (a corrupt auto-installed binary, no exec bit). A gate
         # that cannot run is not a pass - fail it in CI rather than crash.
