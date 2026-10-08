@@ -3,6 +3,15 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.13.2](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.1...v2.13.2) (2026-10-08)
+
+### Bug Fixes
+
+* clear the rust and release code leftovers from the docstring sweep ([#582](https://github.com/hyperi-io/hyperi-ci/issues/582)) ([11fbc60](https://github.com/hyperi-io/hyperi-ci/commit/11fbc607a0632e7ddfef8f8d8ee1aa5d06dd2a84)), closes [#578](https://github.com/hyperi-io/hyperi-ci/issues/578)
+* parse commented renovate.json5 and treat FROM --platform as a new stage ([#583](https://github.com/hyperi-io/hyperi-ci/issues/583)) ([006535b](https://github.com/hyperi-io/hyperi-ci/commit/006535bb2c94cbffbd990877a0b9b80d8ef76ce0)), closes [#581](https://github.com/hyperi-io/hyperi-ci/issues/581)
+* **quality:** lint Helm renders with kube-linter and surface skipped targets ([#576](https://github.com/hyperi-io/hyperi-ci/issues/576)) ([d6fe354](https://github.com/hyperi-io/hyperi-ci/commit/d6fe354164455ed672bbf357961d366b904f16ab)), closes [#575](https://github.com/hyperi-io/hyperi-ci/issues/575)
+* **rust:** match stale -sys rlibs by crate name; cut docstring padding in rust and release ([#577](https://github.com/hyperi-io/hyperi-ci/issues/577)) ([ca43f3d](https://github.com/hyperi-io/hyperi-ci/commit/ca43f3d20fd842b06efc7477d9be8191af0e5c53))
+
 ## [2.13.1](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.0...v2.13.1) (2026-10-08)
 
 ### Bug Fixes
