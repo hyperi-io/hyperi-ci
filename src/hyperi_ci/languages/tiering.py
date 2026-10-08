@@ -6,14 +6,13 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Test tier: which part of a project's suite the test stage runs.
 
-``core`` is the suite as the project selects it by default -- its own pytest
+``core`` is the suite as the project selects it by default: its pytest
 ``addopts -m`` deselection, nextest's ``#[ignore]`` and ``default-filter``.
-``full`` runs everything the runner can execute on top of that.
+``full`` also runs everything the runner can execute.
 
-Set by ``test.tier``, ``HYPERCI_TEST_TIER`` or ``--tier``. Not to be confused
-with ``test.use_tiers`` / ``test.tiers.*`` (the Python directory split) or
-``test.rust.tier`` (the Rust unit / integration / e2e subset): those pick WHERE
-tests live, this picks whether the deselected and ignored ones run.
+Set by ``test.tier``, ``HYPERCI_TEST_TIER`` or ``--tier``. ``test.use_tiers``,
+``test.tiers.*`` and ``test.rust.tier`` pick WHERE tests live, not whether the
+deselected and ignored ones run.
 """
 
 import re
@@ -25,8 +24,7 @@ from hyperi_ci.config import CIConfig
 
 TEST_TIER_KEY = "test.tier"
 
-# The key ``stage_test`` puts the resolved tier under in a handler's
-# ``extra_env``, the channel it already uses for ``RUST_FEATURES``.
+# The key ``stage_test`` puts the resolved tier under in a handler's ``extra_env``.
 TEST_TIER_ENV = "TEST_TIER"
 
 
@@ -49,11 +47,11 @@ def resolve_test_tier(config: CIConfig) -> SuiteTier:
 
     Returns:
         The tier, ``core`` when nothing sets one. An empty value counts as
-        unset, so a workflow passing an empty output does not fail the stage.
+        unset, so a workflow passing an empty output does not fail.
 
     Raises:
-        InvalidTestTierError: The value is not ``core`` or ``full``. A typo
-            here must not quietly run the smaller suite.
+        InvalidTestTierError: The value is not ``core`` or ``full``, so a typo
+            cannot quietly run the smaller suite.
 
     """
     raw = config.get(TEST_TIER_KEY, SuiteTier.CORE.value)
@@ -87,9 +85,8 @@ def handler_tier(extra_env: dict[str, str] | None) -> SuiteTier:
 class KeptLines:
     """An ``on_line`` sink that keeps the lines matching a pattern, bounded.
 
-    ``stream_cmd`` returns only the tail of a run's output, and a summary can
-    be spread through it (one libtest line per test binary), so a handler
-    collects what it parses as the lines go by.
+    ``stream_cmd`` returns only the tail of the output, while a summary can be
+    spread through it (one libtest line per test binary).
     """
 
     def __init__(self, pattern: re.Pattern[str], limit: int = 4096) -> None:

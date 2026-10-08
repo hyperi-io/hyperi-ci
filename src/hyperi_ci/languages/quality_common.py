@@ -6,13 +6,10 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Shared quality-stage code for every language handler.
 
-Resolves each tool's mode, runs each tool through :func:`run_gate_tool`, and
-splits checks into two passes:
-1. Production pass -- full strict rules on all code except test dirs
-2. Test pass -- relaxed rules on test directories only
-
-Test paths and ignore lists are configurable via defaults.yaml and
-overridable per project in .hyperi-ci.yaml.
+Resolves each tool's mode, runs it through :func:`run_gate_tool`, and supplies
+the test paths and ignore lists for the two passes: strict rules on production
+code, relaxed rules on test directories. Both come from defaults.yaml and are
+overridable in .hyperi-ci.yaml.
 """
 
 import fnmatch
@@ -53,8 +50,7 @@ _NOT_PYTHON_SOURCE = (
     "*.egg-info",
 )
 
-# The only valid quality-tool modes. An out-of-vocabulary value is a typo, not a
-# silent request to disable the gate (see resolve_tool_mode).
+# The valid quality-tool modes: any other value is a typo (see checked_mode).
 _VALID_MODES = {"blocking", "warn", "disabled"}
 
 _MODE_STRENGTH = {"disabled": 0, "warn": 1, "blocking": 2}
@@ -78,10 +74,8 @@ _ARGV_REJECTION = (
 type Via = Literal["path", "uv", "uvx", "uv-with"]
 type Unreachable = Callable[[subprocess.CompletedProcess[str]], bool]
 
-# Tools whose findings are advisories about SECURITY - secrets, SAST, and the
-# CVE/advisory feeds. Turning one of these below what hyperi-ci ships without a
-# stated reason fails the stage (:func:`note_gate_downgrade`). Every other tool
-# may be turned down with a bare mode string.
+# Tools reporting SECURITY findings: secrets, SAST and CVE/advisory feeds. Turning
+# one below its shipped mode without a reason fails the stage (note_gate_downgrade).
 SECURITY_TOOLS = frozenset(
     {
         "gitleaks",
@@ -101,9 +95,7 @@ SECURITY_TOOLS = frozenset(
 class GateReasonRequiredError(ValueError):
     """A security gate is relaxed in config and gives no reason for it.
 
-    Carries the full operator-facing message and the title to report it
-    under, so a caller reports ``str(exc)`` and needs to know nothing about
-    the gate that raised.
+    Carries the full operator-facing message and the title to report it under.
 
     Attributes:
         title: Annotation title the failure is reported under in CI.
@@ -115,9 +107,8 @@ class GateReasonRequiredError(ValueError):
 def _one_line(text: str) -> str:
     """Join ``text`` onto one line and strip it.
 
-    Repo config reaches the log through here, and under GitHub Actions a line
-    break in a logged message starts a new line the runner parses as a
-    workflow command.
+    Under GitHub Actions a line break in a logged message starts a new line the
+    runner parses as a workflow command, and repo config reaches the log here.
     """
     return " ".join(text.splitlines()).strip()
 
@@ -125,10 +116,8 @@ def _one_line(text: str) -> str:
 def mode_and_reason(raw: object, default: str) -> tuple[str, str]:
     """Split a configured quality value into its mode and its stated reason.
 
-    A quality key may be a bare mode string or a mapping carrying ``mode``
-    plus options - the shape ``quality.rust.feature_matrix`` already uses,
-    and the only one that can hold a ``reason`` beside the setting it
-    explains.
+    A quality key is a bare mode string or a mapping with ``mode`` plus options,
+    the only shape that can hold a ``reason``.
 
     Args:
         raw: The configured value, of either shape.
@@ -151,11 +140,9 @@ def mode_and_reason(raw: object, default: str) -> tuple[str, str]:
 def strict_quality() -> bool:
     """Return True when strict quality mode is active.
 
-    Strict mode upgrades ``warn``-tier findings to ``blocking`` so a
-    developer sees - and then fixes or explicitly ignores - everything
-    CI would surface BEFORE the push, not after. Enabled by
-    ``hyperi-ci check --strict`` (which exports ``HYPERCI_QUALITY_STRICT``)
-    or by exporting that env var directly.
+    Strict mode upgrades ``warn`` findings to ``blocking`` so a developer sees
+    everything CI would surface before the push. Enabled by
+    ``hyperi-ci check --strict`` or by exporting ``HYPERCI_QUALITY_STRICT``.
     """
     return env_true("HYPERCI_QUALITY_STRICT")
 
@@ -163,10 +150,8 @@ def strict_quality() -> bool:
 def apply_strict(mode: str) -> str:
     """Upgrade a ``warn`` mode to ``blocking`` under :func:`strict_quality`.
 
-    Shared by :func:`resolve_tool_mode` (per-language tools) and the
-    dispatch-level cross-language scans (semgrep) so strict behaves
-    identically whichever layer resolved the mode. ``disabled`` and
-    ``blocking`` pass through unchanged.
+    Shared by :func:`resolve_tool_mode` and the dispatch-level cross-language
+    scans (semgrep). ``disabled`` and ``blocking`` pass through unchanged.
     """
     if mode == "warn" and strict_quality():
         return "blocking"
@@ -176,8 +161,8 @@ def apply_strict(mode: str) -> str:
 def stricter(mode: str, than: str) -> bool:
     """Return True when ``mode`` gates harder than ``than``.
 
-    Orders ``disabled`` < ``warn`` < ``blocking``, for two checks that report
-    the same finding and must agree on which one decides whether it fails.
+    Orders ``disabled`` < ``warn`` < ``blocking``, for two checks reporting the
+    same finding that must agree on which one decides whether it fails.
     """
     return _MODE_STRENGTH.get(mode, 0) > _MODE_STRENGTH.get(than, 0)
 
@@ -185,15 +170,12 @@ def stricter(mode: str, than: str) -> bool:
 def quality_skip() -> frozenset[str]:
     """Tool names to forcibly skip this run (``HYPERCI_QUALITY_SKIP``).
 
-    RARE edge-case escape hatch. When a tool's false positive halts CI
-    - a semgrep rule misfiring on a dependency, an audit advisory with
-    no fix yet - set ``HYPERCI_QUALITY_SKIP=semgrep`` (comma-separated
-    for several) on the blocked runs to skip that tool WITHOUT a config
-    commit, then remove it once the real fix (a rule ignore / version
-    bump) lands. This is deliberately an env override, not a config knob:
-    the reviewed config path (``quality.<tool>: disabled`` or the
-    ``quality.ignore`` list) stays the normal way to silence a tool. A
-    force-skip is logged loudly (:func:`is_skipped`).
+    A rare escape hatch for a false positive halting CI, such as a misfiring
+    semgrep rule or an advisory with no fix yet. Set
+    ``HYPERCI_QUALITY_SKIP=semgrep`` (comma-separated for several) to skip the
+    tool without a config commit. It is an env override on purpose, as
+    ``quality.<tool>: disabled`` and ``quality.ignore`` are the reviewed way to
+    silence a tool. A force-skip is logged loudly (:func:`is_skipped`).
     """
     raw = os.environ.get("HYPERCI_QUALITY_SKIP", "")
     return frozenset(t.strip().lower() for t in raw.split(",") if t.strip())
@@ -202,11 +184,8 @@ def quality_skip() -> frozenset[str]:
 def is_skipped(tool: str) -> bool:
     """Return True if ``tool`` is force-skipped, surfacing it loudly.
 
-    A force-skip is an emergency override that must NOT pass unnoticed -
-    especially for a security scanner like gitleaks. In CI it emits a
-    real GitHub ``::warning::`` annotation (which escapes the collapsed
-    log group and lands in the run summary), not just a logger line that
-    hides inside a folded group.
+    In CI it emits a GitHub ``::warning::`` annotation, which escapes the
+    collapsed log group and lands in the run summary.
     """
     if tool.lower() not in quality_skip():
         return False
@@ -259,17 +238,14 @@ def note_gate_downgrade(
 ) -> None:
     """Say when a project has turned a gate below what hyperi-ci ships.
 
-    A gate a repo relaxed and a gate that passed read the same in the log,
-    so the relaxation has to announce itself where the run can be read.
-    For a tool in :data:`SECURITY_TOOLS` the announcement is not enough:
-    turning one below its shipped default with no ``reason`` beside it
-    raises :class:`GateReasonRequiredError`, and the stage fails with the
-    fix to paste. The comparison is against that tool's OWN shipped default,
-    whatever it is: semgrep ships ``warn``, so ``semgrep: warn`` is not a
-    downgrade.
+    A relaxed gate reads like a passed one in the log, so it announces itself.
+    A tool in :data:`SECURITY_TOOLS` turned below its shipped default with no
+    ``reason`` raises :class:`GateReasonRequiredError` instead. The comparison
+    is against that tool's own default: semgrep ships ``warn``, so
+    ``semgrep: warn`` is not a downgrade.
 
-    Takes the CONFIGURED mode, not the post-``apply_strict`` one, so
-    ``hyperi-ci check --strict`` reports the same config problem CI will.
+    Takes the configured mode, not the post-``apply_strict`` one, so
+    ``hyperi-ci check --strict`` reports what CI will.
 
     Args:
         key: Dotted config key, e.g. ``quality.python.pip_audit``.
@@ -302,9 +278,8 @@ def note_gate_downgrade(
 def _security_gates_shipped(language: str) -> list[str]:
     """Keys of the security gates hyperi-ci ships switched on for ``language``.
 
-    Measured against the shipped defaults, the same yardstick
-    :func:`note_gate_downgrade` uses: bandit ships ``disabled``, so turning the
-    stage off takes nothing from it.
+    Measured against the shipped defaults as in :func:`note_gate_downgrade`:
+    bandit ships ``disabled``, so turning the stage off takes nothing from it.
     """
     tools = sorted(SECURITY_TOOLS)
     candidates = [f"quality.{tool}" for tool in tools]
@@ -320,13 +295,9 @@ def _security_gates_shipped(language: str) -> list[str]:
 def note_quality_disabled(language: str, reason: str = "") -> None:
     """Say which security gates ``quality.enabled: false`` switches off.
 
-    Turning the stage off drops every security gate at once, so it owes a
-    ``reason`` exactly as one security gate turned below its shipped default
-    does (:func:`note_gate_downgrade`): without one it raises
-    :class:`GateReasonRequiredError`, and with one it announces itself the
-    same way. The reason sits beside the switch as ``quality.reason``, the
-    shape ``quality.rust.feature_matrix`` uses for its own ``enabled``
-    opt-out.
+    Turning the stage off drops every security gate, so it owes a
+    ``quality.reason`` as :func:`note_gate_downgrade` does: without one it
+    raises :class:`GateReasonRequiredError`, with one it announces itself.
 
     Args:
         language: Handler language, which picks the per-language gates named.
@@ -375,17 +346,15 @@ def resolve_tool_mode(
 ) -> str:
     """Resolve a quality tool's mode: ``blocking``, ``warn`` or ``disabled``.
 
-    Reads ``quality.<language>.<tool>`` for a per-language tool, or the
-    top-level ``quality.<tool>`` when ``language`` is None (the cross-language
-    checks: gitleaks, hadolint, Checkov, the doc and charset checks and the
-    rest). ``default`` applies when the key is unset.
+    Reads ``quality.<language>.<tool>``, or the top-level ``quality.<tool>``
+    for a cross-language check when ``language`` is None. ``default`` applies
+    when the key is unset.
 
-    The value may be a plain mode string OR a mapping carrying a ``mode`` plus
-    tool options (Checkov's ``frameworks`` / ``skip``, kubeconform's
-    ``schema_locations``, and the ``reason`` a relaxed security gate needs). A
-    force-skip (:func:`is_skipped`) wins and makes the tool ``disabled`` for
-    this run. Otherwise, under strict mode (:func:`strict_quality`) a ``warn``
-    tool is upgraded to ``blocking``; ``disabled`` is left untouched.
+    The value is a mode string or a mapping with ``mode`` plus tool options,
+    such as Checkov's ``frameworks`` and the ``reason`` a relaxed security gate
+    needs. A force-skip (:func:`is_skipped`) wins and makes the tool
+    ``disabled``. Under strict mode (:func:`strict_quality`) ``warn`` becomes
+    ``blocking``.
 
     Raises:
         GateReasonRequiredError: A security gate is relaxed with no reason.
@@ -402,8 +371,8 @@ def resolve_tool_mode(
 def checked_mode(key: str, raw: object, default: str) -> tuple[str, str]:
     """Split ``raw`` into mode and reason, rejecting an out-of-vocabulary mode.
 
-    A typo (`block`, `enabled`, `true`) must NOT silently downgrade a gate to
-    advisory - warn loudly and fall back to the tool's default instead.
+    A typo (`block`, `enabled`, `true`) warns and falls back to the tool's
+    default rather than silently downgrading the gate.
     """
     mode, reason = mode_and_reason(raw, default)
     if mode not in _VALID_MODES:
@@ -424,34 +393,25 @@ def resolve_tool_cmd(
 ) -> list[str]:
     """Resolve a tool command, preferring a pinned spec over whatever is on PATH.
 
-    A pinned ``spec`` (one with an exact ``==`` version) names the version
-    hyperi-ci validated and CI runs; a same-named tool on PATH at a
-    different version makes `hyperi-ci check` pass or fail differently from
-    CI, silently, because `shutil.which` found it first. So a pin wins
-    whenever uv can install it, whether or not the tool is already on PATH.
-
-    An unpinned ``spec`` (the bare command name -- ruff, pytest, the
-    project's own dependencies) keeps the PATH-first behaviour: those
-    resolve through the project's venv, not a version this module tracks.
-
-    When hyperi-ci runs via uvx, project tools (ruff, pytest, etc.)
-    live in the project's .venv, not on PATH. Prefix with 'uv run'
-    to execute within the project's virtual environment.
+    A pinned ``spec`` (exact ``==`` version) wins over PATH whenever uv can
+    install it, as a same-named PATH tool at another version would make
+    `hyperi-ci check` differ from CI. An unpinned ``spec`` (ruff, pytest, the
+    project's own dependencies) keeps PATH first, falling back to `uv run`
+    because project tools live in the project's .venv.
 
     Args:
         cmd: Command and arguments.
         use_uvx: If True, use 'uvx' instead of 'uv run' for tools
             that are standalone (not project deps).
-        use_uv_with: If True, use 'uv run --with <tool>' to install
-            the tool temporarily and run it within the project's
-            venv. Use for tools that scan installed packages
-            (e.g. pip-audit) and must see the project's deps.
-        spec: Requirement to install, e.g. ``bandit==1.9.4`` from the
-            versions SSOT. Defaults to the bare command name, which lets
-            the resolver take whatever PyPI serves that morning.
+        use_uv_with: If True, use 'uv run --with <tool>' to install the tool
+            temporarily into the project's venv, for tools that scan installed
+            packages (e.g. pip-audit).
+        spec: Requirement to install, e.g. ``bandit==1.9.4`` from the versions
+            SSOT. Defaults to the bare command name, which takes whatever PyPI
+            serves.
         python: Interpreter version for a ``uvx`` run, e.g. ``3.14``. A tool
             that parses source with ``ast`` reads only the syntax of the Python
-            it runs on, and uvx otherwise picks whatever interpreter it finds.
+            it runs on, and uvx otherwise picks any interpreter.
 
     Returns:
         The command to run. It equals ``cmd`` both when the PATH copy is the
@@ -468,8 +428,7 @@ def resolve_tool_cmd(
     if pinned and wants_uv_form and uv:
         if use_uv_with:
             return ["uv", "run", "--with", spec, "--", *cmd]
-        # --from, not `uvx <spec>`: the package to install and the command
-        # to run are different strings once the version is pinned on.
+        # --from, as the package spec and the command differ once pinned.
         return [*uvx, "--from", spec, *cmd]
 
     if shutil.which(cmd[0]):
@@ -495,9 +454,9 @@ def emit_tool_output(
 ) -> None:
     """Log a tool's output line by line through the logger, optionally capped.
 
-    `print()` would write to stdout while the surrounding verdicts go to
-    stderr, and the two interleave out of order. A capped run keeps the last
-    line, where ruff and ty print their own finding count.
+    `print()` writes to stdout while the verdicts go to stderr, and the two
+    interleave out of order. A capped run keeps the last line, where ruff and
+    ty print their finding count.
 
     Args:
         tool_name: Name for the truncation note.
@@ -527,8 +486,7 @@ def _run_until_reachable(
     """Run an advisory-DB scan, again after a backoff while the DB is unreachable.
 
     Up to ``URL_ATTEMPTS`` runs, waiting about 1s, 2s, then 4s between them,
-    each wait cut by up to half at random. Any other outcome, a finding
-    included, ends it at once.
+    each cut by up to half at random. Any other outcome ends it at once.
 
     Args:
         tool_name: Name for the retry log line.
@@ -677,11 +635,7 @@ def run_gate_tool(
 
 
 def get_test_paths(config: CIConfig) -> list[str]:
-    """Get configured test directories that exist on disk.
-
-    Reads quality.test_paths from config, falling back to the shipped default.
-    Only returns paths that actually exist as directories.
-    """
+    """Return the ``quality.test_paths`` (else the shipped default) on disk."""
     configured = config.get("quality.test_paths")
     if not isinstance(configured, list):
         configured = packaged_default("quality.test_paths", [])
@@ -708,10 +662,10 @@ def get_python_source_paths(config: CIConfig) -> list[str]:
     """Find the directories that hold a Python project's source.
 
     A ``src/`` directory holding a ``.py`` file is the whole answer. Otherwise
-    each top-level directory holding a ``.py`` file at any depth counts, apart from
-    the test paths, hidden directories, the handler's quality excludes, and
-    build, docs and environment directories. Modules at the repo root are
-    left out: ``setup.py``, ``conftest.py`` and ``noxfile.py`` are tooling.
+    each top-level directory holding a ``.py`` file at any depth counts, apart
+    from test paths, hidden directories, the handler's quality excludes, and
+    build, docs and environment directories. Root modules (``setup.py``,
+    ``conftest.py``, ``noxfile.py``) are tooling and left out.
 
     Args:
         config: Merged CI configuration, read for the test paths and excludes.
@@ -745,11 +699,10 @@ def get_python_source_paths(config: CIConfig) -> list[str]:
 
 
 def get_test_ignore(language: str, config: CIConfig) -> list[str]:
-    """Get test_ignore rules for a language.
+    """Return the test_ignore rules for a language.
 
-    Projects override entirely via quality.<language>.test_ignore in
-    .hyperi-ci.yaml. Otherwise the shipped defaults.yaml list applies, and a
-    language that ships none gets an empty list.
+    ``quality.<language>.test_ignore`` replaces the shipped defaults.yaml list
+    entirely, and a language that ships none gets an empty list.
     """
     configured = config.get(f"quality.{language}.test_ignore")
     if not isinstance(configured, list):
