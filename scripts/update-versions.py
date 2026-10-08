@@ -53,6 +53,7 @@ import json
 import re
 import subprocess
 import sys
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -519,12 +520,14 @@ class _Resolution:
 
     Attributes:
         tools: Tool name -> the version --auto-update writes.
+        digests: Tool name -> the sha256 per asset key written with that version.
         semantic_release: (current, newest) core major, when they differ.
         manual: Tools with a newer soaked release that need a hand bump.
         lookup_failures: Tools whose upstream could not be read.
     """
 
     tools: dict[str, str] = field(default_factory=dict)
+    digests: dict[str, dict[str, str]] = field(default_factory=dict)
     semantic_release: tuple[str, str] | None = None
     manual: int = 0
     lookup_failures: int = 0
@@ -535,16 +538,54 @@ class _Resolution:
         return len(self.tools) + (1 if self.semantic_release else 0)
 
 
-def _hand_bump_reason(spec: dict) -> str:
-    """Why a tool with a newer release cannot be bumped here, or "" if it can."""
-    if spec.get("sha256"):
-        # A stale digest fails the install closed, so the digest moves with the
-        # version or the version does not move.
-        return "digest-pinned"
-    if spec.get("lockfile"):
-        # The lock's integrity hashes need scripts/relock-node-tools.py.
-        return "lock-pinned"
-    return ""
+def _release_digests(repo: str, tag: str) -> dict[str, str] | None:
+    """Map each asset of one GitHub release to the sha256 GitHub recorded for it.
+
+    Assets with no `digest` are left out: GitHub only records one for uploads
+    since mid-2025, and an absent digest is never guessed at. None when the
+    release cannot be read.
+    """
+    release = _gh_json(
+        f"/repos/{repo}/releases/tags/{urllib.parse.quote(tag, safe='')}"
+    )
+    if not isinstance(release, dict):
+        return None
+    out: dict[str, str] = {}
+    for asset in release.get("assets") or []:
+        algo, _, digest = str(asset.get("digest") or "").partition(":")
+        if algo == "sha256" and _SHA256_RE.fullmatch(digest):
+            out[str(asset.get("name"))] = digest
+    return out
+
+
+def _bumped_digests(spec: dict, new_version: str) -> tuple[dict[str, str] | None, str]:
+    """Return the new release's sha256 for every pinned asset key, or why not.
+
+    Each key's asset is found by its PINNED digest in the current release, so no
+    asset-name template is restated here: the version in that name is swapped
+    for the new one and the new release must carry a digest for it. Any key that
+    cannot be carried across leaves the whole tool to a hand bump.
+    """
+    repo, prefix = str(spec.get("repo") or ""), str(spec.get("tag_prefix") or "")
+    cur_version = str(spec.get("version"))
+    if not repo:
+        return None, "no `repo:` to read digests from"
+    current = _release_digests(repo, prefix + cur_version)
+    bumped = _release_digests(repo, prefix + new_version)
+    if current is None or bumped is None:
+        return None, "release lookup failed"
+    name_by_digest = {digest: name for name, digest in current.items()}
+    old_bare, new_bare = cur_version.removeprefix("v"), new_version.removeprefix("v")
+    out: dict[str, str] = {}
+    for key, pinned in (spec.get("sha256") or {}).items():
+        asset = name_by_digest.get(str(pinned).lower())
+        if asset is None:
+            return None, f"no {cur_version} release asset has the pinned {key} digest"
+        new_asset = asset.replace(old_bare, new_bare)
+        if new_asset not in bumped:
+            return None, f"{new_version} carries no digest for {new_asset}"
+        out[str(key)] = bumped[new_asset]
+    return out, ""
 
 
 def _resolve(versions: dict, now: datetime) -> _Resolution:
@@ -591,9 +632,21 @@ def _resolve(versions: dict, now: datetime) -> _Resolution:
             print(f"  {label}: {cur_version} (nothing aged past cooldown)")
         elif status != "ok" or not latest:
             print(f"  {label}: {cur_version} (up to date)")
-        elif reason := _hand_bump_reason(spec):
-            print(f"  {label}: {cur_version} -> {latest} ({reason} -- bump by hand)")
+        elif spec.get("lockfile"):
+            # The lock's integrity hashes need scripts/relock-node-tools.py.
+            print(f"  {label}: {cur_version} -> {latest} (lock-pinned -- bump by hand)")
             res.manual += 1
+        elif spec.get("sha256"):
+            # A stale digest fails the install closed, so the digest moves with
+            # the version or the version does not move.
+            digests, why = _bumped_digests(spec, latest)
+            if digests is None:
+                print(f"  {label}: {cur_version} -> {latest} ({why} -- bump by hand)")
+                res.manual += 1
+            else:
+                print(f"  {label}: {cur_version} -> {latest} (sha256 from the release)")
+                res.tools[name] = latest
+                res.digests[name] = digests
         else:
             print(f"  {label}: {cur_version} -> {latest}")
             res.tools[name] = latest
@@ -889,16 +942,20 @@ def _latest_tool_release(spec: dict, now: datetime) -> tuple[str | None, str]:
     return tag, "ok"
 
 
-def _set_tool_version_in_yaml(text: str, name: str, version: str) -> str:
-    """Rewrite one tool's `version:` line inside the `tools:` block.
+def _set_tool_version_in_yaml(
+    text: str, name: str, version: str, digests: dict[str, str] | None = None
+) -> str:
+    """Rewrite one tool's `version:` line, and its `sha256:` keys if given.
 
     Block-scoped and anchored to the `tools:` section, because a `watch:` or
     `runtimes:` entry can share a tool's short name. Edits lines directly,
     because yaml.safe_dump would strip every comment in the file.
     """
+    digests = digests or {}
     out: list[str] = []
     in_tools = False
     in_block = False
+    in_sha = False
     for line in text.splitlines(keepends=True):
         if re.match(r"^tools:\s*$", line):
             in_tools = True
@@ -913,15 +970,42 @@ def _set_tool_version_in_yaml(text: str, name: str, version: str) -> str:
                 out.append(line)
                 continue
             if in_block:
+                if re.match(r"^ {0,4}\S", line):  # any key at tool depth ends sha256:
+                    in_sha = False
                 if re.match(r"^    version:\s", line):
                     # Quoted: a two-component version (vulture 2.16) reads back
                     # as a YAML float, so 2.20 would return as "2.2".
                     out.append(f'    version: "{version}"\n')
                     continue
+                if re.match(r"^    sha256:\s*$", line):
+                    in_sha = True
+                elif in_sha and (m := re.match(r"^      ([\w-]+):\s*\S+\s*$", line)):
+                    if m[1] in digests:
+                        out.append(f"      {m[1]}: {digests[m[1]]}\n")
+                        continue
                 if re.match(r"^  \S", line):  # next tool entry
                     in_block = False
         out.append(line)
     return "".join(out)
+
+
+def _unwritten(text: str, res: _Resolution) -> list[str]:
+    """Name every resolved version or digest the rewritten SSOT does not carry.
+
+    The line editor matches by indentation, so a reshaped entry would otherwise
+    pass with its version bumped and its old digest kept, which fails the
+    install closed only at job time.
+    """
+    tools = (yaml.safe_load(text) or {}).get("tools") or {}
+    missing: list[str] = []
+    for name, version in res.tools.items():
+        spec = tools.get(name) or {}
+        if str(spec.get("version")) != version:
+            missing.append(f"SSOT write: tools.{name}.version is not {version}")
+        for key, digest in res.digests.get(name, {}).items():
+            if (spec.get("sha256") or {}).get(key) != digest:
+                missing.append(f"SSOT write: tools.{name}.sha256.{key} was not written")
+    return missing
 
 
 def _auto_update(versions: dict) -> int:
@@ -953,7 +1037,9 @@ def _auto_update(versions: dict) -> int:
 
     yaml_content = original_yaml
     for tool_name, tool_version in tool_updates.items():
-        yaml_content = _set_tool_version_in_yaml(yaml_content, tool_name, tool_version)
+        yaml_content = _set_tool_version_in_yaml(
+            yaml_content, tool_name, tool_version, res.digests.get(tool_name)
+        )
     if sr_update:
         yaml_content = re.sub(
             r'(?m)^(  core:\s*")[^"]*(")', rf"\g<1>{sr_update[1]}\g<2>", yaml_content
@@ -979,7 +1065,7 @@ def _auto_update(versions: dict) -> int:
         _apply(_load_versions())
 
         print("\nValidating locally (YAML parse, SSOT sync, workflow pytest gates)...")
-        failures = _validate_locally()
+        failures = _unwritten(yaml_content, res) or _validate_locally()
 
         if failures:
             print(f"\n{len(failures)} local gate(s) failed:")

@@ -210,6 +210,8 @@ the full pipeline, not just top-level workflows.
 
 **Majors are included.** `--auto-update` takes the newest release past the cooldown, whatever its major. Every bump goes through a PR, and a tool whose flags changed shows up as a red quality stage on the `ci-test-*` fleet.
 
+**Digests move with the version.** For a tool with `sha256:`, `--auto-update` finds each pinned asset in the current release by its digest, then writes the `digest` GitHub records for the same asset in the new release. If any asset has no digest, the tool is left for a hand bump. helm is always a hand bump, because its tarballs are served from get.helm.sh, not from the GitHub release.
+
 The cooldown applies to **our own pins too**, not just to what `--auto-update`
 picks: pinning a release younger than 7 days is the same policy breach whoever
 types it.

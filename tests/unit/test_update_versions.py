@@ -1287,7 +1287,11 @@ class TestOneResolver:
         assert versions_file.read_text(encoding="utf-8") == _RESOLVER_YAML
         out = capsys.readouterr().out
         assert "2 update(s) --auto-update would write." in out
-        assert "o/digested: v1.0.0 -> v1.1.0 (digest-pinned -- bump by hand)" in out
+        # No release to read digests from, so the digest-pinned tool is held.
+        assert (
+            "o/digested: v1.0.0 -> v1.1.0 (release lookup failed -- bump by hand)"
+            in out
+        )
 
     def test_auto_update_writes_exactly_what_stable_reports(
         self, tmp_path: Path, monkeypatch
@@ -1312,3 +1316,242 @@ class TestOneResolver:
             "tools": {"locked": yaml.safe_load(_RESOLVER_YAML)["tools"]["locked"]}
         }
         assert update_versions._stable(versions, fail_on_drift=True) == 1
+
+
+_OLD_X64, _OLD_ARM = "a" * 64, "b" * 64
+_NEW_X64, _NEW_ARM = "c" * 64, "d" * 64
+
+
+def _gh_release(assets: dict[str, str | None]) -> dict:
+    """A GitHub release payload: asset name -> sha256, or None for no digest."""
+    return {
+        "assets": [
+            {"name": name, "digest": f"sha256:{digest}" if digest else None}
+            for name, digest in assets.items()
+        ]
+    }
+
+
+class TestDigestBump:
+    """A digest-pinned tool bumps only with the new release's recorded sha256.
+
+    Each pinned key is matched to its asset by digest, so the arch spelling
+    (x64, amd64, x86_64) and the libc (cargo-audit's musl amd64, gnu arm64) come
+    from the pin itself rather than a name template restated here.
+    """
+
+    NOW = datetime(2026, 5, 28, tzinfo=UTC)
+    SPEC = {
+        "version": "v8.30.1",
+        "repo": "gitleaks/gitleaks",
+        "sha256": {"x64": _OLD_X64, "arm64": _OLD_ARM},
+    }
+
+    @staticmethod
+    def _api(monkeypatch, releases: dict[str, dict]) -> list[str]:
+        asked: list[str] = []
+
+        def _fake(path: str) -> object:
+            asked.append(path)
+            return releases.get(path)
+
+        monkeypatch.setattr(update_versions, "_gh_json", _fake)
+        return asked
+
+    @staticmethod
+    def _gitleaks(new_arm: str | None = _NEW_ARM) -> dict[str, dict]:
+        return {
+            "/repos/gitleaks/gitleaks/releases/tags/v8.30.1": _gh_release(
+                {
+                    "gitleaks_8.30.1_darwin_x64.tar.gz": "e" * 64,
+                    "gitleaks_8.30.1_linux_x64.tar.gz": _OLD_X64,
+                    "gitleaks_8.30.1_linux_arm64.tar.gz": _OLD_ARM,
+                }
+            ),
+            "/repos/gitleaks/gitleaks/releases/tags/v8.31.0": _gh_release(
+                {
+                    "gitleaks_8.31.0_linux_x64.tar.gz": _NEW_X64,
+                    "gitleaks_8.31.0_linux_arm64.tar.gz": new_arm,
+                }
+            ),
+        }
+
+    def test_each_key_carries_across_to_the_new_release(self, monkeypatch) -> None:
+        self._api(monkeypatch, self._gitleaks())
+        assert update_versions._bumped_digests(self.SPEC, "v8.31.0") == (
+            {"x64": _NEW_X64, "arm64": _NEW_ARM},
+            "",
+        )
+
+    def test_one_missing_digest_holds_the_whole_tool(self, monkeypatch) -> None:
+        self._api(monkeypatch, self._gitleaks(new_arm=None))
+        digests, why = update_versions._bumped_digests(self.SPEC, "v8.31.0")
+        assert digests is None
+        assert "gitleaks_8.31.0_linux_arm64.tar.gz" in why
+
+    def test_a_pin_off_github_is_held(self, monkeypatch) -> None:
+        # helm: the tarballs come from get.helm.sh, so no release asset carries
+        # the pinned digest and nothing can be carried across.
+        self._api(
+            monkeypatch,
+            {
+                "/repos/helm/helm/releases/tags/v4.3.0": _gh_release({}),
+                "/repos/helm/helm/releases/tags/v4.4.0": _gh_release({}),
+            },
+        )
+        spec = {"version": "v4.3.0", "repo": "helm/helm", "sha256": {"amd64": "f" * 64}}
+        digests, why = update_versions._bumped_digests(spec, "v4.4.0")
+        assert digests is None
+        assert "pinned amd64 digest" in why
+
+    def test_unreachable_release_is_held(self, monkeypatch) -> None:
+        self._api(monkeypatch, {})
+        assert update_versions._bumped_digests(self.SPEC, "v8.31.0") == (
+            None,
+            "release lookup failed",
+        )
+
+    def test_monorepo_tag_is_one_path_segment(self, monkeypatch) -> None:
+        # cargo-audit tags as `cargo-audit/vX`; unencoded, the slash splits the
+        # API path and the lookup 404s.
+        asked = self._api(
+            monkeypatch,
+            {
+                "/repos/rustsec/rustsec/releases/tags/cargo-audit%2Fv0.22.2": (
+                    _gh_release(
+                        {"cargo-audit-x86_64-unknown-linux-musl-v0.22.2.tgz": _OLD_X64}
+                    )
+                ),
+                "/repos/rustsec/rustsec/releases/tags/cargo-audit%2Fv0.22.3": (
+                    _gh_release(
+                        {"cargo-audit-x86_64-unknown-linux-musl-v0.22.3.tgz": _NEW_X64}
+                    )
+                ),
+            },
+        )
+        spec = {
+            "version": "v0.22.2",
+            "repo": "rustsec/rustsec",
+            "tag_prefix": "cargo-audit/",
+            "sha256": {"amd64": _OLD_X64},
+        }
+        assert update_versions._bumped_digests(spec, "v0.22.3") == (
+            {"amd64": _NEW_X64},
+            "",
+        )
+        assert len(asked) == 2
+
+    def test_an_asset_name_without_the_version_keeps_its_name(
+        self, monkeypatch
+    ) -> None:
+        # hadolint ships `hadolint-linux-x86_64` under every tag.
+        self._api(
+            monkeypatch,
+            {
+                "/repos/hadolint/hadolint/releases/tags/v2.15.1": _gh_release(
+                    {"hadolint-linux-x86_64": _OLD_X64}
+                ),
+                "/repos/hadolint/hadolint/releases/tags/v2.16.0": _gh_release(
+                    {"hadolint-linux-x86_64": _NEW_X64}
+                ),
+            },
+        )
+        spec = {
+            "version": "v2.15.1",
+            "repo": "hadolint/hadolint",
+            "sha256": {"x86_64": _OLD_X64},
+        }
+        assert update_versions._bumped_digests(spec, "v2.16.0") == (
+            {"x86_64": _NEW_X64},
+            "",
+        )
+
+    def test_auto_update_writes_version_and_digests_together(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        self._api(monkeypatch, self._gitleaks())
+        monkeypatch.setattr(
+            update_versions, "_latest_tool_release", lambda _s, _n: ("v8.31.0", "ok")
+        )
+        ssot = (
+            "tools:\n"
+            "  gitleaks:\n"
+            "    version: v8.30.1\n"
+            "    repo: gitleaks/gitleaks\n"
+            "    sha256:\n"
+            "      # x64 is what upstream calls amd64.\n"
+            f"      x64: {_OLD_X64}\n"
+            f"      arm64: {_OLD_ARM}\n"
+            "  hadolint:\n"
+            "    version: v2.15.1\n"
+            "    sha256:\n"
+            f"      x64: {_OLD_X64}\n"
+        )
+        versions_file = tmp_path / "versions.yaml"
+        versions_file.write_text(ssot, encoding="utf-8")
+        (tmp_path / "workflows").mkdir()
+        monkeypatch.setattr(update_versions, "_ROOT", tmp_path)
+        monkeypatch.setattr(update_versions, "_VERSIONS_FILE", versions_file)
+        monkeypatch.setattr(update_versions, "_WORKFLOWS_DIR", tmp_path / "workflows")
+        monkeypatch.setattr(update_versions, "_ACTIONS_DIR", tmp_path / "none")
+        monkeypatch.setattr(update_versions, "_validate_locally", lambda: [])
+
+        assert update_versions._auto_update(yaml.safe_load(ssot)) == 0
+
+        text = versions_file.read_text(encoding="utf-8")
+        tools = yaml.safe_load(text)["tools"]
+        assert tools["gitleaks"]["version"] == "v8.31.0"
+        assert tools["gitleaks"]["sha256"] == {"x64": _NEW_X64, "arm64": _NEW_ARM}
+        assert "      # x64 is what upstream calls amd64.\n" in text
+        # hadolint has no repo, so it is reported and left exactly as it was.
+        assert tools["hadolint"] == {"version": "v2.15.1", "sha256": {"x64": _OLD_X64}}
+
+    def test_a_write_that_misses_a_digest_is_reverted(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # Flow-style sha256 defeats the line editor: the version would move and
+        # the old digest stay, so the update must undo itself.
+        self._api(monkeypatch, self._gitleaks())
+        monkeypatch.setattr(
+            update_versions, "_latest_tool_release", lambda _s, _n: ("v8.31.0", "ok")
+        )
+        ssot = (
+            "tools:\n"
+            "  gitleaks:\n"
+            "    version: v8.30.1\n"
+            "    repo: gitleaks/gitleaks\n"
+            f"    sha256: {{x64: {_OLD_X64}, arm64: {_OLD_ARM}}}\n"
+        )
+        versions_file = tmp_path / "versions.yaml"
+        versions_file.write_text(ssot, encoding="utf-8")
+        (tmp_path / "workflows").mkdir()
+        monkeypatch.setattr(update_versions, "_ROOT", tmp_path)
+        monkeypatch.setattr(update_versions, "_VERSIONS_FILE", versions_file)
+        monkeypatch.setattr(update_versions, "_WORKFLOWS_DIR", tmp_path / "workflows")
+        monkeypatch.setattr(update_versions, "_ACTIONS_DIR", tmp_path / "none")
+        monkeypatch.setattr(update_versions, "_validate_locally", lambda: [])
+
+        assert update_versions._auto_update(yaml.safe_load(ssot)) == 1
+        assert versions_file.read_text(encoding="utf-8") == ssot
+
+    def test_the_shipped_lychee_entry_finds_its_prefixed_tags(
+        self, monkeypatch
+    ) -> None:
+        # lychee moved from `vX.Y.Z` to `lychee-vX.Y.Z` at 0.16, so without
+        # tag_prefix the newest parseable tag is v0.15.1 and the pin reads as
+        # current forever.
+        spec = dict(update_versions._load_versions()["tools"]["lychee"])
+        spec["version"] = "0.24.2"
+        monkeypatch.setattr(
+            update_versions,
+            "_gh_json",
+            lambda _path: [
+                _rel("lychee-v0.25.0", 20),
+                _rel("lychee-lib-v0.25.0", 20),
+                _rel("v0.15.1", 900),
+            ],
+        )
+        assert update_versions._latest_tool_release(spec, self.NOW) == (
+            "0.25.0",
+            "ok",
+        )
