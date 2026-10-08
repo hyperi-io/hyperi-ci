@@ -63,7 +63,12 @@ them. That file is machine-local; the wrapper itself is portable.
 
 - `scripts/rehearse-branch.py` rehearses a hyperi-ci BRANCH against a
   fixture (clones, swaps `@main` refs to the branch, opens a throwaway
-  draft PR, watches, cleans up). It does its own git internally.
+  draft PR, watches, cleans up). It does its own git internally. It judges
+  only the swapped workflows that trigger on `pull_request`, and
+  `--no-cli-override` rehearses the workflows alone against the released CLI.
+  It exits 2 and changes nothing while a fleet sweep or a hyperi-infra
+  `arc-runner-images` run is unfinished, or while another rehearsal holds the
+  fixture.
 - `scripts/fixture-git.py` is for the ad-hoc and boy-scout fixture git
   that otherwise happens as bare `git` commands - staging, committing,
   and pushing fixes to the fleet without stalling an unattended run.
