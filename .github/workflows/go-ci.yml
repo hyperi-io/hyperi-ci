@@ -338,22 +338,11 @@ jobs:
       - name: Setup Go tools
         uses: hyperi-io/hyperi-ci/.github/actions/setup-go-tools@main
 
-      - name: Install uv
-        if: ${{ runner.environment != 'self-hosted' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: Setup runtime (uv + Python + native deps)
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
         with:
-          enable-cache: false
-
-      - name: Set up Python
-        # The fleet default on purpose: this interpreter runs the hyperi-ci
-        # CLI, and a Go project has no Python of its own to follow. Only
-        # python-ci.yml resolves the version from the project (issue #150).
-        run: |
-          command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
-          command -v python3 || uv python install 3.14
-
-      - name: Install native dependencies
-        run: ${{ env.HYPERCI_INSTALL }} install-native-deps golang
+          language: golang
+          hyperci-install: ${{ env.HYPERCI_INSTALL }}
 
       - name: Deepen history for secret scan
         # gitleaks scans the branch git log for committed secrets; a depth-1
@@ -408,22 +397,11 @@ jobs:
         with:
           go-version-file: ${{ inputs.go-version-file }}
 
-      - name: Install uv
-        if: ${{ runner.environment != 'self-hosted' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: Setup runtime (uv + Python + native deps)
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
         with:
-          enable-cache: false
-
-      - name: Set up Python
-        # The fleet default on purpose: this interpreter runs the hyperi-ci
-        # CLI, and a Go project has no Python of its own to follow. Only
-        # python-ci.yml resolves the version from the project (issue #150).
-        run: |
-          command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
-          command -v python3 || uv python install 3.14
-
-      - name: Install native dependencies
-        run: ${{ env.HYPERCI_INSTALL }} install-native-deps golang
+          language: golang
+          hyperci-install: ${{ env.HYPERCI_INSTALL }}
 
       - name: Init submodules
         # The checkout keeps no credential, so the job token reaches this step
@@ -494,19 +472,11 @@ jobs:
         with:
           go-version-file: ${{ inputs.go-version-file }}
 
-      - name: Install uv
-        if: ${{ runner.environment != 'self-hosted' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: Setup runtime (uv + Python + native deps)
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
         with:
-          enable-cache: false
-
-      - name: Set up Python
-        # The fleet default on purpose: this interpreter runs the hyperi-ci
-        # CLI, and a Go project has no Python of its own to follow. Only
-        # python-ci.yml resolves the version from the project (issue #150).
-        run: |
-          command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
-          command -v python3 || uv python install 3.14
+          language: golang
+          hyperci-install: ${{ env.HYPERCI_INSTALL }}
 
       - name: Stamp predicted version
         # Stamps VERSION, which build.py injects via -ldflags, on every release run: push and from-head release HEAD, whose committed tree is stale (issue #35), and a tag dispatch checks out a tag whose tree still carries the release before it (issue #352).
@@ -515,9 +485,6 @@ jobs:
           # Via env so the value cannot be read as shell -- stamp-version itself fails on an empty one.
           NEXT_VERSION: ${{ needs.plan.outputs.next-version }}
         run: ${{ env.HYPERCI_INSTALL }} stamp-version "$NEXT_VERSION"
-
-      - name: Install native dependencies
-        run: ${{ env.HYPERCI_INSTALL }} install-native-deps golang
 
       - name: Run build
         env:
