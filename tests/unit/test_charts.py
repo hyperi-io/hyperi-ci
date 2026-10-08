@@ -375,6 +375,31 @@ class TestPublish:
         with binaries._release_notes_flags("1.0.0", CIConfig(_raw={})) as flags:
             assert row in Path(flags[1]).read_text(encoding="utf-8")
 
+    def test_a_second_call_in_the_job_keeps_the_first_table(
+        self,
+        fake_helm: FakeHelm,
+        dfe_infra_shape: Path,
+        tmp_path_factory: pytest.TempPathFactory,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        runner_temp = tmp_path_factory.mktemp("runner")
+        monkeypatch.setenv("RUNNER_TEMP", str(runner_temp))
+        monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+        monkeypatch.chdir(dfe_infra_shape)
+
+        for version in ("1.0.0", "1.0.1"):
+            charts.publish_charts(
+                _enabled(["helm/charts/web"]),
+                dfe_infra_shape,
+                registry=REGISTRY,
+                version=version,
+            )
+
+        notes = charts.release_notes()
+        assert notes is not None
+        assert f"| web | 1.0.0 | `{DIGEST}` |" in notes
+        assert f"| web | 1.0.1 | `{DIGEST}` |" in notes
+
 
 class TestConfig:
     def test_the_shipped_defaults(

@@ -287,13 +287,11 @@ def _report(results: list[Published], registry: str, new: list[str]) -> None:
     table = digest_table(results)
     info(f"Helm charts in {registry}:\n{table}")
     section = f"## Helm charts\n\nRegistry: `{registry}`\n\n{table}\n"
-    summary = os.environ.get("GITHUB_STEP_SUMMARY")
-    if summary:
-        with Path(summary).open("a", encoding="utf-8", newline="\n") as handle:
-            handle.write(section)
-    notes = notes_path()
-    if notes is not None:
-        notes.write_text(section, encoding="utf-8", newline="\n")
+    # Append to both: one job can publish committed and assembled charts in two calls.
+    for target in (os.environ.get("GITHUB_STEP_SUMMARY"), notes_path()):
+        if target:
+            with Path(target).open("a", encoding="utf-8", newline="\n") as handle:
+                handle.write(section)
     if new:
         warn(
             f"First push of {', '.join(new)}: a new GHCR package starts private. "
