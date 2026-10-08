@@ -35,18 +35,12 @@ from hyperi_ci.common import (
     success,
     warn,
 )
-from hyperi_ci.config import CIConfig
+from hyperi_ci.config import CIConfig, load_org_config
 from hyperi_ci.native_deps import ensure_aws_cli
 from hyperi_ci.release.charts import release_notes as chart_release_notes
 from hyperi_ci.release_branches import effective_release_channel
 from hyperi_ci.stamp import repo_paths
 from hyperi_ci.tools import missing_tool_notice
-
-# R2 bucket and endpoint configuration
-R2_BUCKET = "bin-repo"
-R2_ACCOUNT_ID = "98d20454e2af7a9397ad9366a1641659"
-R2_ENDPOINT = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
-R2_PUBLIC_URL = "https://downloads.hyperi.io"
 
 VALID_CHANNELS = ("alpha", "beta", "release")
 
@@ -94,12 +88,13 @@ def _resolve_channel(config: CIConfig, version: str | None) -> str:
 
 def _resolve_r2_paths(project_name: str, version: str, channel: str) -> tuple[str, str]:
     """Return (versioned_prefix, latest_prefix) S3 paths for R2."""
+    bucket = load_org_config().r2_bucket
     if channel == "release":
-        versioned = f"s3://{R2_BUCKET}/{project_name}/v{version}/"
-        latest = f"s3://{R2_BUCKET}/{project_name}/latest/"
+        versioned = f"s3://{bucket}/{project_name}/v{version}/"
+        latest = f"s3://{bucket}/{project_name}/latest/"
     else:
-        versioned = f"s3://{R2_BUCKET}/{project_name}/{channel}/v{version}/"
-        latest = f"s3://{R2_BUCKET}/{project_name}/{channel}/latest/"
+        versioned = f"s3://{bucket}/{project_name}/{channel}/v{version}/"
+        latest = f"s3://{bucket}/{project_name}/{channel}/latest/"
     return versioned, latest
 
 
@@ -517,8 +512,11 @@ def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False)
         warn("No artifacts found in dist/ -- skipping R2 binary publish")
         return 0
 
+    org = load_org_config()
+    endpoint = org.r2_endpoint
     project_name = Path.cwd().name
     version = _read_version() or "unknown"
+    public_url = f"{org.r2_public_url}/{project_name}/v{version}/"
 
     versioned_prefix, latest_prefix = _resolve_r2_paths(project_name, version, channel)
     move_latest = not holds_latest(version, f"R2 {latest_prefix}")
@@ -530,7 +528,7 @@ def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False)
         "AWS_DEFAULT_REGION": "auto",
     }
 
-    info(f"Publishing to R2: {R2_PUBLIC_URL}/{project_name}/v{version}/")
+    info(f"Publishing to R2: {public_url}")
 
     destinations = [("versioned", versioned_prefix)]
     if move_latest:
@@ -545,7 +543,7 @@ def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False)
                 latest_prefix,
                 "--recursive",
                 "--endpoint-url",
-                R2_ENDPOINT,
+                endpoint,
             ],
             check=False,
             env=aws_env,
@@ -565,17 +563,14 @@ def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False)
                 str(artifact),
                 f"{dest_prefix}{artifact.name}",
                 "--endpoint-url",
-                R2_ENDPOINT,
+                endpoint,
             ]
             result = run_cmd(cmd, check=False, env=aws_env)
             if result.returncode != 0:
                 error(f"  R2 upload failed for {artifact.name} ({label})")
                 return result.returncode
 
-    success(
-        f"Published {len(artifacts)} artifact(s) to R2 -- "
-        f"{R2_PUBLIC_URL}/{project_name}/v{version}/"
-    )
+    success(f"Published {len(artifacts)} artifact(s) to R2 -- {public_url}")
     return 0
 
 
