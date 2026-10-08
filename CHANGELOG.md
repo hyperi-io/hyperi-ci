@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.13.7](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.6...v2.13.7) (2026-10-08)
+
+### Bug Fixes
+
+* **bootstrap:** pin rustup, nvm and Go in the image bake ([#628](https://github.com/hyperi-io/hyperi-ci/issues/628)) ([8dba464](https://github.com/hyperi-io/hyperi-ci/commit/8dba46470f47406f1842eca8daf30207473701f0)), closes [#537](https://github.com/hyperi-io/hyperi-ci/issues/537)
+
 ## [2.13.6](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.5...v2.13.6) (2026-10-08)
 
 ### Bug Fixes
