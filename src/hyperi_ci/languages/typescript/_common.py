@@ -77,6 +77,30 @@ def _corepack_enable() -> bool:
     return False
 
 
+def read_package_json(project_dir: Path | None = None) -> dict[str, object]:
+    """Return package.json as a dict, empty when it is missing or not a JSON object.
+
+    Args:
+        project_dir: Project root. Defaults to cwd.
+
+    Returns:
+        The parsed manifest, or an empty dict.
+
+    """
+    pkg = (project_dir or Path.cwd()) / "package.json"
+    try:
+        data = json.loads(pkg.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def package_scripts(project_dir: Path | None = None) -> dict[str, object]:
+    """Return package.json's ``scripts`` table, empty when there is none."""
+    scripts = read_package_json(project_dir).get("scripts")
+    return scripts if isinstance(scripts, dict) else {}
+
+
 def pinned_package_manager(project_dir: Path | None = None) -> str | None:
     """Return the package manager pinned by package.json, or None.
 
@@ -90,13 +114,7 @@ def pinned_package_manager(project_dir: Path | None = None) -> str | None:
         One of pnpm/yarn/npm, or None when nothing valid is pinned.
 
     """
-    pkg = (project_dir or Path.cwd()) / "package.json"
-    if not pkg.exists():
-        return None
-    try:
-        pm_raw = json.loads(pkg.read_text(encoding="utf-8")).get("packageManager")
-    except json.JSONDecodeError:
-        return None
+    pm_raw = read_package_json(project_dir).get("packageManager")
     if isinstance(pm_raw, str) and pm_raw:
         name = pm_raw.split("@")[0].strip().lower()
         if name in ("pnpm", "yarn", "npm"):
@@ -182,16 +200,12 @@ def detect_yarn_version(project_dir: Path | None = None) -> int:
 
     """
     root = project_dir or Path.cwd()
-    pkg = root / "package.json"
 
-    if pkg.exists():
+    pm_raw = read_package_json(root).get("packageManager")
+    if isinstance(pm_raw, str) and pm_raw.startswith("yarn@"):
         try:
-            data = json.loads(pkg.read_text(encoding="utf-8"))
-            pm_raw = data.get("packageManager", "")
-            if isinstance(pm_raw, str) and pm_raw.startswith("yarn@"):
-                version_str = pm_raw.split("@")[1].split(".")[0]
-                return int(version_str)
-        except (json.JSONDecodeError, KeyError, ValueError, IndexError):
+            return int(pm_raw.split("@")[1].split(".")[0])
+        except ValueError:
             pass
 
     try:
