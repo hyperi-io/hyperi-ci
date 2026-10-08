@@ -9,31 +9,16 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Dependency-surface enumeration, floor/lock drift, Renovate blind spots.
 
-Grown out of Derek's deps automation scripts and merged here once they were
-mature enough to be worth handing to other people -- both to run at a terminal
-and for hyperi-ai's ``/deps`` skill to call.
+The local, preventative half of the dependency chain: it reports what a change
+is about to leave stale, while Renovate raises PRs after the fact. Policy and
+cooldowns live in Renovate and ``scripts/update-versions.py``, not here.
 
-The PREVENTATIVE half of the dependency chain. It runs LOCALLY, before a change
-reaches CI or the forge, and says what you are about to leave stale. Renovate
-is the remediation half: it runs after the fact and raises PRs for what already
-went stale. Policy and cooldowns live there and in
-``scripts/update-versions.py``; nothing in here makes a judgement call.
-
-Three operations, and one that runs all of them:
-
-- ``scan``   -- match every tracked file against ``config/dep-surfaces.yaml``
-  and extract the versions embedded in each. Three states per surface, never
-  two: ``found``, ``inert`` (files matched, nothing extractable), ``absent``.
-- ``drift``  -- declared floor vs locked version, per dependency GROUP.
-  Renovate has no equivalent, so this standing audit is the original half.
-- ``gaps``   -- which present surfaces the repo's Renovate config never sees.
-- ``report`` -- all three in one pass, which is what bare ``hyperi-ci deps``
-  prints. Every extra round trip is a chance for a caller to give up and
-  hand-roll a grep, so the first answer is the whole picture.
-
-``show(root, surface_id)`` pre-cans the obvious follow-up: every matched file,
-every pin with its line number, and the declared-vs-locked table for that one
-surface, uncapped.
+- ``scan``   -- match tracked files against ``config/dep-surfaces.yaml`` and
+  extract embedded versions; each surface is ``found``, ``inert`` or ``absent``.
+- ``drift``  -- declared floor vs locked version, per dependency group.
+- ``gaps``   -- present surfaces the repo's Renovate config never sees.
+- ``report`` -- all three in one pass, as bare ``hyperi-ci deps`` prints.
+- ``show``   -- every file, pin and group for one surface, uncapped.
 """
 
 from pathlib import Path
@@ -48,17 +33,13 @@ __all__ = ["Surface", "drift", "gaps", "load", "report", "scan", "show"]
 def report(
     root: Path, surfaces: tuple[Surface, ...] | None = None, kind: str = ""
 ) -> dict:
-    """Everything in one pass: surfaces, pins, groups, drift, Renovate gaps.
-
-    The entry point Derek's original scripts grew towards and never had: one
-    call that answers the whole question rather than a run of separate probes.
+    """Run scan, drift and gaps in one pass.
 
     Args:
         root: Repository root.
         surfaces: Override catalogue (tests).
-        kind: Optional surface ``kind`` filter (python, rust, container, ...).
-            Filters the surface list AND the matching ecosystems, for when a
-            polyglot repo's full report is more than you want at once.
+        kind: Optional surface ``kind`` filter (python, rust, container, ...),
+            applied to the surfaces, the gaps and the drift ecosystems.
 
     Returns:
         ``{root, kind_filter, scan, drift, gaps}``.
@@ -68,9 +49,7 @@ def report(
     catalogue = surfaces if surfaces is not None else load()
     files, source = repo_files(root)
     scan_result = scan(root, catalogue, files=files)
-    # scan() cannot know where a caller-supplied list came from, so it labels
-    # it "caller". Put the real answer back: a reader needs to know whether
-    # gitignored files were excluded or a raw walk was used.
+    # scan() labels a passed-in list "caller"; the reader needs git vs walk.
     scan_result["file_source"] = source
     drift_result = drift(root, catalogue, files=files)
     gaps_result = gaps(root, scan_result)
@@ -105,13 +84,11 @@ def report(
 def show(
     root: Path, surface_id: str, surfaces: tuple[Surface, ...] | None = None
 ) -> dict:
-    """Full detail for ONE surface -- the pre-canned follow-up.
+    """Return full, uncapped detail for one surface.
 
-    Every matched file, every pin with its line number and current value, the
-    catalogue entry behind it (patterns, notes, gap, caveat), and the
-    declared-vs-locked table where the surface owns a manifest. Nothing capped:
-    this is the answer to "show me everything about X", which is otherwise
-    where somebody starts writing ad-hoc rg pipelines.
+    Covers every matched file and pin, the catalogue entry, the
+    declared-vs-locked groups where the surface owns a manifest, and its
+    Renovate gap.
 
     Returns:
         The detail dict, or ``{"error": ..., "known": [...]}`` for a bad id.

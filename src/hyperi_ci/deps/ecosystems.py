@@ -8,28 +8,14 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Floor-vs-lock drift, per ecosystem, per dependency group.
 
-Renovate has no equivalent. Its ``rangeStrategy: bump`` only rewrites a floor
-when a NEW upstream release triggers a PR, so a repo whose declared floor is
-already years behind its own lock is never told. This is that standing audit.
+Renovate's ``rangeStrategy: bump`` only moves a floor when a new release opens
+a PR, so a floor years behind its own lock is never reported there.
 
-MULTI-LANGUAGE BY CONSTRUCTION. ``detect_language()`` returns ONE primary
-language, which is the assumption we cannot make -- ours are Python and Rust
-and TypeScript and OpenTofu at once. Every manifest in the tree is parsed in
-the same pass, and each ecosystem is reported separately, so a stale Rust dev
-dependency cannot hide behind a current Python runtime pin.
-
-Two layers, and only the first is load-bearing:
-
-1. CORE -- pure Python parsing (tomllib, json). Zero external tools, always
-   works, sufficient on its own.
-2. ENRICHMENT -- if a language toolchain happens to be installed, shell out to
-   it for what hand-parsing cannot get: a workspace member whose lock lives
-   above the scan root, a crate rename, a vendored graph. Probed with
-   ``shutil.which`` every time (the house idiom, same as
-   ``languages/rust/quality.py``), run offline, and it may only ADD rows the
-   parse missed -- never replace one, never change an exit code, never warn
-   when absent. A box without cargo is normal, not a finding. Every locked
-   version carries the ``source`` it came from (``parse``, or the tool's name).
+Every manifest in the tree is parsed in one pass, not just the primary
+language's, and each ecosystem is reported separately. Locked versions come
+from parsing the lockfile. An installed toolchain, run offline, may only ADD
+rows the parse missed, and its absence is silent. Each locked version records
+its ``source``: ``parse`` or the tool's name.
 """
 
 import json
@@ -57,8 +43,7 @@ class Ecosystem:
     groups: list[dict] = field(default_factory=list)
     declared: int = 0
     compared: int = 0
-    # Why this ecosystem compared nothing, when a lock was found but not read.
-    # Empty is the normal case; a value here is surfaced in the report's notes.
+    # Set when a lock was found but not read; surfaced in the report's notes.
     note: str = ""
 
 
@@ -83,11 +68,10 @@ def _load_json(path: Path) -> dict:
 
 
 def walk_groups(data: dict, path: str) -> Iterator[tuple[str, object]]:
-    """Resolve a dotted group path, ``*`` wildcarding every key at that level.
+    """Yield ``(concrete_path, value)`` for a dotted path, ``*`` matching any key.
 
-    ``project.optional-dependencies.*`` over a pyproject yields one
-    ``(concrete_path, value)`` per extra, so the report keeps dev separate from
-    runtime instead of merging them into one number.
+    A wildcard yields each extra or group separately, so dev and runtime are
+    never merged.
     """
     parts = path.split(".")
 
@@ -113,11 +97,10 @@ def walk_groups(data: dict, path: str) -> Iterator[tuple[str, object]]:
 
 
 def group_entries(value: object) -> list[tuple[str, str]]:
-    """Flatten a dependency group to ``[(name, constraint)]``, any shape in.
+    """Flatten a dependency group to ``[(name, constraint)]``.
 
-    Covers the three that occur: a list of PEP 508 strings (PEP 621/735), a map
-    of name to constraint string (npm, poetry, simple cargo), and a map of name
-    to table (cargo with features, a cargo rename, a poetry table).
+    Accepts a list of PEP 508 strings, a map of name to constraint, or a map of
+    name to table carrying ``version``.
     """
     out: list[tuple[str, str]] = []
     if isinstance(value, list):
@@ -135,8 +118,7 @@ def group_entries(value: object) -> list[tuple[str, str]]:
             elif isinstance(raw, dict):
                 version = raw.get("version")
                 if isinstance(version, str):
-                    # `package = "..."` is cargo's rename: the crate actually
-                    # locked, not the name it is imported under.
+                    # Cargo's `package` rename names the crate the lock records.
                     real = raw.get("package")
                     out.append(
                         (str(real) if isinstance(real, str) else str(key), version)
@@ -145,11 +127,10 @@ def group_entries(value: object) -> list[tuple[str, str]]:
 
 
 def packages_from_toml_lock(path: Path) -> dict[str, str]:
-    """``[[package]]`` name/version pairs -- uv.lock, poetry.lock, Cargo.lock.
+    """Return ``[[package]]`` name to version from uv.lock, poetry.lock or Cargo.lock.
 
-    Where one name resolves several times (different markers, or two majors of
-    a transitive crate), keep the HIGHEST: that is the one a floor has to
-    cover, so it is the one worth warning about.
+    A name locked more than once keeps its highest version, the one a floor
+    has to cover.
     """
     out: dict[str, str] = {}
     for package in _load_toml(path).get("package") or []:
@@ -165,13 +146,11 @@ def packages_from_toml_lock(path: Path) -> dict[str, str]:
 
 
 def packages_from_npm_lock(path: Path) -> dict[str, str]:
-    """package-lock.json v2/v3 ``packages`` map -> name -> version.
+    """Return name to version from a package-lock.json v2/v3 ``packages`` map.
 
-    Keys are ``node_modules/<name>``, nested when hoisting could not collapse
-    them. The shallowest key wins, since that is the copy the manifest's own
-    constraint is about. A v1 lockfile (a flat ``dependencies`` map, no
-    ``packages``) yields nothing here -- npm 7 shipped v2 in 2020, and the
-    enrichment path covers it when npm is installed.
+    The shallowest ``node_modules/`` key wins, as the copy the manifest's
+    constraint governs. A v1 lockfile yields nothing; ``npm ls`` enrichment
+    covers it when npm is installed.
     """
     packages = _load_json(path).get("packages")
     if not isinstance(packages, dict):
@@ -198,9 +177,7 @@ def packages_from_npm_lock(path: Path) -> dict[str, str]:
 def _yarn_descriptor_name(descriptor: str) -> str:
     """``@scope/pkg@npm:^1.2.3`` -> ``@scope/pkg``.
 
-    The range is everything after the LAST ``@``, except for the leading one a
-    scoped name starts with -- so the split has to skip index 0 rather than
-    take the first separator.
+    Splits at the last ``@`` past index 0, which a scoped name starts with.
     """
     descriptor = descriptor.strip().strip('"')
     cut = descriptor.rfind("@")
@@ -208,20 +185,11 @@ def _yarn_descriptor_name(descriptor: str) -> str:
 
 
 def packages_from_yarn_lock(path: Path) -> dict[str, str]:
-    """Yarn Berry ``yarn.lock`` -> name -> version.
+    """Return name to version from a Yarn Berry ``yarn.lock``.
 
-    Berry's lockfile is YAML: one entry per resolved descriptor, keyed by a
-    comma-joined descriptor list, with the resolved ``version`` inside. Only
-    the name matters here, and every descriptor in one key resolves to the same
-    version, so the first is enough.
-
-    Where a name appears under several keys (two majors of a transitive dep),
-    keep the HIGHEST -- same rule as the toml locks, and for the same reason:
-    that is the copy a floor has to cover.
-
-    Yarn Classic (v1) is NOT valid YAML and yields nothing here. It has been
-    superseded since 2020 and no HyperI repo runs it; a v1 lockfile therefore
-    reports as an unparsed lock rather than as a silent clean.
+    Each YAML key is a comma-joined descriptor list resolving to one version,
+    so the first descriptor names it. A name under several keys keeps its
+    highest version. Yarn Classic (v1) is not YAML and yields nothing.
     """
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -246,9 +214,8 @@ def packages_from_yarn_lock(path: Path) -> dict[str, str]:
     return out
 
 
-# Lock filename -> parser. A lock this map does not cover is reported as
-# unparsed rather than yielding an empty dict, because "found the lock and read
-# nothing from it" is indistinguishable from "no drift" in the output.
+# A lock missing here is reported as unparsed, since an empty read looks like
+# "no drift".
 NODE_LOCK_PARSERS: dict[str, Callable[[Path], dict[str, str]]] = {
     "package-lock.json": packages_from_npm_lock,
     "yarn.lock": packages_from_yarn_lock,
@@ -256,10 +223,9 @@ NODE_LOCK_PARSERS: dict[str, Callable[[Path], dict[str, str]]] = {
 
 
 def find_lock(start: Path, root: Path, names: tuple[str, ...]) -> Path | None:
-    """First lockfile found walking from a manifest's directory up to ``root``.
+    """Return the first lockfile walking from ``start`` up to ``root``, or None.
 
-    Workspace layouts put the lock at the workspace root, not beside the member
-    manifest, so a beside-only lookup reports every member as unlocked.
+    A workspace member's lock sits at the workspace root, not beside it.
     """
     current = start.resolve()
     root = root.resolve()
@@ -274,18 +240,15 @@ def find_lock(start: Path, root: Path, names: tuple[str, ...]) -> Path | None:
 
 
 # ---------------------------------------------------------------------------
-# Enrichment -- optional, additive, never load-bearing
+# Enrichment -- optional and additive
 # ---------------------------------------------------------------------------
 
 
 def _run_tool(cmd: list[str], cwd: Path) -> str | None:
-    """Run an optional toolchain command. None when absent or unhappy.
+    """Run an optional toolchain command and return its stdout, or None.
 
-    Probed with ``shutil.which`` on every call: a box without cargo is normal,
-    not a finding, so a miss is silent -- no warn, no non-zero exit. Nothing
-    here is required for a surface to be reported; the parsing path already
-    produced that. A probed tool that still gives up logs why, at debug level
-    only, so the silence stays but the reason is not lost.
+    A missing tool returns None silently. A timeout, launch failure or
+    non-zero exit returns None and logs why at debug level.
     """
     if shutil.which(cmd[0]) is None:
         return None
@@ -317,8 +280,7 @@ def _run_tool(cmd: list[str], cwd: Path) -> str | None:
 def enrich_cargo(cwd: Path) -> dict[str, str]:
     """Read resolved crate versions from ``cargo metadata``, offline.
 
-    Buys the workspace case: a member whose Cargo.lock sits above the scan
-    root, and renames the manifest declares but the lock records differently.
+    Covers a member whose Cargo.lock sits above the scan root.
     """
     out = _run_tool(["cargo", "metadata", "--format-version", "1", "--offline"], cwd)
     if out is None:
@@ -335,11 +297,10 @@ def enrich_cargo(cwd: Path) -> dict[str, str]:
 
 
 def enrich_uv(cwd: Path) -> dict[str, str]:
-    """Read resolved distributions from ``uv export --frozen``, offline.
+    """Read resolved distributions from ``uv export --frozen``.
 
-    Buys the uv-workspace case, where the lock belongs to a parent member.
-    ``--frozen`` reads the existing lock and never resolves, so this never
-    reaches the network and never rewrites the lock.
+    ``--frozen`` reads the existing lock without resolving, so it never
+    reaches the network or rewrites the lock.
     """
     out = _run_tool(
         [
@@ -388,8 +349,7 @@ def enrich_npm(cwd: Path) -> dict[str, str]:
             if not isinstance(meta, dict):
                 continue
             version = meta.get("version")
-            # A node with no version string is not recursed into either: an
-            # unmet peer dep carries no version and no resolved children.
+            # An unmet peer dep has no version and no resolved children.
             if isinstance(version, str):
                 resolved.setdefault(str(name), version)
                 collect(meta)
@@ -425,11 +385,10 @@ def _compare(
     locked: dict[str, tuple[str, str]],
     norm: Callable[[str], str],
 ) -> None:
-    """Record one group: every declared entry, with the lock beside it.
+    """Append one group's entries to ``eco``, each with its locked version.
 
-    Entries with no resolvable floor (``*``, a git or path dependency) or no
-    lock hit are still reported, with empty columns -- "declared but never
-    locked" is itself worth seeing. Only entries with both count as compared.
+    An entry with no floor or no lock hit is kept with empty columns; only
+    entries with both count as compared.
     """
     rows: list[dict] = []
     comparable = 0
@@ -470,8 +429,7 @@ def python_ecosystem(root: Path, rel: str, by_id: dict[str, Surface]) -> Ecosyst
         manifest=rel,
         lock=lock.relative_to(root).as_posix() if lock is not None else "",
     )
-    # pep621 AND poetry: one file belongs to both surfaces, so both group sets
-    # are walked rather than guessing which build backend won.
+    # One pyproject belongs to both pep621 and poetry, so both group sets run.
     for group_path in list(by_id["pep621"].groups) + list(by_id["poetry"].groups):
         for concrete, value in walk_groups(data, group_path):
             _compare(eco, concrete, group_entries(value), locked, ver.norm_python)
@@ -498,11 +456,10 @@ def rust_ecosystem(root: Path, rel: str, by_id: dict[str, Surface]) -> Ecosystem
 
 
 def node_ecosystem(root: Path, rel: str, by_id: dict[str, Surface]) -> Ecosystem:
-    """package.json against whichever lock the catalogue names for it.
+    """package.json against whichever lock the npm surface names.
 
-    Lock names come from the surface catalogue, as the python and rust builders
-    already do, so a yarn or pnpm repo is compared rather than reported clean
-    for want of a ``package-lock.json``.
+    A lock with no entry in :data:`NODE_LOCK_PARSERS` sets ``note`` rather
+    than reading as clean.
     """
     manifest = root / rel
     data = _load_json(manifest)
@@ -541,10 +498,8 @@ def drift(
 ) -> dict:
     """Audit every declared floor against the version actually locked.
 
-    The check that started the whole thing: no update bot raises this, because
-    an open ``>=`` range is already satisfied by every future release, so there
-    is never a manifest edit to propose. Grown out of Derek's deps automation
-    scripts and generalised here from one repo to any.
+    No update bot raises this: an open ``>=`` range admits every future
+    release, so there is no manifest edit to propose.
 
     Args:
         root: Repository root.

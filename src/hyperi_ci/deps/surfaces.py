@@ -8,13 +8,13 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Surface catalogue: what a dependency-bearing file looks like, and its pins.
 
-The catalogue is DATA (``config/dep-surfaces.yaml``); this module compiles it
-and applies it. Three states per surface, never two:
+This module compiles and applies ``config/dep-surfaces.yaml``. Each surface is
+in one of three states:
 
 - ``found``  -- files matched and something was extracted.
-- ``inert``  -- files matched and NOTHING was extractable, or the surface has
-  no file patterns at all (Renovate ships ``kubernetes`` and ``pip-compile``
-  that way). This is the false-assurance case: it must never read as clean.
+- ``inert``  -- files matched and nothing was extractable, or the surface has
+  no file patterns (Renovate's ``kubernetes`` and ``pip-compile``). It must
+  never read as clean.
 - ``absent`` -- nothing matched.
 """
 
@@ -32,8 +32,7 @@ FOUND = "found"
 INERT = "inert"
 ABSENT = "absent"
 
-# Directories the pathlib fallback never descends into. Only reached when the
-# tree is not a git repo -- `git ls-files` excludes all of this for free.
+# Skipped by the non-git walk only; `git ls-files` already excludes them.
 _SKIP_DIRS: frozenset[str] = frozenset(
     {
         ".git",
@@ -53,10 +52,8 @@ _SKIP_DIRS: frozenset[str] = frozenset(
     }
 )
 
-# A file "looks version-bearing" if its path carries one of these words, or it
-# is structured config under a CI/deploy directory. Anything matching that no
-# surface claimed is reported as unclassified -- the honest "we do not know
-# what this is" bucket, which is where the next catalogue entry comes from.
+# A path holding one of these words, or structured config under one of these
+# directories, is reported as unclassified when no surface claims it.
 _UNCLASSIFIED_WORDS: tuple[str, ...] = (
     "lock",
     "version",
@@ -126,8 +123,7 @@ class Surface:
     raw_patterns: tuple[str, ...] = ()
 
 
-# Compiled once per process: the pin regexes run over every line of every
-# matched file, so recompiling per file would be silly.
+# The shipped catalogue, compiled once per process.
 _CACHE: tuple[Surface, ...] | None = None
 
 
@@ -188,11 +184,10 @@ def load(path: Path | None = None) -> tuple[Surface, ...]:
 
 
 def repo_files(root: Path) -> tuple[list[str], str]:
-    """Every candidate file under ``root``, as repo-relative POSIX paths.
+    """Return every candidate file under ``root``, as repo-relative POSIX paths.
 
-    ``git ls-files`` is preferred: it excludes gitignored junk (node_modules,
-    target/, .venv) for free and costs one subprocess. A non-repo falls back to
-    a walk with the same exclusions applied by hand.
+    Uses ``git ls-files``, which skips gitignored files; outside a git repo it
+    walks the tree, skipping :data:`_SKIP_DIRS`.
 
     Returns:
         (paths, source) where source is ``git ls-files`` or ``walk``.
@@ -253,8 +248,7 @@ def extract_pins(surface: Surface, root: Path, rel: str) -> list[dict]:
     text = _read(root / rel)
     if not text:
         return []
-    # The prefilter keeps a broad surface (every .py in the repo, for the pin
-    # marker) affordable: one whole-text scan instead of a per-line loop.
+    # One whole-text scan keeps a broad surface cheap over every source file.
     if surface.prefilter is not None and surface.prefilter.search(text) is None:
         return []
 
@@ -338,10 +332,6 @@ def scan(
 ) -> dict:
     """Enumerate every dependency surface present under ``root``.
 
-    The catalogue behind this is the durable form of what Derek's deps scripts
-    had learned to look for by hand, so a surface only has to be discovered
-    once for every later run to see it.
-
     Args:
         root: Repository root.
         surfaces: Override catalogue (tests). Defaults to the shipped one.
@@ -367,14 +357,10 @@ def scan(
         pins: list[dict] = []
         for rel in matched:
             pins.extend(extract_pins(surface, root, rel))
-        # A BROAD surface sweeps every source file looking for a marker, so a
-        # file it merely passed over is not claimed by it -- only the ones it
-        # actually pulled a pin out of are. Without this the extension net
-        # swallows the whole unclassified bucket and it is always empty.
+        # A broad surface claims only files it pulled a pin from, or it would
+        # empty the unclassified bucket.
         claimed.update({pin["file"] for pin in pins} if surface.broad else matched)
-        # A surface with groups but no pin regexes is `found` on the manifest
-        # alone -- its versions live in a structure the drift pass parses, not
-        # in a line regex.
+        # Group versions are read by the drift pass, so a matched manifest counts.
         extracted = bool(pins) or bool(surface.groups and matched)
         if not surface.patterns:
             state = INERT  # empty upstream patterns: enabled but can never match
@@ -400,8 +386,7 @@ def scan(
             }
         )
 
-    # A lockfile named by some surface IS claimed, by the surface that owns it
-    # -- listing uv.lock as unclassified beside pep621 would be noise.
+    # A lockfile some surface names counts as claimed by that surface.
     lockfiles = {name for surface in catalogue for name in surface.lock}
     unclassified = [
         rel

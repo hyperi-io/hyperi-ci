@@ -8,21 +8,15 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Default (non-JSON) output, written for a person at a terminal.
 
-Ordering is the point. Drift, inert surfaces and Renovate blind spots come
-FIRST, because they are the only things here that need a decision. The full
-inventory, the extracted pins and the per-group tables come after, so nobody
-scrolls past thirty green rows to find the one problem.
-
-ASCII only -- no colour codes, no box-drawing. Columns are sized to content so
-it stays readable in a normal-width terminal. Any list that gets capped SAYS it
-was capped, with the real total: a silently truncated report is worse than no
-report, because it reads as complete.
+What needs a decision (drift, inert surfaces, Renovate blind spots) prints
+first, then the inventory, pins and groups. Output is plain ASCII with
+content-sized columns, and every capped list states its real total so it never
+reads as complete.
 """
 
 from hyperi_ci.deps.surfaces import ABSENT, INERT
 
-# Rows printed per surface / per group before the human view says "and N more".
-# Lifted entirely by --full; `deps show <id>` never caps.
+# Rows per surface or group before "and N more"; --full and `deps show` lift it.
 DETAIL_CAP = 20
 
 
@@ -80,7 +74,7 @@ _GROUP_HEADERS = ["DEP", "DECLARED", "FLOOR", "LOCKED", "DRIFT", "SRC"]
 
 
 def drift_block(drift_result: dict, full: bool) -> list[str]:
-    """Floor drift first: the only thing here that is always a defect."""
+    """Render floor drift, the only finding here that is always a defect."""
     out = ["FLOOR DRIFT -- the lock has moved past what the manifest admits to."]
     if not drift_result["drift"]:
         out.append(
@@ -92,9 +86,7 @@ def drift_block(drift_result: dict, full: bool) -> list[str]:
     out.append("  Nothing bumps a floor on its own, so this only ever grows. A dev or")
     out.append("  test group here means the test stack has aged out underneath you.")
     shown, hidden = _cap(drift_result["drift"], full)
-    # MANIFEST is not decoration: a monorepo has several pyproject.toml files
-    # with the same group name, so without it four different repos' stale
-    # `dev` extras render as four identical rows.
+    # A monorepo repeats group names across manifests, so rows need MANIFEST.
     rows = [
         [
             item["ecosystem"],
@@ -135,7 +127,7 @@ def drift_block(drift_result: dict, full: bool) -> list[str]:
 
 
 def inert_block(scan_result: dict) -> list[str]:
-    """Spell out the false-assurance case -- a human needs the definition."""
+    """Render the inert surfaces, with the definition of inert."""
     inert = [r for r in scan_result["surfaces"] if r["state"] == INERT]
     out = [
         "INERT SURFACES -- files matched but nothing was extractable, or the",
@@ -153,7 +145,7 @@ def inert_block(scan_result: dict) -> list[str]:
 
 
 def gaps_block(gaps_result: dict) -> list[str]:
-    """Renovate coverage boundary -- what no bot will ever raise a PR for."""
+    """Render the present surfaces no enabled Renovate manager sees."""
     out = ["RENOVATE BLIND SPOTS -- present surfaces no enabled manager sees."]
     if gaps_result["config"] is None:
         out.append("  no renovate config in this repo, so every surface below.")
@@ -173,7 +165,7 @@ def gaps_block(gaps_result: dict) -> list[str]:
 
 
 def unclassified_block(scan_result: dict) -> list[str]:
-    """Version-bearing files no surface claimed -- the next catalogue entry."""
+    """Render the version-bearing files no surface claimed."""
     unclassified = scan_result["unclassified"]
     out = ["UNCLASSIFIED -- look version-bearing, no surface claimed them."]
     if not unclassified["total"]:
@@ -324,7 +316,7 @@ def gaps_only(gaps_result: dict) -> str:
 
 
 def show(detail: dict) -> str:
-    """Full detail for one surface. Never capped -- that is the whole point."""
+    """Render full detail for one surface, never capped."""
     if "error" in detail:
         return f"deps show: {detail['error']}\nknown: " + ", ".join(detail["known"])
     record = detail["surface"]

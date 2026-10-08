@@ -6,20 +6,13 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""A deliberately small version parser for the floor-vs-lock comparison.
+"""A small version parser for the floor-vs-lock warning, not a resolver.
 
-This is a WARNING GENERATOR, not a resolver. It only has to answer "is the lock
-a major ahead of what the manifest admits to", and nothing finer. Pre-release
-suffixes, epochs, local versions and build metadata are all ignored, because
-none of them change that answer. No `packaging` dependency: the estate
-exact-pins its deps, so a new one carries fleet-wide knock-on to buy precision
-this comparison never uses.
-
-NOT the same job as ``scripts/update-versions.py``'s ``_parse_semver``, and
-deliberately not shared with it. That one must REJECT a suffixed tag
-(``v3.1.0-node20`` is a backport that must never win release selection); this
-one must ACCEPT ``1.2.3rc1`` so a floor can still be compared. Merging them
-would break whichever side lost.
+It only asks whether the lock is a major (or a 0.x minor) ahead of the floor,
+so pre-release, epoch, local and build parts are ignored and ``packaging`` is
+not needed. Do not share it with ``scripts/update-versions.py``'s
+``_parse_semver``: that must reject ``v3.1.0-node20``, and this must accept
+``1.2.3rc1``.
 """
 
 import re
@@ -48,12 +41,11 @@ def parse(text: str) -> tuple[int, int, int] | None:
 
 
 def floor_of(constraint: str) -> str | None:
-    """Lowest version a constraint admits, spelled as it was written.
+    """Return the lowest version a constraint admits, spelled as written.
 
-    Handles the shapes that actually appear: ``>=X.Y.Z``, ``>=X,<Y``, ``~=X.Y``,
-    ``^X.Y`` / ``~X.Y`` (cargo, npm), ``==X.Y.Z`` / ``=X`` (exact), ``>X``, and
-    a bare ``X.Y.Z``. Anything with no lower bound at all -- ``*``, ``<2``,
-    ``workspace:*``, a git or path dependency -- returns None and is skipped.
+    Handles ``>=X``, ``~=X``, ``^X``, ``~X``, ``==X``, ``=X``, ``>X`` and a bare
+    ``X``. A constraint with no lower bound (``*``, ``<2``, ``workspace:*``, a
+    git or path dependency) returns None.
     """
     head = str(constraint).split(";", 1)[0].strip().strip("\"'")
     if not head or head in ("*", "latest"):
@@ -69,10 +61,8 @@ def floor_of(constraint: str) -> str | None:
 def drift_kind(floor: str, locked: str) -> str | None:
     """``"major"``, ``"minor"``, or None when the floor still covers the lock.
 
-    A 0.x floor gets the minor check as well, because 0.x treats minor as the
-    breaking axis (semver section 4) -- ``>=0.23`` against a locked 0.40 is the
-    same class of staleness as ``>=1`` against a locked 2. That mirrors the
-    clamp table in docs/dependencies/deps-pinning.md.
+    A 0.x floor also gets the minor check, since minor is 0.x's breaking axis
+    (semver section 4, the clamp table in docs/dependencies/deps-pinning.md).
     """
     low = parse(floor)
     high = parse(locked)
