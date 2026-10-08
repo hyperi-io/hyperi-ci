@@ -54,12 +54,9 @@ summary:
 # Must exit 0 on success; non-zero aborts the build (bad profile > no profile).
 ```
 
-See dfe-receiver's [`scripts/pgo-workload.sh`](https://github.com/hyperi-io/dfe-receiver/blob/main/scripts/pgo-workload.sh) <!-- doc-paths: ignore -->
-and [`tools/pgo-driver/`](https://github.com/hyperi-io/dfe-receiver/tree/main/tools/pgo-driver) for a
-working reference that drives all 9 protocols against a testcontainer
-Kafka. Templates for common app shapes (HTTP server, gRPC server, Kafka
-producer/consumer, multi-protocol) live in
-[`templates/pgo-workload/`](../../templates/pgo-workload/).
+See dfe-receiver's [`scripts/pgo-workload.sh`](https://github.com/hyperi-io/dfe-receiver/blob/main/scripts/pgo-workload.sh) and [`src/bin/pgo_driver.rs`](https://github.com/hyperi-io/dfe-receiver/blob/main/src/bin/pgo_driver.rs) <!-- doc-paths: ignore --> for a working reference that drives all 9 protocols against a testcontainer Kafka.
+
+Templates for common app shapes (HTTP server, gRPC server, Kafka producer/consumer, multi-protocol) live in [`templates/pgo-workload/`](../../templates/pgo-workload/).
 
 ## Runner requirements
 
@@ -91,7 +88,9 @@ A virtual workspace root (only `[workspace]`) counts as a Rust project for
 the `bolt-NN` / `lld-NN` install, and the allocator check reads the root
 manifest's `[features]` unioned with every member's.
 
-When BOLT will run, every compile of the pipeline builds with `CARGO_PROFILE_RELEASE_STRIP=none` whatever your `[profile.release]` declares, because cargo hashes profile settings into symbol names and the PGO profile matches only names compiled under the same settings. Packaging strips the shipped binary. When it cannot, a CI build fails naming the binary, and a local build warns. Thousands of `no profile data available` warnings in the BOLT optimise step mean the profile did not match.
+When BOLT will run, every compile of the pipeline builds with `CARGO_PROFILE_RELEASE_STRIP=none` whatever your `[profile.release]` declares. Cargo hashes profile settings into symbol names, and the PGO profile matches only names compiled under the same settings. Packaging strips the shipped binary. When it cannot, a CI build fails naming the binary, and a local build warns.
+
+Thousands of `no profile data available` warnings in the BOLT optimise step mean the profile did not match.
 
 ## LLVM version and running without a release
 
@@ -99,19 +98,15 @@ The full model, pinning and upgrades are in [rust-llvm.md](rust-llvm.md). The de
 
 The designated major wins over a runner's own unversioned `ld.lld` and `clang`, which may belong to another major. If it is not fully installed, the build warns, names the major it used instead, and still keeps the link and BOLT on one major.
 
-A run that publishes nothing builds Tier 1. The `optimize-tier: release` dispatch input builds Tier 2 on one validate-only run, so a PGO or BOLT fix no longer needs a release to test. How to run it, and what it costs: [`pgo-bolt.md`](../runtime/pgo-bolt.md) -> *Validating your workload locally* -> *Testing it in CI without a release*.
+A run that publishes nothing builds Tier 1. The `optimize-tier: release` dispatch input builds Tier 2 on one validate-only run, so a PGO or BOLT fix can be tested without a release. How to run it, and what it costs: [`pgo-bolt.md`](../runtime/pgo-bolt.md) -> *Validating your workload locally* -> *Testing it in CI without a release*.
 
 On the same kind of run, `bolt-optimize-args` replaces the BOLT optimise flags so a BOLT fault can be bisected one dispatch at a time: [`pgo-bolt.md`](../runtime/pgo-bolt.md) -> *Bisecting BOLT*.
 
 ## Skipping optimisation for one run
 
-Tier 2 is four sequential cargo passes plus two workload runs, and a failed
-BOLT attempt retries all three BOLT steps -- 35-45 minutes with both
-architectures in parallel, as observed on the dfe-loader v1.17.5 and
-v1.18.0 releases. `skip-optimize` drops the optimisation stage for one run
-without editing `.hyperi-ci.yaml`. For Rust that means no PGO and no BOLT.
-Tier 1 (allocator + LTO) still applies. A language with no optimisation
-stage ignores it.
+Tier 2 is four sequential cargo passes plus two workload runs. A failed BOLT attempt retries all three BOLT steps. Both architectures in parallel took 35-45 minutes on the dfe-loader v1.17.5 and v1.18.0 releases.
+
+`skip-optimize` drops the optimisation stage for one run without editing `.hyperi-ci.yaml`. For Rust that means no PGO and no BOLT, while Tier 1 (allocator + LTO) still applies. A language with no optimisation stage ignores it.
 
 Three ways in, highest wins:
 
@@ -174,10 +169,7 @@ build:
         enabled: false
 ```
 
-Library crates (no `[[bin]]`) skip this whole path - consumers choose
-their own build profile when compiling from crates.io source. hyperi-ci
-detects library-only crates and doesn't try to apply allocator/LTO
-overrides or PGO.
+Library crates (no `[[bin]]`) skip this whole path. Consumers choose their own build profile when compiling from crates.io source. hyperi-ci detects library-only crates and applies no allocator/LTO overrides or PGO.
 
 ## See also
 
