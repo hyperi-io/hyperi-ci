@@ -18,12 +18,16 @@ cargo fmt and cargo audit cover the whole workspace already.
 import os
 import re
 import shutil
+import subprocess
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from hyperi_ci.common import (
+    URL_ATTEMPTS,
     announce,
+    backoff,
     error,
     info,
     is_ci,
@@ -243,6 +247,12 @@ def _resolve_tool_cmd(cmd: list[str], use_uvx: bool = False) -> list[str]:
     return cmd
 
 
+def _advisory_db_unreachable(result: subprocess.CompletedProcess[str]) -> bool:
+    """Whether cargo audit failed to load its advisory database."""
+    output = f"{result.stdout or ''}{result.stderr or ''}".lower()
+    return result.returncode != 0 and "error loading advisory database" in output
+
+
 def _run_tool(
     tool_name: str,
     cmd: list[str],
@@ -275,16 +285,19 @@ def _run_tool(
     if pinned:
         warn_on_pin_drift(pinned)
     result = run_cmd(resolved, check=False, capture=True)
+    for attempt in range(1, URL_ATTEMPTS):
+        if not _advisory_db_unreachable(result):
+            break
+        delay = backoff(attempt)
+        info(
+            f"  {tool_name}: advisory database unavailable, retrying in "
+            f"{delay:.1f}s (retry {attempt} of {URL_ATTEMPTS - 1})"
+        )
+        time.sleep(delay)
+        result = run_cmd(resolved, check=False, capture=True)
 
     if result.returncode == 0:
         success(f"  {tool_name}: passed")
-        return True
-
-    # Transient failures (e.g. cargo audit "error loading advisory database")
-    # should not block CI -- treat as warning regardless of mode
-    combined = (result.stdout or "") + (result.stderr or "")
-    if "error loading advisory database" in combined.lower():
-        warn(f"  {tool_name}: advisory database unavailable (skipping)")
         return True
 
     if mode == "warn":

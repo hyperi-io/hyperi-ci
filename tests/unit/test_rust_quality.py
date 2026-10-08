@@ -1137,3 +1137,49 @@ class TestFeatureMatrixWarningsMode:
     def test_a_typo_falls_back_to_warn(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
         assert self._modes(monkeypatch, {"warnings": "block"}) == {"warn"}
+
+
+class TestAdvisoryDbUnreachable:
+    """cargo audit that cannot load its advisory DB retries, then honours the mode."""
+
+    _DB_ERROR = subprocess.CompletedProcess(
+        ["cargo", "audit"], 1, "", "error: error loading advisory database: timeout"
+    )
+    _CLEAN = subprocess.CompletedProcess(["cargo", "audit"], 0, "", "")
+
+    def _run(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        results: list[subprocess.CompletedProcess[str]],
+        mode: str,
+    ) -> tuple[bool, int]:
+        from hyperi_ci.languages.rust import quality
+
+        calls = iter(results)
+        ran: list[int] = []
+
+        def fake_run(*_a: object, **_k: object) -> subprocess.CompletedProcess[str]:
+            ran.append(1)
+            return next(calls)
+
+        monkeypatch.setattr(quality, "run_cmd", fake_run)
+        monkeypatch.setattr(quality.shutil, "which", lambda _c: "/usr/bin/cargo")
+        monkeypatch.setattr(quality.time, "sleep", lambda _s: None)
+        return quality._run_tool("cargo audit", ["cargo", "audit"], mode), len(ran)
+
+    @pytest.mark.parametrize(("mode", "passes"), [("blocking", False), ("warn", True)])
+    def test_never_reachable_follows_the_mode(
+        self, monkeypatch: pytest.MonkeyPatch, mode: str, passes: bool
+    ) -> None:
+        from hyperi_ci.common import URL_ATTEMPTS
+
+        ok, runs = self._run(monkeypatch, [self._DB_ERROR] * URL_ATTEMPTS, mode)
+        assert ok is passes
+        assert runs == URL_ATTEMPTS
+
+    def test_a_retry_that_reaches_the_db_passes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ok, runs = self._run(monkeypatch, [self._DB_ERROR, self._CLEAN], "blocking")
+        assert ok is True
+        assert runs == 2
