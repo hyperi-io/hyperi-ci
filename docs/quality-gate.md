@@ -61,10 +61,7 @@ everywhere.
 | `warn` | A finding prints but does not fail |
 | `disabled` | The tool does not run |
 
-A tool may also fail the stage with **zero findings** when the tool itself
-cannot do its job - a `blocking` scanner that is not actually scanning is not a
-pass. Today that means gitleaks with a rule-less or canary-blinded config
-(below); the mode still governs severity, so `warn` downgrades it to a warning.
+A tool may also fail the stage with **zero findings** when it cannot do its job, because a `blocking` scanner that is not scanning is not a pass. That covers gitleaks with a rule-less or canary-blinded config (below). The mode still governs severity, so `warn` downgrades it to a warning.
 
 Set per project in `.hyperi-ci.yaml` under `quality.<lang>.<tool>` (or
 `quality.<tool>` for the cross-language `gitleaks` / `semgrep`); defaults live in
@@ -131,16 +128,9 @@ Without one, the stage fails and names the security gates the repo loses: gitlea
 
 ## The rest of the gate: tools, doc-linting and overrides
 
-The per-tool table (gitleaks, semgrep, charset, hadolint, the language
-handlers, ...), the config knobs (`quality.exclude_paths`, the ruff keys,
-the Rust feature matrix, gitleaks config and its canary), the Container +
-k8s + IaC linting paths, and the two advisory hygiene nudges are all in
-[quality-gate-tools.md](quality-gate-tools.md).
+[quality-gate-tools.md](quality-gate-tools.md) has the per-tool table (gitleaks, semgrep, charset, hadolint, the language handlers). It also has the config knobs: `quality.exclude_paths`, the ruff keys, the Rust feature matrix, and the gitleaks config and its canary. The Container, k8s and IaC linting paths and the two advisory hygiene nudges are there too.
 
-`hyperi-ci lint-docs <dir>` and the same five checks inside the quality
-stage (doc-paths, lychee, mermaid-parse, markdownlint, docs-touched): gate
-semantics, how findings surface, config, coverage caveats and adoption
-impact are in [quality-gate-doc-linting.md](quality-gate-doc-linting.md).
+[quality-gate-doc-linting.md](quality-gate-doc-linting.md) covers `hyperi-ci lint-docs <dir>` and the same five checks inside the quality stage (doc-paths, lychee, mermaid-parse, markdownlint, docs-touched). It has gate semantics, how findings surface, config, coverage caveats and adoption impact.
 
 `--strict`, `HYPERCI_QUALITY_SKIP` and `quality.ignore` are in [quality-gate-overrides.md](quality-gate-overrides.md).
 
@@ -156,11 +146,7 @@ A tool that is not installed and has no `uv`/`uvx` fallback:
 This matches the gitleaks stage's existing behaviour (`is_ci()` in
 `src/hyperi_ci/common.py`).
 
-When a tool IS missing, the message is actionable, not just "not found": a
-single registry (`src/hyperi_ci/tools.py`) renders a Rust-style notice naming
-what hyperi-ci needs the tool for and the exact install command(s) + docs URL.
-`missing_tool_notice()` / `find_tool()` are used by gitleaks, semgrep, gh,
-helm, aws, and the alint advisory ([quality-gate-tools.md](quality-gate-tools.md)).
+A missing tool gets a message that says what to do. A single registry (`src/hyperi_ci/tools.py`) renders a Rust-style notice naming what hyperi-ci needs the tool for, the exact install command(s) and the docs URL. Its `missing_tool_notice()` / `find_tool()` serve gh and the binary upload in `release/binaries.py`. They also serve the scanners under `quality/`: gitleaks, semgrep, osv-scanner, hadolint, the k8s and IaC linters, the doc checks and the alint advisory ([quality-gate-tools.md](quality-gate-tools.md)).
 
 ## Installed tool - pinned vs PATH
 
