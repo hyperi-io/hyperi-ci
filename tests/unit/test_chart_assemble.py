@@ -86,9 +86,17 @@ def _contract(**extra: object) -> dict:
     }
 
 
-def _assemble(out: Path, contract: dict | None = None, image: str = IMAGE) -> Path:
+def _raw(contract: dict) -> bytes:
+    return json.dumps(contract).encode("utf-8")
+
+
+def _assemble(
+    out: Path, contract: dict | bytes | None = None, image: str = IMAGE
+) -> Path:
+    if contract is None:
+        contract = _contract()
     return assemble.assemble(
-        _contract() if contract is None else contract,
+        contract if isinstance(contract, bytes) else _raw(contract),
         LIBRARY_DIR,
         out,
         version="1.4.2",
@@ -237,10 +245,51 @@ class TestAssemble:
         assert "kafka" not in values_text
 
     def test_a_rerun_gives_identical_bytes(self, tmp_path: Path) -> None:
-        first = _assemble(tmp_path / "a")
-        reordered = dict(reversed(list(_contract().items())))
-        second = _assemble(tmp_path / "b", reordered)
-        assert _tree(first) == _tree(second)
+        assert _tree(_assemble(tmp_path / "a")) == _tree(_assemble(tmp_path / "b"))
+
+    def test_the_derived_files_do_not_follow_the_contracts_key_order(
+        self, tmp_path: Path
+    ) -> None:
+        reordered = _raw(dict(reversed(list(_contract().items()))))
+        first = _tree(_assemble(tmp_path / "a"))
+        second = _tree(_assemble(tmp_path / "b", reordered))
+        assert first.pop("files/contract.json") == _raw(_contract())
+        assert second.pop("files/contract.json") == reordered
+        assert first == second
+
+    def test_files_contract_json_is_the_bytes_given(self, tmp_path: Path) -> None:
+        contract = _contract(description=f"L{chr(0xE4)}dt Zeilen in ClickHouse")
+        raw = json.dumps(contract, ensure_ascii=False, separators=(",", ":"))
+        chart = _assemble(tmp_path, raw.encode("utf-8"))
+        assert (chart / "files" / "contract.json").read_bytes() == raw.encode("utf-8")
+
+    @pytest.mark.parametrize("config_schema", ["absent", None, True])
+    def test_a_contract_with_no_config_schema_has_no_dials(
+        self, tmp_path: Path, config_schema: object
+    ) -> None:
+        contract = _contract(config_schema=config_schema)
+        if config_schema == "absent":
+            del contract["config_schema"]
+        chart = _assemble(tmp_path, contract)
+        values_text = (chart / "values.yaml").read_text(encoding="utf-8")
+        assert "# config." not in values_text
+        schema = json.loads((chart / "values.schema.json").read_text(encoding="utf-8"))
+        assert schema["properties"]["config"] == {"type": "object"}
+
+    def test_the_skeletons_schema_dialect_wins_over_the_contracts(
+        self, tmp_path: Path
+    ) -> None:
+        contract = _contract()
+        contract["config_schema"]["$schema"] = "http://json-schema.org/draft-07/schema#"
+        chart = _assemble(tmp_path, contract)
+        schema = json.loads((chart / "values.schema.json").read_text(encoding="utf-8"))
+        base = json.loads(
+            (LIBRARY_DIR / "skeleton" / "values.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert schema["$schema"] == base["$schema"]
+        assert schema["$schema"] != contract["config_schema"]["$schema"]
 
     def test_a_contract_failing_the_schema_fails_with_every_finding(
         self, tmp_path: Path
@@ -287,7 +336,7 @@ class TestAssemble:
         schema_file.write_text(json.dumps(schema), encoding="utf-8")
         with pytest.raises(ChartError, match="not a Kubernetes Service name"):
             assemble.assemble(
-                _contract(app_name="1loader"),
+                _raw(_contract(app_name="1loader")),
                 library,
                 tmp_path,
                 version="1.4.2",
@@ -347,7 +396,7 @@ class TestAssemble:
     def test_an_image_without_a_digest_fails(self, tmp_path: Path) -> None:
         with pytest.raises(ChartError, match="sha256"):
             assemble.assemble(
-                _contract(),
+                _raw(_contract()),
                 LIBRARY_DIR,
                 tmp_path,
                 version="1.4.2",
@@ -423,6 +472,9 @@ class TestCli:
         assert result.exit_code == 0, result.output
         chart = Path(result.stdout.strip())
         assert (chart / "Chart.yaml").is_file()
+        assert (chart / "files" / "contract.json").read_bytes() == (
+            repo / "deploy" / "contract.json"
+        ).read_bytes()
         assert not chart.is_relative_to(repo)
         assert _tree(repo) == before
 
