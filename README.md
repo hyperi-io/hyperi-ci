@@ -408,7 +408,7 @@ Per-language version stamping (release runs only):
 
 ## Rust Feature Matrix Check
 
-Rust projects automatically get a `cargo hack --each-feature --no-dev-deps clippy --lib`
+Rust projects automatically get a `cargo hack --each-feature clippy --lib`
 pass during quality checks (`check` in place of `clippy` when clippy is disabled). This catches feature-gating bugs where a module behind
 feature `X` uses a crate only declared by feature `Y` — without this check,
 transitive deps from other features mask the bug until a downstream consumer
@@ -416,6 +416,8 @@ enables only `X`.
 
 **Default behaviour** (always on, zero config): runs the bare-crate pass
 (`cargo clippy --no-default-features --lib`) plus the each-feature pass.
+
+Neither pass edits `Cargo.toml` or `Cargo.lock`. Under cargo's feature resolver 1 (edition 2018 or older, or a virtual workspace with no `resolver` key) a dev-dependency's features reach the library build and can hide the bug, so the matrix warns and asks for `resolver = "2"` or later.
 
 **Opt out** (requires a reason; CI fails if reason is missing):
 
