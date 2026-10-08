@@ -14,10 +14,7 @@ Ported from old CI: ci/scripts/core/gitleaks.sh
 
 import json
 import os
-import platform
-import shutil
 import subprocess
-import sys
 import tempfile
 import tomllib
 from enum import StrEnum
@@ -26,43 +23,9 @@ from pathlib import Path
 from hyperi_ci.common import error, info, is_ci, run_cmd, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
-from hyperi_ci.quality.install import install_ci_binary
+from hyperi_ci.native_tools import ci_binary
 from hyperi_ci.tools import missing_tool_notice
-from hyperi_ci.versions import tool_sha256, tool_version
-
-
-def _install_gitleaks() -> bool:
-    """Install the pinned gitleaks binary on a Linux CI runner.
-
-    Returns:
-        True if gitleaks is available after the install attempt.
-
-    """
-    if shutil.which("gitleaks"):
-        return True
-
-    if not is_ci():
-        return False
-
-    if sys.platform != "linux":
-        warn("  gitleaks auto-install only supported on Linux CI")
-        return False
-
-    arch = "x64" if platform.machine() in ("x86_64", "AMD64") else "arm64"
-    version = tool_version("gitleaks")
-    url = (
-        f"https://github.com/gitleaks/gitleaks/releases/download/"
-        f"{version}/gitleaks_{version.lstrip('v')}_linux_{arch}.tar.gz"
-    )
-    return (
-        install_ci_binary(
-            "gitleaks",
-            url,
-            tar_member="gitleaks",
-            expected_sha256=tool_sha256("gitleaks", arch),
-        )
-        is not None
-    )
+from hyperi_ci.versions import tool_version
 
 
 def _supports_git_subcommand() -> bool:
@@ -490,7 +453,8 @@ def run(config: CIConfig) -> int:
         info("  gitleaks: disabled")
         return 0
 
-    if not _install_gitleaks():
+    # ci_binary puts an installed gitleaks on PATH, where every call below runs it.
+    if ci_binary("gitleaks") is None:
         if is_ci():
             if mode == "blocking":
                 error("  gitleaks: not installed (required)")
@@ -505,7 +469,7 @@ def run(config: CIConfig) -> int:
         warn(f"  {missing_tool_notice('gitleaks')}")
         return 0
 
-    # `_install_gitleaks` is satisfied by anything named gitleaks on PATH, so
+    # `ci_binary` is satisfied by anything named gitleaks on PATH, so
     # the build still has to be checked before the scan is built around `git`.
     if not _supports_git_subcommand():
         return _report_unusable(mode)

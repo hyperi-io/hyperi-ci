@@ -24,7 +24,7 @@ import yaml
 
 from hyperi_ci import common, native_tools
 from hyperi_ci.config import CIConfig
-from hyperi_ci.quality import checkov, install, kube_linter, kubeconform
+from hyperi_ci.quality import checkov, kube_linter, kubeconform
 from hyperi_ci.quality.targets import (
     discover_kustomizations,
     discover_manifests,
@@ -221,7 +221,7 @@ def linux_amd64(monkeypatch: pytest.MonkeyPatch) -> dict:
         state["urls"].append(url)
         return state["payload"]
 
-    monkeypatch.setattr(install, "download_artefact", _download)
+    monkeypatch.setattr(native_tools, "download_artefact", _download)
     return state
 
 
@@ -261,6 +261,7 @@ class TestIacToolInstall:
     ) -> None:
         linux_amd64["payload"] = _targz("tofu")
         monkeypatch.setenv("CI", "true")
+        monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
         monkeypatch.setattr(native_tools.shutil, "which", lambda n: None)
         real_install = native_tools.install_tool
         monkeypatch.setattr(
@@ -274,7 +275,7 @@ class TestIacToolInstall:
 class TestKubeconformStrict:
     def _capture(self, monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
         calls: list[list[str]] = []
-        monkeypatch.setattr(kubeconform, "_install_kubeconform", lambda: "kubeconform")
+        monkeypatch.setattr(kubeconform, "ci_binary", lambda name: "kubeconform")
 
         def _run(cmd: list[str], **_: object) -> SimpleNamespace:
             calls.append(cmd)
@@ -317,7 +318,7 @@ class TestKubeconformStrict:
     def test_a_timeout_fails_a_blocking_gate(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(kubeconform, "_install_kubeconform", lambda: "kubeconform")
+        monkeypatch.setattr(kubeconform, "ci_binary", lambda name: "kubeconform")
 
         def _hang(cmd: list[str], **kw: Any) -> SimpleNamespace:
             raise subprocess.TimeoutExpired(cmd, kw["timeout"])

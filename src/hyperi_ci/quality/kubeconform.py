@@ -34,7 +34,6 @@ kubeconform gate is "no schema violations we could check", not "fully valid".
 
 import contextlib
 import json
-import platform
 import subprocess
 import time
 from pathlib import Path
@@ -42,11 +41,11 @@ from pathlib import Path
 from hyperi_ci.common import error, info, is_ci, run_cmd, success, truthy, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
+from hyperi_ci.native_tools import ci_binary
 from hyperi_ci.quality import findings as fdg
-from hyperi_ci.quality.install import install_ci_binary
 from hyperi_ci.tools import missing_tool_notice
 from hyperi_ci.upgrade import CACHE_DIR
-from hyperi_ci.versions import tool_sha256, tool_version
+from hyperi_ci.versions import tool_version
 
 # Community CRD schema catalogue. kubeconform expands the templated path per
 # resource; a CRD present in the catalogue validates for real, the rest are
@@ -57,21 +56,6 @@ _CRD_CATALOG = (
 )
 
 _CACHE_DAYS = 7
-
-
-def _install_kubeconform() -> str | None:
-    """Install the pinned kubeconform release on Linux CI (else None)."""
-    arch = "amd64" if platform.machine() in ("x86_64", "AMD64") else "arm64"
-    url = (
-        f"https://github.com/yannh/kubeconform/releases/download/"
-        f"{tool_version('kubeconform')}/kubeconform-linux-{arch}.tar.gz"
-    )
-    return install_ci_binary(
-        "kubeconform",
-        url,
-        tar_member="kubeconform",
-        expected_sha256=tool_sha256("kubeconform", arch),
-    )
 
 
 def _schema_locations(config: CIConfig) -> list[str]:
@@ -171,7 +155,7 @@ def run(
         info("  kubeconform: no manifests to validate - skipping")
         return 0
 
-    exe = _install_kubeconform()
+    exe = ci_binary("kubeconform")
     if not exe:
         if mode == "blocking" and is_ci():
             error(missing_tool_notice("kubeconform"))

@@ -260,7 +260,7 @@ test:
   # Native tools the tests shell out to, installed pinned (version + sha256
   # from versions.yaml) and put on PATH before the tests run, in both tiers and
   # every language. Opt-in: nothing is installed by default. An unknown name
-  # fails the stage. Known: helm.
+  # fails the stage. Known: helm, kustomize, tofu.
   native_tools: []
 
   full:

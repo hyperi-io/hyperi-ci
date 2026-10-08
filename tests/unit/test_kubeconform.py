@@ -34,7 +34,7 @@ def _stub(
     *,
     exe: str | None = "/usr/bin/kubeconform",
 ) -> None:
-    monkeypatch.setattr(kubeconform, "_install_kubeconform", lambda: exe)
+    monkeypatch.setattr(kubeconform, "ci_binary", lambda _name: exe)
     monkeypatch.setattr(
         kubeconform,
         "run_cmd",
@@ -166,14 +166,14 @@ class TestRun:
         )
 
     def test_missing_tool_blocks_in_ci(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(kubeconform, "_install_kubeconform", lambda: None)
+        monkeypatch.setattr(kubeconform, "ci_binary", lambda _name: None)
         monkeypatch.setattr(kubeconform, "is_ci", lambda: True)
         assert kubeconform.run([Path("a.yaml")], _cfg()) == 1
 
     def test_missing_tool_warn_skips_locally(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(kubeconform, "_install_kubeconform", lambda: None)
+        monkeypatch.setattr(kubeconform, "ci_binary", lambda _name: None)
         monkeypatch.setattr(kubeconform, "is_ci", lambda: False)
         assert kubeconform.run([Path("a.yaml")], _cfg()) == 0
 
@@ -181,7 +181,7 @@ class TestRun:
         # Non-zero exit with no parseable resources = a tool error (bad schema
         # location, unreadable input), not "all valid" - blocking gate fails.
         monkeypatch.setattr(
-            kubeconform, "_install_kubeconform", lambda: "/usr/bin/kubeconform"
+            kubeconform, "ci_binary", lambda _name: "/usr/bin/kubeconform"
         )
         monkeypatch.setattr(
             kubeconform,
@@ -193,7 +193,7 @@ class TestRun:
 
     def test_exec_oserror_does_not_crash(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            kubeconform, "_install_kubeconform", lambda: "/usr/bin/kubeconform"
+            kubeconform, "ci_binary", lambda _name: "/usr/bin/kubeconform"
         )
 
         def _boom(*a, **k):  # noqa: ANN002, ANN003

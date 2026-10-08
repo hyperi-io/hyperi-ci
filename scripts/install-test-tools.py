@@ -7,44 +7,42 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Install lychee and alint on a Linux CI runner for hyperi-ci's own tests.
 
-Uses the quality stage's own pinned fetch-and-verify helpers, so the tests run
-the exact binaries the stage would. Both helpers fetch Linux assets only.
+Uses the quality stage's own pinned installer, so the tests run the exact
+binaries the stage would. A directory it installed into is appended to
+``$GITHUB_PATH`` for the steps after this one; a copy already on PATH is left
+where it is, so the order of PATH for those steps does not change. Linux
+assets only.
 
 Usage:  uv run --no-sources python scripts/install-test-tools.py
 Exit 1 when either install fails.
 """
 
 import os
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
-from hyperi_ci.quality.doc_links import _install_lychee
-from hyperi_ci.quality.repo_advisor import _install_alint
-
-ALINT_TARGET = "/usr/local/bin/alint"
+from hyperi_ci.common import error, info
+from hyperi_ci.native_tools import ci_binary, install_root
 
 
 def main() -> int:
     """Install both tools. Returns an exit code."""
-    lychee = _install_lychee()
-    if lychee is None:
-        print("lychee install failed")
-        return 1
-    print(f"lychee installed: {lychee}")
+    cache = install_root().resolve()
+    bin_dirs: list[str] = []
+    for name in ("lychee", "alint"):
+        exe = ci_binary(name)
+        if exe is None:
+            error(f"{name} install failed")
+            return 1
+        info(f"{name} installed: {exe}")
+        bin_dir = Path(exe).parent
+        if bin_dir.resolve().is_relative_to(cache):
+            bin_dirs.append(str(bin_dir))
 
-    fetch_dir = Path(os.environ.get("RUNNER_TEMP") or tempfile.mkdtemp()) / "alint"
-    fetch_dir.mkdir(parents=True, exist_ok=True)
-    alint = _install_alint(fetch_dir)
-    if alint is None:
-        print("alint install failed")
-        return 1
-    # The helper leaves alint in its fetch dir, since the stage runs it by path.
-    subprocess.run(
-        ["sudo", "install", "-m", "0755", str(alint), ALINT_TARGET], check=True
-    )
-    print(f"alint installed: {ALINT_TARGET}")
+    github_path = os.environ.get("GITHUB_PATH")
+    if github_path and bin_dirs:
+        with open(github_path, "a", encoding="utf-8", newline="\n") as fh:
+            fh.writelines(f"{d}\n" for d in bin_dirs)
     return 0
 
 

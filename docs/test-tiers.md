@@ -121,8 +121,8 @@ test:
 - Opt-in. The default is `[]`, and a repo that sets nothing downloads nothing.
 - Both tiers, and every language, because the key is read by `hyperi-ci run test` and each `<lang>-ci.yml` Test job runs that. `hyperi-ci check` gets it too. No caller input and no workflow edit.
 - Pinned. The version and a sha256 per arch come from `src/hyperi_ci/config/versions.yaml`. `native_tools.py` fetches helm from that entry for `test.native_tools` and for lint-iac. A download whose digest does not match is refused and the stage fails.
-- The binary lands in `~/.cache/hyperi-ci/native-tools/<tool>/<version>-<arch>/`, which goes first on PATH for the test run, so the pinned build wins over any copy the runner image already has. No sudo, so it works on an ARC pod. The log line names the path and the version the binary reports.
-- A name hyperi-ci does not know fails the stage before any test runs, and so does a value that is not a list. Known today: `helm`, registered in `src/hyperi_ci/native_tools.py`.
+- The binary lands in `~/.cache/hyperi-ci/native-tools/<tool>/<version>-<arch>-<sha256 prefix>/`, which goes first on PATH for the test run, so the pinned build wins over any copy the runner image already has. No sudo, so it works on an ARC pod. The log line names the path and the version the binary reports.
+- A name hyperi-ci does not know fails the stage before any test runs, and so does a value that is not a list. Known today: `helm`, `kustomize` and `tofu`, the entries in `src/hyperi_ci/native_tools.py` that carry a `probe`.
 - Linux x86_64 and aarch64 only. On macOS a copy already on PATH is used, with a warning that it is not the pinned build, and a missing one fails the stage with the install command.
 
 No environment variable reaches this key: `HYPERCI_*` names split on underscores, the same limit as `test.full.required_for_release`.
@@ -150,6 +150,6 @@ pytest-xdist leaves the deselected count out of its summary, so under `-n` the n
 | `test.full.rust.skip` | `[]` | Test-name substrings full leaves out, both runners |
 | `test.full.rust.filter` | `""` | nextest filterset full leaves out, nextest only |
 | `test.full.required_for_release` | `false` | Whether a release must have run full |
-| `test.native_tools` | `[]` | Pinned binaries installed and put on PATH before the tests, both tiers. Known: `helm` |
+| `test.native_tools` | `[]` | Pinned binaries installed and put on PATH before the tests, both tiers. Known: `helm`, `kustomize`, `tofu` |
 
 `test.full.required_for_release` is read by the CI plan job, not by this CLI. Set it in `.hyperi-ci.yaml`: a `HYPERCI_*` variable splits its name on underscores, so no environment variable can reach a key that contains one.

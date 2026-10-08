@@ -25,7 +25,6 @@ bounded annotations + full job-summary table + optional SARIF.
 """
 
 import json
-import platform
 import subprocess
 from pathlib import Path
 
@@ -40,32 +39,10 @@ from hyperi_ci.common import (
 )
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
+from hyperi_ci.native_tools import ci_binary
 from hyperi_ci.quality import findings as fdg
-from hyperi_ci.quality.install import install_ci_binary
 from hyperi_ci.quality.targets import discover_dockerfiles
 from hyperi_ci.tools import missing_tool_notice
-from hyperi_ci.versions import tool_sha256, tool_version
-
-
-def _install_hadolint() -> str | None:
-    """Return a hadolint path, installing the pinned static binary on Linux CI.
-
-    hadolint is baked into the ARC runner image, but consumer CI can run on a
-    vanilla GitHub runner where it is absent. It is a single static binary, so
-    fetch the pinned release rather than let a blocking gate hard-fail for a
-    missing tool. Returns None off-CI / non-Linux (the caller warn-skips locally).
-    """
-    arch = "x86_64" if platform.machine() in ("x86_64", "AMD64") else "arm64"
-    # Lower-case `linux` is the published asset name. The capitalised form
-    # resolved only because GitHub matches an asset case-insensitively, which
-    # is undocumented.
-    url = (
-        f"https://github.com/hadolint/hadolint/releases/download/"
-        f"{tool_version('hadolint')}/hadolint-linux-{arch}"
-    )
-    return install_ci_binary(
-        "hadolint", url, expected_sha256=tool_sha256("hadolint", arch)
-    )
 
 
 def _rule_url(code: str) -> str:
@@ -137,7 +114,7 @@ def run(
         info("  hadolint: no Dockerfile found - skipping")
         return 0
 
-    exe = _install_hadolint()
+    exe = ci_binary("hadolint")
     if not exe:
         if mode == "blocking" and is_ci():
             error(missing_tool_notice("hadolint"))

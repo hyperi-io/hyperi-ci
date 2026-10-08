@@ -158,7 +158,7 @@ class TestLycheeInvocation:
             encoding="utf-8",
         )
         fake.chmod(0o755)
-        monkeypatch.setattr(doc_links.shutil, "which", lambda _n: str(fake))
+        monkeypatch.setattr(doc_links, "ci_binary", lambda _n: str(fake))
         repo = tmp_path / "repo"
         (repo / "docs").mkdir(parents=True)
         doc = repo / "docs" / "a.md"
@@ -359,20 +359,13 @@ class TestOrchestrator:
 class TestLycheeInstall:
     """lychee had no install path anywhere, so the check never ran (issue #230)."""
 
-    def test_the_url_uses_the_lychee_prefixed_tag(self, monkeypatch) -> None:
-        """Upstream tags `lychee-vX.Y.Z`, so the tag is not the version with a v."""
-        seen: dict[str, object] = {}
-
-        def fake_install(name, url, *, tar_member=None, expected_sha256=None):
-            seen.update(name=name, url=url, member=tar_member, sha=expected_sha256)
-            return "/usr/local/bin/lychee"
-
-        monkeypatch.setattr(doc_links, "install_ci_binary", fake_install)
-        assert doc_links._install_lychee() == "/usr/local/bin/lychee"
-        assert "/releases/download/lychee-v" in str(seen["url"])
-        assert str(seen["url"]).endswith("-unknown-linux-musl.tar.gz")
-        assert seen["member"] == "lychee"
-        assert seen["sha"]
+    def test_the_pinned_lychee_is_asked_for(self, monkeypatch) -> None:
+        seen: list[str] = []
+        monkeypatch.setattr(
+            doc_links, "ci_binary", lambda name: seen.append(name) or "/x/lychee"
+        )
+        assert doc_links._install_lychee() == "/x/lychee"
+        assert seen == ["lychee"]
 
     def test_a_failed_install_is_attempted_once_per_run(
         self, tmp_path: Path, monkeypatch
@@ -380,11 +373,10 @@ class TestLycheeInstall:
         """planned_mode and run both need the binary, and one download is enough."""
         attempts: list[str] = []
 
-        def failing_install(name, url, *, tar_member=None, expected_sha256=None):
-            attempts.append(url)
+        def failing_install(name: str) -> None:
+            attempts.append(name)
 
-        monkeypatch.setattr(doc_links.shutil, "which", lambda _n: None)
-        monkeypatch.setattr(doc_links, "install_ci_binary", failing_install)
+        monkeypatch.setattr(doc_links, "ci_binary", failing_install)
         doc = tmp_path / "README.md"
         doc.write_text("# x\n", encoding="utf-8")
         config = _config(doc_links="warn")
@@ -407,10 +399,7 @@ class TestLycheeInstall:
         Answering "no" and then installing makes doc_paths report every broken
         link a second time.
         """
-        monkeypatch.setattr(doc_links.shutil, "which", lambda _n: None)
-        monkeypatch.setattr(
-            doc_links, "_install_lychee", lambda: "/usr/local/bin/lychee"
-        )
+        monkeypatch.setattr(doc_links, "_install_lychee", lambda: "/x/lychee")
         config = CIConfig(_raw={"quality": {"doc_links": "warn"}})
         assert doc_links.planned_mode(config) == "warn"
 
@@ -473,7 +462,7 @@ class TestAnnotationLevelFollowsMode:
     def test_doc_links(self, tmp_path: Path, monkeypatch, mode, level, rc) -> None:
         report = json.dumps({"error_map": {"README.md": [{"url": "gone.md"}]}})
         exe = self._fake_tool(tmp_path, "lychee", report, 2)
-        monkeypatch.setattr(doc_links.shutil, "which", lambda _n: exe)
+        monkeypatch.setattr(doc_links, "ci_binary", lambda _n: exe)
         levels = self._surfaced(monkeypatch)
         doc = tmp_path / "README.md"
         doc.write_text("[x](gone.md)\n", encoding="utf-8")
