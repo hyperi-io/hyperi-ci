@@ -2,7 +2,7 @@
 
 Binding on coding agents, and on anyone sending a patch by hand.
 
-[CONTRIBUTING.md, "For coding agents"](../CONTRIBUTING.md#for-coding-agents) covers the `ci-test-*` fixture fleet: the boy-scout rule, the planted failures never to repair, the git wrapper, and why a green test suite does not prove a workflow change. Read that first. This page covers the codebase itself -- what to read before editing, the conventions no linter enforces, and what counts as evidence here.
+[CONTRIBUTING.md, "For coding agents"](../CONTRIBUTING.md#for-coding-agents) covers the `ci-test-*` fixture fleet: the boy-scout rule, the planted failures never to repair and the git wrapper. It also says why a green test suite does not prove a workflow change. Read that first. This page covers the codebase: what to read before editing, the conventions no linter enforces, and what counts as evidence.
 
 ## Read before the first edit
 
