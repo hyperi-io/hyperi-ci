@@ -10,7 +10,7 @@ The tiers themselves and the `.hyperi-ci.yaml` keys are [rust.md](rust.md).
 
 ```text
 0:00  Setup: runners claimed (arc-runner-16cpu on amd64, ubuntu-24.04-arm on arm64)
-0:30  Native deps install — bolt-23, binutils via apt.llvm.org
+0:30  Native deps install -- bolt-23, binutils via apt.llvm.org
 1:00  cargo install cargo-pgo --locked
 2:00  Cargo build deps (cached after first run)
 2:00  hyperi-ci: "Rust build optimisation: channel=release, allocator=jemalloc, lto=fat, pgo=on, bolt=on"
@@ -50,9 +50,7 @@ readelf -p .note.bolt_info ./<binary>
 # Expect: BOLT revision: <...>
 ```
 
-No note means the shipped file is not BOLT output, whatever the log says.
-hyperi-ci runs the same check on the packaged file and fails the build when an
-arch it reported as BOLT-optimised carries no note.
+No note means the shipped file is not BOLT output, whatever the log says. hyperi-ci runs the same check on the packaged file. It fails the build when an arch reported as BOLT-optimised carries no note.
 
 For `-C target-cpu=x86-64-v3` on amd64, compare VEX-encoded SSE against legacy
 SSE. With AVX enabled the compiler encodes ordinary SSE as VEX, so the ratio
@@ -82,8 +80,7 @@ either - memchr and friends dispatch AVX2 at run time.
 
 ### In the CI build log
 
-Grep the Build job log for these. hyperi-ci emits each one itself, so a
-missing line here does mean the stage did not run:
+Grep the Build job log for these. hyperi-ci emits each one itself, so a missing line means the stage did not run:
 
 ```text
 Rust build optimisation: channel=release, allocator=jemalloc, lto=fat, pgo=on, bolt=on
@@ -99,29 +96,21 @@ optimised: pgo=yes bolt=yes allocator=jemalloc
 BOLT verified in <bin>-linux-<arch> (.note.bolt_info)
 ```
 
-The last two BOLT lines are the ones that matter. cargo-pgo leaves its result
-beside the cargo output rather than in place of it, so "BOLT optimized build
-finished successfully" from the tool says nothing about the file that ships.
+The last two BOLT lines are the ones that matter. cargo-pgo leaves its result beside the cargo output, not in place of it. So "BOLT optimized build finished successfully" from the tool says nothing about the file that ships.
 
 Your workload's own output appears between the two PGO lines, prefixed
 `pgo-workload:`.
 
-cargo-pgo prints its own progress alongside ours -- lines such as
-`PGO instrumentation build finished successfully` and `Found 1 PGO profile
-file with total size X.XX MiB`. Those are useful to read but they belong to
-the tool, not to us, so do not treat one as a required marker: cargo-pgo is
-free to reword them.
+cargo-pgo prints its own progress alongside ours, such as `PGO instrumentation build finished successfully`. Those lines belong to the tool and can be reworded, so do not treat one as a required marker.
 
 If one of OUR lines is missing, a tier wasn't applied. See
 [rust-troubleshooting.md](rust-troubleshooting.md).
 
-The `optimised:` line closes each arch's build group and is the one to read
-first; the `BOLT verified` lines follow in the packaging group.
-On the release channel a Tier 2 skip fails the build: an arch whose `pgo=no`
-or `bolt=no` contradicts what the project asked for stops the release, naming
-the stage, and a warn line earlier in the same group names the cause.
-`build.rust.optimize.strict: false` downgrades that to the summary line alone.
-An allocator fallback (`allocator=system`) stays a warning.
+The `optimised:` line closes each arch's build group and is the one to read first. The `BOLT verified` lines follow in the packaging group.
+
+On the release channel a Tier 2 skip fails the build. An arch whose `pgo=no` or `bolt=no` contradicts what the project asked for stops the release and names the stage. A warn line earlier in the same group names the cause.
+
+`build.rust.optimize.strict: false` downgrades that to the summary line alone. An allocator fallback (`allocator=system`) stays a warning.
 
 ---
 
