@@ -41,6 +41,7 @@ for the no-body case). The pre-push gate only blocks minor/major, so
 under-counting a revert patch is harmless.
 """
 
+# predict-version loads this file by path on the runner's python3, which may predate 3.14.
 from __future__ import annotations
 
 import json

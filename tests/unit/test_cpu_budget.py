@@ -11,8 +11,6 @@ at them - the case that matters is a 4-CPU container on a many-core node,
 which no amount of core counting gets right on its own.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import pytest

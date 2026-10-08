@@ -6,8 +6,6 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for ``quality.ignore`` parsing and per-language translation."""
 
-from __future__ import annotations
-
 from datetime import date, timedelta
 
 import pytest

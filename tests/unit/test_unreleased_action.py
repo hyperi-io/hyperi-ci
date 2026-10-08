@@ -14,8 +14,6 @@ The contract the gate consumes: stdout is the warning text, and EMPTY when
 there is nothing to warn about.
 """
 
-from __future__ import annotations
-
 import os
 import shutil
 import subprocess

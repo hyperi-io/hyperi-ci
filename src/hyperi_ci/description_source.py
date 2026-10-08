@@ -33,8 +33,6 @@ repo-level answer -- cargo accepts it whether or not any member inherits it
 with ``description.workspace = true``, so members keep their specific text.
 """
 
-from __future__ import annotations
-
 import json
 import os
 import tomllib

@@ -12,8 +12,6 @@ every consumer repo. The workspace and comment-handling cases below
 are the ones that bite in real manifests.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 from hyperi_ci.deployment.manifest import (

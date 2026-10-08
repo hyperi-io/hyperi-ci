@@ -11,8 +11,6 @@ only in ``blocking`` mode when an ERROR-severity finding exists - warning/info
 are surfaced but never fatal (the recon-confirmed near-silent gate).
 """
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 from types import SimpleNamespace

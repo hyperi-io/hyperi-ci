@@ -19,8 +19,6 @@ whose conventions hyperi-ci does not set, and the checkout may simply
 lag the remote. The inventory becomes a hint only after gh says no.
 """
 
-from __future__ import annotations
-
 import subprocess
 import time
 from datetime import datetime

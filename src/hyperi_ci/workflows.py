@@ -23,8 +23,6 @@ hyperi-ci-scaffolded ``ci.yml`` alongside six workflows it wrote itself;
 both readings are true of the same repo at the same time.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from pathlib import Path
 

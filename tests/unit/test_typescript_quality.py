@@ -12,8 +12,6 @@ the pure-JS case where a project has no npm scripts and no tsconfig.json
 -- routed via the javascript→typescript alias in dispatch.
 """
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch

@@ -10,8 +10,6 @@ The env is injected as a plain dict -- no os.environ monkeypatching, so
 the matrix is exact regardless of what CI env the test itself runs in.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from hyperi_ci.release_mode import (

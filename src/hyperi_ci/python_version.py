@@ -35,6 +35,7 @@ Stdlib only, and no imports from the rest of the package: the
 is not installed, the same constraint :mod:`hyperi_ci.version_source` carries.
 """
 
+# predict-version loads this file by path on the runner's python3, which may predate 3.14.
 from __future__ import annotations
 
 import re

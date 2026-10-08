@@ -36,8 +36,6 @@ every pin with its line number, and the declared-vs-locked table for that one
 surface, uncapped.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 from hyperi_ci.deps.ecosystems import drift

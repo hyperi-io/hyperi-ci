@@ -11,8 +11,6 @@ The case that matters most is the absent one: a repo that declares
 nothing must read as `internal`, never as `general-oss`.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import pytest

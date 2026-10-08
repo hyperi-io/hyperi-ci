@@ -10,8 +10,6 @@ The fleet default is what a project gets when it declares nothing, not what
 every project is held to.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import pytest

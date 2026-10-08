@@ -19,8 +19,6 @@ and not running; ``--strict`` cannot promote it, which is why this module does
 not route the mode through the usual strict upgrade.
 """
 
-from __future__ import annotations
-
 import os
 from pathlib import Path
 

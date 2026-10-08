@@ -12,8 +12,6 @@ runtime READS the SSOT, and the only copies are in files GitHub parses before
 our code runs.
 """
 
-from __future__ import annotations
-
 import re
 from pathlib import Path
 

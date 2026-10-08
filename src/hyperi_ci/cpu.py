@@ -13,8 +13,6 @@ quota so a spawned worker pool matches the budget the scheduler will
 actually honour.
 """
 
-from __future__ import annotations
-
 import os
 from pathlib import Path
 

@@ -6,8 +6,6 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for hyperi_ci.quality.targets.discover_dockerfiles."""
 
-from __future__ import annotations
-
 from pathlib import Path
 
 from hyperi_ci.quality.targets import (

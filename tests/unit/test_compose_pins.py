@@ -10,8 +10,6 @@ Real compose files in tmp_path throughout: the whole check is text-in,
 findings-out, so a mock would only test the mock.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import pytest

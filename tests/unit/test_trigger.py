@@ -10,8 +10,6 @@
 could not be dispatched through the wrapper at all.
 """
 
-from __future__ import annotations
-
 import subprocess
 from pathlib import Path
 

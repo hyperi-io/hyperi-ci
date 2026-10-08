@@ -12,8 +12,6 @@ fixtures below are the real shapes from hyperi-io/dfe-hyperdx, which
 carries a scaffolded ci.yml alongside six it wrote itself.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 from hyperi_ci import workflows

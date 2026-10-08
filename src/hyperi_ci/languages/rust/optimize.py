@@ -28,8 +28,6 @@ Library-only crates skip this whole path -- consumers choose their own
 build profile when compiling from crates.io source.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any

@@ -6,8 +6,6 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for OCI-standard label generation."""
 
-from __future__ import annotations
-
 from hyperi_ci.container.labels import build_oci_labels, labels_to_build_args
 
 

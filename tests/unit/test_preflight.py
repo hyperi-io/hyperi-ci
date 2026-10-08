@@ -12,8 +12,6 @@ on a credential the publish stage would never have used. So the cases that must
 NOT block are asserted as carefully as the ones that must.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 from unittest.mock import patch
 

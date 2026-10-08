@@ -22,8 +22,6 @@ one must ACCEPT ``1.2.3rc1`` so a floor can still be compared. Merging them
 would break whichever side lost.
 """
 
-from __future__ import annotations
-
 import re
 
 _VERSION_HEAD = re.compile(r"(\d+)(?:\.(\d+))?(?:\.(\d+))?")

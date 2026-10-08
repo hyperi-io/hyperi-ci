@@ -14,8 +14,6 @@ in via ``license_allow`` in ``.hyperi-ci.yaml``; an unrecognised id is
 flagged as a likely typo.
 """
 
-from __future__ import annotations
-
 from collections.abc import Iterable
 
 # The blessed default set. A project may declare any of these as its

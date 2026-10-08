@@ -31,8 +31,6 @@ Usage:
     python3 scripts/audit-config-keys.py --list    # every key and its verdict
 """
 
-from __future__ import annotations
-
 import argparse
 import re
 import sys

@@ -15,8 +15,6 @@ included -- it now carries the ``release`` token, which the mode
 comparisons treat identically.
 """
 
-from __future__ import annotations
-
 import warnings
 
 from hyperi_ci.release_mode import (  # noqa: F401

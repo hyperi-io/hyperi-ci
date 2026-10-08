@@ -13,8 +13,6 @@ even when a GH Release already exists). The CLI only triggers; the runner does
 the tagging + publishing.
 """
 
-from __future__ import annotations
-
 import subprocess
 from pathlib import Path
 

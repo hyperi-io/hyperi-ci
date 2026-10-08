@@ -32,8 +32,6 @@ Two layers, and only the first is load-bearing:
    version carries the ``source`` it came from (``parse``, or the tool's name).
 """
 
-from __future__ import annotations
-
 import json
 import shutil
 import subprocess

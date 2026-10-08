@@ -11,8 +11,6 @@ without Corepack the global binary refuses to run the project at all, so
 "on PATH" is not "usable for this project".
 """
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 

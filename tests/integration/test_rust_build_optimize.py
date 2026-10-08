@@ -15,8 +15,6 @@ Mark them with @pytest.mark.slow so they're opt-in:
 Skipped automatically if cargo is not on PATH.
 """
 
-from __future__ import annotations
-
 import os
 import shutil
 import subprocess

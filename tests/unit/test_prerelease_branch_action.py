@@ -11,8 +11,6 @@ is the by-path package load the composite performs on a runner where hyperi-ci
 is not installed. Importing the module here would skip exactly that.
 """
 
-from __future__ import annotations
-
 import json
 import os
 import subprocess

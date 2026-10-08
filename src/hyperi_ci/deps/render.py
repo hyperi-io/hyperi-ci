@@ -19,8 +19,6 @@ was capped, with the real total: a silently truncated report is worse than no
 report, because it reads as complete.
 """
 
-from __future__ import annotations
-
 from hyperi_ci.deps.surfaces import ABSENT, INERT
 
 # Rows printed per surface / per group before the human view says "and N more".

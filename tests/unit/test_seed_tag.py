@@ -12,8 +12,6 @@ up holding, and a mocked `run_cmd` would prove only that the arguments looked
 plausible.
 """
 
-from __future__ import annotations
-
 import subprocess
 from pathlib import Path
 

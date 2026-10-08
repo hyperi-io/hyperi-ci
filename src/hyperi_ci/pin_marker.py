@@ -32,8 +32,6 @@ They read the same lines, so the pattern lives here rather than being written
 twice and drifting.
 """
 
-from __future__ import annotations
-
 import re
 
 # The marker line itself. `{name}` is substituted with an escaped key for the
