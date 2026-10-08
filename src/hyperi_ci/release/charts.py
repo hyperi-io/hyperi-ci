@@ -9,7 +9,8 @@
 Each chart is copied to a scratch directory with its ``file://`` dependencies at
 the same relative paths, so ``helm dependency build`` and ``helm package`` never
 write the checkout. The chart version is the release version, and its
-``appVersion`` is left as committed unless the chart has none.
+``appVersion`` is left as committed unless the chart has none. A glob skips
+library charts, and a library chart named by its exact directory is published.
 
 A version already in the registry is never pushed again: OCI registries accept
 a re-push of the same tag and ``helm package`` is not byte-reproducible, so a
@@ -54,7 +55,7 @@ class ChartError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class Chart:
-    """One application chart to publish."""
+    """One chart to publish."""
 
     path: Path
     name: str
@@ -104,7 +105,11 @@ def _file_deps(path: Path, data: dict, root: Path) -> list[Path]:
 
 
 def resolve_charts(entries: list[str], root: Path) -> list[Chart]:
-    """Expand chart dirs and globs into the application charts to publish.
+    """Expand chart dirs and globs into the charts to publish.
+
+    A glob skips library charts, so ``charts/*`` never publishes a helper
+    library by accident. A directory named exactly is published whatever its
+    type, which is how a library chart ships.
 
     Raises:
         ChartError: An entry escapes ``root``, an explicit directory holds no
@@ -114,7 +119,8 @@ def resolve_charts(entries: list[str], root: Path) -> list[Chart]:
     root = root.resolve()
     charts: list[Chart] = []
     for entry in entries:
-        if any(c in entry for c in "*?["):
+        is_glob = any(c in entry for c in "*?[")
+        if is_glob:
             matches = [
                 p for p in sorted(root.glob(entry)) if (p / "Chart.yaml").is_file()
             ]
@@ -129,10 +135,10 @@ def resolve_charts(entries: list[str], root: Path) -> list[Chart]:
                 deps = tuple(_file_deps(path, data, root))
             except RepoPathError as exc:
                 raise ChartError(str(exc)) from exc
-            if data.get("type") == "library":
-                info(f"  {path.relative_to(root)}: library chart, not published")
-                continue
             if any(c.path == path for c in charts):
+                continue
+            if is_glob and data.get("type") == "library":
+                info(f"  {path.relative_to(root)}: library chart, not published")
                 continue
             app_version = data.get("appVersion")
             charts.append(

@@ -100,6 +100,20 @@ class TestResolveCharts:
         with pytest.raises(charts.ChartError, match="no application chart"):
             charts.resolve_charts(["helm/library/*"], dfe_infra_shape)
 
+    def test_an_explicit_library_chart_is_published(
+        self, dfe_infra_shape: Path
+    ) -> None:
+        found = charts.resolve_charts(["helm/library/common"], dfe_infra_shape)
+        assert [c.name for c in found] == ["common"]
+
+    def test_a_glob_plus_an_explicit_library_publishes_both(
+        self, dfe_infra_shape: Path
+    ) -> None:
+        found = charts.resolve_charts(
+            ["helm/**/*", "helm/library/common"], dfe_infra_shape
+        )
+        assert [c.name for c in found] == ["api", "web", "common"]
+
     def test_a_file_dependency_outside_the_repo_is_refused(
         self, tmp_path: Path
     ) -> None:
@@ -142,6 +156,25 @@ class TestPackageWithRealHelm:
         tgz = charts.package(api, "1.0.0", dfe_infra_shape, scratch)
         with tarfile.open(tgz) as archive:
             assert "api/charts/common/Chart.yaml" in archive.getnames()
+
+    def test_a_library_chart_with_a_file_dependency_packages(
+        self, dfe_infra_shape: Path, tmp_path_factory: pytest.TempPathFactory
+    ) -> None:
+        dep = {"name": "common", "version": "0.0.0", "repository": "file://../common"}
+        _chart(
+            dfe_infra_shape,
+            "helm/library/svc",
+            "svc",
+            type="library",
+            dependencies=[dep],
+        )
+        scratch = tmp_path_factory.mktemp("scratch")
+        svc = charts.resolve_charts(["helm/library/svc"], dfe_infra_shape)[0]
+        tgz = charts.package(svc, "1.2.0", dfe_infra_shape, scratch)
+        packaged = _packaged_chart_yaml(tgz, "svc")
+        assert (packaged["type"], packaged["version"]) == ("library", "1.2.0")
+        with tarfile.open(tgz) as archive:
+            assert "svc/charts/common/Chart.yaml" in archive.getnames()
 
     def test_the_checkout_is_left_untouched(self, dfe_infra_shape: Path) -> None:
         def git(*args: str) -> str:
@@ -278,6 +311,25 @@ class TestPublish:
         assert rc == 0
         assert {r.chart: r.digest for r in results} == {"api": DIGEST, "web": OTHER}
         assert [Path(p[1]).name for p in fake_helm.pushes] == ["api.tgz"]
+
+    def test_an_explicit_library_is_pushed_beside_the_globbed_apps(
+        self, fake_helm: FakeHelm, dfe_infra_shape: Path
+    ) -> None:
+        fake_helm.existing = {"web": OTHER}
+        rc, results = charts.publish_charts(
+            _enabled(["helm/charts/*", "helm/library/common"]),
+            dfe_infra_shape,
+            registry=REGISTRY,
+            version="1.0.0",
+        )
+        assert rc == 0
+        assert {r.chart: r.digest for r in results} == {
+            "api": DIGEST,
+            "web": OTHER,
+            "common": DIGEST,
+        }
+        assert [Path(p[1]).name for p in fake_helm.pushes] == ["api.tgz", "common.tgz"]
+        assert f"| common | 1.0.0 | `{DIGEST}` |" in charts.digest_table(results)
 
     def test_dry_run_never_pushes(
         self, fake_helm: FakeHelm, dfe_infra_shape: Path

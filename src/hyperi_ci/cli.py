@@ -1200,7 +1200,8 @@ def publish_charts_cmd(
     """Package committed Helm charts and push them to an OCI registry.
 
     A version the registry already holds is not pushed again; its existing
-    digest is reported. Library charts are skipped. Logs go to stderr, so
+    digest is reported. A glob skips library charts, and a library chart named
+    by its exact directory is published. Logs go to stderr, so
     `--output json` leaves stdout as one JSON list of
     {chart, version, digest, ref, signed}.
     """
