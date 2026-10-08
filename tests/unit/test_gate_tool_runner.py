@@ -325,6 +325,13 @@ class TestTheTableIsWhatTheHandlersPass:
         options = calls.options["cargo audit"]
         assert options["retry_unreachable"] is rust_quality._advisory_db_unreachable
 
+    def test_cargo_deny_retries_an_unreachable_db(
+        self, calls: _Calls, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        _rust_calls(monkeypatch, tmp_path, calls)
+        options = calls.options["cargo deny"]
+        assert options["retry_unreachable"] is rust_quality._advisory_db_unreachable
+
     def test_gofmt_reads_its_listing_as_a_finding(
         self, calls: _Calls, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
