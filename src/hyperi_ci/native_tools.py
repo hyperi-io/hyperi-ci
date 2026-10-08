@@ -15,7 +15,9 @@ sccache through :func:`install_into`.
 
 Each tool comes from its upstream release and is checked against the digest in
 versions.yaml before anything is unpacked. Apart from the baked sccache, it is
-written into the hyperi-ci cache, one directory per version and arch. Nothing
+written into the hyperi-ci cache, one directory per version, arch and pinned
+digest, so a pin re-issued under the same version never reuses the old copy.
+A cached raw binary is re-hashed against the pin before it is trusted. Nothing
 needs sudo, so it works on an ARC pod as well as a hosted runner. The directory
 goes on the front of this process's PATH, which every child command inherits.
 For the tests that means the pinned build wins over any copy the runner image
@@ -33,6 +35,7 @@ import platform
 import shutil
 import sys
 import tarfile
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -53,15 +56,16 @@ class NativeTool:
     ``{bare}`` (the version without its leading ``v``), ``{arch}`` and
     ``{asset}``. ``arch`` maps ``amd64`` / ``arm64`` to the spelling of the
     tool's digest keys in versions.yaml, which is also how most assets spell
-    it. ``asset`` overrides that spelling for the URL alone. A ``.tar.gz`` is
-    unpacked and the file named after the tool taken from it; any other asset
-    is the binary itself.
+    it. ``asset`` overrides that spelling for the URL alone. With ``archive``
+    set the asset is a ``.tar.gz``, unpacked for the one regular file named
+    after the tool; without it the asset is the binary itself.
 
     ``probe`` confirms the installed binary runs. Only a tool with one is
     offered to ``test.native_tools``.
     """
 
     url: str
+    archive: bool = True
     arch: dict[str, str] | None = None
     asset: dict[str, str] | None = None
     probe: tuple[str, ...] = ()
@@ -89,6 +93,7 @@ _TOOLS: dict[str, NativeTool] = {
             "https://github.com/hadolint/hadolint/releases/download/"
             "{version}/hadolint-linux-{arch}"
         ),
+        archive=False,
         arch={"amd64": "x86_64"},
     ),
     "helm": NativeTool(
@@ -100,6 +105,7 @@ _TOOLS: dict[str, NativeTool] = {
             "https://github.com/stackrox/kube-linter/releases/download/"
             "{version}/kube-linter-linux{asset}"
         ),
+        archive=False,
         asset={"amd64": "", "arm64": "_arm64"},
     ),
     "kubeconform": NativeTool(
@@ -206,6 +212,42 @@ def _linux_arch() -> str | None:
     return _ARCH.get(platform.machine().lower())
 
 
+def _pinned_digest(name: str, arch: str) -> str:
+    """Return the sha256 versions.yaml pins for ``name``'s ``arch`` asset, lower-cased."""
+    _, key = _asset_url(name, arch)
+    return tool_sha256(name, key).strip().lower()
+
+
+def _from_archive(name: str, url: str, payload: bytes) -> bytes | None:
+    """Return the one regular file named ``name`` in a ``.tar.gz``, or None after logging.
+
+    Two regular files with the tool's name leave no way to tell which one the
+    release meant, so that is refused rather than settled by archive order.
+    Symlinks and directories never count: only a regular file is a binary.
+    """
+    try:
+        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+            members = [
+                m
+                for m in archive.getmembers()
+                if m.isfile() and Path(m.name).name == name
+            ]
+            if len(members) > 1:
+                paths = ", ".join(m.name for m in members)
+                error(
+                    f"  {name}: {len(members)} files named '{name}' in {url}: {paths}"
+                )
+                return None
+            extracted = archive.extractfile(members[0]) if members else None
+            data = extracted.read() if extracted else b""
+    except (tarfile.TarError, OSError):
+        data = b""
+    if not data:
+        error(f"  {name}: no '{name}' file in {url}")
+        return None
+    return data
+
+
 def _pinned_binary(name: str, arch: str) -> bytes | None:
     """Download ``name`` for ``arch`` and return the binary, or None after logging why.
 
@@ -214,40 +256,22 @@ def _pinned_binary(name: str, arch: str) -> bytes | None:
     consumer's CI. The digest covers the raw download, archive or binary,
     before anything is unpacked.
     """
-    url, key = _asset_url(name, arch)
-    expected = tool_sha256(name, key)
+    url, _ = _asset_url(name, arch)
+    expected = _pinned_digest(name, arch)
     payload = download_artefact(name, url)
     if payload is None:
         return None
 
     got = hashlib.sha256(payload).hexdigest()
-    if got != expected.strip().lower():
+    if got != expected:
         error(
             f"  {name}: SHA256 mismatch - refusing to install "
             f"(expected {expected}, got {got})"
         )
         return None
-    if not url.endswith(".tar.gz"):
+    if not _TOOLS[name].archive:
         return payload
-
-    try:
-        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
-            member = next(
-                (
-                    m
-                    for m in archive.getmembers()
-                    if m.isfile() and Path(m.name).name == name
-                ),
-                None,
-            )
-            extracted = archive.extractfile(member) if member else None
-            data = extracted.read() if extracted else b""
-    except (tarfile.TarError, OSError):
-        data = b""
-    if not data:
-        error(f"  {name}: no '{name}' file in {url}")
-        return None
-    return data
+    return _from_archive(name, url, payload)
 
 
 def install_into(name: str, bin_dir: Path) -> Path | None:
@@ -272,21 +296,52 @@ def install_into(name: str, bin_dir: Path) -> Path | None:
     if data is None:
         return None
 
-    # Written under a temporary name and renamed, so an interrupted install
-    # never leaves a truncated binary and a running copy is never overwritten.
+    # Written under a unique temporary name and renamed, so an interrupted
+    # install never leaves a truncated binary, a running copy is never
+    # overwritten, and two concurrent installs cannot write the same file.
     binary = bin_dir / name
-    partial = bin_dir / f".{name}.partial"
+    partial: Path | None = None
     try:
         bin_dir.mkdir(parents=True, exist_ok=True)
-        partial.write_bytes(data)
+        fd, tmp = tempfile.mkstemp(dir=bin_dir, prefix=f".{name}.", suffix=".partial")
+        partial = Path(tmp)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
         partial.chmod(0o755)
-        partial.replace(binary)
+        os.replace(partial, binary)
     except OSError as exc:
         error(f"  {name}: cannot write {binary}: {exc}")
-        with contextlib.suppress(OSError):
-            partial.unlink(missing_ok=True)
+        if partial is not None:
+            with contextlib.suppress(OSError):
+                partial.unlink(missing_ok=True)
         return None
     return binary
+
+
+def install_root(cache_dir: Path = CACHE_DIR) -> Path:
+    """Return the directory under ``cache_dir`` that every cached install lives in."""
+    return cache_dir / "native-tools"
+
+
+def _cached_copy_ok(name: str, binary: Path, expected: str) -> bool:
+    """Report whether a cached ``binary`` can be used without a fresh download.
+
+    An archive's binary has no pin of its own to check, so the digest in the
+    directory name stands for it. A raw asset IS the pinned file, so it is
+    re-hashed: a copy altered on disk after the install is replaced, not run.
+    """
+    if not binary.is_file():
+        return False
+    if _TOOLS[name].archive:
+        return True
+    try:
+        got = hashlib.sha256(binary.read_bytes()).hexdigest()
+    except OSError:
+        return False
+    if got == expected:
+        return True
+    warn(f"  {name}: cached {binary} does not match the pinned SHA256 - reinstalling")
+    return False
 
 
 def _unpinned_on_path(name: str) -> Path | None:
@@ -322,8 +377,11 @@ def install_tool(name: str, cache_dir: Path = CACHE_DIR) -> Path | None:
     if arch is None:
         return _unpinned_on_path(name)
 
-    bin_dir = cache_dir / "native-tools" / name / f"{tool_version(name)}-{arch}"
-    if (bin_dir / name).is_file():
+    expected = _pinned_digest(name, arch)
+    bin_dir = (
+        install_root(cache_dir) / name / f"{tool_version(name)}-{arch}-{expected[:12]}"
+    )
+    if _cached_copy_ok(name, bin_dir / name, expected):
         return bin_dir
     return bin_dir if install_into(name, bin_dir) else None
 
