@@ -12,6 +12,9 @@
   existing tag via workflow_dispatch (``hyperi-ci release``).
 - :mod:`hyperi_ci.release.charts` -- packages committed Helm charts and
   pushes them to an OCI registry (``hyperi-ci publish-charts``).
+- :mod:`hyperi_ci.release.assemble` -- writes a thin chart on the
+  scalo-service library from a deployment contract
+  (``hyperi-ci chart assemble``).
 """
 
 from hyperi_ci.release.binaries import (
