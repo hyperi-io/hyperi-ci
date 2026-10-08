@@ -94,8 +94,8 @@ The Container job asks the runner's dind which cgroup it gives job containers, t
 
 ```mermaid
 flowchart LR
-    E["edit config/*.yaml<br/>or native_deps.py"] --> PR["PR → main →<br/>semantic-release tags"]
-    PR --> PUB["hyperi-ci release vX →<br/>PyPI"]
+    E["edit src/hyperi_ci/config/*.yaml<br/>or native_deps.py"] --> PR["PR, merge to main"]
+    PR --> PUB["hyperi-ci release:<br/>tag vX, publish to PyPI"]
     PUB --> BUMP["hyperi-infra: bump<br/>'hyperi-ci>=X.Y' pin,<br/>rebuild image"]
     BUMP --> C1["canary: dfe-receiver<br/>(exercises BOLT)"]
     C1 --> C2["canary: dfe-loader<br/>(ClickHouse/Arrow surface)"]
@@ -104,9 +104,9 @@ flowchart LR
 
 Step by step:
 
-1. **hyperi-ci**: branch, edit `config/*.yaml` or `native_deps.py`.
-2. **hyperi-ci**: open PR, merge to main, semantic-release tags `vX.Y.Z`.
-3. **hyperi-ci**: `hyperi-ci release vX.Y.Z` dispatches the release workflow to PyPI.
+1. **hyperi-ci**: branch, edit `src/hyperi_ci/config/*.yaml` or `native_deps.py`.
+2. **hyperi-ci**: open PR, merge to main. A merge alone cuts no tag.
+3. **hyperi-ci**: `hyperi-ci release` dispatches a from-head release: CI tags `vX.Y.Z` and publishes to PyPI ([releasing.md](../releasing.md)).
 4. **hyperi-infra**: to force a Docker cache-miss, bump the `'hyperi-ci>=X.Y'`
    pin in BOTH `containers/arc-runner/Dockerfile` and
    `containers/arc-runner-debian/Dockerfile`, then commit and rebuild the image
