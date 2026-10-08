@@ -230,6 +230,14 @@ def test_go_library_only_skips(tmp_path: Path) -> None:
     assert decision.notice is False
 
 
+def test_go_package_mainframe_is_a_library(tmp_path: Path) -> None:
+    (tmp_path / "go.mod").write_text("module example.com/mylib\ngo 1.22\n")
+    (tmp_path / "lib.go").write_text("package mainframe\n")
+    decision = detect(language="golang", project_dir=tmp_path)
+    assert decision.build is False
+    assert decision.notice is False
+
+
 # --- Unknown languages ---------------------------------------------------
 
 

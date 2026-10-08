@@ -248,6 +248,50 @@ class TestPreservesNonRewriteContent:
             result.unlink()
 
 
+class TestFromFlagsAndCase:
+    """A FROM with flags starts a stage, and instruction case does not matter."""
+
+    def test_platform_flag_from_starts_a_new_stage(self, cwd_tmp: Path) -> None:
+        _write_dist_artefact(cwd_tmp / "dist", "app", "amd64")
+        df = _write_dockerfile(
+            cwd_tmp,
+            "FROM alpine AS fetch\n"
+            "ARG TARGETARCH\n"
+            "FROM --platform=$TARGETPLATFORM debian:stable AS final\n"
+            "COPY app /usr/local/bin/app\n",
+        )
+        result = stage_binary_dockerfile(df)
+        lines = result.read_text(encoding="utf-8").splitlines()
+        result.unlink()
+        assert lines[3:] == [
+            "ARG TARGETARCH",
+            "COPY dist/app-linux-${TARGETARCH} /usr/local/bin/app",
+        ]
+
+    def test_bare_platform_flag_without_alias(self, cwd_tmp: Path) -> None:
+        _write_dist_artefact(cwd_tmp / "dist", "app", "amd64")
+        df = _write_dockerfile(
+            cwd_tmp,
+            "ARG TARGETARCH\n"
+            "FROM --platform=linux/amd64 debian:stable\n"
+            "COPY app /usr/local/bin/app\n",
+        )
+        result = stage_binary_dockerfile(df)
+        text = result.read_text(encoding="utf-8")
+        result.unlink()
+        assert text.count("ARG TARGETARCH") == 2
+
+    def test_lowercase_copy_is_rewritten(self, cwd_tmp: Path) -> None:
+        _write_dist_artefact(cwd_tmp / "dist", "app", "amd64")
+        df = _write_dockerfile(
+            cwd_tmp, "from debian:stable\ncopy app /usr/local/bin/app\n"
+        )
+        result = stage_binary_dockerfile(df)
+        text = result.read_text(encoding="utf-8")
+        result.unlink()
+        assert "COPY dist/app-linux-${TARGETARCH} /usr/local/bin/app" in text
+
+
 class TestRegressionFromBugSpec:
     """Reproduces the exact dfe-archiver pattern from the bug spec."""
 
