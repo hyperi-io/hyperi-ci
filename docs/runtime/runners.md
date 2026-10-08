@@ -140,7 +140,7 @@ Compilation caches persist across ephemeral runner pods on a shared NFS-backed P
 
 Package-manager metadata caches (Cargo registry, uv, pip, npm) use local `emptyDir` volumes, because metadata-heavy I/O is slow over NFS. The NFS cache is disposable: losing it costs slower first builds, which is why it mounts `async`.
 
-Of the language workflows, only `python-ci.yml` turns on `setup-uv enable-cache`. The others use uv only to run `uvx hyperi-ci`.
+Of the language workflows, only `python-ci.yml` sets `enable-uv-cache` on the `setup-runtime` composite. The others use uv only to run `uvx hyperi-ci`.
 
 Rust `target/` persists in the pod `emptyDir` across a job's steps, and `_clean_stale_sys_crates()` in Rust `build.py` removes wrong-arch objects from it. The PV/PVC, Dockerfile and Ansible live in hyperi-infra (`k8s/`, `containers/arc-runner/`, `ansible/`). Runners are ephemeral, one job per pod, and scale to zero when idle.
 

@@ -144,6 +144,8 @@ The feature matrix runs clippy on each feature alone (`cargo clippy --no-default
 
 The repo's clippy entries in `quality.ignore` apply to every feature set. With `quality.rust.clippy: disabled` the matrix runs `cargo check` instead. `quality.rust.feature_matrix.warnings` decides what a warning or lint does: it ships `warn`, `--strict` upgrades it, and a compile error fails in every mode.
 
+The matrix never edits `Cargo.toml` while it runs. Under feature resolver 1 (edition 2018, or a virtual workspace with no `resolver` key) a feature only a dev-dependency enables can hide a gating bug, so it warns and asks for `resolver = "2"` in the root `Cargo.toml`.
+
 | Mode | Behaviour |
 |---|---|
 | `warn` | Each feature set that warned is named with its first warning or lint, a `::warning::` in CI. Clippy runs with `--cap-lints warn`, so a lint the repo sets to deny is named, not failed. |
