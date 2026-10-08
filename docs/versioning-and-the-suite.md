@@ -9,10 +9,7 @@ Copyright: (c) 2026 HYPERI PTY LIMITED
 
 # Versioning and the DFE suite
 
-Two version lines run over the same repos and answer different questions.
-hyperi-ci answers, per repo: how hard do we optimise this build, and where does
-this one repo's artefact go. dfe-infra answers, for the suite: which set of app
-versions ship together, and how mature that set is.
+Two version lines run over the same repos and answer different questions. hyperi-ci answers per repo: how hard to optimise this build, and where its artefact goes. dfe-infra answers for the suite: which app versions ship together, and how mature that set is.
 
 The units differ. A hyperi-ci version covers one repo with one release line,
 computed by semantic-release from conventional commits, such as `v1.18.27`. A
@@ -32,9 +29,9 @@ The hyperi-ci channels are `VALID_CHANNELS` in
 `src/hyperi_ci/release/binaries.py`. The suite ladder is `tags.maturity.ladder`
 in dfe-infra's `suite.yaml`, written `alpha -> beta -> rc -> ga`.
 
-`rc` is a suite maturity only and never appears in a per-repo version.
-semantic-release ships `alpha` and `beta` as its default prerelease branch
-names and has no `rc`, so a per-repo prerelease is spelled `beta`. The central config in `.github/actions/setup-semantic-release/default.releaserc.json` declares `beta` as a prerelease branch, so a repo with no `.releaserc` of its own cuts one by pushing to `beta` ([prereleases.md](prereleases.md)). A repo config that declares only `main` cannot.
+`rc` is a suite maturity only and never appears in a per-repo version. semantic-release's default prerelease branch names are `alpha` and `beta`, with no `rc`, so a per-repo prerelease is spelled `beta`.
+
+The central config, `.github/actions/setup-semantic-release/default.releaserc.json`, declares `beta` as a prerelease branch. A repo with no `.releaserc` of its own cuts a prerelease by pushing to `beta` ([prereleases.md](prereleases.md)). A repo config that declares only `main` cannot.
 
 ## A beta cycle, worked through
 
