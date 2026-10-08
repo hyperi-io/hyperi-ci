@@ -318,6 +318,28 @@ class TestTheTableIsWhatTheHandlersPass:
         assert calls.seen
         assert {via for _cmd, via in calls.seen.values()} == {"path"}
 
+    def test_every_python_gate_names_its_resolution(
+        self, calls: _Calls, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """No Python gate inherits a ``via`` from a helper's default."""
+        monkeypatch.setattr(
+            python_quality, "get_python_source_paths", lambda _c: ["src"]
+        )
+        _python_calls(monkeypatch, tmp_path, calls)
+        assert {name: via for name, (_cmd, via) in calls.seen.items()} == {
+            "ruff check (src)": "uv",
+            "ruff format": "uv",
+            "ty": "uv-with",
+            "bandit": "uvx",
+            "ruff security": "uv",
+            "pip-audit": "uv",
+            "ruff docstrings": "uv",
+            "vulture": "uvx",
+        }
+        assert all("via" in options for options in calls.options.values())
+        source_via = inspect.signature(python_quality._run_source_tool).parameters
+        assert source_via["via"].default is inspect.Parameter.empty
+
     def test_cargo_audit_retries_an_unreachable_db(
         self, calls: _Calls, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:

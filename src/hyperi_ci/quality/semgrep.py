@@ -118,7 +118,7 @@ def run(config: CIConfig, *, language: str | None = None) -> int:
 
     # The pin wins over a semgrep on PATH whenever uv can install it.
     spec = f"semgrep=={tool_version('semgrep')}"
-    cmd = resolve_tool_cmd(["semgrep"], use_uvx=True, spec=spec)
+    cmd = resolve_tool_cmd(["semgrep"], via="uvx", spec=spec)
     if cmd == ["semgrep"] and not shutil.which("semgrep"):
         return missing_tool("semgrep", mode)
 

@@ -39,7 +39,7 @@ class TestUvxTakesTheInterpreter:
     def test_python_goes_to_uvx(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
         resolved = resolve_tool_cmd(
-            ["vulture", "src/"], use_uvx=True, spec="vulture==2.16", python="3.14"
+            ["vulture", "src/"], via="uvx", spec="vulture==2.16", python="3.14"
         )
         assert resolved == [
             "uvx",
@@ -54,7 +54,7 @@ class TestUvxTakesTheInterpreter:
     def test_no_python_leaves_uvx_alone(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
         resolved = resolve_tool_cmd(
-            ["vulture", "src/"], use_uvx=True, spec="vulture==2.16"
+            ["vulture", "src/"], via="uvx", spec="vulture==2.16"
         )
         assert resolved[:2] == ["uvx", "--from"]
 
@@ -64,7 +64,7 @@ class TestUvxTakesTheInterpreter:
         """`uv run --with` runs in the project's own venv, which already has one."""
         monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
         resolved = resolve_tool_cmd(
-            ["ty", "check"], use_uv_with=True, spec="ty==0.1.0", python="3.14"
+            ["ty", "check"], via="uv-with", spec="ty==0.1.0", python="3.14"
         )
         assert "--python" not in resolved
 

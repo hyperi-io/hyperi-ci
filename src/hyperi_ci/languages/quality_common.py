@@ -386,8 +386,8 @@ def checked_mode(key: str, raw: object, default: str) -> tuple[str, str]:
 
 def resolve_tool_cmd(
     cmd: list[str],
-    use_uvx: bool = False,
-    use_uv_with: bool = False,
+    *,
+    via: Via,
     spec: str | None = None,
     python: str | None = None,
 ) -> list[str]:
@@ -401,11 +401,11 @@ def resolve_tool_cmd(
 
     Args:
         cmd: Command and arguments.
-        use_uvx: If True, use 'uvx' instead of 'uv run' for tools
-            that are standalone (not project deps).
-        use_uv_with: If True, use 'uv run --with <tool>' to install the tool
-            temporarily into the project's venv, for tools that scan installed
-            packages (e.g. pip-audit).
+        via: ``path`` returns ``cmd`` as given. ``uv`` falls back to
+            ``uv run`` for a tool that is a project dependency. ``uvx`` runs a
+            standalone tool, and ``uv-with`` installs the tool temporarily
+            into the project's venv, for tools that scan installed packages
+            (e.g. pip-audit).
         spec: Requirement to install, e.g. ``bandit==1.9.4`` from the versions
             SSOT. Defaults to the bare command name, which takes whatever PyPI
             serves.
@@ -419,14 +419,16 @@ def resolve_tool_cmd(
         with ``shutil.which(cmd[0])``.
 
     """
+    if via == "path":
+        return cmd
     spec = spec or cmd[0]
     pinned = "==" in spec
-    wants_uv_form = use_uvx or use_uv_with
+    wants_uv_form = via in ("uvx", "uv-with")
     uv = shutil.which("uv")
     uvx = ["uvx", "--python", python] if python else ["uvx"]
 
     if pinned and wants_uv_form and uv:
-        if use_uv_with:
+        if via == "uv-with":
             return ["uv", "run", "--with", spec, "--", *cmd]
         # --from, as the package spec and the command differ once pinned.
         return [*uvx, "--from", spec, *cmd]
@@ -441,9 +443,9 @@ def resolve_tool_cmd(
             )
         return cmd
     if uv:
-        if use_uv_with:
+        if via == "uv-with":
             return ["uv", "run", "--with", spec, "--", *cmd]
-        if use_uvx:
+        if via == "uvx":
             return [*uvx, "--from", spec, *cmd]
         return ["uv", "run", *cmd]
     return cmd
@@ -561,15 +563,7 @@ def run_gate_tool(
         info(f"  {tool_name}: disabled")
         return True
 
-    resolved = cmd
-    if via != "path":
-        resolved = resolve_tool_cmd(
-            cmd,
-            use_uvx=via == "uvx",
-            use_uv_with=via == "uv-with",
-            spec=spec,
-            python=python,
-        )
+    resolved = resolve_tool_cmd(cmd, via=via, spec=spec, python=python)
     if resolved == cmd and not shutil.which(cmd[0]):
         return not missing_tool(cmd[0], mode, purpose=f"the {tool_name} gate")
 

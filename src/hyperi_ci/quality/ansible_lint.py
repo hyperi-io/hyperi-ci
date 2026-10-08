@@ -97,7 +97,7 @@ def _scratch_env(home: Path) -> dict[str, str]:
 def _pinned(command: str, package: str) -> list[str]:
     """Return the pinned uvx invocation of ``command`` from PyPI ``package``."""
     spec = f"{package}=={tool_version(package)}"
-    return resolve_tool_cmd([command], use_uvx=True, spec=spec)
+    return resolve_tool_cmd([command], via="uvx", spec=spec)
 
 
 def _available(cmd: list[str]) -> bool:
