@@ -1,0 +1,5 @@
+apiVersion: v2
+name: scalo-service
+description: Test fixture with the layout of the scalo-service library chart
+type: library
+version: 0.1.0
