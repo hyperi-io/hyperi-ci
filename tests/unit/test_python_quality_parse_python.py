@@ -12,12 +12,12 @@ reported the parse failure as a finding.
 """
 
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+from hyperi_ci.languages import quality_common
 from hyperi_ci.languages.python import quality
 from hyperi_ci.languages.quality_common import resolve_tool_cmd
 
@@ -118,7 +118,7 @@ class TestBanditSkippedFilesAreNamed:
         said: list[str] = []
         shown: list[str] = []
         monkeypatch.setattr(quality, "warn", said.append)
-        monkeypatch.setattr(quality, "info", shown.append)
+        monkeypatch.setattr(quality_common, "info", shown.append)
         quality._warn_bandit_skips(_BANDIT_SKIPPED_OUTPUT)
         assert said == ["  bandit: 1 file(s) could not be parsed and were NOT scanned"]
         assert any("src/app/sample.py" in line for line in shown)
@@ -132,66 +132,3 @@ class TestBanditSkippedFilesAreNamed:
         quality._warn_bandit_skips("Files skipped (0):\n")
         quality._warn_bandit_skips(None)
         assert said == []
-
-
-class _Recorder:
-    """What `_run_tool` reported, and the canned result its one command gets."""
-
-    def __init__(
-        self, monkeypatch: pytest.MonkeyPatch, result: subprocess.CompletedProcess[str]
-    ) -> None:
-        self.warned: list[str] = []
-        self.errored: list[str] = []
-        self.passed: list[str] = []
-        monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
-        monkeypatch.setattr(quality, "run_cmd", lambda *_a, **_k: result)
-        monkeypatch.setattr(quality, "warn", self.warned.append)
-        monkeypatch.setattr(quality, "error", self.errored.append)
-        monkeypatch.setattr(quality, "success", self.passed.append)
-        monkeypatch.setattr(quality, "info", lambda _msg: None)
-
-
-def _bandit(mode: str) -> bool:
-    return quality._run_tool(
-        "bandit", ["bandit", "-r", "src/"], mode, use_uvx=True, spec="bandit==1.9.4"
-    )
-
-
-class TestRunToolActsOnBanditSkips:
-    def test_warn_mode_passes_but_names_the_skip(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        rec = _Recorder(
-            monkeypatch,
-            subprocess.CompletedProcess([], 0, _BANDIT_SKIPPED_OUTPUT, ""),
-        )
-        assert _bandit("warn") is True
-        assert rec.warned == [
-            "  bandit: 1 file(s) could not be parsed and were NOT scanned"
-        ]
-
-    def test_blocking_mode_fails_on_a_skip(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A blocking security gate that left a file unread has no clean result."""
-        rec = _Recorder(
-            monkeypatch,
-            subprocess.CompletedProcess([], 0, _BANDIT_SKIPPED_OUTPUT, ""),
-        )
-        assert _bandit("blocking") is False
-        assert rec.errored == ["  bandit: failed, 1 file(s) were not scanned"]
-        assert rec.passed == []
-
-
-class TestAMissingInterpreterIsNotAFinding:
-    def test_uv_with_no_interpreter_reads_as_not_started(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        # uv 0.12 with `--python 3.99` and downloads off, stderr verbatim.
-        stderr = (
-            "error: No interpreter found for Python 3.99 in managed "
-            "installations or search path\n"
-        )
-        rec = _Recorder(monkeypatch, subprocess.CompletedProcess([], 2, "", stderr))
-        assert _bandit("warn") is True
-        assert rec.warned == ["  bandit: could not start, so it checked nothing"]

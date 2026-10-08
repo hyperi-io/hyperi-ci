@@ -12,15 +12,15 @@ the pure-JS case where a project has no npm scripts and no tsconfig.json
 -- routed via the javascript→typescript alias in dispatch.
 """
 
-from __future__ import annotations
-
 import json
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages import quality_common
 from hyperi_ci.languages.typescript import quality
 
 
@@ -57,28 +57,38 @@ def stub_pm(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+@pytest.fixture
+def mock_run(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """Every gate tool is installed and passes; the mock records each command."""
+    installed = {"npm", "npx", "pnpm", "yarn"}
+    monkeypatch.setattr(
+        quality_common.shutil,
+        "which",
+        lambda name: f"/usr/bin/{name}" if name in installed else None,
+    )
+    run = MagicMock(return_value=subprocess.CompletedProcess([], 0, "", ""))
+    monkeypatch.setattr(quality_common, "run_cmd", run)
+    return run
+
+
 class TestEslintResolution:
     def test_runs_npm_script_when_lint_script_present(
-        self, in_tmpdir: Path, stub_pm: None
+        self, in_tmpdir: Path, stub_pm: None, mock_run: MagicMock
     ) -> None:
         _write_pkg(in_tmpdir, {"lint": "eslint src/"})
-        with patch("hyperi_ci.languages.typescript.quality.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
-            quality.run(_make_config())
+        quality.run(_make_config())
         # First call for eslint must be `npm run lint`
         calls = [list(c.args[0]) for c in mock_run.call_args_list]
         assert ["npm", "run", "lint"] in calls
 
     def test_falls_back_to_npx_eslint_when_config_present_but_no_script(
-        self, in_tmpdir: Path, stub_pm: None
+        self, in_tmpdir: Path, stub_pm: None, mock_run: MagicMock
     ) -> None:
         _write_pkg(in_tmpdir, {})
         (in_tmpdir / "eslint.config.js").write_text(
             "// flat config\nexport default []\n"
         )
-        with patch("hyperi_ci.languages.typescript.quality.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
-            quality.run(_make_config())
+        quality.run(_make_config())
         calls = [list(c.args[0]) for c in mock_run.call_args_list]
         assert ["npx", "eslint", "."] in calls
 
@@ -86,12 +96,11 @@ class TestEslintResolution:
         self,
         in_tmpdir: Path,
         stub_pm: None,
+        mock_run: MagicMock,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         _write_pkg(in_tmpdir, {})
-        with patch("hyperi_ci.languages.typescript.quality.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
-            rc = quality.run(_make_config())
+        rc = quality.run(_make_config())
         # No eslint invocation of any kind
         calls = [list(c.args[0]) for c in mock_run.call_args_list]
         assert ["npx", "eslint", "."] not in calls
@@ -102,72 +111,62 @@ class TestEslintResolution:
 
 class TestPrettierResolution:
     def test_prefers_format_check_script_over_format_check_arg(
-        self, in_tmpdir: Path, stub_pm: None
+        self, in_tmpdir: Path, stub_pm: None, mock_run: MagicMock
     ) -> None:
         """`npm run format --check` was a latent footgun -- prefer explicit check variant."""
         _write_pkg(
             in_tmpdir,
             {"format": "prettier --write .", "format:check": "prettier --check ."},
         )
-        with patch("hyperi_ci.languages.typescript.quality.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
-            quality.run(_make_config())
+        quality.run(_make_config())
         calls = [list(c.args[0]) for c in mock_run.call_args_list]
         # Must run format:check, NOT the unsafe `format --check` form
         assert ["npm", "run", "format:check"] in calls
         assert not any("format" == c[-1] and "--check" in c for c in calls)
 
     def test_falls_back_to_npx_prettier_when_config_present_but_no_script(
-        self, in_tmpdir: Path, stub_pm: None
+        self, in_tmpdir: Path, stub_pm: None, mock_run: MagicMock
     ) -> None:
         _write_pkg(in_tmpdir, {})
         (in_tmpdir / ".prettierrc").write_text("{}\n")
-        with patch("hyperi_ci.languages.typescript.quality.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
-            quality.run(_make_config())
+        quality.run(_make_config())
         calls = [list(c.args[0]) for c in mock_run.call_args_list]
         assert ["npx", "prettier", "--check", "."] in calls
 
     def test_skips_when_neither_script_nor_config(
-        self, in_tmpdir: Path, stub_pm: None
+        self, in_tmpdir: Path, stub_pm: None, mock_run: MagicMock
     ) -> None:
         _write_pkg(in_tmpdir, {})
-        with patch("hyperi_ci.languages.typescript.quality.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
-            quality.run(_make_config())
+        quality.run(_make_config())
         calls = [list(c.args[0]) for c in mock_run.call_args_list]
         assert ["npx", "prettier", "--check", "."] not in calls
 
 
 class TestTscResolution:
-    def test_prefers_typecheck_script(self, in_tmpdir: Path, stub_pm: None) -> None:
+    def test_prefers_typecheck_script(
+        self, in_tmpdir: Path, stub_pm: None, mock_run: MagicMock
+    ) -> None:
         _write_pkg(in_tmpdir, {"typecheck": "tsc --noEmit"})
         (in_tmpdir / "tsconfig.json").write_text("{}\n")
-        with patch("hyperi_ci.languages.typescript.quality.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
-            quality.run(_make_config())
+        quality.run(_make_config())
         calls = [list(c.args[0]) for c in mock_run.call_args_list]
         assert ["npm", "run", "typecheck"] in calls
 
     def test_falls_back_to_npx_tsc_when_tsconfig_present_but_no_script(
-        self, in_tmpdir: Path, stub_pm: None
+        self, in_tmpdir: Path, stub_pm: None, mock_run: MagicMock
     ) -> None:
         _write_pkg(in_tmpdir, {})
         (in_tmpdir / "tsconfig.json").write_text("{}\n")
-        with patch("hyperi_ci.languages.typescript.quality.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
-            quality.run(_make_config())
+        quality.run(_make_config())
         calls = [list(c.args[0]) for c in mock_run.call_args_list]
         assert ["npx", "tsc", "--noEmit"] in calls
 
     def test_skips_when_pure_js_project_no_tsconfig(
-        self, in_tmpdir: Path, stub_pm: None
+        self, in_tmpdir: Path, stub_pm: None, mock_run: MagicMock
     ) -> None:
         """Pure JS project (no tsconfig, no script) -- tsc must skip, not crawl cwd."""
         _write_pkg(in_tmpdir, {})
-        with patch("hyperi_ci.languages.typescript.quality.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
-            quality.run(_make_config())
+        quality.run(_make_config())
         calls = [list(c.args[0]) for c in mock_run.call_args_list]
         assert ["npx", "tsc", "--noEmit"] not in calls
         assert not any("tsc" in c for c in calls)
@@ -177,7 +176,7 @@ class TestPureJsProjectEndToEnd:
     """The motivating case: CommonJS project with only audit-ish needs."""
 
     def test_runs_without_crashing_on_pure_js_project(
-        self, in_tmpdir: Path, stub_pm: None
+        self, in_tmpdir: Path, stub_pm: None, mock_run: MagicMock
     ) -> None:
         """No eslint config, no prettier config, no tsconfig, no lint scripts.
         eslint / prettier / tsc all skip cleanly; audit still runs (semgrep is
@@ -186,16 +185,12 @@ class TestPureJsProjectEndToEnd:
         _write_pkg(in_tmpdir, {"test": "echo ok"})
         # No config files -- tool-specific skips expected
 
-        # osv-scanner is the one tool here not stubbed through subprocess.run;
+        # osv-scanner is the one tool here not stubbed through the gate runner;
         # left real, the result depended on whether this machine had it.
-        with (
-            patch("hyperi_ci.languages.typescript.quality.subprocess.run") as mock_run,
-            patch(
-                "hyperi_ci.languages.typescript.quality.osv_scanner.run",
-                return_value=True,
-            ),
+        with patch(
+            "hyperi_ci.languages.typescript.quality.osv_scanner.run",
+            return_value=True,
         ):
-            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
             rc = quality.run(_make_config())
 
         calls = [list(c.args[0]) for c in mock_run.call_args_list]
@@ -209,6 +204,44 @@ class TestPureJsProjectEndToEnd:
         # Non-zero only if audit actually failed in real env;
         # with our mocked zero return it succeeds
         assert rc == 0
+
+
+class TestAMissingToolGates:
+    """A runner without npx gates like every other language instead of crashing."""
+
+    @pytest.fixture
+    def no_npx(
+        self,
+        in_tmpdir: Path,
+        stub_pm: None,
+        mock_run: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> MagicMock:
+        _write_pkg(in_tmpdir, {})
+        (in_tmpdir / "eslint.config.js").write_text("export default []\n")
+        monkeypatch.setattr(
+            quality_common.shutil,
+            "which",
+            lambda name: "/usr/bin/npm" if name == "npm" else None,
+        )
+        monkeypatch.setattr(quality, "osv_scanner", MagicMock())
+        return mock_run
+
+    def test_ci_fails_the_blocking_gate(
+        self, no_npx: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(quality_common, "is_ci", lambda: True)
+        assert quality.run(_make_config()) == 1
+        calls = [list(c.args[0]) for c in no_npx.call_args_list]
+        assert not any(c[0] == "npx" for c in calls)
+
+    def test_local_run_skips_it(
+        self, no_npx: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(quality_common, "is_ci", lambda: False)
+        assert quality.run(_make_config()) == 0
+        calls = [list(c.args[0]) for c in no_npx.call_args_list]
+        assert calls == [["npm", "audit", "--audit-level=moderate"]]
 
 
 class TestAuditCommand:

@@ -1,12 +1,13 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/languages/quality_common.py
-# Purpose:   Shared utilities for two-tier quality (production/test) rule splitting
+# Purpose:   Shared quality-stage code: tool modes, the gate runner, test-path splits
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Shared quality check utilities for two-tier (production/test) rule splitting.
+"""Shared quality-stage code for every language handler.
 
-Quality checks run in two passes:
+Resolves each tool's mode, runs each tool through :func:`run_gate_tool`, and
+splits checks into two passes:
 1. Production pass -- full strict rules on all code except test dirs
 2. Test pass -- relaxed rules on test directories only
 
@@ -17,11 +18,27 @@ overridable per project in .hyperi-ci.yaml.
 import fnmatch
 import os
 import shutil
+import subprocess
+import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import Literal
 
-from hyperi_ci.common import announce, env_true, get_exclude_dirs, info, warn
+from hyperi_ci.common import (
+    URL_ATTEMPTS,
+    announce,
+    backoff,
+    env_true,
+    error,
+    get_exclude_dirs,
+    info,
+    is_ci,
+    run_cmd,
+    success,
+    warn,
+)
 from hyperi_ci.config import CIConfig, packaged_default
-from hyperi_ci.tools import installed_version
+from hyperi_ci.tools import installed_version, warn_on_pin_drift
 
 # Directory names never scanned as Python source, beside the handler's own
 # excludes and every hidden directory.
@@ -41,6 +58,25 @@ _NOT_PYTHON_SOURCE = (
 _VALID_MODES = {"blocking", "warn", "disabled"}
 
 _MODE_STRENGTH = {"disabled": 0, "warn": 1, "blocking": 2}
+
+# Lines a non-blocking tool shows inline before the rest is only counted.
+WARN_OUTPUT_CAP = 25
+
+# uv's stderr when the tool never started, which the missing-tool check cannot
+# see because the rewritten command starts with `uv`.
+_SPAWN_FAILURES = ("failed to spawn", "no interpreter found")
+
+# clap, argparse and getopt refusing a flag; rustc diagnostics also say
+# "unexpected argument", so only uv-resolved commands are read for these.
+_ARGV_REJECTION = (
+    "unexpected argument",
+    "unrecognized arguments",
+    "unrecognized argument",
+    "no such option",
+)
+
+type Via = Literal["path", "uv", "uvx", "uv-with"]
+type Unreachable = Callable[[subprocess.CompletedProcess[str]], bool]
 
 # Tools whose findings are advisories about SECURITY - secrets, SAST, and the
 # CVE/advisory feeds. Turning one of these below what hyperi-ci ships without a
@@ -452,6 +488,196 @@ def resolve_tool_cmd(
             return [*uvx, "--from", spec, *cmd]
         return ["uv", "run", *cmd]
     return cmd
+
+
+def emit_tool_output(
+    tool_name: str, output: str | None, *, cap: int | None = None
+) -> None:
+    """Log a tool's output line by line through the logger, optionally capped.
+
+    `print()` would write to stdout while the surrounding verdicts go to
+    stderr, and the two interleave out of order. A capped run keeps the last
+    line, where ruff and ty print their own finding count.
+
+    Args:
+        tool_name: Name for the truncation note.
+        output: The tool's stdout or stderr.
+        cap: Lines to show before the rest is counted, None for all of them.
+
+    """
+    if not output or not output.strip():
+        return
+    lines = output.rstrip().splitlines()
+    if cap is not None and len(lines) > cap:
+        hidden = len(lines) - cap - 1
+        shown = lines[:cap]
+        if hidden:
+            shown.append(
+                f"... +{hidden} more lines from {tool_name}; "
+                "raise its mode to see them all"
+            )
+        lines = [*shown, lines[-1]]
+    for line in lines:
+        info(f"    {line}")
+
+
+def _run_until_reachable(
+    tool_name: str, cmd: list[str], unreachable: Unreachable
+) -> subprocess.CompletedProcess[str]:
+    """Run an advisory-DB scan, again after a backoff while the DB is unreachable.
+
+    Up to ``URL_ATTEMPTS`` runs, waiting about 1s, 2s, then 4s between them,
+    each wait cut by up to half at random. Any other outcome, a finding
+    included, ends it at once.
+
+    Args:
+        tool_name: Name for the retry log line.
+        cmd: The resolved command.
+        unreachable: Whether a finished run failed only on the advisory DB.
+
+    Returns:
+        The last run.
+
+    """
+    for attempt in range(1, URL_ATTEMPTS):
+        result = run_cmd(cmd, check=False, capture=True)
+        if not unreachable(result):
+            return result
+        lines = (result.stderr or "").strip().splitlines()
+        reason = lines[-1] if lines else f"exit {result.returncode}"
+        delay = backoff(attempt)
+        info(
+            f"  {tool_name}: advisory DB unreachable ({reason}), retrying in "
+            f"{delay:.1f}s (retry {attempt} of {URL_ATTEMPTS - 1})"
+        )
+        time.sleep(delay)
+    return run_cmd(cmd, check=False, capture=True)
+
+
+def run_gate_tool(
+    tool_name: str,
+    cmd: list[str],
+    mode: str,
+    *,
+    via: Via = "path",
+    spec: str | None = None,
+    python: str | None = None,
+    pinned: str | None = None,
+    retry_unreachable: Unreachable | None = None,
+    unscanned: Callable[[str | None], int] | None = None,
+    output_is_finding: bool = False,
+) -> bool:
+    """Run one quality tool and decide the gate from its result and mode.
+
+    A tool that is not installed fails a ``blocking`` gate in CI, where every
+    tool must be present, and warn-skips everywhere else so a local
+    ``hyperi-ci check`` still runs whatever is installed.
+
+    Args:
+        tool_name: Name used in every log line.
+        cmd: Command and arguments, before resolution.
+        mode: ``blocking``, ``warn`` or ``disabled``.
+        via: ``path`` runs ``cmd`` as given. The others resolve it through
+            :func:`resolve_tool_cmd`: ``uv`` falls back to ``uv run`` in the
+            project's environment, ``uvx`` installs the tool standalone, and
+            ``uv-with`` installs it into the project's environment. A
+            uv-resolved run that could not start, or whose tool refused its
+            command line, checked nothing and is reported as such.
+        spec: Requirement to install for ``uvx`` or ``uv-with``.
+        python: Interpreter version for a ``uvx`` run.
+        pinned: ``versions.yaml`` key of the binary behind ``cmd``, whose PATH
+            copy is checked against the pin before it runs.
+        retry_unreachable: Whether a run failed only because the advisory DB
+            was unreachable. Such a run is made again with a backoff, and one
+            that never reaches the DB is then decided by ``mode``.
+        unscanned: Counts the files a tool's stdout says it skipped. A
+            ``blocking`` pass that skipped any fails.
+        output_is_finding: Treat any stdout as a finding, for a tool such as
+            ``gofmt -l`` that lists what it found and still exits 0.
+
+    Returns:
+        True if the pipeline should continue, False on a blocking failure.
+
+    """
+    if mode == "disabled":
+        info(f"  {tool_name}: disabled")
+        return True
+
+    resolved = cmd
+    if via != "path":
+        resolved = resolve_tool_cmd(
+            cmd,
+            use_uvx=via == "uvx",
+            use_uv_with=via == "uv-with",
+            spec=spec,
+            python=python,
+        )
+    if resolved == cmd and not shutil.which(cmd[0]):
+        if mode == "blocking" and is_ci():
+            error(f"  {tool_name}: not installed (required)")
+            return False
+        warn(f"  {tool_name}: not installed (skipping locally)")
+        return True
+
+    if pinned:
+        warn_on_pin_drift(pinned)
+    if retry_unreachable:
+        result = _run_until_reachable(tool_name, resolved, retry_unreachable)
+    else:
+        result = run_cmd(resolved, check=False, capture=True)
+    skipped = unscanned(result.stdout) if unscanned else 0
+    found = output_is_finding and bool((result.stdout or "").strip())
+
+    if result.returncode == 0 and not found:
+        if skipped and mode == "blocking":
+            error(f"  {tool_name}: failed, {skipped} file(s) were not scanned")
+            return False
+        success(f"  {tool_name}: passed")
+        return True
+
+    stderr = (result.stderr or "").lower()
+    if via != "path" and any(marker in stderr for marker in _SPAWN_FAILURES):
+        if mode == "blocking" and is_ci():
+            error(f"  {tool_name}: could not start (required)")
+            emit_tool_output(tool_name, result.stderr)
+            return False
+        warn(f"  {tool_name}: could not start, so it checked nothing")
+        emit_tool_output(tool_name, result.stderr, cap=WARN_OUTPUT_CAP)
+        return True
+
+    if via != "path" and any(marker in stderr for marker in _ARGV_REJECTION):
+        note = (
+            f"  {tool_name}: rejected the command line and checked nothing "
+            f"-- tool-version mismatch, not a finding"
+        )
+        if mode == "warn":
+            warn(note)
+        else:
+            error(note)
+        emit_tool_output(tool_name, result.stderr)
+        return mode == "warn"
+
+    unreachable_note = ""
+    if retry_unreachable and retry_unreachable(result):
+        unreachable_note = (
+            f"  {tool_name}: advisory DB unreachable after {URL_ATTEMPTS} "
+            f"attempts, so nothing was checked"
+        )
+
+    if mode == "warn":
+        warn(f"  {tool_name}: issues found (non-blocking)")
+        if unreachable_note:
+            warn(unreachable_note)
+        emit_tool_output(tool_name, result.stdout, cap=WARN_OUTPUT_CAP)
+        emit_tool_output(tool_name, result.stderr, cap=WARN_OUTPUT_CAP)
+        return True
+
+    error(f"  {tool_name}: failed")
+    if unreachable_note:
+        error(unreachable_note)
+    emit_tool_output(tool_name, result.stdout)
+    emit_tool_output(tool_name, result.stderr)
+    return False
 
 
 def get_test_paths(config: CIConfig) -> list[str]:

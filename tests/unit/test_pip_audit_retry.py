@@ -18,6 +18,7 @@ import pytest
 
 from hyperi_ci import common
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages import quality_common
 from hyperi_ci.languages.python import quality
 
 # The failure from the Quality job of run 36069734752.
@@ -88,7 +89,7 @@ class _Harness:
         monkeypatch.setattr(time, "sleep", self.sleeps.append)
         monkeypatch.setattr(quality.shutil, "which", lambda cmd: f"/usr/bin/{cmd}")
         for name in ("info", "warn", "error", "success"):
-            monkeypatch.setattr(quality, name, self.said.append)
+            monkeypatch.setattr(quality_common, name, self.said.append)
 
     def _run(self, cmd: list[str], *_args: object, **_kwargs: object):
         if "pip-audit" not in cmd:

@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages import quality_common
 from hyperi_ci.languages.golang import quality as go_quality
 
 pytestmark = pytest.mark.skipif(
@@ -29,9 +30,10 @@ class _Said:
         self.errors: list[str] = []
         self.warns: list[str] = []
         self.infos: list[str] = []
-        monkeypatch.setattr(go_quality, "error", self.errors.append)
-        monkeypatch.setattr(go_quality, "warn", self.warns.append)
-        monkeypatch.setattr(go_quality, "info", self.infos.append)
+        for module in (go_quality, quality_common):
+            monkeypatch.setattr(module, "error", self.errors.append, raising=False)
+            monkeypatch.setattr(module, "warn", self.warns.append)
+            monkeypatch.setattr(module, "info", self.infos.append)
 
 
 @pytest.fixture

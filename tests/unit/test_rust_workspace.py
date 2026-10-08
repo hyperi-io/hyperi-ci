@@ -282,14 +282,7 @@ class _Tools:
     def __init__(self) -> None:
         self.commands: dict[str, list[str]] = {}
 
-    def run_tool(
-        self,
-        tool_name: str,
-        cmd: list[str],
-        mode: str,
-        use_uvx: bool = False,
-        pinned: str | None = None,
-    ) -> bool:
+    def run_tool(self, tool_name: str, cmd: list[str], mode: str, **_kw: Any) -> bool:
         self.commands[tool_name] = cmd
         return True
 
@@ -308,7 +301,7 @@ def tools(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _Tools:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "deny.toml").write_text("", encoding="utf-8")
     rec = _Tools()
-    monkeypatch.setattr(f"{QUALITY}._run_tool", rec.run_tool)
+    monkeypatch.setattr(f"{QUALITY}.run_gate_tool", rec.run_tool)
     monkeypatch.setattr(f"{QUALITY}._run_matrix_pass", rec.matrix_pass)
     monkeypatch.setattr(f"{QUALITY}.run_cmd", rec.doc)
     monkeypatch.setattr(f"{QUALITY}.shutil.which", lambda n: f"/usr/bin/{n}")
