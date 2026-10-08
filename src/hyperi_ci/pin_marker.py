@@ -6,15 +6,15 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """The `# hyperi-ci:pin <key>` marker convention.
 
-A version MIRRORED into source (a Python constant, a composite action's
-`default:`) is invisible to dependency managers, Renovate included. The marker
+A version MIRRORED into source (a composite action's `default:`, a workflow
+input's) is invisible to dependency managers, Renovate included. The marker
 makes it visible, and works the same in Python and YAML::
-
-    # hyperi-ci:pin tools.gitleaks
-    _GITLEAKS_VERSION = "v8.30.1"
 
     # hyperi-ci:pin tools.osv-scanner
     default: v2.4.0
+
+    # hyperi-ci:pin runtimes.python
+    default: "3.14"
 
 Two callers share the pattern:
 
@@ -47,7 +47,7 @@ def pin_pattern(name: str) -> re.Pattern[str]:
     """Match ONE named pin, splitting the prefix from the version token.
 
     Group 1 is everything up to the version, so ``re.sub`` can swap the version
-    and keep the prefix (``--apply`` / ``--fix``). Group 2 (``ver``) is the
+    and keep the prefix (``--apply``). Group 2 (``ver``) is the
     version alone, so a report can point at the pin's line, not the marker's.
     """
     marker = MARKER.format(name=re.escape(name))

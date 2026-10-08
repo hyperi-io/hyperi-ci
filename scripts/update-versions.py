@@ -8,8 +8,8 @@
 """Pin GitHub Actions across the pipeline from the central versions SSOT.
 
 This is the /deps tool for hyperi-ci. Actions pin to a commit SHA with a
-`# <version>` comment (a tag can be force-moved, a SHA can't); the pre-commit
-hook enforces it. Scans both .github/workflows/ and .github/actions/. Policy
+`# <version>` comment (a tag can be force-moved, a SHA can't); `--check` in CI
+enforces it. Scans both .github/workflows/ and .github/actions/. Policy
 + the Renovate split: docs/dependencies/deps-pinning.md.
 
 Usage:
@@ -18,7 +18,7 @@ Usage:
     uv run scripts/update-versions.py --apply        # rewrite pipeline to SSOT
     uv run scripts/update-versions.py --stable       # report newest release >=7d old
     uv run scripts/update-versions.py --stable --now # ... as of now, soak waived
-    uv run scripts/update-versions.py --auto-update  # bump SSOT, test via CI, commit/revert
+    uv run scripts/update-versions.py --auto-update  # bump SSOT, validate locally, revert on fail
 
 `--check` proves the MIRRORS match the SSOT; it never asks upstream whether the
 SSOT itself is behind. `--stable` is that half, and `--fail-on-drift` turns its
@@ -30,9 +30,7 @@ green.
 cooldown: the soak is the supply-chain control, not a formality.
 
 `--stable` reports the SOAKED release, matching the `stable` channel in
-`hyperi-ci autoupdate`. It was spelled `--latest`, which read backwards: in the
-installer `@latest` means the edge, the opposite of what this resolves.
-`--latest` still works as a silent alias.
+`hyperi-ci autoupdate`.
 
 Update behaviour:
   - Actions resolve to the newest release that has aged past the 7-day
@@ -64,6 +62,7 @@ from typing import Any, cast
 import yaml
 
 from hyperi_ci import pin_marker
+from hyperi_ci.channel import COOLDOWN_DAYS
 
 _ROOT = Path(__file__).resolve().parent.parent
 # Inside the package, so it ships in the wheel and runtime reads the SSOT
@@ -71,11 +70,6 @@ _ROOT = Path(__file__).resolve().parent.parent
 _VERSIONS_FILE = _ROOT / "src" / "hyperi_ci" / "config" / "versions.yaml"
 _WORKFLOWS_DIR = _ROOT / ".github" / "workflows"
 _ACTIONS_DIR = _ROOT / ".github" / "actions"
-
-# How long a release must have existed before we'll pin it. Mirrors the org
-# Renovate preset's `minimumReleaseAge` -- a release sitting untouched for a
-# week is far less likely to be a compromised/yanked supply-chain attack.
-_COOLDOWN_DAYS = 7
 
 # Waived by --now for a supervised update. Deliberately a per-run override
 # rather than a config value: the soak is the supply-chain control, so skipping
@@ -87,7 +81,7 @@ def _cooldown(explicit: int | None = None) -> int:
     """Days a release must have soaked before it counts as a candidate."""
     if explicit is not None:
         return explicit
-    return _COOLDOWN_DAYS if _COOLDOWN_OVERRIDE is None else _COOLDOWN_OVERRIDE
+    return COOLDOWN_DAYS if _COOLDOWN_OVERRIDE is None else _COOLDOWN_OVERRIDE
 
 
 # Maps action short names in versions.yaml to their full GitHub owner/repo
@@ -504,11 +498,6 @@ def _build_replacements(versions: dict) -> list[tuple[re.Pattern, str, str]]:
         replacement = rf"\g<1>{python_ver}"
         replacements.append((pattern, replacement, f"Python {python_ver}"))
 
-        # Also match the default value in workflow inputs
-        pattern = re.compile(r'(python-version:.*\n\s+default:\s*)"([^"]+)"')
-        replacement = rf'\g<1>"{python_ver}"'
-        replacements.append((pattern, replacement, f"Python default {python_ver}"))
-
         # The interpreter the CLI itself runs on. Left to drift, uvx takes the
         # project's Python and silently installs an older hyperi-ci that
         # allowed it (issue #157).
@@ -522,11 +511,6 @@ def _build_replacements(versions: dict) -> list[tuple[re.Pattern, str, str]]:
         pattern = re.compile(r"(node-version: )(\d[\d.]*)")
         replacement = rf"\g<1>{node_ver}"
         replacements.append((pattern, replacement, f"Node.js {node_ver}"))
-
-        # Also match the default value in workflow inputs
-        pattern = re.compile(r'(node-version:.*\n\s+default:\s*)"([^"]+)"')
-        replacement = rf'\g<1>"{node_ver}"'
-        replacements.append((pattern, replacement, f"Node.js default {node_ver}"))
 
     rust_ver = _runtime_value(runtimes.get("rust"))
     if rust_ver:
@@ -607,10 +591,8 @@ def _rewrite_to_ssot(versions: dict, *, verb: str) -> tuple[int, int]:
     which is the whole failure this design exists to prevent. Callers must treat
     it as failure, not as a warning they scroll past.
 
-    ONE rewrite path, shared by --apply and --fix. They previously carried
-    near-identical copies of the workflow loop, which is how --fix (the
-    pre-commit hook, i.e. the thing that actually ENFORCES the SSOT) ended up
-    without the tool-pin half.
+    --apply is the only caller, so the workflow loop and the tool-pin loop
+    cannot diverge.
     """
     replacements = _build_replacements(versions)
     total_changes = 0
@@ -676,30 +658,6 @@ def _apply(versions: dict) -> int:
         _report_unenforceable(unenforceable)
         return 1
     return 0
-
-
-def _fix(versions: dict) -> int:
-    """Apply fixes and return 1 if changes were needed (pre-commit hook mode).
-
-    Unlike --apply, --fix returns 1 when files were modified. This tells the
-    pre-commit framework to re-stage and retry.
-
-    It ALSO returns 1 for an unenforceable pin, which --fix cannot repair by
-    rewriting. --check and --fix must agree: --check is not wired into CI
-    anywhere, so this hook is the ONLY automated gate - if it waves through a
-    deleted marker, nothing else catches it.
-    """
-    total_changes, unenforceable = _rewrite_to_ssot(versions, verb="Fixed")
-    if unenforceable:
-        _report_unenforceable(unenforceable)
-        return 1
-    if total_changes == 0:
-        return 0
-
-    print(
-        f"\nFixed {total_changes} version mismatch(es) -- files updated, please re-stage."
-    )
-    return 1
 
 
 def _stable(versions: dict, *, fail_on_drift: bool = False) -> int:
@@ -1053,11 +1011,11 @@ def _report_watchlist(versions: dict) -> None:
 
 
 def _latest_tool_release(spec: dict, now: datetime) -> tuple[str | None, str]:
-    """Newest compatible release for a `tools:` entry, past cooldown.
+    """Newest release of a `tools:` entry, past cooldown, across every major.
 
     Returns (tag_or_None, status) where status is one of `ok` (tag is a real
-    upgrade), `current`, `no-candidate` (nothing aged past the cooldown within
-    the compatibility clamp), or `lookup-failed`.
+    upgrade), `current`, `no-candidate` (no release has aged past the
+    cooldown), or `lookup-failed`.
 
     The status is NOT decoration. Collapsing all of these into a bare None made
     the report render an API failure as "(up to date)" - so a rate-limited `gh`
@@ -1211,9 +1169,8 @@ def _auto_update(versions: dict) -> int:
 
     original_yaml = _VERSIONS_FILE.read_text(encoding="utf-8")
     # Snapshot the tool pin files too, not just the pipeline YAML: --apply
-    # rewrites the mirrored constants (e.g. gitleaks.py) as well, and a revert
-    # that skipped them would leave the SSOT and the source diverged - in the
-    # very path whose job is to restore safety.
+    # rewrites the marked pins in composite actions as well, and a revert that
+    # skipped them would leave the SSOT and the pins diverged.
     original_files = {
         str(p): p.read_text(encoding="utf-8")
         for p in {*_find_workflow_files(), *(pin[0] for pin in _all_pins(versions)[0])}
@@ -1292,22 +1249,10 @@ def main() -> int:
         action="store_true",
         help="Report the newest release of each pin that has soaked past the cooldown",
     )
-    # Kept working, kept out of --help: the old name for --stable.
-    group.add_argument(
-        "--latest",
-        dest="stable",
-        action="store_true",
-        help=argparse.SUPPRESS,
-    )
     group.add_argument(
         "--auto-update",
         action="store_true",
         help="Update non-runtime versions, validate locally, revert on fail",
-    )
-    group.add_argument(
-        "--fix",
-        action="store_true",
-        help="Apply fixes and exit 1 if changes were made (for pre-commit hooks)",
     )
     # Not in the mutually-exclusive group: it MODIFIES --stable rather than
     # replacing it.
@@ -1333,8 +1278,6 @@ def main() -> int:
         return _auto_update(versions)
     if args.stable:
         return _stable(versions, fail_on_drift=args.fail_on_drift)
-    if args.fix:
-        return _fix(versions)
     if args.apply:
         return _apply(versions)
     return _check(versions)
