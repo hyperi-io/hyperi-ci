@@ -2,562 +2,326 @@
 
 From Derek >>
 
-Patterns, gotchas, and proven solutions extracted from the old HyperI CI
-(`/projects/ci`). Reference this before implementing or debugging any CI
-handler. The old CI grew organically but was comprehensive and production-tested
-across 14+ consumer projects.
+Gotchas and fixes from the old HyperI CI (`hyperi-io/ci`, checked out at `/projects/ci`) and from building hyperi-ci. Read the language section before you write or debug a handler. Read the debugging lessons before you trust a green run.
 
-Source: `hyperi-io/ci` (to be archived once cutover is complete).
+Language handlers:
 
----
+- [Rust cross-compilation](#rust-cross-compilation)
+- [ARC Persistent Cache + Rust Cross-Compilation](#arc-persistent-cache--rust-cross-compilation)
+- [Rust publishing, quality and testing](#rust-publishing-quality-and-testing)
+- [Go](#go)
+- [TypeScript](#typescript)
+- [Python uv index strategy](#python-uv-index-strategy)
+- [Python packaging and quality](#python-packaging-and-quality)
+- [Python testing and publishing](#python-testing-and-publishing)
+- [Shared handler patterns](#shared-handler-patterns)
 
-## Rust
+Debugging and verification:
 
-### Cross-Compilation (Critical)
-
-**The mold linker problem:**
-
-- GitHub runners may have `mold` as default linker (`-fuse-ld=mold`)
-- Cross-compilers (e.g. `aarch64-linux-gnu-gcc`) cannot find `ld.mold` for
-  non-native targets, causing CMake test compilations to fail
-- **Solution:** Force GNU BFD linker via `-fuse-ld=bfd` in the linker wrapper,
-  and clear `LDFLAGS`/`CFLAGS`/`CXXFLAGS` to prevent host flags leaking into
-  cross-compilation CMake builds
-
-**Private sysroot approach (proven pattern):**
-
-- Many `-dev` packages (e.g. `libsasl2-dev`) are NOT `Multi-Arch: same` -
-  installing arm64 replaces amd64, breaking native builds
-- **Solution:** Download cross-arch `.deb` files, extract to private sysroot
-  (`.tmp/cross-sysroot/` in the workspace), point `PKG_CONFIG_PATH` and linker at it
-- Only install cross-compilers system-wide (they ARE Multi-Arch safe):
-  `gcc-aarch64-linux-gnu`, `g++-aarch64-linux-gnu`
-- Also install `libc6-dev:arm64` (provides dynamic linker and standard libs)
-
-**Linker wrapper script:**
-
-- Creates wrapper around cross-compiler that injects sysroot library paths
-- Uses `-fuse-ld=bfd` (forces GNU BFD linker, not mold)
-- Includes `-L` and `-rpath-link` flags for transitive `.so` dependencies
-- Example: `libsasl2.so` needs `libcrypto.so.3` - linker needs `-rpath-link`
-
-**GNU LD script path patching:**
-
-- Some `.so` files are ASCII linker scripts with absolute paths:
-  `GROUP ( /lib/aarch64-linux-gnu/libm.so.6 ... )`
-- These absolute paths don't exist on host - rewrite to point at sysroot
-
-**Environment variables for cross-compilation:**
-
-- `CC_<TARGET>`, `CXX_<TARGET>`, `AR_<TARGET>` for cross-compiler binaries
-- `CARGO_TARGET_<TARGET>_LINKER` for Rust to use the linker wrapper
-- `PKG_CONFIG_PATH`, `PKG_CONFIG_SYSROOT_DIR`, `PKG_CONFIG_ALLOW_CROSS=1`
-- `CMAKE_PREFIX_PATH` for cmake-based `-sys` crates (e.g. `rdkafka-sys`)
-- `CFLAGS_<TARGET>` with `-fuse-ld=bfd` and arch-specific include paths
-- Clear `LDFLAGS`, `CFLAGS`, `CXXFLAGS` to prevent host flag leakage
-
-**Build ordering:**
-
-- Build native target FIRST, then cross targets
-- Avoids multi-arch package conflicts
-
-**Target installation:**
-
-- Run `rustup target add <target>` for each non-native target before building
-
-**Post-build verification:**
-
-- Check binary exists and is not suspiciously small (<100KB)
-- Verify ELF format with `file(1)` and machine type with `readelf -h`
-- Native: smoke test with `--version` or `--help`
-- Cross-compiled: skip smoke test (can't execute)
-
-### Publishing
-
-- `cargo publish --allow-dirty` (semantic-release modifies files pre-publish)
-- Handle "already exists" gracefully (grep stderr, treat as success)
-- Git dependency patching: replace `git = "https://..."` with
-  `version = "1", registry = "hyperi"` before publish, restore after
-- Intra-workspace path deps: add `registry = "hyperi"` (cargo publish strips
-  `path=` but defaults to crates.io without explicit registry)
-
-### Quality
-
-- `cargo deny` requires `deny.toml` - skip if not present
-- `cargo audit` may fail with "error loading advisory database" - retry with backoff; a `blocking` gate fails if it never loads, as pip-audit does
-- Clippy: force `-D clippy::dbg_macro` to prevent debug macros in production
-- Multi-feature testing: pipe-separated `RUST_FEATURES` runs clippy per set
-
-### Testing
-
-- Integration tests: default to 1 test thread (port conflicts with parallelism)
-- `cargo nextest` and `cargo test` are NOT interchangeable: nextest gives each
-  test its own process, cargo test shares one, so process-global state
-  (a metrics recorder, a `OnceLock`) behaves differently and doctests run only
-  under cargo test. Picking by what is installed silently changes semantics -
-  the ARC image bakes nextest in, a hosted/free runner does not. Resolved via
-  the `test.rust.nextest` tri-state, which announces the choice, annotates an
-  `auto` degradation, and fails the stage on `true` with nextest absent
-- Coverage: tarpaulin > llvm-cov, both optional - and both drive cargo's test
-  harness, so coverage overrides a resolved nextest runner
-- Feature combinations: builds use FIRST set only (`${FEATURES%%|*}`)
-
-### Workspace Support
-
-- Use `cargo metadata --no-deps --format-version 1` for workspace detection
-- Cache metadata output (avoid repeated 1-2s invocations)
-- Workspace-transparent helpers: work for both single-crate and multi-crate
+- [A workflow change is not proven by a green test suite](#a-workflow-change-is-not-proven-by-a-green-test-suite)
+- [The right idiom sitting in the same file does not propagate](#the-right-idiom-sitting-in-the-same-file-does-not-propagate)
+- [A check can be correct, wired up, and unable to run where it runs](#a-check-can-be-correct-wired-up-and-unable-to-run-where-it-runs)
+- [A cause that explains every symptom is still not the cause](#a-cause-that-explains-every-symptom-is-still-not-the-cause)
+- [Improving a check inside a wrong frame feels exactly like progress](#improving-a-check-inside-a-wrong-frame-feels-exactly-like-progress)
+- [A gate nobody reads costs the same as a gate that is off](#a-gate-nobody-reads-costs-the-same-as-a-gate-that-is-off)
+- [A passing test answers a question only over the inputs it generates](#a-passing-test-answers-a-question-only-over-the-inputs-it-generates)
+- [An empty result answers a question only if the query could have returned something](#an-empty-result-answers-a-question-only-if-the-query-could-have-returned-something)
+- [A symptom is a class, a cause is an instance](#a-symptom-is-a-class-a-cause-is-an-instance)
+- [A comment can be true about the design and false about the observable](#a-comment-can-be-true-about-the-design-and-false-about-the-observable)
+- [A run that predates the fix cannot have tested it](#a-run-that-predates-the-fix-cannot-have-tested-it)
+- [Turning on a check that was silently off is a behaviour change](#turning-on-a-check-that-was-silently-off-is-a-behaviour-change)
+- [A check that reports success over what it never ran](#a-check-that-reports-success-over-what-it-never-ran)
+- [Decoration by construction, and the weaker check that covers for it](#decoration-by-construction-and-the-weaker-check-that-covers-for-it)
+- [A log records that a step ran. Only the artefact records what survived](#a-log-records-that-a-step-ran-only-the-artefact-records-what-survived)
+- [Ask for the thing you expect, not the wide question you then filter](#ask-for-the-thing-you-expect-not-the-wide-question-you-then-filter)
+- [A frozen derived value is harmless until something reads it](#a-frozen-derived-value-is-harmless-until-something-reads-it)
 
 ---
+
+## Rust cross-compilation
+
+Release builds run natively on each arch ([runtime/runners.md](runtime/runners.md)). This path runs only when `build.rust.targets` names a target the runner is not, and its code is in `languages/rust/build.py`.
+
+**The mold linker problem.** A GitHub runner may default to `-fuse-ld=mold`. A cross-compiler such as `aarch64-linux-gnu-gcc` cannot find `ld.mold` for a foreign target, so CMake test compiles fail. Force GNU BFD with `-fuse-ld=bfd`, and clear `LDFLAGS` / `CFLAGS` / `CXXFLAGS` so host flags do not leak into the cross build.
+
+**Private sysroot.** Many `-dev` packages (e.g. `libsasl2-dev`) are not `Multi-Arch: same`, so installing the arm64 one removes the amd64 one and breaks native builds.
+
+- Download the cross-arch `.deb` files and extract them into a private sysroot. Point `PKG_CONFIG_PATH` and the linker at it.
+- Install only the cross-compilers system-wide (`gcc-aarch64-linux-gnu`, `g++-aarch64-linux-gnu`), plus `libc6-dev:arm64` for the dynamic linker. Those are Multi-Arch safe.
+- Put the sysroot at `.tmp/cross-sysroot/` in the workspace, never `/tmp`. On ARC, `/tmp` is pod ephemeral storage, the same disk whose filling evicts the pod.
+
+**Linker wrappers.** Generate BOTH `{triple}-gcc` and `{triple}-g++` wrappers in the sysroot `bin/`, with identical flags. A CMake `-sys` crate such as `rdkafka-sys` fails with `CMAKE_CXX_COMPILER ... is not a full path` when only the C wrapper exists.
+
+- Each wrapper adds `-fuse-ld=bfd`, `-L` and `-rpath-link` for the sysroot. `libsasl2.so` needs `libcrypto.so.3`, which only `-rpath-link` resolves.
+- Some `.so` files are ASCII linker scripts with absolute paths (`GROUP ( /lib/aarch64-linux-gnu/libm.so.6 ... )`). Rewrite those paths to point into the sysroot.
+
+**Environment.**
+
+- `CC_<TARGET>`, `CXX_<TARGET>`, `AR_<TARGET>` point at the wrappers, and `CARGO_TARGET_<TARGET>_LINKER` at the linker wrapper.
+- `PKG_CONFIG_PATH`, `PKG_CONFIG_SYSROOT_DIR`, `PKG_CONFIG_ALLOW_CROSS=1`, and `CMAKE_PREFIX_PATH` for CMake-based `-sys` crates.
+- `CFLAGS_<TARGET>` carries `-fuse-ld=bfd` and the arch include paths.
+
+**Order and checks.** Build the native target first, then cross targets, to dodge multi-arch package conflicts. Run `rustup target add <target>` for each foreign target. After the build, check the binary is over 100KB and its ELF machine type matches (`readelf -h`). Smoke-test native binaries with `--version` or `--help`; a cross-compiled one cannot run.
+
+## ARC Persistent Cache + Rust Cross-Compilation
+
+ARC runners keep `target/` between runs. If an earlier run compiled a `-sys` crate with the host `gcc`, the x86_64 `.o` files stay in its `OUT_DIR`. Later runs see no source change, skip the compile, and the link fails with `EM:62`. We want the warm cache (about 5x faster), so the fix detects and evicts bad entries rather than dropping the cache.
+
+Three causes, all fixed in `languages/rust/build.py`:
+
+1. **Plain `CC` was unset.** `rdkafka-sys` by default builds with `./configure && make` (mklove), not CMake. `./configure` reads plain `CC`, not the cc-crate's `CC_aarch64_unknown_linux_gnu`, so it picked the host `gcc`. `_cross_env()` sets both `CC` and `CC_<target>`, and the same for `CXX` and `AR`.
+2. **Stale detection scanned only CMake crates.** `rdkafka-sys` without its `cmake-build` feature has no cmake dependency, so the scanner missed it. `_find_c_sys_crates()` scans every package in `Cargo.lock` whose name ends in `-sys`.
+3. **A persistent `OUT_DIR` defeats `make`.** The Makefile checks source timestamps, not which compiler built the objects. The detector reads each rlib with `ar p | file -`, checks the ELF machine, and runs `cargo clean --package <pkg> --target <target>` on a mismatch.
+
+The result: the first run after contamination recompiles in about 19 minutes with rdkafka, and later runs take 3-5 minutes on the warm cache. Native x86_64 builds never lose their cache.
+
+`build.strategies` accepts only `native`. Cross targets go in `build.rust.targets`, and any other strategy, such as `cross` from an old template, fails with `Unknown build strategy` (`dispatch.py`).
+
+## Rust publishing, quality and testing
+
+**Publishing** (`languages/rust/release.py`):
+
+- `cargo publish --allow-dirty --no-verify`. `--allow-dirty` because hyperi-ci stamps `Cargo.toml` before the build. `--no-verify` because verify rebuilds from clean, and the publish runner lacks build-script tools such as `protoc` and `librdkafka-dev`. The Build job already compiled it.
+- Exit 101 from `cargo publish` means package verification failed, not auth.
+- "already exists" on stderr is success, so a re-run does not fail.
+
+**Quality** (`languages/rust/quality.py`):
+
+- `cargo deny` needs `deny.toml` and skips without one.
+- `cargo audit` can fail with `error loading advisory database`. It retries with backoff, and a `blocking` gate fails if the database never loads, as pip-audit does.
+- Clippy always gets `-D clippy::dbg_macro`.
+- Pipe-separated feature sets (`jemalloc|mimalloc`) run clippy once per set. Cargo `--features` is additive, so one invocation would union the sets.
+
+**Testing** (`languages/rust/test.py`):
+
+- Integration tests run with `--test-threads=1`, because parallel tests fight over ports.
+- `cargo nextest` and `cargo test` are not interchangeable. nextest gives each test its own process and cargo test shares one, so process-global state (a metrics recorder, a `OnceLock`) behaves differently. Doctests run only under cargo test.
+- Picking by what is installed changes semantics silently: the ARC image bakes nextest in, a hosted runner does not. The `test.rust.nextest` tri-state announces the choice, annotates an `auto` fallback, and fails the stage on `true` with nextest absent.
+- Coverage uses tarpaulin, else llvm-cov, both optional. Both drive cargo's own harness, so coverage overrides a resolved nextest runner, and it runs on the first feature set only.
+
+**Workspaces.** Detect them with `cargo metadata --no-deps --format-version 1` (`languages/rust/targets.py`). Write helpers that work for a single crate and a workspace alike.
 
 ## Go
 
-### Cross-Compilation
+Code: `languages/golang/`.
 
-- Always disable CGO: `CGO_ENABLED=0` (default for cross-compilation)
-- Set per-target: `GOOS=<os> GOARCH=<arch> GOARM=<arm_version>`
-- **Always unset** `GOOS`/`GOARCH`/`GOARM` after build loop (prevents
-  contaminating subsequent commands)
-- Target shortcuts: `all`, `linux`, `windows`, `darwin` expand to common matrices
+**Build.**
 
-### Build Patterns
+- Each target sets `GOOS` / `GOARCH` and `CGO_ENABLED` in that one call's environment, never the process's, so nothing leaks into later commands. CGO is off unless `build.golang.cgo` is true.
+- Target shortcuts `all`, `linux` and `darwin` expand to common matrices. Windows targets are refused.
+- `-ldflags` defaults to `-s -w` (strip symbols and DWARF), overridable with `GO_LDFLAGS`. With `GO_VERSION_PKG` set, `-X` injects `<pkg>.Version`, `<pkg>.Commit` and `<pkg>.BuildTime`.
+- Main package: `GO_MAIN_PKG` env, else `cmd/{binary}/`, else a single `cmd/` subdirectory, else `.`.
+- Output is `dist/{binary}-{os}-{arch}`, published like every other binary ([flow.md](flow.md) section 7).
 
-- LDFLAGS: `-s -w` (strip symbols + DWARF debug info, smaller binaries)
-- Version injection: `-X 'main.version=v1.0.0' -X 'main.commit=abc123'
-  -X 'main.buildTime=2025-01-20T14:30:00Z'`
-- Main package detection: `GO_MAIN_PKG` env > `cmd/{binary}/` > single `cmd/` subdir > `.`
-- Optional: garble obfuscation (`GO_GARBLE=true`)
-- Output naming: `{binary}-{version}-{os}-{arch}[.exe]`
+**Test.** `-race` is on by default (`test.golang.race`). With `-race`, coverage mode must be `atomic`, not `count` or `set`.
 
-### Testing
+**Quality.** golangci-lint runs with a 5 minute timeout, in a strict pass on source and a relaxed pass on tests. gosec and govulncheck run beside it, with the usual `blocking` / `warn` / `disabled` modes.
 
-- Race detector: always enable (`-race`)
-- Coverage mode: must be `atomic` when using `-race` (not `count` or `set`)
-- Timeout: 10m default per test
-- JUnit: `go-junit-report` for CI integration
-
-### Quality
-
-- golangci-lint: 5 minute timeout (long-running), auto-detect config file
-- gosec: security static analysis
-- govulncheck: dependency vulnerability scanning
-- Tool modes: blocking/non-blocking/disabled (same pattern as all languages)
-
-### Publishing
-
-- Checksums uploaded as `SHA256SUMS`, not per-file `.sha256`
-- Latest reference: copy to `/latest/` + `LATEST_VERSION.txt`
-- Skip latest for snapshots (`^snapshot-` prefix)
-- Container: `docker buildx build --platform linux/amd64,linux/arm64`
-
----
+**Publish.** A Go module needs no upload: proxy.golang.org picks it up from the tag. Publishing Go means uploading built binaries, not running `go mod download`.
 
 ## TypeScript
 
-### Package Manager Detection
+Code: `languages/typescript/`.
 
-- Lockfile-based: `pnpm-lock.yaml` > `yarn.lock` > default `npm`
-- Auto-install pnpm/yarn via `npm install -g` if not found
+- **Package manager.** The `packageManager` pin in `package.json` wins, then the lockfile (`pnpm-lock.yaml`, `yarn.lock`, `package-lock.json`), then npm. A pinned project resolves its manager through Corepack, because a global binary of another version refuses to run it.
+- **Audit.** Yarn Berry dropped `yarn audit` for `yarn npm audit --severity`. Yarn Classic, npm and pnpm take `--audit-level`.
+- **Lint and types.** ESLint runs the `lint` script, else `npx eslint .` when a flat (ESLint 9+) or legacy config exists. Type checking prefers a `typecheck` or `check-types` script over `tsc --noEmit`, so monorepo tooling stays in charge.
+- **Test.** vitest or jest from `devDependencies` (default vitest), overridable with `test.typescript.runner`. A `test:<tier>` script runs when it exists, else `test`.
+- **Publish.** `npm pack` runs in a job with no secrets. The tarball is then published with `--ignore-scripts` from an empty directory, so neither package scripts nor the repo's `.npmrc` see the token.
 
-### Registry Auth
+### npm Config Pollution
 
-- `.npmrc` with `_authToken`
+`npm config set registry=...` writes the GLOBAL `~/.npmrc`, so on a runner that shares its home directory between jobs, the token outlives the job. The publish step writes the token into a throwaway user config, created 0600 in a temporary directory and passed with `--userconfig`. It never touches the global file or the project's.
 
-### Quality
+The rule is wider than npm: never change global state when a scoped config will do.
 
-- ESLint config detection: flat (ESLint 9+) AND legacy formats
-- TypeScript type checking: prefer `check-types`/`typecheck` package.json
-  scripts over direct `tsc --noEmit` (allows monorepo tooling)
-- Audit level: configurable (`low`/`moderate`/`high`/`critical`)
+## Python uv index strategy
 
-### Testing
+**NEVER add `UV_EXTRA_INDEX_URL` to a dependency install step in a reusable workflow.**
 
-- Framework auto-detection: Jest > Vitest > Mocha (from devDependencies)
-- Turborepo awareness: skip framework-specific args when `turbo.json` exists
-  (each workspace manages its own config)
-- No test script: exit 0 (graceful skip, not failure)
+uv is not pip. By default it takes the first index that answers for a package name. A private index that returns an empty 200 for `hatchling` stops the search there, and uv reports "no versions found" rather than falling back to PyPI. `UV_INDEX_STRATEGY=unsafe-best-match` works around it, but changes resolver behaviour for every package.
 
-### Publishing
+- Workflow install steps stay `uv sync --frozen --all-extras` with no extra index variables (`python-ci.yml`).
+- A project that needs a private index declares it under `[tool.uv.index]` with `explicit = true` in its own `pyproject.toml`. An explicit index is consulted only for packages that name it.
 
-- Auto-generate `.npmignore` if missing AND no `files` in package.json
-- Package size pre-flight check (default max 1MB, configurable)
-- pnpm: `--no-git-checks` flag required for workspace publishing
+## Python packaging and quality
 
----
+**Build.** CI builds on the Python version the project declares, not a fleet-wide one ([languages/python.md](languages/python.md)). `versions.yaml` names the default for a project that declares nothing. Build with `uv build`, not `python -m build`.
 
-## Python
-
-### uv Index Strategy (Critical - Do Not Change)
-
-**NEVER add `UV_EXTRA_INDEX_URL` to dep install steps in reusable workflows.**
-
-uv does NOT work like pip with mixed public + private indices. By default uv
-uses first-match-wins per package name. If a private index returns an empty
-200 for a package it doesn't have (e.g. `hatchling`, `setuptools`), uv stops
-there and reports "no versions found" rather than falling back to PyPI.
-
-A workaround exists (`UV_INDEX_STRATEGY=unsafe-best-match`) but is fragile
-and changes resolver semantics across all packages.
-
-**Correct approach:**
-
-- Leave workflow install steps as `uv sync --frozen --all-extras` with NO
-  extra index env vars
-- Projects that need packages from a private index configure `[tool.uv.index]` with
-  `explicit=true` in their own `pyproject.toml` - explicit indices are only
-  consulted for packages that name them
-
-This comment is in-code in all four reusable workflows. Do not remove it.
-
-### uv Patterns
-
-- CI builds on the version the PROJECT declares, not a fleet-wide one - see
-  [python.md](languages/python.md). `versions.yaml` names the default for a
-  project that declares nothing
-- Build: `uv build` (replaces `python -m build`)
-- Publish: `uv publish --publish-url` with explicit `--username` / `--password`
-
-### sdist Exclusions (AI Agent Dirs and Org Submodules)
-
-Hatchling's sdist includes all git-tracked files by default. This causes
-problems when the repo has:
-
-- AI agent config dirs (`.claude/`, `.cursor/`, `.gemini/`, `.windsurf/`)
-- AI-related symlinks (`.claude/rules/user-standards.md` -> outside project)
-- Org submodules (`hyperi-ai/`, `ci/`) with their own content
-
-**Solution:** The `build.py` handler uses a `_inject_sdist_excludes()` context
-manager that temporarily patches `pyproject.toml` before `uv build` to add
-standard exclusions, then restores the original file after.
-
-Standard exclusions applied automatically to every Python sdist build:
+**sdist exclusions.** Hatchling's sdist includes every git-tracked file, which picks up AI agent directories (`.claude/`, `.cursor/`, `.gemini/`, `.windsurf/`), symlinks out of the project, and org submodules (`hyperi-ai/`, `ci/`). `_inject_sdist_excludes()` in `languages/python/build.py` patches `pyproject.toml` for the build and restores it after. It adds:
 
 ```text
 /.claude  /CLAUDE.md  /.cursor  /CURSOR.md  /.gemini  /GEMINI.md
 /.github/copilot-instructions.md  /.windsurf  /STATE.md  /hyperi-ai  /ci
 ```
 
-Projects can add project-specific excludes via `[tool.hatch.build.targets.sdist]
-exclude` in their `pyproject.toml` - those are merged with the standard ones.
+A project's own `[tool.hatch.build.targets.sdist] exclude` merges with these. The workflow builds through `hyperi-ci run build`, never raw `uv build`, or the injection does not run.
 
-The build step in the reusable workflow MUST go through `hyperi-ci run build`
-(not raw `uv build`) so the exclusion injection runs. The publish step re-runs
-build to ensure fresh artifacts, also via `hyperi-ci run build`.
+**Tool exclusions.** `--extend-exclude` adds to a tool's defaults, and `--exclude` replaces them, which for ruff would scan `.venv`.
 
-### Quality Tool Exclusions (Critical)
+- ruff: `--extend-exclude dir`
+- bandit: `--exclude dir1,dir2`, comma-separated
+- pyright: config file only, no CLI exclusion
+- eslint: `--ignore-pattern dir`
 
-- `--extend-exclude` ADDS to defaults (safe)
-- `--exclude` REPLACES defaults (dangerous - would scan `.venv`)
-- Each tool has different exclusion syntax:
-  - ruff: `--extend-exclude dir`
-  - bandit: `--exclude dir1,dir2` (comma-separated, prefix with `./`)
-  - pyright: config-file only (no CLI exclusions)
-  - eslint: `--ignore-pattern dir`
+**Bandit.**
 
-### Bandit Configuration
+- Skip `B104` (bind all interfaces) in `[tool.bandit] skips` when a container service binds `0.0.0.0` on purpose.
+- Skip `B608` (hardcoded SQL) where queries come from internal config templates, not user input.
+- Prefer config-level skips to inline `# nosec`.
+- `quality.python.bandit_exclude_tests` (default `true`) keeps bandit out of the test paths.
 
-- Skip `B104` (hardcoded_bind_all_interfaces) globally via `[tool.bandit] skips`
-  in `pyproject.toml` when the service intentionally binds `0.0.0.0` (containers)
-- Skip `B608` (hardcoded_sql) if queries use internal config templates, not user input
-- Use config-level skips (`[tool.bandit]`) rather than inline `# nosec` where possible
-- `bandit_exclude_tests: true` in `.hyperi-ci.yaml` skips `tests/` directory
+## Python testing and publishing
 
-### Testing
+**Testing** (`languages/python/test.py`):
 
-- Tiered: `tests/unit/`, `tests/integration/`, `tests/e2e/`
-- Detection: directory-based > marker-based > conftest-based
-- Coverage: separate `.coverage.<tier>` files, combine at end
-- No test directory: exit 0 (graceful skip)
-- Submodule-dependent tests or container builds:
-  - Public submodule: declare `submodules: schemas` in `.hyperi-ci.yaml`;
-    `hyperi-ci init` renders it as the reusable-workflow `submodules` input
-    in `ci.yml`. The test job checks it out so the tests run, and the
-    container build checks it out so a Dockerfile can bake submodule
-    content into the image.
-  - Private submodule (e.g. `dfe-schemas` while private): GITHUB_TOKEN can't
-    clone it, so mark dependent tests with
-    `@pytest.mark.skipif(not schemas_dir.exists(), reason="submodule not checked out")`
-    rather than checking it out in CI (or wire a cross-repo token).
+- `test.use_tiers: true` splits the run into `tests/unit/`, `tests/integration/` and `tests/e2e/`. e2e is off unless `test.tiers.e2e.enabled` is set.
+- pytest's no-tests-collected exit counts as a pass unless `test.fail_on_missing` is true.
+- A public submodule: declare `submodules: schemas` in `.hyperi-ci.yaml`, and `hyperi-ci init` renders it as the reusable-workflow `submodules` input. The test job and the container build both check it out.
+- A private submodule: `GITHUB_TOKEN` cannot clone it. Mark dependent tests `@pytest.mark.skipif(not schemas_dir.exists(), reason="submodule not checked out")`, or wire a cross-repo token.
 
-### Publishing
+**Publishing** (`languages/python/release.py`):
 
-- Verification: query the index's simple API, check for version in HTML response
-- Handle both naming conventions: `package-name-version` and `package_name-version`
-- Index propagation takes minutes - retry loop (5 retries, 10s delay)
-- "already exists" from PyPI is non-fatal (idempotent re-runs)
+- `uv publish --no-config` uploads the Build job's wheel and sdist. `--no-config` stops a project's `[tool.uv] publish-url` sending the token to another host.
+- The token goes in `UV_PUBLISH_TOKEN`, not on the command line, where any process on the runner can read it.
+- "already exists" from PyPI is success, so a re-run does not fail.
+
+## Shared handler patterns
+
+**Configuration.** The cascade and the three tool modes (`blocking`, `warn`, `disabled`) are in [architecture.md](architecture.md#configuration-cascade) and [quality-gate.md](quality-gate.md).
+
+**Exclusions** (`get_exclude_dirs()` in `common.py`), four layers:
+
+1. Submodule paths from `.gitmodules`.
+2. `ci/` and `ai/`, always.
+3. Common artefact directories: `.venv`, `node_modules`, `target`, `dist` and the rest.
+4. `quality.exclude_paths` from `.hyperi-ci.yaml`.
+
+**Secret scanning.** gitleaks scans the current branch only (`--log-opts <branch>`), not full history. Its config is `.gitleaks.toml` ([quality-gate-tools.md](quality-gate-tools.md#gitleaks-config)).
+
+**Containers.** A container builds only from the repo's own Dockerfile at the configured path, and there is no generated image ([container-builds.md](container-builds.md)). A GA release tags `vX.Y.Z`, `latest` and `sha-<short>`. A prerelease never moves `latest` (`container/build.py`).
+
+**Binaries.** GitHub Actions artefact upload strips the executable bit, so restore it before publish. Naming and per-binary checksums are in [flow.md](flow.md) section 7.
+
+**Idempotent publish.** Every publish handler treats "already exists" as success, so a re-run fills gaps rather than failing.
+
+**CI detection.** `is_ci()` checks `CI`, `GITHUB_ACTIONS`, `GITLAB_CI`, `JENKINS_URL` and `BUILDKITE`. Under GitHub Actions, output uses `::group::` and `::error::` / `::warning::` workflow commands.
 
 ---
 
-## Cross-Language Patterns
+## A workflow change is not proven by a green test suite
 
-### A workflow change is not proven by a green test suite
+Three bugs in one workflow change got past ~3000 local tests. `scripts/rehearse-branch.py` caught them on a real `ci-test-*` fixture. Rehearse every change to `.github/workflows/` before merging it.
 
-Three real bugs in one workflow change got past ~3000 local tests and were
-caught by `scripts/rehearse-branch.py` on a real `ci-test-*` fixture. Rehearse
-every change to `.github/workflows/` before merging it.
+Why the suite cannot find them:
 
-The reason the suite cannot find them:
+- **A wrong model is tested as confidently as a right one.** A gate job treated `build` as governed by `run-checks`. It is governed by `run-build`, which is publish-only, so the job failed every normal PR. Twelve unit tests passed it, because they encoded the same wrong model as the code.
+- **The runner is not your machine.** The same job ran `uvx` on a bare `ubuntu-latest` with no `setup-uv` step and exited 127. Nothing local exercises the runner's PATH.
 
-- **A wrong model is tested as confidently as a right one.** A gate job treated
-  `build` as governed by `run-checks`; it is governed by `run-build`, which is
-  publish-only, so the job failed every normal PR. Twelve unit tests passed it,
-  because the tests were written to the same wrong model as the code. Unit
-  tests confirm the author's understanding of the contract -- they cannot
-  detect that the understanding is wrong. Only the real workflow can.
-- **The runner is not your machine.** The same job ran `uvx` on a bare
-  `ubuntu-latest` with no `setup-uv` step and exited 127 on a run where every
-  other job was green. Nothing local exercises the runner's PATH.
+A real flake can sit on top of a real failure. A `pip-audit` timeout masked the first bug, the re-run looked reasonable, and it cost two rehearsals. When a rehearsal fails, read every failing job before calling any of them transient.
 
-And a trap in reading the result: a genuine flake can sit on top of a genuine
-failure. A `pip-audit` timeout against pypi.org masked the first of those bugs,
-the re-run looked like the reasonable response, and it cost two rehearsals.
-When a rehearsal fails, read every failing job before deciding any of them is
-transient.
+The rehearsal itself can lie. A fixture takes its WORKFLOW from `@main` the instant it merges, and its CLI from PyPI on a release. Without `HYPERCI_INSTALL_OVERRIDE`, a rehearsal runs the PUBLISHED CLI against the branch's workflow.
 
-And the rehearsal itself can be the thing that lies. A fixture takes its
-WORKFLOW from `@main` the instant it merges, and its CLI from PyPI on a
-release. So a rehearsal that does not pass `HYPERCI_INSTALL_OVERRIDE` runs the
-PUBLISHED CLI against the branch's workflow -- it exercises the half that
-arrived and silently skips the half that has not shipped.
+That cost the fleet a broken Rust test leg. A composite action gained a verify step, and the rehearsal ran the install against the published CLI, never reached the verify, and came back green. Pass the override, or say which half you tested.
 
-That cost the fleet a broken Rust test leg. A composite action gained a verify
-step; the rehearsal ran the INSTALL against the published CLI, never reached
-the verify, and came back green. The step was wrong in a way a single real run
-would have shown.
+Two coverage holes in the same family:
 
-A rehearsal that can quietly run the old code is worse than none, because it
-returns a green you believe. Pass the override, or say out loud which half you
-tested.
+- **A composite action's steps only run inside a job for that language.** This repo has no Rust, so the Rust verify steps cannot run in its CI at all.
+- **The workflow ships fast, the wheel ships slow.** A commit that changes both reaches consumers in halves. It turns fixtures RED and consumers falsely GREEN, depending on direction.
 
-Two coverage holes in the same family, both structural rather than missed:
+## The right idiom sitting in the same file does not propagate
 
-- **A composite action's steps only run inside a job for that language.** The
-  Rust verify steps cannot execute in this repo's CI at all, because this repo
-  has no Rust. The green tick was honest about everything it could reach.
-- **The fast channel is the workflow, the slow one is the wheel.** Anything
-  that ships through both in one commit reaches consumers in halves. It turns
-  fixtures RED and consumers falsely GREEN depending on direction.
+`scan_code_paths` blanked fenced code blocks before scanning. `scan_links`, three functions above it in the same file, did not. A C++ lambda capture and a Python generic parameter were read as links to missing files.
 
-### The right idiom sitting in the same file does not propagate
+The same week, four guard rules used a word-boundary anchor that matched after a hyphen. They denied `make az-delete-report` and `cat docs/find-delete.md`. A fifth rule in that file already anchored on command position, with a comment saying why.
 
-`scan_code_paths` blanked fenced code blocks before scanning. `scan_links`,
-three functions above it in the same file, did not -- so a C++ lambda capture
-and a Python generic parameter were read as markdown links to missing files.
-The constant was declared once and used by one of its two callers.
+**Nothing flags a helper that half the code forgot to call.** Both callers are exercised and both pass, because the one that skips the helper is not wrong in any way a test asserts.
 
-The same week, four guard rules used a word-boundary anchor that matched
-after a hyphen, denying `make az-delete-report` and `cat docs/find-delete.md`.
-A fifth rule in that file already anchored on command position and carried a
-comment explaining why. Four rules did not copy it.
+So when adding a sibling to an existing function, read what the existing one does FIRST and copy it on purpose. When fixing one rule of a class, sweep the class.
 
-**Nothing flags a helper that half the code forgot to call.** Coverage does
-not: both callers are exercised and both pass, because the one that skips the
-helper is not wrong in any way a test asserts. A linter sees two functions.
-
-So when adding a sibling to an existing function, read what the existing one
-does FIRST and copy it deliberately, and when fixing a rule of a class, sweep
-the class rather than the instance.
-
-### A check can be correct, wired up, and unable to run where it runs
+## A check can be correct, wired up, and unable to run where it runs
 
 Three in one day, all green or quiet, none of them working.
 
-`lychee`, `markdownlint-cli2` and the mermaid grammar check each printed an
-honest "not installed" line inside a passing job. Nothing could act on it:
-neither tool was in `versions.yaml`, no install path fetched them, no runner
-image baked them. They could not have run in any environment we own.
+- `lychee`, `markdownlint-cli2` and the mermaid grammar check each printed an honest "not installed" line inside a passing job. None was in `versions.yaml`, no install path fetched them, and no runner image baked them.
+- `osv-scanner` returned `True` on a missing lockfile under every mode. Three repos with no committed `Cargo.lock` reported zero findings, and the zero was silence, not coverage.
+- The negative-case catalogue committed a planted patch before pushing it, and an ARC runner has no global git config. Every case failed at `git commit`, so no gate was ever exercised.
 
-`osv-scanner` returned `True` on a missing lockfile under every mode, so three
-repos with no committed `Cargo.lock` reported zero findings. The zero was
-silence, not coverage, and flipping the tool to blocking would have changed
-nothing on exactly those repos.
+**The code was right in all three.** The gap is between the check and where it runs: a tool nothing installs, a missing file, an identity the runner lacks. A unit test supplies the environment the check assumes, so it never sees this.
 
-The negative-case catalogue committed a planted patch before pushing it, and
-an ARC runner has no global git config. Every case failed at `git commit`, so
-no gate was ever exercised. It had never once worked on a runner.
+So a new check is not finished when it passes locally. Name what it needs from the runner -- a binary, a file, a credential, an identity -- and confirm each one exists there. Make the tool say which outcome it reached: ran and passed, ran and failed, or could not run.
 
-**The code was right in all three.** The gap is between the check and the
-place it executes: a tool nothing installs, a file that is not there, an
-identity the runner does not have. None of it shows up in a unit test, because
-a unit test supplies the environment the check assumes.
+## A cause that explains every symptom is still not the cause
 
-So a new check is not finished when it passes locally. Name what it needs from
-the runner -- a binary, a file, a credential, an identity -- and confirm each
-one exists there. And make the tool say which of the three outcomes it reached:
-ran and passed, ran and failed, or could not run. Where those first and third
-collapse into the same green, nobody finds out for months.
+A ClickHouse container timed out at exactly its budget. The offered mechanism was an orphaned container from an earlier pod holding the port. The pod spec said `dind-sock: emptyDir{}`, so dockerd is per-pod and no other pod's container was ever visible.
 
-### A cause that explains every symptom is still not the cause
+A fixture rehearsal failed at `couldn't find remote ref refs/pull/19/merge`. The offered mechanism was cleanup closing the PR while the job queued. The PR was created at 13:01:35 and checkout failed at 13:01:43, long before cleanup. GitHub computes the merge ref asynchronously and fires the workflow at once.
 
-Twice in one day, from two unrelated defects.
+**Both mechanisms were reasoned, not read.** A cause derived from the symptom always fits the symptom, so fitting is no evidence. A real cause is confirmed by something independent of the symptom: a config file, a timestamp, a second run. Before a cause goes anywhere durable, name the one lookup that would refute it, and make it.
 
-A ClickHouse container timed out at exactly its budget, and the mechanism
-offered was an orphaned container from an earlier pod holding the port. It fit
-every symptom. The pod spec said `dind-sock: emptyDir{}` -- dockerd is
-per-pod, so no container from another pod was ever visible. One lookup, and
-the published explanation was wrong.
+**A lookup is not enough either, because it returns something.** `gh run list --branch main` returned runs four days stale while newer ones existed, and dropping the flag showed current ones. Twenty minutes later both forms returned identical current results. The listing had lagged and settled.
 
-A fixture rehearsal failed at `couldn't find remote ref refs/pull/19/merge`,
-and the mechanism offered was cleanup closing the PR while the job queued. It
-fit too. The PR was created at 13:01:35 and checkout first failed at 13:01:43
--- eight seconds, long before cleanup ran. GitHub computes the merge ref
-asynchronously and fires the workflow immediately; the ref simply did not
-exist yet.
+One reading cannot tell a real effect from a transient one. An eventually consistent API, a warm cache or a race hands you transients. So re-run it a DIFFERENT way before the cause is durable: a second query path, a second point in time, an inverted assertion.
 
-**Both mechanisms were reasoned, not read.** That is the tell. A cause derived
-from the symptom will always fit the symptom -- that is what deriving it from
-the symptom means -- so fitting is no evidence at all. What separates a real
-cause is that something independent of the symptom confirms it: a config file,
-a timestamp, a second run.
+## Improving a check inside a wrong frame feels exactly like progress
 
-The cheap discriminator in both cases was a fact that already existed and took
-one command to fetch. So before a cause is written down anywhere durable, name
-the one lookup that would refute it, and make it.
+A search for override entries with no rule behind them returned 34 orphans. Narrowing the method returned 25. Both were wrong: the ids are passed positionally and built with suffixes, so no literal search could see them.
 
-**And that is still not enough, because a lookup returns something.** A third
-case the same day: `gh run list --branch main` came back with runs four days
-stale while newer ones existed, and dropping the flag showed the current ones.
-Mechanism written down, sent to another session, plausible. Re-run twenty
-minutes later, both forms returned identical current results. The listing had
-lagged and settled; the flag had nothing to do with it.
+The method was refined twice and the number improved each time. Nobody asked whether the method could work at all. **Progress inside the frame reads as evidence the frame is right, and it is not evidence at all.**
 
-A measurement that produces a number, a verdict or a listing reads as a check
-that ran, which is exactly why it gets trusted. But one reading cannot tell a
-real effect from a transient one, and a transient is what an eventually
-consistent API, a warm cache or a race hands you. The tell in every case that
-went wrong: the result came back on the first attempt and was believed.
+The tell is a number that keeps moving toward what you expected. Before the third refinement, ask what result would mean the method cannot work, and whether you would recognise it.
 
-So re-run it a DIFFERENT way before the cause is durable -- a second query
-path, a second point in time, an inverted assertion. Not the same command
-twice. Where the two disagree, what you had was a reading, not a fact.
+## A gate nobody reads costs the same as a gate that is off
 
-### Improving a check inside a wrong frame feels exactly like progress
+`doc_paths: warn` and a bats step masked with `continue-on-error` cost the same, because nothing acts on either output. The failure is that the STATED REASON for relaxing a gate stops being true. Nothing notices, because the check that would notice is the one turned down.
 
-A search for override entries with no rule behind them returned 34 orphans.
-Narrowing the method returned 25. Both numbers were wrong: the ids are passed
-positionally and built with suffixes, so no literal search could ever see
-them. The method was refined twice, the number improved each time, and nobody
-asked whether the method could work at all.
+One mask claimed 68 references to a retired entry point across 7 files. There were 4 files and no references. The code it protected had been deleted, and the gate that would have said so was the one it silenced.
 
-That is the shape the two entries below share. A discriminating test refines
-the oracle while the generator stays blind. A narrowed query returns a
-cleaner answer to a question the data cannot answer. **Progress inside the
-frame is the strongest evidence that the frame is right, and it is not
-evidence at all.**
+So state a relaxed gate's reason where a reader will meet it. Re-check that reason on a schedule, because it rots silently.
 
-The tell is a number that keeps moving toward what you expected. Before the
-third refinement, ask what result would mean the method itself cannot work,
-and check whether you would recognise it.
+## A passing test answers a question only over the inputs it generates
 
-### A gate nobody reads costs the same as a gate that is off
+Checking that a test DISCRIMINATES -- fails on the broken build, passes on the fix -- proves the ORACLE. It says nothing about the GENERATOR.
 
-`doc_paths: warn` and a bats step masked with `continue-on-error` cost
-identically, because in both cases nothing acts on the output. The tier is
-not the failure. The failure is that the STATED REASON for relaxing it stops
-being true and nothing notices -- because the thing that would have noticed
-is the check that was turned down.
+A property test for a shell-rewriting hook asked whether the resulting command was `env` holding only assignments. Right predicate, and it failed on the broken build. Its generator only varied SEPARATORS, so every input had a separator or command after the assignments.
 
-One mask here claimed 68 references to a retired entry point across 7 files.
-There were 4 files and no references. The justification had been false for
-long enough that the code it protected had been deleted, and the gate that
-would have said so was the one it silenced.
+A tail that was itself an assignment (`A=1 B=2`) was never generated. The suite passed on a build that still dumped the environment on 185 inputs out of 640.
 
-So a relaxed gate needs its reason stated where a reader will meet it, and
-re-checked on a schedule -- not because the finding is urgent, but because
-the reason rots silently and the instrument for spotting that is the thing
-switched off.
+**Enumeration failures move.** Catching one in hand-written cases pushes it into the generator, where it looks like coverage. The discriminating check tells you the test can fail, never that you asked about the case that matters.
 
-### A passing test answers a question only over the inputs it generates
+## An empty result answers a question only if the query could have returned something
 
-Checking that a test DISCRIMINATES -- that it fails against the broken build
-and passes against the fix -- proves the ORACLE. It says nothing about the
-GENERATOR.
+Absence is evidence of nothing until you know the query could hit. Three readings went wrong on this in one day:
 
-A property test for a shell-rewriting hook had a correct oracle: is the
-resulting command `env` holding only assignments and no command? Right
-question, right predicate, and it was confirmed to fail on the broken build.
-Its generator only varied SEPARATORS, so every input it built had a separator
-or a command after the assignments. A tail that was ITSELF an assignment --
-`A=1 B=2` -- was outside the generated space, the oracle was never asked about
-it, and the suite passed on a build that still dumped the environment on 185
-inputs out of 640.
+- `gh api repos/O/R/branches/main/protection` returns 404 on a branch that IS protected, because ruleset protection lives at `repos/O/R/rules/branches/main`.
+- Grepping a running job's log returns nothing because the log blob does not exist yet (`BlobNotFound`), not because the section has not run.
+- Searching for a `.superseded` file returns nothing when no file ever collided. That is not proof the newer-wins rule ran and chose correctly.
 
-**Enumeration failures move.** Catching one in the hand-written cases pushes
-it into the generator, where it looks like coverage. The discriminating check
-is necessary and it is not sufficient: it tells you the test can fail, never
-that you asked it about the case that matters.
+Each has two states behind one empty output: the thing is absent, or the question never reached it. Before reading a negative, point the query at a case you know exists.
 
-Same shape as the entry below, one level up -- a check that returned something
-reassuring about a question it was never asked.
+## A symptom is a class, a cause is an instance
 
-### An empty result answers a question only if the query could have returned something
+Two jobs that both "stopped early" are one observation repeated. Cancelled-mid-run looks the same whether a merge, a concurrency group or a pod eviction did it.
 
-Absence is evidence of nothing until you know the query was capable of a hit.
-Three separate readings went wrong on this in one day:
+That produced three wrong mechanisms in one day, each assuming a second instance shared the first one's CAUSE because it shared the OUTCOME. One grep separated them every time. `##[error]The runner has received a shutdown signal` appears in an evicted job and never in a concurrency cancel.
 
-- `gh api repos/O/R/branches/main/protection` returns 404 on a branch that IS
-  protected, because ruleset protection lives at `repos/O/R/rules/branches/main`.
-  The 404 reads as "unprotected".
-- Grepping a running job's log returns nothing because the log blob does not
-  exist yet (`BlobNotFound`), not because the section has not run.
-- Searching the mirror for a `.superseded` file returns nothing when no session
-  file ever collided, which is not the same as the newer-wins rule having run
-  and chosen correctly.
+The fix is not vigilance. The second instance gets the SAME evidence standard as the first, not a lower one because it looks like the case you just proved.
 
-Each one has two states behind the same empty output: the thing is absent, or
-the question never reached it. Before reading a negative, confirm the query
-would have found a positive -- point it at a case you know exists.
+## A comment can be true about the design and false about the observable
 
-### A symptom is a class, a cause is an instance
+Each of these was an accurate statement of intent, written by someone who knew the code, and wrong about what happens:
 
-Two jobs that both "stopped early" is one observation repeated, not two
-observations. Cancelled-mid-run looks identical whether a merge did it, a
-concurrency group did it, or the pod was evicted.
+- `publish-target: both` "resolves to release channel and unlocks Tier 2". `_resolve_build_channel` reads `HYPERCI_CHANNEL`, then the tag ref, then `RUST_VERSION` / `CI_COMMIT_TAG`, else `alpha`. The same workflow declares the input "legacy field, ignored".
+- `reap_stale` promises a leftover container makes the start fail with `name is already in use`. What arrives is `WaitContainer(StartupTimeout)`, because testcontainers swallows the Docker error and reports a timeout.
+- "Two concurrent runs of this suite on one machine share these names." True on a laptop. On ARC each runner pod has its own dockerd over an `emptyDir` socket, so nothing is shared.
 
-That resemblance produced three wrong mechanisms in one day, each built by
-assuming a second instance shared a CAUSE with the first because it shared an
-OUTCOME. The discriminator every time was one grep for the specific error text:
-`##[error]The runner has received a shutdown signal` appears in an evicted job
-and never in a concurrency cancel, so `grep -c` separates them in one command.
+All three were believed and reasoned from. Two cost a diagnosis each, and the third sent two sessions after a mechanism that cannot occur.
 
-The fix is not vigilance. It is that the second instance gets the SAME evidence
-standard as the first, not a lower one because it looks like the case you just
-proved.
+Nothing detects this class: a linter sees a comment, and a test exercises the code, not the sentence beside it. Check the claim against the layer that owns it -- the resolver, the library's real error, the pod spec -- BEFORE reasoning from it.
 
-### A comment can be true about the design and false about the observable
+## A run that predates the fix cannot have tested it
 
-Not a stale comment. Each of these was an accurate statement of intent,
-written by someone who understood the code, and wrong about what actually
-happens:
-
-- `publish-target: both` "resolves to release channel and unlocks Tier 2".
-  It does not. `_resolve_build_channel` reads `HYPERCI_CHANNEL`, then the tag
-  ref, then `RUST_VERSION` / `CI_COMMIT_TAG`, else `alpha`. The input is
-  declared "legacy field, ignored" in the same workflow.
-- `reap_stale` promises that leaving a running container means the start
-  "fails with `name is already in use`, which says what actually happened".
-  What arrives is `WaitContainer(StartupTimeout)` -- testcontainers swallows
-  the Docker error and reports a timeout, pointing at container speed.
-- "Two concurrent runs of this suite on one machine share these names."
-  True on a laptop. False on ARC, where each runner pod has its own dockerd
-  over an `emptyDir` socket, so nothing is shared and nothing outlives a pod.
-
-All three were believed and reasoned from. Two cost a diagnosis each in one
-day, and the third sent two sessions down a mechanism that cannot occur.
-
-Nothing detects this class. A linter sees a comment; a test exercises the
-code, not the sentence beside it. The only thing that catches it is checking
-the claim against the layer that owns it -- the resolver, the error the
-library actually raises, the pod spec -- BEFORE reasoning from it. Where a
-comment asserts what another system will do, it is a hypothesis with good
-provenance, not a fact.
-
-### A run that predates the fix cannot have tested it
-
-Check the timestamps before reading a verdict. A consumer CI run installs the
-CLI with an unpinned `uvx hyperi-ci`, so it resolves whatever PyPI's latest was
-AT THAT MOMENT. Re-reading yesterday's run after today's release tells you
-about yesterday's wheel, and the error is identical either way.
+Check timestamps before reading a verdict. A consumer CI run installs the CLI with an unpinned `uvx hyperi-ci`, so it gets whatever PyPI's latest was AT THAT MOMENT. The error is identical either way.
 
 Caught once by two timestamps:
 
@@ -566,351 +330,79 @@ run createdAt              2026-09-23T02:36:31Z
 the wheel's upload_time    2026-09-23T04:18:14Z
 ```
 
-102 minutes apart, so the fix was never in the binary under test, and the
-unchanged error was read as the fix not working.
-
-This is one fault wearing different clothes, and it has now produced four
-separate wrong readings: `gh run list --branch main` returning rows from
-every workflow; a repo whose main skips Test having no baseline to compare
-against; the unversioned PyPI endpoint serving a cached answer; and this.
-**In each case the result set was wider or older than the question, and the
-filtering happened by eye.** Ask the narrow question -- name the workflow,
-name the version, read the timestamp -- rather than filtering a wide answer
-afterwards.
-
-### Turning on a check that was silently off is a behaviour change
-
-Rust coverage never ran until `23c7086` made it run. That commit reads as a
-fix. For consumers it was a behaviour change, and it broke a repo the same day.
-
-`cargo llvm-cov` builds into `target/llvm-cov-target` and passes it as the
-`--target-dir` FLAG. The flag does not set `CARGO_TARGET_DIR`, so a test that
-builds a binary path from that variable reads it as unset, falls back to
-`target/debug/`, and cannot find a binary the build definitely produced.
-
-dfe-transform-vrl hand-rolled the path and broke. dfe-transform-vector asks
-Cargo with `env!("CARGO_BIN_EXE_<name>")`, which resolves at compile time to
-the binary just built, and was immune. That is the idiom for a test that
-executes its own binary; a path assembled by hand is correct only until
-something redirects the build.
-
-The general shape: enabling a stage that was dormant runs consumer code that
-has never run in CI, so its latent bugs all surface at once and look like a
-regression in whatever merged that day. Say which stage started running, and
-expect the first failures to be in the consumers rather than in the change.
-
-### A check that reports success over what it never ran
-
-Five of this repo's checks were green over work they had not done: a CI gate
-that read `== skipped` and so passed a plan job that had FAILED; a
-public-API check nothing installed, so every release took the missing-tool
-branch and returned 0; that same check reading cargo's error code 101 as a
-breaking change; `test.coverage` honoured up to the point the tool would run,
-then running the tests plain; and a subcommand gate that asked an unpinned
-`uvx` what was published and got an hour-old answer from a cached index.
-
-The test that finds them, before writing any check:
-
-> ask what the check prints when the thing it measures did not happen at all.
-> If that is the same as success -- 0, silence, "ok" -- the check is decorative.
-
-Make absence LOUD: a missing tool fails rather than skips, a skipped stage is
-not a passed stage, a requested-but-unrun step is an error. Then test the
-NEGATIVE path -- a test that only ever sees the tool present proves nothing
-about the branch that ships.
-
-That question catches four of the five. It does not catch the subcommand gate,
-which printed a finding rather than a pass -- it did not miss a problem, it
-invented one, because a cached index answered where PyPI should have. So the
-underlying rule is wider than absence:
-
-**A check has THREE outcomes, and collapsing the third is the defect.** Pass,
-fail, and "could not determine". Four of these folded "could not run" into
-pass; the fifth folded "could not resolve" into fail. Both directions destroy
-the same information, and the second is worse in one respect -- a false pass
-gets found eventually by the bug shipping, a false failure trains people to
-ignore the check.
-
-So ask it in both directions: what does this print when it could not run, and
-what does it print when it could not get a trustworthy answer? If either
-matches pass or fail rather than saying which, wire the third outcome.
-
-Knowing the rule is not enough on its own. Two of those five were in code its
-author had merged and self-reviewed the same day. Ask the question of the
-artefact, not of yourself.
-
-Full treatment: `standards/universal/testing.md`, "A green check that never
-ran".
-
-### Decoration by construction, and the weaker check that covers for it
-
-Three doc checks -- lychee, markdownlint, the mermaid grammar layer -- warned
-on every run of every repo for months. Each message was honest and said the
-tool was missing. What made them decoration rather than a gap is that there
-was no install path ANYWHERE: not in `versions.yaml`, not in the installer,
-not baked into a runner image. A check that cannot run in any environment we
-have is not warn-tier, and a permanent warning teaches people to stop reading
-warnings.
-
-The part that hid it for months is worth more than the fix. `doc-paths` is
-DELIBERATELY disabled whenever lychee would run -- so the weaker check stood
-in for the stronger one, permanently, and caught enough to look like coverage.
-From outside, the system appeared to be working. A fallback that silently
-becomes the only path produces a signal indistinguishable from the real one.
-
-So when one check defers to another, ask which one is actually running. If the
-answer is always the fallback, the primary is not a check.
-
-The generic question this raises, which is bigger than three binaries: what
-gate lets a check ship with no install path at all? Three did. The fix for
-each is an afternoon of pinning; the fix for the class is asking, when a check
-is added, where the tool comes from on a runner.
-
-### A log records that a step ran. Only the artefact records what survived
+102 minutes apart, so the fix was never in the binary under test. The unchanged error was read as the fix not working.
 
-No DFE binary in production carried BOLT. Four shipped files pulled from
-downloads.hyperi.io and read by ELF section -- `dfe-receiver-linux-{amd64,arm64}`
-and `dfe-loader-linux-{amd64,arm64}` -- and not one of them had
-`.note.bolt_info`.
+The same fault has produced four wrong readings:
 
-The release logs reported BOLT success and were not lying. cargo-pgo optimised
-a real binary and named it `<binary>-bolt-optimized`. Packaging then copied the
-unsuffixed PGO-only file sitting beside it. The log was accurate about a file
-that no longer mattered.
+- `gh run list --branch main` returning rows from every workflow
+- a repo whose main skips Test having no baseline to compare against
+- the unversioned PyPI endpoint serving a cached answer
+- this one
 
-That is the shape worth carrying: a step's log can only report what the step
-did. Where one stage writes a file and a later stage decides which file ships,
-nothing the first stage prints is evidence about the release.
+**In each case the result set was wider or older than the question, and the filtering happened by eye.** Ask the narrow question: name the workflow, name the version, read the timestamp.
 
-The check that closes it reads the packaged file. `_verify_bolt_shipped`
-(`languages/rust/build.py`) opens what packaging wrote and fails the build when
-a target reported as BOLT-optimised carries no `.note.bolt_info`.
-`tier2_shortfall` does the same for the stages a tier promised. Both landed in
-`f812aec`, after the last DFE releases, so neither ran against a real
-application until `ci-test-rust-simple` run 35812543453 printed `BOLT verified
-in ci-test-rust-simple-linux-amd64 (.note.bolt_info)` and the arm64 equivalent.
+## Turning on a check that was silently off is a behaviour change
 
-So for any optimise, strip or sign step: the log line proves the tool ran. Read
-the artefact to find out whether the tool's output is what shipped.
+Rust coverage never ran until `23c7086` made it run. That commit reads as a fix, but for consumers it was a behaviour change, and it broke a repo the same day.
 
-### Ask for the thing you expect, not the wide question you then filter
+`cargo llvm-cov` builds into `target/llvm-cov-target` and passes it as the `--target-dir` FLAG. The flag does not set `CARGO_TARGET_DIR`. A test that builds a binary path from that variable falls back to `target/debug/` and cannot find the binary.
 
-Two tools answered a wider question than the one put to them, and the wide
-answer read as an answer.
+dfe-transform-vrl hand-rolled the path and broke. dfe-transform-vector asks Cargo with `env!("CARGO_BIN_EXE_<name>")`, which resolves at compile time to the binary just built, and was immune. That is the idiom for a test that runs its own binary.
 
-**The unversioned PyPI endpoint is a cache. The versioned one is the fact.**
-`https://pypi.org/pypi/<pkg>/json` served the PREVIOUS release for minutes
-after a successful publish, while `https://pypi.org/pypi/<pkg>/<version>/json`
-already carried the new one. It hit twice in one hour on different packages --
-hyperi-ci 2.10.6, and scalo in a separate workstream, where it nearly got a
-good publish reported as failed. Ask for the version you EXPECT and check it
-exists. Do not ask what the latest is and compare, because that question has a
-cached answer and no way to tell you it is cached.
+Enabling a dormant stage runs consumer code that has never run in CI. Its latent bugs all surface at once and look like a regression in whatever merged that day. Say which stage started running, and expect the first failures in the consumers.
 
-**A branch filter is not a workflow filter.** `gh run list --branch main
---limit 2` returns rows from every workflow in the repo. It made a red CI run
-look green on logreducer, and on dfe-schemas it made a chronological Gate
-rollout look like runs with a missing gate. Three instances in one day across
-two workstreams. Pass `--workflow CI --branch main`.
+## A check that reports success over what it never ran
 
-One mistake underneath both: a query whose result set is wider than the
-question. Narrow it at the source, because filtering a wide answer by eye is
-how both of these got read wrong.
+Five of this repo's checks were green over work they had not done:
 
-### A frozen derived value is harmless until something reads it
+- a CI gate that read `== skipped`, and so passed a plan job that had FAILED
+- a public-API check nothing installed, so every release took the missing-tool branch and returned 0
+- that same check reading cargo's exit 101 as a breaking change
+- `test.coverage` honoured up to the point the tool would run, then running the tests plain
+- a subcommand gate that asked an unpinned `uvx` what was published and got an hour-old cached answer
 
-`_get_native_target()` returned a hardcoded `x86_64-unknown-linux-gnu` for
-every Linux host, for years, and nothing noticed. A cross-build guard added on
-2026-09-23 began comparing the build target against it, and every arm64 Rust
-release then failed: the runner read its own target as a cross build, skipped
-PGO, and the strict Tier 2 check refused to ship a half-optimised binary.
+Before writing any check, ask what it prints when the thing it measures did not happen at all. If that matches success -- 0, silence, "ok" -- the check is decorative. Make absence LOUD: a missing tool fails, and a skipped stage is not a passed stage. Then test the NEGATIVE path.
 
-The freeze was not a defect for the years it sat there, because nothing
-consumed it. The new consumer is what turned it into one.
+That question catches four of the five. The subcommand gate printed a finding, not a pass: a cached index answered where PyPI should have, so it invented a problem.
 
-`platform.machine()` had the answer the whole time. So audit by consumer rather
-than by value: ask what reads the constant now. A value the system can work out
-for itself, written down anyway, is a defect waiting for its first reader.
+**A check has THREE outcomes, and collapsing the third is the defect.** Pass, fail, and "could not determine". Four of these folded "could not run" into pass, and the fifth folded "could not resolve" into fail. A false pass is found when the bug ships, but a false failure trains people to ignore the check.
 
-### Configuration Cascade
+So ask both: what does this print when it could not run, and when it could not get a trustworthy answer? Two of the five were in code its author had merged and self-reviewed the same day, so ask the artefact, not yourself. Full treatment: `standards/universal/testing.md`, "A green check that never ran".
 
-Priority (highest wins):
+## Decoration by construction, and the weaker check that covers for it
 
-1. CLI flags / function arguments
-2. Environment variables (`HYPERCI_*`)
-3. `.hyperi-ci.yaml` project config
-4. `src/hyperi_ci/config/org.yaml` org defaults
-5. `src/hyperi_ci/config/defaults.yaml`
-6. Hardcoded in code
+Three doc checks -- lychee, markdownlint, the mermaid grammar layer -- warned on every run of every repo for months. Each said the tool was missing, and there was no install path ANYWHERE: not `versions.yaml`, not the installer, not a runner image. A check that cannot run in any environment we have is not warn-tier, and a permanent warning teaches people to stop reading warnings.
 
-### Tool Mode System
+What hid it is the bigger lesson. `doc-paths` is disabled on purpose whenever lychee would run, so the weaker check stood in for the stronger one permanently. It caught enough to look like coverage.
 
-Every quality tool supports three modes:
+So when one check defers to another, ask which one is actually running. If the answer is always the fallback, the primary is not a check. When a check is added, ask where its tool comes from on a runner.
 
-- `blocking` (default): fails CI
-- `warn`/`non-blocking`: logs warning, continues
-- `disabled`: skipped entirely
+## A log records that a step ran. Only the artefact records what survived
 
-Resolution: `HYPERCI_QUALITY_<LANG>_<TOOL>` env > `.hyperi-ci.yaml` > default
+No DFE binary in production carried BOLT. Four shipped files from downloads.hyperi.io -- `dfe-receiver-linux-{amd64,arm64}` and `dfe-loader-linux-{amd64,arm64}` -- had no `.note.bolt_info` section.
 
-### Exclusion Handling
+The release logs reported BOLT success and were not lying. cargo-pgo optimised a real binary and named it `<binary>-bolt-optimized`. Packaging then copied the unsuffixed PGO-only file beside it.
 
-Three-layer:
+Where one stage writes a file and a later stage decides which file ships, nothing the first stage prints is evidence about the release.
 
-1. Auto-detect git submodules from `.gitmodules`
-2. Fallback: always exclude `ci/`, `ai/`
-3. Common artifacts: `.venv`, `node_modules`, `target`, `dist`, etc.
-4. Custom: `quality.exclude_paths` in `.hyperi-ci.yaml`
+`_verify_bolt_shipped` (`languages/rust/build.py`) opens what packaging wrote. It fails the build when a target reported as BOLT-optimised carries no `.note.bolt_info`, and `tier2_shortfall` does the same for the stages a tier promised. `ci-test-rust-simple` run 35812543453 printed `BOLT verified in ci-test-rust-simple-linux-amd64 (.note.bolt_info)`, and the arm64 equivalent.
 
-### Secret Scanning (Gitleaks)
+For any optimise, strip or sign step, the log proves the tool ran. Read the artefact to find out whether its output shipped.
 
-- Scan current branch only (`--log-opts=${branch}`), not full history
-- Config: `.gitleaks.toml` with path exclusions, commit ignores, regex patterns
-- CI: blocking; local dev: warn-only if not installed
+## Ask for the thing you expect, not the wide question you then filter
 
-### Container Building
+**The unversioned PyPI endpoint is a cache. The versioned one is the fact.** `https://pypi.org/pypi/<pkg>/json` served the PREVIOUS release for minutes after a publish. `https://pypi.org/pypi/<pkg>/<version>/json` already carried the new one. It hit twice in one hour, on hyperi-ci 2.10.6 and on scalo, where it nearly got a good publish reported as failed.
 
-- Dockerfile detection: `Dockerfile` > `docker/Dockerfile` > `build/Dockerfile`
-- Semver tag expansion: `1.2.3` + `1.2` + `1` + `latest` (main branch only)
-- Pre-release versions: NO major/minor tags
-- Verification: `docker manifest inspect` with retry (registry propagation delay)
+Ask for the version you EXPECT and check it exists. Asking what the latest is has a cached answer, and nothing tells you it is cached.
 
-### Helm Charts
+**A branch filter is not a workflow filter.** `gh run list --branch main --limit 2` returns rows from every workflow in the repo. It made a red CI run look green on logreducer, and on dfe-schemas it made a chronological Gate rollout look like runs with a missing gate. Pass `--workflow CI --branch main`.
 
-- Discovery: `charts/*/Chart.yaml` > `chart/Chart.yaml` > `./Chart.yaml`
-- Sync both `version` and `appVersion` in Chart.yaml
-- OCI registry: `helm package` then `helm push` (two-step)
+Both are a query whose result set is wider than the question. Narrow it at the source, because filtering a wide answer by eye is how both got read wrong.
 
-### Binary Publishing
+## A frozen derived value is harmless until something reads it
 
-- Naming: `{binary}-{version}-{os}-{arch}`
-- Checksums: `SHA256SUMS` file (not per-file `.sha256`)
-- Latest: copy to `/latest/` + `LATEST_VERSION.txt` (skip snapshots)
-- GitHub Actions strips executable permissions - restore before publish
+`_get_native_target()` returned a hardcoded `x86_64-unknown-linux-gnu` on every Linux host for years, and nothing noticed. Then a cross-build guard began comparing the build target against it. Every arm64 Rust release failed: the runner read its own target as a cross build, skipped PGO, and the strict Tier 2 check refused the half-optimised binary.
 
-### Publish Verification
+The freeze was harmless while nothing consumed it. The new consumer turned it into a defect. `platform.machine()` had the answer the whole time.
 
-- All registries: retry loop (5 retries, 10s delay default)
-- Always handle "already exists" as success (idempotent re-runs)
-
-### CI Detection & Output
-
-- `is_ci()`: check `CI`, `GITHUB_ACTIONS`, `GITLAB_CI`, `JENKINS_URL`, `BUILDKITE`
-- Interactive terminal: colours + emojis
-- CI (GitHub Actions): `::error::`, `::warning::`, `::group::` workflow commands
-- Piped/file: `[LEVEL] RFC3339 timestamp message`
-
-### Resource Allocation
-
-- CI: use all cores (`nproc`)
-- Local dev: default 2 parallel jobs (conservative)
-- Override: `LOCAL_PARALLEL_JOBS` env or `local.parallel_jobs` config
-
----
-
-## Lessons from New CI Implementation (2026-03)
-
-### Sysroot Location (ARC Runners)
-
-- **Never use `/tmp` for sysroot** on ARC (Actions Runner Controller) runners
-- ARC runners use pod ephemeral storage for `/tmp` - the same disk that
-  causes pod evictions when it fills up
-- **Solution:** Use `Path.cwd() / ".tmp" / "cross-sysroot"` (project-scoped,
-  gitignored, survives across CI steps in the same job)
-- Also aligns with project coding standards: "never hardcode `/tmp`"
-
-### Cross-Compilation: Both gcc AND g++ Wrappers Required
-
-- CMake-based `-sys` crates (e.g. `rdkafka-sys`) need BOTH a C compiler
-  wrapper AND a C++ compiler wrapper in the sysroot `bin/` directory
-- Only creating the gcc wrapper causes CMake to fail with:
-  `CMAKE_CXX_COMPILER: .../aarch64-linux-gnu-g++ is not a full path`
-- **Solution:** Generate both `{triple}-gcc` and `{triple}-g++` wrappers
-  with identical flags (`-fuse-ld=bfd`, sysroot paths)
-- Point `CC_<TARGET>` and `CXX_<TARGET>` env vars to the sysroot wrappers
-
-### Go Publish: Binaries, Not Modules
-
-- Go modules publish automatically to proxy.golang.org on tag push
-- Publishing Go binaries means uploading **built binaries** to a release
-  store, NOT running `go mod download`
-- Binary naming convention: `{binary}-{version}-{goos}-{goarch}[.exe]`
-- Checksums: `checksums.sha256` file alongside binaries (renamed to
-  `SHA256SUMS` on upload)
-
-### npm Config Pollution
-
-- `npm config set registry=...` modifies **global** `~/.npmrc`
-- On CI runners this persists across jobs sharing the same home directory
-  (especially ARC runners with shared NFS-backed `RUNNER_HOME`)
-- **Solution:** Write a project-local `.npmrc` file with registry + auth,
-  then restore/remove it after publishing (try/finally pattern)
-- Same principle: never modify global state when project-local config works
-
-### Publish Verification Retry Pattern
-
-- Registries have indexing lag: a just-uploaded artifact may 404 for 5-30 seconds
-- All publish handlers should verify with HTTP HEAD + retry loop
-- Default: 5 retries, 10 second delay (total ~50s worst case)
-- Shared helper in `common.py:verify_publish()` - reusable across all languages
-- The old CI had this per-language; the new CI centralises it
-
-### ARC Persistent Cache + Rust Cross-Compilation (Milestone: 2026-03)
-
-**The problem:** ARC runners keep `target/` between runs. With correct
-cross-compilation env vars, the first run compiles aarch64 objects correctly
-and everything works. But if an earlier run compiled with the wrong compiler
-(e.g. host x86_64 gcc instead of `aarch64-linux-gnu-gcc`), those stale `.o`
-files persist in the OUT_DIR. Subsequent runs see no source changes and skip
-recompilation - the linker gets x86_64 objects and fails with `EM:62`.
-
-This is the *cache pays off / cache bites you* duality. We want the cache
-(warm builds are ~5x faster) but must detect and evict corrupt entries.
-
-**Root causes (three layers, all must be fixed):**
-
-1. **Plain `CC` not set for configure-based `-sys` crates.**
-   `rdkafka-sys` default build uses `./configure && make` (mklove), NOT cmake.
-   The `./configure` script reads `CC` from the environment directly - it does
-   NOT use the cc-crate's `CC_aarch64_unknown_linux_gnu` convention.
-   Without `CC` set, `./configure` picks up the host `gcc` (x86_64) even when
-   building for aarch64, silently producing x86_64 objects.
-   **Fix:** Set BOTH `env["CC"] = cc` AND `env[f"CC_{target_lower}"] = cc`
-   in `_cross_env()`. Same for `CXX` and `AR`.
-
-2. **Stale detection only scanned cmake-based crates.**
-   The stale rlib detector checked only packages with a `cmake` dependency in
-   `Cargo.lock`. `rdkafka-sys` without the `cmake-build` feature has no cmake
-   dependency - it was invisible to the scanner.
-   **Fix:** Scan ALL packages ending in `-sys` regardless of build system.
-   Any `-sys` crate may compile C code. The regex `name = "...-sys"` in
-   `Cargo.lock` catches them all. Renamed `_find_cmake_sys_crates()` ->
-   `_find_c_sys_crates()`.
-
-3. **Persistent OUT_DIR defeats `make libs` recompilation.**
-   Even with `CC` now correct, `make libs` in an existing OUT_DIR sees
-   unchanged source and reuses stale `.o` files. The Makefile has no concept
-   of "cross-compiler changed" - it only checks source timestamps.
-   **Fix:** The stale rlib detector reads each rlib with `ar p | file -`,
-   checks the ELF machine type, and runs `cargo clean --package <pkg>
-   --target <target>` when wrong-arch objects are found. This deletes the
-   OUT_DIR entirely, forcing a fresh `./configure && make` with the correct CC.
-
-**The cake-and-eating-it result:**
-
-- First run after contamination: stale rlibs detected, OUT_DIR cleaned,
-  full recompile (~19 min with rdkafka). Cache is now correct.
-- All subsequent runs: stale detector finds correct arch, skips clean,
-  warm cache used. Build time drops to ~3-5 min.
-- No unnecessary cache invalidation for native x86_64 builds.
-
-**Config gotcha:** `build.strategies` in `.hyperi-ci.yaml` only accepts
-`native` for Rust. Cross-targets are handled via `build.rust.targets`.
-The value `cross` is not a valid strategy and will error. Remove it from
-any consumer config that inherited it from an old template.
-
-**Publish gotcha:** `cargo publish` runs `cargo package --verify` which
-does a clean rebuild. The publish runner (`ubuntu-latest`) lacks native
-build tools (`protoc`, `librdkafka-dev` etc.) needed by build scripts.
-Since the CI build step already verified everything, use `--no-verify`.
-Exit code 101 from `cargo publish` = package verification failed (not auth).
+Audit by consumer, not by value: ask what reads the constant now. A value the system can work out for itself, written down anyway, is a defect waiting for its first reader.
