@@ -123,7 +123,7 @@ class TestTheGateCatchesThings:
 
     def test_an_undeclared_key_is_left_alone(self) -> None:
         assert not _is_config_fallback(
-            *self._call('config.get("release.channel", "x")')
+            *self._call('config.get("release.no_such_key", "x")')
         )
 
     def test_a_manifest_dict_read_is_left_alone(self) -> None:
@@ -153,7 +153,9 @@ class TestSetting:
 
     def test_an_undeclared_key_fails_loudly(self) -> None:
         with pytest.raises(KeyError, match="defaults.yaml"):
-            CIConfig(_raw={"release": {"channel": "beta"}}).setting("release.channel")
+            CIConfig(_raw={"release": {"no_such_key": "x"}}).setting(
+                "release.no_such_key"
+            )
 
     def test_the_shipped_value_is_a_copy(self) -> None:
         shipped_default("build.golang.targets").append("plan9/amd64")

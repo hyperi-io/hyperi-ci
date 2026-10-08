@@ -72,7 +72,7 @@ def _resolve_channel(config: CIConfig, version: str | None) -> str:
     A prerelease version overrides ``release.channel`` with its own label, or
     a ``1.2.0-beta.1`` would overwrite the GA ``latest/`` on R2 (issue #144).
     """
-    configured = config.get("release.channel", "release")
+    configured = config.setting("release.channel")
     resolved = effective_release_channel(configured, version)
     if resolved != configured:
         info(f"Prerelease version {version} -- publishing on channel {resolved}")
