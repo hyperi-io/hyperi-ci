@@ -1077,7 +1077,7 @@ def _clean_stale_sys_crates(target: str) -> None:
     to_clean: list[str] = []
 
     for rlib in cross_deps.glob("lib*.rlib"):
-        stem = rlib.stem.lstrip("lib")
+        stem = rlib.stem.removeprefix("lib")
         crate_under = stem.split("-")[0] if "-" in stem else stem
         if crate_under not in sys_crates_underscored:
             continue

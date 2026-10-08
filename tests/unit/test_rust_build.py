@@ -36,6 +36,38 @@ def _metadata_runner(manifest_paths: list[Path], returncode: int = 0):
     return fake_run
 
 
+class TestStaleSysCrateCleaner:
+    @pytest.mark.parametrize(
+        ("rlib", "package"),
+        [
+            ("liblibz_sys-0a1b2c.rlib", "libz-sys"),
+            ("libbzip2_sys-0a1b2c.rlib", "bzip2-sys"),
+            ("libopenssl_sys-0a1b2c.rlib", "openssl-sys"),
+        ],
+    )
+    def test_a_wrong_arch_rlib_is_matched_by_its_crate_name(
+        self,
+        rlib: str,
+        package: str,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        target = "aarch64-unknown-linux-gnu"
+        deps = tmp_path / target / "release" / "deps"
+        deps.mkdir(parents=True)
+        (deps / rlib).write_bytes(b"")
+        monkeypatch.setenv("CARGO_TARGET_DIR", str(tmp_path))
+        monkeypatch.setattr(build, "_expected_elf_machine", lambda _t: "aarch64")
+        monkeypatch.setattr(build, "_find_c_sys_crates", lambda: [package])
+        monkeypatch.setattr(build, "_rlib_has_wrong_arch", lambda _r, _e: True)
+        calls: list[list[str]] = []
+        monkeypatch.setattr(build, "run_cmd", lambda cmd, **_k: calls.append(cmd))
+
+        build._clean_stale_sys_crates(target)
+
+        assert calls == [["cargo", "clean", "--package", package, "--target", target]]
+
+
 class TestDetectCargoFeatures:
     """Feature detection unions the root manifest with every workspace member."""
 
