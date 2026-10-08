@@ -194,7 +194,7 @@ def _run_source_tool(
     mode: str,
     sources: list[str],
     *,
-    via: Via = "uv",
+    via: Via,
     spec: str | None = None,
     python: str | None = None,
     unscanned: Callable[[str | None], int] | None = None,
@@ -391,6 +391,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         _build_ruff_security_cmd(sources, excludes, ruff_user_ignores),
         resolve_tool_mode("ruff_security", config, language="python"),
         sources,
+        via="uv",
     ):
         had_failure = True
 
@@ -412,7 +413,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     ]  # fmt: skip
     ruff_doc_cmd += _build_exclude_args("ruff", excludes)
     ruff_doc_cmd += _ruff_ignore_flag(ruff_user_ignores)
-    if not _run_source_tool("ruff docstrings", ruff_doc_cmd, mode, sources):
+    if not _run_source_tool("ruff docstrings", ruff_doc_cmd, mode, sources, via="uv"):
         had_failure = True
 
     mode = resolve_tool_mode("vulture", config, language="python")
