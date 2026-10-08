@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schema_version", "app_name", "metrics_port"],
+  "properties": {
+    "schema_version": { "const": 4 },
+    "app_name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "description": { "type": "string" },
+    "metrics_port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+    "config_schema": { "type": "object" }
+  }
+}
