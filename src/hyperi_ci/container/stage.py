@@ -30,6 +30,7 @@ Push modes (resolved by :mod:`hyperi_ci.release_mode` -- the SSOT):
 import os
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 
 from hyperi_ci.common import (
@@ -49,6 +50,7 @@ from hyperi_ci.config import CIConfig, OrgConfig, load_org_config
 from hyperi_ci.container.build import (
     BuildArgError,
     build_and_push,
+    pushed_digest,
     render_build_args,
     resolve_tags,
 )
@@ -166,6 +168,16 @@ def _write_output(key: str, value: str) -> None:
     if gh_out:
         with open(gh_out, "a", encoding="utf-8", newline="\n") as fh:
             fh.write(f"{key}={value}\n")
+
+
+def _write_digest_outputs(version_tag: str, digest: str | None) -> None:
+    """Expose the pushed image as ``digest`` and ``image`` (``<tag>@<digest>``)."""
+    if digest is None:
+        warn(f"buildx recorded no digest for {version_tag}; no image output is set")
+        return
+    info(f"Pushed image: {version_tag}@{digest}")
+    _write_output("digest", digest)
+    _write_output("image", f"{version_tag}@{digest}")
 
 
 def _log_builder_cgroups() -> None:
@@ -468,6 +480,9 @@ def _dispatch_build(
     )
     rewrote = effective_dockerfile != dockerfile_path
 
+    push = push_mode != VALIDATE
+    scratch = tempfile.TemporaryDirectory(prefix="hyperi-ci-buildx-")
+    metadata_file = Path(scratch.name) / "metadata.json" if push else None
     try:
         rc = build_and_push(
             dockerfile_path=effective_dockerfile,
@@ -476,9 +491,13 @@ def _dispatch_build(
             platforms=platforms,
             labels=labels,
             build_args=build_args if build_args else None,
-            push=push_mode != VALIDATE,
+            push=push,
+            metadata_file=metadata_file,
         )
+        if rc == 0 and metadata_file is not None and tags:
+            _write_digest_outputs(tags[0], pushed_digest(metadata_file))
     finally:
+        scratch.cleanup()
         if rewrote:
             effective_dockerfile.unlink(missing_ok=True)
 
