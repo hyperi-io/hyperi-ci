@@ -23,12 +23,27 @@ def _config(tools: object = None) -> CIConfig:
     return CIConfig(_raw={} if tools is None else {"test": {"native_tools": tools}})
 
 
-def _targz(member: str, data: bytes = b"#!/bin/sh\necho v0\n") -> bytes:
+def _targz(
+    *members: str,
+    data: bytes = b"#!/bin/sh\necho v0\n",
+    symlinks: tuple[str, ...] = (),
+    dirs: tuple[str, ...] = (),
+) -> bytes:
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as archive:
-        entry = tarfile.TarInfo(name=member)
-        entry.size = len(data)
-        archive.addfile(entry, io.BytesIO(data))
+        for name in dirs:
+            folder = tarfile.TarInfo(name=name)
+            folder.type = tarfile.DIRTYPE
+            archive.addfile(folder)
+        for name in symlinks:
+            link = tarfile.TarInfo(name=name)
+            link.type = tarfile.SYMTYPE
+            link.linkname = "elsewhere"
+            archive.addfile(link)
+        for name in members:
+            entry = tarfile.TarInfo(name=name)
+            entry.size = len(data)
+            archive.addfile(entry, io.BytesIO(data))
     return buf.getvalue()
 
 
@@ -133,6 +148,11 @@ class TestEveryToolIsPinned:
         url, _ = native_tools._asset_url(name, arch)
         assert url.endswith(tail.format(v=version, bare=version.removeprefix("v")))
 
+    @pytest.mark.parametrize("name", sorted(native_tools._TOOLS))
+    def test_the_archive_flag_matches_the_asset(self, name: str) -> None:
+        url, _ = native_tools._asset_url(name, "amd64")
+        assert native_tools._TOOLS[name].archive == url.endswith(".tar.gz")
+
 
 @pytest.mark.usefixtures("linux_amd64")
 class TestInstall:
@@ -141,10 +161,13 @@ class TestInstall:
     ) -> None:
         bin_dir = native_tools.install_tool("helm", tmp_path)
         version = tool_version("helm")
+        digest = hashlib.sha256(served["payload"]).hexdigest()
         assert served["urls"] == [
             f"https://get.helm.sh/helm-{version}-linux-amd64.tar.gz"
         ]
-        assert bin_dir == tmp_path / "native-tools" / "helm" / f"{version}-amd64"
+        assert bin_dir == (
+            tmp_path / "native-tools" / "helm" / f"{version}-amd64-{digest[:12]}"
+        )
         binary = bin_dir / "helm"
         assert binary.read_bytes().startswith(b"#!/bin/sh")
         assert binary.stat().st_mode & stat.S_IXUSR
@@ -157,6 +180,38 @@ class TestInstall:
         second = native_tools.install_tool("helm", tmp_path)
         assert first == second
         assert len(served["urls"]) == 1
+
+    def test_a_reissued_pin_never_reuses_the_old_copy(
+        self, tmp_path: Path, served: dict
+    ) -> None:
+        first = native_tools.install_tool("helm", tmp_path)
+        served["payload"] = _targz("linux-amd64/helm", data=b"#!/bin/sh\necho v1\n")
+        second = native_tools.install_tool("helm", tmp_path)
+        assert first is not None
+        assert second is not None
+        assert first != second
+        assert len(served["urls"]) == 2
+        assert (second / "helm").read_bytes() == b"#!/bin/sh\necho v1\n"
+
+    def test_a_cached_raw_binary_is_rehashed_not_refetched(
+        self, tmp_path: Path, served: dict
+    ) -> None:
+        served["payload"] = b"\x7fELF-hadolint"
+        first = native_tools.install_tool("hadolint", tmp_path)
+        second = native_tools.install_tool("hadolint", tmp_path)
+        assert first == second
+        assert len(served["urls"]) == 1
+
+    def test_a_tampered_raw_binary_is_reinstalled(
+        self, tmp_path: Path, served: dict
+    ) -> None:
+        served["payload"] = b"\x7fELF-hadolint"
+        bin_dir = native_tools.install_tool("hadolint", tmp_path)
+        assert bin_dir is not None
+        (bin_dir / "hadolint").write_bytes(b"swapped")
+        assert native_tools.install_tool("hadolint", tmp_path) == bin_dir
+        assert len(served["urls"]) == 2
+        assert (bin_dir / "hadolint").read_bytes() == served["payload"]
 
     def test_arm64_fetches_the_arm64_asset(
         self, tmp_path: Path, served: dict, monkeypatch: pytest.MonkeyPatch
@@ -173,12 +228,57 @@ class TestInstall:
         assert native_tools.install_tool("helm", tmp_path) is None
         assert not (tmp_path / "native-tools").exists()
 
+    def test_a_raw_digest_mismatch_installs_nothing(
+        self, tmp_path: Path, served: dict, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        served["payload"] = b"\x7fELF-hadolint"
+        monkeypatch.setattr(native_tools, "tool_sha256", lambda n, a: "0" * 64)
+        assert native_tools.install_tool("hadolint", tmp_path) is None
+        assert served["urls"][0].endswith("/hadolint-linux-x86_64")
+        assert not (tmp_path / "native-tools").exists()
+        assert native_tools.install_into("hadolint", tmp_path / "bin") is None
+        assert not (tmp_path / "bin").exists()
+
     def test_an_archive_without_the_binary_installs_nothing(
         self, tmp_path: Path, served: dict
     ) -> None:
         served["payload"] = _targz("linux-amd64/README.md")
         assert native_tools.install_tool("helm", tmp_path) is None
         assert not (tmp_path / "native-tools").exists()
+
+    def test_two_files_with_the_tools_name_install_nothing(
+        self, tmp_path: Path, served: dict
+    ) -> None:
+        served["payload"] = _targz("linux-amd64/helm", "extras/helm")
+        assert native_tools.install_tool("helm", tmp_path) is None
+        assert not (tmp_path / "native-tools").exists()
+
+    def test_a_symlink_or_directory_named_for_the_tool_is_not_picked(
+        self, tmp_path: Path, served: dict
+    ) -> None:
+        served["payload"] = _targz(
+            "linux-amd64/helm", symlinks=("helm",), dirs=("docs/helm",)
+        )
+        binary = native_tools.install_into("helm", tmp_path)
+        assert binary == tmp_path / "helm"
+        assert binary.read_bytes().startswith(b"#!/bin/sh")
+
+    def test_a_symlink_alone_is_not_a_binary(
+        self, tmp_path: Path, served: dict
+    ) -> None:
+        served["payload"] = _targz(symlinks=("helm",), dirs=("helm-docs/helm",))
+        assert native_tools.install_into("helm", tmp_path / "bin") is None
+        assert not (tmp_path / "bin").exists()
+
+    def test_a_failed_rename_leaves_no_temporary_file(
+        self, tmp_path: Path, served: dict, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def _fail(*_a: object) -> None:
+            raise OSError("rename refused")
+
+        monkeypatch.setattr(native_tools.os, "replace", _fail)
+        assert native_tools.install_into("helm", tmp_path) is None
+        assert list(tmp_path.iterdir()) == []
 
     def test_a_failed_download_installs_nothing(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

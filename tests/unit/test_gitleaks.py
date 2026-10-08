@@ -30,6 +30,7 @@ is tested above it.
 """
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -46,8 +47,8 @@ _STRICT = "HYPERCI_QUALITY_STRICT"
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.fixture(scope="session")
-def real_gitleaks() -> str:
+@pytest.fixture
+def real_gitleaks(monkeypatch: pytest.MonkeyPatch) -> str:
     """The gitleaks binary, installed on a Linux runner rather than skipped around.
 
     Every test that proves the canary DETECTS anything needs the real binary, so
@@ -59,7 +60,12 @@ def real_gitleaks() -> str:
     PATH, so a Linux runner has no reason to be without it and failing is the
     honest outcome. The skip stands only where there is no install path at all
     - a developer's machine, or the macOS leg of the matrix.
+
+    PATH is registered with monkeypatch first, so the directory `ci_binary`
+    prepends is gone again when the test ends. The install itself is cached on
+    disk, which keeps the per-test call cheap.
     """
+    monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
     if gitleaks.ci_binary("gitleaks") and (found := shutil.which("gitleaks")):
         return found
     if is_ci() and sys.platform == "linux":
@@ -768,6 +774,33 @@ class TestEnvConfigOverride:
         assert gitleaks.run(_cfg()) == 0
         cmd = _scan_cmd(captured)
         assert cmd[cmd.index("--config") + 1] == ".gitleaks.toml"
+
+
+class TestMissingTool:
+    """A gitleaks that did not install is a gate that did not run."""
+
+    @pytest.mark.parametrize(
+        ("gate", "rc"),
+        [("blocking", 1), (_relaxed("warn"), 0)],
+        ids=["blocking", "warn"],
+    )
+    def test_a_failed_install_in_ci(
+        self, monkeypatch: pytest.MonkeyPatch, gate: object, rc: int
+    ) -> None:
+        calls = _fake_gitleaks(monkeypatch)
+        monkeypatch.setattr(gitleaks, "ci_binary", lambda _name: None)
+        monkeypatch.setattr(gitleaks, "is_ci", lambda: True)
+        assert gitleaks.run(_cfg({"quality": {"gitleaks": gate}})) == rc
+        assert not calls
+
+    def test_missing_tool_warn_skips_locally(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls = _fake_gitleaks(monkeypatch)
+        monkeypatch.setattr(gitleaks, "ci_binary", lambda _name: None)
+        monkeypatch.setattr(gitleaks, "is_ci", lambda: False)
+        assert gitleaks.run(_cfg({"quality": {"gitleaks": "blocking"}})) == 0
+        assert not calls
 
 
 class TestShortCircuits:
