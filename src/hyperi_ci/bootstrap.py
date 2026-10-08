@@ -11,6 +11,10 @@ go.dev, nvm) rather than apt, and hyperi-ci does not install them per job (for
 example `languages/rust/build.py` runs `rustup target add` with no bootstrap
 behind it).
 
+rustup-init, the Go tarball and nvm's install.sh are versions.yaml pins, each
+checked against its pinned sha256 before it runs or is unpacked. Nothing here
+asks an API which release is current.
+
 The one cargo tool baked is sccache, because the ARC image sets
 ``RUSTC_WRAPPER=sccache`` and no CI step installs it. cargo-audit, cargo-deny
 and cargo-nextest are not baked: the setup-rust-tools and setup-nextest
@@ -20,32 +24,46 @@ Every step is idempotent, so a partial failure can be re-run. Linux only, and
 a no-op elsewhere.
 """
 
+import hashlib
 import os
 import platform
 import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
 from scalo import logger
 
-from hyperi_ci.common import curl_fetch, curl_read, sudo_prefix
-from hyperi_ci.native_tools import install_into
-from hyperi_ci.versions import runtime_version, tool_version
+from hyperi_ci.common import curl_fetch, sudo_prefix
+from hyperi_ci.native_tools import _linux_arch, install_into
+from hyperi_ci.versions import (
+    runtime_sha256,
+    runtime_version,
+    tool_sha256,
+    tool_version,
+)
 
 _CONFIG_FILE = Path(__file__).resolve().parent / "config" / "bootstrap.yaml"
 _NVM_PROFILE = Path("/etc/profile.d/nvm.sh")
+# The Go tarball unpacks to a `go/` directory under this.
+_GO_PARENT = Path("/usr/local")
 
-# Vendor install channels, deliberately not configurable.
-_RUSTUP_URL = "https://sh.rustup.rs"
-_GO_VERSION_URL = "https://go.dev/VERSION?m=text"
+# Vendor install channels, deliberately not configurable. The version and the
+# digest of what each serves come from versions.yaml.
+_RUSTUP_INIT_URL = (
+    "https://static.rust-lang.org/rustup/archive/{version}/{key}-unknown-linux-gnu/"
+    "rustup-init"
+)
 _GO_DOWNLOAD_BASE = "https://go.dev/dl"
 _NVM_INSTALL_BASE = "https://raw.githubusercontent.com/nvm-sh/nvm"
+# `tools.rustup.sha256` is keyed by the target triple's arch.
+_RUSTUP_ARCH = {"amd64": "x86_64", "arm64": "aarch64"}
 # The Go tarball is about 70 MB, so a 300-second attempt still finishes at 250 KB/s.
-_GO_TARBALL_MAX_TIME = 300
+_DOWNLOAD_MAX_TIME = 300
 
 
 @dataclass
@@ -61,20 +79,62 @@ def _is_linux() -> bool:
     return platform.system() == "Linux"
 
 
-def _run(cmd: list[str]) -> int:
+def _run(cmd: list[str], env: Mapping[str, str] | None = None) -> int:
     """Run a command, streaming output. Returns the exit code."""
     logger.info(f"  $ {' '.join(cmd)}")
-    return subprocess.run(cmd, check=False).returncode
-
-
-def _fetch_text(url: str) -> tuple[int, str]:
-    """Fetch a small text document. Returns (exit code, stripped body)."""
-    rc, body = curl_read(url)
-    return rc, body.decode("utf-8", errors="replace").strip()
+    return subprocess.run(cmd, env=env, check=False).returncode
 
 
 def _have(binary: str) -> bool:
     return shutil.which(binary) is not None
+
+
+def _download_verified(
+    name: str,
+    url: str,
+    dest: Path,
+    expected: str,
+    *,
+    extra: tuple[str, ...] = (),
+    follow_redirects: bool = True,
+) -> int:
+    """Download ``url`` to ``dest`` and check it against its pinned sha256.
+
+    Args:
+        name: What is being fetched, for the log lines.
+        url: Where from.
+        dest: File the body is written to.
+        expected: The sha256 versions.yaml pins for it.
+        extra: More curl options, placed before the URL.
+        follow_redirects: Pass ``-L``.
+
+    Returns:
+        0 when ``dest`` matches the pin. curl's exit code after a failed
+        download, or 1 after a digest mismatch, which also deletes ``dest``.
+
+    """
+    logger.info(f"  Downloading {url}")
+    rc = curl_fetch(
+        url,
+        dest,
+        extra=extra,
+        follow_redirects=follow_redirects,
+        max_time=_DOWNLOAD_MAX_TIME,
+    ).returncode
+    if rc != 0:
+        logger.error(f"Failed to download {name} (curl exit {rc})")
+        return rc
+    with dest.open("rb") as fh:
+        got = hashlib.file_digest(fh, "sha256").hexdigest()
+    want = expected.strip().lower()
+    if got != want:
+        logger.error(
+            f"{name}: SHA256 mismatch - refusing to install "
+            f"(expected {want}, got {got})"
+        )
+        dest.unlink(missing_ok=True)
+        return 1
+    return 0
 
 
 def load_spec() -> tuple[RustSpec, bool]:
@@ -116,6 +176,44 @@ def install_sccache(bin_dir: Path) -> int:
     return 0 if install_into("sccache", bin_dir) else 1
 
 
+def install_rustup(default_channel: str) -> int:
+    """Run the versions.yaml rustup-init, checked against its pinned sha256.
+
+    Args:
+        default_channel: The toolchain rustup-init installs as the default.
+
+    Returns:
+        0 on success, else non-zero after logging: an unknown CPU, a failed
+        download, a digest mismatch, or rustup-init failing.
+
+    """
+    arch = _linux_arch()
+    if arch is None:
+        logger.error(f"No pinned rustup-init for {platform.machine()}")
+        return 1
+    key = _RUSTUP_ARCH[arch]
+    version = tool_version("rustup")
+    logger.info(f"Installing rustup {version}")
+    with tempfile.TemporaryDirectory(prefix="hyperi-ci-rustup-") as scratch:
+        init = Path(scratch) / "rustup-init"
+        # rustup's own transport rules: https only, TLS 1.2 or later, no redirects.
+        rc = _download_verified(
+            "rustup-init",
+            _RUSTUP_INIT_URL.format(version=version, key=key),
+            init,
+            tool_sha256("rustup", key),
+            extra=("--proto", "=https", "--tlsv1.2"),
+            follow_redirects=False,
+        )
+        if rc != 0:
+            return rc
+        init.chmod(0o755)
+        rc = _run([str(init), "-y", "--default-toolchain", default_channel])
+    if rc != 0:
+        logger.error("rustup install failed")
+    return rc
+
+
 def install_rust(spec: RustSpec) -> int:
     """Install rustup, the requested channels, components and targets, and sccache.
 
@@ -131,23 +229,8 @@ def install_rust(spec: RustSpec) -> int:
     if _have("rustup"):
         logger.info("rustup already installed")
     else:
-        logger.info("Installing rustup")
-        # rustup's own install line: https only, TLS 1.2 or later, no redirects.
-        rc, script = curl_read(
-            _RUSTUP_URL,
-            extra=("--proto", "=https", "--tlsv1.2"),
-            follow_redirects=False,
-        )
-        if rc != 0 or not script:
-            logger.error("Failed to download rustup installer")
-            return rc or 1
-        rc = subprocess.run(
-            ["sh", "-s", "--", "-y", "--default-toolchain", default_channel],
-            input=script,
-            check=False,
-        ).returncode
+        rc = install_rustup(default_channel)
         if rc != 0:
-            logger.error("rustup install failed")
             return rc
 
     # CARGO_HOME/bin is not on this process's PATH yet.
@@ -183,40 +266,38 @@ def install_rust(spec: RustSpec) -> int:
 
 
 def install_go() -> int:
-    """Install the current Go stable release into /usr/local/go.
+    """Install the versions.yaml ``runtimes.go`` into /usr/local/go.
 
-    Unpinned: go.dev publishes the current stable version as plain text, and
-    the image is rolled back by re-tagging.
+    The tarball is checked against its pinned sha256 before it is unpacked.
     """
     if not _is_linux():
         logger.info("Skipping Go bootstrap on non-Linux")
         return 0
 
-    if Path("/usr/local/go/bin/go").exists():
-        logger.info("Go already installed at /usr/local/go")
+    if (_GO_PARENT / "go" / "bin" / "go").exists():
+        logger.info(f"Go already installed at {_GO_PARENT / 'go'}")
         return 0
 
-    rc, version = _fetch_text(_GO_VERSION_URL)
-    if rc != 0 or not version:
-        logger.error("Failed to resolve the current Go version")
-        return rc or 1
-    # The endpoint returns "go1.26.0\ntime ...": keep the first line, minus "go".
-    version = version.splitlines()[0].strip().removeprefix("go")
+    arch = _linux_arch()
+    if arch is None:
+        logger.error(f"No pinned Go build for {platform.machine()}")
+        return 1
+    version = runtime_version("go")
     logger.info(f"Installing Go {version}")
-
-    arch = "arm64" if platform.machine() in ("aarch64", "arm64") else "amd64"
     tarball = f"go{version}.linux-{arch}.tar.gz"
-    url = f"{_GO_DOWNLOAD_BASE}/{tarball}"
 
     with tempfile.TemporaryDirectory(prefix="hyperi-ci-go-") as scratch:
         dest = Path(scratch) / tarball
-        logger.info(f"  Downloading {url}")
-        rc = curl_fetch(url, dest, max_time=_GO_TARBALL_MAX_TIME).returncode
+        rc = _download_verified(
+            tarball,
+            f"{_GO_DOWNLOAD_BASE}/{tarball}",
+            dest,
+            runtime_sha256("go", arch),
+        )
         if rc != 0:
-            logger.error(f"Failed to download {tarball}")
             return rc
 
-        rc = _run([*sudo_prefix(), "tar", "-C", "/usr/local", "-xzf", str(dest)])
+        rc = _run([*sudo_prefix(), "tar", "-C", str(_GO_PARENT), "-xzf", str(dest)])
     if rc != 0:
         logger.error("Failed to extract the Go tarball")
         return rc
@@ -229,13 +310,44 @@ def install_go() -> int:
 # ---------------------------------------------------------------------------
 
 
+def install_nvm(nvm_dir: Path) -> int:
+    """Install the versions.yaml nvm tag into ``nvm_dir``.
+
+    Args:
+        nvm_dir: The ``NVM_DIR`` install.sh writes nvm into.
+
+    Returns:
+        0 on success, else non-zero after logging: a failed download, a digest
+        mismatch, or install.sh failing.
+
+    """
+    tag = tool_version("nvm")
+    logger.info(f"Installing nvm {tag} into {nvm_dir}")
+    nvm_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="hyperi-ci-nvm-") as scratch:
+        script = Path(scratch) / "install.sh"
+        rc = _download_verified(
+            "nvm install.sh",
+            f"{_NVM_INSTALL_BASE}/{tag}/install.sh",
+            script,
+            tool_sha256("nvm", "script"),
+        )
+        if rc != 0:
+            return rc
+        rc = _run(["bash", str(script)], env={**os.environ, "NVM_DIR": str(nvm_dir)})
+    if rc != 0:
+        logger.error("nvm install failed")
+    return rc
+
+
 def install_node() -> int:
     """Install nvm and the versions.yaml ``runtimes.node`` major as the default.
 
-    One major only, the one the CI workflows default to. ``--latest-npm``
-    because `npm install -g npm@latest` over an existing npm leaves a broken
-    dependency tree (MODULE_NOT_FOUND: promise-retry), while nvm upgrades
-    atomically.
+    nvm is the versions.yaml ``tools.nvm`` tag, through that tag's install.sh
+    checked against its pinned sha256. One Node major only, the one the CI
+    workflows default to. ``--latest-npm`` because `npm install -g npm@latest`
+    over an existing npm leaves a broken dependency tree (MODULE_NOT_FOUND:
+    promise-retry), while nvm upgrades atomically.
     """
     if not _is_linux():
         logger.info("Skipping Node bootstrap on non-Linux")
@@ -245,28 +357,8 @@ def install_node() -> int:
     major = runtime_version("node")
 
     if not (nvm_dir / "nvm.sh").exists():
-        rc, tag = _fetch_text("https://api.github.com/repos/nvm-sh/nvm/releases/latest")
-        if rc != 0 or not tag:
-            logger.error("Failed to resolve the current nvm release")
-            return rc or 1
-        import json
-
-        try:
-            nvm_tag = json.loads(tag)["tag_name"]
-        except (ValueError, KeyError):
-            logger.error("Could not parse the nvm release response")
-            return 1
-
-        logger.info(f"Installing nvm {nvm_tag} into {nvm_dir}")
-        nvm_dir.mkdir(parents=True, exist_ok=True)
-        rc, script = curl_read(f"{_NVM_INSTALL_BASE}/{nvm_tag}/install.sh")
-        if rc != 0 or not script:
-            logger.error("Failed to download the nvm installer")
-            return rc or 1
-        env = {**os.environ, "NVM_DIR": str(nvm_dir)}
-        rc = subprocess.run(["bash"], input=script, env=env, check=False).returncode
+        rc = install_nvm(nvm_dir)
         if rc != 0:
-            logger.error("nvm install failed")
             return rc
 
     # nvm is a shell function, so every call has to source it.
@@ -375,10 +467,12 @@ def print_bootstrap_plan() -> None:
     rust, go_enabled = load_spec()
     out = sys.stderr
     print("  rust:", file=out)
+    print(f"    rustup:      {tool_version('rustup')}", file=out)
     print(f"    channels:    {', '.join(rust.channels) or '-'}", file=out)
     print(f"    components:  {', '.join(rust.components) or '-'}", file=out)
     print(f"    targets:     {', '.join(rust.targets) or '-'}", file=out)
     print(f"    sccache:     {tool_version('sccache')}", file=out)
-    print(f"  go: {'current stable' if go_enabled else 'disabled'}", file=out)
+    print(f"  go: {runtime_version('go') if go_enabled else 'disabled'}", file=out)
     print(f"  node: {runtime_version('node')}", file=out)
+    print(f"  nvm: {tool_version('nvm')}", file=out)
     print(f"  python: {runtime_version('python')}", file=out)

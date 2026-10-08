@@ -64,6 +64,14 @@ def tool_version(name: str) -> str:
     return version
 
 
+def _sha256(spec: object, key: str, arch: str) -> str:
+    """Return ``spec``'s ``sha256.<arch>``, or raise naming ``key`` (fail closed)."""
+    digests = spec.get("sha256") if isinstance(spec, dict) else None
+    if not isinstance(digests, dict) or arch not in digests:
+        raise KeyError(f"`{key}.sha256.{arch}` is missing from {VERSIONS_FILE.name}")
+    return str(digests[arch])
+
+
 def tool_sha256(name: str, arch: str) -> str:
     """Return the pinned sha256 of ``name``'s release asset for ``arch``.
 
@@ -79,16 +87,29 @@ def tool_sha256(name: str, arch: str) -> str:
         KeyError: No digest for that tool/arch (fail closed).
 
     """
-    digests = _tool(name).get("sha256")
-    if not isinstance(digests, dict) or arch not in digests:
-        raise KeyError(
-            f"`tools.{name}.sha256.{arch}` is missing from {VERSIONS_FILE.name}"
-        )
-    return str(digests[arch])
+    return _sha256(_tool(name), f"tools.{name}", arch)
+
+
+def runtime_sha256(name: str, arch: str) -> str:
+    """Return the pinned sha256 of a runtime's download for ``arch``.
+
+    Only a runtime hyperi-ci downloads itself carries one (``go``, for the
+    runner-image bake).
+
+    Args:
+        name: Runtime key under ``runtimes:``.
+        arch: Key under that runtime's ``sha256:``.
+
+    Raises:
+        KeyError: No digest for that runtime/arch (fail closed).
+
+    """
+    runtimes = _data().get("runtimes") or {}
+    return _sha256(runtimes.get(name), f"runtimes.{name}", arch)
 
 
 def runtime_version(name: str) -> str:
-    """Return a language runtime pin (``python``, ``node``, ``rust``).
+    """Return a language runtime pin (``python``, ``node``, ``rust``, ``go``).
 
     An entry is a bare value, or a mapping that also lists the files mirroring
     it.

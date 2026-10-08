@@ -23,9 +23,10 @@
 # is baked as well, at its versions.yaml pin, because the ARC image sets
 # RUSTC_WRAPPER=sccache and no CI step installs it.
 #
-# Rust channels and Go track current. Node is not configured here: the image
-# bakes the one major in versions.yaml `runtimes.node`, the CI default.
-# sccache's version and digests are versions.yaml `tools.sccache`.
+# The Rust channels track current. Every installer is a versions.yaml pin with
+# a sha256: rustup-init (`tools.rustup`), Go (`runtimes.go`), nvm (`tools.nvm`)
+# and sccache (`tools.sccache`). Node is not configured here: the image bakes
+# the one major in versions.yaml `runtimes.node`, the CI default.
 
 rust:
   # stable for builds, nightly for the fmt/lint features some repos use.

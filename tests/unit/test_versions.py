@@ -98,6 +98,33 @@ class TestEveryDownloadedToolIsPinnedAndVerifiable:
             assert re.fullmatch(r"[0-9a-f]{64}", str(digest)), f"{tool}/{arch}"
 
 
+class TestBakeInstallersArePinned:
+    """The runner-image bake's vendor installers, each with its digests."""
+
+    @pytest.mark.parametrize(
+        ("read", "name", "keys"),
+        [
+            (versions.tool_sha256, "rustup", ("x86_64", "aarch64")),
+            (versions.tool_sha256, "nvm", ("script",)),
+            (versions.runtime_sha256, "go", ("amd64", "arm64")),
+        ],
+    )
+    def test_pins_a_digest_per_download(self, read, name: str, keys) -> None:
+        for key in keys:
+            assert re.fullmatch(r"[0-9a-f]{64}", read(name, key)), f"{name}/{key}"
+
+    def test_versions_are_exact(self) -> None:
+        assert re.fullmatch(r"\d+\.\d+\.\d+", versions.tool_version("rustup"))
+        assert re.fullmatch(r"v\d+\.\d+\.\d+", versions.tool_version("nvm"))
+        assert re.fullmatch(r"\d+\.\d+\.\d+", versions.runtime_version("go"))
+
+    def test_missing_runtime_digest_raises(self) -> None:
+        with pytest.raises(KeyError, match=r"runtimes\.go\.sha256\.sparc"):
+            versions.runtime_sha256("go", "sparc")
+        with pytest.raises(KeyError, match=r"runtimes\.node\.sha256"):
+            versions.runtime_sha256("node", "amd64")
+
+
 class TestEveryCompositeActionDownloadIsVerified:
     """A composite action that fetches a release asset must check its digest.
 
