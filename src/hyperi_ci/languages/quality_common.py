@@ -38,7 +38,7 @@ from hyperi_ci.common import (
     warn,
 )
 from hyperi_ci.config import CIConfig, packaged_default
-from hyperi_ci.tools import installed_version, warn_on_pin_drift
+from hyperi_ci.tools import installed_version, missing_tool, warn_on_pin_drift
 
 # Directory names never scanned as Python source, beside the handler's own
 # excludes and every hidden directory.
@@ -613,11 +613,7 @@ def run_gate_tool(
             python=python,
         )
     if resolved == cmd and not shutil.which(cmd[0]):
-        if mode == "blocking" and is_ci():
-            error(f"  {tool_name}: not installed (required)")
-            return False
-        warn(f"  {tool_name}: not installed (skipping locally)")
-        return True
+        return not missing_tool(cmd[0], mode, purpose=f"the {tool_name} gate")
 
     if pinned:
         warn_on_pin_drift(pinned)

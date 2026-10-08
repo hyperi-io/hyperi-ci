@@ -32,12 +32,12 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from hyperi_ci.common import error, info, is_ci, run_cmd, success, warn
+from hyperi_ci.common import error, info, run_cmd, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.quality import findings as fdg
 from hyperi_ci.quality.targets import compose_document
-from hyperi_ci.tools import missing_tool_notice
+from hyperi_ci.tools import missing_tool
 
 # `${NAME:?message}` / `${NAME?message}` - the keys the file declares mandatory.
 _MANDATORY = re.compile(r"\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*):?\?[^}]*\}")
@@ -171,12 +171,9 @@ def run(
         return 0
 
     if not compose_available():
-        notice = missing_tool_notice("docker compose")
-        if mode == "blocking" and is_ci():
-            error(notice)
+        if missing_tool("docker compose", mode):
             error("  compose-config: the gate could not run - failing rather than pass")
             return 1
-        warn(notice)
         return 0
 
     info(f"  compose-config: resolving {len(stacks)} compose file(s)...")

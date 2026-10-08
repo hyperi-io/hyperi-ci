@@ -34,7 +34,7 @@ from pathlib import Path
 
 from hyperi_ci.common import error, info, is_ci, run_cmd, success, warn
 from hyperi_ci.quality.ignores import IgnoreEntry
-from hyperi_ci.tools import missing_tool_notice, warn_on_pin_drift
+from hyperi_ci.tools import missing_tool, warn_on_pin_drift
 
 SLUG = "osv-scanner"
 _BINARY = "osv-scanner"
@@ -251,12 +251,7 @@ def run(lockfile: Path, entries: Iterable[IgnoreEntry], mode: str) -> bool:
         return True
 
     if not available():
-        notice = missing_tool_notice(_BINARY)
-        if mode == "blocking" and is_ci():
-            error(notice)
-            return False
-        warn(notice)
-        return True
+        return not missing_tool(_BINARY, mode)
 
     warn_on_pin_drift(_BINARY)
 

@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 
+from hyperi_ci import tools
 from hyperi_ci.common import run_cmd
 from hyperi_ci.quality import osv_scanner
 from hyperi_ci.quality.ignores import IgnoreEntry
@@ -269,7 +270,7 @@ class TestRun:
     ) -> None:
         runner = self._runner(monkeypatch, 1)
         monkeypatch.setattr(osv_scanner, "available", lambda: False)
-        monkeypatch.setattr(osv_scanner, "is_ci", lambda: False)
+        monkeypatch.setattr(tools, "is_ci", lambda: False)
         ok = osv_scanner.run(self._lockfile(tmp_path), [], "blocking")
         assert ok is True
         assert runner.cmds == []
@@ -280,8 +281,8 @@ class TestRun:
         """A blocking gate that could not run has not passed."""
         said: list[str] = []
         monkeypatch.setattr(osv_scanner, "available", lambda: False)
-        monkeypatch.setattr(osv_scanner, "is_ci", lambda: True)
-        monkeypatch.setattr(osv_scanner, "error", said.append, raising=False)
+        monkeypatch.setattr(tools, "is_ci", lambda: True)
+        monkeypatch.setattr(tools, "error", said.append)
         ok = osv_scanner.run(self._lockfile(tmp_path), [], "blocking")
         assert ok is False
         assert any("osv-scanner" in s and "not installed" in s for s in said), said
@@ -290,7 +291,7 @@ class TestRun:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         monkeypatch.setattr(osv_scanner, "available", lambda: False)
-        monkeypatch.setattr(osv_scanner, "is_ci", lambda: True)
+        monkeypatch.setattr(tools, "is_ci", lambda: True)
         ok = osv_scanner.run(self._lockfile(tmp_path), [], "warn")
         assert ok is True
 

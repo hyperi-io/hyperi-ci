@@ -22,7 +22,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from hyperi_ci.common import error, get_exclude_dirs, info, is_ci, success, warn
+from hyperi_ci.common import error, get_exclude_dirs, info, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import (
     apply_strict,
@@ -33,7 +33,7 @@ from hyperi_ci.languages.quality_common import (
 )
 from hyperi_ci.python_version import requires_python_floor
 from hyperi_ci.quality.ignores import for_tool, load_ignores
-from hyperi_ci.tools import missing_tool_notice
+from hyperi_ci.tools import missing_tool
 from hyperi_ci.versions import tool_version
 
 _SHIPPED_KEY = "quality.semgrep"
@@ -130,13 +130,7 @@ def run(config: CIConfig, *, language: str | None = None) -> int:
     spec = f"semgrep=={tool_version('semgrep')}"
     cmd = resolve_tool_cmd(["semgrep"], use_uvx=True, spec=spec)
     if cmd == ["semgrep"] and not shutil.which("semgrep"):
-        # Fail only in CI, where every tool must be present, and warn-skip locally.
-        notice = missing_tool_notice("semgrep")
-        if mode == "blocking" and is_ci():
-            error(notice)
-            return 1
-        warn(notice)
-        return 0
+        return missing_tool("semgrep", mode)
 
     cmd += ["scan", "--config", "auto", "--error", "--quiet"]
     for exc in get_exclude_dirs(config._raw):
