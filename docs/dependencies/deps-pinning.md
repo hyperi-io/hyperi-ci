@@ -12,15 +12,14 @@ Three things, really, and they sit at different points in time. `hyperi-ci
 deps` is **preventative** - it runs on your machine BEFORE the change lands and
 tells you what you are about to leave stale. Renovate is **remediation** - it
 runs on the forge AFTER the fact and raises a PR for what already went stale.
-`update-versions.py` is **enforcement** for this repo's own pipeline, at commit
-push time. None of them replaces another, and "Renovate is configured" must never be
+`update-versions.py` is **enforcement** for this repo's own tool and runtime
+pins, at push time. None of them replaces another, and "Renovate is configured" must never be
 read as "the surfaces are covered" (see [the blind spots](#what-renovate-never-sees)).
 
 | Dependency | Owner | How | Cooldown |
 |---|---|---|---|
-| GitHub Actions (on hyperi-ci) | `/deps` script (`scripts/update-versions.py`) + `src/hyperi_ci/config/versions.yaml` | SHA-pinned by `--apply`, held by the `--check` CI gate | 7 days, enforced by the script |
-| **External CLI tools** (gitleaks, osv-scanner) | same script + `src/hyperi_ci/config/versions.yaml` `tools:` | **tag-pinned** with a `sha256` per release asset (see the exemption below), mirrored into composite actions via a `# hyperi-ci:pin` marker | 7 days, enforced by the script |
-| GitHub Actions (other repos) | Renovate org preset | SHA digest pin (`helpers:pinGitHubActionDigests`) | 7 days |
+| GitHub Actions (every repo, hyperi-ci included) | Renovate org preset | SHA digest pin (`helpers:pinGitHubActionDigests`) | 7 days |
+| **External CLI tools** (gitleaks, osv-scanner) | `/deps` script (`scripts/update-versions.py`) + `src/hyperi_ci/config/versions.yaml` `tools:` | **tag-pinned** with a `sha256` per release asset (see the exemption below), mirrored into composite actions via a `# hyperi-ci:pin` marker | 7 days, enforced by the script |
 | **hyperi-ci reusable-workflow caller** (other repos) | **nobody - floats `@main`** | **NOT pinned. Carved out of digest pinning in the org preset** (`hyperi-io/renovate-config`) | n/a |
 | cargo / pip / npm / docker (all repos) | Renovate org preset | version PRs | 7 days |
 | **Everything else** (tox, nox, test-source image tags, `.tool-versions`, `.hyperi-ci.yaml`) | **nobody** | **`hyperi-ci deps` REPORTS it. Nothing pins it.** | n/a |
@@ -37,10 +36,7 @@ reason) is still allowed - the carve-out only stops Renovate *imposing* one.
 
 - The org Renovate preset lives in `hyperi-io/renovate-config` but is governed
   from here - change the policy by editing that preset, then document it here.
-- On hyperi-ci the script owns Actions, so Renovate is a **passive watchdog**:
-  it still detects Action updates and lists them on the Dependency Dashboard (an
-  independent second opinion) but raises no PR unless a human ticks the box. Set
-  by `renovate.json` (`dependencyDashboardApproval` on `github-actions`).
+- hyperi-ci's `renovate.json` never pins its own `hyperi-io/hyperi-ci/...@main` refs. A major of `actions/create-github-app-token` waits for a Dependency Dashboard tick, because no PR runs the step that mints the release token.
 
 ## Hard rules
 
@@ -54,7 +50,8 @@ reason) is still allowed - the carve-out only stops Renovate *imposing* one.
 - **CVEs skip the cooldown, not the review.** Vulnerability fixes get a PR
   immediately (`minimumReleaseAge: 0`) but still need a human merge.
 - **SHA over tag.** A tag can be force-moved; a commit SHA can't. Actions pin to
-  `owner/repo@<sha> # <version>`.
+  `owner/repo@<sha> # <version>`. Renovate writes that form, and
+  `tests/unit/test_update_versions.py` fails a PR that adds a third-party ref on a bare tag.
   - **Known exemption: external CLI tools pin by tag** (`tools:` in
     `versions.yaml`). We fetch a release *asset*, not a git ref, so a moved tag
     is not the threat. An asset can be deleted and re-uploaded under the same
@@ -75,17 +72,16 @@ flowchart TD
       DRIFT --> YOU
       GAPS --> YOU
     end
-    subgraph SCRIPT["ENFORCEMENT — hyperi-ci Actions, in CI"]
-      V["src/hyperi_ci/config/versions.yaml<br/>version + sha"] --> H["update-versions.py --apply<br/>--check gates CI"]
-      H --> W["workflows + composites<br/>pinned @sha # version"]
+    subgraph SCRIPT["ENFORCEMENT -- hyperi-ci tool + runtime pins, in CI"]
+      V["src/hyperi_ci/config/versions.yaml<br/>tools + runtimes"] --> H["update-versions.py --apply<br/>--check gates CI"]
+      H --> W["composite + workflow defaults<br/># hyperi-ci:pin markers"]
       L["--stable / --auto-update"] -->|newest release 7+ days old| V
     end
     subgraph REN["REMEDIATION — the forge, after the fact"]
-      D["detect updates"] --> DD{"cooldown ≥7d<br/>+ timestamp"}
+      D["detect updates<br/>incl. every uses: ref"] --> DD{"cooldown ≥7d<br/>+ timestamp"}
       DD -->|met| PR["raise PR"]
       PR --> HUMAN["human merges"]
     end
-    REN -.->|watchdog only on hyperi-ci - dashboard, no PR| DASH["Dependency Dashboard"]
     GAPS -.->|names what REN cannot reach| REN
 ```
 
@@ -200,33 +196,19 @@ the full pipeline, not just top-level workflows.
 
 | Flag | Does |
 |---|---|
-| `--check` (default) | show drift between `versions.yaml` and the pinned refs |
+| `--check` (default) | show drift between `versions.yaml` and its copies in the pipeline |
 | `--apply` | rewrite workflows + composites to match the SSOT |
-| `--stable` | report the newest release of each Action and tool that's >=7 days old |
+| `--stable` | report the newest release of each tool that's >=7 days old |
 | `--auto-update` | bump `versions.yaml` to those, validate locally, revert on failure. It does not commit and does not trigger remote CI |
 
 `--stable` is the SOAKED release, not the newest one - the same sense as the
 `stable` channel in [self-update.md](../self-update.md).
 
-`src/hyperi_ci/config/versions.yaml` is the SSOT. Two maps matter here:
+`src/hyperi_ci/config/versions.yaml` is the SSOT for tools, runtimes and the semantic-release install. It holds no `uses:` refs: those are Renovate's.
 
-- `actions: {name: {version, sha}}` - rewritten into `uses:` refs.
-- `tools: {name: {version, repo, pin}}` - external CLI tools we install.
+**Never hand-edit a mirrored tool pin** - the `--check` gate in CI fails on it. To change a pin, edit `versions.yaml` and let `--apply` rewrite it.
 
-**Never hand-edit a `uses:` ref or a mirrored tool pin** - the `--check` gate in
-CI fails on both. To change a pin, edit `versions.yaml` and let `--apply`
-rewrite it.
-
-The "newest version that's >=7 days old, pin *that* version's SHA now" rule means
-we always adopt a release only after its cooldown, and we pin the immutable SHA
-at adoption time rather than tracking a movable tag. Tools follow the same
-cooldown, but pin by tag (see the exemption above).
-
-**Majors are included.** `--auto-update` takes the newest release past the
-cooldown, whatever its major. Every bump goes through a PR, and a tool whose
-flags changed shows up as a red quality stage on the `ci-test-*` fleet. An
-action that has to stay on one major opts out with `max_major:` in
-`versions.yaml`.
+**Majors are included.** `--auto-update` takes the newest release past the cooldown, whatever its major. Every bump goes through a PR, and a tool whose flags changed shows up as a red quality stage on the `ci-test-*` fleet.
 
 The cooldown applies to **our own pins too**, not just to what `--auto-update`
 picks: pinning a release younger than 7 days is the same policy breach whoever

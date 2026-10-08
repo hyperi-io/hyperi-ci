@@ -1,6 +1,6 @@
 # Reusable-workflow pinning - gate-only (issue #31)
 
-`/deps` SHA-pins **third-party** actions ([deps-pinning.md](deps-pinning.md)).
+Renovate SHA-pins **third-party** actions ([deps-pinning.md](deps-pinning.md)).
 hyperi-ci's **own** reusable workflows reference their siblings + composites at
 `@main`, on purpose. This is the decision record for why, what breaks if you
 get it wrong, and the gate that makes `@main` safe.
@@ -84,7 +84,7 @@ but only by replacing a battle-tested tool with custom code.
   needed to *stop the breakage* - only to make the pin tamper-proof.
 - **First-party context.** Consumers are hyperi-io's own repos; hyperi-ci is our
   own tool. The "frozen auditable graph" / tamper-resistance benefit matters far
-  more for **third-party** deps (which `/deps` SHA-pins) than for our **own**
+  more for **third-party** deps (which Renovate SHA-pins) than for our **own**
   internals - those are defended by org access control + the gate, not by pinning.
 - **Reversible.** If tamper-resistance ever becomes a hard requirement, `@v2`
   adds a compatible-band frozen graph with a one-line tag-move - still no custom

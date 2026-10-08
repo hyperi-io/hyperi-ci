@@ -53,8 +53,7 @@ install is editable. Mechanics: [versioning-commit-back.md](versioning-commit-ba
 
 ## Same-org refs stay `@main` - made safe by a gate
 
-Third-party actions are SHA-pinned (`/deps` script + `src/hyperi_ci/config/versions.yaml`,
-7-day cooldown). Our **own** reusable workflows and composites reference their
+Third-party actions are SHA-pinned by Renovate, with a 7-day cooldown. Our **own** reusable workflows and composites reference their
 siblings at `@main`, deliberately - pinning them would freeze the dev loop. A
 consumer SHA-pinning the *caller* still floats those `@main` internals, so a
 breaking interface change on `main` could break pinned consumers retroactively.
