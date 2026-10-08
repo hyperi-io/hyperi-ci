@@ -96,7 +96,7 @@ flowchart TB
 
 | Layer | Owns | Why here |
 |---|---|---|
-| Per-language workflow + handlers | toolchains, build matrix, `_run_tool` carve-outs (e.g. cargo-audit transient skip), version stamping target | legitimately differs per language; the SME needs full control |
+| Per-language workflow + handlers | toolchains, build matrix, per-call `run_gate_tool` options (e.g. cargo-audit's unreachable-DB retry, gofmt's listing as a finding), version stamping target | legitimately differs per language; the SME needs full control |
 | `predict-version`, `setup-semantic-release`, `_release-tail` | trigger gate, version oracle, semantic-release toolchain, container + tag + publish orchestration | identical across languages; shared so a fix lands once, not 4x |
 
 Rule: shared pieces must help the SME, never hobble them. Anything needing a

@@ -29,7 +29,7 @@ import yaml
 
 from hyperi_ci.common import info, run_cmd, warn
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import resolve_cross_tool_mode
+from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.quality import findings as fdg
 from hyperi_ci.quality.install import install_ci_binary
 from hyperi_ci.quality.targets import first_file
@@ -127,7 +127,7 @@ def run(
     written there and passed with ``--config``; without it kube-linter reads
     the repo's own config from the working directory.
     """
-    if resolve_cross_tool_mode(config, "kube_linter", "warn") == "disabled":
+    if resolve_tool_mode("kube_linter", config, default="warn") == "disabled":
         info("  kube-linter: disabled")
         return 0
     if not targets:

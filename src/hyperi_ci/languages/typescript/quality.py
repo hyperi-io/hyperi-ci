@@ -14,13 +14,11 @@ eslint config. Test relaxation is applied at the eslint config level
 (overrides section); hyperi-ci has no ``test_ignore`` for TypeScript.
 """
 
-import shutil
-import subprocess
 from pathlib import Path
 
-from hyperi_ci.common import error, info, is_ci, success, warn
+from hyperi_ci.common import error, info, warn
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import resolve_tool_mode
+from hyperi_ci.languages.quality_common import resolve_tool_mode, run_gate_tool
 from hyperi_ci.languages.typescript._common import (
     detect_package_manager,
     detect_yarn_version,
@@ -71,13 +69,6 @@ def _has_any(markers: tuple[str, ...]) -> bool:
     return any(Path(m).exists() for m in markers)
 
 
-_DEFAULT_TS_TEST_IGNORE = [
-    "@typescript-eslint/no-explicit-any",
-    "@typescript-eslint/no-non-null-assertion",
-    "no-console",
-]
-
-
 def _find_npm_script(
     candidates: list[str],
     pm: str,
@@ -108,63 +99,6 @@ def _find_npm_script(
     except (json.JSONDecodeError, KeyError):
         pass
     return None
-
-
-def _get_tool_mode(tool: str, config: CIConfig) -> str:
-    return resolve_tool_mode(tool, config, "typescript")
-
-
-def _resolve_tool_cmd(cmd: list[str], use_uvx: bool = False) -> list[str]:
-    """Resolve tool command, using uvx for standalone tools not on PATH."""
-    if shutil.which(cmd[0]):
-        return cmd
-    if use_uvx and shutil.which("uvx"):
-        return ["uvx", *cmd]
-    return cmd
-
-
-def _run_tool(
-    tool_name: str,
-    cmd: list[str],
-    mode: str,
-    use_uvx: bool = False,
-) -> bool:
-    if mode == "disabled":
-        info(f"  {tool_name}: disabled")
-        return True
-
-    resolved = _resolve_tool_cmd(cmd, use_uvx=use_uvx)
-    if use_uvx and resolved == cmd and not shutil.which(cmd[0]):
-        # A missing tool fails the gate only in CI, where every tool MUST
-        # be present - a silent skip would mask a coverage gap. Locally it
-        # is an environment gap, not a quality finding: warn and carry on
-        # so `hyperi-ci check` still runs whatever IS installed (matches
-        # the gitleaks stage's local-vs-CI handling).
-        if mode == "blocking" and is_ci():
-            error(f"  {tool_name}: not installed (required)")
-            return False
-        warn(f"  {tool_name}: not installed (skipping locally)")
-        return True
-
-    result = subprocess.run(
-        resolved, capture_output=True, text=True, encoding="utf-8", errors="replace"
-    )
-    if result.returncode == 0:
-        success(f"  {tool_name}: passed")
-        return True
-
-    if mode == "warn":
-        warn(f"  {tool_name}: issues found (non-blocking)")
-        if result.stdout:
-            print(result.stdout)
-        return True
-
-    error(f"  {tool_name}: failed")
-    if result.stdout:
-        print(result.stdout)
-    if result.stderr:
-        print(result.stderr)
-    return False
 
 
 def _audit_command(*, audit_level: str, pm: str, yarn_major: int) -> list[str]:
@@ -219,12 +153,12 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # Prefer the project's `lint` script (respects its own config).
     # Fall back to `npx eslint .` if an eslint config file is present.
     # Skip with a warning if neither -- don't silently drop coverage.
-    mode = _get_tool_mode("eslint", config)
+    mode = resolve_tool_mode("eslint", config, language="typescript")
     if _find_npm_script(["lint"], pm):
-        if not _run_tool("eslint", [pm, "run", "lint"], mode):
+        if not run_gate_tool("eslint", [pm, "run", "lint"], mode):
             had_failure = True
     elif _has_any(_ESLINT_CONFIG_MARKERS):
-        if not _run_tool("eslint", ["npx", "eslint", "."], mode):
+        if not run_gate_tool("eslint", ["npx", "eslint", "."], mode):
             had_failure = True
     else:
         warn("  eslint: no 'lint' script and no eslint config -- skipping")
@@ -234,15 +168,15 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # as `prettier --write .` and the `--check` arg may not propagate.
     # Prefer explicit check-variant scripts; fall back to direct
     # invocation with `--check` which is unambiguous.
-    mode = _get_tool_mode("prettier", config)
+    mode = resolve_tool_mode("prettier", config, language="typescript")
     format_check_script = _find_npm_script(
         ["format:check", "check-format", "check:format"], pm
     )
     if format_check_script:
-        if not _run_tool("prettier", [pm, "run", format_check_script], mode):
+        if not run_gate_tool("prettier", [pm, "run", format_check_script], mode):
             had_failure = True
     elif _has_any(_PRETTIER_CONFIG_MARKERS):
-        if not _run_tool("prettier", ["npx", "prettier", "--check", "."], mode):
+        if not run_gate_tool("prettier", ["npx", "prettier", "--check", "."], mode):
             had_failure = True
     else:
         warn("  prettier: no 'format:check' script and no prettier config -- skipping")
@@ -252,19 +186,19 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # a tsconfig.json exists. Skipping without tsconfig avoids tsc
     # crawling cwd with default settings (noisy / error-prone on pure-JS
     # projects that pass detection via the javascript->typescript alias).
-    mode = _get_tool_mode("tsc", config)
+    mode = resolve_tool_mode("tsc", config, language="typescript")
     tsc_script = _find_npm_script(["typecheck", "check-types"], pm)
     if tsc_script:
-        if not _run_tool("tsc", [pm, "run", tsc_script], mode):
+        if not run_gate_tool("tsc", [pm, "run", tsc_script], mode):
             had_failure = True
     elif Path("tsconfig.json").exists():
-        if not _run_tool("tsc", ["npx", "tsc", "--noEmit"], mode):
+        if not run_gate_tool("tsc", ["npx", "tsc", "--noEmit"], mode):
             had_failure = True
     else:
         warn("  tsc: no typecheck script and no tsconfig.json -- skipping")
 
     # --- audit + semgrep -- run on any JS/TS project; orthogonal to npm scripts ---
-    mode = _get_tool_mode("audit", config)
+    mode = resolve_tool_mode("audit", config, language="typescript")
     audit_level = config.get("quality.typescript.audit_level", "moderate")
     yarn_major = detect_yarn_version() if pm == "yarn" else 0
     audit_cmd = _audit_command(audit_level=audit_level, pm=pm, yarn_major=yarn_major)
@@ -282,7 +216,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
                 f"{pm}-audit but the tool has no CLI ignore flag. Use "
                 f"package.json overrides instead."
             )
-    if not _run_tool("audit", audit_cmd, mode):
+    if not run_gate_tool("audit", audit_cmd, mode):
         had_failure = True
 
     # osv-scanner -- malicious-package (MAL-*) scan. npm/pnpm/yarn audit are
@@ -290,7 +224,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # feed -- where the bulk of typosquat/compromised-maintainer attacks
     # (and ossf/malicious-packages#1276) live. Defence-in-depth behind the
     # 7-day Renovate cooldown.
-    mode = _get_tool_mode("osv_scanner", config)
+    mode = resolve_tool_mode("osv_scanner", config, language="typescript")
     osv_lockfile = Path(_PM_LOCKFILE.get(pm, "package-lock.json"))
     if not osv_scanner.run(osv_lockfile, for_tool(ignores, osv_scanner.SLUG), mode):
         had_failure = True

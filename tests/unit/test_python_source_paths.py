@@ -287,7 +287,8 @@ class TestQualityWithNoSource:
         warnings: list[str] = []
         infos: list[str] = []
         monkeypatch.setattr(quality, "warn", warnings.append)
-        monkeypatch.setattr(quality, "info", infos.append)
+        monkeypatch.setattr(quality_common, "warn", warnings.append)
+        monkeypatch.setattr(quality_common, "info", infos.append)
         raw = {"quality": {"python": {"vulture": "disabled"}}}
 
         quality.run(CIConfig(_raw=raw))

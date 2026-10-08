@@ -6,85 +6,14 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Golang quality checks handler."""
 
-import shutil
-import subprocess
-
-from hyperi_ci.common import error, info, is_ci, success, warn
+from hyperi_ci.common import info, warn
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import get_test_ignore, resolve_tool_mode
+from hyperi_ci.languages.quality_common import (
+    get_test_ignore,
+    resolve_tool_mode,
+    run_gate_tool,
+)
 from hyperi_ci.quality.ignores import for_tool, load_ignores
-from hyperi_ci.tools import warn_on_pin_drift
-
-_DEFAULT_GO_TEST_IGNORE = ["errcheck", "gosec"]
-
-
-def _get_tool_mode(tool: str, config: CIConfig) -> str:
-    return resolve_tool_mode(tool, config, "golang")
-
-
-def _resolve_tool_cmd(cmd: list[str], use_uvx: bool = False) -> list[str]:
-    """Resolve tool command, using uvx for standalone tools not on PATH."""
-    if shutil.which(cmd[0]):
-        return cmd
-    if use_uvx and shutil.which("uvx"):
-        return ["uvx", *cmd]
-    return cmd
-
-
-def _run_tool(
-    tool_name: str,
-    cmd: list[str],
-    mode: str,
-    use_uvx: bool = False,
-    pinned: str | None = None,
-    output_is_finding: bool = False,
-) -> bool:
-    """Run a quality tool. Returns True if the pipeline should continue.
-
-    ``pinned`` names the ``versions.yaml`` key of the binary behind the
-    command, whose PATH copy is checked against the pin before it runs.
-    ``output_is_finding`` treats any stdout as a finding, for a tool such as
-    ``gofmt -l`` that lists what it found and still exits 0.
-    """
-    if mode == "disabled":
-        info(f"  {tool_name}: disabled")
-        return True
-
-    resolved = _resolve_tool_cmd(cmd, use_uvx=use_uvx)
-    if resolved == cmd and not shutil.which(cmd[0]):
-        # A missing tool fails the gate only in CI, where every tool MUST
-        # be present - a silent skip would mask a coverage gap. Locally it
-        # is an environment gap, not a quality finding: warn and carry on
-        # so `hyperi-ci check` still runs whatever IS installed (matches
-        # the gitleaks stage's local-vs-CI handling).
-        if mode == "blocking" and is_ci():
-            error(f"  {tool_name}: not installed (required)")
-            return False
-        warn(f"  {tool_name}: not installed (skipping locally)")
-        return True
-
-    if pinned:
-        warn_on_pin_drift(pinned)
-    result = subprocess.run(
-        resolved, capture_output=True, text=True, encoding="utf-8", errors="replace"
-    )
-    found = output_is_finding and bool(result.stdout.strip())
-    if result.returncode == 0 and not found:
-        success(f"  {tool_name}: passed")
-        return True
-
-    if mode == "warn":
-        warn(f"  {tool_name}: issues found (non-blocking)")
-        if result.stdout:
-            info(result.stdout)
-        return True
-
-    error(f"  {tool_name}: failed")
-    if result.stdout:
-        info(result.stdout)
-    if result.stderr:
-        info(result.stderr)
-    return False
 
 
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
@@ -93,23 +22,23 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     ignores = load_ignores(config._raw)
     had_failure = False
 
-    mode = _get_tool_mode("gofmt", config)
-    if not _run_tool("gofmt", ["gofmt", "-l", "."], mode, output_is_finding=True):
+    mode = resolve_tool_mode("gofmt", config, language="golang")
+    if not run_gate_tool("gofmt", ["gofmt", "-l", "."], mode, output_is_finding=True):
         had_failure = True
 
-    mode = _get_tool_mode("govet", config)
-    if not _run_tool("go vet", ["go", "vet", "./..."], mode):
+    mode = resolve_tool_mode("govet", config, language="golang")
+    if not run_gate_tool("go vet", ["go", "vet", "./..."], mode):
         had_failure = True
 
     # golangci-lint -- two-pass: production (strict) + test (relaxed)
-    mode = _get_tool_mode("golangci_lint", config)
-    test_ignore = get_test_ignore("golang", config, _DEFAULT_GO_TEST_IGNORE)
+    mode = resolve_tool_mode("golangci_lint", config, language="golang")
+    test_ignore = get_test_ignore("golang", config)
     gci_user_ignores = for_tool(ignores, "golangci-lint")
     gci_user_disable = [f"--disable={e.id}" for e in gci_user_ignores]
 
     # Production pass -- skip test files. The pin is checked here only, so the
     # test pass does not repeat the warning.
-    if not _run_tool(
+    if not run_gate_tool(
         "golangci-lint (src)",
         ["golangci-lint", "run", "--tests=false", "--timeout", "5m"] + gci_user_disable,
         mode,
@@ -120,7 +49,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # Test pass -- include tests, disable specific linters
     if test_ignore:
         disable_flags = [f"--disable={linter}" for linter in test_ignore]
-        if not _run_tool(
+        if not run_gate_tool(
             "golangci-lint (tests)",
             ["golangci-lint", "run", "--timeout", "5m"]
             + disable_flags
@@ -129,18 +58,18 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         ):
             had_failure = True
 
-    mode = _get_tool_mode("gosec", config)
+    mode = resolve_tool_mode("gosec", config, language="golang")
     gosec_cmd = ["gosec", "-quiet", "-tests=false"]
     gosec_ignores = for_tool(ignores, "gosec")
     if gosec_ignores:
         gosec_cmd.extend(["-exclude", ",".join(e.id for e in gosec_ignores)])
     gosec_cmd.append("./...")
-    if not _run_tool("gosec", gosec_cmd, mode, pinned="gosec"):
+    if not run_gate_tool("gosec", gosec_cmd, mode, pinned="gosec"):
         had_failure = True
 
     # govulncheck has no native --ignore flag; emit a notice when entries
     # exist for it so operators understand why their config isn't applied.
-    mode = _get_tool_mode("govulncheck", config)
+    mode = resolve_tool_mode("govulncheck", config, language="golang")
     govuln_ignores = for_tool(ignores, "govulncheck")
     if govuln_ignores:
         warn(
@@ -148,7 +77,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             "no CLI ignore flag. Use //vuln:ignore source annotations or run "
             "via warn mode."
         )
-    if not _run_tool(
+    if not run_gate_tool(
         "govulncheck", ["govulncheck", "./..."], mode, pinned="govulncheck"
     ):
         had_failure = True

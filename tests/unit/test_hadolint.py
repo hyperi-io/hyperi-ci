@@ -75,27 +75,56 @@ class TestParse:
         assert hadolint._parse("not json") == []
 
 
+_ERROR_FINDING = json.dumps(
+    [{"file": "Dockerfile", "line": 1, "level": "error", "code": "SC2086"}]
+)
+
+
+def _acted_on(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, raw: dict | None = None
+) -> str:
+    """The mode hadolint.run acts on, read from what it does with an error."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "Dockerfile").write_text("FROM x\n", encoding="utf-8")
+    ran: list[object] = []
+
+    def _run(*a: object, **_k: object) -> SimpleNamespace:
+        ran.append(a)
+        return SimpleNamespace(stdout=_ERROR_FINDING, returncode=0)
+
+    monkeypatch.setattr(hadolint, "_install_hadolint", lambda: "/usr/bin/hadolint")
+    monkeypatch.setattr(hadolint, "run_cmd", _run)
+    rc = hadolint.run(_cfg(raw))
+    if not ran:
+        return "disabled"
+    return "blocking" if rc == 1 else "warn"
+
+
 class TestResolveMode:
-    def test_default_blocking(self) -> None:
-        assert hadolint._resolve_mode(_cfg()) == "blocking"
+    def test_default_blocking(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert _acted_on(monkeypatch, tmp_path) == "blocking"
 
-    def test_disabled(self) -> None:
-        assert (
-            hadolint._resolve_mode(_cfg({"quality": {"hadolint": "disabled"}}))
-            == "disabled"
-        )
+    def test_warn(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        raw = {"quality": {"hadolint": "warn"}}
+        assert _acted_on(monkeypatch, tmp_path, raw) == "warn"
 
-    def test_skip_wins(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_disabled(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        raw = {"quality": {"hadolint": "disabled"}}
+        assert _acted_on(monkeypatch, tmp_path, raw) == "disabled"
+
+    def test_skip_wins(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(_SKIP, "hadolint")
-        assert hadolint._resolve_mode(_cfg()) == "disabled"
+        assert _acted_on(monkeypatch, tmp_path) == "disabled"
 
-    def test_unknown_mode_falls_back_to_default(self) -> None:
+    def test_unknown_mode_falls_back_to_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         # A typo like `block` must NOT silently disable the gate - it warns and
         # falls back to the tool's default (blocking here), not advisory.
-        assert (
-            hadolint._resolve_mode(_cfg({"quality": {"hadolint": "block"}}))
-            == "blocking"
-        )
+        raw = {"quality": {"hadolint": "block"}}
+        assert _acted_on(monkeypatch, tmp_path, raw) == "blocking"
 
 
 class TestRun:

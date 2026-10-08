@@ -29,7 +29,7 @@ from pathlib import Path
 
 from hyperi_ci.common import info, run_cmd, warn
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import resolve_cross_tool_mode, resolve_tool_cmd
+from hyperi_ci.languages.quality_common import resolve_tool_cmd, resolve_tool_mode
 from hyperi_ci.quality import findings as fdg
 from hyperi_ci.tools import missing_tool_notice
 from hyperi_ci.versions import tool_version
@@ -38,11 +38,6 @@ _DEFAULT_FRAMEWORKS = ["kubernetes", "helm", "kustomize", "terraform"]
 # Never scan the worktree duplicate trees or scratch (regex, matched by Checkov
 # --skip-path against the path).
 _DEFAULT_SKIP_PATHS = [r".*/\.worktrees/.*", r".*/\.tmp/.*"]
-
-
-def _resolve_mode(config: CIConfig) -> str:
-    """Resolve Checkov's mode: ``warn`` (default) / ``blocking`` / ``disabled``."""
-    return resolve_cross_tool_mode(config, "checkov", "warn")
 
 
 def _base_cmd() -> list[str] | None:
@@ -72,7 +67,7 @@ def run(
     (advisory), so day-one it never fails. ``memory_limit_bytes`` caps
     Checkov's address space.
     """
-    mode = _resolve_mode(config)
+    mode = resolve_tool_mode("checkov", config, default="warn")
     if mode == "disabled":
         info("  checkov: disabled")
         return 0

@@ -303,13 +303,13 @@ class TestPinDriftWarning:
         assert "golangci-lint" in drift[0]
         assert "1.64.0" in drift[0]
 
-    def test_rust_handler_names_cargo_audit_drift(
+    def test_the_runner_names_cargo_audit_drift(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         said, _ = self._drift(
             monkeypatch, {"cargo": "", "cargo-audit": "cargo-audit 0.18.3"}
         )
-        assert rust_quality._run_tool(
+        assert quality_common.run_gate_tool(
             "cargo audit", ["cargo", "audit"], "blocking", pinned="cargo-audit"
         )
         assert len(said) == 1, said

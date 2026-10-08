@@ -25,7 +25,7 @@ complete form.** Shared pieces must help the SME, never hobble them.
 | semantic-release toolchain + default config | YES | `actions/setup-semantic-release` composite |
 | Release tail (container + tag + publish) | YES | `_release-tail.yml` reusable workflow |
 | Version stamping (VERSION file) | YES | CLI `stamp-version` (central), see below |
-| Build commands, cache keys, `_run_tool` carve-outs | NO | Inline per language in `<lang>-ci.yml` + handlers |
+| Build commands, cache keys, per-call `run_gate_tool` options | NO | Inline per language in `<lang>-ci.yml` + handlers |
 | Plan-job structure, gate `if:` strings | DUPLICATED inline | small and identical across the four workflows; cheaper than the abstraction - drift caught by `tests/unit/test_workflow_consistency.py` |
 
 **When we extract a composite vs inline:** when the shared steps are more than a
