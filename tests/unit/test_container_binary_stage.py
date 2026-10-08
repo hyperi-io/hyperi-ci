@@ -17,7 +17,7 @@ from unittest.mock import patch
 import pytest
 
 from hyperi_ci.config import CIConfig, OrgConfig
-from hyperi_ci.container import binary_stage, stage
+from hyperi_ci.container import binary_stage, build, stage
 from hyperi_ci.container.binary_stage import (
     LICENCE_DEST,
     find_licence_file,
@@ -54,7 +54,7 @@ class TestNoRewriteCases:
     def test_no_dockerfile_copies(self, cwd_tmp: Path) -> None:
         df = _write_dockerfile(
             cwd_tmp,
-            "FROM ubuntu:24.04\nRUN apt-get update\n",
+            "FROM ubuntu:24.04\nRUN echo hello\n",
         )
         result = stage_binary_dockerfile(df)
         assert result == df
@@ -218,7 +218,7 @@ class TestPreservesNonRewriteContent:
         result.unlink()
 
         # Surrounding lines preserved verbatim.
-        assert "RUN apt-get update && apt-get install -y curl" in rewritten
+        assert "RUN apt-get -o Acquire::Retries=5 update" in rewritten
         assert "RUN chmod +x /usr/local/bin/demo" in rewritten
         assert 'ENTRYPOINT ["demo"]' in rewritten
 
@@ -322,6 +322,62 @@ class TestRegressionFromBugSpec:
         assert "ARG TARGETARCH" in rewritten
         # Bare COPY gone -- that was the bug.
         assert "\nCOPY dfe-archiver " not in rewritten
+
+
+class TestAptRetries:
+    """Every apt-get in the built Dockerfile retries transient fetch errors."""
+
+    def test_every_apt_get_gets_retries(self, cwd_tmp: Path) -> None:
+        # The ci-test-rust-app shape: two apt-get updates and two installs.
+        df = _write_dockerfile(
+            cwd_tmp,
+            "FROM ubuntu:24.04\n"
+            "RUN apt-get update \\\n"
+            "    && apt-get install -y --no-install-recommends curl \\\n"
+            "    && apt-get update \\\n"
+            "    && apt-get install -y librdkafka1\n",
+        )
+        result = stage_binary_dockerfile(df)
+        assert result != df
+        text = result.read_text(encoding="utf-8")
+        result.unlink()
+        assert text.count("apt-get -o Acquire::Retries=5 ") == 4
+        assert text.count("apt-get ") == 4
+
+    def test_retries_reach_the_buildx_dockerfile(self, cwd_tmp: Path) -> None:
+        df = _write_dockerfile(cwd_tmp, "FROM ubuntu:24.04\nRUN apt-get update\n")
+        built = stage_binary_dockerfile(df)
+        cmd = build.buildx_command(
+            dockerfile_path=built,
+            context=".",
+            tags=["img:1"],
+            platforms=["linux/arm64"],
+            labels={},
+            build_args=None,
+            push=False,
+            metadata_file=None,
+        )
+        passed = Path(cmd[cmd.index("--file") + 1])
+        text = passed.read_text(encoding="utf-8")
+        built.unlink()
+        assert "Acquire::Retries=5" in text
+
+    def test_existing_retries_setting_is_kept(self, cwd_tmp: Path) -> None:
+        df = _write_dockerfile(
+            cwd_tmp,
+            "FROM ubuntu:24.04\nRUN apt-get -o Acquire::Retries=9 update\n",
+        )
+        assert stage_binary_dockerfile(df) == df
+
+    def test_comment_lines_are_left_alone(self, cwd_tmp: Path) -> None:
+        df = _write_dockerfile(
+            cwd_tmp, "FROM ubuntu:24.04\n# apt-get update is slow\nRUN echo hi\n"
+        )
+        assert stage_binary_dockerfile(df) == df
+
+    def test_dockerfile_without_apt_is_untouched(self, cwd_tmp: Path) -> None:
+        df = _write_dockerfile(cwd_tmp, "FROM alpine\nRUN apk add curl\n")
+        assert stage_binary_dockerfile(df) == df
 
 
 class TestLicenceCopy:

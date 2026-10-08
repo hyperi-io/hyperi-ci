@@ -13,7 +13,10 @@ rewritten Dockerfile that copies ``dist/<app>-linux-${TARGETARCH}``, which
 buildx resolves per platform. Dockerfiles already using that form are left
 alone.
 
-The rewrite also appends ``COPY LICENSE /licenses/LICENSE`` (the Red Hat
+The rewrite also gives every ``apt-get`` in the Dockerfile ``-o
+Acquire::Retries=5``, so a mirror mid-sync does not fail an arm64 build.
+
+It also appends ``COPY LICENSE /licenses/LICENSE`` (the Red Hat
 certification path) when the context root has a licence file, so the image
 carries the text its ``org.opencontainers.image.licenses`` label names.
 """
@@ -47,6 +50,10 @@ _COPY_LINE = re.compile(
 
 _FROM_LINE = re.compile(r"^\s*FROM\s+(--\S+\s+)*\S+(\s+AS\s+\S+)?\s*$", re.IGNORECASE)
 
+APT_RETRIES = 5
+
+_APT_GET = re.compile(r"\bapt-get(?=\s)")
+
 _ARG_TARGETARCH = re.compile(r"^\s*ARG\s+TARGETARCH\b", re.IGNORECASE)
 
 
@@ -79,12 +86,15 @@ def stage_binary_dockerfile(
 
     rewrites = _find_binary_copy_rewrites(original, dist)
     licence = find_licence_file(context or Path("."))
-    if not rewrites and licence is None:
+    retried = _add_apt_retries(original)
+    if not rewrites and licence is None and retried == original:
         return dockerfile_path
 
-    rewritten = original
+    rewritten = retried
+    if retried != original:
+        info(f"Container: apt-get retries transient fetch errors ({APT_RETRIES}x)")
     if rewrites:
-        rewritten = _apply_rewrites(original, rewrites)
+        rewritten = _apply_rewrites(retried, rewrites)
         info(
             f"Container: rewriting {len(rewrites)} bare COPY line(s) to use "
             "${TARGETARCH} for multi-arch builds"
@@ -106,6 +116,22 @@ def stage_binary_dockerfile(
     ) as f:
         f.write(rewritten)
         return Path(f.name)
+
+
+def _add_apt_retries(content: str) -> str:
+    """Return ``content`` with every ``apt-get`` given ``Acquire::Retries``.
+
+    A flag on the command leaves nothing behind in the image and works on
+    shell-less or non-apt bases. Comment lines and commands that already set
+    ``Acquire::Retries`` are skipped, and no line is added or removed.
+    """
+    out = []
+    for line in content.split("\n"):
+        if line.lstrip().startswith("#") or "Acquire::Retries" in line:
+            out.append(line)
+            continue
+        out.append(_APT_GET.sub(f"apt-get -o Acquire::Retries={APT_RETRIES}", line))
+    return "\n".join(out)
 
 
 def find_licence_file(context: Path) -> str | None:
