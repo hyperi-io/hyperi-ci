@@ -8,10 +8,11 @@
 
 import json
 import string
-from collections.abc import Mapping
+import time
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
-from hyperi_ci.common import error, info, run_cmd, success
+from hyperi_ci.common import echo_chunk, error, info, stream_cmd, success, warn
 from hyperi_ci.container.labels import (
     labels_to_build_args,
     labels_to_index_annotation_args,
@@ -19,6 +20,38 @@ from hyperi_ci.container.labels import (
 from hyperi_ci.release_branches import is_prerelease_version
 
 _BUILD_ARG_PLACEHOLDERS = ("version", "sha")
+
+# apt files these under errAuthErr (apt-pkg/acquire-worker.cc), which it never
+# retries, so only a rebuild once the mirror has finished syncing clears them.
+MIRROR_MARKERS = (
+    "Mirror sync in progress",
+    "Hash Sum mismatch",
+    "File has unexpected size",
+)
+
+# Last resort when `release.container` carries neither key; defaults.yaml owns them.
+_DEFAULT_BUILD_ATTEMPTS = 3
+_DEFAULT_RETRY_DELAY_SECONDS = 60.0
+
+
+def mirror_marker(output: str) -> str | None:
+    """Return the first :data:`MIRROR_MARKERS` entry found in ``output``, or None."""
+    return next((m for m in MIRROR_MARKERS if m in output), None)
+
+
+def retry_settings(container_cfg: Mapping[str, object]) -> tuple[int, float]:
+    """Return ``(attempts, delay_seconds)`` from ``release.container``.
+
+    A value that is not a number, or is below 1 attempt or 0 seconds, falls
+    back to the default rather than failing the build.
+    """
+    attempts = container_cfg.get("build_attempts", _DEFAULT_BUILD_ATTEMPTS)
+    delay = container_cfg.get("build_retry_delay_seconds", _DEFAULT_RETRY_DELAY_SECONDS)
+    if isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 1:
+        attempts = _DEFAULT_BUILD_ATTEMPTS
+    if isinstance(delay, bool) or not isinstance(delay, int | float) or delay < 0:
+        delay = _DEFAULT_RETRY_DELAY_SECONDS
+    return attempts, float(delay)
 
 
 class BuildArgError(ValueError):
@@ -169,11 +202,18 @@ def build_and_push(
     build_args: dict[str, str] | None = None,
     push: bool = True,
     metadata_file: Path | None = None,
+    attempts: int = 1,
+    retry_delay: float = 0.0,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> int:
     """Build a container image with docker buildx and optionally push.
 
     With ``push`` False the image is built and discarded: every layer still
     runs, but nothing leaves the runner.
+
+    A failed build whose output carries a :data:`MIRROR_MARKERS` entry is run
+    again, up to ``attempts`` in all. BuildKit's layer cache means the re-run
+    redoes only the failed layer. Any other failure returns at once.
 
     Args:
         dockerfile_path: Path to the Dockerfile.
@@ -186,6 +226,9 @@ def build_and_push(
         push: Push to every tagged registry when True.
         metadata_file: Where buildx writes its result metadata; read it
             back with :func:`pushed_digest`.
+        attempts: Total builds to try when an apt mirror is mid-sync.
+        retry_delay: Seconds to wait before each rebuild.
+        sleep: The wait, injectable so a test does not block.
 
     Returns:
         Exit code (0 = success).
@@ -206,11 +249,23 @@ def build_and_push(
     info(f"{action}: {', '.join(tags) if tags else '<no tags>'}")
     info(f"Platforms: {', '.join(platforms)}")
 
-    result = run_cmd(cmd, check=False)
+    returncode = 0
+    for attempt in range(1, max(attempts, 1) + 1):
+        returncode, tail = stream_cmd(cmd, on_line=None, on_chunk=echo_chunk)
+        if returncode == 0:
+            break
+        marker = mirror_marker(tail)
+        if marker is None or attempt >= attempts:
+            break
+        warn(
+            f"apt mirror looks mid-sync ('{marker}' in the build output), "
+            f"rebuilding in {retry_delay:g}s (attempt {attempt + 1} of {attempts})"
+        )
+        sleep(retry_delay)
 
-    if result.returncode != 0:
+    if returncode != 0:
         error("docker buildx build failed")
-        return result.returncode
+        return returncode
 
     action = "pushed" if push else "validated"
     if tags:

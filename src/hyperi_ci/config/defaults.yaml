@@ -472,6 +472,13 @@ release:
     # commit on its revision label): `CODE_VERSION: "{version}"`. Any other
     # `{...}` fails the build. Write a literal brace as `{{` or `}}`.
     build_args: {}
+    # An apt mirror caught mid-sync fails the build with "Mirror sync in
+    # progress", "Hash Sum mismatch" or "File has unexpected size", and apt
+    # never retries those itself. A build whose output carries one is run again,
+    # `build_attempts` builds in all, `build_retry_delay_seconds` apart. Any
+    # other failure fails at once. 1 turns the retry off.
+    build_attempts: 3
+    build_retry_delay_seconds: 60
 
 # One-line project description, duplicated by every registry that wants one:
 # PyPI, crates.io, npm, the OCI image label, GHCR's package page, the GitHub
