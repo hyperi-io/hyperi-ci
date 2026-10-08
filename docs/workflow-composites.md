@@ -20,7 +20,7 @@ complete form.** Shared pieces must help the SME, never hobble them.
 | Concern | Shared? | Where |
 |---|---|---|
 | Predict-and-gate (version oracle + gate outputs) | YES | `actions/predict-version` composite |
-| Toolchain + dep install (uv, language runtime) | YES | `actions/setup-runtime` composite |
+| Toolchain + dep install (uv, language runtime) | NO | Inline per language. `actions/setup-runtime` exists but only `rust-ci.yml` calls it |
 | OSV vulnerability scan | YES | `actions/setup-osv-scanner` composite |
 | semantic-release toolchain + default config | YES | `actions/setup-semantic-release` composite |
 | Release tail (container + tag + publish) | YES | `_release-tail.yml` reusable workflow |
@@ -29,11 +29,10 @@ complete form.** Shared pieces must help the SME, never hobble them.
 | Plan-job structure, gate `if:` strings | DUPLICATED inline | small and identical across the four workflows; cheaper than the abstraction - drift caught by `tests/unit/test_workflow_consistency.py` |
 
 **When we extract a composite vs inline:** when the shared steps are more than a
-few lines *and* identical across languages (runtime setup, the OSV scan, the
+few lines *and* identical across languages (the OSV scan, the
 semantic-release toolchain). A short repeated snippet stays inlined - composite
 indirection would cost more than it saves, and the consistency lint catches
-drift. This is a refinement of the earlier "inline everything" stance: the four
-composites above earned extraction; nothing smaller has.
+drift.
 
 ## Central vs language-specific (the VERSION example)
 
@@ -46,13 +45,10 @@ the same way everywhere - `HYPERCI_VERSION` env -> `VERSION` file
 disagree. See [flow.md](flow.md) section 3.
 
 `VERSION` is a stamp TARGET, not a version the project maintains. The value is
-derived from the git tags (semantic-release, in `predict-version`), written on the
-runner before packaging, and never committed back -- the other half of
-tag-on-publish: the released version IS the git tag. So the committed value is
-whatever it was last stamped to by hand, in every repo on hyperi-ci, and it goes
-stale immediately. It bites only where someone runs a package from its own
-checkout, which is why `hyperi-ci --version` names the checkout path when the
-install is editable.
+derived from the git tags (semantic-release, in `predict-version`) and written on the
+runner before packaging. After a successful publish, `release-commit` commits it back as an untagged `chore(release): vX [skip ci]` commit, so the committed value tracks the last release. The released version IS the git tag.
+It bites only where someone runs a package from a checkout that has not pulled that commit, which is why `hyperi-ci --version` names the checkout path when the
+install is editable. Mechanics: [versioning-commit-back.md](versioning-commit-back.md).
 
 ## Same-org refs stay `@main` - made safe by a gate
 

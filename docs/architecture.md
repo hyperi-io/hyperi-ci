@@ -138,30 +138,7 @@ Secrets.
 
 ## Release routing
 
-Everything publishes to the OSS registry stack, through one destination map
-(`config.publish_destinations()`). The legacy `release.target` config field
-(`internal` / `oss` / `both`) is read by nothing and warns until it is deleted.
-The `publish-target` workflow input is still declared so existing callers keep
-starting, and nothing reads it.
-
-The config namespace is `release:`. A `publish:` block still works: it folds into
-`release:` at load time and each moved key is named in a warning.
-
-| Artefact | Destination |
-|---|---|
-| Python wheel/sdist | pypi.org |
-| Rust crate | crates.io |
-| npm package | npmjs.com |
-| Container | GHCR (`ghcr.io/hyperi-io`) |
-| Binaries (Rust/Go) | GitHub Releases + Cloudflare R2 (`downloads.hyperi.io`) for GA |
-| Go module | go-proxy (by tag) |
-
-`release.channel` controls **prerelease vs GA**, not destination:
-`alpha`/`beta` ship as GitHub prereleases; `release` is GA. It does NOT gate the
-Rust build-opt tiers - `_resolve_build_channel` in `languages/rust/build.py`
-never reads it, and the tier follows whether the run releases
-([languages/RUST.md](languages/rust.md)). Detail + mermaid: [flow.md](flow.md)
-section 5-6. The JFrog migration record, and the artifact repos still serving
+Everything publishes to the OSS registry stack. The destination map, the channels and the Rust build tier are in [flow.md](flow.md) sections 5 and 6. The JFrog migration record, and the artifact repos still serving
 production, live in hyperi-infra docs/JFROG.md.
 
 ## Container builds
