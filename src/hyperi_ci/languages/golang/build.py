@@ -4,12 +4,10 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Golang build handler.
+"""Golang build handler: cross-compiled binaries named {binary}-{os}-{arch}.
 
-Builds Go projects with ldflags version injection, cross-compilation,
-binary stripping, and SHA256 checksums. Output follows the naming
-convention: {binary}-{os}-{arch}
-Version is in the R2/release path, not the filename.
+Injects the version through ldflags, strips symbols and writes SHA256
+checksums. The version is in the R2/release path, not the filename.
 """
 
 import os
@@ -56,10 +54,7 @@ def _detect_binary_name() -> str:
 
 
 def _detect_main_package(binary_name: str) -> str:
-    """Auto-detect the main package to build.
-
-    Priority: GO_MAIN_PKG env > cmd/{binary}/ > single cmd/ subdir > .
-    """
+    """Return GO_MAIN_PKG, else cmd/{binary}/, else the only cmd/ subdir, else ``.``."""
     explicit = os.environ.get("GO_MAIN_PKG", "")
     if explicit:
         return explicit
@@ -78,11 +73,10 @@ def _detect_main_package(binary_name: str) -> str:
 
 
 def _detect_version() -> str:
-    """Detect version from VERSION file, env vars, or fallback to "dev".
+    """Return the VERSION file, then GO_VERSION or CI_COMMIT_TAG, else "dev".
 
-    Priority: VERSION file (semantic-release) > explicit env > "dev".
-    GITHUB_REF_NAME is deliberately excluded -- during the publish job it is
-    the branch name (e.g. "release"), not the tag.
+    GITHUB_REF_NAME is excluded because in the publish job it is the branch
+    name, not the tag.
     """
     version_file = Path("VERSION")
     if version_file.exists():
@@ -98,10 +92,9 @@ def _detect_version() -> str:
 
 
 def _build_ldflags(version: str, version_pkg: str) -> str:
-    """Build ldflags string with version injection.
+    """Build the ldflags string (default ``-s -w``, or GO_LDFLAGS).
 
-    -s strips symbol table, -w strips DWARF debug info.
-    Version/commit/build time are injected via -X if version_pkg is set.
+    Version, commit and build time are injected with -X when version_pkg is set.
     """
     commit_result = subprocess.run(
         ["git", "rev-parse", "--short", "HEAD"],
@@ -243,9 +236,5 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
 
 def stamp_manifest(version: str, root: Path) -> None:
-    """No-op: Go has no manifest version field.
-
-    The version is injected at link time via ldflags read from the VERSION
-    file (see the build's -ldflags). Nothing to stamp in go.mod.
-    """
+    """No-op: Go has no manifest version, the build injects it through ldflags."""
     del version, root
