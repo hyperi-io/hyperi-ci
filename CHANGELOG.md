@@ -3,6 +3,14 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.13.4](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.3...v2.13.4) (2026-10-08)
+
+### Bug Fixes
+
+* **ci:** judge a rehearsal on the workflow it edited, not the first run ([#604](https://github.com/hyperi-io/hyperi-ci/issues/604)) ([c2e5a83](https://github.com/hyperi-io/hyperi-ci/commit/c2e5a83e5b002b3b1ffd19dd53e4bd515d8a3269))
+* **ci:** wait only on rehearsed workflows that run on pull requests ([#605](https://github.com/hyperi-io/hyperi-ci/issues/605)) ([54091e8](https://github.com/hyperi-io/hyperi-ci/commit/54091e8f4f00f8aa5a06bd9c372997f92b09aa1f))
+* **release:** assemble a thin chart from the deployment contract ([#602](https://github.com/hyperi-io/hyperi-ci/issues/602)) ([f193ebd](https://github.com/hyperi-io/hyperi-ci/commit/f193ebd03772802862f316a9717c4e5ed261fbc1))
+
 ## [2.13.3](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.2...v2.13.3) (2026-10-08)
 
 ### Bug Fixes
