@@ -1251,7 +1251,8 @@ def chart_assemble_cmd(
         str | None,
         typer.Option(
             "--library-dir",
-            help="An unpacked scalo-service chart to use instead of pulling one",
+            help="An unpacked scalo-service chart to read instead of pulling one. "
+            "The chart's charts/ is then left for helm dependency build",
         ),
     ] = None,
     binary: Annotated[

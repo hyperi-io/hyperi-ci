@@ -478,19 +478,40 @@ class TestAssemble:
                 registry=REGISTRY,
             )
 
+    @pytest.mark.parametrize("tag", ["v1.2.3", "1.2.3", "1.10"])
+    def test_app_version_is_the_tag_as_pushed(self, tmp_path: Path, tag: str) -> None:
+        image = f"ghcr.io/hyperi-io/dfe-loader:{tag}@{DIGEST}"
+        chart = _assemble(tmp_path, image=image)
+        meta = yaml.safe_load((chart / "Chart.yaml").read_text(encoding="utf-8"))
+        assert meta["appVersion"] == tag
+
     @needs_helm
     def test_the_library_renders_the_charts_own_contract(self, tmp_path: Path) -> None:
-        chart = _assemble(tmp_path)
-        shutil.copytree(LIBRARY_DIR, chart / "charts" / "scalo-service")
-        rendered = subprocess.run(
-            ["helm", "template", "rel", str(chart)],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
+        library = yaml.safe_load(
+            (LIBRARY_DIR / "Chart.yaml").read_text(encoding="utf-8")
+        )["version"]
+        chart = assemble.assemble(
+            _raw(_contract()),
+            LIBRARY_DIR,
+            tmp_path,
+            version="1.4.2",
+            image=IMAGE,
+            library=library,
+            registry=f"file://{LIBRARY_DIR}",
         )
-        assert rendered.returncode == 0, rendered.stderr
+        for cmd in (
+            ["helm", "dependency", "build", str(chart)],
+            ["helm", "template", "rel", str(chart)],
+        ):
+            rendered = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+            )
+            assert rendered.returncode == 0, rendered.stderr
         docs = {d["kind"]: d for d in yaml.safe_load_all(rendered.stdout) if d}
         assert docs["ConfigMap"]["metadata"]["name"] == "dfe-loader-config"
         container = docs["Deployment"]["spec"]["template"]["spec"]["containers"][0]
@@ -608,6 +629,43 @@ class TestCli:
         assert result.exit_code == 0
         assert result.stdout == ""
 
+    def test_helm_switched_off_says_so(
+        self, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        said: list[str] = []
+        monkeypatch.setattr(assemble, "info", said.append)
+        helm = {"enabled": False, "contract": "deploy/contract.json", "library": "1"}
+        (repo / ".hyperi-ci.yaml").write_text(
+            yaml.safe_dump({"release": {"helm": helm}}), encoding="utf-8"
+        )
+        result = _invoke(repo)
+        assert (result.exit_code, result.stdout) == (0, "")
+        assert said == ["release.helm.enabled is off -- no chart to assemble"]
+
+    def test_a_failed_assembly_removes_its_temp_dir(
+        self, repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        runner_temp = tmp_path / "runner-temp"
+        runner_temp.mkdir()
+        monkeypatch.setenv("RUNNER_TEMP", str(runner_temp))
+        (repo / "deploy" / "contract.json").write_text(
+            json.dumps(_contract(metrics_port=0)), encoding="utf-8"
+        )
+        _configure(repo, "deploy/contract.json")
+        assert _invoke(repo).exit_code == 1
+        assert list(runner_temp.iterdir()) == []
+
+    def test_a_runner_temp_inside_the_repo_is_refused(
+        self, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        inside = repo / ".scratch"
+        inside.mkdir()
+        monkeypatch.setenv("RUNNER_TEMP", str(inside))
+        _configure(repo, "deploy/contract.json")
+        result = _invoke(repo)
+        assert (result.exit_code, result.stdout) == (1, "")
+        assert list(inside.iterdir()) == []
+
     def test_a_contract_without_a_library_version_fails(self, repo: Path) -> None:
         _configure(repo, "deploy/contract.json", library=None)
         assert _invoke(repo).exit_code == 1
@@ -615,6 +673,49 @@ class TestCli:
     def test_a_contract_path_outside_the_repo_fails(self, repo: Path) -> None:
         _configure(repo, "../elsewhere.json")
         assert _invoke(repo).exit_code == 1
+
+
+class TestPulledLibrary:
+    @pytest.fixture
+    def helm_calls(self, monkeypatch: pytest.MonkeyPatch) -> list[tuple]:
+        calls: list[tuple] = []
+
+        def _helm(*args: str, registry: str = "") -> tuple[int, str]:
+            calls.append((*args, registry))
+            return (1, "pull access denied") if "fail" in registry else (0, "")
+
+        monkeypatch.setattr(assemble, "_ensure_helm", lambda: True)
+        monkeypatch.setattr(assemble, "_login", lambda registry: None)
+        monkeypatch.setattr(
+            assemble, "_pull_library", lambda registry, library, scratch: LIBRARY_DIR
+        )
+        monkeypatch.setattr(assemble, "_helm", _helm)
+        return calls
+
+    def _run(self, repo: Path, registry: str) -> tuple[int, Path | None]:
+        _configure(repo, "deploy/contract.json")
+        return assemble.assemble_chart(
+            config_module.load_config(project_dir=repo, reload=True),
+            repo,
+            image=IMAGE,
+            output_dir=repo.parent / "out",
+            registry=registry,
+            version="1.4.2",
+        )
+
+    def test_the_dependency_is_built_into_the_chart(
+        self, repo: Path, helm_calls: list[tuple]
+    ) -> None:
+        rc, chart = self._run(repo, REGISTRY)
+        assert rc == 0
+        assert helm_calls == [("dependency", "build", str(chart), REGISTRY)]
+
+    def test_a_failed_dependency_build_fails_and_leaves_no_chart(
+        self, repo: Path, helm_calls: list[tuple]
+    ) -> None:
+        rc, chart = self._run(repo, "oci://fail.example.com/charts")
+        assert (rc, chart) == (1, None)
+        assert list((repo.parent / "out").iterdir()) == []
 
 
 class TestLibraryPull:
