@@ -1231,6 +1231,106 @@ def publish_charts_cmd(
     raise typer.Exit(rc)
 
 
+chart_app = typer.Typer(help="Build Helm charts from a deployment contract")
+app.add_typer(chart_app, name="chart")
+
+
+@chart_app.command(name="assemble")
+def chart_assemble_cmd(
+    image: Annotated[
+        str,
+        typer.Option("--image", help="The pushed image, <repo>:<tag>@sha256:<digest>"),
+    ],
+    output_dir: Annotated[
+        str | None,
+        typer.Option(
+            "--output-dir", help="Where the chart dir goes. Default: a new temp dir"
+        ),
+    ] = None,
+    library_dir: Annotated[
+        str | None,
+        typer.Option(
+            "--library-dir",
+            help="An unpacked scalo-service chart to read instead of pulling one. "
+            "The chart's charts/ is then left for helm dependency build",
+        ),
+    ] = None,
+    binary: Annotated[
+        str | None,
+        typer.Option(
+            "--binary", help="Command whose generate-artefacts emits the contract"
+        ),
+    ] = None,
+    registry: Annotated[
+        str | None,
+        typer.Option("--registry", help="oci:// URL. Overrides release.helm.registry"),
+    ] = None,
+    version: Annotated[
+        str | None,
+        typer.Option("--version", help="Chart version. Default: the release version"),
+    ] = None,
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+) -> None:
+    """Assemble a thin chart on scalo-service from release.helm.contract.
+
+    The contract is validated against the schema the scalo-service chart
+    ships, and the chart is written outside the repo. Its directory is the
+    only line on stdout, and nothing is printed when the project sets no
+    contract.
+    """
+    from hyperi_ci.release.assemble import assemble_chart
+
+    root = Path(project_dir) if project_dir else Path.cwd()
+    rc, chart = assemble_chart(
+        load_config(project_dir=root),
+        root,
+        image=image,
+        output_dir=Path(output_dir) if output_dir else None,
+        library_dir=Path(library_dir) if library_dir else None,
+        binary=binary,
+        registry=registry,
+        version=version,
+    )
+    if chart is not None:
+        typer.echo(str(chart))
+    raise typer.Exit(rc)
+
+
+vendor_app = typer.Typer(help="Mirror files one way from another repo at a pinned ref")
+app.add_typer(vendor_app, name="vendor")
+
+
+@vendor_app.command(name="sync")
+def vendor_sync_cmd(
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+) -> None:
+    """Fetch every vendor: file at its pinned ref and rewrite the lock file."""
+    from hyperi_ci.vendor import run_sync
+
+    root = Path(project_dir) if project_dir else Path.cwd()
+    raise typer.Exit(run_sync(load_config(project_dir=root), root))
+
+
+@vendor_app.command(name="check")
+def vendor_check_cmd(
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+) -> None:
+    """Fail when a vendored file was edited by hand or its pin moved unsynced."""
+    from hyperi_ci.vendor import run
+
+    root = Path(project_dir) if project_dir else Path.cwd()
+    raise typer.Exit(run(load_config(project_dir=root), root))
+
+
 @app.command(name="seed-version")
 def seed_version_cmd(
     project_dir: Annotated[

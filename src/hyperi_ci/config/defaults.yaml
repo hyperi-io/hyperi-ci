@@ -433,10 +433,15 @@ release:
   # `<registry>/<chart name>` by `hyperi-ci publish-charts`. `charts` lists
   # chart directories or globs from the repo root. A glob skips library charts,
   # and a library chart named by its exact directory is published.
+  # `contract` is `emit` (run `<app> generate-artefacts`) or the path of a
+  # committed contract; `hyperi-ci chart assemble` turns it into a chart on
+  # the scalo-service library at version `library`.
   helm:
     enabled: false
     charts: []
     registry: oci://ghcr.io/hyperi-io/charts
+    contract: null
+    library: null
 
   # Container build & publish.
   #
@@ -503,6 +508,13 @@ iac:
   #     - paths: [docs/schema.json]
   #       command: "uv run scripts/gen-schema.py"
   generated: []
+
+# Files mirrored one way from another repo at a pinned ref, by
+# `hyperi-ci vendor sync`; the quality stage fails on a hand edit. Each entry:
+#   - source: owner/repo
+#     ref: v2.14.1
+#     files: {<path in source>: <path here>}
+vendor: []
 
 # No `workspace:` block: Rust workspaces are detected by parsing Cargo.toml
 # (`[workspace]` / `[workspace.package]`), never declared in config. Nothing
