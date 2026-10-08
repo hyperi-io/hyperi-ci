@@ -10,7 +10,6 @@ semgrep ran a PATH copy ahead of its pin, cargo-hack had no pin at all, and
 the Rust/Go tools ran whatever a dev box carried with nothing saying so.
 """
 
-import contextlib
 import shutil
 import subprocess
 from collections.abc import Callable
@@ -119,9 +118,6 @@ class TestCargoHackRunsItsPin:
         monkeypatch.setattr(rust_quality, "_package_lib_map", lambda *_a: {})
         monkeypatch.setattr(rust_quality, "_has_lib_target", lambda *_a: True)
         monkeypatch.setattr(rust_quality, "_run_matrix_pass", lambda *_a, **_k: True)
-        monkeypatch.setattr(
-            rust_quality, "restore_cargo_manifests", contextlib.nullcontext
-        )
         return rust_quality._run_feature_matrix(CIConfig(_raw={}))
 
     def test_a_missing_cargo_hack_is_installed_at_the_pin(

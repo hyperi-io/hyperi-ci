@@ -84,7 +84,7 @@ class TestFeatureMatrixCommandConstruction:
     """Verify the cargo hack command is built correctly from config."""
 
     def test_default_invocation(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Default config: --each-feature --no-dev-deps clippy --lib + no-default-features."""
+        """Default config: --each-feature clippy --lib + no-default-features."""
         captured_cmds: list[list[str]] = []
 
         def fake_which(name: str) -> str | None:
@@ -118,7 +118,6 @@ class TestFeatureMatrixCommandConstruction:
             "cargo",
             "hack",
             "--each-feature",
-            "--no-dev-deps",
             "clippy",
             "--lib",
             *_CAP,
@@ -156,7 +155,7 @@ class TestFeatureMatrixCommandConstruction:
         assert _run_feature_matrix(config, clippy_allows=["-Aclippy::x"]) is True
 
         assert captured_cmds[0] == ["cargo", "check", "--no-default-features", "--lib"]
-        assert captured_cmds[1][4] == "check"
+        assert captured_cmds[1][3] == "check"
         assert all("--" not in cmd for cmd in captured_cmds)
 
     def test_the_repo_clippy_allows_reach_every_feature_set(
@@ -269,6 +268,80 @@ class TestFeatureMatrixFailurePropagation:
         )
         config = _make_config(None)
         assert _run_feature_matrix(config) is False
+
+
+_DEV_DEPS = '\n[dev-dependencies]\nshared = { path = "../shared", features = ["x"] }\n'
+
+
+class _RewritingCargo:
+    """Stands in for cargo and cargo-hack, writing what --no-dev-deps writes."""
+
+    def __init__(self, manifest: Path) -> None:
+        self.manifest = manifest
+        self.commands: list[list[str]] = []
+
+    def run(self, cmd: list[str], **_kw: Any) -> subprocess.CompletedProcess[str]:
+        self.commands.append(cmd)
+        if "--no-dev-deps" in cmd:
+            text = self.manifest.read_text(encoding="utf-8")
+            self.manifest.write_text(text.replace(_DEV_DEPS, ""), encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 0, stdout="")
+
+
+@pytest.mark.usefixtures("_force_lib_target")
+class TestFeatureMatrixLeavesTheTreeAlone:
+    """A commit made mid-run, or after a killed run, sees the real manifest."""
+
+    @pytest.mark.parametrize(
+        ("package", "resolver_one"),
+        [
+            pytest.param(
+                '[package]\nname = "app"\nedition = "2024"\n', False, id="2024"
+            ),
+            pytest.param(
+                '[package]\nname = "app"\nedition = "2021"\n', False, id="2021"
+            ),
+            pytest.param(
+                '[package]\nname = "app"\nedition = "2018"\n', True, id="2018"
+            ),
+        ],
+    )
+    def test_cargo_toml_is_never_written(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        package: str,
+        resolver_one: bool,
+    ) -> None:
+        manifest = tmp_path / "Cargo.toml"
+        manifest.write_text(package + _DEV_DEPS, encoding="utf-8")
+        before = (manifest.read_bytes(), manifest.stat().st_mtime_ns)
+        cargo = _RewritingCargo(manifest)
+        announced: list[str] = []
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("hyperi_ci.languages.rust.quality.run_cmd", cargo.run)
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality.shutil.which", lambda n: f"/usr/bin/{n}"
+        )
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality._package_lib_map", lambda *_a: {}
+        )
+        monkeypatch.setattr(
+            "hyperi_ci.languages.rust.quality.announce",
+            lambda msg, _title: announced.append(msg),
+        )
+
+        assert _run_feature_matrix(_make_config(None)) is True
+
+        assert [cmd[:2] for cmd in cargo.commands] == [
+            ["cargo", "clippy"],
+            ["cargo", "hack"],
+        ]
+        assert (manifest.read_bytes(), manifest.stat().st_mtime_ns) == before
+        assert all("--no-dev-deps" not in cmd for cmd in cargo.commands)
+        assert len(announced) == int(resolver_one)
+        if resolver_one:
+            assert 'resolver = "2"' in announced[0]
 
 
 @pytest.mark.usefixtures("_force_lib_target")
@@ -542,7 +615,6 @@ class TestFeatureMatrixBinOnlyProject:
             "cargo",
             "hack",
             "--each-feature",
-            "--no-dev-deps",
             "clippy",
             "--bins",
             *_CAP,
@@ -843,7 +915,7 @@ _HACK_DENIED_COLOUR = (
     " previous error\n"
 )
 
-_HACK_CMD = ["cargo", "hack", "--each-feature", "--no-dev-deps", "check", "--lib"]
+_HACK_CMD = ["cargo", "hack", "--each-feature", "check", "--lib"]
 _DENY = "target.'cfg(all())'.rustflags=[\"-Dwarnings\"]"
 
 
@@ -911,7 +983,7 @@ class TestDenyWarnings:
     def test_no_env_flags_adds_a_target_entry_after_check(self) -> None:
         cmd, env = _deny_warnings(_HACK_CMD, {})
 
-        assert cmd == [*_HACK_CMD[:5], "--config", _DENY, "--lib"]
+        assert cmd == [*_HACK_CMD[:4], "--config", _DENY, "--lib"]
         assert env == {}
 
     def test_existing_rustflags_are_kept(self) -> None:

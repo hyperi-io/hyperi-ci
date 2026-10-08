@@ -27,7 +27,6 @@ from hyperi_ci.common import (
     announce,
     error,
     info,
-    is_ci,
     run_cmd,
     strip_ansi,
     success,
@@ -40,8 +39,8 @@ from hyperi_ci.languages.quality_common import (
     run_gate_tool,
 )
 from hyperi_ci.languages.rust._manifest import (
+    feature_resolver,
     is_root_package_workspace,
-    restore_cargo_manifests,
 )
 from hyperi_ci.languages.rust.targets import cargo_metadata
 from hyperi_ci.quality import cargo_flags, osv_scanner
@@ -66,6 +65,7 @@ _WARNED_UNIT = re.compile(r"^warning: `[^`]+` \(.+\) generated \d+ warnings?")
 _FAILED_UNIT = re.compile(r"^error: could not compile `")
 
 _FEATURE_WARNINGS_TITLE = "hyperi-ci feature set builds with warnings"
+_RESOLVER_ONE_TITLE = "hyperi-ci feature matrix cannot see dev-dependency features"
 
 
 @dataclass(frozen=True, slots=True)
@@ -449,7 +449,11 @@ def _run_feature_matrix(
 
     Default behaviour (enabled=true, no other config): runs
         cargo clippy --no-default-features --lib
-        cargo hack --each-feature --no-dev-deps clippy --lib
+        cargo hack --each-feature clippy --lib
+
+    Neither command writes to the working tree. Under feature resolver 1 a
+    dev-dependency's features reach the library build and can hide a
+    feature-gating bug, so that case is announced.
 
     A feature built alone can leave code dead that every combined build uses,
     so ``quality.rust.feature_matrix.warnings`` decides what a warning or lint
@@ -554,50 +558,56 @@ def _run_feature_matrix(
 
     tuning.extend(extra)
 
-    if not is_ci():
-        info(
-            "  feature_matrix: cargo-hack --no-dev-deps rewrites Cargo.toml and "
-            "Cargo.lock until the matrix ends, so do not commit while it runs"
+    # SHORTCUT: resolver 1 keeps dev-dependency features in the library build,
+    # upgrade to a scratch-copy run with --no-dev-deps if a repo cannot move off it.
+    if feature_resolver() == 1:
+        announce(
+            "feature_matrix: Cargo.toml selects feature resolver 1, which builds "
+            "the library with its dev-dependencies' features, so a feature that "
+            "only a dev-dependency enables can hide a feature-gating bug. Set "
+            'resolver = "2" or later in the root Cargo.toml to check it.',
+            _RESOLVER_ONE_TITLE,
         )
-    with restore_cargo_manifests():
-        # Pass 1 -- bare crate (no default features). Catches "breaks without
-        # defaults" bugs.
-        if fm_config.get("also_check_no_default_features", True):
-            for scope_args, target_args in scopes:
-                cmd = [
-                    "cargo",
-                    lint_tool,
-                    "--no-default-features",
-                    *scope_args,
-                    *target_args,
-                    *lint_args,
-                ]
-                label = " on ".join(["--no-default-features", *scope_args[1:]])
-                if not _run_matrix_pass(
-                    "feature_matrix (no-default-features)", cmd, label, warnings_mode
-                ):
-                    had_failure = True
 
-        # Pass 2 -- each feature in isolation
+    # Pass 1 -- bare crate (no default features). Catches "breaks without
+    # defaults" bugs.
+    if fm_config.get("also_check_no_default_features", True):
         for scope_args, target_args in scopes:
             cmd = [
                 "cargo",
-                "hack",
-                "--each-feature",
-                "--no-dev-deps",
                 lint_tool,
+                "--no-default-features",
                 *scope_args,
                 *target_args,
-                *tuning,
                 *lint_args,
             ]
+            label = " on ".join(["--no-default-features", *scope_args[1:]])
             if not _run_matrix_pass(
-                "feature_matrix (each-feature)",
-                cmd,
-                "a feature set cargo-hack did not name",
-                warnings_mode,
+                "feature_matrix (no-default-features)", cmd, label, warnings_mode
             ):
                 had_failure = True
+
+    # Pass 2 -- each feature in isolation. No --no-dev-deps: it rewrites every
+    # Cargo.toml while it runs, and resolver 2+ already leaves dev-dependency
+    # features out of a --lib or --bins build.
+    for scope_args, target_args in scopes:
+        cmd = [
+            "cargo",
+            "hack",
+            "--each-feature",
+            lint_tool,
+            *scope_args,
+            *target_args,
+            *tuning,
+            *lint_args,
+        ]
+        if not _run_matrix_pass(
+            "feature_matrix (each-feature)",
+            cmd,
+            "a feature set cargo-hack did not name",
+            warnings_mode,
+        ):
+            had_failure = True
 
     return not had_failure
 
