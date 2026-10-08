@@ -13,7 +13,10 @@ import pytest
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.rust import quality as rust_quality
 from hyperi_ci.languages.rust import test as rust_test
-from hyperi_ci.languages.rust._manifest import is_root_package_workspace
+from hyperi_ci.languages.rust._manifest import (
+    feature_resolver,
+    is_root_package_workspace,
+)
 from hyperi_ci.languages.rust.test import _build_test_cmd, _run_coverage
 from hyperi_ci.languages.tiering import SuiteTier
 
@@ -102,6 +105,58 @@ class TestDetection:
         raw = b"# caf\xe9\n" + ROOT_PACKAGE_WORKSPACE.encode("utf-8")
         (tmp_path / "Cargo.toml").write_bytes(raw)
         assert is_root_package_workspace(tmp_path) is True
+
+
+class TestFeatureResolver:
+    """The resolver cargo picks, read from the root manifest as cargo reads it."""
+
+    @pytest.mark.parametrize(
+        ("manifest", "expected"),
+        [
+            pytest.param(SINGLE_CRATE, 3, id="edition-2024"),
+            pytest.param('[package]\nedition = "2021"\n', 2, id="edition-2021"),
+            pytest.param('[package]\nedition = "2018"\n', 1, id="edition-2018"),
+            pytest.param('[package]\nname = "x"\n', 1, id="no-edition-is-2015"),
+            pytest.param('[package]\nedition = "2027"\n', 3, id="later-edition"),
+            pytest.param(VIRTUAL_WORKSPACE, 3, id="virtual-resolver-3"),
+            pytest.param('[workspace]\nmembers = ["a"]\n', 1, id="virtual-no-resolver"),
+            pytest.param(
+                '[package]\nedition = "2018"\nresolver = "2"\n',
+                2,
+                id="package-resolver-beats-edition",
+            ),
+            pytest.param(
+                ROOT_PACKAGE_WORKSPACE + 'resolver = "1"\n',
+                1,
+                id="workspace-resolver-beats-edition",
+            ),
+            pytest.param(
+                "[package]\nedition.workspace = true\n\n"
+                '[workspace]\n\n[workspace.package]\nedition = "2021"\n',
+                2,
+                id="inherited-edition",
+            ),
+        ],
+    )
+    def test_resolver(self, tmp_path: Path, manifest: str, expected: int) -> None:
+        _write_manifest(tmp_path, manifest)
+        assert feature_resolver(tmp_path) == expected
+
+    @pytest.mark.parametrize(
+        "manifest",
+        [
+            pytest.param("[package\nname = ", id="malformed"),
+            pytest.param('[workspace]\nresolver = "two"\n', id="resolver-not-a-number"),
+            pytest.param('[package]\nedition = "next"\n', id="edition-not-a-number"),
+            pytest.param('name = "x"\n', id="neither-package-nor-workspace"),
+        ],
+    )
+    def test_unreadable_answers_none(self, tmp_path: Path, manifest: str) -> None:
+        _write_manifest(tmp_path, manifest)
+        assert feature_resolver(tmp_path) is None
+
+    def test_no_manifest_answers_none(self, tmp_path: Path) -> None:
+        assert feature_resolver(tmp_path) is None
 
 
 class TestCommandTakesWorkspace:
@@ -355,7 +410,6 @@ class TestLintReadsTheManifest:
             "cargo",
             "hack",
             "--each-feature",
-            "--no-dev-deps",
             "clippy",
             "--workspace",
             "--lib",
