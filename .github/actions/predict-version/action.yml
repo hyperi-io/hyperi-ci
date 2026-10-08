@@ -5,28 +5,21 @@
 # License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
-# Used by every language-specific workflow's `setup` job. Encapsulates
-# the universal "is this a publish run, and what version?" decision so
-# the rust/go/python/ts workflows don't duplicate ~80 lines of identical
-# bash + npm install.
-#
-# The matrix-generation step that follows is language-specific (target
-# triples for Rust/Go, single-arch for Python/TS) and stays in the
+# Used by every language workflow's `setup` job for the "is this a publish run,
+# and what version?" decision. The language-specific matrix step stays in the
 # calling workflow.
 #
-# Every helper that reads .hyperi-ci.yaml runs under `uv run --with pyyaml`,
-# so the answer does not depend on the runner image. A runner's python3 may
-# carry neither PyYAML nor yq -- the ARC vanilla image has neither -- and
-# without one the tier, the arm64 check and the Rust targets all take their
-# defaults (issue #291). `--python 3` stops a consumer's .python-version
-# sending uv off to download an interpreter these stdlib helpers do not need,
-# and `--no-config` keeps the consumer's own uv config (a private index) out
-# of our install.
+# Every helper that reads .hyperi-ci.yaml runs under `uv run --with pyyaml`, so
+# the answer does not depend on the runner image. The ARC vanilla image has
+# neither PyYAML nor yq, and without one the tier, the arm64 check and the Rust
+# targets all take their defaults (issue #291). `--python 3` stops a consumer's
+# .python-version sending uv off to download an interpreter these stdlib helpers
+# do not need, and `--no-config` keeps the consumer's own uv config (a private
+# index) out of our install.
 #
-# Plan must not fail on a registry. When uv cannot install or cannot fetch
-# PyYAML, the helpers run on the runner's python3 instead, with a warning,
-# and each helper's own "could not be read" warning follows if that python3
-# has neither PyYAML nor yq.
+# Plan must not fail on a registry. When uv cannot install or fetch PyYAML, the
+# helpers run on the runner's python3 with a warning, and each helper's own
+# "could not be read" warning follows if that python3 has neither PyYAML nor yq.
 
 name: Predict version
 description: Detect Publish trigger + run semantic-release dry-run for next version
@@ -113,11 +106,10 @@ runs:
         enable-cache: false
 
     - name: Choose the config readers' Python
-      # Asked once here rather than with `uv run ... || python3 ...` at each
-      # helper, because `||` also catches the helper's own failure: a tier
-      # typo would fail under uv, re-run on a python3 that cannot read the
-      # config, and pass on core. After one fetch here, later `uv run` calls
-      # are served from uv's cache.
+      # Asked once here rather than with `uv run ... || python3 ...` at each helper,
+      # because `||` also catches the helper's own failure: a tier typo would fail
+      # under uv, re-run on a python3 that cannot read the config, and pass on core.
+      # After this fetch, later `uv run` calls are served from uv's cache.
       id: reader
       shell: bash
       env:
@@ -134,15 +126,13 @@ runs:
         fi
 
     - name: Resolve the project's Python version
-      # The fleet default answers "what does a project that declares nothing
-      # get?" -- it is not a version every project is held to. A repo declaring
-      # `requires-python = ">=3.12"` built on 3.14 publishes a wheel whose own
-      # advertised floor never ran (issue #150).
+      # The fleet default is what a project that declares nothing gets, not a version
+      # every project is held to. A repo declaring `requires-python = ">=3.12"` built
+      # on 3.14 publishes a wheel whose advertised floor never ran (issue #150).
       #
-      # uv honours a pegged `.python-version` natively, but resolves a floor to
-      # the NEWEST satisfying interpreter -- so the FLOOR is computed here and
-      # handed to the jobs explicitly. Testing above the floor hides the exact
-      # bug this catches: a 3.14-only feature in a repo that promises 3.12.
+      # uv honours a pegged `.python-version` but resolves a floor to the NEWEST
+      # satisfying interpreter, so the FLOOR is computed here and handed to the jobs.
+      # Testing above the floor hides a 3.14-only feature in a repo promising 3.12.
       id: python
       shell: bash
       env:
@@ -154,7 +144,7 @@ runs:
         echo "::notice::Python $resolved"
 
     - name: Detect publish trigger
-      # Gate the entire publish flow on one signal: `will-publish`.
+      # The whole publish flow is gated on one signal: `will-publish`.
       #
       # - workflow_dispatch with a tag input -> always publish (retroactive).
       # - workflow_dispatch with from-head: true -> publish HEAD, from main or
@@ -281,20 +271,14 @@ runs:
       uses: hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@main
 
     - name: Predict next version
-      # Run semantic-release in --dry-run to determine the version that
-      # the tag-and-release job will eventually create. The build job
-      # in the calling workflow stamps Cargo.toml + VERSION to this
-      # value BEFORE compiling, so CARGO_PKG_VERSION (used in
-      # AppMetrics, --version flags, log output) matches the published
-      # tag.
+      # semantic-release --dry-run determines the version tag-and-release will
+      # create. The calling workflow's build stamps Cargo.toml + VERSION to it before
+      # compiling, so CARGO_PKG_VERSION matches the published tag.
       #
-      # Hard fail if `Release: true` was set but no release-worthy
-      # commits exist -- silent skip violates "nothing should say it
-      # worked if it didn't."
+      # Hard fail if `Release: true` was set but no release-worthy commits exist.
       #
-      # We capture the dry-run exit code separately so a real crash
-      # (npm install failure, network, etc.) is distinguished from
-      # "ran successfully but no version to release."
+      # The dry-run exit code is captured separately so a real crash (npm install,
+      # network) is distinguished from "ran fine, nothing to release."
       id: predict
       if: ${{ steps.gate.outputs.will-publish == 'true' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.from-head == 'true' && inputs.bump == 'auto')) }}
       shell: bash
@@ -372,14 +356,12 @@ runs:
         echo "::notice::Predicted next version: v$version"
 
     - name: Predict next version (forced bump / explicit version)
-      # from-head dispatch with a non-auto bump (issue #35). The `bump`
-      # channel carries either a bump level (patch|minor -- release HEAD even
-      # with no release-worthy commit, computed as `last v* tag + bump`) or an
-      # explicit X.Y.Z (the `hyperi-ci release --version` override, used
-      # verbatim to step past a taken/orphaned tag -- the issue #37 case). Runs
-      # for any non-auto, non-empty bump so plan + build stamp the same value
-      # tag-head later creates in Tag & Release. Trivial glue: semver math +
-      # a regex; the same computation lives in push.tag_head for the real tag.
+      # from-head dispatch with a non-auto bump (issue #35). The `bump` channel
+      # carries a bump level (patch|minor, computed as `last v* tag + bump`) or an
+      # explicit X.Y.Z (the `hyperi-ci release --version` override, used verbatim to
+      # step past a taken/orphaned tag, issue #37). Runs for any non-auto bump so
+      # plan + build stamp the value tag-head later creates. push.tag_head holds the
+      # same computation for the real tag.
       id: forced
       if: ${{ steps.gate.outputs.will-publish == 'true' && github.event_name == 'workflow_dispatch' && inputs.from-head == 'true' && inputs.bump != 'auto' && inputs.bump != '' }}
       shell: bash
@@ -416,10 +398,10 @@ runs:
         echo "::notice::Forced from-head bump ($bump): v$version (was v$latest)"
 
     - name: Resolve the re-published tag's version
-      # A `tag` dispatch re-publishes an existing release, so the version is
-      # the tag's own. Build and Publish stamp it: the tagged tree carries the
-      # release before it, because VERSION and the manifest are committed back
-      # after the tag (issue #352).
+      # A `tag` dispatch re-publishes an existing release, so the version is the
+      # tag's own. Build and Publish stamp it because the tagged tree carries the
+      # release before it, as VERSION and the manifest are committed back after the
+      # tag (issue #352).
       id: tagged
       if: ${{ steps.gate.outputs.will-publish == 'true' && github.event_name == 'workflow_dispatch' && inputs.tag != '' }}
       shell: bash
@@ -428,15 +410,14 @@ runs:
       run: python3 "$GITHUB_ACTION_PATH/tag_version.py"
 
     - name: Detect a release-worthy push
-      # The doctrine runs checks on PR review and RELEASE-WORTHY pushes, but
-      # the code only ever asked for the release trailer -- which marks
-      # a push that PUBLISHES, a strictly smaller set. So an ordinary squash
-      # merge of a fix: to main compiled nothing, tested nothing and reported
-      # green (issue #124). Ask the bump SSoT what the pushed range holds.
+      # Checks run on PRs and RELEASE-WORTHY pushes. The release trailer marks only
+      # pushes that PUBLISH, a smaller set, so a squash merge of a fix: to main
+      # compiled and tested nothing and reported green (issue #124). The bump SSoT
+      # says what the pushed range holds.
       #
-      # The range comes from the push event payload, never origin/main..HEAD,
-      # which is EMPTY right after a push to main (issue #52). The helper reads
-      # the payload itself, so no commit message is ever read as shell.
+      # The range comes from the push event payload, never origin/main..HEAD, which
+      # is EMPTY right after a push to main (issue #52). The helper reads the
+      # payload itself, so no commit message is read as shell.
       id: worthy
       if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       shell: bash
@@ -446,10 +427,8 @@ runs:
         echo "release-worthy=$worthy" >> "$GITHUB_OUTPUT"
 
     - name: Derive gate outputs
-      # Single source of truth for the run-checks / run-build conditions.
-      # Language workflows read these outputs and never re-implement the
-      # boolean logic. If you find yourself writing `will-publish == 'true'
-      # || event_name == 'pull_request'` anywhere else, you've drifted.
+      # Single source of truth for the run-checks / run-build conditions. Language
+      # workflows read these outputs and never re-implement the boolean logic.
       id: derive
       shell: bash
       env:
@@ -556,8 +535,7 @@ runs:
 
     - name: Read the project's Rust targets
       # rust-ci.yml builds its matrix from this, so no runner image needs yq
-      # (issue #291). Every language runs it; without a Cargo.toml it writes
-      # an empty list and says nothing.
+      # (issue #291). Without a Cargo.toml it writes an empty list and says nothing.
       id: targets
       shell: bash
       env:

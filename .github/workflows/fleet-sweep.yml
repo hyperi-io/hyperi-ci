@@ -6,16 +6,15 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # Workflows and composite actions float `@main`, so a merge here changes what
-# every consumer runs before anybody has run it anywhere. Until this existed
-# the first evidence of a bad merge was a consumer going red: a Gate job that
-# called a `gate-check` subcommand the wheel did not carry left logreducer red
-# for about 25 hours, and a composite verify step that ran a cargo SUBCOMMAND
-# with `--version` broke the Rust test leg fleet-wide (issue #215).
+# every consumer runs before anybody has run it. A Gate job calling a
+# `gate-check` subcommand the wheel did not carry left logreducer red for about
+# 25 hours, and a composite verify step running a cargo SUBCOMMAND with
+# `--version` broke the Rust test leg fleet-wide (issue #215).
 #
-# The push filter IS the consumer surface: the reusable workflows the fleet
-# routes through, the shared `_`-prefixed ones, and every composite action.
-# This repo's own CI and its two audits are excluded because no consumer calls
-# them - `tests/unit/test_fleet_gate.py` holds that list to config/fixtures.yaml.
+# The push filter IS the consumer surface: the reusable workflows the fleet routes
+# through, the shared `_`-prefixed ones, and every composite action. This repo's
+# own CI and its two audits are excluded because no consumer calls them.
+# `tests/unit/test_fleet_gate.py` holds that list to config/fixtures.yaml.
 #
 # Both app tokens are scoped to the fleet named in config/fixtures.yaml. With
 # `owner` set and `repositories` empty the token action grants the whole org,

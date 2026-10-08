@@ -5,11 +5,10 @@
 # License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
-# The gate doctrine skips quality and test on non-bumping pushes to main, so a
-# run whose gate never executed still concludes `success`. A repo landing work
-# by direct push therefore reports green while nothing has been verified
-# (issue #96). Nothing surfaces that on its own, which is what this fixes: the
-# answer is never more than a week old, and nobody has to open a PR to get it.
+# The gate doctrine skips quality and test on non-bumping pushes to main, so a run
+# whose gate never executed still concludes `success`. A repo landing work by
+# direct push reports green while nothing has been verified (issue #96). This
+# makes the answer never more than a week old, with no PR needed.
 #
 # Report-only. It reads other repos and writes to none of them.
 #

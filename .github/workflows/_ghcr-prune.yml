@@ -6,21 +6,17 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # Reusable workflow for projects that enable branch-mode dev images
-# (publish.container.dev_push). Dev tags are a DIFFERENT artifact class
-# from a GA publish and are deliberately ephemeral -- this prunes them so
-# GHCR never accumulates dead branch images.
+# (publish.container.dev_push). Dev tags are ephemeral and separate from a GA
+# publish, so this prunes them.
 #
-# SAFE BY TAG DESIGN: dev images only ever carry `branch-*` and
-# `dev-sha-*` tags (hyperi_ci.container.build.resolve_tags), so the globs
-# below can NEVER touch the GA namespace (vX.Y.Z / latest / sha-<short>).
-# Untagged layers (superseded mutable branch tags) are cleaned too --
-# dataaxiom/ghcr-cleanup-action handles multi-arch manifests and
-# attestation referrers safely (why it was chosen over
-# snok/container-retention-policy, whose README warns against
-# multi-platform packages).
+# Dev images only ever carry `branch-*` and `dev-sha-*` tags
+# (hyperi_ci.container.build.resolve_tags), so the globs below cannot touch the
+# GA namespace (vX.Y.Z / latest / sha-<short>). Untagged layers (superseded
+# mutable branch tags) are cleaned too. dataaxiom/ghcr-cleanup-action handles
+# multi-arch manifests and attestation referrers, which
+# snok/container-retention-policy warns against.
 #
-# Consumer usage (a project with dev_push enabled adds this tiny cron
-# workflow):
+# Consumer usage, as a small cron workflow:
 #
 #   name: GHCR prune
 #   on:
@@ -51,10 +47,9 @@ on:
         default: ""
         description: "'true' to log what would be deleted without deleting."
 
-# No workflow-level permissions here: a called workflow may only DOWNGRADE
-# what the caller job grants (callers grant packages: write alone), and a
-# workflow-level `contents: read` request above that grant is a startup
-# failure. The prune job needs no checkout -- packages: write only.
+# No workflow-level permissions: a called workflow may only DOWNGRADE the caller
+# job's grant (packages: write alone), so a workflow-level `contents: read` is a
+# startup failure. The prune job needs no checkout.
 
 jobs:
   prune:

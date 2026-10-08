@@ -5,22 +5,19 @@
 # License:   BUSL-1.1 -- HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
-# CI already runs `update-versions.py --check`, but that only proves the
-# MIRRORS match the SSOT - drift between our own files. Nothing asked upstream
-# whether the SSOT itself was behind, so a pin could sit stale indefinitely and
-# every check stayed green. gitleaks drifted nine months that way.
+# CI runs `update-versions.py --check`, which only proves the MIRRORS match the
+# SSOT. Nothing asked upstream whether the SSOT itself was behind, so a pin could
+# sit stale with every check green (gitleaks drifted nine months that way).
 #
-# This is the missing half: `--stable` resolves the newest release of every pin
-# that has soaked past the cooldown, and `--fail-on-drift` turns that report
-# into a signal. Same shape as the gate audit (#96) - a check that only fires
-# when someone remembers is a check that does not fire.
+# `--stable` resolves the newest release of every pin that has soaked past the
+# cooldown, and `--fail-on-drift` turns that report into a signal, scheduled like
+# the gate audit (#96).
 #
-# Report-only. It never edits a pin; a bump is a reviewed commit, because a
-# version bump now also needs its sha256 refreshed (#66).
+# Report-only. It never edits a pin, because a bump is a reviewed commit that
+# also refreshes the sha256 (#66).
 #
-# The schedule keeps the cooldown. `--now` is available on a manual run for a
-# supervised update, and is deliberately not the scheduled behaviour: the soak
-# is the supply-chain control.
+# The schedule keeps the cooldown. `--now` is for a supervised manual run only,
+# since the soak is the supply-chain control.
 
 name: Versions audit
 
@@ -67,7 +64,7 @@ jobs:
 
       - name: Mint a fleet read token
         # The fixtures are private and GITHUB_TOKEN sees only this repo, so the
-        # check below read every fixture as missing from the org.
+        # check below would read every fixture as missing from the org.
         id: bot
         if: always()
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -79,8 +76,8 @@ jobs:
       - name: Check the fixture fleet against the org
         # Scheduled rather than on the PR path: it needs network and an
         # authenticated gh, and a fixture is renamed about once a year. An
-        # unreachable org exits 2 and says the fleet was NOT checked, which is
-        # not the same answer as "no drift" (issue #215).
+        # unreachable org exits 2 (fleet NOT checked), which is not "no drift"
+        # (issue #215).
         if: always()
         env:
           GH_TOKEN: ${{ steps.bot.outputs.token }}
@@ -97,8 +94,8 @@ jobs:
     # tag changes the sha256 and nothing above notices, so run the composites
     # that verify a digest and let `sha256sum -c` be the signal (#66).
     name: Digest audit
-    # Not the vars-driven runner: this job is here to exercise the
-    # download-and-verify path on a clean machine.
+    # Not the vars-driven runner: this job exercises the download-and-verify path
+    # on a clean machine.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -110,8 +107,8 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: stable
-          # This repo has no go.mod, so the module cache has nothing to key on
-          # and the restore warns on every run. Go is here to build one tool.
+          # No go.mod here, so the module cache has nothing to key on and the
+          # restore would warn on every run.
           cache: false
 
       - name: Verify the osv-scanner digest

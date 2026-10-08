@@ -5,16 +5,14 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
-# The Rust test stage picks its runner from what is on PATH, and cargo nextest
-# and cargo test are NOT interchangeable: nextest isolates each test in its own
+# The Rust test stage picks its runner from what is on PATH, and cargo nextest and
+# cargo test are NOT interchangeable: nextest isolates each test in its own
 # process, cargo test shares one across threads. No runner image bakes a pinned
-# nextest, so without this step the semantics of the suite follow whatever the
-# runner happens to have on PATH.
+# nextest, so without this step the suite's semantics follow whatever is on PATH.
 #
-# NO `command -v` SHORT-CIRCUIT, DELIBERATELY - same reasoning as
-# setup-rust-tools: hosted runners restore ~/.cargo/bin from the cargo cache
-# and an older ARC image still bakes an UNPINNED nextest, so a skip-if-present
-# guard makes the pin inert. Downloading unconditionally costs seconds;
+# NO `command -v` SHORT-CIRCUIT, DELIBERATELY, for the setup-rust-tools reason:
+# hosted runners restore ~/.cargo/bin from the cargo cache and an older ARC image
+# bakes an UNPINNED nextest, so a skip-if-present guard makes the pin inert.
 # GITHUB_PATH PREPENDS, so the pinned copy wins.
 #
 # Asset shape (differs from the other Rust tools, hence no shared loop):

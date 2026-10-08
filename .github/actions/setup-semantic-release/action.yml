@@ -9,21 +9,19 @@
 # Predict and the real run must install identical plugins, else they compute
 # different versions ("tag vX already exists"). One place for that list -- here.
 #
-# Release config is central by default: when a repo has no .releaserc this
-# composite drops the canonical tagger-only `default.releaserc.json` into the
-# workspace (ephemeral, never committed). That default carries NO custom
-# releaseRules - the bump is semantic-release's OWN default-release-rules
-# (feat->minor, fix/perf/revert->patch, breaking->major, else none), which is
-# the org SSoT; hyperi_ci.release_rules mirrors it in Python for the pre-push
-# gate. There is no HyperI-maintained taxonomy file any more. A repo .releaserc
-# that references
-# @semantic-release/git or @semantic-release/github (the issue #37 tag-rewrite
-# plugins -- they destroyed every tag on dfe-receiver) is IGNORED in favour of
-# the central config. A repo .releaserc WITHOUT those plugins (e.g. an exec-only
-# stamp for a multi-crate workspace) is a legitimate exception and is honoured.
-# semantic-release is a TAGGER only -- version stamping is `hyperi-ci
-# stamp-version`, publishing is hyperi-ci's publish stage. The git/github plugins
-# stay in the install list for back-compat but the central config never uses them.
+# When a repo has no .releaserc this composite drops the tagger-only
+# `default.releaserc.json` into the workspace (ephemeral, never committed). It
+# carries NO custom releaseRules: the bump is semantic-release's OWN defaults
+# (feat->minor, fix/perf/revert->patch, breaking->major, else none), the org
+# SSoT, which hyperi_ci.release_rules mirrors in Python for the pre-push gate.
+# A repo .releaserc that references @semantic-release/git or
+# @semantic-release/github (the issue #37 tag-rewrite plugins, which destroyed
+# every tag on dfe-receiver) is IGNORED in favour of the central config. A
+# .releaserc WITHOUT those plugins (e.g. an exec-only stamp for a multi-crate
+# workspace) is a legitimate exception and is honoured.
+# semantic-release is a TAGGER only: stamping is `hyperi-ci stamp-version` and
+# publishing is hyperi-ci's publish stage. The git/github plugins stay in the
+# install list for back-compat but the central config never uses them.
 
 name: Setup semantic-release
 description: Install the pinned, shared semantic-release toolchain (single source of truth)

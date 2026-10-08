@@ -5,38 +5,31 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
-# These were `go install ...@latest` inline in go-ci.yml: unpinned (in a repo
-# that SHA-pins every third-party action behind a 7-day cooldown) and compiled
-# from source on every run. golangci-lint and gosec publish prebuilt linux
-# binaries, so fetch those. govulncheck does NOT - golang/vuln ships releases
-# with no assets - so it stays `go install`, but pinned to a tag.
+# golangci-lint and gosec publish prebuilt linux binaries, so they are fetched.
+# govulncheck ships releases with no assets, so it stays `go install` pinned to a
+# tag.
 #
-# NO `command -v` SHORT-CIRCUIT, DELIBERATELY.
-# The obvious "skip if already present" guard makes the pin a no-op exactly
-# where it matters most:
-#   - the ARC runner image (the org default for these jobs -
-#     vars.GH_RUNNER_GOLANG = arc-runner-4cpu) BAKES all three of these with
-#     `go install ...@latest` and puts them on PATH. Every guard would hit,
-#     nothing would download, and the job would go green running whatever
-#     @latest resolved to on image-bake day - while versions.yaml claimed a
-#     cooldown and a clamp that never applied.
-#   - a warm `~/.cargo/bin`-style cache does the same on hosted runners.
-# Downloading unconditionally costs a few seconds and is the only thing that
-# makes a pin a pin. GITHUB_PATH PREPENDS, so our pinned copy wins over any
-# baked one.
+# NO `command -v` SHORT-CIRCUIT, DELIBERATELY. A "skip if already present" guard
+# makes the pin a no-op where it matters most: the ARC runner image (the org
+# default, vars.GH_RUNNER_GOLANG = arc-runner-4cpu) bakes all three with
+# `go install ...@latest` on PATH, so every guard would hit, nothing would
+# download, and the job would run whatever @latest resolved to on image-bake day
+# while versions.yaml claimed a cooldown that never applied. A warm cache does
+# the same on hosted runners. Downloading unconditionally costs a few seconds,
+# and GITHUB_PATH PREPENDS, so the pinned copy wins over any baked one.
 #
 # Versions AND per-arch sha256 digests are pinned in
 # src/hyperi_ci/config/versions.yaml (`tools:`) and mirrored here by
 # scripts/update-versions.py --apply. Do not hand-edit the marked lines.
 #
 # The digest is the pin that matters: a release asset can be deleted and
-# re-uploaded under the same tag, so a tag alone is not integrity (issue #66).
-# A mismatch fails the step rather than installing. The mirror exists because
+# re-uploaded under the same tag, so a tag alone is not integrity (issue #66). A
+# mismatch fails the step rather than installing. The mirror exists because
 # GitHub parses this file before hyperi-ci is installed, so it cannot read the
 # packaged SSOT the way `install.fetch_verified` does.
 #
-# govulncheck carries no digest deliberately: `go install` resolves through the
-# Go module proxy and is verified against the sum.golang.org transparency log.
+# govulncheck carries no digest: `go install` resolves through the Go module proxy
+# and is verified against the sum.golang.org transparency log.
 #
 # Referenced from reusable workflows as
 #   hyperi-io/hyperi-ci/.github/actions/setup-go-tools@main
