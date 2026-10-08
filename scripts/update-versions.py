@@ -38,7 +38,9 @@ Update behaviour:
   - Tools resolve to the newest release that has aged past the 7-day
     cooldown, MAJORS INCLUDED. Every bump goes through a PR, so a breaking
     major surfaces as a red CI run rather than a silent behaviour change.
-  - Runtimes (python, node, rust) require explicit update -- never auto-bumped.
+  - Runtimes (python, node, rust, llvm) require explicit update -- never
+    auto-bumped. `--stable` warns when llvm or node trails upstream (latest
+    llvm-project release, node latest LTS) and never fails on it.
   - --auto-update applies the bumps then validates LOCALLY (YAML re-parse,
     SSOT sync check, the pytest workflow gates); reverts on local failure.
     It deliberately does NOT trigger remote CI: the ci-test-* projects
@@ -56,7 +58,7 @@ import sys
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
@@ -64,6 +66,7 @@ import yaml
 
 from hyperi_ci import pin_marker
 from hyperi_ci.channel import COOLDOWN_DAYS
+from hyperi_ci.common import info, warn
 
 _ROOT = Path(__file__).resolve().parent.parent
 # Inside the package, so it ships in the wheel and runtime reads the SSOT
@@ -678,6 +681,7 @@ def _stable(versions: dict, *, fail_on_drift: bool = False) -> int:
     this answers "what may we pin to now".
     """
     res = _resolve(versions, datetime.now(UTC))
+    _report_runtime_drift(versions)
     _report_watchlist(versions)
 
     if res.writes:
@@ -890,6 +894,108 @@ def _report_watchlist(versions: dict) -> None:
             print(f"    blocked by: {' '.join(str(spec['blocked_by']).split())}")
         if spec.get("gate"):
             print(f"    ready when: {str(spec['gate']).strip()}")
+
+
+# Runtimes with an upstream the report can read. python and rust carry no
+# source pattern in this script (a python minor is a fleet decision, rust is
+# the `stable` channel with no number to compare), so they are listed as not
+# covered rather than guessed at.
+_NODE_SCHEDULE_URL = (
+    "https://raw.githubusercontent.com/nodejs/Release/main/schedule.json"
+)
+_LLVM_TAG_RE = re.compile(r"^llvmorg-(\d+)\.(\d+)\.(\d+)$")
+_RUNTIMES_NOT_COVERED = {
+    "python": "no upstream source pattern in this script",
+    "rust": "tracks the `stable` channel, no number to compare",
+}
+
+
+def _latest_llvm_major() -> int | None:
+    """Major of the newest final `llvmorg-N.x.y` release. None if unreadable.
+
+    Release candidates are prereleases on llvm-project, so they are skipped:
+    the policy is the latest released major, not the one being stabilised.
+    """
+    releases = _gh_json("/repos/llvm/llvm-project/releases?per_page=100")
+    if not isinstance(releases, list):
+        return None
+    majors = [
+        int(m[1])
+        for rel in cast("list[dict[str, Any]]", releases)
+        if not (rel.get("draft") or rel.get("prerelease"))
+        and (m := _LLVM_TAG_RE.match(str(rel.get("tag_name") or "")))
+    ]
+    return max(majors) if majors else None
+
+
+def _latest_node_lts(today: date) -> int | None:
+    """Major of the newest Node line to have entered LTS by `today`.
+
+    Reads the `lts` dates in nodejs/Release schedule.json; odd majors never get
+    one. The `maintenance` date is ignored: the outgoing line can enter
+    maintenance days before the next one enters LTS, and that gap is not
+    "unreadable". None only when the schedule cannot be read.
+    """
+    try:
+        with urllib.request.urlopen(  # noqa: S310  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+            _NODE_SCHEDULE_URL, timeout=15
+        ) as response:
+            schedule = json.load(response)
+        lts = [
+            int(key.lstrip("v"))
+            for key, entry in schedule.items()
+            if entry.get("lts") and date.fromisoformat(entry["lts"]) <= today
+        ]
+    except (OSError, ValueError, AttributeError, TypeError):
+        return None
+    return max(lts) if lts else None
+
+
+def _runtime_drift(versions: dict, today: date) -> list[tuple[str, str]]:
+    """Compare the pinned `runtimes:` against upstream. Writes nothing.
+
+    Returns (level, message) per runtime, level one of `ok`, `drift`,
+    `unchecked`, `skipped`. A lookup that fails is `unchecked`: unknown is not
+    the same answer as current.
+    """
+    runtimes = versions.get("runtimes") or {}
+    lookups = {
+        "llvm": ("latest llvm-project release", _latest_llvm_major),
+        "node": ("latest LTS", lambda: _latest_node_lts(today)),
+    }
+    out: list[tuple[str, str]] = []
+    for name, spec in runtimes.items():
+        pinned = str(_runtime_value(spec))
+        if name not in lookups:
+            why = _RUNTIMES_NOT_COVERED.get(name, "no upstream source defined")
+            out.append(("skipped", f"{name}: {pinned} (not covered -- {why})"))
+            continue
+        label, lookup = lookups[name]
+        upstream = lookup()
+        if upstream is None:
+            out.append(("unchecked", f"{name}: {pinned} (COULD NOT CHECK {label})"))
+        elif str(upstream) == pinned:
+            out.append(("ok", f"{name}: {pinned} (matches {label})"))
+        else:
+            out.append(("drift", f"{name}: {pinned} but {label} is {upstream}"))
+    return out
+
+
+def _report_runtime_drift(versions: dict) -> int:
+    """Log the runtime drift report. Returns the lines that were not clean.
+
+    Report only: a drifted or unreachable runtime is a warning, never a
+    failure, because a runtime major is a decision and not a dependency refresh.
+    """
+    info("Runtime drift (report only):")
+    flagged = 0
+    for level, message in _runtime_drift(versions, datetime.now(UTC).date()):
+        if level in ("drift", "unchecked"):
+            warn(f"runtime {message}")
+            flagged += 1
+        else:
+            info(f"  {message}")
+    return flagged
 
 
 def _latest_tool_release(spec: dict, now: datetime) -> tuple[str | None, str]:
