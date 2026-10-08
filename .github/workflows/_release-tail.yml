@@ -149,6 +149,9 @@ jobs:
       # Whether this project ships a container at all, so tag-and-release can
       # tell "the deliverable failed" from "there was never a container".
       ships-container: ${{ steps.resolve.outputs.build }}
+      # <repo>:<version tag>@sha256:<digest>, set only when an image was pushed.
+      # The release.helm.contract chart pins it.
+      image: ${{ steps.build.outputs.image }}
     # This job holds registry logins and a packages:write token, so its stamp skips
     # release.stamp_cmd (Build and Prepare run it). The skip needs a CLI release
     # that carries it: on an older CLI, or under a HYPERCI_INSTALL_OVERRIDE pin,
@@ -274,15 +277,17 @@ jobs:
       - name: Place dist/
         # Only that tree, so an artefact from a job that ran repo code
         # cannot overwrite .hyperi-ci.yaml, the Dockerfile or any other checkout file.
+        # --remove-destination and no -L, as in Tag & Release.
         if: steps.resolve.outputs.build == 'true'
         run: |
           for tree in dist; do
-            if [ -d "$RUNNER_TEMP/build-dist/$tree" ]; then cp -RL "$RUNNER_TEMP/build-dist/$tree" .; fi
+            if [ -d "$RUNNER_TEMP/build-dist/$tree" ]; then cp -R --remove-destination "$RUNNER_TEMP/build-dist/$tree" .; fi
           done
 
       - name: Build container
         # HYPERCI_RELEASE_MODE unset/false -> docker build only. true -> build and
         # push to all configured registries.
+        id: build
         if: steps.resolve.outputs.build == 'true'
         env:
           HYPERCI_RELEASE_MODE: ${{ inputs.will-publish }}
@@ -335,10 +340,11 @@ jobs:
 
       - name: Place dist/
         # Only that tree, so an artefact cannot overwrite checkout files.
+        # --remove-destination and no -L, as in Tag & Release.
         if: inputs.language == 'typescript'
         run: |
           for tree in dist; do
-            if [ -d "$RUNNER_TEMP/build-dist/$tree" ]; then cp -RL "$RUNNER_TEMP/build-dist/$tree" .; fi
+            if [ -d "$RUNNER_TEMP/build-dist/$tree" ]; then cp -R --remove-destination "$RUNNER_TEMP/build-dist/$tree" .; fi
           done
 
       - name: Install Rust toolchain
@@ -524,9 +530,13 @@ jobs:
       - name: Place dist/
         # Only that tree, so an artefact from a job that ran repo code
         # cannot overwrite .hyperi-ci.yaml or any other checkout file.
+        # --remove-destination replaces a symlink the checkout commits under
+        # dist/ instead of writing through it, and a symlinked directory there
+        # fails the copy. No -L: a link in the artefact stays a link, which
+        # publish-charts refuses, rather than reading this runner's files.
         run: |
           for tree in dist; do
-            if [ -d "$RUNNER_TEMP/build-dist/$tree" ]; then cp -RL "$RUNNER_TEMP/build-dist/$tree" .; fi
+            if [ -d "$RUNNER_TEMP/build-dist/$tree" ]; then cp -R --remove-destination "$RUNNER_TEMP/build-dist/$tree" .; fi
           done
 
       - name: Download the prepared release
@@ -631,9 +641,13 @@ jobs:
         # cuts no tag. The CLI does nothing unless release.helm.enabled, and
         # leaves the digest table in RUNNER_TEMP for the GitHub Release body.
         # GITHUB_TOKEN, not the App token: GHCR refuses App tokens.
-        if: hashFiles('**/Chart.yaml') != ''
+        # No `if:`: a release.helm.contract chart commits no Chart.yaml, so a
+        # file test would skip it, and the CLI's own no-op takes about a second.
+        # The CLI assembles that chart, pins the image the Container job
+        # pushed, and fails when there is no pushed image.
         env:
           HYPERCI_VERSION: ${{ inputs.next-version }}
+          HYPERCI_CHART_IMAGE: ${{ needs.container.outputs.image }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ${{ env.HYPERCI_INSTALL }} publish-charts
 

@@ -5,6 +5,8 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
+import hashlib
+import io
 import json
 import shutil
 import subprocess
@@ -18,12 +20,12 @@ import pytest
 import yaml
 from typer.testing import CliRunner, Result
 
-from hyperi_ci import cli
+from hyperi_ci import cli, dispatch
 from hyperi_ci import config as config_module
 from hyperi_ci.cli import app
 from hyperi_ci.native_tools import _linux_arch
 from hyperi_ci.quality import checkov
-from hyperi_ci.release import assemble
+from hyperi_ci.release import assemble, charts
 from hyperi_ci.release.charts import ChartError
 
 DIGEST = "sha256:" + "ab" * 32
@@ -680,6 +682,22 @@ def _configure(root: Path, contract: str | None, library: str | None = "0.1.0") 
     )
 
 
+def _producer(tmp_path: Path) -> Path:
+    """An app whose ``generate-artefacts`` writes the test contract."""
+    producer = tmp_path / "dfe-loader"
+    producer.write_text(
+        f"#!{sys.executable}\n"
+        "import json, pathlib, sys\n"
+        "assert sys.argv[1] == 'generate-artefacts'\n"
+        "out = pathlib.Path(sys.argv[sys.argv.index('--output-dir') + 1])\n"
+        "out.mkdir(parents=True)\n"
+        f"(out / 'deployment-contract.json').write_text({json.dumps(json.dumps(_contract()))})\n",
+        encoding="utf-8",
+    )
+    producer.chmod(0o755)
+    return producer
+
+
 def _invoke(root: Path, *extra: str) -> Result:
     return CliRunner().invoke(
         app,
@@ -719,17 +737,7 @@ class TestCli:
         self, repo: Path, tmp_path: Path
     ) -> None:
         _configure(repo, "emit")
-        producer = tmp_path / "dfe-loader"
-        producer.write_text(
-            f"#!{sys.executable}\n"
-            "import json, pathlib, sys\n"
-            "assert sys.argv[1] == 'generate-artefacts'\n"
-            "out = pathlib.Path(sys.argv[sys.argv.index('--output-dir') + 1])\n"
-            "out.mkdir(parents=True)\n"
-            f"(out / 'deployment-contract.json').write_text({json.dumps(json.dumps(_contract()))})\n",
-            encoding="utf-8",
-        )
-        producer.chmod(0o755)
+        producer = _producer(tmp_path)
         result = _invoke(
             repo, "--binary", str(producer), "--output-dir", str(tmp_path / "out")
         )
@@ -918,3 +926,472 @@ def test_a_rust_producer_runs_the_host_dist_binary(tmp_path: Path) -> None:
     binary.parent.mkdir()
     binary.write_bytes(b"")
     assert assemble.producer_command(tmp_path) == [str(binary)]
+
+
+EMITTED_DIR = Path(assemble.EMITTED_DIR)
+
+
+def _emitted(root: Path) -> list[Path]:
+    folder = root / EMITTED_DIR
+    return sorted(folder.glob(assemble.EMITTED_GLOB)) if folder.is_dir() else []
+
+
+def _leave(root: Path, raw: bytes, name: str | None = None) -> Path:
+    """Place a contract where a Build leg's artefact puts it."""
+    digest = hashlib.sha256(raw).hexdigest()
+    path = root / EMITTED_DIR / (name or assemble.EMITTED_NAME.format(digest=digest))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(raw)
+    return path
+
+
+def _release_config(root: Path, **helm: object) -> config_module.CIConfig:
+    (root / ".hyperi-ci.yaml").write_text(
+        yaml.safe_dump({"release": {"helm": {"enabled": True, **helm}}}),
+        encoding="utf-8",
+    )
+    return config_module.load_config(project_dir=root, reload=True)
+
+
+class TestBuildEmitsTheContract:
+    """`emit` runs in the Build job, as Tag & Release runs no repo code."""
+
+    @pytest.fixture
+    def producer(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        producer = _producer(tmp_path)
+        monkeypatch.setattr(
+            assemble, "producer_command", lambda root, binary=None: [str(producer)]
+        )
+        return producer
+
+    def test_the_build_stage_leaves_the_contract_in_dist(
+        self, repo: Path, producer: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config = _release_config(repo, contract="emit", library="0.1.0")
+        monkeypatch.setattr(dispatch, "_dispatch_to_handler", lambda *a, **k: 0)
+        monkeypatch.chdir(repo)
+        assert dispatch.stage_build("python", config) == 0
+        [emitted] = _emitted(repo)
+        raw = emitted.read_bytes()
+        assert json.loads(raw) == _contract()
+        assert hashlib.sha256(raw).hexdigest() in emitted.name
+
+    def test_a_contract_an_earlier_build_left_is_replaced(
+        self, repo: Path, producer: Path
+    ) -> None:
+        _leave(repo, b"{}", name="deployment-contract.stale.json")
+        config = _release_config(repo, contract="emit", library="0.1.0")
+        assert assemble.emit_contract(config, repo) == 0
+        assert [json.loads(p.read_bytes()) for p in _emitted(repo)] == [_contract()]
+
+    def test_a_failing_producer_fails_the_build(
+        self, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config = _release_config(repo, contract="emit", library="0.1.0")
+        monkeypatch.setattr(
+            assemble, "producer_command", lambda root, binary=None: ["false"]
+        )
+        assert assemble.emit_contract(config, repo) == 1
+        assert _emitted(repo) == []
+
+    @pytest.mark.parametrize("link", ["dist", "dist/chart-contract"])
+    def test_a_symlinked_dist_is_never_written_through(
+        self, repo: Path, producer: Path, tmp_path: Path, link: str
+    ) -> None:
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (repo / link).parent.mkdir(parents=True, exist_ok=True)
+        (repo / link).symlink_to(outside)
+        config = _release_config(repo, contract="emit", library="0.1.0")
+        assert assemble.emit_contract(config, repo) == 1
+        assert list(outside.iterdir()) == []
+
+    @pytest.mark.parametrize(
+        "helm",
+        [
+            {},
+            {"contract": "deploy/contract.json"},
+            {"enabled": False, "contract": "emit"},
+        ],
+        ids=["no-contract", "committed", "helm-off"],
+    )
+    def test_nothing_else_emits(
+        self, repo: Path, producer: Path, monkeypatch: pytest.MonkeyPatch, helm: dict
+    ) -> None:
+        config = _release_config(repo, **helm)
+        monkeypatch.setattr(dispatch, "_dispatch_to_handler", lambda *a, **k: 0)
+        monkeypatch.chdir(repo)
+        assert dispatch.stage_build("python", config) == 0
+        assert not (repo / "dist").exists()
+
+
+class TestReleaseContract:
+    """Tag & Release reads what the Build legs left, and nothing it could be steered to."""
+
+    def test_legs_that_agree_give_one_contract(self, tmp_path: Path) -> None:
+        raw = _raw(_contract())
+        _leave(tmp_path, raw)
+        _leave(tmp_path, raw, name="deployment-contract.copy.json")
+        assert assemble.release_contract("emit", tmp_path) == raw
+
+    def test_legs_that_disagree_fail(self, tmp_path: Path) -> None:
+        _leave(tmp_path, _raw(_contract()))
+        _leave(tmp_path, _raw(_contract(metrics_port=9091)))
+        with pytest.raises(ChartError, match="2 different contracts"):
+            assemble.release_contract("emit", tmp_path)
+
+    def test_no_contract_left_fails(self, tmp_path: Path) -> None:
+        with pytest.raises(ChartError, match="left no"):
+            assemble.release_contract("emit", tmp_path)
+
+    @pytest.mark.parametrize("link", ["dist", "dist/chart-contract"])
+    def test_a_symlinked_directory_on_the_path_is_refused(
+        self, tmp_path: Path, link: str
+    ) -> None:
+        root = tmp_path / "repo"
+        elsewhere = tmp_path / "elsewhere"
+        _leave(elsewhere, _raw(_contract()))
+        target = elsewhere / Path(link)
+        (root / link).parent.mkdir(parents=True)
+        (root / link).symlink_to(target)
+        with pytest.raises(ChartError, match=f"{link} is a symlink"):
+            assemble.release_contract("emit", root)
+
+    def test_a_symlinked_contract_is_refused(self, tmp_path: Path) -> None:
+        real = _leave(tmp_path / "elsewhere", _raw(_contract()))
+        link = tmp_path / EMITTED_DIR / real.name
+        link.parent.mkdir(parents=True)
+        link.symlink_to(real)
+        with pytest.raises(ChartError, match="holds symlinks"):
+            assemble.release_contract("emit", tmp_path)
+
+
+class TestAssembleRefuses:
+    """Inputs that would reach a path or a runner file are refused up front."""
+
+    @pytest.mark.parametrize(
+        "version", ["../../../etc/x", "4/../4", "4", 4.0, -4, True, None]
+    )
+    def test_a_schema_version_that_is_not_a_whole_number(
+        self, tmp_path: Path, version: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The check runs before any path into the library is formed.
+        monkeypatch.setattr(
+            assemble, "_read_json", lambda *a: pytest.fail("read the library")
+        )
+        out = tmp_path / "out"
+        with pytest.raises(ChartError, match="is not a whole number"):
+            _assemble(out, _contract(schema_version=version))
+        assert not out.exists()
+
+    @pytest.mark.parametrize(
+        "where", ["skeleton/templates/secret.yaml", "lint-skip.yaml", "skeleton"]
+    )
+    def test_a_library_holding_a_symlink(self, tmp_path: Path, where: str) -> None:
+        library = tmp_path / "library"
+        shutil.copytree(LIBRARY_DIR, library)
+        planted = library / where
+        if planted.is_dir():
+            shutil.rmtree(planted)
+        else:
+            planted.unlink(missing_ok=True)
+        planted.parent.mkdir(parents=True, exist_ok=True)
+        secret = tmp_path / "runner-secret"
+        secret.write_text("token", encoding="utf-8")
+        planted.symlink_to(secret)
+        out = tmp_path / "out"
+        with pytest.raises(ChartError, match="holds symlinks"):
+            _assemble_on(library, out)
+        assert not out.exists() or list(out.iterdir()) == []
+
+
+class TestPinnedImage:
+    """The digest a stored chart pins is read from its values, not helm's chatter."""
+
+    def _show(
+        self, monkeypatch: pytest.MonkeyPatch, rc: int, stdout: str
+    ) -> list[list[str]]:
+        seen: list[list[str]] = []
+
+        def run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+            seen.append(argv)
+            assert not kwargs.get("merge_stderr")
+            return subprocess.CompletedProcess(
+                argv, rc, stdout=stdout, stderr=f"Pulled: x\nDigest: {DIGEST}\n"
+            )
+
+        monkeypatch.setattr(charts, "run_cmd", run)
+        return seen
+
+    def test_the_values_digest_is_returned(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        other = "sha256:" + "ef" * 32
+        seen = self._show(monkeypatch, 0, assemble.values_yaml(other, {}))
+        assert charts.pinned_image(REGISTRY, "dfe-loader", "1.4.2") == other
+        assert seen[0][:3] == ["helm", "show", "values"]
+
+    def test_values_with_no_image_digest_give_none(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._show(monkeypatch, 0, "replicas: 2\n")
+        assert charts.pinned_image(REGISTRY, "dfe-loader", "1.4.2") is None
+
+    def test_a_failed_show_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._show(monkeypatch, 1, "")
+        with pytest.raises(ChartError, match="helm show values"):
+            charts.pinned_image(REGISTRY, "dfe-loader", "1.4.2")
+
+
+def _yaml_member(archive: tarfile.TarFile, name: str) -> dict:
+    handle = archive.extractfile(name)
+    assert handle is not None, f"{name} is not in the package"
+    return yaml.safe_load(handle.read())
+
+
+class FakeRegistry:
+    """The registry half of helm. A push returns DIGEST.
+
+    ``stored`` holds the chart versions already pushed: name to the image
+    digest their values pin.
+    """
+
+    CHART_DIGEST = "sha256:" + "cd" * 32
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, ...]] = []
+        self.pushed: dict[str, bytes] = {}
+        self.stored: dict[str, str | None] = {}
+
+    def __call__(self, *args: str, registry: str = "") -> tuple[int, str]:
+        self.calls.append(args)
+        if args[:2] == ("show", "chart"):
+            name = args[2].rsplit("/", 1)[1]
+            if name in self.stored:
+                return 0, f"Pulled: x\nDigest: {self.CHART_DIGEST}\n"
+            return 1, "Error: not found"
+        if args[0] == "push":
+            self.pushed[Path(args[1]).name] = Path(args[1]).read_bytes()
+            return 0, f"Pushed: x\nDigest: {DIGEST}\n"
+        raise AssertionError(f"unexpected helm call {args}")
+
+    def pinned(self, registry: str, name: str, version: str) -> str | None:
+        self.calls.append(("show", "values", name))
+        return self.stored[name]
+
+
+class TestReleaseTailPublishesTheContractChart:
+    """`publish-charts` in Tag & Release assembles, packages and pushes the chart."""
+
+    @pytest.fixture
+    def registry(self, monkeypatch: pytest.MonkeyPatch) -> FakeRegistry:
+        fake = FakeRegistry()
+        real = charts._helm
+
+        def helm(*args: str, registry: str = "") -> tuple[int, str]:
+            if args[0] == "package":
+                fake.calls.append(args)
+                return real(*args, registry=registry)
+            return fake(*args, registry=registry)
+
+        def dependency_build(*args: str, registry: str = "") -> tuple[int, str]:
+            assert args[:2] == ("dependency", "build")
+            shutil.copytree(LIBRARY_DIR, Path(args[2]) / "charts" / "scalo-service")
+            return 0, ""
+
+        monkeypatch.setattr(charts, "_helm", helm)
+        monkeypatch.setattr(charts, "pinned_image", fake.pinned)
+        monkeypatch.setattr(charts, "_ensure_helm", lambda: True)
+        monkeypatch.setattr(assemble, "_helm", dependency_build)
+        monkeypatch.setattr(assemble, "_ensure_helm", lambda: True)
+        monkeypatch.setattr(
+            assemble, "_pull_library", lambda registry, library, scratch: LIBRARY_DIR
+        )
+        monkeypatch.setattr(
+            assemble,
+            "producer_command",
+            lambda root, binary=None: pytest.fail("Tag & Release ran the producer"),
+        )
+        for name in ("GITHUB_TOKEN", "GITHUB_STEP_SUMMARY", "HYPERCI_CHART_IMAGE"):
+            monkeypatch.delenv(name, raising=False)
+        return fake
+
+    def _publish(
+        self, root: Path, config: config_module.CIConfig, image: str | None = IMAGE
+    ) -> tuple[int, list[charts.Published]]:
+        return charts.publish_charts(
+            config, root, registry=REGISTRY, version="1.4.2", image=image
+        )
+
+    @needs_helm
+    def test_the_pushed_chart_pins_the_pushed_image(
+        self, repo: Path, registry: FakeRegistry
+    ) -> None:
+        config = _release_config(repo, contract="deploy/contract.json", library="0.0.0")
+        rc, results = self._publish(repo, config)
+        assert rc == 0
+        assert [(r.chart, r.version, r.digest) for r in results] == [
+            ("dfe-loader", "1.4.2", DIGEST)
+        ]
+        tgz = registry.pushed["dfe-loader-1.4.2.tgz"]
+        with tarfile.open(fileobj=io.BytesIO(tgz)) as archive:
+            meta = _yaml_member(archive, "dfe-loader/Chart.yaml")
+            values = _yaml_member(archive, "dfe-loader/values.yaml")
+            names = archive.getnames()
+        assert (meta["name"], meta["version"], meta["appVersion"]) == (
+            "dfe-loader",
+            "1.4.2",
+            "v1.4.2",
+        )
+        assert values["image"]["digest"] == DIGEST
+        assert "dfe-loader/charts/scalo-service/Chart.yaml" in names
+
+    @needs_helm
+    def test_an_emitted_contract_is_read_from_the_build_artefact(
+        self, repo: Path, registry: FakeRegistry
+    ) -> None:
+        _leave(repo, _raw(_contract()))
+        config = _release_config(repo, contract="emit", library="0.0.0")
+        rc, results = self._publish(repo, config)
+        assert (rc, [r.chart for r in results]) == (0, ["dfe-loader"])
+
+    def test_a_symlinked_build_artefact_fails_before_any_push(
+        self, repo: Path, registry: FakeRegistry, tmp_path: Path
+    ) -> None:
+        elsewhere = tmp_path / "elsewhere"
+        _leave(elsewhere, _raw(_contract()))
+        (repo / "dist").symlink_to(elsewhere / "dist")
+        config = _release_config(repo, contract="emit", library="0.0.0")
+        rc, results = self._publish(repo, config)
+        assert (rc, results) == (1, [])
+        assert [c for c in registry.calls if c[0] == "push"] == []
+
+    def test_a_committed_chart_with_the_contract_charts_name_fails(
+        self, repo: Path, registry: FakeRegistry
+    ) -> None:
+        chart_dir = repo / "helm" / "dfe-loader"
+        (chart_dir / "templates").mkdir(parents=True)
+        (chart_dir / "Chart.yaml").write_text(
+            "apiVersion: v2\nname: dfe-loader\nversion: 0.0.0\n", encoding="utf-8"
+        )
+        config = _release_config(
+            repo,
+            charts=["helm/dfe-loader"],
+            contract="deploy/contract.json",
+            library="0.0.0",
+        )
+        rc, results = self._publish(repo, config)
+        assert (rc, results) == (1, [])
+        assert [c for c in registry.calls if c[0] == "push"] == []
+
+    @needs_helm
+    def test_a_stored_version_pinning_this_image_is_reused(
+        self, repo: Path, registry: FakeRegistry
+    ) -> None:
+        registry.stored["dfe-loader"] = DIGEST
+        config = _release_config(repo, contract="deploy/contract.json", library="0.0.0")
+        rc, results = self._publish(repo, config)
+        assert (rc, [(r.chart, r.digest) for r in results]) == (
+            0,
+            [("dfe-loader", FakeRegistry.CHART_DIGEST)],
+        )
+        assert registry.pushed == {}
+
+    @pytest.mark.parametrize("stored", ["sha256:" + "ef" * 32, None])
+    def test_a_stored_version_pinning_another_image_fails_before_any_push(
+        self, repo: Path, registry: FakeRegistry, stored: str | None
+    ) -> None:
+        chart_dir = repo / "helm" / "web"
+        (chart_dir / "templates").mkdir(parents=True)
+        (chart_dir / "Chart.yaml").write_text(
+            "apiVersion: v2\nname: web\nversion: 0.0.0\nappVersion: v9\n",
+            encoding="utf-8",
+        )
+        registry.stored["dfe-loader"] = stored
+        config = _release_config(
+            repo,
+            charts=["helm/web"],
+            contract="deploy/contract.json",
+            library="0.0.0",
+        )
+        rc, results = self._publish(repo, config)
+        assert (rc, results, registry.pushed) == (1, [], {})
+
+    def test_emit_with_no_build_artefact_fails_before_any_push(
+        self, repo: Path, registry: FakeRegistry
+    ) -> None:
+        config = _release_config(repo, contract="emit", library="0.0.0")
+        rc, _ = self._publish(repo, config)
+        assert rc == 1
+        assert [c for c in registry.calls if c[0] == "push"] == []
+
+    def test_a_contract_with_no_pushed_image_fails_before_any_push(
+        self, repo: Path, registry: FakeRegistry
+    ) -> None:
+        chart_dir = repo / "helm" / "web"
+        (chart_dir / "templates").mkdir(parents=True)
+        (chart_dir / "Chart.yaml").write_text(
+            "apiVersion: v2\nname: web\nversion: 0.0.0\n", encoding="utf-8"
+        )
+        config = _release_config(
+            repo, charts=["helm/web"], contract="emit", library="0.0.0"
+        )
+        rc, results = self._publish(repo, config, image=None)
+        assert (rc, results, registry.calls) == (1, [], [])
+
+    @needs_helm
+    @pytest.mark.parametrize("image", [None, IMAGE], ids=["no-image", "image"])
+    def test_no_contract_publishes_only_the_committed_charts(
+        self,
+        repo: Path,
+        registry: FakeRegistry,
+        monkeypatch: pytest.MonkeyPatch,
+        image: str | None,
+    ) -> None:
+        # Tag & Release hands every release the Container job's image, so an
+        # image with no contract must change nothing.
+        monkeypatch.setattr(
+            assemble,
+            "assemble_chart",
+            lambda *a, **k: pytest.fail("assembled with no contract"),
+        )
+        chart_dir = repo / "helm" / "web"
+        (chart_dir / "templates").mkdir(parents=True)
+        (chart_dir / "Chart.yaml").write_text(
+            "apiVersion: v2\nname: web\nversion: 0.0.0\nappVersion: v9\n",
+            encoding="utf-8",
+        )
+        config = _release_config(repo, charts=["helm/web"])
+        rc, results = self._publish(repo, config, image=image)
+        assert (rc, [r.chart for r in results]) == (0, ["web"])
+        assert [c[:2] for c in registry.calls if c[0] != "package"] == [
+            ("show", "chart"),
+            ("show", "chart"),
+            ("push", registry.calls[-1][1]),
+        ]
+
+    @pytest.mark.parametrize("image", [None, IMAGE], ids=["no-image", "image"])
+    def test_helm_switched_off_does_nothing_whatever_the_image(
+        self, repo: Path, registry: FakeRegistry, image: str | None
+    ) -> None:
+        (repo / ".hyperi-ci.yaml").write_text("{}\n", encoding="utf-8")
+        config = config_module.load_config(project_dir=repo, reload=True)
+        assert self._publish(repo, config, image=image) == (0, [])
+        assert registry.calls == []
+
+    def test_the_cli_reads_the_image_from_the_environment(
+        self, repo: Path, registry: FakeRegistry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: list[str | None] = []
+        monkeypatch.setattr(
+            charts,
+            "publish_charts",
+            lambda *a, image=None, **k: (seen.append(image), (0, []))[1],
+        )
+        result = CliRunner().invoke(
+            app,
+            ["publish-charts", "-C", str(repo)],
+            env={"HYPERCI_CHART_IMAGE": IMAGE},
+        )
+        assert result.exit_code == 0, result.output
+        assert seen == [IMAGE]
