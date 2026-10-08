@@ -464,27 +464,45 @@ class TestARunningSweep:
     @pytest.mark.parametrize("status", ["queued", "in_progress"])
     def test_an_unfinished_sweep_is_found(self, monkeypatch, status) -> None:
         calls = self._listing(monkeypatch, 0, _sweep_runs("completed", status))
-        assert rehearse_branch._running_sweep() == 101
+        assert rehearse_branch._running_hold() == (
+            "hyperi-io/hyperi-ci",
+            "fleet-sweep.yml",
+            101,
+        )
         assert "fleet-sweep.yml" in calls[0]
         assert "hyperi-io/hyperi-ci" in calls[0]
 
+    def test_an_unfinished_image_canary_is_found(self, monkeypatch) -> None:
+        def fake_run(args, **_kwargs):
+            canary = "arc-runner-images.yml" in args
+            stdout = _sweep_runs("in_progress" if canary else "completed")
+            return subprocess.CompletedProcess(args, 0, stdout=stdout)
+
+        monkeypatch.setattr(rehearse_branch, "_run", fake_run)
+        assert rehearse_branch._running_hold() == (
+            "hyperi-io/hyperi-infra",
+            "arc-runner-images.yml",
+            100,
+        )
+
     def test_finished_sweeps_are_not_running(self, monkeypatch) -> None:
-        self._listing(monkeypatch, 0, _sweep_runs("completed", "completed"))
-        assert rehearse_branch._running_sweep() is None
+        calls = self._listing(monkeypatch, 0, _sweep_runs("completed", "completed"))
+        assert rehearse_branch._running_hold() is None
+        assert len(calls) == len(rehearse_branch._HOLDING_WORKFLOWS)
 
     def test_no_sweep_ever_is_not_running(self, monkeypatch) -> None:
         self._listing(monkeypatch, 0, "[]")
-        assert rehearse_branch._running_sweep() is None
+        assert rehearse_branch._running_hold() is None
 
     def test_a_failed_query_is_not_read_as_no_sweep(self, monkeypatch) -> None:
         self._listing(monkeypatch, 1, stderr="gh: Bad credentials (HTTP 401)")
         with pytest.raises(rehearse_branch.SweepUnreadableError, match="HTTP 401"):
-            rehearse_branch._running_sweep()
+            rehearse_branch._running_hold()
 
     def test_an_unreadable_answer_is_not_read_as_no_sweep(self, monkeypatch) -> None:
         self._listing(monkeypatch, 0, "<html>")
         with pytest.raises(rehearse_branch.SweepUnreadableError):
-            rehearse_branch._running_sweep()
+            rehearse_branch._running_hold()
 
 
 class _FixtureTouchedError(Exception):
@@ -523,6 +541,21 @@ class TestTheRehearsalRefusesDuringASweep:
         )
         assert rehearse_branch.main() == 2
         assert "36001828234" in capsys.readouterr().out
+
+    def test_a_running_image_canary_refuses_with_nothing_touched(
+        self, monkeypatch, capsys
+    ) -> None:
+        def listing(args):
+            canary = "arc-runner-images.yml" in args
+            runs = [{"databaseId": 37735863283, "status": "in_progress"}]
+            stdout = json.dumps(runs) if canary else "[]"
+            return subprocess.CompletedProcess(args, 0, stdout=stdout)
+
+        self._main(monkeypatch, listing)
+        assert rehearse_branch.main() == 2
+        out = capsys.readouterr().out
+        assert "37735863283" in out
+        assert "hyperi-io/hyperi-infra" in out
 
     def test_a_failed_sweep_query_refuses_with_nothing_touched(
         self, monkeypatch, capsys

@@ -31,9 +31,10 @@ names the hyperi-ci commit that was rehearsed and the run that proved it,
 so ``scripts/rehearse-gate.py`` can refuse a PR whose current head has
 never been run against a fixture (issue #215).
 
-It refuses to start while a fleet sweep has not finished, and exits 2 with
-nothing changed: the override would reach the fixture runs that sweep
-dispatched to certify main. It also refuses a fixture whose override already
+It refuses to start while a fleet sweep or a hyperi-infra runner-image canary
+has not finished, and exits 2 with nothing changed: the override would reach
+the fixture runs that sweep dispatched to certify main, and the canary will not
+promote an image while a rehearsal holds a fixture. It also refuses a fixture whose override already
 names a hyperi-ci branch, because a rehearsal still holds it.
 
 Deliberately NEVER: merges anything, touches the fixture's main, or
@@ -186,20 +187,25 @@ def held_by(value: str | None) -> str | None:
     return match.group(1)
 
 
-_SWEEP_WORKFLOW = "fleet-sweep.yml"
+# Workflows that dispatch runs onto the fixtures and read a rehearse/ branch as
+# a hold: the fleet sweep certifying main, and the runner-image canary, which
+# will not promote an image while a rehearsal holds any fixture.
+_HOLDING_WORKFLOWS = (
+    (_HYPERI_CI_REPO, "fleet-sweep.yml"),
+    ("hyperi-io/hyperi-infra", "arc-runner-images.yml"),
+)
 
 
 class SweepUnreadableError(RuntimeError):
-    """Whether a fleet sweep is running could not be read."""
+    """Whether a fixture-holding workflow is running could not be read."""
 
 
-def _running_sweep() -> int | None:
-    """The id of a fleet-sweep run that has not finished, or None.
+def _unfinished_run(repo: str, workflow: str) -> int | None:
+    """The id of a ``workflow`` run on ``repo`` that has not finished, or None.
 
     Raises:
         SweepUnreadableError: gh failed or answered with something unreadable.
-            Read as "no sweep", the override would reach fixture runs that
-            sweep already dispatched.
+            Read as "not running", the rehearsal would collide with it.
     """
     result = _run(
         [
@@ -207,9 +213,9 @@ def _running_sweep() -> int | None:
             "run",
             "list",
             "-R",
-            _HYPERI_CI_REPO,
+            repo,
             "--workflow",
-            _SWEEP_WORKFLOW,
+            workflow,
             "--json",
             "databaseId,status",
             "--limit",
@@ -219,9 +225,7 @@ def _running_sweep() -> int | None:
     if result.returncode != 0:
         stderr = result.stderr.strip().splitlines()
         detail = stderr[-1] if stderr else f"gh exited {result.returncode}"
-        raise SweepUnreadableError(
-            f"cannot list {_SWEEP_WORKFLOW} runs on {_HYPERI_CI_REPO}: {detail}"
-        )
+        raise SweepUnreadableError(f"cannot list {workflow} runs on {repo}: {detail}")
     try:
         runs = json.loads(result.stdout or "[]")
         return next(
@@ -230,8 +234,24 @@ def _running_sweep() -> int | None:
         )
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
         raise SweepUnreadableError(
-            f"unreadable {_SWEEP_WORKFLOW} run list on {_HYPERI_CI_REPO}: {exc}"
+            f"unreadable {workflow} run list on {repo}: {exc}"
         ) from exc
+
+
+def _running_hold() -> tuple[str, str, int] | None:
+    """The first fixture-holding workflow run that has not finished, or None.
+
+    Returns:
+        ``(repo, workflow, run id)`` of that run.
+
+    Raises:
+        SweepUnreadableError: Any one of the listings could not be read.
+    """
+    for repo, workflow in _HOLDING_WORKFLOWS:
+        run_id = _unfinished_run(repo, workflow)
+        if run_id is not None:
+            return repo, workflow, run_id
+    return None
 
 
 def _gh_var(repo: str, action: str, value: str = "") -> bool:
@@ -656,16 +676,17 @@ def main() -> int:
     rehearse_ref = f"{REHEARSAL_PREFIX}{slug}"
 
     # The override reaches every run that starts while it is set, including the
-    # fixture runs a sweep already dispatched to certify main.
+    # fixture runs a sweep or image canary already dispatched.
     if not args.no_cli_override:
         try:
-            sweep_id = _running_sweep()
+            hold = _running_hold()
         except SweepUnreadableError as exc:
             return _fail(f"{exc} -- not setting an override a sweep could pick up")
-        if sweep_id is not None:
+        if hold is not None:
+            hold_repo, workflow, run_id = hold
             print(
-                f"REHEARSAL REFUSED: fleet-sweep run {sweep_id} on {_HYPERI_CI_REPO} "
-                f"has not finished, and the override would reach the runs it "
+                f"REHEARSAL REFUSED: {workflow} run {run_id} on {hold_repo} has not "
+                f"finished, and a rehearsal would collide with the runs it "
                 f"dispatches on {repo}. Nothing was changed -- rehearse {branch} "
                 "once it finishes."
             )
