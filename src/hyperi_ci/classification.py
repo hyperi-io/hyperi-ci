@@ -6,21 +6,20 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Repo classification: the declared category a repo belongs to.
 
-Four canonical categories -- ``internal``, ``product``, ``fork`` and
-``general-oss`` -- decide visibility, licence, publish policy and
-branding. The category is DECLARED, never inferred from the repo name.
+Four canonical categories (``internal``, ``product``, ``fork``, ``general-oss``)
+decide visibility, licence, publish policy and branding. The category is
+DECLARED, never inferred from the repo name.
 
 Resolution order (first hit wins):
 
 1. ``classification`` in the merged config (``.hyperi-ci.yaml``, or the
-   ``HYPERCI_CLASSIFICATION`` override that lands on the same key).
+   ``HYPERCI_CLASSIFICATION`` override on the same key).
 2. The ``.hyperi-classification`` one-token dotfile at the repo root.
-3. The GitHub org custom property, which needs org API access and is
-   therefore opt-in rather than part of the offline config load.
+3. The GitHub org custom property, opt-in because it needs org API access.
 
-Nothing declared on any rung resolves to no declaration at all, and the
-effective reading falls back to ``internal`` -- the most restrictive
-category. A repo that never says what it is is never read as public OSS.
+Nothing declared resolves to no declaration, and the effective reading is
+``internal``, the most restrictive category, so an undeclared repo is never
+read as public OSS.
 """
 
 import json
@@ -28,13 +27,12 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-# The only values the GitHub org custom property accepts, and the only
-# values written into a marker.
+# The only values the GitHub org custom property accepts or a marker holds.
 CANONICAL: tuple[str, ...] = ("internal", "product", "fork", "general-oss")
 
-# Accepted input spellings that normalise to a canonical value. The
-# category numbers come from the matrix in the repo-classification
-# standard; `hyperi` and `oss` are the pre-rename spellings.
+# Input spellings that normalise to a canonical value. The numbers come from the
+# repo-classification standard's matrix, and `hyperi` and `oss` are the
+# pre-rename spellings.
 ALIASES: dict[str, str] = {
     "hyperi": "internal",
     "oss": "general-oss",
@@ -64,9 +62,9 @@ class Resolution:
 
     Attributes:
         value: The canonical declared category, or "" when undeclared.
-        source: Which rung answered -- one of the SOURCE_* constants.
-        effective: The category to act on; ``MOST_RESTRICTIVE`` when
-            nothing is declared.
+        source: Which rung answered, a SOURCE_* constant.
+        effective: The category to act on, ``MOST_RESTRICTIVE`` when nothing is
+            declared.
 
     """
 
@@ -104,8 +102,7 @@ def normalise(value: object) -> str:
 def read_dotfile(project_dir: Path) -> str | None:
     """Read the `.hyperi-classification` dotfile, if present.
 
-    Blank lines and `#` comments are skipped so a fork can explain the
-    marker in the file it has to carry.
+    Blank lines and `#` comments are skipped.
 
     Args:
         project_dir: Repo root to look in.
@@ -161,8 +158,7 @@ def parse_org_properties(payload: str) -> str | None:
 def from_org_property(repo: str) -> str | None:
     """Read the classification the GitHub org declares for a repo.
 
-    Needs org API access, so a clone outside the org has nothing to read
-    and gets None rather than an error.
+    Needs org API access, so a clone outside the org gets None, not an error.
 
     Args:
         repo: Fully qualified `owner/name`.
@@ -190,8 +186,8 @@ def from_org_property(repo: str) -> str | None:
 def resolve(raw_config: dict, project_dir: Path) -> Resolution:
     """Resolve a repo's classification from its in-repo markers.
 
-    Covers rungs 1 and 2 only; the org custom property is a network read
-    and is left to the caller that opts into it.
+    Rungs 1 and 2 only: the org custom property is a network read left to the
+    caller that opts in.
 
     Args:
         raw_config: The merged config dict.

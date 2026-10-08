@@ -10,10 +10,9 @@ Wraps git push with:
 
 - Pre-push validation (``hyperi-ci check``)
 - Auto-rebase to sync semantic-release commits
-- ``--publish`` (alias ``--release``): amend HEAD with the
-  ``Release: true`` git trailer before pushing. The single CI run
-  triggered by the push runs through the version-first pipeline and
-  produces the tag + registry uploads in one shot.
+- ``--publish`` (alias ``--release``): amend HEAD with the ``Release: true``
+  git trailer before pushing, so the one CI run produces the tag + registry
+  uploads
 - ``--no-ci``: amend last commit with ``[skip ci]`` marker
 
 All flows set ``HYPERCI_PUSH=1`` so the pre-push hook allows the push.
@@ -44,11 +43,9 @@ from hyperi_ci.vocabulary import (
 RELEASE_TRAILER_KEY = TRAILER_KEY
 RELEASE_TRAILER_VALUE = TRAILER_VALUE
 
-# Lockfile basenames we auto-stage into the release-marker commit when
-# they show up modified in the working tree at commit time. Cargo
-# routinely updates Cargo.lock during the quality stage to sync with
-# Cargo.toml, and we don't want that drift to fail the subsequent
-# rebase. Same applies to uv / poetry / npm / yarn / pnpm / go.
+# Lockfiles staged into the release-marker commit when modified at commit time.
+# Cargo, uv, npm and the rest refresh them during the quality stage, and that
+# drift would fail the subsequent rebase.
 _AUTO_STAGE_LOCKFILES: frozenset[str] = frozenset(
     {
         "Cargo.lock",
@@ -61,11 +58,8 @@ _AUTO_STAGE_LOCKFILES: frozenset[str] = frozenset(
     }
 )
 
-# Bump -> conventional-commits type that semantic-release will treat as
-# the corresponding semver bump. We deliberately exclude "major" -- major
-# bumps require a human to write `BREAKING CHANGE:` in the commit body
-# (per HyperI commit-type discipline). Forcing a major via flag would
-# bypass that gate.
+# Bump -> the conventional-commits type semantic-release reads as that bump.
+# "major" is excluded: it needs a human-written `BREAKING CHANGE:` footer.
 _BUMP_TO_TYPE: dict[str, str] = {
     "patch": "fix",
     "minor": "feat",
@@ -84,19 +78,14 @@ def push(
     """Push with pre-checks and optional meta-operations.
 
     Args:
-        publish: Stamp the head commit with the ``Release: true``
-            trailer (justified amend) and push. The CI run sees the
-            trailer, predicts the next version, stamps it into
-            Cargo.toml/VERSION before build, then tags + publishes in
-            the same workflow run.
+        publish: Stamp the head commit with the ``Release: true`` trailer and
+            push. The CI run predicts the next version, stamps it before
+            build, then tags + publishes in the same run.
         no_ci: Amend last commit with ``[skip ci]`` and push.
-        bump: ``"patch"`` or ``"minor"`` -- force a release-worthy commit
-            on top of HEAD even when the actual commits are no-bump
-            (e.g. ``docs:`` only). Implies ``--publish``. Lets you
-            release a docs-only or refactor-only PR without manually
-            adding a fake ``fix:`` commit. Major bumps are deliberately
-            excluded -- they require a human-written ``BREAKING CHANGE:``
-            footer per HyperI commit-type discipline.
+        bump: ``"patch"`` or ``"minor"``. Adds a release-worthy marker commit
+            on top of HEAD when the actual commits are no-bump (e.g. ``docs:``
+            only). Implies ``--publish``. Major is excluded: it needs a
+            human-written ``BREAKING CHANGE:`` footer.
         dry_run: Show what would happen without executing.
         force: Skip hyperi-ci check step.
         project_dir: Project directory (default: cwd).
@@ -123,7 +112,6 @@ def push(
     if no_ci:
         return _skip_ci_push(dry_run=dry_run, cwd=cwd)
 
-    # --bump-* implies --publish (you can't bump without publishing)
     if publish or bump:
         return _publish_push(dry_run=dry_run, force=force, bump=bump, cwd=cwd)
 
@@ -135,7 +123,7 @@ def _default_push(*, dry_run: bool, force: bool, cwd: str | None) -> int:
     if rc := _check_dirty_tree(cwd=cwd):
         return rc
 
-    # Before the gates, never after: this answer cannot change while they run.
+    # Before the gates: the answer cannot change while they run.
     if rc := _check_push_target(cwd=cwd):
         return rc
 
@@ -160,27 +148,19 @@ def _publish_push(
     """Mark HEAD as a publish run, then push.
 
     Runs from ``main``, or from a branch the release config declares
-    ``prerelease`` -- that cuts ``1.2.0-beta.1`` on its own sequence and
-    leaves the stable numbers alone (issue #144). Any other branch is
-    refused, matching the CI gate.
+    ``prerelease``, which cuts ``1.2.0-beta.1`` on its own sequence (issue
+    #144). Any other branch is refused, matching the CI gate.
 
     Two paths:
 
-    - Default (``bump=None``): the user's HEAD commit IS release-worthy
-      (a ``fix:``/``feat:``/``perf:``/``hotfix:``/``security:`` commit).
-      We amend HEAD with the ``Release: true`` trailer to signal the
-      workflow to tag + publish.
+    - Default (``bump=None``): HEAD is release-worthy (a ``fix:`` / ``feat:`` /
+      ``perf:`` commit), so it is amended with the ``Release: true`` trailer.
+    - Forced bump (``bump="patch"`` or ``"minor"``): HEAD is not
+      release-worthy (e.g. docs-only), so a marker commit with a patch/minor
+      conventional-commit subject and the trailer goes on top. History states
+      the forced release instead of hiding a fake fix in source.
 
-    - Forced bump (``bump="patch"`` or ``"minor"``): the user's HEAD
-      commits are NOT release-worthy (e.g. docs-only) but they want a
-      release anyway. We add a NEW empty commit on top with a
-      conventional-commit message that semantic-release will analyse
-      as a patch/minor -- plus the ``Release: true`` trailer. Honest
-      git history: the marker commit explicitly states "this is a
-      forced release" rather than smuggling a fake fix into source.
-
-    Either way, the resulting CI run goes through the version-first
-    pipeline: predict -> stamp -> build -> tag + publish in one workflow.
+    Either way the CI run goes predict -> stamp -> build -> tag + publish.
     """
     if not require_gh():
         return 1
@@ -196,7 +176,7 @@ def _publish_push(
     if rc := _check_dirty_tree(cwd=cwd):
         return rc
 
-    # Before the gates, never after: this answer cannot change while they run.
+    # Before the gates: the answer cannot change while they run.
     if rc := _check_push_target(cwd=cwd):
         return rc
 
@@ -204,23 +184,16 @@ def _publish_push(
         if rc := _run_check(cwd=cwd):
             return rc
 
-    # Predicted-bump gate on dry runs (issue #26): report the verdict on
-    # the LOCAL range before the dry-run paths return. The authoritative
-    # gate for a real push runs after the pull-rebase below -- the pull can
-    # import feat!/BREAKING history from origin that the local range never
-    # contained, and that imported history must not escape analysis.
+    # Dry runs report the verdict on the LOCAL range (issue #26). The
+    # authoritative gate for a real push runs after the pull-rebase below,
+    # because the pull can import feat!/BREAKING history the local range lacks.
     if dry_run:
         if rc := _bump_gate(cwd=cwd, forced_bump=bump):
             return rc
 
     if bump:
-        # Forced bump: add a release-marker commit that ALSO writes the
-        # next version to VERSION. The VERSION write is essential -- it
-        # makes the commit non-empty, defeating consumer-project
-        # `paths-ignore` filters that would otherwise skip CI for empty
-        # commits. semantic-release's prepareCmd will overwrite VERSION
-        # with the same value during the publish job, so this is
-        # idempotent.
+        # The marker also writes the next version to VERSION, so the commit is
+        # non-empty and consumer `paths-ignore` filters do not skip CI for it.
         commit_type = _BUMP_TO_TYPE[bump]
         marker_subject = f"{commit_type}(release): force {bump} bump"
 
@@ -280,22 +253,16 @@ def _publish_push(
         info("Dry run: would rebase and push")
         return 0
 
-    # Sync BEFORE the gate so the analysis covers exactly what the push
-    # will make reachable (issue #26). Gating pre-pull left a hole: a
-    # reconcile merge already on origin/main gets imported by the pull
-    # and shipped un-analysed -- the rustlib v3.0.0 shape, arriving via
-    # the sync instead of the local worktree.
-    # Rebase onto the branch being pushed, which is `main` for a stable
-    # release and the prerelease branch otherwise -- rebasing a prerelease
-    # branch onto main would import commits the release was not cut from.
+    # Sync before the gate so the analysis covers what the push makes
+    # reachable: a reconcile merge on origin/main would otherwise ship
+    # un-analysed (issue #26). Rebase onto the branch being pushed, as
+    # rebasing a prerelease branch onto main would import commits the release
+    # was not cut from.
     if rc := _pull_rebase(branch=branch, cwd=cwd):
         return rc
 
-    # Predicted-bump gate (issue #26): fail closed if the commit range
-    # this publish would ship implies a bump above patch, unless the
-    # operator opted in. A forced --bump-minor is already the operator's
-    # explicit minor decision, so the gate only needs to catch UNINTENDED
-    # bumps in the range beyond what the forced level allows.
+    # Fail closed if the range implies a bump above patch the operator has not
+    # authorised (issue #26). A forced --bump-minor already authorises minor.
     if rc := _bump_gate(cwd=cwd, forced_bump=bump):
         return rc
 
@@ -321,16 +288,14 @@ def _emit_gh_output(**pairs: str) -> None:
 def tag_head(*, bump: str, dry_run: bool = False, cwd: str | None = None) -> int:
     """CI-internal: create the tag at HEAD for a forced release (issue #35).
 
-    The ``bump`` channel carries one of:
+    ``bump`` is ``patch`` / ``minor`` (``last-tag + bump``) or an explicit
+    ``X.Y.Z`` (the ``hyperi-ci publish --version`` override, used verbatim to
+    skip a taken or orphaned tag, as in issue #37).
 
-    - ``patch`` / ``minor`` -- compute ``last-tag + bump`` (forced bump);
-    - an explicit ``X.Y.Z`` -- the ``hyperi-ci publish --version`` override,
-      used verbatim (skips a taken/orphaned tag, e.g. the issue #37 case).
-
-    Creates an annotated tag at HEAD, pushes it, and writes ``version=`` +
-    ``tag=`` to ``$GITHUB_OUTPUT`` so the publish step can pick the version up.
-    Used by the from-head dispatch path when ``bump != auto`` (``auto`` lets
-    semantic-release pick). Idempotent: an existing tag is reused, not recreated.
+    Creates the tag at HEAD through the API and writes ``version=`` + ``tag=`` to
+    ``$GITHUB_OUTPUT`` for the publish step. Used by the from-head dispatch path
+    when ``bump != auto`` (``auto`` lets semantic-release pick). Idempotent: an
+    existing tag at HEAD is reused.
     """
     explicit = explicit_version(bump)
     if explicit is None and bump not in ("patch", "minor"):
@@ -359,13 +324,10 @@ def tag_head(*, bump: str, dry_run: bool = False, cwd: str | None = None) -> int
         error("tag-head: GITHUB_REPOSITORY not set (must run in CI)")
         return 1
 
-    # Explicit --version safety: never tag over a tag that points off-HEAD
-    # (e.g. an orphaned tag from a past rewrite, or an operator typo) -- that
-    # would publish a fresh artefact under a tag pointing at old history
-    # (issue #37). A forced patch/minor always lands above the highest tag so
-    # can't collide; an explicit version can, so guard it. Tags are local in
-    # the Tag & Release job (fetch-depth: 0); if the tag isn't found locally
-    # the gh-api create below is the authoritative check.
+    # Never tag over a tag pointing off-HEAD (an orphaned tag, or a typo): that
+    # would publish a fresh artefact under a tag at old history (issue #37).
+    # Only an explicit version can collide. Tags are local here (fetch-depth: 0),
+    # and the gh-api create below is the authoritative check.
     if explicit is not None:
         peeled = run_cmd(
             ["git", "rev-parse", "-q", "--verify", f"refs/tags/{tag}^{{commit}}"],
@@ -382,15 +344,12 @@ def tag_head(*, bump: str, dry_run: bool = False, cwd: str | None = None) -> int
                     "Pick a free version with --version, or use --bump patch."
                 )
                 return 1
-            # Already at HEAD -- idempotent; nothing to create.
             _emit_gh_output(version=next_version, tag=tag)
             success(f"tag-head: {tag} already at HEAD ({sha[:8]}) -- nothing to tag.")
             return 0
 
-    # Create the tag ref remotely via the GitHub API. Uses GITHUB_TOKEN, so
-    # it works even though the Tag & Release checkout sets
-    # persist-credentials: false (no git push creds). Idempotent: a ref that
-    # already exists (HTTP 422) is fine -- we're converging to "tag exists".
+    # The API with GITHUB_TOKEN, as the checkout sets persist-credentials: false.
+    # An existing ref (HTTP 422) is fine: the goal is "tag exists".
     created = run_cmd(
         [
             "gh",
@@ -420,24 +379,16 @@ def tag_head(*, bump: str, dry_run: bool = False, cwd: str | None = None) -> int
 def _compute_next_version(*, bump: str, cwd: str | None) -> str | None:
     """Compute the next semver string given a bump level.
 
-    Reads the latest ``v*`` tag, increments the relevant component,
-    returns the bare version (no ``v`` prefix). With no tags at all
-    (the initial-release case) it bumps from the version the project
-    declares in its own manifest, via :func:`version_source.seed_version`.
+    Increments the latest ``v*`` tag and returns the bare version. With no
+    tags it bumps from the version the project declares in its manifest
+    (:func:`version_source.seed_version`). On a tag-less repo the auto path ships
+    that seed verbatim, while a forced bump goes FROM it.
 
-    Note the deliberate asymmetry with the auto path: on a tag-less repo
-    the predict-version composite ships the seed version *verbatim* as the
-    first release, while the forced ``--bump`` paths here bump FROM it --
-    a bump is a bump, even against a declared start.
+    The ``VERSION`` file is not consulted (issue #85): this tool writes it, and
+    the committed copy is stale.
 
-    The ``VERSION`` file is deliberately not consulted (issue #85): it is
-    an artefact this tool writes, and the committed copy has been frozen
-    since May 2026 in every repo, so reading it here bumped from a value
-    dozens of releases stale.
-
-    Returns ``None`` only when the resolved starting version is unparseable.
+    Returns ``None`` only when the starting version is unparseable.
     """
-    # Latest final-release tag, sorted by semver
     result = run_cmd(
         ["git", "tag", "--list", "v*", "--sort=-v:refname"],
         capture=True,
@@ -453,7 +404,6 @@ def _compute_next_version(*, bump: str, cwd: str | None) -> str | None:
                 latest = candidate
                 break
 
-    # Fallback: what the project declares about itself (initial-release case).
     if not latest:
         cwd_path = Path(cwd) if cwd else Path.cwd()
         latest, source = seed_version(cwd_path)
@@ -473,7 +423,7 @@ def _compute_next_version(*, bump: str, cwd: str | None) -> str | None:
         minor += 1
         patch = 0
     else:
-        # _BUMP_TO_TYPE excludes "major" -- defensive
+        # "major" is deliberately unsupported.
         return None
 
     return f"{major}.{minor}.{patch}"
@@ -484,11 +434,9 @@ def _write_version_and_commit(
 ) -> int:
     """Write VERSION + commit with the given message.
 
-    Used by ``--bump-patch`` / ``--bump-minor``. The VERSION write
-    ensures the commit is non-empty (defeats consumer ``paths-ignore``
-    filters); the commit message carries a conventional ``fix(release):``
-    / ``feat(release):`` subject so semantic-release computes the right
-    bump.
+    For ``--bump-patch`` / ``--bump-minor``. The VERSION write makes the commit
+    non-empty (consumer ``paths-ignore`` filters), and the ``fix(release):`` /
+    ``feat(release):`` subject gives semantic-release the right bump.
     """
     cwd_path = Path(cwd) if cwd else Path.cwd()
     version_file = cwd_path / "VERSION"
@@ -506,11 +454,8 @@ def _write_version_and_commit(
             [
                 "git",
                 "commit",
-                # --allow-empty: the release marker is a publish TRIGGER, not a
-                # content change. When VERSION already holds the target value
-                # (re-run, or a forced bump that matches) there is no diff, and a
-                # plain commit aborts with exit 1 (issue #36). The marker is
-                # allowed to be empty by design.
+                # The marker is a publish trigger, and a re-run leaves no diff
+                # (a plain commit exits 1, issue #36).
                 "--allow-empty",
                 "-m",
                 message,
@@ -527,15 +472,9 @@ def _write_version_and_commit(
 def _stage_modified_lockfiles(*, cwd: str | None) -> None:
     """Stage any modified lockfiles (Cargo.lock, uv.lock, ...) into the marker.
 
-    Quality / test invocations of cargo / uv / npm routinely refresh
-    lockfiles to match the manifest. Those drifts get left unstaged
-    after :func:`_write_version_and_commit` writes VERSION, and the
-    subsequent ``git pull --rebase`` then fails on "unstaged changes".
-    Stage any known lockfile modifications so the marker commit absorbs
-    them and the rebase has a clean working tree to work with.
-
-    Only stages lockfiles whose basename is in :data:`_AUTO_STAGE_LOCKFILES`.
-    User-modified non-lockfile files are left untouched.
+    Quality / test runs refresh lockfiles to match the manifest, and left
+    unstaged they make the next ``git pull --rebase`` fail on "unstaged
+    changes". Only basenames in :data:`_AUTO_STAGE_LOCKFILES` are staged.
     """
     result = run_cmd(
         ["git", "diff", "--name-only"],
@@ -554,19 +493,16 @@ def _stage_modified_lockfiles(*, cwd: str | None) -> None:
 def _has_publish_trailer(message: str) -> bool:
     """Return True if the message carries the release trailer, either spelling.
 
-    One matcher, in :mod:`hyperi_ci.vocabulary`, so this and the shell check in
-    the predict-version composite accept the same set.
+    The matcher is in :mod:`hyperi_ci.vocabulary`, shared with the predict-version
+    composite's shell check.
     """
     return has_release_trailer(message)
 
 
 def _amend_publish_trailer(*, cwd: str | None) -> int:
     """Amend HEAD to add the Release: true trailer (no message change)."""
-    # `--allow-empty` covers the edge case where HEAD is already an empty
-    # commit (e.g. an empty `chore: trigger` marker) -- git refuses to
-    # amend an empty commit by default. The trailer-only amend doesn't
-    # add content, so without --allow-empty the amend fails. Including
-    # the flag is harmless when there IS content.
+    # --allow-empty: git refuses to amend an already-empty HEAD (an empty
+    # `chore: trigger` marker) without it.
     try:
         run_cmd(
             [
@@ -633,8 +569,7 @@ def _skip_ci_push(*, dry_run: bool, cwd: str | None) -> int:
 def _is_prerelease_branch(branch: str | None, *, cwd: str | None) -> bool:
     """Report whether ``branch`` is declared a prerelease branch for this repo.
 
-    The same declaration the CI gate reads, so a push the CLI accepts is one
-    the gate will release rather than silently validate.
+    The CI gate reads the same declaration.
 
     Args:
         branch: Current branch name, or None when it cannot be resolved.
@@ -664,18 +599,17 @@ def _check_dirty_tree(*, cwd: str | None) -> int:
     return 0
 
 
-# `push.default` values that require the upstream's name to match the branch's.
-# `simple` has been git's default since 2.0, so an unset value is this case too.
+# `push.default` values that need the upstream's name to match the branch's.
+# `simple` is git's default, so unset counts too.
 _NAME_MATCHED_PUSH = frozenset({"", "simple"})
 
 
 def _check_push_target(*, cwd: str | None) -> int:
     """Refuse now what git will refuse after the gates. Returns 0 if OK.
 
-    A branch created in a worktree inherits the upstream it was branched from,
-    so `fix/x` can track `main`. Under `push.default=simple` git then refuses
-    the push outright. Nothing the test suite does changes that, which is why
-    this runs before the gates rather than after (issue #210).
+    A branch created in a worktree inherits its parent's upstream, so `fix/x`
+    can track `main`, and `push.default=simple` then refuses the push. The
+    gates cannot change that, so this runs before them (issue #210).
     """
     branch = get_current_branch(cwd=cwd)
     if not branch:
@@ -690,8 +624,8 @@ def _check_push_target(*, cwd: str | None) -> int:
     if mode.stdout.strip() not in _NAME_MATCHED_PUSH:
         return 0
 
-    # `branch.<name>.merge` names the upstream BRANCH, so there is no remote
-    # name to strip and no ambiguity when the branch itself contains a slash.
+    # `branch.<name>.merge` names the upstream branch with no remote prefix, so
+    # a slash in the branch name is unambiguous.
     tracked = run_cmd(
         ["git", "config", "--get", f"branch.{branch}.merge"],
         capture=True,
@@ -755,36 +689,29 @@ _BUMP_RANK = {"none": 0, "patch": 1, "minor": 2, "major": 3}
 def _bump_gate(*, cwd: str | None, forced_bump: str | None) -> int:
     """Fail closed when the publish would ship an unintended minor/major (#26).
 
-    Analyses ``<last-tag>..HEAD`` (the range semantic-release walks) and
-    compares the predicted bump against what the operator has authorised:
+    Compares the predicted bump over ``<last-tag>..HEAD`` with what the operator
+    authorised:
 
     * a predicted MAJOR needs ``HYPERCI_ALLOW_MAJOR_BUMP=1`` (or
-      ``HYPERCI_ALLOW_BREAKING=1`` -- declared breaking intent);
+      ``HYPERCI_ALLOW_BREAKING=1``);
     * a predicted MINOR needs ``HYPERCI_ALLOW_MINOR_BUMP=1`` (or
-      ``HYPERCI_ALLOW_FEAT=1`` -- declared feat intent -- or an explicit
-      ``--bump-minor``);
+      ``HYPERCI_ALLOW_FEAT=1``, or an explicit ``--bump-minor``);
     * PATCH / none always pass.
 
-    In the real publish flow this runs AFTER the pull-rebase, so the
-    analysed range is exactly what the push makes reachable -- including
-    history the pull imported from origin. The dry-run call gates the
-    local range only (best effort, no mutation).
+    The real publish flow runs this after the pull-rebase, so the range includes
+    history the pull imported. The dry-run call sees the local range only.
 
-    Fails open (returns 0) when the bump can't be predicted - no prior
-    tag, no new commits, or git unavailable - so an initial release or a
-    non-semantic-release repo is never blocked.
+    Fails open (returns 0) when the bump can't be predicted (no prior tag, no
+    new commits, or git unavailable), so an initial release is never blocked.
     """
     from hyperi_ci.quality.predicted_bump import predict_bump
 
     project_dir = Path(cwd) if cwd else None
     prediction = predict_bump(project_dir)
 
-    # An explicit --bump-* pre-authorises that level. The commit-text
-    # opt-ins carry the same intent one level up: HYPERCI_ALLOW_BREAKING
-    # ("yes, a breaking change") authorises a major, HYPERCI_ALLOW_FEAT
-    # ("yes, a feat") authorises a minor -- an operator who set them to
-    # get the commit through shouldn't be re-blocked here for the very
-    # bump they declared.
+    # An explicit --bump-* pre-authorises that level. The commit-text opt-ins
+    # (ALLOW_BREAKING, ALLOW_FEAT) declare the same intent, so they authorise
+    # major and minor here too.
     authorised = _BUMP_RANK.get(forced_bump or "none", 0)
     if env_true("HYPERCI_ALLOW_MAJOR_BUMP") or env_true("HYPERCI_ALLOW_BREAKING"):
         authorised = max(authorised, _BUMP_RANK["major"])
@@ -830,9 +757,8 @@ def _bump_gate(*, cwd: str | None, forced_bump: str | None) -> int:
 def _has_upstream(*, cwd: str | None) -> bool:
     """Return True if the current branch has a configured upstream.
 
-    A brand-new local branch that was never pushed has no ``@{u}`` -
-    ``git rev-parse @{u}`` exits non-zero. We use that to distinguish a
-    first push (nothing to rebase against) from a normal push.
+    A never-pushed branch has no ``@{u}``, which marks a first push with nothing
+    to rebase against.
     """
     result = run_cmd(
         ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
@@ -864,13 +790,9 @@ def _rebase_and_push(
 ) -> int:
     """Pull --rebase then push with HYPERCI_PUSH=1.
 
-    First push of a new branch (issue #38): a freshly-created local
-    branch has no upstream, so ``git pull --rebase`` aborts with "no
-    tracking information" - which the old code mislabelled as a rebase
-    CONFLICT. Detect the no-upstream case and skip the rebase entirely,
-    pushing with ``-u origin <branch>`` to establish tracking. Only the
-    explicit-branch publish path (``branch="main"``) always has an
-    upstream, so this only changes behaviour for the new-branch case.
+    A new branch has no upstream and ``git pull --rebase`` aborts with "no
+    tracking information" (issue #38), so the rebase is skipped and the push
+    uses ``-u origin <branch>`` to set tracking.
     """
     if not _has_upstream(cwd=cwd):
         current = branch or get_current_branch(cwd=cwd)
@@ -899,9 +821,7 @@ def _push_with_env(
     try:
         run_cmd(cmd, env={"HYPERCI_PUSH": "1"}, cwd=cwd)
     except subprocess.CalledProcessError:
-        # git's own stderr streamed straight to the terminal rather than
-        # through here, so name where the reason is instead of repeating a
-        # line this function never captured (issue #210).
+        # git's stderr is not captured here (issue #210).
         error("Push failed -- git's reason is in its output directly above.")
         return 1
 

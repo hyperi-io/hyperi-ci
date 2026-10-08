@@ -4,23 +4,20 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Workflow inventory, and the ownership reading light touch turns on.
+"""Workflow inventory, and which workflows hyperi-ci scaffolded.
 
-hyperi-ci scaffolds exactly one workflow into a consumer repo: a
+hyperi-ci scaffolds one workflow into a consumer repo: a
 ``.github/workflows/ci.yml`` whose job calls a
-``hyperi-io/hyperi-ci/.github/workflows/<lang>-ci.yml`` reusable
-workflow. That ``uses:`` line is the ownership marker, and it is read
-from the file rather than from a declaration, so a repo needs no new
-config key to be understood.
+``hyperi-io/hyperi-ci/.github/workflows/<lang>-ci.yml`` reusable workflow. That
+``uses:`` line is the ownership marker, read from the file so no config key is
+needed.
 
-Every other workflow in the repo is FOREIGN: upstream's, another team's,
-or hand-written. Against a foreign workflow hyperi-ci is a convenience
-over ``gh``, never a replacement that fails closed -- it forwards what it
-can and stands down, naming the workflow, where it cannot help.
+Every other workflow is FOREIGN (upstream's, another team's, hand-written).
+Against one, hyperi-ci forwards what it can and stands down naming the
+workflow, rather than failing closed.
 
-Ownership is per WORKFLOW, not per repo. dfe-hyperdx carries a
-hyperi-ci-scaffolded ``ci.yml`` alongside six workflows it wrote itself;
-both readings are true of the same repo at the same time.
+Ownership is per WORKFLOW, not per repo: dfe-hyperdx has a scaffolded ``ci.yml``
+beside six workflows it wrote itself.
 """
 
 from dataclasses import dataclass
@@ -28,8 +25,7 @@ from pathlib import Path
 
 import yaml
 
-# The reusable-workflow prefix a scaffolded ci.yml calls. A workflow
-# carrying it in a `uses:` is one hyperi-ci owns.
+# A workflow with this prefix in a `uses:` is one hyperi-ci owns.
 OWNED_USES_PREFIX = "hyperi-io/hyperi-ci/.github/workflows/"
 
 _WORKFLOW_DIR = Path(".github/workflows")
@@ -91,9 +87,8 @@ def read_workflow(path: Path) -> Workflow:
         path: Path to the workflow file.
 
     Returns:
-        The Workflow. An unreadable or unparseable file still yields a
-        record, named after its path, so it appears in the inventory
-        rather than vanishing from it.
+        The Workflow. An unreadable or unparseable file still yields a record,
+        named after its path.
 
     """
     try:
@@ -140,9 +135,8 @@ def inventory(project_dir: Path | None = None) -> list[Workflow]:
 def find(workflows: list[Workflow], token: str) -> Workflow | None:
     """Match a workflow by filename or display name, case-insensitively.
 
-    Callers name a workflow either way -- ``upstream-sync.yml`` on the
-    command line, ``upstream-sync`` in a run listing -- so both resolve,
-    with the bare stem accepted too.
+    Callers name a workflow by filename (``upstream-sync.yml``), display name or
+    bare stem.
 
     Args:
         workflows: The inventory to search.

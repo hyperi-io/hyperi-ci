@@ -6,22 +6,17 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Say so when this hyperi-ci is not the current one.
 
-An ephemeral install -- ``uvx hyperi-ci``, ``uv run --with hyperi-ci`` -- takes
-the project's interpreter and back-solves to the newest release that
-interpreter allows. Where the latest release declares a floor above it, the
-resolution lands on an older hyperi-ci and reports nothing: issue #162 was a
-careful bug report written against code released the day before, and the
-reporter had no way to see that.
+An ephemeral install (``uvx hyperi-ci``, ``uv run --with hyperi-ci``) takes the
+project's interpreter and resolves to the newest release it allows. When the
+latest release declares a higher floor, that lands on an older hyperi-ci
+silently (issue #162).
 
-Two facts make the warning worth reading. The running and latest versions come
-from PyPI, and so does the latest release's own ``requires-python``, so the
-remedy names the interpreter that actually resolves the current release rather
-than a number written down here that rots at the next floor move.
+The latest release's own ``requires-python`` comes from PyPI, so the remedy
+names the interpreter that resolves it rather than a number that rots.
 
-The check informs and never acts: silent in CI, silent on a source checkout,
-silent when PyPI cannot be reached, and at most one warning a day. Acting on a
-stale install is :mod:`hyperi_ci.upgrade`'s job, and an install whose
-auto-update is working is never stale enough to trip this.
+The check informs and never acts: silent in CI, on a source checkout and when
+PyPI is unreachable, with at most one warning a day. Acting on a stale install
+is :mod:`hyperi_ci.upgrade`'s job.
 """
 
 import sys
@@ -123,9 +118,6 @@ def staleness_lines(
 def lines_for_releases(releases: dict[str, list], running: str) -> list[str]:
     """Decide what to say about ``running`` given a PyPI releases mapping.
 
-    The whole decision sits here so it can be exercised against a captured
-    payload rather than against the network.
-
     Args:
         releases: PyPI releases mapping {version_string: [file_dicts]}.
         running: Version of the build executing this call.
@@ -176,9 +168,8 @@ def _record_check(now: float) -> None:
 def _suppressed() -> bool:
     """Return whether something has already answered the staleness question.
 
-    A frozen auto-update is the operator holding the install at a version
-    deliberately, which is a decision rather than a stale install. A source
-    checkout is being worked on, and its tree is behind PyPI by design.
+    A frozen auto-update is a deliberate hold, and a source checkout is behind
+    PyPI by design.
 
     Returns:
         True when the warning must stay quiet.
@@ -195,8 +186,7 @@ def _check(now: float) -> list[str]:
     """Run the check and emit the warning.
 
     The check is recorded before PyPI is asked, so a machine with no route to
-    PyPI waits out the interval rather than paying the connection timeout on
-    every command.
+    PyPI does not pay the connection timeout on every command.
 
     Args:
         now: Unix timestamp for the freshness window.

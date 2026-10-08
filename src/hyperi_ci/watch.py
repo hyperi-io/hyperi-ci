@@ -9,33 +9,24 @@
 Polls a workflow run with exponential backoff until it reaches a terminal
 status, then reports the result with job-level detail.
 
-Pinned selection (issue #101): with no run id, the run is resolved from
-the commit at HEAD and the workflow the project declares in its ci.yml,
-``--workflow`` names any other, and the watch refuses when several runs
-still match. The old "newest run on the branch" lookup reported green
-off a Dependency Graph run while the Test run for the same commit was
-still going, and off the previous commit's run in the seconds before the
-new one registered.
+Pinned selection (issue #101): with no run id, the run is resolved from the
+commit at HEAD and the workflow the project declares in its ci.yml,
+``--workflow`` names any other, and the watch refuses when several runs still
+match. A "newest run on the branch" lookup reports green off a Dependency Graph
+run while the Test run is still going.
 
-Anchors (issue #97): HEAD is the default pin, not the only one.
-``--pr``, ``--branch`` and ``--commit`` reach a run that is not on the
-current branch head -- a ``pull_request`` run after a local amend, a
-``schedule`` run on main from a feature branch -- which the HEAD-only
-lookup reported as "No runs found" while the run sat there.
+Anchors (issue #97): ``--pr``, ``--branch`` and ``--commit`` reach a run that is
+not on the current branch head, such as a ``pull_request`` run after a local
+amend.
 
-Early-fail-on-red (issue #58): the poll exits non-zero the instant ANY
-job concludes failure/cancelled/timed_out, rather than waiting for the
-whole run to finish. A fleet watcher polling N runs in sequence must not
-block for the remaining ~hour on a run that is already doomed.
+Early-fail-on-red (issue #58): the poll exits non-zero the instant ANY job
+concludes failure/cancelled/timed_out, so a fleet watcher polling N runs in
+sequence does not block for an hour on a doomed run.
 
-Tier 2 (PGO + BOLT) Rust builds for both archs in parallel can take
-35-45 min, so the default timeout is set generously (60 min). For longer
-workflows pass `--timeout 0` to disable timeout entirely; the watcher
-will keep polling until the run reaches a terminal state.
-
-When a timeout *is* hit while a run is still in progress, the report
-includes the current status + a copy-pasteable resume command, so the
-caller knows whether to re-watch or investigate.
+The default timeout is 3600s because Tier 2 (PGO + BOLT) Rust builds for both
+archs in parallel take 35-45 min. Pass `--timeout 0` to poll until the run is
+terminal. On a timeout the report gives the current status and a copy-pasteable
+resume command.
 """
 
 import json
@@ -59,21 +50,16 @@ _TERMINAL_STATUSES = frozenset(
     }
 )
 
-# A single job reaching one of these conclusions dooms the whole run, so
-# fail fast (issue #58) instead of waiting for the run's own terminal
-# status - which for a big multi-arch PGO+BOLT build can be tens of
-# minutes away. Job conclusions are populated the moment each job ends.
+# One job reaching these dooms the run, and a job's conclusion is set the moment
+# it ends, tens of minutes before a big PGO+BOLT run's own terminal status
+# (issue #58).
 _FAILED_JOB_CONCLUSIONS = frozenset({"failure", "cancelled", "timed_out"})
 
-# After this many consecutive `gh run view` failures, consider the
-# remote unreachable and exit with an error rather than spinning
-# forever. Each failure is followed by a (capped exponential) backoff,
-# so 10 covers ~6 minutes of sustained outage before giving up.
+# Consecutive `gh run view` failures before the remote counts as unreachable.
+# With the capped backoff, 10 covers about 6 minutes of outage.
 _MAX_CONSECUTIVE_FETCH_FAILURES = 10
 
-# Default timeout in seconds. Sized to cover Tier 2 (PGO + BOLT) Rust
-# builds for both archs in parallel, which routinely take 35-45 min.
-# Pass 0 (`--timeout 0` on the CLI) to disable timeout entirely.
+# Seconds. Sized for Tier 2 (PGO + BOLT) Rust builds (35-45 min). 0 disables it.
 _DEFAULT_TIMEOUT = 3600
 
 # GitHub registers a run seconds after the push, so wait for HEAD's own
@@ -86,9 +72,7 @@ _RUN_LIST_LIMIT = 30
 
 
 def _poll_interval(base: int, attempt: int) -> float:
-    """Calculate poll interval with exponential backoff.
-
-    Caps at 120 seconds regardless of attempt count.
+    """Return the poll interval: exponential backoff, capped at 120 seconds.
 
     Args:
         base: Base interval in seconds.
@@ -106,19 +90,14 @@ def _get_run_status(run_id: str, repo: str | None = None) -> dict | None:
 
     Args:
         run_id: Workflow run ID.
-        repo: Optional ``owner/name`` -- pass this when watching a run
-            in a different repo than the current working directory.
-            ``gh run view`` defaults to the cwd's git remote and
-            silently 404s when the run isn't there, which the watch
-            loop misreads as transient network failure.
+        repo: Optional ``owner/name``, for a run outside the cwd's repo.
+            ``gh run view`` defaults to the cwd's remote and 404s silently,
+            which the watch loop reads as a transient failure.
 
     Returns:
-        Dict with status/conclusion/jobs, or None on transient error.
-
-    Note: returns None on both subprocess and JSON parse errors. The
-    caller treats None as "transient -- retry"; only after multiple
-    consecutive failures should it be considered fatal. See
-    `_MAX_CONSECUTIVE_FETCH_FAILURES`.
+        Dict with status/conclusion/jobs, or None on a subprocess or JSON
+        parse error. The caller retries, and treats it as fatal only after
+        `_MAX_CONSECUTIVE_FETCH_FAILURES`.
 
     """
     args = [
@@ -140,15 +119,11 @@ def _get_run_status(run_id: str, repo: str | None = None) -> dict | None:
 def _first_failed_job(run_data: dict) -> dict | None:
     """Return the first job in a failure conclusion, or None.
 
-    A job's ``conclusion`` is populated as soon as that job finishes,
-    well before the overall run ``status`` flips to a terminal value.
-    Scanning job conclusions each tick is what lets watch fail fast
-    (issue #58) rather than blocking to the end of a doomed run.
+    A job's ``conclusion`` is set as soon as it finishes, well before the run
+    ``status`` goes terminal, which lets watch fail fast (issue #58).
 
-    Caveat: a job with ``continue-on-error: true`` can conclude
-    ``failure`` while the run overall still concludes ``success``, so
-    this would early-fail such a run. No hyperi-ci / consumer workflow
-    uses job-level continue-on-error today; revisit if that changes.
+    A job with ``continue-on-error: true`` can conclude ``failure`` in a run that
+    succeeds, and would early-fail here. No workflow uses it today.
     """
     for job in run_data.get("jobs", []):
         if job.get("conclusion") in _FAILED_JOB_CONCLUSIONS:
@@ -179,8 +154,7 @@ def _gates_unrun(run_data: dict) -> bool:
 def job_lines(jobs: list[dict]) -> list[tuple[str, str]]:
     """Render the per-job summary lines as ``(level, text)`` pairs.
 
-    Jobs that reached a verdict come first; skipped jobs follow under their
-    own count, so a skipped job is never read as one of the passes above it.
+    Jobs with a verdict come first, then skipped jobs under their own count.
 
     Args:
         jobs: The ``jobs`` list from ``gh run view --json jobs``.
@@ -213,7 +187,7 @@ def job_lines(jobs: list[dict]) -> list[tuple[str, str]]:
     if skipped:
         lines.append(("info", f"  did not run ({len(skipped)}):"))
         for name in skipped:
-            # Rendered neutral, a skipped gate reads as one that passed.
+            # A skipped gate rendered neutral reads as a pass.
             level = "warn" if gate_of(name) else "info"
             lines.append((level, f"    skipped: {name}"))
     return lines
@@ -228,8 +202,7 @@ def _print_summary(run_data: dict) -> None:
 
     header = f"{workflow} on {branch}: {conclusion}"
     if conclusion == "success" and _gates_unrun(run_data):
-        # Green over a gate that never ran is the lie in issue #96, and the
-        # watcher is where a human reads the verdict.
+        # Green over a gate that never ran is the lie in issue #96.
         warn(f"{header} -- quality + test did NOT run; nothing was verified")
     elif conclusion == "success":
         success(header)
@@ -258,10 +231,9 @@ def resolve_target_run(
 ) -> dict:
     """Resolve the run the caller meant, waiting for a fresh push to register.
 
-    The anchor is HEAD unless ``branch``, ``commit`` or ``pr`` names
-    another. Only a HEAD anchor waits: a push registers its run seconds
-    later, whereas a run the caller named by PR or commit either exists
-    already or never will.
+    The anchor is HEAD unless ``branch``, ``commit`` or ``pr`` names another.
+    Only a HEAD anchor waits, as a push registers its run seconds later while a
+    run named by PR or commit exists already or never will.
 
     Args:
         workflow: Workflow name to narrow on. With none, the project's
@@ -383,7 +355,7 @@ def watch_run(
     else:
         info(f"Watching run {run_id}{repo_label} (timeout: {timeout}s)")
 
-    # `deadline = None` disables the timeout check entirely.
+    # None disables the timeout.
     deadline: float | None = None if timeout == 0 else time.monotonic() + timeout
     attempt = 0
     consecutive_failures = 0
@@ -413,16 +385,12 @@ def watch_run(
             time.sleep(_poll_interval(interval, attempt))
             continue
 
-        # Recover from prior transient failures.
         consecutive_failures = 0
 
         status = run_data.get("status", "unknown")
         last_known_status = status
 
-        # Early-fail-on-red (issue #58): the instant ANY job has concluded
-        # failure/cancelled/timed_out, stop - do not wait for the whole run
-        # to reach a terminal status. Returns 1 (a job went red), matching
-        # the failed-run terminal path below.
+        # Early-fail-on-red (issue #58), exiting 1 like the failed-run path.
         failed_job = _first_failed_job(run_data)
         if failed_job:
             _print_summary(run_data)
@@ -444,9 +412,6 @@ def watch_run(
         wait = _poll_interval(interval, attempt)
         time.sleep(wait)
 
-    # Timed out. Report the most recent known status + a copy-pasteable
-    # resume command so the caller can decide whether to re-watch (still
-    # in progress) or investigate (stuck / silently failing).
     error(
         f"Timeout after {timeout} seconds -- run still {last_known_status}. "
         f"Resume: {_resume_command(run_id, timeout, repo=repo)} "

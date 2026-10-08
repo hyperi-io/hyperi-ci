@@ -6,13 +6,13 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """The Rust targets a project lists under ``build.rust.targets``.
 
-The Rust Plan builds its matrix from these: a project that lists targets gets
-legs for those only, so one whose release build does not fit the arm64 runner
-still releases amd64 (issue #127). An empty list means every target.
+The Rust Plan builds its matrix from these, so a project whose release build
+does not fit the arm64 runner still releases amd64 (issue #127). An empty list
+means every target.
 
-The predict-version composite loads this by path on a runner where hyperi-ci is
-not installed, so it is stdlib-only and imports nothing heavier than
-:mod:`hyperi_ci.project_config`, which is stdlib-only for the same reason.
+Stdlib-only, importing nothing heavier than :mod:`hyperi_ci.project_config`,
+because the predict-version composite loads it by path where hyperi-ci is not
+installed.
 """
 
 # KEEP on a 3.14 floor, where this import is otherwise wrong (issue #184).

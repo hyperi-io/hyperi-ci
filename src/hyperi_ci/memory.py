@@ -6,10 +6,9 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Host memory budget detection.
 
-Total RAM is the wrong answer inside a memory-limited container: a 16Gi ARC
-pod on a 64Gi node reads 64Gi from ``/proc/meminfo`` and is OOM-killed at
-16Gi. This module takes the tightest of the cgroup memory limit and total RAM,
-the same way :mod:`hyperi_ci.cpu` takes the tightest CPU budget.
+A 16Gi ARC pod on a 64Gi node reads 64Gi from ``/proc/meminfo`` and is
+OOM-killed at 16Gi. This module takes the tightest of the cgroup memory limit
+and total RAM, as :mod:`hyperi_ci.cpu` does for CPUs.
 """
 
 import os
@@ -76,8 +75,8 @@ def cgroup_v2_limit(
     """Tightest cgroup v2 ``memory.max`` applying to this process.
 
     A limit on an ancestor binds as hard as one on the leaf, and a namespaced
-    container sees its own limit at the hierarchy root, so every level from
-    this process's cgroup up to the root is read.
+    container sees its own limit at the hierarchy root, so every level up to the
+    root is read.
 
     Args:
         root: The unified hierarchy mount.

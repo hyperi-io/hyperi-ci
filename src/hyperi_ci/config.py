@@ -23,10 +23,8 @@ from hyperi_ci.project_config import CONFIG_FILES
 
 _CONFIG_DIR = Path(__file__).resolve().parent / "config"
 
-# Lifecycle stages a project can declare via `project.status` in
-# `.hyperi-ci.yaml`. Information-only -- does not gate any behaviour.
-# Empty string (default) means "not declared" -- the field is optional.
-# See defaults.yaml for what each stage means.
+# Lifecycle stages for `project.status` in `.hyperi-ci.yaml`, optional and
+# information-only (see defaults.yaml).
 VALID_PROJECT_STATUSES: tuple[str, ...] = (
     "experimental",
     "alpha",
@@ -60,26 +58,23 @@ class CIConfig:
 
     language: str = "none"
 
-    # Declared repo category, "" when no marker declares one. Read
-    # `classification_effective` to decide anything: an undeclared repo
-    # is the most restrictive category, never general-oss.
+    # Declared repo category, "" when undeclared. Decide on
+    # `classification_effective`: an undeclared repo is the most restrictive
+    # category, never general-oss.
     classification: str = ""
     classification_source: str = "undeclared"
     classification_effective: str = "internal"
 
-    # Legacy `publish.*` keys found in the project's own config, so
-    # `hyperi-ci check` can name them before a push rather than only in CI.
+    # Legacy `publish.*` keys in the project's own config, for `hyperi-ci check`.
     deprecated_keys: list[str] = field(default_factory=list)
 
-    # Raw merged dict for accessing nested language-specific config
     _raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get config value by dot-notation key.
 
-        A ``publish.*`` key resolves to its ``release.*`` equivalent: the
-        namespaces were merged, and an out-of-tree caller still asking the old
-        way gets the right answer rather than the default.
+        A ``publish.*`` key resolves to its ``release.*`` equivalent, the
+        namespaces having been merged.
         """
         from hyperi_ci.vocabulary import key_candidates
 
@@ -100,9 +95,9 @@ class CIConfig:
         """Return the destination map to publish to (OSS only)."""
         dest = self.get("release.destinations", {})
         dest = dict(dest) if isinstance(dest, dict) else {}
-        # Merged, not a fallback: the defaults always populate `destinations`,
-        # so a fallback can never fire. Only a project sets `destinations_oss`
-        # (the old spelling, folded from `publish.`), so its entry wins.
+        # Merged, not a fallback, because the defaults always populate
+        # `destinations`. Only a project sets `destinations_oss` (the old
+        # spelling), so its entry wins.
         legacy = self.get("release.destinations_oss", {})
         if isinstance(legacy, dict):
             dest.update(legacy)
@@ -111,12 +106,10 @@ class CIConfig:
     def destination_for(self, artifact_type: str) -> list[str]:
         """Get publish destination(s) for a specific artifact type.
 
-        A falsy destination (``false`` / ``null`` / empty) is treated as an
-        opt-out and skipped, so a project can drop one artefact from
-        publishing while keeping the rest -- e.g. a private Python service
-        that ships only its GHCR container sets
-        ``release.destinations.python: false``. The older
-        ``publish.destinations_oss`` spelling still works.
+        A falsy destination (``false`` / ``null`` / empty) is an opt-out, e.g.
+        ``release.destinations.python: false`` for a private Python service that
+        ships only its GHCR container. The older ``publish.destinations_oss``
+        spelling still works.
 
         Args:
             artifact_type: One of python, npm, cargo, container, binaries, go.
@@ -207,8 +200,8 @@ _packaged_defaults_cache: dict[str, Any] | None = None
 def packaged_default(key: str, default: Any = None) -> Any:
     """Value a dotted key carries in the SHIPPED defaults, before any override.
 
-    The merged config cannot distinguish a project's setting from ours, so
-    anything reporting on an override has to read this layer on its own.
+    The merged config cannot tell a project's setting from ours, so a report on
+    an override reads this layer on its own.
     """
     global _packaged_defaults_cache
     if _packaged_defaults_cache is None:
@@ -257,7 +250,6 @@ def load_config(
     config: dict[str, Any] = {}
     project_dir = project_dir or Path.cwd()
 
-    # Load package defaults
     defaults_file = _CONFIG_DIR / "defaults.yaml"
     if defaults_file.exists():
         with open(defaults_file, encoding="utf-8") as f:
@@ -265,7 +257,6 @@ def load_config(
             if loaded:
                 config = loaded
 
-    # Load project config
     from hyperi_ci.vocabulary import (
         CONFIG_NAMESPACE,
         LEGACY_CONFIG_NAMESPACE,
@@ -285,21 +276,18 @@ def load_config(
                 loaded = yaml.safe_load(f)
                 if loaded:
                     removed_keys = find_removed_keys(loaded)
-                    # Folded BEFORE the merge: the two namespaces cannot coexist
-                    # in the merged config, because a shipped `release.x` default
-                    # would outrank a project's `publish.x` and never apply.
+                    # Folded before the merge, or a shipped `release.x` default
+                    # would outrank a project's `publish.x`.
                     folded, deprecated_keys = fold_legacy_config(loaded)
                     deprecated_keys = drop_removed_notices(deprecated_keys, loaded)
                     config = _merge_deep(config, folded)
             break
 
-    # Apply HYPERCI_* env overrides
     for key, value in os.environ.items():
         if key.startswith("HYPERCI_"):
             path = key[8:].lower().split("_")
-            # Env beats the file, so a legacy path is rewritten rather than
-            # folded -- folding makes the canonical side win, which is right for
-            # one file and backwards for an override.
+            # Env beats the file, so a legacy path is rewritten, not folded
+            # (folding lets the canonical side win).
             if path and path[0] == LEGACY_CONFIG_NAMESPACE:
                 path = [CONFIG_NAMESPACE, *path[1:]]
             _set_nested(config, path, _parse_env_value(value))
@@ -308,14 +296,12 @@ def load_config(
     if report_removed:
         report_removed_keys(removed_keys)
 
-    # Validate project.status if set. Warn on unknown values rather than
-    # failing -- the field is information-only and a typo shouldn't break
-    # the build.
+    # Warn, not fail: project.status is information-only.
     project = config.get("project", {})
     if isinstance(project, dict):
         status = str(project.get("status") or "").strip().lower()
         if status and status not in VALID_PROJECT_STATUSES:
-            # Lazy import to avoid circular dep at module load.
+            # Lazy import: avoids a cycle at module load.
             from hyperi_ci.common import warn
 
             warn(
@@ -324,9 +310,8 @@ def load_config(
                 f"Treating as unset for logging purposes."
             )
 
-    # Validate the declared project licence against the allowed set. Warn
-    # (ratchet, not gate) so a non-default licence is visible without
-    # breaking the build; extend the allowed set via `license_allow`.
+    # A licence outside the allowed set warns rather than fails; extend the set
+    # via `license_allow`.
     declared_license = config.get("license")
     if isinstance(declared_license, str) and declared_license.strip():
         from hyperi_ci import licenses
@@ -352,10 +337,9 @@ def load_config(
 
     resolved = _resolve_classification(config, project_dir)
 
-    # Written back so `hyperi-ci config` (and its --json form, which hooks
-    # and CI steps read) shows the resolved category and which marker
-    # answered, not just what the project file happened to carry. Popped
-    # first so the three keys print as one group.
+    # Written back so `hyperi-ci config` (and its --json form) shows the
+    # resolved category and the marker that answered. Popped first so the three
+    # keys print together.
     config.pop("classification", None)
     config["classification"] = resolved.value
     config["classification_source"] = resolved.source
@@ -378,9 +362,8 @@ def _resolve_classification(
 ) -> classification.Resolution:
     """Resolve the declared repo category, warning on an unusable marker.
 
-    An invalid or unreadable marker is reported and then treated as no
-    declaration at all, so a typo downgrades to the most restrictive
-    category instead of asserting one the repo never declared.
+    An invalid or unreadable marker is reported and treated as undeclared, so a
+    typo downgrades to the most restrictive category.
 
     Args:
         config: The merged config dict.

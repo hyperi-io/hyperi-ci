@@ -6,11 +6,10 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Resolve a repo-supplied path and refuse one that leaves the project root.
 
-A path in ``.hyperi-ci.yaml`` or ``pyproject.toml`` is whatever the repo says
-it is, and the Container job holds ``~/.docker/config.json`` after its logins.
-The callers: ``release.container.dockerfile`` and ``.context``,
-``[tool.hatch.version] path`` and the ``VERSION`` file. Other repo-named paths
-are not routed through here.
+A path in ``.hyperi-ci.yaml`` or ``pyproject.toml`` is whatever the repo says,
+and the Container job holds ``~/.docker/config.json`` after its logins. Callers:
+``release.container.dockerfile`` and ``.context``, ``[tool.hatch.version]
+path`` and the ``VERSION`` file. Other repo-named paths are not routed here.
 """
 
 from pathlib import Path
@@ -23,8 +22,8 @@ class RepoPathError(ValueError):
 def confine(path: str | Path, root: Path, *, key: str) -> Path:
     """Resolve ``path`` against ``root`` and refuse it when it lands outside.
 
-    An absolute path is taken as given and held to the same rule. Symlinks are
-    resolved, so a link inside the checkout pointing out of it is refused too.
+    An absolute path is held to the same rule, and symlinks are resolved so a
+    link pointing out of the checkout is refused.
 
     Args:
         path: The configured path, relative to ``root`` or absolute.

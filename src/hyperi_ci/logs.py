@@ -6,20 +6,18 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Fetch and filter GitHub Actions run logs.
 
-Downloads run logs via gh CLI and provides filtering by job name,
-step name, grep pattern, and failed-only mode.
+Downloads run logs via gh and filters by job name, step name, grep pattern, and
+failed-only mode.
 
-Pinned selection (issue #101): with no run id, the run is resolved from
-the commit at HEAD and the workflow the project declares in its ci.yml,
-and an ambiguous choice is refused. Every ``--failed`` message names the
-run it read, so "no failed jobs" can never be mistaken for "the build is
-fine" when the failing run was a different one.
+Pinned selection (issue #101): with no run id, the run is resolved from the
+commit at HEAD and the workflow the project declares in its ci.yml, and an
+ambiguous choice is refused. Every ``--failed`` message names the run it read,
+so "no failed jobs" is not mistaken for "the build is fine".
 
-Anchors and ``--repo`` (issue #97): ``--pr``, ``--branch`` and
-``--commit`` reach a run that is not on the current branch head, and
-``--repo`` reads a run in another repo. The log archive has no
-``--repo`` flag of its own, so the owner and name are substituted into
-the API path instead.
+Anchors and ``--repo`` (issue #97): ``--pr``, ``--branch`` and ``--commit``
+reach a run not on the current branch head, and ``--repo`` reads another repo's.
+The log archive endpoint has no ``--repo`` flag, so the owner and name go into
+the API path.
 """
 
 import json
@@ -34,20 +32,15 @@ from hyperi_ci.gh import RunSelectionError, describe_run, gh_run, require_gh
 
 
 def _job_key(name: str) -> str:
-    """Normalise a job name so the API's form and the archive's form compare equal.
-
-    A reusable-workflow job is `ci / Quality` in the API and `ci _ Quality` as a
-    folder in the log archive, so comparing them raw matches nothing.
-    """
+    """Normalise a job name: the API's `ci / Quality` is `ci _ Quality` in logs."""
     return name.lower().replace("/", "_")
 
 
 def logs_api_path(run_id: str, repo: str | None = None) -> str:
     """Build the API path a run's log archive is served from.
 
-    ``{owner}``/``{repo}`` are gh's own placeholders for the cwd's git
-    remote; a caller naming another repo needs them substituted, since
-    the logs endpoint has no ``--repo`` flag of its own.
+    ``{owner}``/``{repo}`` are gh's placeholders for the cwd's remote, and a
+    caller naming another repo substitutes them.
     """
     target = repo or "{owner}/{repo}"
     return f"repos/{target}/actions/runs/{run_id}/logs"
@@ -67,9 +60,8 @@ def _download_logs(run_id: str, repo: str | None = None) -> Path | None:
     tmp_dir = Path(tempfile.mkdtemp(prefix="hyperi-ci-logs-"))
     zip_path = tmp_dir / "logs.zip"
 
-    # The logs endpoint answers with a redirect to a zip; gh follows it and
-    # streams the archive to stdout, which has to land in a file to be opened.
-    # (`gh run download` fetches ARTIFACTS, never logs, so it is no fallback.)
+    # gh follows the endpoint's redirect and streams the zip to stdout. `gh run
+    # download` fetches artifacts, never logs.
     try:
         with zip_path.open("wb") as fh:
             subprocess.run(
@@ -84,8 +76,8 @@ def _download_logs(run_id: str, repo: str | None = None) -> Path | None:
         return tmp_dir
     except subprocess.CalledProcessError as exc:
         detail = exc.stderr.decode(errors="replace").strip() if exc.stderr else ""
-        # GitHub publishes the archive only once a run finishes, so a 404 on a
-        # run still going means "not yet" rather than "no such run" (issue #254).
+        # GitHub publishes the archive when a run finishes, so a 404 on a live
+        # run means "not yet" (issue #254).
         if "404" in detail or "Not Found" in detail:
             run = _get_run(run_id, repo)
             if run and run.get("status") != "completed":
@@ -105,13 +97,10 @@ def _download_logs(run_id: str, repo: str | None = None) -> Path | None:
 def resolve_job(job: str, repo: str | None = None) -> tuple[str, str] | None:
     """Return ``(run id, job name)`` for a JOB id, or None.
 
-    A job id is unique within a repo, so it already says which run is meant and
-    a second anchor flag is redundant (issue #254). ``--job`` is otherwise a
-    name substring, so only an all-digits value is treated as an id - no job
-    name is all digits, which keeps the two readings apart.
-
-    The name comes back with it because the caller filters output by job NAME,
-    and an id matches none.
+    A job id is unique within a repo, so it names the run and needs no anchor
+    flag (issue #254). ``--job`` is otherwise a name substring, so only an
+    all-digits value is an id. The name comes back too because output is
+    filtered by job NAME.
     """
     if not job.isdigit():
         return None
@@ -148,9 +137,8 @@ def _get_run(run_id: str, repo: str | None = None) -> dict | None:
         repo: Optional ``owner/name``.
 
     Returns:
-        Run dict, or None when it could not be read - which is NOT the
-        same answer as a run with no failed jobs, and used to be
-        reported as one.
+        Run dict, or None when it could not be read, which is not the same
+        answer as a run with no failed jobs.
 
     """
     args = [
@@ -216,7 +204,7 @@ def _log_files(log_dir: Path) -> list[tuple[Path, str, str]]:
     """List an extracted archive's log files as ``(path, job, step)``.
 
     A job's whole log repeats its step logs, so it is read only for a job whose
-    folder has none: a reusable-workflow job's folder holds just ``system.txt``.
+    folder has none (a reusable-workflow job's holds just ``system.txt``).
     """
     entries = [
         (path, *_parse_log_path(path, log_dir))
@@ -318,12 +306,10 @@ def fetch_logs(
     """Fetch and filter GitHub Actions run logs.
 
     Args:
-        run_id: Run ID. With none, the run is resolved from the anchor,
-            and an ambiguous choice is refused rather than guessed
-            (issue #101).
-        workflow: Workflow name to pin on, matched case-insensitively,
-            exact before substring. Defaults to the name declared in the
-            project's ci.yml, and only where hyperi-ci scaffolded it.
+        run_id: Run ID. With none, the run is resolved from the anchor, and an
+            ambiguous choice is refused (issue #101).
+        workflow: Workflow name to pin on, matched case-insensitively, exact
+            before substring. Defaults to the name in the project's ci.yml.
             Ignored when a run id is given.
         branch: Pin to the newest commit on this branch that has runs.
         commit: Pin to this commit.
@@ -344,8 +330,7 @@ def fetch_logs(
     if not require_gh():
         return 1
 
-    # No job NAME is all digits, so an all-digits --job is an id: resolve it,
-    # never fall back to matching it as a name, which can only match nothing.
+    # No job NAME is all digits, so an all-digits --job is always an id.
     if job_filter and job_filter.isdigit():
         resolved = resolve_job(job_filter, repo)
         if resolved is None:
@@ -420,8 +405,7 @@ def fetch_logs(
         failed_jobs=failed_jobs,
     )
 
-    # Silence here would read as "the logs are empty", when the filter matched
-    # no job at all.
+    # Silence would read as "the logs are empty".
     if not matched and (job_filter or step_filter or failed_jobs):
         error(
             f"No log file in run {run_id} matched the filter. "

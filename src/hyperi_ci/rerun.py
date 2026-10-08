@@ -6,11 +6,9 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Re-run a GitHub Actions run.
 
-`gh run rerun --failed` had no wrapper, so telling a flake from a real
-failure meant reaching for the native CLI or pushing an empty commit
-(issue #97). Run selection matches `watch`: with no run id, the run built
-from the commit at HEAD, and an ambiguous choice refused rather than
-guessed.
+Wraps `gh run rerun --failed` (issue #97). Run selection matches `watch`: with
+no run id, the run built from the commit at HEAD, and an ambiguous choice is
+refused.
 """
 
 import subprocess

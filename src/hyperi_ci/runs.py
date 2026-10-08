@@ -6,22 +6,15 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Resolve the run `watch`, `logs` and `rerun` were asked about.
 
-Issue #101 pinned run selection to the commit at HEAD, which fixed a
-watch reporting green off a Dependency Graph run but left every run that
-is not on HEAD unreachable: a `pull_request` run after a local amend, a
-`schedule` run on main while you are on a branch, a run on a PR branch
-you have not checked out. `watch` and `logs` answered "No runs found"
-while the run sat there (issue #97).
+Four anchors say which commit to pin on: HEAD by default, or ``--commit``,
+``--branch``, ``--pr``. HEAD alone leaves a `pull_request` run after a local
+amend, or a `schedule` run on main from a branch, unreachable (issue #97).
+Behind each anchor the workflow narrows the candidates and an ambiguous choice
+is refused (issue #101).
 
-Four anchors now say which commit to pin on -- HEAD by default, or
-``--commit``, ``--branch``, ``--pr`` -- and the #101 discipline is
-unchanged behind each: the workflow narrows the candidates, and an
-ambiguous choice is refused rather than guessed.
-
-Where nothing resolves, the refusal STANDS DOWN: it lists the runs
-GitHub does hold, marks the workflows hyperi-ci did not scaffold, and
-prints the command that reaches the run. A refusal the caller cannot act
-on is what sent them to the native CLI in the first place.
+Where nothing resolves, the refusal STANDS DOWN: it lists the runs GitHub does
+hold, marks the workflows hyperi-ci did not scaffold, and prints the command
+that reaches the run.
 """
 
 import json
@@ -40,12 +33,10 @@ from hyperi_ci.gh import (
     select_run,
 )
 
-# Headroom over the handful of runs one commit produces, and enough of a
-# listing to be useful when the wrapper stands down.
+# Headroom over the handful of runs one commit produces.
 RUN_LIST_LIMIT = 30
 
-# Runs shown in a stand-down. Long enough to carry every workflow a repo
-# fires on one commit, short enough to read.
+# Runs shown in a stand-down: every workflow one commit fires, still readable.
 _STAND_DOWN_LIMIT = 15
 
 
@@ -59,11 +50,10 @@ class Anchor:
         branch: Branch the anchor came from, where one is known.
         label: How the anchor reads in a message, e.g. ``PR #18``.
         repo: Target ``owner/name``, or None for the cwd's git remote.
-        local: The target is this checkout's own repo, so the workflow it
-            declares in ci.yml is a legitimate default pin. True for a
-            PR or branch in this repo, not only for HEAD.
+        local: The target is this checkout's own repo, so the workflow in its
+            ci.yml is a legitimate default pin (a PR or branch here too).
         head: The anchor is the commit at HEAD, so a run may still be
-            registering and is worth waiting for.
+            registering.
 
     """
 
@@ -91,8 +81,7 @@ def _one_anchor(branch: str | None, commit: str | None, pr: int | None) -> None:
 def pr_head(number: int, *, repo: str | None = None) -> tuple[str, str]:
     """Read a pull request's head commit and branch.
 
-    A ``pull_request`` run records the PR's head commit as its headSha,
-    so the PR number resolves to the same pin a local checkout would.
+    A ``pull_request`` run records the PR's head commit as its headSha.
 
     Args:
         number: Pull request number.
@@ -149,9 +138,9 @@ def resolve_anchor(
         repo: Optional ``owner/name``.
 
     Returns:
-        The Anchor. With no selector and no ``repo``, HEAD is the pin;
-        with ``repo`` and no selector the lookup is repo-wide and carries
-        no sha, because a local HEAD says nothing about another repo.
+        The Anchor. With no selector and no ``repo``, HEAD is the pin. With
+        ``repo`` and no selector the lookup is repo-wide with no sha, as a
+        local HEAD says nothing about another repo.
 
     Raises:
         RunSelectionError: Two anchors were given, or the pin could not
@@ -160,8 +149,7 @@ def resolve_anchor(
     """
     _one_anchor(branch, commit, pr)
 
-    # Another repo's ci.yml is not this checkout's to assume, so only a
-    # lookup against this repo carries a default pin.
+    # Only a lookup against this repo can read a default pin from its ci.yml.
     local = repo is None
 
     if pr:
@@ -219,11 +207,9 @@ def anchor_runs(anchor: Anchor, *, limit: int = RUN_LIST_LIMIT) -> list[dict]:
 def _default_pin(anchor: Anchor, project_dir: Path | None) -> str | None:
     """Return the project's own CI workflow name, where it is a fair default.
 
-    The name comes from the repo's own ci.yml, so it is the right default
-    whoever wrote that file -- gating it on whether hyperi-ci scaffolded
-    the workflow would leave every fork refusing among CodeQL and the
-    scheduled audits, which is the failing closed light touch forbids.
-    Only the repo the checkout sits in can be read this way.
+    Taken from the repo's own ci.yml whoever wrote it, because requiring a
+    hyperi-ci scaffold would make every fork refuse among CodeQL and the
+    scheduled audits. Only the repo the checkout sits in can be read this way.
     """
     if not anchor.local:
         return None
@@ -239,9 +225,8 @@ def stand_down(
 ) -> str:
     """Build a refusal the caller can act on.
 
-    Lists the runs GitHub does hold, marks the workflows hyperi-ci did
-    not scaffold, and prints the command that reaches one. Reporting only
-    "No runs found" is what sent callers to the native CLI.
+    Lists the runs GitHub does hold, marks the workflows hyperi-ci did not
+    scaffold, and prints the command that reaches one.
 
     Args:
         anchor: The anchor that resolved nothing.
@@ -256,8 +241,6 @@ def stand_down(
     lines = [reason]
 
     scope = Anchor(None, anchor.branch, anchor.label, anchor.repo, anchor.local)
-    # Listing the whole repo when the branch has nothing is the point of
-    # standing down, so a branch with no runs widens rather than repeats.
     try:
         seen = anchor_runs(scope, limit=_STAND_DOWN_LIMIT)
     except RunSelectionError:
@@ -272,8 +255,7 @@ def stand_down(
     lines.append(f"Recent runs{where}:")
     lines.extend(f"  {describe_run(run)}" for run in seen)
 
-    # A foreign repo's workflow files are not in this checkout, so its
-    # ownership cannot be read from the local inventory.
+    # A foreign repo's workflow files are not in this checkout.
     if anchor.repo is None:
         inventory = workflows.inventory(project_dir)
         ours = {name.lower() for name in workflows.owned_names(inventory)}
@@ -310,9 +292,8 @@ def resolve(
     """Resolve the one run the caller meant.
 
     Args:
-        workflow: Workflow name to narrow on. With none, the project's
-            own scaffolded CI workflow is the default pin -- and only
-            when the lookup is anchored in this checkout.
+        workflow: Workflow name to narrow on. With none, the project's own CI
+            workflow is the default pin, only when anchored in this checkout.
         branch: Pin to the newest commit on this branch that has runs.
         commit: Pin to this commit.
         pr: Pin to this pull request's head commit.
@@ -403,8 +384,7 @@ def pick(
                 _widen(narrow, anchor, command=command, project_dir=project_dir)
             ) from narrow
 
-    # The default pin resolved nothing, so refuse against every candidate
-    # rather than only the ones its own guess allowed through.
+    # The default pin matched nothing, so retry against every candidate.
     try:
         return select_run(runs, head_sha=anchor.sha)
     except RunSelectionError as exc:
@@ -422,8 +402,8 @@ def _widen(
 ) -> str:
     """Attach a stand-down to a refusal that found nothing at the anchor.
 
-    An ambiguity already names every candidate, so it is left as it is;
-    only an empty result needs the wider listing.
+    An ambiguity already names every candidate, so only an empty result gets
+    the wider listing.
     """
     message = str(exc)
     if "No runs found" not in message:
