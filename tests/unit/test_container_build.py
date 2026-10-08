@@ -5,6 +5,7 @@
 # License:   BUSL-1.1
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
+import json
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -13,7 +14,7 @@ import pytest
 
 from hyperi_ci.config import CIConfig, OrgConfig
 from hyperi_ci.container import stage
-from hyperi_ci.container.build import buildx_command, resolve_tags
+from hyperi_ci.container.build import buildx_command, pushed_digest, resolve_tags
 from hyperi_ci.container.labels import build_oci_labels
 
 
@@ -74,6 +75,40 @@ class TestIndexAnnotations:
         assert cmd[-1] == "ctx"
         assert cmd[-2] == "--push"
         assert "org.opencontainers.image.title=dfe-loader" in cmd
+
+
+class TestPushedDigest:
+    DIGEST = "sha256:" + "a" * 64
+
+    def test_the_metadata_file_rides_before_push_and_context(self) -> None:
+        cmd = buildx_command(
+            dockerfile_path=Path("Dockerfile"),
+            context="ctx",
+            tags=["ghcr.io/hyperi-io/app:v1.0.0"],
+            platforms=["linux/amd64"],
+            labels={},
+            metadata_file=Path("meta.json"),
+        )
+        assert cmd[-4:] == ["--metadata-file", "meta.json", "--push", "ctx"]
+
+    def test_reads_the_digest_buildx_wrote(self, tmp_path: Path) -> None:
+        meta = tmp_path / "meta.json"
+        meta.write_text(
+            json.dumps({"containerimage.digest": self.DIGEST, "image.name": "x"}),
+            encoding="utf-8",
+        )
+        assert pushed_digest(meta) == self.DIGEST
+
+    @pytest.mark.parametrize(
+        "content", ["", "not json", "[]", '{"containerimage.digest": "md5:abc"}', "{}"]
+    )
+    def test_anything_else_is_no_digest(self, tmp_path: Path, content: str) -> None:
+        meta = tmp_path / "meta.json"
+        meta.write_text(content, encoding="utf-8")
+        assert pushed_digest(meta) is None
+
+    def test_a_missing_file_is_no_digest(self, tmp_path: Path) -> None:
+        assert pushed_digest(tmp_path / "absent.json") is None
 
 
 def test_resolve_tags_validate_mode_returns_no_tags():

@@ -260,6 +260,43 @@ def test_run_custom_mode_invokes_build_with_resolved_tags(
     assert any(":v1.2.3" in tag for tag in kwargs["tags"])
 
 
+def test_a_release_push_exposes_the_image_by_digest(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "Cargo.toml").write_text(
+        '[package]\nname = "myapp"\nversion = "0.1.0"\n'
+    )
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.rs").write_text("fn main() {}\n")
+    (tmp_path / "Dockerfile").write_text("FROM scratch\n")
+    (tmp_path / "VERSION").write_text("1.2.3\n")
+    outputs = tmp_path / "outputs"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(outputs))
+    monkeypatch.setenv("GITHUB_SHA", "abc12345abc12345abc")
+    monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
+    monkeypatch.delenv("GITHUB_REF", raising=False)
+    monkeypatch.setenv("HYPERCI_RELEASE_MODE", "true")
+    digest = "sha256:" + "b" * 64
+
+    def fake_build(**kwargs) -> int:
+        kwargs["metadata_file"].write_text(
+            f'{{"containerimage.digest": "{digest}"}}', encoding="utf-8"
+        )
+        return 0
+
+    monkeypatch.setattr(stage_module, "build_and_push", fake_build)
+
+    assert (
+        run(_ci_config(container={"enabled": "auto"}, target="oss"), language="rust")
+        == 0
+    )
+    lines = outputs.read_text(encoding="utf-8").splitlines()
+    assert f"digest={digest}" in lines
+    image = next(line for line in lines if line.startswith("image="))
+    assert image.endswith(f":v1.2.3@{digest}")
+
+
 def test_run_validate_only_on_push_to_main(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "Cargo.toml").write_text(

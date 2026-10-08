@@ -6,6 +6,7 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Execute docker buildx build with optional multi-registry push."""
 
+import json
 import string
 from collections.abc import Mapping
 from pathlib import Path
@@ -99,6 +100,7 @@ def buildx_command(
     labels: dict[str, str],
     build_args: dict[str, str] | None = None,
     push: bool = True,
+    metadata_file: Path | None = None,
 ) -> list[str]:
     """Return the ``docker buildx build`` argv :func:`build_and_push` runs.
 
@@ -115,6 +117,8 @@ def buildx_command(
         build_args: Additional ``--build-arg key=value`` pairs, already
             rendered by :func:`render_build_args`.
         push: When True, append ``--push``.
+        metadata_file: Where buildx writes its result metadata, which
+            carries the pushed image's digest.
 
     Returns:
         The argv list.
@@ -143,6 +147,9 @@ def buildx_command(
         for key, value in sorted(build_args.items()):
             cmd.extend(["--build-arg", f"{key}={value}"])
 
+    if metadata_file is not None:
+        cmd.extend(["--metadata-file", str(metadata_file)])
+
     if push:
         cmd.append("--push")
     # No --load / --push: multi-arch builds cannot load into the local
@@ -162,6 +169,7 @@ def build_and_push(
     labels: dict[str, str],
     build_args: dict[str, str] | None = None,
     push: bool = True,
+    metadata_file: Path | None = None,
 ) -> int:
     """Build a container image with docker buildx and optionally push.
 
@@ -183,6 +191,8 @@ def build_and_push(
             rendered by :func:`render_build_args`.
         push: When True, push to all tagged registries. When False, build
             but discard (validation only).
+        metadata_file: Where buildx writes its result metadata; read it
+            back with :func:`pushed_digest`.
 
     Returns:
         Exit code (0 = success).
@@ -196,6 +206,7 @@ def build_and_push(
         labels=labels,
         build_args=build_args,
         push=push,
+        metadata_file=metadata_file,
     )
 
     action = "Pushing" if push else "Validating (no push)"
@@ -214,6 +225,22 @@ def build_and_push(
     else:
         success(f"Built and {action}")
     return 0
+
+
+def pushed_digest(metadata_file: Path) -> str | None:
+    """Return the ``sha256:`` digest buildx recorded for the pushed image.
+
+    A multi-platform push records the index digest, which is the one a
+    ``<image>@<digest>`` reference has to name.
+    """
+    try:
+        metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    digest = (
+        metadata.get("containerimage.digest") if isinstance(metadata, dict) else None
+    )
+    return digest if isinstance(digest, str) and digest.startswith("sha256:") else None
 
 
 def resolve_tags(
