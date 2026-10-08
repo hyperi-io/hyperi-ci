@@ -6,11 +6,9 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """The pytest arguments and ini settings a project already sets itself.
 
-pytest reads ``addopts`` and every other ini key from one configuration
-file, then ``PYTEST_ADDOPTS``, then the command line, and for a
-single-valued option the last value wins. hyperi-ci reads the same sources
-to leave alone a setting the project has already made, and to extend an
-``addopts``-style one rather than replace it.
+pytest reads ini keys from one configuration file, then ``PYTEST_ADDOPTS``, then
+the command line, and the last value of a single-valued option wins. hyperi-ci
+reads the same sources to leave a project's setting alone or extend it.
 """
 
 import configparser
@@ -19,8 +17,7 @@ import shlex
 import tomllib
 from pathlib import Path
 
-# pytest's own search order. The first file holding pytest configuration is
-# the only one it reads, so a later file's settings never apply.
+# pytest's search order: only the first file holding pytest configuration is read.
 _CONFIG_FILES = (
     "pytest.toml",
     ".pytest.toml",

@@ -6,9 +6,8 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Golang publish handler.
 
-Go modules publish automatically to proxy.golang.org when tagged.
-Binary artifact uploads are handled generically by publish_binaries
-in dispatch.py -- not duplicated here.
+proxy.golang.org indexes a module when its tag is pushed. Binary uploads go
+through the generic publish_binaries in dispatch.py.
 """
 
 from pathlib import Path
@@ -53,8 +52,7 @@ def _publish_go_proxy() -> int:
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     """Run Golang publish stage.
 
-    Handles Go-specific publishing (module proxy). Binary artifact uploads
-    are handled by the generic publish_binaries handler in dispatch.py.
+    Handles the module proxy only, as publish_binaries uploads the binaries.
 
     Args:
         config: Merged CI configuration.

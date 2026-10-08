@@ -4,13 +4,7 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Shared utilities for per-language build modules.
-
-These helpers are independent of language toolchains (cargo, go, npm,
-uv) but are needed by all of them. Lifted out of the language-specific
-build modules to remove copy-paste duplication and ensure they evolve
-in lockstep.
-"""
+"""Toolchain-independent helpers shared by the per-language build modules."""
 
 import hashlib
 import struct
@@ -27,11 +21,7 @@ _SHN_XINDEX = 0xFFFF
 
 
 def human_size(size: int) -> str:
-    """Convert bytes to human-readable size (e.g. 1024 -> "1K").
-
-    Public alias used to be ``_human_size`` in rust/build.py and
-    golang/build.py. Identical behaviour.
-    """
+    """Convert bytes to a human-readable size (e.g. 1024 -> "1K")."""
     for unit in ("B", "K", "M", "G"):
         if size < 1024:
             return f"{size}{unit}"
@@ -42,19 +32,12 @@ def human_size(size: int) -> str:
 def generate_checksums(output_dir: Path) -> None:
     """Write a per-binary ``{binary}.sha256`` file next to each artefact.
 
-    Each output file gets its own sibling ``.sha256`` in the format
-    ``sha256sum -c`` expects::
+    Each sibling holds ``<sha256>  <filename>``, the format ``sha256sum -c``
+    expects. One file per binary, not an aggregate ``checksums.sha256``, lets
+    multi-arch matrix builds upload to the same R2 path without overwriting
+    each other.
 
-        <sha256>  <filename>
-
-    Per-binary filenames (rather than one aggregated ``checksums.sha256``)
-    let multi-arch matrix builds upload to the same R2 path without
-    last-write-wins: ``macbash-linux-amd64.sha256`` and
-    ``macbash-linux-arm64.sha256`` never collide. Downstream consumers
-    that need a combined file can concatenate the per-arch ones.
-
-    Excludes existing ``.sha256`` siblings so the call is idempotent.
-    No-op when ``output_dir`` contains no files.
+    Existing ``.sha256`` files are skipped, so the call is idempotent.
     """
     count = 0
     for f in sorted(output_dir.iterdir()):
@@ -83,9 +66,8 @@ def _elf_section_entry(
 def elf_section_names(path: Path) -> set[str]:
     """Return the section names of an ELF file.
 
-    Reads only the header, the section table and the section-name string
-    table, so a large binary costs a few kilobytes of I/O and needs no
-    binutils on the host.
+    Reads only the header, section table and section-name string table, so a
+    large binary costs a few kilobytes of I/O and needs no binutils.
 
     Args:
         path: File to inspect.

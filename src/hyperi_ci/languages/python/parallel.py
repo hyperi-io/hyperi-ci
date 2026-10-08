@@ -6,14 +6,11 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """pytest worker-count resolution.
 
-A project should not have to hardcode a core count: a number that is right
-on the CI runner is wrong on a developer box. When a project opts in with
-``test.python.parallel``, the worker count comes from the host CPU budget
-instead, and a project that already passes its own ``-n`` is left untouched.
+When a project opts in with ``test.python.parallel``, the worker count comes
+from the host CPU budget. A project that passes its own ``-n`` is left alone.
 
-When hyperi-ci supplies the ``-n`` it also supplies ``--dist worksteal``, which
-rebalances a suite whose test durations differ widely, unless the project has
-chosen its own distribution mode.
+When hyperi-ci supplies ``-n`` it also supplies ``--dist worksteal`` unless the
+project chose its own distribution mode.
 """
 
 import os
@@ -25,16 +22,15 @@ from hyperi_ci.config import CIConfig
 from hyperi_ci.cpu import cpu_budget
 from hyperi_ci.languages.python.pytest_args import project_args
 
-# Past this width a pytest run pays more in per-worker collection than it wins
-# in parallelism: hyperi-ci's own 2598-test suite takes 23.6s at 8 workers,
-# 23.4s at 16 and 23.8s at 32. A project that genuinely wants more sets an
-# explicit number.
+# Past 16 workers collection cost cancels the gain: hyperi-ci's own 2598-test
+# suite takes 23.6s at 8, 23.4s at 16 and 23.8s at 32. An explicit number
+# overrides it.
 _MAX_AUTO_WORKERS = 16
 
 _WORKERS_ENV = "HYPERCI_TEST_WORKERS"
 
-# Any of these in a project's own pytest arguments means it has already made
-# the parallelism decision, including the decision to turn xdist off.
+# In a project's own pytest arguments these mean it already chose, including
+# turning xdist off.
 _OWN_PARALLEL_FLAGS = ("-n", "--numprocesses")
 _XDIST_DISABLED = ("no:xdist", "no:xdist.plugin")
 
@@ -43,8 +39,7 @@ _OWN_DIST_FLAGS = ("--dist", "-d")
 
 _DIST_MODE = "worksteal"
 
-# The first pytest-xdist release that accepts `--dist worksteal`; an older one
-# rejects it as a usage error and runs nothing.
+# Older pytest-xdist rejects `--dist worksteal` as a usage error and runs nothing.
 _WORKSTEAL_MIN_XDIST = (3, 2)
 
 _XDIST_PLUGIN_LINE = re.compile(r"pytest-xdist-(\d+)\.(\d+)")
@@ -127,9 +122,8 @@ def project_sets_own_dist(args: list[str], root: Path | None = None) -> bool:
 def _workers_from_env() -> int | None:
     """Read a worker count forced for this run only.
 
-    ``HYPERCI_TEST_WORKERS`` overrides the config in both directions, so a
-    thrashing host can be quietened without a config commit. A value of 0
-    means serial.
+    ``HYPERCI_TEST_WORKERS`` overrides the config in both directions. 0 means
+    serial.
 
     Returns:
         The requested worker count, 0 for serial, or None when unset or
@@ -200,8 +194,7 @@ def auto_workers() -> int:
 def xdist_version(pytest_cmd: list[str]) -> tuple[int, int] | None:
     """Report which pytest-xdist the pytest that will run the suite loads.
 
-    Probes the resolved command rather than the ambient interpreter, so the
-    answer is about the same pytest the tests will run under.
+    Probes the resolved command, not the ambient interpreter.
 
     Args:
         pytest_cmd: The resolved pytest invocation, without test arguments.

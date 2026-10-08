@@ -6,16 +6,14 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Python quality checks handler.
 
-Orchestrates quality tools: ruff (lint, format, security, docstrings), ty,
-bandit, pip-audit, vulture. Each tool's mode (blocking/warn/disabled) is
-configurable via .hyperi-ci.yaml quality.python section. semgrep runs once at
-dispatch level, not here.
+Runs ruff (lint, format, S rules, D rules), ty, bandit, pip-audit and vulture,
+each with a blocking/warn/disabled mode from ``quality.python`` in
+.hyperi-ci.yaml. semgrep runs once at dispatch level, not here.
 
-The bandit-class check is ruff's S rules (flake8-bandit), run as their own pass
-whatever the repo's ruff selects. bandit itself ships disabled.
-
-Docstring coverage uses ruff D rules (pydocstyle) instead of interrogate,
-which is unmaintained and pulls in the vulnerable 'py' package.
+The bandit-class check is ruff's S rules, run as their own pass whatever the
+repo's ruff selects. bandit itself ships disabled. Docstring coverage uses ruff
+D rules because interrogate is unmaintained and pulls in the vulnerable 'py'
+package.
 """
 
 import os
@@ -45,9 +43,8 @@ from hyperi_ci.python_version import resolve as resolve_python_version
 from hyperi_ci.quality.ignores import IgnoreEntry, for_tool, load_ignores
 from hyperi_ci.versions import tool_version
 
-# `ruff format` accepts --extend-exclude from 0.15.21. Markdown formatting
-# arrived separately in 0.16, so a 0.15.21 or 0.15.22 project still honours its
-# own excludes here even though the `*.md` entry buys it nothing.
+# `ruff format` accepts --extend-exclude from 0.15.21, a release earlier than
+# Markdown formatting (0.16).
 _RUFF_FORMAT_EXTEND_EXCLUDE_MIN = Version("0.15.21")
 
 # pip-audit's summary line when it has vulnerabilities to report.
@@ -121,16 +118,11 @@ def _build_ruff_security_cmd(
 
 
 def _build_pip_audit_cmd(ignores: list[IgnoreEntry]) -> list[str]:
-    """Build pip-audit command that targets the project's venv.
+    """Build the pip-audit command, one ``--ignore-vuln <id>`` per ignore entry.
 
-    pip-audit scans installed packages in the active Python env.
-    We must ensure it sees the project's .venv, not ~/.venv or
-    the system Python. Strategy:
-    - If uv is available: 'uv run --with pip-audit - pip-audit'
-      installs pip-audit temporarily and scans the project's deps.
-    - Fallback: bare 'pip-audit' (hopes the right venv is active).
-
-    Each ignore entry maps to one ``--ignore-vuln <id>`` flag.
+    pip-audit scans the active environment, so with uv it runs as
+    ``uv run --with pip-audit==<pin> -- pip-audit`` to see the project's .venv
+    and not ~/.venv or the system Python. Without uv it is bare ``pip-audit``.
     """
     base = ["pip-audit"]
     for entry in ignores:
@@ -178,7 +170,7 @@ def _warn_bandit_skips(stdout: str | None) -> int:
 def _advisory_db_unreachable(result: subprocess.CompletedProcess[str]) -> bool:
     """Whether a pip-audit run failed only because the advisory DB was unreachable.
 
-    A run that reported vulnerabilities never counts, whatever else it printed.
+    A run that reported vulnerabilities never counts.
 
     Args:
         result: One finished pip-audit run.
@@ -237,9 +229,9 @@ def _run_source_tool(
 def _ruff_format_takes_extend_exclude() -> bool:
     """Whether the project's ruff accepts --extend-exclude on `format`.
 
-    hyperi-ci pins no ruff for consumers, so this asks the RESOLVED command
-    rather than assuming a version. An unreadable answer keeps the flag: the
-    argument-rejection path in `run_gate_tool` then names the mismatch plainly.
+    Asks the resolved ruff, as consumers' ruff is not pinned. An unreadable
+    answer keeps the flag, and `run_gate_tool`'s argument-rejection path then
+    names the mismatch.
     """
     try:
         result = subprocess.run(
@@ -268,12 +260,11 @@ def _build_ruff_format_cmd(
 ) -> list[str]:
     """Build the ruff format command.
 
-    Markdown is excluded because ruff 0.16 formats it, which would otherwise
-    drag every consumer repo's docs into a gate that has only covered Python.
+    Markdown is excluded because ruff 0.16 formats it, which would pull every
+    consumer's docs into a Python-only gate.
 
-    `extend_exclude` is False for a ruff below 0.15.21, which rejects the flag.
-    That ruff never walks Markdown either, so only the project's own excludes
-    are lost and the caller says so.
+    `extend_exclude` is False for a ruff below 0.15.21, which rejects the flag
+    and never walks Markdown, so only the project's own excludes are lost.
     """
     cmd = ["ruff", "format", "--check", "."]
     if extend_exclude:
@@ -297,16 +288,15 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     ignores = load_ignores(config._raw)
     had_failure = False
 
-    # Ruff lint -- two-pass: production (strict) + test (relaxed)
+    # Ruff lint runs twice: production (strict), then tests (relaxed).
     mode = resolve_tool_mode("ruff", config, language="python")
     exclude_args = _build_exclude_args("ruff", excludes)
-    # Use GitHub-native annotations in CI for inline PR feedback
     output_fmt = ["--output-format=github"] if os.environ.get("GITHUB_ACTIONS") else []
 
     test_paths = get_test_paths(config)
     test_ignore = get_test_ignore("python", config)
 
-    # Production pass -- exclude test dirs, full rules
+    # Production pass: test dirs excluded, full rules.
     prod_exclude = exclude_args + [f"--exclude={p}" for p in test_paths]
     ruff_user_ignores = for_tool(ignores, "ruff")
     if not run_gate_tool(
@@ -320,7 +310,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     ):
         had_failure = True
 
-    # Test pass -- relaxed rules, same mode
+    # Test pass: relaxed rules, same mode.
     if test_paths and test_ignore:
         combined_ignore = test_ignore + [e.id for e in ruff_user_ignores]
         ignore_flag = [f"--extend-ignore={','.join(combined_ignore)}"]
@@ -333,10 +323,8 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             ):
                 had_failure = True
 
-    # Ruff format -- single pass (format is rule-agnostic, no split needed).
-    # Its own mode, not ruff check's: adopting the formatter on an established
-    # tree is a whole-repo decision, and sharing the key forces a project to
-    # relax the real lint gate to defer it.
+    # Own mode, not ruff check's: sharing the key would force a project to relax
+    # the lint gate to defer adopting the formatter.
     format_extend_exclude = _ruff_format_takes_extend_exclude()
     if not format_extend_exclude and excludes:
         warn(
@@ -369,7 +357,6 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     sources = get_python_source_paths(config)
     parse_python = _parse_python()
 
-    # Bandit security scanning
     mode = resolve_tool_mode("bandit", config, language="python")
     bandit_cmd = ["bandit", "-r", *sources, "-ll"]
     if Path("pyproject.toml").exists():
@@ -398,8 +385,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     ):
         had_failure = True
 
-    # The bandit-class check. Its own key, so it can ratchet to blocking
-    # without touching the lint gate.
+    # Own key, so it can go blocking without touching the lint gate.
     if not _run_source_tool(
         "ruff security",
         _build_ruff_security_cmd(sources, excludes, ruff_user_ignores),
@@ -408,9 +394,6 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     ):
         had_failure = True
 
-    # pip-audit vulnerability scanning
-    # Always run via 'uv run --with' to ensure it scans the PROJECT's
-    # installed packages, not ~/.venv or the system Python.
     mode = resolve_tool_mode("pip_audit", config, language="python")
     pip_audit_cmd = _build_pip_audit_cmd(for_tool(ignores, "pip-audit"))
     if not run_gate_tool(
@@ -422,8 +405,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     ):
         had_failure = True
 
-    # Docstring coverage via ruff D rules (replaces interrogate). Concise output
-    # is one finding per line, so the warn tier's line cap counts findings.
+    # Concise output is one finding per line, so the warn tier's cap counts findings.
     mode = resolve_tool_mode("ruff_docstrings", config, language="python")
     ruff_doc_cmd = [
         "ruff", "check", "--select", "D", "--output-format=concise", *sources
@@ -433,7 +415,6 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if not _run_source_tool("ruff docstrings", ruff_doc_cmd, mode, sources):
         had_failure = True
 
-    # Vulture dead code detection
     mode = resolve_tool_mode("vulture", config, language="python")
     vulture_cmd = ["vulture", *sources] + _build_exclude_args("vulture", excludes)
     vulture_spec = f"vulture=={tool_version('vulture')}"

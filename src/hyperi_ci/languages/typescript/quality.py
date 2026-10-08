@@ -6,12 +6,10 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """TypeScript quality checks handler.
 
-Orchestrates: eslint, prettier, tsc, npm audit, semgrep.
-Each tool's mode is configurable via .hyperi-ci.yaml quality.typescript section.
-
-Note: TypeScript eslint is invoked via npm scripts, which use the project's
-eslint config. Test relaxation is applied at the eslint config level
-(overrides section); hyperi-ci has no ``test_ignore`` for TypeScript.
+Runs eslint, prettier, tsc, audit and osv-scanner, each with a mode from
+``quality.typescript`` in .hyperi-ci.yaml. eslint uses the project's own config,
+so test relaxation belongs in its overrides: hyperi-ci has no ``test_ignore``
+for TypeScript.
 """
 
 from pathlib import Path
@@ -27,16 +25,14 @@ from hyperi_ci.languages.typescript._common import (
 from hyperi_ci.quality import osv_scanner
 from hyperi_ci.quality.ignores import for_tool, load_ignores
 
-# Lockfile each package manager writes -- osv-scanner scans this for
-# malicious packages.
+# The lockfile osv-scanner reads for each package manager.
 _PM_LOCKFILE = {
     "npm": "package-lock.json",
     "pnpm": "pnpm-lock.yaml",
     "yarn": "yarn.lock",
 }
 
-# Config-file markers that signal a tool is meant to run even without an
-# npm script wrapper -- we fall back to direct `npx <tool>` invocation.
+# Config files that mean a tool is wanted without an npm script, so run it via npx.
 _ESLINT_CONFIG_MARKERS = (
     "eslint.config.js",
     "eslint.config.mjs",
@@ -104,10 +100,8 @@ def _find_npm_script(
 def _audit_command(*, audit_level: str, pm: str, yarn_major: int) -> list[str]:
     """Build the security-audit command for the package manager.
 
-    Yarn Berry (v2+) removed ``yarn audit`` in favour of ``yarn npm
-    audit --severity <level>``; running the Classic ``yarn audit
-    --audit-level`` there exits non-zero. Yarn Classic (v1) keeps
-    ``yarn audit --audit-level``. npm and pnpm both take
+    Yarn Berry (v2+) replaced ``yarn audit`` with ``yarn npm audit --severity``,
+    and the Classic form exits non-zero there. Yarn Classic, npm and pnpm take
     ``--audit-level``.
 
     Args:
@@ -130,16 +124,10 @@ def _audit_command(*, audit_level: str, pm: str, yarn_major: int) -> list[str]:
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     """Run TypeScript/JavaScript quality checks.
 
-    Tool resolution order for eslint/prettier/tsc:
-      1. If an npm script with the canonical name exists, run it.
-      2. Else if a config file for the tool exists, fall back to a
-         direct `npx <tool>` invocation.
-      3. Else skip the tool with a warn-level message.
-
-    Skip messages are `warn` (not `info`) so missing tool coverage is
-    visible in CI output -- silently degrading a lint step is a worse
-    failure mode than a hard error. Projects that genuinely don't want
-    a tool can set `quality.typescript.<tool>: disabled`.
+    Each of eslint, prettier and tsc runs its npm script if present, else
+    `npx <tool>` when the tool has a config file, else is skipped with a
+    warning so the lost coverage shows in CI output. Set
+    `quality.typescript.<tool>: disabled` to drop a tool deliberately.
     """
     info("Running TypeScript quality checks...")
     pm = detect_package_manager()
@@ -150,9 +138,6 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     had_failure = False
 
     # --- eslint ---
-    # Prefer the project's `lint` script (respects its own config).
-    # Fall back to `npx eslint .` if an eslint config file is present.
-    # Skip with a warning if neither -- don't silently drop coverage.
     mode = resolve_tool_mode("eslint", config, language="typescript")
     if _find_npm_script(["lint"], pm):
         if not run_gate_tool("eslint", [pm, "run", "lint"], mode):
@@ -164,10 +149,8 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         warn("  eslint: no 'lint' script and no eslint config -- skipping")
 
     # --- prettier ---
-    # `npm run format --check` is unsafe: many projects define `format`
-    # as `prettier --write .` and the `--check` arg may not propagate.
-    # Prefer explicit check-variant scripts; fall back to direct
-    # invocation with `--check` which is unambiguous.
+    # `format --check` is unsafe, as `format` is often `prettier --write .` and
+    # the flag may not reach it. Only check-variant scripts are used.
     mode = resolve_tool_mode("prettier", config, language="typescript")
     format_check_script = _find_npm_script(
         ["format:check", "check-format", "check:format"], pm
@@ -182,10 +165,8 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         warn("  prettier: no 'format:check' script and no prettier config -- skipping")
 
     # --- tsc ---
-    # Try typecheck script, else fall back to `npx tsc --noEmit` only if
-    # a tsconfig.json exists. Skipping without tsconfig avoids tsc
-    # crawling cwd with default settings (noisy / error-prone on pure-JS
-    # projects that pass detection via the javascript->typescript alias).
+    # Without a tsconfig.json tsc would crawl cwd on defaults, which is noisy on
+    # pure-JS projects detected through the javascript->typescript alias.
     mode = resolve_tool_mode("tsc", config, language="typescript")
     tsc_script = _find_npm_script(["typecheck", "check-types"], pm)
     if tsc_script:
@@ -197,7 +178,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     else:
         warn("  tsc: no typecheck script and no tsconfig.json -- skipping")
 
-    # --- audit + semgrep -- run on any JS/TS project; orthogonal to npm scripts ---
+    # --- audit: runs on any JS/TS project, independent of npm scripts ---
     mode = resolve_tool_mode("audit", config, language="typescript")
     audit_level = config.get("quality.typescript.audit_level", "moderate")
     yarn_major = detect_yarn_version() if pm == "yarn" else 0
@@ -208,9 +189,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             for entry in audit_ignores:
                 audit_cmd.extend(["--ignore-cve", entry.id])
         else:
-            # npm/yarn audit lack CLI ignore flags. Use package.json
-            # `overrides` / `resolutions` instead. Warn so operators know
-            # the entries aren't being applied.
+            # npm/yarn audit have no CLI ignore flag, so the entries are not applied.
             warn(
                 f"  {pm} audit: quality.ignore entries present for "
                 f"{pm}-audit but the tool has no CLI ignore flag. Use "
@@ -219,11 +198,8 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if not run_gate_tool("audit", audit_cmd, mode):
         had_failure = True
 
-    # osv-scanner -- malicious-package (MAL-*) scan. npm/pnpm/yarn audit are
-    # CVE-only (GitHub Advisory DB) and miss the OSSF malicious-packages
-    # feed -- where the bulk of typosquat/compromised-maintainer attacks
-    # (and ossf/malicious-packages#1276) live. Defence-in-depth behind the
-    # 7-day Renovate cooldown.
+    # osv-scanner finds malicious packages (MAL-*). The audit commands read only
+    # the GitHub Advisory DB's CVEs and miss the OSSF malicious-packages feed.
     mode = resolve_tool_mode("osv_scanner", config, language="typescript")
     osv_lockfile = Path(_PM_LOCKFILE.get(pm, "package-lock.json"))
     if not osv_scanner.run(osv_lockfile, for_tool(ignores, osv_scanner.SLUG), mode):

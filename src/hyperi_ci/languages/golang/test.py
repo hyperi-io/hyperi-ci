@@ -6,8 +6,8 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Golang test handler.
 
-Runs go test with optional race detection and coverage reporting.
-Coverage output goes to test-results/ for artifact upload.
+Runs go test with optional race detection and coverage, written to
+test-results/ for artifact upload.
 """
 
 from pathlib import Path
@@ -32,7 +32,6 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if config.get("test.golang.race", True):
         cmd.append("-race")
 
-    # Coverage reporting
     if config.get("test.coverage", True):
         _RESULTS_DIR.mkdir(exist_ok=True)
         coverage_file = _RESULTS_DIR / "coverage.out"
@@ -45,7 +44,6 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         error("Golang tests failed")
         return result.returncode
 
-    # Generate HTML coverage report if coverage was collected
     coverage_file = _RESULTS_DIR / "coverage.out"
     if coverage_file.exists():
         html_file = _RESULTS_DIR / "coverage.html"

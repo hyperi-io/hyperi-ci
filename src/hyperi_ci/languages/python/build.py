@@ -4,10 +4,7 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Python build handler.
-
-Builds Python wheels and sdists with uv.
-"""
+"""Python build handler: wheel and sdist via uv."""
 
 import re
 import subprocess
@@ -21,36 +18,25 @@ from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.repo_path import RepoPathError, confine
 
-# Directories/files that are never part of a Python package -- AI coding agent dirs,
-# org submodules, and tool dirs. Injected into hatchling sdist exclusions at build
-# time so every project gets these for free without repeating them in pyproject.toml.
-#
-# AI agent paths: Claude Code, Cursor, Gemini, Copilot, Windsurf, etc.
-# Org submodules: hyperi-ai (standards), ci (old CI replaced by hyperi-ci).
+# AI agent files and org submodules that never belong in an sdist, injected into
+# hatchling's sdist exclusions at build time.
 _STANDARD_SDIST_EXCLUDES = [
-    # Claude Code
     "/.claude",
     "/CLAUDE.md",
-    # Cursor
     "/.cursor",
     "/CURSOR.md",
-    # Gemini
     "/.gemini",
     "/GEMINI.md",
-    # GitHub Copilot
     "/.github/copilot-instructions.md",
-    # Windsurf
     "/.windsurf",
-    # Shared AI context file (symlinked as CLAUDE.md, CURSOR.md, etc.)
+    # Shared AI context file, symlinked as CLAUDE.md, CURSOR.md and so on.
     "/STATE.md",
-    # Org AI standards submodule
     "/hyperi-ai",
-    # Legacy CI submodule (replaced by hyperi-ci)
     "/ci",
 ]
 
-# hatchling's DEFAULT_PATTERN (hatchling/version/core.py), so the stamp lands
-# where the build reads the version from.
+# Copy of hatchling's DEFAULT_PATTERN (hatchling/version/core.py), so the stamp
+# lands where the build reads the version.
 _HATCH_DEFAULT_VERSION_PATTERN = (
     r"""(?i)^(__version__|VERSION) *= *(['"])v?(?P<version>.+?)\2"""
 )
@@ -120,10 +106,9 @@ def _build_native(config: CIConfig) -> int:
 def stamp_manifest(version: str, root: Path) -> None:
     """Stamp `version` into pyproject.toml, or the file hatch reads it from.
 
-    Static-version projects (PEP 621 `[project] version = "..."`) get the
-    rewrite. A dynamic version read by hatch from a file
-    (``[tool.hatch.version] path``) gets that file stamped instead, see
-    `_stamp_hatch_version`. Other dynamic-version backends are left alone.
+    A static PEP 621 version is rewritten in place. A dynamic version read by
+    hatch from ``[tool.hatch.version] path`` stamps that file instead. Other
+    dynamic-version backends are left alone.
 
     Raises:
         StampError: The hatch version file cannot be stamped, so the wheel
@@ -152,11 +137,9 @@ def stamp_manifest(version: str, root: Path) -> None:
 def _stamp_hatch_version(version: str, root: Path, settings: dict) -> None:
     """Stamp the file a ``[tool.hatch.version]`` regex source reads.
 
-    Matches the way hatchling reads it: ``pattern`` (or hatchling's default)
-    searched in multiline mode, and the ``version`` group replaced, which is
-    what ``hatch version <v>`` writes. A ``vcs`` source takes the version from
-    git and a ``code`` source evaluates a file at build time, so neither has a
-    literal to stamp. Any other source is refused.
+    Replaces the ``version`` group of ``pattern`` (or hatchling's default),
+    searched in multiline mode, as ``hatch version <v>`` does. ``vcs`` and
+    ``code`` sources have no literal to stamp and any other source is refused.
 
     Raises:
         StampError: The source is unsupported, the file is missing, or the

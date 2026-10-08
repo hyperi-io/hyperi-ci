@@ -30,14 +30,13 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if not run_gate_tool("go vet", ["go", "vet", "./..."], mode):
         had_failure = True
 
-    # golangci-lint -- two-pass: production (strict) + test (relaxed)
+    # golangci-lint runs twice: production (strict), then tests (relaxed).
     mode = resolve_tool_mode("golangci_lint", config, language="golang")
     test_ignore = get_test_ignore("golang", config)
     gci_user_ignores = for_tool(ignores, "golangci-lint")
     gci_user_disable = [f"--disable={e.id}" for e in gci_user_ignores]
 
-    # Production pass -- skip test files. The pin is checked here only, so the
-    # test pass does not repeat the warning.
+    # The pin is checked here only, so the test pass does not repeat the warning.
     if not run_gate_tool(
         "golangci-lint (src)",
         ["golangci-lint", "run", "--tests=false", "--timeout", "5m"] + gci_user_disable,
@@ -46,7 +45,6 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     ):
         had_failure = True
 
-    # Test pass -- include tests, disable specific linters
     if test_ignore:
         disable_flags = [f"--disable={linter}" for linter in test_ignore]
         if not run_gate_tool(
@@ -67,8 +65,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if not run_gate_tool("gosec", gosec_cmd, mode, pinned="gosec"):
         had_failure = True
 
-    # govulncheck has no native --ignore flag; emit a notice when entries
-    # exist for it so operators understand why their config isn't applied.
+    # govulncheck has no ignore flag, so say why its quality.ignore entries do nothing.
     mode = resolve_tool_mode("govulncheck", config, language="golang")
     govuln_ignores = for_tool(ignores, "govulncheck")
     if govuln_ignores:
