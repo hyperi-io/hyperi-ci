@@ -4,33 +4,19 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Orchestrate documentation quality checking.
+"""Orchestrate the documentation checks.
 
-Runs from two places, like the container dimension: inside ``stage_quality``
-for a repo with a language pipeline, and as ``hyperi-ci lint-docs <dir>`` for a
-docs-only repo that has none.
+Runs inside ``stage_quality``, and as ``hyperi-ci lint-docs <dir>`` for a
+docs-only repo. The checks, in cost order:
 
-Five checks, in cost order:
+1. doc-paths - path-existence drift, pure Python.
+2. doc-links - lychee over internal links and anchors, offline.
+3. mermaid-parse - mermaid's own grammar over every fenced block.
+4. markdownlint - markdown syntax.
+5. docs-touched - the source-changed, docs-did-not nudge, which never gates.
 
-1. **doc-paths** - path-existence drift. Pure Python, so it always runs.
-2. **doc-links** - lychee over internal links + anchors, offline.
-3. **mermaid-parse** - mermaid's own grammar over every fenced block.
-4. **markdownlint** - mechanical markdown syntax.
-5. **docs-touched** - the source-changed-docs-did-not nudge.
-
-**Every one starts at ``warn``.** A new lint introduced as blocking on an
-existing tree fails CI for everybody until the backlog is cleared, so the
-estate learns to disable it. The ratchet is the alternative with the same end
-state: land at warn, watch the count, promote the check in a repo once that
-repo reads zero. doc-paths, doc-links and mermaid-parse are deterministic and
-carry no style opinion, so they are the ones ready to be promoted first;
-markdownlint will light up an existing tree and docs-touched is advisory by
-construction and cannot be promoted at all.
-
-doc-paths and doc-links overlap on link destinations, so the link half of
-doc-paths is turned off whenever lychee will actually run at the same mode or
-stricter - one broken link, one finding. A repo that promoted doc-paths past
-doc-links keeps both, because only doc-paths can then fail on the link.
+Every check defaults to ``warn``, and a repo promotes one once it reads zero.
+doc-paths leaves link destinations to lychee unless doc-paths is stricter.
 """
 
 from pathlib import Path
@@ -52,9 +38,8 @@ def run(
 ) -> int:
     """Run every documentation check over the markdown under ``root``.
 
-    Returns non-zero only when a check a repo has PROMOTED to ``blocking``
-    fails. Every check runs even after one fails, so a single broken link does
-    not hide the rest of the report.
+    Every check runs even after one fails. Returns non-zero only when a check
+    promoted to ``blocking`` fails.
     """
     root = Path(root)
     files = discover_markdown_files(root, exclude_dirs=get_exclude_dirs(config._raw))

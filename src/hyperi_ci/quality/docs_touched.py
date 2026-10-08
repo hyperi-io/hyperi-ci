@@ -4,19 +4,10 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""The docs-untouched nudge - a reminder, never a gate.
+"""Note a change that touches source and no doc; never fails a build.
 
-Docs drift because the doc change is a separate act of will from the code
-change. Naming it at review time is what closes that gap: the change moved
-source and touched no markdown, so either a doc needs updating or it does not,
-and the author is the one who knows.
-
-**This never fails a build, in any mode.** Plenty of legitimate changes need no
-doc: a refactor, a test, a dependency bump. A rule that is right often but not
-always must not hold the merge button, or it gets disabled and takes the useful
-signal with it. ``quality.docs_touched`` therefore only chooses between running
-and not running; ``--strict`` cannot promote it, which is why this module does
-not route the mode through the usual strict upgrade.
+Many legitimate changes need no doc, so ``quality.docs_touched`` only chooses
+between running and not, and the mode skips the ``--strict`` upgrade.
 """
 
 import os
@@ -26,7 +17,6 @@ from hyperi_ci.common import info, run_cmd, success
 from hyperi_ci.config import CIConfig
 from hyperi_ci.quality import findings as fdg
 
-# Extensions that make a changed file "source" for this purpose.
 _SOURCE_SUFFIXES = {
     ".py",
     ".rs",
@@ -46,8 +36,7 @@ _SOURCE_SUFFIXES = {
 
 _DOC_SUFFIXES = {".md", ".markdown", ".rst", ".adoc"}
 
-# A test is source that documents itself. Changing one is not a reason to ask
-# after the README.
+# Test files count as neither source nor docs.
 _TEST_MARKERS = ("tests/", "test/", "_test.", "test_", ".test.", ".spec.")
 
 
@@ -70,21 +59,15 @@ def classify(paths: list[str]) -> tuple[list[str], list[str]]:
 
 
 def base_ref() -> str:
-    """Return the ref this change is measured against.
-
-    In a pull request GitHub names the target branch in ``GITHUB_BASE_REF``;
-    everywhere else the comparison is against the remote default branch, which
-    is what a local ``hyperi-ci check`` wants before a push.
-    """
+    """Return the ref to diff against: the PR's base branch, else ``origin/HEAD``."""
     pr_base = os.environ.get("GITHUB_BASE_REF", "").strip()
     return f"origin/{pr_base}" if pr_base else "origin/HEAD"
 
 
 def changed_files(root: Path, base: str) -> list[str] | None:
-    """Return paths changed between ``base`` and HEAD, or None when unknowable.
+    """Return paths changed between ``base`` and HEAD, or None when git cannot say.
 
-    None covers a shallow clone, a repo with no remote and a first commit -
-    all ordinary states in which there is simply no comparison to make.
+    None covers a shallow clone, a repo with no remote, and a first commit.
     """
     try:
         result = run_cmd(
@@ -106,7 +89,7 @@ def run(
     root: Path | None = None,
     sarif_path: str | Path | None = None,
 ) -> int:
-    """Note a source-only change. ALWAYS returns 0 - this never gates."""
+    """Note a source-only change; always returns 0."""
     if str(config.get("quality.docs_touched", "warn")).strip().lower() == "disabled":
         info("  docs-touched: disabled")
         return 0

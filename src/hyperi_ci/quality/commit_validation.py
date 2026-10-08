@@ -21,18 +21,8 @@ from hyperi_ci.gh import gh_run
 from hyperi_ci.release_rules import load_type_bump
 from hyperi_ci.vocabulary import trailer_values
 
-# ---------------------------------------------------------------------------
-# Commit-type allowlist (message-shape policy)
-# ---------------------------------------------------------------------------
-#
-# The curated set of type prefixes `hyperi-ci check-commit` accepts, each with
-# a one-line description, powering the friendly "did you mean" suggestion and a
-# consistent house vocabulary. This is a MESSAGE policy and is deliberately
-# distinct from the version-bump SSoT: which of these actually SHIP a release
-# is decided by hyperi_ci.release_rules (semantic-release's own defaults), NOT
-# here. So `hotfix` / `sec` / `security` remain valid messages but no longer
-# bump on their own - ship a security patch as `fix(security): ...`.
-
+# Accepted message types only: which ones release is hyperi_ci.release_rules' call,
+# so `hotfix` / `sec` / `security` are valid but do not bump on their own.
 _ALLOWED_TYPES: dict[str, str] = {
     "feat": "New user-facing feature",
     "fix": "Bug fix or improvement",
@@ -82,11 +72,6 @@ _PR_API_TIMEOUT_SECONDS = 30
 _SQUASH_SUFFIX_RESERVE = 8
 
 
-# ---------------------------------------------------------------------------
-# Data types
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class ValidationResult:
     """Result of validating a single commit message."""
@@ -95,10 +80,6 @@ class ValidationResult:
     reason: str
     error_type: str
 
-
-# ---------------------------------------------------------------------------
-# Core validation logic
-# ---------------------------------------------------------------------------
 
 _SKIP_PATTERNS = [
     re.compile(r"^Merge "),
@@ -117,10 +98,9 @@ def _should_skip(msg: str) -> bool:
 
 
 def _feat_confirmed(msg: str) -> bool:
-    """Whether a deliberate ``feat:`` carries its confirmation.
+    """Return whether a ``feat:`` is confirmed, by env var or ``Allow-Feat`` trailer.
 
-    The trailer rides in the message, so it reaches the commit that lands;
-    the env var only ever existed where the commit was authored.
+    Only the trailer survives into the commit that lands.
     """
     if env_true("HYPERCI_ALLOW_FEAT"):
         return True
@@ -145,7 +125,7 @@ def validate_message(msg: str, *, suffix: str = "") -> ValidationResult:
     if _should_skip(msg):
         return ValidationResult(valid=True, reason="", error_type="")
 
-    # Check for AI attribution anywhere in the full message (including body)
+    # The body is checked too: attribution trailers live there.
     for pattern in _AI_ATTRIBUTION_PATTERNS:
         if re.search(pattern, msg):
             return ValidationResult(
@@ -154,7 +134,6 @@ def validate_message(msg: str, *, suffix: str = "") -> ValidationResult:
                 error_type="ai_attribution",
             )
 
-    # Parse the prefix -- only look at the subject line (first line)
     subject = msg.split("\n")[0].strip()
     match = _PREFIX_RE.match(subject)
     if not match:
@@ -167,7 +146,6 @@ def validate_message(msg: str, *, suffix: str = "") -> ValidationResult:
     commit_type = match.group(1)
     description = match.group(2).strip()
 
-    # Validate type
     if commit_type not in _ALLOWED_TYPES:
         close = difflib.get_close_matches(commit_type, list(_ALLOWED_TYPES), n=3)
         suggestion = f" Did you mean: {', '.join(close)}?" if close else ""
@@ -177,7 +155,6 @@ def validate_message(msg: str, *, suffix: str = "") -> ValidationResult:
             error_type="unknown_type",
         )
 
-    # Validate description length
     if len(description) < _MIN_DESCRIPTION_LENGTH:
         return ValidationResult(
             valid=False,
@@ -202,7 +179,6 @@ def validate_message(msg: str, *, suffix: str = "") -> ValidationResult:
             error_type="description_too_long",
         )
 
-    # Validate first character is not uppercase
     if description and description[0].isupper():
         return ValidationResult(
             valid=False,
@@ -213,53 +189,9 @@ def validate_message(msg: str, *, suffix: str = "") -> ValidationResult:
             error_type="uppercase_description",
         )
 
-    # =========================================================================
-    # Bump-discipline gates -- DO NOT REMOVE without reading this comment.
-    # =========================================================================
-    #
-    # These two gates exist for ONE reason: AI coding agents (Claude Code,
-    # Cursor, Copilot, et al.) repeatedly over-bump semver and produce
-    # unintended major/minor releases. The maintainer has had to revert
-    # accidental bumps and reset main HISTORY *multiple times across
-    # multiple sessions* because:
-    #
-    #   1. Agents default to `feat:` for any new capability -- adding a CLI
-    #      flag, a config knob, a helper function, a small new branch in
-    #      existing code. HyperI policy is that `feat:` is RARE -- only for
-    #      genuinely new user-facing features. Agents do not respect that
-    #      policy reliably even when it's documented in CLAUDE.md, in the
-    #      universal rules file, in the project STATE.md, in per-session
-    #      memory files, AND when the user has explicitly told the agent
-    #      "don't do this" in prior sessions. Memory-based discipline has
-    #      failed at least a dozen times.
-    #
-    #   2. Agents write `BREAKING CHANGE:` in commit body text as a
-    #      *documentation reference* -- e.g. "Major bumps require a
-    #      BREAKING CHANGE: footer". semantic-release's commit-analyzer
-    #      cannot distinguish a documentation reference from an actual
-    #      breaking-change declaration; the literal string fires the
-    #      major-bump detection regardless of authorial intent. Agents
-    #      have triggered accidental v2.0.0, v3.0.0 bumps this way despite
-    #      being repeatedly warned.
-    #
-    # Cost to humans: an extra env-var prefix on the rare commit that IS a
-    # genuine feat: or breaking change. ~3 seconds of typing per intentional
-    # major/minor bump. This is the price humans now pay for AI agents'
-    # inability to follow stated commit-type discipline. The trade is
-    # worthwhile because rolling back a semver mistake is FAR more painful
-    # -- git history rewrite, force-push, deleted tags, sometimes yanked
-    # PyPI/crates packages, downstream consumers that pulled the wrong
-    # version.
-    #
-    # If you (a human reading this comment) are tempted to remove these
-    # gates because they slow you down: understand that you are NOT the
-    # primary failure mode they exist for. AI agents are. Removing them
-    # will reintroduce the regression. Find another way to streamline
-    # your workflow -- e.g. set HYPERCI_ALLOW_FEAT=1 in your shell rc on
-    # branches where genuine features are expected.
-    #
-    # =========================================================================
-
+    # Bump-discipline gates, kept because AI agents default to `feat:` and write
+    # `BREAKING CHANGE:` as prose, which semantic-release reads as a real major.
+    # An opt-in costs seconds; rolling back a wrong release costs tags and yanks.
     if commit_type == "feat" and not _feat_confirmed(msg):
         return ValidationResult(
             valid=False,
@@ -297,34 +229,18 @@ _BREAKING_CHANGE_RE = re.compile(r"BREAKING[ \-]CHANGE:")
 
 
 def _has_breaking_change_marker(msg: str) -> bool:
-    """Return True when ``msg`` contains a ``BREAKING CHANGE:`` / ``BREAKING-CHANGE:`` marker.
+    """Return True when ``msg`` contains ``BREAKING CHANGE:`` or ``BREAKING-CHANGE:``.
 
-    Both forms are recognised by conventional-commits-parser as the
-    breaking-change footer marker. Lowercase variants and free-form
-    text like "breaking change" pass through unblocked, as do other
-    hyphenations like "breaking-change footer" used as documentation.
-
-    Match is unanchored deliberately -- semantic-release scans for the
-    literal string anywhere in the message body, and agents have
-    triggered major bumps with the marker mid-line in body text.
-    Better to over-block (operator sets HYPERCI_ALLOW_BREAKING=1 once)
-    than under-block (accidental major release).
+    Lowercase and colon-less forms pass. The match is unanchored because
+    semantic-release fires on the marker anywhere in the body, mid-line included.
     """
     return bool(_BREAKING_CHANGE_RE.search(msg))
 
 
-# ---------------------------------------------------------------------------
-# Formatting
-# ---------------------------------------------------------------------------
-
-
 def format_type_list() -> str:
-    """Return a formatted string listing all valid commit types.
+    """Return the valid commit types, one per line.
 
-    The ``[release]`` marker is sourced from :mod:`hyperi_ci.release_rules`
-    (semantic-release defaults + any repo ``.releaserc.json`` override), so
-    the list stays truthful about what actually ships without carrying its
-    own copy of the bump map.
+    The ``[release]`` marker comes from :mod:`hyperi_ci.release_rules`.
     """
     type_bump = load_type_bump(Path.cwd())
     lines: list[str] = []
@@ -376,44 +292,25 @@ def format_rejection(result: ValidationResult, original: str) -> str:
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
-# CI handler
-# ---------------------------------------------------------------------------
-
-
 def run(
     config: CIConfig | None = None,
     extra_env: dict[str, str] | None = None,
     *,
     local: bool = False,
 ) -> int:
-    """Validate commit messages in the CI push/PR range (or the local range).
+    """Validate the commit messages the CI event (or the local range) introduced.
 
-    ``config`` is unused (kept for call-site symmetry) so the CLI
-    ``check-commits`` command can call ``run()`` bare.
+    ``config`` is unused, so the ``check-commits`` command can call ``run()`` bare.
 
-    Behaviour by event:
+    - ``push``: fatal. This is the landing gate, because run-checks skips the
+      quality job on non-publish main pushes.
+    - ``pull_request``: branch commits are advisory, since a squash may discard
+      them. The line a squash lands is fatal: the PR title, or on a one-commit
+      PR under GitHub's default ``COMMIT_OR_PR_TITLE``, that commit's message.
+    - ``merge_group``: fatal; the queue's squash commit is what main becomes.
 
-    - ``push`` (what lands on main) -> FATAL: a failing commit returns 1.
-      This is the real landing gate - the run-checks gate skips the
-      quality job on non-publish main pushes, so this dedicated check is
-      where merge-to-main enforcement lives.
-    - ``pull_request`` -> ADVISORY for the branch commits: failures are
-      warned, returns 0. They may be discarded by a squash-merge and are
-      never re-validated on the merge push, so a PR gets feedback rather
-      than a hard red. The line a squash merge would LAND is FATAL, because
-      the push run rejects it on main: the PR title, or under GitHub's
-      default ``COMMIT_OR_PR_TITLE`` on a one-commit PR, that commit's
-      message (the title is then advisory).
-    - ``merge_group`` (a merge queue entry) -> FATAL. The queue's squash
-      commit is the commit main fast-forwards to, so this is the landing
-      gate run BEFORE the landing rather than after it.
-
-    ``local=True`` runs the same check outside CI (``hyperi-ci check``
-    pre-push backstop): with no CI event the range falls back to
-    ``origin/main..HEAD`` (the unpushed commits) and is FATAL, so a bad
-    message is caught before the push, not after. Without ``local`` the
-    check is a no-op outside CI (the commit-msg hook covers authoring).
+    ``local=True`` runs outside CI over ``origin/main..HEAD``, fatal, as the
+    ``hyperi-ci check`` pre-push backstop. Without it, outside CI is a no-op.
     """
     if not local and not is_ci():
         info("Skipping commit message validation (not in CI)")
@@ -434,14 +331,7 @@ def _validate_range() -> tuple[int, list[str]]:
     commits, resolved = commits_in_range()
 
     if not resolved:
-        # Could NOT determine the range the event introduced (shallow
-        # checkout / detached HEAD / missing `before` commit). The old code
-        # returned success here, silently disarming the CI-side backstop on
-        # the standard push path - consistent with rustlib v3.0.0 shipping
-        # despite this check existing (issue #52). Never silent-skip: fall
-        # back to validating HEAD (the tip commit) and warn loudly that the
-        # full range was NOT checked. Use `fetch-depth: 0` on the quality
-        # checkout to restore full-range validation.
+        # An unresolvable range validates HEAD and warns, never passes (issue #52).
         rc, head = git_log(["-1", "HEAD"])
         if rc != 0 or not head:
             warn(
@@ -468,10 +358,6 @@ def _validate_range() -> tuple[int, list[str]]:
             failures.append((commit_hash, full_msg, result))
 
     if failures:
-        # Advisory on a PR, fatal on push. See the run() docstring: PR
-        # branch commits may be squashed away and are never re-validated
-        # on the merge-to-main push, so a PR gets feedback - not a hard
-        # red - while the push that lands on main stays enforced.
         advisory = os.environ.get("GITHUB_EVENT_NAME", "") == "pull_request"
         emit = warn if advisory else error
         for commit_hash, full_msg, result in failures:
@@ -518,11 +404,10 @@ def _api_object(path: str) -> dict | None:
 
 
 def _current_pr() -> dict | None:
-    """Return the pull request being validated, read live where possible.
+    """Return the pull request being validated, from the API, else the payload.
 
-    The payload is frozen when the run is triggered: the default
-    ``pull_request`` types omit ``edited``, and a re-run replays the original
-    payload, so a payload-only check stays red after the title is fixed.
+    The payload is frozen at trigger time and a re-run replays it, so it goes
+    stale once the title is edited.
     """
     payload_pr = event_payload().get("pull_request") or {}
     number = payload_pr.get("number")
@@ -549,10 +434,9 @@ def _current_pr() -> dict | None:
 
 
 def _commit_count(pr: dict, branch_messages: list[str]) -> int:
-    """Count the PR's commits, from the API object or else the validated range.
+    """Count the PR's commits, from the API object, else the validated range.
 
-    The range on a ``pull_request`` checkout carries GitHub's synthetic
-    merge commit, which the skip patterns drop from the count.
+    The skip patterns drop the synthetic merge commit a PR checkout carries.
     """
     count = pr.get("commits")
     if isinstance(count, int) and not isinstance(count, bool):
@@ -561,7 +445,7 @@ def _commit_count(pr: dict, branch_messages: list[str]) -> int:
 
 
 def _squash_suffix(pr: dict) -> str:
-    """The ``" (#N)"`` GitHub appends to a squash subject, sized when N is unknown."""
+    """Return the ``" (#N)"`` a squash subject gets, padded when N is unknown."""
     number = pr.get("number")
     if isinstance(number, int) and not isinstance(number, bool):
         return f" (#{number})"
@@ -571,10 +455,8 @@ def _squash_suffix(pr: dict) -> str:
 def _title_result(pr: dict, branch_messages: list[str]) -> ValidationResult:
     """Validate the PR title as the subject a squash merge lands.
 
-    A ``feat:`` title is confirmed only by an ``Allow-Feat`` trailer in a
-    branch commit. The squash body is built from the branch's commit
-    messages, so a trailer in the PR description never reaches main and the
-    push run there rejects the ``feat:``.
+    A ``feat:`` title needs the ``Allow-Feat`` trailer in a branch commit: the
+    squash body is built from those, never from the PR description.
     """
     result = validate_message(pr["title"], suffix=_squash_suffix(pr))
     if result.error_type != "feat_without_opt_in":
@@ -619,11 +501,7 @@ def _validate_title_lands(pr: dict, branch_messages: list[str], why: str) -> int
 
 
 def _validate_one_commit_lands(pr: dict, branch_messages: list[str], why: str) -> int:
-    """Validate the one commit a squash of a one-commit PR lands.
-
-    The commit's own message becomes the squash commit, so it is fatal and
-    the title is advisory.
-    """
+    """Validate the message a one-commit PR's squash lands; the title is advisory."""
     head_sha = (pr.get("head") or {}).get("sha")
     rc, commits = (
         git_log(["-1", head_sha]) if isinstance(head_sha, str) and head_sha else (1, [])
@@ -665,8 +543,7 @@ def _validate_one_commit_lands(pr: dict, branch_messages: list[str], why: str) -
 def _validate_squash_subject(branch_messages: list[str]) -> int:
     """Validate the line a squash merge of the PR would land on main.
 
-    A one-commit PR lands that commit's own message, so the commit is fatal
-    and the title advisory. Any other PR lands its title.
+    That is the commit's own message on a one-commit PR, else the title.
 
     Args:
         branch_messages: Messages of the pull request's branch commits.

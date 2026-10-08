@@ -4,24 +4,13 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Markdown syntax linting via markdownlint-cli2.
+"""Markdown syntax linting via markdownlint-cli2, ``warn`` by default.
 
-Mechanical faults only - a list that does not render because it has no blank
-line above it, a heading jumping two levels, trailing spaces that silently
-become a line break. Nothing here has an opinion about prose.
-
-Ships a default rule set (``config/markdownlint.yaml``) for a repo that
-declares none, with MD013 off: the house style has no markdown width limit, so
-a line-length rule would report every correctly written paragraph. A repo with
-its own ``.markdownlint*`` config keeps it and the default is not passed at
-all - one config, not a merge whose winner nobody can predict from the repo.
-
-A ``markdownlint-cli2`` on PATH wins; otherwise on CI the pinned release comes
+A repo with no ``.markdownlint*`` config gets ``config/markdownlint.yaml``,
+which turns MD013 off because the house style has no markdown width limit. A
+repo config replaces the default outright rather than merging with it. A
+``markdownlint-cli2`` on PATH wins; otherwise on CI the pinned release comes
 from :mod:`hyperi_ci.quality.node_tools`.
-
-This is the ratchet's clearest case. An existing tree lights up on the first
-run, so it starts at ``warn`` and is promoted per repo once its count reaches
-zero; a greenfield repo can set ``blocking`` on day one and never accumulate.
 """
 
 import re
@@ -37,8 +26,7 @@ from hyperi_ci.tools import missing_tool
 
 DEFAULT_CONFIG = Path(__file__).parent.parent / "config" / "markdownlint.yaml"
 
-# Every config name markdownlint-cli2 discovers on its own. Finding one means
-# the repo owns its rules and ours must stay out of the way.
+# Every config name markdownlint-cli2 discovers on its own.
 _REPO_CONFIG_NAMES = (
     ".markdownlint-cli2.jsonc",
     ".markdownlint-cli2.yaml",
@@ -69,11 +57,10 @@ def repo_config(root: Path) -> Path | None:
 
 
 def parse(output: str) -> list[fdg.Finding]:
-    """Parse markdownlint-cli2's text output into normalised findings.
+    """Parse markdownlint-cli2's text output into findings.
 
-    cli2 has no JSON output without an extra formatter package, so the stable
-    text line is what is read. Its banner and summary lines do not match the
-    pattern and are dropped.
+    cli2 has no JSON output without an extra formatter package. Banner and
+    summary lines do not match and are dropped.
     """
     out: list[fdg.Finding] = []
     for line in output.splitlines():
@@ -102,10 +89,10 @@ def run(
     root: Path | None = None,
     sarif_path: str | Path | None = None,
 ) -> int:
-    """Lint ``files`` for markdown syntax faults. Returns exit code.
+    """Lint ``files`` for markdown syntax faults; return the exit code.
 
-    0 = clean / advisory mode / disabled / no files; 1 = a blocking check found
-    a violation, or markdownlint-cli2 is required-but-missing in CI.
+    Returns 1 when a blocking check finds a violation, or in CI is missing the
+    tool or cannot run or complete it.
     """
     mode = resolve_tool_mode("markdownlint", config, default="warn")
     if mode == "disabled":
@@ -122,8 +109,7 @@ def run(
     if not exe:
         return missing_tool("markdownlint-cli2", mode)
 
-    # A leading `:` marks a literal file path, so a filename holding a glob
-    # character is linted rather than expanded.
+    # A leading `:` marks a literal path, so glob characters are not expanded.
     args = [exe]
     if repo_config(root) is None:
         args += ["--config", str(DEFAULT_CONFIG)]
@@ -139,12 +125,10 @@ def run(
             return 1
         return 0
 
-    # cli2 writes findings to stderr and progress to stdout; read both so a
-    # future change of stream does not silently empty the report.
+    # cli2 writes findings to stderr today; both streams are read in case that moves.
     found = parse(f"{result.stdout}\n{result.stderr}")
 
-    # Exit 1 means violations, 2 means bad usage. A non-zero exit with nothing
-    # parsed is the tool erroring, not a clean tree.
+    # Exit 1 is violations; any other failing exit with nothing parsed is a tool error.
     if result.returncode not in (0, 1) and not found:
         warn(
             f"  markdownlint-cli2 exited {result.returncode} with no parseable "
@@ -172,7 +156,7 @@ def run(
 
 
 def _relative(path: Path, root: Path) -> str:
-    """Path as ``root``-relative POSIX, falling back to absolute when outside it."""
+    """Return ``path`` as ``root``-relative POSIX, or as given when outside it."""
     try:
         return path.resolve().relative_to(root.resolve()).as_posix()
     except ValueError:

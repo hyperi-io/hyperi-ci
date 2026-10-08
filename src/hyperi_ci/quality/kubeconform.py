@@ -4,32 +4,17 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""kubeconform Kubernetes manifest schema validation - the k8s GATE.
+"""kubeconform Kubernetes manifest schema validation, blocking by default.
 
-A manifest that does not validate against the Kubernetes OpenAPI schema is a
-hard error, so kubeconform gates (blocking). It validates RENDERED manifests -
-Helm charts must be ``helm template``-d first (see
-:mod:`hyperi_ci.quality.render`); this module takes the resulting manifest
-files plus any already-plain manifests (Argo CRs, loose YAML).
+It takes manifests already rendered by :mod:`hyperi_ci.quality.render` plus
+plain ones (Argo CRs, loose YAML). After the built-in schemas it searches the
+datreeio CRD catalogue, and ``-ignore-missing-schemas`` reports a CRD with no
+schema as ``skipped``, not ``invalid``. ``-strict`` is on unless
+``quality.kubeconform.strict`` reads as off. Schemas are cached per
+kubeconform pin for at most 7 days.
 
-**CRD surface.** Real clusters carry many CRDs (Gateway API, Strimzi, Redpanda,
-CNPG, External Secrets, cert-manager, KEDA, ArgoCD, ...) that are not in the
-core schemas. Two mechanisms keep that from turning the gate into all-noise:
-
-* ``-schema-location`` points at the community CRD catalogue (datreeio), so a
-  large fraction of CRDs resolve to a real schema and ARE validated. ``default``
-  is kept first so the built-in k8s schemas still apply.
-* ``-ignore-missing-schemas`` skips (does not fail) a kind with no schema
-  anywhere - an unknown CRD is reported ``skipped``, not ``invalid``.
-
-``-strict`` is on unless ``quality.kubeconform.strict`` reads as off (``false``,
-``no``, ``0``). Schemas are cached under the hyperi-ci cache, per kubeconform
-pin, for at most 7 days.
-
-Coverage caveat (surfaced, not hidden, in the spirit of the gitleaks #67 note):
-a ``skipped`` resource was NOT schema-checked, and for multi-source ArgoCD apps
-the rendered manifest here uses in-repo default values only. A green
-kubeconform gate is "no schema violations we could check", not "fully valid".
+A green run means no violation it could check: skipped kinds are unchecked,
+and multi-source ArgoCD apps render with in-repo defaults only.
 """
 
 import contextlib
@@ -47,9 +32,7 @@ from hyperi_ci.tools import missing_tool_notice
 from hyperi_ci.upgrade import CACHE_DIR
 from hyperi_ci.versions import tool_version
 
-# Community CRD schema catalogue. kubeconform expands the templated path per
-# resource; a CRD present in the catalogue validates for real, the rest are
-# skipped (with -ignore-missing-schemas) rather than failing the gate.
+# kubeconform expands the template per resource.
 _CRD_CATALOG = (
     "https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/"
     "{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
@@ -59,10 +42,9 @@ _CACHE_DAYS = 7
 
 
 def _schema_locations(config: CIConfig) -> list[str]:
-    """Return the schema search path: built-in defaults, CRD catalogue, then extras.
+    """Return the schema search path: built-in, CRD catalogue, then extras.
 
-    A repo adds cluster-specific CRD schema locations via
-    ``quality.kubeconform.schema_locations`` (a list) in .hyperi-ci.yaml.
+    Extras come from the ``quality.kubeconform.schema_locations`` list.
     """
     locs = ["default", _CRD_CATALOG]
     extra = config.get("quality.kubeconform.schema_locations", [])
@@ -72,13 +54,10 @@ def _schema_locations(config: CIConfig) -> list[str]:
 
 
 def _parse(stdout: str) -> list[fdg.Finding]:
-    """Parse kubeconform ``-output json`` into findings (invalid/error only).
+    """Parse kubeconform ``-output json`` into findings, invalid and error only.
 
-    kubeconform emits ``{"resources": [{filename, kind, name, version, status,
-    msg}], "summary": {...}}``. Only ``invalid`` / ``error`` statuses are
-    findings; ``valid`` / ``skipped`` / ``empty`` are not. Status casing varies
-    across versions ("INVALID" vs "statusInvalid"), so match case-insensitively
-    on the substring.
+    Status spelling varies by version ("INVALID", "statusInvalid"), so it is
+    matched case-insensitively by substring.
     """
     try:
         doc = json.loads(stdout or "{}")
@@ -121,8 +100,8 @@ def strict(config: CIConfig) -> bool:
 def _schema_cache() -> Path:
     """Return the schema cache for this kubeconform pin, with stale entries dropped.
 
-    The CRD catalogue location tracks ``main``, so a cached schema goes stale
-    as the catalogue moves; one older than :data:`_CACHE_DAYS` is fetched again.
+    The CRD catalogue tracks ``main``, so entries older than :data:`_CACHE_DAYS`
+    are deleted.
     """
     cache = CACHE_DIR / "kubeconform-schemas" / tool_version("kubeconform")
     cache.mkdir(parents=True, exist_ok=True)
@@ -141,11 +120,10 @@ def run(
     sarif_path: str | Path | None = None,
     timeout: float | None = None,
 ) -> int:
-    """Schema-validate ``manifests`` (rendered + plain). Returns exit code.
+    """Schema-validate ``manifests``, rendered and plain; return the exit code.
 
-    0 = valid / skipped-only / disabled / no manifests; 1 = a blocking gate hit
-    an invalid manifest, a run that timed out, or the tool is
-    required-but-missing in CI.
+    Returns 1 when a blocking gate hits an invalid manifest or a timeout, or in
+    CI cannot run or complete; else 0.
     """
     mode = resolve_tool_mode("kubeconform", config, default="blocking")
     if mode == "disabled":
@@ -191,9 +169,7 @@ def run(
         return 0
     found = _parse(result.stdout)
 
-    # kubeconform exits 0 valid / 1 invalid (parsed into findings) / other on
-    # error. Non-zero with nothing parsed = a tool error (unreadable input, bad
-    # schema location), NOT "all valid" - never score a broken gate green.
+    # A failing exit with nothing parsed is a tool error, not a valid tree.
     if result.returncode != 0 and not found:
         warn(
             f"  kubeconform exited {result.returncode} with no parseable output - tool error, not a clean pass"

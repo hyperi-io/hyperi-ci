@@ -4,24 +4,12 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""hadolint Dockerfile linting - the container GATE.
+"""hadolint Dockerfile linting, the one Dockerfile gate.
 
-hadolint is the one Dockerfile linter allowed to FAIL a build, because it
-lints the shell inside ``RUN`` instructions via ShellCheck - a correctness
-check nothing else in this space offers. Runs once at the dispatch level (like
-gitleaks/semgrep) over every Dockerfile in the repo; auto-detects and clean-
-skips a repo with none.
-
-**Gate semantics.** hadolint's own rules carry severities (error / warning /
-info / style). We gate on ERROR severity only: in ``blocking`` mode an
-error-level finding fails the stage, while warning/info/style are surfaced but
-never fatal. That is deliberate - the estate's routine noise (DL3008 apt-pin,
-DL4006 pipefail) is all warning-tier, so the gate is near-silent day one while
-still catching a broken ``RUN`` shell. ``warn`` mode never fails; ``--strict``
-upgrades ``warn`` to ``blocking``.
-
-Findings surface through the shared layer (:mod:`hyperi_ci.quality.findings`):
-bounded annotations + full job-summary table + optional SARIF.
+It is the gate because it runs ShellCheck over ``RUN`` instructions. It runs
+once at dispatch level over every Dockerfile, and skips a repo with none. Only
+error-severity findings fail ``blocking`` mode: the routine warning-tier noise
+(DL3008 apt pins, DL4006 pipefail) is surfaced but never fatal.
 """
 
 import json
@@ -46,7 +34,7 @@ from hyperi_ci.tools import missing_tool_notice
 
 
 def _rule_url(code: str) -> str:
-    """Docs link for a hadolint (DL*) or embedded ShellCheck (SC*) rule."""
+    """Return the docs link for a hadolint (DL*) or ShellCheck (SC*) rule."""
     if code.startswith("DL"):
         return f"https://github.com/hadolint/hadolint/wiki/{code}"
     if code.startswith("SC"):
@@ -55,11 +43,7 @@ def _rule_url(code: str) -> str:
 
 
 def _parse(stdout: str) -> list[fdg.Finding]:
-    """Parse hadolint ``--format json`` output into normalised findings.
-
-    hadolint emits a flat array of ``{file, line, column, level, code,
-    message}``. A blank / non-array payload yields ``[]`` (no findings).
-    """
+    """Parse hadolint's ``--format json`` array into findings; ``[]`` if malformed."""
     try:
         raw = json.loads(stdout or "[]")
     except json.JSONDecodeError:
@@ -97,9 +81,8 @@ def run(
 
     ``exclude_dirs`` replaces the configured exclude list when given.
 
-    Returns exit code (0 = pass / advisory / skipped; 1 = a blocking gate hit an
-    error-severity finding, a run that timed out, or the tool is
-    required-but-missing in CI).
+    Returns 1 when a blocking gate hits an error-severity finding or a timeout,
+    or in CI cannot run or complete; else 0.
     """
     mode = resolve_tool_mode("hadolint", config, default="blocking")
     if mode == "disabled":
@@ -122,9 +105,7 @@ def run(
         warn(missing_tool_notice("hadolint"))
         return 0
 
-    # --no-fail: hadolint always exits 0 and emits the full JSON report; WE
-    # decide the gate from the parsed severities, so all gate logic is in one
-    # place (and testable) rather than split across hadolint's exit code.
+    # --no-fail: the gate is decided from the parsed severities, not the exit code.
     rels = [str(p.relative_to(base)) for p in dockerfiles]
     info(f"  hadolint: linting {len(rels)} Dockerfile(s)...")
     try:
@@ -144,8 +125,6 @@ def run(
         warn(message)
         return 0
     except OSError as exc:
-        # exec failure (a corrupt auto-installed binary, no exec bit). A gate
-        # that cannot run is not a pass - fail it in CI rather than crash.
         warn(f"  hadolint could not be run ({exc})")
         if mode == "blocking" and is_ci():
             error("  hadolint could not complete - failing the gate")
@@ -153,11 +132,7 @@ def run(
         return 0
     found = _parse(result.stdout)
 
-    # --no-fail means hadolint exits 0 even WITH findings, so a non-zero exit
-    # with nothing parsed is the TOOL erroring (a drifted flag, a corrupt
-    # download that still chmod'd, OOM) - NOT a clean Dockerfile. A gate that
-    # scores a malfunctioning tool as green is the worst failure mode, so treat
-    # it as unvalidated: blocking-in-CI fails, otherwise warn and carry on.
+    # Under --no-fail a failing exit with nothing parsed is the tool erroring.
     if result.returncode != 0 and not found:
         warn(
             f"  hadolint exited {result.returncode} with no parseable output - tool error, not a clean pass"

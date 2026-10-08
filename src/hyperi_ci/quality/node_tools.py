@@ -6,19 +6,13 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Install the pinned npm packages the docs checks run on.
 
-markdownlint-cli2, mermaid and linkedom are npm packages, so the single-tarball
-shape lychee uses does not fit. Their versions live in ``versions.yaml`` like
-every other tool. The rest of the tree is pinned by the shipped
-``config/node-tools/package-lock.json``: ``npm ci`` checks each tarball against
-its sha512 ``integrity`` and refuses a ``package.json`` that disagrees with it.
-The ``package.json`` is rendered from the SSOT at install time, so a version
-bumped there without a relock fails the install instead of floating.
+Direct versions come from ``versions.yaml`` and the rest of the tree from the
+shipped ``config/node-tools/package-lock.json``. ``npm ci`` checks every
+tarball's sha512 and refuses a ``package.json`` that disagrees with the lock,
+so a version bumped without a relock fails the install.
 
-Installs on CI only, into the user cache under a name keyed by the lock and the
-versions, so a pod that already ran it reuses the tree. Node itself is not
-installed here: the GitHub-hosted Ubuntu image and the ARC native image both
-carry ``node`` and ``npm``. Off CI, or with no npm on PATH, :func:`install`
-returns None and each check warn-skips with its own install line.
+Installs on CI only, into the user cache keyed by lock and versions. Node is
+not installed: the GitHub-hosted and ARC images carry ``node`` and ``npm``.
 """
 
 import functools
@@ -62,7 +56,7 @@ def manifest() -> dict[str, object]:
 
 
 def _install_dir() -> Path:
-    """Cache directory for this exact lock + manifest pair."""
+    """Return the cache directory for this exact lock and manifest pair."""
     key = hashlib.sha256(LOCKFILE.read_bytes())
     key.update(json.dumps(manifest(), sort_keys=True).encode("utf-8"))
     return CACHE_DIR / "node-tools" / key.hexdigest()[:16]
@@ -72,9 +66,8 @@ def _install_dir() -> Path:
 def install() -> Path | None:
     """Return the ``node_modules`` holding the pinned set, installing it on CI.
 
-    Cached, so markdownlint and the mermaid check share one ``npm ci`` per run.
-    None off CI, without npm, or when ``npm ci`` fails; the caller decides
-    whether that is fatal.
+    Cached, so the docs checks share one ``npm ci`` per run. Returns None off
+    CI, without node or npm, or when ``npm ci`` fails.
     """
     if not is_ci():
         return None

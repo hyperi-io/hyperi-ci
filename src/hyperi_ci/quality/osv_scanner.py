@@ -4,25 +4,14 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""osv-scanner helper: the malicious-package (``MAL-*``) detection layer.
+"""osv-scanner: malicious-package (``MAL-*``) detection for Rust and TypeScript.
 
-cargo-audit (RustSec) and npm/pnpm audit (GitHub Advisory DB) cover
-*known vulnerabilities* but NOT the OSSF malicious-packages feed.
-osv-scanner reads that feed (the one ossf/malicious-packages amends),
-so it closes the typosquat / compromised-maintainer gap for Rust and
-TypeScript. Python is already covered (pip-audit queries OSV directly).
-
-It is defence-in-depth behind the Renovate 7-day cooldown, so it runs
-at ``warn`` by default: the same OSV feed periodically ships false-
-positive waves (see ossf/malicious-packages#1276), and a blocking gate
-on a feed that misfires would red the build on legitimate packages.
-True positives are acted on; known false positives are suppressed via
-``quality.ignore`` (which generates this scanner's native
-``[[IgnoredVulns]]`` config, with optional auto-expiry).
-
-A repo can also carry its own ``osv-scanner.toml`` beside the lockfile.
-osv-scanner reads that file only when no ``--config`` is given, so the
-generated ignores are appended to a copy of it rather than replacing it.
+cargo-audit and npm/pnpm audit do not read the OSSF malicious-packages feed;
+pip-audit already covers Python. It defaults to ``warn`` because the feed
+ships false-positive waves (ossf/malicious-packages#1276), and the Renovate
+7-day cooldown stands in front of it. ``quality.ignore`` entries become
+``[[IgnoredVulns]]``, appended to a copy of any repo ``osv-scanner.toml``
+because osv-scanner reads that file only when no ``--config`` is given.
 """
 
 import shutil
@@ -68,10 +57,8 @@ def _toml_escape(value: str) -> str:
 def render_ignore_config(entries: Iterable[IgnoreEntry]) -> str:
     """Render an ``osv-scanner.toml`` body from ignore entries.
 
-    Each entry becomes an ``[[IgnoredVulns]]`` block. ``expires`` maps
-    to osv-scanner's native ``ignoreUntil`` (RFC3339), so a suppression
-    self-clears once the date passes - belt-and-braces with the
-    framework-level drop in ``load_ignores``.
+    Each entry becomes an ``[[IgnoredVulns]]`` block, with ``expires`` as
+    osv-scanner's RFC3339 ``ignoreUntil``.
 
     Returns:
         TOML text (empty string when there are no entries).
@@ -103,11 +90,8 @@ def merge_config(
 ) -> tuple[str, list[str]]:
     """Append generated ``[[IgnoredVulns]]`` blocks to a repo's own config.
 
-    The repo text is kept verbatim, so every setting it carries survives:
-    ``PackageOverrides``, ``GoVersionOverride``, comments and all. On a
-    duplicate id the repo's entry wins and the generated one is dropped.
-    osv-scanner would honour only the first of two entries anyway and warn
-    about the second, and the repo file is what a hand-run osv-scanner reads.
+    The repo text is kept verbatim. On a duplicate id the repo's entry wins,
+    because it is what a hand-run osv-scanner reads.
 
     Args:
         repo_text: The repo's ``osv-scanner.toml``, or ``""`` when it has none.
@@ -156,11 +140,7 @@ def merge_config(
 
 
 def build_command(lockfile: Path, config_path: Path | None = None) -> list[str]:
-    """Compose the osv-scanner CLI invocation for a single lockfile.
-
-    osv-scanner v2 scans a named lockfile via ``scan source --lockfile``;
-    ``--config`` points at the generated ignore config.
-    """
+    """Return the osv-scanner v2 command scanning one lockfile."""
     cmd = [_BINARY, "scan", "source", "--lockfile", str(lockfile)]
     if config_path is not None:
         cmd += ["--config", str(config_path)]
@@ -181,7 +161,7 @@ def _not_scanned(why: str, mode: str) -> None:
 
 
 def _osv_dev_unreachable(result: subprocess.CompletedProcess[str]) -> bool:
-    """Whether the scan read the lockfile but could not query osv.dev."""
+    """Return whether the scan read the lockfile but could not query osv.dev."""
     if result.returncode == _API_FAILED_EXIT:
         return True
     return result.returncode == _ERRORED_EXIT and _OSV_DEV_MATCHER in (
@@ -192,10 +172,9 @@ def _osv_dev_unreachable(result: subprocess.CompletedProcess[str]) -> bool:
 def _scan(lockfile: Path, config_path: Path | None, mode: str) -> bool:
     """Run one scan and apply the warn / blocking semantics to its exit code.
 
-    Only exit 1 is a finding. An osv.dev outage passes in both modes, reported
-    as NOT SCANNED, the same policy as cargo-audit's unreachable advisory
-    database: the repo cannot fix it, and the Renovate cooldown still stands.
-    Any other scanner error keeps the mode's outcome but is not called a finding.
+    Only exit 1 is a finding. An osv.dev outage passes as NOT SCANNED in both
+    modes, as cargo-audit treats an unreachable database. Any other scanner
+    error takes the mode's outcome without being called a finding.
     """
     result = run_cmd(build_command(lockfile, config_path), check=False, capture=True)
     code = result.returncode
@@ -231,14 +210,10 @@ def _scan(lockfile: Path, config_path: Path | None, mode: str) -> bool:
 def run(lockfile: Path, entries: Iterable[IgnoreEntry], mode: str) -> bool:
     """Run osv-scanner against ``lockfile``.
 
-    A missing binary fails a ``blocking`` scan in CI and warn-skips
-    everywhere else, like every other quality tool. A missing lockfile, one
-    that lists no packages, or an osv.dev that cannot be queried is reported
-    as NOT SCANNED and passes.
-
-    When ignore entries are present, the repo's own ``osv-scanner.toml``
-    (if any) is merged with them into a file in a temporary directory, the
-    scanner is pointed at it, and it is removed after the scan.
+    A missing binary fails a ``blocking`` scan in CI and warn-skips elsewhere.
+    A missing or empty lockfile, or an unreachable osv.dev, passes as NOT
+    SCANNED. Ignore entries are merged with any repo ``osv-scanner.toml`` into
+    a temporary config.
 
     Returns:
         True on pass, skip, NOT SCANNED or a ``warn``-mode finding; False
@@ -256,8 +231,7 @@ def run(lockfile: Path, entries: Iterable[IgnoreEntry], mode: str) -> bool:
     warn_on_pin_drift(_BINARY)
 
     if not lockfile.exists():
-        # A library legitimately ships no lockfile, so this is not a failure,
-        # but it is not coverage either (issue #223).
+        # A library may ship no lockfile: not a failure, not coverage (issue #223).
         _not_scanned(f"there is no {lockfile.name} in this repo", mode)
         return True
 
@@ -284,8 +258,7 @@ def run(lockfile: Path, entries: Iterable[IgnoreEntry], mode: str) -> bool:
     for vuln_id in shadowed:
         info(f"  {SLUG}: {vuln_id} is already ignored in {repo_path}, which wins")
 
-    # Outside the checkout, so a local run leaves nothing untracked to commit
-    # and a repo's own osv-scanner.toml is never overwritten.
+    # Outside the checkout, so the repo's own osv-scanner.toml is never overwritten.
     with tempfile.TemporaryDirectory(prefix="hyperi-ci-osv-") as scratch:
         config_path = Path(scratch) / _CONFIG_NAME
         config_path.write_text(merged, encoding="utf-8", newline="\n")

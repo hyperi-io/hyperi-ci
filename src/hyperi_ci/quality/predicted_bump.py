@@ -4,28 +4,16 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Predict the semver bump a publish would cut, from the commit range.
+"""Predict the semver bump a publish would cut, from ``<last-tag>..HEAD``.
 
-The commit-msg hook checks what an agent *composes* (a single message +
-``Release: true`` trailer). It cannot see what a merge or cherry-pick
-brings into *reachability*: a reconcile merge whose second parent carries
-old ``feat!:`` / ``BREAKING CHANGE:`` commits imports a MAJOR bump the
-agent never authored. That is exactly how hyperi-rustlib shipped an
-unintended v3.0.0 to crates.io (2026-05-25, yanked). See issue #26.
+The commit-msg hook sees only the message being composed. A merge can bring
+old ``feat!:`` or ``BREAKING CHANGE:`` commits into reach, which is how an
+unintended major once shipped (issue #26). ``hyperi-ci push`` fails a predicted
+minor or major unless ``HYPERCI_ALLOW_MINOR_BUMP=1`` or
+``HYPERCI_ALLOW_MAJOR_BUMP=1`` is set.
 
-This module analyses every commit in ``<last-tag>..HEAD`` - the same
-range semantic-release's commit-analyzer walks - and returns the highest
-bump those commits imply. ``hyperi-ci push`` gates on the result: a
-predicted minor/major fails closed unless the operator sets
-``HYPERCI_ALLOW_MINOR_BUMP=1`` / ``HYPERCI_ALLOW_MAJOR_BUMP=1``, the
-reachability-level twin of ``HYPERCI_ALLOW_FEAT`` / ``HYPERCI_ALLOW_BREAKING``.
-
-No Node / semantic-release install needed: the bump rules are
-semantic-release's own default-release-rules, applied in Python via
-:mod:`hyperi_ci.release_rules` (the SSoT). A repo's own ``.releaserc.json``
-override is honoured there. When there is no prior tag (initial release) or
-git is unavailable, the predictor returns ``none`` and the gate is a
-no-op - fail open only when we genuinely cannot predict.
+The rules are :mod:`hyperi_ci.release_rules`, so no Node is needed. With no
+prior tag, or no git, the prediction is ``none`` and the gate passes.
 """
 
 import re
@@ -35,8 +23,7 @@ from pathlib import Path
 
 from hyperi_ci.release_rules import _BUMP_ORDER, classify_commit, load_type_bump
 
-# Re-exported so existing call sites (and tests) keep importing classify_commit
-# from this module. The bump SSoT itself lives in hyperi_ci.release_rules.
+# classify_commit is re-exported for existing importers.
 __all__ = ["BumpPrediction", "classify_commit", "predict_bump"]
 
 
@@ -46,8 +33,7 @@ class BumpPrediction:
 
     bump: str = "none"
     last_tag: str | None = None
-    # Subjects (first lines) of the commits that justified minor/major, so
-    # the gate message can name the offenders.
+    # Subjects of the commits behind a minor or major, for the gate message.
     minor_reasons: list[str] = field(default_factory=list)
     major_reasons: list[str] = field(default_factory=list)
 
@@ -63,12 +49,8 @@ def _git(args: list[str], cwd: str | None) -> subprocess.CompletedProcess[str]:
     )
 
 
-# Strict final-release tags only (vX.Y.Z). A broad 'v*' glob lets a
-# non-semver v-tag (vendor-x, v2, a prerelease) win the -v:refname sort
-# and poison the analysis range -- the gate would then walk a different
-# range than semantic-release, which only honours semver tags. Matches
-# the v[0-9]* + X.Y.Z discipline in the predict-version composite and
-# push._compute_next_version.
+# Final-release tags only, as semantic-release honours; a `v2` or prerelease tag
+# would otherwise win the sort and change the range.
 _SEMVER_TAG_RE = re.compile(r"^v\d+\.\d+\.\d+$")
 
 
@@ -86,21 +68,18 @@ def _last_version_tag(cwd: str | None) -> str | None:
 def predict_bump(project_dir: Path | None = None) -> BumpPrediction:
     """Predict the bump ``<last-tag>..HEAD`` would ship.
 
-    Returns a :class:`BumpPrediction`. ``bump == "none"`` when there is no
-    prior tag, no new commits, or git is unavailable - the gate treats
-    those as pass (nothing to over-bump, or nothing we can assert).
+    ``bump`` is ``"none"`` with no prior tag, no new commits, or no git.
     """
     cwd = str(project_dir) if project_dir else None
     prediction = BumpPrediction()
 
     last_tag = _last_version_tag(cwd)
     if last_tag is None:
-        # Initial release (no v* tag yet) - nothing to compare against.
         return prediction
     prediction.last_tag = last_tag
 
-    # Null-delimit records and NUL-separate hash from body so multi-line
-    # bodies survive parsing intact.
+    # 0x1e ends each record and 0x1f separates hash from body, so multi-line
+    # bodies parse intact.
     fmt = "%H%x1f%B%x1e"
     result = _git(["log", f"{last_tag}..HEAD", f"--format={fmt}"], cwd)
     if result.returncode != 0:

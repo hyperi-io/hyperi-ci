@@ -4,31 +4,20 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Mermaid diagram parse checking - the docs check with a real grammar behind it.
+"""Parse-check every fenced mermaid block with mermaid's own parser.
 
-A broken mermaid block renders as an error box on GitHub and in the docs site,
-and nothing in the repo notices. The check that catches it must use mermaid's
-own PARSER (``mermaid.parse``), not ``mmdc``: the render path needs headless
-Chrome, and has exited 0 on syntax it could not draw.
+``mmdc`` is not used: it needs headless Chrome and has exited 0 on syntax it
+could not draw. Two layers:
 
-Two layers, because the parser needs a Node toolchain and most repos do not
-have one:
+1. Structural, pure Python, always: an unclosed or empty fence, neither of
+   which the parser can report.
+2. Grammar, when Node resolves ``mermaid`` and ``linkedom``, from the repo's
+   ``node_modules`` or on CI from :mod:`hyperi_ci.quality.node_tools`.
+   ``mermaid_runner.mjs`` supplies the browser globals the bundle needs. When
+   the packages are missing the layer skips, which fails a blocking check in CI.
 
-1. **Structural, always.** Fence extraction is pure Python, so an unclosed or
-   empty block is caught with nothing installed. These are also the two faults
-   the parser CANNOT report - an unclosed fence never becomes a block to hand
-   it, and an empty one is a fence problem rather than a grammar problem.
-2. **Grammar, when Node resolves ``mermaid`` + ``linkedom``.** The vendored
-   ``mermaid_runner.mjs`` supplies the browser globals mermaid's bundle reaches
-   for and parses each block. The packages come from the repo's own
-   ``node_modules``, else on CI from the pinned set
-   :mod:`hyperi_ci.quality.node_tools` installs. Absent both the layer skips
-   with the install line; whether that skip is fatal is the mode's call, per
-   the gate contract - a blocking check that cannot run has not passed.
-
-``linkedom`` is not decoration. Without it a VALID flowchart throws
-``DOMPurify.addHook is not a function`` on mermaid 12, so the layer would fail
-correct diagrams.
+Without ``linkedom``, mermaid 12 throws ``DOMPurify.addHook is not a function``
+on a valid flowchart.
 """
 
 import json
@@ -48,8 +37,7 @@ from hyperi_ci.tools import missing_tool
 
 RUNNER = Path(__file__).with_name("mermaid_runner.mjs")
 
-# The npm packages the runner imports. Named here so the skip message and the
-# docs quote one list.
+# The npm packages the runner imports.
 NODE_PACKAGES = ("mermaid", "linkedom")
 
 _INSTALL_LINE = f"npm install --no-save {' '.join(NODE_PACKAGES)}"
@@ -61,10 +49,10 @@ _FENCE = re.compile(r"^(?P<indent> {0,3})(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
 
 @dataclass(frozen=True)
 class Block:
-    """One fenced mermaid block: where it starts, what is in it, and if it closed.
+    """One fenced mermaid block.
 
-    ``line`` is the 1-indexed line of the OPENING fence, which is what a reader
-    needs to find the block. ``text`` excludes both fence lines.
+    ``line`` is the 1-indexed line of the opening fence. ``text`` excludes both
+    fence lines.
     """
 
     path: Path
@@ -76,11 +64,8 @@ class Block:
 def extract_blocks(path: Path) -> list[Block]:
     """Return every fenced ``mermaid`` block in the markdown file at ``path``.
 
-    Tracks the fence character and length so a longer outer fence quoting a
-    shorter one (a markdown file documenting mermaid syntax) does not close
-    early. A block still open at end of file is returned with
-    ``closed=False`` - CommonMark closes it implicitly, so it renders, but it
-    almost always means a fence was forgotten.
+    Only a fence of the same character and at least the same length closes a
+    block. A block still open at end of file is returned with ``closed=False``.
     """
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -100,7 +85,6 @@ def extract_blocks(path: Path) -> list[Block]:
                 open_fence = match.group("fence")
                 body = []
             continue
-        # A closing fence is the same character, at least as long, info-free.
         if (
             match
             and match.group("fence")[0] == open_fence[0]
@@ -118,12 +102,7 @@ def extract_blocks(path: Path) -> list[Block]:
 
 
 def screen(block: Block) -> fdg.Finding | None:
-    """Return the structural fault in ``block``, or None when it is well-formed.
-
-    Structural only - an unclosed or empty fence. Grammar is the parser's job,
-    so nothing here guesses at diagram syntax and nothing here carries a list of
-    diagram keywords that would go stale the next time mermaid adds a type.
-    """
+    """Return an unclosed- or empty-fence finding for ``block``, else None."""
     if not block.closed:
         return fdg.Finding(
             tool="mermaid-parse",
@@ -149,11 +128,10 @@ def screen(block: Block) -> fdg.Finding | None:
 
 
 def _module_dirs(root: Path) -> list[Path]:
-    """The ``node_modules`` directories the runner may import the packages from.
+    """Return the ``node_modules`` directories the runner may import from.
 
-    The repo's own first, so a project that pins mermaid as a dev dependency is
-    checked against that version. hyperi-ci's pinned install follows, and is only
-    fetched when the repo does not already supply both packages.
+    The repo's own comes first. hyperi-ci's pinned install is added only when
+    the repo lacks one of the packages.
     """
     own = root / "node_modules"
     dirs = [own]
@@ -165,22 +143,21 @@ def _module_dirs(root: Path) -> list[Path]:
 
 
 def _node_env(root: Path) -> dict[str, str]:
-    """Environment naming the ``node_modules`` directories for the runner.
+    """Return the environment naming the runner's ``node_modules`` directories.
 
-    NODE_PATH cannot do this job: node's ESM loader ignores it, and the runner is
-    an ES module living inside the installed wheel, so its own upward search for
-    ``node_modules`` starts in site-packages and never reaches the repo.
+    NODE_PATH does not work: node's ESM loader ignores it, and the runner's own
+    search starts in site-packages.
     """
     dirs = os.pathsep.join(str(d) for d in _module_dirs(root))
     return {"HYPERCI_NODE_MODULES": dirs}
 
 
 def _run_parser(blocks: list[Block], root: Path) -> tuple[dict[int, str], str | None]:
-    """Parse ``blocks`` with mermaid. Returns (index -> error message, skip reason).
+    """Parse ``blocks`` with mermaid.
 
-    A skip reason means the layer did not run at all (no node, packages absent,
-    the runner itself broke); the caller decides whether that is fatal. An empty
-    reason with an empty map means every block parsed.
+    Returns:
+        The parse error per block index, and a skip reason when the layer did
+        not run (no node, packages absent, the runner broke), else None.
     """
     node = shutil.which("node")
     if not node:
@@ -237,10 +214,10 @@ def run(
     root: Path | None = None,
     sarif_path: str | Path | None = None,
 ) -> int:
-    """Parse-check every mermaid block in ``files``. Returns exit code.
+    """Parse-check every mermaid block in ``files``; return the exit code.
 
-    0 = every block parses / advisory mode / disabled / no blocks; 1 = a
-    blocking check found a broken block, or could not run the parser in CI.
+    Returns 1 when a blocking check finds a broken block, or cannot run the
+    parser in CI.
     """
     mode = resolve_tool_mode("mermaid_parse", config, default="warn")
     if mode == "disabled":
@@ -286,9 +263,7 @@ def run(
     if dropped:
         info(f"  mermaid-parse: +{dropped} more finding(s) in the job summary")
 
-    # A blocking check that could not run has NOT passed: the structural layer
-    # alone says nothing about grammar. Locally it stays a warning, because a
-    # missing Node toolchain is normal on a Rust or Python box.
+    # The structural layer alone says nothing about grammar.
     if skipped and missing_tool(
         "mermaid",
         mode,

@@ -4,26 +4,12 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Repo-internal link + anchor checking via lychee.
+"""Repo-internal link and anchor checking via lychee.
 
-``--offline`` is the whole design. It blocks every network request, so the
-check is about THIS repo: a relative link whose target moved, and an anchor
-naming a heading that was renamed. Those are deterministic - the same commit
-gives the same answer on every run, on a runner with no egress - which is what
-makes them safe to promote past advisory.
-
-External links are the opposite: they fail for rate limits, Cloudflare
-challenges and outages that have nothing to do with the commit under test, so
-checking them on a PR converts someone else's downtime into your red build.
-That check belongs on a schedule with retries and an issue, and is NOT built
-here - ``--offline`` is passed unconditionally rather than exposed as a knob.
-
-Anchors come from ``--include-fragments``, which resolves ``#heading-name``
-against the target document's own headings. That catches the half of link rot
-that a file-existence check cannot see.
-
-A repo silences a known-bad link with a committed ``.lycheeignore``, which
-lychee reads from the directory it runs in.
+``--offline`` is always passed, so the result depends only on the commit:
+external links fail for outages unrelated to it and are not checked here.
+``--include-fragments`` resolves ``#heading`` anchors against the target's
+headings. A repo silences a known-bad link with a committed ``.lycheeignore``.
 """
 
 import functools
@@ -42,11 +28,7 @@ from hyperi_ci.tools import missing_tool_notice
 def _install_lychee() -> str | None:
     """Return lychee from PATH, else the pinned release installed on Linux CI.
 
-    Without the install the check warned about a missing binary on every
-    consumer run and nothing could act on it (issue #230).
-
-    Cached, so one run makes one attempt: :func:`planned_mode` and :func:`run`
-    both ask, and a failed download tried twice only doubles the error.
+    Cached so :func:`planned_mode` and :func:`run` share one install attempt.
     """
     return ci_binary("lychee")
 
@@ -59,9 +41,8 @@ def resolve_mode(config: CIConfig) -> str:
 def planned_mode(config: CIConfig) -> str | None:
     """Return the mode lychee will check links at, or None when it will not run.
 
-    The orchestrator asks before running :mod:`doc_paths`, which otherwise
-    reports the same broken link a second time. Installs lychee to answer,
-    because the answer has to match what :func:`run` does a moment later.
+    The orchestrator asks so :mod:`doc_paths` does not report the same link
+    twice. It installs lychee so the answer matches what :func:`run` does.
     """
     mode = resolve_mode(config)
     if mode == "disabled":
@@ -74,9 +55,8 @@ def planned_mode(config: CIConfig) -> str | None:
 def parse(stdout: str) -> list[fdg.Finding]:
     """Parse lychee ``--format json`` into normalised findings.
 
-    Reads ``error_map`` only. ``excluded_map`` holds the external links
-    ``--offline`` declined to check, which is the intended outcome rather than
-    a finding.
+    Reads ``error_map`` only; ``excluded_map`` is the external links
+    ``--offline`` skipped.
     """
     try:
         doc = json.loads(stdout or "{}")
@@ -109,10 +89,10 @@ def run(
     root: Path | None = None,
     sarif_path: str | Path | None = None,
 ) -> int:
-    """Check every internal link and anchor in ``files``. Returns exit code.
+    """Check every internal link and anchor in ``files``; return the exit code.
 
-    0 = every link resolves / advisory mode / disabled / no files; 1 = a
-    blocking check found a broken link, or lychee is required-but-missing in CI.
+    Returns 1 when a blocking check finds a broken link, or cannot run or
+    complete in CI.
     """
     mode = resolve_mode(config)
     if mode == "disabled":
@@ -125,8 +105,7 @@ def run(
     root = Path(root or Path.cwd())
     exe = _install_lychee()
     if not exe:
-        # A gate that cannot run has not passed - fail it in CI, warn locally
-        # where a missing linker is an ordinary state of a dev box.
+        # A blocking gate that cannot run fails in CI and warns locally.
         if mode == "blocking" and is_ci():
             error(missing_tool_notice("lychee"))
             return 1
@@ -161,9 +140,8 @@ def run(
 
     found = parse(result.stdout)
 
-    # lychee exits 2 for broken links and 1 for its own failure. A non-zero exit
-    # with nothing parsed is the TOOL erroring, not a clean docs tree - scoring
-    # that green is the failure mode a gate exists to prevent.
+    # lychee exits 2 for broken links; any other failing exit with nothing
+    # parsed is the tool erroring, not a clean tree.
     if result.returncode not in (0, 2) and not found:
         warn(
             f"  lychee exited {result.returncode} with no parseable output - "
