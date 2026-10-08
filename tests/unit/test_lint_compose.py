@@ -92,6 +92,11 @@ class TestFragmentSplit:
 
 
 class TestPlaceholderEnv:
+    @pytest.fixture(autouse=True)
+    def _unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("APP_VERSION", raising=False)
+        monkeypatch.delenv("DFE_SRC_ROOT", raising=False)
+
     def test_every_mandatory_key_gets_a_value(self, tmp_path: Path) -> None:
         path = _write(tmp_path / "docker-compose.yml", _STACK)
         env = compose_config.placeholder_env(path)
@@ -102,6 +107,20 @@ class TestPlaceholderEnv:
         env = compose_config.placeholder_env(path)
         assert Path(env["DFE_SRC_ROOT"]).is_absolute()
         assert not Path(env["APP_VERSION"]).is_absolute()
+
+    def test_a_value_already_set_is_not_overwritten(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("APP_VERSION", "1.2.3")
+        path = _write(tmp_path / "docker-compose.yml", _STACK)
+        assert set(compose_config.placeholder_env(path)) == {"DFE_SRC_ROOT"}
+
+    def test_an_empty_value_still_gets_a_placeholder(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("APP_VERSION", "")
+        path = _write(tmp_path / "docker-compose.yml", _STACK)
+        assert "APP_VERSION" in compose_config.placeholder_env(path)
 
 
 class TestMissingCompose:
