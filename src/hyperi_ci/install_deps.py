@@ -7,8 +7,7 @@
 """Install project dependencies for a language.
 
 Dispatches to ``hyperi_ci.languages.<language>.install_deps.run()`` if the
-module exists. Each language handler owns its own install logic (e.g. npm/yarn/pnpm
-for TypeScript, ``uv sync`` for Python).
+module exists. Each language handler owns its install logic.
 """
 
 import importlib
@@ -20,9 +19,6 @@ from hyperi_ci.common import error
 def install_deps(language: str, project_dir: Path | None = None) -> int:
     """Install project dependencies for the given language.
 
-    Looks up ``hyperi_ci.languages.<language>.install_deps`` and calls its
-    ``run(project_dir)`` function.
-
     Args:
         language: Language name (e.g. typescript, python, rust, golang).
         project_dir: Project root. Defaults to cwd.
@@ -33,8 +29,7 @@ def install_deps(language: str, project_dir: Path | None = None) -> int:
     """
     module_name = f"hyperi_ci.languages.{language}.install_deps"
     try:
-        # `language` comes from project detection (closed set: rust, python,
-        # typescript, go, etc.), not user input.
+        # `language` comes from project detection, a closed set.
         mod = importlib.import_module(module_name)  # nosemgrep: non-literal-import
     except ImportError:
         error(f"install-deps not implemented for {language}")

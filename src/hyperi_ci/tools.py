@@ -6,24 +6,21 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """External-tool presence checks with actionable, Rust-style guidance.
 
-When hyperi-ci shells out to an external tool that is missing, don't just say
-"not found" - name what hyperi-ci needs it for and give the exact way to
-install it (command(s) + docs URL), then let the CALLER decide whether that is
-fatal (a required tool in CI) or a skip (an optional advisory). Like a Rust
-compiler error, the message helps you FIX the problem, it doesn't only report
-it.
+A missing tool gets a notice naming what hyperi-ci needs it for and the exact
+way to install it (command(s) + docs URL). The CALLER decides whether that is
+fatal (a required tool in CI) or a skip (an optional advisory).
 
-One SSoT for the per-tool install hints (``_REGISTRY``). An unknown tool still
-gets a sane generic notice. Callers pick the emit level:
+``_REGISTRY`` is the SSoT for the install hints, and an unknown tool still gets
+a generic notice. Callers pick the emit level:
 
     exe = find_tool("alint")                    # optional -> info-skip
     exe = find_tool("gitleaks", recommended=True)  # nice-to-have -> warn-skip
     if not shutil.which("gh"):                   # required -> caller fails
         error(missing_tool_notice("gh")); return False
 
-A tool that IS present can still be the wrong one: :func:`warn_on_pin_drift`
-names a PATH copy whose version differs from ``versions.yaml``, for the tools
-CI installs pinned but a dev box carries at whatever version it has.
+:func:`warn_on_pin_drift` names a PATH copy whose version differs from
+``versions.yaml``, for tools CI installs pinned but a dev box carries at any
+version.
 """
 
 import re
@@ -47,15 +44,12 @@ class ToolInfo:
     url: str = ""
 
 
-# Known external tools hyperi-ci shells out to. Keep install lines current and
-# copy-pasteable - they are what a developer will actually run.
+# External tools hyperi-ci shells out to, with copy-pasteable install lines.
 _REGISTRY: dict[str, ToolInfo] = {
     "alint": ToolInfo(
         name="alint",
         purpose="profile-aware repo-hygiene advice (.gitignore / .editorconfig / lockfiles / ...)",
-        # Prebuilt binaries first. `cargo install` compiles alint from source
-        # (minutes); every option above it fetches a release artefact (seconds).
-        # upstream publishes musl-static + darwin tarballs with SHA256SUMS.
+        # Prebuilt binaries first: `cargo install` compiles from source (minutes).
         install=(
             "brew install asamarts/alint/alint",
             "download a release binary (musl-static/darwin + SHA256SUMS): https://github.com/asamarts/alint/releases/latest",
@@ -67,9 +61,7 @@ _REGISTRY: dict[str, ToolInfo] = {
     "gitleaks": ToolInfo(
         name="gitleaks",
         purpose="secret scanning",
-        # brew is macOS-only, so give Linux a real answer too: upstream ships
-        # prebuilt binaries. Never `go install ...@latest` - unpinned and built
-        # from source.
+        # Never `go install ...@latest`: unpinned and built from source.
         install=(
             "brew install gitleaks",
             "download a release binary: https://github.com/gitleaks/gitleaks/releases/latest",
@@ -79,9 +71,7 @@ _REGISTRY: dict[str, ToolInfo] = {
     "semgrep": ToolInfo(
         name="semgrep",
         purpose="SAST scanning",
-        # astral first: uv is already a hard dependency of every hyperi-ci
-        # project, so `uvx` / `uv tool` needs nothing new installed. pipx would
-        # be a second, redundant Python tool manager.
+        # uv first: it is already a hard dependency, so `uvx` needs nothing new.
         install=(
             "uvx semgrep --help",
             "uv tool install semgrep",
@@ -92,9 +82,7 @@ _REGISTRY: dict[str, ToolInfo] = {
     "hadolint": ToolInfo(
         name="hadolint",
         purpose="Dockerfile linting gate (lints the shell inside RUN via ShellCheck)",
-        # Single static binary. brew on macOS; a release binary elsewhere. On
-        # Linux CI hyperi-ci auto-installs the pinned release, so this notice is
-        # for local dev.
+        # Linux CI auto-installs the pinned release, so this is for local dev.
         install=(
             "brew install hadolint",
             "download a release binary: https://github.com/hadolint/hadolint/releases/latest",
@@ -104,8 +92,7 @@ _REGISTRY: dict[str, ToolInfo] = {
     "droast": ToolInfo(
         name="droast",
         purpose="Dockerfile advisory - cache ordering / .dockerignore / npm ci (DF070/DF033/DF031)",
-        # Advisory-only, never auto-installed. cargo binstall fetches a prebuilt
-        # binary; `cargo install` builds from source (slower, last resort).
+        # Advisory-only, never auto-installed.
         install=(
             "cargo binstall dockerfile-roast",
             "cargo install dockerfile-roast  # from source - slowest",
@@ -116,8 +103,7 @@ _REGISTRY: dict[str, ToolInfo] = {
     "kubeconform": ToolInfo(
         name="kubeconform",
         purpose="Kubernetes manifest schema validation gate",
-        # Single static Go binary. On Linux CI hyperi-ci auto-installs the
-        # pinned release; this notice is for local dev.
+        # Linux CI auto-installs the pinned release, so this is for local dev.
         install=(
             "brew install kubeconform",
             "go install github.com/yannh/kubeconform/cmd/kubeconform@latest",
@@ -136,8 +122,6 @@ _REGISTRY: dict[str, ToolInfo] = {
     "checkov": ToolInfo(
         name="checkov",
         purpose="IaC security scanning (k8s / helm / kustomize / terraform / opentofu)",
-        # astral first: uv is already a hard dependency, so `uvx` needs nothing
-        # new (same rationale as semgrep).
         install=(
             "uvx checkov --version",
             "uv tool install checkov",
@@ -148,8 +132,7 @@ _REGISTRY: dict[str, ToolInfo] = {
     "lychee": ToolInfo(
         name="lychee",
         purpose="repo-internal doc link + anchor checking (offline, no network)",
-        # Prebuilt binaries first: `cargo install` compiles it from source
-        # (minutes), everything above fetches a release artefact (seconds).
+        # Prebuilt binaries first: `cargo install` compiles from source (minutes).
         install=(
             "brew install lychee",
             "cargo binstall lychee",
@@ -170,10 +153,9 @@ _REGISTRY: dict[str, ToolInfo] = {
     "mermaid": ToolInfo(
         name="mermaid",
         purpose="mermaid diagram parse checking (the grammar, not a render)",
-        # Node packages, from the repo's own node_modules or, on CI, the pinned
-        # set quality/node_tools.py installs. linkedom supplies the browser
-        # globals mermaid's bundle reaches for - without it a VALID flowchart
-        # throws, so both are needed or neither works.
+        # linkedom supplies the browser globals mermaid's bundle needs, or a
+        # valid flowchart throws. CI installs the pinned set via
+        # quality/node_tools.py.
         install=(
             "npm install --no-save mermaid linkedom",
             "add mermaid + linkedom to the project's devDependencies",
@@ -195,9 +177,7 @@ _REGISTRY: dict[str, ToolInfo] = {
     "docker compose": ToolInfo(
         name="docker compose",
         purpose="compose file resolution (`docker compose config`) - no daemon needed",
-        # The v2 compose plugin ships inside Docker Desktop and inside the
-        # `docker-compose-plugin` package; the standalone v1 `docker-compose`
-        # binary is end-of-life and is NOT what this calls.
+        # The v2 plugin, not the end-of-life standalone `docker-compose` v1.
         install=(
             "brew install docker docker-compose",
             "apt-get install docker-compose-plugin",
@@ -213,7 +193,7 @@ _REGISTRY: dict[str, ToolInfo] = {
     "tofu": ToolInfo(
         name="tofu",
         purpose="OpenTofu fmt and validate (lint-iac)",
-        # On Linux CI hyperi-ci installs the pinned release; this is for local dev.
+        # Linux CI installs the pinned release, so this is for local dev.
         install=(
             "brew install opentofu",
             "download a release binary: https://github.com/opentofu/opentofu/releases/latest",
@@ -232,7 +212,6 @@ _REGISTRY: dict[str, ToolInfo] = {
     "ansible-lint": ToolInfo(
         name="ansible-lint",
         purpose="ansible playbook and role linting (lint-iac)",
-        # uv is already a hard dependency, so uvx needs nothing new.
         install=("uvx ansible-lint --version", "uv tool install ansible-lint"),
         url="https://ansible.readthedocs.io/projects/lint/installing/",
     ),
@@ -255,14 +234,11 @@ def missing_tool_notice(
 ) -> str:
     """Render the actionable 'here is how to fix it' notice for a missing tool.
 
-    Uses the registry as the default and lets a caller override any field
-    (a one-off tool, or a context-specific purpose). Multi-line, safe to pass
-    straight to :func:`info` / :func:`warn` / :func:`error`.
+    The registry supplies the defaults and a caller can override any field.
+    Multi-line, safe to pass to :func:`info` / :func:`warn` / :func:`error`.
 
     ``head`` replaces the "is not installed" opening for a tool that IS present
-    but unusable - an unsupported version, say. The install guidance is the same
-    either way, and this keeps a caller from restating it to avoid saying
-    something false.
+    but unusable, such as an unsupported version.
     """
     reg = _REGISTRY.get(name)
     purpose = purpose if purpose is not None else (reg.purpose if reg else None)
@@ -312,10 +288,8 @@ def find_tool(
 ) -> str | None:
     """Return the resolved tool path, or None after emitting a helpful notice.
 
-    Never raises and never exits - the CALLER owns fatality (e.g. a required
-    tool blocks in CI). ``recommended=True`` emits at warn level (the tool adds
-    real value), otherwise info (a nice-to-have). The notice is Rust-style: it
-    tells you exactly how to install the thing.
+    Never raises or exits: the CALLER owns fatality. ``recommended=True`` emits
+    the notice at warn level, otherwise info.
     """
     exe = shutil.which(name)
     if exe:
@@ -332,8 +306,7 @@ _VERSION_ARGS: dict[str, tuple[str, ...]] = {"govulncheck": ("-version",)}
 def version_output(argv: Sequence[str]) -> str | None:
     """Return what a version probe printed, stdout first, or None if it printed nothing.
 
-    A tool's version output has no fixed shape, so a probe that cannot run only
-    thins the message that names it -- it never blocks the caller.
+    A probe that cannot run only thins the caller's message and never blocks it.
     """
     try:
         result = run_cmd(list(argv), check=False, capture=True, timeout=5)
@@ -353,8 +326,7 @@ def matches_pin(pin: str, output: str) -> bool:
     """Return True when ``output`` names the pinned version as a whole number.
 
     The leading ``v`` is dropped because tools print ``2.6.0`` for tag
-    ``v2.6.0``, and the digit boundaries keep ``0.20.2`` from matching
-    ``0.20.21``.
+    ``v2.6.0``, and digit boundaries keep ``0.20.2`` from matching ``0.20.21``.
     """
     bare = re.escape(pin.removeprefix("v"))
     return re.search(rf"(?<![\d.]){bare}(?!\.?\d)", output) is not None
@@ -363,9 +335,8 @@ def matches_pin(pin: str, output: str) -> bool:
 def warn_on_pin_drift(name: str) -> None:
     """Warn when the ``name`` on PATH is not the version ``versions.yaml`` pins.
 
-    The setup actions install and assert the pin in CI, but a local run uses
-    whatever is on PATH, so its result can differ from CI's. A tool that is
-    absent is the missing-tool path's business, so this stays quiet about it.
+    CI installs and asserts the pin, but a local run uses whatever is on PATH.
+    An absent tool is the missing-tool path's business and stays quiet here.
     """
     exe = shutil.which(name)
     if exe is None:

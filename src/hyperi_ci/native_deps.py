@@ -51,11 +51,8 @@ from hyperi_ci.llvm_version import (
 _LLVM_PLACEHOLDER = "${HYPERCI_LLVM_VERSION}"
 _LLVM_DEFAULT_PLACEHOLDER = "${HYPERCI_LLVM_DEFAULT}"
 
-# Codenames to try as fallbacks when a given APT repo doesn't ship
-# packages for the current OS codename. Ordered by preference (newest
-# Ubuntu LTS first, then older LTS, then Debian stable). Resolute
-# (Ubuntu 26.04 LTS, April 2026) is the current latest; trixie (Debian
-# 13) is supported alongside for ESH projects.
+# Fallback codenames for an APT repo that does not ship the current OS codename,
+# newest Ubuntu LTS first, then older LTS, then Debian stable (trixie, for ESH).
 _FALLBACK_CODENAMES = ["resolute", "noble", "jammy", "focal", "trixie"]
 
 _CONFIG_ROOT = Path(__file__).resolve().parent / "config"
@@ -66,24 +63,19 @@ _TOOLCHAINS_DIR = _CONFIG_ROOT / "toolchains"
 def _sudo_prefix() -> list[str]:
     """Return ``["sudo"]`` when non-root, ``[]`` when already root.
 
-    Runner image bake (Dockerfile ``RUN``) executes as root where sudo
-    isn't configured, producing 'root is not in the sudoers file'. CI-time
-    invocations on vanilla runners still prepend sudo as before.
+    The runner image bake (Dockerfile ``RUN``) runs as root with no sudoers
+    entry, so sudo there fails with 'root is not in the sudoers file'.
     """
     if platform.system() != "Linux":
         return []
     return [] if os.geteuid() == 0 else ["sudo"]
 
 
-# Supported categories map to config subdirectories. Both share the same
-# YAML schema (patterns, manifest_files, dpkg_check, apt_repos, apt_packages)
-# plus the optional `versions:` list for multi-version expansion.
-#
-# Semantic difference:
-#   native-deps: conditional by default (install only if manifest matches)
-#   toolchains:  conditional in --auto mode; --all bypasses pattern check.
-#                Covers the apt families the runner image bakes (the default
-#                LLVM major, GCC 13/14).
+# Categories map to config subdirectories sharing one YAML schema (patterns,
+# manifest_files, dpkg_check, apt_repos, apt_packages, optional `versions:`).
+# native-deps installs only if a manifest matches. toolchains (the apt families
+# the image bakes: the default LLVM major, GCC 13/14) match in --auto mode and
+# --all bypasses the pattern check.
 _CATEGORY_DIRS: dict[str, Path] = {
     "native-deps": _NATIVE_DEPS_DIR,
     "toolchains": _TOOLCHAINS_DIR,
@@ -113,15 +105,10 @@ class AptRepo:
 class DepGroup:
     """A group of related native packages triggered by manifest patterns.
 
-    `bake` controls behaviour in `--all` mode (runner image bake):
-      True  (default): install unconditionally -- entry ends up pre-baked
-                       into the runner image for every matching category.
-      False:           SKIP in --all mode. The entry still installs
-                       conditionally at CI job time when manifest patterns
-                       match. Use for a toolset whose packages declare
-                       `Conflicts:` across versions, so only one version
-                       may be present at a time -- baking a default would
-                       lock out jobs needing a different version.
+    `bake` controls `--all` mode (runner image bake). True (default) installs
+    unconditionally. False skips it in --all and installs at job time when
+    manifest patterns match, for a toolset whose packages `Conflicts:` across
+    versions, where a baked default would lock out jobs needing another.
     """
 
     name: str
@@ -137,27 +124,20 @@ class DepGroup:
 def _expand_template_vars(text: str, project_dir: Path | None = None) -> str:
     """Expand ${VAR} placeholders in YAML configs.
 
-    Supports a small set of hyperi-ci-controlled variables -- keeps the
-    YAML readable while letting ops override per environment without
-    editing code.
-
     Recognised variables:
       HYPERCI_LLVM_VERSION  -- the designated LLVM/BOLT major, from
-                              ``llvm_version.designated_llvm_version``: the
-                              env var, then `build.rust.llvm_version` in
-                              .hyperi-ci.yaml, then versions.yaml `llvm`.
+                              ``llvm_version.designated_llvm_version`` (env var,
+                              then `build.rust.llvm_version`, then versions.yaml
+                              `llvm`).
       HYPERCI_LLVM_DEFAULT  -- versions.yaml `llvm` alone, from
-                              ``llvm_version.default_llvm_major``. The runner
-                              image bakes this one, so neither the env var
-                              nor a stray .hyperi-ci.yaml can move the bake.
-      OS_CODENAME           -- current OS codename from lsb_release -cs
-                              (e.g. noble, trixie, resolute). Lets a single
-                              YAML reference distro-specific apt.llvm.org
-                              subpaths (https://apt.llvm.org/${OS_CODENAME}/).
+                              ``llvm_version.default_llvm_major``. The image
+                              bakes this one so nothing else can move the bake.
+      OS_CODENAME           -- the codename from lsb_release -cs (noble, trixie,
+                              resolute), for distro-specific apt.llvm.org
+                              subpaths.
 
-    Unknown ${VAR} placeholders pass through unchanged so apt-cache
-    surfaces a clear "package not found" error instead of a silent
-    mis-resolve.
+    Unknown ${VAR} placeholders pass through so apt-cache reports "package not
+    found" instead of mis-resolving.
 
     Args:
         text: The raw YAML text.
@@ -186,11 +166,9 @@ def _substitute_version(text: str, version: str) -> str:
 def _dep_group_from_entry(entry: dict, version: str | None = None) -> DepGroup:
     """Materialise one DepGroup from a YAML entry, optionally substituting {V}.
 
-    When `version` is None (the common native-deps path) the entry is used
-    verbatim. When `version` is a concrete string (the toolchains path)
-    `{V}` is substituted everywhere it appears: `dpkg_check`, every
-    `apt_repos[*].codename`, every `apt_packages[*]`, and the `name`
-    (so log lines distinguish versions).
+    With `version` None the entry is used verbatim. Otherwise `{V}` is
+    substituted in `dpkg_check`, every `apt_repos[*].codename`, every
+    `apt_packages[*]` and the `name`.
     """
 
     def sub(text: str) -> str:
@@ -198,12 +176,10 @@ def _dep_group_from_entry(entry: dict, version: str | None = None) -> DepGroup:
 
     name = sub(entry["name"])
     if version is not None:
-        # Disambiguate the group name so log lines are readable
         name = f"{entry['name']} v{version}"
 
     return DepGroup(
         name=name,
-        # patterns and manifest_files stay shared across version expansions
         patterns=entry.get("patterns", []),
         manifest_files=entry.get("manifest_files", []),
         dpkg_check=sub(entry["dpkg_check"]),
@@ -231,11 +207,9 @@ def _load_dep_groups(
 ) -> list[DepGroup]:
     """Load dep group definitions from bundled config.
 
-    Entries with a `versions:` list expand into one DepGroup per version,
-    with `{V}` substituted in `dpkg_check`, `apt_repos[*].codename`, and
-    every `apt_packages[*]`. Entries without `versions:` are loaded as-is
-    (backward-compatible with existing native-deps YAMLs). ``project_dir``
-    is where the designated LLVM version's project config is read from.
+    An entry with a `versions:` list expands into one DepGroup per version, and
+    one without is loaded as-is. ``project_dir`` is where the designated LLVM
+    version's project config is read from.
     """
     config_dir = _CATEGORY_DIRS.get(category)
     if config_dir is None:
@@ -256,18 +230,15 @@ def _load_dep_groups(
     for entry in raw:
         versions = entry.get("versions")
         if versions is None:
-            # No versions key -- load as-is (backward-compatible native-deps path)
             groups.append(_dep_group_from_entry(entry))
         elif not versions:
-            # Empty list is almost certainly a config bug -- {V} would leak
-            # into the final install command and fail at apt-cache time
-            # with a confusing "package not found" message. Warn loudly.
+            # An empty list is a config bug that would leak {V} into the install
+            # command and fail with "package not found".
             logger.warning(
                 f"entry {entry.get('name', '<unnamed>')!r} in "
                 f"{config_file} has empty `versions:` -- skipping"
             )
         else:
-            # Multi-version expansion: one DepGroup per version
             for v in versions:
                 groups.append(_dep_group_from_entry(entry, version=str(v)))
     return groups
@@ -291,10 +262,8 @@ def _patterns_match(content: str, patterns: list[str]) -> bool:
 def _get_os_codename() -> str:
     """Get the current OS codename via lsb_release, or "" if unavailable.
 
-    macOS has no `lsb_release` binary -- `FileNotFoundError` propagates up
-    from Popen. Swallow it so callers get an empty string (same contract
-    as a non-zero exit on Linux); the `_expand_template_vars` fallback
-    then defaults `${OS_CODENAME}` to "noble".
+    macOS has no `lsb_release`, so the `FileNotFoundError` is swallowed into an
+    empty string, and `_expand_template_vars` then defaults to "noble".
     """
     try:
         result = subprocess.run(
@@ -324,8 +293,8 @@ def _repo_has_codename(repo_url: str, codename: str) -> bool:
     """
     url = f"{repo_url.rstrip('/')}/dists/{codename}/Release"
     try:
-        # repo_url comes from this package's own shipped native-deps/toolchains
-        # YAML, never from a consumer's config -- always a fixed https URL.
+        # repo_url is a fixed https URL from the shipped native-deps/toolchains
+        # YAML, never a consumer's config.
         url_read(urllib.request.Request(url, method="HEAD"), timeout=10)  # noqa: S310
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
@@ -337,12 +306,10 @@ def _repo_has_codename(repo_url: str, codename: str) -> bool:
 def _resolve_codename(repo: AptRepo) -> str:
     """Resolve the codename to use for an APT repo.
 
-    If codename is explicit, uses it directly. If "auto", tries the current
-    OS codename first, then falls back through LTS codenames in order.
-
-    Only a 404 moves on to the next candidate. A probe that gets no answer
-    keeps the candidate it was checking and warns, because skipping it would
-    install from an older codename's repo on the strength of a network fault.
+    An explicit codename is used directly. "auto" tries the current OS codename,
+    then the fallbacks in order. Only a 404 moves to the next candidate: a probe
+    with no answer keeps its candidate and warns, because skipping it would
+    install from an older codename's repo on a network fault.
     """
     if repo.codename != "auto":
         return repo.codename
@@ -391,19 +358,14 @@ def _get_dpkg_arch() -> str:
 def _repo_already_configured(repo_url: str, codename: str) -> Path | None:
     """Check if any existing APT sources file references this repo.
 
-    Self-hosted runners may pre-configure apt.llvm.org (or other upstream
-    repos) under a different filename than ours. To avoid duplicate
-    entries, scan all files in /etc/apt/sources.list.d/ and the main
-    /etc/apt/sources.list for a line that matches our url + codename.
-
-    Returns the path of the first matching file, or None if not found.
-    Match is substring-based on `url + " " + codename` so variations in
-    `[signed-by=...]` options, arch flags, or components don't cause
-    false negatives.
+    Self-hosted runners may pre-configure apt.llvm.org under another filename,
+    so this scans /etc/apt/sources.list.d/ and /etc/apt/sources.list for a line
+    matching our url + codename, to avoid duplicates. Returns the first matching
+    file, or None. The match is a substring, so `[signed-by=...]`, arch flags
+    and components cannot cause false negatives.
     """
-    # Normalise scheme -- pre-provisioned runners often use `http://` for
-    # apt.llvm.org (their Dockerfile does) while we write `https://`.
-    # Match on the scheme-less path so either form is detected.
+    # Match the scheme-less path: pre-provisioned runners use `http://` for
+    # apt.llvm.org while we write `https://`.
     url_stripped = repo_url.rstrip("/")
     path_only = url_stripped.split("://", 1)[-1]  # e.g. "apt.llvm.org/noble"
 
@@ -418,8 +380,7 @@ def _repo_already_configured(repo_url: str, codename: str) -> Path | None:
             content = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        # Match on scheme-less URL path + codename. Covers both the
-        # one-line `deb` format and deb822-style `.sources` files.
+        # Covers both one-line `deb` and deb822 `.sources` files.
         if path_only in content and codename in content:
             return path
     return None
@@ -449,9 +410,8 @@ def _key_fingerprints(key_bytes: bytes) -> list[str]:
 def _verify_apt_key(key_bytes: bytes, expected: str) -> bool:
     """Check a downloaded APT key is the one the YAML declares.
 
-    HTTPS proves who served the key, not which key it is -- without this a
-    swapped or hijacked upstream key installs silently and then signs every
-    package apt pulls from that repo.
+    HTTPS proves who served the key, not which key it is, so without this a
+    swapped upstream key would sign every package apt pulls from that repo.
     """
     wanted = expected.replace(" ", "").upper()
     found = _key_fingerprints(key_bytes)
@@ -470,33 +430,24 @@ def _verify_apt_key(key_bytes: bytes, expected: str) -> bool:
 def _add_apt_repo(repo: AptRepo) -> int:
     """Add a GPG key and APT sources entry for a repo. Returns exit code.
 
-    A declared ``key_fingerprint`` is checked before the key reaches the
-    keyring, so a swapped upstream key fails the install rather than signing
-    everything apt pulls afterwards.
+    A declared ``key_fingerprint`` is checked before the key reaches the keyring.
 
     Idempotent on three levels:
-      1. GPG keyring: skips download if keyring file already present.
-      2. Exact sources.list match: skips write if our file already has
-         the exact same line. Other unrelated lines in the file are
-         preserved (append, don't overwrite).
-      3. Cross-file duplicate detection: skips write if ANY other apt
-         source file already references the same url + codename -- this
-         handles self-hosted runners where admins have pre-configured
-         upstream repos under a different filename.
+      1. Skips the download if the keyring file exists.
+      2. Skips the write if our sources file already has the exact line.
+      3. Skips the write if ANY other apt source file references the same
+         url + codename (self-hosted runners with pre-configured repos).
 
-    Multi-version note: many entries can share a keyring (every apt.llvm.org
-    entry uses `/usr/share/keyrings/llvm.gpg`, and a project's designated
-    LLVM major can differ from the baked default). The sources filename is
-    derived from the keyring stem, so multiple AptRepo writes collide on
-    one file. We APPEND -- multiple `deb` lines in the same .list pointing
-    at the same keyring is valid apt syntax.
+    Entries can share a keyring (every apt.llvm.org entry uses
+    `/usr/share/keyrings/llvm.gpg`) and the sources filename comes from the
+    keyring stem, so writes APPEND: several `deb` lines against one keyring is
+    valid apt syntax.
     """
     keyring_path = Path(repo.keyring)
     if keyring_path.exists():
         logger.info(f"APT keyring already exists: {repo.keyring}")
     else:
         logger.info(f"Adding APT key from {repo.key_url}")
-        # Download key and dearmor into keyring
         rc, key = curl_read(repo.key_url)
         if rc != 0:
             logger.error(f"Failed to download APT key from {repo.key_url}")
@@ -529,8 +480,6 @@ def _add_apt_repo(repo: AptRepo) -> int:
         f"{repo.url} {codename} {repo.components}"
     )
 
-    # Cross-file check: if another sources file already references this
-    # repo (pre-configured by runner admin), skip to avoid duplicates.
     existing = _repo_already_configured(repo.url, codename)
     if existing is not None:
         logger.info(
@@ -538,13 +487,10 @@ def _add_apt_repo(repo: AptRepo) -> int:
         )
         return 0
 
-    # Derive a stable filename from the keyring name
     sources_name = keyring_path.stem + ".list"
     sources_path = Path("/etc/apt/sources.list.d") / sources_name
 
-    # Skip if the exact `deb` line is already present in the file. Substring
-    # check (not equality) -- the file may contain other entries for different
-    # versions of the same toolchain (llvm.list holds one line per LLVM major).
+    # Substring, not equality: llvm.list holds one line per LLVM major.
     if sources_path.exists() and sources_line in sources_path.read_text(
         encoding="utf-8"
     ):
@@ -552,8 +498,7 @@ def _add_apt_repo(repo: AptRepo) -> int:
         return 0
 
     logger.info(f"Adding APT source: {sources_line}")
-    # Append (don't overwrite) -- `tee -a` creates the file if missing.
-    # Prepend a newline so subsequent lines don't get concatenated.
+    # The leading newline keeps an appended line off the last one.
     prefix = "" if not sources_path.exists() else "\n"
     result = subprocess.run(
         [*_sudo_prefix(), "tee", "-a", str(sources_path)],
@@ -594,9 +539,8 @@ def _is_dpkg_installed(package: str, min_version: str = "") -> bool:
 def _apt_install(packages: list[str]) -> int:
     """Run apt-get update then install packages. Returns exit code.
 
-    The update is re-run on the same schedule as the Dockerfile text in
-    ``apt_retry``, because runner-image bake calls this from a Dockerfile
-    ``RUN`` where a mirror mid-sync fails the fetch outright.
+    The update is re-run on the ``apt_retry`` schedule because a mirror
+    mid-sync fails the fetch outright (see that module).
     """
     apt_get = [*_sudo_prefix(), "apt-get", *APT_RETRY_OPTION.split()]
     for attempt in range(1, APT_UPDATE_ATTEMPTS + 1):
@@ -618,12 +562,10 @@ def _apt_install(packages: list[str]) -> int:
 # Signed-archive install: AWS CLI v2
 # ---------------------------------------------------------------------------
 #
-# AWS runs no apt repository and Ubuntu noble ships no awscli package, so the
-# signed zip bundle is the only route to v2 on a runner.
-#
-# The URL carries no version, so there is no digest to pin: the detached
-# signature is the integrity anchor, checked against a key shipped in this
-# package that expires 2027-07-01 (versions.yaml `watch:`).
+# AWS runs no apt repository and noble ships no awscli package, so the signed
+# zip is the only route to v2. The URL carries no version to pin a digest to, so
+# the detached signature is the integrity anchor, checked against a key shipped
+# here that expires 2027-07-01 (versions.yaml `watch:`).
 
 _AWS_CLI_ZIP_URL = "https://awscli.amazonaws.com/awscli-exe-linux-{arch}.zip"
 _AWS_CLI_KEY_FILE = _CONFIG_ROOT / "aws-cli-team.asc"
@@ -638,9 +580,8 @@ _AWS_CLI_ARCHES = {"x86_64": "x86_64", "aarch64": "aarch64", "arm64": "aarch64"}
 def _verify_detached_signature(payload: bytes, signature: bytes, key: bytes) -> bool:
     """Check ``signature`` covers ``payload`` under the shipped AWS CLI key.
 
-    The key is imported into a throwaway GNUPGHOME so verification never reads
-    or writes the runner's own keyring, and its fingerprint is checked before
-    it is trusted - importing a key and then verifying against whatever was
+    The key goes into a throwaway GNUPGHOME so the runner's keyring is untouched,
+    and its fingerprint is checked first: verifying against whatever was
     imported proves only that the archive is self-consistent.
     """
     found = _key_fingerprints(key)
@@ -678,8 +619,8 @@ def _verify_detached_signature(payload: bytes, signature: bytes, key: bytes) -> 
 def _extract_zip(payload: bytes, dest: Path) -> bool:
     """Unpack a zip, keeping the Unix mode each entry recorded.
 
-    ``ZipFile.extract`` drops permissions, which would leave AWS's own
-    ``install`` script and the ``aws`` binary non-executable.
+    ``ZipFile.extract`` drops permissions, leaving AWS's ``install`` script
+    non-executable.
     """
     try:
         with zipfile.ZipFile(io.BytesIO(payload)) as zf:
@@ -697,14 +638,12 @@ def _extract_zip(payload: bytes, dest: Path) -> bool:
 def ensure_aws_cli() -> str | None:
     """Return a path to ``aws``, installing AWS CLI v2 on Linux if it is absent.
 
-    Called at the point of use rather than declared as a dep group: the trigger
-    is a runtime fact (this run is uploading to R2), not a manifest pattern, so
-    no YAML entry could express it. Same shape as
-    ``pgo._ensure_llvm_bolt_available``.
+    Called at the point of use, not declared as a dep group, because the trigger
+    (this run uploads to R2) is a runtime fact no manifest pattern can express.
 
-    Returns None when it cannot install - off Linux (dev machines get the
-    ``brew install awscli`` notice instead) or on any download, signature or
-    install failure. The caller decides whether that is fatal.
+    Returns None off Linux (dev machines get the ``brew install awscli``
+    notice) or on any download, signature or install failure. The caller decides
+    whether that is fatal.
     """
     exe = shutil.which("aws")
     if exe:
@@ -744,8 +683,7 @@ def ensure_aws_cli() -> str | None:
             logger.error("AWS CLI archive carried no `aws/install`")
             return None
 
-        # --update so a re-run over an existing install succeeds instead of
-        # failing on the directory it wrote last time.
+        # --update lets a re-run succeed over an existing install.
         result = subprocess.run(
             [
                 *_sudo_prefix(),
@@ -812,11 +750,8 @@ def install_native_deps(
     needed: list[DepGroup] = []
     for group in dep_groups:
         if all_mode:
-            # --all mode bypasses manifest match, but entries marked
-            # `bake: false` are ALWAYS install-on-demand -- runner image
-            # bake skips them. Non-coinstallable toolsets (one version
-            # at a time) use this; baking a default would lock out jobs
-            # that need a different version.
+            # --all bypasses the manifest match, but `bake: false` entries stay
+            # install-on-demand.
             if not group.bake:
                 logger.info(
                     f"[{group.name}] skipped in --all (bake: false, "
@@ -824,7 +759,6 @@ def install_native_deps(
                 )
                 continue
         else:
-            # Conditional mode: only install if a manifest pattern matches
             content = _read_manifests(cwd, group.manifest_files)
             if not content:
                 continue
@@ -841,7 +775,6 @@ def install_native_deps(
         logger.info(f"All {category} satisfied for {language}")
         return 0
 
-    # Add any custom APT repos before installing
     for group in needed:
         for repo in group.apt_repos:
             rc = _add_apt_repo(repo)
@@ -849,7 +782,6 @@ def install_native_deps(
                 logger.error(f"Failed to add APT repo for [{group.name}]")
                 return rc
 
-    # Collect all packages across needed groups and install in one apt call.
     all_packages: list[str] = []
     seen: set[str] = set()
     for group in needed:
@@ -864,8 +796,7 @@ def install_native_deps(
         logger.error(f"apt-get install failed (exit {rc})")
         return rc
 
-    # Universal per-language tooling (cargo / npm / pip / go-install) only
-    # applies to the native-deps category -- toolchains have no language tools.
+    # Toolchains have no language tools.
     if category == "native-deps":
         rc = _install_language_tools(language)
         if rc != 0:
@@ -879,22 +810,11 @@ def install_native_deps(
 # Universal language tooling
 # ---------------------------------------------------------------------------
 #
-# Install-once-per-runner tooling keyed by language. Runs unconditionally
-# after apt deps. Philosophy: if a CI stage (quality, test, build, release)
-# might need a tool, install it at setup time instead of just-in-time. The
-# "which stage uses it?" gating would be brittle + slow on opt-in features
-# like Rust Tier 2 PGO.
-#
-# Each entry:
-#   name:         Human label for logs
-#   binary:       Executable to probe for "already installed?"
-#   bin_dir:      Directory where the installer drops binaries (ensured on PATH)
-#   installer:    Shell tokens that install the tool (prepended to cargo/npm/etc)
-#   args:         Arguments passed after the installer tokens
-#
-# Non-fatal: failures log a warning and the function continues. Downstream
-# stages that depend on the tool handle the missing-tool case themselves
-# (Rust Tier 2 falls back to plain release, etc.).
+# Per-runner tooling keyed by language, installed unconditionally after the apt
+# deps, because gating on which stage uses a tool is brittle on opt-in features
+# like Rust Tier 2 PGO. Failures are non-fatal: dependent stages handle the
+# missing tool themselves (Rust Tier 2 falls back to plain release). List only
+# tools the CI pipeline actually runs.
 
 
 @dataclass(frozen=True)
@@ -918,10 +838,6 @@ _LANGUAGE_TOOLS: dict[str, list[LanguageTool]] = {
             args=["cargo-pgo", "--locked"],
         ),
     ],
-    # Populate as concrete needs appear. The abstraction is in place;
-    # adding a Python tool (e.g. 'pip-audit' if a stage requires it) is
-    # one entry below. Don't over-populate preemptively -- only list tools
-    # the CI pipeline actually runs.
     "python": [],
     "typescript": [],
     "golang": [],
@@ -931,15 +847,8 @@ _LANGUAGE_TOOLS: dict[str, list[LanguageTool]] = {
 def _install_language_tools(language: str) -> int:
     """Install per-language tooling (cargo / npm / pip / go-install tools).
 
-    Runs universally (not pattern-gated) -- tools listed here may be
-    required by any CI stage (quality, test, build, release). Gating by
-    stage would be fragile on opt-in features like Rust Tier 2 PGO.
-
-    Non-fatal: install failure logs a warning and continues. Downstream
-    stages that depend on the tool handle missing-tool fallback.
-
-    No-op on non-Linux -- CI stages that need these tools only run on
-    Linux runners in our current pipelines.
+    Not pattern-gated, because any CI stage may need the tools. A failed install
+    logs a warning and continues. No-op off Linux.
     """
     tools = _LANGUAGE_TOOLS.get(language, [])
     if not tools:
@@ -948,7 +857,6 @@ def _install_language_tools(language: str) -> int:
         return 0
 
     for tool in tools:
-        # Ensure the tool's install dir is on PATH before probe + install
         bin_dir = Path.home() / tool.bin_dir
         current_path = os.environ.get("PATH", "")
         if str(bin_dir) not in current_path.split(os.pathsep):
@@ -960,9 +868,8 @@ def _install_language_tools(language: str) -> int:
 
         cmd = [*tool.installer, *tool.args]
 
-        # A missing installer raises FileNotFoundError before the process
-        # starts, which `check=False` does not cover (issue #91). Rust reaches
-        # here before `Install Rust toolchain` runs, so cargo may not exist.
+        # A missing installer raises FileNotFoundError, which `check=False` does
+        # not cover (issue #91). Rust gets here before cargo is installed.
         if shutil.which(cmd[0]) is None:
             logger.warning(
                 f"[{tool.name}] {cmd[0]} not on PATH -- skipping; dependent CI "
@@ -977,7 +884,6 @@ def _install_language_tools(language: str) -> int:
                 f"[{tool.name}] install failed (exit {result.returncode}) -- "
                 "dependent CI stages will handle the missing tool"
             )
-            # Non-fatal: downstream has graceful fallback
     return 0
 
 
@@ -997,7 +903,6 @@ def print_needed(
 
     for group in dep_groups:
         if all_mode:
-            # --all skips bake: false entries (install-on-demand only)
             matched = group.bake
         else:
             content = _read_manifests(cwd, group.manifest_files)

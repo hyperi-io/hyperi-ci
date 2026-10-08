@@ -6,19 +6,18 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Hand curl a secret on stdin, as a config file, rather than on its argv.
 
-Any process on the host can read a child's argv from ``/proc/<pid>/cmdline``
-while it runs. ``curl -K -`` reads extra options from stdin instead, so a token
-header or a webhook URL goes in a config line fed through
-``run_cmd(..., stdin_text=...)`` and never appears in the process table.
+Any process on the host can read a child's argv from ``/proc/<pid>/cmdline``.
+``curl -K -`` reads options from stdin, so a token header or webhook URL goes
+in a config line fed through ``run_cmd(..., stdin_text=...)``.
 """
 
 
 def config_line(option: str, value: str) -> str:
     r"""Render one line of curl config-file syntax for ``curl -K -``.
 
-    The value is double-quoted, with a backslash, a double quote, a carriage
-    return and a newline written as curl's escapes. A raw newline would end
-    the line and let the rest of the value be read as a second option.
+    The value is double-quoted, with backslash, double quote, CR and newline
+    escaped. A raw newline would let the rest of the value read as a second
+    option.
 
     Args:
         option: Long option name without the leading dashes, such as
