@@ -198,7 +198,7 @@ the full pipeline, not just top-level workflows.
 |---|---|
 | `--check` (default) | show drift between `versions.yaml` and its copies in the pipeline |
 | `--apply` | rewrite workflows + composites to match the SSOT |
-| `--stable` | report the newest release of each tool that's >=7 days old |
+| `--stable` | the dry run of `--auto-update`: print the newest release >=7 days old that it would write, and write nothing |
 | `--auto-update` | bump `versions.yaml` to those, validate locally, revert on failure. It does not commit and does not trigger remote CI |
 
 `--stable` is the SOAKED release, not the newest one - the same sense as the

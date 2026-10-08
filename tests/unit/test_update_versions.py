@@ -1201,3 +1201,114 @@ class TestStableFlag:
 
     def test_no_flag_still_defaults_to_check(self, monkeypatch) -> None:
         assert self._dispatch(monkeypatch, [], "_check") == ["_check"]
+
+
+_RESOLVER_YAML = (
+    "tools:\n"
+    "  plain:\n"
+    "    version: v1.0.0\n"
+    "    repo: o/plain\n"
+    "  digested:\n"
+    "    version: v1.0.0\n"
+    "    repo: o/digested\n"
+    "    sha256:\n"
+    f"      amd64: {'a' * 64}\n"
+    "  locked:\n"
+    "    version: 1.0.0\n"
+    "    npm: locked\n"
+    "    lockfile: lock.json\n"
+    "  current:\n"
+    "    version: v2.0.0\n"
+    "    repo: o/current\n"
+    "  down:\n"
+    "    version: v1.0.0\n"
+    "    repo: o/down\n"
+    "\n"
+    "runtimes:\n"
+    '  python: "3.14"\n'
+    "\n"
+    "semantic_release:\n"
+    '  core: "25"\n'
+)
+
+_UPSTREAM = {
+    "o/plain": ("v1.1.0", "ok"),
+    "o/digested": ("v1.1.0", "ok"),
+    "locked": ("1.1.0", "ok"),
+    "o/current": (None, "current"),
+    "o/down": (None, "lookup-failed"),
+}
+
+
+class TestOneResolver:
+    """`--stable` is the dry run of `--auto-update`: one resolver feeds both.
+
+    Two copies of the resolution drifted before: the report missed tag_prefix
+    while the update saw it, so the two disagreed about cargo-audit.
+    """
+
+    NOW = datetime(2026, 5, 28, tzinfo=UTC)
+
+    @staticmethod
+    def _upstream(monkeypatch) -> None:
+        monkeypatch.setattr(
+            update_versions,
+            "_latest_tool_release",
+            lambda spec, _now: _UPSTREAM[spec.get("repo") or spec.get("npm")],
+        )
+        monkeypatch.setattr(update_versions, "_get_latest_npm_major", lambda _p: "26")
+        monkeypatch.setattr(update_versions, "_gh_json", lambda _path: None)
+
+    @staticmethod
+    def _ssot(tmp_path: Path, monkeypatch) -> Path:
+        (tmp_path / "workflows").mkdir()
+        versions_file = tmp_path / "versions.yaml"
+        versions_file.write_text(_RESOLVER_YAML, encoding="utf-8")
+        monkeypatch.setattr(update_versions, "_ROOT", tmp_path)
+        monkeypatch.setattr(update_versions, "_VERSIONS_FILE", versions_file)
+        monkeypatch.setattr(update_versions, "_WORKFLOWS_DIR", tmp_path / "workflows")
+        monkeypatch.setattr(update_versions, "_ACTIONS_DIR", tmp_path / "none")
+        monkeypatch.setattr(update_versions, "_validate_locally", lambda: [])
+        return versions_file
+
+    def test_resolve_splits_writes_from_hand_bumps(self, monkeypatch) -> None:
+        self._upstream(monkeypatch)
+        res = update_versions._resolve(yaml.safe_load(_RESOLVER_YAML), self.NOW)
+        assert res.tools == {"plain": "v1.1.0"}
+        assert res.semantic_release == ("25", "26")
+        assert (res.manual, res.lookup_failures) == (2, 1)
+
+    def test_stable_reports_the_writes_and_writes_nothing(
+        self, tmp_path: Path, monkeypatch, capsys
+    ) -> None:
+        self._upstream(monkeypatch)
+        versions_file = self._ssot(tmp_path, monkeypatch)
+        assert update_versions._stable(yaml.safe_load(_RESOLVER_YAML)) == 0
+        assert versions_file.read_text(encoding="utf-8") == _RESOLVER_YAML
+        out = capsys.readouterr().out
+        assert "2 update(s) --auto-update would write." in out
+        assert "o/digested: v1.0.0 -> v1.1.0 (digest-pinned -- bump by hand)" in out
+
+    def test_auto_update_writes_exactly_what_stable_reports(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        self._upstream(monkeypatch)
+        versions_file = self._ssot(tmp_path, monkeypatch)
+        before = yaml.safe_load(_RESOLVER_YAML)
+        planned = update_versions._resolve(before, self.NOW)
+
+        assert update_versions._auto_update(before) == 0
+
+        after = yaml.safe_load(versions_file.read_text(encoding="utf-8"))
+        for name, spec in before["tools"].items():
+            want = planned.tools.get(name, spec["version"])
+            assert after["tools"][name]["version"] == want, name
+        assert after["semantic_release"]["core"] == planned.semantic_release[1]
+
+    def test_a_hand_bump_still_fails_the_drift_audit(self, monkeypatch) -> None:
+        # The weekly audit must keep flagging a tool it cannot bump itself.
+        self._upstream(monkeypatch)
+        versions = {
+            "tools": {"locked": yaml.safe_load(_RESOLVER_YAML)["tools"]["locked"]}
+        }
+        assert update_versions._stable(versions, fail_on_drift=True) == 1

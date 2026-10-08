@@ -16,7 +16,7 @@
 # Update script: uv run scripts/update-versions.py
 #   --check         current vs SSOT (dry run, default)
 #   --apply         rewrite workflows + composites to match this file
-#   --stable        report newest release >= 7 days old per tool
+#   --stable        dry run of --auto-update: newest release >= 7 days old
 #   --auto-update   bump to those, validate LOCALLY, revert on failure. It
 #                   does not commit and does not trigger remote CI - the
 #                   ci-test-* fleet validates on the PR.
@@ -380,7 +380,7 @@ watch:
 # coincidence until the markers went in: nothing read them, so nothing could
 # report drift. rust and llvm have no such copy, so they stay bare values.
 #
-# None of them auto-bump (_AUTO_UPDATE_SKIP in scripts/update-versions.py):
+# None of them auto-bump (scripts/update-versions.py resolves `tools:` only):
 # a runtime major is a decision, not a dependency refresh.
 runtimes:
   # 3.14 is the baseline -- the fleet moved 3.12 -> 3.14 and skipped 3.13.
