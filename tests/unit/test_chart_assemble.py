@@ -66,23 +66,32 @@ def _contract(**extra: object) -> dict:
         },
         "$defs": {"Buffer": buffer, "Grpc": grpc, "Seconds": seconds},
     }
+    health = {
+        "liveness_path": "/livez",
+        "readiness_path": "/readyz",
+        "metrics_path": "/metrics",
+    }
     return {
         "schema_version": 4,
         "app_name": "dfe-loader",
         "description": "Loads rows into ClickHouse",
         "metrics_port": 9090,
+        "health": health,
+        "env_prefix": "DFE_LOADER",
+        "metric_prefix": "loader",
+        "image_registry": "ghcr.io/hyperi-io",
         "config_schema": config_schema,
         **extra,
     }
 
 
-def _assemble(out: Path, contract: dict | None = None) -> Path:
+def _assemble(out: Path, contract: dict | None = None, image: str = IMAGE) -> Path:
     return assemble.assemble(
         _contract() if contract is None else contract,
         LIBRARY_DIR,
         out,
         version="1.4.2",
-        image=IMAGE,
+        image=image,
         library="0.1.0",
         registry=REGISTRY,
     )
@@ -206,12 +215,27 @@ class TestDials:
             "config",
             "configOverrides",
             "extraEnv",
+            "fullnameOverride",
             "image",
-            "replicas",
+            "podLabels",
+            "replicaCount",
         }
-        jsonschema.validate({"replicas": 2, "configOverrides": {"x": 1}}, schema)
-        with pytest.raises(jsonschema.ValidationError):
-            jsonschema.validate({"replicas": -1}, schema)
+        assert schema["$defs"] == base["$defs"]
+        jsonschema.validate(
+            {
+                "replicaCount": 2,
+                "podLabels": {"team": "data"},
+                "config": {"buffer": {"flush_rows": 5}},
+            },
+            schema,
+        )
+        for bad in (
+            {"replicaCount": -1},
+            {"podLabels": {"team": 1}},
+            {"config": {"buffer": {"flush_rows": 0}}},
+        ):
+            with pytest.raises(jsonschema.ValidationError):
+                jsonschema.validate(bad, schema)
         assert "config" not in base["properties"]
 
     def test_a_skeleton_schema_that_declares_config_fails(self) -> None:
@@ -236,6 +260,16 @@ class TestAssemble:
             ],
         }
 
+    def test_a_contract_without_a_description_keeps_the_skeletons(
+        self, tmp_path: Path
+    ) -> None:
+        chart = _assemble(tmp_path, _contract(description=""))
+        meta = yaml.safe_load((chart / "Chart.yaml").read_text(encoding="utf-8"))
+        skeleton = yaml.safe_load(
+            (LIBRARY_DIR / "skeleton" / "Chart.yaml").read_text(encoding="utf-8")
+        )
+        assert meta["description"] == skeleton["description"]
+
     def test_the_chart_carries_contract_skeleton_and_values(
         self, tmp_path: Path
     ) -> None:
@@ -243,7 +277,8 @@ class TestAssemble:
         assert sorted(_tree(chart)) == [
             "Chart.yaml",
             "files/contract.json",
-            "templates/all.yaml",
+            "templates/configmap.yaml",
+            "templates/deployment.yaml",
             "values.schema.json",
             "values.yaml",
         ]
@@ -269,13 +304,48 @@ class TestAssemble:
     def test_a_contract_failing_the_schema_fails_with_every_finding(
         self, tmp_path: Path
     ) -> None:
-        contract = _contract(app_name="Dfe_Loader")
-        del contract["metrics_port"]
+        contract = _contract(metrics_port="9090")
+        del contract["health"]
         with pytest.raises(ChartError) as caught:
             _assemble(tmp_path, contract)
-        assert "$.app_name" in str(caught.value)
-        assert "'metrics_port' is a required property" in str(caught.value)
-        assert not (tmp_path / "Dfe_Loader").exists()
+        assert "$.metrics_port" in str(caught.value)
+        assert "'health' is a required property" in str(caught.value)
+        assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.parametrize(
+        "name", ["", "Dfe_Loader", "../escaped", "dfe/loader", "-loader", "a" * 64]
+    )
+    def test_an_app_name_that_is_not_a_dns_label_fails(
+        self, tmp_path: Path, name: str
+    ) -> None:
+        out = tmp_path / "out"
+        out.mkdir()
+        with pytest.raises(ChartError, match="not a lowercase DNS label"):
+            _assemble(out, _contract(app_name=name), f"ghcr.io/hyperi-io/x:v1@{DIGEST}")
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["out"]
+        assert list(out.iterdir()) == []
+
+    def test_an_image_from_another_repository_fails(self, tmp_path: Path) -> None:
+        image = f"ghcr.io/someone-else/dfe-loader:v1.4.2@{DIGEST}"
+        with pytest.raises(ChartError, match="ghcr.io/hyperi-io/dfe-loader"):
+            _assemble(tmp_path, image=image)
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_trailing_slash_on_the_contract_registry_is_ignored(
+        self, tmp_path: Path
+    ) -> None:
+        chart = _assemble(tmp_path, _contract(image_registry="ghcr.io/hyperi-io/"))
+        assert chart.name == "dfe-loader"
+
+    def test_a_contract_without_an_image_registry_fails(self, tmp_path: Path) -> None:
+        contract = _contract()
+        del contract["image_registry"]
+        for registry in (None, ""):
+            if registry is not None:
+                contract["image_registry"] = registry
+            with pytest.raises(ChartError, match="no image_registry"):
+                _assemble(tmp_path, contract)
+        assert list(tmp_path.iterdir()) == []
 
     def test_a_schema_version_the_library_lacks_fails(self, tmp_path: Path) -> None:
         with pytest.raises(ChartError, match="schema_version 9"):
@@ -306,9 +376,10 @@ class TestAssemble:
             check=False,
         )
         assert rendered.returncode == 0, rendered.stderr
-        doc = yaml.safe_load(rendered.stdout)
-        assert doc["metadata"]["name"] == "dfe-loader-config"
-        assert doc["data"]["image-digest"] == DIGEST
+        docs = {d["kind"]: d for d in yaml.safe_load_all(rendered.stdout) if d}
+        assert docs["ConfigMap"]["metadata"]["name"] == "dfe-loader-config"
+        container = docs["Deployment"]["spec"]["template"]["spec"]["containers"][0]
+        assert container["image"] == IMAGE
 
 
 @pytest.fixture

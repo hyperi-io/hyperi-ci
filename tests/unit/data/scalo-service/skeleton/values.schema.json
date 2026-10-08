@@ -1,15 +1,32 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
+  "$defs": {
+    "stringMap": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  },
   "properties": {
+    "fullnameOverride": {
+      "type": "string",
+      "pattern": "^([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)?$"
+    },
+    "podLabels": { "$ref": "#/$defs/stringMap" },
     "image": {
       "type": "object",
       "properties": {
-        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+        "registry": { "type": "string" },
+        "repository": { "type": "string" },
+        "tag": { "type": "string" },
+        "digest": { "type": "string", "pattern": "^(sha256:[0-9a-f]{64})?$" }
       }
     },
-    "replicas": {"type": "integer", "minimum": 0},
-    "configOverrides": {"type": "object"},
-    "extraEnv": {"type": "array"}
+    "replicaCount": { "type": "integer", "minimum": 0, "x-scalo-dial": "big" },
+    "configOverrides": { "type": "object" },
+    "extraEnv": {
+      "type": "object",
+      "additionalProperties": { "type": ["string", "number", "boolean"] }
+    }
   }
 }
