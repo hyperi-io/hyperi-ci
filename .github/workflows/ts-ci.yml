@@ -314,25 +314,14 @@ jobs:
         with:
           node-version: ${{ inputs.node-version }}
 
-      - name: Install uv
-        if: ${{ runner.environment != 'self-hosted' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: Setup runtime (uv + Python + native deps)
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
         with:
-          enable-cache: false
-
-      - name: Set up Python
-        # The fleet default on purpose: this interpreter runs the hyperi-ci
-        # CLI, and a TypeScript project has no Python of its own to follow.
-        # Only python-ci.yml resolves the version from the project (issue #150).
-        run: |
-          command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
-          command -v python3 || uv python install 3.14
+          language: typescript
+          hyperci-install: ${{ env.HYPERCI_INSTALL }}
 
       - name: Install dependencies
         run: ${{ env.HYPERCI_INSTALL }} install-deps typescript
-
-      - name: Install native dependencies
-        run: ${{ env.HYPERCI_INSTALL }} install-native-deps typescript
 
       - name: Setup osv-scanner
         # Malicious-package (MAL-*) scanner -- covers the OSSF
@@ -393,25 +382,14 @@ jobs:
         with:
           node-version: ${{ inputs.node-version }}
 
-      - name: Install uv
-        if: ${{ runner.environment != 'self-hosted' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: Setup runtime (uv + Python + native deps)
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
         with:
-          enable-cache: false
-
-      - name: Set up Python
-        # The fleet default on purpose: this interpreter runs the hyperi-ci
-        # CLI, and a TypeScript project has no Python of its own to follow.
-        # Only python-ci.yml resolves the version from the project (issue #150).
-        run: |
-          command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
-          command -v python3 || uv python install 3.14
+          language: typescript
+          hyperci-install: ${{ env.HYPERCI_INSTALL }}
 
       - name: Install dependencies
         run: ${{ env.HYPERCI_INSTALL }} install-deps typescript
-
-      - name: Install native dependencies
-        run: ${{ env.HYPERCI_INSTALL }} install-native-deps typescript
 
       - name: Init submodules
         # The checkout keeps no credential, so the job token reaches this step
@@ -482,19 +460,11 @@ jobs:
         with:
           node-version: ${{ inputs.node-version }}
 
-      - name: Install uv
-        if: ${{ runner.environment != 'self-hosted' }}
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: Setup runtime (uv + Python + native deps)
+        uses: hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
         with:
-          enable-cache: false
-
-      - name: Set up Python
-        # The fleet default on purpose: this interpreter runs the hyperi-ci
-        # CLI, and a TypeScript project has no Python of its own to follow.
-        # Only python-ci.yml resolves the version from the project (issue #150).
-        run: |
-          command -v uv || curl -LsSf https://astral.sh/uv/install.sh | sh
-          command -v python3 || uv python install 3.14
+          language: typescript
+          hyperci-install: ${{ env.HYPERCI_INSTALL }}
 
       - name: Stamp predicted version
         # Stamps VERSION + package.json, which npm publish reads, on every release run: push and from-head release HEAD, whose committed tree is stale (issue #35), and a tag dispatch checks out a tag whose tree still carries the release before it (issue #352).
@@ -506,9 +476,6 @@ jobs:
 
       - name: Install dependencies
         run: ${{ env.HYPERCI_INSTALL }} install-deps typescript
-
-      - name: Install native dependencies
-        run: ${{ env.HYPERCI_INSTALL }} install-native-deps typescript
 
       - name: Run build
         run: ${{ env.HYPERCI_INSTALL }} run build
