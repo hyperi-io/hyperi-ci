@@ -61,7 +61,7 @@ jobs:
   plan:
     name: Plan
     runs-on: ubuntu-latest
-    # semantic-release's git plugin verifies push access (`git push --dry-run`)
+    # semantic-release core verifies push access (`git push --dry-run`)
     # on a publish predict, which needs write. A fork PR never reaches that
     # (will-publish is false off main), so its read-only token resolves the gates.
     permissions:

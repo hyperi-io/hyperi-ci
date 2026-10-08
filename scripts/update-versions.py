@@ -8,7 +8,7 @@
 """Hold the pipeline's tool and runtime pins to the central versions SSOT.
 
 This is the /deps tool for hyperi-ci. It keeps every marked tool and runtime
-pin, and the semantic-release install line, in step with versions.yaml.
+pin in step with versions.yaml.
 `--check` in CI enforces it. Scans both .github/workflows/ and
 .github/actions/. GitHub Actions `uses:` refs are Renovate's, not this
 script's. Policy + the Renovate split: docs/dependencies/deps-pinning.md.
@@ -255,8 +255,7 @@ def _find_workflow_files() -> list[Path]:
     """Find every pipeline YAML -- workflows AND composite actions.
 
     Composite actions under `.github/actions/*/action.yml` carry runtime
-    literals and the semantic-release install line too, so a scan of
-    workflows alone would leave those unchecked.
+    literals too, so a scan of workflows alone would leave those unchecked.
     """
     files: list[Path] = []
     for pattern in ("*.yml", "*.yaml"):
@@ -371,22 +370,6 @@ def _build_replacements(versions: dict) -> list[tuple[re.Pattern, str, str]]:
         pattern = re.compile(r"(rust-toolchain.*\n\s+default:\s*)\S+")
         replacement = rf"\g<1>{rust_ver}"
         replacements.append((pattern, replacement, f"Rust {rust_ver}"))
-
-    sr = versions.get("semantic_release", {})
-    sr_core = sr.get("core")
-    if sr_core:
-        # Negative lookbehind: don't match inside a longer name such as the
-        # setup-semantic-release@main action ref (only the bare npm package).
-        pattern = re.compile(r"(?<![\w-])(semantic-release@)\S+")
-        replacement = rf"\g<1>{sr_core}"
-        replacements.append((pattern, replacement, f"semantic-release@{sr_core}"))
-
-    # Plugin majors, driven from the SSOT exactly as `core` is, so a pin in the
-    # install line cannot drift from the value recorded here.
-    for pkg, major in (sr.get("plugin_pins") or {}).items():
-        pattern = re.compile(rf"(?<![\w-])({re.escape(pkg)}@)\S+")
-        replacement = rf"\g<1>{major}"
-        replacements.append((pattern, replacement, f"{pkg}@{major}"))
 
     return replacements
 
@@ -521,21 +504,19 @@ class _Resolution:
     Attributes:
         tools: Tool name -> the version --auto-update writes.
         digests: Tool name -> the sha256 per asset key written with that version.
-        semantic_release: (current, newest) core major, when they differ.
         manual: Tools with a newer soaked release that need a hand bump.
         lookup_failures: Tools whose upstream could not be read.
     """
 
     tools: dict[str, str] = field(default_factory=dict)
     digests: dict[str, dict[str, str]] = field(default_factory=dict)
-    semantic_release: tuple[str, str] | None = None
     manual: int = 0
     lookup_failures: int = 0
 
     @property
     def writes(self) -> int:
         """Pins --auto-update would rewrite in versions.yaml."""
-        return len(self.tools) + (1 if self.semantic_release else 0)
+        return len(self.tools)
 
 
 def _release_digests(repo: str, tag: str) -> dict[str, str] | None:
@@ -657,17 +638,6 @@ def _resolve(versions: dict, now: datetime) -> _Resolution:
     print()
     for name, spec in (versions.get("runtimes") or {}).items():
         print(f"  {name}: {_runtime_value(spec)} (manual -- check release notes)")
-
-    sr_core = (versions.get("semantic_release") or {}).get("core")
-    if sr_core:
-        latest_sr = _get_latest_npm_major("semantic-release")
-        if latest_sr is None:
-            print(f"\n  semantic-release: {sr_core} (could not check)")
-        elif latest_sr != sr_core:
-            print(f"\n  semantic-release: {sr_core} -> {latest_sr}")
-            res.semantic_release = (sr_core, latest_sr)
-        else:
-            print(f"\n  semantic-release: {sr_core} (up to date)")
     return res
 
 
@@ -698,23 +668,6 @@ def _stable(versions: dict, *, fail_on_drift: bool = False) -> int:
     if fail_on_drift and (res.writes or res.manual or res.lookup_failures):
         return 1
     return 0
-
-
-def _get_latest_npm_major(package: str) -> str | None:
-    """Query npm for latest major version of a package."""
-    try:
-        result = subprocess.run(
-            ["npm", "view", package, "version"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=10,
-        )
-        ver = result.stdout.strip()
-        return ver.split(".")[0] if ver else None
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return None
 
 
 def _validate_locally() -> list[str]:
@@ -769,15 +722,21 @@ def _tool_releases(spec: dict, releases: list[dict[str, Any]]) -> list[dict[str,
     prefixed tag outright - the tool would look permanently up to date while
     actually being unmanaged. `tag_prefix` selects the right crate and strips
     the prefix so the usual semver + cooldown logic applies unchanged.
+
+    `major:` keeps only that major's releases, for a tool held by a known
+    incompatibility (versions.yaml says when that applies).
     """
     prefix = str(spec.get("tag_prefix") or "")
-    if not prefix:
-        return releases
+    major = spec.get("major")
     out: list[dict[str, Any]] = []
     for rel in releases:
         tag = str(rel.get("tag_name") or "")
-        if tag.startswith(prefix):
-            out.append({**rel, "tag_name": tag[len(prefix) :]})
+        if not tag.startswith(prefix):
+            continue
+        tag = tag[len(prefix) :]
+        if major is not None and (ver := _parse_semver(tag)) and ver[0] != int(major):
+            continue
+        out.append({**rel, "tag_name": tag})
     return out
 
 
@@ -1012,7 +971,7 @@ def _unwritten(text: str, res: _Resolution) -> list[str]:
 
 
 def _auto_update(versions: dict) -> int:
-    """Auto-update tools + semantic-release, validate locally, revert on fail.
+    """Auto-update tools, validate locally, revert on fail.
 
     Tools resolve to the newest release past the 7-day cooldown, majors
     included. Runtimes never auto-bump. Validation is LOCAL (see
@@ -1021,7 +980,6 @@ def _auto_update(versions: dict) -> int:
     PR, not here.
     """
     res = _resolve(versions, datetime.now(UTC))
-    tool_updates, sr_update = res.tools, res.semantic_release
 
     if not res.writes:
         print("\nNo auto-updates available.")
@@ -1039,13 +997,9 @@ def _auto_update(versions: dict) -> int:
     }
 
     yaml_content = original_yaml
-    for tool_name, tool_version in tool_updates.items():
+    for tool_name, tool_version in res.tools.items():
         yaml_content = _set_tool_version_in_yaml(
             yaml_content, tool_name, tool_version, res.digests.get(tool_name)
-        )
-    if sr_update:
-        yaml_content = re.sub(
-            r'(?m)^(  core:\s*")[^"]*(")', rf"\g<1>{sr_update[1]}\g<2>", yaml_content
         )
     _VERSIONS_FILE.write_text(yaml_content, encoding="utf-8", newline="\n")
 

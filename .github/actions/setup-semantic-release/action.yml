@@ -20,8 +20,9 @@
 # .releaserc WITHOUT those plugins (e.g. an exec-only stamp for a multi-crate
 # workspace) is a legitimate exception and is honoured.
 # semantic-release is a TAGGER only: stamping is `hyperi-ci stamp-version` and
-# publishing is hyperi-ci's publish stage. The git/github plugins stay in the
-# install list for back-compat but the central config never uses them.
+# publishing is hyperi-ci's publish stage. @semantic-release/git is not
+# installed. @semantic-release/github is, because core depends on it, but no
+# config this composite honours loads it.
 
 name: Setup semantic-release
 description: Install the pinned, shared semantic-release toolchain (single source of truth)
@@ -43,18 +44,32 @@ runs:
 
     - name: Install semantic-release + plugins (pinned)
       shell: bash
-      # Every version literal below is driven from config/versions.yaml by
-      # scripts/update-versions.py -- edit it there, not here.
+      # scripts/update-versions.py rewrites each marked value from the `tools:`
+      # entry of the same name in versions.yaml -- edit it there, not here.
+      env:
+        # hyperi-ci:pin tools.semantic-release
+        SR_CORE: "25.0.9"
+        # hyperi-ci:pin tools.semantic-release-commit-analyzer
+        SR_COMMIT_ANALYZER: "13.0.1"
+        # hyperi-ci:pin tools.semantic-release-release-notes-generator
+        SR_RELEASE_NOTES_GENERATOR: "14.1.1"
+        # hyperi-ci:pin tools.semantic-release-changelog
+        SR_CHANGELOG: "7.0.0"
+        # hyperi-ci:pin tools.semantic-release-exec
+        SR_EXEC: "7.1.0"
+        # hyperi-ci:pin tools.semantic-release-github
+        SR_GITHUB: "12.0.10"
+        # hyperi-ci:pin tools.conventional-changelog-conventionalcommits
+        SR_CONVENTIONALCOMMITS: "9.3.1"
       run: |
         npm install -g \
-          semantic-release@25 \
-          @semantic-release/commit-analyzer@13.0.1 \
-          @semantic-release/release-notes-generator@14.1.1 \
-          @semantic-release/changelog@7.0.0 \
-          @semantic-release/exec@7.1.0 \
-          @semantic-release/git@11.0.1 \
-          @semantic-release/github@12.0.10 \
-          conventional-changelog-conventionalcommits@9.3.1
+          "semantic-release@$SR_CORE" \
+          "@semantic-release/commit-analyzer@$SR_COMMIT_ANALYZER" \
+          "@semantic-release/release-notes-generator@$SR_RELEASE_NOTES_GENERATOR" \
+          "@semantic-release/changelog@$SR_CHANGELOG" \
+          "@semantic-release/exec@$SR_EXEC" \
+          "@semantic-release/github@$SR_GITHUB" \
+          "conventional-changelog-conventionalcommits@$SR_CONVENTIONALCOMMITS"
 
     - name: Provide the release config (central default, never the #37 plugins)
       shell: bash

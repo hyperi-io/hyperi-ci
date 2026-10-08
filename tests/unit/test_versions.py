@@ -158,13 +158,14 @@ class TestCompositeToolsPinDigestsInTheSSOT:
     """The digests those actions mirror have to exist here first."""
 
     # Fetched and vouched for by someone else: govulncheck via the Go module
-    # proxy and sum.golang.org, pyyaml and vulture by uv from PyPI.
+    # proxy and sum.golang.org, pyyaml and vulture by uv from PyPI. An `npm:`
+    # entry is checked by npm against the registry's sha512 `integrity`.
     DELEGATED = {"govulncheck", "pyyaml", "vulture"}
 
     def test_every_action_pinned_tool_pins_a_digest(self) -> None:
         data = yaml.safe_load(versions.VERSIONS_FILE.read_text(encoding="utf-8"))
         for name, spec in (data.get("tools") or {}).items():
-            if not spec.get("pin") or name in self.DELEGATED:
+            if not spec.get("pin") or name in self.DELEGATED or spec.get("npm"):
                 continue
             digests = spec.get("sha256")
             assert digests, f"tools.{name} is fetched by an action but pins no sha256"
