@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.13.5](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.4...v2.13.5) (2026-10-08)
+
+### Bug Fixes
+
+* **container:** retry the build when an apt mirror is mid-sync ([#612](https://github.com/hyperi-io/hyperi-ci/issues/612)) ([ba92aee](https://github.com/hyperi-io/hyperi-ci/commit/ba92aeec3c33d0c290cc689f87664423704c8023)), closes [#610](https://github.com/hyperi-io/hyperi-ci/issues/610)
+* **deps:** report when a pinned runtime falls behind upstream ([#614](https://github.com/hyperi-io/hyperi-ci/issues/614)) ([8718219](https://github.com/hyperi-io/hyperi-ci/commit/87182191d683e2c438e8a726fc5b7bf35ef2b3c5))
+
 ## [2.13.4](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.3...v2.13.4) (2026-10-08)
 
 ### Bug Fixes
