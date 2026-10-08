@@ -448,6 +448,19 @@ def _pull_library(registry: str, library: str, scratch: Path) -> Path:
     return scratch / LIBRARY
 
 
+def build_dependency(chart: Path, registry: str) -> None:
+    """Fetch scalo-service into ``chart/charts``, which a render needs first.
+
+    Raises:
+        ChartError: helm could not fetch it. The chart directory is removed.
+
+    """
+    rc, out = _helm("dependency", "build", str(chart), registry=registry)
+    if rc != 0:
+        shutil.rmtree(chart)
+        raise ChartError(f"helm dependency build {chart.name} failed:\n{out}")
+
+
 def assemble_chart(
     config: CIConfig,
     root: Path,
@@ -461,6 +474,10 @@ def assemble_chart(
 ) -> tuple[int, Path | None]:
     """Assemble the thin chart ``release.helm`` describes, if it describes one.
 
+    A library pulled from the registry is also built into the chart's
+    ``charts/``. A ``library_dir`` is read offline, so the chart is left
+    for ``helm dependency build``.
+
     Returns:
         ``(exit code, chart directory)``. The directory is None when the
         project assembles no chart or the assembly failed.
@@ -468,7 +485,10 @@ def assemble_chart(
     """
     setting = config.get("release.helm.contract")
     library = config.get("release.helm.library")
-    if not config.get("release.helm.enabled", False) or not setting:
+    if not config.get("release.helm.enabled", False):
+        info("release.helm.enabled is off -- no chart to assemble")
+        return 0, None
+    if not setting:
         info("release.helm.contract is not set -- no chart to assemble")
         return 0, None
     registry = (registry or config.get("release.helm.registry") or "").rstrip("/")
@@ -477,9 +497,12 @@ def assemble_chart(
     except ReleaseVersionError as exc:
         error(str(exc))
         return 1, None
-    inside_repo = output_dir is not None and output_dir.resolve().is_relative_to(
-        root.resolve()
-    )
+    runner_temp = os.environ.get("RUNNER_TEMP") or None
+    if output_dir is not None:
+        parent, where = output_dir.resolve(), "--output-dir"
+    else:
+        parent = Path(runner_temp or tempfile.gettempdir()).resolve()
+        where = "the chart temp dir under"
     checks = (
         (not library, "release.helm.library is not set"),
         (
@@ -487,37 +510,75 @@ def assemble_chart(
             f"Helm registry must be oci://: {registry!r}",
         ),
         (not version, "No release version -- pass --version or set HYPERCI_VERSION"),
-        (inside_repo, f"--output-dir {output_dir} is inside the repo"),
+        (
+            parent.is_relative_to(root.resolve()),
+            f"{where} {parent} is inside the repo",
+        ),
     )
     for failed, message in checks:
         if failed:
             error(message)
             return 1, None
-    runner_temp = os.environ.get("RUNNER_TEMP") or None
-    out = output_dir or Path(
-        tempfile.mkdtemp(prefix="hyperi-ci-chart-", dir=runner_temp)
+    out = (
+        parent
+        if output_dir is not None
+        else Path(tempfile.mkdtemp(prefix="hyperi-ci-chart-", dir=parent))
     )
-    out = out.resolve()
     try:
-        with tempfile.TemporaryDirectory(prefix="hyperi-ci-assemble-") as tmp:
-            scratch = Path(tmp)
-            raw_contract = load_contract(str(setting), root, scratch, binary)
-            if library_dir is None:
-                if not _ensure_helm():
-                    return 1, None
-                library_dir = _pull_library(registry, str(library), scratch)
-            out.mkdir(parents=True, exist_ok=True)
-            chart = assemble(
-                raw_contract,
-                library_dir,
-                out,
-                version=str(version),
-                image=image,
-                library=str(library),
-                registry=registry,
-            )
+        chart = _assemble_from_config(
+            config,
+            root,
+            out,
+            image=image,
+            library_dir=library_dir,
+            binary=binary,
+            registry=registry,
+            version=str(version),
+        )
     except ChartError as exc:
         error(str(exc))
+        if output_dir is None:
+            shutil.rmtree(out, ignore_errors=True)
         return 1, None
     success(f"Assembled {chart.name} {version} in {chart}")
     return 0, chart
+
+
+def _assemble_from_config(
+    config: CIConfig,
+    root: Path,
+    out: Path,
+    *,
+    image: str,
+    library_dir: Path | None,
+    binary: str | None,
+    registry: str,
+    version: str,
+) -> Path:
+    setting = str(config.get("release.helm.contract"))
+    library = str(config.get("release.helm.library"))
+    with tempfile.TemporaryDirectory(prefix="hyperi-ci-assemble-") as tmp:
+        scratch = Path(tmp)
+        raw_contract = load_contract(setting, root, scratch, binary)
+        pulled = library_dir is None
+        if library_dir is None:
+            if not _ensure_helm():
+                raise ChartError("helm is not on PATH and could not be installed")
+            library_dir = _pull_library(registry, library, scratch)
+        chart = assemble(
+            raw_contract,
+            library_dir,
+            out,
+            version=version,
+            image=image,
+            library=library,
+            registry=registry,
+        )
+        if pulled:
+            build_dependency(chart, registry)
+        else:
+            info(
+                f"{LIBRARY} was read from {library_dir}: run helm dependency "
+                f"build on {chart} before rendering it"
+            )
+    return chart
