@@ -131,7 +131,7 @@ doc-paths: 3 reference(s) ignored by marker (doc-paths: ignore)
 
 ## Rust feature matrix: warnings
 
-The feature matrix runs clippy on each feature alone (`cargo clippy --no-default-features`, then `cargo hack --each-feature --no-dev-deps clippy`). Code every combined build uses can be dead in one of those builds, and a lint can fire only when another feature's `cfg` is off. The main clippy pass sees neither, because it runs `--all-features`. The repo's clippy entries in `quality.ignore` apply to every feature set, and with `quality.rust.clippy: disabled` the matrix runs `cargo check` instead. `quality.rust.feature_matrix.warnings` decides what a warning or lint does. It ships `warn`, and `--strict` upgrades it. A compile error fails in every mode.
+The feature matrix runs clippy on each feature alone (`cargo clippy --no-default-features`, then `cargo hack --each-feature clippy`). Code every combined build uses can be dead in one of those builds, and a lint can fire only when another feature's `cfg` is off. The main clippy pass sees neither, because it runs `--all-features`. The repo's clippy entries in `quality.ignore` apply to every feature set, and with `quality.rust.clippy: disabled` the matrix runs `cargo check` instead. `quality.rust.feature_matrix.warnings` decides what a warning or lint does. It ships `warn`, and `--strict` upgrades it. A compile error fails in every mode.
 
 | Mode | Behaviour |
 |---|---|
