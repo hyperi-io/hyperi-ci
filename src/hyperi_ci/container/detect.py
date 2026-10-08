@@ -13,6 +13,7 @@ configured path. Without one, a library skips quietly and a runnable project
 """
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -113,6 +114,9 @@ def _typescript_is_library(project_dir: Path) -> bool:
     return True
 
 
+_PACKAGE_MAIN = re.compile(r"\s*package\s+main\b")
+
+
 def _golang_is_library(project_dir: Path) -> bool:
     """Return True for a ``go.mod`` project with no ``package main`` file.
 
@@ -128,7 +132,6 @@ def _golang_is_library(project_dir: Path) -> bool:
         except OSError:
             continue
         for line in head:
-            stripped = line.strip()
-            if stripped.startswith("package main"):
+            if _PACKAGE_MAIN.match(line):
                 return False
     return True

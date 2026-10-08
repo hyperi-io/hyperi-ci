@@ -42,10 +42,10 @@ _COPY_LINE = re.compile(
     (?P<dst>\S+)
     \s*$
     """,
-    re.VERBOSE,
+    re.VERBOSE | re.IGNORECASE,
 )
 
-_FROM_LINE = re.compile(r"^\s*FROM\s+\S+(\s+AS\s+\S+)?\s*$", re.IGNORECASE)
+_FROM_LINE = re.compile(r"^\s*FROM\s+(--\S+\s+)*\S+(\s+AS\s+\S+)?\s*$", re.IGNORECASE)
 
 _ARG_TARGETARCH = re.compile(r"^\s*ARG\s+TARGETARCH\b", re.IGNORECASE)
 

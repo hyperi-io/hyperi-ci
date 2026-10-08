@@ -861,6 +861,50 @@ class TestRenovateGaps:
         assert result["config"] is None
         assert "pep621" in {item["id"] for item in result["uncovered"]}
 
+    def test_json5_config_with_comments_still_yields_enabled_managers(
+        self, tmp_path: Path
+    ) -> None:
+        _write(
+            tmp_path,
+            "renovate.json5",
+            '// managed\n{ "enabledManagers": ["pep621"] }\n',
+        )
+        result = renovate.gaps(tmp_path, surfaces.scan(tmp_path))
+        assert result["config"] == "renovate.json5"
+        assert result["enabled_managers"] == ["pep621"]
+
+    def test_renovaterc_json5_is_found(self, tmp_path: Path) -> None:
+        _write(tmp_path, ".renovaterc.json5", '{ "enabledManagers": ["npm"], }\n')
+        result = renovate.gaps(tmp_path, surfaces.scan(tmp_path))
+        assert result["config"] == ".renovaterc.json5"
+        assert result["enabled_managers"] == ["npm"]
+
+    def test_config_names_follow_renovates_documented_order(self) -> None:
+        names = renovate.CONFIG_NAMES
+        assert names[:3] == ("renovate.json", "renovate.jsonc", "renovate.json5")
+        assert names[-1] == ".renovaterc.json5"
+        assert len(names) == 13
+
+
+class TestStripJson5:
+    strip = staticmethod(renovate._strip_comments_and_trailing_commas)
+
+    def test_slashes_inside_strings_survive(self) -> None:
+        text = '{"extends": ["github>org/repo//preset"], "u": "a /* b */ c"}'
+        assert json.loads(self.strip(text)) == json.loads(text)
+
+    def test_escaped_quote_does_not_end_the_string(self) -> None:
+        text = '{"a": "say \\"// hi\\"", // trailing\n "b": 1}'
+        assert json.loads(self.strip(text)) == {"a": 'say "// hi"', "b": 1}
+
+    def test_block_comments_and_trailing_commas(self) -> None:
+        text = '{ /* c */ "a": [1, 2, // x\n ], "b": {"c": 1,}, }'
+        assert json.loads(self.strip(text)) == {"a": [1, 2], "b": {"c": 1}}
+
+    def test_comma_inside_string_before_brace_is_kept(self) -> None:
+        text = '{"a": ",}"}'
+        assert json.loads(self.strip(text)) == {"a": ",}"}
+
 
 # ---------------------------------------------------------------------------
 # report + show -- the one-call surface
