@@ -591,6 +591,23 @@ class TestTheRehearsalRefusesDuringASweep:
 
 _FIXTURE = "hyperi-io/ci-test-go-app"
 
+_CI_YML = (
+    "on: pull_request\n"
+    "jobs:\n"
+    "  ci:\n"
+    "    uses: hyperi-io/hyperi-ci/.github/workflows/go-ci.yml@main\n"
+)
+# Swapped like ci.yml, but scheduled: it never runs on a pull request.
+_PRUNE_YML = (
+    "on:\n"
+    "  schedule:\n"
+    "    - cron: '0 3 * * 0'\n"
+    "  workflow_dispatch:\n"
+    "jobs:\n"
+    "  prune:\n"
+    "    uses: hyperi-io/hyperi-ci/.github/workflows/ghcr-prune.yml@main\n"
+)
+
 
 def _fake_fixture(
     prior: str | None,
@@ -601,10 +618,12 @@ def _fake_fixture(
     rev_parse_rc: int = 0,
     extra_workflows: dict[str, str] | None = None,
     runs: list[dict] | None = None,
+    ci_yml: str = _CI_YML,
 ):
     """Answer every gh and git call main() makes, recording what it changes.
 
-    ``extra_workflows`` adds fixture workflow files beside ci.yml. ``runs`` are the
+    ``extra_workflows`` adds fixture workflow files beside ci.yml, whose text is
+    ``ci_yml``. ``runs`` are the
     fixture's runs newest first, each naming its ``workflow`` file, which a
     ``gh run list --workflow`` filters on.
 
@@ -642,10 +661,7 @@ def _fake_fixture(
         if args[:3] == ["gh", "repo", "clone"]:
             workflows = Path(args[4]) / ".github" / "workflows"
             workflows.mkdir(parents=True)
-            (workflows / "ci.yml").write_text(
-                "uses: hyperi-io/hyperi-ci/.github/workflows/go-ci.yml@main\n",
-                encoding="utf-8",
-            )
+            (workflows / "ci.yml").write_text(ci_yml, encoding="utf-8")
             for name, text in (extra_workflows or {}).items():
                 (workflows / name).write_text(text, encoding="utf-8")
             return ok()
@@ -967,3 +983,89 @@ class TestOnlyTheSwappedWorkflowIsJudged:
     def test_nothing_to_watch_is_refused(self) -> None:
         with pytest.raises(ValueError):
             rehearse_branch._watch_pr_run("o/r", "rehearse/x", _SHA, 1, [])
+
+
+class TestOnlyPullRequestWorkflowsAreWaitedOn:
+    """ghcr-prune.yml carries a hyperi-ci ref but runs on a schedule.
+
+    Waiting for a pull_request run of it timed a green rehearsal out as
+    INCONCLUSIVE.
+    """
+
+    @staticmethod
+    def _main(monkeypatch, workflows, runs) -> int:
+        fake, _changes = _fake_fixture(None, extra_workflows=workflows, runs=runs)
+        monkeypatch.setattr(rehearse_branch, "_run", fake)
+        monkeypatch.setattr(rehearse_branch, "time", _Clock())
+        monkeypatch.setattr(rehearse_branch, "_wait_for_merge_ref", lambda *_a: True)
+        argv = ["rehearse-branch.py", "--branch", "fix/x", "--repo", _FIXTURE]
+        monkeypatch.setattr(sys, "argv", [*argv, "--no-cli-override"])
+        return rehearse_branch.main()
+
+    def test_a_scheduled_swapped_workflow_is_not_waited_on(
+        self, monkeypatch, capsys
+    ) -> None:
+        runs = [_fixture_run(37757411822, "ci.yml", "completed", "success")]
+        code = self._main(monkeypatch, {"ghcr-prune.yml": _PRUNE_YML}, runs)
+        out = capsys.readouterr().out
+        assert "ghcr-prune.yml" in out.splitlines()[1]
+        assert "REHEARSAL PASSED" in out
+        assert code == 0
+
+    def test_a_red_pull_request_run_still_fails_beside_a_scheduled_one(
+        self, monkeypatch
+    ) -> None:
+        runs = [_fixture_run(1, "ci.yml", "completed", "failure")]
+        assert self._main(monkeypatch, {"ghcr-prune.yml": _PRUNE_YML}, runs) == 1
+
+    def test_no_swapped_workflow_on_pull_request_is_a_failure(
+        self, monkeypatch, capsys
+    ) -> None:
+        fake, changes = _fake_fixture(None, ci_yml=_PRUNE_YML)
+        monkeypatch.setattr(rehearse_branch, "_run", fake)
+        argv = ["rehearse-branch.py", "--branch", "fix/x", "--repo", _FIXTURE]
+        monkeypatch.setattr(sys, "argv", [*argv, "--no-cli-override"])
+        assert rehearse_branch.main() == 1
+        assert "run on pull_request" in capsys.readouterr().err
+        assert not any(c[:3] == ["gh", "pr", "create"] for c in changes)
+
+
+class TestRunsOnPullRequest:
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("on: pull_request\n", True),
+            ("on: push\n", False),
+            ("on: [push, pull_request]\n", True),
+            ("on: [push, workflow_dispatch]\n", False),
+            ("on:\n  pull_request:\n    branches: [main]\n", True),
+            ("on:\n  pull_request_target:\n", True),
+            ("on:\n  schedule:\n    - cron: '0 3 * * 0'\n", False),
+            ('"on":\n  pull_request:\n', True),
+            ("jobs: {}\n", False),
+            ("on: [unterminated\n", False),
+            ("- just\n- a list\n", False),
+        ],
+        ids=[
+            "string",
+            "string-other",
+            "list",
+            "list-other",
+            "mapping",
+            "mapping-target",
+            "mapping-schedule",
+            "quoted-on-key",
+            "no-on",
+            "invalid-yaml",
+            "not-a-mapping",
+        ],
+    )
+    def test_every_on_shape(self, text, expected) -> None:
+        assert rehearse_branch.runs_on_pull_request(text) is expected
+
+    def test_a_bare_on_key_is_the_boolean_true_in_yaml_1_1(self) -> None:
+        """The reason the parser checks True as well as "on"."""
+        import yaml
+
+        assert yaml.safe_load("on: pull_request\n") == {True: "pull_request"}
+        assert rehearse_branch.runs_on_pull_request("on: pull_request\n")
