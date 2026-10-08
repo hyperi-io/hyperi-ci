@@ -4,27 +4,13 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Compose resolution check - the compose structural GATE.
+"""Compose resolution gate: ``docker compose config`` over each standalone file.
 
-``docker compose config`` interpolates every variable, merges every extension
-and fails on anything structurally wrong. It needs no daemon and no registry
-access, which is what makes it usable as a gate: the check is about the FILE,
-not about the stack running.
-
-**Hard-fail keys.** A stack that pins its images through ``${VAR:?message}``
-aborts the moment one is unset, which on CI is all of them - so this discovers
-those keys from the file itself and supplies a placeholder for each. A real
-value already in the environment always wins, so a local run with a pinned
-``.env`` validates the real pins. Placeholder injection is what keeps the check
-hermetic; the PIN side is :mod:`hyperi_ci.quality.compose_pins`, which is why
-handing compose an invented value costs nothing here.
-
-**Overlay fragments are skipped, loudly.** A file whose services carry neither
-``image`` nor ``build`` is a patch applied on top of another file (compose
-rejects it standalone with "has neither an image nor a build context"), and the
-file set it belongs to is a repo convention this verb cannot know. It is named
-in the log rather than silently dropped or falsely failed. ``compose-pins``
-still reads it, because a fragment can override an image.
+It needs no daemon and no registry. Each ``${VAR:?message}`` key gets a
+placeholder, which overrides any value already set, so the check runs on CI;
+pins are :mod:`hyperi_ci.quality.compose_pins`' job. A file whose services
+carry neither ``image`` nor ``build`` is an overlay fragment that compose
+rejects standalone, so it is named in the log and skipped.
 """
 
 import re
@@ -45,9 +31,8 @@ _MANDATORY = re.compile(r"\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*):?\?[^}]*\}")
 # Enough to satisfy interpolation and still parse as an image reference.
 _PLACEHOLDER = "0.0.0-hyperi-ci-compose-check"
 
-# A key with one of these suffixes lands in a bind-mount source, where compose
-# reads a relative-looking string as a NAMED VOLUME and fails - so its
-# placeholder has to be an absolute path.
+# These keys land in bind-mount sources, where a non-absolute value is read as
+# a named volume.
 _PATH_KEY_SUFFIXES = ("_ROOT", "_DIR", "_PATH")
 
 
@@ -146,10 +131,10 @@ def run(
     sarif_path: str | Path | None = None,
     timeout: float | None = None,
 ) -> int:
-    """Resolve every standalone compose file in ``files``. Returns exit code.
+    """Resolve every standalone compose file in ``files``; return the exit code.
 
-    0 = every stack resolved / disabled / nothing to resolve; 1 = a blocking gate
-    hit a file that does not resolve, or docker compose is missing in CI.
+    Returns 1 when a blocking gate hits a file that does not resolve, or docker
+    compose is missing in CI.
     """
     mode = resolve_tool_mode("compose_config", config, default="blocking")
     if mode == "disabled":

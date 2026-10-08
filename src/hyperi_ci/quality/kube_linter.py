@@ -4,25 +4,14 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""kube-linter Kubernetes best-practice linting - the k8s ADVISORY.
+"""kube-linter Kubernetes best-practice linting; advisory, never fails a build.
 
-Where kubeconform asks "is this a valid manifest?", kube-linter asks "is this a
-GOOD one?" - production-readiness and security best practices (no run-as-root,
-resource limits set, liveness/readiness probes, ...). It is advisory: it
-surfaces recommendations and NEVER fails the build.
-
-lint-iac hands it the same Helm renders kubeconform validates, so ci values,
-``iac.helm`` overrides and built dependencies apply. kube-linter's own chart
-templating skips a chart with no ``values.yaml`` and reports nothing for it.
-
-hyperi-ci merges one check into the repo's own config,
-``liveness-without-startup-probe``: without a startupProbe, a slow start is
-restarted by the liveness probe. A repo drops it through ``checks.exclude``.
-
-Findings come from ``--format sarif`` and surface through the shared layer.
-kube-linter exits 0 with no report when nothing loads, and 1 with no report on
-a config it rejects, so a target it could not load and a run with no report
-surface as findings too.
+lint-iac hands it the Helm renders kubeconform validates, because kube-linter's
+own templating silently skips a chart with no ``values.yaml``. hyperi-ci merges
+``liveness-without-startup-probe`` into the repo's config; a repo drops it
+through ``checks.exclude``. kube-linter exits 0 or 1 with no report when nothing
+loads or the config is rejected, so skipped targets and a missing report are
+findings too.
 """
 
 import re
@@ -140,10 +129,9 @@ def run_problems(stdout: str, stderr: str, returncode: int) -> list[fdg.Finding]
 def relocate(
     found: list[fdg.Finding], sources: Mapping[Path, Path]
 ) -> list[fdg.Finding]:
-    """Move each finding in a rendered file to the source that rendered it.
+    """Move each finding in a rendered file to its source, dropping the line.
 
-    A render lives in scratch, so its path means nothing in an annotation, and
-    its line numbers count the rendered stream rather than any template.
+    Render line numbers count the rendered stream, not any template.
     """
     by_render = {out.resolve(): fdg.relpath(src) for out, src in sources.items()}
     moved: list[fdg.Finding] = []
@@ -163,15 +151,11 @@ def run(
     timeout: float | None = None,
     sources: Mapping[Path, Path] | None = None,
 ) -> int:
-    """Lint ``targets`` (rendered manifests, plain manifests, chart dirs). ALWAYS 0.
+    """Lint ``targets`` (rendered manifests, plain manifests, chart dirs); return 0.
 
-    ``quality.kube_linter: disabled`` turns it off. Otherwise best-practice
-    findings surface through the shared layer and the build carries on. With
-    ``scratch`` set, the merged config carrying the startup-probe check is
-    written there and passed with ``--config``; without it kube-linter reads
-    the repo's own config from the working directory. ``sources`` maps a
-    rendered target to the chart or kustomization it came from, and a finding
-    in a render is reported there.
+    With ``scratch``, the merged config is written there and passed with
+    ``--config``; without it kube-linter reads the repo's own. ``sources`` maps
+    a render to the chart or kustomization its findings are reported against.
     """
     if resolve_tool_mode("kube_linter", config, default="warn") == "disabled":
         info("  kube-linter: disabled")
@@ -180,8 +164,6 @@ def run(
         info("  kube-linter: no charts or manifests - skipping")
         return 0
 
-    # Auto-install on Linux CI; fall back to an already-present binary. Advisory,
-    # so a missing tool info-skips rather than failing.
     exe = ci_binary("kube-linter") or find_tool("kube-linter", recommended=False)
     if not exe:
         return 0

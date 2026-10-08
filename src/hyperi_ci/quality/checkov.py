@@ -4,22 +4,15 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Checkov IaC security scanning - the k8s + IaC security ADVISORY.
+"""Checkov IaC misconfiguration scanning, advisory by default.
 
-Checkov is the security/misconfiguration layer: it reads Kubernetes manifests,
-Helm charts, Kustomize AND Terraform/OpenTofu, auto-templating Helm/Kustomize
-itself (no pre-render needed). One tool covers dfe-infra's charts and its `.tf`
-- which is why it was chosen over Kubescape (Kubescape cannot scan OpenTofu).
+Checkov reads Kubernetes manifests, Helm charts, Kustomize and OpenTofu, and
+templates Helm and Kustomize itself. Kubescape was passed over because it
+cannot scan OpenTofu. It runs through uvx at the versions.yaml pin.
 
-Installed the same way as semgrep - `uvx --from checkov==<pin>`, with the pin in
-versions.yaml, since uv is already a hard dependency of every hyperi-ci project.
-
-**Advisory by default** (`warn`): its 1000+ policies are broad, and retrofitting
-them onto an existing estate as a hard gate would redline every CI on day one.
-A repo can escalate to `blocking` once tuned. Scoped to the relevant frameworks
-and given a skip-list (e.g. External-Secrets `ExternalSecret` CRs trip Checkov's
-plaintext-secret checks) so it does not overlap gitleaks (secrets) or hadolint
-(Dockerfiles). Findings come from Checkov's SARIF output.
+The default mode is ``warn`` because its 1000+ policies would fail an existing
+estate on day one; a repo escalates to ``blocking`` once tuned. Frameworks and
+a skip-list keep it off gitleaks' and hadolint's ground.
 """
 
 import dataclasses
@@ -36,17 +29,12 @@ from hyperi_ci.tools import missing_tool_notice
 from hyperi_ci.versions import tool_version
 
 _DEFAULT_FRAMEWORKS = ["kubernetes", "helm", "kustomize", "terraform"]
-# Never scan the worktree duplicate trees or scratch (regex, matched by Checkov
-# --skip-path against the path).
+# Regexes for --skip-path: worktree copies and scratch.
 _DEFAULT_SKIP_PATHS = [r".*/\.worktrees/.*", r".*/\.tmp/.*"]
 
 
 def _base_cmd() -> list[str] | None:
-    """Return the pinned checkov invocation, or None when nothing can run it.
-
-    The pin from versions.yaml runs through uvx wherever uv exists; a PATH copy
-    is the fallback without uv.
-    """
+    """Return the pinned checkov invocation (uvx, else PATH), or None."""
     cmd = resolve_tool_cmd(
         ["checkov"], use_uvx=True, spec=f"checkov=={tool_version('checkov')}"
     )
@@ -76,12 +64,10 @@ def run(
     timeout: float | None = None,
     memory_limit_bytes: int | None = None,
 ) -> int:
-    """Scan ``root`` for IaC misconfigurations. Returns exit code.
+    """Scan ``root`` for IaC misconfigurations; return the exit code.
 
-    0 = clean / advisory / skipped / missing-tool; 1 = a ``blocking`` gate hit a
-    finding, or did not finish within ``timeout``. Default mode is ``warn``
-    (advisory), so day-one it never fails. ``memory_limit_bytes`` caps
-    Checkov's address space.
+    Returns 1 only in ``blocking`` mode, on a finding, a timeout, or a failing
+    exit with no report. ``memory_limit_bytes`` caps Checkov's address space.
     """
     mode = resolve_tool_mode("checkov", config, default="warn")
     if mode == "disabled":
@@ -90,7 +76,7 @@ def run(
 
     base = _base_cmd()
     if base is None:
-        # Advisory install path (uvx) - a missing tool warn-skips, never fatal.
+        # A missing tool warn-skips even in blocking mode.
         warn(missing_tool_notice("checkov"))
         return 0
 

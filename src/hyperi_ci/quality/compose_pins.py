@@ -4,33 +4,19 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Compose image-pin assertion - the compose GATE that needs no tools.
+"""Compose image-pin gate: every ``image:`` must resolve to a pin.
 
-Compose is a supported production deploy target, so "which image am I running?"
-must not have a silent answer. An ``image:`` with no tag, or one whose tag
-resolves to ``latest`` when nothing is set, gives the registry the final say
-over what a deploy runs.
+Each reference is resolved as compose would with nothing set, as on a fresh
+checkout or a CI runner:
 
-Every reference is resolved the way compose would resolve it with NOTHING set,
-which is the state a fresh checkout and a CI runner are both in:
+* a mandatory ``${VAR:?message}`` makes compose abort, so the operator must
+  supply the pin and the reference is clean;
+* ``${VAR:-default}`` resolves to its default and ``${VAR}`` to nothing;
+* a ``@sha256:`` digest, literal or in a default, is a full pin.
 
-* a mandatory ``${VAR:?message}`` anywhere in the reference means compose aborts
-  rather than resolving anything - the operator has to supply the pin, so it is
-  clean here;
-* ``${VAR:-default}`` resolves to its default, and ``${VAR}`` to nothing, so
-  both are judged on what that leaves behind;
-* a ``@sha256:`` digest, literal or carried in a default, is a full pin.
-
-Findings split by how much is actually at stake. An untagged reference or one
-resolving to ``latest`` is an ERROR and gates: the running image can change
-under a deploy nobody made. A reference that resolves to a real tag is a NOTICE:
-a tag is mutable at the registry, so it is weaker than a digest, but it is a
-deliberate pin rather than a silent one.
-
-Static by construction - it reads the file rather than asking the daemon - so it
-covers a repo with no docker installed, and it covers every compose file
-including the overlay fragments, which ``docker compose config`` can only reach
-through a file set nobody outside the repo can name.
+No tag, or ``latest``, is an error. A real tag is a notice, because the
+registry can move it. The check reads files rather than the daemon, so it needs
+no docker and covers overlay fragments too.
 """
 
 import re
@@ -43,8 +29,8 @@ from hyperi_ci.quality import findings as fdg
 
 _IMAGE_LINE = re.compile(r"^\s*image:\s*(?P<ref>\S.*?)\s*$")
 
-# `${NAME}`, `${NAME:-default}`, `${NAME-default}`, `${NAME:?msg}`, `${NAME?msg}`
-# - compose's whole interpolation surface. Defaults carry no braces of their own.
+# `${NAME}`, `${NAME:-default}`, `${NAME-default}`, `${NAME:?msg}`, `${NAME?msg}`;
+# a default is assumed to hold no braces of its own.
 _INTERPOLATION = re.compile(
     r"\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?P<form>:?[-?])?(?P<rest>[^}]*)\}"
 )
@@ -90,8 +76,7 @@ def _split_outside_braces(value: str, char: str) -> tuple[str, str] | None:
 def resolve_unset(reference: str) -> str | None:
     """Return ``reference`` as compose resolves it with nothing set.
 
-    None means compose aborts instead: a mandatory ``${VAR:?}`` is present, so
-    the reference cannot silently become anything at all.
+    Returns None when a mandatory ``${VAR:?}`` makes compose abort instead.
     """
     if any("?" in (m.group("form") or "") for m in _INTERPOLATION.finditer(reference)):
         return None
@@ -182,10 +167,9 @@ def run(
     *,
     sarif_path: str | Path | None = None,
 ) -> int:
-    """Assert every image in ``files`` is pinned. Returns exit code.
+    """Assert every image in ``files`` is pinned; return the exit code.
 
-    0 = every reference pinned or mandatory / notices only / disabled / no files;
-    1 = a blocking gate found a reference that resolves to ``latest``.
+    Returns 1 when a blocking gate finds an untagged or ``latest`` reference.
     """
     mode = resolve_tool_mode("compose_pins", config, default="blocking")
     if mode == "disabled":

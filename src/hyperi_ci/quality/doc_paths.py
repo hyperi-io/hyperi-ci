@@ -4,52 +4,20 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Path-existence drift - the docs check that needs nothing installed.
+"""Report doc references to files the repo no longer has; needs nothing installed.
 
-Docs rot by naming files that have since moved or gone. A rename lands, the
-prose still points at the old path, and the only signal is a reader who cannot
-find it. The fix is mechanical: resolve every path a doc names and report the
-ones that are no longer there.
+* A markdown link destination that is gone is an error.
+* An inline-code path that is gone is a warning. To count, the token needs two
+  or more segments and a file extension, an existing parent directory, and a
+  parent holding another file of the same extension. That drops routes
+  (``/healthz``), slash-commands, bare directories, ``application/json``, and
+  paths in another repo's layout (``src/main.rs`` where ``src/`` holds no
+  ``.rs``).
 
-Two kinds of reference, because they fail differently:
-
-* a markdown LINK destination (``[text](docs/thing.md)``) - a reader clicks it
-  and gets a 404. Reported as an error.
-* a path in INLINE CODE (``` `src/hyperi_ci/quality/hadolint.py` ```) - the
-  prose is simply wrong about where something lives. Reported as a warning:
-  lower stakes, and the shape is inferred rather than declared.
-
-The inline-code rule is the one that needs a false-positive filter, because
-``application/json``, ``/metrics`` and ``dist/`` are slash-separated tokens too.
-Three conditions, each removing a class of non-path:
-
-* **Two or more segments, and a file extension.** Kills the routes
-  (``/healthz``), the slash-commands (``/deps``) and the bare directory names
-  (``target/``, ``.claude/``), none of which claim a file exists.
-* **The parent directory exists.** ``application/json`` never had a parent
-  directory, so it was never a path.
-* **The parent holds another file of the same kind.** This is what separates
-  drift from a doc describing somebody ELSE's tree: ``config/org.yaml`` is
-  missing from a directory full of YAML, so it moved; ``src/main.rs`` names a
-  consumer's Rust layout, and this repo's ``src/`` has never held a ``.rs``.
-
-None of the three can tell a stale path from a PRESCRIBED one. A standard
-saying a project's architecture doc belongs at ``docs/ARCHITECTURE.md`` names a
-path in the consumer's tree, and it is missing here because it should be. A
-repo whose docs tell other repos where to put things lists those directories
-under ``quality.doc_paths.prescriptive``, and the inline-code rule skips every
-doc beneath them. Link destinations there are still checked: a link is
-navigation within this repo, whatever the prose around it prescribes.
-
-A single reference that is right as written, such as a retired file named on
-purpose or a path in another repo, takes ``<!-- doc-paths: ignore -->`` on its
-line. That suppresses every path warning on the line, and the run's summary
-counts the suppressed references.
-
-lychee owns link destinations when it is installed (it also resolves anchors,
-which this cannot), so the link rule turns off where lychee runs at the same
-mode or stricter. Where this check is the stricter of the two, it keeps the
-rule, because a gate a repo promoted cannot be decided by one it did not.
+Docs under ``quality.doc_paths.prescriptive`` name paths in consumer trees, so
+their inline code is not checked; their links still are. A line carrying
+``<!-- doc-paths: ignore -->`` is suppressed, and the run counts suppressions.
+The link rule defers to lychee when lychee runs at the same mode or stricter.
 """
 
 import re
@@ -64,32 +32,24 @@ from hyperi_ci.quality import findings as fdg
 _INLINE_LINK = re.compile(r"(?<!\\)!?\[[^\]]*\]\(\s*<?([^)\s>]+)>?[^)]*\)")
 _REF_LINK = re.compile(r"^ {0,3}\[[^\]]+\]:\s*<?(\S+)>?", re.MULTILINE)
 
-# A single-backtick span. Multi-backtick spans hold code samples, not paths.
+# Single-backtick spans only: multi-backtick spans hold code samples.
 _CODE_SPAN = re.compile(r"(?<!`)`([^`\n]+)`(?!`)")
 
-# A fenced code block. Paths inside a shell sample are illustrative, not claims
-# about the repo, so they are removed before the code spans are read.
+# Fenced blocks are removed first: paths in samples make no claim about the repo.
 _FENCED = re.compile(r"^ {0,3}(`{3,}|~{3,}).*?^ {0,3}\1", re.MULTILINE | re.DOTALL)
 
-# Placeholders and globs: the token is a TEMPLATE, so no literal path exists.
+# Placeholder and glob characters: such a token names no literal path.
 _NOT_LITERAL = re.compile(r"[*?{}<>$()\[\]|!\s]")
 
-# A destination that is not a repo path at all.
 _NON_PATH_PREFIX = ("#", "//", "mailto:", "tel:", "data:")
 
 _PRESCRIPTIVE = "quality.doc_paths.prescriptive"
 
-# Per-line exception. Every file this check scans is markdown, so one HTML
-# comment form covers it - invisible once rendered, unlike a visible aside.
 _IGNORE_MARKER = re.compile(r"<!--\s*doc-paths:\s*ignore\s*-->")
 
 
 class _Suppressed:
-    """Threads a suppression count through the scan functions.
-
-    Kept out of their return value so the existing list-of-Finding contract
-    is unchanged for callers that only want the findings.
-    """
+    """A suppression count threaded through the scan functions' keyword args."""
 
     __slots__ = ("count",)
 
@@ -111,9 +71,6 @@ def _is_marked(text: str, pos: int) -> bool:
 
 def prescriptive_dirs(config: CIConfig) -> list[PurePosixPath]:
     """Return ``quality.doc_paths.prescriptive``, or raise on a malformed value.
-
-    A malformed entry would otherwise leave the check reporting the rules the
-    repo meant to exempt, with nothing saying why.
 
     Raises:
         ValueError: The value is not a list of repo-relative directory paths.
@@ -150,8 +107,7 @@ def prescriptive_dirs(config: CIConfig) -> list[PurePosixPath]:
 def is_prescriptive(doc: Path, root: Path, dirs: list[PurePosixPath]) -> bool:
     """Return True when ``doc`` sits inside one of ``dirs``, measured from ``root``.
 
-    Matched by whole path segment, so ``docs`` covers ``docs/a.md`` and never
-    ``docs-old/a.md``.
+    Matched by whole segment: ``docs`` covers ``docs/a.md``, not ``docs-old/a.md``.
     """
     try:
         relative = doc.absolute().relative_to(root.absolute())
@@ -171,9 +127,7 @@ def _is_repo_path(dest: str) -> bool:
 def _resolve(token: str, doc: Path, root: Path) -> bool:
     """Return True when ``token`` resolves, relative to the doc or the repo root.
 
-    Both anchors are tried because docs use both: a sibling link is written
-    relative to the doc, while prose citing ``src/...`` means from the root. A
-    leading ``/`` is GitHub's repo-root form, not a filesystem absolute.
+    A leading ``/`` is GitHub's repo-root form, so it is tried from the root only.
     """
     candidates = [root / token.lstrip("/")]
     if not token.startswith("/"):
@@ -191,15 +145,13 @@ def scan_links(
 ) -> list[fdg.Finding]:
     """Return one finding per markdown link in ``doc`` whose target is gone.
 
-    A link on a line carrying the ``doc-paths: ignore`` marker is skipped and,
-    when ``suppressed`` is given, tallied there rather than silently dropped.
+    A link on a ``doc-paths: ignore`` line is skipped and tallied in ``suppressed``.
     """
     try:
         text = doc.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return []
-    # A C++ lambda capture and a Python generic parameter are both valid
-    # markdown link syntax, so a fenced block reads as links to code.
+    # Code such as a C++ lambda capture parses as markdown link syntax.
     text = _FENCED.sub(lambda m: "\n" * m.group(0).count("\n"), text)
     out: list[fdg.Finding] = []
     seen: set[str] = set()
@@ -212,8 +164,7 @@ def scan_links(
                 seen.add(dest)
                 continue
             if _is_marked(text, match.start()):
-                # Not added to `seen`: a later unmarked occurrence of the same
-                # dest must still be evaluated and reported.
+                # Not added to `seen`, so a later unmarked occurrence is reported.
                 if suppressed is not None:
                     suppressed.count += 1
                 continue
@@ -232,12 +183,7 @@ def scan_links(
 
 
 def looks_like_a_file(token: str) -> bool:
-    """Return True when ``token`` claims a specific file rather than a directory.
-
-    Two or more segments and a file extension. A route (``/metrics``), a
-    slash-command (``/deps``) and a bare directory (``target/``) all fail it,
-    and none of them asserts that anything exists on disk.
-    """
+    """Return True when ``token`` has two or more segments and a file extension."""
     if token.endswith("/"):
         return False
     relative = token.lstrip("/").removeprefix("./")
@@ -246,12 +192,7 @@ def looks_like_a_file(token: str) -> bool:
 
 
 def _siblings_share_the_kind(token: str, doc: Path, root: Path) -> bool:
-    """Return True when the token's parent dir holds another file of its type.
-
-    The discriminator between drift and a doc describing a different repo: a
-    ``.yaml`` missing from a directory of YAML moved, while a ``.rs`` named
-    under a directory that has never held one belongs to somebody else's tree.
-    """
+    """Return True when the token's parent dir holds another file of its type."""
     relative = Path(token.lstrip("/").removeprefix("./"))
     suffix = relative.suffix.lower()
     for anchor in (root, doc.parent):
@@ -271,10 +212,8 @@ def scan_code_paths(
 ) -> list[fdg.Finding]:
     """Return one finding per inline-code path in ``doc`` that no longer exists.
 
-    Filtered by :func:`looks_like_a_file` and :func:`_siblings_share_the_kind` -
-    see the module docstring for what each one removes. A token on a line
-    carrying the ``doc-paths: ignore`` marker is skipped and, when
-    ``suppressed`` is given, tallied there rather than silently dropped.
+    Filtered by :func:`looks_like_a_file` and :func:`_siblings_share_the_kind`.
+    A token on a ``doc-paths: ignore`` line is skipped and tallied in ``suppressed``.
     """
     try:
         text = doc.read_text(encoding="utf-8", errors="replace")
@@ -298,8 +237,7 @@ def scan_code_paths(
             seen.add(token)
             continue
         if _is_marked(stripped, match.start()):
-            # Not added to `seen`: a later unmarked occurrence of the same
-            # token must still be evaluated and reported.
+            # Not added to `seen`, so a later unmarked occurrence is reported.
             if suppressed is not None:
                 suppressed.count += 1
             continue
@@ -327,10 +265,8 @@ def run(
 ) -> int:
     """Report the paths ``files`` name that the repo no longer has.
 
-    ``lychee_mode`` is the mode lychee checks link destinations at this run,
-    or None when it does not run. The link rule is left to lychee unless this
-    check gates harder, so a broken link is reported once where the two agree
-    and still fails a ``doc_paths: blocking`` repo whose lychee only warns.
+    ``lychee_mode`` is the mode lychee checks links at this run, or None when
+    it does not run. Links are left to lychee unless this check is stricter.
 
     Returns 0 unless a blocking mode found an error-level finding, or
     ``quality.doc_paths.prescriptive`` is malformed.

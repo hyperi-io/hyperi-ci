@@ -4,17 +4,10 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Discover the files a linting tool should scan.
+"""Discover the files the container, k8s, IaC and docs linters scan.
 
-gitleaks and semgrep scan the whole tree; the container / k8s / docs linters
-need an explicit target list (hadolint takes files, kubeconform takes rendered
-manifests, lychee takes markdown). Keeping discovery here means one place
-decides what counts as a Dockerfile / manifest / doc and one place prunes the
-dirs nobody should lint (`.git`, `.worktrees` duplicate checkouts, vendored
-deps).
-
-Auto-detect + clean skip: a repo with no Dockerfile just yields ``[]`` and the
-tool info-skips - no opt-out config needed for a repo that has no target.
+This module decides what counts as each kind of target and which directories
+are never linted. No target returns ``[]``, and the tool skips.
 """
 
 import os
@@ -30,9 +23,7 @@ from hyperi_ci.deps import surfaces
 
 KUSTOMIZATION_FILES = ("kustomization.yaml", "kustomization.yml", "Kustomization")
 
-# Always pruned, regardless of config: VCS internals, worktree duplicate trees
-# (dfe-infra keeps two full checkouts under .worktrees/ - scanning them doubles
-# every finding), scratch, and the usual vendored-dependency sinks.
+# Pruned whatever the config; .worktrees holds whole duplicate checkouts.
 _ALWAYS_PRUNE = {
     ".git",
     ".worktrees",
@@ -50,11 +41,10 @@ _ALWAYS_PRUNE = {
 
 
 def _is_dockerfile(name: str) -> bool:
-    """Match Dockerfile / Containerfile and their .suffix / prefix. forms.
+    """Return whether ``name`` is a Dockerfile or Containerfile.
 
     Matches ``Dockerfile``, ``Dockerfile.<x>``, ``<x>.Dockerfile`` and the
-    ``Containerfile`` equivalents. Deliberately does NOT match
-    ``.dockerignore`` (it starts with a dot, not ``Dockerfile.``).
+    ``Containerfile`` forms.
     """
     for base in ("Dockerfile", "Containerfile"):
         if name == base or name.startswith(f"{base}.") or name.endswith(f".{base}"):
@@ -65,10 +55,9 @@ def _is_dockerfile(name: str) -> bool:
 def discover_dockerfiles(
     root: Path | str, *, exclude_dirs: Iterable[str] = ()
 ) -> list[Path]:
-    """Return every Dockerfile/Containerfile under ``root``, pruned + sorted.
+    """Return every Dockerfile and Containerfile under ``root``, pruned and sorted.
 
-    ``exclude_dirs`` (typically ``get_exclude_dirs(config)``) is added to the
-    always-pruned set. Paths are returned sorted for deterministic output.
+    ``exclude_dirs`` is added to the always-pruned set.
     """
     found: list[Path] = []
     for here, filenames in walk(root, prune_set(exclude_dirs)):
@@ -87,11 +76,10 @@ def prune_set(exclude_dirs: Iterable[str]) -> set[str]:
 
 
 def is_pruned(candidate: Path, root: Path, prune: set[str]) -> bool:
-    """Whether ``candidate`` is excluded, by bare NAME or by relative PATH.
+    """Return whether ``candidate`` is excluded, by bare name or relative path.
 
-    `quality.exclude_paths` takes paths, so a nested entry like
-    `docs/superpowers` has to match the path rather than only the basename.
-    Matching the name alone accepted the setting and pruned nothing.
+    The path match is what lets a nested `quality.exclude_paths` entry such as
+    `docs/superpowers` prune anything.
     """
     if candidate.name in prune:
         return True
@@ -137,9 +125,7 @@ def yaml_mapping(path: Path | None) -> dict:
 class _TolerantLoader(yaml.SafeLoader):
     """SafeLoader that reads a custom YAML tag as its underlying value.
 
-    Compose's merge directives (``!reset``, ``!override``) are unknown tags that
-    abort ``yaml.safe_load``, and an overlay fragment carrying one would then be
-    dropped from discovery with no explanation.
+    Compose's ``!reset`` and ``!override`` would otherwise abort the load.
     """
 
 
@@ -158,9 +144,7 @@ _TolerantLoader.add_multi_constructor("!", _any_tag)
 def compose_document(path: Path) -> dict | None:
     """Return the parsed compose document at ``path``, or None if it is not one.
 
-    A compose file is identified by a top-level ``services`` mapping, which is
-    what separates it from the other YAML a repo keeps under a compose-shaped
-    name.
+    A compose document has a top-level ``services`` mapping.
     """
     try:
         data = yaml.load(path.read_text(encoding="utf-8"), Loader=_TolerantLoader)  # noqa: S506
@@ -179,16 +163,11 @@ def _compose_surface() -> surfaces.Surface | None:
 def discover_compose_files(
     root: Path | str, *, exclude_dirs: Iterable[str] = ()
 ) -> list[Path]:
-    """Return every docker-compose file under ``root``, pruned + sorted.
+    """Return every docker-compose file under ``root``, pruned and sorted.
 
-    Naming comes from the ``docker-compose`` surface in
-    ``config/dep-surfaces.yaml`` - the one catalogue that already knows a
-    ``<service>.compose.yaml`` counts, so the two never disagree about what a
-    compose file is called. A claimed file still has to hold a top-level
-    ``services`` mapping to be returned.
-
-    Walks the tree rather than asking git, so a compose file added and not yet
-    committed is linted like any other.
+    Names come from the ``docker-compose`` surface in ``config/dep-surfaces.yaml``,
+    and a match must hold a ``services`` mapping. The tree is walked rather than
+    asking git, so an uncommitted file is linted too.
     """
     root = Path(root)
     surface = _compose_surface()
@@ -206,13 +185,10 @@ def discover_compose_files(
     return sorted(out)
 
 
-# Markdown that documents the repo, not markdown that IS test data. A fixture
-# with a deliberately broken link is the expected result of its own test, so
-# linting it reports a defect that is the point of the file.
+# Directories holding markdown as test data, whose defects are deliberate.
 _DOC_PRUNE = {"fixtures", "testdata", "snapshots", "__snapshots__", "site", "_site"}
 
-# Generated (CHANGELOG) or licence and IP-terms text that changes only on a
-# licensing decision, so a lint finding in one has nobody to fix it.
+# Generated, or licence text that changes only on a licensing decision.
 _DOC_SKIP_STEMS = {
     "CHANGELOG",
     "LICENSE",
@@ -226,13 +202,9 @@ _DOC_SKIP_STEMS = {
 def discover_markdown_files(
     root: Path | str, *, exclude_dirs: Iterable[str] = ()
 ) -> list[Path]:
-    """Return every lintable markdown file under ``root``, pruned + sorted.
+    """Return every ``.md`` and ``.markdown`` file under ``root``, pruned and sorted.
 
-    Covers ``.md`` and ``.markdown`` anywhere in the tree, so a repo keeping
-    docs beside the code is covered as well as one with a ``docs/`` dir. Skips
-    generated or verbatim-upstream files (:data:`_DOC_SKIP_STEMS`) and the dirs
-    that hold markdown as test DATA (:data:`_DOC_PRUNE`) - a fixture with a
-    deliberately broken link must stay broken.
+    Skips :data:`_DOC_SKIP_STEMS` files and :data:`_DOC_PRUNE` directories.
     """
     found: list[Path] = []
     for here, filenames in walk(root, prune_set(exclude_dirs) | _DOC_PRUNE):
@@ -248,9 +220,8 @@ def discover_markdown_files(
 def git_ignored_dirs(root: Path | str) -> list[str]:
     """Return the directories git ignores under ``root``, repo-relative.
 
-    Fed to discovery as extra excludes, so a developer's tree is linted the
-    way a CI checkout is: agent worktrees, installed collections and caches
-    the repo ignores hold copies, not sources. Empty outside a git checkout.
+    Used as extra excludes, so a developer's tree lints like a CI checkout.
+    Empty outside a git checkout.
     """
     try:
         result = run_cmd(
@@ -286,23 +257,15 @@ def walk_iac(
 def discover_helm_charts(
     root: Path | str, *, exclude_dirs: Iterable[str] = ()
 ) -> list[Path]:
-    """Return top-level Helm chart directories (dirs holding a ``Chart.yaml``).
+    """Return the Helm chart directories under ``root``, sorted.
 
-    Skips:
-
-    * ``type: library`` charts - they render nothing on their own, so linting
-      or schema-validating them is pointless (dfe-infra's ``dfe-common``).
-    * subcharts - a ``Chart.yaml`` nested under another chart's ``charts/`` dir
-      is a vendored dependency, rendered by its parent, not a target itself.
-
-    Pruned dirs (:func:`walk_iac`) never descend, so a duplicate worktree
-    checkout does not double every chart.
+    Skips ``type: library`` charts, which render nothing alone, and subcharts
+    under another chart's ``charts/``, which their parent renders.
     """
     charts: list[Path] = []
     for chart_dir, filenames in walk_iac(root, exclude_dirs=exclude_dirs):
         if "Chart.yaml" not in filenames:
             continue
-        # A chart inside another chart's charts/ dir is a subchart - skip it.
         if (
             chart_dir.parent.name == "charts"
             and (chart_dir.parent.parent / "Chart.yaml").exists()
@@ -322,12 +285,8 @@ def _is_library_chart(chart_yaml: Path) -> bool:
 def _looks_like_manifest(path: Path) -> bool:
     """Return True when any YAML doc in ``path`` has both ``apiVersion`` and ``kind``.
 
-    This is what separates a real k8s manifest (Deployment, an Argo CR, ...)
-    from a Helm ``values.yaml``, a ``Chart.yaml`` (has apiVersion but no kind),
-    or arbitrary config YAML - so kubeconform is fed manifests, not values
-    files it would reject as "missing kind". Helm TEMPLATE files (``{{ }}``)
-    are not valid YAML and fail the parse, so they are excluded here and get
-    rendered instead.
+    That excludes values files and ``Chart.yaml``; a Helm template usually
+    fails the parse.
     """
     try:
         docs = list(yaml.safe_load_all(path.read_text(encoding="utf-8")))
@@ -339,10 +298,7 @@ def _looks_like_manifest(path: Path) -> bool:
 def _inside_chart(dirpath: Path, root: Path) -> bool:
     """Return True when ``dirpath`` is at or under a Helm chart (an ancestor Chart.yaml).
 
-    Chart content (``templates/`` Go-templates, ``values.yaml``, ``Chart.yaml``)
-    is handled by :func:`discover_helm_charts` + ``helm template``, so it must
-    not also be picked up as a plain manifest - a chart template can happen to
-    parse as YAML, so the ``apiVersion``+``kind`` heuristic alone is not enough.
+    A chart template can parse as a manifest, so chart content is excluded here.
     """
     d = dirpath
     while True:
@@ -417,9 +373,8 @@ def kustomize_owned_files(kustomizations: Iterable[Path]) -> set[Path]:
     """Return the resolved files some kustomization references directly.
 
     Those are validated through ``kustomize build``; a strategic-merge patch
-    carries ``apiVersion`` and ``kind`` but only the fields it changes, so it
-    must not be schema-checked on its own. A YAML file beside a kustomization
-    that no kustomization lists is NOT owned, and stays a plain manifest.
+    alone would fail the schema. An unlisted YAML file beside a kustomization
+    stays a plain manifest.
     """
     owned: set[Path] = set()
     for directory in kustomizations:
@@ -473,13 +428,9 @@ def discover_manifests(
 ) -> list[Path]:
     """Return plain (already-rendered) k8s manifest YAML files under ``root``.
 
-    A file counts only if it holds at least one ``apiVersion``+``kind`` doc
-    (:func:`_looks_like_manifest`), is not inside a Helm chart
-    (:func:`_inside_chart`), and is not a file a kustomization references
-    (:func:`kustomize_owned_files`) - those are rendered separately. YAML
-    lacking either key, such as a Helm values file, is skipped. This yields the
-    loose manifests (Argo CRs, plain Deployments) that need direct schema
-    validation. Pruned dirs never descend.
+    A file counts when :func:`_looks_like_manifest` accepts it, it is not inside
+    a chart (:func:`_inside_chart`), and no kustomization references it
+    (:func:`kustomize_owned_files`).
     """
     root = Path(root)
     owned = kustomize_owned_files(
