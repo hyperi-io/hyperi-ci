@@ -253,13 +253,17 @@ def _kube_linter(ctx: _Context) -> tuple[int, int]:
 
 
 def _checkov(ctx: _Context) -> tuple[int, int]:
-    rc = checkov.run(
-        ctx.root,
-        ctx.config,
-        sarif_path=ctx.sarif_path,
-        timeout=ctx.timeout,
-        memory_limit_bytes=ctx.memory_limit_bytes,
-    )
+    root = ctx.root.resolve()
+    # Checkov's Helm framework runs `helm dependency build` in place, so scan a copy.
+    with scratch_dir(ctx.scratch / "checkov") as copy, contextlib.chdir(copy):
+        _copy_checkout(root, copy, ctx.timeout)
+        rc = checkov.run(
+            Path("."),
+            ctx.config,
+            sarif_path=ctx.sarif_path,
+            timeout=ctx.timeout,
+            memory_limit_bytes=ctx.memory_limit_bytes,
+        )
     return 1, rc
 
 
@@ -368,7 +372,10 @@ def generated_entries(raw: object) -> tuple[list[GeneratedEntry], list[str]]:
 
 
 def _copy_checkout(root: Path, dest: Path, timeout: float) -> None:
-    """Copy the files git tracks or would track under ``root`` into ``dest``."""
+    """Copy the files git tracks or would track under ``root`` into ``dest``.
+
+    Outside a git checkout, every file under ``root`` is copied.
+    """
     listing = run_cmd(
         [
             "git",
@@ -376,11 +383,14 @@ def _copy_checkout(root: Path, dest: Path, timeout: float) -> None:
             str(root),
             *"ls-files -z --cached --others --exclude-standard".split(),
         ],
-        check=True,
+        check=False,
         capture=True,
         timeout=timeout,
-    ).stdout
-    for rel in filter(None, listing.split("\0")):
+    )
+    if listing.returncode != 0:
+        shutil.copytree(root, dest, symlinks=True, dirs_exist_ok=True)
+        return
+    for rel in filter(None, listing.stdout.split("\0")):
         src = root / rel
         if src.is_file() or src.is_symlink():
             (dest / rel).parent.mkdir(parents=True, exist_ok=True)

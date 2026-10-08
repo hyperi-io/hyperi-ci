@@ -22,6 +22,7 @@ plaintext-secret checks) so it does not overlap gitleaks (secrets) or hadolint
 (Dockerfiles). Findings come from Checkov's SARIF output.
 """
 
+import dataclasses
 import shutil
 import subprocess
 import tempfile
@@ -50,6 +51,21 @@ def _base_cmd() -> list[str] | None:
         ["checkov"], use_uvx=True, spec=f"checkov=={tool_version('checkov')}"
     )
     return cmd if shutil.which(cmd[0]) else None
+
+
+def _in_tree(finding: fdg.Finding, root: Path) -> fdg.Finding:
+    """Point a finding at the longest tail of its path that exists under ``root``.
+
+    Checkov names a rendered Helm template through its own temp dir
+    (``tmpab12cd34/charts/app/templates/x.yaml``) whenever ``root`` and that
+    temp dir share an ancestor below ``/``, as a scratch copy under TMPDIR does.
+    """
+    parts = Path(finding.path).parts
+    for start in range(len(parts)):
+        tail = Path(*parts[start:])
+        if (root / tail).exists():
+            return dataclasses.replace(finding, path=tail.as_posix())
+    return finding
 
 
 def run(
@@ -142,7 +158,7 @@ def run(
         warn(f"{problem} - advisory only, not failing")
         return 0
 
-    found = fdg.parse_sarif(text, "checkov")
+    found = [_in_tree(f, root) for f in fdg.parse_sarif(text, "checkov")]
     dropped = fdg.surface("checkov", found, sarif_path=sarif_path)
     if dropped:
         info(f"  checkov: +{dropped} more finding(s) in the job summary")
