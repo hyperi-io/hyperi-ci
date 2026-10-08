@@ -22,6 +22,12 @@ copied with its ``$ref``s inlined, under ``config.<path>``. Other config keys
 reach the app through ``configOverrides`` and are not validated, so a stored
 overlay never pins a key the app later drops. ``values.yaml`` sets ``config: {}`` and lists the same
 dials commented out, so the app's own defaults stand until one is set.
+
+The library's ``lint-skip.yaml`` names the scanner findings a thin chart
+accepts by design. Its Checkov ids become ``quality.checkov.skip`` in the
+chart's own ``.hyperi-ci.yaml``, which ``hyperi-ci lint-iac <chart>`` loads
+and nothing run over the repo ever sees. ``.helmignore`` keeps that file out
+of the packaged chart.
 """
 
 import json
@@ -60,6 +66,11 @@ SCHEMA_PATH = "schema/deployment-contract.v{version}.schema.json"
 DIAL_SEGMENT_RE = re.compile(r"[A-Za-z0-9_-]+")
 DIAL_KEY = "x-scalo-dial"
 DIAL_TIERS = ("big", "small")
+LINT_SKIP = "lint-skip.yaml"
+CHART_CONFIG = ".hyperi-ci.yaml"
+HELMIGNORE = ".helmignore"
+# checkov splits --skip-check on commas, so an id is held to one plain word.
+CHECK_ID_RE = re.compile(r"[A-Za-z0-9_]+")
 
 # The tag becomes the chart's appVersion, so a digest-only ref is refused.
 IMAGE_RE = re.compile(
@@ -203,6 +214,62 @@ def values_yaml(digest: str, dials: dict[str, dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def lint_skips(library_dir: Path, library: str) -> dict[str, str]:
+    """Return the Checkov ids the library's ``lint-skip.yaml`` accepts, with reasons.
+
+    A library without the file accepts nothing. Scanners other than Checkov
+    are ignored.
+
+    Raises:
+        ChartError: The file is not a mapping, or a Checkov entry is not an
+            id with a reason.
+
+    """
+    path = library_dir / LINT_SKIP
+    if not path.is_file():
+        return {}
+    where = f"{LIBRARY} {library} {LINT_SKIP}"
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        raise ChartError(f"{where}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ChartError(f"{where} is not a mapping")
+    checks = data.get("checkov") or {}
+    if not isinstance(checks, dict):
+        raise ChartError(f"{where}: checkov is not a mapping of id to reason")
+    for check, reason in checks.items():
+        if not isinstance(check, str) or not CHECK_ID_RE.fullmatch(check):
+            raise ChartError(f"{where}: checkov id {check!r} is not a check id")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ChartError(f"{where}: checkov {check} has no reason")
+    return dict(sorted(checks.items()))
+
+
+def chart_config(skips: dict[str, str], library: str) -> str:
+    """Build the chart's ``.hyperi-ci.yaml``: the Checkov skips, reasons as comments."""
+    lines = [
+        f"# Written by hyperi-ci chart assemble from {LIBRARY} {library} {LINT_SKIP}.",
+        "# Checkov findings this chart accepts by design:",
+    ]
+    lines += [
+        f"#   {check}: {' '.join(reason.split())}" for check, reason in skips.items()
+    ]
+    body = {"quality": {"checkov": {"skip": list(skips)}}}
+    return "\n".join(lines) + "\n" + yaml.safe_dump(body, sort_keys=True)
+
+
+def _ignore_chart_config(chart: Path) -> None:
+    """Add the chart's ``.hyperi-ci.yaml`` to its ``.helmignore``."""
+    path = chart / HELMIGNORE
+    text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    if CHART_CONFIG in text.splitlines():
+        return
+    if text and not text.endswith("\n"):
+        text += "\n"
+    path.write_text(text + CHART_CONFIG + "\n", encoding="utf-8", newline="\n")
+
+
 def validate_contract(contract: dict, schema: dict) -> None:
     """Fail on every place ``contract`` breaks ``schema``.
 
@@ -296,7 +363,8 @@ def assemble(
     Raises:
         ChartError: The image ref, contract or library chart cannot be used,
             the image is not the one the contract names, or the chart
-            directory already exists.
+            directory already exists or cannot be written. Nothing is left
+            at the chart directory in any of these cases.
 
     """
     ref = IMAGE_RE.fullmatch(image)
@@ -358,17 +426,36 @@ def assemble(
         _read_json(base_file, "skeleton values schema") if base_file.is_file() else None
     )
     schema = values_schema(config_schema, dials, base)
-
-    shutil.copytree(skeleton, chart)
+    skips = lint_skips(library_dir, library)
     files = {
         "Chart.yaml": yaml.safe_dump(meta, sort_keys=True),
         "values.yaml": values_yaml(ref["digest"], dials),
         VALUES_SCHEMA: _json(schema),
     }
-    for rel, text in files.items():
-        (chart / rel).write_text(text, encoding="utf-8", newline="\n")
-    (chart / "files").mkdir(exist_ok=True)
-    (chart / "files" / "contract.json").write_bytes(raw_contract)
+    if skips:
+        files[CHART_CONFIG] = chart_config(skips, library)
+
+    # The chart is built beside its target and renamed in, so a failure
+    # leaves nothing at the target.
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        staging = Path(tempfile.mkdtemp(prefix=f".{name}-", dir=out_dir))
+    except OSError as exc:
+        raise ChartError(f"cannot create {chart}: {exc}") from exc
+    try:
+        built = staging / name
+        shutil.copytree(skeleton, built)
+        if skips:
+            _ignore_chart_config(built)
+        for rel, text in files.items():
+            (built / rel).write_text(text, encoding="utf-8", newline="\n")
+        (built / "files").mkdir(exist_ok=True)
+        (built / "files" / "contract.json").write_bytes(raw_contract)
+        built.rename(chart)
+    except (OSError, UnicodeError) as exc:
+        raise ChartError(f"cannot write {chart}: {exc}") from exc
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
     return chart
 
 
