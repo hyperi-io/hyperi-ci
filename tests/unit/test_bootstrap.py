@@ -71,6 +71,93 @@ class TestNodeIsTheVersionsDefault:
         assert "node" not in raw
 
 
+class TestPythonIsTheVersionsDefault:
+    """The image bakes versions.yaml `runtimes.python` through uv."""
+
+    @staticmethod
+    def _linux(monkeypatch: pytest.MonkeyPatch, *, uv: bool = True) -> None:
+        monkeypatch.setattr(bootstrap.platform, "system", lambda: "Linux")
+        monkeypatch.setattr(bootstrap, "_have", lambda b: uv and b == "uv")
+
+    def test_argv_is_uv_python_install_with_the_versions_yaml_value(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ran: list[list[str]] = []
+        self._linux(monkeypatch)
+        monkeypatch.setattr(bootstrap, "_run", lambda cmd: ran.append(cmd) or 0)
+
+        assert bootstrap.install_python() == 0
+
+        assert ran == [["uv", "python", "install", versions.runtime_version("python")]]
+
+    def test_version_follows_versions_yaml(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ran: list[list[str]] = []
+        self._linux(monkeypatch)
+        monkeypatch.setattr(bootstrap, "_run", lambda cmd: ran.append(cmd) or 0)
+        monkeypatch.setattr(bootstrap, "runtime_version", lambda _name: "9.99")
+
+        assert bootstrap.install_python() == 0
+
+        assert ran == [["uv", "python", "install", "9.99"]]
+
+    def test_install_dir_env_is_passed_through_untouched(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        seen: list[tuple[list[str], dict]] = []
+
+        def fake_run(cmd: list[str], **kw: object) -> subprocess.CompletedProcess:
+            seen.append((cmd, kw))
+            return subprocess.CompletedProcess(cmd, 0)
+
+        self._linux(monkeypatch)
+        monkeypatch.setattr(bootstrap.subprocess, "run", fake_run)
+        monkeypatch.setenv("UV_PYTHON_INSTALL_DIR", str(tmp_path))
+
+        assert bootstrap.install_python() == 0
+
+        [(cmd, kw)] = seen
+        assert "--install-dir" not in cmd
+        assert "env" not in kw
+        assert os.environ["UV_PYTHON_INSTALL_DIR"] == str(tmp_path)
+
+    def test_never_sets_the_install_dir(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._linux(monkeypatch)
+        monkeypatch.setattr(bootstrap, "_run", lambda _cmd: 0)
+        monkeypatch.delenv("UV_PYTHON_INSTALL_DIR", raising=False)
+
+        assert bootstrap.install_python() == 0
+
+        assert "UV_PYTHON_INSTALL_DIR" not in os.environ
+
+    def test_uv_failure_propagates_its_exit_code(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._linux(monkeypatch)
+        monkeypatch.setattr(bootstrap, "_run", lambda _cmd: 2)
+
+        assert bootstrap.install_python() == 2
+
+    def test_missing_uv_fails_without_running_anything(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ran: list[list[str]] = []
+        self._linux(monkeypatch, uv=False)
+        monkeypatch.setattr(bootstrap, "_run", lambda cmd: ran.append(cmd) or 0)
+
+        assert bootstrap.install_python() == 1
+        assert ran == []
+
+    def test_skipped_off_linux(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        ran: list[list[str]] = []
+        monkeypatch.setattr(bootstrap.platform, "system", lambda: "Darwin")
+        monkeypatch.setattr(bootstrap, "_run", lambda cmd: ran.append(cmd) or 0)
+
+        assert bootstrap.install_python() == 0
+        assert ran == []
+
+
 def _sccache_tarball(arch: str, file: str = "sccache") -> bytes:
     """Return a tarball shaped like sccache's release asset for ``arch``."""
     version = versions.tool_version("sccache")
@@ -281,6 +368,7 @@ class TestInstallAllWiring:
         assert "language toolchains" in combined
         assert f"sccache:     {versions.tool_version('sccache')}" in combined
         assert f"node: {versions.runtime_version('node')}\n" in combined
+        assert f"python: {versions.runtime_version('python')}\n" in combined
 
     def test_toolchains_planned_before_apt_deps(self, tmp_path) -> None:
         """Ordering matters: the apt families include BOLT and the

@@ -325,13 +325,37 @@ def install_node() -> int:
     return 0
 
 
+def install_python() -> int:
+    """Install the versions.yaml ``runtimes.python`` CPython through uv.
+
+    Bakes the interpreter every job's ``uvx hyperi-ci`` resolves to, so a fresh
+    runner does not download it on first use. Where it lands is uv's own
+    ``UV_PYTHON_INSTALL_DIR``, set by the image and never by us.
+    """
+    if not _is_linux():
+        logger.info("Skipping Python bootstrap on non-Linux")
+        return 0
+
+    if not _have("uv"):
+        logger.error("uv is required to install Python and was not found on PATH")
+        return 1
+
+    version = runtime_version("python")
+    install_dir = os.environ.get("UV_PYTHON_INSTALL_DIR") or "uv default"
+    logger.info(f"Installing Python {version} into {install_dir}")
+    rc = _run(["uv", "python", "install", version])
+    if rc != 0:
+        logger.error("Python install failed")
+    return rc
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
 
 def install_toolchain_bootstrap() -> int:
-    """Install Rust, Go and Node for the runner image. Returns exit code."""
+    """Install Rust, Go, Node and Python for the runner image. Returns exit code."""
     if not _is_linux():
         logger.info(f"Skipping toolchain bootstrap on {platform.system()}")
         return 0
@@ -354,6 +378,11 @@ def install_toolchain_bootstrap() -> int:
     if rc != 0:
         return rc
 
+    logger.info("=== toolchain bootstrap: Python ===")
+    rc = install_python()
+    if rc != 0:
+        return rc
+
     logger.info("Toolchain bootstrap complete")
     return 0
 
@@ -373,3 +402,4 @@ def print_bootstrap_plan() -> None:
     print(f"    sccache:     {tool_version('sccache')}", file=out)
     print(f"  go: {'current stable' if go_enabled else 'disabled'}", file=out)
     print(f"  node: {runtime_version('node')}", file=out)
+    print(f"  python: {runtime_version('python')}", file=out)
