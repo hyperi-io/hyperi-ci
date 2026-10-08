@@ -6,27 +6,21 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Close the loop after a release, the way semantic-release's github plugin does.
 
-Its ``success`` step comments on every issue and PR carried by a release, and
-its ``fail`` step opens an issue when a release breaks. That plugin is one of
-the two we deliberately never load (issue #37), so both behaviours were simply
-lost: a failed release was visible only as a red run somebody had to notice.
-
-Three notifications, all idempotent because a re-run is normal:
+That plugin's ``success`` and ``fail`` steps are not loaded (issue #37), so
+this replaces them. Three notifications, all idempotent because a re-run is
+normal:
 
 * **success** -- one comment per issue or PR referenced by the commits in the
-  release, saying which version carries it, and the version's own failure
-  issue closed when a retry is what shipped it.
-* **failure** -- one open issue per broken version, so a release that dies at
-  3am is waiting in the tracker rather than buried in a run log.
-* **commit-back-failed** -- the release shipped but ``release-commit`` could
-  not push ``VERSION`` and ``CHANGELOG.md`` back to main. The job stays green,
-  so one open issue per repo carries it, with a comment for each later version
-  that hits the same wall. The cause is repo configuration rather than the
-  version, which is why it is not one issue per version.
+  release, naming the version, and the version's own failure issue closed when
+  a retry shipped it.
+* **failure** -- one open issue per broken version.
+* **commit-back-failed** -- the release shipped but ``release-commit`` could not
+  push ``VERSION`` and ``CHANGELOG.md`` back to main. The job stays green. One
+  open issue per repo carries it, with a comment per later version, because the
+  cause is repo configuration, not the version.
 
-Slack is a third channel, off unless ``notify.slack.webhook_env`` names an
-environment variable holding a webhook URL. Nothing is posted off-org by
-default -- an outbound notification is a decision for whoever owns the channel.
+Slack is off unless ``notify.slack.webhook_env`` names an environment variable
+holding a webhook URL.
 """
 
 import json
@@ -96,10 +90,9 @@ def _call(
 def _previous_tag(version: str, *, cwd: str | None = None) -> str | None:
     """Find the release tag before ``v{version}``, which bounds the release's commits.
 
-    Only a plain ``vX.Y.Z`` can bound the range: a prerelease sorts above its own
-    release under ``-v:refname``, so an unfiltered list hands the changelog the
-    wrong span. ``v{version}`` itself stays a candidate whatever its shape, so a
-    prerelease being notified can still find its own position in the list.
+    Only a plain ``vX.Y.Z`` bounds the range, because a prerelease sorts above
+    its own release under ``-v:refname``. ``v{version}`` itself stays a candidate
+    whatever its shape, so a prerelease can find its position in the list.
     """
     result = run_cmd(
         ["git", "tag", "--list", "v[0-9]*", "--sort=-v:refname"],
@@ -121,9 +114,8 @@ def _previous_tag(version: str, *, cwd: str | None = None) -> str | None:
 def referenced_issues(version: str, *, cwd: str | None = None) -> list[int]:
     """Issue and PR numbers referenced by the commits in this release.
 
-    Reads the commit range since the previous tag. A merge commit's
-    ``(#123)`` suffix covers the squash-merge case, which is how most work
-    lands here.
+    Reads the commit range since the previous tag, including a squash-merge's
+    ``(#123)`` suffix.
     """
     previous = _previous_tag(version, cwd=cwd)
     span = f"{previous}..v{version}" if previous else f"v{version}"
@@ -207,9 +199,7 @@ def _open_failure_issues(repo: str) -> object:
 def _close_resolved_failures(repo: str, version: str) -> None:
     """Close the failure issue a successful retry of ``version`` has resolved.
 
-    A failed attempt opens the issue and a re-run that ships the same version
-    never touches it again, so without this the tracker keeps reporting a
-    release that is in fact on the registry.
+    Without this the tracker keeps reporting a release that is on the registry.
     """
     numbers = failure_issue_numbers(_open_failure_issues(repo), version)
     for number in numbers:
@@ -453,10 +443,9 @@ def notify_commit_back_failed(
 def notify_slack(config: CIConfig, *, text: str) -> int:
     """Post to Slack, if a webhook has been configured for this project.
 
-    The webhook lives in an environment variable named by
-    ``notify.slack.webhook_env``; the URL itself is a secret and never appears
-    in config. curl reads it from stdin, never argv. Unset means no Slack,
-    which is the default.
+    The webhook URL is a secret read from the environment variable named by
+    ``notify.slack.webhook_env``, never from config, and passed to curl on stdin,
+    never argv. Unset means no Slack.
     """
     variable = str(config.get("notify.slack.webhook_env", "") or "")
     if not variable:
@@ -466,8 +455,7 @@ def notify_slack(config: CIConfig, *, text: str) -> int:
         warn(f"release-notify: {variable} names no webhook -- skipping Slack")
         return 0
 
-    # -f turns a rejected webhook into a failed exit, and no retry flags,
-    # because a retried POST posts the message twice.
+    # -f fails on a rejected webhook. No retry flags: a retried POST posts twice.
     result = run_cmd(
         [
             "curl",

@@ -6,18 +6,15 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Resolve the version bump a commit type implies.
 
-Single source of truth is **semantic-release's own default-release-rules**
-(`@semantic-release/commit-analyzer/lib/default-release-rules.js`), NOT a
-HyperI-maintained taxonomy. A repo overrides only by shipping its own
-`.releaserc.json` with a `commit-analyzer` `releaseRules` block - the rare
-exception (e.g. a multi-crate workspace). 99.99% of repos carry no `.releaserc`
-and resolve straight to the defaults below.
+The source of truth is semantic-release's own default-release-rules
+(`@semantic-release/commit-analyzer/lib/default-release-rules.js`). A repo
+overrides it only with a `.releaserc.json` `commit-analyzer` `releaseRules`
+block, which is rare (e.g. a multi-crate workspace).
 
-Why mirror the rules in Python at all: the pre-push gate (`hyperi-ci push`)
-and the commit-msg hook must predict the same bump semantic-release will cut,
-WITHOUT a Node / semantic-release install in the loop. When git is unavailable
-or there is no prior tag the caller treats the result as "no prediction" and
-fails open - see :mod:`hyperi_ci.quality.predicted_bump`.
+The pre-push gate (`hyperi-ci push`) and the commit-msg hook mirror the rules
+so they predict semantic-release's bump without a Node install. When git is
+unavailable or there is no prior tag the caller treats the result as "no
+prediction" and fails open - see :mod:`hyperi_ci.quality.predicted_bump`.
 
 The default rules (commit-analyzer, semantic-release 25):
 
@@ -27,18 +24,13 @@ The default rules (commit-analyzer, semantic-release 25):
     perf                                             -> patch
     everything else                                  -> no release
 
-That is the WHOLE taxonomy. Types HyperI once patch-bumped by hand
-(``hotfix`` / ``sec`` / ``security``) are no longer release-worthy on their
-own - ship a security patch as ``fix(security): ...`` (a real ``fix`` that
-bumps), or add a repo ``.releaserc.json`` override.
+``hotfix`` / ``sec`` / ``security`` do not release on their own: ship a
+security patch as ``fix(security): ...``, or add a repo override.
 
-Note on revert: semantic-release ALSO patch-bumps a genuine revert, but its
-``{revert: true}`` rule keys on the PARSER's revert flag - a commit whose
-body carries ``This reverts commit <sha>`` - NOT the ``revert:`` type prefix.
-A header-only mirror cannot detect that reliably, so ``revert`` is left out of
-the map (a bare ``revert:`` resolves to no-release, matching semantic-release
-for the no-body case). The pre-push gate only blocks minor/major, so
-under-counting a revert patch is harmless.
+``revert`` is left out of the map. semantic-release patch-bumps a revert by the
+parser's flag (a body carrying ``This reverts commit <sha>``), not the type
+prefix, and a header-only mirror cannot see that. The pre-push gate only blocks
+minor/major, so the under-count is harmless.
 """
 
 # predict-version loads this file by path on the runner's python3, which may predate 3.14.
@@ -77,10 +69,10 @@ def default_type_bump() -> dict[str, str]:
 def _releaserc_overrides(project_dir: Path) -> dict[str, str]:
     """Read a repo ``.releaserc.json`` commit-analyzer ``releaseRules``.
 
-    Returns a ``type -> bump`` map for whatever the repo declares (the rare
-    exception). Missing file / unparseable / no analyzer block -> empty map,
-    so the defaults stand. Only ``.releaserc.json`` is honoured: YAML
-    ``.releaserc`` is deprecated (see config/deprecated-files.yaml).
+    Returns a ``type -> bump`` map. A missing or unparseable file, or no
+    analyzer block, gives an empty map so the defaults stand. Only
+    ``.releaserc.json`` is honoured: YAML ``.releaserc`` is deprecated (see
+    config/deprecated-files.yaml).
     """
     rc = project_dir / ".releaserc.json"
     if not rc.exists():
@@ -90,8 +82,7 @@ def _releaserc_overrides(project_dir: Path) -> dict[str, str]:
     except (OSError, ValueError):
         return {}
     if not isinstance(data, dict):
-        # Valid JSON but not an object (a bare list / null / scalar) - treat
-        # as no override, per the docstring, rather than crashing on .get().
+        # Valid JSON but not an object: no override.
         return {}
 
     overrides: dict[str, str] = {}
@@ -132,9 +123,8 @@ def load_type_bump(project_dir: Path | None = None) -> dict[str, str]:
 def classify_commit(message: str, type_bump: dict[str, str] | None = None) -> str:
     """Return the bump a single commit implies.
 
-    ``none`` / ``patch`` / ``minor`` / ``major``. A breaking marker (a ``!``
-    on any type, or a ``BREAKING CHANGE:`` footer) is a major regardless of
-    type - exactly what semantic-release's commit-analyzer does.
+    ``none`` / ``patch`` / ``minor`` / ``major``. A breaking marker (``!`` on
+    any type, or a ``BREAKING CHANGE:`` footer) is a major regardless of type.
     """
     if type_bump is None:
         type_bump = _SEMREL_DEFAULT_BUMP

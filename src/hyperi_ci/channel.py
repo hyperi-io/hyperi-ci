@@ -6,37 +6,23 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Auto-update channel, enable flag and freeze switch.
 
-Same vocabulary as hyperi-ai, so one mental model covers both tools:
+Same vocabulary as hyperi-ai:
 
-- ``live`` (DEFAULT): the newest release, adopted as soon as it exists.
-- ``stable``: the newest release aged past the cooldown (7 days), trailing
-  live by the soak window. For a machine that should not move under you.
+- ``live`` (DEFAULT): the newest published release, adopted as soon as it exists.
+- ``stable``: the newest release older than the cooldown (7 days), resolved
+  from PyPI upload timestamps, which is when the artefact became installable.
 
-The mechanism differs from hyperi-ai. hyperi-ai is a git clone, so its ``live``
-follows main HEAD and its ``stable`` walks git tags. hyperi-ci is a PyPI
-package with no clone, so ``live`` is the newest PUBLISHED release and
-``stable`` is resolved from PyPI upload timestamps. Neither channel tracks
-unreleased commits.
+Neither channel tracks unreleased commits.
 
-Upload time rather than tag date measures the soak window at the only point a
-consumer can observe: when the artefact became installable.
-
-State lives in ``~/.config/hyperi-ci/``, not hyperi-ai's directory: hyperi-ci
-runs on machines with no hyperi-ai at all (CI runners, other people's boxes),
-so it cannot depend on a sibling tool's private config. A machine that has
-configured hyperi-ai has already stated its intent, so hyperi-ci falls back to
-reading that channel when it has none of its own. The fallback is read-only,
+State lives in ``~/.config/hyperi-ci/`` because hyperi-ci runs on machines with
+no hyperi-ai. When it has no channel of its own it reads hyperi-ai's (read-only),
 and an explicit ``hyperi-ci autoupdate channel ...`` always wins locally.
-``autoupdate status`` names which source answered.
 
-Freeze is an orthogonal kill-switch, and it spans both tools: ``is_frozen()``
-is true when either flag is set, because a freeze means nothing on the machine
-should move. ``unfreeze`` clears only hyperi-ci's own flag.
+Freeze spans both tools: ``is_frozen()`` is true when either flag is set.
+``unfreeze`` clears only hyperi-ci's own flag.
 
-hyperi-ai's two retired names for ``live`` -- ``edge`` and ``nightly`` -- are
-accepted and normalised, never advertised. A hyperi-ai install lagging the
-rename still writes ``nightly`` into the file this module falls back to
-reading.
+hyperi-ai's retired names for ``live`` (``edge``, ``nightly``) are accepted and
+normalised, because a lagging hyperi-ai install still writes ``nightly``.
 """
 
 import json
@@ -46,18 +32,14 @@ VALID_CHANNELS: tuple[str, ...] = ("live", "stable")
 
 DEFAULT_CHANNEL = "live"
 
-# How long a release must have been on PyPI before "stable" will adopt it.
-# Deliberately the same 7 days as the Actions pin cooldown in
-# docs/dependencies/deps-pinning.md -- one soak window across the toolchain.
+# Days a release must be on PyPI before "stable" adopts it. Matches the Actions
+# pin cooldown in docs/dependencies/deps-pinning.md.
 COOLDOWN_DAYS = 7
 
-# hyperi-ai's pre-rename names for "live", oldest first. Accepted silently on
-# read and write, normalised before use or persistence, never advertised.
-# Listed rather than chained so a third rename does not become a third hop.
+# hyperi-ai's pre-rename names for "live", normalised before use or persistence.
 _LEGACY_CHANNEL_ALIASES: tuple[str, ...] = ("edge", "nightly")
 
-# Module constants rather than inlined paths so tests can point them at a
-# tmp_path -- no test should read the developer's real homedir config.
+# Module constants so tests can point them at a tmp_path.
 CONFIG_DIR = Path.home() / ".config" / "hyperi-ci"
 AI_CONFIG_DIR = Path.home() / ".config" / "hyperi-ai"
 
@@ -122,14 +104,9 @@ def _read_state(path: Path) -> dict:
 def resolve_channel() -> tuple[str, str]:
     """Return (channel, source) -- the channel and where it came from.
 
-    Source is ``"hyperi-ci"`` (our own config), ``"hyperi-ai"`` (inherited from
-    the sibling tool's config because we have none of our own), or
-    ``"default"``. ``autoupdate status`` prints it so an inherited channel is
-    visible rather than surprising.
-
-    The default is ``live`` rather than ``stable`` for the same reason
-    hyperi-ai chose it: a machine nobody has configured should be on the
-    current code, not silently a soak window behind it.
+    Source is ``"hyperi-ci"`` (our own config), ``"hyperi-ai"`` (inherited
+    because we have none of our own), or ``"default"``. ``autoupdate status``
+    prints it.
 
     Returns:
         Tuple of (channel name from VALID_CHANNELS, source label).
@@ -152,14 +129,9 @@ def read_channel() -> str:
 def _write_state(**updates: object) -> None:
     """Merge updates into the channel state file, creating it if needed.
 
-    Read-modify-write rather than overwrite: channel and the enable flag live
-    in the same file, so setting one must not drop the other.
-
-    The write goes to a temp file in the same directory and is renamed over the
-    target, so a reader never sees a half-written file. An unparseable file
-    reads as absent, which means the default -- and defaulting a machine from
-    ``stable`` back to ``live`` is the wrong direction to fail in, so the window
-    for a torn write is closed rather than tolerated.
+    Channel and the enable flag share one file, so this is read-modify-write.
+    The write goes to a temp file renamed over the target: a torn file reads as
+    absent, which would flip a ``stable`` machine back to ``live``.
 
     Args:
         **updates: Keys to set in the state mapping.
@@ -199,9 +171,8 @@ def write_channel(value: str) -> None:
 def read_enabled() -> bool:
     """Return False only when auto-update was explicitly disabled.
 
-    Absent or malformed state means enabled -- an unconfigured machine keeps
-    tracking releases. ``HYPERCI_AUTO_UPDATE`` in the environment still wins
-    over this; see ``upgrade._should_auto_update``.
+    Absent or malformed state means enabled. ``HYPERCI_AUTO_UPDATE`` still wins;
+    see ``upgrade._should_auto_update``.
     """
     return _read_state(channel_path()).get("enabled") is not False
 
@@ -219,8 +190,7 @@ def write_enabled(value: bool) -> None:
 def is_frozen() -> bool:
     """Return True when either tool's freeze flag is set.
 
-    A freeze is an incident kill-switch, so hyperi-ai's flag counts here too --
-    the safe reading of a frozen machine is that nothing on it should move.
+    hyperi-ai's flag counts too: a frozen machine should not move.
     """
     return freeze_path().exists() or _ai_freeze_path().exists()
 

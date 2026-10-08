@@ -6,26 +6,18 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Read pinned third-party versions and digests from the shipped SSOT.
 
-``config/versions.yaml`` ships INSIDE the package, next to ``defaults.yaml``
-and ``org.yaml``, so runtime resolves a pin by reading the SSOT rather than a
-constant copied into source. A copy is a thing that goes stale; there is no
-copy.
+``config/versions.yaml`` ships inside the package, so runtime reads a pin from
+it rather than from a constant copied into source. A version literal in a
+module is a bug and ``tests/unit/test_versions.py`` fails on one.
 
-Every caller goes through here. A version literal in a module is a bug -
-``tests/unit/test_versions.py`` fails on one.
+- It pins THIRD-PARTY things only. hyperi-ci's own version comes from git tags
+  via :mod:`hyperi_ci.version_source`, because the build back-end would
+  otherwise read a file inside the package it is building.
+- It imports stdlib and ``yaml`` only, so nothing can import-cycle through it.
 
-Two rules keep this from becoming self-referential:
-
-- It pins THIRD-PARTY things only. hyperi-ci's own version is derived from git
-  tags by :mod:`hyperi_ci.version_source`; putting it here would have the build
-  back-end read a file inside the package it is building.
-- It imports stdlib and ``yaml`` only, so nothing in the package can import-cycle
-  through it.
-
-The one thing that still needs the value COPIED is a file GitHub itself parses
-before any of our code runs: a workflow's ``uses:`` line, or a composite
-action's ``default:``. ``scripts/update-versions.py`` rewrites those from this
-same SSOT, and that is the full extent of what it writes.
+The only copies are files GitHub parses before our code runs (a workflow's
+``uses:`` line, a composite action's ``default:``), which
+``scripts/update-versions.py`` rewrites from this SSOT.
 """
 
 from functools import lru_cache
@@ -58,13 +50,11 @@ def _tool(name: str) -> dict[str, Any]:
 def tool_version(name: str) -> str:
     """Return the pinned version string for ``name``, verbatim.
 
-    Verbatim matters: cargo-deny's tags carry no leading ``v`` and the download
-    URL is built from this string, so normalising it would 404.
+    Verbatim because the download URL is built from it (cargo-deny's tags carry
+    no leading ``v``).
 
     Raises:
-        KeyError: No such tool, or no version on it. Both mean the SSOT and the
-            code disagree, which is the drift this module exists to remove -
-            so it fails rather than guessing a default.
+        KeyError: No such tool, or no version on it.
 
     """
     version = _tool(name).get("version")
@@ -76,8 +66,8 @@ def tool_version(name: str) -> str:
 def tool_sha256(name: str, arch: str) -> str:
     """Return the pinned sha256 of ``name``'s release asset for ``arch``.
 
-    The digest covers the RAW download - the binary itself, or the ``.tar.gz``
-    before extraction - so one value verifies exactly the bytes off the wire.
+    The digest covers the RAW download (the binary, or the ``.tar.gz`` before
+    extraction).
 
     Args:
         name: Tool key under ``tools:``.
@@ -85,8 +75,7 @@ def tool_sha256(name: str, arch: str) -> str:
             asset names spell it (``x64`` for gitleaks, ``x86_64`` for alint).
 
     Raises:
-        KeyError: No digest for that tool/arch. Fail closed: an install with no
-            digest to check is the gap, not an acceptable fallback.
+        KeyError: No digest for that tool/arch (fail closed).
 
     """
     digests = _tool(name).get("sha256")
@@ -101,7 +90,7 @@ def runtime_version(name: str) -> str:
     """Return a language runtime pin (``python``, ``node``, ``rust``).
 
     An entry is a bare value, or a mapping that also lists the files mirroring
-    it - both answer the same question.
+    it.
 
     Raises:
         KeyError: No such runtime, or no version on it.

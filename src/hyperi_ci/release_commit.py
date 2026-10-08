@@ -6,24 +6,17 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Put the rendered VERSION and CHANGELOG back on the branch after a release.
 
-``@semantic-release/git`` used to do this and was dropped in May 2026: it
-created the release tag ON ITS OWN BOT COMMIT, so a later history rewrite
-orphaned the tag and the next release recomputed a version that already existed
-(issue #37). Both files then stopped moving in every repo.
-
 The tag is created first, at the real commit, by ``tag-head`` or by
-semantic-release. This runs afterwards and only ever adds an untagged commit,
-so no tag can ever point at machine-authored history -- the property whose
-absence caused #37.
+semantic-release. This runs afterwards and only adds an untagged commit, so no
+tag points at machine-authored history (the cause of issue #37).
 
-Written through the GitHub Git Data API rather than ``git push``: the
+Written through the GitHub Git Data API rather than ``git push``, because the
 Tag-and-Publish checkout sets ``persist-credentials: false`` and has no push
-credentials, the same constraint ``tag-head`` works around.
+credentials.
 
-Concurrency is handled by the ref update itself. GitHub rejects a non-fast-
-forward ref update, so a branch that moved under us fails loudly and retries
-against the new tip instead of overwriting someone's push. A refused update on
-a branch that did not move is a ruleset or permission refusal, and fails at once.
+GitHub rejects a non-fast-forward ref update, so a branch that moved retries
+against the new tip instead of overwriting a push. A refused update on a branch
+that did not move is a ruleset or permission refusal and fails at once.
 """
 
 import base64
@@ -47,27 +40,23 @@ from hyperi_ci.stamp import (
     carried_stamp_paths,
 )
 
-# The rendered artefacts. Both are outputs: VERSION is written by
-# `stamp-version`, CHANGELOG.md by @semantic-release/changelog. A repo adds its
-# own through `release.stamp_paths`.
+# Rendered outputs: VERSION from `stamp-version`, CHANGELOG.md from
+# @semantic-release/changelog. A repo adds its own via `release.stamp_paths`.
 VERSION = VERSION_FILE
 CHANGELOG = CHANGELOG_FILE
 RELEASE_ARTEFACTS = (VERSION, CHANGELOG)
 
-# Hand-written notes for the version being cut, printed into the release notes
-# by @semantic-release/exec. Removed in the same commit, so one supplement
-# reaches one release.
+# Hand-written notes for the version being cut, printed by
+# @semantic-release/exec and removed in the same commit.
 SUPPLEMENT = SUPPLEMENT_FILE
 
-# `[skip ci]` keeps the commit from triggering another run. Without it the
-# push retriggers CI, which finds no `Release: true` trailer and validates
-# for nothing.
+# `[skip ci]` stops the push retriggering a CI run with no `Release: true`
+# trailer.
 _MESSAGE = "chore(release): v{version} [skip ci]"
 
 _RETRIES = 3
 
-# stderr of the most recent failed `gh api` call, quoted when a refusal is
-# reported so the log carries GitHub's own reason.
+# stderr of the last failed `gh api` call, quoted in refusal reports.
 _last_api_error = ""
 
 
@@ -101,9 +90,8 @@ def _api(args: list[str], *, body: dict | None = None) -> dict | None:
 def _stamped_artefacts(root: Path) -> list[str]:
     """Return the ``release.stamp_paths`` files that are safe to commit.
 
-    A broken ``stamp_paths`` is reported and dropped rather than failing the
-    commit, so VERSION and CHANGELOG.md still land. A stamp that failed
-    part-way never reaches here: it fails the prepare job, and no release runs.
+    A broken ``stamp_paths`` is reported and dropped, so VERSION and
+    CHANGELOG.md still land.
     """
     listed = carried_stamp_paths(
         load_config(project_dir=root, reload=True), root, who="release-commit"
@@ -123,12 +111,10 @@ def _stamped_artefacts(root: Path) -> list[str]:
 def _restore_prepared(root: Path, version: str) -> bool:
     """Bring the stamp outputs over from ``release-prepare``, when a run split it.
 
-    The publish job runs no stamp of its own, because ``release.stamp_cmd`` is
-    repo code (issue #409). The ``stamp_paths`` files come from the prepare
-    job, named from this checkout's config, and only when prepare ran on this
-    same commit. VERSION is written here from the release version, never taken
-    from prepare, and only where git tracks it: a repo without one has opted
-    out.
+    The publish job runs no stamp of its own because ``release.stamp_cmd`` is
+    repo code (issue #409). The ``stamp_paths`` files come from the prepare job,
+    only when it ran on this same commit. VERSION is written here from the
+    release version, and only where git tracks it.
 
     Returns:
         False when the prepared directory is set but unusable.
@@ -174,11 +160,9 @@ def _unchanged_on_tip(
 ) -> list[str]:
     """Keep the stamped files the branch has not changed since this checkout.
 
-    The release commit builds on the branch tip, but the files come from a
-    checkout that can be older: a merge landed during the release, or a
-    retroactive dispatch checked out an old tag. A generated file is derived
-    from source, so writing the checkout's copy over a newer one on the branch
-    would lose that change.
+    The checkout can be older than the tip (a merge landed mid-release, or a
+    retroactive dispatch checked out an old tag), and writing its copy over a
+    newer one would lose that change.
     """
     kept: list[str] = []
     for name in names:
@@ -198,10 +182,9 @@ def _unchanged_on_tip(
 def _tip_is_newer(*, repo: str, root: Path, tip: str) -> bool:
     """Say whether the branch tip carries a later VERSION than this checkout.
 
-    A retroactive dispatch of an old tag, or a forced bump below the latest
-    tag, stamps an older version on disk, and committing it would move the
-    branch backwards. A side that is missing or does not parse as a version
-    skips the check.
+    A retroactive dispatch or a forced bump below the latest tag stamps an older
+    version, and committing it would move the branch backwards. A side that is
+    missing or unparseable skips the check.
     """
     local = root / VERSION
     if not local.is_file():
@@ -230,8 +213,7 @@ def _blob_entries(
 ) -> list[dict[str, str | None]] | None:
     """Upload each artefact as a blob, returning tree entries by sha.
 
-    Content goes up base64-encoded so a file that is not valid UTF-8 (or
-    carries a stray CR) survives the round trip intact.
+    Content goes up base64-encoded so non-UTF-8 bytes and CRs survive.
     """
     entries: list[dict[str, str | None]] = []
     for name in artefacts:
@@ -254,12 +236,10 @@ def _supplement_entry(
 ) -> list[dict[str, str | None]]:
     """Return the tree entry that deletes a consumed supplement, if any.
 
-    A null sha is how the tree API removes a path. Two things gate it. The
-    rendered changelog must name the version, because a forced bump skips
-    semantic-release and prints the supplement into nothing. The branch must
-    still carry the file, because a retroactive publish checks out a tag whose
-    tree predates the removal, and the API rejects deleting a path the base
-    tree does not have.
+    A null sha removes a path in the tree API. The rendered changelog must name
+    the version, because a forced bump skips semantic-release and prints the
+    supplement into nothing. The branch must still carry the file, because the
+    API rejects deleting a path the base tree lacks.
     """
     if not (root / SUPPLEMENT).is_file():
         return []
@@ -406,9 +386,7 @@ def _attempt(
         error("release-commit: cannot create the tree")
         return "fail"
 
-    # An identical tree means the artefacts on disk already match the branch --
-    # a re-run, or a release that changed neither file. Committing would add an
-    # empty commit for nothing.
+    # An identical tree would make an empty commit.
     if new_tree == base_tree:
         info(f"release-commit: {branch} already matches the rendered artefacts")
         return "ok"
@@ -426,8 +404,7 @@ def _attempt(
         error("release-commit: cannot create the commit")
         return "fail"
 
-    # No `force`: GitHub rejects a non-fast-forward update, which is what makes
-    # a concurrent push a retry rather than a silent overwrite.
+    # No `force`: a non-fast-forward rejection turns a concurrent push into a retry.
     updated = _api(
         ["-X", "PATCH", f"repos/{repo}/git/refs/heads/{branch}"],
         body={"sha": new_commit, "force": False},
@@ -444,9 +421,8 @@ def _attempt(
 def _classify_refused_update(*, repo: str, branch: str, tip: str) -> str:
     """Tell a branch that moved (retry) from a push GitHub refused (fail).
 
-    A refused update whose branch still points at ``tip`` was not a race: a
-    ruleset or a missing permission turned the push away, and retrying cannot
-    change that answer.
+    A refused update whose branch still points at ``tip`` was a ruleset or
+    permission refusal, which a retry cannot change.
     """
     reason = _last_api_error
     ref = _api([f"repos/{repo}/git/ref/heads/{branch}"])

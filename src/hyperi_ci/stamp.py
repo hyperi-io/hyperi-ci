@@ -6,20 +6,17 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Stamp the release version into the project before build.
 
-Two layers, split on the central/language rule:
+Two layers:
 
   * VERSION file -- identical for every language, always written here.
-  * manifest (Cargo.toml / pyproject.toml / package.json ...) -- differs per
-    language, so each language's `stamp_manifest()` owns it in full.
+  * manifest (Cargo.toml / pyproject.toml / package.json ...) -- each language's
+    `stamp_manifest()` owns it, routed by language detection.
 
-The workflow calls this once (`hyperi-ci stamp-version <version>`) with no
-per-language branching; language detection routes the manifest stamp.
-
-A repo whose committed files carry the version somewhere hyperi-ci cannot know
-about (a generated OpenAPI spec) names a command in ``release.stamp_cmd``, run
-after both layers, and the files it writes in ``release.stamp_paths``, which
-``release-commit`` puts back on the branch. ``--no-stamp-cmd`` skips the
-command, for the Container job, which logs in to registries.
+A repo whose committed files carry the version elsewhere (a generated OpenAPI
+spec) names a command in ``release.stamp_cmd``, run after both layers, and the
+files it writes in ``release.stamp_paths``, which ``release-commit`` puts back
+on the branch. ``--no-stamp-cmd`` skips the command, for the Container job,
+which holds registry credentials.
 """
 
 import re
@@ -30,8 +27,8 @@ from hyperi_ci.common import error, info, run_cmd, warn
 from hyperi_ci.config import CIConfig, load_config
 from hyperi_ci.detect import detect_language
 
-# The env form of `stamp-version --no-stamp-cmd`, which a CLI too old to know
-# the flag ignores rather than rejects.
+# Env form of `stamp-version --no-stamp-cmd`, ignored rather than rejected by a
+# CLI too old to know the flag.
 SKIP_STAMP_CMD_ENV = "HYPERCI_STAMP_SKIP_CMD"
 
 
@@ -43,10 +40,8 @@ def replace_toml_table_version(text: str, table: str, version: str) -> str:
     """Replace `version = "..."` inside one TOML table, if present.
 
     Scoped to the named table (e.g. ``package``, ``workspace.package``,
-    ``project``): matches from the ``[table]`` header to the next ``[``
-    header. Never inserts -- a dynamic-version project with no ``version``
-    key is left untouched. Generic string op shared by the TOML-based
-    language stampers; the choice of which table is the language's call.
+    ``project``), from its header to the next ``[`` header. Never inserts, so a
+    dynamic-version project with no ``version`` key is left untouched.
     """
     pattern = re.compile(
         r"(?ms)^\[" + re.escape(table) + r"\].*?(?=^\[|\Z)",
@@ -64,8 +59,8 @@ def replace_toml_table_version(text: str, table: str, version: str) -> str:
     return text[: match.start()] + new_block + text[match.end() :]
 
 
-# language -> (module path, function name). Lazy-imported so stamping a
-# Rust project doesn't drag in the Python/Node handlers (and vice versa).
+# language -> (module path, function name), lazy-imported so one language's
+# handlers are not loaded for another.
 _MANIFEST_STAMPERS: dict[str, tuple[str, str]] = {
     "rust": ("hyperi_ci.languages.rust.build", "stamp_manifest"),
     "python": ("hyperi_ci.languages.python.build", "stamp_manifest"),
@@ -78,8 +73,8 @@ _MANIFEST_STAMPERS: dict[str, tuple[str, str]] = {
 def stamp_command(config: CIConfig) -> list[str] | None:
     """Resolve ``release.stamp_cmd`` to an argv, or None when unset.
 
-    A string is split the way a shell would split it, but never run through
-    one; a list is taken as the argv as-is.
+    A string is split like a shell would but never run through one, and a list
+    is taken as the argv.
 
     Raises:
         ValueError: The value is neither a string nor a list of strings, or
@@ -99,10 +94,7 @@ def stamp_command(config: CIConfig) -> list[str] | None:
     return argv or None
 
 
-# The files release-commit owns outright: VERSION is written from the release
-# version, CHANGELOG.md by @semantic-release/changelog, and the supplement is
-# deleted once a release consumes it. None of them is ever carried as a stamp
-# output.
+# Files release-commit owns outright, never carried as a stamp output.
 VERSION_FILE = "VERSION"
 CHANGELOG_FILE = "CHANGELOG.md"
 SUPPLEMENT_FILE = ".github/release-notes/NEXT.md"
@@ -152,8 +144,8 @@ def repo_paths(raw: object, root: Path, key: str) -> list[str]:
 def stamp_paths(config: CIConfig, root: Path) -> list[str]:
     """Resolve ``release.stamp_paths`` to repo-relative POSIX paths.
 
-    These become paths in a commit written to the default branch, so the
-    :func:`repo_paths` rules apply.
+    They land in a commit on the default branch, so :func:`repo_paths` rules
+    apply.
 
     Raises:
         ValueError: See :func:`repo_paths`.
@@ -165,9 +157,8 @@ def stamp_paths(config: CIConfig, root: Path) -> list[str]:
 def carried_stamp_paths(config: CIConfig, root: Path, *, who: str) -> list[str]:
     """Return the ``stamp_paths`` a release carries from the stamp to the commit.
 
-    The one filter the prepare snapshot, the restore and release-commit share:
-    a broken list is reported and treated as empty, so VERSION and
-    CHANGELOG.md still land, and the reserved names are dropped with a warning.
+    Shared by the prepare snapshot, the restore and release-commit. A broken
+    list is reported and treated as empty, and reserved names are dropped.
 
     Args:
         config: Merged config of the checkout.
@@ -237,18 +228,15 @@ def stamp_version(
 
     root = project_dir or Path.cwd()
 
-    # Central: VERSION is the language-agnostic source of truth, always written.
     (root / "VERSION").write_text(f"{version}\n", encoding="utf-8", newline="\n")
     info(f"Stamped VERSION: {version}")
 
-    # Language-specific: manifest stamp lives in the language's own code.
     language = detect_language(root)
     if language and language in _MANIFEST_STAMPERS:
         module_name, func_name = _MANIFEST_STAMPERS[language]
         import importlib
 
-        # module_name comes from the hardcoded _MANIFEST_STAMPERS table, not user
-        # input, so there is no injection surface.
+        # module_name comes from the hardcoded _MANIFEST_STAMPERS table.
         # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import
         stamp_manifest = getattr(importlib.import_module(module_name), func_name)
         try:
