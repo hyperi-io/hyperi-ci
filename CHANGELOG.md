@@ -3,6 +3,20 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.13.0](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.18...v2.13.0) (2026-10-08)
+
+### Features
+
+* **quality:** add lint-iac for charts, manifests, tofu, ansible and compose ([#549](https://github.com/hyperi-io/hyperi-ci/issues/549)) ([7132003](https://github.com/hyperi-io/hyperi-ci/commit/7132003175dea63b219e8975c8e67d02cf43570c))
+
+### Bug Fixes
+
+* **deps:** override smol-toml and katex past their advisories in the docs tools ([#541](https://github.com/hyperi-io/hyperi-ci/issues/541)) ([ba6c9c1](https://github.com/hyperi-io/hyperi-ci/commit/ba6c9c19dfc9df5042614632a482b086feca308d))
+* **golang:** fail the gofmt gate when files need formatting ([#545](https://github.com/hyperi-io/hyperi-ci/issues/545)) ([2a564be](https://github.com/hyperi-io/hyperi-ci/commit/2a564beae59cfc8f50cfff1e5b45226f1344339d))
+* **release:** keep every publish-charts table in the release notes ([#548](https://github.com/hyperi-io/hyperi-ci/issues/548)) ([3d53877](https://github.com/hyperi-io/hyperi-ci/commit/3d538776b1c80aac9d11d6c647cda45ff3efbe96))
+* **release:** publish committed Helm charts to an OCI registry ([#543](https://github.com/hyperi-io/hyperi-ci/issues/543)) ([f2c292e](https://github.com/hyperi-io/hyperi-ci/commit/f2c292e17e32febe1751f387e6a8b2f3715feeb6))
+* **rust:** fail a blocking cargo audit that never loads its advisory DB ([#544](https://github.com/hyperi-io/hyperi-ci/issues/544)) ([d031cde](https://github.com/hyperi-io/hyperi-ci/commit/d031cdecfdb6a706f1f66ccde0917323eb762d49))
+
 ## [2.12.18](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.17...v2.12.18) (2026-10-07)
 
 ### Bug Fixes
