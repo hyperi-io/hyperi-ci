@@ -6,13 +6,15 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Compose resolution gate: ``docker compose config`` over each standalone file.
 
-It needs no daemon and no registry. Each ``${VAR:?message}`` key gets a
-placeholder, which overrides any value already set, so the check runs on CI;
-pins are :mod:`hyperi_ci.quality.compose_pins`' job. A file whose services
+It needs no daemon and no registry. Each ``${VAR:?message}`` key the
+environment leaves unset gets a placeholder, so the check runs on CI and a
+local run with real values checks those. Pins are
+:mod:`hyperi_ci.quality.compose_pins`' job. A file whose services
 carry neither ``image`` nor ``build`` is an overlay fragment that compose
 rejects standalone, so it is named in the log and skipped.
 """
 
+import os
 import re
 import shutil
 import subprocess
@@ -46,11 +48,16 @@ def mandatory_keys(path: Path) -> list[str]:
 
 
 def placeholder_env(path: Path) -> dict[str, str]:
-    """Return the placeholder values that let ``path`` resolve hermetically."""
+    """Return placeholders for the mandatory keys the environment leaves empty.
+
+    ``run_cmd`` lays these over ``os.environ``, so a key set there is left out
+    rather than overwritten.
+    """
     root = str(path.parent.resolve())
     return {
         name: root if name.endswith(_PATH_KEY_SUFFIXES) else _PLACEHOLDER
         for name in mandatory_keys(path)
+        if not os.environ.get(name)
     }
 
 
