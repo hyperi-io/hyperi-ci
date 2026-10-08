@@ -6,10 +6,10 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for `hyperi_ci.bootstrap`.
 
-The install paths themselves are Linux-only and shell out to rustup / go.dev /
-nvm, so they are exercised for real by a runner image build, not here. What is
-tested here is everything that can be checked without a Linux box: the config
-contract, the non-Linux guard, and the CLI wiring.
+The installers download and run vendor code, so they are exercised for real by
+a runner image build. Here curl is faked at `common.run_cmd`: what is checked is
+which URLs are fetched, that each download is held to its versions.yaml digest,
+the config contract, the non-Linux guard and the CLI wiring.
 """
 
 import hashlib
@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tarfile
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
 import yaml
@@ -27,6 +28,11 @@ import yaml
 from hyperi_ci import bootstrap, common, native_tools, versions
 
 _TEST_ENV = {**os.environ, "HYPERCI_AUTO_UPDATE": "false"}
+API_HOST = "api.github.com"
+
+
+def _hosts(urls: list[str]) -> set[str | None]:
+    return {urlparse(u).hostname for u in urls}
 
 
 class TestLoadSpec:
@@ -119,7 +125,8 @@ class TestPythonIsTheVersionsDefault:
 
         [(cmd, kw)] = seen
         assert "--install-dir" not in cmd
-        assert "env" not in kw
+        # None inherits this process's environment unchanged.
+        assert kw.get("env") is None
         assert os.environ["UV_PYTHON_INSTALL_DIR"] == str(tmp_path)
 
     def test_never_sets_the_install_dir(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -284,52 +291,228 @@ class TestNonLinuxGuard:
         assert bootstrap.install_toolchain_bootstrap() == 0
 
 
-class TestInstallerScriptsComeFromAFile:
-    """A retried fetch piped straight into a shell can run its body twice.
+class TestInstallersArePinnedAndVerified:
+    """rustup-init, the Go tarball and nvm's install.sh: pinned, digest-checked.
 
-    The installer scripts are fetched to a temp file with retries, then the
-    whole file goes to the shell.
+    curl is faked at `common.run_cmd`, so every URL the installers fetch is
+    recorded, and the download is written to the file curl was given. Each
+    installer runs from that file, never from piped stdin, because a retried
+    fetch piped into a shell can run its body twice.
     """
 
     @staticmethod
-    def _wire(monkeypatch: pytest.MonkeyPatch, script: bytes) -> dict[str, list]:
-        seen: dict[str, list] = {"curl": [], "shell": []}
+    def _wire(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, payload: bytes
+    ) -> dict[str, list]:
+        seen: dict[str, list] = {"curl": [], "run": []}
 
         def fake_curl(cmd: list[str], **_kw: object) -> subprocess.CompletedProcess:
             seen["curl"].append(cmd)
-            Path(cmd[cmd.index("-o") + 1]).write_bytes(script)
-            return subprocess.CompletedProcess(cmd, 0)
+            Path(cmd[cmd.index("-o") + 1]).write_bytes(payload)
+            return subprocess.CompletedProcess(cmd, 0, stdout="200")
 
-        def fake_shell(cmd: list[str], **kw: object) -> subprocess.CompletedProcess:
-            seen["shell"].append((cmd, kw.get("input")))
+        def fake_run(cmd: list[str], **kw: object) -> subprocess.CompletedProcess:
+            seen["run"].append((cmd, kw.get("env"), kw.get("input")))
             return subprocess.CompletedProcess(cmd, 0)
 
         monkeypatch.setattr(common, "run_cmd", fake_curl)
-        monkeypatch.setattr(bootstrap.subprocess, "run", fake_shell)
-        monkeypatch.setattr(bootstrap, "_run", lambda *_a, **_k: 0)
+        monkeypatch.setattr(bootstrap.subprocess, "run", fake_run)
+        monkeypatch.setattr(bootstrap.platform, "system", lambda: "Linux")
+        monkeypatch.setattr(bootstrap.platform, "machine", lambda: "x86_64")
+        monkeypatch.setattr(native_tools.sys, "platform", "linux")
+        monkeypatch.setattr(bootstrap, "_GO_PARENT", tmp_path)
+        monkeypatch.setattr(bootstrap, "sudo_prefix", lambda: [])
         return seen
 
-    def test_rustup_keeps_its_own_transport_rules(
+    @staticmethod
+    def _pin(monkeypatch: pytest.MonkeyPatch, payload: bytes) -> None:
+        """Make every pinned digest the payload's, so the download verifies."""
+        digest = hashlib.sha256(payload).hexdigest()
+        monkeypatch.setattr(bootstrap, "tool_sha256", lambda _n, _k: digest)
+        monkeypatch.setattr(bootstrap, "runtime_sha256", lambda _n, _k: digest)
+
+    @staticmethod
+    def _urls(seen: dict[str, list]) -> list[str]:
+        return [cmd[-1] for cmd in seen["curl"]]
+
+    # rustup
+
+    def test_rustup_init_is_the_pinned_version_with_rustups_transport_rules(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        monkeypatch.setattr(bootstrap.platform, "system", lambda: "Linux")
-        monkeypatch.setattr(bootstrap, "_have", lambda _b: False)
-        monkeypatch.setenv("CARGO_HOME", str(tmp_path))
-        monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
-        monkeypatch.setattr(bootstrap, "install_sccache", lambda _bin: 0)
-        seen = self._wire(monkeypatch, b"#!/bin/sh\necho rustup\n")
+        payload = b"\x7fELF rustup-init"
+        seen = self._wire(monkeypatch, tmp_path, payload)
+        self._pin(monkeypatch, payload)
 
-        assert bootstrap.install_rust(bootstrap.RustSpec(channels=[])) == 0
+        assert bootstrap.install_rustup("stable") == 0
 
+        version = versions.tool_version("rustup")
         [curl] = seen["curl"]
-        assert curl[-1] == bootstrap._RUSTUP_URL
+        assert curl[-1] == (
+            f"https://static.rust-lang.org/rustup/archive/{version}/"
+            "x86_64-unknown-linux-gnu/rustup-init"
+        )
         assert "-L" not in curl
-        assert "--max-time" in curl
         assert curl[curl.index("--proto") + 1] == "=https"
         assert "--tlsv1.2" in curl
-        [(shell, body)] = seen["shell"]
-        assert shell[:2] == ["sh", "-s"]
-        assert body == b"#!/bin/sh\necho rustup\n"
+        [(cmd, _env, stdin)] = seen["run"]
+        assert Path(cmd[0]).name == "rustup-init"
+        assert cmd[1:] == ["-y", "--default-toolchain", "stable"]
+        assert stdin is None
+
+    def test_rustup_arm64_takes_the_aarch64_pin(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        payload = b"\x7fELF rustup-init"
+        seen = self._wire(monkeypatch, tmp_path, payload)
+        monkeypatch.setattr(bootstrap.platform, "machine", lambda: "aarch64")
+        keys: list[tuple[str, str]] = []
+        digest = hashlib.sha256(payload).hexdigest()
+        monkeypatch.setattr(
+            bootstrap, "tool_sha256", lambda n, k: keys.append((n, k)) or digest
+        )
+
+        assert bootstrap.install_rustup("stable") == 0
+
+        assert "/aarch64-unknown-linux-gnu/rustup-init" in self._urls(seen)[0]
+        assert keys == [("rustup", "aarch64")]
+        assert versions.tool_sha256("rustup", "aarch64")
+
+    def test_rustup_digest_mismatch_runs_nothing(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        # The real pin, against bytes that are not rustup-init.
+        seen = self._wire(monkeypatch, tmp_path, b"tampered")
+
+        assert bootstrap.install_rustup("stable") == 1
+        assert len(seen["curl"]) == 1
+        assert seen["run"] == []
+
+    def test_rustup_unknown_cpu_fetches_nothing(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        seen = self._wire(monkeypatch, tmp_path, b"")
+        monkeypatch.setattr(bootstrap.platform, "machine", lambda: "riscv64")
+
+        assert bootstrap.install_rustup("stable") == 1
+        assert seen["curl"] == seen["run"] == []
+
+    def test_install_rust_goes_through_the_pinned_rustup(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        asked: list[str] = []
+        monkeypatch.setattr(bootstrap.platform, "system", lambda: "Linux")
+        monkeypatch.setattr(bootstrap, "_have", lambda _b: False)
+        monkeypatch.setattr(bootstrap, "install_rustup", lambda c: asked.append(c) or 0)
+        monkeypatch.setattr(bootstrap, "install_sccache", lambda _bin: 0)
+        monkeypatch.setattr(bootstrap, "_run", lambda *_a, **_k: 0)
+        monkeypatch.setenv("CARGO_HOME", str(tmp_path))
+        monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
+
+        assert bootstrap.install_rust(bootstrap.RustSpec(channels=["stable"])) == 0
+        assert asked == ["stable"]
+
+    # Go
+
+    def test_go_is_the_pinned_runtime(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        payload = b"go tarball"
+        seen = self._wire(monkeypatch, tmp_path, payload)
+        self._pin(monkeypatch, payload)
+
+        assert bootstrap.install_go() == 0
+
+        version = versions.runtime_version("go")
+        tarball = f"go{version}.linux-amd64.tar.gz"
+        assert self._urls(seen) == [f"https://go.dev/dl/{tarball}"]
+        [(cmd, _env, _stdin)] = seen["run"]
+        assert cmd[:3] == ["tar", "-C", str(tmp_path)]
+        assert Path(cmd[-1]).name == tarball
+
+    def test_go_digest_mismatch_unpacks_nothing(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        seen = self._wire(monkeypatch, tmp_path, b"tampered")
+
+        assert bootstrap.install_go() == 1
+        assert len(seen["curl"]) == 1
+        assert seen["run"] == []
+
+    def test_go_arm64_takes_the_arm64_pin(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        payload = b"go tarball"
+        seen = self._wire(monkeypatch, tmp_path, payload)
+        monkeypatch.setattr(bootstrap.platform, "machine", lambda: "arm64")
+        keys: list[tuple[str, str]] = []
+        digest = hashlib.sha256(payload).hexdigest()
+        monkeypatch.setattr(
+            bootstrap, "runtime_sha256", lambda n, k: keys.append((n, k)) or digest
+        )
+
+        assert bootstrap.install_go() == 0
+        assert self._urls(seen)[0].endswith(".linux-arm64.tar.gz")
+        assert keys == [("go", "arm64")]
+        assert versions.runtime_sha256("go", "arm64")
+
+    def test_go_already_installed_fetches_nothing(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        seen = self._wire(monkeypatch, tmp_path, b"")
+        (tmp_path / "go" / "bin").mkdir(parents=True)
+        (tmp_path / "go" / "bin" / "go").write_bytes(b"")
+
+        assert bootstrap.install_go() == 0
+        assert seen["curl"] == []
+
+    # nvm
+
+    def test_nvm_is_the_pinned_tag_and_asks_no_api(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        payload = b"#!/usr/bin/env bash\necho nvm\n"
+        seen = self._wire(monkeypatch, tmp_path, payload)
+        self._pin(monkeypatch, payload)
+        nvm_dir = tmp_path / "nvm"
+
+        assert bootstrap.install_nvm(nvm_dir) == 0
+
+        tag = versions.tool_version("nvm")
+        urls = self._urls(seen)
+        assert urls == [
+            f"https://raw.githubusercontent.com/nvm-sh/nvm/{tag}/install.sh"
+        ]
+        assert API_HOST not in _hosts(urls)
+        [(cmd, env, stdin)] = seen["run"]
+        assert cmd[0] == "bash"
+        assert Path(cmd[1]).name == "install.sh"
+        assert stdin is None
+        assert env["NVM_DIR"] == str(nvm_dir)
+
+    def test_nvm_digest_mismatch_runs_nothing(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        seen = self._wire(monkeypatch, tmp_path, b"echo pwned\n")
+
+        assert bootstrap.install_nvm(tmp_path / "nvm") == 1
+        assert len(seen["curl"]) == 1
+        assert seen["run"] == []
+
+    def test_install_node_asks_no_api_and_refuses_a_bad_script(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The bake shares one anonymous api.github.com quota across the estate."""
+        seen = self._wire(monkeypatch, tmp_path, b"echo pwned\n")
+        monkeypatch.setenv("NVM_DIR", str(tmp_path / "nvm"))
+
+        assert bootstrap.install_node() == 1
+        assert API_HOST not in _hosts(self._urls(seen))
+        assert seen["run"] == []
+
+    def test_no_api_github_url_in_the_module(self) -> None:
+        source = Path(bootstrap.__file__).read_text(encoding="utf-8")
+        assert "api.github.com" not in source
 
 
 class TestInstallAllWiring:
@@ -350,6 +533,9 @@ class TestInstallAllWiring:
         combined = result.stdout + result.stderr
         assert "language toolchains" in combined
         assert f"sccache:     {versions.tool_version('sccache')}" in combined
+        assert f"rustup:      {versions.tool_version('rustup')}" in combined
+        assert f"go: {versions.runtime_version('go')}\n" in combined
+        assert f"nvm: {versions.tool_version('nvm')}\n" in combined
         assert f"node: {versions.runtime_version('node')}\n" in combined
         assert f"python: {versions.runtime_version('python')}\n" in combined
 

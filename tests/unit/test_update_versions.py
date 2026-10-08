@@ -1412,6 +1412,42 @@ class TestDigestBump:
             "release lookup failed",
         )
 
+    def test_a_tags_only_repo_is_held_without_asking_for_releases(
+        self, monkeypatch
+    ) -> None:
+        # rustup tags releases but cuts no GitHub Release, so there are no asset
+        # digests to read and the lookup would only 404.
+        asked = self._api(monkeypatch, {})
+        spec = {
+            "version": "1.29.1",
+            "repo": "rust-lang/rustup",
+            "release_source": "tags",
+            "sha256": {"x86_64": _OLD_X64},
+        }
+        assert update_versions._bumped_digests(spec, "1.29.2") == (
+            None,
+            "no GitHub release to read digests from",
+        )
+        assert asked == []
+
+    def test_the_shipped_bake_pins_go_to_a_hand_bump(self, monkeypatch) -> None:
+        # nvm releases carry no assets, so no digest can be carried across.
+        tools = update_versions._load_versions()["tools"]
+        nvm = tools["nvm"]
+        self._api(
+            monkeypatch,
+            {
+                f"/repos/nvm-sh/nvm/releases/tags/{nvm['version']}": _gh_release({}),
+                "/repos/nvm-sh/nvm/releases/tags/v9.9.9": _gh_release({}),
+            },
+        )
+        digests, why = update_versions._bumped_digests(nvm, "v9.9.9")
+        assert digests is None
+        assert "pinned script digest" in why
+        digests, why = update_versions._bumped_digests(tools["rustup"], "9.9.9")
+        assert digests is None
+        assert why == "no GitHub release to read digests from"
+
     def test_monorepo_tag_is_one_path_segment(self, monkeypatch) -> None:
         # cargo-audit tags as `cargo-audit/vX`; unencoded, the slash splits the
         # API path and the lookup 404s.
@@ -1627,6 +1663,47 @@ class TestRuntimeDrift:
         assert update_versions._report_runtime_drift(self.SSOT) == 1
         assert warned == ["runtime llvm: 23 but latest llvm-project release is 24"]
         assert list(tmp_path.iterdir()) == []
+
+    GO_DL = [
+        {"version": "go1.27.2", "stable": True},
+        {"version": "go1.26.8", "stable": True},
+    ]
+
+    def _go(self, monkeypatch, releases=None, *, down=False) -> None:
+        def opener(*_a, **_k):
+            if down:
+                raise OSError("unreachable")
+            return io.BytesIO(json.dumps(releases or self.GO_DL).encode())
+
+        monkeypatch.setattr(update_versions.urllib.request, "urlopen", opener)
+
+    def test_go_behind_go_dev_stable(self, monkeypatch) -> None:
+        self._go(monkeypatch)
+        out = update_versions._runtime_drift(
+            {"runtimes": {"go": {"version": "1.27.1"}}}, self.TODAY
+        )
+        assert out == [("drift", "go: 1.27.1 but go.dev stable is 1.27.2")]
+
+    def test_go_matches_go_dev_stable(self, monkeypatch) -> None:
+        self._go(monkeypatch)
+        out = update_versions._runtime_drift(
+            {"runtimes": {"go": {"version": "1.27.2"}}}, self.TODAY
+        )
+        assert out == [("ok", "go: 1.27.2 (matches go.dev stable)")]
+
+    def test_go_unreachable_is_not_a_pass(self, monkeypatch) -> None:
+        self._go(monkeypatch, down=True)
+        [(level, _msg)] = update_versions._runtime_drift(
+            {"runtimes": {"go": {"version": "1.27.1"}}}, self.TODAY
+        )
+        assert level == "unchecked"
+
+    def test_go_release_candidate_is_not_stable(self, monkeypatch) -> None:
+        self._go(
+            monkeypatch,
+            [{"version": "go1.28rc1", "stable": False}, *self.GO_DL],
+        )
+        assert update_versions._latest_go() == "1.27.2"
 
     def test_stable_stays_zero_on_drift(self, monkeypatch) -> None:
         self._upstream(monkeypatch, llvm_tags=("llvmorg-24.1.0",))

@@ -104,11 +104,13 @@ This produces the pre-baked toolchains below, per the shipped YAML.
 
 ### Language toolchains (`src/hyperi_ci/config/bootstrap.yaml`)
 
-- Rust stable and nightly through rustup, with `clippy`, `rustfmt` and the `aarch64-unknown-linux-gnu` target.
-- sccache at versions.yaml `tools.sccache`, checked against its pinned sha256 before it is unpacked. The image sets `RUSTC_WRAPPER=sccache`, and no CI step installs it.
-- Go, the current stable from go.dev.
-- Node at versions.yaml `runtimes.node` through nvm, the one major baked and the default on PATH.
+- Rust stable and nightly with `clippy`, `rustfmt` and the `aarch64-unknown-linux-gnu` target, through rustup-init at versions.yaml `tools.rustup`.
+- sccache at versions.yaml `tools.sccache`. The image sets `RUSTC_WRAPPER=sccache`, and no CI step installs it.
+- Go at versions.yaml `runtimes.go`, from go.dev.
+- Node at versions.yaml `runtimes.node` through nvm at `tools.nvm`, the one major baked and the default on PATH.
 - Python at versions.yaml `runtimes.python` through `uv python install`, into the image's `UV_PYTHON_INSTALL_DIR` (set image-side, never by hyperi-ci), so a job's `uvx hyperi-ci` finds it without a download.
+
+rustup-init, sccache, the Go tarball and nvm's install.sh are each checked against their sha256 in versions.yaml before they run or are unpacked, and a mismatch fails the bake. Nothing asks the GitHub API which release is current, so the bake spends none of the anonymous rate limit.
 
 cargo-audit, cargo-deny and cargo-nextest are not baked. The setup-rust-tools and setup-nextest composites install their versions.yaml pins on every Rust job, so a baked copy would never run.
 

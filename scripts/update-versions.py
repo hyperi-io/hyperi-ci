@@ -38,9 +38,9 @@ Update behaviour:
   - Tools resolve to the newest release that has aged past the 7-day
     cooldown, MAJORS INCLUDED. Every bump goes through a PR, so a breaking
     major surfaces as a red CI run rather than a silent behaviour change.
-  - Runtimes (python, node, rust, llvm) require explicit update -- never
-    auto-bumped. `--stable` warns when llvm or node trails upstream (latest
-    llvm-project release, node latest LTS) and never fails on it.
+  - Runtimes (python, node, rust, llvm, go) require explicit update -- never
+    auto-bumped. `--stable` warns when llvm, node or go trails upstream (latest
+    llvm-project release, node latest LTS, go.dev stable) and never fails on it.
   - --auto-update applies the bumps then validates LOCALLY (YAML re-parse,
     SSOT sync check, the pytest workflow gates); reverts on local failure.
     It deliberately does NOT trigger remote CI: the ci-test-* projects
@@ -573,6 +573,8 @@ def _bumped_digests(spec: dict, new_version: str) -> tuple[dict[str, str] | None
     cur_version = str(spec.get("version"))
     if not repo:
         return None, "no `repo:` to read digests from"
+    if spec.get("release_source") == "tags":
+        return None, "no GitHub release to read digests from"
     current = _release_digests(repo, prefix + cur_version)
     bumped = _release_digests(repo, prefix + new_version)
     if current is None or bumped is None:
@@ -903,6 +905,7 @@ def _report_watchlist(versions: dict) -> None:
 _NODE_SCHEDULE_URL = (
     "https://raw.githubusercontent.com/nodejs/Release/main/schedule.json"
 )
+_GO_DL_URL = "https://go.dev/dl/?mode=json"
 _LLVM_TAG_RE = re.compile(r"^llvmorg-(\d+)\.(\d+)\.(\d+)$")
 _RUNTIMES_NOT_COVERED = {
     "python": "no upstream source pattern in this script",
@@ -951,6 +954,22 @@ def _latest_node_lts(today: date) -> int | None:
     return max(lts) if lts else None
 
 
+def _latest_go() -> str | None:
+    """Version of go.dev's current stable Go, without the `go` prefix.
+
+    go.dev lists the supported releases newest first. None if unreadable.
+    """
+    try:
+        with urllib.request.urlopen(  # noqa: S310  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+            _GO_DL_URL, timeout=15
+        ) as response:
+            releases = json.load(response)
+        stable = [r["version"] for r in releases if r.get("stable")]
+    except (OSError, ValueError, AttributeError, TypeError, KeyError):
+        return None
+    return str(stable[0]).removeprefix("go") if stable else None
+
+
 def _runtime_drift(versions: dict, today: date) -> list[tuple[str, str]]:
     """Compare the pinned `runtimes:` against upstream. Writes nothing.
 
@@ -962,6 +981,7 @@ def _runtime_drift(versions: dict, today: date) -> list[tuple[str, str]]:
     lookups = {
         "llvm": ("latest llvm-project release", _latest_llvm_major),
         "node": ("latest LTS", lambda: _latest_node_lts(today)),
+        "go": ("go.dev stable", _latest_go),
     }
     out: list[tuple[str, str]] = []
     for name, spec in runtimes.items():
