@@ -156,8 +156,8 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 
 ### Migration & history
 
-- The JFrog registry migration record, and the artifact repos that still serve
-  Telstra production, live in hyperi-infra docs/JFROG.md
+- The JFrog registry migration record, and the artifact repos still in use,
+  live in hyperi-infra docs/JFROG.md
 - [migration/CODEBERG.md](migration/codeberg.md) and
   [migration/CODEBERG-SECRETS-AND-CI.md](migration/codeberg-secrets-and-ci.md) -
   Codeberg + Buildkite portability notes (aspirational)
