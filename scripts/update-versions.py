@@ -17,7 +17,7 @@ Usage:
     uv run scripts/update-versions.py                # default: --check
     uv run scripts/update-versions.py --check        # show drift (dry run)
     uv run scripts/update-versions.py --apply        # rewrite pipeline to SSOT
-    uv run scripts/update-versions.py --stable       # report newest release >=7d old
+    uv run scripts/update-versions.py --stable       # dry run of --auto-update
     uv run scripts/update-versions.py --stable --now # ... as of now, soak waived
     uv run scripts/update-versions.py --auto-update  # bump SSOT, validate locally, revert on fail
 
@@ -31,7 +31,8 @@ green.
 cooldown: the soak is the supply-chain control, not a formality.
 
 `--stable` reports the SOAKED release, matching the `stable` channel in
-`hyperi-ci autoupdate`.
+`hyperi-ci autoupdate`. It is the dry run of `--auto-update`: both go through
+`_resolve`, so the report names exactly what the update would write.
 
 Update behaviour:
   - Tools resolve to the newest release that has aged past the 7-day
@@ -52,7 +53,9 @@ import json
 import re
 import subprocess
 import sys
+import urllib.parse
 import urllib.request
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
@@ -511,18 +514,91 @@ def _apply(versions: dict) -> int:
     return 0
 
 
-def _stable(versions: dict, *, fail_on_drift: bool = False) -> int:
-    """Report the newest soaked release of each pinned tool.
+@dataclass(slots=True)
+class _Resolution:
+    """One resolve pass over the SSOT.
 
-    Soaked, not newest: a release inside the cooldown is reported as held, so
-    this answers "what may we pin to now", which is what --auto-update applies.
+    Attributes:
+        tools: Tool name -> the version --auto-update writes.
+        digests: Tool name -> the sha256 per asset key written with that version.
+        semantic_release: (current, newest) core major, when they differ.
+        manual: Tools with a newer soaked release that need a hand bump.
+        lookup_failures: Tools whose upstream could not be read.
     """
-    updates_available = 0
-    lookup_failures = 0
 
+    tools: dict[str, str] = field(default_factory=dict)
+    digests: dict[str, dict[str, str]] = field(default_factory=dict)
+    semantic_release: tuple[str, str] | None = None
+    manual: int = 0
+    lookup_failures: int = 0
+
+    @property
+    def writes(self) -> int:
+        """Pins --auto-update would rewrite in versions.yaml."""
+        return len(self.tools) + (1 if self.semantic_release else 0)
+
+
+def _release_digests(repo: str, tag: str) -> dict[str, str] | None:
+    """Map each asset of one GitHub release to the sha256 GitHub recorded for it.
+
+    Assets with no `digest` are left out: GitHub only records one for uploads
+    since mid-2025, and an absent digest is never guessed at. None when the
+    release cannot be read.
+    """
+    release = _gh_json(
+        f"/repos/{repo}/releases/tags/{urllib.parse.quote(tag, safe='')}"
+    )
+    if not isinstance(release, dict):
+        return None
+    out: dict[str, str] = {}
+    for asset in release.get("assets") or []:
+        algo, _, digest = str(asset.get("digest") or "").partition(":")
+        if algo == "sha256" and _SHA256_RE.fullmatch(digest):
+            out[str(asset.get("name"))] = digest
+    return out
+
+
+def _bumped_digests(spec: dict, new_version: str) -> tuple[dict[str, str] | None, str]:
+    """Return the new release's sha256 for every pinned asset key, or why not.
+
+    Each key's asset is found by its PINNED digest in the current release, so no
+    asset-name template is restated here: the version in that name is swapped
+    for the new one and the new release must carry a digest for it. Any key that
+    cannot be carried across leaves the whole tool to a hand bump.
+    """
+    repo, prefix = str(spec.get("repo") or ""), str(spec.get("tag_prefix") or "")
+    cur_version = str(spec.get("version"))
+    if not repo:
+        return None, "no `repo:` to read digests from"
+    current = _release_digests(repo, prefix + cur_version)
+    bumped = _release_digests(repo, prefix + new_version)
+    if current is None or bumped is None:
+        return None, "release lookup failed"
+    name_by_digest = {digest: name for name, digest in current.items()}
+    old_bare, new_bare = cur_version.removeprefix("v"), new_version.removeprefix("v")
+    out: dict[str, str] = {}
+    for key, pinned in (spec.get("sha256") or {}).items():
+        asset = name_by_digest.get(str(pinned).lower())
+        if asset is None:
+            return None, f"no {cur_version} release asset has the pinned {key} digest"
+        new_asset = asset.replace(old_bare, new_bare)
+        if new_asset not in bumped:
+            return None, f"{new_version} carries no digest for {new_asset}"
+        out[str(key)] = bumped[new_asset]
+    return out, ""
+
+
+def _resolve(versions: dict, now: datetime) -> _Resolution:
+    """Resolve every pin to its newest soaked release, printing a line per pin.
+
+    The only resolution path. --stable prints it and writes nothing;
+    --auto-update writes exactly what it returns. Runtimes are listed but never
+    resolved: a runtime major is a decision, not a dependency refresh.
+    """
+    res = _Resolution()
     window = _cooldown()
     print(
-        "Checking stable versions "
+        "Resolving releases "
         + (
             "(--now: cooldown WAIVED, taking releases as of now)"
             if window == 0
@@ -530,7 +606,6 @@ def _stable(versions: dict, *, fail_on_drift: bool = False) -> int:
         )
         + "...\n"
     )
-    now = datetime.now(UTC)
 
     for name, spec in (versions.get("tools") or {}).items():
         if not isinstance(spec, dict):
@@ -542,82 +617,87 @@ def _stable(versions: dict, *, fail_on_drift: bool = False) -> int:
                 f"  {name}: {cur_version} (no `repo:`/`pypi:`/`npm:` -- cannot check)"
             )
             continue
-        # Resolve through the SAME helper --auto-update uses. Reporting and
-        # bumping must never drift apart: when this loop had its own copy of the
-        # resolution it missed tag_prefix, so cargo-audit read as "nothing aged
-        # past cooldown" while --auto-update saw it fine.
-        latest_tag, status = _latest_tool_release(spec, now)
+        latest, status = _latest_tool_release(spec, now)
         # Name the TOOL, not the repo: rustsec/rustsec hosts four pinned crates,
         # so "rustsec/rustsec: v0.22.2" is ambiguous.
         label = (
             f"{name} ({source})" if str(spec.get("tag_prefix") or "") else str(source)
         )
-        if status == "ok":
-            print(f"  {label}: {cur_version} -> {latest_tag}")
-            updates_available += 1
-        elif status == "lookup-failed":
+        if status == "lookup-failed":
             # Never render a failed lookup as "up to date" - that is a silent
             # skip wearing a green hat.
             print(f"  {label}: {cur_version} (COULD NOT CHECK -- treat as unknown)")
-            lookup_failures += 1
+            res.lookup_failures += 1
         elif status == "no-candidate":
             print(f"  {label}: {cur_version} (nothing aged past cooldown)")
-        else:
+        elif status != "ok" or not latest:
             print(f"  {label}: {cur_version} (up to date)")
+        elif spec.get("lockfile"):
+            # The bump has to land with a relock of the lock's integrity hashes.
+            print(
+                f"  {label}: {cur_version} -> {latest} (lock-pinned -- run"
+                " scripts/relock-node-tools.py --auto-update)"
+            )
+            res.manual += 1
+        elif spec.get("sha256"):
+            # A stale digest fails the install closed, so the digest moves with
+            # the version or the version does not move.
+            digests, why = _bumped_digests(spec, latest)
+            if digests is None:
+                print(f"  {label}: {cur_version} -> {latest} ({why} -- bump by hand)")
+                res.manual += 1
+            else:
+                print(f"  {label}: {cur_version} -> {latest} (sha256 from the release)")
+                res.tools[name] = latest
+                res.digests[name] = digests
+        else:
+            print(f"  {label}: {cur_version} -> {latest}")
+            res.tools[name] = latest
 
-    runtimes = versions.get("runtimes", {})
     print()
-    for name, spec in runtimes.items():
+    for name, spec in (versions.get("runtimes") or {}).items():
         print(f"  {name}: {_runtime_value(spec)} (manual -- check release notes)")
 
+    sr_core = (versions.get("semantic_release") or {}).get("core")
+    if sr_core:
+        latest_sr = _get_latest_npm_major("semantic-release")
+        if latest_sr is None:
+            print(f"\n  semantic-release: {sr_core} (could not check)")
+        elif latest_sr != sr_core:
+            print(f"\n  semantic-release: {sr_core} -> {latest_sr}")
+            res.semantic_release = (sr_core, latest_sr)
+        else:
+            print(f"\n  semantic-release: {sr_core} (up to date)")
+    return res
+
+
+def _stable(versions: dict, *, fail_on_drift: bool = False) -> int:
+    """Print what --auto-update would write, and write nothing.
+
+    Soaked, not newest: a release inside the cooldown is reported as held, so
+    this answers "what may we pin to now".
+    """
+    res = _resolve(versions, datetime.now(UTC))
     _report_watchlist(versions)
 
-    sr = versions.get("semantic_release", {})
-    sr_core = sr.get("core")
-    if sr_core:
-        try:
-            result = subprocess.run(
-                ["npm", "view", "semantic-release", "version"],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=10,
-            )
-            latest_sr = result.stdout.strip()
-            latest_sr_major = latest_sr.split(".")[0] if latest_sr else "?"
-            if latest_sr_major != sr_core:
-                print(
-                    f"\n  semantic-release: {sr_core} -> {latest_sr_major} "
-                    f"(latest: {latest_sr})"
-                )
-                updates_available += 1
-            else:
-                print(f"\n  semantic-release: {sr_core} (up to date)")
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            print(f"\n  semantic-release: {sr_core} (could not check)")
-
-    if updates_available:
-        print(f"\n{updates_available} update(s) available.")
-        print(f"Edit {_VERSIONS_FILE.relative_to(_ROOT)} then run --apply.")
-    elif not lookup_failures:
+    if res.writes:
+        print(f"\n{res.writes} update(s) --auto-update would write.")
+    if res.manual:
+        print(f"\n{res.manual} update(s) need a hand bump (marked above).")
+    if not (res.writes or res.manual or res.lookup_failures):
         print("\nAll versions up to date.")
-    if lookup_failures:
+    if res.lookup_failures:
         # "All up to date" would be a lie when we could not reach upstream.
         print(
-            f"\n{lookup_failures} tool(s) COULD NOT BE CHECKED (API error / rate"
+            f"\n{res.lookup_failures} tool(s) COULD NOT BE CHECKED (API error / rate"
             " limit?) -- their status is unknown, not current. Re-run before"
             " trusting this report."
         )
     # A scheduled caller needs a signal, but a human running this wants the
     # report without a non-zero exit, so the failure is opt-in.
-    if fail_on_drift and (updates_available or lookup_failures):
+    if fail_on_drift and (res.writes or res.manual or res.lookup_failures):
         return 1
     return 0
-
-
-# Auto-update skip list: these require explicit human decision
-_AUTO_UPDATE_SKIP = {"python", "node", "rust", "llvm"}
 
 
 def _get_latest_npm_major(package: str) -> str | None:
@@ -865,16 +945,20 @@ def _latest_tool_release(spec: dict, now: datetime) -> tuple[str | None, str]:
     return tag, "ok"
 
 
-def _set_tool_version_in_yaml(text: str, name: str, version: str) -> str:
-    """Rewrite one tool's `version:` line inside the `tools:` block.
+def _set_tool_version_in_yaml(
+    text: str, name: str, version: str, digests: dict[str, str] | None = None
+) -> str:
+    """Rewrite one tool's `version:` line, and its `sha256:` keys if given.
 
     Block-scoped and anchored to the `tools:` section, because a `watch:` or
     `runtimes:` entry can share a tool's short name. Edits lines directly,
     because yaml.safe_dump would strip every comment in the file.
     """
+    digests = digests or {}
     out: list[str] = []
     in_tools = False
     in_block = False
+    in_sha = False
     for line in text.splitlines(keepends=True):
         if re.match(r"^tools:\s*$", line):
             in_tools = True
@@ -889,15 +973,42 @@ def _set_tool_version_in_yaml(text: str, name: str, version: str) -> str:
                 out.append(line)
                 continue
             if in_block:
+                if re.match(r"^ {0,4}\S", line):  # any key at tool depth ends sha256:
+                    in_sha = False
                 if re.match(r"^    version:\s", line):
                     # Quoted: a two-component version (vulture 2.16) reads back
                     # as a YAML float, so 2.20 would return as "2.2".
                     out.append(f'    version: "{version}"\n')
                     continue
+                if re.match(r"^    sha256:\s*$", line):
+                    in_sha = True
+                elif in_sha and (m := re.match(r"^      ([\w-]+):\s*\S+\s*$", line)):
+                    if m[1] in digests:
+                        out.append(f"      {m[1]}: {digests[m[1]]}\n")
+                        continue
                 if re.match(r"^  \S", line):  # next tool entry
                     in_block = False
         out.append(line)
     return "".join(out)
+
+
+def _unwritten(text: str, res: _Resolution) -> list[str]:
+    """Name every resolved version or digest the rewritten SSOT does not carry.
+
+    The line editor matches by indentation, so a reshaped entry would otherwise
+    pass with its version bumped and its old digest kept, which fails the
+    install closed only at job time.
+    """
+    tools = (yaml.safe_load(text) or {}).get("tools") or {}
+    missing: list[str] = []
+    for name, version in res.tools.items():
+        spec = tools.get(name) or {}
+        if str(spec.get("version")) != version:
+            missing.append(f"SSOT write: tools.{name}.version is not {version}")
+        for key, digest in res.digests.get(name, {}).items():
+            if (spec.get("sha256") or {}).get(key) != digest:
+                missing.append(f"SSOT write: tools.{name}.sha256.{key} was not written")
+    return missing
 
 
 def _auto_update(versions: dict) -> int:
@@ -909,50 +1020,14 @@ def _auto_update(versions: dict) -> int:
     this script's, so a major that breaks at RUNTIME is caught by CI on the
     PR, not here.
     """
-    print("Auto-update: resolving releases past the cooldown...\n")
-    now = datetime.now(UTC)
+    res = _resolve(versions, datetime.now(UTC))
+    tool_updates, sr_update = res.tools, res.semantic_release
 
-    sr = versions.get("semantic_release", {})
-    sr_core = sr.get("core")
-    sr_update: tuple[str, str] | None = None
-    if sr_core:
-        latest_sr = _get_latest_npm_major("semantic-release")
-        if latest_sr and latest_sr != sr_core:
-            sr_update = (sr_core, latest_sr)
-            print(f"  semantic-release: {sr_core} -> {latest_sr}")
-
-    tool_updates: dict[str, str] = {}
-    for name, spec in (versions.get("tools") or {}).items():
-        if not isinstance(spec, dict):
-            continue
-        if spec.get("sha256"):
-            # A stale digest fails the install closed and this path cannot
-            # refresh one, so a digest-pinned tool is bumped by hand.
-            print(f"  {name}: {spec.get('version')} (digest-pinned -- bump by hand)")
-            continue
-        if spec.get("lockfile"):
-            # The lock's integrity hashes need scripts/relock-node-tools.py.
-            print(f"  {name}: {spec.get('version')} (lock-pinned -- bump by hand)")
-            continue
-        latest, status = _latest_tool_release(spec, now)
-        if status == "ok" and latest:
-            tool_updates[name] = latest
-            print(f"  {name}: {spec.get('version')} -> {latest}")
-        elif status == "lookup-failed":
-            # Say so. A tool we could not reach is not a tool that is current.
-            print(f"  {name}: {spec.get('version')} (COULD NOT CHECK -- skipped)")
-
-    runtimes = versions.get("runtimes", {})
-    for name in _AUTO_UPDATE_SKIP:
-        if runtimes.get(name):
-            print(f"  {name}: {_runtime_value(runtimes[name])} (manual -- skipped)")
-
-    if not sr_update and not tool_updates:
+    if not res.writes:
         print("\nNo auto-updates available.")
         return 0
 
-    total = len(tool_updates) + (1 if sr_update else 0)
-    print(f"\n{total} update(s) to apply.")
+    print(f"\n{res.writes} update(s) to apply.")
 
     original_yaml = _VERSIONS_FILE.read_text(encoding="utf-8")
     # Snapshot the tool pin files too, not just the pipeline YAML: --apply
@@ -965,7 +1040,9 @@ def _auto_update(versions: dict) -> int:
 
     yaml_content = original_yaml
     for tool_name, tool_version in tool_updates.items():
-        yaml_content = _set_tool_version_in_yaml(yaml_content, tool_name, tool_version)
+        yaml_content = _set_tool_version_in_yaml(
+            yaml_content, tool_name, tool_version, res.digests.get(tool_name)
+        )
     if sr_update:
         yaml_content = re.sub(
             r'(?m)^(  core:\s*")[^"]*(")', rf"\g<1>{sr_update[1]}\g<2>", yaml_content
@@ -991,7 +1068,7 @@ def _auto_update(versions: dict) -> int:
         _apply(_load_versions())
 
         print("\nValidating locally (YAML parse, SSOT sync, workflow pytest gates)...")
-        failures = _validate_locally()
+        failures = _unwritten(yaml_content, res) or _validate_locally()
 
         if failures:
             print(f"\n{len(failures)} local gate(s) failed:")
@@ -1030,7 +1107,7 @@ def main() -> int:
     group.add_argument(
         "--stable",
         action="store_true",
-        help="Report the newest release of each pin that has soaked past the cooldown",
+        help="Print what --auto-update would write, and write nothing",
     )
     group.add_argument(
         "--auto-update",
