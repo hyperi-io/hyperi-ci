@@ -80,6 +80,7 @@ def _contract(**extra: object) -> dict:
         "env_prefix": "DFE_LOADER",
         "metric_prefix": "loader",
         "image_registry": "ghcr.io/hyperi-io",
+        "config_mount_path": "/etc/dfe-loader",
         "config_schema": config_schema,
         **extra,
     }
@@ -211,15 +212,7 @@ class TestDials:
         schema = assemble.values_schema(
             config_schema, assemble.find_dials(config_schema), base
         )
-        assert set(schema["properties"]) == {
-            "config",
-            "configOverrides",
-            "extraEnv",
-            "fullnameOverride",
-            "image",
-            "podLabels",
-            "replicaCount",
-        }
+        assert set(schema["properties"]) == {*base["properties"], "config"}
         assert schema["$defs"] == base["$defs"]
         jsonschema.validate(
             {
@@ -313,17 +306,70 @@ class TestAssemble:
         assert list(tmp_path.iterdir()) == []
 
     @pytest.mark.parametrize(
-        "name", ["", "Dfe_Loader", "../escaped", "dfe/loader", "-loader", "a" * 64]
+        "name",
+        [
+            "",
+            "Dfe_Loader",
+            "../escaped",
+            "dfe/loader",
+            "-loader",
+            "a" * 64,
+            "1loader",
+            "9",
+            "dfe-loader\n",
+        ],
     )
-    def test_an_app_name_that_is_not_a_dns_label_fails(
+    def test_an_app_name_that_is_not_a_service_name_fails(
         self, tmp_path: Path, name: str
     ) -> None:
         out = tmp_path / "out"
         out.mkdir()
-        with pytest.raises(ChartError, match="not a lowercase DNS label"):
+        with pytest.raises(ChartError, match="not a Kubernetes Service name"):
             _assemble(out, _contract(app_name=name), f"ghcr.io/hyperi-io/x:v1@{DIGEST}")
         assert sorted(p.name for p in tmp_path.iterdir()) == ["out"]
         assert list(out.iterdir()) == []
+
+    def test_the_name_rule_holds_without_the_schemas_pattern(
+        self, tmp_path: Path
+    ) -> None:
+        library = tmp_path / "library"
+        shutil.copytree(LIBRARY_DIR, library)
+        schema_file = library / "schema" / "deployment-contract.v4.schema.json"
+        schema = json.loads(schema_file.read_text(encoding="utf-8"))
+        del schema["properties"]["app_name"]["pattern"]
+        schema_file.write_text(json.dumps(schema), encoding="utf-8")
+        with pytest.raises(ChartError, match="not a Kubernetes Service name"):
+            assemble.assemble(
+                _contract(app_name="1loader"),
+                library,
+                tmp_path,
+                version="1.4.2",
+                image=f"ghcr.io/hyperi-io/1loader:v1@{DIGEST}",
+                library="0.1.0",
+                registry=REGISTRY,
+            )
+
+    @pytest.mark.parametrize("name", ["a", "a" + "b0-" * 20 + "cd"])
+    def test_a_service_name_up_to_63_characters_assembles(
+        self, tmp_path: Path, name: str
+    ) -> None:
+        image = f"ghcr.io/hyperi-io/{name}:v1@{DIGEST}"
+        assert _assemble(tmp_path, _contract(app_name=name), image).name == name
+
+    @pytest.mark.parametrize(
+        ("field", "path"),
+        [
+            ({"metrics_port": 0}, "$.metrics_port"),
+            ({"extra_ports": [{"name": "http", "port": 0}]}, "$.extra_ports[0].port"),
+        ],
+    )
+    def test_a_port_below_one_fails_the_schema(
+        self, tmp_path: Path, field: dict, path: str
+    ) -> None:
+        with pytest.raises(ChartError, match="less than the minimum") as caught:
+            _assemble(tmp_path, _contract(**field))
+        assert path in str(caught.value)
+        assert list(tmp_path.iterdir()) == []
 
     def test_an_image_from_another_repository_fails(self, tmp_path: Path) -> None:
         image = f"ghcr.io/someone-else/dfe-loader:v1.4.2@{DIGEST}"
