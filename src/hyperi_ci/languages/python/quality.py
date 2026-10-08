@@ -235,7 +235,7 @@ def _ruff_format_takes_extend_exclude() -> bool:
     """
     try:
         result = subprocess.run(
-            resolve_tool_cmd(["ruff", "--version"]),
+            resolve_tool_cmd(["ruff", "--version"], via="uv"),
             capture_output=True,
             text=True,
             encoding="utf-8",

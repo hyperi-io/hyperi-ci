@@ -27,7 +27,7 @@ class TestPinnedSpecBeatsPath:
     ) -> None:
         monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
         resolved = resolve_tool_cmd(
-            ["vulture", "src/"], use_uvx=True, spec="vulture==2.16"
+            ["vulture", "src/"], via="uvx", spec="vulture==2.16"
         )
         assert resolved == ["uvx", "--from", "vulture==2.16", "vulture", "src/"]
 
@@ -35,7 +35,7 @@ class TestPinnedSpecBeatsPath:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
-        resolved = resolve_tool_cmd(["ty", "check"], use_uv_with=True, spec="ty==0.1.0")
+        resolved = resolve_tool_cmd(["ty", "check"], via="uv-with", spec="ty==0.1.0")
         assert resolved == ["uv", "run", "--with", "ty==0.1.0", "--", "ty", "check"]
 
     def test_unpinned_spec_on_path_is_unchanged(
@@ -43,8 +43,16 @@ class TestPinnedSpecBeatsPath:
     ) -> None:
         """ruff/pytest resolve via the project's own venv -- PATH still wins."""
         monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
-        resolved = resolve_tool_cmd(["ruff", "check", "."])
+        resolved = resolve_tool_cmd(["ruff", "check", "."], via="uv")
         assert resolved == ["ruff", "check", "."]
+
+    def test_path_is_returned_as_given(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """``path`` never rewrites the command, even with uv present and a pin."""
+        monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
+        resolved = resolve_tool_cmd(
+            ["vulture", "src/"], via="path", spec="vulture==2.16"
+        )
+        assert resolved == ["vulture", "src/"]
 
     def test_pinned_spec_falls_back_to_path_when_uv_is_absent(
         self, monkeypatch: pytest.MonkeyPatch
@@ -58,7 +66,7 @@ class TestPinnedSpecBeatsPath:
         monkeypatch.setattr(quality_common, "installed_version", lambda _binary: None)
 
         resolved = resolve_tool_cmd(
-            ["vulture", "src/"], use_uvx=True, spec="vulture==2.16"
+            ["vulture", "src/"], via="uvx", spec="vulture==2.16"
         )
 
         assert resolved == ["vulture", "src/"]

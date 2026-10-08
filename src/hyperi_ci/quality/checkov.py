@@ -36,7 +36,7 @@ _DEFAULT_SKIP_PATHS = [r".*/\.worktrees/.*", r".*/\.tmp/.*"]
 def _base_cmd() -> list[str] | None:
     """Return the pinned checkov invocation (uvx, else PATH), or None."""
     cmd = resolve_tool_cmd(
-        ["checkov"], use_uvx=True, spec=f"checkov=={tool_version('checkov')}"
+        ["checkov"], via="uvx", spec=f"checkov=={tool_version('checkov')}"
     )
     return cmd if shutil.which(cmd[0]) else None
 
