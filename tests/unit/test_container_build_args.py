@@ -116,8 +116,7 @@ def _dispatch(
     monkeypatch.setattr(stage, "build_and_push", record_build)
     rc = stage._dispatch_build(
         dockerfile_path=Path("Dockerfile"),
-        container_cfg={"build_args": build_args},
-        config=CIConfig(_raw={}),
+        config=CIConfig(_raw={"release": {"container": {"build_args": build_args}}}),
         org=OrgConfig(),
         registry_bases=["ghcr.io/hyperi-io"],
         push_mode="release",

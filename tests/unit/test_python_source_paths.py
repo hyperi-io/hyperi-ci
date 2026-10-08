@@ -20,7 +20,7 @@ from typing import Any
 import pytest
 
 from hyperi_ci import common
-from hyperi_ci.config import CIConfig
+from hyperi_ci.config import CIConfig, shipped_default
 from hyperi_ci.languages import quality_common
 from hyperi_ci.languages.python import quality
 from hyperi_ci.languages.python import test as py_test
@@ -325,6 +325,10 @@ def _coverage_config(**test: Any) -> CIConfig:
     )
 
 
+# A config that leaves test.min_coverage unset gets the shipped floor.
+_SHIPPED_FLOOR = f"--cov-fail-under={shipped_default('test.min_coverage')}"
+
+
 def _cov_args(command: list[str]) -> list[str]:
     return [a for a in command if a.startswith("--cov")]
 
@@ -333,7 +337,11 @@ class TestCoverageFollowsTheSource:
     def test_src_layout_is_unchanged(self, repo: Path, pytest_run: _Pytest) -> None:
         _touch(repo, "src/pkg/core.py", "tests/test_core.py")
         assert py_test.run(_coverage_config()) == 0
-        assert _cov_args(pytest_run.commands[0]) == ["--cov=src", "--cov-report=xml"]
+        assert _cov_args(pytest_run.commands[0]) == [
+            "--cov=src",
+            "--cov-report=xml",
+            _SHIPPED_FLOOR,
+        ]
 
     def test_flat_layout_covers_each_directory(
         self, repo: Path, pytest_run: _Pytest
@@ -344,6 +352,7 @@ class TestCoverageFollowsTheSource:
             "--cov=pkg",
             "--cov=scripts",
             "--cov-report=xml",
+            _SHIPPED_FLOOR,
         ]
 
     def test_a_project_cov_source_is_kept_alone(
@@ -375,7 +384,11 @@ class TestCoverageFollowsTheSource:
         config = _coverage_config()
         config._raw["test"]["python"]["args"] = ["--cov"]
         assert py_test.run(config) == 0
-        assert _cov_args(pytest_run.commands[0]) == ["--cov", "--cov-report=xml"]
+        assert _cov_args(pytest_run.commands[0]) == [
+            "--cov",
+            "--cov-report=xml",
+            _SHIPPED_FLOOR,
+        ]
 
     def test_a_cov_in_addopts_is_the_projects_choice_too(
         self, repo: Path, pytest_run: _Pytest
@@ -385,7 +398,7 @@ class TestCoverageFollowsTheSource:
             '[tool.pytest.ini_options]\naddopts = "--cov=pkg"\n', "utf-8"
         )
         assert py_test.run(_coverage_config()) == 0
-        assert _cov_args(pytest_run.commands[0]) == ["--cov-report=xml"]
+        assert _cov_args(pytest_run.commands[0]) == ["--cov-report=xml", _SHIPPED_FLOOR]
 
     def test_no_source_runs_without_coverage(
         self, repo: Path, pytest_run: _Pytest, monkeypatch: pytest.MonkeyPatch

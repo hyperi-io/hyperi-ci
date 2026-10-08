@@ -26,13 +26,13 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         warn_full_ran_core("Go has no ignored-test mechanism")
 
     cmd = ["go", "test"]
-    args = list(config.get("test.golang.args", ["-v"]))
+    args = list(config.setting("test.golang.args"))
     cmd.extend(args)
 
-    if config.get("test.golang.race", True):
+    if config.setting("test.golang.race"):
         cmd.append("-race")
 
-    if config.get("test.coverage", True):
+    if config.setting("test.coverage"):
         _RESULTS_DIR.mkdir(exist_ok=True)
         coverage_file = _RESULTS_DIR / "coverage.out"
         cmd.extend(["-coverprofile", str(coverage_file), "-covermode=atomic"])

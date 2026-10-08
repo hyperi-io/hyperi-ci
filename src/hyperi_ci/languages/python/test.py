@@ -326,7 +326,7 @@ def _absolve_empty_run(rc: int, config: CIConfig, *, label: str = "") -> int:
     if rc != _PYTEST_NO_TESTS_COLLECTED:
         return rc
     where = f" in {label}" if label else ""
-    if config.get("test.fail_on_missing", False):
+    if config.setting("test.fail_on_missing"):
         error(f"No tests found{where} and test.fail_on_missing is set")
         return rc
     warn(f"No tests found{where} - allowed by test.fail_on_missing: false")
@@ -457,7 +457,7 @@ def _coverage_args(config: CIConfig, args: list[str]) -> list[str]:
         The ``--cov``, ``--cov-report`` and ``--cov-fail-under`` arguments to add.
 
     """
-    min_cov = config.get("test.min_coverage", 0)
+    min_cov = config.setting("test.min_coverage")
     if _sets_own_cov(args):
         info("  Coverage: the project sets its own --cov source, leaving it alone")
         cov_sources: list[str] = []
@@ -471,7 +471,7 @@ def _coverage_args(config: CIConfig, args: list[str]) -> list[str]:
                 info(note)
             return []
         cov_sources = [f"--cov={path.rstrip('/')}" for path in sources]
-    coverage_format = config.get("test.python.coverage_format", "xml")
+    coverage_format = config.setting("test.python.coverage_format")
     cov_args = [*cov_sources, f"--cov-report={coverage_format}"]
     if min_cov and int(min_cov) > 0:
         cov_args.append(f"--cov-fail-under={min_cov}")
@@ -496,9 +496,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     info("Running Python tests...")
     test_tier = handler_tier(extra_env)
 
-    base_args: list[str] = list(config.get("test.python.args", ["-v", "--tb=short"]))
+    base_args: list[str] = list(config.setting("test.python.args"))
 
-    if config.get("test.coverage", True):
+    if config.setting("test.coverage"):
         base_args.extend(_coverage_args(config, base_args))
 
     # pytest-cov combines worker data before reporting, so xdist needs no setup.
@@ -517,15 +517,14 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         base_args.extend(full_args)
 
     # Directory split, independent of the test tier.
-    if config.get("test.use_tiers", False):
+    if config.setting("test.use_tiers"):
         dir_tiers = [
             ("unit", "tests/unit/"),
             ("integration", "tests/integration/"),
             ("e2e", "tests/e2e/"),
         ]
         for dir_tier, dir_path in dir_tiers:
-            dir_tier_config = config.get(f"test.tiers.{dir_tier}", {})
-            if not dir_tier_config.get("enabled", dir_tier != "e2e"):
+            if not config.setting(f"test.tiers.{dir_tier}.enabled"):
                 info(f"  {dir_tier} tests: disabled")
                 continue
 
@@ -542,7 +541,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
                 label=dir_tier,
             )
             if rc != 0:
-                if dir_tier_config.get("fail_fast", True):
+                if config.setting(f"test.tiers.{dir_tier}.fail_fast"):
                     error(f"  {dir_tier} tests failed - stopping pipeline")
                     return rc
                 warn(f"  {dir_tier} tests failed (non-blocking)")

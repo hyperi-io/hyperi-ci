@@ -222,7 +222,7 @@ def _release_asset_paths(config: CIConfig) -> tuple[list[Path], str | None]:
         otherwise it names the first offender and ``paths`` is empty.
 
     """
-    assets = config.get("release.assets", []) or []
+    assets = config.setting("release.assets") or []
     if isinstance(assets, str):
         assets = [assets]
 

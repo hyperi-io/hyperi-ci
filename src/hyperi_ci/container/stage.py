@@ -97,6 +97,12 @@ def _read_sha() -> str:
     return result.stdout.strip() if result.returncode == 0 else "unknown"
 
 
+def _section(config: CIConfig) -> dict:
+    """Return ``release.container``, empty when a project set it to a scalar."""
+    container_cfg = config.setting("release.container")
+    return container_cfg if isinstance(container_cfg, dict) else {}
+
+
 def _dev_push_opt_in(container_cfg: dict) -> bool:
     """Return the ``release.container.dev_push`` opt-in, coerced to bool."""
     raw = container_cfg.get("dev_push", False)
@@ -112,11 +118,9 @@ def should_build_container(config: CIConfig, *, language: str = "") -> tuple[boo
     no Dockerfile never pulls buildkit or logs in to GHCR. ``enabled: true``
     returns True even with no Dockerfile, and :func:`run` then fails.
     """
-    container_cfg = config.get("release.container", {})
-    if not isinstance(container_cfg, dict):
-        container_cfg = {}
     enabled = normalise_tristate(
-        container_cfg.get("enabled", "auto"), key="release.container.enabled"
+        config.setting("release.container.enabled"),
+        key="release.container.enabled",
     )
     if enabled == "false":
         return False, "release.container.enabled: false"
@@ -125,7 +129,7 @@ def should_build_container(config: CIConfig, *, language: str = "") -> tuple[boo
     decision = detect(
         language=language,
         project_dir=Path.cwd(),
-        dockerfile=container_cfg.get("dockerfile", "Dockerfile"),
+        dockerfile=config.setting("release.container.dockerfile"),
     )
     return decision.build, decision.reason
 
@@ -159,16 +163,16 @@ def _log_builder_cgroups() -> None:
         info(f"Buildx builder cgroup: {name} under {parent or 'the daemon default'}")
 
 
-def _confine_build_paths(container_cfg: dict, project_dir: Path) -> bool:
+def _confine_build_paths(config: CIConfig, project_dir: Path) -> bool:
     """Refuse a Dockerfile or build context outside the checkout.
 
     Either one hands docker a file the repo does not hold, on a runner whose
     ``~/.docker/config.json`` holds the registry logins.
     """
     try:
-        for key, default in (("dockerfile", "Dockerfile"), ("context", ".")):
+        for key in ("dockerfile", "context"):
             confine(
-                str(container_cfg.get(key, default)),
+                str(config.setting(f"release.container.{key}")),
                 project_dir,
                 key=f"release.container.{key}",
             )
@@ -189,12 +193,9 @@ def run(config: CIConfig, *, language: str = "") -> int:
         Exit code (0 = success or skipped).
 
     """
-    container_cfg = config.get("release.container", {})
-    if not isinstance(container_cfg, dict):
-        container_cfg = {}
     project_dir = Path.cwd()
     # Checked in the resolve step too, so a refusal lands before any login.
-    if not _confine_build_paths(container_cfg, project_dir):
+    if not _confine_build_paths(config, project_dir):
         return 1
 
     # Ahead of resolve-only, which the workflow also sets so that a CLI release
@@ -218,14 +219,15 @@ def run(config: CIConfig, *, language: str = "") -> int:
         return 0
 
     enabled = normalise_tristate(
-        container_cfg.get("enabled", "auto"), key="release.container.enabled"
+        config.setting("release.container.enabled"),
+        key="release.container.enabled",
     )
 
     if enabled == "false":
         info("Container build disabled (release.container.enabled: false) -- skipping")
         return 0
 
-    dockerfile_name = container_cfg.get("dockerfile", "Dockerfile")
+    dockerfile_name = config.setting("release.container.dockerfile")
     decision = detect(
         language=language,
         project_dir=project_dir,
@@ -252,12 +254,11 @@ def run(config: CIConfig, *, language: str = "") -> int:
     org = load_org_config()
     registry_bases = resolve_registry_bases(org=org)
 
-    push_mode = resolve_push_mode(dev_push=_dev_push_opt_in(container_cfg))
+    push_mode = resolve_push_mode(dev_push=_dev_push_opt_in(_section(config)))
     info(f"Container build from {dockerfile_name} ({push_mode})")
 
     with group(f"Container Build ({dockerfile_name})"):
         return _build_custom(
-            container_cfg=container_cfg,
             config=config,
             org=org,
             registry_bases=registry_bases,
@@ -269,7 +270,6 @@ def run(config: CIConfig, *, language: str = "") -> int:
 
 def _build_custom(
     *,
-    container_cfg: dict,
     config: CIConfig,
     org: OrgConfig,
     registry_bases: list[str],
@@ -290,7 +290,6 @@ def _build_custom(
 
     return _dispatch_build(
         dockerfile_path=dockerfile,
-        container_cfg=container_cfg,
         config=config,
         org=org,
         registry_bases=registry_bases,
@@ -302,13 +301,13 @@ def _build_custom(
 def _dispatch_build(
     *,
     dockerfile_path: Path,
-    container_cfg: dict,
     config: CIConfig,
     org: OrgConfig,
     registry_bases: list[str],
     push_mode: str,
     binary_backed: bool = True,
 ) -> int:
+    container_cfg = _section(config)
     image_name = Path.cwd().name
     try:
         version = _read_version()
@@ -375,14 +374,16 @@ def _dispatch_build(
     # The same version and revision as the labels, so an ARG and the label agree.
     try:
         build_args = render_build_args(
-            container_cfg.get("build_args"), version=version, sha=revision
+            config.setting("release.container.build_args"),
+            version=version,
+            sha=revision,
         )
     except BuildArgError as exc:
         error(str(exc))
         return 1
 
-    platforms = container_cfg.get("platforms", ["linux/amd64", "linux/arm64"])
-    context = container_cfg.get("context", ".")
+    platforms = config.setting("release.container.platforms")
+    context = config.setting("release.container.context")
 
     # Outside a release the Build job ships linux-amd64 only, so binary-backed
     # images keep the platforms whose binaries exist and source-built images

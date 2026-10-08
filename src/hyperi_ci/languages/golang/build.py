@@ -153,7 +153,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     extra = extra_env or {}
     info("Building Golang project...")
 
-    targets_raw = config.get("build.golang.targets", ["linux/amd64"])
+    targets_raw = config.setting("build.golang.targets")
     if isinstance(targets_raw, str):
         targets_raw = [t.strip() for t in targets_raw.split(",") if t.strip()]
     targets = _expand_targets(targets_raw)
@@ -164,7 +164,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         )
         return 1
 
-    cgo = config.get("build.golang.cgo", False)
+    cgo = config.setting("build.golang.cgo")
     version_pkg = extra.get("GO_VERSION_PKG", "")
     binary_name = extra.get("GO_BINARY_NAME", "") or _detect_binary_name()
     version = _detect_version()

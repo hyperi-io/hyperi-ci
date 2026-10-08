@@ -157,7 +157,7 @@ def requested_workers(config: CIConfig) -> int | None:
     if forced is not None:
         return forced or None
 
-    raw = config.get("test.python.parallel", False)
+    raw = config.setting("test.python.parallel")
     if raw is True:
         return auto_workers()
     if raw is False or raw is None:

@@ -20,7 +20,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from hyperi_ci import tools
-from hyperi_ci.config import CIConfig
+from hyperi_ci.config import CIConfig, shipped_default
 from hyperi_ci.languages import quality_common
 from hyperi_ci.languages.typescript import quality
 
@@ -29,6 +29,7 @@ def _make_config() -> CIConfig:
     """Minimal config with all tools in 'blocking' mode (the default)."""
     cfg = MagicMock(spec=CIConfig)
     cfg.get.side_effect = lambda key, default=None: default
+    cfg.setting.side_effect = shipped_default
     cfg._raw = {}
     return cfg
 

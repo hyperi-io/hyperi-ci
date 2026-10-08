@@ -364,7 +364,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # bandit's --exclude is action="store": a second flag replaces the first
     # rather than adding to it, so test paths and quality excludes share one.
     bandit_test_excludes = (
-        test_paths if config.get("quality.python.bandit_exclude_tests", True) else []
+        test_paths if config.setting("quality.python.bandit_exclude_tests") else []
     )
     bandit_excludes = [*bandit_test_excludes, *_component_patterns(excludes)]
     if bandit_excludes:

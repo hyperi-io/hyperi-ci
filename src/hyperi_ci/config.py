@@ -10,6 +10,7 @@ Cascade priority (highest wins):
   CLI flags -> ENV vars (HYPERCI_*) -> .hyperi-ci.yaml -> defaults.yaml -> hardcoded
 """
 
+import copy
 import json
 import os
 from dataclasses import dataclass, field
@@ -91,9 +92,34 @@ class CIConfig:
                 return value
         return default
 
+    def setting(self, key: str) -> Any:
+        """Get a key defaults.yaml declares, its shipped value when unset.
+
+        Use this, never ``get(key, <literal>)``, for any key defaults.yaml
+        declares: a literal fallback is a second copy of the default, free to
+        disagree with the first. The shipped value answers only where the merged
+        config lacks the key -- a hand-built config, or a project that set a
+        parent section to a scalar -- because :func:`load_config` always starts
+        from defaults.yaml.
+
+        Args:
+            key: Dot-notation key; ``publish.*`` resolves as in :meth:`get`.
+
+        Returns:
+            The merged value, else the value defaults.yaml ships.
+
+        Raises:
+            KeyError: defaults.yaml does not declare ``key``.
+
+        """
+        shipped = shipped_default(key)
+        missing = object()
+        value = self.get(key, missing)
+        return shipped if value is missing else value
+
     def publish_destinations(self) -> list[dict[str, str]]:
         """Return the destination map to publish to (OSS only)."""
-        dest = self.get("release.destinations", {})
+        dest = self.setting("release.destinations")
         dest = dict(dest) if isinstance(dest, dict) else {}
         # Merged, not a fallback, because the defaults always populate
         # `destinations`. Only a project sets `destinations_oss` (the old
@@ -218,6 +244,25 @@ def packaged_default(key: str, default: Any = None) -> Any:
             return default
         node = node[part]
     return node
+
+
+def shipped_default(key: str) -> Any:
+    """Value defaults.yaml ships for ``key``, failing loudly where it ships none.
+
+    A copy, so a caller that mutates the result leaves the shipped layer intact.
+
+    Raises:
+        KeyError: defaults.yaml does not declare ``key``.
+
+    """
+    from hyperi_ci.vocabulary import key_candidates
+
+    missing = object()
+    for candidate in key_candidates(key):
+        value = packaged_default(candidate, missing)
+        if value is not missing:
+            return copy.deepcopy(value)
+    raise KeyError(f"{key} is not declared in src/hyperi_ci/config/defaults.yaml")
 
 
 def load_config(
@@ -346,6 +391,7 @@ def load_config(
     config["classification_effective"] = resolved.effective
 
     _config_cache = CIConfig(
+        # "none" is the hardcoded last layer, for a package missing defaults.yaml.
         language=config.get("language", "none"),
         classification=resolved.value,
         classification_source=resolved.source,
