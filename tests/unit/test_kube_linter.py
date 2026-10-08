@@ -46,7 +46,7 @@ def _stub(
     *,
     exe: str | None = "/usr/bin/kube-linter",
 ) -> None:
-    monkeypatch.setattr(kube_linter, "_install_kube_linter", lambda: exe)
+    monkeypatch.setattr(kube_linter, "ci_binary", lambda _name: exe)
     monkeypatch.setattr(kube_linter, "find_tool", lambda *a, **k: exe)
     monkeypatch.setattr(
         kube_linter,
@@ -78,7 +78,7 @@ class TestRun:
 
     def test_oserror_swallowed(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            kube_linter, "_install_kube_linter", lambda: "/usr/bin/kube-linter"
+            kube_linter, "ci_binary", lambda _name: "/usr/bin/kube-linter"
         )
 
         def _boom(*a, **k):  # noqa: ANN002, ANN003

@@ -24,9 +24,9 @@ alint is NOT a hyperi-ci dependency. Locally, missing -> the step skips via
 :func:`hyperi_ci.tools.find_tool` (an info nudge under ``auto``, a louder warn
 under ``enabled``) and never installs anything. In CI a missing alint is
 fetched as the PINNED prebuilt binary (``tools.alint`` in
-``config/versions.yaml``, mirrored below) so the advisory actually runs on
-vanilla runners - nothing bakes alint into a runner image. Either way it
-never fails the build.
+``config/versions.yaml``, through :mod:`hyperi_ci.native_tools`) so the
+advisory runs on vanilla runners - nothing bakes alint into a runner image.
+Either way it never fails the build.
 
 The default is additionally PRIMARY-LANGUAGE-AWARE (issue #75): alint's
 bundled ``has_<lang>`` facts match a manifest anywhere in the tree, but its
@@ -47,63 +47,21 @@ Config (``.hyperi-ci.yaml``):
     quality.alint: disabled  # never run
 """
 
-import platform
-import shutil
-import sys
 import tempfile
 from pathlib import Path
 
-from hyperi_ci.common import info, is_ci, run_cmd, warn
+from hyperi_ci.common import is_ci, run_cmd, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.detect import LANGUAGE_MARKERS
 from hyperi_ci.languages.rust.targets import rust_is_library
-from hyperi_ci.quality.install import fetch_verified
+from hyperi_ci.native_tools import ci_binary
 from hyperi_ci.tools import find_tool
-from hyperi_ci.versions import tool_sha256, tool_version
 
 # Shipped opinionated default (packaged under hyperi_ci/config/, so it travels
 # in the wheel). config/ is a sibling of quality/ inside the package.
 _DEFAULT_CONFIG = (
     Path(__file__).resolve().parents[1] / "config" / "alint" / "hyperi.alint.yml"
 )
-
-
-def _install_alint(dest_dir: Path) -> str | None:
-    """Fetch the pinned prebuilt alint into ``dest_dir`` on Linux CI runners.
-
-    Returns the binary path, or None (the advisory then info-skips as it
-    always has). No sudo and no PATH mutation: the static musl binary is
-    exec'd by absolute path, so this works on ARC pods as well as vanilla
-    GitHub runners. Never raises - the advisory must not fail a build.
-    """
-    if not is_ci():
-        return None
-    if sys.platform != "linux":
-        warn("  alint auto-install only supported on Linux CI")
-        return None
-
-    machine = "x86_64" if platform.machine() in ("x86_64", "AMD64") else "aarch64"
-    version = tool_version("alint")
-    stem = f"alint-{version}-{machine}-unknown-linux-musl"
-    url = f"https://github.com/asamarts/alint/releases/download/{version}/{stem}.tar.gz"
-
-    info(f"  Installing alint {version}...")
-    # Verified bytes, then our own placement - fetch_verified does not sudo or
-    # touch PATH, which is what keeps this working on an ARC pod.
-    payload = fetch_verified("alint", url, tool_sha256("alint", machine))
-    if payload is None:
-        warn("  Failed to download alint - advisory skipped.")
-        return None
-
-    tarball = dest_dir / "alint.tar.gz"
-    tarball.write_bytes(payload)
-    unpacked = run_cmd(["tar", "xzf", str(tarball), "-C", str(dest_dir)], check=False)
-    binary = dest_dir / stem / "alint"
-    if unpacked.returncode != 0 or not binary.exists():
-        warn("  Failed to unpack alint - advisory skipped.")
-        return None
-    binary.chmod(0o755)
-    return str(binary)
 
 
 # hyperi-ci language -> the alint bundled-ruleset group it maps to.
@@ -217,16 +175,13 @@ def run(
         return 0
 
     root = project_dir or Path.cwd()
-    # The temp dir holds the generated override layer and (in CI) the fetched
-    # binary - both must outlive the alint run. tempfile is the sanctioned
-    # process-local scratch.
+    # The temp dir holds the generated override layer, which must outlive the
+    # alint run. tempfile is the sanctioned process-local scratch.
     with tempfile.TemporaryDirectory(prefix="hyperi-ci-alint-") as tmp:
-        # Resolve quietly first; in CI fall back to the pinned prebuilt
-        # download so the advisory actually runs on vanilla runners (nothing
-        # bakes alint). Only when both miss does the install notice fire.
-        exe = shutil.which("alint")
-        if not exe and is_ci():
-            exe = _install_alint(Path(tmp))
+        # In CI a missing alint is the pinned download, so the advisory runs on
+        # vanilla runners (nothing bakes alint). Only when both miss does the
+        # install notice fire.
+        exe = ci_binary("alint")
         if not exe:
             find_tool("alint", recommended=(mode == "enabled"))
             return 0
