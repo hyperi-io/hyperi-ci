@@ -28,15 +28,8 @@ Conventions (all commands):
     -n, --dry-run      Show what would happen without executing
     -f, --force        Skip confirmations / overwrite (semantics per-command)
 
-Help:
-    hyperi-ci --help          List all commands
-    hyperi-ci <cmd> --help    Show command-specific options
-
-When adding new commands, respect these short-flag conventions so users can
-rely on muscle memory. In particular:
-  - Never repurpose -n for anything other than --dry-run
-  - Never repurpose -C for anything other than --project-dir
-  - --force semantics vary (overwrite vs skip-checks) -- document in each command
+New commands keep these short flags: -n is only ever --dry-run, -C is only ever
+--project-dir, and --force is documented per command because its meaning varies.
 """
 
 import json
@@ -96,15 +89,13 @@ def _source_checkout() -> str | None:
 def _checkout_version(checkout: str) -> str:
     """Return the version a checkout would build as, not its frozen metadata.
 
-    An editable install bakes the version into ``.dist-info`` when it is synced
-    and never revisits it, so it keeps reporting whatever ``VERSION`` said then
-    -- a number that drifts further from the tree on every release, and belongs
-    to no release at all. Re-resolving through the same function the build
-    back-end uses keeps the report honest without a re-sync.
+    An editable install bakes the version into ``.dist-info`` at sync time and
+    never revisits it, so the frozen number drifts from the tree on every
+    release. Re-resolving through the build back-end's own function avoids a
+    re-sync.
 
-    ``HYPERCI_VERSION`` is excluded: it is process-wide rather than scoped to a
-    tree, so a release run in another project would have this answer with that
-    project's version under this checkout's path.
+    ``HYPERCI_VERSION`` is excluded because it is process-wide, not scoped to a
+    tree, and would report another project's version under this checkout's path.
 
     Args:
         checkout: Filesystem path of the editable checkout.
@@ -117,9 +108,7 @@ def _checkout_version(checkout: str) -> str:
     try:
         return build_version(Path(checkout), allow_env=False)
     except Exception as exc:  # noqa: BLE001 - --version must not be the failure
-        # Warn rather than fall through quietly: the fallback is the frozen
-        # number this function exists to replace, so a silent one reads as the
-        # bug it fixes.
+        # The fallback is the frozen number this function replaces, so say so.
         from hyperi_ci.common import warn
 
         warn(
@@ -234,11 +223,10 @@ def check(
     quality or test job in CI, so this local run is the only gate it gets.
 
     With ``--strict``, warn-tier quality findings (which CI tolerates but
-    still prints) are treated as failures, so nothing is carried into a
-    push unseen. Fix each, or flag it to ignore if it genuinely should be.
-    A tool that is not installed locally (and has no uv fallback) is still
-    warn-skipped even under ``--strict`` - strict enforces what runs, not
-    what your machine has; CI, where the tools are present, is the backstop.
+    prints) fail the run. Fix each, or flag it to ignore. A tool not
+    installed locally (and with no uv fallback) is still warn-skipped under
+    ``--strict``, because strict enforces what runs, not what your machine
+    has. CI is the backstop.
 
     ``--tier full`` runs the tests the project deselects or ignores by
     default as well. ``--full`` is unrelated: it adds the build stage.
@@ -310,7 +298,7 @@ def lint_iac_cmd(
 
     Dimensions run one at a time with a per-tool timeout
     (``iac.timeout_seconds``). It never plans, applies, installs a chart or
-    starts a cluster, so the job needs no credentials.
+    starts a cluster, so it needs no credentials.
     """
     if project_dir is not None and directory not in (".", project_dir):
         raise typer.BadParameter(
@@ -424,20 +412,18 @@ def deps(
 ) -> None:
     """Enumerate dependency surfaces, audit floors against the lock, name gaps.
 
-    The PREVENTATIVE half of the dependency chain: it runs locally, BEFORE a
-    change reaches CI or the forge, and reports what you are about to leave
-    stale. Renovate is the remediation half and runs after the fact. See
-    docs/dependencies/deps-pinning.md.
+    The preventative half of the dependency chain: it runs locally, before a
+    change reaches CI, and reports what you are about to leave stale. Renovate
+    is the remediation half. See docs/dependencies/deps-pinning.md.
 
-    Bare ``deps`` (and ``deps scan``) prints the whole picture in one call --
-    surfaces and their three states, every extracted pin, every dependency
-    group with its declared constraint, floor-vs-lock drift, and what Renovate
-    will never see. ``deps show <surface>`` dumps one surface uncapped.
+    Bare ``deps`` (and ``deps scan``) prints surfaces and their three states,
+    every extracted pin, every dependency group with its declared constraint,
+    floor-vs-lock drift, and what Renovate will never see. ``deps show
+    <surface>`` dumps one surface uncapped.
 
-    Multi-language by construction: every manifest in the tree is parsed in the
-    same pass and each ecosystem reported separately. Language toolchains
-    (cargo, uv, npm) are used to enrich the result when installed and skipped
-    silently when not.
+    Every manifest in the tree is parsed in one pass and each ecosystem
+    reported separately. Language toolchains (cargo, uv, npm) enrich the
+    result when installed and are skipped silently when not.
 
     Exit codes: ``drift`` exits 1 when it finds drift, so it can gate a script.
     Everything else is a report and exits 0.
@@ -574,17 +560,15 @@ def push(
 
     With ``--release`` (canonical) or ``--publish`` (deprecated): amends
     the head commit with the ``Release: true`` trailer, then pushes. The
-    resulting CI run goes through the version-first pipeline -- predicts
-    the next version, stamps it into Cargo.toml/VERSION before build,
-    creates the tag, and publishes to all configured registries -- all
-    in one workflow.
+    CI run predicts the next version, stamps it into Cargo.toml/VERSION
+    before build, creates the tag, and publishes to all configured
+    registries in one workflow.
 
     With ``--bump-patch`` or ``--bump-minor``: same as ``--release`` but
-    adds an empty release-marker commit on top of HEAD. Use this when
-    you want to ship a release whose actual commits are no-bump types
-    (``docs:``, ``chore:``, etc.) -- saves you from inventing a fake
-    ``fix:`` commit. The marker IS a real commit in git history with a
-    clear conventional message stating "this is a forced bump."
+    adds an empty release-marker commit on top of HEAD, for shipping a
+    release whose actual commits are no-bump types (``docs:``, ``chore:``).
+    The marker is a real commit with a conventional message stating the
+    forced bump.
 
     With ``--no-ci``: amends the last commit with ``[skip ci]`` and
     pushes (skips CI altogether).
@@ -596,11 +580,8 @@ def push(
         raise typer.Exit(1)
     bump = "patch" if bump_patch else "minor" if bump_minor else None
 
-    # CLI flag -> env var: the commit-msg hook (which fires during the
-    # trailer amend inside _publish_push) reads HYPERCI_ALLOW_FEAT /
-    # HYPERCI_ALLOW_BREAKING. Setting them here means a single
-    # `hyperi-ci push --release --allow-feat` works without exporting
-    # the env var manually.
+    # The commit-msg hook that fires during the trailer amend reads these env
+    # vars, so the flags must be translated before pushing.
     if allow_feat:
         os.environ["HYPERCI_ALLOW_FEAT"] = "1"
     if allow_breaking:
@@ -649,9 +630,8 @@ def init(
     skip). The version pipeline reads tags, so a tag-less repo has nothing
     to release from.
 
-    Note: `--force` here means "overwrite existing files" -- different from
-    `push --force` which means "skip pre-push checks". See module docstring
-    for the project-wide convention on per-command `--force` semantics.
+    `--force` here overwrites existing files, unlike `push --force`, which
+    skips pre-push checks.
     """
     from hyperi_ci.init import init_project
 
@@ -701,10 +681,10 @@ def stamp_version_cmd(
 ) -> None:
     """Stamp the version into VERSION + the language manifest.
 
-    Central, version-first step run by every language workflow before
-    build. Writes the VERSION file (language-agnostic) and delegates the
-    manifest stamp (Cargo.toml / pyproject.toml / package.json) to the
-    detected language. Go is a no-op (version injected via ldflags).
+    Run by every language workflow before build. Writes the VERSION file
+    and delegates the manifest stamp (Cargo.toml / pyproject.toml /
+    package.json) to the detected language. Go is a no-op (version
+    injected via ldflags).
     """
     from hyperi_ci.stamp import stamp_version
 
@@ -825,8 +805,7 @@ def audit_callers(
             error(f"No repos readable in {org}")
             raise typer.Exit(1)
         reports = [audit_repo(name) for name in targets]
-        # A repo with no ci.yml, or one that calls nothing of ours, is not a
-        # consumer -- reporting it would bury the real findings.
+        # A repo with no ci.yml, or one that calls nothing of ours, is not a consumer.
         reports = [r for r in reports if r.calls is not None]
     elif repo:
         reports = [audit_repo(repo)]
@@ -952,8 +931,7 @@ def audit_gates(
         for name in targets
     ]
     if org:
-        # A repo that never runs the workflow is not a consumer; reporting it
-        # would bury the real findings.
+        # A repo that never runs the workflow is not a consumer.
         reports = [r for r in reports if r.error is None]
     if not reports:
         error(f"No repo in {org} runs {workflow}")
@@ -1831,8 +1809,7 @@ def install_native_deps(
 
     dir_path = Path(project_dir) if project_dir else None
 
-    # `all` fans out to every language YAML in config/native-deps/, matching
-    # the install-toolchains contract so the two commands behave alike.
+    # `all` fans out to every language YAML in config/native-deps/.
     if language == "all":
         languages = sorted(f.stem for f in _NATIVE_DEPS_DIR.glob("*.yaml"))
     else:
@@ -1894,7 +1871,7 @@ def install_toolchains(
 
     dir_path = Path(project_dir) if project_dir else None
 
-    # `all` fans out to every toolchain YAML in config/toolchains/
+    # `all` fans out to every toolchain YAML in config/toolchains/.
     if family == "all":
         families = sorted(f.stem for f in _TOOLCHAINS_DIR.glob("*.yaml"))
     else:
@@ -1936,15 +1913,14 @@ def install_all_cmd(
     no manifest matching, because an image is built without a project in front
     of it. This is the ONE command a runner image Dockerfile calls.
 
-    Why it exists: a pre-baked tool only pays off if it is what hyperi-ci would
-    have installed anyway. Anything else gets skipped as already-present (and
-    so silently overrides the pinned version) or reinstalled over the top (and
-    so wasted the image build). Baking BY this command keeps the image and the
-    CI-time install path the same code, so they cannot drift.
+    A pre-baked tool that differs from what hyperi-ci would install gets
+    skipped as already-present (silently overriding the pinned version) or
+    reinstalled over the top. Baking by this command keeps the image and the
+    CI-time install path the same code.
 
-    Entries marked `bake: false` are excluded and stay install-on-demand. That
-    is for a toolset whose packages declare `Conflicts` across versions, where
-    baking one version would lock out a job needing another.
+    Entries marked `bake: false` are excluded and stay install-on-demand, for a
+    toolset whose packages declare `Conflicts` across versions, where baking
+    one version would lock out a job needing another.
 
     Covers three things, in order: the language toolchains from
     `config/bootstrap.yaml` (rustup, Go, Node), the apt families from
@@ -1973,7 +1949,7 @@ def install_all_cmd(
         raise typer.Exit(1)
 
     # Language toolchains first: the apt families below include BOLT and the
-    # cross-compilers that a Rust build then links against.
+    # cross-compilers a Rust build links against.
     if not skip_toolchains:
         typer.echo("install-all: language toolchains", err=True)
         if dry_run:
@@ -2027,7 +2003,7 @@ def check_commit_cmd(
 ) -> None:
     """Validate a commit message against conventional commit rules.
 
-    Used by .githooks/commit-msg hook. Reads from file or stdin.
+    Used by the .githooks/commit-msg hook. Reads a file or stdin.
     """
     from hyperi_ci.quality.commit_validation import (
         format_rejection,
@@ -2066,15 +2042,14 @@ def check_commits_cmd() -> None:
     before..after (what lands on main) or PR base..HEAD - validates each
     commit, and is FATAL on push but ADVISORY on pull_request (branch
     commits may be squashed away). CI-only; a no-op locally. Driven by the
-    dedicated `commit-check` workflow job, NOT the run-checks-gated quality
-    job - so a merge to main is validated even when it is not release-worthy.
+    `commit-check` workflow job rather than the run-checks-gated quality
+    job, so a merge to main is validated even when not release-worthy.
     """
     from hyperi_ci.quality import deprecated_files
     from hyperi_ci.quality.commit_validation import run
 
-    # The always-on `commit-check` CI job is the cheapest run that fires on
-    # every push/PR, so surface the deprecated-file nudge here too (the
-    # run-checks-gated quality job is skipped on non-release-worthy pushes).
+    # commit-check fires on every push/PR, unlike the run-checks-gated quality
+    # job, so the deprecated-file nudge is surfaced here too.
     deprecated_files.scan()
     raise typer.Exit(run())
 
@@ -2139,10 +2114,8 @@ def _release_impl(
         rc = list_unpublished()
         raise typer.Exit(rc)
 
-    # --version is a from-head release at an exact version (issue #37 escape
-    # hatch). It travels in the same `bump` channel the CI already threads, so
-    # consumers need no new workflow input. It's mutually exclusive with both
-    # a TAG (re-publish) and --bump (resolve-from-HEAD).
+    # --version (issue #37) rides the `bump` channel the CI already threads, so
+    # consumers need no new workflow input. It excludes both a TAG and --bump.
     if version is not None:
         if tag or bump:
             typer.echo(
@@ -2168,15 +2141,12 @@ def _release_impl(
         raise typer.Exit(1)
 
     if tag:
-        # Re-publish an existing tag (idempotent retry of a partial publish).
+        # Idempotent retry of a partial publish.
         rc = dispatch_publish(tag, dry_run=dry_run)
         raise typer.Exit(rc)
 
-    # No tag -> release/retry the current HEAD. The CI resolves the version,
-    # creates the tag, and publishes -- no artificial commit, no local tag
-    # push (issue #35). `bump` defaults to auto (semantic-release picks the
-    # version from commits); --bump patch|minor forces a release; an explicit
-    # X.Y.Z (from --version) tags HEAD at exactly that version.
+    # No tag: release/retry HEAD (issue #35). `bump` is auto (semantic-release
+    # picks from commits), patch|minor (forced), or an explicit X.Y.Z.
     rc = dispatch_from_head(bump=bump or "auto", dry_run=dry_run)
     raise typer.Exit(rc)
 
@@ -2215,8 +2185,8 @@ def release(
     """Release or retry a release -- the CI creates the tag (issue #35).
 
     The primary path is ``hyperi-ci push --release`` (version-first single run,
-    gated by the ``Release: true`` trailer). This command is the "I need to
-    release/retry that" escape hatch -- no artificial ``fix:`` commit:
+    gated by the ``Release: true`` trailer). This command releases or retries
+    without an artificial ``fix:`` commit:
 
     - ``hyperi-ci release`` -- release the current ``main`` HEAD. Dispatches a
       from-head run; the CI resolves the version (semantic-release), tags HEAD,
@@ -2386,8 +2356,7 @@ def autoupdate(
         except ValueError as exc:
             typer.echo(str(exc), err=True)
             raise typer.Exit(1) from exc
-        # Echo what was persisted -- write_channel silently normalises
-        # hyperi-ai's retired "edge" and "nightly" aliases to "live".
+        # write_channel normalises hyperi-ai's retired "edge" and "nightly" to "live".
         typer.echo(f"hyperi-ci autoupdate: channel set to '{_channel.read_channel()}'")
         return
 
@@ -2429,25 +2398,21 @@ def autoupdate(
 
 def main() -> int:
     """CLI entry point."""
-    # Force UTF-8 with replacement on stdout/stderr so log lines containing
-    # arbitrary bytes (gh CLI output, GH Actions log files, container build
-    # output) never crash the CLI with UnicodeEncodeError.
+    # Log lines with arbitrary bytes (gh output, container builds) must not
+    # raise UnicodeEncodeError.
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
         if callable(reconfigure):
             reconfigure(encoding="utf-8", errors="replace")
 
-    # A consumer installs the CLI with an unpinned `uvx hyperi-ci`, so the log
-    # is the only record of which version actually ran. Without it, telling a
-    # stale run from an ineffective fix means arithmetic on the PyPI upload
-    # time.
+    # Consumers run an unpinned `uvx hyperi-ci`, so the log is the only record
+    # of which version ran.
     from hyperi_ci.common import info, is_ci
 
     if is_ci():
         info(f"hyperi-ci {__version__}")
 
-    # Here rather than in the Typer callback so `--version` warns too -- its
-    # eager callback exits before the callback body runs (#163).
+    # Not in the Typer callback: --version's eager callback exits before it (#163).
     from hyperi_ci.staleness import warn_if_stale
 
     warn_if_stale()
