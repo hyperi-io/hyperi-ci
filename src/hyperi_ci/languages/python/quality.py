@@ -23,29 +23,23 @@ import re
 import shutil
 import subprocess
 import sys
-import time
+from collections.abc import Callable
 from pathlib import Path
 
 from packaging.version import InvalidVersion, Version
 
-from hyperi_ci.common import (
-    URL_ATTEMPTS,
-    backoff,
-    error,
-    get_exclude_dirs,
-    info,
-    is_ci,
-    run_cmd,
-    success,
-    warn,
-)
+from hyperi_ci.common import get_exclude_dirs, info, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import (
+    WARN_OUTPUT_CAP,
+    Via,
+    emit_tool_output,
     get_python_source_paths,
     get_test_ignore,
     get_test_paths,
     resolve_tool_cmd,
     resolve_tool_mode,
+    run_gate_tool,
 )
 from hyperi_ci.python_version import resolve as resolve_python_version
 from hyperi_ci.quality.ignores import IgnoreEntry, for_tool, load_ignores
@@ -55,21 +49,6 @@ from hyperi_ci.versions import tool_version
 # arrived separately in 0.16, so a 0.15.21 or 0.15.22 project still honours its
 # own excludes here even though the `*.md` entry buys it nothing.
 _RUFF_FORMAT_EXTEND_EXCLUDE_MIN = Version("0.15.21")
-
-# clap (ruff), argparse (bandit, vulture) and getopt each reject an unknown flag
-# with one of these, having checked nothing.
-_ARGV_REJECTION = (
-    "unexpected argument",
-    "unrecognized arguments",
-    "unrecognized argument",
-    "no such option",
-)
-
-# uv says one of these when the tool never started: `uv run <tool>` with the
-# tool missing from the environment, or `uvx --python X` with no X installed and
-# downloads off. The missing-tool check above the run cannot see either, because
-# the command was rewritten to start with `uv`, which IS on PATH.
-_SPAWN_FAILURES = ("failed to spawn", "no interpreter found")
 
 # pip-audit's summary line when it has vulnerabilities to report.
 _PIP_AUDIT_FINDING = re.compile(r"^Found \d+ known vulnerabilit", re.MULTILINE)
@@ -192,42 +171,8 @@ def _warn_bandit_skips(stdout: str | None) -> int:
         return 0
     warn(f"  bandit: {match.group(1)} file(s) could not be parsed and were NOT scanned")
     listed = (stdout or "")[match.end() :].strip().splitlines()
-    _emit_tool_output("bandit", "\n".join(listed), cap=_WARN_OUTPUT_CAP)
+    emit_tool_output("bandit", "\n".join(listed), cap=WARN_OUTPUT_CAP)
     return int(match.group(1))
-
-
-# A non-blocking tool gets this many lines inline before the rest is counted.
-# vulture alone emits 111 at 60 percent confidence, which buried the real
-# cause of a failed `push` under ~130 lines of advisory noise (issue #212).
-_WARN_OUTPUT_CAP = 25
-
-
-def _emit_tool_output(
-    tool_name: str, output: str | None, *, cap: int | None = None
-) -> None:
-    """Print a tool's output through the logger, in order, optionally capped.
-
-    `print()` writes to stdout while every surrounding message goes through
-    loguru to stderr, so the two interleave and a tool's output can land AFTER
-    the verdict that follows it. One stream keeps the reading order honest.
-    """
-    if not output or not output.strip():
-        return
-    lines = output.rstrip().splitlines()
-    if cap is None or len(lines) <= cap:
-        for line in lines:
-            info(f"    {line}")
-        return
-    for line in lines[:cap]:
-        info(f"    {line}")
-    hidden = len(lines) - cap - 1
-    if hidden:
-        info(
-            f"    ... +{hidden} more lines from {tool_name}; "
-            "raise its mode to see them all"
-        )
-    # The last line is kept: ruff and ty end on their own finding count.
-    info(f"    {lines[-1]}")
 
 
 def _advisory_db_unreachable(result: subprocess.CompletedProcess[str]) -> bool:
@@ -251,159 +196,16 @@ def _advisory_db_unreachable(result: subprocess.CompletedProcess[str]) -> bool:
     return _ADVISORY_DB_UNREACHABLE.search(output) is not None
 
 
-def _run_until_reachable(
-    tool_name: str, cmd: list[str]
-) -> subprocess.CompletedProcess[str]:
-    """Run an advisory-DB scan, again after a backoff while the DB is unreachable.
-
-    Up to ``URL_ATTEMPTS`` runs, waiting about 1s, 2s, then 4s between them,
-    each wait cut by up to half at random. Any other outcome, a finding
-    included, ends it at once.
-
-    Args:
-        tool_name: Name for the retry log line.
-        cmd: The resolved command.
-
-    Returns:
-        The last run.
-
-    """
-    for attempt in range(1, URL_ATTEMPTS):
-        result = run_cmd(cmd, check=False, capture=True)
-        if not _advisory_db_unreachable(result):
-            return result
-        lines = (result.stderr or "").strip().splitlines()
-        reason = lines[-1] if lines else f"exit {result.returncode}"
-        delay = backoff(attempt)
-        info(
-            f"  {tool_name}: advisory DB unreachable ({reason}), retrying in "
-            f"{delay:.1f}s (retry {attempt} of {URL_ATTEMPTS - 1})"
-        )
-        time.sleep(delay)
-    return run_cmd(cmd, check=False, capture=True)
-
-
-def _run_tool(
-    tool_name: str,
-    cmd: list[str],
-    mode: str,
-    use_uvx: bool = False,
-    use_uv_with: bool = False,
-    spec: str | None = None,
-    retry_unreachable: bool = False,
-    python: str | None = None,
-) -> bool:
-    """Run a quality tool and handle its result based on mode.
-
-    Args:
-        tool_name: Name used in every log line.
-        cmd: Command and arguments, before resolution.
-        mode: ``blocking``, ``warn`` or ``disabled``.
-        use_uvx: Run a standalone tool through ``uvx``.
-        use_uv_with: Run the tool inside the project's environment.
-        spec: Requirement to install for ``use_uvx`` or ``use_uv_with``.
-        retry_unreachable: The tool is pip-audit, so a run that could not
-            reach the advisory DB is made again. One that never reaches it
-            still fails.
-        python: Interpreter version for a ``uvx`` run.
-
-    Returns:
-        True if the pipeline should continue, False on a blocking failure.
-
-    """
-    if mode == "disabled":
-        info(f"  {tool_name}: disabled")
-        return True
-
-    resolved = resolve_tool_cmd(
-        cmd, use_uvx=use_uvx, use_uv_with=use_uv_with, spec=spec, python=python
-    )
-    if resolved == cmd and not shutil.which(cmd[0]):
-        # A missing tool fails the gate only in CI, where every tool MUST
-        # be present - a silent skip would mask a coverage gap. Locally it
-        # is an environment gap, not a quality finding: warn and carry on
-        # so `hyperi-ci check` still runs whatever IS installed (matches
-        # the gitleaks stage's local-vs-CI handling).
-        if mode == "blocking" and is_ci():
-            error(f"  {tool_name}: not installed (required)")
-            return False
-        warn(f"  {tool_name}: not installed (skipping locally)")
-        return True
-
-    if retry_unreachable:
-        result = _run_until_reachable(tool_name, resolved)
-    else:
-        result = run_cmd(resolved, check=False, capture=True)
-    skipped = _warn_bandit_skips(result.stdout) if tool_name == "bandit" else 0
-    unreachable_note = ""
-    if retry_unreachable and _advisory_db_unreachable(result):
-        unreachable_note = (
-            f"  {tool_name}: advisory DB unreachable after {URL_ATTEMPTS} "
-            f"attempts, so nothing was checked"
-        )
-
-    if result.returncode == 0:
-        # A blocking scan that left files unread has no clean result to report.
-        if skipped and mode == "blocking":
-            error(f"  {tool_name}: failed, {skipped} file(s) were not scanned")
-            return False
-        success(f"  {tool_name}: passed")
-        return True
-
-    # A tool that could not start checked nothing: that is neither a pass nor
-    # a finding, and reporting it as "issues found" hid it for months.
-    if any(marker in (result.stderr or "").lower() for marker in _SPAWN_FAILURES):
-        if mode == "blocking" and is_ci():
-            error(f"  {tool_name}: could not start (required)")
-            _emit_tool_output(tool_name, result.stderr)
-            return False
-        warn(f"  {tool_name}: could not start, so it checked nothing")
-        _emit_tool_output(tool_name, result.stderr, cap=_WARN_OUTPUT_CAP)
-        return True
-
-    # A flag the tool refuses means it never ran, so the result is a version
-    # mismatch rather than a quality finding. Reporting it as a plain failure
-    # sends the reader hunting for an unformatted file (issue #146).
-    if any(marker in (result.stderr or "").lower() for marker in _ARGV_REJECTION):
-        note = (
-            f"  {tool_name}: rejected the command line and checked nothing "
-            f"-- tool-version mismatch, not a finding"
-        )
-        if mode == "warn":
-            warn(note)
-        else:
-            error(note)
-        _emit_tool_output(tool_name, result.stderr)
-        return mode == "warn"
-
-    if mode == "warn":
-        warn(f"  {tool_name}: issues found (non-blocking)")
-        if unreachable_note:
-            warn(unreachable_note)
-        _emit_tool_output(tool_name, result.stdout, cap=_WARN_OUTPUT_CAP)
-        # A tool that failed to run explains why on stderr, and without it the
-        # warning names issues nobody can see.
-        _emit_tool_output(tool_name, result.stderr, cap=_WARN_OUTPUT_CAP)
-        return True
-
-    error(f"  {tool_name}: failed")
-    if unreachable_note:
-        error(unreachable_note)
-    # No cap on a blocking failure: this is the output someone has to act on.
-    _emit_tool_output(tool_name, result.stdout)
-    _emit_tool_output(tool_name, result.stderr)
-    return False
-
-
 def _run_source_tool(
     tool_name: str,
     cmd: list[str],
     mode: str,
     sources: list[str],
     *,
-    use_uvx: bool = False,
+    via: Via = "uv",
     spec: str | None = None,
     python: str | None = None,
+    unscanned: Callable[[str | None], int] | None = None,
 ) -> bool:
     """Run a tool that scans the source directories, or say why it cannot.
 
@@ -415,9 +217,10 @@ def _run_source_tool(
         cmd: Command and arguments, before resolution.
         mode: ``blocking``, ``warn`` or ``disabled``.
         sources: Source directories the command scans.
-        use_uvx: Run a standalone tool through ``uvx``.
-        spec: Requirement to install for ``use_uvx``.
+        via: How the command resolves, as for ``run_gate_tool``.
+        spec: Requirement to install for a ``uvx`` run.
         python: Interpreter version for a ``uvx`` run.
+        unscanned: Counts the files the tool's stdout says it skipped.
 
     Returns:
         True if the pipeline should continue, False on a blocking failure.
@@ -426,7 +229,9 @@ def _run_source_tool(
     if mode != "disabled" and not sources:
         warn(f"  {tool_name}: skipped, no Python source directory found")
         return True
-    return _run_tool(tool_name, cmd, mode, use_uvx=use_uvx, spec=spec, python=python)
+    return run_gate_tool(
+        tool_name, cmd, mode, via=via, spec=spec, python=python, unscanned=unscanned
+    )
 
 
 def _ruff_format_takes_extend_exclude() -> bool:
@@ -434,7 +239,7 @@ def _ruff_format_takes_extend_exclude() -> bool:
 
     hyperi-ci pins no ruff for consumers, so this asks the RESOLVED command
     rather than assuming a version. An unreadable answer keeps the flag: the
-    argument-rejection path in `_run_tool` then names the mismatch plainly.
+    argument-rejection path in `run_gate_tool` then names the mismatch plainly.
     """
     try:
         result = subprocess.run(
@@ -504,13 +309,14 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # Production pass -- exclude test dirs, full rules
     prod_exclude = exclude_args + [f"--exclude={p}" for p in test_paths]
     ruff_user_ignores = for_tool(ignores, "ruff")
-    if not _run_tool(
+    if not run_gate_tool(
         "ruff check (src)",
         ["ruff", "check", "."]
         + output_fmt
         + prod_exclude
         + _ruff_ignore_flag(ruff_user_ignores),
         mode,
+        via="uv",
     ):
         had_failure = True
 
@@ -519,10 +325,11 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         combined_ignore = test_ignore + [e.id for e in ruff_user_ignores]
         ignore_flag = [f"--extend-ignore={','.join(combined_ignore)}"]
         for tp in test_paths:
-            if not _run_tool(
+            if not run_gate_tool(
                 f"ruff check ({tp})",
                 ["ruff", "check", tp] + output_fmt + ignore_flag + exclude_args,
                 mode,
+                via="uv",
             ):
                 had_failure = True
 
@@ -537,10 +344,11 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             f"rejects --extend-exclude, so {', '.join(excludes)} stays in the format "
             f"check. Raise the project's ruff to honour it."
         )
-    if not _run_tool(
+    if not run_gate_tool(
         "ruff format",
         _build_ruff_format_cmd(excludes, extend_exclude=format_extend_exclude),
         resolve_tool_mode("ruff_format", config, language="python"),
+        via="uv",
     ):
         had_failure = True
 
@@ -550,12 +358,12 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if ty_mode != "disabled":
         # In the project's environment, so it resolves the project's imports.
         ty_spec = f"ty=={tool_version('ty')}"
-        if not _run_tool(
-            "ty", ["ty", "check"], ty_mode, use_uv_with=True, spec=ty_spec
+        if not run_gate_tool(
+            "ty", ["ty", "check"], ty_mode, via="uv-with", spec=ty_spec
         ):
             had_failure = True
     elif pyright_mode != "disabled":
-        if not _run_tool("pyright", ["pyright"], pyright_mode):
+        if not run_gate_tool("pyright", ["pyright"], pyright_mode, via="uv"):
             had_failure = True
 
     sources = get_python_source_paths(config)
@@ -583,9 +391,10 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         bandit_cmd,
         mode,
         sources,
-        use_uvx=True,
+        via="uvx",
         spec=bandit_spec,
         python=parse_python,
+        unscanned=_warn_bandit_skips,
     ):
         had_failure = True
 
@@ -604,7 +413,13 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # installed packages, not ~/.venv or the system Python.
     mode = resolve_tool_mode("pip_audit", config, language="python")
     pip_audit_cmd = _build_pip_audit_cmd(for_tool(ignores, "pip-audit"))
-    if not _run_tool("pip-audit", pip_audit_cmd, mode, retry_unreachable=True):
+    if not run_gate_tool(
+        "pip-audit",
+        pip_audit_cmd,
+        mode,
+        via="uv",
+        retry_unreachable=_advisory_db_unreachable,
+    ):
         had_failure = True
 
     # Docstring coverage via ruff D rules (replaces interrogate). Concise output
@@ -627,7 +442,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         vulture_cmd,
         mode,
         sources,
-        use_uvx=True,
+        via="uvx",
         spec=vulture_spec,
         python=parse_python,
     ):

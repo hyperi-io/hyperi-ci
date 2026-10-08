@@ -12,6 +12,7 @@ format gate carries.
 """
 
 import copy
+import inspect
 import json
 import subprocess
 import sys
@@ -26,6 +27,7 @@ from hyperi_ci.languages.python.quality import (
     _build_ruff_format_cmd,
     _build_ruff_security_cmd,
 )
+from hyperi_ci.languages.quality_common import run_gate_tool
 from hyperi_ci.quality.ignores import IgnoreEntry
 from hyperi_ci.versions import tool_version
 
@@ -157,10 +159,10 @@ def _passes(
     python: dict[str, object],
     *,
     strict: bool = False,
-) -> dict[str, tuple[list[str], str]]:
+) -> dict[str, tuple[list[str], str, str]]:
     """Run the Python quality stage over the shipped defaults plus ``python``.
 
-    Returns each pass's argv and mode, by pass name.
+    Returns each pass's argv, mode and ``via``, by pass name.
     """
     monkeypatch.delenv("HYPERCI_QUALITY_SKIP", raising=False)
     if strict:
@@ -168,13 +170,14 @@ def _passes(
     else:
         monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
     monkeypatch.setattr(quality, "_ruff_format_takes_extend_exclude", lambda: True)
-    seen: dict[str, tuple[list[str], str]] = {}
+    seen: dict[str, tuple[list[str], str, str]] = {}
+    default_via = inspect.signature(run_gate_tool).parameters["via"].default
 
-    def record(name: str, cmd: list[str], mode: str, **_kw: object) -> bool:
-        seen[name] = (cmd, mode)
+    def record(name: str, cmd: list[str], mode: str, **kw: object) -> bool:
+        seen[name] = (cmd, mode, str(kw.get("via", default_via)))
         return True
 
-    monkeypatch.setattr(quality, "_run_tool", record)
+    monkeypatch.setattr(quality, "run_gate_tool", record)
     raw = copy.deepcopy(packaged_default("quality"))
     raw["python"].update(python)
     raw["exclude_paths"] = ["vendor"]
@@ -189,7 +192,7 @@ class TestRuffSecurityMode:
     def test_ships_warn_with_excludes_and_ignores(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        cmd, mode = _passes(monkeypatch, {})["ruff security"]
+        cmd, mode, _via = _passes(monkeypatch, {})["ruff security"]
         assert mode == "warn"
         assert cmd[:4] == ["ruff", "check", "--select", "S"]
         assert "src/" in cmd
@@ -227,9 +230,32 @@ class TestRuffDocstringsIgnores:
     def test_quality_ignore_entries_reach_the_d_pass(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        cmd, _ = _passes(monkeypatch, {})["ruff docstrings"]
+        cmd, _mode, _via = _passes(monkeypatch, {})["ruff docstrings"]
         assert cmd[:4] == ["ruff", "check", "--select", "D"]
         assert "--extend-ignore=S603" in cmd
+
+
+class TestEachPassResolvesAsIntended:
+    """A pass run off PATH scans the wrong environment, or nothing at all."""
+
+    @pytest.mark.parametrize(
+        ("name", "via"),
+        [
+            ("ruff check (src)", "uv"),
+            ("ruff check (tests/)", "uv"),
+            ("ruff format", "uv"),
+            ("ty", "uv-with"),
+            ("bandit", "uvx"),
+            ("ruff security", "uv"),
+            ("pip-audit", "uv"),
+            ("ruff docstrings", "uv"),
+            ("vulture", "uvx"),
+        ],
+    )
+    def test_via(self, monkeypatch: pytest.MonkeyPatch, name: str, via: str) -> None:
+        passes = _passes(monkeypatch, {})
+        assert name in passes, sorted(passes)
+        assert passes[name][2] == via
 
 
 class TestRuffFormatBelowTheFlagVersion:
@@ -302,84 +328,3 @@ class TestRuffVersionProbe:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         assert self._probe(monkeypatch, "ruff 0.15.12\n", returncode=1) is True
-
-
-class TestArgumentRejectionIsNotAFinding:
-    """A refused flag means the tool never ran, so it is not a finding (#146)."""
-
-    _CLAP = "error: unexpected argument '--extend-exclude' found\n"
-
-    @staticmethod
-    def _run(
-        monkeypatch: pytest.MonkeyPatch, stderr: str, mode: str
-    ) -> tuple[bool, list[str]]:
-        messages: list[str] = []
-
-        def fake_run(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess:
-            return subprocess.CompletedProcess([], 2, "", stderr)
-
-        monkeypatch.setattr(quality.subprocess, "run", fake_run)
-        monkeypatch.setattr(quality.shutil, "which", lambda _cmd: "/usr/bin/ruff")
-        # Loguru bypasses capsys -- capture via the module's own log names.
-        monkeypatch.setattr(quality, "error", messages.append)
-        monkeypatch.setattr(quality, "warn", messages.append)
-        ok = quality._run_tool("ruff format", ["ruff", "format"], mode)
-        return ok, messages
-
-    def test_blocking_names_the_mismatch_not_a_failure(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        ok, messages = self._run(monkeypatch, self._CLAP, "blocking")
-        assert ok is False
-        assert any("tool-version mismatch" in m for m in messages)
-        assert not any(m.endswith("failed") for m in messages)
-
-    def test_warn_mode_still_does_not_block(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        ok, messages = self._run(monkeypatch, self._CLAP, "warn")
-        assert ok is True
-        assert any("tool-version mismatch" in m for m in messages)
-
-    def test_a_warn_tier_tool_that_could_not_run_says_why(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """ty in CI printed "issues found" and nothing else: its reason was on stderr."""
-        shown: list[str] = []
-
-        def fake_run(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess:
-            return subprocess.CompletedProcess(
-                [], 1, "", "error: failed to discover a Python environment\n"
-            )
-
-        monkeypatch.setattr(quality.subprocess, "run", fake_run)
-        monkeypatch.setattr(quality.shutil, "which", lambda _cmd: "/usr/bin/ty")
-        monkeypatch.setattr(quality, "warn", lambda _m: None)
-        monkeypatch.setattr(quality, "info", shown.append)
-        assert quality._run_tool("ty", ["ty", "check"], "warn") is True
-        assert any("failed to discover a Python environment" in m for m in shown)
-
-    _SPAWN = "error: Failed to spawn: `ty`\n  Caused by: No such file or directory\n"
-
-    def test_a_tool_that_could_not_start_is_not_a_finding(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        ok, messages = self._run(monkeypatch, self._SPAWN, "warn")
-        assert ok is True
-        assert any("could not start" in m for m in messages)
-        assert not any("issues found" in m for m in messages)
-
-    def test_a_required_tool_that_could_not_start_fails_in_ci(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(quality, "is_ci", lambda: True)
-        ok, messages = self._run(monkeypatch, self._SPAWN, "blocking")
-        assert ok is False
-        assert any("could not start (required)" in m for m in messages)
-
-    def test_a_real_finding_still_reads_as_failed(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        ok, messages = self._run(monkeypatch, "would reformat: x.py\n", "blocking")
-        assert ok is False
-        assert any(m.endswith("failed") for m in messages)

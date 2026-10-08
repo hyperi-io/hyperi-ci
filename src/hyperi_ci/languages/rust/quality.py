@@ -19,15 +19,12 @@ import os
 import re
 import shutil
 import subprocess
-import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from hyperi_ci.common import (
-    URL_ATTEMPTS,
     announce,
-    backoff,
     error,
     info,
     is_ci,
@@ -37,7 +34,11 @@ from hyperi_ci.common import (
     warn,
 )
 from hyperi_ci.config import CIConfig
-from hyperi_ci.languages.quality_common import get_test_ignore, resolve_tool_mode
+from hyperi_ci.languages.quality_common import (
+    get_test_ignore,
+    resolve_tool_mode,
+    run_gate_tool,
+)
 from hyperi_ci.languages.rust._manifest import (
     is_root_package_workspace,
     restore_cargo_manifests,
@@ -45,7 +46,7 @@ from hyperi_ci.languages.rust._manifest import (
 from hyperi_ci.languages.rust.targets import cargo_metadata
 from hyperi_ci.quality import cargo_flags, osv_scanner
 from hyperi_ci.quality.ignores import IgnoreEntry, for_tool, load_ignores
-from hyperi_ci.tools import matches_pin, version_output, warn_on_pin_drift
+from hyperi_ci.tools import matches_pin, version_output
 from hyperi_ci.versions import tool_version
 
 try:
@@ -226,80 +227,10 @@ def _split_feature_sets(features: str) -> list[str]:
     return [f.strip() for f in features.split("|") if f.strip()]
 
 
-def _resolve_tool_cmd(cmd: list[str], use_uvx: bool = False) -> list[str]:
-    """Resolve tool command, using uvx for standalone tools not on PATH."""
-    if shutil.which(cmd[0]):
-        return cmd
-    if use_uvx and shutil.which("uvx"):
-        return ["uvx", *cmd]
-    return cmd
-
-
 def _advisory_db_unreachable(result: subprocess.CompletedProcess[str]) -> bool:
-    """Whether cargo audit failed to load its advisory database."""
+    """Whether cargo audit failed because it could not load its advisory database."""
     output = f"{result.stdout or ''}{result.stderr or ''}".lower()
     return result.returncode != 0 and "error loading advisory database" in output
-
-
-def _run_tool(
-    tool_name: str,
-    cmd: list[str],
-    mode: str,
-    use_uvx: bool = False,
-    pinned: str | None = None,
-) -> bool:
-    """Run a quality tool. Returns True if pipeline should continue.
-
-    ``pinned`` names the ``versions.yaml`` key of the binary behind the
-    command, whose PATH copy is checked against the pin before it runs.
-    """
-    if mode == "disabled":
-        info(f"  {tool_name}: disabled")
-        return True
-
-    resolved = _resolve_tool_cmd(cmd, use_uvx=use_uvx)
-    if resolved == cmd and not shutil.which(cmd[0]):
-        # A missing tool fails the gate only in CI, where every tool MUST
-        # be present - a silent skip would mask a coverage gap. Locally it
-        # is an environment gap, not a quality finding: warn and carry on
-        # so `hyperi-ci check` still runs whatever IS installed (matches
-        # the gitleaks stage's local-vs-CI handling).
-        if mode == "blocking" and is_ci():
-            error(f"  {tool_name}: not installed (required)")
-            return False
-        warn(f"  {tool_name}: not installed (skipping locally)")
-        return True
-
-    if pinned:
-        warn_on_pin_drift(pinned)
-    result = run_cmd(resolved, check=False, capture=True)
-    for attempt in range(1, URL_ATTEMPTS):
-        if not _advisory_db_unreachable(result):
-            break
-        delay = backoff(attempt)
-        info(
-            f"  {tool_name}: advisory database unavailable, retrying in "
-            f"{delay:.1f}s (retry {attempt} of {URL_ATTEMPTS - 1})"
-        )
-        time.sleep(delay)
-        result = run_cmd(resolved, check=False, capture=True)
-
-    if result.returncode == 0:
-        success(f"  {tool_name}: passed")
-        return True
-
-    if mode == "warn":
-        warn(f"  {tool_name}: issues found (non-blocking)")
-        if result.stdout:
-            info(result.stdout)
-        return True
-
-    error(f"  {tool_name}: failed")
-    if result.stdout:
-        info(result.stdout)
-    if result.stderr:
-        info(result.stderr)
-    return False
 
 
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
@@ -319,7 +250,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     # cargo fmt --check
     mode = resolve_tool_mode("fmt", config, language="rust")
-    if not _run_tool("cargo fmt", ["cargo", "fmt", "--check"], mode):
+    if not run_gate_tool("cargo fmt", ["cargo", "fmt", "--check"], mode):
         had_failure = True
 
     # cargo clippy -- two-pass: production (strict) + test (relaxed)
@@ -353,7 +284,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         prod_cmd.extend(
             ["--", "-D", "warnings", "-D", "clippy::dbg_macro", *clippy_user_allows]
         )
-        if not _run_tool(f"clippy src ({feature_set})", prod_cmd, mode):
+        if not run_gate_tool(f"clippy src ({feature_set})", prod_cmd, mode):
             had_failure = True
 
         # Test pass -- test + bench targets, relaxed
@@ -371,7 +302,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
                 *clippy_user_allows,
             ]
         )
-        if not _run_tool(f"clippy tests ({feature_set})", test_cmd, mode):
+        if not run_gate_tool(f"clippy tests ({feature_set})", test_cmd, mode):
             had_failure = True
 
     # Advisory ignores declared in deny.toml are shared with cargo-audit
@@ -391,7 +322,13 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     )
     for entry in audit_ignores:
         audit_cmd.extend(["--ignore", entry.id])
-    if not _run_tool("cargo audit", audit_cmd, mode, pinned="cargo-audit"):
+    if not run_gate_tool(
+        "cargo audit",
+        audit_cmd,
+        mode,
+        pinned="cargo-audit",
+        retry_unreachable=_advisory_db_unreachable,
+    ):
         had_failure = True
 
     # osv-scanner - malicious-package (MAL-*) scan. cargo audit uses the
@@ -414,7 +351,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             "gated by cargo audit; a deny.toml would add licence, ban and "
             "source checks."
         )
-    elif not _run_tool(
+    elif not run_gate_tool(
         "cargo deny",
         ["cargo", "deny", *workspace_args, "check"],
         mode,
@@ -771,7 +708,7 @@ def _run_matrix_pass(
     per feature set under ``warn``, and is not looked for under ``disabled``.
     """
     if warnings_mode == "disabled" or not shutil.which(cmd[0]):
-        return _run_tool(tool_name, cmd, "blocking")
+        return run_gate_tool(tool_name, cmd, "blocking")
 
     # The env var beats a [term] table; strip_ansi covers a --config in extra_args.
     env: dict[str, str] = {"CARGO_TERM_COLOR": "never"}

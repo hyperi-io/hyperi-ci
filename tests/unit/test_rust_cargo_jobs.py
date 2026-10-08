@@ -15,6 +15,7 @@ import pytest
 
 from hyperi_ci import dispatch
 from hyperi_ci.config import CIConfig
+from hyperi_ci.languages import quality_common
 from hyperi_ci.languages.rust import _jobs
 from hyperi_ci.languages.rust._jobs import (
     JOBS_ENV,
@@ -231,6 +232,7 @@ def test_the_cap_reaches_a_quality_cargo_call(
     monkeypatch.setattr(_jobs, "memory_limit", lambda: SIXTEEN_GIB)
     rec = _Recorder()
     monkeypatch.setattr(f"{QUALITY}.run_cmd", rec.run)
+    monkeypatch.setattr(quality_common, "run_cmd", rec.run)
     monkeypatch.setattr(f"{QUALITY}._run_matrix_pass", rec.matrix_pass)
     monkeypatch.setattr(f"{QUALITY}.shutil.which", lambda n: f"/usr/bin/{n}")
     monkeypatch.setattr(f"{QUALITY}._has_lib_target", lambda *_a: True)

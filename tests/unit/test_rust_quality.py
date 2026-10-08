@@ -1080,8 +1080,8 @@ class TestRunMatrixPass:
         calls = _fake_cargo(monkeypatch, 0, _HACK_WARNINGS_GHA)
         ran: list[tuple[list[str], str]] = []
         monkeypatch.setattr(
-            "hyperi_ci.languages.rust.quality._run_tool",
-            lambda name, cmd, mode, use_uvx=False: ran.append((cmd, mode)) or True,
+            "hyperi_ci.languages.rust.quality.run_gate_tool",
+            lambda name, cmd, mode, **_kw: ran.append((cmd, mode)) or True,
         )
         monkeypatch.setenv("RUSTFLAGS", "-C target-cpu=native")
 
@@ -1153,6 +1153,7 @@ class TestAdvisoryDbUnreachable:
         results: list[subprocess.CompletedProcess[str]],
         mode: str,
     ) -> tuple[bool, int]:
+        from hyperi_ci.languages import quality_common
         from hyperi_ci.languages.rust import quality
 
         calls = iter(results)
@@ -1162,10 +1163,16 @@ class TestAdvisoryDbUnreachable:
             ran.append(1)
             return next(calls)
 
-        monkeypatch.setattr(quality, "run_cmd", fake_run)
-        monkeypatch.setattr(quality.shutil, "which", lambda _c: "/usr/bin/cargo")
-        monkeypatch.setattr(quality.time, "sleep", lambda _s: None)
-        return quality._run_tool("cargo audit", ["cargo", "audit"], mode), len(ran)
+        monkeypatch.setattr(quality_common, "run_cmd", fake_run)
+        monkeypatch.setattr(quality_common.shutil, "which", lambda _c: "/usr/bin/cargo")
+        monkeypatch.setattr(quality_common.time, "sleep", lambda _s: None)
+        ok = quality_common.run_gate_tool(
+            "cargo audit",
+            ["cargo", "audit"],
+            mode,
+            retry_unreachable=quality._advisory_db_unreachable,
+        )
+        return ok, len(ran)
 
     @pytest.mark.parametrize(("mode", "passes"), [("blocking", False), ("warn", True)])
     def test_never_reachable_follows_the_mode(
