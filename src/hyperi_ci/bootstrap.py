@@ -22,13 +22,11 @@ Linux only. No-ops elsewhere, so importing this on a macOS workstation is
 safe but does nothing useful.
 """
 
-import io
 import os
 import platform
 import shutil
 import subprocess
 import sys
-import tarfile
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -37,8 +35,8 @@ import yaml
 from scalo import logger
 
 from hyperi_ci.common import curl_fetch, curl_read
-from hyperi_ci.quality.install import fetch_verified
-from hyperi_ci.versions import runtime_version, tool_sha256, tool_version
+from hyperi_ci.native_tools import install_into
+from hyperi_ci.versions import runtime_version, tool_version
 
 _CONFIG_FILE = Path(__file__).resolve().parent / "config" / "bootstrap.yaml"
 _NVM_PROFILE = Path("/etc/profile.d/nvm.sh")
@@ -49,17 +47,6 @@ _RUSTUP_URL = "https://sh.rustup.rs"
 _GO_VERSION_URL = "https://go.dev/VERSION?m=text"
 _GO_DOWNLOAD_BASE = "https://go.dev/dl"
 _NVM_INSTALL_BASE = "https://raw.githubusercontent.com/nvm-sh/nvm"
-_SCCACHE_URL = (
-    "https://github.com/mozilla/sccache/releases/download/{version}/"
-    "sccache-{version}-{arch}-unknown-linux-musl.tar.gz"
-)
-# platform.machine() -> the arch as sccache's assets and its digest keys spell it.
-_SCCACHE_ARCH = {
-    "x86_64": "x86_64",
-    "amd64": "x86_64",
-    "aarch64": "aarch64",
-    "arm64": "aarch64",
-}
 # The Go tarball is about 70 MB, so a 300-second attempt still finishes at 250 KB/s.
 _GO_TARBALL_MAX_TIME = 300
 
@@ -128,8 +115,8 @@ def load_spec() -> tuple[RustSpec, bool]:
 def install_sccache(bin_dir: Path) -> int:
     """Install the versions.yaml sccache into ``bin_dir``, replacing any copy there.
 
-    The download is checked against the pinned digest before anything is
-    unpacked, and a mismatch installs nothing.
+    Not the hyperi-ci cache: the bake runs as root, and every job finds
+    sccache as ``RUSTC_WRAPPER`` on the image's PATH.
 
     Args:
         bin_dir: Directory on the image's PATH, normally ``$CARGO_HOME/bin``.
@@ -139,36 +126,8 @@ def install_sccache(bin_dir: Path) -> int:
         mismatch or a tarball without the binary.
 
     """
-    arch = _SCCACHE_ARCH.get(platform.machine().lower())
-    if arch is None:
-        logger.error(f"No pinned sccache build for {platform.machine()}")
-        return 1
-
-    version = tool_version("sccache")
-    url = _SCCACHE_URL.format(version=version, arch=arch)
-    logger.info(f"Installing sccache {version}")
-    payload = fetch_verified("sccache", url, tool_sha256("sccache", arch))
-    if payload is None:
-        return 1
-
-    member = f"sccache-{version}-{arch}-unknown-linux-musl/sccache"
-    try:
-        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
-            extracted = archive.extractfile(member)
-            data = extracted.read() if extracted else b""
-    except (tarfile.TarError, KeyError, OSError):
-        data = b""
-    if not data:
-        logger.error(f"'{member}' not found in {url}")
-        return 1
-
-    # Renamed into place, because overwriting a running sccache in place fails.
-    bin_dir.mkdir(parents=True, exist_ok=True)
-    partial = bin_dir / ".sccache.partial"
-    partial.write_bytes(data)
-    partial.chmod(0o755)
-    partial.replace(bin_dir / "sccache")
-    return 0
+    logger.info(f"Installing sccache {tool_version('sccache')}")
+    return 0 if install_into("sccache", bin_dir) else 1
 
 
 def install_rust(spec: RustSpec) -> int:

@@ -28,46 +28,27 @@ lychee reads from the directory it runs in.
 
 import functools
 import json
-import platform
-import shutil
 from pathlib import Path
 
 from hyperi_ci.common import error, info, is_ci, run_cmd, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_cross_tool_mode
+from hyperi_ci.native_tools import ci_binary
 from hyperi_ci.quality import findings as fdg
-from hyperi_ci.quality.install import install_ci_binary
 from hyperi_ci.tools import missing_tool_notice
-from hyperi_ci.versions import tool_sha256, tool_version
 
 
 @functools.cache
 def _install_lychee() -> str | None:
-    """Install the pinned lychee release on Linux CI (else None).
+    """Return lychee from PATH, else the pinned release installed on Linux CI.
 
-    Without this the check warned about a missing binary on every consumer run
-    and nothing could act on it, because no runner image or install path
-    supplied one (issue #230).
+    Without the install the check warned about a missing binary on every
+    consumer run and nothing could act on it (issue #230).
 
     Cached, so one run makes one attempt: :func:`planned_mode` and :func:`run`
     both ask, and a failed download tried twice only doubles the error.
     """
-    target = (
-        "x86_64-unknown-linux-musl"
-        if platform.machine() in ("x86_64", "AMD64")
-        else "aarch64-unknown-linux-musl"
-    )
-    arch = "amd64" if target.startswith("x86_64") else "arm64"
-    url = (
-        f"https://github.com/lycheeverse/lychee/releases/download/"
-        f"lychee-v{tool_version('lychee')}/lychee-{target}.tar.gz"
-    )
-    return install_ci_binary(
-        "lychee",
-        url,
-        tar_member="lychee",
-        expected_sha256=tool_sha256("lychee", arch),
-    )
+    return ci_binary("lychee")
 
 
 def resolve_mode(config: CIConfig) -> str:
@@ -85,7 +66,7 @@ def planned_mode(config: CIConfig) -> str | None:
     mode = resolve_mode(config)
     if mode == "disabled":
         return None
-    if (shutil.which("lychee") or _install_lychee()) is None:
+    if _install_lychee() is None:
         return None
     return mode
 
@@ -142,7 +123,7 @@ def run(
         return 0
 
     root = Path(root or Path.cwd())
-    exe = shutil.which("lychee") or _install_lychee()
+    exe = _install_lychee()
     if not exe:
         # A gate that cannot run has not passed - fail it in CI, warn locally
         # where a missing linker is an ordinary state of a dev box.

@@ -37,7 +37,7 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _stub_run(monkeypatch: pytest.MonkeyPatch, stdout: str) -> None:
-    monkeypatch.setattr(hadolint, "_install_hadolint", lambda: "/usr/bin/hadolint")
+    monkeypatch.setattr(hadolint, "ci_binary", lambda _name: "/usr/bin/hadolint")
     monkeypatch.setattr(
         hadolint,
         "run_cmd",
@@ -191,7 +191,7 @@ class TestRun:
     ) -> None:
         monkeypatch.chdir(tmp_path)
         (tmp_path / "Dockerfile").write_text("FROM x\n", encoding="utf-8")
-        monkeypatch.setattr(hadolint, "_install_hadolint", lambda: None)
+        monkeypatch.setattr(hadolint, "ci_binary", lambda _name: None)
         monkeypatch.setattr(hadolint, "is_ci", lambda: True)
         assert hadolint.run(_cfg()) == 1
 
@@ -200,7 +200,7 @@ class TestRun:
     ) -> None:
         monkeypatch.chdir(tmp_path)
         (tmp_path / "Dockerfile").write_text("FROM x\n", encoding="utf-8")
-        monkeypatch.setattr(hadolint, "_install_hadolint", lambda: None)
+        monkeypatch.setattr(hadolint, "ci_binary", lambda _name: None)
         monkeypatch.setattr(hadolint, "is_ci", lambda: False)
         assert hadolint.run(_cfg()) == 0
 
@@ -211,7 +211,7 @@ class TestRun:
         # (corrupt binary), not a clean pass. A blocking gate must not go green.
         monkeypatch.chdir(tmp_path)
         (tmp_path / "Dockerfile").write_text("FROM x\n", encoding="utf-8")
-        monkeypatch.setattr(hadolint, "_install_hadolint", lambda: "/usr/bin/hadolint")
+        monkeypatch.setattr(hadolint, "ci_binary", lambda _name: "/usr/bin/hadolint")
         monkeypatch.setattr(
             hadolint,
             "run_cmd",
@@ -225,7 +225,7 @@ class TestRun:
     ) -> None:
         monkeypatch.chdir(tmp_path)
         (tmp_path / "Dockerfile").write_text("FROM x\n", encoding="utf-8")
-        monkeypatch.setattr(hadolint, "_install_hadolint", lambda: "/usr/bin/hadolint")
+        monkeypatch.setattr(hadolint, "ci_binary", lambda _name: "/usr/bin/hadolint")
 
         def _boom(*a, **k):  # noqa: ANN002, ANN003
             raise OSError("no exec bit")

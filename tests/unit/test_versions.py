@@ -104,7 +104,7 @@ class TestEveryCompositeActionDownloadIsVerified:
     """A composite action that fetches a release asset must check its digest.
 
     The quality job needs these tools before hyperi-ci exists, so they cannot go
-    through `install.fetch_verified` and its gate. That is why they are found by
+    through `native_tools` and its gate. That is why they are found by
     CONTENT here rather than by a hand-kept list: a tool added to an action
     later is covered without anyone remembering to extend a tuple (issue #66,
     and the location-keyed blind spot from #98).

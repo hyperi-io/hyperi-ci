@@ -21,7 +21,6 @@ restarted by the liveness probe. A repo drops it through ``checks.exclude``.
 Findings come from ``--format sarif`` and surface through the shared layer.
 """
 
-import platform
 import subprocess
 from pathlib import Path
 
@@ -30,11 +29,10 @@ import yaml
 from hyperi_ci.common import info, run_cmd, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_cross_tool_mode
+from hyperi_ci.native_tools import ci_binary
 from hyperi_ci.quality import findings as fdg
-from hyperi_ci.quality.install import install_ci_binary
 from hyperi_ci.quality.targets import first_file
 from hyperi_ci.tools import find_tool
-from hyperi_ci.versions import tool_sha256, tool_version
 
 STARTUP_PROBE_CHECK = "liveness-without-startup-probe"
 
@@ -47,22 +45,6 @@ _STARTUP_PROBE_CEL = """\
 ].map(bad, bad.size() == 0 ? "" :
   "container \\"" + bad[0].name + "\\" has a livenessProbe and no startupProbe")[0]
 """
-
-
-def _install_kube_linter() -> str | None:
-    """Install the pinned kube-linter release on Linux CI (else None)."""
-    # Raw single binary (no tarball) - amd64 is `kube-linter-linux`, arm64 adds
-    # the `_arm64` suffix.
-    is_amd64 = platform.machine() in ("x86_64", "AMD64")
-    suffix = "" if is_amd64 else "_arm64"
-    arch = "amd64" if is_amd64 else "arm64"
-    url = (
-        f"https://github.com/stackrox/kube-linter/releases/download/"
-        f"{tool_version('kube-linter')}/kube-linter-linux{suffix}"
-    )
-    return install_ci_binary(
-        "kube-linter", url, expected_sha256=tool_sha256("kube-linter", arch)
-    )
 
 
 def startup_probe_check() -> dict:
@@ -136,7 +118,7 @@ def run(
 
     # Auto-install on Linux CI; fall back to an already-present binary. Advisory,
     # so a missing tool info-skips rather than failing.
-    exe = _install_kube_linter() or find_tool("kube-linter", recommended=False)
+    exe = ci_binary("kube-linter") or find_tool("kube-linter", recommended=False)
     if not exe:
         return 0
 
