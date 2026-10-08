@@ -15,7 +15,7 @@ other languages and have each cost a real failure.
 
 ```mermaid
 flowchart LR
-    Q["quality<br/>ruff · ty · pip-audit"] --> T["test<br/>pytest + coverage"]
+    Q["quality<br/>ruff, ty, pip-audit"] --> T["test<br/>pytest + coverage"]
     T --> B["build<br/>uv build (wheel+sdist)"]
     B --> PYPI["pypi.org"]
 ```
@@ -25,7 +25,7 @@ Python publishes to public PyPI only. A legacy `publish.target` in
 
 ## Where the source is
 
-A `src/` holding Python scans `src/`. A flat layout (`mypkg/` or `scripts/` at the root) scans each top-level directory holding Python, so ruff S and D, bandit, vulture and coverage need no setting. [quality-gate-tools.md](../quality-gate-tools.md) has the full rule.
+A `src/` holding Python scans `src/`. A flat layout (`mypkg/` or `scripts/` at the root) scans each top-level directory holding Python. Ruff S and D, bandit, vulture and coverage need no setting. [quality-gate-tools.md](../quality-gate-tools.md) has the full rule.
 
 ## Which Python version CI uses
 
@@ -39,11 +39,7 @@ job after it:
 | 3 | The `python-version` workflow input | Only reached when the project declares neither |
 | 4 | `runtimes.python` in `versions.yaml` | The fleet default |
 
-The floor is the point. A repo declaring `>=3.12` that gets tested on 3.14 is
-tested on an interpreter it does not support, and publishes a wheel whose own
-advertised floor never ran. uv honours a pegged `.python-version` by itself but
-resolves a floor to the NEWEST satisfying interpreter, so hyperi-ci computes the
-floor and hands it over (`hyperi_ci.python_version`).
+The floor is the point. A repo declaring `>=3.12` that is tested on 3.14 never runs its advertised floor. It still publishes a wheel claiming it. uv honours a pegged `.python-version` by itself but resolves a floor to the NEWEST satisfying interpreter. So hyperi-ci computes the floor and hands it over (`hyperi_ci.python_version`).
 
 Nothing to set: declare `requires-python` and CI follows it.
 
@@ -73,11 +69,7 @@ test:
     parallel: true      # false (default) | true | auto | a worker count
 ```
 
-`true` takes the smaller of the process affinity mask and the cgroup CPU quota,
-capped at 16. The quota is the half that matters in CI: a 4-CPU ARC pod on a
-32-core node reports 32 cores to `os.cpu_count()`, and pytest-xdist's own
-`-n auto` reads that number, not the limit. On hyperi-ci's own 2598-test suite
-this is 23.6s against 74.2s serial.
+`true` takes the smaller of the process affinity mask and the cgroup CPU quota, capped at 16. The quota matters in CI. A 4-CPU ARC pod on a 32-core node reports 32 cores to `os.cpu_count()`, and pytest-xdist's own `-n auto` reads that number, not the limit. On hyperi-ci's own 2598-test suite this is 23.6s against 74.2s serial.
 
 Off by default. A suite that binds a fixed port or writes a shared file is not
 parallel-safe, and a CLI upgrade must not turn one red without a repo saying so.
@@ -92,14 +84,9 @@ parallel-safe, and a CLI upgrade must not turn one red without a repo saying so.
   `pytest.ini` / `tox.ini` / `setup.cfg`, or in `PYTEST_ADDOPTS`) keeps its own
   number, and so does one that sets `-p no:xdist`.
 
-pytest-xdist must be in the project's dev dependencies. hyperi-ci probes the
-resolved pytest for it (`pytest -VV`) and runs serial with a warning when it is
-absent, so a project without the plugin is unaffected.
+pytest-xdist must be in the project's dev dependencies. hyperi-ci probes the resolved pytest for it (`pytest -VV`). It runs serial with a warning when the plugin is absent.
 
-When hyperi-ci supplies the `-n` it adds `--dist worksteal` too. xdist's default
-`load` mode queues a batch on each worker up front, so one worker can sit on a
-queue of slow tests while the rest go idle. Worksteal moves tests still queued
-on a busy worker to one that has run dry.
+When hyperi-ci supplies the `-n` it adds `--dist worksteal` too. xdist's default `load` mode queues a batch on each worker up front. One worker can sit on slow tests while the rest go idle. Worksteal moves queued tests from a busy worker to one that has run dry.
 
 - **Own mode:** a project that sets `--dist` or `-d` in any of the sources
   above keeps it.
@@ -116,7 +103,9 @@ that must share a worker with xdist's own `@pytest.mark.xdist_group` and run
 
 ## Test output
 
-Every run passes pytest `-r` with `s` added to the project's own report chars, so each skip is listed with its reason, and overrides `tmp_path_retention_policy` to `failed` so a passed test's tmp dir does not sit in `/tmp` for 3 runs. In CI, both tiers also pass `--durations=25` and write JUnit XML to `test-results/junit.xml` for the Test job's upload. A project that sets any of these options itself keeps its own. Details: [test-tiers.md](../test-tiers.md).
+Every run passes pytest `-r` with `s` added to the project's own report chars, so each skip is listed with its reason. It also sets `tmp_path_retention_policy` to `failed`, so a passed test's tmp dir does not sit in `/tmp` for 3 runs.
+
+In CI, both tiers also pass `--durations=25` and write JUnit XML to `test-results/junit.xml` for the Test job's upload. A project that sets any of these options itself keeps its own. Details: [test-tiers.md](../test-tiers.md).
 
 ## Test tiers
 
@@ -126,27 +115,17 @@ Every run passes pytest `-r` with `s` added to the project's own report chars, s
 
 ### Publish must go through `hyperi-ci run build`, not raw `uv build`
 
-Hatchling's sdist includes every git-tracked file. AI-agent directories
-(`.claude/`, `.cursor/`, ...) and org submodules produce "Invalid tar file" errors.
-`build.py` injects standard sdist exclusions via a context manager. The publish
-step **must** call `hyperi-ci run build`, never raw `uv build`.
+Hatchling's sdist includes every git-tracked file. AI-agent directories (`.claude/`, `.cursor/`, ...) and org submodules produce "Invalid tar file" errors. `build.py` injects standard sdist exclusions via a context manager. The Build job **must** call `hyperi-ci run build`, never raw `uv build`, and the release uploads what it built.
 
 ### Don't reintroduce a private index (`UV_EXTRA_INDEX_URL`)
 
-uv is first-match-wins across indices: a private index that returns an empty
-`200` for a package it doesn't host stops resolution dead - "no versions
-found". We're OSS-only (a single public index), so this can't bite
-today, but it's why the reusable workflows carry an in-code warning against
-adding `UV_EXTRA_INDEX_URL` that mixes a private index with the public one.
+uv is first-match-wins across indices: a private index that returns an empty `200` for a package it doesn't host stops resolution dead - "no versions found". We use a single public index, so this cannot bite today. Never add a `UV_EXTRA_INDEX_URL` that mixes a private index with the public one ([lessons.md](../lessons.md#python-uv-index-strategy)).
 
 ### hyperi-ci floors scalo
 
-hyperi-ci is the CI tool for every repo, so a broken scalo would break CI
-everywhere. hyperi-ci declares `scalo>=<floor>` in its `pyproject.toml` and
-commits `uv.lock`, so the lock holds the exact version and the floor only
-moves when a new scalo API is adopted. scalo is on public PyPI, and
-hyperi-ci's own CI uses `uv sync --no-sources` to resolve from PyPI rather
-than a local editable path.
+A broken scalo would break CI for every repo, because hyperi-ci is the CI tool for all of them. hyperi-ci declares `scalo>=<floor>` in its `pyproject.toml` and commits `uv.lock`. The lock holds the exact version, and the floor moves only when a new scalo API is adopted.
+
+scalo is on public PyPI. hyperi-ci's own CI uses `uv sync --no-sources` to resolve from PyPI rather than a local editable path.
 
 ### The `[metrics]` extra is the service default
 
