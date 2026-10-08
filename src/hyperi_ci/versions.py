@@ -15,9 +15,10 @@ module is a bug and ``tests/unit/test_versions.py`` fails on one.
   otherwise read a file inside the package it is building.
 - It imports stdlib and ``yaml`` only, so nothing can import-cycle through it.
 
-The only copies are files GitHub parses before our code runs (a workflow's
-``uses:`` line, a composite action's ``default:``), which
-``scripts/update-versions.py`` rewrites from this SSOT.
+The only copies are files GitHub parses before our code runs (a workflow
+input's or a composite action's ``default:``), which
+``scripts/update-versions.py`` rewrites from this SSOT. Renovate pins and bumps
+GitHub Actions ``uses:`` refs.
 """
 
 from functools import lru_cache
