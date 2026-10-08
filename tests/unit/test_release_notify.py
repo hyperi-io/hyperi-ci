@@ -315,7 +315,7 @@ class TestNotifyCommitBackFailed:
 
     def test_the_reason_comes_from_gh(self) -> None:
         failed = MagicMock(returncode=1, stdout="", stderr="HTTP 502: Bad Gateway\n")
-        with patch("hyperi_ci.release_notify.run_cmd", return_value=failed):
+        with patch("hyperi_ci.gh.run_cmd", return_value=failed):
             response, why = release_notify._call(
                 ["-X", "GET", "repos/x/issues", "-f", "state=open"]
             )

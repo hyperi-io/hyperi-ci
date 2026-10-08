@@ -31,8 +31,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Self
 
-# SKIPPED is reported for a gated job and for every job downstream of a failure.
-SKIPPED = "skipped"
 SUCCESS = "success"
 
 # The job ran and did not pass. `cancelled` counts, as it verified nothing.

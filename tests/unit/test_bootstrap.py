@@ -283,23 +283,6 @@ class TestNonLinuxGuard:
         assert bootstrap.install_node() == 0
         assert bootstrap.install_toolchain_bootstrap() == 0
 
-    def test_sudo_prefix_empty_off_linux(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(bootstrap.platform, "system", lambda: "Darwin")
-        assert bootstrap._sudo_prefix() == []
-
-    def test_sudo_prefix_empty_as_root(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A Dockerfile RUN is root with no sudo configured."""
-        monkeypatch.setattr(bootstrap.platform, "system", lambda: "Linux")
-        monkeypatch.setattr(bootstrap.os, "geteuid", lambda: 0)
-        assert bootstrap._sudo_prefix() == []
-
-    def test_sudo_prefix_used_when_non_root(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(bootstrap.platform, "system", lambda: "Linux")
-        monkeypatch.setattr(bootstrap.os, "geteuid", lambda: 1001)
-        assert bootstrap._sudo_prefix() == ["sudo"]
-
 
 class TestInstallerScriptsComeFromAFile:
     """A retried fetch piped straight into a shell can run its body twice.

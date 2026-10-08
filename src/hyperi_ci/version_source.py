@@ -58,7 +58,8 @@ def _usable(value: object) -> str | None:
     return candidate if _SEMVER_RE.match(candidate) else None
 
 
-def _load_toml(path: Path) -> dict:
+def load_toml(path: Path) -> dict:
+    """Parse a TOML file, or return ``{}`` when it is missing or invalid."""
     try:
         with path.open("rb") as handle:
             return tomllib.load(handle)
@@ -71,7 +72,7 @@ def _pyproject_version(path: Path) -> str | None:
 
     A ``dynamic = ["version"]`` project has no static version, so it is skipped.
     """
-    data = _load_toml(path)
+    data = load_toml(path)
     project = data.get("project")
     if isinstance(project, dict):
         dynamic = project.get("dynamic")
@@ -92,7 +93,7 @@ def _cargo_version(path: Path) -> str | None:
     A virtual manifest (workspace root with no ``[package]``) keeps the version
     in ``[workspace.package]`` for every member to inherit.
     """
-    data = _load_toml(path)
+    data = load_toml(path)
     workspace_version = _usable(
         data.get("workspace", {}).get("package", {}).get("version")
     )

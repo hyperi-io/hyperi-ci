@@ -37,6 +37,7 @@ from hyperi_ci.languages.quality_common import (
 from hyperi_ci.languages.rust._manifest import (
     feature_resolver,
     is_root_package_workspace,
+    split_feature_sets,
 )
 from hyperi_ci.languages.rust.targets import cargo_metadata
 from hyperi_ci.quality import cargo_flags, osv_scanner
@@ -175,17 +176,6 @@ def _package_lib_map(project_dir: Path | None = None) -> dict[str, bool]:
     return lib_map
 
 
-def _split_feature_sets(features: str) -> list[str]:
-    """Split pipe-separated feature sets, each run on its own.
-
-    cargo's ``--features`` is additive, so mutually exclusive sets such as
-    jemalloc and mimalloc need separate invocations.
-    """
-    if features in ("all", "default"):
-        return [features]
-    return [f.strip() for f in features.split("|") if f.strip()]
-
-
 # cargo audit's message, then cargo deny's fetch and load messages.
 _ADVISORY_DB_ERRORS = (
     "error loading advisory database",
@@ -222,7 +212,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # Two clippy passes: production code strict, tests and benches relaxed.
     mode = resolve_tool_mode("clippy", config, language="rust")
     features = (extra_env or {}).get("RUST_FEATURES", "all")
-    feature_sets = _split_feature_sets(features)
+    feature_sets = split_feature_sets(features)
     test_ignore = get_test_ignore("rust", config)
     clippy_user_allows = [f"-A{e.id}" for e in for_tool(ignores, "clippy")]
 

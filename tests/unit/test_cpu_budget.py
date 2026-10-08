@@ -32,7 +32,7 @@ def _point_at(
 ) -> None:
     """Redirect the module at a fabricated hierarchy and affinity mask."""
     monkeypatch.setattr(cpu, "_CGROUP_ROOT", root)
-    monkeypatch.setattr(cpu, "_own_cgroup_path", lambda: own_path)
+    monkeypatch.setattr(cpu, "own_cgroup_path", lambda _proc: own_path)
     monkeypatch.setattr(cpu, "affinity_cpus", lambda: affinity)
 
 
@@ -155,13 +155,13 @@ class TestOwnCgroupPath:
             "12:pids:/legacy\n0::/kubepods/pod-abc\n", encoding="utf-8", newline="\n"
         )
         monkeypatch.setattr(cpu, "_PROC_SELF_CGROUP", proc)
-        assert cpu._own_cgroup_path() == "/kubepods/pod-abc"
+        assert cpu.own_cgroup_path(cpu._PROC_SELF_CGROUP) == "/kubepods/pod-abc"
 
     def test_a_missing_file_reads_as_the_root(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(cpu, "_PROC_SELF_CGROUP", tmp_path / "absent")
-        assert cpu._own_cgroup_path() == "/"
+        assert cpu.own_cgroup_path(cpu._PROC_SELF_CGROUP) == "/"
 
     def test_a_v1_only_file_reads_as_the_root(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -169,7 +169,7 @@ class TestOwnCgroupPath:
         proc = tmp_path / "cgroup"
         proc.write_text("12:pids:/legacy\n", encoding="utf-8", newline="\n")
         monkeypatch.setattr(cpu, "_PROC_SELF_CGROUP", proc)
-        assert cpu._own_cgroup_path() == "/"
+        assert cpu.own_cgroup_path(cpu._PROC_SELF_CGROUP) == "/"
 
 
 class TestThisHost:

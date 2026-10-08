@@ -20,7 +20,7 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
-from hyperi_ci import gate_audit
+from hyperi_ci import gate_audit, gh
 from hyperi_ci.cli import app
 from hyperi_ci.gate_audit import (
     GATE_JOBS,
@@ -286,7 +286,7 @@ class TestChannelParsing:
         def fake_run(*_args: object, **_kwargs: object) -> SimpleNamespace:
             return SimpleNamespace(returncode=0, stdout=body)
 
-        monkeypatch.setattr(gate_audit, "gh_run", fake_run)
+        monkeypatch.setattr(gh, "gh_run", fake_run)
         return gate_audit.repo_channel("o/r")
 
     def test_reads_a_declared_channel(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -327,7 +327,7 @@ class TestChannelParsing:
         def fake_run(*_args: object, **_kwargs: object) -> SimpleNamespace:
             return SimpleNamespace(returncode=1, stdout="")
 
-        monkeypatch.setattr(gate_audit, "gh_run", fake_run)
+        monkeypatch.setattr(gh, "gh_run", fake_run)
         assert gate_audit.repo_channel("o/r") is None
 
     def test_the_config_is_fetched_raw_through_gh(
@@ -340,7 +340,7 @@ class TestChannelParsing:
             assert kwargs == {"check": False}
             return SimpleNamespace(returncode=0, stdout="release:\n  channel: beta\n")
 
-        monkeypatch.setattr(gate_audit, "gh_run", fake_run)
+        monkeypatch.setattr(gh, "gh_run", fake_run)
         assert gate_audit.repo_channel("o/r") == "beta"
         assert calls == [
             [
@@ -364,8 +364,8 @@ class TestGhJson:
             assert kwargs == {"check": False}
             return SimpleNamespace(returncode=returncode, stdout=stdout)
 
-        monkeypatch.setattr(gate_audit, "gh_run", fake_run)
-        return gate_audit._gh_json(["api", "x"])
+        monkeypatch.setattr(gh, "gh_run", fake_run)
+        return gh.gh_json_or_none(["api", "x"])
 
     def test_json_is_decoded(self, monkeypatch: pytest.MonkeyPatch) -> None:
         assert self._decode(monkeypatch, 0, '{"a": 1}') == {"a": 1}
@@ -613,7 +613,7 @@ class TestFullTierExpected:
                 return SimpleNamespace(returncode=0, stdout=files[path])
             return SimpleNamespace(returncode=1, stdout="")
 
-        monkeypatch.setattr(gate_audit, "gh_run", fake_run)
+        monkeypatch.setattr(gh, "gh_run", fake_run)
         return gate_audit.expects_full_tier("o/r")
 
     def test_a_scheduled_caller_expects_full(
@@ -830,7 +830,7 @@ class TestAuditGatesCommand:
                 body = {"workflow_runs": [recent]}
             return SimpleNamespace(returncode=0, stdout=json.dumps(body))
 
-        monkeypatch.setattr(gate_audit, "gh_run", fake)
+        monkeypatch.setattr(gh, "gh_run", fake)
         return calls
 
     @pytest.mark.parametrize(

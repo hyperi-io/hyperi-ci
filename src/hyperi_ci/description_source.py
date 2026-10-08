@@ -29,21 +29,13 @@ it with ``description.workspace = true``.
 
 import json
 import os
-import tomllib
 from collections.abc import Callable
 from pathlib import Path
 
 from hyperi_ci.common import run_cmd
 from hyperi_ci.config import CIConfig
 from hyperi_ci.detect import detect_language
-
-
-def _load_toml(path: Path) -> dict:
-    try:
-        with path.open("rb") as handle:
-            return tomllib.load(handle)
-    except (OSError, tomllib.TOMLDecodeError):
-        return {}
+from hyperi_ci.version_source import load_toml
 
 
 def _clean(value: object) -> str | None:
@@ -56,7 +48,7 @@ def _clean(value: object) -> str | None:
 
 def _python_description(path: Path) -> str | None:
     """PEP 621 ``[project] description``, else Poetry's."""
-    data = _load_toml(path)
+    data = load_toml(path)
     project = data.get("project")
     if isinstance(project, dict):
         found = _clean(project.get("description"))
@@ -75,7 +67,7 @@ def _rust_description(path: Path) -> str | None:
     ``description.workspace = true`` parses as a table rather than a string.
     Both resolve to ``[workspace.package]``.
     """
-    data = _load_toml(path)
+    data = load_toml(path)
     workspace = _clean(data.get("workspace", {}).get("package", {}).get("description"))
     package = data.get("package")
     if isinstance(package, dict):

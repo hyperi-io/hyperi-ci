@@ -52,7 +52,7 @@ def _read_text(path: Path) -> str | None:
         return None
 
 
-def _own_cgroup_path(proc_self_cgroup: Path) -> str:
+def own_cgroup_path(proc_self_cgroup: Path) -> str:
     """Return this process's cgroup v2 path, or ``/`` when there is none.
 
     Args:
@@ -86,7 +86,7 @@ def cgroup_v2_limit(
         The smallest limit found, or None when no level sets one.
 
     """
-    relative = _own_cgroup_path(proc_self_cgroup).strip("/")
+    relative = own_cgroup_path(proc_self_cgroup).strip("/")
     directory = root / relative if relative else root
     found: list[MemoryLimit] = []
     while True:

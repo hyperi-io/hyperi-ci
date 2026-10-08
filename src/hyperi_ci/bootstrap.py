@@ -32,7 +32,7 @@ from pathlib import Path
 import yaml
 from scalo import logger
 
-from hyperi_ci.common import curl_fetch, curl_read
+from hyperi_ci.common import curl_fetch, curl_read, sudo_prefix
 from hyperi_ci.native_tools import install_into
 from hyperi_ci.versions import runtime_version, tool_version
 
@@ -59,17 +59,6 @@ class RustSpec:
 
 def _is_linux() -> bool:
     return platform.system() == "Linux"
-
-
-def _sudo_prefix() -> list[str]:
-    """`sudo` when non-root, nothing when already root.
-
-    A Dockerfile RUN runs as root with no sudoers entry ('root is not in the
-    sudoers file').
-    """
-    if not _is_linux():
-        return []
-    return [] if os.geteuid() == 0 else ["sudo"]
 
 
 def _run(cmd: list[str]) -> int:
@@ -227,7 +216,7 @@ def install_go() -> int:
             logger.error(f"Failed to download {tarball}")
             return rc
 
-        rc = _run([*_sudo_prefix(), "tar", "-C", "/usr/local", "-xzf", str(dest)])
+        rc = _run([*sudo_prefix(), "tar", "-C", "/usr/local", "-xzf", str(dest)])
     if rc != 0:
         logger.error("Failed to extract the Go tarball")
         return rc

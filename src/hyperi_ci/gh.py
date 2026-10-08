@@ -18,7 +18,9 @@ single matcher, and :mod:`hyperi_ci.runs` picks the commit.
 import json
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
+from typing import Any, NamedTuple
 
 import yaml
 
@@ -133,6 +135,103 @@ def gh_json(
     """
     result = gh_run([*args, "--json", ",".join(fields)])
     return json.loads(result.stdout)
+
+
+class ApiResult(NamedTuple):
+    """The outcome of one :func:`gh_api` call.
+
+    ``reason`` is a ready-to-print message and is empty on success. ``stderr``
+    is gh's own stripped stderr when it exited non-zero, else None, for a
+    caller that quotes gh verbatim.
+    """
+
+    data: Any
+    reason: str
+    stderr: str | None
+
+
+def gh_api(args: list[str], *, body: dict | None = None) -> ApiResult:
+    """Call ``gh api`` and parse the JSON response.
+
+    Args:
+        args: Arguments after ``gh api`` (endpoint, ``--method`` and so on).
+        body: JSON request body, sent through a temp file with ``--input``
+            because ``-f key=value`` cannot express an array of objects.
+
+    Returns:
+        :class:`ApiResult` with ``data`` None when gh failed or its output was
+        not JSON.
+
+    """
+    tmp_path: str | None = None
+    cmd = ["gh", "api", *args]
+    if body is not None:
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".json", delete=False, encoding="utf-8", newline="\n"
+        ) as handle:
+            json.dump(body, handle)
+            tmp_path = handle.name
+        cmd += ["--input", tmp_path]
+    try:
+        result = run_cmd(cmd, capture=True, check=False)
+    finally:
+        if tmp_path:
+            Path(tmp_path).unlink(missing_ok=True)
+    endpoint = next((a for a in args if a.startswith("repos/")), args[-1])
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip()
+        detail = stderr or f"exit {result.returncode}"
+        return ApiResult(None, f"gh api {endpoint} failed: {detail}", stderr)
+    try:
+        return ApiResult(json.loads(result.stdout), "", None)
+    except ValueError as exc:
+        return ApiResult(None, f"gh api {endpoint} returned no JSON: {exc}", None)
+
+
+def gh_json_or_none(args: list[str]) -> object | None:
+    """Run a gh command and decode its JSON, or None on any failure."""
+    result = gh_run(args, check=False)
+    if result.returncode != 0:
+        return None
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+
+
+def repo_file(full_name: str, path: str) -> str | None:
+    """Fetch one file's raw text from a repo's DEFAULT branch.
+
+    None when the file is missing or unreadable. A local clone parked on a fix
+    branch would report a fix that main lacks, so audits read it this way.
+    """
+    result = gh_run(
+        [
+            "api",
+            f"repos/{full_name}/contents/{path}",
+            "--header",
+            "Accept: application/vnd.github.raw+json",
+        ],
+        check=False,
+    )
+    return result.stdout if result.returncode == 0 else None
+
+
+def org_repos(org: str) -> list[str]:
+    """Return every non-archived repo in the org as ``owner/name``."""
+    data = gh_json_or_none(
+        ["api", f"orgs/{org}/repos?per_page=100&type=all", "--paginate"]
+    )
+    if not isinstance(data, list):
+        return []
+    names: list[str] = []
+    for entry in data:
+        if not isinstance(entry, dict) or entry.get("archived"):
+            continue
+        full_name = entry.get("full_name")
+        if isinstance(full_name, str):
+            names.append(full_name)
+    return names
 
 
 def get_latest_run(
