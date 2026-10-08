@@ -3,6 +3,16 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.13.3](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.2...v2.13.3) (2026-10-08)
+
+### Bug Fixes
+
+* **ci:** refuse a rehearsal while the runner-image canary runs ([#594](https://github.com/hyperi-io/hyperi-ci/issues/594)) ([c718c7f](https://github.com/hyperi-io/hyperi-ci/commit/c718c7f6c1fb7bc50c40bf6a2e7e0d45bf8de1b6))
+* **cli:** accept -C/--project-dir on lint-iac like every other verb ([#586](https://github.com/hyperi-io/hyperi-ci/issues/586)) ([96ba61d](https://github.com/hyperi-io/hyperi-ci/commit/96ba61dc861126e5e81fcdc6fbad47dca88e48fe))
+* **quality:** let a value already set win over the compose check's placeholder ([#588](https://github.com/hyperi-io/hyperi-ci/issues/588)) ([99dc4b7](https://github.com/hyperi-io/hyperi-ci/commit/99dc4b713f138adee09145d2b52b2fca26992b34))
+* **rust:** retry cargo deny when its advisory database will not load ([#584](https://github.com/hyperi-io/hyperi-ci/issues/584)) ([638a421](https://github.com/hyperi-io/hyperi-ci/commit/638a421767333c4515aff1d24dc890f4157eb86e))
+* **typescript:** read package.json through one helper ([#590](https://github.com/hyperi-io/hyperi-ci/issues/590)) ([96066e8](https://github.com/hyperi-io/hyperi-ci/commit/96066e8737f6f04be87faea1978c1048f4d8d7e6))
+
 ## [2.13.2](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.1...v2.13.2) (2026-10-08)
 
 ### Bug Fixes
