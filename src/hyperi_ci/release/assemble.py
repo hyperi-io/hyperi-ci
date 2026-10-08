@@ -12,10 +12,11 @@ library chart ships for its ``schema_version``, then written with the library's
 skeleton into a chart that depends on scalo-service. Every generated file has
 sorted keys and no timestamp, so the same inputs give the same bytes.
 
-``values.schema.json`` holds only the ``config_schema`` nodes marked
-``x-scalo-dial: big|small``, each copied with its ``$ref``s inlined, under
-``config.<path>``. Nothing else is constrained, so keys the chart does not
-declare still validate. ``values.yaml`` sets ``config: {}`` and lists the same
+``values.schema.json`` is the skeleton's own schema for the library values,
+plus the ``config_schema`` nodes marked ``x-scalo-dial: big|small``, each
+copied with its ``$ref``s inlined, under ``config.<path>``. Other config keys
+reach the app through ``configOverrides`` and are not validated, so a stored
+overlay never pins a key the app later drops. ``values.yaml`` sets ``config: {}`` and lists the same
 dials commented out, so the app's own defaults stand until one is set.
 """
 
@@ -47,6 +48,7 @@ from hyperi_ci.repo_path import RepoPathError, confine
 LIBRARY = "scalo-service"
 CONTRACT_FILE = "deployment-contract.json"
 SKELETON_DIR = "skeleton"
+VALUES_SCHEMA = "values.schema.json"
 SCHEMA_PATH = "schema/deployment-contract.v{version}.schema.json"
 # A dial path segment is written into values.yaml and split on dots, so it is
 # held to a plain property name.
@@ -144,8 +146,19 @@ def find_dials(config_schema: dict) -> dict[str, dict]:
     return dict(sorted(found.items()))
 
 
-def values_schema(config_schema: dict, dials: dict[str, dict]) -> dict:
-    """Build ``values.schema.json``: the dials, nested under ``config``."""
+def values_schema(
+    config_schema: dict, dials: dict[str, dict], base: dict | None = None
+) -> dict:
+    """Build ``values.schema.json``: the library's base, plus the dials under ``config``.
+
+    ``base`` is the skeleton's own ``values.schema.json``, which constrains the
+    library values (image, replicas, resources and so on). It must not declare
+    ``config``, because the dials own that key.
+
+    Raises:
+        ChartError: ``base`` declares ``properties.config``.
+
+    """
     config: dict = {"type": "object"}
     for dotted, leaf in dials.items():
         *parents, name = dotted.split(".")
@@ -154,8 +167,12 @@ def values_schema(config_schema: dict, dials: dict[str, dict]) -> dict:
             properties = node.setdefault("properties", {})
             node = properties.setdefault(part, {"type": "object"})
         node.setdefault("properties", {})[name] = leaf
-    schema: dict = {"type": "object", "properties": {"config": config}}
-    if "$schema" in config_schema:
+    schema: dict = json.loads(json.dumps(base)) if base else {"type": "object"}
+    properties = schema.setdefault("properties", {})
+    if "config" in properties:
+        raise ChartError(f"{LIBRARY} {SKELETON_DIR}/{VALUES_SCHEMA} declares config")
+    properties["config"] = config
+    if "$schema" not in schema and "$schema" in config_schema:
         schema["$schema"] = config_schema["$schema"]
     return schema
 
@@ -276,12 +293,18 @@ def assemble(
     if contract.get("description"):
         meta["description"] = contract["description"]
 
+    base_file = skeleton / VALUES_SCHEMA
+    base = (
+        _read_json(base_file, "skeleton values schema") if base_file.is_file() else None
+    )
+    schema = values_schema(config_schema, dials, base)
+
     shutil.copytree(skeleton, chart)
     files = {
         "Chart.yaml": yaml.safe_dump(meta, sort_keys=True),
         "files/contract.json": _json(contract),
         "values.yaml": values_yaml(ref["digest"], dials),
-        "values.schema.json": _json(values_schema(config_schema, dials)),
+        VALUES_SCHEMA: _json(schema),
     }
     (chart / "files").mkdir(exist_ok=True)
     for rel, text in files.items():
