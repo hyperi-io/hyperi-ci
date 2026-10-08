@@ -19,7 +19,7 @@ leaves the stable sequence where it was.
 
 ```bash
 git switch -c beta origin/main
-hyperi-ci push --publish
+hyperi-ci push --release
 ```
 
 `VERSION` and the `CHANGELOG.md` entry commit back to `beta`, never `main`.
@@ -52,11 +52,7 @@ stable version. Every combination is legitimate:
 | **Stable version** (push to `main`) | `Release: true` + `skip-optimize: true` + `release-unoptimized: true` | `Release: true` -- the default |
 | **Prerelease** (push to `beta`) | `Release: true` + `skip-optimize: true` | `Release: true` -- the default |
 
-The Tier 2 column says "the default" because a release profiles itself when a
-workload resolves -- the project's own `pgo.workload_cmd`, else
-`scripts/pgo-workload.sh` if the file is there. <!-- doc-paths: ignore --> A project with nothing to
-profile stays at Tier 1 whatever it pushes, and its left column needs neither
-flag.
+The Tier 2 column says "the default" because a release profiles itself when a workload resolves. That is the project's own `pgo.workload_cmd`, else `scripts/pgo-workload.sh` if the file is there. <!-- doc-paths: ignore --> A project with nothing to profile stays at Tier 1 whatever it pushes. Its left column needs neither flag.
 
 Two of those cells are the ones people reach for.
 
