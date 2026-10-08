@@ -4,14 +4,10 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Generic binary artifact publishing.
+"""Upload pre-built ``dist/`` artefacts to GitHub Releases and Cloudflare R2.
 
-Uploads pre-built binaries from dist/ to:
-- GitHub Releases (per-tag artefacts)
-- Cloudflare R2 (``downloads.hyperi.io/<project>/<version|latest>/``)
-
-Called from dispatch.py after the language-specific release handler.
-Any language that packages binaries to dist/ gets this for free.
+Language-agnostic: runs after the language release handler for any project
+that packages binaries into ``dist/``.
 """
 
 import filecmp
@@ -73,11 +69,8 @@ def _latest_flags(version: str) -> list[str]:
 def _resolve_channel(config: CIConfig, version: str | None) -> str:
     """Return the channel this version actually ships on.
 
-    ``release.channel`` states where a project's STABLE artefacts go, so a
-    prerelease version overrides it with its own label: the GitHub Release is
-    marked prerelease and R2 gets the channel prefix instead of the GA one.
-    Without the override a ``1.2.0-beta.1`` cut off a prerelease branch would
-    overwrite the GA ``latest/`` a stable release published (issue #144).
+    A prerelease version overrides ``release.channel`` with its own label, or
+    a ``1.2.0-beta.1`` would overwrite the GA ``latest/`` on R2 (issue #144).
     """
     configured = config.get("release.channel", "release")
     resolved = effective_release_channel(configured, version)
@@ -99,10 +92,7 @@ def _resolve_r2_paths(project_name: str, version: str, channel: str) -> tuple[st
 
 
 def _read_version() -> str | None:
-    """Read the version being published (HYPERCI_VERSION-first).
-
-    See common.resolve_release_version (issue #27 + zero-config).
-    """
+    """Return the version being published, via ``resolve_release_version``."""
     return resolve_release_version()
 
 
@@ -112,13 +102,8 @@ _PYTHON_DIST_SUFFIXES = (".whl", ".tar.gz", ".zip")
 def _is_python_dist_artifact(path: Path) -> bool:
     """Return True for a Python packaging artefact (wheel or sdist).
 
-    Used to honour ``destinations_oss.python: false``: a project that ships
-    no Python distribution must not leak its wheel/sdist to R2 or a GitHub
-    Release through the GENERIC binary publisher either (issue #105 BUG 2 --
-    the opt-out was previously honoured only by the python publish handler).
-    A ``.whl`` is unambiguously a wheel; the accompanying sdist (``.tar.gz`` /
-    ``.zip``) is dropped alongside it. Only ever consulted when the python
-    destination is opted out, so a Rust/Go tarball is never at risk.
+    Only consulted when the python destination is opted out, so a Rust or Go
+    ``.tar.gz`` matching the sdist suffix is never dropped.
     """
     name = path.name.lower()
     return any(name.endswith(suffix) for suffix in _PYTHON_DIST_SUFFIXES)
@@ -127,12 +112,8 @@ def _is_python_dist_artifact(path: Path) -> bool:
 def _release_targets_head(tag: str) -> bool:
     """Return True iff the git tag for an existing release points at HEAD.
 
-    An existing release AT HEAD is an idempotent re-run (safe to proceed);
-    one at a DIFFERENT commit means a stale version was resolved, and
-    re-publishing would overwrite a shipped release with different contents
-    (issue #105 -- a four-month-old tag rebuilt from today's HEAD clobbered
-    ``latest``). When the tag cannot be resolved locally we cannot prove it
-    is HEAD, so we treat it as a mismatch and refuse.
+    A release at another commit means a stale version resolved (issue #105).
+    An unresolvable tag counts as a mismatch, so the caller refuses.
     """
     tag_commit = run_cmd(
         ["git", "rev-parse", "-q", "--verify", f"refs/tags/{tag}^{{commit}}"],
@@ -188,21 +169,14 @@ UNOPTIMIZED_RELEASE_BANNER = (
 def _release_notes_flags(version: str, config: CIConfig) -> Iterator[list[str]]:
     """Yield gh flags carrying the release body.
 
-    GitHub puts the body above its own generated notes, so the release page
-    gets the curated entry and the commit list. An unoptimised build says so
-    first: the artefact is indistinguishable from a full release until
-    someone benchmarks it, and by then it is deployed. Helm charts pushed
-    earlier in the job add their digest table last.
-
-    Yields no flags when there is nothing to add -- no banner, no chart
-    table, and no CHANGELOG.md whose top entry matches this version -- which
-    leaves the generated notes on their own.
+    The body is the unoptimised-build banner, the matching CHANGELOG.md entry
+    and the chart digest table, in that order, above GitHub's generated
+    notes. Yields no flags when all three are empty.
 
     Args:
         version: Version being released, matched against the changelog.
-        config: Merged CI config. The build and the image label read a skip
-            from ``build.skip_optimize`` as well as the env, so the banner
-            reads the same config or the release page contradicts them.
+        config: Merged CI config. The banner reads ``build.skip_optimize``
+            from it, as the build and image label do, so all three agree.
 
     """
     changelog = Path(CHANGELOG_FILE)
@@ -228,12 +202,9 @@ def _release_notes_flags(version: str, config: CIConfig) -> Iterator[list[str]]:
 
 
 def _collect_artifacts(exclude_python: bool = False) -> list[Path]:
-    """Collect publishable artifacts from dist/ directory.
+    """Return the sorted, non-hidden regular files in dist/.
 
-    Returns sorted list of files, excluding hidden files. When
-    ``exclude_python`` is set (the project opted out of a Python
-    distribution), Python packaging artefacts (wheels + sdists) are dropped
-    so they are never uploaded as generic binaries (issue #105 BUG 2).
+    ``exclude_python`` drops wheels and sdists (issue #105).
     """
     dist = Path("dist")
     if not dist.is_dir():
@@ -251,10 +222,6 @@ def _collect_artifacts(exclude_python: bool = False) -> list[Path]:
 def _release_asset_paths(config: CIConfig) -> tuple[list[Path], str | None]:
     """Resolve `release.assets` to real files, or name what is wrong.
 
-    One reader for the two places that need them: the GitHub Release attaches
-    them directly, and staging copies them into dist/ so the binary
-    destinations pick them up too.
-
     Returns:
         ``(paths, problem)``. ``problem`` is None when every listed file exists;
         otherwise it names the first offender and ``paths`` is empty.
@@ -264,9 +231,8 @@ def _release_asset_paths(config: CIConfig) -> tuple[list[Path], str | None]:
     if isinstance(assets, str):
         assets = [assets]
 
-    # The same rules as stamp_paths: the upload holds every publish credential,
-    # and an absolute or escaping path would publish whatever it names, such
-    # as /proc/self/environ.
+    # The upload holds every publish credential, so an absolute or escaping
+    # path could publish something like /proc/self/environ.
     try:
         names = repo_paths(assets, Path.cwd(), "release.assets")
     except ValueError as exc:
@@ -286,12 +252,7 @@ def _release_asset_paths(config: CIConfig) -> tuple[list[Path], str | None]:
 
 
 def _upload_release_assets(tag: str, assets: list[Path]) -> int:
-    """Attach assets to a release that already exists.
-
-    `gh release create` carries them on the first run; this covers the
-    idempotent re-run, which returns early and would otherwise leave the
-    release without them.
-    """
+    """Attach assets to a release that already exists, for the idempotent re-run."""
     if not assets:
         return 0
 
@@ -311,10 +272,8 @@ def _upload_release_assets(tag: str, assets: list[Path]) -> int:
 def stage_release_assets(config: CIConfig) -> int:
     """Copy `release.assets` entries into dist/ so they also reach R2.
 
-    The GitHub Release gets them from :func:`create_github_release` directly.
-    This copy is what carries them to the binary destinations, which collect
-    from dist/. A missing file fails the release: a catalogue pin against an
-    absent asset is the breakage this exists to prevent (issue #125).
+    A missing file fails the release, because a catalogue pin against an
+    absent asset breaks (issue #125).
 
     Returns:
         Exit code (0 = success).
@@ -347,13 +306,10 @@ def stage_release_assets(config: CIConfig) -> int:
 
 
 def create_github_release(config: CIConfig) -> int:
-    """Create a GitHub Release for the current version.
+    """Create a GitHub Release for the current version, with `release.assets`.
 
-    Always called during publish, regardless of whether there are binary
-    artifacts. Binaries are uploaded separately by publish_binaries(), which
-    routes them by the `binaries` destination; `release.assets` are attached
-    HERE instead, so they ride the release whatever that destination is
-    (issue #125).
+    Assets attach here rather than in :func:`publish_binaries` so they reach
+    the release whatever the `binaries` destination is (issue #125).
 
     Returns:
         Exit code (0 = success).
@@ -383,12 +339,8 @@ def create_github_release(config: CIConfig) -> int:
         result = run_cmd(cmd, check=False, capture=True)
     if result.returncode != 0:
         if "already exists" in result.stderr:
-            # A release for this tag already exists. Allow an idempotent
-            # re-run (same commit), but REFUSE to publish onto a release that
-            # points at a different commit -- logging "already exists" and
-            # carrying on is how a stale-version dispatch overwrote `latest`
-            # (issue #105). The git tag is the source of truth for what commit
-            # the release shipped from.
+            # Re-running at the tag's commit is idempotent; any other commit
+            # means a stale version resolved and would overwrite `latest` (#105).
             if _release_targets_head(tag):
                 info(f"  GH Release {tag} already exists at HEAD -- idempotent re-run")
                 return _upload_release_assets(tag, assets)
@@ -411,12 +363,9 @@ def create_github_release(config: CIConfig) -> int:
 def _upload_binaries_github(
     config: CIConfig, channel: str = "release", exclude_python: bool = False
 ) -> int:
-    """Create GitHub Release and upload built binaries.
+    """Create the GitHub Release and upload built binaries to it.
 
-    Creates a GH Release for the tag (from VERSION file). For non-release
-    channels (alpha, beta), the release is marked as prerelease.
-    Falls back to upload if the release already exists at HEAD (idempotent
-    re-runs); refuses to clobber a release at a different commit (#105).
+    Uploads onto an existing release only when its tag is at HEAD (#105).
 
     Args:
         config: Merged CI config, which the release body reads.
@@ -450,8 +399,6 @@ def _upload_binaries_github(
         result = run_cmd(cmd, check=False, capture=True)
     if result.returncode != 0:
         if "already exists" in result.stderr:
-            # Only clobber a release that ships from HEAD (idempotent re-run);
-            # a different commit means a stale version resolved (issue #105).
             if not _release_targets_head(tag):
                 error(
                     f"GH Release {tag} already exists at a commit other than "
@@ -476,16 +423,11 @@ def _upload_binaries_github(
 
 
 def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False) -> int:
-    """Publish built binaries to Cloudflare R2 binary repository.
+    """Publish dist/ to the R2 versioned prefix and, usually, ``latest/``.
 
-    Uploads all files from dist/ to R2. Channel controls path:
-      release:  {project}/v{version}/  + {project}/latest/
-      other:    {project}/{channel}/v{version}/  + {project}/{channel}/latest/
-
-    ``latest/`` is left untouched when a higher stable ``v*`` tag exists, so
-    re-publishing an older tag cannot move it backwards.
-
-    Requires R2_ACCESS_KEY_ID + R2_SECRET_ACCESS_KEY env vars.
+    ``latest/`` is left alone when a higher stable ``v*`` tag exists, so an
+    older tag cannot move it backwards. Skips with a warning when
+    R2_ACCESS_KEY_ID or R2_SECRET_ACCESS_KEY is unset.
 
     Returns:
         Exit code (0 = success).
@@ -501,8 +443,7 @@ def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False)
 
     mask(secret_key)
 
-    # Installed here rather than baked into the runner image: the trigger is
-    # this run reaching R2, which no manifest pattern can express.
+    # Installed on demand: reaching R2 is a trigger no manifest pattern expresses.
     if not ensure_aws_cli():
         error(missing_tool_notice("aws"))
         return 1
@@ -521,7 +462,6 @@ def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False)
     versioned_prefix, latest_prefix = _resolve_r2_paths(project_name, version, channel)
     move_latest = not holds_latest(version, f"R2 {latest_prefix}")
 
-    # R2 credentials stand in as AWS credentials for the aws CLI.
     aws_env = {
         "AWS_ACCESS_KEY_ID": access_key,
         "AWS_SECRET_ACCESS_KEY": secret_key,
@@ -532,8 +472,7 @@ def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False)
 
     destinations = [("versioned", versioned_prefix)]
     if move_latest:
-        # Clean latest/ before uploading so stale files from previous builds
-        # (e.g. renamed binaries) don't linger alongside new ones
+        # A renamed binary would otherwise linger in latest/ beside its successor.
         info(f"  Cleaning latest/: {latest_prefix}")
         rm_result = run_cmd(
             [
@@ -575,11 +514,7 @@ def _publish_r2_binaries(channel: str = "release", exclude_python: bool = False)
 
 
 def publish_binaries(config: CIConfig) -> int:
-    """Publish binary artifacts from dist/ to configured destinations.
-
-    This is the main entry point, called from dispatch.py after the
-    language-specific publish handler completes. Checks for binary
-    destinations in the config and uploads accordingly.
+    """Publish dist/ artefacts to each configured `binaries` destination.
 
     Args:
         config: Merged CI configuration.
@@ -592,10 +527,8 @@ def publish_binaries(config: CIConfig) -> int:
     if not destinations:
         return 0
 
-    # Honour destinations_oss.python: false for the generic binary publisher
-    # too -- otherwise a private, container-only Python service still leaks its
-    # wheel + sdist to R2 on every run (issue #105 BUG 2). A Rust/Go project
-    # leaves python at its truthy default, so this never drops a real binary.
+    # Without this a container-only Python service leaks its wheel and sdist
+    # to R2 on every run (issue #105).
     exclude_python = not config.destination_for("python")
 
     artifacts = _collect_artifacts(exclude_python=exclude_python)

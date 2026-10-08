@@ -4,16 +4,10 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Retroactive publish: workflow_dispatch on an existing tag.
+"""Trigger a release through workflow_dispatch: from HEAD, or on an existing tag.
 
-The primary release path is now `hyperi-ci push --release` (single CI
-run, version-first pipeline gated by the ``Release: true`` commit
-trailer). This module covers the secondary "I want to re-publish an
-existing tag" use case -- e.g. a previous publish run failed mid-way and
-needs retrying without re-tagging.
-
-Lists unpublished version tags and triggers the workflow_dispatch event
-for a specific tag.
+The usual path is `hyperi-ci push --release`. This one retries a failed
+publish without re-tagging, or releases HEAD without a marker commit.
 """
 
 import subprocess
@@ -27,19 +21,13 @@ from hyperi_ci.common import (
     warn,
 )
 
-# Every input this module can send on a workflow_dispatch. A consumer's
-# `on.workflow_dispatch.inputs` must declare and forward all of these, or the
-# dispatch fails with HTTP 422 (issue #88). `hyperi-ci audit-callers` checks
-# consumers against this tuple.
+# A consumer's `on.workflow_dispatch.inputs` must declare all of these or the
+# dispatch fails with HTTP 422 (issue #88); `hyperi-ci audit-callers` checks it.
 DISPATCH_INPUTS: tuple[str, ...] = ("tag", "from-head", "bump")
 
 
 def _dispatch_cmd(workflow: str, inputs: dict[str, str]) -> list[str]:
-    """Build a `gh workflow run` command for the given dispatch inputs.
-
-    Rejects an input outside DISPATCH_INPUTS, which would 422 on every
-    consumer that never declared it.
-    """
+    """Build a `gh workflow run` command, rejecting inputs outside DISPATCH_INPUTS."""
     unknown = sorted(set(inputs) - set(DISPATCH_INPUTS))
     if unknown:
         raise ValueError(
@@ -143,23 +131,17 @@ def _detect_workflow_file() -> str:
 
 
 def resolve_latest_tag() -> str | None:
-    """Highest final-release tag, or None when the repo carries none.
+    """Return the highest final-release tag, or None when the repo carries none.
 
-    A prerelease sorts above its own release under ``-v:refname``, so the
-    raw top line would dispatch a publish for ``v1.1.2-beta.1`` over the
-    released ``v1.1.1``.
+    Prereleases are skipped because ``-v:refname`` sorts ``v1.1.2-beta.1``
+    above ``v1.1.1``.
     """
     version = latest_version_tag()
     return f"v{version}" if version else None
 
 
 def _head_in_sync_with_origin() -> bool:
-    """Return True if local HEAD == origin/main - the commit the CI will tag.
-
-    from-head dispatch tags `origin/main` HEAD on the runner, not the
-    local tree. If the operator's HEAD differs, what gets released is not
-    what they're looking at -- warn so there are no surprises.
-    """
+    """Return True if local HEAD matches origin/main, the commit the CI tags."""
     local = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         capture_output=True,
@@ -180,18 +162,11 @@ def _head_in_sync_with_origin() -> bool:
 
 
 def dispatch_from_head(*, bump: str = "auto", dry_run: bool = False) -> int:
-    """Release/retry the current `main` HEAD -- the CI creates the tag.
+    """Dispatch a release of main HEAD; the runner versions, tags and publishes.
 
-    This is the first-class "I need to release/retry that" path (issue #35).
-    The CLI only *triggers* the workflow; the runner resolves the version,
-    creates the tag at HEAD, and publishes -- so there is no artificial
-    `fix:` commit and no local tag push. The `bump` channel carries:
-
-    - ``auto`` -- semantic-release picks the version from commits (no-ops if
-      nothing is release-worthy);
-    - ``patch`` / ``minor`` -- force a release regardless;
-    - an explicit ``X.Y.Z`` -- the ``--version`` override: tag HEAD at exactly
-      that version (skips a taken/orphaned tag, e.g. the issue #37 case).
+    ``bump`` is ``auto`` (semantic-release decides, and may no-op), ``patch``
+    or ``minor`` (force a release), or an explicit ``X.Y.Z`` that tags HEAD
+    at exactly that version, skipping a taken or orphaned tag (issue #37).
     """
     explicit = explicit_version(bump)
     if explicit is None and bump not in ("auto", "patch", "minor"):
@@ -232,12 +207,11 @@ def dispatch_from_head(*, bump: str = "auto", dry_run: bool = False) -> int:
 
 
 def dispatch_publish(tag: str, dry_run: bool = False) -> int:
-    """Re-dispatch a publish for an EXISTING tag (idempotent retry).
+    """Re-dispatch a publish for an existing tag; "latest" picks the newest.
 
-    If tag is "latest", resolves to the most recent version tag. A GH
-    Release that already exists no longer blocks -- the publish handlers
-    skip artefacts already in their registry ("already exists"), so a
-    retry safely fills in whatever a partial publish missed (issue #35).
+    An existing GH Release does not block: the publish handlers skip
+    artefacts already in their registry, so a retry fills in what a partial
+    publish missed (issue #35).
     """
     if tag == "latest":
         resolved = resolve_latest_tag()

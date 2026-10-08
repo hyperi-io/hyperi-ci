@@ -28,12 +28,10 @@ def _table(data: dict[str, Any], key: str) -> dict[str, Any]:
 def is_root_package_workspace(project_dir: Path | None = None) -> bool:
     """Return True when a bare cargo command covers only the root package.
 
-    That is a root manifest with both ``[package]`` and ``[workspace]``. A
-    virtual workspace covers every member by default, so it answers False. So
-    does a workspace that sets ``default-members``: that is the repo's own
-    choice of what a bare command runs, and ``--workspace`` would override it.
-    A missing or unparseable manifest answers False and leaves cargo to report
-    it.
+    That is a root manifest with both ``[package]`` and ``[workspace]`` and no
+    ``default-members``, which is the repo's own choice and must not be
+    overridden. A virtual workspace, or a missing or unparseable manifest,
+    answers False.
 
     Args:
         project_dir: Directory holding the root Cargo.toml; the cwd if None.

@@ -4,28 +4,16 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Release-track build optimisation profile.
+"""Release-track build optimisation profile, gated by channel.
 
-Resolves the optimisation profile for a Rust build based on the project's
-publish channel and user config. Channel gating:
-
-    alpha   -> jemalloc allocator + thin LTO (fast feedback cycles)
+    alpha   -> jemalloc allocator + thin LTO
     beta    -> jemalloc allocator + fat LTO
     release -> jemalloc + fat LTO + optional PGO + optional BOLT
 
-The channel here names an optimisation TIER, not which version sequence the
-artefact belongs to. Those are independent: a `1.2.0-beta.1` cut from a
-prerelease branch is built at the release tier by default, which is how the
-full PGO/BOLT path gets rehearsed without spending a stable version
-(issue #144). `common.is_prerelease_build` answers the identity question;
-`_resolve_build_channel` answers this one.
-
-User config in `.hyperi-ci.yaml` under `build.rust.optimize` overrides
-the channel defaults. Each key is optional; omitted keys use the default
-for the channel.
-
-Library-only crates skip this whole path -- consumers choose their own
-build profile when compiling from crates.io source.
+The channel here is an optimisation TIER, independent of the version: a
+`1.2.0-beta.1` builds at the release tier by default, which rehearses PGO and
+BOLT without spending a stable version (issue #144). `build.rust.optimize`
+overrides the channel defaults key by key. Library-only crates skip this path.
 """
 
 from dataclasses import dataclass, field, replace
@@ -45,12 +33,7 @@ _CHANNEL_DEFAULTS: dict[str, dict[str, str]] = {
 
 @dataclass(frozen=True)
 class OptimizationProfile:
-    """Resolved build optimisation settings for a single CI build.
-
-    Channel-gated with user overrides applied. Library crates should
-    never have one of these -- check `_detect_binary_names()` first and
-    skip if empty.
-    """
+    """Resolved build optimisation settings for one CI build; never for a library."""
 
     channel: str
     allocator: str = "system"  # "system" | "jemalloc" | "mimalloc"
@@ -70,12 +53,7 @@ class OptimizationProfile:
         return [self.allocator]
 
     def env_overrides(self) -> dict[str, str]:
-        """Env vars to inject at build time.
-
-        `CARGO_PROFILE_RELEASE_LTO` overrides the Cargo.toml
-        `[profile.release].lto` setting at build time without touching
-        the source tree. Keeps local `cargo build` behaviour intact.
-        """
+        """Return build env vars; the LTO override leaves Cargo.toml untouched."""
         return {"CARGO_PROFILE_RELEASE_LTO": self.lto}
 
     def describe(self) -> str:
@@ -96,12 +74,10 @@ class OptimizationProfile:
 
 @dataclass
 class OptimizationOutcome:
-    """What the Tier 2 pipeline actually did for one target.
+    """What the Tier 2 pipeline actually did for one target, filled in as it runs.
 
-    `OptimizationProfile.describe()` reports the request; this reports the
-    result. Every Tier 2 skip is warn-only, so without this line a log
-    reader cannot tell an optimised arch from one that quietly fell back.
-    Mutable: the pipeline fills it in as each stage completes.
+    Every Tier 2 skip is warn-only, so this is how a log shows whether an arch
+    was optimised or quietly fell back.
     """
 
     allocator: str = "system"
@@ -129,10 +105,8 @@ def cargo_feature_args(
 ) -> list[str]:
     """Render the cargo feature flags for one build of one target.
 
-    Every cargo line a target's build issues -- plain release, PGO
-    instrument, PGO optimise, BOLT -- renders its features here, so an
-    optimised binary carries the features the project declared and not
-    just the allocator.
+    Every cargo build line uses this, so an optimised binary carries the
+    declared features and not only the allocator.
 
     Args:
         profile: Resolved optimisation profile, or None to add no
@@ -170,15 +144,13 @@ CONVENTIONAL_WORKLOAD_CMD = f"bash {CONVENTIONAL_WORKLOAD_SCRIPT}"
 
 
 def conventional_workload_cmd(project_root: Path | None) -> str | None:
-    """Name the default PGO workload command for a project tree.
+    """Return the default PGO workload command, or None with no script or root.
 
     Args:
-        project_root: Project root to look in. None skips the lookup, which is
-                      what a caller with no tree on disk wants.
+        project_root: Project root to look in; None skips the lookup.
 
     Returns:
-        The command to run, or None when the project ships no script at the
-        conventional path.
+        The command to run, or None.
 
     """
     if project_root is None:
@@ -196,30 +168,22 @@ def resolve_optimization_profile(
 ) -> OptimizationProfile:
     """Resolve an optimisation profile from channel + user config.
 
-    Priority: explicit user value > channel default. The `alpha` channel
-    never enables PGO or BOLT by default -- a user can still opt in
-    explicitly via the `optimize:` config.
+    A user value beats the channel default. PGO and BOLT only ever run on the
+    release channel.
 
     Args:
-        channel: Publish channel (alpha/beta/release). An unrecognised
-                 channel resolves to the alpha tier.
-        user_optimize: Dict from `build.rust.optimize` in .hyperi-ci.yaml,
-                       or None/empty if not configured.
-        skip_optimize: Drop the optimisation stage for this run. For Rust
-                       that means no PGO and no BOLT; Tier 1 (allocator
-                       and LTO) still applies, so the result is a plain
-                       release build. Resolved by
-                       `hyperi_ci.common.skip_optimize`.
-        project_root: Project root, used to find a workload at the
-                      conventional path when the config names none. None
-                      skips that lookup entirely.
+        channel: Publish channel (alpha/beta/release). An unrecognised one,
+                 such as a legacy `spike`, resolves to the alpha tier.
+        user_optimize: `build.rust.optimize` from .hyperi-ci.yaml, or None.
+        skip_optimize: Drop PGO and BOLT for this run; allocator and LTO
+                       still apply.
+        project_root: Where to look for the conventional workload when the
+                      config names none; None skips the lookup.
 
     Returns:
         Resolved `OptimizationProfile`. Never raises.
 
     """
-    # An unrecognised channel, such as a legacy `spike` still in a repo
-    # config, resolves to the lowest tier rather than failing the build.
     defaults = _CHANNEL_DEFAULTS.get(channel, _CHANNEL_DEFAULTS["alpha"])
     user = user_optimize or {}
 
@@ -230,9 +194,7 @@ def resolve_optimization_profile(
     workload_cmd = pgo_cfg.get("workload_cmd") or conventional_workload_cmd(
         project_root
     )
-    # A release profiles itself unless the project opts out; with no workload
-    # there is nothing to profile, so the default stays off rather than failing
-    # a project that never had one.
+    # Defaults on only when a workload exists, so a project with none never fails.
     pgo_enabled = (
         bool(pgo_cfg.get("enabled", workload_cmd is not None))
         and channel == "release"
@@ -287,31 +249,18 @@ def unoptimized_release_refusal(
 ) -> str | None:
     """Say why a skipped-optimisation build may not ship as a stable release.
 
-    Skipping only costs something when the release would otherwise have run
-    PGO or BOLT, so a project that would run neither -- by config or by the
-    conventional-workload default -- is never refused.
-
-    A prerelease is never refused either. What the consent protects is the
-    stable version users install, and a prerelease spends no stable version --
-    it is the artefact you cut precisely to test the code fast (issue #144).
-    Keying the refusal on the optimisation tier instead would make the fast
-    prerelease unreachable, because a release-tier build is what a release
-    branch asks for.
-
-    The two questions are independent and both are asked: ``project_root``
-    decides whether Tier 2 would have run at all, ``prerelease`` decides
-    whether the version losing it is one users install.
+    Never refuses a project that would run neither PGO nor BOLT, nor a
+    prerelease: the consent protects the stable version users install, and a
+    prerelease spends none (issue #144).
 
     Args:
         channel: Resolved build channel -- the optimisation tier.
         user_optimize: `build.rust.optimize` from .hyperi-ci.yaml.
         skip_optimize: Whether this run skips the optimisation stage.
         release_unoptimized: Whether this run carries the explicit consent.
-        project_root: Project root, so a project relying on the conventional
-                      workload is recognised as running Tier 2. Without it a
-                      defaulted project reads as having nothing to skip.
-        prerelease: Whether the version being built carries a prerelease
-                    component, from `common.is_prerelease_build`.
+        project_root: Project root; without it a project relying on the
+                      conventional workload reads as having nothing to skip.
+        prerelease: Whether the version has a prerelease component.
 
     Returns:
         The refusal message, or None when the build may go ahead.
@@ -343,20 +292,14 @@ def validate_profile(
 ) -> OptimizationProfile:
     """Validate a profile against the project's Cargo.toml + build target.
 
-    Applies graceful fallbacks:
-      - Allocator feature missing -> warn, fall back to system.
-      - PGO enabled but no workload_cmd -> disable PGO (config error).
-      - BOLT on non-Linux target -> silent disable.
-
-    Never raises. Returns a possibly-modified profile with warnings
-    attached.
+    Each fallback warns: an undeclared allocator feature drops to system, PGO
+    with no workload_cmd is disabled along with BOLT, and BOLT is disabled on
+    a non-Linux target. Never raises.
 
     Args:
         profile: The profile to validate.
-        cargo_features: Set of feature names declared in Cargo.toml's
-                        `[features]` section.
-        target: Build target triple (e.g. "x86_64-unknown-linux-gnu").
-                None means native target (treated as host OS).
+        cargo_features: Feature names from Cargo.toml's `[features]`.
+        target: Build target triple; None means the native target.
 
     Returns:
         A new `OptimizationProfile` with fallbacks applied.
@@ -367,7 +310,6 @@ def validate_profile(
     pgo_enabled = profile.pgo_enabled
     bolt_enabled = profile.bolt_enabled
 
-    # Allocator feature presence check
     if allocator in ("jemalloc", "mimalloc") and allocator not in cargo_features:
         warnings.append(
             f"allocator '{allocator}' requested but feature not declared in "
@@ -375,7 +317,6 @@ def validate_profile(
         )
         allocator = "system"
 
-    # PGO needs a workload_cmd
     if pgo_enabled and not profile.pgo_workload_cmd:
         warnings.append(
             "pgo.enabled=true but no workload_cmd configured -- disabling PGO"
@@ -393,7 +334,6 @@ def validate_profile(
     for w in warnings:
         warn(w)
 
-    # Keep existing warnings from prior validation passes
     combined = list(profile.warnings) + warnings
 
     return replace(
@@ -416,18 +356,13 @@ def log_outcome(outcome: OptimizationOutcome) -> None:
 
 
 def parse_cargo_features(cargo_toml_path: Path) -> set[str]:
-    """Parse feature names from the `[features]` section of a Cargo.toml.
-
-    Returns the set of feature keys. Does NOT resolve feature unions --
-    just the top-level feature names. Used for the "is 'jemalloc'
-    declared?" check in validate_profile().
+    """Return the top-level `[features]` keys of a Cargo.toml, unresolved.
 
     Args:
         cargo_toml_path: Path to the Cargo.toml to parse.
 
     Returns:
-        Set of feature names. Empty set if file missing or unreadable
-        or no [features] section.
+        Feature names; empty when the file is unreadable or has none.
 
     """
     try:
@@ -439,12 +374,7 @@ def parse_cargo_features(cargo_toml_path: Path) -> set[str]:
 
 
 def _parse_features_from_text(text: str) -> set[str]:
-    """Extract feature keys from a Cargo.toml text blob.
-
-    Stdlib-only TOML parse for the `[features]` table. We could use
-    tomllib but this keeps the logic self-contained and dead simple --
-    we only need the left-hand-side keys, not the feature-union arrays.
-    """
+    """Return the keys of the `[features]` table in Cargo.toml text."""
     features: set[str] = set()
     in_features = False
 
@@ -453,12 +383,10 @@ def _parse_features_from_text(text: str) -> set[str]:
         if not line or line.startswith("#"):
             continue
         if line.startswith("["):
-            # Entering or leaving [features] section
             in_features = line == "[features]"
             continue
         if not in_features:
             continue
-        # Line looks like: key = [...]  or  key = "..."
         if "=" in line:
             key = line.split("=", 1)[0].strip()
             if key:

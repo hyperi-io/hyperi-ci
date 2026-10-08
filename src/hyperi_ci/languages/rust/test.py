@@ -4,23 +4,12 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Rust test handler.
+"""Rust test handler: cargo nextest or cargo test, with optional coverage.
 
-Runs cargo nextest or cargo test with optional tiered execution, resolving
-which one from ``test.rust.nextest`` and announcing the choice. Supports
-coverage via cargo-tarpaulin or cargo-llvm-cov.
-
-The test tier is separate from ``test.rust.tier``: ``core`` runs what the
-project selects by default, ``full`` adds ``#[ignore]`` tests and, under
-nextest, the tests the profile's ``default-filter`` leaves out. Every run
-reports its run and skipped counts as a ``test tier`` notice.
-
-Where the root Cargo.toml is both a package and a workspace with no
-``default-members``, every command takes ``--workspace``: cargo would
-otherwise test the root package alone. ``cargo llvm-cov report`` has no
-``--workspace`` of its own, so the HTML report names every member with
-``-p`` instead, to match what the ``--workspace`` run already covers in
-lcov.info.
+The test tier is separate from ``test.rust.tier``: ``core`` runs the project's
+default selection, ``full`` adds ``#[ignore]`` tests and, under nextest, what
+the profile's ``default-filter`` leaves out. In a root-package workspace every
+command takes ``--workspace``, or cargo would test the root package alone.
 """
 
 import re
@@ -62,11 +51,9 @@ _NEXTEST_FULL_ARGS = ["--run-ignored", "all", "--ignore-default-filter"]
 # `--`. libtest has no default-filter.
 _LIBTEST_FULL_ARG = "--include-ignored"
 
-# With incremental off, as the ARC runner sets it for sccache, rustc makes small
-# functions cross-crate inlinable at opt-level > 0 and llvm-cov reports each
-# one's unused stub as "mismatched data". sccache refuses incremental builds, so
-# the empty RUSTC_WRAPPER (which cargo reads as "no wrapper") takes it out of
-# this one run.
+# With incremental off (ARC sets it for sccache), llvm-cov reports cross-crate
+# inlined stubs as "mismatched data"; sccache refuses incremental builds, so an
+# empty RUSTC_WRAPPER drops it for this run.
 _LLVM_COV_ENV = {"CARGO_INCREMENTAL": "1", "RUSTC_WRAPPER": ""}
 
 _FULL_FILTER_KEY = "test.full.rust.filter"
@@ -154,13 +141,9 @@ _LIBTEST_COUNT = re.compile(r"(\d+) (passed|failed|ignored)\b")
 # result line per test binary, spread through the output.
 _KEEP = re.compile(r"^\s*(Summary \[|test result: )")
 
-# Tri-state gate for the runner, the house shape (`normalise_tristate`):
-# `true` requires nextest, `false` pins cargo test, `auto` takes nextest iff it
-# is installed.
+# `true` requires nextest, `false` pins cargo test, `auto` takes it if installed.
 _NEXTEST_KEY = "test.rust.nextest"
 
-# Shared by every message that reports which runner was chosen: the swap changes
-# test semantics, so it must never read as a formatting detail.
 _DIVERGENCE = (
     "The two are not interchangeable: nextest isolates each test in its own "
     "process, cargo test shares one across threads, so process-global state "
@@ -177,16 +160,7 @@ def _split_feature_sets(features: str) -> list[str]:
 
 
 def _scope_args(features: str, *, workspace: bool) -> list[str]:
-    """Return the package and feature switches every test command shares.
-
-    Args:
-        features: ``all``, ``default`` or a feature list.
-        workspace: Whether to pass ``--workspace``.
-
-    Returns:
-        The switches, ``--workspace`` first.
-
-    """
+    """Return the package and feature switches every test command shares."""
     args = ["--workspace"] if workspace else []
     if features == "all":
         args.append("--all-features")
@@ -201,12 +175,9 @@ def _has_nextest() -> bool:
 
 
 def _announce_degradation() -> None:
-    """Surface an ``auto`` fall back to cargo test where it cannot be missed.
+    """Warn of an ``auto`` fall back to cargo test, as a GitHub annotation in CI.
 
-    A logger line lands inside a collapsed log group and is read by nobody, so
-    this also emits a real GitHub ``::warning::`` annotation, which escapes the
-    group into the run summary - the same reasoning as
-    :func:`hyperi_ci.languages.quality_common.is_skipped`.
+    A logger line would sit unread inside a collapsed log group.
     """
     msg = (
         f"cargo-nextest not found - running `cargo test` instead. {_DIVERGENCE} "
@@ -224,12 +195,9 @@ def _announce_degradation() -> None:
 
 
 def _resolve_runner(config: CIConfig) -> str | None:
-    """Decide the test runner, and say which one out loud.
+    """Decide and log the test runner: ``"nextest"`` or ``"cargo"``.
 
-    Returns ``"nextest"`` or ``"cargo"``; ``None`` when the repo REQUIRES
-    nextest and it is absent, which the caller turns into a failed stage rather
-    than testing something else and calling it a pass (design principle 3, no
-    silent skips).
+    Returns None when nextest is required and absent, which fails the stage.
     """
     gate = normalise_tristate(config.get(_NEXTEST_KEY, "auto"), key=_NEXTEST_KEY)
 
@@ -269,8 +237,8 @@ def _build_test_cmd(
 ) -> list[str]:
     """Build the cargo test command for the resolved runner.
 
-    Integration and e2e tests default to single-threaded execution to avoid
-    port conflicts from parallel test processes binding the same addresses.
+    Integration and e2e tests run single-threaded, so parallel tests cannot
+    bind the same ports.
 
     Args:
         features: ``all``, ``default`` or a feature list.
@@ -303,7 +271,6 @@ def _build_test_cmd(
     elif rust_tier == "e2e":
         cmd.extend(["--test", "e2e*"])
 
-    # Limit integration/e2e tests to 1 thread to avoid port conflicts
     if rust_tier in ("integration", "e2e"):
         if use_nextest:
             cmd.extend(["--jobs", "1"])
@@ -389,11 +356,9 @@ def _run_tests(
 def _workspace_report_packages(workspace: bool) -> list[str]:
     """Return a ``-p <name>`` pair per workspace member, for the HTML report.
 
-    ``cargo llvm-cov report`` has no ``--workspace`` switch, unlike the run
-    that writes lcov.info, so without this the HTML report covers the root
-    package alone even after every member ran. Empty outside a root-package
-    workspace, or when cargo metadata fails -- the report then falls back to
-    llvm-cov's own root-only default.
+    ``cargo llvm-cov report`` has no ``--workspace``, so without these it
+    covers the root package alone. Empty outside a root-package workspace or
+    when cargo metadata fails.
     """
     if not workspace:
         return []
@@ -411,12 +376,9 @@ def _workspace_report_packages(workspace: bool) -> list[str]:
 
 
 def _note_coverage_runner(runner: str, tool: str) -> None:
-    """Report when a coverage tool overrides the resolved runner.
+    """Warn when tarpaulin swaps a resolved nextest for cargo's own harness.
 
-    tarpaulin drives cargo's own test harness, so a repo that resolved to
-    nextest does not get nextest here - the same divergence the fallback warns
-    about, arriving by a different door. llvm-cov is exempt because
-    `cargo llvm-cov nextest` composes the two and keeps the resolved runner.
+    llvm-cov is exempt: `cargo llvm-cov nextest` keeps the resolved runner.
     """
     if runner != "nextest" or tool == "cargo-llvm-cov":
         return
@@ -433,8 +395,6 @@ def _run_coverage(
     workspace: bool = False,
 ) -> int:
     """Run tests with coverage using tarpaulin or llvm-cov.
-
-    Both tools spell the all-members switch ``--workspace``, as cargo does.
 
     Returns exit code (0 = success), or -1 when neither tool is installed.
     """
@@ -472,10 +432,7 @@ def _run_coverage(
         lcov_path = _RESULTS_DIR / "lcov.info"
         html_dir = _RESULTS_DIR / "coverage-html"
         cmd = ["cargo", "llvm-cov"]
-        # `cargo llvm-cov nextest` keeps the resolved runner instead of
-        # swapping it for cargo's harness, so a repo on nextest measures the
-        # tests it actually ships. This composition is why llvm-cov was chosen
-        # over tarpaulin, which cannot do it (issue #140).
+        # Keeps the resolved runner, which tarpaulin cannot (issue #140).
         if runner == "nextest":
             cmd.append("nextest")
         cmd.extend(["--lcov", "--output-path", str(lcov_path)])
@@ -513,10 +470,8 @@ def _run_coverage(
             warn(f"  cargo llvm-cov report exited {report.returncode}, no HTML report")
         return 0
 
-    # `test.coverage` defaults to true, so a repo that never mentioned coverage
-    # lands here too. Annotated rather than logged because no runner image
-    # carries either tool, which makes this the path every Rust repo takes
-    # (issue #140).
+    # `test.coverage` defaults to true, so annotate: a repo that never asked
+    # for coverage lands here too (issue #140).
     missing = (
         "coverage was requested and did NOT run -- neither cargo-tarpaulin nor "
         "cargo-llvm-cov is installed, so the tests ran plain and there is no "
@@ -566,8 +521,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         label = f" ({feature_set})" if len(feature_sets) > 1 else ""
         what = f"features {feature_set}" if len(feature_sets) > 1 else ""
 
-        # Coverage runs on the first feature set only, because every run writes
-        # the same lcov.info and HTML report and a later set would replace it.
+        # First set only: every run writes the same report, so later sets overwrite.
         if coverage and index == 0:
             rc = _run_coverage(
                 feature_set,
@@ -584,7 +538,6 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
                     return rc
                 continue
 
-        # Standard test execution (no coverage tool, or a test.rust.tier subset)
         if rust_tier == "all":
             cmd = _build_test_cmd(
                 feature_set,
@@ -600,7 +553,6 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             success(f"Rust tests passed{label}")
             continue
 
-        # test.rust.tier subset
         for kind in ("unit", "integration", "e2e"):
             if rust_tier != kind:
                 continue

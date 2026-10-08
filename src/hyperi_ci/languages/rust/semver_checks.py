@@ -4,36 +4,15 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Check a published library crate for an unannounced breaking change.
+"""Check a published library crate for an unannounced breaking change (issue #186).
 
-We publish Rust libraries to crates.io and nothing checked whether a release
-broke its public API. A real case: a feature stopped enabling another feature,
-the commit was typed ``fix:``, and semver-checks scores that as requiring a
-major (issue #186).
+ORDERING IS THE WHOLE CONTRACT: this must run AFTER ``stamp-version``.
+``cargo semver-checks`` takes the current version from Cargo.toml, and before
+the stamp that is the last released version, so the tool compares a release
+against itself and passes vacuously.
 
-ORDERING IS THE WHOLE CONTRACT, so read this before moving the call site.
-``cargo semver-checks`` takes the CURRENT version from Cargo.toml and looks up
-the previous published version on crates.io as its baseline. Our release flow
-does not commit the version to Cargo.toml -- ``stamp-version`` writes it on the
-runner. So:
-
-* AFTER the stamp, the manifest holds the version about to ship, the baseline
-  resolves to what crates.io already has, and the delta is the real one.
-* BEFORE the stamp, the manifest is stale. The tool reads the last released
-  version as CURRENT, finds the same version published, and correctly reports
-  nothing between them. It passes, having compared a release against itself.
-
-That vacuous pass is the failure this module exists to prevent, so a call site
-before the stamp reintroduces the bug it was written to catch.
-
-A binary-only crate has no public API to break and is SKIPPED with a distinct
-line -- "no library target" must never read the same as "ran and found
-nothing", which is the ambiguity the whole issue family is about. A crate not
-yet on crates.io is skipped for the same reason: there is no baseline, so there
-is nothing it could have broken.
-
-Only exit 100 is a verdict. 101 is cargo's error code and says the comparison
-never happened, so it is reported as an unreached verdict rather than a break.
+A binary-only crate and a crate not yet on crates.io are skipped, each with
+its own log line, so a skip never reads as "ran and found nothing".
 """
 
 import shutil
@@ -45,22 +24,17 @@ from hyperi_ci.languages.quality_common import resolve_tool_mode
 
 _TOOL = "cargo-semver-checks"
 
-# The only exit code that means the API broke. 101 is cargo's error code and
-# carries no verdict -- an unpublished crate, a failed rustdoc build and a
-# registry error all land there.
+# The only exit code that means the API broke; 101 is cargo's error and no verdict.
 _BREAKING = 100
 
-# Upstream's wording when the crate has never been published. A reworded
-# message falls through to "could not check", which fails loudly rather than
-# passing.
+# Upstream's wording for an unpublished crate; a reworded message fails loudly.
 _NO_BASELINE = "not found in registry"
 
 
 def run(config: CIConfig, *, project_root: Path | None = None) -> int:
     """Check the crate's public API against the last published version.
 
-    Must run AFTER `stamp-version`; see the module docstring for why a call
-    before it passes without comparing anything.
+    Must run AFTER `stamp-version`; see the module docstring.
 
     Args:
         config: Merged CI configuration.
@@ -75,8 +49,7 @@ def run(config: CIConfig, *, project_root: Path | None = None) -> int:
         info(f"  {_TOOL}: disabled")
         return 0
 
-    # Imported here rather than at module scope: quality.py owns the lib-target
-    # question and importing it at the top would make the two modules circular.
+    # A module-scope import would be circular with quality.py.
     from hyperi_ci.languages.rust.quality import _has_lib_target
 
     root = project_root or Path.cwd()
@@ -89,9 +62,8 @@ def run(config: CIConfig, *, project_root: Path | None = None) -> int:
             error(f"  {_TOOL}: not installed (required)")
             return 1
         if is_ci():
-            # Nothing installs it on a runner yet, so this is where every
-            # release currently lands. Annotated rather than logged, because a
-            # check that quietly did not run is the failure it exists to catch.
+            # Annotated rather than logged: a check that quietly did not run is
+            # the failure this module exists to catch.
             missing = (
                 f"{_TOOL} is not installed on this runner, so the public API "
                 f"was NOT checked. This release is unverified for breaking "
@@ -115,8 +87,6 @@ def run(config: CIConfig, *, project_root: Path | None = None) -> int:
 
     combined = (result.stdout or "") + (result.stderr or "")
 
-    # A crate with no published baseline has no API to break. Skipped rather
-    # than failed, and named, so a first release does not read as a violation.
     if _NO_BASELINE in combined:
         info(f"  {_TOOL}: not published yet -- no baseline to compare against")
         return 0
@@ -131,8 +101,7 @@ def run(config: CIConfig, *, project_root: Path | None = None) -> int:
             "is a human decision, not a CI one."
         )
     else:
-        # Blocking fails here too: publishing on an unreached verdict is the
-        # "returned 0 having compared nothing" failure this module exists for.
+        # Blocking fails here too: an unreached verdict compared nothing.
         message = (
             f"the check could not reach a verdict (exit {result.returncode}). "
             f"A failed rustdoc build or a registry error lands here, and the "

@@ -6,17 +6,13 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Cargo job count capped by memory as well as CPUs.
 
-cargo runs one rustc per CPU by default and pays no attention to memory, so a
-16-CPU runner with a 16Gi limit is OOM-killed once enough large crates compile
-at once. Every Rust stage runs inside :func:`capped_cargo_jobs`, which sets
-``CARGO_BUILD_JOBS`` for the stage and so reaches cargo, cargo-hack,
-cargo-nextest, cargo-llvm-cov and cargo-pgo alike.
+cargo runs one rustc per CPU regardless of memory, so a 16-CPU runner with a
+16Gi limit gets OOM-killed. Setting ``CARGO_BUILD_JOBS`` reaches cargo and
+every cargo subcommand tool alike.
 
-A job count the project or runner already chose is left alone.
-``CARGO_BUILD_JOBS`` in the environment wins outright. ``build.rust.jobs``
-set to a number wins next. A ``[build] jobs`` in any cargo config file comes
-after that, and cargo would rank our environment variable above it, so it is
-detected here and nothing is set.
+Precedence: ``CARGO_BUILD_JOBS`` in the environment, then a numeric
+``build.rust.jobs``, then a ``[build] jobs`` in any cargo config file. The
+last is detected and nothing is set, since cargo ranks our env var above it.
 """
 
 import os
@@ -57,16 +53,7 @@ def jobs_for(cpus: int, limit: MemoryLimit | None, gib_per_job: float) -> int:
 
 
 def _config_files(start: Path, cargo_home: Path) -> Iterator[Path]:
-    """Yield every cargo config file cargo would read, as cargo discovers them.
-
-    Args:
-        start: The directory cargo runs in.
-        cargo_home: ``$CARGO_HOME``.
-
-    Yields:
-        Each existing config file.
-
-    """
+    """Yield every existing cargo config file, in cargo's discovery order."""
     for directory in (start, *start.parents):
         for name in _CONFIG_NAMES:
             candidate = directory / ".cargo" / name
@@ -102,15 +89,7 @@ def config_file_setting_jobs(start: Path, cargo_home: Path) -> Path | None:
 
 
 def _override(config: CIConfig) -> int | None:
-    """Return ``build.rust.jobs`` when it names a job count.
-
-    Args:
-        config: Merged CI configuration.
-
-    Returns:
-        The count, or None for ``auto`` or an unusable value.
-
-    """
+    """Return ``build.rust.jobs`` as a count, or None for ``auto`` or a bad value."""
     value = config.get("build.rust.jobs", "auto")
     if value == "auto":
         return None
@@ -122,15 +101,7 @@ def _override(config: CIConfig) -> int | None:
 
 
 def _gib_per_job(config: CIConfig) -> float:
-    """Return ``build.rust.memory_per_job_gib``, or the fallback when unusable.
-
-    Args:
-        config: Merged CI configuration.
-
-    Returns:
-        A positive GiB figure.
-
-    """
+    """Return ``build.rust.memory_per_job_gib``, or the fallback when unusable."""
     value = config.get("build.rust.memory_per_job_gib", _FALLBACK_GIB_PER_JOB)
     if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
         return float(value)

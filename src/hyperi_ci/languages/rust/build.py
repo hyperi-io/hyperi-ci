@@ -4,11 +4,10 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Rust build handler.
+"""Rust build handler: release builds, with cross-compilation.
 
-Builds Rust projects in release mode with optional cross-compilation.
-For cross-targets with C/C++ dependencies, builds a private sysroot from
-downloaded .deb packages (ported from old CI's proven sysroot approach).
+A cross-target with C/C++ dependencies gets a private sysroot built from
+downloaded .deb packages rather than system-wide cross-arch installs.
 """
 
 import os
@@ -85,20 +84,15 @@ _CROSS_TOOLCHAIN = {
 
 
 def _sysroot_base() -> Path:
-    """Return the base directory for cross-compilation sysroots.
-
-    Uses .tmp/cross-sysroot in the workspace so it stays on the workspace
-    volume (not pod ephemeral storage) and follows the .tmp/ convention.
-    """
+    """Return the sysroot base, on the workspace volume rather than pod storage."""
     return Path.cwd() / ".tmp" / "cross-sysroot"
 
 
 def _get_native_target() -> str:
-    """Get the native Rust target triple for this platform.
+    """Return the native Rust target triple, from the machine arch on Linux too.
 
-    Reads the machine arch on Linux too: an arm64 runner answering
-    `x86_64-unknown-linux-gnu` makes its own target look like a cross build,
-    which skips PGO and then fails the release as half-optimised.
+    An arm64 runner answering x86_64 would treat its own target as a cross
+    build, skip PGO and fail the release as half-optimised.
     """
     import platform
 
@@ -113,7 +107,7 @@ def _get_native_target() -> str:
 
 
 def _get_native_triple() -> str:
-    """Get the native GNU triple (e.g. x86_64-linux-gnu)."""
+    """Return the native GNU triple (e.g. x86_64-linux-gnu)."""
     result = run_cmd(["gcc", "-dumpmachine"], check=False, capture=True)
     if result.returncode == 0 and result.stdout.strip():
         return result.stdout.strip()
@@ -121,17 +115,11 @@ def _get_native_triple() -> str:
 
 
 def _widen_custom_repos_for_arch(arch: str) -> bool:
-    """Add cross arch to custom APT repo .list files.
+    """Add the cross arch to custom APT repos scoped with an explicit ``arch=``.
 
-    Custom repos (e.g., Confluent for librdkafka) are initially scoped to the
-    native arch (arch=amd64). When cross-compiling, the sysroot builder needs
-    to download cross-arch packages from these repos too. This widens the
-    arch constraint to include the cross arch.
-
-    Only touches .list files with explicit arch= constraints; skips Ubuntu
-    defaults (ubuntu.sources, arm64-ports.list).
-
-    Returns True if any repos were widened (caller should apt-get update).
+    native_deps.py scopes repos such as Confluent's to the native arch, which
+    hides the cross-arch packages the sysroot needs. Ubuntu's own sources are
+    left alone. Returns True if any repo was widened (apt-get update needed).
     """
     sources_dir = Path("/etc/apt/sources.list.d")
     if not sources_dir.exists():
@@ -143,7 +131,6 @@ def _widen_custom_repos_for_arch(arch: str) -> bool:
         if list_file.name in skip_files:
             continue
         content = list_file.read_text(encoding="utf-8")
-        # Match arch=<archs> in deb lines, e.g. arch=amd64
         pattern = r"(arch=)([a-z0-9,]+)"
         match = re.search(pattern, content)
         if not match:
@@ -165,12 +152,10 @@ def _widen_custom_repos_for_arch(arch: str) -> bool:
 
 
 def _ensure_cross_apt_metadata(arch: str) -> None:
-    """Ensure apt knows about the cross architecture (metadata only).
+    """Register the cross arch and its apt sources (metadata only).
 
-    On ARC runners the arm64 ports sources are pre-baked into the image.
-    On ubuntu-latest they are not, so we add them here if missing.
-    We also scope existing deb822 sources to amd64 to prevent apt from
-    trying to fetch arm64 from archive.ubuntu.com (which doesn't serve it).
+    Adds the arm64 ports sources where the image lacks them, and scopes the
+    deb822 sources to amd64, since archive.ubuntu.com serves no arm64.
     """
     result = run_cmd(
         ["dpkg", "--print-foreign-architectures"], check=False, capture=True
@@ -213,13 +198,8 @@ def _ensure_cross_apt_metadata(arch: str) -> None:
                         check=False,
                     )
 
-    # Widen custom APT repos (e.g., Confluent) to also serve the cross arch.
-    # _add_apt_repo in native_deps.py scopes repos to arch=<native> which
-    # prevents apt from finding cross-arch packages for the sysroot.
     repos_widened = _widen_custom_repos_for_arch(arch)
 
-    # Update apt cache when: arch newly registered, few package lists, or
-    # custom repos were widened (need cross-arch metadata from those repos).
     apt_lists = Path("/var/lib/apt/lists")
     needs_update = (
         not arch_registered
@@ -232,11 +212,7 @@ def _ensure_cross_apt_metadata(arch: str) -> None:
 
 
 def _detect_native_dev_packages(native_triple: str) -> list[str]:
-    """Auto-detect native -dev packages that provide pkg-config files.
-
-    Scans dpkg for packages that own .pc files under the native triple's
-    pkgconfig directory. These are the packages we need cross-arch equivalents for.
-    """
+    """Return the native packages owning .pc files, which need cross-arch twins."""
     result = run_cmd(
         ["dpkg", "-S", f"/usr/lib/{native_triple}/pkgconfig/*.pc"],
         check=False,
@@ -265,11 +241,10 @@ def _resolve_cross_packages(
     dev_pkgs: list[str],
     cross_arch: str,
 ) -> list[str]:
-    """Resolve cross-arch packages and their transitive lib dependencies.
+    """Resolve cross-arch packages and their transitive library dependencies.
 
-    Breadth-first walk of dependency tree, limited to lib* packages,
-    with max depth of 20 to handle deep chains like:
-    libsasl2-dev -> libsasl2-2 -> libssl3t64 (provides libcrypto.so.3)
+    Breadth-first over lib* and zlib* packages, to depth 20, which covers
+    chains such as libsasl2-dev -> libsasl2-2 -> libssl3t64.
     """
     seen: set[str] = set()
     to_download: list[str] = []
@@ -295,8 +270,6 @@ def _resolve_cross_packages(
                 if not line.startswith("Depends:"):
                     continue
                 dep = line.split(":", 1)[1].strip()
-                # Keep library packages -- most start with lib*, but some
-                # (zlib1g) don't. Filter out non-library packages.
                 dep_name = dep.split(":")[0]
                 if not dep_name.startswith(("lib", "zlib")):
                     continue
@@ -319,12 +292,7 @@ def _resolve_cross_packages(
 
 
 def _patch_ld_scripts(sysroot: Path, cross_triple: str) -> int:
-    """Fix absolute paths in GNU LD scripts to point at sysroot.
-
-    Some .so files are ASCII linker scripts like:
-      GROUP ( /lib/aarch64-linux-gnu/libm.so.6 ... )
-    These absolute paths don't exist on the host -- rewrite to sysroot paths.
-    """
+    """Point the absolute paths in .so linker scripts at the sysroot."""
     lib_dir = sysroot / "usr" / "lib" / cross_triple
     if not lib_dir.exists():
         return 0
@@ -374,18 +342,13 @@ def _apply_usrmerge(sysroot: Path) -> None:
 
 
 def _setup_cross_sysroot(cross_arch: str, cross_triple: str) -> Path | None:
-    """Build private sysroot with cross-arch -dev libraries from .deb packages.
+    """Build a private sysroot of cross-arch -dev libraries from .deb packages.
 
-    Ported from old CI's setup_cross_sysroot(). Auto-detects native -dev packages
-    with pkg-config files, downloads their cross-arch equivalents + transitive
-    library dependencies, and extracts to a private directory. This avoids installing
-    cross-arch packages system-wide which can conflict with native packages.
-
-    Returns sysroot path on success, None on failure.
+    Extracting privately avoids system-wide cross-arch installs, which can
+    conflict with native packages. Returns the sysroot path, or None.
     """
     sysroot = _sysroot_base() / cross_arch
 
-    # Reuse existing sysroot if already populated
     pc_dir = sysroot / "usr" / "lib" / cross_triple / "pkgconfig"
     if pc_dir.exists():
         pc_count = len(list(pc_dir.glob("*.pc")))
@@ -455,13 +418,10 @@ def _setup_cross_sysroot(cross_arch: str, cross_triple: str) -> Path | None:
 
 
 def _create_linker_wrapper(sysroot: Path, cross_triple: str) -> Path:
-    """Create a linker wrapper that injects sysroot library paths.
+    """Create a cross-linker wrapper that adds the sysroot's library paths.
 
-    The cross-linker doesn't know about our private sysroot. Some -sys crate
-    build scripts emit cargo:rustc-link-lib without a search path (e.g. rdkafka-sys
-    builds librdkafka via cmake, then emits -lsasl2 without -L). The wrapper adds
-    -L flags for the sysroot. -rpath-link is needed so the linker can resolve
-    transitive .so dependencies (e.g. libsasl2.so needs libcrypto.so.3).
+    Some -sys crates emit ``-l`` with no ``-L`` (rdkafka-sys and ``-lsasl2``),
+    and ``-rpath-link`` resolves transitive .so dependencies.
     """
     wrapper_dir = sysroot / "bin"
     wrapper_dir.mkdir(parents=True, exist_ok=True)
@@ -499,19 +459,13 @@ exec {real_bin} \\
 
 
 def _cross_env(target: str, sysroot: Path | None = None) -> dict[str, str]:
-    """Build environment variables for cross-compiling C/C++ deps.
-
-    When a sysroot is available, creates a linker wrapper and sets all necessary
-    env vars for the cross-compilation toolchain. Follows the old CI's proven
-    pattern (build.sh:configure_cross_sysroot_env + install_cross_toolchain).
-    """
+    """Return the env for cross-compiling C/C++ deps, using ``sysroot`` if given."""
     toolchain = _CROSS_TOOLCHAIN.get(target)
     if not toolchain:
         return {}
 
     cross_triple = toolchain["triple"]
     target_upper = target.replace("-", "_").upper()
-    # cc crate uses lowercase with underscores for target-specific CFLAGS
     target_lower = target.replace("-", "_")
     env: dict[str, str] = {}
 
@@ -520,56 +474,37 @@ def _cross_env(target: str, sysroot: Path | None = None) -> dict[str, str]:
         warn(f"  Cross-compiler {cc} not found -- build may fail")
         return env
 
-    # cc crate uses lowercase target with underscores: CC_aarch64_unknown_linux_gnu
-    # Cargo uses uppercase for its own vars: CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER
-    #
-    # IMPORTANT: CC must be the PLAIN cross-compiler, NOT the sysroot wrapper.
-    # cmake's TryCompile uses CC to test compiler functionality. If CC is a wrapper
-    # that adds linker-specific flags (-L, -Wl,-rpath-link), TryCompile may fail
-    # and cmake silently falls back to the host compiler (compiling x86_64 objects
-    # for an aarch64 build). The wrapper is used ONLY as the Rust linker.
+    # CC must be the plain cross-compiler, never the sysroot wrapper: a failed
+    # cmake TryCompile silently falls back to the host compiler.
     env[f"CC_{target_lower}"] = cc
     env[f"CXX_{target_lower}"] = toolchain["cxx"]
     env[f"AR_{target_lower}"] = toolchain["ar"]
 
-    # Configure-based -sys crates (e.g. rdkafka-sys when cmake-build feature is
-    # absent) run `./configure && make` and read CC/CXX/AR directly from the
-    # environment -- they do NOT use the cc crate's CC_<target> lookup.
-    # Without CC set, ./configure uses the host gcc (x86_64) even when building
-    # for aarch64, producing x86_64 objects that fail at link time with EM:62.
+    # Configure-based -sys crates read plain CC/CXX/AR, not CC_<target>, and
+    # otherwise build host objects that fail to link with EM:62.
     env["CC"] = cc
     env["CXX"] = toolchain["cxx"]
     env["AR"] = toolchain["ar"]
 
     if sysroot:
-        # Use linker wrapper that injects sysroot paths + forces BFD linker.
-        # CARGO_TARGET_..._LINKER sets the Rust linker (not the C compiler).
         wrapper = _create_linker_wrapper(sysroot, cross_triple)
         env[f"CARGO_TARGET_{target_upper}_LINKER"] = str(wrapper)
 
-        # pkg-config paths for the sysroot
         env["PKG_CONFIG_PATH"] = (
             f"{sysroot}/usr/lib/{cross_triple}/pkgconfig:{sysroot}/usr/share/pkgconfig"
         )
         env["PKG_CONFIG_SYSROOT_DIR"] = str(sysroot)
         env["PKG_CONFIG_ALLOW_CROSS"] = "1"
 
-        # cmake-based -sys crates (e.g. rdkafka-sys).
-        # Explicitly set CMAKE_C/CXX_COMPILER so cmake uses the cross-compiler
-        # even when cmake-rs's cc crate detection fails. This is belt-and-suspenders
-        # alongside CC_<target> -- cmake checks CMAKE_C_COMPILER before CC.
+        # cmake checks CMAKE_C_COMPILER before CC, and cmake-rs's own compiler
+        # detection can fail.
         env["CMAKE_C_COMPILER"] = cc
         env["CMAKE_CXX_COMPILER"] = toolchain["cxx"]
         env["CMAKE_PREFIX_PATH"] = f"{sysroot}/usr"
-        # CMAKE_INCLUDE_PATH ensures cmake finds headers (e.g. curl/curl.h)
-        # in the sysroot's architecture-independent include dir
         env["CMAKE_INCLUDE_PATH"] = f"{sysroot}/usr/include"
 
-        # Target-specific CFLAGS/CXXFLAGS for the cc crate.
-        # The cc crate passes CFLAGS_<target> to cmake as CMAKE_C_FLAGS, which
-        # cmake uses for both compile and link steps (including TryCompile).
-        # -fuse-ld=bfd: force GNU BFD linker (mold can't cross-compile aarch64)
-        # -I flags: sysroot headers (both arch-independent and arch-specific)
+        # cmake applies these to compile and link, TryCompile included;
+        # bfd because mold cannot cross-link aarch64.
         sysroot_include = sysroot / "usr" / "include"
         sysroot_arch_include = sysroot_include / cross_triple
         cross_cflags = f"-fuse-ld=bfd -I{sysroot_include}"
@@ -578,13 +513,11 @@ def _cross_env(target: str, sysroot: Path | None = None) -> dict[str, str]:
         env[f"CFLAGS_{target_lower}"] = cross_cflags
         env[f"CXXFLAGS_{target_lower}"] = cross_cflags
     else:
-        # No sysroot -- basic cross-compilation (pure Rust or simple C deps)
         env[f"CARGO_TARGET_{target_upper}_LINKER"] = cc
         env["PKG_CONFIG_ALLOW_CROSS"] = "1"
         env["PKG_CONFIG_SYSROOT_DIR"] = f"/usr/{cross_triple}"
 
-    # Clear host compiler/linker flags to prevent e.g. -fuse-ld=mold
-    # from leaking into cmake's CMAKE_EXE_LINKER_FLAGS_INIT
+    # Host flags such as -fuse-ld=mold would leak into cmake's linker flags.
     env["LDFLAGS"] = ""
     env["CFLAGS"] = ""
     env["CXXFLAGS"] = ""
@@ -608,10 +541,9 @@ def _ensure_target_installed(target: str) -> bool:
 
 
 def _ensure_cross_toolchain(target: str) -> None:
-    """Install cross-compilation toolchain packages if needed.
+    """Install the cross-compilers system-wide, which is Multi-Arch safe.
 
-    Only installs cross-compilers system-wide (they ARE Multi-Arch safe).
-    All -dev libraries go into a private sysroot via _setup_cross_sysroot().
+    -dev libraries go into the private sysroot instead.
     """
     toolchain = _CROSS_TOOLCHAIN.get(target)
     if not toolchain or not is_linux():
@@ -627,7 +559,6 @@ def _ensure_cross_toolchain(target: str) -> None:
     if not shutil.which(cxx):
         packages.append(f"g++-{toolchain['triple']}")
 
-    # libc6-dev provides dynamic linker + standard libs for cross-arch
     result = run_cmd(
         ["dpkg", "-s", f"libc6-dev:{cross_arch}"], check=False, capture=True
     )
@@ -658,11 +589,7 @@ def _target_to_elf_machine(target: str) -> str | None:
 
 
 def _verify_binary(binary: Path, target: str, native_target: str) -> bool:
-    """Post-build binary verification.
-
-    Checks: file exists, minimum size, correct ELF machine type, dynamic deps.
-    For native targets: runs --version smoke test.
-    """
+    """Check a binary's size and ELF machine type; smoke-test a native one."""
     errors = 0
     info("    --- Post-build verification ---")
 
@@ -750,9 +677,8 @@ def _strip_tool(target: str) -> str | None:
 def _ships_unstripped(binary: Path, reason: str) -> bool:
     """Report a binary that ships unstripped. Returns True if packaging may go on.
 
-    The PGO + BOLT compiles all run with `strip=none`, so packaging is the
-    only step that strips a BOLT-optimised binary. In CI that gap fails the
-    build, the way a missing blocking tool does. Locally it warns.
+    PGO + BOLT compiles run with `strip=none`, so packaging is the only strip;
+    a gap fails in CI and warns locally.
     """
     msg = f"{binary.name} ships unstripped: {reason}"
     if is_ci():
@@ -794,29 +720,12 @@ def _strip_binary(binary: Path, target: str) -> bool:
 
 
 def _resolve_build_channel(config: CIConfig) -> str:
-    """Resolve the publish channel for build-time optimisation gating.
+    """Resolve the build channel that gates optimisation tiers.
 
-    Priority (highest wins):
-      1. `HYPERCI_CHANNEL` env var (set by reusable workflow when
-         `inputs.tag` is non-empty, i.e. `hyperi-ci release` dispatch)
-      2. `optimize-tier: release` on this run (`HYPERCI_OPTIMIZE_TIER`), which
-         builds the release tier on a run that publishes nothing (issue #257)
-      3. Tag-ref inference: `GITHUB_REF_TYPE == "tag"` -> "release"
-      4. `RUST_VERSION` / `CI_COMMIT_TAG` env vars (semantic-release-
-         style tagged builds set these when checking out the tag)
-      5. "alpha" (default for push-event CI)
-
-    **Rationale for not falling back to `release.channel`:** Tier 2
-    (PGO + BOLT) adds 30-60 min per build and a bad workload causes
-    NEGATIVE gains. It MUST only run on explicit release dispatches
-    (artifact publishing), NOT on every push to main. `release.channel`
-    in `.hyperi-ci.yaml` describes *where artifacts are published*
-    (GHCR, PyPI, crates.io, etc.) -- a project that ships to "release"
-    still gets push-event CI on every commit, which must NOT trigger
-    Tier 2. The build channel is orthogonal to the release channel.
-
-    An operator who wants a one-off release-tier build on a non-tag ref
-    dispatches with `optimize-tier: release`.
+    Order: `HYPERCI_CHANNEL`, then `optimize-tier: release` (issue #257), then
+    any other ship signal, else "alpha". `release.channel` is deliberately not
+    read: Tier 2 adds 30-60 min per build and must run only on a build that
+    ships, never on every push.
     """
     override = os.environ.get("HYPERCI_CHANNEL", "").strip().lower()
     if override:
@@ -834,11 +743,9 @@ def _resolve_build_channel(config: CIConfig) -> str:
 def _ship_signal() -> str | None:
     """Name the env signal that says this build ships, or None when none does.
 
-    The reusable workflows set `HYPERCI_CHANNEL` only when the plan job
-    predicts `will-release`, which a tag dispatch, a from-head dispatch and a
-    push carrying the release trailer all do. The tag signals cover a build
-    run outside those workflows. `optimize-tier` is deliberately absent: it
-    builds the release tier on a run that publishes nothing.
+    The workflows set `HYPERCI_CHANNEL` only when the plan predicts a release;
+    the tag signals cover builds outside them. `optimize-tier` is not a ship
+    signal.
     """
     channel = os.environ.get("HYPERCI_CHANNEL", "").strip()
     if channel:
@@ -852,12 +759,10 @@ def _ship_signal() -> str | None:
 
 
 def _bolt_override_refusal() -> str | None:
-    """Why this run may not take `bolt-optimize-args`, or None when it may.
+    """Say why this run may not take `bolt-optimize-args`, or None when it may.
 
-    The override is a bisect tool: a binary built with unreviewed BOLT flags
-    must never ship, so any ship signal refuses it. It also needs
-    `optimize-tier=release`, because without that a validate-only run never
-    reaches the BOLT optimise step and the dispatch would test nothing.
+    Unreviewed BOLT flags must never ship, and without `optimize-tier=release`
+    the run never reaches BOLT and would test nothing.
     """
     try:
         override = bolt_optimize_args_override()
@@ -884,9 +789,8 @@ def _bolt_override_refusal() -> str | None:
 def _detect_cargo_features() -> set[str]:
     """Union the `[features]` tables of the root manifest and every member.
 
-    A virtual workspace root declares no features of its own, so reading it
-    alone hid a member crate's allocator feature and the build fell back to
-    the system allocator.
+    A virtual workspace root declares none, so the root alone would hide a
+    member's allocator feature.
     """
     features = parse_cargo_features(Path.cwd() / "Cargo.toml")
 
@@ -902,16 +806,9 @@ def _detect_cargo_features() -> set[str]:
 
 
 def _detect_binary_names() -> list[str]:
-    """Detect binary target names from Cargo metadata.
+    """Return the shipped binary names; empty for a library-only crate.
 
-    Returns empty list for library-only crates (no bin targets).
-    Only falls back to directory name when cargo metadata itself fails.
-
-    Feature-gated binaries (those with `required-features = [...]` in
-    Cargo.toml) are excluded -- they are consumer-selected tools (PGO
-    drivers, benchmarking harnesses, etc.) not production artifacts,
-    and forcing them into the publish path breaks the default build
-    when the feature isn't enabled.
+    Falls back to the directory name only when cargo metadata fails.
     """
     meta = cargo_metadata()
     if meta is None:
@@ -926,26 +823,20 @@ def binary_targets(meta: dict) -> list[str]:
         for target in package.get("targets", []):
             if "bin" not in target.get("kind", []):
                 continue
-            # Skip feature-gated binaries -- they are consumer tools
-            # (benchmark drivers, PGO workload generators, etc.) that
-            # shouldn't be part of the default publish payload.
+            # Feature-gated bins are tools (PGO drivers, benches), and forcing
+            # them in breaks the default build.
             if target.get("required-features"):
                 continue
             names.append(target["name"])
 
-    # Return empty list for library-only crates -- packaging is skipped
     return names
 
 
 def stamp_manifest(version: str, root: Path) -> None:
     """Stamp `version` into Cargo.toml's [package] and [workspace.package].
 
-    Covers both the single-crate ([package]) and workspace-inherited
-    ([workspace.package]) layouts. Dependency pins are untouched -- only the
-    `version` key inside those two tables is rewritten. A multi-crate
-    workspace inherits the [workspace.package] version, so the root stamp
-    propagates; per-crate Cargo.toml files that pin their own version are
-    the project's responsibility (rare).
+    Dependency pins are untouched. A member Cargo.toml that pins its own
+    version is not stamped.
     """
     from hyperi_ci.stamp import replace_toml_table_version
 
@@ -960,11 +851,9 @@ def stamp_manifest(version: str, root: Path) -> None:
 
 
 def _detect_version() -> str:
-    """Detect project version from VERSION file, env vars, or Cargo.toml.
+    """Return the version from VERSION, then the env, then Cargo.toml, else "dev".
 
-    Priority: VERSION file (semantic-release) > explicit env > Cargo.toml > "dev".
-    GITHUB_REF_NAME is deliberately excluded -- during the publish job it is
-    the branch name (e.g. "release"), not the tag.
+    GITHUB_REF_NAME is excluded: in the publish job it is the branch, not the tag.
     """
     version_file = Path("VERSION")
     if version_file.exists():
@@ -1006,10 +895,9 @@ def _package_binaries(
     version: str,
     native_target: str,
 ) -> int:
-    """Copy, strip, verify, and package built binaries into dist/.
+    """Copy, strip and verify built binaries into dist/ as ``<name>-<os>-<arch>``.
 
-    Creates binaries like: name-linux-amd64
-    Version is in the R2/release path, not the filename.
+    The version goes in the R2 and release path, not the filename.
     """
     output_dir = Path("dist")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1063,8 +951,8 @@ def _verify_bolt_shipped(
 ) -> int:
     """Check each BOLT-optimised target's packaged file is the BOLT output.
 
-    The build log reports BOLT success from cargo-pgo; this reads the file
-    that ships, so a packaging slip cannot pass as an optimised release.
+    Reads the shipped file rather than trusting cargo-pgo's log, so a
+    packaging slip cannot pass as an optimised release.
 
     Args:
         targets: Targets whose outcome recorded BOLT as applied.
@@ -1089,11 +977,7 @@ def _verify_bolt_shipped(
 
 
 def _expected_elf_machine(target: str) -> str | None:
-    """Return the `file` command arch substring for a Rust target triple.
-
-    Used to detect whether a cached cross-compiled .o file has the correct
-    machine architecture, or if it is stale from a native build.
-    """
+    """Return the `file` command's arch substring for a Rust target triple."""
     arch_map = {
         "x86_64": "x86-64",
         "aarch64": "ARM aarch64",
@@ -1108,13 +992,7 @@ def _expected_elf_machine(target: str) -> str | None:
 
 
 def _find_c_sys_crates() -> list[str]:
-    """Find all -sys crates from Cargo.lock that may compile C code.
-
-    Returns all package names ending in -sys. These are candidates for
-    stale cross-compiled rlibs on persistent ARC runners. Covers both
-    cmake-build crates (rdkafka-sys with cmake feature) and configure-based
-    crates (rdkafka-sys default build, libz-sys, zstd-sys, aws-lc-sys, etc.)
-    """
+    """Return every ``*-sys`` package name in Cargo.lock, cmake or configure based."""
     lock_path = Path("Cargo.lock")
     if not lock_path.exists():
         return []
@@ -1135,13 +1013,10 @@ def _find_c_sys_crates() -> list[str]:
 
 
 def _rlib_has_wrong_arch(rlib: Path, expected_arch_substr: str) -> bool:
-    """Check if a compiled rlib contains objects with the wrong ELF architecture.
+    """Return True if the rlib's first non-empty .o has the wrong ELF arch.
 
-    Extracts the first .o file from the rlib (ar archive) and checks its
-    ELF machine type using `file`. Returns True if the arch is wrong.
-
-    The member is extracted to a scratch directory rather than piped, because
-    run_cmd decodes output as text and an object file is binary.
+    The member is extracted to disk rather than piped, because run_cmd decodes
+    output as text.
     """
     ar_cmd = shutil.which("ar")
     file_cmd = shutil.which("file")
@@ -1179,18 +1054,11 @@ def _rlib_has_wrong_arch(rlib: Path, expected_arch_substr: str) -> bool:
 
 
 def _clean_stale_sys_crates(target: str) -> None:
-    """Clean -sys crate artifacts if they have wrong-arch objects.
+    """Run `cargo clean` on any -sys crate whose cached rlib has wrong-arch objects.
 
-    On persistent ARC runners, target/ is NOT cleaned between runs by
-    actions/checkout (git clean -ffd omits gitignored files by default).
-    If a previous run compiled a -sys crate's C code with the host compiler
-    (e.g. rdkafka-sys configure build using host gcc instead of cross-gcc),
-    the stale rlib persists. Since build.rs scripts don't declare
-    cargo:rerun-if-env-changed for CC, cargo reuses the cached x86_64 rlib
-    -- causing "Relocations in generic ELF (EM: 62)" on link.
-
-    Covers both cmake-build crates and configure-based crates (rdkafka-sys,
-    libz-sys, zstd-sys, aws-lc-sys, etc.) -- all -sys crates are scanned.
+    target/ survives between runs on persistent ARC runners, and -sys build
+    scripts do not rerun when CC changes, so a host-compiled rlib is reused
+    and fails the link with "Relocations in generic ELF (EM: 62)".
     """
     expected = _expected_elf_machine(target)
     if not expected:
@@ -1209,7 +1077,7 @@ def _clean_stale_sys_crates(target: str) -> None:
     to_clean: list[str] = []
 
     for rlib in cross_deps.glob("lib*.rlib"):
-        stem = rlib.stem.lstrip("lib")
+        stem = rlib.stem.removeprefix("lib")
         crate_under = stem.split("-")[0] if "-" in stem else stem
         if crate_under not in sys_crates_underscored:
             continue
@@ -1231,30 +1099,21 @@ def _build_for_target(
     profile: OptimizationProfile | None = None,
     outcome: OptimizationOutcome | None = None,
 ) -> int:
-    """Build for a specific target triple.
+    """Build one target triple, through the PGO pipeline when the profile asks.
 
-    If `profile` is provided and `profile.pgo_enabled` is True, the PGO
-    pipeline (instrument -> workload -> optimise, optionally followed
-    by BOLT) is used instead of a plain `cargo build`.
-
-    Either path renders its cargo lines with `cargo_feature_args()`, so
-    `features` and the profile's allocator reach the binary whichever one
-    runs, and `env_overrides()` (CARGO_PROFILE_RELEASE_LTO) is injected
-    into the build environment.
+    Both paths carry the declared features, the allocator and the LTO override.
     """
     if not _ensure_target_installed(target):
         return 1
 
-    # Merge profile env overrides (LTO) into extra_env
     if profile:
         profile_env = profile.env_overrides()
         extra_env = {**(extra_env or {}), **profile_env}
 
-    # PGO path takes over the whole build for this target
     if profile and profile.pgo_enabled:
         binary_names = _detect_binary_names()
-        # The PGO path returns before the cross-compile setup below, so it would
-        # build a foreign target with the host toolchain.
+        # The PGO path skips the cross-compile setup below, so a foreign target
+        # would build with the host toolchain.
         cross = target != _get_native_target() and is_linux()
         if cross:
             warn(
@@ -1266,8 +1125,7 @@ def _build_for_target(
                 "PGO requested but crate has no binaries -- falling back to plain build"
             )
         else:
-            # The workload profiles the first binary; every cargo-pgo step still
-            # builds all the binaries packaging ships, and only those.
+            # The workload profiles the first binary; each step builds all shipped ones.
             from hyperi_ci.languages.rust.pgo import run_pgo_build
 
             return run_pgo_build(
@@ -1276,8 +1134,6 @@ def _build_for_target(
                 binary_name=binary_names[0],
                 shipped_binaries=binary_names,
                 cwd=Path.cwd(),
-                # RUST_FEATURES / RUST_ALL_FEATURES are where the PGO path
-                # reads the declared features for its own cargo lines.
                 extra_env={
                     **(extra_env or {}),
                     "RUST_FEATURES": features,
@@ -1291,7 +1147,6 @@ def _build_for_target(
 
     env = dict(extra_env or {})
 
-    # Set cross-compilation env vars for C/C++ dependencies
     native = _get_native_target()
     if target != native and is_linux():
         _ensure_cross_toolchain(target)
@@ -1301,11 +1156,6 @@ def _build_for_target(
         if toolchain:
             sysroot = _setup_cross_sysroot(toolchain["arch"], toolchain["triple"])
 
-        # On persistent runners (ARC), target/ survives between runs.
-        # -sys crates that compile C code don't declare
-        # cargo:rerun-if-env-changed for CC, so cargo won't detect that a
-        # stale x86_64 rlib needs rebuilding with the correct cross-compiler.
-        # Detect and clean stale wrong-arch rlibs before building.
         _clean_stale_sys_crates(target)
 
         env.update(_cross_env(target, sysroot=sysroot))
@@ -1359,7 +1209,6 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         )
         return 1
 
-    # On macOS, only build native targets
     if is_macos():
         native = _get_native_target()
         non_native = [t for t in targets if t != native]
@@ -1367,14 +1216,11 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             warn(f"Skipping cross-compile targets on macOS: {', '.join(non_native)}")
         targets = [t for t in targets if t == native]
 
-    # Sort targets: native first, then cross targets
-    # Avoids Multi-Arch package conflicts (some -dev packages replace each other)
+    # Native first: some cross -dev packages replace their native twins.
     native = _get_native_target()
     targets.sort(key=lambda t: (0 if t == native else 1, t))
 
-    # Resolve release-track optimisation profile (channel-gated).
-    # Libraries (no binaries) skip this entirely -- their release profile is
-    # irrelevant because consumers recompile from source.
+    # A library gets no profile: consumers recompile it from source.
     binary_names_for_profile = _detect_binary_names()
     base_profile: OptimizationProfile | None = None
     if binary_names_for_profile:
@@ -1423,15 +1269,12 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             channel, user_optimize, skip_optimize=skip, project_root=project_root
         )
         cargo_features = _detect_cargo_features()
-        # Target-specific validation happens per-target (BOLT is Linux-only)
 
-    # Tier 2 was asked for, so every target owes a summary saying what ran.
     tier2 = bool(
         base_profile and (base_profile.pgo_enabled or base_profile.bolt_enabled)
     )
 
-    # A release that asked for Tier 2 fails when a stage is skipped, rather than
-    # shipping a half-optimised binary under a green run.
+    # A skipped Tier 2 stage fails the release rather than shipping it green.
     strict = truthy(config.get("build.rust.optimize.strict", True))
     bolt_targets: list[str] = []
     for target in targets:

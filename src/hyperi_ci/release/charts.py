@@ -12,10 +12,8 @@ write the checkout. The chart version is the release version, and its
 ``appVersion`` is left as committed unless the chart has none. A glob skips
 library charts, and a library chart named by its exact directory is published.
 
-A version already in the registry is never pushed again: OCI registries accept
-a re-push of the same tag and ``helm package`` is not byte-reproducible, so a
-re-run would silently move the tag to a new digest. The existing digest is
-reported instead.
+A version already in the registry is reported, never re-pushed: ``helm package``
+is not byte-reproducible, so a re-push would move the tag to a new digest.
 """
 
 import os
