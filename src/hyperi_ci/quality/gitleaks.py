@@ -14,11 +14,11 @@ import tomllib
 from enum import StrEnum
 from pathlib import Path
 
-from hyperi_ci.common import error, info, is_ci, run_cmd, success, warn
+from hyperi_ci.common import error, info, run_cmd, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.native_tools import ci_binary
-from hyperi_ci.tools import missing_tool_notice
+from hyperi_ci.tools import missing_tool, missing_tool_notice
 from hyperi_ci.versions import tool_version
 
 
@@ -361,16 +361,7 @@ def run(config: CIConfig) -> int:
 
     # ci_binary puts an installed gitleaks on PATH, where every call below runs it.
     if ci_binary("gitleaks") is None:
-        if is_ci():
-            if mode == "blocking":
-                error("  gitleaks: not installed (required)")
-                return 1
-            warn("  gitleaks: not installed (skipping)")
-            return 0
-        # Install guidance comes from tools.py only.
-        warn("  gitleaks: skipping secret scanning")
-        warn(f"  {missing_tool_notice('gitleaks')}")
-        return 0
+        return missing_tool("gitleaks", mode)
 
     # `ci_binary` accepts any gitleaks on PATH, however old.
     if not _supports_git_subcommand():

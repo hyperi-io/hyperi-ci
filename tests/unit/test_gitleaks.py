@@ -38,9 +38,11 @@ from pathlib import Path
 
 import pytest
 
+from hyperi_ci import tools
 from hyperi_ci.common import is_ci
 from hyperi_ci.config import CIConfig
 from hyperi_ci.quality import gitleaks
+from hyperi_ci.tools import missing_tool_notice
 
 _SKIP = "HYPERCI_QUALITY_SKIP"
 _STRICT = "HYPERCI_QUALITY_STRICT"
@@ -779,28 +781,39 @@ class TestEnvConfigOverride:
 class TestMissingTool:
     """A gitleaks that did not install is a gate that did not run."""
 
+    @staticmethod
+    def _missing(monkeypatch: pytest.MonkeyPatch, ci: bool) -> dict[str, list[str]]:
+        """Remove gitleaks, set CI, and return what the missing-tool path logs."""
+        said: dict[str, list[str]] = {"warn": [], "error": []}
+        monkeypatch.setattr(gitleaks, "ci_binary", lambda _name: None)
+        monkeypatch.setattr(tools, "is_ci", lambda: ci)
+        for level, lines in said.items():
+            monkeypatch.setattr(tools, level, lines.append)
+        return said
+
     @pytest.mark.parametrize(
-        ("gate", "rc"),
-        [("blocking", 1), (_relaxed("warn"), 0)],
+        ("gate", "rc", "level"),
+        [("blocking", 1, "error"), (_relaxed("warn"), 0, "warn")],
         ids=["blocking", "warn"],
     )
     def test_a_failed_install_in_ci(
-        self, monkeypatch: pytest.MonkeyPatch, gate: object, rc: int
+        self, monkeypatch: pytest.MonkeyPatch, gate: object, rc: int, level: str
     ) -> None:
         calls = _fake_gitleaks(monkeypatch)
-        monkeypatch.setattr(gitleaks, "ci_binary", lambda _name: None)
-        monkeypatch.setattr(gitleaks, "is_ci", lambda: True)
+        said = self._missing(monkeypatch, ci=True)
         assert gitleaks.run(_cfg({"quality": {"gitleaks": gate}})) == rc
         assert not calls
+        assert said[level] == [missing_tool_notice("gitleaks")]
 
+    @pytest.mark.parametrize("gate", ["blocking", _relaxed("warn")])
     def test_missing_tool_warn_skips_locally(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, gate: object
     ) -> None:
         calls = _fake_gitleaks(monkeypatch)
-        monkeypatch.setattr(gitleaks, "ci_binary", lambda _name: None)
-        monkeypatch.setattr(gitleaks, "is_ci", lambda: False)
-        assert gitleaks.run(_cfg({"quality": {"gitleaks": "blocking"}})) == 0
+        said = self._missing(monkeypatch, ci=False)
+        assert gitleaks.run(_cfg({"quality": {"gitleaks": gate}})) == 0
         assert not calls
+        assert said == {"warn": [missing_tool_notice("gitleaks")], "error": []}
 
 
 class TestShortCircuits:
