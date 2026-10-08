@@ -3,6 +3,19 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.13.1](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.0...v2.13.1) (2026-10-08)
+
+### Bug Fixes
+
+* **bootstrap:** bake the versions.yaml python runtime into the image ([#572](https://github.com/hyperi-io/hyperi-ci/issues/572)) ([9d6ff10](https://github.com/hyperi-io/hyperi-ci/commit/9d6ff1066e8e02596f9fac46008f7f8c63c62364))
+* **container:** expose the pushed image digest as a step output ([#551](https://github.com/hyperi-io/hyperi-ci/issues/551)) ([97838b8](https://github.com/hyperi-io/hyperi-ci/commit/97838b8cc13a01da7fa4fb9c3c171c6c7870d9a1))
+* **quality:** keep lint-iac's checkov scan off the working tree ([#574](https://github.com/hyperi-io/hyperi-ci/issues/574)) ([f0f8ba8](https://github.com/hyperi-io/hyperi-ci/commit/f0f8ba8d1e182fa0f94aa014503d73f9d9e0bb67))
+* **quality:** run every language's gate tools through one runner ([#559](https://github.com/hyperi-io/hyperi-ci/issues/559)) ([df5795a](https://github.com/hyperi-io/hyperi-ci/commit/df5795a5bb5fbe5357786ea6b0ac16273a1056fe)), closes [#538](https://github.com/hyperi-io/hyperi-ci/issues/538)
+* **release:** publish a library chart when release.helm.charts names it ([#573](https://github.com/hyperi-io/hyperi-ci/issues/573)) ([9b58e9c](https://github.com/hyperi-io/hyperi-ci/commit/9b58e9c155894f24f1eb2d4deb2b662733f3978f))
+* **release:** publish Helm charts in the release tail before the tag ([#552](https://github.com/hyperi-io/hyperi-ci/issues/552)) ([0318650](https://github.com/hyperi-io/hyperi-ci/commit/0318650deb868a1e0e4505ef176de51cd168a4c7))
+* **release:** read the R2 bucket, account and URL from org config ([#555](https://github.com/hyperi-io/hyperi-ci/issues/555)) ([a709ee3](https://github.com/hyperi-io/hyperi-ci/commit/a709ee3c489d3fd136e3b20a167e3fe4113e44ce))
+* **rust:** keep the feature-matrix check from editing Cargo.toml ([#571](https://github.com/hyperi-io/hyperi-ci/issues/571)) ([e174ba0](https://github.com/hyperi-io/hyperi-ci/commit/e174ba06fca91472d50cf5306063383aad4bfc64))
+
 ## [2.13.0](https://github.com/hyperi-io/hyperi-ci/compare/v2.12.18...v2.13.0) (2026-10-08)
 
 ### Features
