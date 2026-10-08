@@ -633,8 +633,11 @@ def _resolve(versions: dict, now: datetime) -> _Resolution:
         elif status != "ok" or not latest:
             print(f"  {label}: {cur_version} (up to date)")
         elif spec.get("lockfile"):
-            # The lock's integrity hashes need scripts/relock-node-tools.py.
-            print(f"  {label}: {cur_version} -> {latest} (lock-pinned -- bump by hand)")
+            # The bump has to land with a relock of the lock's integrity hashes.
+            print(
+                f"  {label}: {cur_version} -> {latest} (lock-pinned -- run"
+                " scripts/relock-node-tools.py --auto-update)"
+            )
             res.manual += 1
         elif spec.get("sha256"):
             # A stale digest fails the install closed, so the digest moves with

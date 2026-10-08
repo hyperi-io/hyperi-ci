@@ -95,6 +95,7 @@ tools:
   # shipped lockfile, whose sha512 `integrity` fields pin every tarball in the
   # tree. A bump here needs the lock regenerated in the same commit
   # (`uv run scripts/relock-node-tools.py`), or `npm ci` refuses the mismatch.
+  # `relock-node-tools.py --auto-update` makes the bump and the relock together.
   linkedom:
     version: 0.18.13
     npm: linkedom
