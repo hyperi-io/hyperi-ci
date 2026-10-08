@@ -46,6 +46,14 @@ class OrgConfig:
     github_org: str = "hyperi-io"
     ghcr_registry: str = "ghcr.io"
     ghcr_org: str = "hyperi-io"
+    r2_bucket: str = "bin-repo"
+    r2_account_id: str = "98d20454e2af7a9397ad9366a1641659"
+    r2_public_url: str = "https://downloads.hyperi.io"
+
+    @property
+    def r2_endpoint(self) -> str:
+        """S3 API endpoint of the R2 account."""
+        return f"https://{self.r2_account_id}.r2.cloudflarestorage.com"
 
 
 @dataclass
@@ -181,11 +189,16 @@ def load_org_config(*, reload: bool = False) -> OrgConfig:
 
     github = raw.get("github", {})
     ghcr = raw.get("ghcr", {})
+    r2 = raw.get("r2", {})
+    fallback = OrgConfig()
 
     _org_cache = OrgConfig(
         github_org=os.environ.get("GITHUB_ORG", github.get("org", "hyperi-io")),
         ghcr_registry=ghcr.get("registry", "ghcr.io"),
         ghcr_org=ghcr.get("org", "hyperi-io"),
+        r2_bucket=r2.get("bucket", fallback.r2_bucket),
+        r2_account_id=r2.get("account_id", fallback.r2_account_id),
+        r2_public_url=r2.get("public_url", fallback.r2_public_url),
     )
     return _org_cache
 

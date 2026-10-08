@@ -856,3 +856,56 @@ class TestLatestStaysOnTheNewestRelease:
         sent = self._sent(monkeypatch, "1.0.5")
         assert binaries.create_github_release(CIConfig(_raw={})) == 0
         assert not any(arg.startswith("--latest") for arg in sent[0])
+
+
+class TestR2SettingsComeFromOrgConfig:
+    """The bucket, account endpoint and public URL read from org.yaml."""
+
+    def test_shipped_org_yaml_carries_the_published_values(self) -> None:
+        from hyperi_ci.config import load_org_config
+
+        org = load_org_config(reload=True)
+        assert org.r2_bucket == "bin-repo"
+        assert org.r2_account_id == "98d20454e2af7a9397ad9366a1641659"
+        assert org.r2_endpoint == (
+            "https://98d20454e2af7a9397ad9366a1641659.r2.cloudflarestorage.com"
+        )
+        assert org.r2_public_url == "https://downloads.hyperi.io"
+
+    def test_org_values_reach_the_upload_commands(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from hyperi_ci.config import OrgConfig
+        from hyperi_ci.release import binaries
+
+        (tmp_path / "dist").mkdir()
+        (tmp_path / "dist" / "demo-linux-amd64").write_bytes(b"\x7fELF")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("R2_ACCESS_KEY_ID", "test-key")
+        monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "test-secret")
+
+        sent: list[list[str]] = []
+
+        def fake_run_cmd(cmd: list[str], **_kw: object) -> subprocess.CompletedProcess:
+            sent.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        monkeypatch.setattr(binaries, "run_cmd", fake_run_cmd)
+        monkeypatch.setattr(binaries, "_read_version", lambda: "2.0.0")
+        monkeypatch.setattr(binaries, "ensure_aws_cli", lambda: "/usr/bin/aws")
+        monkeypatch.setattr(
+            binaries,
+            "load_org_config",
+            lambda: OrgConfig(
+                r2_bucket="other-bucket",
+                r2_account_id="acct123",
+                r2_public_url="https://dl.example.test",
+            ),
+        )
+
+        assert binaries._publish_r2_binaries() == 0
+        endpoints = {cmd[cmd.index("--endpoint-url") + 1] for cmd in sent}
+        assert endpoints == {"https://acct123.r2.cloudflarestorage.com"}
+        copies = [cmd for cmd in sent if cmd[2] == "cp"]
+        assert copies
+        assert all(cmd[4].startswith("s3://other-bucket/") for cmd in copies)

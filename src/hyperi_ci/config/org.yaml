@@ -14,3 +14,10 @@ github:
 ghcr:
   registry: ghcr.io
   org: hyperi-io
+
+# Cloudflare R2 binary repository. Credentials stay in the environment
+# (R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY).
+r2:
+  bucket: bin-repo
+  account_id: 98d20454e2af7a9397ad9366a1641659
+  public_url: https://downloads.hyperi.io
