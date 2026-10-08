@@ -4,18 +4,12 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Semgrep SAST scanning (cross-language).
+"""Semgrep SAST scanning, once at dispatch level because its ruleset spans languages.
 
-Semgrep's auto ruleset spans languages (python, go, ts, rust, yaml,
-Dockerfiles, ...), so it runs ONCE at the dispatch level - like
-gitleaks - rather than being re-invoked inside each language handler.
-
-Mode comes from ``quality.semgrep`` (default ``warn``). A consumer's
-legacy per-language ``quality.<lang>.semgrep`` override is still honoured
-for back-compat. Path excludes come from the shared exclude-dirs; rule
-suppressions from the ``quality.ignore`` list (``tool: semgrep``), plus
-an automatic exclude of the ``python.lang.compatibility.*`` rules a
-project's own ``requires-python`` floor has already outgrown.
+Mode is ``quality.semgrep`` (default ``warn``), else a legacy
+``quality.<lang>.semgrep``. Excludes are the shared exclude-dirs, the
+``quality.ignore`` entries for ``semgrep``, and the
+``python.lang.compatibility.*`` rules the ``requires-python`` floor has outgrown.
 """
 
 import shutil
@@ -38,11 +32,9 @@ from hyperi_ci.versions import tool_version
 
 _SHIPPED_KEY = "quality.semgrep"
 
-# The `r/python.lang.compatibility` pack at semgrep 1.178.0 - 20 rules, each
-# targeting the Python version named in its own id (python36, python37, ...).
-# Enumerated via `semgrep scan --config r/python.lang.compatibility --verbose`
-# (semgrep has no rule-listing subcommand). The registry serves the pack at scan
-# time, so scripts/check-semgrep-compat-rules.py re-checks it weekly.
+# The `r/python.lang.compatibility` pack at semgrep 1.178.0, rule id to target
+# Python. The registry serves it at scan time, so
+# scripts/check-semgrep-compat-rules.py re-checks it weekly.
 PYTHON_COMPAT_RULES: dict[str, str] = {
     "python.lang.compatibility.python36.python36-compatibility-Popen1": "3.6",
     "python.lang.compatibility.python36.python36-compatibility-Popen2": "3.6",
@@ -68,10 +60,9 @@ PYTHON_COMPAT_RULES: dict[str, str] = {
 
 
 def _stale_compat_rules(floor: str | None) -> list[str]:
-    """Return compatibility rule ids a ``requires-python`` floor makes moot.
+    """Return the compatibility rule ids a ``requires-python`` floor makes moot.
 
-    ``floor`` is ``None`` when the project declares no lower bound - nothing
-    is excluded, because excluding without a declared floor would be a guess.
+    A ``None`` floor excludes nothing.
     """
     if not floor:
         return []
@@ -99,8 +90,7 @@ def _resolve_mode(config: CIConfig, language: str | None) -> str:
         key = f"quality.{language}.semgrep"
         raw = legacy
     mode, reason = checked_mode(key, raw, "warn")
-    # The legacy key carries no shipped default of its own, so both spellings
-    # are measured against the one semgrep actually ships.
+    # The legacy key has no shipped default, so both are measured against semgrep's.
     note_gate_downgrade(key, mode, reason, shipped_key=_SHIPPED_KEY)
     return apply_strict(mode)
 

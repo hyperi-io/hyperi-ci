@@ -5,39 +5,20 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Shared finding surface for the container / k8s / IaC linting tools.
+"""Shared finding surface for the linting tools.
 
-hadolint, droast, kubeconform, kube-linter and Checkov each emit their own
-JSON. Rather than let each one surface findings its own way (native
-annotations here, SARIF there, plain log elsewhere), every tool module parses
-its JSON into a normalised :class:`Finding` list and hands it to :func:`surface`.
-One code path then decides HOW findings appear, uniformly, in three layers:
+Each tool parses its output into :class:`Finding` objects and hands them to
+:func:`surface`, which writes three layers:
 
-1. **GitHub annotations** (``::error::`` / ``::warning::`` / ``::notice::``) -
-   a BOUNDED set of inline pointers, errors first. Portable, needs no token,
-   works on every repo including private and forks.
-2. **Job summary** (``$GITHUB_STEP_SUMMARY`` markdown table) - the findings
-   list, bounded at 1000 rows with a truncation note (to stay under GitHub's
-   1MiB/step ceiling). This is the safety net for the annotation cap.
-3. **SARIF** - written only when a path is configured (opt-in). Writing the
-   file is always safe; UPLOADING it into code scanning needs GitHub Code
-   Security (paid on private repos), so the upload is the workflow's job, not
-   ours - we never try to upload and never trigger the "must enable" error.
+1. GitHub annotations, errors first, within a budget.
+2. The job summary table, capped at 1000 rows to stay under GitHub's 1 MiB
+   step limit. It carries what the annotation budget drops.
+3. SARIF, only when a path is given. Uploading it needs GitHub Code Security,
+   so the upload is the workflow's job.
 
-The annotation budget is the subtle part. GitHub caps annotations at **10
-error + 10 warning per STEP** (50 per job), and SILENTLY drops the rest with no
-feedback - a static analyser that emits 40 findings looks like it emitted 10.
-Every tool that surfaces through here draws from ONE process-global budget (a
-module-level :class:`_AnnotationBudget`), so the tools sharing a process cannot
-between them exceed the per-step cap. When it is exhausted the remaining
-findings still land in the job summary, which is uncapped - nothing is ever
-silently lost.
-
-In practice the budget couples the ``surface()`` users that run in the same
-process: hadolint + droast inside ``hyperi-ci run quality`` (gitleaks/semgrep
-emit their own output and do not use this surface), and the IaC tools inside
-the separate ``lint-iac`` process - which, being a distinct step, correctly
-starts with its own fresh budget.
+GitHub keeps 10 error and 10 warning annotations per step and silently drops
+the rest, so every tool in one process draws from one :class:`_AnnotationBudget`.
+``lint-iac`` is a separate step and process, so it gets a fresh budget.
 """
 
 import json
@@ -58,22 +39,15 @@ from hyperi_ci.common import (
     warn,
 )
 
-# Cap the rows written to one job-summary section. GitHub truncates a step
-# summary at 1 MiB; a bounded table plus a "truncated" note keeps a pathological
-# findings count from silently hitting that ceiling (the annotation cap's twin).
+# GitHub truncates a step summary at 1 MiB.
 _MAX_SUMMARY_ROWS = 1000
 
-# GitHub Actions per-step annotation limits (10 error + 10 warning). We budget
-# each level to its own ceiling and prioritise errors. `notice` has no
-# documented separate ceiling, but is bounded here too so an advisory tool
-# cannot flood the run summary annotations.
+# GitHub's per-step limit for error and warning; notice is capped to match.
 _ANNOTATION_CAP = 10
 
-# Normalised severity -> GitHub workflow-command keyword. Tools speak
-# error/warning/info/style/note; we fold everything to the three GitHub levels.
 _GH_COMMAND = {"error": "error", "warning": "warning", "notice": "notice"}
 
-# Normalised severity -> SARIF result level (SARIF uses `note`, not `notice`).
+# SARIF spells `notice` as `note`.
 _SARIF_LEVEL = {"error": "error", "warning": "warning", "notice": "note"}
 
 _LEVEL_ALIASES = {
@@ -90,10 +64,9 @@ _LEVEL_ALIASES = {
 
 
 def normalise_level(raw: str) -> str:
-    """Fold a tool's severity word to one of ``error`` / ``warning`` / ``notice``.
+    """Fold a tool's severity word to ``error``, ``warning`` or ``notice``.
 
-    Unknown severities default to ``warning`` - visible but not build-failing,
-    the safe middle for an unrecognised signal.
+    An unknown word becomes ``warning``.
     """
     return _LEVEL_ALIASES.get(str(raw).strip().lower(), "warning")
 
@@ -102,9 +75,8 @@ def normalise_level(raw: str) -> str:
 class Finding:
     """One normalised finding from any linting tool.
 
-    ``level`` is already folded to ``error`` / ``warning`` / ``notice`` (use
-    :func:`normalise_level` at parse time). ``line`` is 1-indexed or ``None``
-    when the tool reports no location.
+    ``level`` is already folded by :func:`normalise_level`. ``line`` is
+    1-indexed, or ``None`` when the tool reports no location.
     """
 
     tool: str
@@ -118,12 +90,7 @@ class Finding:
 
 @dataclass
 class _AnnotationBudget:
-    """Step-global remaining-annotation counters, one per GitHub level.
-
-    Module-level singleton (:data:`_BUDGET`) so every tool in the one quality
-    process draws from the same pool. :func:`reset_annotation_budget` restores
-    it (used by tests and available if a caller wants a clean step).
-    """
+    """Remaining annotations per GitHub level, shared through :data:`_BUDGET`."""
 
     remaining: dict[str, int] = field(
         default_factory=lambda: {
@@ -143,8 +110,7 @@ class _AnnotationBudget:
 
 _BUDGET = _AnnotationBudget()
 
-# Findings surfaced in this process, keyed by tool, so an orchestrator can
-# report a per-dimension count without each tool returning one.
+# Findings surfaced in this process, by tool, for the orchestrator's counts.
 _TALLY: dict[str, int] = {}
 
 
@@ -163,12 +129,9 @@ def reset_annotation_budget() -> None:
 
 
 def _prop_val(value: str) -> str:
-    """Sanitise a workflow-command PROPERTY value (file / title / rule).
+    """Blank the commas, ``::`` and newlines in a workflow-command property value.
 
-    Property fields are comma- and ``::``-delimited, so repo-controlled content
-    (a manifest ``kind``, a filename with a comma) could otherwise inject or
-    spoof another property. Strip the delimiters and newlines - cosmetic fields,
-    so replacing is fine.
+    Repo-controlled content in a property could otherwise inject another one.
     """
     return (
         value.replace(",", " ").replace("::", " ").replace("\r", " ").replace("\n", " ")
@@ -192,12 +155,11 @@ def _annotation_line(f: Finding) -> str:
 
 
 def emit_annotations(findings: list[Finding]) -> int:
-    """Emit up-to-budget GitHub annotations for ``findings``, errors first.
+    """Emit GitHub annotations for ``findings``, errors first, within the budget.
 
-    Returns the number of findings that could NOT be annotated because the
-    step-global budget was exhausted - the caller notes "+N more, see summary"
-    so an exhausted budget is visible rather than a silent drop. Outside GitHub
-    Actions this is a no-op (returns 0); :func:`log_findings` carries them there.
+    Returns:
+        How many findings the budget dropped; 0 outside GitHub Actions, where
+        nothing is emitted.
     """
     if not is_github_actions():
         return 0
@@ -216,7 +178,6 @@ def _summary_table(findings: list[Finding]) -> str:
     rows = ["| Severity | Rule | Location | Message |", "| --- | --- | --- | --- |"]
     for f in findings:
         loc = f.path + (f":{f.line}" if f.line is not None else "")
-        # Escape pipes so a message containing `|` does not break the table.
         msg = f.message.replace("|", "\\|").replace("\n", " ")
         rule = f"[{f.rule}]({f.url})" if f.url else f.rule
         rows.append(f"| {f.level} | {rule} | {loc} | {msg} |")
@@ -224,12 +185,9 @@ def _summary_table(findings: list[Finding]) -> str:
 
 
 def append_job_summary(tool: str, findings: list[Finding]) -> None:
-    """Append a ``tool`` section (full findings table) to the job summary.
+    """Append a ``tool`` findings table to ``$GITHUB_STEP_SUMMARY``, when set.
 
-    Writes to ``$GITHUB_STEP_SUMMARY`` when set (GitHub Actions); a no-op
-    otherwise. The list goes here bounded at ``_MAX_SUMMARY_ROWS`` (to stay
-    under the 1MiB/step ceiling), so it is the authoritative record even when
-    the annotation budget truncated.
+    Capped at ``_MAX_SUMMARY_ROWS`` with a truncation note.
     """
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if not summary_path or not findings:
@@ -240,8 +198,7 @@ def append_job_summary(tool: str, findings: list[Finding]) -> None:
     if len(findings) > len(shown):
         block += f"\n\n_... {len(findings) - len(shown)} more findings truncated (see the log)._"
     block += "\n\n"
-    # Best-effort surfacing: a write failure (unwritable summary path) must never
-    # crash the tool - especially an advisory, which is contractually non-fatal.
+    # A write failure warns rather than failing the check.
     try:
         with Path(summary_path).open("a", encoding="utf-8", newline="\n") as fh:
             fh.write(block)
@@ -250,13 +207,9 @@ def append_job_summary(tool: str, findings: list[Finding]) -> None:
 
 
 def write_sarif(tool: str, findings: list[Finding], path: str | Path) -> None:
-    """Write (or append a run to) a SARIF 2.1.0 file at ``path``.
+    """Append a run for ``tool`` to the SARIF 2.1.0 file at ``path``.
 
-    Multiple tools in one stage can target the same ``path``; each call appends
-    its own ``run`` so the result is a single multi-run SARIF the workflow
-    uploads ONCE. Writing the file is always safe - the code-scanning UPLOAD
-    (which needs GitHub Code Security, paid on private repos) is the workflow's
-    responsibility, gated there, never attempted here.
+    Tools sharing a ``path`` build one multi-run file for a single upload.
     """
     p = Path(path)
     doc: dict = {
@@ -304,9 +257,7 @@ def write_sarif(tool: str, findings: list[Finding], path: str | Path) -> None:
             "results": results,
         }
     )
-    # Best-effort: an unwritable sarif path must not crash the tool (advisories
-    # are contractually non-fatal; a gate should fail on findings, not on a
-    # surfacing IO error).
+    # A write failure warns rather than failing the check.
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(doc, indent=2), encoding="utf-8", newline="\n")
@@ -315,17 +266,10 @@ def write_sarif(tool: str, findings: list[Finding], path: str | Path) -> None:
 
 
 def parse_sarif(text: str, tool: str) -> list[Finding]:
-    """Parse a tool's SARIF 2.1.0 output into normalised :class:`Finding` s.
+    """Parse a tool's SARIF 2.1.0 output into :class:`Finding` objects.
 
-    Several tools (droast, kube-linter, Checkov) emit SARIF, whose schema is
-    fixed and standard - so parsing SARIF is far more robust than each tool's
-    bespoke JSON, whose field names we cannot always pin down. One parser
-    serves them all. ``tool`` labels the findings; the SARIF driver name is not
-    trusted for that (it varies).
-
-    Tolerant by design: a malformed or empty SARIF yields ``[]`` rather than
-    raising, because an advisory tool must never turn a parse hiccup into a
-    failed lint.
+    ``tool`` labels the findings, because driver names vary. Malformed or
+    empty SARIF returns ``[]``.
     """
     try:
         doc = json.loads(text)
@@ -342,7 +286,6 @@ def parse_sarif(text: str, tool: str) -> list[Finding]:
     }
     out: list[Finding] = []
     for run in doc.get("runs", []) or []:
-        # Rule helpUri lookup, so a finding can carry its docs link.
         rule_urls: dict[str, str] = {}
         driver = (run.get("tool") or {}).get("driver") or {}
         for rule in driver.get("rules", []) or []:
@@ -375,12 +318,7 @@ def parse_sarif(text: str, tool: str) -> list[Finding]:
 
 
 def log_findings(tool: str, findings: list[Finding]) -> None:
-    """Print the findings to the log where no GitHub surface will carry them.
-
-    Annotations and the job summary are both no-ops off CI, and SARIF is opt-in,
-    so a local run failed the gate while printing only a count (issue #72).
-    Bounded like the summary, because the reason to cap there applies here too.
-    """
+    """Log ``findings`` outside GitHub Actions, capped like the summary (issue #72)."""
     if not findings or is_github_actions():
         return
     shown = findings[:_MAX_SUMMARY_ROWS]
@@ -400,10 +338,8 @@ def log_findings(tool: str, findings: list[Finding]) -> None:
 def at_mode(findings: list[Finding], mode: str) -> list[Finding]:
     """Return ``findings`` as a check running at ``mode`` should surface them.
 
-    Only a ``blocking`` check can fail the job, so only it may raise an
-    ``error`` annotation. Anywhere else an error becomes a warning, which keeps
-    a green job free of red annotations and leaves the step's error budget to
-    the checks that gate. Gate decisions read the original list, not this one.
+    Outside ``blocking`` an error becomes a warning, so a green job shows no
+    error annotation. Gate decisions read the original list.
     """
     if mode == "blocking":
         return findings
@@ -413,12 +349,10 @@ def at_mode(findings: list[Finding], mode: str) -> list[Finding]:
 def surface(
     tool: str, findings: list[Finding], *, sarif_path: str | Path | None = None
 ) -> int:
-    """Surface ``findings`` across all layers: annotations, summary, log, SARIF.
+    """Surface ``findings`` as annotations, job summary, log and SARIF.
 
-    Returns the count of findings that overflowed the annotation budget (so the
-    caller can log "+N more, see summary"). The full list is always in the job
-    summary and, when ``sarif_path`` is set, in the SARIF file. Off CI, where
-    neither GitHub surface exists, the findings go to the log instead.
+    Returns:
+        How many findings the annotation budget dropped.
     """
     _TALLY[tool] = _TALLY.get(tool, 0) + len(findings)
     dropped = emit_annotations(findings)

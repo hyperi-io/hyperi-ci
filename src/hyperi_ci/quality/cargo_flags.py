@@ -4,29 +4,19 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Catch a Rust repo that cannot ship its own rustflags.
+"""Catch a Rust repo whose ``.cargo/config.toml`` rustflags silently never apply.
 
-Two ways a repo carries a correct-looking ``.cargo/config.toml`` and builds
-without it. Both are silent, both cost the target-cpu the project asked for,
-and both have already cost the fleet AVX2 (issue #178).
+Two causes, both of which cost the fleet AVX2 (issue #178):
 
-THE INERT NEGATION. A ``.gitignore`` excluding ``.cargo/`` and then writing
-``!.cargo/config.toml`` does nothing -- git cannot re-include a file underneath
-an excluded DIRECTORY. The config is never committed, CI never sees it, and the
-repo builds baseline while the developer's machine builds v3. The working form
-globs the CONTENTS instead: ``.cargo/*`` then the negation.
+* An inert negation: ``.cargo/`` then ``!.cargo/config.toml`` in
+  ``.gitignore``. Git cannot re-include a file under an excluded directory, so
+  the config is never committed. ``.cargo/*`` then the negation works.
+* Flags under ``[build]``. Cargo takes the first of ``CARGO_ENCODED_RUSTFLAGS``,
+  ``RUSTFLAGS``, the joined ``target.*`` entries, then ``build.rustflags``. The
+  ARC pod's ``CARGO_TARGET_<TRIPLE>_RUSTFLAGS`` is a ``target`` entry, so it
+  replaces ``[build]`` outright.
 
-THE WRONG TABLE. Cargo's four sources of extra flags are mutually exclusive and
-checked in order: ``CARGO_ENCODED_RUSTFLAGS``, ``RUSTFLAGS``, all matching
-``target.<triple>``/``target.<cfg>`` entries joined, then ``build.rustflags``.
-So a ``target.*`` entry does not merge with ``[build]`` -- it REPLACES it. The
-ARC pod sets ``CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS``, which counts
-as such an entry, so a repo declaring flags under ``[build]`` loses all of them
-on every x86_64 build there with nothing in the log.
-
-Flags under ``[target.<triple>]`` are SAFE and must not be flagged: matching
-target entries join, so the pod's flags and the repo's coexist. That
-distinction is what keeps this check free of false positives.
+Flags under ``[target.<triple>]`` join the pod's and are not flagged.
 """
 
 import subprocess
@@ -45,9 +35,7 @@ CARGO_CONFIG = Path(".cargo/config.toml")
 def _negations_under_excluded_dirs(gitignore: str) -> list[tuple[int, str, str]]:
     """Return ``(line, directory pattern, negated path)`` for inert negations.
 
-    A negation is inert when an earlier line excludes the DIRECTORY the negated
-    path sits in. Git offers no way to re-include from under one, so the
-    negation reads as intent and does nothing.
+    A negation is inert when an earlier line excludes the directory it sits in.
     """
     excluded_dirs: list[str] = []
     out: list[tuple[int, str, str]] = []
@@ -71,10 +59,8 @@ def _negations_under_excluded_dirs(gitignore: str) -> list[tuple[int, str, str]]
 def _excluded_directory(line: str) -> str | None:
     """Return the directory prefix a pattern excludes, or None.
 
-    Git excludes a directory by a trailing slash (``.cargo/``), by a bare name
-    (``.cargo``), and through a globstar (``**/.cargo/``) -- all three make a
-    negation underneath inert. ``dir/*`` globs the CONTENTS instead, which is
-    the form a negation CAN escape, so it is not one.
+    ``.cargo/``, ``.cargo`` and ``**/.cargo/`` exclude the directory. ``dir/*``
+    excludes only its contents, which a negation can re-include.
     """
     pattern = line.removeprefix("**/").lstrip("/")
     if not pattern or pattern.endswith("*"):
@@ -85,7 +71,7 @@ def _excluded_directory(line: str) -> str | None:
 
 
 def _is_tracked(path: str, project_root: Path) -> bool:
-    """Whether git tracks ``path``. A tracked file ignores every ignore rule."""
+    """Return whether git tracks ``path``, which no ignore rule then affects."""
     result = subprocess.run(
         ["git", "ls-files", "--error-unmatch", path],
         cwd=project_root,
@@ -165,7 +151,7 @@ def run(
     project_root: Path | None = None,
     sarif_path: str | Path | None = None,
 ) -> int:
-    """Report rustflags this repo declares but cannot ship. Returns exit code.
+    """Report rustflags this repo declares but cannot ship.
 
     Args:
         config: Merged CI configuration.

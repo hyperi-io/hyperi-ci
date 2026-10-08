@@ -4,12 +4,9 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Warn about deprecated project files present in a repo.
+"""Warn about deprecated project files present in a repo; never gates a build.
 
-A table-driven tidy-up nudge: the file->message table is a packaged config
-(``config/deprecated-files.yaml``), so adding a newly-retired file is a data
-edit, not a code change. Runs on ``hyperi-ci check`` (local pre-push) and in
-CI. Non-fatal by design - it recommends removal, it never gates a build.
+The file-to-message table is the packaged ``config/deprecated-files.yaml``.
 """
 
 from pathlib import Path
@@ -18,7 +15,6 @@ import yaml
 
 from hyperi_ci.common import announce, info
 
-# config/ is a sibling of quality/ inside the package (both under hyperi_ci/).
 _TABLE_PATH = Path(__file__).resolve().parents[1] / "config" / "deprecated-files.yaml"
 
 
@@ -37,11 +33,11 @@ def _load_table() -> list[dict]:
 def scan(project_dir: Path | None = None) -> list[str]:
     """Warn about deprecated files present under ``project_dir``.
 
-    For each table entry whose path exists, emit a non-fatal nudge - a
-    ``warn`` level entry is one GitHub ``::warning::`` annotation under GitHub
-    Actions, so it lands in the run summary, and a log line elsewhere. Returns the
-    project-relative paths that fired (for callers / tests). Never raises and
-    never fails a build: it is a recommendation, not a gate.
+    A ``warn`` entry is a ``::warning::`` annotation under GitHub Actions and a
+    log line elsewhere; an ``info`` entry is a log line.
+
+    Returns:
+        The project-relative paths that fired.
     """
     root = project_dir or Path.cwd()
     fired: list[str] = []

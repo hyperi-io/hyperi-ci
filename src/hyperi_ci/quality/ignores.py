@@ -21,22 +21,10 @@ Schema in ``.hyperi-ci.yaml``::
           reason: "ossf/malicious-packages#1276 false-positive withdrawal"
           expires: 2026-06-15            # auto-sunsets; dropped after this date
 
-The shape is identical across languages. Each language quality runner
-filters for the slugs it owns and translates ``id`` to the tool's
-native ignore flag at command-build time. ``reason`` is mandatory -
-ignores are debt and a grep-able rationale is the price of admission.
-
-``id`` (scalar) and ``ids`` (list) may both be given; they merge. The
-list form keeps one stanza per logical suppression (e.g. an entire
-malicious-packages false-positive wave) instead of N near-identical
-entries.
-
-``expires`` (optional ``YYYY-MM-DD``) sunsets an ignore: once the date
-has passed the entry is dropped at load time and a warning is logged,
-so a suppression for a withdrawn false positive cannot silently mask a
-genuine future finding on the same ID. This is framework-wide - every
-language runner inherits it because filtering happens here, not in the
-per-tool translation.
+Each language runner takes the slugs it owns and turns ``id`` into the tool's
+own ignore flag. ``reason`` is mandatory. ``id`` and ``ids`` merge. Past its
+``expires`` date an entry is dropped at load with a warning, so it cannot mask
+a later finding on the same ID.
 
 Tool slugs in use:
 
@@ -46,9 +34,7 @@ Tool slugs in use:
 * TypeScript: ``pnpm-audit`` (``npm audit`` has no CLI ignore flag;
   use ``package.json`` ``overrides`` instead)
 
-Unknown tool slugs are accepted at load-time but silently ignored at
-runtime - this lets projects pre-stage entries for tools that
-haven't been wired yet without breaking the build.
+An unknown slug loads and is never used, so entries can precede their tool.
 """
 
 from collections.abc import Iterable
@@ -73,11 +59,11 @@ def load_ignores(config_raw: dict[str, Any]) -> list[IgnoreEntry]:
     """Parse ``quality.ignore`` from the raw ``.hyperi-ci.yaml`` dict.
 
     Returns:
-        List of ignore entries (empty if absent).
+        One entry per ID, expired entries dropped; empty if absent.
 
     Raises:
         ValueError: If the section is malformed or any entry is missing
-            ``tool``, ``id``, or ``reason``.
+            ``tool``, ``id``/``ids``, or ``reason``.
 
     """
     quality = config_raw.get("quality") or {}
