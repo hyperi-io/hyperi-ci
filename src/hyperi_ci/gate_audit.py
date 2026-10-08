@@ -222,15 +222,6 @@ class RepoReport:
         """True when every gate has answered recently."""
         return not self.findings and self.error is None
 
-    @property
-    def audited(self) -> bool:
-        """True when this repo runs the workflow at all.
-
-        A repo with no runs is not a consumer of ours and reporting it would
-        bury the real findings -- the same call `audit-callers` makes.
-        """
-        return self.error is None
-
 
 def _gh_json(args: list[str]) -> object | None:
     """Run a gh command and decode its JSON, or None on any failure."""

@@ -528,25 +528,6 @@ jobs:
             ("actions/setup-node", "v6"),
         }
 
-    def test_files_for_matches_the_update_versions_discovery(
-        self, tmp_path: Path
-    ) -> None:
-        # update-versions.py globs two hardcoded dirs for THIS repo; the
-        # github-actions surface is the generalisation. Pin them together so
-        # they cannot quietly disagree about what a pipeline file is.
-        _write(tmp_path, ".github/workflows/a.yml", "name: a\n")
-        _write(tmp_path, ".github/workflows/b.yaml", "name: b\n")
-        _write(tmp_path, ".github/actions/c/action.yml", "name: c\n")
-        _write(tmp_path, ".github/actions/d/action.yaml", "name: d\n")
-        _git_init(tmp_path)
-
-        assert set(surfaces.files_for(tmp_path, "github-actions")) == {
-            ".github/actions/c/action.yml",
-            ".github/actions/d/action.yaml",
-            ".github/workflows/a.yml",
-            ".github/workflows/b.yaml",
-        }
-
 
 class TestScanDockerfile:
     def test_every_stage_of_a_multi_stage_build(self, tmp_path: Path) -> None:

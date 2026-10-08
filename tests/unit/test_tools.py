@@ -15,7 +15,7 @@ from hyperi_ci import tools
 
 def test_registry_has_core_tools() -> None:
     for name in ("alint", "gitleaks", "semgrep", "osv-scanner", "gh", "helm", "aws"):
-        assert tools.tool_info(name) is not None, name
+        assert name in tools._REGISTRY, name
 
 
 def test_notice_for_known_tool_is_actionable() -> None:

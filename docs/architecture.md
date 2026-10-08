@@ -210,7 +210,7 @@ detail - tiers, cache, cross-compile (dormant) - is
 src/hyperi_ci/
   cli.py · dispatch.py · detect.py · config.py · common.py · stamp.py · init.py
   config/      defaults · org · versions · deprecated-files · toolchains/ · native-deps/
-  container/   stage · labels · templates · manifest · compose · build
+  container/   stage · binary_stage · build · cgroup · detect · labels · registry
   languages/   python · rust · typescript · golang   (quality|test|build|release)
 config/        fixtures · dynamic-config-keys · retired-interfaces   (repo-root, not shipped in the wheel)
 scripts/       update-versions.py (/deps) · check-workflow-interfaces.py (#31 gate)

@@ -344,16 +344,3 @@ def project_ci_workflow(*, cwd: Path | None = None) -> str | None:
     if isinstance(name, str) and name.strip():
         return name.strip()
     return None
-
-
-def get_run_jobs(run_id: str) -> list[dict]:
-    """Get jobs for a specific run.
-
-    Args:
-        run_id: The workflow run ID.
-
-    Returns:
-        List of job dicts with name, status, conclusion, steps.
-
-    """
-    return gh_json(["run", "view", run_id, "--json", "jobs"], ["jobs"])

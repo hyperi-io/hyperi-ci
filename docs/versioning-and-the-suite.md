@@ -29,7 +29,7 @@ suite version covers a stack that pins many app versions, cut by hand, such as
 | `release` / `ga` | yes | yes |
 
 The hyperi-ci channels are `VALID_CHANNELS` in
-`src/hyperi_ci/publish/binaries.py`. The suite ladder is `tags.maturity.ladder`
+`src/hyperi_ci/release/binaries.py`. The suite ladder is `tags.maturity.ladder`
 in dfe-infra's `suite.yaml`, written `alpha -> beta -> rc -> ga`.
 
 `rc` is a suite maturity only and never appears in a per-repo version.

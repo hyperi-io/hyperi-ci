@@ -63,10 +63,6 @@ class TestReader:
         with pytest.raises(KeyError, match="sha256"):
             versions.tool_sha256("gitleaks", "sparc")
 
-    def test_action_ref_is_the_shape_a_uses_line_wants(self) -> None:
-        ref = versions.action_ref("checkout")
-        assert re.fullmatch(r"[0-9a-f]{40} # v[\d.]+", ref)
-
     def test_runtime_version(self) -> None:
         assert versions.runtime_version("python") == "3.14"
 

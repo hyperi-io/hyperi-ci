@@ -1,7 +1,0 @@
-# Project:   HyperI CI
-# File:      .gitattributes
-# Purpose:   Path attributes — primarily archive-export controls
-
-# Keep operator/CI directories out of action zips — they're not part
-# of the runtime API surface.
-test-projects/ export-ignore

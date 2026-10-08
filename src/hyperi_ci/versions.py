@@ -99,36 +99,6 @@ def tool_sha256(name: str, arch: str) -> str:
     return str(digests[arch])
 
 
-def tool_names() -> list[str]:
-    """Every tool key in the SSOT, sorted."""
-    return sorted((_data().get("tools") or {}).keys())
-
-
-def action_names() -> list[str]:
-    """Every action key in the SSOT, sorted."""
-    return sorted((_data().get("actions") or {}).keys())
-
-
-def action_ref(name: str) -> str:
-    """Return ``<sha> # <version>`` for a pinned action, or the bare tag.
-
-    The shape a ``uses:`` line wants, so a caller scaffolding a workflow emits
-    the same pin the rewriter would.
-
-    Raises:
-        KeyError: No such action.
-
-    """
-    actions = _data().get("actions") or {}
-    spec = actions.get(name)
-    if spec is None:
-        raise KeyError(f"`actions.{name}` is missing from {VERSIONS_FILE.name}")
-    if isinstance(spec, str):
-        return spec
-    sha, version = spec.get("sha"), spec.get("version")
-    return f"{sha} # {version}" if sha else str(version)
-
-
 def runtime_version(name: str) -> str:
     """Return a language runtime pin (``python``, ``node``, ``rust``).
 

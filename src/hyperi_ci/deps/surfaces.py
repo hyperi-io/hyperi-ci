@@ -230,21 +230,6 @@ def matches(surface: Surface, rel: str) -> bool:
     return not any(pattern.search(rel) for pattern in surface.exclude)
 
 
-def files_for(root: Path, surface_id: str, files: list[str] | None = None) -> list[str]:
-    """Every file in ``root`` claimed by one surface.
-
-    The generalised form of ``update-versions.py``'s ``_find_workflow_files``:
-    ask the catalogue rather than globbing two hardcoded directories. A
-    consistency test pins the two together over this repo.
-    """
-    surface = next((s for s in load() if s.id == surface_id), None)
-    if surface is None:
-        return []
-    if files is None:
-        files, _ = repo_files(root)
-    return [rel for rel in files if matches(surface, rel)]
-
-
 def _read(path: Path) -> str:
     """File text, or empty when unreadable. Binary bytes are replaced."""
     try:
