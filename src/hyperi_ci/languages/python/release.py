@@ -4,12 +4,11 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Python release handler -- uploads the Build job's wheel and sdist to PyPI.
+"""Python release handler: uploads the Build job's wheel and sdist to PyPI.
 
-Nothing is built here. ``uv publish`` runs with ``--no-config`` because a
-project's ``[tool.uv] publish-url`` would otherwise send the token to whatever
-host it names (issue #409), and the token goes in the environment rather than
-on the command line, where any process on the runner can read it.
+``uv publish`` runs with ``--no-config`` so a project's ``[tool.uv] publish-url``
+cannot redirect the token (issue #409). The token goes in the environment, as
+the command line is readable by any process on the runner.
 """
 
 import os
@@ -19,9 +18,7 @@ from hyperi_ci.config import CIConfig
 
 
 def _publish_pypi() -> int:
-    """Publish to PyPI using OIDC trusted publishing.
-
-    Requires PYPI_TOKEN env var or OIDC trust configured in PyPI.
+    """Publish to PyPI with PYPI_TOKEN, or OIDC trusted publishing when unset.
 
     Returns:
         Exit code (0 = success).

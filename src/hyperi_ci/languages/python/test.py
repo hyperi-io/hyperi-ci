@@ -4,26 +4,19 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Python test handler.
+"""Python test handler: pytest with optional directory tiers and coverage.
 
-Runs pytest with optional tiered execution (unit -> integration -> e2e).
-Supports coverage reporting, configurable test arguments, and a worker
-count derived from the host when the project opts into parallelism.
-
-The test tier decides the marker selection: ``core`` leaves the project's own
-``addopts -m`` in force, ``full`` passes ``-m <test.full.python.markers>``,
-which pytest applies in place of it. Every run reports its passed, skipped and
+The test tier decides the marker selection. ``core`` leaves the project's own
+``addopts -m`` in force and ``full`` passes ``-m <test.full.python.markers>``,
+which pytest applies in its place. Every run reports its passed, skipped and
 deselected counts as a ``test tier`` notice.
 
 Under ``full`` a skip fails the run unless its reason matches
-``test.full.python.allow_skip``: a skip there is a test that could not run,
-which the full tier exists to rule out.
+``test.full.python.allow_skip``, as a skip there is a test that could not run.
 
-Every run lists each skip with its reason (``-r`` with ``s``), and keeps only
-a failed test's ``tmp_path`` directory rather than pytest's default of every
-test's for the last 3 runs, unless the project sets its own retention policy.
-In CI both tiers also list the slowest tests with ``--durations`` and write
-JUnit XML to ``test-results/``, each unless the project sets its own.
+Every run lists skip reasons (``-r`` with ``s``) and keeps only a failed test's
+``tmp_path``. In CI it also lists the slowest tests (``--durations``) and writes
+JUnit XML to ``test-results/``. A project's own setting for any of these wins.
 """
 
 import re
@@ -68,12 +61,10 @@ _RESULTS_DIR = "test-results"
 
 
 def _resolve_cmd(cmd: list[str]) -> list[str]:
-    """Resolve command, preferring `uv run` for uv projects.
+    """Resolve the command, going through `uv run` in a uv project (uv.lock).
 
-    System-PATH pytest lives outside the project venv and won't see
-    project-local plugins (pytest-cov, pytest-xdist). When this is a
-    uv project (uv.lock present), always go through `uv run` so the
-    project's own pytest + plugins are used.
+    A PATH pytest sits outside the project venv and misses its plugins
+    (pytest-cov, pytest-xdist).
     """
     if shutil.which("uv") and Path("uv.lock").exists():
         return ["uv", "run", *cmd]
@@ -84,8 +75,7 @@ def _resolve_cmd(cmd: list[str]) -> list[str]:
     return cmd
 
 
-# pytest's exit code for "collected nothing". Distinct from a test failure (1),
-# which is what makes `test.fail_on_missing` implementable at all.
+# pytest's exit code for "collected nothing", distinct from a failure (1).
 _PYTEST_NO_TESTS_COLLECTED = 5
 
 # The closing line: "== 3 passed, 1 skipped, 2 deselected in 0.12s ==", with
@@ -111,9 +101,8 @@ _DEFAULT_REPORT_CHARS = "fE"
 
 _SHORT_SUMMARY = re.compile(r"^=+ short test summary info =+$")
 
-# A skip inside a subtest is "SUBSKIPPED" plus the subtest's "[msg] (k=v)". The
-# folded summary labels every line with the first skip's word, so a plain skip
-# can carry a subtest's label too.
+# A subtest skip is "SUBSKIPPED" plus "[msg] (k=v)". The folded summary labels
+# every line with the first skip's word, so a plain skip can carry it too.
 _SKIP_WORD = r"(?:SUB)?SKIPPED(?:\[.*?\])?(?: ?\(.*?\))?"
 
 # The default, folded form: "SKIPPED [2] tests/t.py:12: needs kafka". The line
@@ -323,9 +312,7 @@ def _run_pytest(
 def _absolve_empty_run(rc: int, config: CIConfig, *, label: str = "") -> int:
     """Map pytest's no-tests-collected exit to success unless configured fatal.
 
-    A project with no tests yet is not a broken project, so
-    ``test.fail_on_missing`` defaults to false. Only exit 5 is remapped: a real
-    failure keeps its code.
+    ``test.fail_on_missing`` defaults to false. Only exit 5 is remapped.
 
     Args:
         rc: pytest's exit code.
@@ -398,20 +385,17 @@ def _durations_args(args: list[str]) -> list[str]:
     return [f"--durations={_CI_DURATIONS}"]
 
 
-# pytest 7.3 (2023-04-08) added this ini key; an older pytest only warns on an
-# unknown -o/--override-ini key (PytestConfigWarning), it does not fail the
-# run, so the override is safe to add unconditionally.
+# Added in pytest 7.3. An older pytest only warns on the unknown key, so the
+# override is safe to add unconditionally.
 _RETENTION_KEY = "tmp_path_retention_policy"
 
 
 def _retention_args(args: list[str]) -> list[str]:
     """Return the override keeping only a failed test's ``tmp_path`` dir.
 
-    pytest's own default keeps every test's ``tmp_path`` directory for the
-    last 3 runs, which fills a small /tmp fast on a large suite. Left alone
-    when the project already sets the policy, in its args/addopts/
-    PYTEST_ADDOPTS (an ``-o``/``--override-ini`` for the key) or in its own
-    pytest config file's ini options.
+    pytest's default keeps every test's ``tmp_path`` for the last 3 runs, which
+    fills a small /tmp on a large suite. Empty when the project sets the policy
+    through ``-o``/``--override-ini`` or its pytest config file.
     """
     tokens = project_args(args)
     overrides = option_values(tokens, "--override-ini", "-o")
@@ -461,10 +445,9 @@ def _sets_own_cov(args: list[str]) -> bool:
 def _coverage_args(config: CIConfig, args: list[str]) -> list[str]:
     """Return pytest-cov arguments measuring each Python source directory.
 
-    A project that passes its own ``--cov`` keeps its choice of source, since
-    adding an untested directory beside it drags the total under its floor.
-    A repo with no source directory runs without coverage, and says so, since
-    ``--cov`` naming a missing directory measures nothing.
+    A project's own ``--cov`` keeps its source, as an added untested directory
+    would drag the total under its floor. A repo with no source directory runs
+    without coverage, as ``--cov`` naming a missing directory measures nothing.
 
     Args:
         config: Merged CI configuration.
@@ -518,8 +501,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if config.get("test.coverage", True):
         base_args.extend(_coverage_args(config, base_args))
 
-    # Worker data is combined by pytest-cov before it reports, so coverage
-    # stays accurate across workers and needs no extra configuration.
+    # pytest-cov combines worker data before reporting, so xdist needs no setup.
     base_args.extend(parallel_args(config, base_args, _resolve_cmd(["pytest"])))
     base_args.extend(_durations_args(base_args))
     base_args.extend(_retention_args(base_args))
@@ -534,7 +516,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             return 1
         base_args.extend(full_args)
 
-    # Directory split (test.use_tiers), independent of the test tier.
+    # Directory split, independent of the test tier.
     if config.get("test.use_tiers", False):
         dir_tiers = [
             ("unit", "tests/unit/"),
@@ -568,7 +550,6 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         success("All test tiers complete")
         return 0
 
-    # Single run (no directory split)
     rc = _absolve_empty_run(
         _run_pytest(
             base_args + _junit_args(junit, "junit.xml"),
