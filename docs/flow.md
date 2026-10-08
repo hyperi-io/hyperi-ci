@@ -131,7 +131,7 @@ release:
     registry: oci://ghcr.io/hyperi-io/charts     # the default; a chart lands at <registry>/<name>
 ```
 
-`hyperi-ci publish-charts` does the work, in Tag & Release before the tag, so a failed push cuts no tag. Charts are packaged at the release version in a scratch copy, `file://` dependencies included. A committed `appVersion` stays, a chart without one gets `v<version>`, and library charts are skipped.
+`hyperi-ci publish-charts` does the work, in Tag & Release before the tag, so a failed push cuts no tag. Charts are packaged at the release version in a scratch copy, `file://` dependencies included. A committed `appVersion` stays, a chart without one gets `v<version>`. A glob skips library charts, and a library chart named by its exact directory is published.
 
 A version already in the registry is not re-pushed, because that would move its tag to a new digest, and the existing digest is reported instead. Digests go to the job summary and the GitHub Release body. A first push creates a private GHCR package, and making it public is manual.
 

@@ -431,7 +431,8 @@ release:
 
   # Committed Helm charts, packaged at the release version and pushed to
   # `<registry>/<chart name>` by `hyperi-ci publish-charts`. `charts` lists
-  # chart directories or globs from the repo root; library charts are skipped.
+  # chart directories or globs from the repo root. A glob skips library charts,
+  # and a library chart named by its exact directory is published.
   helm:
     enabled: false
     charts: []
