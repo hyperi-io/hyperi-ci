@@ -215,7 +215,7 @@ hadolint and droast auto-detect Dockerfiles inside `hyperi-ci run quality`, like
 | kustomize | `kustomization.yaml` | `kustomize build` twice, kubeconform | `kubeconform` (blocking); `render_stable` (blocking) |
 | manifests | YAML with `apiVersion` and `kind`, outside charts and not referenced by a kustomization | kubeconform | `kubeconform` (blocking) |
 | kube-linter | charts, manifests, built kustomizations | kube-linter plus `liveness-without-startup-probe` | `kube_linter` (warn) |
-| checkov | the tree | Checkov, pinned in `versions.yaml` | `checkov` (warn) |
+| checkov | the tree | Checkov, pinned in `versions.yaml`, on a scratch copy of the files git tracks | `checkov` (warn) |
 | tofu | `.tf` / `.tofu` | `fmt -check`; `init -backend=false` and `validate` per root | `tofu` (blocking) |
 | ansible | `ansible.cfg`, or `playbooks/` + `roles/` | `ansible-galaxy install -r`, ansible-lint, yamllint if `.yamllint*` exists | `ansible_lint` (warn) |
 | generated | `iac.generated` entries | run the command, fail if its paths change | `iac_generated` (blocking) |

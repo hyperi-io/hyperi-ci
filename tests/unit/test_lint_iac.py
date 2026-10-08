@@ -12,6 +12,7 @@ case: each plants one defect in a tree, runs the real tool, and asserts the
 gate FAILS. Each skips where its tool is not installed.
 """
 
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -21,8 +22,8 @@ from typer.testing import CliRunner
 
 from hyperi_ci.cli import app
 from hyperi_ci.config import CIConfig
+from hyperi_ci.quality import checkov, lint_iac
 from hyperi_ci.quality import findings as fdg
-from hyperi_ci.quality import lint_iac
 
 
 def _cfg(raw: dict | None = None) -> CIConfig:
@@ -381,6 +382,62 @@ def _committed(root: Path) -> Path:
     return root
 
 
+def _two_charts(root: Path) -> None:
+    """Lay out an app chart that pulls a library chart in through ``file://``."""
+    lib = root / "charts-src" / "lib"
+    (lib / "templates").mkdir(parents=True)
+    (lib / "Chart.yaml").write_text(
+        "apiVersion: v2\nname: lib\nversion: 0.1.0\ntype: library\n", encoding="utf-8"
+    )
+    (lib / "templates" / "_helpers.tpl").write_text(
+        '{{- define "lib.name" -}}lib{{- end -}}\n', encoding="utf-8"
+    )
+    app = root / "charts-src" / "app"
+    (app / "templates").mkdir(parents=True)
+    (app / "Chart.yaml").write_text(
+        "apiVersion: v2\nname: app\nversion: 0.1.0\ndependencies:\n"
+        "  - name: lib\n    version: 0.1.0\n    repository: file://../lib\n",
+        encoding="utf-8",
+    )
+    (app / "templates" / "cm.yaml").write_text(
+        "apiVersion: v1\nkind: ConfigMap\nmetadata:\n"
+        '  name: {{ include "lib.name" . }}\n',
+        encoding="utf-8",
+    )
+
+
+class _FakeCheckov:
+    """Stands in for checkov, building Helm deps in the dir it scans as checkov does."""
+
+    def __call__(self, cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        scanned = Path(cmd[cmd.index("-d") + 1])
+        out_dir = Path(cmd[cmd.index("--output-file-path") + 1])
+        app = scanned / "charts-src" / "app"
+        (app / "Chart.lock").write_text("generated: now\n", encoding="utf-8")
+        (app / "charts").mkdir()
+        (app / "charts" / "lib-0.1.0.tgz").write_bytes(b"tgz")
+        result = {
+            "ruleId": "CKV_K8S_21",
+            "level": "error",
+            "message": {"text": "The default namespace should not be used"},
+            "locations": [
+                {
+                    "physicalLocation": {
+                        "artifactLocation": {
+                            "uri": "tmpab12cd34/charts-src/app/templates/cm.yaml"
+                        },
+                        "region": {"startLine": 1},
+                    }
+                }
+            ],
+        }
+        sarif = {"runs": [{"tool": {"driver": {"rules": []}}, "results": [result]}]}
+        (out_dir / "results_sarif.sarif").write_text(
+            json.dumps(sarif), encoding="utf-8"
+        )
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+
 class TestTreeUnchanged:
     """lint-iac writes nothing into the tree it lints, ignored files included."""
 
@@ -447,6 +504,51 @@ class TestTreeUnchanged:
         before = _tree_state(root)
         assert lint_iac.run(root, _cfg(), dimensions=("tofu",)) == 0
         assert _tree_state(root) == before
+
+    def test_checkov_writes_its_helm_dependency_build_into_a_copy(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _two_charts(tmp_path)
+        root = _committed(tmp_path)
+        before = _tree_state(root)
+        monkeypatch.setattr(checkov, "_base_cmd", lambda: ["checkov"])
+        monkeypatch.setattr(checkov, "run_cmd", _FakeCheckov())
+        surfaced: list[fdg.Finding] = []
+        monkeypatch.setattr(
+            fdg, "surface", lambda tool, found, **kw: surfaced.extend(found) or 0
+        )
+
+        assert lint_iac.run(root, _cfg(), dimensions=("checkov",)) == 0
+        assert _tree_state(root) == before
+        assert [f.path for f in surfaced] == ["charts-src/app/templates/cm.yaml"]
+
+    def test_checkov_scans_a_copy_outside_git_too(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _two_charts(tmp_path)
+        monkeypatch.setattr(checkov, "_base_cmd", lambda: ["checkov"])
+        monkeypatch.setattr(checkov, "run_cmd", _FakeCheckov())
+        assert lint_iac.run(tmp_path, _cfg(), dimensions=("checkov",)) == 0
+        assert not (tmp_path / "charts-src" / "app" / "Chart.lock").exists()
+
+    @pytest.mark.slow
+    @needs["helm"]
+    @pytest.mark.skipif(shutil.which("uv") is None, reason="uv not installed")
+    def test_real_checkov_leaves_the_tree_and_names_the_template(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _two_charts(tmp_path)
+        root = _committed(tmp_path)
+        before = _tree_state(root)
+        surfaced: list[fdg.Finding] = []
+        monkeypatch.setattr(
+            fdg, "surface", lambda tool, found, **kw: surfaced.extend(found) or 0
+        )
+
+        assert lint_iac.run(root, _cfg(), dimensions=("checkov",)) == 0
+        assert _tree_state(root) == before
+        assert surfaced
+        assert all((root / f.path).is_file() for f in surfaced)
 
     @pytest.mark.skipif(shutil.which("uv") is None, reason="uv not installed")
     def test_ansible_installs_and_lints_without_touching_the_tree(
