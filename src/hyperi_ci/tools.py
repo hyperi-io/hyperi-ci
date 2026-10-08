@@ -281,12 +281,24 @@ def missing_tool_notice(
     return "\n".join(lines)
 
 
-def missing_tool(name: str, mode: str) -> int:
-    """Report a missing tool: fail a blocking gate in CI (returns 1), else warn-skip."""
+def missing_tool(
+    name: str,
+    mode: str,
+    *,
+    purpose: str | None = None,
+    head: str | None = None,
+    install: tuple[str, ...] | None = None,
+) -> int:
+    """Report a missing tool: fail a blocking gate in CI (returns 1), else warn-skip.
+
+    ``purpose``, ``head`` and ``install`` override the notice as for
+    :func:`missing_tool_notice`.
+    """
+    notice = missing_tool_notice(name, purpose=purpose, head=head, install=install)
     if mode == "blocking" and is_ci():
-        error(missing_tool_notice(name))
+        error(notice)
         return 1
-    warn(missing_tool_notice(name))
+    warn(notice)
     return 0
 
 

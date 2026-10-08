@@ -20,7 +20,7 @@ from typing import Any
 
 import pytest
 
-from hyperi_ci import common
+from hyperi_ci import common, tools
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages import quality_common
 from hyperi_ci.languages.golang import quality as golang_quality
@@ -73,12 +73,20 @@ class _Log:
         self.results: list[subprocess.CompletedProcess[str]] = []
         self.sleeps: list[float] = []
         monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
-        monkeypatch.setattr(quality_common, "is_ci", lambda: False)
+        self.in_ci(monkeypatch, False)
         monkeypatch.setattr(quality_common.time, "sleep", self.sleeps.append)
         monkeypatch.setattr(quality_common, "run_cmd", self._run)
         monkeypatch.setattr(python_quality, "warn", self._level("warn"))
         for level in ("info", "warn", "error", "success"):
             monkeypatch.setattr(quality_common, level, self._level(level))
+        for level in ("warn", "error"):
+            monkeypatch.setattr(tools, level, self._level(level))
+
+    @staticmethod
+    def in_ci(monkeypatch: pytest.MonkeyPatch, ci: bool) -> None:
+        """Set CI for the runner and for the missing-tool path it hands off to."""
+        monkeypatch.setattr(quality_common, "is_ci", lambda: ci)
+        monkeypatch.setattr(tools, "is_ci", lambda: ci)
 
     def _level(self, level: str):
         return lambda msg: self.lines.append((level, msg))
@@ -123,6 +131,12 @@ def _run(lang: str, mode: str, **kw: Any) -> bool:
     return run_gate_tool(name, list(cmd), mode, via=via, **kw)
 
 
+def _missing(lang: str) -> str:
+    """The notice for ``lang``'s binary, naming the gate that needed it."""
+    name, cmd, _via = _CALLS[lang]
+    return f"`{cmd[0]}` is not installed - hyperi-ci needs it for the {name} gate."
+
+
 @pytest.mark.parametrize("lang", _CALLS)
 class TestEveryLanguage:
     """The gate reads the same in every language."""
@@ -139,10 +153,10 @@ class TestEveryLanguage:
         nothing_on_path: None,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(quality_common, "is_ci", lambda: True)
+        log.in_ci(monkeypatch, True)
         assert _run(lang, "blocking") is False
         assert log.ran == []
-        assert log.said("error") == [f"  {_CALLS[lang][0]}: not installed (required)"]
+        assert log.said("error") == [_missing(lang)]
 
     @pytest.mark.parametrize("mode", ["blocking", "warn"])
     def test_a_missing_tool_is_skipped_locally(
@@ -150,8 +164,7 @@ class TestEveryLanguage:
     ) -> None:
         assert _run(lang, mode) is True
         assert log.ran == []
-        name = _CALLS[lang][0]
-        assert log.said("warn") == [f"  {name}: not installed (skipping locally)"]
+        assert log.said("warn") == [_missing(lang)]
 
     def test_a_missing_warn_tool_is_skipped_in_ci(
         self,
@@ -160,7 +173,7 @@ class TestEveryLanguage:
         nothing_on_path: None,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(quality_common, "is_ci", lambda: True)
+        log.in_ci(monkeypatch, True)
         assert _run(lang, "warn") is True
         assert log.said("error") == []
 

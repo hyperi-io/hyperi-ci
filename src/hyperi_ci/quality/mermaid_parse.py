@@ -39,12 +39,12 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from hyperi_ci.common import error, info, is_ci, run_cmd, success, warn
+from hyperi_ci.common import error, info, run_cmd, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.quality import findings as fdg
 from hyperi_ci.quality import node_tools
-from hyperi_ci.tools import missing_tool_notice
+from hyperi_ci.tools import missing_tool
 
 RUNNER = Path(__file__).with_name("mermaid_runner.mjs")
 
@@ -286,20 +286,17 @@ def run(
     if dropped:
         info(f"  mermaid-parse: +{dropped} more finding(s) in the job summary")
 
-    if skipped:
-        notice = missing_tool_notice(
-            "mermaid",
-            head=f"the mermaid grammar check did not run ({skipped})",
-            install=(_INSTALL_LINE,),
-        )
-        # A blocking check that could not run has NOT passed: the structural
-        # layer alone says nothing about grammar. Locally it stays a warning,
-        # because a missing Node toolchain is normal on a Rust or Python box.
-        if mode == "blocking" and is_ci():
-            error(notice)
-            error("  mermaid-parse: the grammar check is blocking and could not run")
-            return 1
-        warn(notice)
+    # A blocking check that could not run has NOT passed: the structural layer
+    # alone says nothing about grammar. Locally it stays a warning, because a
+    # missing Node toolchain is normal on a Rust or Python box.
+    if skipped and missing_tool(
+        "mermaid",
+        mode,
+        head=f"the mermaid grammar check did not run ({skipped})",
+        install=(_INSTALL_LINE,),
+    ):
+        error("  mermaid-parse: the grammar check is blocking and could not run")
+        return 1
 
     if not found:
         if skipped:

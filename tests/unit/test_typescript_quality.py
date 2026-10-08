@@ -19,6 +19,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from hyperi_ci import tools
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages import quality_common
 from hyperi_ci.languages.typescript import quality
@@ -230,7 +231,7 @@ class TestAMissingToolGates:
     def test_ci_fails_the_blocking_gate(
         self, no_npx: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(quality_common, "is_ci", lambda: True)
+        monkeypatch.setattr(tools, "is_ci", lambda: True)
         assert quality.run(_make_config()) == 1
         calls = [list(c.args[0]) for c in no_npx.call_args_list]
         assert not any(c[0] == "npx" for c in calls)
@@ -238,7 +239,7 @@ class TestAMissingToolGates:
     def test_local_run_skips_it(
         self, no_npx: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(quality_common, "is_ci", lambda: False)
+        monkeypatch.setattr(tools, "is_ci", lambda: False)
         assert quality.run(_make_config()) == 0
         calls = [list(c.args[0]) for c in no_npx.call_args_list]
         assert calls == [["npm", "audit", "--audit-level=moderate"]]

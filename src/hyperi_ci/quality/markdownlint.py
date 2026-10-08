@@ -33,7 +33,7 @@ from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.quality import findings as fdg
 from hyperi_ci.quality import node_tools
-from hyperi_ci.tools import missing_tool_notice
+from hyperi_ci.tools import missing_tool
 
 DEFAULT_CONFIG = Path(__file__).parent.parent / "config" / "markdownlint.yaml"
 
@@ -120,11 +120,7 @@ def run(
         "markdownlint-cli2"
     )
     if not exe:
-        if mode == "blocking" and is_ci():
-            error(missing_tool_notice("markdownlint-cli2"))
-            return 1
-        warn(missing_tool_notice("markdownlint-cli2"))
-        return 0
+        return missing_tool("markdownlint-cli2", mode)
 
     # A leading `:` marks a literal file path, so a filename holding a glob
     # character is linted rather than expanded.
