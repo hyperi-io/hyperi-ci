@@ -356,6 +356,9 @@ def surface(
 ) -> int:
     """Surface ``findings`` as annotations, job summary, log and SARIF.
 
+    Findings the annotation budget dropped are counted in the log, as the job
+    summary is the only place that still carries them.
+
     Returns:
         How many findings the annotation budget dropped.
     """
@@ -365,6 +368,8 @@ def surface(
     log_findings(tool, findings)
     if sarif_path is not None:
         write_sarif(tool, findings, sarif_path)
+    if dropped:
+        info(f"  {tool}: +{dropped} more finding(s) in the job summary")
     return dropped
 
 
@@ -379,10 +384,8 @@ def relpath(path: Path, root: Path = Path()) -> str:
 def report(
     tool: str, findings: list[Finding], mode: str, *, sarif_path: str | Path | None
 ) -> None:
-    """Surface ``findings`` as a check at ``mode``, noting any the budget dropped."""
-    dropped = surface(tool, at_mode(findings, mode), sarif_path=sarif_path)
-    if dropped:
-        info(f"  {tool}: +{dropped} more finding(s) in the job summary")
+    """Surface ``findings`` as a check at ``mode`` would."""
+    surface(tool, at_mode(findings, mode), sarif_path=sarif_path)
 
 
 def verdict(tool: str, errors: int, mode: str, ok: str) -> int:
@@ -430,15 +433,19 @@ def run_check(
     mode: str,
     parse: Callable[[subprocess.CompletedProcess[str]], list[Finding]],
     *,
-    ok_exits: tuple[int, ...] = (0,),
+    clean_exits: tuple[int, ...] = (0,),
     timeout: float | None = None,
     **kwargs: Any,
 ) -> list[Finding] | int:
     """Run a check's command and parse its findings, or return the exit code if it gave none.
 
     A timeout fails a ``blocking`` check. A command that could not run, or that
-    exited outside ``ok_exits`` with nothing parsed, checked nothing: that fails
-    a ``blocking`` check in CI and warns elsewhere, as a missing tool does.
+    exited outside ``clean_exits`` with nothing parsed, checked nothing: that
+    fails a ``blocking`` check in CI and warns elsewhere, as a missing tool does.
+
+    ``clean_exits`` are the exits after which an empty parse is a clean pass. A
+    tool's findings-found exit never belongs there: with nothing parsed it
+    means the parser missed what the tool reported.
     """
     result = run_tool(
         cmd,
@@ -456,7 +463,7 @@ def run_check(
         warn(message)
         return 0
     found = parse(result)
-    if result.returncode not in ok_exits and not found:
+    if result.returncode not in clean_exits and not found:
         why = f"exited {result.returncode} with no parseable output - tool error, not a clean pass"
         return _checked_nothing(tool, mode, why)
     return found

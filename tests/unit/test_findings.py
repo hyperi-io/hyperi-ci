@@ -300,6 +300,15 @@ class TestSurface:
         assert "DL3000" in rendered
         assert "Dockerfile:1" in rendered
 
+    def test_findings_the_budget_dropped_are_counted_in_the_log(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Every caller gets the count, not only those that go through report()."""
+        monkeypatch.setenv("GITHUB_ACTIONS", "true")
+        lines = self._captured_logs(monkeypatch)
+        findings.surface("generated", [_f("warning") for _ in range(12)])
+        assert lines == ["  generated: +2 more finding(s) in the job summary"]
+
     def test_the_log_stays_quiet_on_ci(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Annotations already carry them there; two copies is noise."""
         monkeypatch.setenv("GITHUB_ACTIONS", "true")
@@ -362,7 +371,7 @@ class TestRunCheck:
     ):
         monkeypatch.setattr(findings, "is_ci", lambda: ci)
         return findings.run_check(
-            "t", cmd, mode, lambda r: [], ok_exits=(0, 1), timeout=timeout
+            "t", cmd, mode, lambda r: [], clean_exits=(0, 1), timeout=timeout
         )
 
     @pytest.mark.parametrize(
@@ -399,6 +408,6 @@ class TestRunCheck:
         found = [_f("error")]
         monkeypatch.setattr(findings, "is_ci", lambda: True)
         result = findings.run_check(
-            "t", ["sh", "-c", "exit 1"], "blocking", lambda r: found, ok_exits=(0, 1)
+            "t", ["sh", "-c", "exit 1"], "blocking", lambda r: found, clean_exits=(0, 1)
         )
         assert result == found

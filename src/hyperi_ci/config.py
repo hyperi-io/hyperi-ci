@@ -36,6 +36,10 @@ VALID_PROJECT_STATUSES: tuple[str, ...] = (
 )
 
 
+class ConfigError(ValueError):
+    """A project config value the loader refuses rather than read past."""
+
+
 @dataclass
 class OrgConfig:
     """Organisation-specific configuration loaded from config/org.yaml."""
@@ -98,9 +102,10 @@ class CIConfig:
         Use this, never ``get(key, <literal>)``, for any key defaults.yaml
         declares: a literal fallback is a second copy of the default, free to
         disagree with the first. The shipped value answers only where the merged
-        config lacks the key -- a hand-built config, or a project that set a
-        parent section to a scalar -- because :func:`load_config` always starts
-        from defaults.yaml.
+        config lacks the key -- a hand-built config, or an environment variable
+        that replaced a whole section -- because :func:`load_config` always
+        starts from defaults.yaml and refuses a project section that is not a
+        mapping.
 
         Args:
             key: Dot-notation key; ``publish.*`` resolves as in :meth:`get`.
@@ -160,6 +165,58 @@ def _merge_deep(base: dict, override: dict) -> dict:
         else:
             result[key] = value
     return result
+
+
+def _not_a_mapping(path: str, value: Any, section: dict[str, Any]) -> str:
+    """Name a non-mapping value set where defaults.yaml ships a mapping, and its fix."""
+    written = f"`{path}: {json.dumps(value, default=str)}` is not a mapping"
+    if value is False and "enabled" in section:
+        return f"{written} -- to turn it off write `{path}: {{enabled: false}}`"
+    keys = ", ".join(sorted(str(key) for key in section))
+    return f"{written} -- write a mapping of its keys ({keys}), or delete it"
+
+
+def _check_sections(
+    project: dict[Any, Any],
+    shipped: dict[str, Any],
+    prefix: str,
+    problems: list[str],
+) -> dict[Any, Any]:
+    """Return ``project`` with its empty sections dropped, noting non-mapping ones.
+
+    A section is a key defaults.yaml ships as a mapping. Left empty it reads as
+    absent, so the shipped mapping applies. Any other non-mapping value there
+    would leave every key below it on its shipped default whatever the project
+    meant, so it goes into ``problems`` for the caller to refuse.
+
+    Args:
+        project: One level of the project's own config.
+        shipped: The same level of defaults.yaml.
+        prefix: Dotted path of this level, ``""`` at the top.
+        problems: Collects one message per non-mapping section.
+
+    Returns:
+        A copy of ``project`` without the empty sections.
+
+    """
+    from hyperi_ci.common import warn
+    from hyperi_ci.vocabulary import canonical_key
+
+    checked: dict[Any, Any] = {}
+    for key, value in project.items():
+        path = f"{prefix}{key}"
+        # A legacy top-level `publish:` is checked against `release:`.
+        name = canonical_key(str(key)) if not prefix else key
+        section = shipped.get(name)
+        if not isinstance(section, dict):
+            checked[key] = value
+        elif value is None:
+            warn(f"`{path}:` is empty, so the shipped defaults apply")
+        elif not isinstance(value, dict):
+            problems.append(_not_a_mapping(path, value, section))
+        else:
+            checked[key] = _check_sections(value, section, f"{path}.", problems)
+    return checked
 
 
 def _parse_env_value(value: str) -> Any:
@@ -287,6 +344,11 @@ def load_config(
     Returns:
         Merged CIConfig instance.
 
+    Raises:
+        ConfigError: The project file is not a mapping, or sets a section
+            defaults.yaml ships as a mapping to a non-mapping value. An empty
+            section warns and takes the shipped defaults instead.
+
     """
     global _config_cache
     if _config_cache is not None and not reload:
@@ -319,13 +381,19 @@ def load_config(
         if config_file.exists():
             with open(config_file, encoding="utf-8") as f:
                 loaded = yaml.safe_load(f)
-                if loaded:
-                    removed_keys = find_removed_keys(loaded)
-                    # Folded before the merge, or a shipped `release.x` default
-                    # would outrank a project's `publish.x`.
-                    folded, deprecated_keys = fold_legacy_config(loaded)
-                    deprecated_keys = drop_removed_notices(deprecated_keys, loaded)
-                    config = _merge_deep(config, folded)
+            if loaded and not isinstance(loaded, dict):
+                raise ConfigError(f"{name}: the file must be a mapping of settings")
+            if loaded:
+                problems: list[str] = []
+                checked = _check_sections(loaded, config, "", problems)
+                if problems:
+                    raise ConfigError("\n".join(f"{name}: {p}" for p in problems))
+                removed_keys = find_removed_keys(loaded)
+                # Folded before the merge, or a shipped `release.x` default
+                # would outrank a project's `publish.x`.
+                folded, deprecated_keys = fold_legacy_config(checked)
+                deprecated_keys = drop_removed_notices(deprecated_keys, loaded)
+                config = _merge_deep(config, folded)
             break
 
     for key, value in os.environ.items():

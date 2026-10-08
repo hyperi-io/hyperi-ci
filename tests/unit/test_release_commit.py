@@ -15,6 +15,7 @@ rather than left to review.
 """
 
 import base64
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import unquote
@@ -23,6 +24,7 @@ import pytest
 import yaml
 
 from hyperi_ci import config as config_module
+from hyperi_ci import gh, release_commit
 from hyperi_ci.common import run_cmd
 from hyperi_ci.release_commit import (
     SUPPLEMENT,
@@ -599,6 +601,60 @@ class TestRefusals:
         with patch("hyperi_ci.release_commit._api", return_value=None) as stub:
             assert commit_release_artefacts(version="3.1.0", project_dir=project) == 1
         assert stub.call_count == 1
+
+
+class TestTheQuotedRefusal:
+    """A refusal quotes gh's stderr from the update call, never an earlier one."""
+
+    @staticmethod
+    def _gh(
+        monkeypatch: pytest.MonkeyPatch, *answers: subprocess.CompletedProcess
+    ) -> None:
+        queue = list(answers)
+        monkeypatch.setattr(gh, "run_cmd", lambda cmd, **kw: queue.pop(0))
+        monkeypatch.setattr(release_commit, "_last_api_error", "")
+
+    def test_gh_stderr_is_captured(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._gh(monkeypatch, subprocess.CompletedProcess([], 1, "", "HTTP 422: no\n"))
+        assert release_commit._api(["repos/o/r/git/refs/heads/main"]) is None
+        assert release_commit._last_api_error == "HTTP 422: no"
+
+    def test_a_call_without_stderr_clears_the_last_one(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._gh(
+            monkeypatch,
+            subprocess.CompletedProcess([], 1, "", "HTTP 404: stale\n"),
+            subprocess.CompletedProcess([], 0, "", ""),
+        )
+        release_commit._api(["repos/o/r/contents/NEXT.md"])
+        release_commit._api(["-X", "PATCH", "repos/o/r/git/refs/heads/main"])
+        assert release_commit._last_api_error == ""
+
+    def test_a_refusal_never_quotes_an_earlier_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._gh(
+            monkeypatch,
+            subprocess.CompletedProcess([], 1, "", "HTTP 404: stale\n"),
+            # The PATCH answers with no JSON and no stderr.
+            subprocess.CompletedProcess([], 0, "", ""),
+            # The branch has not moved.
+            subprocess.CompletedProcess([], 0, '{"object": {"sha": "tip"}}', ""),
+        )
+        errors: list[str] = []
+        monkeypatch.setattr(release_commit, "error", errors.append)
+        release_commit._api(["repos/o/r/contents/NEXT.md"])
+        assert (
+            release_commit._api(["-X", "PATCH", "repos/o/r/git/refs/heads/main"])
+            is None
+        )
+        outcome = release_commit._classify_refused_update(
+            repo="o/r", branch="main", tip="tip"
+        )
+        assert outcome == "fail"
+        assert "stale" not in errors[0]
+        assert errors[0].endswith("blocked the push")
 
 
 class TestPreparedStamp:

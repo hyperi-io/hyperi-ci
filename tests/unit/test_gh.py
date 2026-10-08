@@ -6,14 +6,18 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
+import json
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
+from hyperi_ci import gh
 from hyperi_ci.gh import (
     RunSelectionError,
     describe_run,
+    gh_api,
     list_runs,
     project_ci_workflow,
     require_gh,
@@ -44,6 +48,82 @@ def _run(
         "conclusion": conclusion,
         "url": f"https://github.com/hyperi-io/hyperi-ci/actions/runs/{run_id}",
     }
+
+
+class _Gh:
+    """Stands in for the gh process: records argv and the --input file it saw."""
+
+    def __init__(self, returncode: int = 0, stdout: str = "{}", stderr: str = ""):
+        self.result = subprocess.CompletedProcess([], returncode, stdout, stderr)
+        self.cmd: list[str] = []
+        self.input_path: Path | None = None
+        self.input_body: object = None
+
+    def __call__(self, cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        self.cmd = cmd
+        if "--input" in cmd:
+            self.input_path = Path(cmd[cmd.index("--input") + 1])
+            self.input_body = json.loads(self.input_path.read_text(encoding="utf-8"))
+        return self.result
+
+
+class TestGhApi:
+    def test_a_body_goes_through_a_temp_file_that_is_removed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake = _Gh(stdout='{"sha": "abc"}')
+        monkeypatch.setattr(gh, "run_cmd", fake)
+        body = {"tree": [{"path": "VERSION", "sha": None}]}
+        outcome = gh_api(["-X", "POST", "repos/o/r/git/trees"], body=body)
+        assert outcome.data == {"sha": "abc"}
+        assert fake.cmd[:5] == ["gh", "api", "-X", "POST", "repos/o/r/git/trees"]
+        assert fake.input_body == body
+        assert fake.input_path is not None and not fake.input_path.exists()
+
+    def test_no_body_sends_no_input(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        fake = _Gh()
+        monkeypatch.setattr(gh, "run_cmd", fake)
+        gh_api(["repos/o/r"])
+        assert fake.cmd == ["gh", "api", "repos/o/r"]
+
+    def test_the_temp_file_is_removed_when_gh_cannot_start(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: list[Path] = []
+
+        def boom(cmd: list[str], **kwargs: object) -> None:
+            seen.append(Path(cmd[cmd.index("--input") + 1]))
+            raise OSError("gh: not found")
+
+        monkeypatch.setattr(gh, "run_cmd", boom)
+        with pytest.raises(OSError):
+            gh_api(["repos/o/r"], body={"a": 1})
+        assert seen and not seen[0].exists()
+
+    def test_a_failure_carries_gh_stderr(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(gh, "run_cmd", _Gh(1, "", "HTTP 422: refused\n"))
+        outcome = gh_api(["-X", "PATCH", "repos/o/r/git/refs/heads/main"])
+        assert outcome.data is None
+        assert outcome.stderr == "HTTP 422: refused"
+        assert outcome.reason == (
+            "gh api repos/o/r/git/refs/heads/main failed: HTTP 422: refused"
+        )
+
+    def test_a_silent_failure_names_the_exit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(gh, "run_cmd", _Gh(4, "", ""))
+        outcome = gh_api(["repos/o/r"])
+        assert (outcome.data, outcome.stderr) == (None, "")
+        assert outcome.reason.endswith("failed: exit 4")
+
+    def test_output_that_is_not_json_is_no_data(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(gh, "run_cmd", _Gh(0, "<html>oops</html>"))
+        outcome = gh_api(["repos/o/r"])
+        assert (outcome.data, outcome.stderr) == (None, None)
+        assert "returned no JSON" in outcome.reason
 
 
 class TestRequireGh:

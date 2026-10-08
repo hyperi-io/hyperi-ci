@@ -42,7 +42,7 @@ from datetime import UTC, datetime
 import yaml
 
 from hyperi_ci.common import info, warn
-from hyperi_ci.gh import gh_json_or_none, repo_file
+from hyperi_ci.gh import gh_api, repo_file
 
 # Supplies one run's jobs, injected so tests need no network.
 JobsLookup = Callable[[object], list[dict]]
@@ -253,9 +253,7 @@ def workflow_runs(
     query = f"?per_page={limit}&status=completed"
     if event:
         query += f"&event={event}"
-    data = gh_json_or_none(
-        ["api", f"repos/{full_name}/actions/workflows/{workflow}/runs{query}"],
-    )
+    data = gh_api([f"repos/{full_name}/actions/workflows/{workflow}/runs{query}"]).data
     if not isinstance(data, dict):
         return None
     runs = data.get("workflow_runs")
@@ -266,9 +264,7 @@ def workflow_runs(
 
 def run_jobs(full_name: str, run_id: object) -> list[dict]:
     """Return the jobs of one run."""
-    data = gh_json_or_none(
-        ["api", f"repos/{full_name}/actions/runs/{run_id}/jobs?per_page=100"],
-    )
+    data = gh_api([f"repos/{full_name}/actions/runs/{run_id}/jobs?per_page=100"]).data
     if not isinstance(data, dict):
         return []
     jobs = data.get("jobs")

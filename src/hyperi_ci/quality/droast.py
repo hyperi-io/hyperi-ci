@@ -15,7 +15,7 @@ maintainer). Its SARIF output goes through the shared parser.
 
 from pathlib import Path
 
-from hyperi_ci.common import get_exclude_dirs, info, run_cmd, warn
+from hyperi_ci.common import get_exclude_dirs, info, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.quality import findings as fdg
@@ -52,14 +52,12 @@ def run(config: CIConfig, *, sarif_path: str | Path | None = None) -> int:
     cmd += [str(p.relative_to(Path.cwd())) for p in dockerfiles]
 
     info(f"  droast: advising on {len(dockerfiles)} Dockerfile(s)...")
-    try:
-        result = run_cmd(cmd, check=False, capture=True)
-    except OSError as exc:
-        warn(f"  droast could not be run ({exc}) - advisory only, not failing.")
+    # Advisory in every mode, so it runs and surfaces as a check at warn would.
+    found = fdg.run_check(
+        "droast", cmd, "warn", lambda result: fdg.parse_sarif(result.stdout, "droast")
+    )
+    if isinstance(found, int):
         return 0
-
-    found = fdg.parse_sarif(result.stdout, "droast")
-    # Advisory in every mode, so its findings surface as a check at warn would.
     fdg.report("droast", found, "warn", sarif_path=sarif_path)
     if found:
         warn(f"  droast: {len(found)} advisory finding(s)")

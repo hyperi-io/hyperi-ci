@@ -42,7 +42,7 @@ from typing import Annotated
 import typer
 
 from hyperi_ci import __version__
-from hyperi_ci.config import CIConfig, load_config
+from hyperi_ci.config import CIConfig, ConfigError, load_config
 from hyperi_ci.detect import detect_language
 from hyperi_ci.dispatch import VALID_STAGES, run_stage
 from hyperi_ci.languages.tiering import SuiteTier
@@ -2408,7 +2408,7 @@ def main() -> int:
 
     # Consumers run an unpinned `uvx hyperi-ci`, so the log is the only record
     # of which version ran.
-    from hyperi_ci.common import info, is_ci
+    from hyperi_ci.common import error, info, is_ci
 
     if is_ci():
         info(f"hyperi-ci {__version__}")
@@ -2418,7 +2418,12 @@ def main() -> int:
 
     warn_if_stale()
 
-    app()
+    try:
+        app()
+    except ConfigError as exc:
+        for line in str(exc).splitlines():
+            error(line)
+        return 1
     return 0
 
 

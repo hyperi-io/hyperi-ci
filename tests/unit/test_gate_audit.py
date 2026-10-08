@@ -362,10 +362,10 @@ class TestGhJson:
         def fake_run(args: list[str], **kwargs: object) -> SimpleNamespace:
             assert args == ["api", "x"]
             assert kwargs == {"check": False}
-            return SimpleNamespace(returncode=returncode, stdout=stdout)
+            return SimpleNamespace(returncode=returncode, stdout=stdout, stderr="")
 
         monkeypatch.setattr(gh, "gh_run", fake_run)
-        return gh.gh_json_or_none(["api", "x"])
+        return gh.gh_api(["x"]).data
 
     def test_json_is_decoded(self, monkeypatch: pytest.MonkeyPatch) -> None:
         assert self._decode(monkeypatch, 0, '{"a": 1}') == {"a": 1}

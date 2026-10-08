@@ -117,13 +117,12 @@ def run(
 
     info(f"  markdownlint: linting {len(files)} markdown file(s)...")
     # cli2 writes findings to stderr today; both streams are read in case that
-    # moves. Exit 1 is violations.
+    # moves. Exit 1 is violations, so an exit 1 with none parsed is a parse miss.
     found = fdg.run_check(
         "markdownlint",
         args,
         mode,
         lambda result: parse(f"{result.stdout}\n{result.stderr}"),
-        ok_exits=(0, 1),
         cwd=root,
     )
     if isinstance(found, int):

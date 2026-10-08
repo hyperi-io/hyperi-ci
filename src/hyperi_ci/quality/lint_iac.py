@@ -478,7 +478,7 @@ def _generated(ctx: _Context) -> tuple[int, int]:
             finding = _regenerate(ctx.root.resolve(), entry, copy, ctx.timeout)
         if finding is not None:
             found.append(finding)
-    fdg.surface("generated", fdg.at_mode(found, mode), sarif_path=ctx.sarif_path)
+    fdg.report("generated", found, mode, sarif_path=ctx.sarif_path)
     if problems:
         return len(entries), 1
     ok = f"{len(entries)} entry(ies) up to date"

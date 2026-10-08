@@ -132,6 +132,11 @@ def gh_json(
     Returns:
         List of dicts with the requested fields.
 
+    Raises:
+        subprocess.CalledProcessError: gh exited non-zero. :func:`gh_api` is
+            the variant that reports a failure instead of raising.
+        json.JSONDecodeError: gh printed something other than JSON.
+
     """
     result = gh_run([*args, "--json", ",".join(fields)])
     return json.loads(result.stdout)
@@ -151,7 +156,7 @@ class ApiResult(NamedTuple):
 
 
 def gh_api(args: list[str], *, body: dict | None = None) -> ApiResult:
-    """Call ``gh api`` and parse the JSON response.
+    """Call ``gh api`` and parse the JSON response, never raising on a failure.
 
     Args:
         args: Arguments after ``gh api`` (endpoint, ``--method`` and so on).
@@ -164,16 +169,16 @@ def gh_api(args: list[str], *, body: dict | None = None) -> ApiResult:
 
     """
     tmp_path: str | None = None
-    cmd = ["gh", "api", *args]
+    api_args = ["api", *args]
     if body is not None:
         with tempfile.NamedTemporaryFile(
             "w", suffix=".json", delete=False, encoding="utf-8", newline="\n"
         ) as handle:
             json.dump(body, handle)
             tmp_path = handle.name
-        cmd += ["--input", tmp_path]
+        api_args += ["--input", tmp_path]
     try:
-        result = run_cmd(cmd, capture=True, check=False)
+        result = gh_run(api_args, check=False)
     finally:
         if tmp_path:
             Path(tmp_path).unlink(missing_ok=True)
@@ -186,17 +191,6 @@ def gh_api(args: list[str], *, body: dict | None = None) -> ApiResult:
         return ApiResult(json.loads(result.stdout), "", None)
     except ValueError as exc:
         return ApiResult(None, f"gh api {endpoint} returned no JSON: {exc}", None)
-
-
-def gh_json_or_none(args: list[str]) -> object | None:
-    """Run a gh command and decode its JSON, or None on any failure."""
-    result = gh_run(args, check=False)
-    if result.returncode != 0:
-        return None
-    try:
-        return json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return None
 
 
 def repo_file(full_name: str, path: str) -> str | None:
@@ -219,9 +213,7 @@ def repo_file(full_name: str, path: str) -> str | None:
 
 def org_repos(org: str) -> list[str]:
     """Return every non-archived repo in the org as ``owner/name``."""
-    data = gh_json_or_none(
-        ["api", f"orgs/{org}/repos?per_page=100&type=all", "--paginate"]
-    )
+    data = gh_api([f"orgs/{org}/repos?per_page=100&type=all", "--paginate"]).data
     if not isinstance(data, list):
         return []
     names: list[str] = []

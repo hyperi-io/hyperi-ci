@@ -14,6 +14,7 @@ import pytest
 
 from hyperi_ci.config import CIConfig
 from hyperi_ci.quality import droast
+from hyperi_ci.quality import findings as fdg
 
 _SARIF = json.dumps(
     {
@@ -56,7 +57,7 @@ def _stub(
 ) -> None:
     monkeypatch.setattr(droast, "find_tool", lambda *a, **k: exe)
     monkeypatch.setattr(
-        droast, "run_cmd", lambda *a, **k: SimpleNamespace(stdout=stdout, returncode=0)
+        fdg, "run_cmd", lambda *a, **k: SimpleNamespace(stdout=stdout, returncode=0)
     )
 
 
@@ -99,7 +100,7 @@ class TestRun:
             return SimpleNamespace(stdout="", returncode=0)
 
         monkeypatch.setattr(droast, "find_tool", lambda *a, **k: "/usr/bin/droast")
-        monkeypatch.setattr(droast, "run_cmd", _capture)
+        monkeypatch.setattr(fdg, "run_cmd", _capture)
         droast.run(_cfg())
         assert "--config" in captured["cmd"]
 
@@ -118,7 +119,7 @@ class TestRun:
             return SimpleNamespace(stdout="", returncode=0)
 
         monkeypatch.setattr(droast, "find_tool", lambda *a, **k: "/usr/bin/droast")
-        monkeypatch.setattr(droast, "run_cmd", _capture)
+        monkeypatch.setattr(fdg, "run_cmd", _capture)
         droast.run(_cfg())
         # Repo's own droast.toml is auto-discovered; we must NOT force --config.
         assert "--config" not in captured["cmd"]
@@ -133,5 +134,5 @@ class TestRun:
             raise OSError("exec failed")
 
         monkeypatch.setattr(droast, "find_tool", lambda *a, **k: "/usr/bin/droast")
-        monkeypatch.setattr(droast, "run_cmd", _boom)
+        monkeypatch.setattr(fdg, "run_cmd", _boom)
         assert droast.run(_cfg()) == 0

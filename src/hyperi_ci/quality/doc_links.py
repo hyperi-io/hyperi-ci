@@ -120,14 +120,10 @@ def run(
         "json",
         *[str(f) for f in files],
     ]
-    # lychee exits 2 for broken links.
+    # lychee exits 2 for broken links and for a rejected argument, so an exit 2
+    # with no parsed link is the second.
     found = fdg.run_check(
-        "doc-links",
-        cmd,
-        mode,
-        lambda result: parse(result.stdout),
-        ok_exits=(0, 2),
-        cwd=root,
+        "doc-links", cmd, mode, lambda result: parse(result.stdout), cwd=root
     )
     if isinstance(found, int):
         return found
