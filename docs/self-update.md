@@ -1,9 +1,6 @@
 # Self-update: channels, freeze, and the gates
 
-hyperi-ci keeps itself current. Every invocation may check PyPI, upgrade the
-installed tool, and re-exec your command in the new binary -- so the CLI on a
-laptop matches the one baked into the runner image without anyone remembering
-to upgrade.
+hyperi-ci keeps itself current. Every invocation may check PyPI, upgrade the installed tool and re-exec your command in the new binary. The CLI on a laptop then matches the one baked into the runner image without anyone remembering to upgrade.
 
 Which release it aims at is the **channel's** decision. Same two names as
 hyperi-ai, so one mental model covers both tools:
@@ -43,12 +40,7 @@ timeline
     2.9.6 uploaded : live adopts it : stable still on 2.9.2
 ```
 
-While `stable` lags, the upgrade installs that exact version
-(`uv tool install --force --refresh hyperi-ci==2.9.2`), which lands in uv's
-receipt as a pin -- so a hand-run `uv tool upgrade hyperi-ci` will answer
-"Nothing to upgrade" until the lag clears. Once the soak catches up, the
-resolved target is the newest release again and the plain `@latest` form is
-used, leaving no pin behind.
+While `stable` lags, the upgrade installs that exact version (`uv tool install --force --refresh hyperi-ci==2.9.2`). It lands in uv's receipt as a pin, so a hand-run `uv tool upgrade hyperi-ci` answers "Nothing to upgrade" until the lag clears. Once the soak catches up, the target is the newest release again and the plain `@latest` form leaves no pin behind.
 
 Switching to `stable` while already ahead of the soak window does **not** roll
 the install back. The channel holds the version still; it never downgrades. Only
@@ -80,7 +72,7 @@ Auto-update runs only when every gate passes, in this precedence:
 | Gate | Blocks when | Notes |
 |---|---|---|
 | `recursion-guard` | `_HYPERCI_UPGRADING=1` | set on the re-exec |
-| `explicit-command` | the command is `upgrade` or `autoupdate` | managing it is not using it |
+| `explicit-command` | the command is `update`, `upgrade` or `autoupdate` | managing it is not using it |
 | `frozen` | either tool's freeze flag is set | outranks every opt-in below |
 | `env-disabled` | `HYPERCI_AUTO_UPDATE=false` | what CI images set |
 | `ci` | a CI environment, without `HYPERCI_AUTO_UPDATE=true` | |
@@ -104,7 +96,7 @@ To hold a version, hold auto-update: `hyperi-ci autoupdate freeze`.
 
 ## Failure modes worth knowing
 
-All three were live, all three are now covered by tests.
+The upgrade path handles three failures, each covered by tests.
 
 **A zero exit code is not evidence.** `uv tool upgrade` exits 0 when it declines
 to act, so the upgrade path confirms the version by re-reading it from the
@@ -119,7 +111,4 @@ quiet for four hours at a time.
 saw it. Both uv paths carry `--refresh`. pip has no index-only refresh, so it is
 left alone and the post-check reports stale metadata instead.
 
-`hyperi-ci update` deliberately does not re-exec. It has no original command to
-carry on with, and re-exec'ing meant running `upgrade` again in the new binary --
-which, in a binary old enough to trust a zero exit code, re-execs on every
-"Nothing to upgrade" and never terminates.
+`hyperi-ci update` deliberately does not re-exec. It has no original command to carry on with. A re-exec would run `upgrade` again in the new binary, and a binary old enough to trust a zero exit code re-execs on every "Nothing to upgrade" and never terminates.
