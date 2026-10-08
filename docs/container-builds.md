@@ -55,6 +55,19 @@ A Dockerfile with `ARG CODE_VERSION` then sees the release version. Any other `{
 
 Write a literal brace as `{{` or `}}`. A value with no braces passes through unchanged. No build arg is passed unasked, because docker warns about every one a Dockerfile does not declare.
 
+## An apt mirror mid-sync is rebuilt (issue #610)
+
+An Ubuntu mirror that is part-way through a sync fails a layer's `apt-get update` with "Mirror sync in progress", "Hash Sum mismatch" or "File has unexpected size". apt files these as non-transient and never retries them, so `-o Acquire::Retries` does nothing for them.
+
+The stage reads the build's output. If a build fails and the output carries one of those three strings, it waits and runs the same `docker buildx build` again. BuildKit's cache means only the failed layer reruns. A failure with none of them fails at once.
+
+```yaml
+release:
+  container:
+    build_attempts: 3             # builds in all; 1 turns the retry off
+    build_retry_delay_seconds: 60
+```
+
 ## Release outcome when Container fails (issues #33, #102)
 
 Tag & Release reads `needs.container.outputs.ships-container` (`_release-tail.yml`). A project that ships **no** container is decoupled from Container's result (`always()`). A registry hiccup turns the run red, but the crate/PyPI/npm package and GitHub Release still ship and the tag is cut.

@@ -48,6 +48,7 @@ from hyperi_ci.container.build import (
     pushed_digest,
     render_build_args,
     resolve_tags,
+    retry_settings,
 )
 from hyperi_ci.container.cgroup import builder_cgroup_parents, probe_cgroup_parent
 from hyperi_ci.container.detect import detect
@@ -421,6 +422,7 @@ def _dispatch_build(
     push = push_mode != VALIDATE
     scratch = tempfile.TemporaryDirectory(prefix="hyperi-ci-buildx-")
     metadata_file = Path(scratch.name) / "metadata.json" if push else None
+    attempts, retry_delay = retry_settings(container_cfg)
     try:
         rc = build_and_push(
             dockerfile_path=effective_dockerfile,
@@ -431,6 +433,8 @@ def _dispatch_build(
             build_args=build_args if build_args else None,
             push=push,
             metadata_file=metadata_file,
+            attempts=attempts,
+            retry_delay=retry_delay,
         )
         if rc == 0 and metadata_file is not None and tags:
             _write_digest_outputs(tags[0], pushed_digest(metadata_file))
