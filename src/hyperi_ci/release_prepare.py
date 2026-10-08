@@ -6,12 +6,11 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Split a release into a prepare half and an upload half.
 
-The upload holds every publish credential, so nothing the repo controls may run
-beside it: a crate's build script runs under ``cargo semver-checks``, an npm
-package's lifecycle scripts run under ``npm pack``, and ``release.stamp_cmd``
-is the repo's own command (issue #409). ``release-prepare`` runs all of them
-in a job that holds no secrets, in two phases so each output can leave the job
-before the next phase's code runs:
+The upload holds every publish credential, so no repo-controlled code may run
+beside it: a crate's build script (under ``cargo semver-checks``), an npm
+package's lifecycle scripts (under ``npm pack``) and ``release.stamp_cmd``
+(issue #409). ``release-prepare`` runs them in a job with no secrets, in two
+phases so each output can leave the job before the next phase's code runs:
 
 * ``--phase stamp`` stamps the version, runs ``release.stamp_cmd`` and copies
   the ``release.stamp_paths`` files into the output directory, for
@@ -22,10 +21,9 @@ before the next phase's code runs:
 
 ``run release`` with ``HYPERCI_RELEASE_PREPARED`` naming the package directory
 only uploads, and ``release-commit`` reads the stamp outputs from its
-``stamped/`` subdirectory. Both came from a job that ran repo code, so
-everything in them is read as data and checked: the version and language must
-match the run's, every path must stay inside the directory, and ``VERSION`` is
-never taken from them.
+``stamped/`` subdirectory. Both came from a job that ran repo code, so they are
+read as data: the version and language must match the run's, every path must
+stay inside the directory, and ``VERSION`` is never taken from them.
 """
 
 import json
@@ -46,8 +44,7 @@ MANIFEST_NAME = "prepared.json"
 STAMPED_DIR = "stamped"
 STAMP_MARKER = ".hyperi-ci-stamped.json"
 
-# Bumped when a field changes meaning, so an upload never reads a directory
-# written to a different contract.
+# Bumped when a field changes meaning.
 _SCHEMA = 2
 
 
@@ -209,8 +206,8 @@ def _stamp_phase(version: str, root: Path, stamped: Path) -> int:
     config = load_config(reload=True, project_dir=root)
     stamped.mkdir(parents=True, exist_ok=True)
     copied = _snapshot(root, config, stamped)
-    # Always one file, so the workflow can require the artefact: a repo with no
-    # stamp_paths would otherwise upload nothing, and its download would fail.
+    # Always one file, or a repo with no stamp_paths uploads nothing and the
+    # workflow's download fails.
     (stamped / STAMP_MARKER).write_text(
         json.dumps({"version": version, "files": copied}) + "\n",
         encoding="utf-8",
@@ -224,7 +221,7 @@ def _package_phase(version: str, language: str, root: Path, out_dir: Path) -> in
     config = load_config(reload=True, project_dir=root)
     facts: dict[str, Any] = {}
     if config.get("release.enabled", False):
-        # Same working directory as the handlers expect when `run` calls them.
+        # The handlers expect the project root as cwd.
         cwd = Path.cwd()
         os.chdir(root)
         try:
@@ -297,9 +294,8 @@ def prepare_release(
 def restore_stamped(prepared: Prepared, root: Path, names: list[str]) -> list[str]:
     """Copy the named stamped files from the prepared directory into the checkout.
 
-    The caller names the files from the checkout's own config. The prepared
-    directory was written by a job that ran repo code, so a file it carries
-    under any other name never leaves it.
+    The caller names the files from the checkout's own config, because the
+    prepared directory came from a job that ran repo code.
 
     Returns:
         The repo-relative names restored.

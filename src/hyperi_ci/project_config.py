@@ -7,16 +7,15 @@
 """Find and read a project's ``.hyperi-ci.yaml`` with the standard library.
 
 :func:`hyperi_ci.config.load_config` reads the same files in the same order,
-from :data:`CONFIG_FILES`. This module exists for the predict-version composite,
-which loads it by path on a runner where hyperi-ci is not installed, so it is
-stdlib-only and imports nothing from the package.
+from :data:`CONFIG_FILES`. This module serves the predict-version composite,
+which loads it by path where hyperi-ci is not installed, so it is stdlib-only
+and imports nothing from the package.
 
-The composite runs its config readers under ``uv run --with pyyaml``, because a
-runner's own python3 may have no PyYAML: the ARC vanilla image has neither it
-nor ``yq``. When uv cannot supply PyYAML the composite runs them on the
-runner's python3 instead, where ``yq`` is the fallback parser. A file
-that exists and cannot be parsed is reported with the reason, never read as
-empty, because an empty config quietly means "every default".
+The composite runs its config readers under ``uv run --with pyyaml`` because a
+runner's python3 may lack PyYAML (the ARC vanilla image has neither it nor
+``yq``). When uv cannot supply it they run on the runner's python3, with ``yq``
+as the fallback parser. A file that exists and cannot be parsed is reported with
+the reason, never read as empty, because an empty config means "every default".
 """
 
 # KEEP on a 3.14 floor, where this import is otherwise wrong (issue #184).

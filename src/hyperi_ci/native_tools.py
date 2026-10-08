@@ -7,24 +7,22 @@
 """Pinned release binaries for a project's tests, the quality gates and the bake.
 
 Every release binary hyperi-ci downloads comes through the table below. The
-test stage installs every tool listed in ``test.native_tools`` before the
-language handler runs, so a test that shells out to one finds the pinned build
-on PATH. The quality gates and ``lint-iac`` fetch theirs through
+test stage installs each tool in ``test.native_tools`` before the language
+handler runs. The quality gates and ``lint-iac`` fetch theirs through
 :func:`ci_binary` when the runner has none, and the runner-image bake writes
 sccache through :func:`install_into`.
 
-Each tool comes from its upstream release and is checked against the digest in
-versions.yaml before anything is unpacked. Apart from the baked sccache, it is
-written into the hyperi-ci cache, one directory per version, arch and pinned
-digest, so a pin re-issued under the same version never reuses the old copy.
-A cached raw binary is re-hashed against the pin before it is trusted. Nothing
-needs sudo, so it works on an ARC pod as well as a hosted runner. The directory
-goes on the front of this process's PATH, which every child command inherits.
-For the tests that means the pinned build wins over any copy the runner image
-already has. A quality gate uses an existing copy and installs only without one.
+Each tool is checked against the digest in versions.yaml before anything is
+unpacked. Apart from the baked sccache it lands in the hyperi-ci cache, one
+directory per version, arch and pinned digest, so a re-issued pin never reuses
+the old copy, and a cached raw binary is re-hashed before it is trusted.
+Nothing needs sudo, so it works on an ARC pod and a hosted runner. The
+directory goes on the front of this process's PATH, so for the tests the pinned
+build wins over a copy in the runner image. A quality gate uses an existing
+copy and installs only without one.
 
-Linux only. Elsewhere a copy already on PATH is used with a warning that it is
-not the pinned build, and a missing one fails the stage with install advice.
+Linux only. Elsewhere a copy already on PATH is used with a warning, and a
+missing one fails the stage with install advice.
 """
 
 import contextlib
@@ -53,12 +51,11 @@ class NativeTool:
     """One tool's Linux release asset.
 
     ``url`` is a format string over ``{version}`` (verbatim from versions.yaml),
-    ``{bare}`` (the version without its leading ``v``), ``{arch}`` and
-    ``{asset}``. ``arch`` maps ``amd64`` / ``arm64`` to the spelling of the
-    tool's digest keys in versions.yaml, which is also how most assets spell
-    it. ``asset`` overrides that spelling for the URL alone. With ``archive``
-    set the asset is a ``.tar.gz``, unpacked for the one regular file named
-    after the tool; without it the asset is the binary itself.
+    ``{bare}`` (without the leading ``v``), ``{arch}`` and ``{asset}``. ``arch``
+    maps ``amd64`` / ``arm64`` to the spelling of the digest keys in
+    versions.yaml, and ``asset`` overrides it for the URL alone. With
+    ``archive`` set the asset is a ``.tar.gz`` holding one regular file named
+    after the tool, otherwise it is the binary itself.
 
     ``probe`` confirms the installed binary runs. Only a tool with one is
     offered to ``test.native_tools``.
@@ -162,8 +159,8 @@ def requested_tools(config: CIConfig) -> list[str]:
 
     Raises:
         NativeToolError: The value is not a list of names, or a name is not one
-            hyperi-ci knows how to install. An unknown name is refused rather
-            than skipped: the project asked for it because its tests need it.
+            hyperi-ci can install (refused, not skipped, because the tests
+            need it).
 
     """
     raw = config.get(CONFIG_KEY)
@@ -221,9 +218,8 @@ def _pinned_digest(name: str, arch: str) -> str:
 def _from_archive(name: str, url: str, payload: bytes) -> bytes | None:
     """Return the one regular file named ``name`` in a ``.tar.gz``, or None after logging.
 
-    Two regular files with the tool's name leave no way to tell which one the
-    release meant, so that is refused rather than settled by archive order.
-    Symlinks and directories never count: only a regular file is a binary.
+    Two regular files with the tool's name are refused rather than settled by
+    archive order. Symlinks and directories never count.
     """
     try:
         with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
@@ -251,10 +247,9 @@ def _from_archive(name: str, url: str, payload: bytes) -> bytes | None:
 def _pinned_binary(name: str, arch: str) -> bytes | None:
     """Download ``name`` for ``arch`` and return the binary, or None after logging why.
 
-    A pinned URL is not integrity on its own - a release asset can be deleted
-    and re-uploaded under the same tag, and these bytes are exec'd on every
-    consumer's CI. The digest covers the raw download, archive or binary,
-    before anything is unpacked.
+    A pinned URL is not integrity: a release asset can be re-uploaded under the
+    same tag, and these bytes are exec'd in every consumer's CI. The digest
+    covers the raw download, before anything is unpacked.
     """
     url, _ = _asset_url(name, arch)
     expected = _pinned_digest(name, arch)
@@ -296,9 +291,8 @@ def install_into(name: str, bin_dir: Path) -> Path | None:
     if data is None:
         return None
 
-    # Written under a unique temporary name and renamed, so an interrupted
-    # install never leaves a truncated binary, a running copy is never
-    # overwritten, and two concurrent installs cannot write the same file.
+    # Unique temp name then rename: no truncated binary, no overwritten running
+    # copy, no clash between concurrent installs.
     binary = bin_dir / name
     partial: Path | None = None
     try:
@@ -326,9 +320,9 @@ def install_root(cache_dir: Path = CACHE_DIR) -> Path:
 def _cached_copy_ok(name: str, binary: Path, expected: str) -> bool:
     """Report whether a cached ``binary`` can be used without a fresh download.
 
-    An archive's binary has no pin of its own to check, so the digest in the
-    directory name stands for it. A raw asset IS the pinned file, so it is
-    re-hashed: a copy altered on disk after the install is replaced, not run.
+    An archive's binary has no pin of its own, so the digest in the directory
+    name stands for it. A raw asset IS the pinned file, so it is re-hashed and a
+    copy altered on disk is replaced.
     """
     if not binary.is_file():
         return False
@@ -389,11 +383,10 @@ def install_tool(name: str, cache_dir: Path = CACHE_DIR) -> Path | None:
 def ci_binary(name: str) -> str | None:
     """Return ``name`` from PATH, else the pinned build installed on Linux CI.
 
-    The quality-gate rule for a missing tool: a local run uses what the
-    developer has and the caller warn-skips when it is absent, while CI gets
-    the pinned build. An install also goes on the front of PATH, so a gate
-    that runs the tool by name finds it. Returns None off CI or off Linux when
-    nothing is on PATH, and after logging why when the install fails.
+    A local run uses what the developer has (the caller warn-skips when absent)
+    and CI gets the pinned build, put on the front of PATH so a gate running the
+    tool by name finds it. Returns None off CI or off Linux when nothing is on
+    PATH, and after logging why when the install fails.
     """
     exe = shutil.which(name)
     if exe:

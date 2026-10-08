@@ -8,18 +8,14 @@
 
 `workflow_dispatch.inputs` must be declared in the workflow that RECEIVES the
 event, so a reusable workflow cannot add inputs to its caller's schema. Every
-consumer declares and forwards them itself, and every consumer can therefore
-fall behind (issue #88).
-
-Nothing reports the gap on its own. It surfaces as an HTTP 422 at dispatch
-time, and only when someone tries to release that way -- four of eight Rust
-repos were undriveable for months before anyone needed the path.
+consumer declares and forwards them itself and so can fall behind (issue #88).
+The gap surfaces only as an HTTP 422 when someone dispatches a release, and
+four of eight Rust repos were undriveable for months.
 
 The contract is :data:`CALLER_INPUTS`: what the CLI sends
 (:data:`hyperi_ci.release.dispatch.DISPATCH_INPUTS`) plus what a person sends
-from the Actions UI (:data:`UI_DISPATCH_INPUTS`). It is not the reusable
-workflow's full `workflow_call.inputs`: an input nobody dispatches (say
-`rust-toolchain`) has no business in a consumer's dispatch schema.
+from the Actions UI (:data:`UI_DISPATCH_INPUTS`). It excludes the reusable
+workflow's inputs that nobody dispatches (say `rust-toolchain`).
 
 Three ways a consumer breaks, all reported, none written:
 
@@ -29,11 +25,11 @@ Three ways a consumer breaks, all reported, none written:
 ``required``       declared `required: true`, which fails any dispatch that
                    does not send it (a from-head release sends no `tag`)
 
-:data:`OPTIONAL_CALLER_INPUTS` are held to the last two only. A caller that
-leaves one out still dispatches every release path, so its absence is noted
-on the report and never counted as drift.
+:data:`OPTIONAL_CALLER_INPUTS` are held to the last two only, as a caller that
+omits one still dispatches every release path. Its absence is noted, never
+counted as drift.
 
-Reads are strictly report-only: the caller file belongs to the consumer repo.
+Report-only: the caller file belongs to the consumer repo.
 """
 
 import json
@@ -56,16 +52,15 @@ UI_DISPATCH_INPUTS: tuple[str, ...] = (
 
 CALLER_INPUTS: tuple[str, ...] = (*DISPATCH_INPUTS, *UI_DISPATCH_INPUTS)
 
-# UI inputs `hyperi-ci init` scaffolds that older callers lack, and whose
-# reusable-workflow default is what those callers already get.
+# UI inputs that `hyperi-ci init` scaffolds and older callers lack, where the
+# reusable workflow's default is what those callers already get.
 OPTIONAL_CALLER_INPUTS: tuple[str, ...] = ("test-tier",)
 
-# Optional in the same way, but held only on a rust-ci.yml caller: no other
-# language workflow declares them, so another caller forwarding one breaks.
+# Optional too, but only on a rust-ci.yml caller: no other language workflow
+# declares them, so another caller forwarding one breaks.
 RUST_OPTIONAL_CALLER_INPUTS: tuple[str, ...] = ("bolt-optimize-args",)
 
-# Reusable workflows this project publishes. A job calling one of these is a
-# release caller and is held to the dispatch contract.
+# A job calling one of this project's reusable workflows is a release caller.
 _REUSABLE = re.compile(
     r"hyperi-io/hyperi-ci/\.github/workflows/(?P<name>[a-z-]+)-ci\.yml@",
 )
@@ -114,8 +109,7 @@ class CallerReport:
 
 def _dispatch_inputs(doc: dict) -> dict:
     """Return `on.workflow_dispatch.inputs`, tolerating YAML's `on` -> True."""
-    # PyYAML resolves a bare `on:` key to the boolean True, so a workflow
-    # parsed with safe_load has its triggers under True rather than "on".
+    # PyYAML reads a bare `on:` key as True.
     triggers = doc.get("on")
     if triggers is None:
         triggers = doc.get(True)
@@ -195,10 +189,8 @@ def audit_text(repo: str, text: str) -> CallerReport:
 def audit_local(root: Path | None = None) -> CallerReport:
     """Audit the working tree's ci.yml.
 
-    The working tree is the right source here -- it is the file about to be
-    committed. Fleet sweeps read the default branch instead (see
-    :func:`audit_repo`), because a checkout sitting on a fix branch reports
-    drift that main still has.
+    The working tree is the file about to be committed. Fleet sweeps read the
+    default branch instead (:func:`audit_repo`).
     """
     root = root or Path.cwd()
     path = root / DEFAULT_CALLER
@@ -228,9 +220,7 @@ def _gh_json(args: list[str]) -> object | None:
 def audit_repo(full_name: str) -> CallerReport:
     """Audit one repo's ci.yml as it stands on the DEFAULT BRANCH.
 
-    Reading the default branch rather than a local clone is the point: a
-    working tree parked on a release branch reports a fix that main has not
-    got.
+    A local clone parked on a fix branch would report a fix that main lacks.
     """
     result = subprocess.run(
         [

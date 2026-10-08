@@ -6,8 +6,8 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Shared utilities for HyperI CI.
 
-Uses scalo logger for structured output with automatic environment
-detection (GitHub Actions workflow commands, Solarized terminal, plain CI).
+Logging goes through the scalo logger, which detects GitHub Actions, CI and
+terminal output. The rest wraps subprocess and curl.
 """
 
 import codecs
@@ -55,11 +55,7 @@ _setup_logger(ci_mode=None, scrub_config=SCRUB_CONFIG)
 
 
 def sanitize_ref_name(ref: str) -> str:
-    """Sanitize a git ref name for use in file paths.
-
-    Replaces '/' (from branch names like 'fix/reconcile-release') with '-'
-    so the ref can be safely used in artifact filenames.
-    """
+    """Replace '/' in a git ref name with '-' so it can be an artifact filename."""
     return ref.replace("/", "-")
 
 
@@ -86,23 +82,21 @@ def _checked_version(raw: str, source: str) -> str:
 
 
 def resolve_release_version() -> str | None:
-    """Resolve the version being released - single SSoT for every stage.
+    """Resolve the version being released, the SSoT for every stage.
 
-    Precedence (issue #27): the Plan job's predicted ``next-version``, threaded
-    in via ``HYPERCI_VERSION``, is authoritative -- the same value Build stamps
-    and Tag-and-Publish tags, so every job in a run agrees. The committed
-    ``VERSION`` file is a fallback only (local runs); it is stale in CI now that
-    stamping is central and not committed back. Leading ``v`` is stripped.
-    Returns None when neither is set (caller decides whether that's fatal).
+    Precedence (issue #27): ``HYPERCI_VERSION``, the Plan job's predicted
+    ``next-version``, so every job in a run agrees. Then the ``VERSION`` file,
+    for local runs only, as it is stale in CI. Then the latest tag. A leading
+    ``v`` is stripped. Returns None when none is set (the caller decides whether
+    that is fatal).
 
-    Container, binary and registry publish all call this -- do NOT re-implement
-    version reading per stage, or they drift (which is exactly how the GH
-    release shipped a stale tag once set-version.py was removed).
+    Container, binary and registry publish all call this. Re-implementing the
+    read per stage drifts (the GH release once shipped a stale tag that way).
 
     The value reaches image tags, labels and build args in a job holding
     registry logins, so it must be semver, and ``VERSION`` must be a regular
-    file inside the checkout: a symlink to ``~/.docker/config.json`` would
-    otherwise hand that file to a ``{version}`` build arg.
+    file inside the checkout, or a symlink to ``~/.docker/config.json`` would
+    reach a ``{version}`` build arg.
 
     Raises:
         ReleaseVersionError: The value is not semver, or ``VERSION`` is a
@@ -129,10 +123,9 @@ def resolve_release_version() -> str | None:
 def latest_version_tag() -> str | None:
     """Highest final-release ``vX.Y.Z`` tag as a bare version, or None outside a repo.
 
-    Last-resort fallback for a checkout with no ``VERSION`` file (issue #85 --
-    the file is an artefact, so a repo may legitimately not carry one). The
-    tag is the released version, so this is one behind mid-release; callers
-    that need the version being released read ``HYPERCI_VERSION``.
+    Last-resort fallback for a checkout with no ``VERSION`` file (issue #85).
+    It is one behind mid-release, so callers that need the version being
+    released read ``HYPERCI_VERSION``.
     """
     result = run_cmd(
         ["git", "tag", "--list", "v[0-9]*", "--sort=-v:refname"],
@@ -141,9 +134,7 @@ def latest_version_tag() -> str | None:
     )
     if result.returncode != 0 or not result.stdout.strip():
         return None
-    # Plain vX.Y.Z only -- a prerelease sorts above its own release under
-    # -v:refname, so the raw top line resolves 1.1.2-beta.1 over the
-    # released 1.1.1.
+    # Plain vX.Y.Z only: a prerelease sorts above its own release.
     for line in result.stdout.splitlines():
         candidate = line.strip().removeprefix("v")
         if _SEMVER_RE.match(candidate):
@@ -158,8 +149,7 @@ def newer_release_than(version: str | None) -> str | None:
     """Return the highest stable release when it is above ``version``, else None.
 
     Reads the local ``v*`` tags, so the checkout must carry them. None also
-    covers a prerelease or unparseable ``version``, which never names a
-    ``latest`` pointer anyway, and a repo with no stable tag at all.
+    covers a prerelease or unparseable ``version`` and a repo with no stable tag.
     """
     if not version:
         return None
@@ -179,10 +169,10 @@ def newer_release_than(version: str | None) -> str | None:
 def holds_latest(version: str | None, pointer: str) -> bool:
     """Report whether ``pointer`` must stay on a newer release, and say why.
 
-    Re-publishing an older tag (``hyperi-ci release v1.2.3``, back-filling an
-    unreleased tag) republishes that version's own artefacts. Every
-    ``latest`` pointer still belongs to the newest stable release, or
-    ``downloads.hyperi.io/<project>/latest/`` and ``:latest`` go backwards.
+    Re-publishing an older tag (``hyperi-ci release v1.2.3``) republishes that
+    version's own artefacts, but every ``latest`` pointer belongs to the newest
+    stable release, or ``downloads.hyperi.io/<project>/latest/`` and ``:latest``
+    go backwards.
 
     Args:
         version: Version being published, with or without a leading ``v``.
@@ -206,12 +196,10 @@ def holds_latest(version: str | None, pointer: str) -> bool:
 def explicit_version(value: str | None) -> str | None:
     """Bare ``X.Y.Z`` if ``value`` is an explicit version, else None.
 
-    The from-head ``bump`` channel doubles as an explicit-version override
+    The from-head ``bump`` input doubles as an override
     (``hyperi-ci publish --version X.Y.Z``): ``auto``/``patch``/``minor`` are
-    bump levels resolved at release time; a bare semver is taken verbatim and
-    tagged at HEAD. A leading ``v`` is tolerated. Only plain ``X.Y.Z`` is
-    accepted (no pre-release / build metadata) -- releases here are always
-    plain semver and the tag format is ``v${version}``.
+    bump levels, and a bare semver is tagged at HEAD verbatim. A leading ``v``
+    is tolerated. Only plain ``X.Y.Z`` is accepted, as the tag is ``v${version}``.
     """
     candidate = value.strip().removeprefix("v") if value else ""
     return candidate if _SEMVER_RE.match(candidate) else None
@@ -258,10 +246,10 @@ def optimize_tier() -> str:
     """The optimisation tier this run asked for, or ``""`` when it asked for none.
 
     Read from ``HYPERCI_OPTIMIZE_TIER``, which the reusable workflows set from
-    their per-run ``optimize-tier`` input only. There is no repo variable and
-    no config key: the release tier adds PGO and BOLT to every build it
-    reaches, so the ask must not outlive the run. A value other than
-    ``release`` comes back as given, for the build stage to refuse.
+    their per-run ``optimize-tier`` input only. With no repo variable or config
+    key the ask cannot outlive the run, as the release tier adds PGO and BOLT.
+    A value other than ``release`` comes back as given, for the build stage to
+    refuse.
     """
     return os.environ.get("HYPERCI_OPTIMIZE_TIER", "").strip().lower()
 
@@ -269,16 +257,16 @@ def optimize_tier() -> str:
 def skip_optimize(config: CIConfig | None = None) -> bool:
     """Whether this run drops the optimisation stage.
 
-    Language-agnostic: Rust reads it as no PGO and no BOLT with Tier 1
-    (allocator + LTO) still applied, and a language with no optimisation
-    stage ignores it. ``HYPERCI_SKIP_OPTIMIZE``, set by the reusable
-    workflows from their ``skip-optimize`` input, beats ``build.skip_optimize``.
-    It is read here rather than through the ``HYPERCI_*`` config mapping,
-    which splits on underscores and would land it at ``skip.optimize``.
+    Rust reads it as no PGO and no BOLT with Tier 1 (allocator + LTO) still
+    applied, and a language with no optimisation stage ignores it.
+    ``HYPERCI_SKIP_OPTIMIZE``, set by the reusable workflows from their
+    ``skip-optimize`` input, beats ``build.skip_optimize``. It is read here
+    because the ``HYPERCI_*`` config mapping splits on underscores and would
+    land it at ``skip.optimize``.
 
-    A run that asks for the release tier never skips. It named PGO and BOLT
-    for this run, which beats a repo-wide skip, and answering here keeps the
-    build, the image label and the release notes in agreement.
+    A run that asks for the release tier never skips, since it named PGO and
+    BOLT for this run. Answering here keeps the build, the image label and the
+    release notes in agreement.
     """
     if optimize_tier() == "release":
         if _skip_requested(config):
@@ -307,11 +295,10 @@ def _skip_requested(config: CIConfig | None) -> bool:
 def release_unoptimized() -> bool:
     """Whether this run consents to shipping a skipped-optimisation build as a release.
 
-    A separate consent from ``skip_optimize``: skipping gets a build out fast,
-    and publishing that build under a release tag is its own deliberate act.
-    Read from ``HYPERCI_RELEASE_UNOPTIMIZED`` only, which the reusable
-    workflows set from their per-run ``release-unoptimized`` input. There is
-    no repo variable and no config key, so the consent never outlives the run.
+    A separate consent from ``skip_optimize``. Read from
+    ``HYPERCI_RELEASE_UNOPTIMIZED`` only, which the reusable workflows set from
+    their per-run ``release-unoptimized`` input, so the consent never outlives
+    the run.
     """
     return env_true("HYPERCI_RELEASE_UNOPTIMIZED")
 
@@ -319,12 +306,10 @@ def release_unoptimized() -> bool:
 def is_prerelease_build() -> bool:
     """Whether this run ships a prerelease version rather than a stable one.
 
-    ``HYPERCI_PRERELEASE``, set by the reusable workflows from the plan job's
-    ``prerelease`` output, answers first; otherwise the version being released
-    answers for itself, so a local run needs no extra variable. Identity is
-    separate from the optimisation tier (``HYPERCI_CHANNEL``): a prerelease may
-    be built at any tier, which is what makes a full release rehearsable
-    without spending a stable version (issue #144).
+    ``HYPERCI_PRERELEASE``, set from the plan job's ``prerelease`` output,
+    answers first, else the version being released does. Identity is separate
+    from the optimisation tier (``HYPERCI_CHANNEL``), so a full release can be
+    rehearsed on a prerelease version (issue #144).
     """
     from hyperi_ci.release_branches import is_prerelease_version
 
@@ -334,10 +319,9 @@ def is_prerelease_build() -> bool:
     return is_prerelease_version(resolve_release_version())
 
 
-# A line the Actions runner reads as a workflow command starts with one of
-# these, leading whitespace ignored.
+# Prefixes the Actions runner reads as a workflow command, leading whitespace
+# ignored.
 _COMMAND_PREFIXES = ("::", "##[")
-
 
 # CSI sequences (colour, cursor) and OSC sequences (hyperlinks) ended by BEL or ST.
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
@@ -346,10 +330,9 @@ _ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x
 def strip_ansi(text: str) -> str:
     """Return ``text`` without terminal escape sequences.
 
-    A tool forced into colour (``CARGO_TERM_COLOR=always``, a ``[term]`` table,
-    ``PY_COLORS=1``, ``FORCE_COLOR``) writes them into captured output too, and
-    a parser matching line starts, or a number beside the word after it, then
-    matches nothing.
+    A tool forced into colour (``CARGO_TERM_COLOR=always``, ``PY_COLORS=1``,
+    ``FORCE_COLOR``) writes them into captured output too, which breaks a parser
+    matching line starts.
     """
     return _ANSI_ESCAPE.sub("", text)
 
@@ -357,8 +340,8 @@ def strip_ansi(text: str) -> str:
 def _inert(msg: str) -> str:
     """Return ``msg`` with no line the Actions runner would run as a command.
 
-    Log text carries repo config and tool output, and under GitHub Actions the
-    logger writes every line after the first raw. A line that would start a
+    Under GitHub Actions the logger writes every line after the first raw, and
+    log text carries repo config and tool output. A line that would start a
     command gets a ``| `` prefix. Elsewhere the text is returned unchanged.
     """
     if not is_github_actions():
@@ -395,8 +378,8 @@ def error(msg: str) -> None:
 @contextmanager
 def group(title: str) -> Iterator[None]:
     """Collapsible group in GH Actions logs. No-op elsewhere."""
-    # Flush: stdout is a pipe under CI, so an unflushed marker orders after
-    # output from a child process that inherited the fd.
+    # Flush: stdout is a pipe under CI, so an unflushed marker lands after a
+    # child's output.
     if is_github_actions():
         print(f"::group::{title}", flush=True)
     try:
@@ -409,15 +392,11 @@ def group(title: str) -> Iterator[None]:
 def escape_command_data(value: str) -> str:
     """Percent-encode a value for the data half of a workflow command.
 
-    The runner runs the inverse (``UnescapeData``) on whatever follows the
-    ``::``, so anything not encoded here arrives as a DIFFERENT string than we
-    sent. ``%`` first, then the line breaks -- the other order would re-encode
-    the ``%`` this function just inserted. Same sequence as
-    ``@actions/core``'s ``escapeData``.
-
-    Encoding the line breaks is also what keeps the command on one line, so a
-    newline in the value cannot close it and have the remainder parsed as a
-    further command.
+    The runner decodes whatever follows the ``::`` (``UnescapeData``), so
+    anything not encoded arrives as a DIFFERENT string. ``%`` goes first or it
+    would re-encode its own output, as in ``@actions/core``'s ``escapeData``.
+    Encoding the line breaks also stops a newline closing the command and the
+    remainder parsing as another.
     """
     return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
 
@@ -430,11 +409,10 @@ def announce(
 ) -> None:
     """Report once: an annotation under GitHub Actions, a log line elsewhere.
 
-    The annotation reaches the run summary, where a folded log group cannot
-    hide it, and it is escaped because a raw newline ends a workflow command.
-    Under GitHub Actions it is the only output, because the logger would add a
-    second annotation. Any other CI reads no workflow commands, so it gets the
-    log line, at info for a notice.
+    The annotation reaches the run summary, where a folded log group cannot hide
+    it, and is escaped because a raw newline ends a workflow command. It is the
+    only output under GitHub Actions, as the logger would add a second
+    annotation. Any other CI gets the log line, at info for a notice.
     """
     if is_github_actions():
         print(f"::{level} title={title}::{escape_command_data(msg)}", flush=True)
@@ -478,14 +456,12 @@ def mask(value: str) -> None:
 def normalise_tristate(raw: object, *, key: str) -> str:
     """Coerce a YAML on/off/auto setting into ``true`` / ``false`` / ``auto``.
 
-    The house shape for a stage gate: ``false`` never runs, ``true``
-    always runs (and fails loudly when it can't), ``auto`` runs iff
-    detection finds a signal. YAML hands us a real bool for ``true`` /
-    ``false`` and a string for ``auto``, so both are accepted.
+    The stage-gate shape: ``false`` never runs, ``true`` always runs (and fails
+    loudly when it can't), ``auto`` runs iff detection finds a signal. YAML
+    gives a bool for ``true`` / ``false`` and a string for ``auto``.
 
-    An unrecognised value warns and falls back to ``auto`` -- a typo in
-    a config key shouldn't turn a build red on its own, and the warning
-    names the key so it's findable.
+    An unrecognised value warns, naming the key, and falls back to ``auto``, so
+    a typo does not turn a build red.
 
     Args:
         raw: The value as read from the config cascade.
@@ -504,11 +480,9 @@ def normalise_tristate(raw: object, *, key: str) -> str:
         if lowered in {"true", "false", "auto"}:
             return lowered
     elif raw is None:
-        # Key absent, or present with an empty value -- the default.
         return "auto"
-    # Anything else (a bare `1`, a float, a list) is a config mistake.
-    # `producer: 1` reads as "on" to a human and would otherwise do the
-    # opposite in silence.
+    # A bare `1`, float or list is a mistake: `producer: 1` reads as "on" to a
+    # human.
     warn(f"Unknown {key} value {raw!r} -- falling back to 'auto'")
     return "auto"
 
@@ -582,9 +556,8 @@ def run_cmd(
         cmd: Command as list of strings.
         check: Raise CalledProcessError on non-zero exit.
         capture: Capture stdout/stderr instead of passing through.
-        merge_stderr: With ``capture``, send stderr down the stdout pipe, so
-            ``stdout`` holds both streams in the order the child wrote them
-            and ``stderr`` is None.
+        merge_stderr: With ``capture``, send stderr down the stdout pipe in
+            write order, leaving ``stderr`` None.
         cwd: Working directory.
         env: Additional env vars (merged with os.environ).
         timeout: Seconds before the child is killed and
@@ -593,19 +566,17 @@ def run_cmd(
             group on timeout or interrupt, so a wrapper's children
             (``uvx checkov``) cannot outlive it.
         stdin_text: Text written to the child's stdin, which is then closed.
-            The way to hand a child a secret: argv is readable by any process
-            on the host through ``/proc/<pid>/cmdline``, stdin is not. None
-            leaves stdin inherited.
+            The way to hand a child a secret, as any process can read argv from
+            ``/proc/<pid>/cmdline``. None leaves stdin inherited.
         memory_limit_bytes: ``RLIMIT_AS`` for the child, Linux only, and
             ``MALLOC_ARENA_MAX=2`` unless ``env`` names it. For Python tools
-            only: a Go runtime reserves far more address space than it uses.
+            only, as a Go runtime reserves far more address space than it uses.
 
     Returns:
         CompletedProcess with text output.
 
     Raises:
-        ValueError: ``merge_stderr`` without ``capture``, where there is no
-            pipe to merge into.
+        ValueError: ``merge_stderr`` without ``capture``.
 
     """
     if merge_stderr and not capture:
@@ -686,27 +657,25 @@ def backoff(retry: int) -> float:
     return random.uniform(0.5, 1.0) * 2 ** (retry - 1)  # noqa: S311 -- retry jitter, not a cryptographic use
 
 
-# With backoff() that spans about 1+2+...+64 seconds, long enough to ride out a
+# With backoff() this spans about 1+2+...+64 seconds, long enough to ride out a
 # GitHub release-download 504 burst.
 _CURL_RETRIES = 7
 # No retry starts once this many seconds have passed since the first attempt.
 _CURL_RETRY_MAX_TIME = 600
 _CURL_CONNECT_TIMEOUT = 10
 _CURL_MAX_TIME = 180
-# Seconds past --max-time before the process is killed, so it only fires on a
-# curl that has stopped honouring its own limit.
+# Seconds past --max-time before the process is killed.
 _CURL_BACKSTOP = 20
-# curl's exit code for an HTTP status of 400 or more under -f.
+# curl exit codes: an HTTP status of 400 or more under -f, and a transfer past
+# --max-time.
 _CURL_HTTP_ERROR = 22
-# curl's exit code for a transfer that ran past --max-time.
 _CURL_TIMED_OUT = 28
 
 
 def _redact_url(url: str) -> str:
     """Return ``url`` without its ``user:password@``, for a log line.
 
-    A URL too malformed to split is replaced whole, because where its
-    credentials end cannot be told.
+    A URL too malformed to split is replaced whole.
     """
     try:
         parts = urllib.parse.urlsplit(url)
@@ -738,7 +707,7 @@ def _curl_retryable(result: subprocess.CompletedProcess[str]) -> bool:
     """Whether a failed curl attempt is worth making again.
 
     Every failure is, except an HTTP status that asking again cannot change.
-    An HTTP error with no readable status is retried rather than guessed at.
+    An HTTP error with no readable status is retried.
     """
     status = (result.stdout or "").strip()
     if result.returncode != _CURL_HTTP_ERROR or not status.isdigit():
@@ -757,23 +726,18 @@ def curl_fetch(
     """Download ``url`` to ``dest`` with curl, retrying a transient failure.
 
     Every Python-side fetch goes through here, and a test fails on a fetching
-    curl argv anywhere else. Each attempt is one curl process. The body goes
-    to the ``-o`` file and stdout carries only the HTTP status, which decides
-    whether the attempt is made again.
+    curl argv anywhere else. Each attempt is one curl process, with the body in
+    the ``-o`` file and only the HTTP status on stdout.
 
-    A 5xx, 408 or 429, a transfer cut off mid-body, a timeout or any other
-    curl failure is retried up to 5 times, after about 1s, 2s, 4s, 8s and
-    16s, each wait cut by up to half at random. No retry starts more than
-    600s after the first attempt did. Any other HTTP status is final, because
-    asking again gets the same answer and spends another request against a
-    rate limit.
+    A 5xx, 408 or 429, a transfer cut off mid-body, a timeout or any other curl
+    failure is retried up to 7 times with :func:`backoff` waits. No retry starts
+    more than 600s after the first attempt. Any other HTTP status is final,
+    because asking again gets the same answer and spends rate limit.
 
-    A curl that outlives its own ``--max-time`` is killed 20 seconds later,
-    and the attempt counts as a timeout, curl's exit 28.
-
-    ``-f`` turns an HTTP error into a non-zero exit rather than a saved error
-    page. curl's error line is logged for each failed attempt, after the URL
-    with any ``user:password@`` removed.
+    A curl that outlives its own ``--max-time`` is killed 20 seconds later and
+    counts as a timeout (exit 28). ``-f`` makes an HTTP error a non-zero exit
+    rather than a saved error page. Each failed attempt logs curl's error line
+    after the URL with any ``user:password@`` removed.
 
     Args:
         url: What to fetch.
@@ -814,7 +778,7 @@ def curl_fetch(
             return result
         reason = (result.stderr or "").strip() or f"curl exit {result.returncode}"
         delay = backoff(retry + 1)
-        # The window bounds when a retry starts, so the wait before it counts.
+        # The wait before a retry counts toward the window.
         retry_starts = time.monotonic() - started + delay
         if (
             retry == _CURL_RETRIES
@@ -840,8 +804,8 @@ def curl_read(
 ) -> tuple[int, bytes]:
     """Fetch ``url`` into memory through a temp file, removed before returning.
 
-    For a caller that needs the bytes, or pipes them into a shell. The
-    arguments are those of :func:`curl_fetch`.
+    For a caller that needs the bytes. The arguments are those of
+    :func:`curl_fetch`.
 
     Args:
         url: What to fetch.
@@ -895,8 +859,8 @@ def download_artefact(name: str, url: str) -> bytes | None:
 
 URL_ATTEMPTS = 4
 
-# What a failed urllib request raises: HTTPError and URLError are both OSError,
-# and a response cut short raises an HTTPException.
+# HTTPError and URLError are both OSError, and a truncated response raises an
+# HTTPException.
 URL_ERRORS = (OSError, http.client.HTTPException)
 
 
@@ -914,13 +878,11 @@ def url_read(
     """Open ``request`` with urllib and return the body, retrying a transient failure.
 
     A 5xx, 408 or 429, a timeout, a reset connection or any other socket error
-    is tried again after about 1s, 2s, then 4s. Each wait is cut by up to half
-    at random so parallel jobs do not retry in step. Any other HTTP status
-    raises at once, because asking again gets the same answer.
+    is retried with :func:`backoff` waits. Any other HTTP status raises at once.
 
-    Nothing here bounds how long a whole call takes. ``timeout`` limits each
-    socket operation, so a server that trickles its reply can hold an attempt
-    far longer, and a hung DNS lookup is not limited at all.
+    Nothing bounds the whole call: ``timeout`` limits each socket operation, so
+    a server that trickles its reply can hold an attempt far longer, and a hung
+    DNS lookup is not limited at all.
 
     Args:
         request: What to open. The caller vouches for the URL.
@@ -963,39 +925,35 @@ def _log_line(line: str) -> None:
 def echo_chunk(text: str) -> None:
     """Pass a piece of a child's output through unchanged, as it arrives.
 
-    For a ``stream_cmd`` whose child's own output is the report, such as a test
-    runner's: the logger would prefix every line of it, and waiting for a
-    newline would hold back the id of a test that hangs mid-line.
+    For a ``stream_cmd`` whose child's output is the report, such as a test
+    runner's: the logger would prefix every line, and waiting for a newline would
+    hold back the id of a test that hangs mid-line.
     """
     sys.stdout.write(text)
     sys.stdout.flush()
 
 
-# How much of a streamed child's output ``stream_cmd`` returns. Bounded, so a
-# test that logs without end cannot exhaust a 4 GB runner.
+# Bounded so a test that logs without end cannot exhaust a 4 GB runner.
 STREAM_TAIL_CHARS = 64 * 1024
 
 _STREAM_READ_BYTES = 64 * 1024
 
-# Bounded wait for the reader after the child exits, because a grandchild that
-# inherited the pipe can hold it open indefinitely.
+# A grandchild that inherited the pipe can hold it open indefinitely.
 _STREAM_GIVE_UP_SECONDS = 10.0
 
 
 class _StreamReader:
     """Drain a child's output pipe, feeding the sinks and keeping a bounded tail.
 
-    A sink that raises (a closed stdout under ``| head``) is not allowed to stop
-    the draining: an undrained pipe fills and blocks the child. The first such
+    A sink that raises (a closed stdout under ``| head``) must not stop the
+    draining, since an undrained pipe fills and blocks the child. The first such
     exception is kept for the caller to raise once the child has exited.
 
-    It reads its own duplicate of ``fd`` and closes it only at EOF, so a reader
-    still running after the caller has closed the original can never read a
-    descriptor number the process has since handed to something else.
+    It reads its own duplicate of ``fd`` and closes it only at EOF, so it can
+    never read a descriptor number the process has since reused.
 
-    A read that fails ends the drain rather than the thread. EIO is how a pty
-    reports that its writer has gone, so it reads as EOF. Any other error is
-    kept in ``read_error`` for the caller to report.
+    A failed read ends the drain. EIO is how a pty reports its writer has gone,
+    so it reads as EOF, and any other error is kept in ``read_error``.
     """
 
     def __init__(
@@ -1030,7 +988,7 @@ class _StreamReader:
         self._call(self._on_chunk, text)
         with self._lock:
             self._tail = (self._tail + text)[-self._tail_chars :]
-        # Only the last piece can be an unfinished line; it waits for the rest.
+        # Only the last piece can be an unfinished line.
         pieces = (self._partial + text).split("\n")
         self._partial = pieces.pop()
         if len(self._partial) > self._tail_chars:
@@ -1080,9 +1038,9 @@ def stream_cmd(
 ) -> tuple[int, str]:
     """Run a subprocess, handing over its output as it arrives.
 
-    For a step whose silence is itself the symptom: a process that hangs still
-    leaves everything it printed, and ``on_heartbeat`` fires on an interval
-    while it runs, so the log says how long it has been going (issue #261).
+    For a step whose silence is the symptom: a hung process leaves everything it
+    printed, and ``on_heartbeat`` fires on an interval so the log says how long
+    it has been going (issue #261).
 
     Args:
         cmd: Command as list of strings.
@@ -1102,9 +1060,8 @@ def stream_cmd(
         it in ``on_line``.
 
     Raises:
-        OSError: The command could not be started -- ``FileNotFoundError``
-            when it does not exist, ``PermissionError`` when it lacks the
-            execute bit.
+        OSError: The command could not be started (``FileNotFoundError`` or
+            ``PermissionError``).
         Exception: The first exception ``on_line`` or ``on_chunk`` raised,
             re-raised once the child has exited. The pipe is drained regardless.
 
@@ -1140,7 +1097,6 @@ def stream_cmd(
     return returncode, drain.tail()
 
 
-# Common directories to exclude from quality checks
 _COMMON_EXCLUDES = [
     ".venv",
     "venv",
@@ -1211,9 +1167,8 @@ def _unmatched_names(root: Path, names: set[str]) -> set[str]:
 def _note_unmatched_excludes(entries: tuple[str, ...], root: Path) -> None:
     """Report each ``quality.exclude_paths`` entry that excludes nothing.
 
-    Info, not a warning: an entry may guard a directory that only exists on
-    some checkouts. Cached so the note appears once per process, however many
-    stages ask for the exclude list.
+    Info, not a warning, because an entry may guard a directory that exists on
+    some checkouts only. Cached so it appears once per process.
     """
     prefix = "quality.exclude_paths:"
     names = {e for e in entries if "/" not in e and not (root / e).is_dir()}
@@ -1227,14 +1182,12 @@ def _note_unmatched_excludes(entries: tuple[str, ...], root: Path) -> None:
 def get_exclude_dirs(config_raw: dict[str, Any] | None = None) -> list[str]:
     """Get directories to exclude from quality checks.
 
-    Combines:
-      1. Git submodule paths (from .gitmodules)
-      2. ci/ and ai/ (always)
-      3. Common directories (.venv, node_modules, target, etc.)
-      4. Custom entries from quality.exclude_paths config, with any trailing
-         ``/`` stripped. An entry with a ``/`` is a path from the repo root,
-         kept only if it is a directory. A bare name is kept regardless,
-         since the consumers match it against a directory name at any depth.
+    Combines git submodule paths (.gitmodules), ci/ and ai/, the common
+    directories (.venv, node_modules, target, etc.) and the
+    ``quality.exclude_paths`` entries with any trailing ``/`` stripped. An entry
+    with a ``/`` is a path from the repo root, kept only if it is a directory.
+    A bare name is kept regardless, as consumers match it against a directory
+    name at any depth.
 
     A custom entry that excludes nothing is reported once per process.
     """

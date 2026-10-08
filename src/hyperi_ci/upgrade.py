@@ -6,11 +6,10 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Self-upgrade functionality for hyperi-ci CLI.
 
-Which release an upgrade aims at is the channel's decision (see
-:mod:`hyperi_ci.channel`): ``live`` takes the newest release on PyPI, ``stable``
-takes the newest one that has soaked past the cooldown. Everything below the
-target resolution -- building the installer command, confirming the version
-actually moved, re-exec -- is the same on both channels.
+The channel picks the target release (see :mod:`hyperi_ci.channel`): ``live``
+takes the newest release on PyPI and ``stable`` the newest one past the
+cooldown. Building the installer command, confirming the version moved and
+re-exec are the same on both.
 """
 
 import json
@@ -73,12 +72,9 @@ def _parse_latest_version(
 def _release_upload_time(files: list[dict]) -> float | None:
     """Return when a release first became installable, as a unix timestamp.
 
-    The earliest file wins: a release with an sdist uploaded before its wheels
-    was installable from that moment, which is the point the soak starts.
-
-    PyPI's older ``upload_time`` field carries no offset, and a naive datetime
-    would be read as local time -- hours of error either way in the soak. Both
-    fields are UTC, so a missing offset is filled in as UTC.
+    The earliest file wins, as a release is installable from its first upload.
+    PyPI's older ``upload_time`` field carries no offset and would be read as
+    local time, so a missing offset is filled in as UTC.
 
     Args:
         files: PyPI file entries for one release.
@@ -107,8 +103,7 @@ def _stable_releases_newest_first(
 ) -> list[tuple[Version, float | None]]:
     """Return (version, upload time) for real releases, newest version first.
 
-    Pre-releases and dev-releases are dropped: a channel that waits out a soak
-    window has no business adopting one.
+    Pre-releases and dev-releases are dropped.
 
     Args:
         releases: PyPI releases mapping {version_string: [file_dicts]}.
@@ -139,9 +134,8 @@ def _soaked_version(
 ) -> str | None:
     """Return the newest release aged past the cooldown, or None if none has.
 
-    Newest first; the first release old enough wins. A release whose upload
-    time cannot be read is skipped rather than assumed old -- fail closed, so
-    an unreadable timestamp holds the channel back instead of advancing it.
+    The first release old enough wins. One with an unreadable upload time is
+    skipped (fail closed), so it holds the channel back instead of advancing it.
 
     Args:
         releases: PyPI releases mapping.
@@ -168,10 +162,8 @@ def _newest_with_age(
 ) -> tuple[str, float] | None:
     """Return (newest release, its age in days), for reporting only.
 
-    This is what ``stable`` is waiting on when :func:`_soaked_version` comes
-    back short of it, so the upgrade can say which release it is holding out on
-    and for how much longer. The adoption decision stays with
-    :func:`_soaked_version`.
+    Names what ``stable`` is waiting on when :func:`_soaked_version` falls short
+    of it. The adoption decision stays with :func:`_soaked_version`.
 
     Args:
         releases: PyPI releases mapping.
@@ -195,11 +187,9 @@ class UpgradeTarget(NamedTuple):
         version: Release to install, or None when the channel has nothing to
             offer (no release has soaked yet, or PyPI could not be read).
         pin: Install the exact version rather than ``@latest``. True only while
-            ``stable`` lags the newest release; an exact specifier lands in
-            uv's receipt as a pin, so it is not used when ``@latest`` resolves
-            to the same version anyway.
-        note: What the channel is holding out on, for logging. None when
-            nothing is being held back.
+            ``stable`` lags the newest release, as an exact specifier lands in
+            uv's receipt as a pin.
+        note: What the channel is holding out on, for logging, else None.
 
     """
 
@@ -217,8 +207,8 @@ def _resolve_target(
 ) -> UpgradeTarget:
     """Resolve which release the channel wants installed.
 
-    ``pre`` resolves as ``live`` whatever the channel: a pre-release has not
-    soaked by definition, so asking for one is asking to leave the soak window.
+    ``pre`` resolves as ``live`` whatever the channel, as a pre-release has not
+    soaked by definition.
 
     Args:
         releases: PyPI releases mapping.
@@ -246,8 +236,7 @@ def _resolve_target(
             f"{newest[0]} is {newest[1]:.1f} days old, "
             f"adopted in {max(remaining, 0):.1f} days"
         )
-    # Pin only while stable lags, so a receipt pin exists exactly as long as
-    # the soak lag does.
+    # A receipt pin exists only while stable lags.
     pin = soaked is not None and soaked != latest_stable
     return UpgradeTarget(version=soaked, pin=pin, note=note)
 
@@ -261,24 +250,19 @@ def _build_upgrade_cmd(
     """Build the subprocess command for upgrading hyperi-ci.
 
     The unpinned uv path uses ``tool install --force ...@latest`` rather than
-    ``tool upgrade``. ``tool upgrade`` refuses to act on an install whose receipt
-    carries an exact version, and refusing is how it reports that -- exit 0 with
-    "Nothing to upgrade". So one ``upgrade --version`` in the past would have
-    disabled every upgrade after it. ``@latest`` both moves the version and
-    clears the pin, which is uv's own advice in that message.
+    ``tool upgrade``, which exits 0 with "Nothing to upgrade" on an install whose
+    receipt carries an exact version, so one ``upgrade --version`` would disable
+    every upgrade after it. ``@latest`` moves the version and clears the pin.
 
     ``--refresh`` is on both uv paths because ``@latest`` resolves against uv's
-    CACHED index, not PyPI. Observed on the 2.9.6 release: PyPI served 2.9.6 while
-    ``tool install --force ...@latest`` installed 2.9.5 from cache, and it took
-    ``--refresh`` to see it. Auto-update reads the real latest from the PyPI JSON
-    API, so without this it asks uv for a version uv does not yet believe in --
-    which now warns rather than lying, but should not happen at all. The pinned
-    path needs it for the same reason: a version released moments ago is not in
-    the cached index either.
+    CACHED index, which can lag PyPI (2.9.6 was live while uv installed 2.9.5).
+    Auto-update reads the latest from the PyPI JSON API, so a stale index asks
+    uv for a version it does not yet believe in. A pinned version released
+    moments ago is missing from the cached index too.
 
-    pip has no index-only refresh -- ``--no-cache-dir`` would also throw away the
-    wheel cache -- so the pip path is left alone. If it serves stale metadata the
-    post-check catches it.
+    pip has no index-only refresh (``--no-cache-dir`` also drops the wheel
+    cache), so the pip path is left alone and the post-check catches stale
+    metadata.
 
     Args:
         uv_path: Path to uv binary, or None to use pip.
@@ -321,10 +305,8 @@ def _parse_installed_version(output: str, *, from_uv: bool) -> str | None:
     for raw in output.splitlines():
         line = raw.strip()
         if from_uv:
-            # `uv tool list` prints one line per tool -- "hyperi-ci v2.9.5" --
-            # followed by its entrypoints indented with "- ". Only the tool line
-            # carries the version, and the entrypoint shares the tool's name, so
-            # the "v" separator is what distinguishes them.
+            # The tool line ("hyperi-ci v2.9.5") carries the version. Its
+            # indented entrypoint shares the name, so the "v" tells them apart.
             if line.startswith(f"{PACKAGE} v"):
                 return line.split(" v", 1)[1].strip()
         elif line.lower().startswith("version:"):
@@ -335,8 +317,8 @@ def _parse_installed_version(output: str, *, from_uv: bool) -> str | None:
 def _installed_version(uv_path: str | None) -> str | None:
     """Read the version installed on disk, not the one currently running.
 
-    A process that upgrades itself still has the old ``__version__`` imported, so
-    it cannot use that to confirm anything landed. Ask the installer.
+    A process that upgrades itself still has the old ``__version__`` imported,
+    so this asks the installer.
 
     Args:
         uv_path: Path to uv binary, or None to ask pip.
@@ -370,9 +352,8 @@ def _installed_version(uv_path: str | None) -> str | None:
 def _confirm_upgraded(uv_path: str | None, target: str) -> bool:
     """Check the installed version actually reached target.
 
-    Exit code 0 is not evidence of an upgrade. ``uv tool upgrade`` exits 0 when it
-    declines to do anything, so the old code logged a version bump that had not
-    happened, wrote the freshness timestamp, and suppressed the next check.
+    Exit code 0 is not evidence: ``uv tool upgrade`` exits 0 when it declines to
+    act, which would log a bump that did not happen and suppress the next check.
 
     Args:
         uv_path: Path to uv binary, or None for pip.
@@ -406,10 +387,9 @@ def _confirm_upgraded(uv_path: str | None, target: str) -> bool:
 def _effective_current(uv_path: str | None) -> Version:
     """Return the newer of the running version and the one on disk.
 
-    They diverge when the command came from a source checkout, and for one
-    invocation after an upgrade. Taking the newer of the two is what stops a
-    channel whose target is older than the installed tool -- ``stable`` during
-    its soak lag -- from downgrading it.
+    They diverge for a source checkout and for one invocation after an upgrade.
+    The newer of the two stops a channel whose target is older than the
+    installed tool (``stable`` during its soak lag) from downgrading it.
 
     Args:
         uv_path: Path to uv binary, or None to ask pip.
@@ -444,23 +424,19 @@ def _write_timestamp() -> None:
 
 
 def _should_auto_update() -> bool:
-    """Check all gates for auto-update.
-
-    Returns False if any gate blocks the update.
-    """
+    """Return False if any gate blocks auto-update."""
     return _blocking_gate() is None
 
 
 def _blocking_gate(*, ignore_invocation: bool = False) -> str | None:
     """Name the first gate that blocks auto-update, or None when none does.
 
-    One list of gates, in precedence order, so ``autoupdate status`` reports
-    the same decision the callback makes rather than a second copy of it.
+    One list of gates in precedence order, so ``autoupdate status`` reports the
+    decision the callback makes.
 
     Args:
-        ignore_invocation: Skip the recursion guard and the
-            explicit-command gate, which say nothing about the machine's
-            configuration and are noise when reporting status.
+        ignore_invocation: Skip the recursion guard and the explicit-command
+            gate, which say nothing about the machine's configuration.
 
     Returns:
         Gate name, or None when auto-update may proceed.
@@ -469,19 +445,16 @@ def _blocking_gate(*, ignore_invocation: bool = False) -> str | None:
     if not ignore_invocation:
         if os.environ.get("_HYPERCI_UPGRADING") == "1":
             return "recursion-guard"
-        # The user is updating or managing auto-update explicitly. `upgrade` is
-        # the deprecated alias of `update`; both are listed so the live command
-        # takes the exemption rather than racing a background update (#147).
+        # `upgrade` is the deprecated alias of `update`. Both are exempt so the
+        # command does not race a background update (#147).
         if len(sys.argv) >= 2 and sys.argv[1] in ("update", "upgrade", "autoupdate"):
             return "explicit-command"
 
-    # The freeze kill-switch outranks every opt-in below it, including
-    # HYPERCI_AUTO_UPDATE=true.
+    # Freeze outranks every opt-in below it, HYPERCI_AUTO_UPDATE=true included.
     if channel.is_frozen():
         return "frozen"
 
-    # Explicit env var override (takes precedence over CI detection and over
-    # the persisted enable flag, being the more immediate statement)
+    # The env var beats CI detection and the persisted enable flag.
     auto_update_env = os.environ.get("HYPERCI_AUTO_UPDATE", "").lower()
     if auto_update_env == "false":
         return "env-disabled"
@@ -501,13 +474,9 @@ def _blocking_gate(*, ignore_invocation: bool = False) -> str | None:
 def _fetch_releases(*, attempts: int = URL_ATTEMPTS) -> dict[str, list]:
     """Fetch the PyPI releases mapping, or {} on any error.
 
-    One request serves both the version list and the upload timestamps the
-    stable channel ages against.
-
     Args:
-        attempts: Tries before giving up. The checks that run ahead of every
-            command pass 1, so a machine with no route to PyPI does not sit
-            through the retries on each one.
+        attempts: Tries before giving up. The check ahead of every command
+            passes 1, so a machine with no route to PyPI skips the retries.
 
     Returns:
         PyPI releases mapping {version_string: [file_dicts]}.
@@ -523,10 +492,7 @@ def _fetch_releases(*, attempts: int = URL_ATTEMPTS) -> dict[str, list]:
 
 
 def _run_upgrade_cmd(cmd: list[str]) -> int:
-    """Run the upgrade subprocess with graceful error handling.
-
-    Handles permission errors, missing binaries, and other OS-level
-    failures so the caller can decide whether to continue or abort.
+    """Run the upgrade subprocess, logging an OS-level failure as a warning.
 
     Returns:
         Exit code (0 = success, non-zero = failure).
@@ -562,9 +528,8 @@ def _re_exec() -> None:
 def _refuse_when_frozen() -> bool:
     """Report whether hyperi-ci's own freeze flag blocks an explicit upgrade.
 
-    hyperi-ai's flag is not a veto on a command the operator typed here; it is
-    reported and the upgrade proceeds. hyperi-ci's own flag is a refusal,
-    because a kill-switch a routine command walks straight through is not one.
+    hyperi-ai's flag is reported and the upgrade proceeds, as the operator typed
+    the command. hyperi-ci's own flag refuses.
 
     Returns:
         True when the caller must abort.
@@ -654,8 +619,7 @@ def run_upgrade(
         return 0
 
     if version is None and current > target_ver:
-        # A channel resolves to a target, it does not roll the install back:
-        # only an explicit version argument may install something older.
+        # Only an explicit version may install something older.
         logger.info(f"Already ahead of the channel target ({current} > {target_ver})")
         return 0
 
@@ -675,9 +639,7 @@ def run_upgrade(
         return 1
 
     if version:
-        # An explicit version is a deliberate act, so honour it -- but say what
-        # it does not do, because auto-update clears the receipt pin it leaves
-        # and moves back to the channel target on its next check.
+        # Auto-update clears the receipt pin this leaves.
         logger.warning(
             f"Installed {target} explicitly. Auto-update will move back to the "
             f"channel target within {CHECK_INTERVAL // 3600}h -- hold here with: "
@@ -685,18 +647,16 @@ def run_upgrade(
         )
 
     logger.info(f"{PACKAGE} upgraded: {current} -> {target}")
-    # No re-exec here. `hyperi-ci update` has no original command to carry on
-    # with, so re-exec'ing means running `upgrade` again in the new binary --
-    # and a new binary old enough to trust a zero exit code (before #82) then
-    # re-execs on every "Nothing to upgrade", which never terminates.
+    # No re-exec: `update` has no command to carry on with, and a binary from
+    # before #82 re-execs on every "Nothing to upgrade" without end.
     return 0
 
 
 def maybe_auto_update() -> None:
     """Check for updates and auto-upgrade if appropriate.
 
-    Called from the CLI app callback. Never raises -- all errors are
-    caught and logged as warnings so the original command proceeds.
+    Called from the CLI app callback. Never raises: errors are logged as
+    warnings so the original command proceeds.
     """
     try:
         if not _should_auto_update():
@@ -709,20 +669,17 @@ def maybe_auto_update() -> None:
         channel_name, _ = channel.resolve_channel()
         resolved = _resolve_target(releases, channel_name=channel_name)
         if resolved.version is None:
-            # Nothing has soaked yet on stable. The check ran and answered, so
-            # record it rather than re-asking PyPI on every invocation.
+            # Nothing has soaked on stable yet. The check answered, so record it.
             _write_timestamp()
             return
 
         uv_path = shutil.which("uv")
         current = _effective_current(uv_path)
         if current >= Version(resolved.version):
-            # Never downgrades: switching to stable while ahead of the soak
-            # window holds the version still, it does not roll back.
+            # Never downgrades: stable while ahead of the soak window holds still.
             _write_timestamp()
             return
 
-        # Upgrade needed
         cmd = _build_upgrade_cmd(
             uv_path=uv_path,
             version=resolved.version if resolved.pin else None,
@@ -735,9 +692,7 @@ def maybe_auto_update() -> None:
             return
 
         if not _confirm_upgraded(uv_path, resolved.version):
-            # Deliberately no timestamp. Writing one here is what let a stuck
-            # install go quiet for four hours at a time, so leave the check due
-            # and let the next invocation try again and warn again.
+            # No timestamp: a stuck install must warn again on the next run.
             return
 
         _write_timestamp()
@@ -752,9 +707,8 @@ def _running_version() -> str:
     """Return the version this invocation would report as ``--version`` (#148).
 
     An editable install freezes its version into ``.dist-info`` at sync time, so
-    ``__version__`` drifts from the tree on every release; the imported one is
-    right for an ordinary install. Deferred import because ``cli`` imports this
-    module.
+    ``__version__`` drifts from the tree. Deferred import because ``cli``
+    imports this module.
     """
     from hyperi_ci.cli import _checkout_version, _source_checkout
 
@@ -765,12 +719,9 @@ def _running_version() -> str:
 def autoupdate_status() -> dict:
     """Report what auto-update would do, for ``hyperi-ci autoupdate status``.
 
-    Makes one PyPI request so the report names the actual target, not just the
-    channel. Network keys come back None when PyPI cannot be read.
-
-    ``running`` and ``installed`` differ for one invocation after an upgrade --
-    the running process still has the old ``__version__`` imported. The
-    decisions use the newer of the two.
+    Makes one PyPI request, and network keys come back None when PyPI cannot be
+    read. ``running`` and ``installed`` differ for one invocation after an
+    upgrade, and the decisions use the newer of the two.
 
     Returns:
         Mapping of the channel state, the resolved target, and the gates.

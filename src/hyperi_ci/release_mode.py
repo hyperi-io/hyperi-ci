@@ -4,33 +4,24 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Release-mode resolution -- the single source of truth.
-
-One tri-state mode, resolved here so every reader of the push decision gets
-the same answer:
+"""Release-mode resolution, the single source of truth for the push decision.
 
 * ``release``  -- GA release run (``will-release`` true / dispatch). Full
   tag set, pushed to every configured registry.
-* ``dev``      -- branch dev-image push: a DIFFERENT artifact class from a
-  GA release. Mutable ``branch-<slug>`` + immutable ``sha-<short>`` tags,
-  GHCR ONLY, behind the ``release.container.dev_push`` opt-in. Never
-  version tags, never ``latest``, never other registries -- main stays the
-  sole GA release path.
+* ``dev``      -- branch dev-image push. Mutable ``branch-<slug>`` + immutable
+  ``sha-<short>`` tags to GHCR ONLY, behind the ``release.container.dev_push``
+  opt-in. Never version tags, ``latest`` or other registries.
 * ``validate`` -- build and discard (the push-to-main / local default).
 
-The bool view (:func:`is_release_mode`) reads a dev-mode run as not a
-release; dev artifacts are container images only.
+:func:`is_release_mode` reads a dev-mode run as not a release.
 
-The mode is resolved from ``HYPERCI_RELEASE_MODE`` (set by the workflows
-from the plan job's ``will-release`` output) plus the standard GitHub
-Actions event context. ``HYPERCI_PUBLISH_MODE`` is still read when the
-canonical variable is unset, because workflows and the CLI are versioned
-independently: a consumer pinned at ``@main`` runs a workflow that sets the
-old name against whatever CLI version PyPI last published.
+The mode comes from ``HYPERCI_RELEASE_MODE`` (set by the workflows from the plan
+job's ``will-release`` output) plus the GitHub Actions event context.
+``HYPERCI_PUBLISH_MODE`` is read when the canonical variable is unset, because
+workflows and the CLI are versioned independently and a consumer pinned at
+``@main`` may pair the old name with a newer CLI.
 
-Local invocations resolve to ``validate`` unless the mode is set to ``dev``
-explicitly -- offline behaviour follows the same rules as CI, just without
-the CI context.
+Local invocations resolve to ``validate`` unless the mode is set to ``dev``.
 """
 
 import os
@@ -41,8 +32,7 @@ RELEASE = "release"
 DEV = "dev"
 VALIDATE = "validate"
 
-# The mode token's previous spelling, still exported so an out-of-tree
-# comparison against it keeps matching.
+# Deprecated spelling of RELEASE, kept for out-of-tree comparisons.
 PUBLISH = RELEASE
 
 _MODE_ENV = "HYPERCI_RELEASE_MODE"
@@ -57,8 +47,7 @@ _SLUG_MAX = 100  # leaves room for the "branch-" prefix within 128
 def _mode_flag(env: Mapping[str, str]) -> str:
     """Read the mode flag, canonical variable first.
 
-    An empty canonical value falls through to the legacy one rather than
-    winning, so a workflow that sets only the old name still decides.
+    An empty canonical value falls through to the legacy one.
     """
     flag = env.get(_MODE_ENV, "").strip().lower()
     if flag:
@@ -76,11 +65,10 @@ def resolve_push_mode(
         env: Environment mapping (defaults to ``os.environ``; injectable
             for tests).
 
-    The mode flag wins: ``true``-ish -> release, ``dev`` -> forced dev
-    (local/rehearsal use), ``false``-ish -> not a release (dev when opted
-    in on a branch/PR CI run, else validate). With no flag at all (older
-    workflows or local runs), ``workflow_dispatch`` implies release -- the
-    legacy fallback -- and anything else resolves like ``false``.
+    The mode flag wins: ``true``-ish -> release, ``dev`` -> dev, ``false``-ish
+    -> dev when opted in on a branch/PR CI run, else validate. With no flag
+    (older workflows, local runs) ``workflow_dispatch`` implies release and
+    anything else resolves like ``false``.
 
     """
     e = os.environ if env is None else env
@@ -90,8 +78,7 @@ def resolve_push_mode(
     if flag == "dev":
         return DEV
     if flag not in ("false", "0", "no"):
-        # No/unknown flag -- legacy event-based fallback (older workflows,
-        # local invocations): workflow_dispatch == release.
+        # No or unknown flag: workflow_dispatch means release.
         if e.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
             return RELEASE
     if dev_push and is_branch_ci_context(env=e):
@@ -103,8 +90,7 @@ def is_branch_ci_context(*, env: Mapping[str, str] | None = None) -> bool:
     """Report whether this is a CI run for a branch.
 
     True for a pull_request event, or a push to any ref other than main.
-    Local (non-Actions) runs are never a branch CI context -- a dev push
-    from a laptop must set the mode to ``dev`` explicitly.
+    Local (non-Actions) runs never are.
     """
     e = os.environ if env is None else env
     if e.get("GITHUB_ACTIONS") != "true":
@@ -132,8 +118,7 @@ def dev_branch_slug(*, env: Mapping[str, str] | None = None) -> str:
     """Docker-tag-safe slug of the branch under CI.
 
     ``GITHUB_HEAD_REF`` (the PR source branch) wins over ``GITHUB_REF_NAME``
-    (which is ``<n>/merge`` on pull_request events). Empty when neither is
-    set -- callers then fall back to the sha tag alone.
+    (``<n>/merge`` on pull_request events). Empty when neither is set.
     """
     e = os.environ if env is None else env
     ref = e.get("GITHUB_HEAD_REF") or e.get("GITHUB_REF_NAME", "")

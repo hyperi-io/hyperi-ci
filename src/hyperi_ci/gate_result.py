@@ -7,26 +7,23 @@
 """Turn "what actually ran" into a status context branch protection can require.
 
 A run whose every gate skipped still concludes ``success``, and GitHub counts a
-SKIPPED required check as satisfied. So a branch-protection rule naming
-``ci / Quality`` is satisfied by Quality not running, and the doctrine's
-deliberate skip is indistinguishable from a gate that never fired (issue #177).
+SKIPPED required check as satisfied, so a branch-protection rule naming
+``ci / Quality`` is satisfied by Quality not running (issue #177).
 
-:mod:`hyperi_ci.gate_audit` reports that fleet-wide on a schedule, after the
-fact. This is the same question asked inside the run, where it can still stop a
-merge: given the gate the plan job computed, did the jobs it required actually
-execute?
+:mod:`hyperi_ci.gate_audit` reports that fleet-wide after the fact. This asks it
+inside the run, where it can still stop a merge: did the jobs the plan's gate
+required actually execute?
 
-The doctrine itself is unchanged. A push that ships nothing SHOULD skip quality
-and test, and this passes it -- while saying so, so the reason is on the record
-rather than inferred from a green tick.
+A push that ships nothing SHOULD skip quality and test and this passes it, with
+the reason on the record.
 
-It also names the test tier the plan resolved. The tier is a report, not the
-enforcement: the plan forces full on a release in a project that sets
+It also names the test tier the plan resolved, as a report and not the
+enforcement. The plan forces full on a release in a project that sets
 ``test.full.required_for_release``, the Test job passes ``--tier full`` to a CLI
-that fails without it, and Build needs Test, so a release that owed full never
-reaches publishing on less. The Gate runs beside the release tail and cannot
-stop it. It fails, after the fact, only when the tier it was handed contradicts
-that -- a wiring fault.
+that fails without it, and Build needs Test, so a release that owed full cannot
+reach publishing on less. The Gate runs beside the release tail and cannot stop
+it, so it fails only when the tier it was handed contradicts that (a wiring
+fault).
 """
 
 import os
@@ -34,13 +31,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Self
 
-# A job that never started. GitHub reports this for a gated job, and for every
-# job downstream of one that failed.
+# SKIPPED is reported for a gated job and for every job downstream of a failure.
 SKIPPED = "skipped"
 SUCCESS = "success"
 
-# Results that mean the job ran and did not pass. `cancelled` counts: a
-# cancelled required job has verified nothing.
+# The job ran and did not pass. `cancelled` counts, as it verified nothing.
 _FAILED = ("failure", "cancelled", "timed_out")
 
 
@@ -124,11 +119,9 @@ def evaluate(
 ) -> GateVerdict:
     """Decide whether a run may report success.
 
-    The two gates are separate and must stay separate. ``run_checks`` governs
-    quality and test; ``run_build`` governs build, and is publish-only --
-    compiling a commit nothing ships is the line the doctrine draws. A normal
-    PR therefore has run-checks true and run-build false, and a build that
-    skipped there is correct rather than missing.
+    ``run_checks`` governs quality and test. ``run_build`` governs build and is
+    publish-only, so a normal PR has run-checks true and run-build false and a
+    skipped build there is correct.
 
     Args:
         run_checks: Whether the doctrine required quality and test here.
@@ -147,10 +140,8 @@ def evaluate(
     build = build or {}
     tier = TierContext.from_env() if tier is None else tier
 
-    # The plan job must have SUCCEEDED, not merely "not skipped". A plan that
-    # failed or was cancelled computed no gate, so every job under it skipped
-    # and every list below is empty -- which read as nothing-to-check and
-    # passed. Anything other than success is a refusal.
+    # A failed or cancelled plan computed no gate, so every list below is empty
+    # and would read as nothing-to-check. Only success passes.
     if plan != SUCCESS:
         return GateVerdict(
             ok=False,
@@ -161,9 +152,8 @@ def evaluate(
             ),
         )
 
-    # A gate that asked for checks and was handed no results at all is a
-    # misconfigured job, not a clean run -- a renamed job or a missing `env:`
-    # block reaches here and would otherwise pass forever.
+    # No results at all means a renamed job or a missing `env:` block, which
+    # would otherwise pass forever.
     missing_inputs = [
         name
         for name, results in (("quality and test", checks), ("build", build))
@@ -199,9 +189,9 @@ def evaluate(
             ),
         )
 
-    # The release tail does not wait for this job, so this records a release
-    # that already ran short; it cannot stop one. The Test job exports no
-    # counts, so the line names the tier, and its own annotation has the rest.
+    # The release tail does not wait for this job, so this records a short
+    # release and cannot stop one. The Test job exports no counts, so the line
+    # names the tier only.
     if run_checks and tier.release_short_of_full:
         return GateVerdict(
             ok=False,

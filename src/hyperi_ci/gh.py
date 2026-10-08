@@ -6,16 +6,13 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Shared GitHub CLI helpers.
 
-Provides common utilities for interacting with GitHub Actions via the `gh` CLI.
-All commands require `gh` to be installed and authenticated.
+Wraps the `gh` CLI, which must be installed and authenticated.
 
-Run selection (issue #101): `watch` and `logs` pin on the run they were
-asked about - a commit, narrowed by the project's declared CI workflow
-or the one named on the command line - and refuse when the choice is
-ambiguous. Falling back to "the newest run on the branch" is how a watch
-reported green off a Dependency Graph run while the Test run was still
-going. :func:`select_run` is the single matcher; which commit to pin on
-is :mod:`hyperi_ci.runs`.
+Run selection (issue #101): `watch` and `logs` pin on a commit, narrowed by the
+project's declared CI workflow or the one named on the command line, and refuse
+an ambiguous choice. "The newest run on the branch" once reported green off a
+Dependency Graph run while Test was still going. :func:`select_run` is the
+single matcher, and :mod:`hyperi_ci.runs` picks the commit.
 """
 
 import json
@@ -28,23 +25,20 @@ import yaml
 from hyperi_ci.common import error, run_cmd
 from hyperi_ci.tools import missing_tool_notice
 
-# The workflow a project declares as its own CI, and the default pin for
-# `watch` and `logs` when the caller names none.
+# The default pin for `watch` and `logs` when the caller names no workflow.
 _CI_WORKFLOW_FILE = Path(".github/workflows/ci.yml")
 
 
 class RunSelectionError(Exception):
     """A pinned run lookup did not resolve to exactly one run.
 
-    Carries the message the caller prints before exiting non-zero. Every
-    path that raises this has a candidate list or a next command in the
-    message - a refusal the user cannot act on is no better than a guess.
+    Carries the message the caller prints before exiting non-zero, always with
+    a candidate list or a next command.
     """
 
 
-# Fields every run-selection decision reads. `headSha` is the pin,
-# `workflowName` the narrowing filter, and the rest identify the run in
-# the message a refusal prints.
+# `headSha` is the pin, `workflowName` the narrowing filter, and the rest
+# identify the run in a refusal message.
 RUN_LIST_FIELDS = [
     "databaseId",
     "status",
@@ -76,15 +70,13 @@ def get_current_branch(*, cwd: str | None = None) -> str | None:
     """Get the current git branch name.
 
     Args:
-        cwd: Repository directory (default: process cwd). Callers that
-            honour a ``--project-dir`` MUST pass it -- otherwise the
-            branch of whatever repo the shell happens to sit in is
-            reported (and pushed).
+        cwd: Repository directory (default: process cwd). A caller honouring
+            ``--project-dir`` MUST pass it, or the shell's repo is reported
+            (and pushed).
 
     Returns:
-        Branch name, or None if not in a git repo or on a detached HEAD
-        (``rev-parse --abbrev-ref`` reports the literal ``HEAD`` there --
-        not a pushable branch name).
+        Branch name, or None if not in a git repo or on a detached HEAD, where
+        ``rev-parse --abbrev-ref`` prints the literal ``HEAD``.
 
     """
     try:
@@ -153,9 +145,7 @@ def get_latest_run(
     Args:
         branch: Filter by branch name.
         workflow: Filter by workflow filename.
-        repo: Optional ``owner/name`` -- when set, queries this repo
-            instead of the cwd's git remote. Use this when looking up
-            runs in a different repo than your cwd.
+        repo: Optional ``owner/name``, queried instead of the cwd's remote.
 
     Returns:
         Dict with run info, or None if no runs found.
@@ -218,10 +208,9 @@ def list_runs(
 ) -> list[dict]:
     """List workflow runs, newest first.
 
-    The workflow filter is deliberately NOT passed to `gh`: `gh run list
-    --workflow` accepts a name or a filename, and mixing that with the
-    name matching in :func:`select_run` would silently drop runs. One
-    matcher owns the decision.
+    The workflow filter is NOT passed to `gh`: `gh run list --workflow` takes a
+    name or a filename, and mixing that with :func:`select_run`'s name matching
+    would silently drop runs.
 
     Args:
         branch: Filter by branch name.
@@ -280,9 +269,8 @@ def select_run(
         The single matching run.
 
     Raises:
-        RunSelectionError: nothing matched, or several runs did. Picking
-            the newest of several is the issue #101 bug - a conclusion
-            reported for a run nobody asked about.
+        RunSelectionError: nothing matched, or several runs did. Picking the
+            newest of several is the issue #101 bug.
 
     """
     candidates = list(runs)

@@ -6,13 +6,8 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """DEPRECATED: this module moved to :mod:`hyperi_ci.release_mode`.
 
-Importers should update to::
-
-    from hyperi_ci.release_mode import resolve_push_mode, is_release_mode
-
-Every name the old module exported is re-exported here, ``PUBLISH``
-included -- it now carries the ``release`` token, which the mode
-comparisons treat identically.
+Every name the old module exported is re-exported here. ``PUBLISH`` now carries
+the ``release`` token.
 """
 
 import warnings

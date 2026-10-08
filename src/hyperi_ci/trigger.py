@@ -6,17 +6,14 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Trigger GitHub Actions workflow runs.
 
-Dispatches a workflow_dispatch event via the gh CLI, waits for the run
-to appear, and optionally watches it to completion.
+Dispatches a workflow_dispatch event via gh, waits for the run to appear, and
+optionally watches it to completion.
 
-Light touch (issue #97): the workflow is whatever the caller names, not
-only the ci.yml hyperi-ci scaffolds. A display name or a bare stem
-resolves to the file -- ``-w upstream-sync`` reaches
-``upstream-sync.yml`` -- and a workflow hyperi-ci did not scaffold is
-dispatched all the same. A token this checkout cannot see is passed to
-gh unchanged: refusing off a local listing would fail closed on a repo
-whose conventions hyperi-ci does not set, and the checkout may simply
-lag the remote. The inventory becomes a hint only after gh says no.
+Light touch (issue #97): any workflow can be named, not only the scaffolded
+ci.yml. A display name or bare stem resolves to the file (``-w upstream-sync``
+reaches ``upstream-sync.yml``). A token this checkout cannot see goes to gh
+unchanged, because the checkout may lag the remote, and the inventory is a hint
+only after gh says no.
 """
 
 import subprocess
@@ -37,10 +34,9 @@ def resolve_workflow_file(token: str, project_dir: Path | None = None) -> str:
         project_dir: Repo root (default: process cwd).
 
     Returns:
-        The filename to pass to ``gh workflow run``. An inventory that
-        cannot be read, or a token naming nothing in it, is returned
-        unchanged so a caller working against another repo is not
-        blocked by this checkout's contents.
+        The filename to pass to ``gh workflow run``. An unreadable inventory,
+        or a token naming nothing in it, comes back unchanged so a caller
+        working against another repo is not blocked.
 
     """
     inventory = workflow_files.inventory(project_dir)
@@ -59,8 +55,7 @@ def _wait_for_run(
 ) -> str | None:
     """Wait for a new run to appear after triggering.
 
-    Polls every 2 seconds for up to max_wait seconds, looking for a run
-    that was created after before_time.
+    Polls every 2 seconds for a run created after before_time.
 
     Args:
         branch: Branch the run should be on.
@@ -79,9 +74,8 @@ def _wait_for_run(
         run = get_latest_run(branch=branch, workflow=workflow, repo=repo)
         if not (run and run.get("databaseId")):
             continue
-        # Filter out the previous run still showing as "latest" -- gh's
-        # listing isn't strictly ordered by trigger time, and we need the
-        # NEW run, not whatever stale one happens to come back first.
+        # gh's listing is not strictly ordered by trigger time, so skip the
+        # previous run.
         created = run.get("createdAt")
         if created:
             try:
@@ -130,12 +124,11 @@ def trigger_workflow(
 
     Args:
         workflow: Workflow filename, stem or display name (e.g. "ci.yml",
-            "upstream-sync"). Any workflow in the repo qualifies, not
-            only the one hyperi-ci scaffolded.
+            "upstream-sync").
         ref: Branch or tag to run on. Defaults to current branch.
-        inputs: workflow_dispatch inputs, each sent as ``-f key=value``.
-            A workflow declaring required inputs cannot be dispatched
-            without them (issue #97).
+        inputs: workflow_dispatch inputs, each sent as ``-f key=value``. A
+            workflow with required inputs cannot be dispatched without them
+            (issue #97).
         watch: If True, watch the run to completion after triggering.
         timeout: Watch timeout in seconds.
         interval: Watch poll interval in seconds.
@@ -198,10 +191,7 @@ def trigger_workflow(
 def _carried(repo: str | None, project_dir: Path | None) -> str:
     """Name the workflows this checkout carries, as a hint after a failure.
 
-    Only a hint: the checkout may lag the remote, and the workflow gh
-    could not find may exist on the default branch regardless. Refusing
-    up front off a local listing would fail closed on a repo whose
-    conventions hyperi-ci does not set.
+    Only a hint, as the checkout may lag the remote.
     """
     if repo:
         return ""

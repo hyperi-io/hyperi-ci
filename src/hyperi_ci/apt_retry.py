@@ -6,14 +6,13 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Retry settings for the apt-get calls hyperi-ci runs.
 
-``native_deps`` uses them, and runner-image bake runs that from inside a
-Dockerfile ``RUN``.
+Used by ``native_deps``, which the runner-image bake runs from a Dockerfile
+``RUN``.
 
-Two failure shapes need two answers. A dropped connection or a timeout is
-retried inside apt by ``Acquire::Retries``. A mirror caught mid-sync serves an
-index whose size disagrees with its Release file ("File has unexpected size
-... Mirror sync in progress?"), and apt 2.8.3 (Ubuntu noble) fails that fetch
-once and exits 100 whatever ``Acquire::Retries`` says, so the whole update is
+``Acquire::Retries`` covers a dropped connection or a timeout. A mirror caught
+mid-sync serves an index whose size disagrees with its Release file ("File has
+unexpected size ... Mirror sync in progress?"), and apt 2.8.3 (Ubuntu noble)
+exits 100 on that whatever ``Acquire::Retries`` says, so the whole update is
 re-run after a pause long enough for the sync to finish.
 """
 

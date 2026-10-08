@@ -6,21 +6,19 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Fail a publish run for a missing credential in seconds, not in an hour.
 
-semantic-release runs a ``verifyConditions`` step for exactly this: prove the
-credentials are there before doing any work. Our config is tagger-only and
-implements no such step, so a missing ``CARGO_REGISTRY_TOKEN`` surfaced at the
-publish stage -- after a Tier 2 PGO + BOLT Rust build, 35-45 minutes in.
+Our semantic-release config is tagger-only and has no ``verifyConditions``
+step, so a missing ``CARGO_REGISTRY_TOKEN`` would otherwise surface at publish,
+after a 35-45 minute Tier 2 PGO + BOLT Rust build.
 
-Checked against the destinations the project actually publishes to, so a repo
-that opted out of an artefact is never asked for its credential.
+Only the destinations the project publishes to are checked, so an opted-out
+artefact never asks for its credential.
 
 Severity follows what the publish handler does without the credential:
 
 * **blocking** -- the handler hard-fails (crates.io, npm).
 * **warn** -- the handler has a documented fallback (PyPI falls back to OIDC
-  trusted publishing) or skips one destination of several (R2). A warn is
-  still worth printing at plan time: an R2 skip is a partial publish that
-  otherwise passes green.
+  trusted publishing) or skips one destination of several (R2). It still
+  prints at plan time, as an R2 skip is a partial publish that passes green.
 """
 
 import os
@@ -87,9 +85,8 @@ def _publishes_a_crate(project_dir: Path | None) -> bool:
     """Report whether this project publishes a crate at all.
 
     ``languages.rust.release.run`` returns early for a crate with ``[[bin]]``
-    targets, whatever ``destinations.cargo`` says -- its artefacts go to
-    GitHub Releases and R2 instead. Asking a binary app for a
-    ``CARGO_REGISTRY_TOKEN`` would block a release that never needed one.
+    targets whatever ``destinations.cargo`` says, so a binary app must not be
+    asked for a ``CARGO_REGISTRY_TOKEN``.
     """
     from hyperi_ci.languages.rust.build import _detect_binary_names
 

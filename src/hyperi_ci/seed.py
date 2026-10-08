@@ -6,19 +6,14 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Give a tag-less repo the one thing the whole version pipeline reads.
 
-Every version decision here starts from the latest ``v*`` tag. A repo with
-no tags at all has nothing to start from, and the old answer was to read the
-committed ``VERSION`` file -- the assumption issue #85 removes. The new answer
-is to create the tag once, at adoption, from the version the project already
-declares about itself.
+Every version decision starts from the latest ``v*`` tag, so a repo with none
+gets one created once, at adoption, from the version the project declares
+about itself (issue #85).
 
-The seed tag is a STARTING MARKER, not a release: it says "this is where the
-history begins", and the first published release bumps from it. That keeps
-tag-on-publish honest -- no seed tag is ever created for a version this tool
-published, because the publish path creates its own.
+The seed tag is a STARTING MARKER, not a release: the first published release
+bumps from it, and the publish path creates its own tags.
 
-Idempotent by construction: a repo with any ``v*`` tag already has its truth,
-and seeding refuses rather than adding a second opinion.
+Idempotent: a repo with any ``v*`` tag is left alone.
 """
 
 from pathlib import Path

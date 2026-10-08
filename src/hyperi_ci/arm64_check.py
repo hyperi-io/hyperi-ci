@@ -6,23 +6,19 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Whether a release-worthy merge to main owes an arm64 build.
 
-arm64 compiled only on a run that was already publishing, so an arm64-only
-defect first executed during the release meant to ship it, and the fix for one
-could not be exercised except by attempting another release (issue #249). A
-BOLT refusal over Cortex-A53 veneers reached dfe-receiver exactly that way and
-held two security fixes for over a week. The check builds below the release
-tier, so it runs no PGO or BOLT: it catches compile and link defects, not that
-one.
+arm64 compiled only on a run already publishing, so an arm64-only defect first
+ran during the release meant to ship it (issue #249). The check builds below the
+release tier, so it runs no PGO or BOLT and catches compile and link defects
+only, not a BOLT refusal like dfe-receiver's over Cortex-A53 veneers.
 
 A release-worthy merge to main WILL ship, so compiling its arm64 leg crosses no
-line in the gate doctrine: a merge that ships nothing still compiles nothing.
-This module answers the project half of that decision -- does this repo build
-aarch64 at all, and has it opted out with ``build.rust.arm64_on_main: false``.
+line in the gate doctrine. This module answers the project half: does this repo
+build aarch64 at all, and has it opted out with ``build.rust.arm64_on_main:
+false``.
 
-The predict-version composite loads this by path on a runner where hyperi-ci is
-not installed, so it is stdlib-only and imports nothing from the package but
-:mod:`hyperi_ci.project_config` and :mod:`hyperi_ci.build_targets`, which are
-stdlib-only for the same reason.
+Stdlib-only, importing nothing from the package but
+:mod:`hyperi_ci.project_config` and :mod:`hyperi_ci.build_targets`, because the
+predict-version composite loads it by path where hyperi-ci is not installed.
 """
 
 # KEEP on a 3.14 floor, where this import is otherwise wrong (issue #184).
@@ -39,8 +35,7 @@ from hyperi_ci.project_config import read_project_config
 #: The only arm64 target the build matrix carries a leg for.
 AARCH64 = "aarch64-unknown-linux-gnu"
 
-# YAML spells a false in several ways and a repo may quote it; each of these
-# means the project has opted out.
+# YAML spells false several ways and a repo may quote it.
 _OFF = frozenset({"false", "no", "off", "0"})
 
 

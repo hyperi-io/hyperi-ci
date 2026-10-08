@@ -6,31 +6,25 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Resolve the one-line project description that every destination duplicates.
 
-The same sentence is asked for by PyPI, crates.io, npm, the OCI image label,
-GHCR's package page and the GitHub repo blurb. Kept by hand it drifts, and
-ours did worse than drift: ``org.opencontainers.image.description`` shipped
-empty in every image because the only caller never passed one.
-
-The manifest is the source, not a new config key. ``cargo publish`` refuses
-without ``[package] description``, and PyPI and npm render theirs from the
-manifest, so those files must carry it and be correct regardless. A separate
-config key would be a fourth place able to disagree with three authoritative
-ones.
+PyPI, crates.io, npm, the OCI image label, GHCR's package page and the GitHub
+repo blurb all ask for the same sentence. The manifest is the source, not a new
+config key, because ``cargo publish`` refuses without ``[package] description``
+and PyPI and npm render theirs from the manifest, so a config key would be a
+fourth place to disagree.
 
 Resolution order:
 
-1. ``.hyperi-ci.yaml`` ``description`` -- the cascade opt-out, for a project
-   with no manifest field (Go) or a deliberate divergence.
+1. ``.hyperi-ci.yaml`` ``description``, the opt-out for a project with no
+   manifest field (Go) or a deliberate divergence.
 2. The manifest's top-level description, chosen by detected language.
-3. The GitHub repo description, which is what ``docker/metadata-action``
-   uses by default.
-4. Nothing -- reported, never silently blank.
+3. The GitHub repo description, which ``docker/metadata-action`` uses by
+   default.
+4. Nothing, which is reported and never silently blank.
 
-A Cargo workspace has no repo-level description of its own: ``[package]``
-lives in each member and they legitimately differ (a core library and a CLI
-describe different things). ``[workspace.package] description`` is the
-repo-level answer -- cargo accepts it whether or not any member inherits it
-with ``description.workspace = true``, so members keep their specific text.
+A Cargo workspace has no repo-level description of its own, as ``[package]``
+lives in each member and they differ. ``[workspace.package] description`` is
+the repo-level answer, and cargo accepts it whether or not any member inherits
+it with ``description.workspace = true``.
 """
 
 import json
@@ -99,11 +93,9 @@ def _node_description(path: Path) -> str | None:
     return _clean(data.get("description")) if isinstance(data, dict) else None
 
 
-# Routed by detected language rather than a fixed file order: the manifest
-# that owns the published artefact is the one that describes it. A Rust
-# binary with a Python packaging wrapper takes the Cargo description.
-# Go is absent on purpose: go.mod carries no description, so there is nothing
-# to read and pkg.go.dev renders the package doc comment instead.
+# Routed by detected language, as the manifest owning the published artefact
+# describes it (a Rust binary with a Python wrapper takes the Cargo one). Go is
+# absent because go.mod carries no description.
 _MANIFESTS: dict[str, tuple[str, Callable[[Path], str | None]]] = {
     "python": ("pyproject.toml", _python_description),
     "rust": ("Cargo.toml", _rust_description),
@@ -139,8 +131,8 @@ def manifest_description(root: Path | None = None) -> tuple[str, str] | None:
 def repo_slug(cwd: Path | None = None) -> str | None:
     """Resolve ``owner/name``, from CI's env or the git remote.
 
-    ``GITHUB_REPOSITORY`` only exists inside Actions, so a local
-    ``describe --check`` has to read the remote or it silently checks nothing.
+    ``GITHUB_REPOSITORY`` exists only inside Actions, so a local
+    ``describe --check`` reads the remote.
     """
     from_env = os.environ.get("GITHUB_REPOSITORY", "").strip()
     if from_env:
@@ -167,8 +159,7 @@ def github_description(
 ) -> str | None:
     """Read the description GitHub shows for the repo.
 
-    What ``docker/metadata-action`` falls back to, so a repo already carrying
-    a good blurb needs no manifest change to get a populated image label.
+    ``docker/metadata-action`` falls back to it.
     """
     target = repo or repo_slug(cwd)
     if not target:

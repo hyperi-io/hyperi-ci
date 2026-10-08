@@ -6,19 +6,14 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Resolve the commits a CI event introduced, and whether they ship a release.
 
-Three callers share this, which is why it lives on its own:
+Shared by ``hyperi_ci.quality.commit_validation`` (validates every message in
+the range) and the ``predict-version`` composite (is the range release-worthy,
+and what sits unreleased on a validate-only run).
 
-- ``hyperi_ci.quality.commit_validation`` validates every message in the range.
-- The ``predict-version`` composite asks whether the range is release-worthy,
-  to decide whether quality + test run on a push to main.
-- The same composite asks what is sitting UNRELEASED on a validate-only run,
-  which is the cumulative question rather than the per-push one.
-
-Stdlib-only, and it imports nothing from the package except
-:mod:`hyperi_ci.release_rules` (itself stdlib-only), because the composite
-loads it BY PATH in a job where hyperi-ci is not installed -- the same
-constraint ``version_source.py`` carries. Adding an import of ``common`` or
-``config`` here breaks the plan job.
+Stdlib-only, importing nothing from the package except
+:mod:`hyperi_ci.release_rules`, because the composite loads it BY PATH where
+hyperi-ci is not installed. An import of ``common`` or ``config`` here breaks
+the plan job.
 """
 
 import json
@@ -86,31 +81,23 @@ def event_payload() -> dict:
 def commits_in_range() -> tuple[list[tuple[str, str]], bool]:
     """Return ``(commits, resolved)`` for the commits this CI event introduced.
 
-    ``resolved`` is True when we authoritatively determined the range the
-    event introduced (even if it is empty -- a legitimate "no new commits").
-    It is False when we could NOT resolve the range (shallow checkout,
-    detached HEAD, missing ``before`` commit) -- the caller MUST then treat
-    an empty result as a DEGRADED backstop, not as success (issue #52).
+    ``resolved`` is True when the range was determined authoritatively, even if
+    empty. It is False when it could not be (shallow checkout, detached HEAD,
+    missing ``before`` commit), and the caller MUST treat an empty result then
+    as a degraded backstop, not success (issue #52).
 
     Resolution, in order of authority:
 
-    1. ``push`` event -> ``before..after`` from the event payload. This is
-       the ONLY correct range on a push to a tracked branch: after the push,
-       the runner's ``origin/<branch>`` already points at HEAD, so
-       ``origin/main..HEAD`` is empty and would silently validate nothing.
-       Also catches merge-imported history (the range includes commits a
-       merge made newly reachable) -- the rustlib v3.0.0 class of bug.
-    2. ``pull_request`` event -> ``<base sha>..HEAD``.
-    3. ``merge_group`` event -> ``base_sha..head_sha`` from the payload. The
-       queue fast-forwards main to ``head_sha`` once the checks pass, so this
-       is exactly the squash commit that will land, validated before it does.
-       The payload names the range the queue built, so nothing is inferred
-       from where ``origin/main`` happened to point at checkout.
-    4. Generic fallbacks for local / unknown contexts: ``origin/main..HEAD``
-       then a bounded ``HEAD~N..HEAD``.
+    1. ``push`` -> ``before..after`` from the event payload. After a push to a
+       tracked branch ``origin/<branch>`` already equals HEAD, so
+       ``origin/main..HEAD`` would be empty and validate nothing. This range
+       also covers merge-imported history.
+    2. ``pull_request`` -> ``<base sha>..HEAD``.
+    3. ``merge_group`` -> ``base_sha..head_sha`` from the payload, which is the
+       squash commit the queue will fast-forward main to.
+    4. Local / unknown contexts: ``origin/main..HEAD``, then ``HEAD~20..HEAD``.
 
-    A resolved-but-empty range short-circuits (returns ``([], True)``) so we
-    don't fall through and mis-resolve against a different range.
+    A resolved-but-empty range returns ``([], True)`` without falling through.
     """
     event = os.environ.get("GITHUB_EVENT_NAME", "")
     payload = event_payload()
@@ -123,16 +110,10 @@ def commits_in_range() -> tuple[list[tuple[str, str]], bool]:
             rc, commits = git_log([f"{before}..{after}"])
             if rc == 0:
                 return commits, True
-            # We KNOW new commits exist (before != after) but can't enumerate
-            # them - `before` isn't in this shallow clone. Do NOT fall through
-            # to origin/main..HEAD: right after a push-to-main that range is
-            # EMPTY (origin/main already == HEAD) and would wrongly report "no
-            # new commits" - the exact silent no-op of issue #52. Degrade to
-            # the HEAD-only backstop with a loud warning instead.
+            # `before` is missing from a shallow clone. Falling through to
+            # origin/main..HEAD would report an empty range (issue #52).
             return [], False
-        # before is all-zeros (branch creation): no prior tip to diff from, so
-        # fall through to the generic ranges (origin/main..HEAD enumerates what
-        # the new branch adds over main).
+        # Branch creation (all-zeros before): fall through to the generic ranges.
     elif event == "pull_request":
         base = str((payload.get("pull_request") or {}).get("base", {}).get("sha", ""))
         if not base and os.environ.get("GITHUB_BASE_REF"):
@@ -149,8 +130,7 @@ def commits_in_range() -> tuple[list[tuple[str, str]], bool]:
             rc, commits = git_log([f"{base}..{head}"])
             if rc == 0:
                 return commits, True
-            # Same reasoning as the push case: new commits exist and cannot be
-            # listed, and a fallback range would validate the wrong set.
+            # As for push: a fallback range would validate the wrong set.
             return [], False
 
     for git_range in ("origin/main..HEAD", "HEAD~20..HEAD"):
@@ -164,15 +144,12 @@ def commits_in_range() -> tuple[list[tuple[str, str]], bool]:
 def is_release_worthy(project_dir: Path | None = None) -> tuple[bool, str]:
     """Return ``(worthy, reason)`` for the commits this CI event introduced.
 
-    Worthy means at least one commit in the range resolves to a bump other
-    than ``none`` under :mod:`hyperi_ci.release_rules` -- semantic-release's
-    own defaults, overridden only by a repo ``.releaserc.json``.
+    Worthy means at least one commit resolves to a bump other than ``none``
+    under :mod:`hyperi_ci.release_rules`.
 
-    An UNRESOLVABLE range returns True: the gate this feeds decides whether
-    quality and test run, and a gate that silently skips itself because the
-    clone was shallow is the failure this exists to prevent (design principle
-    3, no silent skips). A resolved-but-empty range is a real answer, not a
-    degradation, so it returns False.
+    An UNRESOLVABLE range returns True so a shallow clone cannot silently skip
+    the quality and test gate (no silent skips). A resolved-but-empty range
+    returns False.
     """
     commits, resolved = commits_in_range()
     if not resolved:
@@ -227,10 +204,7 @@ def unreleased_since_tag(
 ) -> tuple[str | None, list[tuple[str, str]]]:
     """Return the nearest ``v*`` tag and the releasable commits HEAD holds past it.
 
-    Cumulative, not per-push: :func:`is_release_worthy` answers whether ONE
-    push shipped something, which goes quiet again on the next chore commit.
-    What an engineer can act on is the backlog -- every releasable commit the
-    last tag does not include.
+    Cumulative, not per-push: every releasable commit the last tag lacks.
 
     Args:
         project_dir: Directory whose ``.releaserc.json`` overrides the bump
@@ -239,9 +213,8 @@ def unreleased_since_tag(
     Returns:
         ``(tag, commits)`` where ``commits`` is ``(sha, bump)`` for each
         releasable commit in ``tag..HEAD``. ``(None, [])`` when no ``v*`` tag
-        is reachable or git could not answer -- a tag-less repo has no
-        released baseline to measure against, and its first release runs
-        through :mod:`hyperi_ci.version_source` instead.
+        is reachable or git could not answer (a tag-less repo's first release
+        runs through :mod:`hyperi_ci.version_source`).
     """
     tag = _last_version_tag()
     if tag is None:
@@ -262,10 +235,9 @@ def unreleased_since_tag(
 def unreleased_warning(project_dir: Path | None = None) -> tuple[bool, str]:
     """Return ``(warn, message)`` for releasable work HEAD has not released.
 
-    A validate-only run on main is correct by design and reports success, so
-    "nothing to ship" and "thirteen fixes waiting" arrive looking identical.
-    Three answers, never two: work waiting warns, nothing waiting stays quiet,
-    and no measurable baseline says so rather than passing for either.
+    A validate-only run on main reports success either way, so this separates
+    three answers: work waiting warns, nothing waiting stays quiet, and no
+    baseline says so.
 
     Args:
         project_dir: Directory whose ``.releaserc.json`` overrides the bump

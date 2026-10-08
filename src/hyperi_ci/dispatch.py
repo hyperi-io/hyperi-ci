@@ -4,14 +4,10 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Stage dispatcher for HyperI CI.
+"""Stage dispatcher: the entry point for every CI pipeline stage.
 
-Single entry point for all CI pipeline stages. Handles language detection,
-config loading, and dispatches to the appropriate language-specific handler.
-
-Usage:
-    from hyperi_ci.dispatch import run_stage
-    rc = run_stage("quality")
+Detects the language, loads config and routes to the language handler via
+``run_stage(stage)``.
 """
 
 import importlib
@@ -60,12 +56,10 @@ from hyperi_ci.quality import (
 class StageRunFn(Protocol):
     """Type contract every per-language stage handler's ``run`` exposes.
 
-    A handler module under ``hyperi_ci.languages.<lang>.<stage>`` exports
-    a ``run`` function matching this protocol. Pyright/mypy check
-    conformance statically; at runtime the dispatcher verifies ``run``
-    is present and callable, then a missing/mistyped handler fails
-    explicitly in :func:`_dispatch_to_handler` rather than producing
-    an AttributeError mid-stage.
+    A handler module under ``hyperi_ci.languages.<lang>.<stage>`` exports a
+    ``run`` matching this protocol. The dispatcher checks at runtime that it is
+    present and callable, so a bad handler fails explicitly rather than with an
+    AttributeError mid-stage.
     """
 
     def __call__(
@@ -85,10 +79,7 @@ VALID_STAGES = (
     "publish",
 )
 
-# Parenthetical clarifier appended to the "Project status: <X>" log line
-# so a reader of the CI output immediately knows what each value means
-# without having to consult the docs. `ga` and `legacy` defaults are
-# bare -- the clarifier carries the signal only where it adds something.
+# Appended to the "Project status: <X>" log line. `ga` adds nothing.
 _STATUS_CLARIFIER: dict[str, str] = {
     "experimental": " -- pre-GA, no API commitment",
     "alpha": " -- pre-GA, expect breaks",
@@ -98,11 +89,8 @@ _STATUS_CLARIFIER: dict[str, str] = {
     "deprecated": " -- do not adopt, scheduled for removal",
 }
 
-# Languages that share a handler package. The left-hand name is what
-# `detect_language()` returns (honest -- describes what the project actually
-# is); the right-hand name is the handler module to dispatch to. Keeping
-# the alias in dispatch means log lines like "Detected language: javascript"
-# stay accurate while the TS handler runs the stage.
+# Languages sharing a handler package: `detect_language()`'s name on the left,
+# the handler module on the right, so logs still say "javascript".
 _LANGUAGE_ALIASES = {
     "javascript": "typescript",
 }
@@ -117,16 +105,12 @@ _STAGE_ALIASES = {
 def _find_handler_module(language: str, stage: str) -> Any | None:
     """Import a language-specific handler module if it exists.
 
-    Looks for ``hyperi_ci.languages.<language>.<stage>`` and returns the
-    module if it has a callable ``run`` matching :class:`StageRunFn`.
-    Handles language aliases (e.g. javascript shares the typescript
-    handler package).
+    Looks for ``hyperi_ci.languages.<language>.<stage>``, through
+    ``_LANGUAGE_ALIASES``, and returns the module if it has a callable ``run``.
 
-    Returns ``None`` only when the module genuinely doesn't exist
-    (ImportError). If the module exists but ``run`` is missing or not
-    callable -- a packaging bug -- we raise ``TypeError`` rather than
-    silently returning None, so :func:`_dispatch_to_handler` produces
-    a clear error instead of mistaking it for "no handler".
+    Returns ``None`` only when the module does not exist (ImportError). A module
+    whose ``run`` is missing or not callable is a packaging bug and raises
+    ``TypeError``, so it is not mistaken for "no handler".
     """
     stage = _STAGE_ALIASES.get(stage, stage)
     canonical = _LANGUAGE_ALIASES.get(language, language)
@@ -134,8 +118,7 @@ def _find_handler_module(language: str, stage: str) -> Any | None:
         info(f"Using {canonical} handler for {language} project")
     module_name = f"hyperi_ci.languages.{canonical}.{stage}"
     try:
-        # Module name composed from closed allowlist (_LANGUAGE_ALIASES +
-        # known stages), not user input.
+        # The module name comes from a closed set (languages + known stages).
         mod = importlib.import_module(module_name)  # nosemgrep: non-literal-import
     except ImportError:
         return None
@@ -149,10 +132,9 @@ def _find_handler_module(language: str, stage: str) -> Any | None:
 
 
 def _normalize_rust_features(config: CIConfig, stage: str) -> str:
-    """Extract and normalise Rust features from config.
+    """Return Rust features as a string: stage-specific -> fallback -> "all".
 
-    Handles the config cascade (stage-specific -> fallback -> "all")
-    and converts arrays to pipe-separated strings.
+    Arrays become pipe-separated strings.
     """
     features: Any = None
 
@@ -189,8 +171,8 @@ def _dispatch_to_handler(
         return -1
     if _LANGUAGE_ALIASES.get(language, language) != "rust":
         return handler.run(config, extra_env=extra_env)
-    # cargo sizes its job count by CPUs alone, which OOM-kills a runner whose
-    # memory limit is below one rustc per CPU.
+    # cargo sizes jobs by CPUs alone, which OOM-kills a runner whose memory
+    # limit is below one rustc per CPU.
     with capped_cargo_jobs(config):
         return handler.run(config, extra_env=extra_env)
 
@@ -207,14 +189,10 @@ def stage_setup(language: str, config: CIConfig) -> int:
 def _run_local_gates(config: CIConfig) -> int:
     """Run the CI-only gates a repo declares, so a local green means something.
 
-    Some gates exist as their own CI JOB and have no place in the quality
-    stage, so `hyperi-ci check` passes while CI fails on something knowable
-    locally in seconds. A repo lists those commands under
-    `quality.local_gates` and gets them back in its local check.
-
-    Declared per repo rather than named here: which gates a repo runs as
-    separate jobs is the repo's business, and a path baked into this file
-    would be wrong for every consumer that does not have it.
+    Gates that run as their own CI JOB are outside the quality stage, so
+    `hyperi-ci check` can pass while CI fails. A repo lists those commands under
+    `quality.local_gates` to run them in its local check. They are declared per
+    repo because a path named here would be wrong for every other consumer.
     """
     gates = config.get("quality.local_gates", []) or []
     if not gates:
@@ -243,9 +221,7 @@ def _run_local_gates(config: CIConfig) -> int:
 
 def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> int:
     """Quality checks -- gitleaks + language-specific checks."""
-    # Deprecated-file hygiene nudge runs first and regardless of
-    # quality.enabled - it is a non-fatal tidy-up recommendation, not a
-    # gate, and should surface even on repos that disable the quality tools.
+    # A non-fatal nudge, so it runs first and even when quality is disabled.
     with group("Deprecated file check"):
         deprecated_files.scan()
 
@@ -256,38 +232,30 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
         )
         return 0
 
-    # Repo-hygiene advisory via external `alint` (profile-aware). Non-blocking
-    # - opt via quality.alint (auto/enabled/disabled); never fails the build.
-    # The resolved language scopes the default config so root-only rules of
-    # OTHER ecosystems don't fire on nested monorepo packages (issue #75).
+    # Advisory only (quality.alint). The language scopes the default config so
+    # other ecosystems' root-only rules skip nested monorepo packages (#75).
     with group("Repo hygiene advisory (alint)"):
         repo_advisor.run(config, language=language)
 
-    # Cross-language checks first.
     with group("Gitleaks secret scanning"):
         rc = gitleaks.run(config)
         if rc != 0:
             return rc
 
-    # The ASCII-only rule applies to every language, so it runs once here.
-    # 160 licence headers accumulated an em-dash because nothing enforced it
-    # (issue #169).
+    # The ASCII-only rule covers every language, so it runs once here (#169).
     with group("Character policy"):
         rc = charset.run(config)
         if rc != 0:
             return rc
 
-    # Semgrep SAST is cross-language too (python / go / ts / rust / yaml /
-    # ...), so it runs here once rather than inside every language handler.
+    # Cross-language, so semgrep runs once here, not per handler.
     with group("Semgrep SAST scanning"):
         rc = semgrep.run(config, language=language)
         if rc != 0:
             return rc
 
-    # Dockerfile linting is cross-language too: hadolint GATES (blocks on
-    # error-severity, incl a broken RUN shell), droast ADVISES (cache ordering /
-    # .dockerignore, never blocks). Both auto-detect Dockerfiles and clean-skip
-    # a repo with none.
+    # hadolint GATES on error severity (including a broken RUN shell), droast
+    # ADVISES and never blocks. Both skip a repo with no Dockerfile.
     with group("hadolint Dockerfile linting"):
         rc = hadolint.run(config)
         if rc != 0:
@@ -295,20 +263,13 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
     with group("droast Dockerfile advisory"):
         droast.run(config)
 
-    # Documentation linting is cross-language too, and every check defaults to
-    # `warn` - a repo gets a report rather than a red build until it promotes
-    # one. Auto-detects markdown and clean-skips a repo with none.
+    # Every doc check defaults to `warn` until a repo promotes it.
     docs_rc = lint_docs.run(Path.cwd(), config)
     if docs_rc != 0:
         return docs_rc
 
-    # Commit-message validation. In CI this is the dedicated `commit-check`
-    # workflow job - it runs on every merge to main (not just the
-    # publish-worthy pushes the run-checks-gated quality job covers) and is
-    # advisory on PRs. There is no such job for a LOCAL `hyperi-ci check`,
-    # so run it here over the unpushed range (origin/main..HEAD) as a
-    # pre-push backstop - catch a bad message before the push, not after.
-    # See hyperi_ci.quality.commit_validation.run + CLAUDE.md CI gate doctrine.
+    # In CI the `commit-check` job validates messages. A LOCAL `hyperi-ci check`
+    # has no such job, so it validates origin/main..HEAD here before the push.
     if local:
         with group("Commit message validation"):
             rc = commit_validation.run(config, local=True)
@@ -356,10 +317,8 @@ def stage_test(language: str, config: CIConfig) -> int:
 
     rc = _dispatch_to_handler(language, "test", config, extra_env=extra_env)
     if rc == -1:
-        # No silent skip -- a missing handler for a detected language is
-        # a hyperi-ci packaging bug, not "this project doesn't have tests."
-        # Projects that genuinely have no tests should set
-        # `test.enabled: false` in .hyperi-ci.yaml.
+        # A missing handler is a packaging bug, not "no tests". A project with
+        # none sets `test.enabled: false`.
         error(
             f"No test handler found for language {language!r}. "
             f"This is a hyperi-ci bug (handler module "
@@ -386,9 +345,8 @@ def stage_build(language: str, config: CIConfig, *, local: bool = False) -> int:
             if strategy == "native":
                 if language == "rust":
                     features = _normalize_rust_features(config, "build")
-                    # Environment override (from workflow matrix) takes
-                    # precedence over config -- allows split-runner builds
-                    # to specify a single target per matrix entry.
+                    # The env var (from the workflow matrix) beats config, so
+                    # split-runner builds get one target per entry.
                     env_targets = os.environ.get("RUST_BUILD_TARGETS", "")
                     if env_targets:
                         extra_env["RUST_BUILD_TARGETS"] = env_targets
@@ -424,10 +382,10 @@ def stage_build(language: str, config: CIConfig, *, local: bool = False) -> int:
 def check_prepared(language: str) -> int:
     """Refuse a prepared directory written for another version, language or commit.
 
-    It came from a job that ran repo code, so it is checked against what this
-    run is releasing before anything reads it. A CI run with no prepared
-    directory is a caller on a release tail that predates the split, and says
-    so, because the repo's own code then runs beside the tokens.
+    It came from a job that ran repo code, so it is checked against this run
+    before anything reads it. A CI run with none is on a release tail that
+    predates the split, and warns because the repo's code then runs beside the
+    tokens.
     """
     ok, prepared = release_prepare.load_or_report("release")
     if not ok:
@@ -496,15 +454,13 @@ def stage_release(language: str, config: CIConfig) -> int:
     if rc != 0:
         return rc
 
-    # Always create the GH Release (even for libraries with no binaries)
     from hyperi_ci.release import (
         create_github_release,
         publish_binaries,
         stage_release_assets,
     )
 
-    # Staged before the release exists, so a missing asset fails with nothing
-    # published rather than leaving a release short of what pins it.
+    # Staged first, so a missing asset fails before anything is published.
     rc = stage_release_assets(config)
     if rc != 0:
         return rc
@@ -513,8 +469,8 @@ def stage_release(language: str, config: CIConfig) -> int:
     if rc != 0:
         return rc
 
-    # Last on purpose: a binary-upload failure must not cost the registry
-    # publish or the GitHub Release, both of which are done by here.
+    # Last, so a binary-upload failure cannot cost the registry publish or the
+    # GitHub Release.
     return publish_binaries(config)
 
 
@@ -558,8 +514,8 @@ def run_stage(
         error(f"Valid stages: {', '.join(VALID_STAGES)}")
         return 1
 
-    # Handlers run their tools in the process cwd, so `-C` only reaches
-    # cargo/uv/npm by moving the process to the resolved root (issue #109).
+    # Handlers run tools in the process cwd, so `-C` must move the process
+    # (issue #109).
     project_dir = (project_dir or Path.cwd()).resolve()
     os.chdir(project_dir)
     info(f"HyperI CI -- {stage}")
@@ -576,12 +532,7 @@ def run_stage(
 
     config = load_config(reload=True, project_dir=project_dir)
 
-    # Surface project lifecycle status so consumers reading CI logs can
-    # immediately see "oh, this isn't GA". Skipped silently when the
-    # field is unset -- `.hyperi-ci.yaml` need not declare it. Always
-    # logged as INFO; the parenthetical clarifier on non-ga values
-    # carries the signal without elevating log level (a beta project
-    # isn't an error, just a fact).
+    # Logged at INFO when declared, as a beta project is a fact, not an error.
     status = str(config.get("project.status") or "").strip().lower()
     if status in VALID_PROJECT_STATUSES:
         info(f"Project status: {status}{_STATUS_CLARIFIER.get(status, '')}")
@@ -589,16 +540,13 @@ def run_stage(
     handler = _STAGE_HANDLERS[stage]
     try:
         if stage in ("build", "quality"):
-            # build + quality take `local` (build skips cross-targets; quality
-            # runs the commit-message backstop only for a local `hyperi-ci
-            # check`). _STAGE_HANDLERS is typed to the common (no-local)
-            # signature, so cast for this branch.
+            # These two take `local`, but _STAGE_HANDLERS is typed without it.
             rc = cast("Any", handler)(language, config, local=local)
         else:
             rc = handler(language, config)
     except GateReasonRequiredError as exc:
-        # A relaxed security gate with no reason is a config defect, and a run
-        # that continues past it is the silent skip this check exists to stop.
+        # A relaxed security gate with no reason is a config defect, and
+        # continuing would be a silent skip.
         announce(str(exc), exc.title, level="error")
         return 1
     except ReleaseVersionError as exc:

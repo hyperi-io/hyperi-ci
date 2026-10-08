@@ -6,19 +6,16 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Project initialisation for hyperi-ci.
 
-Generates the files consumer projects need for CI integration.
-Existing-project-aware: detects existing Makefiles with CI targets, and
-generates language-appropriate defaults.
+Generates the files a consumer project needs, skipping a Makefile that already
+has CI targets:
 
-Generated files:
   - .hyperi-ci.yaml (CI configuration, language-specific defaults)
-  - Makefile (quality/test/build targets -- skipped if existing)
+  - Makefile (quality/test/build targets)
   - .github/workflows/ci.yml (reusable workflow caller)
 
-No .releaserc is generated: hyperi-ci uses a central tagger-only
-semantic-release config (provided at CI time) and `hyperi-ci stamp-version`
-for stamping. Scaffolding a per-repo .releaserc with @semantic-release/git
-is what caused the issue #37 tag-rewrite damage.
+No .releaserc is generated: CI supplies a central tagger-only semantic-release
+config, and a per-repo one with @semantic-release/git caused the issue #37
+tag-rewrite damage.
 """
 
 from pathlib import Path
@@ -48,9 +45,8 @@ _LICENSE_MARKERS = licenses.LICENSE_MARKERS
 def detect_license(project_dir: Path) -> str:
     """Resolve the project licence: explicit declaration, else scan, else default.
 
-    Order: an explicit ``license:`` in ``.hyperi-ci.yaml`` wins (the project
-    declares its licence), then the LICENSE file, then source-file headers, then
-    the default (BUSL-1.1).
+    Order: an explicit ``license:`` in ``.hyperi-ci.yaml``, then the LICENSE
+    file, then source-file headers, then the default (BUSL-1.1).
 
     Args:
         project_dir: Project root directory.
@@ -107,10 +103,9 @@ def detect_license(project_dir: Path) -> str:
 def _detect_submodules(project_dir: Path) -> str:
     """Read the ``submodules`` field from ``.hyperi-ci.yaml`` (else "").
 
-    Names submodule paths the CI test job should init (space-separated),
-    e.g. ``schemas``. Threaded into both the generated ci.yml (the
-    reusable-workflow ``submodules`` input) and the regenerated
-    ``.hyperi-ci.yaml``, so the value survives re-init.
+    Space-separated submodule paths the CI test job inits, e.g. ``schemas``.
+    Written to both ci.yml (the ``submodules`` input) and the regenerated
+    ``.hyperi-ci.yaml``, so it survives re-init.
     """
     ci_config = project_dir / ".hyperi-ci.yaml"
     if ci_config.exists():
@@ -140,26 +135,20 @@ def _render_hyperi_ci_yaml(
     """Render .hyperi-ci.yaml with language-specific defaults."""
     config: dict[str, Any] = {
         "language": language,
-        # Declared SPDX-ish licence id. Drives generated file headers and is
-        # the authoritative source for `detect_license`. Default BUSL-1.1.
+        # Drives generated file headers and is the source `detect_license` trusts.
         "license": license_id,
-        # Information-only: lifecycle stage of the project. Surfaced
-        # in CI logs and `hyperi-ci config`. Does not gate any
-        # behaviour. New projects default to `experimental` -- bump as
-        # the project matures. Values: experimental | alpha | beta |
-        # ga | legacy | deprecated.
+        # Information-only lifecycle stage: experimental | alpha | beta | ga |
+        # legacy | deprecated.
         "project": {"status": "experimental"},
         "quality": {"enabled": True},
         "test": {"enabled": True},
         "build": {"enabled": True, "strategies": ["native"]},
-        # No `target`: it is inert and is removed in December 2026 (#151), so a
-        # new project should not be scaffolded with it.
+        # No `target`: it is inert and removed in December 2026 (#151).
         "release": {"enabled": True},
     }
 
-    # Widen the build section to Any: ty narrows config["build"] to the literal
-    # value type (dict[str, bool | list[str]]), which rejects the dict
-    # additions below. Same dict object, so the mutations apply to config.
+    # Typed Any because ty narrows config["build"] to dict[str, bool | list[str]]
+    # and rejects the additions below. It is the same dict object.
     build_section: dict[str, Any] = config["build"]
     if language == "rust":
         config["test"]["coverage"] = False
@@ -170,8 +159,7 @@ def _render_hyperi_ci_yaml(
 
     elif language == "golang":
         config["test"]["coverage"] = True
-        # Nested under build: that is where languages/golang/build.py reads
-        # them, and a top-level `golang:` block is read by nothing.
+        # Under build, where languages/golang/build.py reads them.
         build_section["golang"] = {
             "targets": [
                 "linux/amd64",
@@ -184,11 +172,8 @@ def _render_hyperi_ci_yaml(
 
     elif language == "typescript":
         config["test"]["coverage"] = True
-        # No package_manager key: detect_package_manager() resolves it from the
-        # package.json `packageManager` field, then the lockfile, then npm.
+        # No package_manager key: detect_package_manager() resolves it.
 
-    # Submodule paths the CI test job inits (space-separated, e.g. "schemas").
-    # Emitted as the reusable-workflow `submodules` input in ci.yml.
     if submodules:
         config["submodules"] = submodules
 
@@ -337,12 +322,7 @@ def _render_workflow(
 
 
 def _render_contributing(project_name: str) -> str:
-    """Render CONTRIBUTING.md template.
-
-    Separates maintainer setup (strict tooling, hooks, hyperi-ci CLI)
-    from external-contributor experience (standard tooling, no
-    setup-by-default).
-    """
+    """Render CONTRIBUTING.md, with maintainer and external-contributor paths."""
     return (
         f"# Contributing to {project_name}\n"
         "\n"
@@ -490,9 +470,6 @@ def init_project(
 ) -> int:
     """Initialise a consumer project for hyperi-ci.
 
-    Existing-project-aware: skips Makefiles that already have CI targets,
-    and generates language-specific defaults.
-
     Args:
         project_dir: Project root directory.
         language: Override detected language.
@@ -560,20 +537,14 @@ def init_project(
         ):
             files_written += 1
 
-    # No .releaserc is scaffolded (issue #37). hyperi-ci uses a central
-    # tagger-only semantic-release config provided by the setup-semantic-release
-    # composite at CI time; version stamping is `hyperi-ci stamp-version`. A
-    # scaffolded .releaserc with @semantic-release/git is exactly what rewrote
-    # tags off-main and destroyed release history. A genuine exception goes in
-    # `.hyperi-ci.yaml`, not a raw per-repo file.
+    # No .releaserc is scaffolded (issue #37): the setup-semantic-release
+    # composite supplies a central tagger-only config at CI time.
     if _has_releaserc(project_dir):
         info(
             "  Left existing .releaserc in place (honoured if it has no "
             "@semantic-release/git|github plugin; else ignored at CI time)"
         )
 
-    # CONTRIBUTING.md - only generated if absent. Repos that already
-    # have their own contributing guide keep it; we do not overwrite.
     contributing_path = project_dir / "CONTRIBUTING.md"
     if not contributing_path.exists() or force:
         contributing_content = _render_contributing(project_name)
@@ -648,10 +619,8 @@ def init_project(
         success(f"Initialised {files_written} file(s)")
 
     if seed_tag:
-        # The version pipeline reads git tags and nothing else (issue #85).
-        # Adoption is the one moment a repo can have none, so give it the
-        # starting point here rather than at first release. No-op once any
-        # v* tag exists, and a bare directory just declines.
+        # The version pipeline reads git tags only (issue #85). No-op once any
+        # v* tag exists, and a bare directory declines.
         _seed_tag(project_dir=project_dir)
 
     return 0

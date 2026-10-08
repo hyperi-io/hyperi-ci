@@ -6,27 +6,18 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """One word for the event that ships an artefact: ``release``.
 
-hyperi-ci spelled the same event two ways. Tag-on-publish had already collapsed
-them by policy -- a tag exists iff the artefact is in the registry -- so the two
-names described one thing, and readers conflated them because they ARE one
-thing.
+``release`` and ``publish`` named one event, since a tag exists iff the
+artefact is in the registry. ``release`` wins because semantic-release is the
+tagger and its vocabulary is release (release rules, prerelease branches, the
+plugin namespace). ``channel: alpha`` still publishes, to a GitHub Release and
+an R2 channel path, so it is a narrower DESTINATION SET and not a release that
+publishes nothing.
 
-``release`` wins because semantic-release is the tagger and its whole vocabulary
-is release: release rules, prerelease branches, the plugin namespace. ``publish``
-was imported alongside it.
+Every old spelling keeps working and names its replacement.
 
-The apparent counter-example does not hold. ``channel: alpha`` looks like a
-release that publishes nothing, but it publishes to a GitHub Release and an R2
-channel path. That is a narrower DESTINATION SET, not the absence of publishing.
-No version exists here without something being published.
-
-Every old spelling keeps working and names its replacement. Nothing a consumer
-has already written stops building.
-
-Two things deliberately keep their old names, because a warning cannot reach
-them: a reusable workflow's INPUT is validated by GitHub before any of our code
-runs, and passing one the callee does not declare is a hard error rather than a
-warning. ``publish-target`` and ``will-publish`` therefore stay declared.
+``publish-target`` and ``will-publish`` keep their old names because a warning
+cannot reach them: GitHub validates a reusable workflow's INPUT before our code
+runs, and passing one the callee does not declare is a hard error.
 """
 
 import os
@@ -41,10 +32,7 @@ TRAILER_VALUE = "true"
 CONFIG_NAMESPACE = "release"
 LEGACY_CONFIG_NAMESPACE = "publish"
 
-# `hyperi-ci release` is canonical again. It was marked for removal in v4 while
-# `publish` was the live verb; that deprecation was the wrong way round and is
-# withdrawn here. Said out loud wherever the deprecation is printed, because a
-# reversal with no explanation reads as indecision.
+# Printed wherever the deprecation is printed, so the reversal is explained.
 REVERSAL_NOTE = (
     "`hyperi-ci release` was previously marked deprecated for removal. "
     "That was backwards and is withdrawn: `release` is the canonical verb."
@@ -66,15 +54,10 @@ def _merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
 def fold_legacy_config(doc: Any) -> tuple[Any, list[str]]:
     """Fold a ``publish:`` block into ``release:``, and name what was folded.
 
-    Done at LOAD time rather than resolved at read time, because the two
-    namespaces cannot coexist in the merged config: a shipped ``release.x``
-    default would outrank a project's ``publish.x`` and silently never apply.
-
-    ``release:`` wins any key set both ways -- a project mid-migration has
-    already said which spelling it means.
-
-    A removal-tier key written under ``release:`` is named too, because the
-    rename alone would never report it.
+    Done at LOAD time because a shipped ``release.x`` default would outrank a
+    project's ``publish.x`` in the merged config. ``release:`` wins any key set
+    both ways. A removal-tier key written under ``release:`` is named too, as
+    the rename alone would never report it.
 
     Returns:
         ``(document, deprecated_keys)``. The document is unchanged when there
@@ -122,11 +105,9 @@ def legacy_key(key: str) -> str:
 def key_candidates(key: str) -> list[str]:
     """Return the spellings to try for ``key``, the one asked for first.
 
-    Both directions, because a config reaches a reader two ways: folded by
-    :func:`fold_legacy_config` into the canonical namespace, or handed over as a
-    raw mapping that was never folded. Trying the literal key first means a
-    caller holding an unfolded dict still gets its own value rather than a
-    default.
+    Both directions, because a config arrives folded by
+    :func:`fold_legacy_config` or as a raw mapping. Trying the literal key first
+    means a caller holding an unfolded dict gets its own value.
     """
     seen: list[str] = []
     for candidate in (key, canonical_key(key), legacy_key(key)):
@@ -138,9 +119,8 @@ def key_candidates(key: str) -> list[str]:
 def trailer_values(message: str, key: str) -> list[str]:
     """Return every value ``key`` carries in ``message``, in order.
 
-    A list rather than one value: a trailer repeated with different values has
-    no single answer, so the caller decides whether any occurrence counts.
-    Key matching is case-insensitive.
+    A list, because a trailer repeated with different values has no single
+    answer. Key matching is case-insensitive.
     """
     wanted = key.strip().lower()
     values: list[str] = []
@@ -157,9 +137,8 @@ def trailer_values(message: str, key: str) -> list[str]:
 def has_release_trailer(message: str) -> bool:
     """Report whether a commit message carries the release trailer.
 
-    Both spellings count. The trailer is also matched in shell by the
-    predict-version composite, which runs where hyperi-ci is not installed --
-    the two must accept the same set.
+    Both spellings count, and must match the predict-version composite's shell
+    check, which runs where hyperi-ci is not installed.
     """
     return any(
         value.lower() == TRAILER_VALUE
@@ -168,12 +147,10 @@ def has_release_trailer(message: str) -> bool:
     )
 
 
-# These keys are removed rather than carried indefinitely: they name a
-# destination choice the system no longer offers (issue #151).
 REMOVAL_DATE = "December 2026"
 
-# Keys scheduled for REMOVAL rather than carried indefinitely, spelled without
-# a namespace so either namespace matches.
+# Keys naming a destination choice the system no longer offers (issue #151),
+# spelled without a namespace so either matches.
 _REMOVAL_TIER: frozenset[str] = frozenset({"target", "destinations_oss"})
 
 # A removal-tier key that still takes effect, and where its entries go. Deleting
@@ -188,9 +165,9 @@ def _is_removal_tier(key: str) -> bool:
 def deprecated_config_message(keys: list[str]) -> str:
     """Build the notice naming each legacy key, and what happens to it.
 
-    Two tiers: a renamed key keeps working indefinitely, a legacy destination
-    key is removed on a date (issue #151). Of those, an inert key is deleted,
-    and one that still takes effect is moved.
+    A renamed key keeps working. A legacy destination key is removed on a date
+    (issue #151): an inert one is deleted and one that still takes effect is
+    moved.
     """
     renamed = [key for key in keys if not _is_removal_tier(key)]
     removing = [key for key in keys if _is_removal_tier(key)]
@@ -227,9 +204,8 @@ def deprecated_config_message(keys: list[str]) -> str:
 def report_deprecated_config(keys: list[str]) -> None:
     """Warn about legacy config keys, loudly enough to be read.
 
-    A deprecation nobody sees teaches nobody, so this is a GitHub annotation in
-    CI and a warn line locally -- ``hyperi-ci check`` prints the same list
-    before a push.
+    A GitHub annotation in CI and a warn line locally. ``hyperi-ci check``
+    prints the same list before a push.
     """
     if not keys:
         return
@@ -300,9 +276,8 @@ def _node_at(doc: dict[str, Any], dotted: str) -> Any:
 def drop_removed_notices(keys: list[str], doc: Any) -> list[str]:
     """Drop the rename or move notice for a legacy key whose every setting is removed.
 
-    Telling someone to rename ``publish.binaries`` and, in the next line, that it
-    can be deleted is two instructions for one line. ``doc`` is the project
-    config as written, before the ``publish:`` fold.
+    Otherwise ``publish.binaries`` is told to rename and then to delete. ``doc``
+    is the project config as written, before the ``publish:`` fold.
     """
     if not isinstance(doc, dict):
         return keys
@@ -327,10 +302,8 @@ def _has_path(doc: dict[str, Any], dotted: str) -> bool:
 def find_removed_keys(doc: Any) -> list[str]:
     """Return each removed key a project config sets, spelled as it is written.
 
-    Checked before the ``publish:`` fold, so a ``publish.binaries`` is named as
-    ``publish.binaries`` rather than as the ``release.binaries`` it would fold
-    into.
-    One entry per removed key, however many of its children are set.
+    Checked before the ``publish:`` fold, so ``publish.binaries`` is named as
+    written. One entry per removed key, however many of its children are set.
     """
     if not isinstance(doc, dict):
         return []
@@ -350,8 +323,7 @@ def removed_key_message(key: str) -> str:
 def report_removed_keys(keys: list[str]) -> None:
     """Warn once per removed key per process, as an annotation under GitHub Actions.
 
-    A stage reloads the config several times, and each reload would otherwise
-    repeat every annotation.
+    A stage reloads the config several times.
     """
     fresh = [key for key in keys if key not in _reported_removed_keys]
     if not fresh:

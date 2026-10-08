@@ -6,29 +6,23 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Canonical licence registry and project-licence allow policy.
 
-hyperi-ci recognises the common SPDX licences (used for licence
-detection and OCI image labelling) but only *allows* a small blessed
-set by default - BUSL-1.1, Apache-2.0 and MIT. A project declaring any
-other recognised licence gets a non-blocking warning telling it to opt
-in via ``license_allow`` in ``.hyperi-ci.yaml``; an unrecognised id is
-flagged as a likely typo.
+hyperi-ci recognises the common SPDX licences (for detection and OCI image
+labels) but allows only BUSL-1.1, Apache-2.0 and MIT by default. Another
+recognised licence gets a non-blocking warning to opt in via ``license_allow``
+in ``.hyperi-ci.yaml``, and an unrecognised id is flagged as a likely typo.
 """
 
 from collections.abc import Iterable
 
-# The blessed default set. A project may declare any of these as its
-# ``license:`` without further config.
+# Declarable as ``license:`` without further config.
 DEFAULT_ALLOWED: tuple[str, ...] = ("BUSL-1.1", "Apache-2.0", "MIT")
 
-# Fallback used when a project's licence cannot be resolved any other way.
+# Used when a project's licence cannot be resolved any other way.
 DEFAULT_LICENSE: str = "BUSL-1.1"
 
-# Substring markers used to identify a licence from LICENSE-file text or a
-# source-file header when the project does not declare ``license:``
-# explicitly. Limited to ids with distinctive, unambiguous wording - the
-# GPL/LGPL/BSD families share enough boilerplate that text sniffing is
-# unreliable, so those are recognised (below) but must be declared
-# explicitly rather than guessed.
+# Substrings identifying a licence from LICENSE-file text or a source header when
+# ``license:`` is undeclared. Limited to distinctive wording, as the GPL/LGPL/BSD
+# families share too much boilerplate to sniff and must be declared.
 LICENSE_MARKERS: dict[str, tuple[str, ...]] = {
     "BUSL-1.1": ("BUSL-1.1", "Business Source License"),
     "Apache-2.0": ("Apache License", "Licensed under the Apache"),
@@ -42,8 +36,7 @@ LICENSE_MARKERS: dict[str, tuple[str, ...]] = {
     "AGPL-3.0": ("GNU AFFERO GENERAL PUBLIC LICENSE",),
 }
 
-# Every SPDX id hyperi-ci recognises for policy purposes - a superset of
-# LICENSE_MARKERS, including ids that must be declared rather than sniffed.
+# A superset of LICENSE_MARKERS, including ids that must be declared.
 RECOGNISED: frozenset[str] = frozenset(
     {
         *LICENSE_MARKERS,

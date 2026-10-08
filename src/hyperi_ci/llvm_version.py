@@ -7,8 +7,7 @@
 """The designated LLVM major, the version every Rust job installs and uses.
 
 A runner's unversioned ``clang`` and ``ld.lld`` point at whichever major the
-image picked, such as the distro's own on a hosted Ubuntu runner. The designated
-major is the one CI uses regardless. Highest wins:
+image picked, while CI uses the designated major regardless. Highest wins:
 
 1. ``HYPERCI_LLVM_VERSION`` in the environment.
 2. ``build.rust.llvm_version`` in the project's ``.hyperi-ci.yaml``.
@@ -82,7 +81,7 @@ def default_llvm_major() -> int:
     """Return the hyperi-ci default LLVM major, ``runtimes.llvm`` in versions.yaml.
 
     The runner image bakes this major alone, whatever a project or the
-    environment designates, so a bake never depends on where it runs.
+    environment designates.
 
     Raises:
         LLVMVersionError: ``runtimes.llvm`` is missing, or is not a positive

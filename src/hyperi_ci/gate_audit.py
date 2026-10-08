@@ -6,39 +6,32 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Report when a repo's quality gate has not actually run.
 
-The CI gate doctrine skips quality and test on non-bumping pushes to main, and
-that is correct -- a docs commit has no business compiling a Rust tree. The bug
-is downstream of it: a skipped job and a passing job are indistinguishable in
-the only place anyone looks. A run whose gate never executed still concludes
-`success`, so the repo reports green while nothing has been verified (issue
-#96).
-
-The run-level conclusion is precisely the lie, so this reads JOB level:
+The CI gate doctrine skips quality and test on non-bumping pushes to main. A run
+whose gate never executed still concludes `success`, so the repo reports green
+while nothing was verified (issue #96). The run-level conclusion hides it, so
+this reads JOB level:
 
     ci / Plan             success
     ci / Commit messages  success
     ci / Quality          skipped     <- green run, gate never ran
     ci / Test             skipped
 
-Two faults are reported, both independent of how mature the repo is:
+Two faults are reported, whatever the repo's maturity:
 
 ``stale``   the gate last executed longer ago than the window allows
 ``never``   no execution at all in the runs scanned
 
 **A FAILING gate is deliberately not a finding.** GitHub already shows a red
-repo as red, so reporting it adds nothing, and pre-GA repos are expected to be
-red -- a reporter that shouts about them weekly is noise, and a noisy reporter
-gets ignored, which is the very fault #96 is about. What is invisible is a gate
-that never ran, and that is all this reports.
+repo as red, and pre-GA repos are expected to be red, so reporting them is noise.
 
 Each repo's full test tier is reported beside the gates: the date of its last
 successful ``Test (full)`` job, or ``never``, flagged when older than the same
-window. The flag is a warning only for a repo that expects full runs -- its
-caller workflow has a ``schedule`` trigger, or it sets
-``test.full.required_for_release`` -- and an info line for everyone else. It is
-never a finding and never changes the exit status.
+window. The flag is a warning only for a repo that expects full runs (its caller
+workflow has a ``schedule`` trigger, or it sets
+``test.full.required_for_release``) and an info line otherwise. It is never a
+finding and never changes the exit status.
 
-Report-only. It never writes to the repos it audits.
+Report-only: it never writes to the repos it audits.
 """
 
 import json
@@ -52,8 +45,7 @@ import yaml
 from hyperi_ci.common import info, warn
 from hyperi_ci.gh import gh_run
 
-# Supplies one run's jobs. Injected so the walk is exercisable without a
-# network, which is how the report logic is tested.
+# Supplies one run's jobs, injected so tests need no network.
 JobsLookup = Callable[[object], list[dict]]
 
 # Both gates hang off the same `run-checks` condition, so they go dark together.
@@ -69,28 +61,26 @@ DEFAULT_SCAN_LIMIT = 20
 # Nested calls prefix again, so the gate name is the last segment.
 _CALLER_PREFIX = " / "
 
-# A matrixed job carries its parameters -- `Test (arc-native-16cpu)`; one that
-# never ran shows the unexpanded expression, `Build (${{ matrix.os_arch }})`.
+# A matrixed job carries its parameters (`Test (arc-native-16cpu)`), and one that
+# never ran shows the unexpanded `Build (${{ matrix.os_arch }})`.
 _MATRIX_SUFFIX = re.compile(r"\s*\(.*\)$")
 
-# Conclusions that answer nothing: a skipped gate, a superseded run, one still
-# going.
+# Conclusions that answer nothing: skipped, superseded, still going.
 NO_VERDICT = frozenset({"skipped", "cancelled", None})
 
 FULL_TIER_JOB = "Test (full)"
 
-# A matrixed full-tier job carries its runner inside or after the tier, as
-# `Test (full, arc-native-16cpu)` or `Test (full) (arc-native-16cpu)`; a plain
-# `Test` or `Test (core, ...)` is not it.
+# A matrixed full-tier job carries its runner inside or after the tier
+# (`Test (full, arc-native-16cpu)`, `Test (full) (arc-native-16cpu)`), unlike a
+# plain `Test` or `Test (core, ...)`.
 _FULL_TIER_LEAF = re.compile(r"^Test \(full(?:, [^()]*)?\)(?:\s*\([^()]*\))?$")
 
-# Nightly full runs arrive as `schedule` events, which a busy repo's recent
-# runs can push out of the scanned window. They never answer for the gates,
-# which exist to check what merged.
+# Nightly full runs are `schedule` events that a busy repo's recent runs can push
+# out of the scanned window. They never answer for the gates, which check what
+# merged.
 _SCHEDULE_EVENT = "schedule"
 
-# The full tier runs on a schedule, a dispatch asking for it, or a release, so
-# a pull-request run never carries it and is not fetched.
+# The full tier never runs on a pull request, so those runs are not fetched.
 _NEVER_FULL_EVENTS = frozenset({"pull_request", "pull_request_target"})
 
 # The `.hyperi-ci.yaml` opt-in that makes a release run the full tier.
@@ -151,8 +141,7 @@ class GateStatus:
     conclusion: str | None = None
     completed_at: datetime | None = None
     run_url: str | None = None
-    # Runs that skipped this gate before one executed it. High on a repo that
-    # lands by direct push to main.
+    # Runs that skipped this gate before one executed it.
     skipped_before: int = 0
 
     def age_days(self, *, now: datetime) -> float | None:
@@ -214,7 +203,7 @@ class RepoReport:
     findings: list[Finding] = field(default_factory=list)
     runs_scanned: int = 0
     error: str | None = None
-    # Reported beside the findings, never among them: see the module docstring.
+    # Reported beside the findings, never among them.
     full_tier: FullTierStatus | None = None
 
     @property
@@ -311,10 +300,9 @@ def run_jobs(full_name: str, run_id: object) -> list[dict]:
 def scan_runs(runs: list[dict], jobs_for: JobsLookup) -> dict[str, GateStatus]:
     """Find each gate's most recent real execution across runs, newest first.
 
-    `jobs_for` is called with a run id and returns that run's jobs, so the walk
-    is testable without a network. It stops as soon as every gate has answered,
-    which is the first run on a healthy repo. Scheduled runs are passed over:
-    a nightly run says nothing about whether the gate checked a merge.
+    `jobs_for` maps a run id to that run's jobs. The walk stops once every gate
+    has answered, which is the first run on a healthy repo. Scheduled runs are
+    passed over, as a nightly run says nothing about a merge.
     """
     statuses = {job: GateStatus(job=job) for job in GATE_JOBS}
     pending = set(GATE_JOBS)
@@ -339,8 +327,7 @@ def scan_runs(runs: list[dict], jobs_for: JobsLookup) -> dict[str, GateStatus]:
         for gate in sorted(pending):
             found = verdicts.get(gate)
             if found is None:
-                # No such job in this run: a different workflow shape, not a
-                # skip.
+                # A different workflow shape, not a skip.
                 continue
             executed = [j for j in found if j.get("conclusion") not in NO_VERDICT]
             if not executed:
@@ -431,9 +418,8 @@ def audit_runs(
 ) -> RepoReport:
     """Turn a run history into findings and the full tier's last pass.
 
-    Split from :func:`audit_repo` so the judgement is exercisable without a
-    network: `jobs_for` supplies one run's jobs. `scheduled_runs` are searched
-    for the full tier alongside `runs`, and never for the gates.
+    Split from :func:`audit_repo` so tests need no network. `scheduled_runs` are
+    searched for the full tier alongside `runs`, and never for the gates.
     """
     now = now or datetime.now(UTC)
     report = RepoReport(repo=repo, runs_scanned=len(runs))
@@ -449,16 +435,14 @@ def audit_runs(
     for status in report.gates:
         age = status.age_days(now=now)
         if age is None:
-            # Only a finding if the gate was present and skipped; a repo with
-            # no such job has nothing to lie about.
+            # A finding only if the gate was present and skipped.
             if status.skipped_before:
                 report.findings.append(
                     Finding("never", status.job, runs_scanned=report.runs_scanned)
                 )
             continue
         if age > max_age_days:
-            # `status.conclusion` is deliberately not consulted: a red gate is
-            # already visible, an unrun one is not.
+            # The conclusion is not consulted: a red gate is already visible.
             report.findings.append(Finding("stale", status.job, age_days=age))
 
     return report
@@ -559,14 +543,13 @@ PRERELEASE_CHANNELS = frozenset({"alpha", "beta"})
 def repo_channel(full_name: str) -> str | None:
     """Return a repo's declared `release.channel`, or None if it declares none.
 
-    A repo that declares no channel is treated as GA: silence must not buy an
+    A repo that declares no channel is treated as GA, so silence buys no
     exemption.
     """
     doc = _repo_yaml(full_name, ".hyperi-ci.yaml")
     if doc is None:
         return None
-    # Read straight off the fetched YAML, so the namespace fold that
-    # `load_config` applies to a local file never runs here.
+    # Read off the fetched YAML, so `load_config`'s namespace fold never runs.
     from hyperi_ci.vocabulary import CONFIG_NAMESPACE, LEGACY_CONFIG_NAMESPACE
 
     for namespace in (CONFIG_NAMESPACE, LEGACY_CONFIG_NAMESPACE):

@@ -6,11 +6,9 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Host CPU budget detection.
 
-``os.cpu_count()`` reports the machine's cores, which is the wrong answer
-inside a CPU-limited container: a 4-CPU ARC pod on a 32-core node reports
-32. This module takes the tightest of the affinity mask and the cgroup CPU
-quota so a spawned worker pool matches the budget the scheduler will
-actually honour.
+``os.cpu_count()`` reports the machine's cores: a 4-CPU ARC pod on a 32-core
+node reports 32. This module takes the tightest of the affinity mask and the
+cgroup CPU quota, so a worker pool matches what the scheduler honours.
 """
 
 import os
@@ -19,8 +17,7 @@ from pathlib import Path
 _CGROUP_ROOT = Path("/sys/fs/cgroup")
 _PROC_SELF_CGROUP = Path("/proc/self/cgroup")
 
-# cgroup v1 writes a sentinel rather than omitting the file when no quota is
-# set; v2 writes the literal string "max".
+# "No quota": a sentinel in cgroup v1, the string "max" in v2.
 _V1_NO_QUOTA = -1
 _V2_NO_QUOTA = "max"
 
@@ -90,9 +87,9 @@ def _own_cgroup_path() -> str:
 def _cgroup_v2_cpus() -> float | None:
     """Tightest cgroup v2 CPU quota applying to this process.
 
-    A quota set on an ancestor binds just as hard as one set on the leaf, and
-    a namespaced container sees its own limit at the hierarchy root, so every
-    level from this process's cgroup up to the root is checked.
+    A quota on an ancestor binds as hard as one on the leaf, and a namespaced
+    container sees its own limit at the hierarchy root, so every level up to the
+    root is checked.
 
     Returns:
         CPUs allowed, or None when no level sets a quota.
@@ -157,9 +154,8 @@ def cgroup_cpus() -> float | None:
 def cpu_budget() -> int:
     """CPUs this process can actually use.
 
-    The affinity mask catches pinning, the cgroup quota catches a container
-    CPU limit, and neither implies the other -- so the budget is the smaller
-    of the two, floored at one.
+    The affinity mask catches pinning and the cgroup quota catches a container
+    limit, so the budget is the smaller of the two, floored at one.
 
     Returns:
         A CPU count of at least 1.

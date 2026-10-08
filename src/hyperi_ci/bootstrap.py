@@ -7,19 +7,17 @@
 """Install the language toolchains a runner image pre-bakes.
 
 Separate from `native_deps` because these come from vendor channels (rustup,
-go.dev, nvm) rather than apt, and because hyperi-ci does NOT install them per
-job -- it assumes they exist. `languages/rust/build.py` calls `rustup target
-add` with no bootstrap behind it.
+go.dev, nvm) rather than apt, and hyperi-ci does not install them per job (for
+example `languages/rust/build.py` runs `rustup target add` with no bootstrap
+behind it).
 
-The one cargo tool baked is sccache: the ARC image sets ``RUSTC_WRAPPER=sccache``
-and no CI step installs it. cargo-audit, cargo-deny and cargo-nextest are not
-baked, because the setup-rust-tools and setup-nextest composites install their
-pinned builds on every job whatever the image carries.
+The one cargo tool baked is sccache, because the ARC image sets
+``RUSTC_WRAPPER=sccache`` and no CI step installs it. cargo-audit, cargo-deny
+and cargo-nextest are not baked: the setup-rust-tools and setup-nextest
+composites install their pinned builds on every job.
 
-Every step is idempotent, so a partial failure can be re-run.
-
-Linux only. No-ops elsewhere, so importing this on a macOS workstation is
-safe but does nothing useful.
+Every step is idempotent, so a partial failure can be re-run. Linux only, and
+a no-op elsewhere.
 """
 
 import os
@@ -41,8 +39,7 @@ from hyperi_ci.versions import runtime_version, tool_version
 _CONFIG_FILE = Path(__file__).resolve().parent / "config" / "bootstrap.yaml"
 _NVM_PROFILE = Path("/etc/profile.d/nvm.sh")
 
-# Vendor install channels. Not configurable: changing where Rust comes from is
-# not a knob, it is a different decision entirely.
+# Vendor install channels, deliberately not configurable.
 _RUSTUP_URL = "https://sh.rustup.rs"
 _GO_VERSION_URL = "https://go.dev/VERSION?m=text"
 _GO_DOWNLOAD_BASE = "https://go.dev/dl"
@@ -67,8 +64,8 @@ def _is_linux() -> bool:
 def _sudo_prefix() -> list[str]:
     """`sudo` when non-root, nothing when already root.
 
-    A Dockerfile RUN executes as root with no sudo configured, which would
-    otherwise fail with 'root is not in the sudoers file'.
+    A Dockerfile RUN runs as root with no sudoers entry ('root is not in the
+    sudoers file').
     """
     if not _is_linux():
         return []
@@ -115,8 +112,8 @@ def load_spec() -> tuple[RustSpec, bool]:
 def install_sccache(bin_dir: Path) -> int:
     """Install the versions.yaml sccache into ``bin_dir``, replacing any copy there.
 
-    Not the hyperi-ci cache: the bake runs as root, and every job finds
-    sccache as ``RUSTC_WRAPPER`` on the image's PATH.
+    Not the hyperi-ci cache, because every job finds sccache as
+    ``RUSTC_WRAPPER`` on the image's PATH.
 
     Args:
         bin_dir: Directory on the image's PATH, normally ``$CARGO_HOME/bin``.
@@ -133,8 +130,8 @@ def install_sccache(bin_dir: Path) -> int:
 def install_rust(spec: RustSpec) -> int:
     """Install rustup, the requested channels, components and targets, and sccache.
 
-    Honours RUSTUP_HOME / CARGO_HOME if the caller set them (a runner image
-    puts them on a shared path so every job sees the same toolchain).
+    Honours RUSTUP_HOME / CARGO_HOME if set (an image puts them on a shared
+    path).
     """
     if not _is_linux():
         logger.info("Skipping Rust bootstrap on non-Linux")
@@ -164,8 +161,7 @@ def install_rust(spec: RustSpec) -> int:
             logger.error("rustup install failed")
             return rc
 
-    # rustup drops binaries in CARGO_HOME/bin, which is not on PATH yet in the
-    # same process. Add it so the calls below resolve.
+    # CARGO_HOME/bin is not on this process's PATH yet.
     cargo_home = Path(os.environ.get("CARGO_HOME", str(Path.home() / ".cargo")))
     cargo_bin = cargo_home / "bin"
     if str(cargo_bin) not in os.environ.get("PATH", "").split(os.pathsep):
@@ -200,9 +196,8 @@ def install_rust(spec: RustSpec) -> int:
 def install_go() -> int:
     """Install the current Go stable release into /usr/local/go.
 
-    go.dev publishes the current stable version as plain text, so there is no
-    version to pin here -- the image tracks stable and is rolled back by
-    re-tagging rather than by pinning.
+    Unpinned: go.dev publishes the current stable version as plain text, and
+    the image is rolled back by re-tagging.
     """
     if not _is_linux():
         logger.info("Skipping Go bootstrap on non-Linux")
@@ -216,7 +211,7 @@ def install_go() -> int:
     if rc != 0 or not version:
         logger.error("Failed to resolve the current Go version")
         return rc or 1
-    # The endpoint returns e.g. "go1.26.0\ntime ..." -- first line, minus "go"
+    # The endpoint returns "go1.26.0\ntime ...": keep the first line, minus "go".
     version = version.splitlines()[0].strip().removeprefix("go")
     logger.info(f"Installing Go {version}")
 
@@ -248,12 +243,10 @@ def install_go() -> int:
 def install_node() -> int:
     """Install nvm and the versions.yaml ``runtimes.node`` major as the default.
 
-    One major only, the one the CI workflows default to, so a bump in
-    versions.yaml moves the image with it.
-
-    Why --latest-npm: `npm install -g npm@latest` over an existing npm leaves a
-    broken dependency tree (MODULE_NOT_FOUND: promise-retry). nvm does the
-    upgrade atomically during install instead.
+    One major only, the one the CI workflows default to. ``--latest-npm``
+    because `npm install -g npm@latest` over an existing npm leaves a broken
+    dependency tree (MODULE_NOT_FOUND: promise-retry), while nvm upgrades
+    atomically.
     """
     if not _is_linux():
         logger.info("Skipping Node bootstrap on non-Linux")
@@ -287,15 +280,14 @@ def install_node() -> int:
             logger.error("nvm install failed")
             return rc
 
-    # nvm is a shell function, not a binary -- every call has to source it.
+    # nvm is a shell function, so every call has to source it.
     script = (
         f'export NVM_DIR="{nvm_dir}"\n'
         f'. "$NVM_DIR/nvm.sh"\n'
         f'nvm install "{major}" --latest-npm && '
         f'nvm alias default "{major}" && '
         f"nvm cache clear\n"
-        # Symlink the default major onto PATH so a job that never sources nvm
-        # still finds node/npm/npx/corepack.
+        # Symlinks let a job that never sources nvm find node/npm/npx/corepack.
         f'DEFAULT_BIN="$NVM_DIR/versions/node/$(nvm version default)/bin"\n'
         f'for b in node npm npx corepack; do ln -sf "$DEFAULT_BIN/$b" '
         f'"/usr/local/bin/$b"; done\n'
@@ -306,7 +298,7 @@ def install_node() -> int:
         logger.error("Node install failed")
         return rc
 
-    # Written so an interactive shell on the runner also gets nvm.
+    # Gives interactive shells on the runner nvm too.
     profile = _NVM_PROFILE
     try:
         profile.write_text(
@@ -328,9 +320,8 @@ def install_node() -> int:
 def install_python() -> int:
     """Install the versions.yaml ``runtimes.python`` CPython through uv.
 
-    Bakes the interpreter every job's ``uvx hyperi-ci`` resolves to, so a fresh
-    runner does not download it on first use. Where it lands is uv's own
-    ``UV_PYTHON_INSTALL_DIR``, set by the image and never by us.
+    Bakes the interpreter every job's ``uvx hyperi-ci`` resolves to. It lands in
+    ``UV_PYTHON_INSTALL_DIR``, which the image sets.
     """
     if not _is_linux():
         logger.info("Skipping Python bootstrap on non-Linux")
@@ -390,8 +381,7 @@ def install_toolchain_bootstrap() -> int:
 def print_bootstrap_plan() -> None:
     """Print what the bootstrap would install (dry-run helper).
 
-    stderr, matching `native_deps.print_needed`, so the two interleave in
-    install order rather than splitting across streams.
+    Prints to stderr like `native_deps.print_needed`, so the two interleave.
     """
     rust, go_enabled = load_spec()
     out = sys.stderr

@@ -7,19 +7,18 @@
 """Which test tier a CI run owes, and whether a release must have run full.
 
 Two tiers. ``core`` is what a PR and a push run. ``full`` adds every test the
-project deselects or ignores by default. It runs on a scheduled run, on a run
-given the ``test-tier: full`` workflow input, in a project whose own
-``test.tier`` is full, and on a release once the project sets
-``test.full.required_for_release``. Until then a release runs core, as it
-always has, and the Gate says so. Nothing lowers a tier: ``core`` from the
-input or the project is the absence of a request, not a request for less.
+project deselects or ignores by default. It runs on a scheduled run, a run given
+the ``test-tier: full`` workflow input, a project whose own ``test.tier`` is
+full, and a release once the project sets ``test.full.required_for_release``.
+Until then a release runs core and the Gate says so. Nothing lowers a tier:
+``core`` from the input or the project is no request, not a request for less.
 
 The plan job resolves this once. The Test job passes ``--tier full`` only on a
-full run, and the Gate names the tier, so it is never re-derived in YAML.
+full run and the Gate names the tier, so YAML never re-derives it.
 
-The predict-version composite loads this by path on a runner where hyperi-ci is
-not installed, so it is stdlib-only and imports nothing heavier than
-:mod:`hyperi_ci.project_config`, which is stdlib-only for the same reason.
+Stdlib-only, importing nothing heavier than :mod:`hyperi_ci.project_config`,
+because the predict-version composite loads it by path where hyperi-ci is not
+installed.
 """
 
 # KEEP on a 3.14 floor, where this import is otherwise wrong (issue #184).
@@ -37,7 +36,7 @@ CORE = "core"
 FULL = "full"
 TIERS = (CORE, FULL)
 
-#: The project's own tier. Plan reads it as a floor: full here is never lowered.
+#: The project's own tier, a floor that is never lowered.
 TIER_KEY = "test.tier"
 
 #: The opt-in that makes a release run full.
@@ -74,9 +73,9 @@ def _lookup(config: dict, dotted: str) -> object:
 def read_project_tier(root: Path) -> ProjectTier:
     """Read ``test.tier`` and ``test.full.required_for_release``.
 
-    Every config spelling :func:`hyperi_ci.config.load_config` accepts is
-    read, first found wins. The packaged defaults (core, off) are restated
-    here because the plan job has no hyperi-ci install to read them from.
+    Every spelling :func:`hyperi_ci.config.load_config` accepts is read, first
+    found wins. The packaged defaults (core, off) are restated here because the
+    plan job has no hyperi-ci install.
 
     Args:
         root: The checkout root.
@@ -147,8 +146,8 @@ def resolve_tier(
         The tier, and the one line explaining it.
 
     Raises:
-        ValueError: If ``requested`` names neither tier. A typo must not
-            quietly run core on a run someone asked to run full.
+        ValueError: If ``requested`` names neither tier, so a typo cannot run
+            core on a run someone asked to run full.
 
     """
     wanted = requested.strip().lower() or CORE
