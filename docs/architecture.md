@@ -112,6 +112,8 @@ flowchart LR
 
 `load_config()` in `config.py` builds it from the bottom up: shipped defaults, then the project file, then `HYPERCI_*` variables. A variable maps to a key path by splitting on `_`, so `HYPERCI_QUALITY_PYTHON_RUFF` sets `quality.python.ruff`. CLI flags such as `check --strict` work by exporting a `HYPERCI_*` variable.
 
+A key `defaults.yaml` ships as a mapping takes only a mapping in the project file. Left empty (`release:`) it warns and the shipped mapping applies. Any other value (`release: false`) fails the load and names the fix, here `release: {enabled: false}`, because read past, every key below it would keep its shipped default.
+
 `.hyperi-ci.yaml` is the per-project source of truth: language, build targets, release. Org-wide settings (GitHub org, GHCR, R2) are a separate file, `src/hyperi_ci/config/org.yaml`, read by `load_org_config()` and not part of the cascade.
 
 Three config homes, each with one job:

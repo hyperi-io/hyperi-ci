@@ -50,7 +50,7 @@ def _stub(
     monkeypatch.setattr(kube_linter, "ci_binary", lambda _name: exe)
     monkeypatch.setattr(kube_linter, "find_tool", lambda *a, **k: exe)
     monkeypatch.setattr(
-        kube_linter,
+        fdg,
         "run_cmd",
         lambda *a, **k: SimpleNamespace(stdout=stdout, stderr="", returncode=1),
     )
@@ -85,7 +85,7 @@ class TestRun:
         def _boom(*a, **k):  # noqa: ANN002, ANN003
             raise OSError("exec failed")
 
-        monkeypatch.setattr(kube_linter, "run_cmd", _boom)
+        monkeypatch.setattr(fdg, "run_cmd", _boom)
         assert kube_linter.run([Path("chart")], _cfg()) == 0
 
     def test_a_run_with_no_report_is_not_a_silent_zero(
@@ -95,7 +95,7 @@ class TestRun:
             monkeypatch.delenv(name, raising=False)
         monkeypatch.setattr(kube_linter, "ci_binary", lambda _name: "kube-linter")
         monkeypatch.setattr(
-            kube_linter,
+            fdg,
             "run_cmd",
             lambda *a, **k: SimpleNamespace(
                 stdout="", stderr=_SKIPPED_CHART, returncode=0

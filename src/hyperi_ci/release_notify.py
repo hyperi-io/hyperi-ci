@@ -426,7 +426,7 @@ def notify_slack(config: CIConfig, *, text: str) -> int:
     ``notify.slack.webhook_env``, never from config, and passed to curl on stdin,
     never argv. Unset means no Slack.
     """
-    variable = str(config.get("notify.slack.webhook_env", "") or "")
+    variable = str(config.setting("notify.slack.webhook_env") or "")
     if not variable:
         return 0
     webhook = os.environ.get(variable, "")

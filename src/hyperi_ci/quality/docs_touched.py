@@ -109,7 +109,7 @@ def run(
         success("  docs-touched: nothing to note")
         return 0
 
-    fdg.surface(
+    fdg.report(
         "docs-touched",
         [
             fdg.Finding(
@@ -124,6 +124,7 @@ def run(
                 ),
             )
         ],
+        "warn",
         sarif_path=sarif_path,
     )
     return 0

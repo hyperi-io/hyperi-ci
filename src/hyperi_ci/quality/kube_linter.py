@@ -15,14 +15,13 @@ findings too.
 """
 
 import re
-import subprocess
 from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 
 import yaml
 
-from hyperi_ci.common import info, run_cmd, warn
+from hyperi_ci.common import info, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.native_tools import ci_binary
@@ -174,20 +173,19 @@ def run(
         cmd += ["--config", str(config_path)]
     cmd += [str(p) for p in targets]
     info(f"  kube-linter: advising on {len(targets)} target(s)...")
-    try:
-        result = run_cmd(
-            cmd, check=False, capture=True, timeout=timeout, own_group=True
-        )
-    except subprocess.TimeoutExpired:
-        warn(f"  kube-linter: no result within {timeout}s - advisory only, not failing")
-        return 0
-    except OSError as exc:
-        warn(f"  kube-linter could not be run ({exc}) - advisory only, not failing.")
-        return 0
-
-    found = fdg.parse_sarif(result.stdout, "kube-linter") + run_problems(
-        result.stdout, result.stderr, result.returncode
+    # Run at warn: a timeout or a run that never started only warns.
+    found = fdg.run_check(
+        "kube-linter",
+        cmd,
+        "warn",
+        lambda result: (
+            fdg.parse_sarif(result.stdout, "kube-linter")
+            + run_problems(result.stdout, result.stderr, result.returncode)
+        ),
+        timeout=timeout,
     )
+    if isinstance(found, int):
+        return 0
     if sources:
         found = relocate(found, sources)
     # Advisory in every mode, so its findings surface as a check at warn would.

@@ -500,9 +500,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if workspace:
         info("  Root package is also a workspace: --workspace, so every member runs")
     features = (extra_env or {}).get("RUST_FEATURES", "all")
-    rust_tier = config.get("test.rust.tier", "all")
+    rust_tier = config.setting("test.rust.tier")
     feature_sets = split_feature_sets(features)
-    coverage = config.get("test.coverage", True) and rust_tier == "all"
+    coverage = config.setting("test.coverage") and rust_tier == "all"
 
     for index, feature_set in enumerate(feature_sets):
         label = f" ({feature_set})" if len(feature_sets) > 1 else ""

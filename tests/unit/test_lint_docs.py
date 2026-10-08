@@ -492,3 +492,66 @@ class TestAnnotationLevelFollowsMode:
         config = _config(doc_paths=mode)
         assert doc_paths.run([doc], config, root=tmp_path, lychee_mode=None) == rc
         assert levels == [level]
+
+
+class TestAFindingsExitWithNothingParsedIsNotAPass:
+    """Each tool's findings-found exit, with no finding parsed, checked nothing.
+
+    lychee 0.24.2 exits 2 for broken links AND for an argument it rejects;
+    markdownlint-cli2 0.23.3 exits 1 for violations. Read as clean, a flag
+    lychee dropped or an output shape cli2 changed would pass every run green.
+    """
+
+    @staticmethod
+    def _tool(tmp_path: Path, name: str, rc: int) -> str:
+        exe = tmp_path / "bin" / name
+        exe.parent.mkdir(exist_ok=True)
+        exe.write_text(
+            f"#!/bin/sh\necho \"error: unexpected argument '--x' found\" >&2\nexit {rc}\n",
+            encoding="utf-8",
+        )
+        exe.chmod(0o755)
+        return str(exe)
+
+    @staticmethod
+    def _logged(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        lines: list[str] = []
+        for module in (fdg, doc_links, markdownlint):
+            for level in ("error", "warn", "success"):
+                if hasattr(module, level):
+                    monkeypatch.setattr(module, level, lines.append)
+        return lines
+
+    @pytest.mark.parametrize(
+        ("mode", "ci", "rc"),
+        [("blocking", True, 1), ("blocking", False, 0), ("warn", True, 0)],
+    )
+    def test_lychee_exit_2(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode, ci, rc
+    ) -> None:
+        exe = self._tool(tmp_path, "lychee", 2)
+        monkeypatch.setattr(doc_links, "ci_binary", lambda _n: exe)
+        monkeypatch.setattr(fdg, "is_ci", lambda: ci)
+        lines = self._logged(monkeypatch)
+        doc = tmp_path / "README.md"
+        doc.write_text("# x\n", encoding="utf-8")
+        assert doc_links.run([doc], _config(doc_links=mode), root=tmp_path) == rc
+        assert any("exited 2 with no parseable output" in line for line in lines)
+        assert not any("resolves" in line for line in lines)
+
+    @pytest.mark.parametrize(
+        ("mode", "ci", "rc"),
+        [("blocking", True, 1), ("blocking", False, 0), ("warn", True, 0)],
+    )
+    def test_markdownlint_exit_1(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode, ci, rc
+    ) -> None:
+        exe = self._tool(tmp_path, "markdownlint-cli2", 1)
+        monkeypatch.setattr(markdownlint.shutil, "which", lambda _n: exe)
+        monkeypatch.setattr(fdg, "is_ci", lambda: ci)
+        lines = self._logged(monkeypatch)
+        doc = tmp_path / "README.md"
+        doc.write_text("# x\n", encoding="utf-8")
+        assert markdownlint.run([doc], _config(markdownlint=mode), root=tmp_path) == rc
+        assert any("exited 1 with no parseable output" in line for line in lines)
+        assert not any("file(s) clean" in line for line in lines)

@@ -55,16 +55,20 @@ _MESSAGE = "chore(release): v{version} [skip ci]"
 
 _RETRIES = 3
 
-# stderr of the last failed `gh api` call, quoted in refusal reports.
+# gh's stderr from the most recent `gh api` call, "" when it had none, quoted
+# in refusal reports.
 _last_api_error = ""
 
 
 def _api(args: list[str], *, body: dict | None = None) -> dict | None:
-    """Call `gh api`, returning the parsed response or None on failure."""
+    """Call `gh api`, returning the parsed response or None on failure.
+
+    Records this call's stderr in :data:`_last_api_error`, clearing it when
+    there is none, so a refusal never quotes an earlier call's error.
+    """
     global _last_api_error
     outcome = gh_api(args, body=body)
-    if outcome.stderr is not None:
-        _last_api_error = outcome.stderr
+    _last_api_error = outcome.stderr or ""
     return outcome.data
 
 
