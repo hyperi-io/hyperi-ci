@@ -3,6 +3,15 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.13.6](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.5...v2.13.6) (2026-10-08)
+
+### Bug Fixes
+
+* **config:** declare release.channel in defaults.yaml ([#622](https://github.com/hyperi-io/hyperi-ci/issues/622)) ([5910770](https://github.com/hyperi-io/hyperi-ci/commit/591077027e421a5d3602d82c0c6a1520217374ea))
+* **config:** read defaults from defaults.yaml, not inline fallbacks ([#621](https://github.com/hyperi-io/hyperi-ci/issues/621)) ([1ebd14d](https://github.com/hyperi-io/hyperi-ci/commit/1ebd14d03dd1b4dad31ce6494ba2f15b312f84fa))
+* **config:** reject a non-mapping config section instead of reading past it ([#623](https://github.com/hyperi-io/hyperi-ci/issues/623)) ([b9ec9d8](https://github.com/hyperi-io/hyperi-ci/commit/b9ec9d8121e739551ba07173e0449374157af0b0))
+* **quality:** surface warn-mode findings as warnings in every gate ([#620](https://github.com/hyperi-io/hyperi-ci/issues/620)) ([654a96c](https://github.com/hyperi-io/hyperi-ci/commit/654a96c36c07a478efcda7b9c749de70a7a4e04f))
+
 ## [2.13.5](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.4...v2.13.5) (2026-10-08)
 
 ### Bug Fixes
