@@ -22,7 +22,9 @@ shipped. This script points a throwaway fixture branch at the CANDIDATE:
    run exercises the branch's workflows + CLI through quality / test /
    build / container (a dev push lands in the prunable ``branch-*``
    namespace on an opted-in fixture),
-5. watches the run, reports per-job outcomes, writes the verdict into the
+5. watches the runs of the workflow files it swapped -- never another
+   workflow's, so a consumer's quick PR guard cannot stand in for its CI --
+   reports per-job outcomes, writes the verdict into the
    fixture PR body as a rehearsal RECORD, then cleans up (closes the PR,
    restores the variable, best-effort deletes the branch).
 
@@ -508,6 +510,9 @@ def _cancel_inflight(repo: str, rehearse_ref: str) -> list[int]:
     start against a merge ref that no longer exists, so it dies red at checkout
     with nothing pointing at the teardown -- after a PASS as well as a timeout
     (issue #260). A cancelled run at least reads as abandoned.
+
+    Called only after the verdict. Short of a timeout every watched run has
+    finished by then, so what it cancels belongs to another workflow.
     """
     listed = _run(
         [
@@ -554,10 +559,81 @@ def pick_run(runs: list[dict], fixture_sha: str) -> dict | None:
     return next((r for r in runs if r.get("headSha") == fixture_sha), None)
 
 
-def _watch_pr_run(
-    repo: str, rehearse_ref: str, fixture_sha: str, timeout_minutes: int
+def _list_pr_runs(
+    repo: str, rehearse_ref: str, workflow: str
+) -> tuple[list[dict], str]:
+    """The rehearsal branch's pull_request runs of one workflow file.
+
+    Args:
+        repo: The fixture, ``owner/name``.
+        rehearse_ref: The rehearsal branch pushed to it.
+        workflow: A workflow file basename, e.g. ``ci.yml``.
+
+    Returns:
+        (runs newest first, the gh error or "" when the listing was read).
+    """
+    listed = _run(
+        [
+            "gh",
+            "run",
+            "list",
+            "-R",
+            repo,
+            "--branch",
+            rehearse_ref,
+            "--event",
+            "pull_request",
+            "--workflow",
+            workflow,
+            "--json",
+            "databaseId,status,conclusion,headSha",
+            "--limit",
+            "20",
+        ],
+        timeout=60,
+    )
+    if listed.returncode != 0:
+        stderr_lines = listed.stderr.strip().splitlines()
+        error = stderr_lines[-1] if stderr_lines else f"gh exited {listed.returncode}"
+        return [], error
+    try:
+        return json.loads(listed.stdout or "[]"), ""
+    except json.JSONDecodeError:
+        return [], "unreadable gh run list output"
+
+
+def combine_verdicts(
+    results: list[tuple[bool, list[str], int]],
 ) -> tuple[str, list[str], int]:
-    """Wait for the rehearsal's pull_request run and read it job by job.
+    """One verdict over every watched workflow's finished run: the worst of them.
+
+    Args:
+        results: (passed, lines, run id) per workflow, in watch order.
+
+    Returns:
+        ("pass" | "fail", every workflow's lines, run id). The run id is the
+        first failed run's, else the first run's, since the record holds one.
+    """
+    if not results:
+        raise ValueError("no workflow run to judge")
+    failed = [result for result in results if not result[0]]
+    chosen = failed[0] if failed else results[0]
+    lines = [line for result in results for line in result[1]]
+    return ("fail" if failed else "pass"), lines, chosen[2]
+
+
+def _watch_pr_run(
+    repo: str,
+    rehearse_ref: str,
+    fixture_sha: str,
+    timeout_minutes: int,
+    workflows: list[str],
+) -> tuple[str, list[str], int]:
+    """Wait for each swapped workflow's pull_request run and read it job by job.
+
+    Only the swapped workflow files are watched: a consumer's other
+    pull_request workflows run the same fixture commit, and the first of them
+    to go green would otherwise pass a rehearsal of CI it never ran.
 
     Uses `gh run list` / `gh run view`, which every supported gh has, rather
     than `gh pr checks --json`, which older gh rejects outright.
@@ -567,74 +643,54 @@ def _watch_pr_run(
         rehearse_ref: The rehearsal branch pushed to it.
         fixture_sha: The commit this cycle pushed -- runs from any other are
             a previous cycle's and are ignored.
-        timeout_minutes: How long to wait for a run to finish.
+        timeout_minutes: How long to wait for every run to finish.
+        workflows: Basenames of the workflow files whose refs were swapped.
 
     Returns:
         ("pass" | "fail" | "timeout", lines, run id). A timeout is no verdict at
         all, and carries run id 0.
 
     """
+    if not workflows:
+        raise ValueError("no swapped workflow to watch")
     deadline = time.time() + timeout_minutes * 60
     last_error = ""
+    finished: dict[str, tuple[bool, list[str], int]] = {}
     while time.time() < deadline:
-        listed = _run(
-            [
-                "gh",
-                "run",
-                "list",
-                "-R",
-                repo,
-                "--branch",
-                rehearse_ref,
-                "--event",
-                "pull_request",
-                "--json",
-                "databaseId,status,conclusion,headSha",
-                "--limit",
-                "20",
-            ],
-            timeout=60,
-        )
-        candidates: list[dict] = []
-        if listed.returncode == 0:
-            try:
-                candidates = json.loads(listed.stdout or "[]")
-            except json.JSONDecodeError:
-                last_error = "unreadable gh run list output"
-        else:
-            stderr_lines = listed.stderr.strip().splitlines()
-            last_error = (
-                stderr_lines[-1] if stderr_lines else f"gh exited {listed.returncode}"
-            )
-        mine = pick_run(candidates, fixture_sha)
-        runs = [mine] if mine else []
-        if (
-            runs
-            and runs[0].get("status") == "completed"
-            and (conclusion := runs[0].get("conclusion"))
-        ):
+        for workflow in workflows:
+            if workflow in finished:
+                continue
+            candidates, error = _list_pr_runs(repo, rehearse_ref, workflow)
+            last_error = error or last_error
+            mine = pick_run(candidates, fixture_sha)
+            if (
+                mine is None
+                or mine.get("status") != "completed"
+                or not (conclusion := mine.get("conclusion"))
+            ):
+                continue
+            run_id = int(mine["databaseId"])
             viewed = _run(
-                [
-                    "gh",
-                    "run",
-                    "view",
-                    str(runs[0]["databaseId"]),
-                    "-R",
-                    repo,
-                    "--json",
-                    "jobs",
-                ],
+                ["gh", "run", "view", str(run_id), "-R", repo, "--json", "jobs"],
                 timeout=60,
             )
-            if viewed.returncode == 0:
-                jobs = json.loads(viewed.stdout or "{}").get("jobs", [])
-                _, lines = summarise_jobs(jobs)
-                verdict = "pass" if run_passed(conclusion) else "fail"
-                return verdict, lines, int(runs[0]["databaseId"])
-            last_error = viewed.stderr.strip()
+            if viewed.returncode != 0:
+                last_error = viewed.stderr.strip()
+                continue
+            jobs = json.loads(viewed.stdout or "{}").get("jobs", [])
+            _, lines = summarise_jobs(jobs)
+            header = f"  {workflow} run {run_id}: {conclusion}"
+            finished[workflow] = (run_passed(conclusion), [header, *lines], run_id)
+        if len(finished) == len(workflows):
+            return combine_verdicts([finished[wf] for wf in workflows])
         time.sleep(30)
+    waiting = ", ".join(wf for wf in workflows if wf not in finished)
     note = f" (last gh error: {last_error})" if last_error else ""
-    return "timeout", [f"  no PR run finished within {timeout_minutes} min{note}"], 0
+    return (
+        "timeout",
+        [f"  no PR run of {waiting} finished within {timeout_minutes} min{note}"],
+        0,
+    )
 
 
 def main() -> int:
@@ -716,17 +772,21 @@ def main() -> int:
         if result.returncode != 0:
             return _fail(f"clone failed: {result.stderr.strip()}")
 
-        swapped_files = 0
+        # The watcher judges only these files' runs.
+        swapped_workflows: list[str] = []
         total_swaps = 0
         for wf in sorted((clone / ".github" / "workflows").glob("*.yml")):
             new_text, count = swap_refs(wf.read_text(encoding="utf-8"), branch)
             if count:
                 wf.write_text(new_text, encoding="utf-8", newline="\n")
-                swapped_files += 1
+                swapped_workflows.append(wf.name)
                 total_swaps += count
         if total_swaps == 0:
             return _fail(f"{repo} has no hyperi-io/hyperi-ci@main refs to swap")
-        print(f"Swapped {total_swaps} ref(s) in {swapped_files} file(s) -> @{branch}")
+        print(
+            f"Swapped {total_swaps} ref(s) in {len(swapped_workflows)} file(s) "
+            f"({', '.join(swapped_workflows)}) -> @{branch}"
+        )
 
         for git_args in (
             ["checkout", "-b", rehearse_ref],
@@ -795,7 +855,7 @@ def main() -> int:
                 )
 
             verdict, lines, run_id = _watch_pr_run(
-                repo, rehearse_ref, fixture_sha, args.timeout_minutes
+                repo, rehearse_ref, fixture_sha, args.timeout_minutes, swapped_workflows
             )
 
             # A run that started before the merge ref existed failed at checkout,
@@ -811,7 +871,11 @@ def main() -> int:
                     f"Re-running {run_id} once - the first attempt raced the merge ref"
                 )
                 verdict, lines, run_id = _watch_pr_run(
-                    repo, rehearse_ref, fixture_sha, args.timeout_minutes
+                    repo,
+                    rehearse_ref,
+                    fixture_sha,
+                    args.timeout_minutes,
+                    swapped_workflows,
                 )
 
             print("Rehearsal run results:")

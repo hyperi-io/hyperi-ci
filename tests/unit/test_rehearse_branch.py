@@ -193,7 +193,7 @@ class TestMergeRefRace:
 
         monkeypatch.setattr(rehearse_branch, "_run", fake_run)
         verdict, _lines, run_id = rehearse_branch._watch_pr_run(
-            "o/r", "rehearse/x", "mine", 1
+            "o/r", "rehearse/x", "mine", 1, ["ci.yml"]
         )
         assert (verdict, run_id, viewed) == ("pass", 42, ["42"])
 
@@ -214,7 +214,7 @@ class TestMergeRefRace:
         monkeypatch.setattr(rehearse_branch, "_run", fake_run)
         monkeypatch.setattr(rehearse_branch.time, "sleep", sleeps.append)
         verdict, lines, _ = rehearse_branch._watch_pr_run(
-            "o/r", "rehearse/x", "mine", 1
+            "o/r", "rehearse/x", "mine", 1, ["ci.yml"]
         )
         return verdict, lines, len(sleeps)
 
@@ -599,20 +599,38 @@ def _fake_fixture(
     var_set_rc: int = 0,
     var_delete_rc: int = 0,
     rev_parse_rc: int = 0,
+    extra_workflows: dict[str, str] | None = None,
+    runs: list[dict] | None = None,
 ):
     """Answer every gh and git call main() makes, recording what it changes.
 
+    ``extra_workflows`` adds fixture workflow files beside ci.yml. ``runs`` are the
+    fixture's runs newest first, each naming its ``workflow`` file, which a
+    ``gh run list --workflow`` filters on.
+
     Returns (fake _run, changes). A change is a variable set or delete, a push
-    or branch delete, or a PR create or close.
+    or branch delete, a PR create or close, or a run cancel.
     """
     changes: list[list[str]] = []
+    fixture_runs = runs or []
 
     def fake_run(args, **_kwargs):
         def ok(out: str = "") -> subprocess.CompletedProcess:
             return subprocess.CompletedProcess(args, 0, stdout=out, stderr="")
 
         if args[:3] == ["gh", "run", "list"]:
-            return ok("[]")
+            listed = fixture_runs
+            if "--workflow" in args:
+                wanted = args[args.index("--workflow") + 1]
+                listed = [run for run in listed if run["workflow"] == wanted]
+            return ok(json.dumps(listed))
+        if args[:3] == ["gh", "run", "view"]:
+            run = next(r for r in fixture_runs if str(r["databaseId"]) == args[3])
+            jobs = [{"name": run["workflow"], "conclusion": run.get("conclusion")}]
+            return ok(json.dumps({"jobs": jobs}))
+        if args[:3] == ["gh", "run", "cancel"]:
+            changes.append(args)
+            return ok()
         if args[:2] == ["gh", "api"] and "/branches/" in args[2]:
             return ok("a" * 40)
         if args[:2] == ["gh", "api"] and "/actions/variables/" in args[2]:
@@ -628,6 +646,8 @@ def _fake_fixture(
                 "uses: hyperi-io/hyperi-ci/.github/workflows/go-ci.yml@main\n",
                 encoding="utf-8",
             )
+            for name, text in (extra_workflows or {}).items():
+                (workflows / name).write_text(text, encoding="utf-8")
             return ok()
         if args[:2] in (["gh", "variable"], ["gh", "pr"]):
             changes.append(args)
@@ -664,7 +684,7 @@ def _events(changes: list[list[str]]) -> list[str]:
     """Each change as one word pair, in the order main() made it."""
     events = []
     for change in changes:
-        if change[:2] in (["gh", "variable"], ["gh", "pr"]):
+        if change[:2] in (["gh", "variable"], ["gh", "pr"], ["gh", "run"]):
             events.append(f"{change[1]} {change[2]}")
         else:
             events.append("branch delete" if "--delete" in change else "branch push")
@@ -846,3 +866,104 @@ class TestTheRehearsalBranchGoesOnEveryExit:
             "variable delete",
         ]
         assert "rehearse/fix-x KEPT" in capsys.readouterr().out
+
+
+class _Clock:
+    """A clock that moves only when the code under test sleeps."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def time(self) -> float:
+        return self.now
+
+    def sleep(self, secs: float) -> None:
+        self.now += secs
+
+
+_SHA = "b" * 40
+# A consumer's PR guard workflow: no hyperi-ci ref, so it is never swapped.
+_GUARDS = {"pr-guards.yml": "jobs:\n  no-gitlink:\n    runs-on: ubuntu-latest\n"}
+
+
+def _fixture_run(run_id: int, workflow: str, status: str, conclusion: str) -> dict:
+    return {
+        "databaseId": run_id,
+        "workflow": workflow,
+        "status": status,
+        "conclusion": conclusion,
+        "headSha": _SHA,
+    }
+
+
+class TestOnlyTheSwappedWorkflowIsJudged:
+    """A consumer runs more pull_request workflows than the one rehearsed.
+
+    Its quick PR guards finish green first, and judged as the rehearsal they
+    passed it while the swapped CI workflow was still running -- which the
+    teardown then cancelled.
+    """
+
+    @pytest.mark.parametrize(
+        ("ci_status", "ci_conclusion", "expected"),
+        [("completed", "failure", 1), ("in_progress", "", 2)],
+        ids=["ci-failed", "ci-still-running"],
+    )
+    def test_a_green_guard_run_does_not_pass_the_rehearsal(
+        self, monkeypatch, capsys, ci_status, ci_conclusion, expected
+    ) -> None:
+        runs = [
+            _fixture_run(37752500660, "pr-guards.yml", "completed", "success"),
+            _fixture_run(37752501718, "ci.yml", ci_status, ci_conclusion),
+        ]
+        fake, _changes = _fake_fixture(None, extra_workflows=_GUARDS, runs=runs)
+        monkeypatch.setattr(rehearse_branch, "_run", fake)
+        monkeypatch.setattr(rehearse_branch, "time", _Clock())
+        monkeypatch.setattr(rehearse_branch, "_wait_for_merge_ref", lambda *_a: True)
+        argv = ["rehearse-branch.py", "--branch", "fix/x", "--repo", _FIXTURE]
+        monkeypatch.setattr(sys, "argv", [*argv, "--no-cli-override"])
+        assert rehearse_branch.main() == expected
+        assert "REHEARSAL PASSED" not in capsys.readouterr().out
+
+    def test_every_swapped_workflow_is_waited_on(self, monkeypatch) -> None:
+        listings = iter(
+            [
+                [_fixture_run(1, "a.yml", "completed", "success")],
+                [_fixture_run(2, "b.yml", "in_progress", "")],
+                [_fixture_run(2, "b.yml", "completed", "success")],
+            ]
+        )
+
+        def fake_run(args, **_kwargs):
+            if args[:3] == ["gh", "run", "list"]:
+                return subprocess.CompletedProcess(
+                    args, 0, stdout=json.dumps(next(listings))
+                )
+            jobs = [{"name": "ci / Test", "conclusion": "success"}]
+            return subprocess.CompletedProcess(
+                args, 0, stdout=json.dumps({"jobs": jobs})
+            )
+
+        clock = _Clock()
+        monkeypatch.setattr(rehearse_branch, "_run", fake_run)
+        monkeypatch.setattr(rehearse_branch, "time", clock)
+        verdict, lines, run_id = rehearse_branch._watch_pr_run(
+            "o/r", "rehearse/x", _SHA, 5, ["a.yml", "b.yml"]
+        )
+        assert (verdict, run_id, clock.now) == ("pass", 1, 30)
+        assert any("b.yml run 2" in line for line in lines)
+
+    def test_the_verdict_is_the_worst_run(self) -> None:
+        green = (True, ["  a.yml run 1: success"], 1)
+        red = (False, ["  b.yml run 2: failure"], 2)
+        verdict, lines, run_id = rehearse_branch.combine_verdicts([green, red])
+        assert (verdict, run_id) == ("fail", 2)
+        assert len(lines) == 2
+
+    def test_all_green_is_a_pass_on_the_first_run(self) -> None:
+        runs = [(True, [], 1), (True, [], 2)]
+        assert rehearse_branch.combine_verdicts(runs) == ("pass", [], 1)
+
+    def test_nothing_to_watch_is_refused(self) -> None:
+        with pytest.raises(ValueError):
+            rehearse_branch._watch_pr_run("o/r", "rehearse/x", _SHA, 1, [])
