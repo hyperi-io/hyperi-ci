@@ -14,9 +14,9 @@ work, and there is no registry-publish step beyond the module proxy.
 
 ```mermaid
 flowchart LR
-    Q["quality<br/>vet · golangci-lint · gosec · govulncheck"] --> T["test<br/>go test -race -cover"]
+    Q["quality<br/>vet, golangci-lint, gosec, govulncheck"] --> T["test<br/>go test -race -cover"]
     T --> B["build<br/>go build (native per arch)"]
-    B --> R["tag → go-proxy fetches by tag<br/>+ binaries → GH Releases"]
+    B --> R["tag: go-proxy fetches by tag<br/>+ binaries to GH Releases"]
 ```
 
 ## Notes
@@ -30,4 +30,4 @@ flowchart LR
   toolchain anyway.
 - **Binary naming** follows the unified convention shared with Rust:
   `{name}-{os}-{arch}`, version carried in the download path, not the filename.
-  See [flow.md](../flow.md) section 5.
+  See [flow.md](../flow.md) section 7.
