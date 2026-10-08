@@ -13,8 +13,6 @@ commit (an early bug did exactly that, mapping v1.14.1 -> 1.14.1-dev.1).
 Uses a real git repo, no mocks.
 """
 
-from __future__ import annotations
-
 import importlib.util
 import subprocess
 import sys

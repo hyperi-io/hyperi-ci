@@ -13,8 +13,6 @@ the DEGRADED path (they are absent) is tested unconditionally because that is
 what most repos will actually hit.
 """
 
-from __future__ import annotations
-
 import shutil
 from pathlib import Path
 

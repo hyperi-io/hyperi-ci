@@ -11,8 +11,6 @@ enables Corepack if needed, and runs the appropriate install command with
 lockfile enforcement.
 """
 
-from __future__ import annotations
-
 import subprocess
 from pathlib import Path
 

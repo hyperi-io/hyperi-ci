@@ -6,8 +6,6 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for hyperi_ci.quality.droast - advisory only, never gates."""
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 from types import SimpleNamespace

@@ -13,8 +13,6 @@ a version dozens of releases old. The replacement reads what the project
 declares about itself.
 """
 
-from __future__ import annotations
-
 import json
 import re
 import subprocess

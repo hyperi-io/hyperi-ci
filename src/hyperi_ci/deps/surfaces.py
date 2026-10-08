@@ -18,8 +18,6 @@ and applies it. Three states per surface, never two:
 - ``absent`` -- nothing matched.
 """
 
-from __future__ import annotations
-
 import re
 import subprocess
 from dataclasses import dataclass

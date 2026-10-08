@@ -17,8 +17,6 @@ parse would have to special-case one at a time (workspace inheritance,
 dependency extras, inline comments).
 """
 
-from __future__ import annotations
-
 import re
 from pathlib import Path
 

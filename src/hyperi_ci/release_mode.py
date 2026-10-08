@@ -33,8 +33,6 @@ explicitly -- offline behaviour follows the same rules as CI, just without
 the CI context.
 """
 
-from __future__ import annotations
-
 import os
 import re
 from collections.abc import Mapping

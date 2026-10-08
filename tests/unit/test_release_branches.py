@@ -10,8 +10,6 @@ Real config files in `tmp_path`, no mocks -- the module's whole job is
 reading the files semantic-release will read.
 """
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 

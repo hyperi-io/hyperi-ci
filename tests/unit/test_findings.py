@@ -11,8 +11,6 @@ budget (cap + errors-first + overflow count + no-op outside Actions), the job
 summary table, and the multi-run SARIF writer.
 """
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 

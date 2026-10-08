@@ -13,8 +13,6 @@ and the scheduled `upstream-sync` run on main that a feature-branch
 checkout could not reach.
 """
 
-from __future__ import annotations
-
 import subprocess
 from pathlib import Path
 from unittest.mock import patch

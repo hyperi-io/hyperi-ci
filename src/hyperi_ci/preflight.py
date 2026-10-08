@@ -23,8 +23,6 @@ Severity follows what the publish handler does without the credential:
   otherwise passes green.
 """
 
-from __future__ import annotations
-
 import os
 from dataclasses import dataclass
 from pathlib import Path

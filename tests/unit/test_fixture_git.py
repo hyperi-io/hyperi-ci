@@ -12,8 +12,6 @@ paths and refuses scope-escape flags, while allowing any git op on a fixture.
 Those pure predicates are locked here.
 """
 
-from __future__ import annotations
-
 import importlib.util
 import subprocess
 from pathlib import Path

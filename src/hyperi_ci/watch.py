@@ -38,8 +38,6 @@ includes the current status + a copy-pasteable resume command, so the
 caller knows whether to re-watch or investigate.
 """
 
-from __future__ import annotations
-
 import json
 import subprocess
 import time

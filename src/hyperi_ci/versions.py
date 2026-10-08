@@ -28,8 +28,6 @@ action's ``default:``. ``scripts/update-versions.py`` rewrites those from this
 same SSOT, and that is the full extent of what it writes.
 """
 
-from __future__ import annotations
-
 from functools import lru_cache
 from pathlib import Path
 from typing import Any

@@ -7,8 +7,6 @@
 #  Copyright: (c) 2026 HYPERI PTY LIMITED
 """Unit tests for the shared build helpers."""
 
-from __future__ import annotations
-
 import hashlib
 from pathlib import Path
 

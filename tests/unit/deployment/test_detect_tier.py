@@ -6,8 +6,6 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for `hyperi_ci.deployment.detect.detect_tier`."""
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import pytest

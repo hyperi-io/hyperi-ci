@@ -25,6 +25,7 @@ not installed, so it is stdlib-only and imports nothing heavier than
 # KEEP on a 3.14 floor, where this import is otherwise wrong (issue #184).
 # GitHub runs the composite's scripts before any install, on whatever python3
 # the runner has, which may predate our floor.
+# predict-version loads this file by path on the runner's python3, which may predate 3.14.
 from __future__ import annotations
 
 from pathlib import Path

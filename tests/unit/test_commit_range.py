@@ -13,8 +13,6 @@ predict-version gate asks before skipping quality + test on a merge to main
 same gate asks on a validate-only run.
 """
 
-from __future__ import annotations
-
 import json
 import os
 import subprocess

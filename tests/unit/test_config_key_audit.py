@@ -12,8 +12,6 @@ and read by nothing. The gate stops the next one accumulating; without it the
 only signal is someone setting a key and wondering why nothing changed.
 """
 
-from __future__ import annotations
-
 import importlib.util
 import sys
 from pathlib import Path

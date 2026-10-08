@@ -14,8 +14,6 @@ installed"; Go and Rust now match. TypeScript already did, via
 `ensure_pm_available`.
 """
 
-from __future__ import annotations
-
 from unittest.mock import patch
 
 from hyperi_ci.config import CIConfig

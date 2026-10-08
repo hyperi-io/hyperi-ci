@@ -33,8 +33,6 @@ including the overlay fragments, which ``docker compose config`` can only reach
 through a file set nobody outside the repo can name.
 """
 
-from __future__ import annotations
-
 import re
 from pathlib import Path
 

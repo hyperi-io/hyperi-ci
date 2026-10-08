@@ -31,8 +31,6 @@ Detection is **cheap and string-based** -- we don't fully parse manifests
 because the answer only needs to say which producer a repo has.
 """
 
-from __future__ import annotations
-
 from enum import StrEnum
 from pathlib import Path
 from typing import NamedTuple

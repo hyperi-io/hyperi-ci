@@ -6,8 +6,6 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Tests for the licence registry and allow policy."""
 
-from __future__ import annotations
-
 from typing import Any
 
 from hyperi_ci import licenses

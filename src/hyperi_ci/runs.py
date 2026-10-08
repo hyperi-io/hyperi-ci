@@ -24,8 +24,6 @@ prints the command that reaches the run. A refusal the caller cannot act
 on is what sent them to the native CLI in the first place.
 """
 
-from __future__ import annotations
-
 import json
 import subprocess
 from dataclasses import dataclass

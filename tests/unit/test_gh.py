@@ -6,8 +6,6 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
-from __future__ import annotations
-
 from pathlib import Path
 from unittest.mock import patch
 

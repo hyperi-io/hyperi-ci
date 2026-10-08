@@ -21,8 +21,6 @@ log level. A line that reads `Project status: beta -- pre-GA, polishing`
 is unmistakable in a wall of INFO without being a WARN.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from hyperi_ci.dispatch import _STATUS_CLARIFIER

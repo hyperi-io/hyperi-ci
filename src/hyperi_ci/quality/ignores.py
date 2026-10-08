@@ -51,8 +51,6 @@ runtime - this lets projects pre-stage entries for tools that
 haven't been wired yet without breaking the build.
 """
 
-from __future__ import annotations
-
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date

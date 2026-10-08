@@ -11,8 +11,6 @@ module exists. Each language handler owns its own install logic (e.g. npm/yarn/p
 for TypeScript, ``uv sync`` for Python).
 """
 
-from __future__ import annotations
-
 import importlib
 from pathlib import Path
 

@@ -10,8 +10,6 @@ Cascade priority (highest wins):
   CLI flags -> ENV vars (HYPERCI_*) -> .hyperi-ci.yaml -> defaults.yaml -> hardcoded
 """
 
-from __future__ import annotations
-
 import json
 import os
 from dataclasses import dataclass, field

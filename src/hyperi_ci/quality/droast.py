@@ -21,8 +21,6 @@ droast emits standard SARIF 2.1.0, which we parse (via the shared SARIF
 parser) rather than its bespoke JSON, then surface through the shared layer.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 from hyperi_ci.common import get_exclude_dirs, info, run_cmd, warn

@@ -12,8 +12,6 @@ covers the wiring between them and the operator: which verb calls what, what it
 prints, and the exit codes.
 """
 
-from __future__ import annotations
-
 import json
 from collections.abc import Iterator
 

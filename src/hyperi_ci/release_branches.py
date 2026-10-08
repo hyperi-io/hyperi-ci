@@ -30,6 +30,7 @@ signal, because the version is already threaded through every stage
 with it.
 """
 
+# predict-version loads this file by path on the runner's python3, which may predate 3.14.
 from __future__ import annotations
 
 import json

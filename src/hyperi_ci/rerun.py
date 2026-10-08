@@ -13,8 +13,6 @@ from the commit at HEAD, and an ambiguous choice refused rather than
 guessed.
 """
 
-from __future__ import annotations
-
 import subprocess
 from pathlib import Path
 

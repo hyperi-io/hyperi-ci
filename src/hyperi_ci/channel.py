@@ -39,8 +39,6 @@ rename still writes ``nightly`` into the file this module falls back to
 reading.
 """
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 

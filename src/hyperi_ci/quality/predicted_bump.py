@@ -28,8 +28,6 @@ git is unavailable, the predictor returns ``none`` and the gate is a
 no-op - fail open only when we genuinely cannot predict.
 """
 
-from __future__ import annotations
-
 import re
 import subprocess
 from dataclasses import dataclass, field

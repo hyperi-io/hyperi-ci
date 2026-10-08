@@ -21,8 +21,6 @@ Idempotent by construction: a repo with any ``v*`` tag already has its truth,
 and seeding refuses rather than adding a second opinion.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 from hyperi_ci.common import error, info, run_cmd, success

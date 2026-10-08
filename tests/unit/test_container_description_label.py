@@ -16,8 +16,6 @@ These tests exercise the caller instead of the callee: they assert what
 `_dispatch_build` puts on the image, which is the thing that was wrong.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 from unittest.mock import patch
 
