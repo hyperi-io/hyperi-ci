@@ -22,9 +22,9 @@ Every Rust build links with `ld.lld` and, on a Tier 2 release, rewrites the bina
 
 ## One major on the runner image
 
-`config/toolchains/llvm.yaml` bakes exactly `versions.yaml` `llvm`, read through `${HYPERCI_LLVM_DEFAULT}`. It carries no list of its own, and neither `HYPERCI_LLVM_VERSION` nor `build.rust.llvm_version` reaches it, so the image and its `clang` / `ld.lld` alternatives always agree.
+`src/hyperi_ci/config/toolchains/llvm.yaml` bakes exactly `versions.yaml` `llvm`, read through `${HYPERCI_LLVM_DEFAULT}`. It carries no list of its own, and neither `HYPERCI_LLVM_VERSION` nor `build.rust.llvm_version` reaches it, so the image and its `clang` / `ld.lld` alternatives always agree.
 
-The image used to carry LLVM 19 to 22 as well, with its unversioned `clang` and `ld.lld` on 19. Those were for the ClickHouse server fork's C++ build, which is no longer built. A runner that still has them is an old image, not a requirement.
+An older runner image may carry LLVM 19 to 22 as well, with its unversioned `clang` and `ld.lld` on 19. Those served the ClickHouse server fork's C++ build, which no longer exists. They are not a requirement.
 
 ## Choosing the major
 
@@ -60,9 +60,9 @@ The designated major's tools are symlinked into `~/.local/bin`, first on PATH, a
 
 A gcc-driven link finds `ld.lld` on PATH. A project with `linker = "clang"` runs the shimmed `clang`, which takes `ld.lld` from its own install before PATH, so both kinds of link follow the designated major. `clang` is shimmed apart from `ld.lld`, so a runner without `clang-NN` leaves the `ld.lld` on PATH at the designated major. The clang it falls back to still links with its own major's lld, and the warning names that major.
 
-ARC bakes `clang-NN` at the default major. Elsewhere, a repo that does not link through clang never installs it: it would cost every job an apt.llvm.org fetch, and the `libclang1-NN` that comes with it can change which libclang bindgen picks.
+ARC bakes `clang-NN` at the default major. Elsewhere, a repo that does not link through clang never installs it. The install would cost every job an apt.llvm.org fetch, and the `libclang1-NN` that comes with it can change which libclang bindgen picks.
 
-The shims run in a PGO build only. Quality, test and a plain release build link with the runner's unversioned `clang` and `ld.lld`, which on ARC are the default major. hyperi-ci never installs the distro's unversioned `clang`: on noble it is 18 and would add a second LLVM.
+The shims run in a PGO build only. Quality, test and a plain release build link with the runner's unversioned `clang` and `ld.lld`. On ARC those are the default major. hyperi-ci never installs the distro's unversioned `clang`, which is 18 on noble and would add a second LLVM.
 
 ## Moving to a new LLVM
 

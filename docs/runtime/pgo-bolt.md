@@ -1,240 +1,130 @@
 # Writing a PGO Workload for hyperi-ci
 
-This guide teaches you to write a PGO workload script that actually
-improves your binary rather than hurting it.
+PGO (Profile-Guided Optimisation) records which code paths run hot under a workload, then rebuilds the binary with that knowledge. A good workload gives 10-20% speedup. A bad one teaches the compiler the wrong paths and the binary gets slower.
 
-## Invocation contract (important)
+The opt-in config is in [`rust-tier2.md`](../languages/rust-tier2.md). Copy-paste starting points are in `templates/pgo-workload/`.
 
-hyperi-ci invokes your `workload_cmd` with the **instrumented binary
-path as the first positional argument** (`$1`). The env var
-`HYPERCI_PGO_INSTRUMENTED_BINARY` is also exported as a convenience,
-but `$1` is the canonical contract.
+## Invocation contract
+
+hyperi-ci appends the instrumented binary path to your `workload_cmd` as the first argument (`$1`). It also exports it as `HYPERCI_PGO_INSTRUMENTED_BINARY`, and exports `duration_secs` (default 300) as `PGO_WORKLOAD_DURATION_SECS`.
+
+```yaml
+build:
+  rust:
+    optimize:
+      pgo:
+        workload_cmd: "bash scripts/pgo-workload.sh"
+```
+
+With that config hyperi-ci runs:
 
 ```bash
-# Your script starts like this:
+bash scripts/pgo-workload.sh /path/to/target/<triple>/release/<binary>
+```
+
+A project with `scripts/pgo-workload.sh` and no `workload_cmd` gets that command by default. The script starts like this: <!-- doc-paths: ignore -->
+
+```bash
 #!/usr/bin/env bash
 set -euo pipefail
 RECEIVER_BIN="$1"
 [[ -x "$RECEIVER_BIN" ]] || { echo "usage: $0 <binary>" >&2; exit 1; }
 ```
 
-So if your `.hyperi-ci.yaml` says:
+The workload runs twice, once per instrumented binary. It must stop by `PGO_WORKLOAD_DURATION_SECS`, and the wrapper kills it at that plus 600 seconds.
 
-```yaml
-pgo:
-  workload_cmd: "bash scripts/pgo-workload.sh"
+```mermaid
+flowchart TD
+    S["workload_setup_cmd (optional)"] --> I1["cargo pgo build: PGO-instrumented binary"]
+    I1 --> W1["workload run 1"]
+    W1 --> O1["cargo pgo optimize build: PGO binary"]
+    O1 --> I2["cargo pgo bolt build: BOLT-instrumented binary"]
+    I2 --> W2["workload run 2"]
+    W2 --> O2["cargo pgo bolt optimize: shipped binary"]
 ```
 
-hyperi-ci effectively runs:
-
-```bash
-bash scripts/pgo-workload.sh /path/to/target/<triple>/release/<binary>
-```
-
-PGO (Profile-Guided Optimisation) records which code paths run hot
-during a representative workload, then rebuilds the binary with that
-knowledge. A **good** workload gives the compiler a realistic picture
-of production and yields 10-20% speedup. A **bad** workload mis-teaches
-the compiler and produces measurably slower code.
-
-For the CI contract, see [`rust-tier2.md`](../languages/rust-tier2.md) -> *Tier 2 - PGO + BOLT*.
-For copy-paste starting points, see `templates/pgo-workload/`.
-
-`skip-optimize` drops PGO and BOLT for a single run, for a pre-GA iteration
-that does not need them. See
-[`rust-tier2.md`](../languages/rust-tier2.md) -> *Skipping optimisation for one run*.
-
-`optimize-tier: release` does the opposite: PGO and BOLT on a run that
-publishes nothing, to test a workload or a BOLT fix without a release. See
-*Testing it in CI without a release* below.
-
-To prove a workload end to end without spending a stable version, cut a
-prerelease off a branch and leave optimisation on -- see
-[`prereleases.md`](../prereleases.md).
+- `skip-optimize` drops PGO and BOLT for one run: [`rust-tier2.md`](../languages/rust-tier2.md) -> *Skipping optimisation for one run*.
+- `optimize-tier: release` runs them on a run that publishes nothing: *Testing it in CI without a release* below.
+- A prerelease off a branch proves a workload end to end without spending a stable version: [`prereleases.md`](../prereleases.md).
 
 ### aarch64: a BOLTed binary is not safe on Cortex-A53
 
-On an aarch64 Linux target the BOLT steps link through a wrapper written to `~/.cache/hyperi-ci/bolt-linker/`, which drops the `-Wl,--fix-cortex-a53-843419` rustc passes on every link and adds `-mno-fix-cortex-a53-843419` so gcc does not add the same fix from its own spec. The linker then inserts none of the erratum 843419 veneers that llvm-bolt refuses to rewrite, and the wrapper execs the linker `CARGO_TARGET_<TRIPLE>_LINKER` already names, else `aarch64-linux-gnu-gcc`, else `cc`. amd64 is unaffected.
+llvm-bolt refuses the erratum 843419 veneers the aarch64 linker inserts. So the aarch64 BOLT steps link through a wrapper in `~/.cache/hyperi-ci/bolt-linker/` that drops `-Wl,--fix-cortex-a53-843419` and adds `-mno-fix-cortex-a53-843419`. It then execs `CARGO_TARGET_<TRIPLE>_LINKER`, else `aarch64-linux-gnu-gcc`, else `cc`.
 
-The trade: the BOLTed binary must not run on a Cortex-A53. That is accepted because HyperI Rust binaries run on Graviton and Ampere-class server cores, not the 2012 in-order A53 little core used in phones and embedded parts.
-
-**If a deployment target ever includes Cortex-A53**, take PGO-only aarch64 builds.
+HyperI binaries run on Graviton and Ampere-class cores, not the in-order A53 in phones and embedded parts. **If a deployment target ever includes Cortex-A53**, take PGO-only aarch64 builds. amd64 is unaffected.
 
 ## The Four Rules
 
 ### Rule 1 - Exercise data-processing hot paths, not startup
 
-Your workload MUST drive the code paths that production drives most
-often. In practice that means: parse, validate, transform, route,
-serialise, send. For a receiver: HTTP POST with realistic bodies. For
-a loader: dequeue Kafka messages and run them through to ClickHouse.
-For a batch processor: process an input file from start to finish.
+Drive what production drives most: parse, validate, transform, route, serialise, send. For a receiver that is HTTP POSTs with realistic bodies. For a loader it is Kafka messages run through to ClickHouse.
 
-**Never profile startup, health checks, or config loading.** Those
-paths run once per process lifetime and are irrelevant to steady-state
-performance. If the profile is dominated by startup code, the
-optimiser happily inlines startup branches into your hot path and
-slows production down.
-
-**Example - what NOT to do:**
+**Never profile startup, health checks or config loading.** They run once per process. A profile dominated by them makes the optimiser inline startup branches into the hot path, and production slows down.
 
 ```bash
 # WRONG: this profile is 100% readiness checks
 for _ in $(seq 1 1000); do
     curl -sf http://localhost:8080/health/ready
 done
-```
 
-```bash
-# WRONG: one-shot send — the process starts, handles 1 request, ends.
-# Startup paths dominate the profile.
+# WRONG: one request, so startup paths dominate the profile
 curl -X POST http://localhost:8080/ -d '{"test":true}'
-```
 
-**Example - what TO do:**
-
-```bash
-# RIGHT: sustained realistic load that exercises the request pipeline
+# RIGHT: sustained realistic load through the request pipeline
 oha -z 300s -c 50 -m POST -T application/json \
     -D payload.json http://localhost:8080/
 ```
 
 ### Rule 2 - Realistic traffic mix
 
-Profile what production actually sees. If your service serves 80%
-GETs and 20% POSTs, your workload should mirror that. If it sees
-a mix of payload sizes, include that mix. If errors are rare in
-production, they should be rare in your workload.
+PGO optimises for whatever distribution the profile holds. If production is 80% GETs, an all-POST workload makes GETs slower. Match payload sizes and error rates too.
 
-PGO will optimise for whatever distribution your profile reflects.
-An all-POST workload will bias the compiler toward POST-handling code
-and make GETs slower.
-
-**Build a `workload_mix.csv` or similar** that documents the
-distribution, and keep it under version control alongside the workload
-script so reviewers can sanity-check it.
+Keep the mix in a file such as `workload_mix.csv`, versioned beside the script, so a reviewer can check it.
 
 ### Rule 3 - Sustained duration, minimum 60s
 
-60 seconds is a hard floor - shorter workloads leave the compiler with
-noisy, startup-dominated data. 300s is the recommended default. Longer
-helps marginally but with diminishing returns - past 10 minutes the
-profile stops changing.
+Under 60 seconds the profile is noisy and startup-heavy. 300s is the default. Past 10 minutes the profile stops changing.
 
-The floor is on the workload AUTHOR, not on hyperi-ci. Nothing in the PGO
-stage measures how long your workload ran, so a bespoke script that exits
-after 10s produces a poor profile and ships anyway. The bundled templates
-hold themselves to the floor; a script you write does not inherit that.
+The floor is on the workload author. Nothing in the PGO stage measures how long the workload ran, so a script that exits after 10s ships a poor profile. The bundled templates hold to the floor. A script you write does not inherit that.
 
 ### Rule 4 - Deterministic and self-contained
 
-The workload runs in CI, often on a fresh runner. Anything external
-(remote API, live Kafka cluster, stale DB state) that could fail means
-your release build fails for a transient network reason.
+The workload runs on a fresh CI runner. A remote API, live Kafka cluster or stale database that fails turns into a failed release build.
 
-**Use testcontainers**, `docker run` for dependencies, or synthetic
-local data. If your workload depends on Kafka, spin up Kafka inside
-the workload script. If it depends on a database, run a container.
-Clean everything up on EXIT trap.
+Use testcontainers, `docker run` or synthetic local data. Start Kafka or the database inside the workload script, and clean up in an `EXIT` trap.
 
-## Profile quality metrics
+## Profile quality
 
-What a good profile looks like. hyperi-ci does NOT check the first two
-today -- issue #133 covers making a half-optimised release fail instead of
-passing quietly.
-
-| Property | Target | Rationale |
-|---|---|---|
-| Workload duration | >= 60s | Shorter = biased toward startup |
-| `.profraw` total size | >= 1 MB | Too little = workload didn't hit hot path |
-| cargo-pgo merge succeeds | yes | Corrupt profile = abort |
-
-Only the merge fails loudly, because cargo-pgo errors on a corrupt profile.
-The other two pass silently whatever the workload did.
+A good profile runs 60s or more and writes at least 1 MB of `.profraw` in total. Less means the workload missed the hot path. hyperi-ci checks neither, so only a corrupt profile fails, when cargo-pgo cannot merge it. Issue #133 covers failing a half-optimised release instead.
 
 ## Anti-patterns
 
+On top of the four rules:
+
 | Anti-pattern | Why it hurts |
 |---|---|
-| `curl /healthz` in a loop | Profiles health-check code, not hot path |
-| Single-request workload (`curl -X POST ...`) | Startup dominates the profile |
-| Workload that connects to `prod.example.com` | Non-deterministic, network failure = build failure |
-| Hardcoded paths `/home/me/data.json` | Doesn't work on CI runners |
-| Workload uses the same payload every request | Branch predictor will memorise one case only |
-| Randomised payloads with no size distribution | Profile doesn't match production allocation pattern |
-| Skipping Kafka/DB by using an in-memory mock | Skips the hot allocations those drivers do in production |
-| Running for 30s | Too short - floor is 60s, recommended 300s |
+| Hardcoded paths like `/home/me/data.json` | Missing on CI runners |
+| The same payload every request | The branch predictor learns one case |
+| Random payloads with no size distribution | Allocation pattern does not match production |
+| An in-memory mock in place of Kafka or the DB | Skips the allocations those drivers make in production |
 
 ## Workload shapes
 
-The following patterns cover most DFE Rust binaries. Copy the matching
-template from `templates/pgo-workload/` and customise.
+Each shape has a template in `templates/pgo-workload/`.
 
-### HTTP server (receiver-style)
-
-One or more HTTP listeners accepting POSTed payloads. Drive with
-`oha`, `vegeta`, or a custom Rust client. Mix payload sizes (small
-event, medium structured, large batch). Include any auth headers
-production requires.
-
-Template: `http-server.sh`
-
-### gRPC server
-
-Drive with `grpcurl`, a native gRPC client, or a Rust binary that links
-the service's tonic-generated client. Mix request shapes (unary,
-server-streaming, bidi-streaming if the service supports them).
-
-Template: `grpc-server.sh`
-
-### Kafka producer (data shipping to Kafka)
-
-Drive producer-side by sending HTTP/gRPC requests that trigger Kafka
-produce calls. Must have a real Kafka broker - testcontainers works well.
-Include batching behaviour (multiple messages in tight succession).
-
-Template: `kafka-producer.sh`
-
-### Kafka consumer (loader-style)
-
-Drive by producing messages TO the Kafka topic your binary consumes.
-Your binary then drains them and does downstream work (insert to
-ClickHouse, forward to another service, etc.). Profile captures the
-full consume -> process -> sink path.
-
-Template: `kafka-consumer.sh`
-
-### Multi-protocol (receiver-style with many listeners)
-
-For binaries that accept multiple protocols (HTTP, gRPC, syslog,
-OTLP, Prom RW, etc.), drive each protocol proportionally to production
-mix. A dedicated Rust driver binary linked to the main project is
-often the cleanest approach (so you can reuse the project's protobuf
-types, TLS config, etc.).
-
-Template: `multi-protocol.sh` (reference: dfe-receiver's
-`src/bin/pgo-driver.rs` + `scripts/pgo-workload.sh`) <!-- doc-paths: ignore -->
-
-## Choosing a workload command
-
-Common tools and their tradeoffs:
-
-| Tool | Best for | Limitations |
+| Shape | How to drive it | Template |
 |---|---|---|
-| `oha` | HTTP load | No gRPC, limited payload shaping |
-| `vegeta` | HTTP load with complex scripts | More setup than oha |
-| `wrk` / `wrk2` | High-RPS HTTP | No gRPC, lua-scripted |
-| `grpcurl` | Ad-hoc gRPC | Slow for sustained load |
-| `ghz` | Sustained gRPC load | Less common tooling |
-| Custom Rust bin | Any protocol, reuses project types | Requires implementation |
+| HTTP server | `oha`, `vegeta` or `wrk2`. Mix small, medium and batch payloads, with production's auth headers | `http-server.sh` |
+| gRPC server | `ghz` for sustained load (`grpcurl` is too slow), or the tonic-generated client. Mix the unary and streaming calls the service has | `grpc-server.sh` |
+| Kafka producer | HTTP or gRPC requests that trigger produce calls, in tight batches, against a real broker | `kafka-producer.sh` |
+| Kafka consumer | Produce to the topic the binary consumes, so the profile covers consume -> process -> sink | `kafka-consumer.sh` |
+| Multi-protocol | Each listener in production proportion, from a Rust driver in the same project | `multi-protocol.sh` |
 
-For DFE projects with unusual protocols (OTLP, Lumberjack, Fluent
-Forward), a custom Rust driver almost always wins because you can
-reuse the project's proto types and TLS config.
+For OTLP, Lumberjack, Fluent Forward and other unusual protocols, a Rust driver wins: it reuses the project's proto types and TLS config.
 
 ## Validating your workload locally
 
-Before pushing a `.hyperi-ci.yaml` opt-in, test the pipeline locally. CI passes `--bin` for each binary it ships on every `cargo pgo` step, so a feature-gated driver in the same package never compiles against the profile. Do the same here:
+Test the pipeline locally before opting in. CI passes `--bin` for each shipped binary on every `cargo pgo` step, so a feature-gated driver in the same package never compiles against the profile. Do the same here:
 
 ```bash
 cargo install cargo-pgo
@@ -246,25 +136,22 @@ cargo pgo build -- --bin <your-binary> --features jemalloc
 # 2. Run your workload against the instrumented binary
 bash scripts/pgo-workload.sh ./target/x86_64-unknown-linux-gnu/release/<your-binary>
 
-# 3. Inspect profile quality
+# 3. Inspect profile size (at least 1 MB total)
 ls -la target/pgo-profiles/*.profraw
-# Should be at least 1 MB total
 
 # 4. Merge profiles
 llvm-profdata merge -o target/pgo-profiles/merged.profdata target/pgo-profiles/*.profraw
 
 # 5. Show top functions by coverage
 llvm-profdata show --topn=20 target/pgo-profiles/merged.profdata
-# Expected: your request-handler and parsing functions at the top.
-# Red flag: your startup / config-loading functions at the top.
+# Expected: request-handler and parsing functions at the top.
+# Red flag: startup or config-loading functions at the top.
 
 # 6. Build optimised
 cargo pgo optimize build -- --bin <your-binary> --features jemalloc
 ```
 
-If step 5 shows startup code at the top, your workload needs more
-sustained traffic or needs to start driving load only AFTER the
-binary is fully ready.
+If step 5 shows startup code at the top, drive more sustained traffic, or start the load only once the binary is ready.
 
 ### Testing it in CI without a release
 
@@ -274,14 +161,14 @@ The `optimize-tier: release` dispatch input builds Tier 2 on one validate-only r
 gh workflow run ci.yml --ref <branch> -f optimize-tier=release
 ```
 
-Nothing is tagged or published. A bare dispatch builds both arches, and each pays Tier 2: the arm64 build step on dfe-receiver took 52 minutes against about 4 at Tier 1 (issue #257).
+Nothing is tagged or published. A bare dispatch builds both arches at Tier 2: the arm64 build on dfe-receiver took 52 minutes against about 4 at Tier 1 (issue #257).
 
-- Run it on a branch, not `main`. Runs share a concurrency group per ref with `cancel-in-progress`, so a dispatch on `main` cancels an in-flight push run there, publish included, or gets cancelled by the next merge.
-- Per-run input only. There is no repo variable and no `.hyperi-ci.yaml` key, because every run of the repo would pay that.
-- It beats `skip-optimize` from any source, with a warning, so the image label and release notes match the binary.
-- With a workload configured, the strict check still applies: if PGO or BOLT never reaches the binary, the run fails. With no workload, PGO is never asked for and the run builds Tier 1.
-- `release` is the only value. Anything else fails the build rather than quietly building Tier 1.
-- `hyperi-ci init` writes the input into a new `ci.yml`. An older one declares it under `workflow_dispatch.inputs` and forwards it under `with:`, like `skip-optimize`.
+- A dispatch that publishes nothing gets its own concurrency group per ref (`dispatch-<ref>`), so it cannot cancel a release on `main` or be cancelled by a push. A second such dispatch on the same ref cancels the first.
+- Per-run input only, with no repo variable or config key, because every run would pay for it.
+- It beats `skip-optimize`, with a warning, so the image label and release notes match the binary.
+- The strict check applies: with a workload configured, a run where PGO or BOLT never reaches the binary fails. With no workload it builds Tier 1.
+- `release` is the only value. Anything else fails the build.
+- `hyperi-ci init` writes the input into a new `ci.yml`. An older one declares it under `workflow_dispatch.inputs` and forwards it under `with:`.
 
 ## Bisecting BOLT
 
@@ -292,27 +179,18 @@ gh workflow run ci.yml --ref <branch> -f optimize-tier=release \
   -f bolt-optimize-args="-reorder-blocks=ext-tsp -relocs -lite=1"
 ```
 
-Start from `_CARGO_PGO_OPTIMIZE_BOLT_ARGS` in `src/hyperi_ci/languages/rust/pgo.py` and drop flags. It is a copy of cargo-pgo's own defaults, and bumping `tools.cargo-pgo` fails a unit test until it is re-read at the new version.
+Start from `_CARGO_PGO_OPTIMIZE_BOLT_ARGS` in `src/hyperi_ci/languages/rust/pgo.py` and drop flags. It copies cargo-pgo's own defaults, and a unit test fails when `tools.cargo-pgo` is bumped until the copy is re-read.
 
-- Debug only. A run that ships refuses it and fails: tag or from-head dispatch, release-trailer push, tag ref.
-- Needs `optimize-tier=release`, else the run never reaches BOLT. The build refuses rather than test nothing.
-- The instrument stage keeps its own flags.
-- The flags go to llvm-bolt as given on every architecture. The aarch64 link already carries no erratum 843419 veneers, so an override needs no veneer option.
+- Debug only. A run that ships refuses it: tag or from-head dispatch, release-trailer push, tag ref.
+- Needs `optimize-tier=release`, else the build refuses.
+- Only the optimise stage changes. The flags go to llvm-bolt as given on every architecture, with no veneer option needed on aarch64.
 - One token per flag, starting with `-`, a value as `-name=value`, from letters, digits and `_ . , : + = -`. No empty set: `-dyno-stats` alone is the nearest.
 - The run carries a `::warning::` naming the flags.
-- Rust callers only. `hyperi-ci init` scaffolds it; an older caller declares and forwards it like `optimize-tier`.
+- Rust callers only, declared and forwarded like `optimize-tier`.
 
 ## Reference implementation
 
-`dfe-receiver` is the first shipping DFE binary with Tier 2. Its
-workload implementation is a template for multi-protocol services:
+dfe-receiver ships Tier 2 and is the template for multi-protocol services. Read the two files together:
 
-- `scripts/pgo-workload.sh` <!-- doc-paths: ignore --> - orchestrator (Kafka container + binary
-  lifecycle + cleanup trap)
-- `src/bin/pgo-driver.rs` - feature-gated Rust binary that drives HTTP,
-  Prometheus Remote Write (snappy+protobuf), Splunk HEC, OTLP HTTP
-  (protobuf), and Syslog UDP/TCP at configurable rates
-
-Read both files together for a working pattern. The driver shows how
-to reuse the project's own protobuf types (Prom RW, OTLP) without
-duplicating schemas.
+- `scripts/pgo-workload.sh` <!-- doc-paths: ignore --> - orchestrator: Kafka container, binary lifecycle, cleanup trap
+- `src/bin/pgo_driver.rs` <!-- doc-paths: ignore --> - the `pgo-driver` binary, behind `required-features = ["pgo-driver"]`, which drives each listener and reuses the project's Prometheus Remote Write and OTLP protobuf types

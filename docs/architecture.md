@@ -4,17 +4,12 @@
 
 ## What it is
 
-A single Python CLI (`hyperi-ci`) plus a thin set of GitHub Actions reusable
-workflows. It replaced a legacy system (~100 shell scripts, 50+ composite
-actions, a six-layer dispatch hierarchy) with one tool that runs identically
-on a laptop and in CI, across Rust, Python, TypeScript and Go.
+A single Python CLI (`hyperi-ci`) plus a thin set of GitHub Actions reusable workflows. It runs the same way on a laptop and in CI, for Rust, Python, TypeScript and Go. It replaced about 100 shell scripts, 50+ composite actions and a six-layer dispatch hierarchy.
 
 Two sides, one job each:
 
-- **CLI side** does the work - lint, test, build, publish - via `subprocess`
-  to language tools. No bash logic; 70% of old-CI failures were bash syntax.
-- **GitHub Actions side** does orchestration only - job ordering, matrix,
-  caching, secrets, the predict-and-gate, container build, tag, publish.
+- **CLI side** does the work - lint, test, build, publish - via `subprocess` to language tools. No bash logic; 70% of old-CI failures were bash syntax.
+- **GitHub Actions side** does orchestration only - job ordering, matrix, caching, secrets, the predict-and-gate, container build, tag, publish.
 
 ```mermaid
 flowchart TB
@@ -27,17 +22,18 @@ flowchart TB
     subgraph CLI["hyperi-ci CLI"]
         cli["cli.py (typer)"] --> dispatch["dispatch.py"]
         dispatch --> handlers["languages/&lt;lang&gt;/&lt;stage&gt;.py"]
-        dispatch --> helpers["detect · config · common · stamp"]
-        handlers --> tools["ruff/pytest · cargo · eslint/vitest · go"]
+        dispatch --> helpers["detect, config, common, stamp"]
+        handlers --> tools["ruff/pytest, cargo, eslint/vitest, go"]
     end
     uvx --> cli
 ```
 
-**Why the split:** workflow files stay tiny (no YAML logic); tool invocation is
-tested locally before CI; a new check is a Python change, not workflow YAML;
-the same code path runs everywhere, so "works locally, fails in CI" largely
-disappears. It also bounds the cost of one day moving off GitHub Actions
-( -> Buildkite): rewrite the glue, keep the CLI.
+Why the split:
+
+- Workflow files stay tiny, with no logic in YAML.
+- A new check is a Python change, tested locally before CI sees it.
+- The same code path runs everywhere, so "works locally, fails in CI" mostly goes away.
+- Moving off GitHub Actions (to Buildkite, say) means rewriting the glue and keeping the CLI.
 
 ## Workflow model - two levels, no deeper
 
@@ -66,89 +62,72 @@ flowchart TB
     style RT fill:#dbeafe,color:#000
 ```
 
-Level 1 = the consumer's `ci.yml` calling `<lang>-ci.yml@main`. Level 2 = that
-language workflow calling the shared `_release-tail.yml` and the composites.
-No `_setup.yml`/`_ci.yml` orchestrator chains. Web research (astral-sh/uv,
-tokio-rs/tokio, vercel/turborepo) shows mature multi-language repos keep CI
-flat with a plan job + gates, not chained reusable workflows.
+Level 1 is the consumer's `ci.yml` calling `<lang>-ci.yml@main`. Level 2 is that language workflow calling the shared `_release-tail.yml` and the composites. There are no `_setup.yml` / `_ci.yml` orchestrator chains. Mature multi-language repos (astral-sh/uv, tokio-rs/tokio, vercel/turborepo) keep CI flat the same way: a plan job and gates.
 
 ## Workflow internals: job contract and composites
 
-Each `<lang>-ci.yml` is a `workflow_call` reusable workflow with the same jobs,
-same order, gating on the same `plan` outputs. Only the *internals* of
-quality/test/build differ per language (tools, toolchain, cache keys) - that is
-the single place language divergence is allowed. The full job list, the gate
-outputs the `plan` job computes, what runs for which trigger (including
-branch-mode, a merge queue and arm64 parity) and the test-tier gate are in
-[ci-job-contract.md](ci-job-contract.md).
+Each `<lang>-ci.yml` is a `workflow_call` reusable workflow with the same jobs, in the same order, gated on the same `plan` outputs. Only the internals of quality, test and build differ per language: tools, toolchain, cache keys. [ci-job-contract.md](ci-job-contract.md) has the full job list, the gate outputs and what runs for which trigger.
 
-Language-agnostic and identical-across-languages logic is a shared composite;
-anything needing a per-language carve-out stays inline in the language's own
-workflow. Our own reusable workflows reference each other at `@main` rather
-than a pinned SHA, made safe by an interface backward-compat gate rather than
-a frozen graph. The rule, the VERSION-stamping example, and the gate's
-mechanics: [workflow-composites.md](workflow-composites.md).
+Language-agnostic logic that is identical across languages is a shared composite. Anything needing a per-language carve-out stays inline in that language's workflow. Our reusable workflows reference each other at `@main`, not a pinned SHA, and an interface backward-compat gate makes that safe. The rule and the gate: [workflow-composites.md](workflow-composites.md).
 
 ## CLI surface
 
 ```text
-hyperi-ci run <stage>      quality | test | build | release; test takes --tier core|full
+hyperi-ci run <stage>      setup | quality | test | build | release; test takes --tier core|full
 hyperi-ci check [--quick|--full|--strict|--tier full]  pre-push: quality(+test)(+build); --strict fails on warn-tier findings; --tier full runs the ignored tests too
 hyperi-ci push [--release]         commit + push, opt-in Release: true trailer
 hyperi-ci release [<tag>]          release/retry HEAD, or re-release an existing tag
 hyperi-ci stamp-version <v>        write VERSION + manifest (central)
 hyperi-ci release-prepare <v> --out <dir> [--phase stamp|package|all]   stamp + run the release's repo code (semver checks, packing) with no credentials; `run release` with HYPERCI_RELEASE_PREPARED=<dir> then only uploads
 hyperi-ci release-verify           fail before tagging when the prepared release names another version or language
+hyperi-ci publish-charts           package and push committed Helm charts to an OCI registry
+hyperi-ci lint-docs | lint-iac     run the doc checks, or the chart/manifest/tofu/ansible/compose linters, on a directory
 hyperi-ci init                     scaffold ci.yml, .hyperi-ci.yaml, Makefile, githooks
 hyperi-ci detect | config          show detected language / merged config
 hyperi-ci trigger | watch | rerun | logs   drive GitHub Actions from the terminal
 hyperi-ci install-toolchains | install-native-deps | install-deps   runner/CI dep install
-hyperi-ci update                  self-upgrade the installed tool
+hyperi-ci update                   self-upgrade the installed tool
 hyperi-ci autoupdate               channel (live|stable) / enable / freeze -- see self-update.md
 ```
 
 ### Dispatch
 
-`hyperi-ci run quality` -> `detect.py` identifies the language (file markers or
-`.hyperi-ci.yaml` / `HYPERI_CI_LANGUAGE`) -> `config.py` merges configuration ->
-`dispatch.py` imports `hyperi_ci.languages.<lang>.<stage>` and calls
-`run(config, extra_env) -> int`.
+`hyperi-ci run quality` runs `detect.py` to identify the language, from file markers or `.hyperi-ci.yaml` / `HYPERI_CI_LANGUAGE`. `config.py` merges configuration. `dispatch.py` then imports `hyperi_ci.languages.<lang>.<stage>` and calls `run(config, extra_env) -> int`.
 
 ```text
 src/hyperi_ci/languages/<lang>/{quality,test,build,release}.py
 ```
 
-### Configuration cascade
+## Configuration cascade
 
-```text
-CLI flags → ENV (HYPERCI_*) → .hyperi-ci.yaml → config/defaults.yaml → hardcoded
+Highest wins:
+
+```mermaid
+flowchart LR
+    A["CLI flags"] --> B["HYPERCI_* env"] --> C[".hyperi-ci.yaml"] --> D["src/hyperi_ci/config/defaults.yaml"] --> E["hardcoded"]
 ```
 
-`.hyperi-ci.yaml` is the per-project SSOT (language, build targets, release).
-Three config homes with non-overlapping boundaries:
+`load_config()` in `config.py` builds it from the bottom up: shipped defaults, then the project file, then `HYPERCI_*` variables. A variable maps to a key path by splitting on `_`, so `HYPERCI_QUALITY_PYTHON_RUFF` sets `quality.python.ruff`. CLI flags such as `check --strict` work by exporting a `HYPERCI_*` variable.
+
+`.hyperi-ci.yaml` is the per-project source of truth: language, build targets, release. Org-wide settings (GitHub org, GHCR, R2) are a separate file, `src/hyperi_ci/config/org.yaml`, read by `load_org_config()` and not part of the cascade.
+
+Three config homes, each with one job:
 
 | Home | Holds | Managed by |
 |---|---|---|
 | `src/hyperi_ci/config/*.yaml` (`org`, `defaults`, `versions`, `toolchains`, `native-deps`) | CI logic, routing, registry URLs, runner labels, pinned versions | PR + review; unit-tested |
-| GitHub **Vars** | platform infra: `GH_RUNNER_*` | UI |
-| GitHub **Secrets** | credentials: `CRATES_TOKEN`, `NPM_TOKEN`, `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`, `CONTAINER_MGT_APP_PRIVATE_KEY` | UI, encrypted, scoped |
+| GitHub **Vars** | platform infra: `GH_RUNNER_MODE`, the `GH_RUNNER_*` labels | UI |
+| GitHub **Secrets** | credentials: `CARGO_REGISTRY_TOKEN`, `NPM_TOKEN`, `PYPI_TOKEN`, `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`, `GH_APP_PRIVATE_KEY`, `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` | UI, encrypted, scoped |
 
-Rule: affects CI logic/routing -> `config/`. Platform infra -> Vars. Credential ->
-Secrets.
+Rule: CI logic or routing goes in `config/`, platform infra in Vars, a credential in Secrets.
 
-## Release routing
+## Release routing and containers
 
-Everything publishes to the OSS registry stack. The destination map, the channels and the Rust build tier are in [flow.md](flow.md) sections 5 and 6. The JFrog migration record, and the artifact repos still serving
-production, live in hyperi-infra docs/JFROG.md.
+Everything publishes to the OSS registry stack. The destination map, the channels and the Rust build tier are in [flow.md](flow.md) sections 5 and 6.
 
-## Container builds
+The release tail builds an image only from the repo's own Dockerfile, and a repo without one ships no container. It decides app-vs-library before Docker boots, and only the Container job logs in to Docker Hub. GHCR auth is the job's `GITHUB_TOKEN`.
 
-The release-tail auto-detects three Dockerfile modes (contract / template /
-custom), resolves app-vs-library before Docker boots, and scopes the Docker
-Hub login to the container job alone. A container failure blocks the release
-only where a container is the deliverable. Full detail, including the build-arg
-placeholders and why Tag & Release runs no repo code, is
-[container-builds.md](container-builds.md).
+A container failure blocks the release only where a container is the deliverable. Full detail, including the build-arg placeholders and why Tag & Release runs no repo code: [container-builds.md](container-builds.md).
 
 ## Runner modes (summary)
 
@@ -157,41 +136,34 @@ placeholders and why Tag & Release runs no repo code, is
 | `self-hosted` | ARC on the DevEx cluster | persistent NFS sccache/ccache | pre-baked in the image |
 | `free` | GitHub `ubuntu-latest` | none between runs | installed per-job |
 
-Resolved highest-wins: workflow input `runner-mode` -> var `GH_RUNNER_MODE` ->
-`GH_RUNNER_*` labels -> `ubuntu-latest`. `free` mode lets any org use the
-workflows with no self-hosted infra. Multi-arch uses **native runners per arch**
-(amd64 on ARC, arm64 on `ubuntu-24.04-arm`), not cross-compilation. Full
-detail - tiers, cache, cross-compile (dormant) - is
-[runtime/runners.md](runtime/runners.md), and the dep-install SSOT is
-[runtime/runner-image.md](runtime/runner-image.md).
+Resolved highest-wins: workflow input `runner-mode`, then var `GH_RUNNER_MODE`, then the `GH_RUNNER_*` labels, then `ubuntu-latest`. `free` mode lets any org use the workflows with no self-hosted infra.
+
+Multi-arch uses **native runners per arch** (amd64 on ARC, arm64 on `ubuntu-24.04-arm`), not cross-compilation. Tiers, cache and the dormant cross-compile path: [runtime/runners.md](runtime/runners.md). The dep-install source of truth: [runtime/runner-image.md](runtime/runner-image.md).
 
 ## Design principles and repo layout
 
 1. **No bash.** All logic is Python; `subprocess.run([...])` with list args.
-2. **One version oracle.** semantic-release dry-run in `plan` predicts the
-   version every stage stamps; the real run tags **HEAD** so the tag is always
-   reachable (no orphaning).
+2. **One version oracle.** semantic-release dry-run in `plan` predicts the version every stage stamps. The real run tags **HEAD**, so the tag is always reachable.
 3. **uv for everything** - venv, sync, lock, tool install, build.
-4. **Cross-platform** - `pathlib`, `shutil.which`, `sys.platform`; Linux (CI)
-   and macOS (dev).
+4. **Cross-platform** - `pathlib`, `shutil.which`, `sys.platform`; Linux (CI) and macOS (dev).
 5. **Self-hosting** - hyperi-ci runs its own pipeline through its own workflow.
-6. **KISS** - a maintained third-party tool that's good enough beats bespoke CI code.
-   Over-engineered CI kills small teams; we reject custom machinery (see #31).
+6. **KISS** - a maintained third-party tool that is good enough beats bespoke CI code. Over-engineered CI kills small teams, so we reject custom machinery (see #31).
 
 ```text
 .github/
-  workflows/   ci.yml (self-host) · {python,rust,ts,go}-ci.yml · _release-tail.yml
-  actions/     predict-version · setup-runtime · setup-semantic-release
-               setup-osv-scanner · setup-go-tools · setup-rust-tools
+  workflows/   ci.yml (self-host), {python,rust,ts,go}-ci.yml, _release-tail.yml
+  actions/     predict-version, setup-runtime, setup-semantic-release,
+               setup-osv-scanner, setup-go-tools, setup-rust-tools,
                setup-nextest                                          (pinned tool installs)
 src/hyperi_ci/
-  cli.py · dispatch.py · detect.py · config.py · common.py · stamp.py · init.py
-  config/      defaults · org · versions · deprecated-files · toolchains/ · native-deps/
-  container/   stage · binary_stage · build · cgroup · detect · labels · registry
-  languages/   python · rust · typescript · golang   (quality|test|build|release)
-config/        fixtures · dynamic-config-keys · retired-interfaces   (repo-root, not shipped in the wheel)
-scripts/       update-versions.py (/deps) · check-workflow-interfaces.py (#31 gate)
-templates/     pgo-workload/ · testenv/
+  cli.py, dispatch.py, detect.py, config.py, common.py, stamp.py, init.py
+  config/      defaults, org, versions, deprecated-files, toolchains/, native-deps/
+  container/   stage, binary_stage, build, cgroup, detect, labels, registry
+  release/     binaries, charts, dispatch
+  languages/   python, rust, typescript, golang   (quality|test|build|release)
+config/        fixtures, dynamic-config-keys, retired-interfaces   (repo-root, not shipped in the wheel)
+scripts/       update-versions.py (/deps), check-workflow-interfaces.py (#31 gate)
+templates/     pgo-workload/, testenv/
 docs/          this tree
-VERSION · pyproject.toml · uv.lock
+VERSION, pyproject.toml, uv.lock
 ```

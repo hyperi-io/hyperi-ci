@@ -28,9 +28,7 @@ Everything else that carries a version number is an **output**:
 
 A hatch dynamic version read from a file (`path = "src/<pkg>/__init__.py"`) gets the version written where hatch's `pattern` finds it, or hatchling's default `__version__ = "..."` pattern. If the file is missing or the pattern finds nothing, `stamp-version` fails rather than let the build ship a wheel with the old version. The same goes for a hatch version source it does not know. `source = "vcs"` is left to hatch-vcs, which reads git, and `source = "code"` is left to the build, which evaluates it (hyperi-ci's own reads `VERSION`).
 
-Reading an output as an input is what issue #85 was about: `VERSION` froze at
-`2.3.10` in May 2026 across 14 repos, and every code path that fell back to it
-computed from a value dozens of releases stale.
+Reading an output as an input caused issue #85. `VERSION` froze at `2.3.10` in May 2026 across 14 repos, and every code path that fell back to it computed from a value dozens of releases stale.
 
 ## What resolves a version, and when
 
@@ -60,9 +58,7 @@ Exactly one question a tag cannot answer: what should the FIRST tag be?
 The answer comes from what the project already declares about itself --
 `pyproject.toml` `[project] version`, `Cargo.toml` `[package] version` (or
 `[workspace.package]`), `package.json` `version`. A project with nothing to
-declare (Go has no manifest version; a `dynamic = ["version"]` Python project
-has no static one) starts at **`0.1.0`**: no declaration means no stability
-promise, and semver reserves `0.x` for that.
+declare starts at **`0.1.0`**. Go has no manifest version, and a `dynamic = ["version"]` Python project has no static one. No declaration means no stability promise, and semver reserves `0.x` for that.
 
 ```bash
 hyperi-ci seed-version            # 0.1.0
@@ -79,10 +75,7 @@ The seed tag is a **starting marker, not a release** -- its message says so.
 The first release bumps from it, so tag-on-publish stays honest: no seed tag
 ever claims an artefact.
 
-The same value feeds the first release. On a tag-less repo `predict-version`
-ships it verbatim (semantic-release would otherwise default to `1.0.0`), while
-the forced `--bump patch|minor` paths bump *from* it -- a bump is a bump, even
-against a declared start.
+The same value feeds the first release. On a tag-less repo `predict-version` ships it verbatim, where semantic-release would default to `1.0.0`. The forced `--bump patch|minor` paths bump *from* it.
 
 ## VERSION and CHANGELOG.md
 
@@ -97,9 +90,7 @@ spec stay in step) are in [versioning-commit-back.md](versioning-commit-back.md)
 by the same `release-commit` step. Release notes also appear on the **GitHub
 Releases page**, one per tag.
 
-Entries below 2.4.0 predate the plugin removal; the gap between 2.3.10 and the
-version that restored this is not recoverable from the file, only from the
-Releases page.
+`CHANGELOG.md` has no entries between 2.3.10 and 2.9.11. Those releases are on the Releases page only.
 
 ### Supplementary notes
 

@@ -68,12 +68,7 @@ flowchart LR
     G & H & I & J --> K[close the PR, delete the branch]
 ```
 
-`leaked`, `wrong-stage`, `wrong-reason` and `stale-patch` are all RED through
-`sweep-fleet.py`'s `sweep_verdict`, which is the one place a fleet verdict is
-decided. A case that could not be read, whose run was cancelled, or that
-declared `pending_release`, is INCONCLUSIVE rather than either -- and
-inconclusive is not a pass, because the verdict refuses anything that is not
-`pass`.
+`leaked`, `wrong-stage`, `wrong-reason` and `stale-patch` are all RED through `sweep-fleet.py`'s `sweep_verdict`, which is the one place a fleet verdict is decided. A case is INCONCLUSIVE when it could not be read, its run was cancelled, or it declared `pending_release`. Inconclusive is not a pass, because the verdict refuses anything that is not `pass`.
 
 ## A PULL REQUEST, not a push
 
@@ -91,18 +86,11 @@ a PR so every case is read the same way.
 
 ## Matching the declared stage
 
-GitHub reports a job's DISPLAY name, never its YAML key, so `stage` is matched by
-word against the failed job's name, and then against the names of the steps that
-failed inside it. `quality` matches `ci / Quality`; `lint-manifests` matches the
-failed step `Lint manifests, charts and IaC`. Only FAILED steps count - a job
-that died before reaching the gate did not run the gate.
+GitHub reports a job's DISPLAY name, never its YAML key. So `stage` is matched by word against the failed job's name, then against the names of the steps that failed inside it. `quality` matches `ci / Quality`, and `lint-manifests` matches the failed step `Lint manifests, charts and IaC`. Only FAILED steps count - a job that died before reaching the gate did not run the gate.
 
 ## Where it runs
 
-In the `Fleet sweep` workflow, not on every PR: the full fleet is nine fixtures,
-four of them on 16-cpu ARC runners, and putting that on every PR was rejected on
-cost. The negative job runs even when the sweep itself is red, because a red
-sweep is when "do the gates still block" matters most.
+In the `Fleet sweep` workflow, not on every PR. The full fleet is nine fixtures, four of them on 16-cpu ARC runners, which costs too much per PR. The negative job runs even when the sweep itself is red, because a red sweep is when "do the gates still block" matters most.
 
 A fixture carrying a `rehearse/*` branch is held by a rehearsal, whose install override reaches every run there. Its cases read unreachable without waiting, because the sweep job before this one already waited.
 
@@ -116,10 +104,7 @@ uv run scripts/negative-cases.py --case hadolint-error --keep
 
 ## Does the patch still apply
 
-A patch whose context has moved applies to nothing, so the case plants no
-defect and its run proves no gate -- while the catalogue still lists it as
-covering one. `rust-cve-advisory.patch` sat like that once `src/main.rs` grew a
-hot path, and the only thing that noticed was a weekly sweep, after a CI run.
+A patch whose context has moved applies to nothing. The case then plants no defect and proves no gate, while the catalogue still lists it as covering one. Without a check, only a weekly sweep notices, after a CI run.
 
 ```bash
 uv run scripts/negative-cases.py --check-patches
@@ -129,9 +114,7 @@ uv run scripts/negative-cases.py --check-patches
 Measured at 6.0 seconds for the whole catalogue, and it dispatches nothing. A
 refused patch is `stale-patch`, which is RED.
 
-The full run does the same check FIRST, so a stale case never costs a pull
-request or the wait that follows one: it is reported, held back from the push,
-and the remaining cases still run.
+The full run does the same check FIRST. A stale case is reported and held back from the push, so it never costs a pull request or the wait after one. The remaining cases still run.
 
 Fix a stale case by moving the patch CONTEXT to match the new source. Never by
 moving the planted defect -- that is the test.
@@ -146,16 +129,11 @@ fails for the wrong reason until the CLI is pinned:
 uv run scripts/negative-cases.py --cli-branch fix/my-gate
 ```
 
-That sets `HYPERCI_INSTALL_OVERRIDE` on each fixture for the run and puts the
-previous value back afterwards - `ci-test-manifests` carries a permanent one
-pinning `@main`, and deleting it would change what the fixture runs. The sweep's
-own App has no `variables: write`, so `--cli-branch` is a developer command, the
-same split as `scripts/rehearse-branch.py`.
-A fixture whose override already names a hyperi-ci branch belongs to a rehearsal, so it is left alone and its cases read unreachable.
-While the override is set, a `rehearse/negative-cases-<branch>` marker branch sits on the fixture, so the fleet sweep and the runner-image canary treat it as held. The marker is deleted after the override is restored, and kept if the restore fails.
+That sets `HYPERCI_INSTALL_OVERRIDE` on each fixture for the run and restores the previous value afterwards. `ci-test-manifests` carries a permanent override pinning `@main`, and deleting it would change what the fixture runs. The sweep's own App has no `variables: write`, so `--cli-branch` is a developer command, the same split as `scripts/rehearse-branch.py`.
 
-The sweep therefore cannot pin the CLI, so a case for a merged-but-unreleased
-gate declares it in the contract instead:
+A fixture whose override already names a hyperi-ci branch belongs to a rehearsal, so it is left alone and its cases read unreachable. While the override is set, a `rehearse/negative-cases-<branch>` marker branch sits on the fixture, so the fleet sweep and the runner-image canary treat it as held. The marker is deleted after the override is restored, and kept if the restore fails.
+
+The sweep cannot pin the CLI, so a case for a merged-but-unreleased gate declares it in the contract instead:
 
 ```yaml
 pending_release: true

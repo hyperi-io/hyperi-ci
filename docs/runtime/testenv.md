@@ -1,20 +1,14 @@
 # CI Message Broker: Kafka -> Redpanda
 
-> **Status:** lessons captured during the 2026-05 canary-release campaign
-> (dfe-archiver / dfe-transform-vector / dfe-transform-vrl). Will be folded
-> into the docs rewrite. The canonical docker patterns now live as copyable
-> references in `templates/testenv/` (see
-> [SSoT - reference patterns](#ssot---reference-patterns-not-a-dependency)).
+> The canonical docker patterns are copyable references in `templates/testenv/`
+> (see [SSoT - reference patterns](#ssot---reference-patterns-not-a-dependency)).
 
-Kafka is core to most of DFE, so its CI test-broker story matters everywhere.
-This documents why CI uses **Redpanda** (not Apache Kafka), the exact setup,
-and the gotchas - so projects stop re-solving them independently.
+Kafka is core to most of DFE, so its CI test broker matters everywhere. This page covers why CI uses **Redpanda** (not Apache Kafka), the exact setup, and the gotchas, so projects stop re-solving them independently. The setup was proven on dfe-archiver, dfe-transform-vector and dfe-transform-vrl.
 
 ## Why Redpanda, not Apache Kafka, in CI
 
 The **hard deck for every CI runner job is 4GB** (the default GitHub-hosted
-OSS-runner size; HyperI is moving to OSS to use free runners - see
-[the 4GB envelope](#the-4gb-envelope)).
+OSS-runner size, see [the 4GB envelope](#the-4gb-envelope)).
 
 - **Apache Kafka** runs on the JVM: a 1.5-2.5GB heap. On a 4GB runner that
   starves the workload-under-test (a PGO-instrumented binary + load driver),
@@ -71,10 +65,7 @@ Don't add `rpk` yourself for the one-shot client form. (The in-container
 ### 2. No topic auto-create on consumer SUBSCRIBE
 
 Redpanda auto-creates a topic on **produce**, but **not** when a consumer
-subscribes. Apache Kafka auto-created on subscribe, which masked an ordering
-bug: a consumer-first service (e.g. dfe-archiver) subscribes to a topic that
-doesn't exist yet -> never reaches ready -> the load driver (which starts only
-after the service is ready) never produces -> deadlock.
+subscribes. Apache Kafka auto-created on subscribe, which masked an ordering bug. A consumer-first service (e.g. dfe-archiver) subscribes to a topic that doesn't exist yet and never reaches ready. The load driver starts only after the service is ready, so it never produces: deadlock.
 
 **Fix: pre-create topics** before starting the consumer:
 
@@ -101,10 +92,7 @@ Every CI job - **including integration tests** - must run within **4GB** and
 Kafka). Remote services are a *local-dev* speed convenience only (Docker is too
 slow for fast local iteration); CI is always self-contained.
 
-CI **may** exploit larger runners (the LARGE ARC runners are ~free on the
-already-paid-for DevEx cluster) as an opportunistic speedup - but nothing in CI
-may *require* more than 4GB or any external dependency. Design for the 4GB
-free-runner floor.
+CI **may** use larger runners (the LARGE ARC runners cost nothing extra on the DevEx cluster) as an opportunistic speedup. Nothing in CI may *require* more than 4GB or any external dependency, so design for the 4GB free-runner floor.
 
 Rough budget on a 4GB runner during a PGO workload:
 
@@ -118,14 +106,11 @@ Rough budget on a 4GB runner during a PGO workload:
 ## Current state (the duplication problem)
 
 The setup above is **copy-pasted** into each canary project's
-`scripts/pgo-workload.sh` <!-- doc-paths: ignore --> (dfe-archiver, dfe-transform-vector,
-dfe-transform-vrl). The same Redpanda bugs (topic pre-create, readiness,
-entrypoint form) had to be fixed in each. That triplication is the smell the
-next section addresses.
+`scripts/pgo-workload.sh` <!-- doc-paths: ignore --> (dfe-archiver, dfe-transform-vector, dfe-transform-vrl). Each copy carries the same Redpanda fixes (topic pre-create, readiness, entrypoint form). The next section replaces that duplication.
 
 ```mermaid
 flowchart TB
-  subgraph today["Today — duplicated per project"]
+  subgraph today["Duplicated per project"]
     A1["dfe-archiver/scripts/pgo-workload.sh<br/>(redpanda setup)"]
     A2["dfe-transform-vector/...pgo-workload.sh<br/>(redpanda setup)"]
     A3["dfe-transform-vrl/...pgo-workload.sh<br/>(redpanda setup)"]
@@ -139,7 +124,7 @@ reference patterns** - `templates/testenv/`:
 
 ```mermaid
 flowchart TB
-  SSOT["templates/testenv/ (SSoT reference)<br/>redpanda.compose.yaml · clickhouse.compose.yaml<br/>+ clickhouse-low-mem.xml · 4GB-tuned"]
+  SSOT["templates/testenv/ (SSoT reference)<br/>redpanda.compose.yaml, clickhouse.compose.yaml<br/>+ clickhouse-low-mem.xml, 4GB-tuned"]
   SSOT -.->|copy snippet| C1["dfe-archiver"]
   SSOT -.->|copy snippet| C2["dfe-transform-vector"]
   SSOT -.->|copy snippet| C3["dev laptop / any project"]

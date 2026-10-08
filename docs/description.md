@@ -63,9 +63,7 @@ so rather than shipping a blank label.
   -> unresolved                   warned, never silently blank
 ```
 
-The config key exists for the cases the manifest cannot cover - Go, gitops
-repos with no language manifest - or a deliberate divergence between what the
-registries say and what the manifest says. Leave it empty otherwise.
+The config key covers what the manifest cannot: Go, or a repo with no language manifest. It also covers a deliberate divergence between the registries and the manifest. Leave it empty otherwise.
 
 ## Commands
 

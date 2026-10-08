@@ -34,20 +34,20 @@ flowchart TB
         CI["ci.yml (tiny)<br/>uses: hyperi-ci/&lt;lang&gt;-ci.yml@main"]
     end
 
-    subgraph HCI["hyperi-ci repo — GitHub Actions side"]
+    subgraph HCI["hyperi-ci repo - GitHub Actions side"]
         L["&lt;lang&gt;-ci.yml<br/>(rust / python / ts / go)"]
         P["job: plan<br/>predict-version"]
         Q["job: quality"]
         T["job: test"]
         B["job: build (matrix)"]
-        RT["_release-tail.yml<br/>container → tag → publish"]
-        COMP["composites:<br/>predict-version · setup-runtime · setup-semantic-release<br/>setup-osv-scanner · setup-go-tools · setup-rust-tools · setup-nextest"]
+        RT["_release-tail.yml<br/>container, tag, publish"]
+        COMP["composites:<br/>predict-version, setup-runtime, setup-semantic-release<br/>setup-osv-scanner, setup-go-tools, setup-rust-tools, setup-nextest"]
     end
 
-    subgraph CLI["hyperi-ci CLI — the work"]
-        D["detect → config → dispatch"]
-        H["languages/&lt;lang&gt;/{quality,test,build,publish}.py"]
-        Tools["ruff/pytest · cargo · eslint/vitest · go"]
+    subgraph CLI["hyperi-ci CLI - the work"]
+        D["detect, config, dispatch"]
+        H["languages/&lt;lang&gt;/{quality,test,build,release}.py"]
+        Tools["ruff/pytest, cargo, eslint/vitest, go"]
     end
 
     CI -.callable workflow.-> L
@@ -80,7 +80,7 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
   `plan` computes, what runs for which trigger, branch-mode, a merge queue,
   and arm64 parity
 - [container-builds.md](container-builds.md) - the release-tail's container
-  job: auto-detected modes, build-arg placeholders, when a container failure
+  job: Dockerfile-only builds, build-arg placeholders, when a container failure
   blocks the release
 - [workflow-composites.md](workflow-composites.md) - what's shared vs
   duplicated across languages, and why our own workflow refs stay `@main`
@@ -88,6 +88,8 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
   the per-run notice of what was left out; the Test job's token and timeout inputs
 - [flow.md](flow.md) - push/dispatch -> gate -> version -> build -> tag -> publish,
   one semantic-release computation driving every stage
+- [releasing.md](releasing.md) - `hyperi-ci release` to release or retry HEAD
+  on demand, which ref a dispatch releases from, and the dispatch rules
 - [versioning.md](versioning.md) - the git tag is the only truth; VERSION and
   CHANGELOG are outputs; how a tag-less repo gets its first version
 - [versioning-commit-back.md](versioning-commit-back.md) - how VERSION gets
@@ -154,10 +156,11 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 
 ### Migration & history
 
-- The JFrog registry migration record, and the artifact repos that still serve
-  Telstra production, live in hyperi-infra docs/JFROG.md
-- [migration/CODEBERG-SECRETS-AND-CI.md](migration/codeberg-secrets-and-ci.md)
-- Codeberg + Buildkite portability notes (aspirational)
+- The JFrog registry migration record, and the artifact repos still in use,
+  live in hyperi-infra docs/JFROG.md
+- [migration/CODEBERG.md](migration/codeberg.md) and
+  [migration/CODEBERG-SECRETS-AND-CI.md](migration/codeberg-secrets-and-ci.md) -
+  Codeberg + Buildkite portability notes (aspirational)
 - [lessons.md](lessons.md) - the war stories: every gotcha that cost a
   re-dispatch, by language and subsystem
 

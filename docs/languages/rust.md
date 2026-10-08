@@ -1,6 +1,6 @@
 # Rust CI Guide
 
-Consumer-facing reference for hyperi-ci's Rust build pipeline: the build tiers (Tier 1 allocator + LTO, Tier 2 PGO + BOLT), what turns each one on, and the `.hyperi-ci.yaml` keys that drive them.
+Consumer reference for hyperi-ci's Rust build pipeline. It covers the build tiers (Tier 1 allocator + LTO, Tier 2 PGO + BOLT), what turns each one on, and the `.hyperi-ci.yaml` keys that drive them.
 
 What a release dispatch prints and how to confirm a tier applied is [rust-release-verification.md](rust-release-verification.md). Symptoms and fixes are [rust-troubleshooting.md](rust-troubleshooting.md). Concurrent Rust work on your own machine is [rust-local-dev.md](rust-local-dev.md).
 
@@ -98,7 +98,7 @@ ready yet keep building with the system allocator, no hard failure.
 tikv-jemallocator = { version = "0.6", optional = true }
 
 [features]
-default = []  # MUST NOT include jemalloc — hyperi-ci opts in per channel
+default = []  # MUST NOT include jemalloc -- hyperi-ci opts in per channel
 jemalloc = ["dep:tikv-jemallocator"]
 
 [profile.release]
@@ -139,16 +139,13 @@ jemalloc adds approximately 400-500 KB to a stripped release binary
 
 ## Tier 2 - PGO + BOLT
 
-The `.hyperi-ci.yaml` opt-in, the workload script contract, runner
-requirements, reading the result in the log, the LLVM version knob, running
-it without a release, skipping it for one run, and opting out entirely are
-all in [rust-tier2.md](rust-tier2.md).
+[rust-tier2.md](rust-tier2.md) has the `.hyperi-ci.yaml` opt-in and the workload script contract. It also covers runner requirements, reading the result in the log and the LLVM version knob. It ends with running Tier 2 without a release, skipping it for one run and opting out.
 
 ---
 
 ## The Build job's time limit
 
-The Build job stops at 135 minutes, per matrix leg. That is at least twice the longest successful build across the fleet (issue #262), but a Tier 2 release can outrun it: dfe-transform-elastic's PGO-only Build took 93 minutes on 2026-09-16, and BOLT adds an instrument build, a second workload run and an optimise build on top.
+The Build job stops at 135 minutes, per matrix leg. That is at least twice the longest successful build across the fleet (issue #262). A Tier 2 release can still outrun it. dfe-transform-elastic's PGO-only Build took 93 minutes on 2026-09-16. BOLT adds an instrument build, a second workload run and an optimise build on top.
 
 A caller raises it in `with:`, the same on every `<lang>-ci.yml`:
 
