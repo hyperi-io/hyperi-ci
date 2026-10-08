@@ -6,9 +6,8 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Install TypeScript/Node project dependencies.
 
-Detects the package manager (npm, yarn, pnpm) from package.json or lock files,
-enables Corepack if needed, and runs the appropriate install command with
-lockfile enforcement.
+Detects npm, yarn or pnpm from package.json or lock files and runs its install
+command with the lockfile enforced.
 """
 
 import subprocess
@@ -20,10 +19,7 @@ from ._common import detect_package_manager, ensure_pm_available, yarn_frozen_fl
 
 
 def run(project_dir: Path | None = None) -> int:
-    """Install TypeScript/Node dependencies using the detected package manager.
-
-    Detects the package manager, enables Corepack if needed, and runs
-    the appropriate install command.
+    """Install TypeScript/Node dependencies with the detected package manager.
 
     Args:
         project_dir: Project root. Defaults to cwd.

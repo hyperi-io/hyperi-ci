@@ -92,7 +92,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         error("TypeScript tests failed")
         return result.returncode
 
-    # Copy coverage to test-results/ for artifact upload
+    # Copied to test-results/ for artifact upload.
     results_dir = Path("test-results")
     coverage_dir = Path("coverage")
     if coverage_dir.exists() and coverage_dir.is_dir():

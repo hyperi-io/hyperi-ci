@@ -4,18 +4,16 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""TypeScript/Node release handler -- packs an npm package, then publishes it.
+"""TypeScript/Node release handler: packs an npm package, then publishes it.
 
-``prepare`` packs the tarball, which is where the package's own scripts run:
-``prepublishOnly``, then ``npm pack``'s ``prepack``, ``prepare`` and
-``postpack``. ``run`` publishes that tarball with ``--ignore-scripts`` from an
-empty directory, so neither the package's scripts nor the repo's ``.npmrc``
-reach the token (issue #409). ``publish`` and ``postpublish`` scripts no longer
-run: they fire after the upload, and the upload holds the token.
+``prepare`` packs the tarball, running the package's ``prepublishOnly``, then
+``npm pack``'s ``prepack``, ``prepare`` and ``postpack``. ``run`` publishes the
+tarball with ``--ignore-scripts`` from an empty directory, so neither package
+scripts nor the repo's ``.npmrc`` reach the token (issue #409). ``publish`` and
+``postpublish`` scripts do not run, as they fire after the upload.
 
 The token goes in a throwaway user config scoped to the registry host, never
-the global ``~/.npmrc`` (see docs/lessons.md, "npm Config Pollution") and never
-the project's.
+the global ``~/.npmrc`` (docs/lessons.md, "npm Config Pollution") or the project's.
 """
 
 import json
@@ -156,8 +154,7 @@ def _publish_npm(tarball: Path) -> int:
 def _publish_ghcr_npm(tarball: Path) -> int:
     """Publish to the GitHub Packages npm registry, as the org scope.
 
-    Uses GITHUB_TOKEN (via GH_TOKEN) for auth. Packages are private by default
-    and visible only to org members.
+    Authenticates with GH_TOKEN or GITHUB_TOKEN.
 
     Returns:
         Exit code (0 = success).
@@ -207,9 +204,8 @@ def _tarball_manifest(tarball: Path) -> dict[str, Any]:
 def _tarball_problem(tarball: Path, registry: str) -> str | None:
     """Say why ``tarball`` must not be published to ``registry``, or None.
 
-    The tarball was packed by a job that ran repo code, so it must be this
-    checkout's package at this run's version, and must not send itself to a
-    registry host other than the one this upload names.
+    A job that ran repo code packed the tarball, so it must be this checkout's
+    package at this run's version and must not name another registry host.
     """
     try:
         manifest = _tarball_manifest(tarball)
@@ -259,8 +255,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     """Publish the npm package to its registries.
 
     With ``HYPERCI_RELEASE_PREPARED`` set the tarball comes from the prepare
-    job. Without it -- a hand-rolled workflow calling ``run release`` -- it is
-    packed here first, in the same process as the token.
+    job, else it is packed here, in the same process as the token.
 
     Args:
         config: Merged CI configuration.

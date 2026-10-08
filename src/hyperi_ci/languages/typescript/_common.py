@@ -33,11 +33,9 @@ def package_script_env() -> dict[str, str]:
 
 
 def _corepack_enable() -> bool:
-    """Enable Corepack, falling back to a user-writable install directory.
+    """Enable Corepack, retrying into ``~/.corepack/bin`` if Node's bin is read-only.
 
-    Tries ``corepack enable`` first (writes symlinks to Node's bin dir).
-    If that fails (permissions on system Node installs), retries with
-    ``--install-directory ~/.corepack/bin`` and adds that to PATH.
+    The retry directory is added to PATH.
 
     Returns:
         True if corepack was enabled successfully.
@@ -109,11 +107,10 @@ def pinned_package_manager(project_dir: Path | None = None) -> str | None:
 def ensure_pm_available(pm: str, project_dir: Path | None = None) -> bool:
     """Ensure a package manager usable by THIS project is on PATH.
 
-    A ``packageManager`` pin in package.json means a bare global binary of the
-    same name refuses to run the project ("the current global version of Yarn
-    is 1.22.22"), so a pinned project must resolve its PM through Corepack --
-    a binary merely being on PATH is not enough. Unpinned projects keep the
-    old ladder: any binary on PATH wins.
+    A ``packageManager`` pin makes a bare global binary of the same name refuse
+    to run the project ("the current global version of Yarn is 1.22.22"), so a
+    pinned project resolves its PM through Corepack. Any PATH binary serves an
+    unpinned one.
 
     Args:
         pm: Package manager name (npm, yarn, pnpm).
@@ -141,19 +138,13 @@ def ensure_pm_available(pm: str, project_dir: Path | None = None) -> bool:
     if _corepack_enable():
         return True
 
-    # Corepack unavailable: a global binary beats nothing, even for a pin --
-    # the install then fails loudly with the version mismatch, which is the
-    # honest error.
+    # Without Corepack a global binary is still tried, so a pin mismatch fails
+    # the install loudly.
     return shutil.which(pm) is not None
 
 
 def detect_package_manager(project_dir: Path | None = None) -> str:
-    """Detect which package manager the project uses.
-
-    Priority:
-      1. package.json "packageManager" field (authoritative, used by Corepack)
-      2. Lock file presence (pnpm-lock.yaml, yarn.lock, package-lock.json)
-      3. Default to npm
+    """Detect the package manager from the ``packageManager`` pin, lock file, else npm.
 
     Args:
         project_dir: Project root. Defaults to cwd.
@@ -181,8 +172,7 @@ def detect_package_manager(project_dir: Path | None = None) -> str:
 def detect_yarn_version(project_dir: Path | None = None) -> int:
     """Detect whether the project uses Yarn Classic (1) or Yarn Berry (2+).
 
-    Checks packageManager field for version, then falls back to running
-    ``yarn --version``. Returns 1 for Classic, 2 for Berry/modern.
+    Reads the packageManager pin, else runs ``yarn --version``.
 
     Args:
         project_dir: Project root. Defaults to cwd.
@@ -204,7 +194,6 @@ def detect_yarn_version(project_dir: Path | None = None) -> int:
         except (json.JSONDecodeError, KeyError, ValueError, IndexError):
             pass
 
-    # Fall back to asking yarn itself
     try:
         result = subprocess.run(
             ["yarn", "--version"],
@@ -224,16 +213,13 @@ def detect_yarn_version(project_dir: Path | None = None) -> int:
 
 
 def yarn_frozen_flag(project_dir: Path | None = None) -> str:
-    """Return the correct frozen-install flag for the detected Yarn version.
-
-    Yarn Classic (v1): ``--frozen-lockfile``
-    Yarn Berry (v2+): ``--immutable``
+    """Return ``--immutable`` for Yarn 2+, else ``--frozen-lockfile``.
 
     Args:
         project_dir: Project root. Defaults to cwd.
 
     Returns:
-        The appropriate CLI flag string.
+        The CLI flag.
 
     """
     version = detect_yarn_version(project_dir)
