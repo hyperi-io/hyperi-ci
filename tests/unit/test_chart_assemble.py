@@ -138,6 +138,35 @@ class TestDials:
         with pytest.raises(jsonschema.ValidationError, match="less than the minimum"):
             jsonschema.validate({"config": {"buffer": {"flush_rows": 0}}}, schema)
 
+    def test_the_skeleton_schema_is_the_base_and_keeps_its_constraints(
+        self,
+    ) -> None:
+        config_schema = _contract()["config_schema"]
+        base = json.loads(
+            (LIBRARY_DIR / "skeleton" / "values.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        schema = assemble.values_schema(
+            config_schema, assemble.find_dials(config_schema), base
+        )
+        assert set(schema["properties"]) == {
+            "config",
+            "configOverrides",
+            "extraEnv",
+            "image",
+            "replicas",
+        }
+        jsonschema.validate({"replicas": 2, "configOverrides": {"x": 1}}, schema)
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate({"replicas": -1}, schema)
+        assert "config" not in base["properties"]
+
+    def test_a_skeleton_schema_that_declares_config_fails(self) -> None:
+        base = {"type": "object", "properties": {"config": {"type": "object"}}}
+        with pytest.raises(ChartError, match="declares config"):
+            assemble.values_schema({}, {}, base)
+
 
 class TestAssemble:
     def test_chart_yaml_fields(self, tmp_path: Path) -> None:
