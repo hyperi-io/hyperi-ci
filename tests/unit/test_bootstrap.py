@@ -12,6 +12,7 @@ tested here is everything that can be checked without a Linux box: the config
 contract, the non-Linux guard, and the CLI wiring.
 """
 
+import hashlib
 import io
 import os
 import re
@@ -23,7 +24,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from hyperi_ci import bootstrap, common, versions
+from hyperi_ci import bootstrap, common, native_tools, versions
 
 _TEST_ENV = {**os.environ, "HYPERCI_AUTO_UPDATE": "false"}
 
@@ -70,11 +71,11 @@ class TestNodeIsTheVersionsDefault:
         assert "node" not in raw
 
 
-def _sccache_tarball(arch: str) -> bytes:
+def _sccache_tarball(arch: str, file: str = "sccache") -> bytes:
     """Return a tarball shaped like sccache's release asset for ``arch``."""
     version = versions.tool_version("sccache")
     body = b"#!/bin/sh\necho sccache\n"
-    member = tarfile.TarInfo(f"sccache-{version}-{arch}-unknown-linux-musl/sccache")
+    member = tarfile.TarInfo(f"sccache-{version}-{arch}-unknown-linux-musl/{file}")
     member.size = len(body)
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as archive:
@@ -87,13 +88,17 @@ class TestNothingUnpinned:
 
     @staticmethod
     def _wire(
-        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, payload: bytes | None
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, payload: bytes
     ) -> dict[str, list]:
-        seen: dict[str, list] = {"fetch": [], "run": []}
+        seen: dict[str, list] = {"fetch": [], "digest": [], "run": []}
 
-        def fake_fetch(name: str, url: str, sha: str | None = None) -> bytes | None:
-            seen["fetch"].append((name, url, sha))
+        def fake_download(name: str, url: str) -> bytes:
+            seen["fetch"].append((name, url))
             return payload
+
+        def fake_digest(name: str, key: str) -> str:
+            seen["digest"].append((name, key))
+            return hashlib.sha256(payload).hexdigest()
 
         def fake_run(cmd: list[str], **_kw: object) -> int:
             seen["run"].append(cmd)
@@ -101,8 +106,10 @@ class TestNothingUnpinned:
 
         monkeypatch.setattr(bootstrap.platform, "system", lambda: "Linux")
         monkeypatch.setattr(bootstrap.platform, "machine", lambda: "x86_64")
+        monkeypatch.setattr(native_tools.sys, "platform", "linux")
         monkeypatch.setattr(bootstrap, "_have", lambda _b: True)
-        monkeypatch.setattr(bootstrap, "fetch_verified", fake_fetch)
+        monkeypatch.setattr(native_tools, "download_artefact", fake_download)
+        monkeypatch.setattr(native_tools, "tool_sha256", fake_digest)
         monkeypatch.setattr(bootstrap, "_run", fake_run)
         monkeypatch.setenv("CARGO_HOME", str(tmp_path))
         monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
@@ -117,11 +124,12 @@ class TestNothingUnpinned:
         assert bootstrap.install_rust(rust) == 0
 
         version = versions.tool_version("sccache")
-        [(name, url, sha)] = seen["fetch"]
+        [(name, url)] = seen["fetch"]
         assert name == "sccache"
         assert f"/releases/download/{version}/" in url
         assert url.endswith(f"sccache-{version}-x86_64-unknown-linux-musl.tar.gz")
-        assert sha == versions.tool_sha256("sccache", "x86_64")
+        assert seen["digest"] == [("sccache", "x86_64")]
+        assert versions.tool_sha256("sccache", "x86_64")
         # No cargo install of any kind: those carry no version and no digest.
         assert not [c for c in seen["run"] if c[0] == "cargo"]
         binary = tmp_path / "bin" / "sccache"
@@ -135,15 +143,16 @@ class TestNothingUnpinned:
         monkeypatch.setattr(bootstrap.platform, "machine", lambda: "arm64")
 
         assert bootstrap.install_sccache(tmp_path) == 0
-        [(_, url, sha)] = seen["fetch"]
+        [(_, url)] = seen["fetch"]
         assert "aarch64-unknown-linux-musl" in url
-        assert sha == versions.tool_sha256("sccache", "aarch64")
+        assert seen["digest"] == [("sccache", "aarch64")]
+        assert versions.tool_sha256("sccache", "aarch64")
 
     def test_digest_mismatch_installs_nothing(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        """fetch_verified returns None on a mismatch, and the bake must fail."""
-        self._wire(monkeypatch, tmp_path, None)
+        self._wire(monkeypatch, tmp_path, _sccache_tarball("x86_64"))
+        monkeypatch.setattr(native_tools, "tool_sha256", lambda n, k: "0" * 64)
 
         assert bootstrap.install_sccache(tmp_path) == 1
         assert not (tmp_path / "sccache").exists()
@@ -151,7 +160,7 @@ class TestNothingUnpinned:
     def test_tarball_without_the_binary_fails(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        self._wire(monkeypatch, tmp_path, _sccache_tarball("aarch64"))
+        self._wire(monkeypatch, tmp_path, _sccache_tarball("x86_64", "README.md"))
 
         assert bootstrap.install_sccache(tmp_path) == 1
         assert not (tmp_path / "sccache").exists()

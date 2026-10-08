@@ -39,13 +39,13 @@ def _cfg(alint: str = "auto", language: str | None = None) -> CIConfig:
 
 
 def _have_alint(monkeypatch: pytest.MonkeyPatch, path: str = "/bin/alint") -> None:
-    """Pretend alint is on PATH (run() resolves quietly via shutil.which)."""
-    monkeypatch.setattr(repo_advisor.shutil, "which", lambda _n: path)
+    """Pretend alint is on PATH (run() resolves it through ci_binary)."""
+    monkeypatch.setattr(repo_advisor, "ci_binary", lambda _n: path)
 
 
 def _no_alint(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pretend alint is absent, locally (no CI install path)."""
-    monkeypatch.setattr(repo_advisor.shutil, "which", lambda _n: None)
+    monkeypatch.setattr(repo_advisor, "ci_binary", lambda _n: None)
     monkeypatch.setattr(repo_advisor, "is_ci", lambda: False)
 
 
@@ -351,86 +351,19 @@ def test_repo_config_wins_even_with_language(
 # --- CI-time pinned install (tools.alint SSoT) -----------------------------
 
 
-def test_install_skipped_outside_ci(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(repo_advisor, "is_ci", lambda: False)
-    monkeypatch.setattr(
-        repo_advisor, "run_cmd", lambda *a, **k: pytest.fail("must not download")
-    )
-    assert repo_advisor._install_alint(tmp_path) is None
-
-
-def test_install_linux_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(repo_advisor, "is_ci", lambda: True)
-    monkeypatch.setattr(repo_advisor.sys, "platform", "darwin")
-    monkeypatch.setattr(
-        repo_advisor, "run_cmd", lambda *a, **k: pytest.fail("must not download")
-    )
-    assert repo_advisor._install_alint(tmp_path) is None
-
-
-def test_install_download_failure_returns_none(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """None from fetch_verified covers both a failed download AND a bad digest.
-
-    Either way nothing unverified reaches disk, so the advisory skips.
-    """
-    monkeypatch.setattr(repo_advisor, "is_ci", lambda: True)
-    monkeypatch.setattr(repo_advisor.sys, "platform", "linux")
-    monkeypatch.setattr(repo_advisor, "fetch_verified", lambda *_a: None)
-    assert repo_advisor._install_alint(tmp_path) is None
-
-
-def test_install_verifies_before_writing_anything(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A refused digest must not leave a tarball behind to be picked up later."""
-    monkeypatch.setattr(repo_advisor, "is_ci", lambda: True)
-    monkeypatch.setattr(repo_advisor.sys, "platform", "linux")
-    monkeypatch.setattr(repo_advisor, "fetch_verified", lambda *_a: None)
-    repo_advisor._install_alint(tmp_path)
-    assert list(tmp_path.iterdir()) == []
-
-
-def test_install_happy_path_returns_pinned_binary(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from hyperi_ci import versions as ssot
-
-    monkeypatch.setattr(repo_advisor, "is_ci", lambda: True)
-    monkeypatch.setattr(repo_advisor.sys, "platform", "linux")
-    monkeypatch.setattr(repo_advisor.platform, "machine", lambda: "x86_64")
-    monkeypatch.setattr(repo_advisor, "fetch_verified", lambda *_a: b"tarball")
-
-    version = ssot.tool_version("alint")
-
-    def fake_run_cmd(cmd, *, check=True, cwd=None, **_kw):
-        if cmd[0] == "tar":  # "extract" the expected layout
-            binary = tmp_path / f"alint-{version}-x86_64-unknown-linux-musl" / "alint"
-            binary.parent.mkdir(parents=True)
-            binary.write_bytes(b"#!fake")
-        return subprocess.CompletedProcess(cmd, 0, "", "")
-
-    monkeypatch.setattr(repo_advisor, "run_cmd", fake_run_cmd)
-    got = repo_advisor._install_alint(tmp_path)
-    assert got is not None
-    assert got.endswith("alint")
-    assert version in got
-    assert Path(got).stat().st_mode & 0o111  # executable
-
-
 def test_run_uses_ci_installed_binary(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls = _stub_run(monkeypatch)
-    monkeypatch.setattr(repo_advisor.shutil, "which", lambda _n: None)
+    asked: list[str] = []
     monkeypatch.setattr(repo_advisor, "is_ci", lambda: True)
-    monkeypatch.setattr(repo_advisor, "_install_alint", lambda _d: "/dl/alint")
+    monkeypatch.setattr(
+        repo_advisor, "ci_binary", lambda name: asked.append(name) or "/dl/alint"
+    )
     assert repo_advisor.run(_cfg("auto"), tmp_path, language="python") == 0
     (cmd,) = calls
     assert cmd[0] == "/dl/alint"
+    assert asked == ["alint"]
 
 
 def test_pin_and_digest_come_from_the_ssot() -> None:
