@@ -60,9 +60,9 @@ DIAL_TIERS = ("big", "small")
 IMAGE_RE = re.compile(
     r"^(?P<repo>[^@\s]+):(?P<tag>\w[\w.-]{0,127})@(?P<digest>sha256:[0-9a-f]{64})$"
 )
-# The chart directory and every object the library renders take this name, and
-# the contract schema does not constrain it.
-NAME_RE = re.compile(r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")
+# The chart directory and every object the library renders, a Service among
+# them, take this name, so it must be an RFC 1035 label whatever the schema says.
+NAME_RE = re.compile(r"^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$")
 
 
 def _json(data: object) -> str:
@@ -243,6 +243,12 @@ def assemble(
     ref = IMAGE_RE.match(image)
     if ref is None:
         raise ChartError(f"image {image!r} is not <repo>:<tag>@sha256:<digest>")
+    name = contract.get("app_name")
+    if not isinstance(name, str) or not NAME_RE.match(name):
+        raise ChartError(
+            f"app_name {name!r} is not a Kubernetes Service name: 1 to 63 "
+            "lowercase letters, digits and inner hyphens, starting with a letter"
+        )
     schema_file = library_dir / SCHEMA_PATH.format(
         version=contract.get("schema_version")
     )
@@ -252,9 +258,6 @@ def assemble(
             f"for contract schema_version {contract.get('schema_version')!r}"
         )
     validate_contract(contract, _read_json(schema_file, "contract schema"))
-    name = contract.get("app_name")
-    if not isinstance(name, str) or not NAME_RE.match(name):
-        raise ChartError(f"app_name {name!r} is not a lowercase DNS label")
     image_registry = str(contract.get("image_registry") or "").removesuffix("/")
     if not image_registry:
         raise ChartError("the contract has no image_registry to pull the image from")
