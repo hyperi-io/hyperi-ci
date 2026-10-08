@@ -5,12 +5,13 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Pin GitHub Actions across the pipeline from the central versions SSOT.
+"""Hold the pipeline's tool and runtime pins to the central versions SSOT.
 
-This is the /deps tool for hyperi-ci. Actions pin to a commit SHA with a
-`# <version>` comment (a tag can be force-moved, a SHA can't); `--check` in CI
-enforces it. Scans both .github/workflows/ and .github/actions/. Policy
-+ the Renovate split: docs/dependencies/deps-pinning.md.
+This is the /deps tool for hyperi-ci. It keeps every marked tool and runtime
+pin, and the semantic-release install line, in step with versions.yaml.
+`--check` in CI enforces it. Scans both .github/workflows/ and
+.github/actions/. GitHub Actions `uses:` refs are Renovate's, not this
+script's. Policy + the Renovate split: docs/dependencies/deps-pinning.md.
 
 Usage:
     uv run scripts/update-versions.py                # default: --check
@@ -33,12 +34,9 @@ cooldown: the soak is the supply-chain control, not a formality.
 `hyperi-ci autoupdate`.
 
 Update behaviour:
-  - Actions resolve to the newest release that has aged past the 7-day
-    cooldown, MAJORS INCLUDED. Actions are SHA-pinned and every consumer runs
-    the full pipeline against them, so a breaking major surfaces as a red CI
-    run rather than a silent behaviour change. Holding majors back had its own
-    cost: the estate split across majors while nobody made the manual edit.
-  - Branch refs (rust-toolchain@master) pin the newest master commit >=7d old.
+  - Tools resolve to the newest release that has aged past the 7-day
+    cooldown, MAJORS INCLUDED. Every bump goes through a PR, so a breaking
+    major surfaces as a red CI run rather than a silent behaviour change.
   - Runtimes (python, node, rust) require explicit update -- never auto-bumped.
   - --auto-update applies the bumps then validates LOCALLY (YAML re-parse,
     SSOT sync check, the pytest workflow gates); reverts on local failure.
@@ -82,23 +80,6 @@ def _cooldown(explicit: int | None = None) -> int:
     if explicit is not None:
         return explicit
     return COOLDOWN_DAYS if _COOLDOWN_OVERRIDE is None else _COOLDOWN_OVERRIDE
-
-
-# Maps action short names in versions.yaml to their full GitHub owner/repo
-_ACTION_OWNERS: dict[str, str] = {
-    "checkout": "actions/checkout",
-    "setup-node": "actions/setup-node",
-    "setup-go": "actions/setup-go",
-    "setup-uv": "astral-sh/setup-uv",
-    "cache": "actions/cache",
-    "rust-toolchain": "dtolnay/rust-toolchain",
-    "upload-artifact": "actions/upload-artifact",
-    "download-artifact": "actions/download-artifact",
-    "create-github-app-token": "actions/create-github-app-token",
-    "docker-login": "docker/login-action",
-    "docker-setup-buildx": "docker/setup-buildx-action",
-    "ghcr-cleanup": "dataaxiom/ghcr-cleanup-action",
-}
 
 
 # Tag on problems that --apply CANNOT repair (it has nothing to anchor a rewrite
@@ -270,9 +251,9 @@ def _pin_mismatches(versions: dict) -> list[str]:
 def _find_workflow_files() -> list[Path]:
     """Find every pipeline YAML -- workflows AND composite actions.
 
-    Composite actions under `.github/actions/*/action.yml` pin third-party
-    actions too (setup-node, etc.), so they must be scanned or they'd drift
-    unpinned -- the gap that hid the unpinned refs during the deps review.
+    Composite actions under `.github/actions/*/action.yml` carry runtime
+    literals and the semantic-release install line too, so a scan of
+    workflows alone would leave those unchecked.
     """
     files: list[Path] = []
     for pattern in ("*.yml", "*.yaml"):
@@ -299,18 +280,15 @@ def _select_pinned_release(
     releases: list[dict[str, Any]],
     now: datetime,
     cooldown_days: int | None = None,
-    major: int | None = None,
-    minor: int | None = None,
 ) -> dict[str, Any] | None:
     """Pick the highest-semver release that has aged past the cooldown.
 
     Highest semver, NOT newest-published: GitHub republishes old backports
     (e.g. download-artifact `v3.1.0-node20`) with recent dates, so ordering
     by publish date picks the wrong one. Skips drafts, prereleases,
-    non-semver tags, and -- timestamp-required posture -- anything without a
-    `published_at`. The optional `major` / `minor` clamps restrict the
-    candidate range; callers leave them unset, so majors are eligible and a
-    breaking bump is caught by CI on the PR rather than blocked here.
+    non-semver tags, and anything without a `published_at`, since the
+    cooldown cannot judge a release with no timestamp. Majors are eligible,
+    so a breaking bump is caught by CI on the PR rather than blocked here.
     Returns the chosen release dict or None.
     """
     cutoff = now - timedelta(days=_cooldown(cooldown_days))
@@ -326,10 +304,6 @@ def _select_pinned_release(
             continue
         ver = _parse_semver(rel.get("tag_name", ""))
         if ver is None:
-            continue
-        if major is not None and ver[0] != major:
-            continue
-        if minor is not None and ver[1] != minor:
             continue
         if best_ver is None or ver > best_ver:
             best_ver, best = ver, rel
@@ -359,135 +333,12 @@ def _gh_json(path: str) -> Any:
         return None
 
 
-def _resolve_tag_sha(owner_repo: str, tag: str) -> str | None:
-    """Resolve a tag to its commit SHA (dereferencing annotated tags)."""
-    ref = _gh_json(f"/repos/{owner_repo}/git/ref/tags/{tag}")
-    if not isinstance(ref, dict):
-        return None
-    obj: Any = cast("dict[str, Any]", ref).get("object", {})
-    if obj.get("type") == "tag":
-        # annotated tag -> deref to the commit it points at
-        tag_obj = _gh_json(f"/repos/{owner_repo}/git/tags/{obj.get('sha')}")
-        if isinstance(tag_obj, dict):
-            inner: Any = cast("dict[str, Any]", tag_obj).get("object", {})
-            return inner.get("sha")
-    return obj.get("sha")
-
-
-def _resolve_branch_sha(
-    owner_repo: str, branch: str, now: datetime, cooldown_days: int | None = None
-) -> str | None:
-    """Pin a branch ref to its newest commit older than the cooldown.
-
-    A branch ref (rust-toolchain@master) has no releases to gate on, so the
-    commit date is the only cooldown signal available.
-    """
-    commits = _gh_json(f"/repos/{owner_repo}/commits?sha={branch}&per_page=50")
-    if not isinstance(commits, list):
-        return None
-    cutoff = now - timedelta(days=_cooldown(cooldown_days))
-    for commit in cast("list[dict[str, Any]]", commits):
-        date_str = commit.get("commit", {}).get("committer", {}).get("date")
-        if not date_str:
-            continue
-        committed = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-        if committed <= cutoff:
-            return commit.get("sha")
-    return None
-
-
-def _pinned_spec_for(short_name: str, current: object, now: datetime) -> dict | None:
-    """Resolve {version, sha} for an action under the cooldown rule.
-
-    Branch pins (version == "master") track the branch HEAD ≥ cooldown.
-    Everything else picks the newest release ≥ cooldown and resolves its
-    tag to a SHA. Returns None if nothing eligible / lookups fail.
-    """
-    owner_repo = _ACTION_OWNERS.get(short_name)
-    if not owner_repo:
-        return None
-
-    cur_version = current.get("version") if isinstance(current, dict) else current
-    raw_major = current.get("max_major") if isinstance(current, dict) else None
-    # A non-int (a quoted "3", say) clamps to nothing rather than everything.
-    max_major = raw_major if isinstance(raw_major, int) else None
-
-    if cur_version == "master":
-        sha = _resolve_branch_sha(owner_repo, "master", now)
-        return {"version": "master", "sha": sha} if sha else None
-
-    releases = _gh_json(f"/repos/{owner_repo}/releases?per_page=30")
-    if not isinstance(releases, list):
-        return None
-    releases = cast("list[dict[str, Any]]", releases)
-    # Majors included. Actions are pinned to a SHA and every consumer runs the
-    # full pipeline against them, so a breaking major shows up as a red CI run
-    # on a PR rather than as a silent behaviour change - and holding a major
-    # back has its own cost, which is the estate splitting across majors while
-    # nobody gets round to the manual edit.
-    #
-    # The cooldown still applies, so a major has to be a week old before it is
-    # eligible. What catches an actual incompatibility is CI, not this clamp.
-    #
-    # `max_major:` opts one action OUT, for the case that breaks the reasoning
-    # above: an action no PR ever executes, so CI cannot be what catches the
-    # breaking major. Set it only with that justification, and say why in
-    # versions.yaml - the default stays unclamped.
-    chosen = _select_pinned_release(releases, now, major=max_major)
-    if not chosen:
-        return None
-    tag = chosen["tag_name"]
-    # NEWER only, never merely different - the guard the tools path already
-    # carries. This returns the highest release PAST THE COOLDOWN, so a pin
-    # taken deliberately INSIDE the cooldown makes the best aged candidate look
-    # like an update, and --auto-update would roll the action backwards over
-    # the very reason it was pinned early. Returning the current spec reports
-    # it as up to date rather than as a downgrade.
-    cur = _parse_semver(str(cur_version))
-    new = _parse_semver(tag)
-    if cur and new and new <= cur:
-        cur_sha = current.get("sha") if isinstance(current, dict) else None
-        return {"version": str(cur_version), "sha": cur_sha} if cur_sha else None
-    sha = _resolve_tag_sha(owner_repo, tag)
-    return {"version": tag, "sha": sha} if sha else None
-
-
-def _action_ref(spec: object) -> tuple[str, str]:
-    """Resolve an action spec from versions.yaml to (ref, comment).
-
-    New format -- `{version: v6.0.2, sha: <sha>}` -- pins the SHA with a
-    `# <version>` comment (supply-chain hardening: a tag can move, a SHA
-    can't). Legacy flat string -- `v6` -- pins the tag, no comment
-    (back-compat; lets a value be migrated incrementally).
-    """
-    if isinstance(spec, dict):
-        sha = spec.get("sha")
-        version = spec.get("version", "")
-        if sha:
-            return str(sha), f" # {version}" if version else ""
-        return str(version), ""
-    return str(spec), ""
-
-
 def _build_replacements(versions: dict) -> list[tuple[re.Pattern, str, str]]:
     """Build regex patterns and replacements from versions config.
 
     Returns list of (pattern, replacement, description) tuples.
     """
     replacements: list[tuple[re.Pattern, str, str]] = []
-
-    actions = versions.get("actions", {})
-    for short_name, spec in actions.items():
-        owner_repo = _ACTION_OWNERS.get(short_name)
-        if not owner_repo:
-            continue
-        ref, comment = _action_ref(spec)
-        owner_escaped = re.escape(owner_repo)
-        # Consume the ref plus any trailing `# comment` so re-runs are
-        # idempotent and a stale multi-token comment is fully replaced.
-        pattern = re.compile(rf"({owner_escaped})@\S+(?:[ \t]*#[^\n]*)?")
-        replacement = rf"\1@{ref}{comment}"
-        replacements.append((pattern, replacement, f"{owner_repo}@{ref}{comment}"))
 
     runtimes = versions.get("runtimes", {})
 
@@ -583,7 +434,7 @@ def _check(versions: dict) -> int:
 
 
 def _rewrite_to_ssot(versions: dict, *, verb: str) -> tuple[int, int]:
-    """Rewrite every action ref AND tool pin to match the SSOT.
+    """Rewrite every runtime literal AND marked pin to match the SSOT.
 
     Returns (lines_changed, unenforceable) - the second being pins the SSOT
     declares but that could NOT be rewritten (marker gone, `pin:` file missing).
@@ -661,12 +512,11 @@ def _apply(versions: dict) -> int:
 
 
 def _stable(versions: dict, *, fail_on_drift: bool = False) -> int:
-    """Report the newest soaked release of each pinned Action and tool.
+    """Report the newest soaked release of each pinned tool.
 
     Soaked, not newest: a release inside the cooldown is reported as held, so
     this answers "what may we pin to now", which is what --auto-update applies.
     """
-    actions = versions.get("actions", {})
     updates_available = 0
     lookup_failures = 0
 
@@ -682,29 +532,7 @@ def _stable(versions: dict, *, fail_on_drift: bool = False) -> int:
     )
     now = datetime.now(UTC)
 
-    for short_name, current in actions.items():
-        owner_repo = _ACTION_OWNERS.get(short_name)
-        if not owner_repo:
-            continue
-        cur_version = current.get("version") if isinstance(current, dict) else current
-        cur_sha = current.get("sha") if isinstance(current, dict) else None
-
-        spec = _pinned_spec_for(short_name, current, now)
-        if not spec:
-            print(f"  {owner_repo}: {cur_version} (nothing aged past cooldown)")
-            continue
-        if spec["version"] != cur_version or spec["sha"] != cur_sha:
-            print(
-                f"  {owner_repo}: {cur_version} -> {spec['version']} ({spec['sha'][:12]})"
-            )
-            updates_available += 1
-        else:
-            print(f"  {owner_repo}: {cur_version} (up to date)")
-
-    tools = versions.get("tools") or {}
-    if tools:
-        print()
-    for name, spec in tools.items():
+    for name, spec in (versions.get("tools") or {}).items():
         if not isinstance(spec, dict):
             continue
         cur_version = spec.get("version")
@@ -812,10 +640,10 @@ def _get_latest_npm_major(package: str) -> str | None:
 def _validate_locally() -> list[str]:
     """Validate the applied bumps with LOCAL gates. Returns failure messages.
 
-    Three gates, cheapest first -- all offline apart from nothing:
+    Three gates, cheapest first, all offline:
       1. every pipeline YAML still parses,
       2. files match the SSOT (--check clean -- a bad regex rewrite shows
-         here as drift or a mangled ref),
+         here as drift or a mangled line),
       3. the pytest workflow gates (consistency + interface tests) pass.
 
     This replaces the old remote-trigger flow, which validated @main rather
@@ -851,32 +679,6 @@ def _validate_locally() -> list[str]:
         )
 
     return failures
-
-
-def _set_action_spec_in_yaml(text: str, short_name: str, version: str, sha: str) -> str:
-    """Rewrite one action's `version:`/`sha:` lines in versions.yaml in place.
-
-    Block-scoped so comments and other actions are untouched -- yaml.safe_dump
-    would nuke the file's comments, so we edit the lines directly.
-    """
-    out: list[str] = []
-    in_block = False
-    for line in text.splitlines(keepends=True):
-        if re.match(rf"^  {re.escape(short_name)}:\s*$", line):
-            in_block = True
-            out.append(line)
-            continue
-        if in_block:
-            if re.match(r"^    version:\s", line):
-                out.append(f"    version: {version}\n")
-                continue
-            if re.match(r"^    sha:\s", line):
-                out.append(f"    sha: {sha}\n")
-                continue
-            if re.match(r"^  \S", line):  # next 2-space key/comment -> block ended
-                in_block = False
-        out.append(line)
-    return "".join(out)
 
 
 def _tool_releases(spec: dict, releases: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1038,10 +840,10 @@ def _latest_tool_release(spec: dict, now: datetime) -> tuple[str | None, str]:
         return None, "lookup-failed"
     releases = _tool_releases(spec, cast("list[dict[str, Any]]", releases))
     cur = _parse_semver(str(cur_version))
-    # No compatibility clamp. Same reasoning as actions: the cooldown still
-    # gates freshness, and a tool whose flags changed across a major shows up
-    # as a red quality stage on a PR. Clamping meant the estate quietly sat on
-    # an old major until someone made the manual edit, which nobody did.
+    # No compatibility clamp. The cooldown still gates freshness, and a tool
+    # whose flags changed across a major shows up as a red quality stage on a
+    # PR. Clamping meant the estate quietly sat on an old major until someone
+    # made the manual edit, which nobody did.
     best = _select_pinned_release(releases, now)
     if not best:
         return None, "no-candidate"
@@ -1066,9 +868,9 @@ def _latest_tool_release(spec: dict, now: datetime) -> tuple[str | None, str]:
 def _set_tool_version_in_yaml(text: str, name: str, version: str) -> str:
     """Rewrite one tool's `version:` line inside the `tools:` block.
 
-    Block-scoped like _set_action_spec_in_yaml, and additionally anchored to
-    the `tools:` section: an action and a tool could share a short name, and
-    yaml.safe_dump would strip every comment in the file.
+    Block-scoped and anchored to the `tools:` section, because a `watch:` or
+    `runtimes:` entry can share a tool's short name. Edits lines directly,
+    because yaml.safe_dump would strip every comment in the file.
     """
     out: list[str] = []
     in_tools = False
@@ -1099,9 +901,9 @@ def _set_tool_version_in_yaml(text: str, name: str, version: str) -> str:
 
 
 def _auto_update(versions: dict) -> int:
-    """Auto-update actions + semantic-release, validate locally, revert on fail.
+    """Auto-update tools + semantic-release, validate locally, revert on fail.
 
-    Actions resolve to the newest release past the 7-day cooldown, majors
+    Tools resolve to the newest release past the 7-day cooldown, majors
     included. Runtimes never auto-bump. Validation is LOCAL (see
     _validate_locally) -- remote E2E is the branch-mode rehearsal's job, not
     this script's, so a major that breaks at RUNTIME is caught by CI on the
@@ -1109,21 +911,6 @@ def _auto_update(versions: dict) -> int:
     """
     print("Auto-update: resolving releases past the cooldown...\n")
     now = datetime.now(UTC)
-
-    actions = versions.get("actions", {})
-    action_updates: dict[str, dict] = {}
-    for short_name, current in actions.items():
-        if short_name not in _ACTION_OWNERS:
-            continue
-        cur_version = current.get("version") if isinstance(current, dict) else current
-        cur_sha = current.get("sha") if isinstance(current, dict) else None
-        spec = _pinned_spec_for(short_name, current, now)
-        if spec and (spec["version"] != cur_version or spec["sha"] != cur_sha):
-            action_updates[short_name] = spec
-            print(
-                f"  {_ACTION_OWNERS[short_name]}: {cur_version} -> "
-                f"{spec['version']} ({spec['sha'][:12]})"
-            )
 
     sr = versions.get("semantic_release", {})
     sr_core = sr.get("core")
@@ -1160,11 +947,11 @@ def _auto_update(versions: dict) -> int:
         if runtimes.get(name):
             print(f"  {name}: {_runtime_value(runtimes[name])} (manual -- skipped)")
 
-    if not action_updates and not sr_update and not tool_updates:
+    if not sr_update and not tool_updates:
         print("\nNo auto-updates available.")
         return 0
 
-    total = len(action_updates) + len(tool_updates) + (1 if sr_update else 0)
+    total = len(tool_updates) + (1 if sr_update else 0)
     print(f"\n{total} update(s) to apply.")
 
     original_yaml = _VERSIONS_FILE.read_text(encoding="utf-8")
@@ -1177,10 +964,6 @@ def _auto_update(versions: dict) -> int:
     }
 
     yaml_content = original_yaml
-    for short_name, spec in action_updates.items():
-        yaml_content = _set_action_spec_in_yaml(
-            yaml_content, short_name, spec["version"], spec["sha"]
-        )
     for tool_name, tool_version in tool_updates.items():
         yaml_content = _set_tool_version_in_yaml(yaml_content, tool_name, tool_version)
     if sr_update:

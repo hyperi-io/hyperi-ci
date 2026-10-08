@@ -23,9 +23,10 @@ Two rules keep this from becoming self-referential:
   through it.
 
 The one thing that still needs the value COPIED is a file GitHub itself parses
-before any of our code runs: a workflow's ``uses:`` line, or a composite
-action's ``default:``. ``scripts/update-versions.py`` rewrites those from this
-same SSOT, and that is the full extent of what it writes.
+before any of our code runs: a workflow input's or a composite action's
+``default:``. ``scripts/update-versions.py`` rewrites those from this same
+SSOT, and that is the full extent of what it writes. GitHub Actions ``uses:``
+refs are not here: Renovate pins and bumps those.
 """
 
 from functools import lru_cache

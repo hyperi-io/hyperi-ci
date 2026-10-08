@@ -1,6 +1,6 @@
 # Project:   HyperI CI
 # File:      tests/unit/test_update_versions.py
-# Purpose:   Tests for the action-version SSOT sync regexes
+# Purpose:   Tests for the version SSOT sync script
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
@@ -106,54 +106,6 @@ class TestSemanticReleasePluginMajors:
         )
 
 
-def _sha_versions(sha: str = "abc123", version: str = "v6.0.2") -> dict:
-    return {"actions": {"checkout": {"version": version, "sha": sha}}}
-
-
-class TestActionShaPin:
-    """Actions pin to a commit SHA with a `# <version>` comment."""
-
-    def test_pins_sha_with_version_comment(self) -> None:
-        out = _apply("  uses: actions/checkout@v6\n", _sha_versions())
-        assert "uses: actions/checkout@abc123 # v6.0.2" in out
-
-    def test_idempotent(self) -> None:
-        once = _apply("  uses: actions/checkout@v6\n", _sha_versions())
-        twice = _apply(once, _sha_versions())
-        assert once == twice
-
-    def test_replaces_existing_sha_pin_and_comment(self) -> None:
-        out = _apply(
-            "  uses: actions/checkout@oldsha # v6.0.1\n",
-            _sha_versions(sha="newsha", version="v6.0.2"),
-        )
-        assert "uses: actions/checkout@newsha # v6.0.2" in out
-        assert "oldsha" not in out
-        assert "v6.0.1" not in out
-
-    def test_consumes_multitoken_comment(self) -> None:
-        # The pre-pin rust-toolchain comment had several tokens -- the rewrite
-        # must consume the whole trailing comment, not leave a fragment.
-        versions = {
-            "actions": {"rust-toolchain": {"version": "master", "sha": "deadbeef"}}
-        }
-        out = _apply(
-            "  uses: dtolnay/rust-toolchain@master # master pinned 2026-05-28\n",
-            versions,
-        )
-        assert "uses: dtolnay/rust-toolchain@deadbeef # master\n" in out
-        assert "pinned 2026-05-28" not in out
-
-    def test_does_not_touch_other_owners(self) -> None:
-        ref = "  uses: actions/setup-go@v6\n"
-        assert _apply(ref, _sha_versions()) == ref
-
-    def test_string_value_keeps_tag_pin_back_compat(self) -> None:
-        # Old flat format (version string, no sha) still pins the tag.
-        out = _apply("  uses: actions/checkout@v5\n", {"actions": {"checkout": "v6"}})
-        assert "uses: actions/checkout@v6" in out
-
-
 from datetime import UTC, datetime  # noqa: E402
 
 
@@ -240,10 +192,10 @@ class TestNowWaivesTheSoak:
         sel = update_versions._select_pinned_release(releases, self.NOW, 7)
         assert sel["tag_name"] == "v8.0.0"
 
-    def test_branch_pins_honour_the_override_too(
+    def test_the_tag_walk_honours_the_override_too(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # rust-toolchain pins a branch head, which has its own cooldown path.
+        # `release_source: tags` reads the window through _cooldown() directly.
         assert update_versions._cooldown() == COOLDOWN_DAYS
         monkeypatch.setattr(update_versions, "_COOLDOWN_OVERRIDE", 0)
         assert update_versions._cooldown() == 0
@@ -271,88 +223,12 @@ class TestNowWaivesTheSoak:
         releases = [_rel("v3.1.0-node20", 30), _rel("nightly", 30)]
         assert update_versions._select_pinned_release(releases, self.NOW, 7) is None
 
-    def test_major_filter_stays_within_major(self) -> None:
-        # A surprise new major that's aged must not auto-win when pinned to v8.
-        releases = [_rel("v9.0.0", 20), _rel("v8.2.0", 20)]
-        sel = update_versions._select_pinned_release(releases, self.NOW, 7, major=8)
-        assert sel["tag_name"] == "v8.2.0"
-
-
-class TestMaxMajorClamp:
-    """`max_major:` opts one action out of the auto-major policy.
-
-    The blanket policy rests on "a breaking major shows up as a red CI run".
-    That is false for an action no PR ever executes, so those pin a ceiling.
-    """
-
-    NOW = datetime(2026, 5, 28, tzinfo=UTC)
-
-    def _stub_releases(self, monkeypatch) -> None:
-        releases = [_rel("v4.0.0", 20), _rel("v3.2.0", 30), _rel("v3.1.0", 60)]
-        monkeypatch.setattr(update_versions, "_gh_json", lambda _p: releases)
-        monkeypatch.setattr(
-            update_versions, "_resolve_tag_sha", lambda _r, tag: f"sha-{tag}"
-        )
-
-    def test_clamped_action_stays_on_its_major(self, monkeypatch) -> None:
-        """v4.0.0 is aged and would otherwise win; the clamp holds it at v3.
-
-        The pinned SHA is returned verbatim rather than re-resolved from the
-        tag: an unchanged version must not follow a tag that has been moved,
-        which is the whole point of pinning a SHA.
-        """
-        self._stub_releases(monkeypatch)
-        spec = update_versions._pinned_spec_for(
-            "create-github-app-token",
-            {"version": "v3.2.0", "sha": "keep-me", "max_major": 3},
-            self.NOW,
-        )
-        assert spec == {"version": "v3.2.0", "sha": "keep-me"}
-
-    def test_unclamped_action_takes_the_new_major(self, monkeypatch) -> None:
-        """Without the key the default policy is unchanged."""
-        self._stub_releases(monkeypatch)
-        spec = update_versions._pinned_spec_for(
-            "create-github-app-token", {"version": "v3.2.0", "sha": "x"}, self.NOW
-        )
-        assert spec == {"version": "v4.0.0", "sha": "sha-v4.0.0"}
-
-    def test_a_pin_inside_the_cooldown_is_not_rolled_backwards(
-        self, monkeypatch
-    ) -> None:
-        """A deliberate early pin must not be reverted by the next auto-update.
-
-        `_select_pinned_release` returns the highest release PAST the cooldown,
-        so against a newer-but-younger pin the aged candidate looks like an
-        update. Reported as up to date, not as a downgrade.
-        """
-        releases = [_rel("v4.6.0", 2), _rel("v4.5.2", 20)]
-        monkeypatch.setattr(update_versions, "_gh_json", lambda _p: releases)
-        monkeypatch.setattr(
-            update_versions, "_resolve_tag_sha", lambda _r, tag: f"sha-{tag}"
-        )
-        spec = update_versions._pinned_spec_for(
-            "docker-login", {"version": "v4.6.0", "sha": "keep-me"}, self.NOW
-        )
-        assert spec == {"version": "v4.6.0", "sha": "keep-me"}
-
-    def test_the_shipped_config_clamps_the_token_minter(self) -> None:
-        """The entry that motivated the mechanism must actually carry it."""
-        import yaml
-
-        data = yaml.safe_load(
-            update_versions._VERSIONS_FILE.read_text(encoding="utf-8")
-        )
-        assert data["actions"]["create-github-app-token"]["max_major"] == 3
-
 
 class TestEveryThirdPartyActionIsShaPinned:
     """A bare tag can be force-moved; a SHA cannot.
 
-    `--check` only sees actions listed in BOTH `_ACTION_OWNERS` and
-    versions.yaml, so an action in neither map is invisible to it - which is
-    how `actions/create-github-app-token@v3` survived unpinned. This asserts
-    the class rather than the instance.
+    Renovate pins and bumps `uses:` refs, but only after the fact, on its own
+    schedule. This fails the PR that adds an unpinned ref instead.
 
     Same-org refs are exempt: they float `@main` by design (docs/dependencies/
     workflow-pinning.md). Scope is every file the rewriter walks.
@@ -486,16 +362,18 @@ class TestValidateLocally:
         assert failures[0].startswith("YAML parse:")
 
     def test_catches_ssot_drift(self, monkeypatch, tmp_path: Path) -> None:
-        # A wrong SHA against the real versions.yaml SSOT = drift. This is
-        # the plan's falsifiable checkpoint: the old remote flow provably
-        # could not catch this (it triggered repos pinned @main).
+        # A runtime literal behind the SSOT is drift. The SSOT is stubbed to
+        # the one runtime, so no missing pin file can fail the gate instead.
         wf_dir = self._bad_tree(
             tmp_path,
-            "jobs:\n  x:\n    steps:\n      - uses: actions/checkout@wrongsha\n",
+            "jobs:\n  x:\n    steps:\n      - run: uv python install 3.11\n",
         )
         monkeypatch.setattr(update_versions, "_ROOT", tmp_path)
         monkeypatch.setattr(update_versions, "_WORKFLOWS_DIR", wf_dir)
         monkeypatch.setattr(update_versions, "_ACTIONS_DIR", tmp_path / "none")
+        monkeypatch.setattr(
+            update_versions, "_load_versions", lambda: {"runtimes": {"python": "3.14"}}
+        )
         failures = update_versions._validate_locally()
         assert failures == ["SSOT sync: --check found drift after --apply"]
 
@@ -504,33 +382,6 @@ class TestValidateLocally:
         # nested workflow pytest gates. Slowish (spawns pytest) but real:
         # no mocks, and it IS the post-apply state --auto-update relies on.
         assert update_versions._validate_locally() == []
-
-
-class TestSetActionSpecInYaml:
-    """Block-scoped version/sha rewrite preserves comments + other actions."""
-
-    YAML = (
-        "actions:\n"
-        "  checkout:\n"
-        "    version: v6.0.1\n"
-        "    sha: oldsha\n"
-        "  # comment before cache\n"
-        "  cache:\n"
-        "    version: v5.0.0\n"
-        "    sha: cachesha\n"
-    )
-
-    def test_updates_target_block_only(self) -> None:
-        out = update_versions._set_action_spec_in_yaml(
-            self.YAML, "checkout", "v6.0.2", "newsha"
-        )
-        assert "    version: v6.0.2\n" in out
-        assert "    sha: newsha\n" in out
-        # cache untouched
-        assert "    version: v5.0.0\n" in out
-        assert "    sha: cachesha\n" in out
-        # comment preserved
-        assert "  # comment before cache\n" in out
 
 
 # --- tools: mirrored CLI pins ---------------------------------------------
@@ -1186,7 +1037,7 @@ class TestSetToolVersionInYaml:
     """Block-scoped AND `tools:`-anchored rewrite of one tool's version."""
 
     YAML = (
-        "actions:\n"
+        "earlier:\n"
         "  gitleaks:\n"
         "    version: v1.0.0\n"
         "\n"
@@ -1223,13 +1074,12 @@ class TestSetToolVersionInYaml:
         assert '    version: "2.20"\n' in out
         assert yaml.safe_load(out)["tools"]["gitleaks"]["version"] == "2.20"
 
-    def test_a_name_shared_with_actions_only_touches_tools(self) -> None:
-        # An action and a tool can share a short name; anchoring to `tools:`
-        # is the only thing keeping the rewrite out of the actions: block.
+    def test_a_name_shared_with_an_earlier_section_only_touches_tools(self) -> None:
+        # The rewrite starts at `tools:`, so a same-named entry above it stays.
         out = update_versions._set_tool_version_in_yaml(
             self.YAML, "gitleaks", "v8.31.0"
         )
-        assert "actions:\n  gitleaks:\n    version: v1.0.0\n" in out
+        assert "earlier:\n  gitleaks:\n    version: v1.0.0\n" in out
 
     def test_does_not_bleed_into_later_sections(self) -> None:
         # The tools: block must end at the next top-level key, or a rewrite
