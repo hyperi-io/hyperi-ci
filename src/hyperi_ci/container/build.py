@@ -152,9 +152,8 @@ def buildx_command(
 
     if push:
         cmd.append("--push")
-    # No --load / --push: multi-arch builds cannot load into the local
-    # daemon (it only handles one platform at a time). The default
-    # "build and discard" still validates the full Dockerfile.
+    # Never --load: the local daemon takes one platform, and build-and-discard
+    # still validates every layer.
 
     cmd.append(context)
     return cmd
@@ -173,24 +172,18 @@ def build_and_push(
 ) -> int:
     """Build a container image with docker buildx and optionally push.
 
-    When ``push`` is False the image is built but discarded (no
-    ``--load``/``--push``). Multi-platform builds cannot ``--load`` into
-    the local daemon, so the validate-on-main path relies on buildx's
-    "build and discard" default -- every layer still compiles and every
-    ``COPY`` / ``RUN`` is still exercised, but nothing leaves the
-    runner.
+    With ``push`` False the image is built and discarded: every layer still
+    runs, but nothing leaves the runner.
 
     Args:
         dockerfile_path: Path to the Dockerfile.
         context: Docker build context directory.
-        tags: List of full image tags spanning all target registries
-            (e.g. ``["ghcr.io/hyperi-io/app:v1.0.0", "ghcr.io/hyperi-io/app:latest"]``).
+        tags: Full image tags spanning all target registries.
         platforms: Target platforms (e.g. ``["linux/amd64", "linux/arm64"]``).
         labels: OCI labels dict.
         build_args: Additional ``--build-arg key=value`` pairs, already
             rendered by :func:`render_build_args`.
-        push: When True, push to all tagged registries. When False, build
-            but discard (validation only).
+        push: Push to every tagged registry when True.
         metadata_file: Where buildx writes its result metadata; read it
             back with :func:`pushed_digest`.
 
@@ -256,26 +249,17 @@ def resolve_tags(
 ) -> list[str]:
     """Generate image tags spanning all configured registries.
 
-    Tag matrix per registry base, by push mode
-    (:mod:`hyperi_ci.release_mode`):
+    Tags per registry base, by push mode (:mod:`hyperi_ci.release_mode`):
 
-    * ``validate``                 -> no tags (build-and-discard)
-    * ``dev``                      -> ``:branch-<slug>`` (mutable pointer) +
-      ``:branch-<slug>-sha-<short>`` (immutable pin) -- the branch
-      dev-image artifact class (plan decision 3). NEVER a version tag,
-      NEVER ``latest``, and NEVER a bare ``sha-<short>``: that namespace
-      belongs to the GA publish, and the distinct ``branch-*`` /
-      ``dev-sha-*`` prefixes are what lets the scheduled GHCR pruner
-      (``_ghcr-prune.yml``) glob dev tags without ever touching GA pins.
+    * ``validate`` -> none.
+    * ``dev`` -> ``:branch-<slug>`` and ``:branch-<slug>-sha-<short>``. Never
+      a version, ``latest`` or bare ``sha-<short>``: the ``branch-*`` and
+      ``dev-sha-*`` prefixes let ``_ghcr-prune.yml`` glob dev tags without
+      touching GA pins.
     * ``release``, release channel -> ``:vX.Y.Z``, ``:latest``, ``:sha-<short>``
     * ``release``, pre-GA channel  -> ``:vX.Y.Z-{channel}``, ``:sha-<short>``
     * ``release``, prerelease version -> ``:vX.Y.Z-beta.N``, ``:sha-<short>``
-      -- a version off a prerelease branch never moves ``latest``.
-    * ``release`` with ``move_latest`` False -> no ``:latest``, so
-      re-publishing an older tag leaves it on the newest release.
-
-    The SHA tag is included on every pushed build to give consumers an
-    immutable-by-content pin alongside the human-readable tag.
+    * ``release`` with ``move_latest`` False -> no ``:latest``.
 
     Args:
         registry_bases: Registry base URLs from

@@ -6,24 +6,12 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""The prevention/remediation boundary, made concrete.
+"""Present surfaces the repo's Renovate config never sees.
 
-Renovate is REMEDIATION: it runs on the forge, after the fact, and raises PRs
-for what has already gone stale. ``hyperi-ci deps`` is PREVENTION: it runs
-locally, before the change lands, and says what you are about to leave stale.
-Neither replaces the other, and "Renovate is configured" must never be read as
-"the surfaces are covered".
-
-This module draws that line for one repo. Three ways a present surface goes
-uncovered, all reported the same:
-
-- no Renovate manager exists at all (tox.ini, noxfile, an unmarked container
-  tag in test source, .hyperi-ci.yaml);
-- a manager exists but is not in a non-empty ``enabledManagers``;
-- the manager is enabled and INERT -- it matched files and extracted nothing,
-  or it ships with empty default file patterns (``kubernetes``,
-  ``pip-compile``). That last one is the dangerous case, because it reads as
-  covered.
+A configured Renovate does not mean a surface is covered. A present surface is
+uncovered when the repo has no Renovate config, no manager exists for it
+(tox.ini, noxfile, .hyperi-ci.yaml), its manager is missing from a non-empty
+``enabledManagers``, or its manager is ``inert``, which reads as covered.
 """
 
 import json
@@ -31,7 +19,7 @@ from pathlib import Path
 
 from hyperi_ci.deps.surfaces import ABSENT, INERT
 
-# Renovate config filenames, in the order Renovate itself resolves them.
+# Checked in this order; the first present file is the config.
 CONFIG_NAMES: tuple[str, ...] = (
     "renovate.json",
     "renovate.json5",

@@ -7,17 +7,9 @@
 """Container artefact detection.
 
 A project ships a container exactly when it has a Dockerfile at the
-configured path. There is no generated image: the repo's own Dockerfile
-is the only build source.
-
-Without one, a library skips quietly. A runnable project with no
-Dockerfile (a Rust ``[[bin]]``, a TypeScript server, a Go ``main``) is
-flagged with ``notice`` so the stage says out loud that no image is
-built. A Python package always reads as a library (a console script is
-not a service -- issue #51).
-
-The detector returns a ``Decision`` so callers can both gate the build
-and present a clear reason to the developer.
+configured path. Without one, a library skips quietly and a runnable project
+(a Rust ``[[bin]]``, a TypeScript server, a Go ``main``) skips with a
+``notice``. A Python package always reads as a library.
 """
 
 import json
@@ -33,10 +25,9 @@ class Decision:
 
     Attributes:
         build: Whether the container stage should run.
-        reason: Human-readable explanation. Always present, used for log
-            output regardless of outcome.
+        reason: Human-readable explanation for the log, on every outcome.
         notice: True when a runnable project has no Dockerfile, so the
-            skip is worth a warning rather than an info line.
+            skip logs a warning rather than an info line.
 
     """
 
@@ -59,8 +50,7 @@ def detect(
         ``Decision`` describing the outcome.
 
     """
-    # A Dockerfile wins over the library heuristic: a monorepo root whose
-    # runnable start script lives in a workspace still ships its image.
+    # A Dockerfile wins over the library heuristic, so a library can ship one.
     if (project_dir / dockerfile).exists():
         return Decision(build=True, reason=f"Dockerfile found at {dockerfile}")
 
@@ -91,15 +81,10 @@ def _is_library(*, language: str, project_dir: Path) -> bool:
 
 
 def _python_is_library(project_dir: Path) -> bool:
-    """Python packages are library-only by default (issue #51).
+    """Return True when ``pyproject.toml`` exists.
 
-    A console-script (``[project.scripts]`` / ``[gui-scripts]`` /
-    ``console_scripts`` entry point) is NOT a "ship a container" signal.
-    The most common Python shape is a library that ALSO exposes a CLI -
-    ruff, black, pytest, uv, httpie, pip-audit all declare
-    ``[project.scripts]`` and none of them are container workloads.
-    There is no reliable pyproject signal for "this is a deployable
-    service", so a Python service ships its own Dockerfile.
+    A console script is not a service signal (issue #51), and pyproject has
+    no reliable one, so a Python service ships its own Dockerfile.
     """
     return (project_dir / "pyproject.toml").exists()
 
@@ -114,10 +99,7 @@ def _typescript_is_library(project_dir: Path) -> bool:
         return False
     if manifest.get("bin"):
         return False
-    # A ``workspaces`` field means this is a monorepo root, not a plain
-    # library: the runnable ``start``/``serve``/``server`` script lives in
-    # a workspace package (e.g. ``apps/<app>/package.json``), so the root
-    # legitimately has none. Treat the root as a runnable, not a library.
+    # A monorepo root keeps its start script in a workspace package.
     if manifest.get("workspaces"):
         return False
     scripts = manifest.get("scripts", {})
@@ -126,19 +108,15 @@ def _typescript_is_library(project_dir: Path) -> bool:
             return False
     main = manifest.get("main", "")
     if main and any(part in main for part in ("server", "main", "index")):
-        # Heuristic: a ``main`` field that names a server-ish entrypoint
-        # is enough to consider this a runnable. Library packages
-        # typically point ``main`` at ``dist/index.js`` for consumers,
-        # which also matches -- favour build-on-doubt.
+        # A library's ``dist/index.js`` also matches, so doubt reads as runnable.
         return False
     return True
 
 
 def _golang_is_library(project_dir: Path) -> bool:
-    """Identify Go library projects (``go.mod`` present, no ``package main``).
+    """Return True for a ``go.mod`` project with no ``package main`` file.
 
-    Go projects almost always have a ``package main`` entry; treat a
-    project with a ``go.mod`` and no ``main`` package as a library.
+    Only the first five lines of each non-vendor, non-testdata file are read.
     """
     if not (project_dir / "go.mod").exists():
         return False
