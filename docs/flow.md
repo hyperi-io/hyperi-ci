@@ -124,6 +124,28 @@ flowchart LR
 - `release.channel` controls prerelease vs GA (next section), not destination.
   The key was `publish.channel` and still works, with a warning.
 
+### Helm charts
+
+Committed charts go to an OCI registry, off by default:
+
+```yaml
+release:
+  helm:
+    enabled: true
+    charts: [deploy/helm/*]                      # dirs or globs from the repo root
+    registry: oci://ghcr.io/hyperi-io/charts     # the default; a chart lands at <registry>/<name>
+```
+
+`hyperi-ci publish-charts` does the work. Run it before the tag, as the container is pushed, so a failed push cuts no tag. Charts are packaged in a scratch copy, `file://` dependencies included, at the release version. A committed `appVersion` stays, and a chart without one gets `v<version>`. Library charts are skipped.
+
+A version already in the registry is not re-pushed, because that would move its tag to a new digest. The existing digest is reported instead. Digests go to the job summary and, when `hyperi-ci run release` follows in the same job, the GitHub Release body. A first push creates a private GHCR package -- making it public is manual.
+
+`--charts` (repeatable), `--registry` and `--version` (verbatim) beat config, `--dry-run` pushes nothing, and `--output json` prints `[{chart, version, digest, ref, signed}]`. `signed` is always `false`, as hyperi-ci has no signer:
+
+```bash
+hyperi-ci publish-charts --charts helm/charts/a --charts helm/charts/b --version 2.2.0-rc.14 --output json
+```
+
 ## 6. Release channels
 
 One-branch model. `release.channel` graduates a project by one line in

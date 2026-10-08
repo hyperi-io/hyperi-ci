@@ -1154,6 +1154,66 @@ def release_verify_cmd(
     raise typer.Exit(check_prepared(language))
 
 
+@app.command(name="publish-charts")
+def publish_charts_cmd(
+    charts: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--charts",
+            help="Chart directory or glob, relative to the project root "
+            "(repeatable). Overrides release.helm.charts and runs whatever "
+            "release.helm.enabled says.",
+        ),
+    ] = None,
+    registry: Annotated[
+        str | None,
+        typer.Option("--registry", help="oci:// URL. Overrides release.helm.registry"),
+    ] = None,
+    version: Annotated[
+        str | None,
+        typer.Option(
+            "--version",
+            help="Chart version, used verbatim. Default: the release version "
+            "(HYPERCI_VERSION, then VERSION, then the latest tag)",
+        ),
+    ] = None,
+    output: Annotated[
+        str,
+        typer.Option(
+            "--output", "-o", help="text, or json for a result list on stdout"
+        ),
+    ] = "text",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", "-n", help="Package the charts, push nothing"),
+    ] = False,
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+) -> None:
+    """Package committed Helm charts and push them to an OCI registry.
+
+    A version the registry already holds is not pushed again; its existing
+    digest is reported. Library charts are skipped. Logs go to stderr, so
+    `--output json` leaves stdout as one JSON list of
+    {chart, version, digest, ref, signed}.
+    """
+    from hyperi_ci.release.charts import as_json, publish_charts
+
+    if output not in {"text", "json"}:
+        typer.echo("--output must be text or json", err=True)
+        raise typer.Exit(2)
+    root = Path(project_dir) if project_dir else Path.cwd()
+    cfg = load_config(project_dir=root, report_removed=output == "text")
+    rc, results = publish_charts(
+        cfg, root, charts=charts, registry=registry, version=version, dry_run=dry_run
+    )
+    if output == "json":
+        typer.echo(json.dumps(as_json(results), indent=2))
+    raise typer.Exit(rc)
+
+
 @app.command(name="seed-version")
 def seed_version_cmd(
     project_dir: Annotated[

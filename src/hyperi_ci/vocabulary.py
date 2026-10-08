@@ -263,7 +263,6 @@ REMOVED_KEYS: tuple[str, ...] = (
     "release.container.registry",
     "release.destinations.helm",
     "release.destinations_oss.helm",
-    "release.helm",
     "runners",
     "typescript.package_manager",
     "workspace",
@@ -301,7 +300,7 @@ def _node_at(doc: dict[str, Any], dotted: str) -> Any:
 def drop_removed_notices(keys: list[str], doc: Any) -> list[str]:
     """Drop the rename or move notice for a legacy key whose every setting is removed.
 
-    Telling someone to rename ``publish.helm`` and, in the next line, that it
+    Telling someone to rename ``publish.binaries`` and, in the next line, that it
     can be deleted is two instructions for one line. ``doc`` is the project
     config as written, before the ``publish:`` fold.
     """
@@ -328,8 +327,9 @@ def _has_path(doc: dict[str, Any], dotted: str) -> bool:
 def find_removed_keys(doc: Any) -> list[str]:
     """Return each removed key a project config sets, spelled as it is written.
 
-    Checked before the ``publish:`` fold, so a ``publish.helm`` is named as
-    ``publish.helm`` rather than as the ``release.helm`` it would fold into.
+    Checked before the ``publish:`` fold, so a ``publish.binaries`` is named as
+    ``publish.binaries`` rather than as the ``release.binaries`` it would fold
+    into.
     One entry per removed key, however many of its children are set.
     """
     if not isinstance(doc, dict):

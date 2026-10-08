@@ -6,7 +6,7 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Release package.
 
-Two related modules:
+Three related modules:
 
 - :mod:`hyperi_ci.release.binaries` -- language-agnostic binary
   publisher. Uploads pre-built artefacts from ``dist/`` to GitHub
@@ -18,6 +18,9 @@ Two related modules:
   ``hyperi-ci push --release``, which goes through the version-first
   single-run pipeline; this module covers the "re-release an existing
   tag" escape hatch.
+
+- :mod:`hyperi_ci.release.charts` -- packages committed Helm charts and
+  pushes them to an OCI registry, for ``hyperi-ci publish-charts``.
 
 The CLI ``hyperi-ci release <tag>`` command, and the deprecated
 ``publish`` alias beside it, route through :func:`dispatch_publish`.
