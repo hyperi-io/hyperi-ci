@@ -9,10 +9,7 @@ Copyright: (c) 2026 HYPERI PTY LIMITED
 
 # Quality gate: overrides
 
-Three mechanisms, in order
-from strictest to most targeted: `--strict` upgrades every warning for a
-pre-push check, `HYPERCI_QUALITY_SKIP` force-disables a tool for one run, and
-`quality.ignore` silences one rule permanently and reviewably.
+Three mechanisms, from strictest to most targeted. `--strict` upgrades every warning for a pre-push check. `HYPERCI_QUALITY_SKIP` force-disables a tool for one run. `quality.ignore` silences one rule permanently and reviewably.
 
 ## `--strict` - a zero-warnings pre-push gate
 
@@ -21,11 +18,7 @@ developer sees - and fixes or explicitly ignores - everything CI would surface
 BEFORE the push, not after. It sets `HYPERCI_QUALITY_STRICT=1`, which
 `apply_strict` reads.
 
-`disabled` tools stay off (strict enforces warnings, it does not resurrect a
-tool a project turned off). A tool that is not installed locally (and has no
-`uv` fallback) is still warn-skipped even under `--strict` - strict enforces
-what runs, not what your machine has; CI, where the tools are present, is the
-backstop.
+`disabled` tools stay off, because strict enforces warnings and does not resurrect a tool a project turned off. A tool that is not installed locally (and has no `uv` fallback) is still warn-skipped under `--strict`. Strict enforces what runs, not what your machine has, and CI is the backstop.
 
 ```bash
 hyperi-ci check --strict --quick     # strict quality only, no tests
@@ -38,15 +31,9 @@ hyperi-ci check --strict --quick     # strict quality only, no tests
 > auditable way to silence a tool is the config (`quality.<tool>: disabled` or
 > the `quality.ignore` list).
 
-When a tool's false positive halts CI - a semgrep rule misfiring on a
-dependency, an audit advisory with no fix yet - set `HYPERCI_QUALITY_SKIP` to
-the tool name (comma-separated for several) to force it to `disabled` for the
-blocked runs WITHOUT a config commit, then remove it once the real fix lands.
+A false positive can halt CI, such as a semgrep rule misfiring on a dependency or an audit advisory with no fix yet. Set `HYPERCI_QUALITY_SKIP` to the tool name (comma-separated for several) to force it to `disabled` for the blocked runs without a config commit. Remove it once the real fix lands.
 
-A force-skip is logged LOUDLY: a `warn()` line plus, in CI, a real GitHub
-`::warning::` annotation that lands in the run summary (it does not hide inside
-a collapsed log group) - so skipping a security scanner like gitleaks cannot
-pass unnoticed.
+A force-skip is logged LOUDLY: a `warn()` line plus, in CI, a GitHub `::warning::` annotation that lands in the run summary, not in a collapsed log group. Skipping a security scanner like gitleaks cannot pass unnoticed.
 
 In CI, set the `HYPERCI_QUALITY_SKIP` repo or org Actions variable; the four
 reusable language workflows pass it through (empty variable = no-op). Only a
@@ -79,11 +66,17 @@ Semgrep's `python.lang.compatibility.*` rules are excluded automatically, with
 no `quality.ignore` entry needed, for every rule whose target Python version
 the project's own `requires-python` floor has already outgrown.
 
-osv-scanner takes its ignores as a config file, and once it is handed one with `--config` it stops reading the repo's own `osv-scanner.toml` beside the lockfile. So hyperi-ci appends the `quality.ignore` and `deny.toml` ids to a copy of that file, outside the checkout, and the repo's file is never changed. Every setting in the repo's file is kept. Where both name the same id, the repo's entry wins and the generated one is dropped, because osv-scanner honours only the first. A repo file that cannot be extended (invalid TOML, or an inline `IgnoredVulns = [...]` array) stops the scan: it fails a `blocking` gate and warns under `warn`.
+osv-scanner takes its ignores as a config file. Once it is handed one with `--config` it stops reading the repo's own `osv-scanner.toml` beside the lockfile. So hyperi-ci appends the `quality.ignore` and `deny.toml` ids to a copy of that file, outside the checkout. The repo's file is never changed and every setting in it is kept.
 
-A lockfile that lists no packages makes osv-scanner exit 128. hyperi-ci reports that as NOT SCANNED, the same as a missing lockfile: a warning, neither a finding nor a clean result.
+Where both name the same id, the repo's entry wins and the generated one is dropped, because osv-scanner honours only the first.
 
-Only exit 1 is a finding. When osv.dev cannot be queried, v2.6.0 exits 127 and names the `vulnmatch/osvdev` matcher in its error, and it prints a zero-vulnerability summary that is not true. hyperi-ci reports that as NOT SCANNED too, and passes in both modes. Exit 129 is mapped to the API failure in osv-scanner's source but not yet returned by it, and is handled the same way. Any other non-zero exit is a scanner error: it fails a `blocking` gate and warns under `warn`, and is never called a finding.
+A repo file that cannot be extended (invalid TOML, or an inline `IgnoredVulns = [...]` array) stops the scan. It fails a `blocking` gate and warns under `warn`.
+
+A lockfile that lists no packages makes osv-scanner exit 128. hyperi-ci reports NOT SCANNED, as it does for a missing lockfile. That is a warning, neither a finding nor a clean result.
+
+Only exit 1 is a finding. When osv.dev cannot be queried, v2.6.0 exits 127 and names the `vulnmatch/osvdev` matcher in its error. It also prints a zero-vulnerability summary that is not true. hyperi-ci reports NOT SCANNED here too, and passes in both modes.
+
+Exit 129 is mapped to the API failure in osv-scanner's source but is not yet returned, and is handled the same way. Any other non-zero exit is a scanner error. It fails a `blocking` gate, warns under `warn` and is never called a finding.
 
 ## See also
 
