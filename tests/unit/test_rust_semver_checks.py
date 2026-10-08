@@ -115,6 +115,25 @@ class TestOnlyOneExitCodeIsAVerdict:
             assert semver_checks.run(_config(), project_root=lib_crate) == 0
 
 
+class TestMissingToolAnnotates:
+    def test_the_annotation_text_is_unchanged(
+        self,
+        lib_crate: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.setattr(semver_checks.shutil, "which", lambda _: None)
+        monkeypatch.setattr(semver_checks, "is_ci", lambda: True)
+        monkeypatch.setattr("hyperi_ci.common.is_github_actions", lambda: True)
+        assert semver_checks.run(_config(), project_root=lib_crate) == 0
+        assert capsys.readouterr().out == (
+            "::warning title=hyperi-ci semver-checks skipped::"
+            "cargo-semver-checks is not installed on this runner, so the public "
+            "API was NOT checked. This release is unverified for breaking "
+            "changes.\n"
+        )
+
+
 class TestAFirstReleaseHasNothingToBreak:
     def test_an_unpublished_crate_is_skipped_not_failed(
         self, lib_crate: Path, monkeypatch: pytest.MonkeyPatch

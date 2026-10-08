@@ -18,7 +18,7 @@ its own log line, so a skip never reads as "ran and found nothing".
 import shutil
 from pathlib import Path
 
-from hyperi_ci.common import error, info, is_ci, run_cmd, success, warn
+from hyperi_ci.common import announce, error, info, is_ci, run_cmd, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
 
@@ -69,8 +69,7 @@ def run(config: CIConfig, *, project_root: Path | None = None) -> int:
                 f"was NOT checked. This release is unverified for breaking "
                 f"changes."
             )
-            warn(f"  {missing}")
-            print(f"::warning title=hyperi-ci semver-checks skipped::{missing}")
+            announce(missing, "hyperi-ci semver-checks skipped")
             return 0
         warn(f"  {_TOOL}: not installed (skipping locally)")
         return 0
