@@ -19,7 +19,7 @@ import os
 from pathlib import Path
 from typing import Any, Protocol, cast
 
-from hyperi_ci import native_tools, release_prepare
+from hyperi_ci import native_tools, release_prepare, vendor
 from hyperi_ci.common import (
     ReleaseVersionError,
     announce,
@@ -276,6 +276,12 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
         rc = charset.run(config)
         if rc != 0:
             return rc
+
+    if config.get("vendor"):
+        with group("Vendored files"):
+            rc = vendor.run(config, Path.cwd())
+            if rc != 0:
+                return rc
 
     # Semgrep SAST is cross-language too (python / go / ts / rust / yaml /
     # ...), so it runs here once rather than inside every language handler.

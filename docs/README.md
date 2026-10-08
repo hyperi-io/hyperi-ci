@@ -116,6 +116,7 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 - [dependencies/WORKFLOW-PINNING.md](dependencies/workflow-pinning.md) - why our
   own reusable workflows stay `@main`, the interface gate that makes that safe,
   and the decision record for issue #31 (the trilemma + what we accept)
+- [dependencies/vendored-files.md](dependencies/vendored-files.md) - `hyperi-ci vendor sync` / `check`: files mirrored one way from another repo at a pinned ref, the lock, and the Renovate regex for the pin
 
 ### Languages
 
