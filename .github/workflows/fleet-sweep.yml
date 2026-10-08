@@ -16,9 +16,10 @@
 # own CI and its two audits are excluded because no consumer calls them.
 # `tests/unit/test_fleet_gate.py` holds that list to config/fixtures.yaml.
 #
-# Both app tokens are scoped to the fleet named in config/fixtures.yaml. With
-# `owner` set and `repositories` empty the token action grants the whole org,
-# so the scoping step fails rather than hand it an empty list.
+# The fleet app tokens are scoped to the fleet named in config/fixtures.yaml,
+# and the canary read token to hyperi-infra alone. With `owner` set and
+# `repositories` empty the token action grants the whole org, so the scoping
+# step fails rather than hand it an empty list.
 #
 # Its own concurrency group, and no cancel-in-progress: a sweep cancelled by
 # the next merge is the failure this exists to catch, wearing a green tick.
@@ -64,9 +65,9 @@ jobs:
   sweep:
     name: Fleet sweep
     runs-on: ${{ vars.GH_RUNNER_DEFAULT || 'ubuntu-latest' }}
-    # Above the sweep's own default so a hung fixture is reported by the sweep,
-    # with its run id, rather than killed by the job and reported by nobody.
-    timeout-minutes: 90
+    # Above the canary wait plus the sweep's own default, so a hung fixture is
+    # reported by the sweep, with its run id, rather than killed by the job.
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -101,9 +102,24 @@ jobs:
           permission-actions: write
           permission-contents: read
 
+      - name: Mint a runner-image canary read token
+        # The sweep waits for hyperi-infra's arc-runner-images canary, whose
+        # fixture runs it would otherwise cancel. A failed mint leaves the token
+        # empty, and the sweep then warns that it cannot read the canary.
+        id: canary
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.GH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: hyperi-infra
+          permission-actions: read
+
       - name: Run the fleet against main
         env:
           GH_TOKEN: ${{ steps.bot.outputs.token }}
+          CANARY_GH_TOKEN: ${{ steps.canary.outputs.token }}
           ONLY: ${{ inputs.only }}
           LANGUAGE: ${{ inputs.language }}
           TIMEOUT_MINUTES: ${{ inputs.timeout-minutes || '60' }}
