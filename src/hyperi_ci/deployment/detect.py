@@ -16,19 +16,14 @@
   Tier 3 (OTHER)  -- repo commits ``ci/deployment-contract.json``.
   NONE            -- no contract at all.
 
-Most repos are none of these and resolve to NONE -- that is the normal
-case, not a failure.
+Most repos resolve to NONE, which is not a failure.
 
-**Carrying the marker dep is not the same as being a producer.** A
-library consumer -- a VPN container that uses scalo for
-logging/config/secrets and ships its own Dockerfile, say -- has the dep
-but nothing to invoke ``generate-artefacts`` on. Tier 1/2 detection
-therefore needs a POSITIVE producer signal (a real binary / console
-script) on top of the dep (issue #76). Tier 3 needs no such check: the
-committed contract IS the positive signal.
+Carrying the marker dep does not make a repo a producer: a library
+consumer has the dep but nothing to invoke ``generate-artefacts`` on. Tier
+1/2 therefore also need a real binary / console script (issue #76). Tier 3
+needs no such check because the committed contract is the signal.
 
-Detection is **cheap and string-based** -- we don't fully parse manifests
-because the answer only needs to say which producer a repo has.
+Detection is string-based, not a manifest parse.
 """
 
 from enum import StrEnum
@@ -68,26 +63,20 @@ class TierDecision(NamedTuple):
     demoted: bool = False
 
 
-# Marker deps, in match precedence. ``scalo`` is the current lib name
-# on BOTH sides (the crate scalo-rs on crates.io, and the scalo package
-# on PyPI); ``hyperi-rustlib`` is the deprecated Rust predecessor, kept
-# so consumer repos mid-migration still detect. The deprecated Python
-# predecessor has no active consumers left, so it is not detected. No
-# ambiguity from the shared ``scalo`` name: Tier 1 only reads
-# Cargo.toml, Tier 2 only reads pyproject.toml.
+# Marker deps in match precedence. ``hyperi-rustlib`` is the archived Rust
+# predecessor, kept so repos mid-migration still detect.
 _RUST_DEPLOYMENT_DEPS: tuple[str, ...] = ("scalo", "hyperi-rustlib")
 _PYTHON_DEPLOYMENT_DEPS: tuple[str, ...] = ("scalo",)
 
-# The scalo-rs cargo feature that compiles in contract emission. Without
-# it `generate-artefacts` runs, exits 0, and writes no contract.
+# The scalo-rs cargo feature that compiles in contract emission. Without it
+# `generate-artefacts` exits 0 and writes no contract.
 _DEPLOYMENT_FEATURE = "deployment"
 
 
 def detect_tier(repo_root: Path) -> Tier:
     """Detect the producer tier for a repository.
 
-    Thin wrapper over :func:`resolve_tier` for callers that only want
-    the answer, not the reasoning.
+    Wraps :func:`resolve_tier`, dropping the reason.
 
     Args:
         repo_root: Directory containing the repo's manifests. Usually
@@ -111,25 +100,17 @@ def resolve_tier(repo_root: Path, *, require_producer: bool = True) -> TierDecis
       3. ``ci/deployment-contract.json`` exists -> :attr:`Tier.OTHER`
       4. Otherwise -> :attr:`Tier.NONE`
 
-    A repo may have multiple manifests (e.g. a Rust workspace with a
-    Python subdir). The first match wins so the dispatch ordering is
-    deterministic and matches the spec's documentation order.
-
-    A repo that carries a marker dep but fails the producer check falls
-    through to the Tier 3 check only. A committed contract is an
-    explicit declaration, so a scalo library consumer that commits one
-    is a legitimate Tier 3 repo. Another MANIFEST's implicit signal is
-    not: a Rust repo whose crate builds no binary must not get
+    The first match wins. A repo that carries a marker dep but fails the
+    producer check falls through to the Tier 3 check only, never to
+    another manifest's signal: a Rust repo with no binary must not be
     dispatched to a Python tools subdir's entry point, which would emit
-    the wrong artefacts silently. Skipping is recoverable; producing
-    the wrong Dockerfile is not.
+    the wrong artefacts silently.
 
     Args:
         repo_root: Directory containing the repo's manifests. Usually
             the working directory of a CI run.
         require_producer: When False, the marker dep alone selects the
-            tier, for a genuine producer whose shape auto-detection
-            can't see.
+            tier, for a producer whose shape auto-detection can't see.
 
     Returns:
         The detected :class:`TierDecision`.
@@ -156,8 +137,7 @@ def resolve_tier(repo_root: Path, *, require_producer: bool = True) -> TierDecis
         else:
             return TierDecision(Tier.RUST, f"Cargo.toml depends on {rust_dep}")
 
-    # A demoted Rust dep suppresses the Python check -- see the
-    # fall-through note above.
+    # A demoted Rust dep suppresses the Python check (see resolve_tier).
     python_dep = (
         None
         if rust_dep is not None
@@ -174,10 +154,7 @@ def resolve_tier(repo_root: Path, *, require_producer: bool = True) -> TierDecis
     if (repo_root / "ci" / "deployment-contract.json").is_file():
         return TierDecision(Tier.OTHER, "ci/deployment-contract.json is committed")
 
-    # Nothing matched. When a marker dep WAS present, the repo is a
-    # library consumer rather than a producer -- say so, because
-    # "depends on scalo but the build skipped generate" is otherwise a
-    # confusing pair of facts.
+    # Nothing matched: report a present marker dep as a demotion.
     if rust_reason:
         return TierDecision(Tier.NONE, rust_reason, demoted=True)
     if python_dep is not None:
@@ -200,23 +177,17 @@ def _marker_dep(manifest: Path, candidates: tuple[str, ...]) -> str | None:
 def _enables_deployment_feature(repo_root: Path, dep_name: str) -> bool:
     """Return True when the marker crate's deployment feature is on.
 
-    In scalo-rs, ``deployment`` is a cargo feature, so the artefact
-    emission inside ``generate-artefacts`` is ``#[cfg]``-compiled out
-    when it's off. The subcommand still EXISTS and still exits 0 -- it
-    just writes no Dockerfile.runtime or container-manifest.json, so a
-    crate without the feature is not a producer.
+    In scalo-rs the artefact emission is ``#[cfg]``-compiled out without
+    the feature, so ``generate-artefacts`` still exits 0 but writes no
+    Dockerfile.runtime or container-manifest.json.
 
-    Checks the repo root, then any workspace member (a member declaring
-    ``scalo.workspace = true`` inherits the root's feature list, which
-    :func:`dep_features` reports as unknown at the member).
+    Checks the repo root, then each workspace member (a member with
+    ``scalo.workspace = true`` reports unknown from :func:`dep_features`).
+    Unknown stays permissive, so an unparseable manifest dispatches and
+    fails loudly instead of skipping a real producer.
 
-    Unknown stays PERMISSIVE -- an unparseable manifest dispatches and
-    fails loudly rather than silently skipping a real producer.
-
-    Note this is Rust-only. scalo-py's ``deployment`` extra is just a
-    pydantic pin, not a code gate: dfe-engine emits contracts without
-    declaring it, so the same test on Tier 2 would demote a real
-    producer.
+    Rust-only: scalo-py's ``deployment`` extra is a pydantic pin, not a
+    code gate, and dfe-engine emits contracts without it.
     """
     manifests = [repo_root / "Cargo.toml"]
     root_text = _read_manifest(repo_root / "Cargo.toml")
@@ -237,7 +208,7 @@ def _enables_deployment_feature(repo_root: Path, dep_name: str) -> bool:
         determined = True
         if _DEPLOYMENT_FEATURE in features:
             return True
-    # Nothing anywhere told us what the features are -> assume producer.
+    # Features undetermined everywhere -> assume producer.
     return not determined
 
 
@@ -254,9 +225,8 @@ def _read_manifest(manifest: Path) -> str | None:
 def _depends_on(manifest: Path, package_name: str) -> bool:
     """Return True if a manifest's text contains the named dep.
 
-    Substring match against the file contents -- sufficient for tier
-    detection because we only need a one-shot routing decision.
-    Handles all the common forms (string, table, workspace inheritance):
+    Substring match against the file contents, which covers the string,
+    table, workspace-inheritance and extras forms:
 
         # Cargo.toml -- single line
         scalo = "2.0"
@@ -269,25 +239,13 @@ def _depends_on(manifest: Path, package_name: str) -> bool:
         dependencies = ["scalo>=2.28"]
         dependencies = ["scalo[metrics]>=2.28"]
 
-    **Self-match exclusion.** If the manifest declares its own package
-    name as ``package_name`` (i.e. this manifest IS the library, not a
-    consumer of it), returns False. Without this, the library's own
-    repo gets misdispatched as a Tier 1/2 consumer and the
-    deployment-artefact producer fails with "no Rust binary found" /
-    equivalent. The check is generic -- applies to any marker dep
-    (scalo, the legacy hyperi-rustlib, future libs) and to consumer
-    projects whose own name happens to share a prefix (scalo's own
-    repo, for one).
+    A manifest that declares its own package name as ``package_name`` is
+    the library itself, so this returns False. Otherwise the library's own
+    repo is dispatched as a consumer and the producer fails with "no Rust
+    binary found".
 
-    Doesn't try to parse TOML beyond pulling the ``name`` field out of
-    a recognised top-level section because:
-
-      1. Avoids hauling `tomllib` in just for tier detection.
-      2. Catches every form (workspace inheritance, extras, comments)
-         that a stricter parse would have to handle case by case.
-      3. A false positive here no longer reaches a producer on its own
-         -- :func:`resolve_tier` still demands the binary / console
-         script before it dispatches.
+    A false positive does not reach a producer by itself because
+    :func:`resolve_tier` still demands the binary / console script.
 
     Args:
         manifest: Path to Cargo.toml or pyproject.toml.

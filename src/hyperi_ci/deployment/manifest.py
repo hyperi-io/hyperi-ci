@@ -7,14 +7,12 @@
 """Cheap manifest readers for tier detection.
 
 :mod:`hyperi_ci.deployment.detect` (which tier is this repo?) and anything
-that needs the producer's binary or entry point pull a handful of fields out
-of ``Cargo.toml`` / ``pyproject.toml``. They live here so there is one copy.
+that needs the producer's binary or entry point read a few fields out of
+``Cargo.toml`` / ``pyproject.toml``. They live here so there is one copy.
 
-**Substring-based, not a TOML parse.** These answers only name a producer,
-so a line-scoped scan is enough and avoids hauling
-``tomllib`` into the hot path. It also tolerates every form a stricter
-parse would have to special-case one at a time (workspace inheritance,
-dependency extras, inline comments).
+The readers are line-scoped scans, not a TOML parse. A scan tolerates
+workspace inheritance, dependency extras and inline comments without
+special-casing each.
 """
 
 import re
@@ -32,11 +30,8 @@ __all__ = [
     "rust_binary_name",
 ]
 
-# Top-level tables whose ``name`` field is the manifest's own package
-# name. Listed in scan precedence -- the first match wins, so a Cargo
-# manifest's ``[package] name`` beats any later table (unlikely in
-# Cargo, but pyproject.toml can legitimately have both ``[project]``
-# and ``[tool.poetry]`` and we treat them equivalently).
+# Tables whose ``name`` field is the manifest's own package name. The first
+# match in file order wins.
 _SELF_NAME_SECTIONS: frozenset[str] = frozenset(
     {"[package]", "[project]", "[tool.poetry]"}
 )
@@ -45,10 +40,8 @@ _SELF_NAME_SECTIONS: frozenset[str] = frozenset(
 def manifest_self_name(text: str) -> str | None:
     """Extract the manifest's own package name, if declared.
 
-    Scans for a ``name = "..."`` (or single-quoted) line inside one of
-    the recognised self-name sections (:data:`_SELF_NAME_SECTIONS`).
-    Returns the first match. Line-scoped, tolerant of extra whitespace
-    around ``=``.
+    Returns the first ``name = "..."`` (or single-quoted) line inside one
+    of :data:`_SELF_NAME_SECTIONS`.
 
     Args:
         text: Full manifest text.
@@ -66,18 +59,16 @@ def manifest_self_name(text: str) -> str | None:
             continue
         if current_section not in _SELF_NAME_SECTIONS:
             continue
-        # Cheap pre-filter: skip lines that don't even start with "name".
         if not stripped.startswith("name"):
             continue
         eq = stripped.find("=")
         if eq < 0:
             continue
-        # Confirm the LHS is exactly "name" (avoids matching "name-foo").
+        # Exactly "name", not "name-foo".
         lhs = stripped[:eq].strip()
         if lhs != "name":
             continue
         rhs = stripped[eq + 1 :].strip()
-        # Strip a trailing inline comment if present.
         if "#" in rhs:
             rhs = rhs[: rhs.index("#")].strip()
         if len(rhs) >= 2 and rhs[0] in {'"', "'"} and rhs[-1] == rhs[0]:
@@ -123,9 +114,7 @@ def extract_bin_names(text: str) -> list[str]:
 def _rhs_value(line: str) -> str | None:
     """Pull the string value out of a ``key = "value"  # comment`` line.
 
-    Strips a trailing inline comment and a trailing comma before
-    unquoting, so a commented manifest doesn't yield a name with the
-    comment glued to it.
+    Strips a trailing inline comment and comma before unquoting.
     """
     _, _, rhs = line.partition("=")
     rhs = rhs.strip()
@@ -140,11 +129,9 @@ def _rhs_value(line: str) -> str | None:
 def resolve_workspace_members(project_dir: Path, text: str) -> list[Path]:
     """Resolve a ``[workspace]`` table's members to real directories.
 
-    Expands cargo's glob members (``members = ["crates/*"]`` is the
-    idiomatic form) against the filesystem; a literal entry is returned
-    as-is if it exists. Only directories containing a ``Cargo.toml``
-    come back, so a stray match can't send a caller off probing
-    nonsense paths.
+    Expands glob members (``members = ["crates/*"]``) against the
+    filesystem and keeps literal entries that exist. Only directories
+    containing a ``Cargo.toml`` come back.
     """
     resolved: list[Path] = []
     for entry in extract_workspace_members(text):
@@ -179,9 +166,8 @@ def extract_workspace_members(text: str) -> list[str]:
         if not in_workspace:
             continue
         if stripped.startswith("members"):
-            # Could be `members = ["a", "b"]` or `members = [` (multi-line)
             if "[" in stripped and "]" in stripped:
-                # Single-line form
+                # Single-line form.
                 inner = stripped.split("[", 1)[1].rsplit("]", 1)[0]
                 collected.extend(_split_members(inner))
                 in_members = False
@@ -215,30 +201,21 @@ def rust_binary_name(
 
     Selection order:
 
-    1. The ``[package].name`` itself if a ``[[bin]]`` of the same name
-       exists. This is the cargo convention for the "main" binary --
-       a project named ``dfe-receiver`` with multiple ``[[bin]]`` blocks
-       (e.g. ``pgo-driver`` for instrumentation, ``dfe-receiver`` for
-       the app) wants the package-name-matching one to be the
-       generate-artefacts producer.
-    2. The ``[package].name`` even without an explicit ``[[bin]]`` block
-       -- covers the implicit-bin case.
-    3. The FIRST ``[[bin]]`` block, in declaration order. Last-resort
-       fallback for projects that diverge from cargo conventions.
-    4. Workspace fallback -- if the root Cargo.toml is ``[workspace]``-only
-       (no ``[package]``), resolve each ``members = [...]`` entry and apply
-       the same selection order. We pick the FIRST member that yields
-       a binary; tying members named like the workspace directory wins.
+    1. The ``[package].name`` when a ``[[bin]]`` of the same name exists
+       (the cargo convention for the main binary among several).
+    2. The ``[package].name`` alone (the implicit bin).
+    3. The first ``[[bin]]`` block.
+    4. For a ``[workspace]``-only root, the same order applied to each
+       member, preferring a member whose directory name matches the
+       workspace directory, then declaration order.
 
-    This answers "what is it called", NOT "does one exist" -- step 2
-    returns the package name for a library crate too. Use
-    :func:`produces_rust_binary` for the existence question.
+    This names the binary, it does not say one exists: step 2 returns the
+    package name for a library crate too. Use :func:`produces_rust_binary`
+    for existence.
 
-    ``_seen`` guards the workspace recursion. Cargo is supposed to
-    forbid a member from being a workspace root, but a member path can
-    legally point outward (``members = ["../shared"]``) and a malformed
-    manifest only errors at build time -- neither is a reason for tier
-    detection to blow the stack.
+    ``_seen`` bounds the workspace recursion, since a member path can point
+    outward (``members = ["../shared"]``) and a malformed manifest only
+    errors at build time.
     """
     cargo_toml = project_dir / "Cargo.toml"
     if not cargo_toml.is_file():
@@ -254,25 +231,19 @@ def rust_binary_name(
     package_name = extract_package_name(text)
     bin_names = extract_bin_names(text)
 
-    # 1. package.name + matching [[bin]] (cargo convention)
     if package_name and package_name in bin_names:
         return package_name
-    # 2. package.name (implicit bin)
     if package_name:
         return package_name
-    # 3. first [[bin]] (last-resort)
     if bin_names:
         return bin_names[0]
 
-    # 4. Workspace-only root: probe members in declaration order, prefer
-    #    a member whose path-leaf matches the workspace directory name
-    #    (e.g. workspace `dfe-archiver` with member `crates/archiver`).
+    # Workspace-only root: prefer a member whose directory name loosely
+    # matches the workspace directory ("dfe-archiver" -> "archiver").
     workspace_name = project_dir.name
     ranked: list[tuple[int, str]] = []
     for member_dir in resolve_workspace_members(project_dir, text):
-        leaf = member_dir.name  # e.g. "archiver" for "crates/archiver"
-        # Prefer leaves that match the workspace directory loosely
-        # ("dfe-archiver" -> "archiver"). Fall back to declaration order.
+        leaf = member_dir.name
         rank = 0 if leaf in workspace_name or workspace_name in leaf else 1
         candidate = rust_binary_name(member_dir, _seen)
         if candidate:
@@ -288,25 +259,19 @@ def produces_rust_binary(
 ) -> bool:
     """Return True when cargo would build at least one binary target here.
 
-    Answers the question :func:`rust_binary_name` deliberately doesn't:
-    a library crate has a package name but no binary to invoke
-    ``generate-artefacts`` on.
-
-    Follows cargo's target discovery closely enough for a routing
-    decision:
+    A library crate has a package name but no binary to invoke
+    ``generate-artefacts`` on, which :func:`rust_binary_name` cannot tell.
+    Follows cargo's target discovery:
 
     - an explicit ``[[bin]]`` table (named or not),
     - the implicit ``src/main.rs``,
     - the implicit ``src/bin/*.rs`` and ``src/bin/<name>/main.rs``,
     - for a ``[workspace]`` root, any member satisfying the above.
 
-    Deliberately NOT modelled: ``autobins = false``, which suppresses
-    the implicit forms. A crate that sets it reads as a producer here
-    and then fails loudly at the binary lookup -- the safe direction,
-    since a wrong skip is silent and a wrong dispatch is not.
+    ``autobins = false`` is not modelled. Such a crate reads as a producer
+    and fails loudly at the binary lookup, which beats a silent skip.
 
-    ``_seen`` bounds the workspace recursion; see
-    :func:`rust_binary_name`.
+    ``_seen`` bounds the workspace recursion, as in :func:`rust_binary_name`.
     """
     cargo_toml = project_dir / "Cargo.toml"
     if not cargo_toml.is_file():
@@ -319,8 +284,7 @@ def produces_rust_binary(
     if text is None:
         return False
 
-    # A [[bin]] table counts even without a name field -- cargo defaults
-    # the target name to the package name.
+    # Counts without a name field: cargo defaults it to the package name.
     if "[[bin]]" in text:
         return True
     src = project_dir / "src"
@@ -338,10 +302,7 @@ def produces_rust_binary(
     )
 
 
-# Tables that install a console script. PEP 621's `[project.scripts]`
-# is the modern form; poetry and setuptools-style entry points reach
-# the same place, and a producer written either way is still a
-# producer.
+# Tables that install a console script: PEP 621, poetry and setuptools forms.
 _SCRIPT_SECTIONS: tuple[str, ...] = (
     "[project.scripts]",
     "[tool.poetry.scripts]",
@@ -353,10 +314,8 @@ _SCRIPT_SECTIONS: tuple[str, ...] = (
 def python_entry_point(project_dir: Path) -> str | None:
     """Read the first declared console script from pyproject.toml.
 
-    Only used to find the script name; the caller resolves it against
-    ``uv run`` or ``PATH``. Sections are scanned in file order, so the
-    first script declared wins regardless of which table style the
-    project uses.
+    Returns the name only, which the caller resolves against ``uv run`` or
+    ``PATH``. Sections are scanned in file order.
     """
     pyproject = project_dir / "pyproject.toml"
     if not pyproject.is_file():
@@ -375,43 +334,35 @@ def python_entry_point(project_dir: Path) -> str | None:
             continue
         if "=" in stripped:
             name = stripped.split("=", 1)[0].strip()
-            # Strip quotes (TOML allows quoted keys for names with dashes).
+            # TOML allows quoted keys.
             return name.strip('"').strip("'")
     return None
 
 
-# Cargo tables whose entries affect what the shipped binary can do.
-# dev- and build-dependencies do not, so a `deployment` feature enabled
-# only there is not a producer signal.
+# dev- and build-dependencies are excluded: a `deployment` feature enabled
+# only there does not reach the shipped binary.
 _RUNTIME_DEP_SECTIONS = ("[dependencies]", "[workspace.dependencies]")
 
 
 def dep_features(text: str, dep_name: str) -> frozenset[str] | None:
     """Features enabled on a Cargo dependency.
 
-    Returns the feature set, or ``None`` when it can't be determined
-    from this manifest alone -- an absent dep, or workspace inheritance
-    (``scalo.workspace = true``) whose real feature list lives in the
-    workspace root.
-
-    ``None`` is deliberately distinct from an empty set: "I don't know"
-    must not read as "no features", because callers treat a known-empty
-    set as a negative signal.
+    Returns ``None`` when this manifest cannot say: an absent dep, or
+    workspace inheritance (``scalo.workspace = true``) whose feature list
+    lives in the workspace root. ``None`` is distinct from an empty set
+    because callers treat a known-empty set as a negative signal.
     """
     entry = _dep_entry(text, dep_name)
     if entry is None:
         return None
     match = re.search(r"features\s*=\s*\[(.*?)\]", entry, re.DOTALL)
     if match is None:
-        # `scalo = { workspace = true }` inherits the workspace's feature
-        # list -- unknown from here. Checked BEFORE the plain-string case
-        # because a member that ALSO lists features (the common
-        # `{ workspace = true, features = [...] }` form) knows its own
-        # answer: workspace inheritance there is about the VERSION.
+        # Inherits the workspace feature list. A member that also lists
+        # features took the other branch, where inheritance covers only
+        # the version.
         if re.search(r"workspace\s*=\s*true", entry):
             return None
-        # A plain `scalo = "2.9"` enables default features only -- known,
-        # and knowably without `deployment`.
+        # A plain `scalo = "2.9"` enables default features only.
         return frozenset()
     return frozenset(
         token.strip().strip('"').strip("'")
@@ -423,8 +374,7 @@ def dep_features(text: str, dep_name: str) -> frozenset[str] | None:
 def _dep_entry(text: str, dep_name: str) -> str | None:
     """Return the raw declaration text for a dependency, if present.
 
-    Collects an inline table across lines so a manifest that wraps its
-    ``features = [...]`` array still yields the whole entry.
+    Joins a multi-line inline table so a wrapped ``features = [...]`` is whole.
     """
     in_deps = False
     collecting: list[str] = []
@@ -445,8 +395,7 @@ def _dep_entry(text: str, dep_name: str) -> str | None:
         if not in_deps or "=" not in stripped:
             continue
         lhs = stripped.split("=", 1)[0].strip()
-        # Matches `scalo = ...` and the dotted `scalo.features = ...` /
-        # `scalo.workspace = ...` forms.
+        # Also matches the dotted `scalo.features = ...` form.
         if lhs != dep_name and not lhs.startswith(f"{dep_name}."):
             continue
         depth = stripped.count("{") - stripped.count("}")
@@ -466,7 +415,7 @@ def _read(manifest: Path) -> str | None:
 
 
 def _identity(project_dir: Path) -> Path:
-    """Return a stable key for cycle detection across symlinks and ``..`` hops."""
+    """Return a resolved key for cycle detection across symlinks and ``..``."""
     try:
         return project_dir.resolve()
     except OSError:
