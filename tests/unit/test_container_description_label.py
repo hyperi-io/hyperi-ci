@@ -45,7 +45,6 @@ def _labels_from_dispatch(config: CIConfig) -> dict[str, str]:
             with patch.object(stage, "_read_sha", return_value="deadbeef"):
                 stage._dispatch_build(
                     dockerfile_path=dockerfile,
-                    container_cfg={},
                     config=config,
                     org=org,
                     registry_bases=["ghcr.io/hyperi-io"],

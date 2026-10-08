@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from hyperi_ci.config import CIConfig, load_config
+from hyperi_ci.config import CIConfig, load_config, shipped_default
 
 
 def _make_config(legacy_target: str = "oss") -> CIConfig:
@@ -76,15 +76,16 @@ class TestPublishDestinationRouting:
         config = _make_config("oss")
         assert config.destination_for("unknown") == []
 
-    def test_no_destinations_configured(self) -> None:
+    def test_no_destinations_configured_takes_the_shipped_map(self) -> None:
         config = CIConfig(_raw={})
-        assert config.destination_for("python") == []
+        assert config.destination_for("python") == ["pypi"]
 
-    def test_empty_destinations_map(self) -> None:
+    def test_an_empty_legacy_map_does_not_opt_out(self) -> None:
+        """Opting out is a falsy entry, never an empty map."""
         config = CIConfig(
             _raw={"publish": {"destinations_oss": {}}},
         )
-        assert config.destination_for("python") == []
+        assert config.destination_for("python") == ["pypi"]
 
 
 class TestPublishDestinations:
@@ -103,9 +104,11 @@ class TestPublishDestinations:
         assert len(dests) == 1
         assert dests[0]["python"] == "pypi"
 
-    def test_no_raw_publish_section_returns_empty(self) -> None:
+    def test_no_raw_publish_section_returns_the_shipped_map(self) -> None:
         config = CIConfig(_raw={})
-        assert config.publish_destinations() == []
+        assert config.publish_destinations() == [
+            shipped_default("release.destinations")
+        ]
 
 
 class TestOSSDestinationHygiene:

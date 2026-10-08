@@ -155,7 +155,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     # --- audit: runs on any JS/TS project, independent of npm scripts ---
     mode = resolve_tool_mode("audit", config, language="typescript")
-    audit_level = config.get("quality.typescript.audit_level", "moderate")
+    audit_level = config.setting("quality.typescript.audit_level")
     yarn_major = detect_yarn_version() if pm == "yarn" else 0
     audit_cmd = _audit_command(audit_level=audit_level, pm=pm, yarn_major=yarn_major)
     audit_ignores = for_tool(ignores, f"{pm}-audit")

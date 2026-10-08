@@ -415,12 +415,8 @@ def _run_feature_matrix(
         True when the check passed or was disabled with a reason.
 
     """
-    fm_config = config.get("quality.rust.feature_matrix", {})
-    if not isinstance(fm_config, dict):
-        fm_config = {}
-
-    enabled = fm_config.get("enabled", True)
-    reason = fm_config.get("reason", "")
+    enabled = config.setting("quality.rust.feature_matrix.enabled")
+    reason = config.setting("quality.rust.feature_matrix.reason")
 
     if not enabled:
         if not reason or not str(reason).strip():
@@ -442,7 +438,7 @@ def _run_feature_matrix(
 
     # A workspace mixing lib and bin-only members gets one -p scope per member,
     # each with its own --lib or --bins.
-    extra = fm_config.get("extra_args", [])
+    extra = config.setting("quality.rust.feature_matrix.extra_args")
     extra = [str(x) for x in extra] if isinstance(extra, list) else []
 
     lib_map = _package_lib_map()
@@ -476,11 +472,11 @@ def _run_feature_matrix(
 
     tuning: list[str] = []
 
-    exclude = fm_config.get("exclude", [])
+    exclude = config.setting("quality.rust.feature_matrix.exclude")
     if isinstance(exclude, list) and exclude:
         tuning.extend(["--exclude-features", ",".join(str(x) for x in exclude)])
 
-    mutex = fm_config.get("mutually_exclusive", [])
+    mutex = config.setting("quality.rust.feature_matrix.mutually_exclusive")
     if isinstance(mutex, list):
         for pair in mutex:
             if isinstance(pair, list) and len(pair) >= 2:
@@ -504,7 +500,7 @@ def _run_feature_matrix(
             _RESOLVER_ONE_TITLE,
         )
 
-    if fm_config.get("also_check_no_default_features", True):
+    if config.setting("quality.rust.feature_matrix.also_check_no_default_features"):
         for scope_args, target_args in scopes:
             cmd = [
                 "cargo",
@@ -697,11 +693,7 @@ def _run_rustdoc_hint(config: CIConfig, *, workspace: bool = False) -> None:
         workspace: Pass ``--workspace``, for a root-package workspace.
 
     """
-    rd_config = config.get("quality.rust.rustdoc_hint", {})
-    if not isinstance(rd_config, dict):
-        rd_config = {}
-
-    if not rd_config.get("enabled", True):
+    if not config.setting("quality.rust.rustdoc_hint.enabled"):
         return
 
     if not shutil.which("cargo"):

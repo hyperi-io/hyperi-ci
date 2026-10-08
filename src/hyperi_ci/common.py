@@ -289,7 +289,7 @@ def _skip_requested(config: CIConfig | None) -> bool:
         )
     if config is None:
         return False
-    return truthy(config.get("build.skip_optimize", False))
+    return truthy(config.setting("build.skip_optimize"))
 
 
 def release_unoptimized() -> bool:

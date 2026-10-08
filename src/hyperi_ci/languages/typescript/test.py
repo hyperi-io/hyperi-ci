@@ -35,7 +35,7 @@ _DEFAULT_SCRIPT = "test"
 
 def _detect_test_runner(config: CIConfig) -> str:
     """Detect test runner: vitest or jest."""
-    configured = config.get("test.typescript.runner", "auto")
+    configured = config.setting("test.typescript.runner")
     if configured != "auto":
         return configured
 
@@ -70,7 +70,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     if (
         script == _DEFAULT_SCRIPT
-        and config.get("test.coverage", True)
+        and config.setting("test.coverage")
         and runner in ("vitest", "jest")
     ):
         cmd.extend(["--", "--coverage"])

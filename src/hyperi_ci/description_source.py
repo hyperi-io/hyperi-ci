@@ -195,7 +195,7 @@ def resolve_description(
 
     """
     if config is not None:
-        declared = _clean(config.get("description", ""))
+        declared = _clean(config.setting("description"))
         if declared:
             return declared, ".hyperi-ci.yaml"
 

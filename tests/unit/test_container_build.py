@@ -338,7 +338,6 @@ class TestLatestStaysOnTheNewestRelease:
                 with patch.object(stage, "_read_sha", return_value="deadbee"):
                     stage._dispatch_build(
                         dockerfile_path=Path("Dockerfile"),
-                        container_cfg={},
                         config=CIConfig(_raw={"description": "demo"}),
                         org=OrgConfig(),
                         registry_bases=["ghcr.io/hyperi-io"],

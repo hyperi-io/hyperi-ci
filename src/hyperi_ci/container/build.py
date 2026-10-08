@@ -13,6 +13,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from hyperi_ci.common import echo_chunk, error, info, stream_cmd, success, warn
+from hyperi_ci.config import shipped_default
 from hyperi_ci.container.labels import (
     labels_to_build_args,
     labels_to_index_annotation_args,
@@ -29,10 +30,6 @@ MIRROR_MARKERS = (
     "File has unexpected size",
 )
 
-# Last resort when `release.container` carries neither key; defaults.yaml owns them.
-_DEFAULT_BUILD_ATTEMPTS = 3
-_DEFAULT_RETRY_DELAY_SECONDS = 60.0
-
 
 def mirror_marker(output: str) -> str | None:
     """Return the first :data:`MIRROR_MARKERS` entry found in ``output``, or None."""
@@ -45,12 +42,14 @@ def retry_settings(container_cfg: Mapping[str, object]) -> tuple[int, float]:
     A value that is not a number, or is below 1 attempt or 0 seconds, falls
     back to the default rather than failing the build.
     """
-    attempts = container_cfg.get("build_attempts", _DEFAULT_BUILD_ATTEMPTS)
-    delay = container_cfg.get("build_retry_delay_seconds", _DEFAULT_RETRY_DELAY_SECONDS)
+    shipped_attempts = shipped_default("release.container.build_attempts")
+    shipped_delay = shipped_default("release.container.build_retry_delay_seconds")
+    attempts = container_cfg.get("build_attempts", shipped_attempts)
+    delay = container_cfg.get("build_retry_delay_seconds", shipped_delay)
     if isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 1:
-        attempts = _DEFAULT_BUILD_ATTEMPTS
+        attempts = shipped_attempts
     if isinstance(delay, bool) or not isinstance(delay, int | float) or delay < 0:
-        delay = _DEFAULT_RETRY_DELAY_SECONDS
+        delay = shipped_delay
     return attempts, float(delay)
 
 

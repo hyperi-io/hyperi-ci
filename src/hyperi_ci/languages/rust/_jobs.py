@@ -22,14 +22,11 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from hyperi_ci.common import info, warn
-from hyperi_ci.config import CIConfig
+from hyperi_ci.config import CIConfig, shipped_default
 from hyperi_ci.cpu import cpu_budget
 from hyperi_ci.memory import GIB, MemoryLimit, memory_limit
 
 JOBS_ENV = "CARGO_BUILD_JOBS"
-
-# Last resort only: defaults.yaml ships `build.rust.memory_per_job_gib`.
-_FALLBACK_GIB_PER_JOB = 2.0
 
 _CONFIG_NAMES = ("config.toml", "config")
 
@@ -90,7 +87,7 @@ def config_file_setting_jobs(start: Path, cargo_home: Path) -> Path | None:
 
 def _override(config: CIConfig) -> int | None:
     """Return ``build.rust.jobs`` as a count, or None for ``auto`` or a bad value."""
-    value = config.get("build.rust.jobs", "auto")
+    value = config.setting("build.rust.jobs")
     if value == "auto":
         return None
     # bool is an int subclass, and HYPERCI_* parses "1" as True.
@@ -101,15 +98,16 @@ def _override(config: CIConfig) -> int | None:
 
 
 def _gib_per_job(config: CIConfig) -> float:
-    """Return ``build.rust.memory_per_job_gib``, or the fallback when unusable."""
-    value = config.get("build.rust.memory_per_job_gib", _FALLBACK_GIB_PER_JOB)
+    """Return ``build.rust.memory_per_job_gib``, the shipped value when unusable."""
+    value = config.setting("build.rust.memory_per_job_gib")
     if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
         return float(value)
+    shipped = float(shipped_default("build.rust.memory_per_job_gib"))
     warn(
         f"  build.rust.memory_per_job_gib: {value!r} is not a positive number, "
-        f"using {_FALLBACK_GIB_PER_JOB}"
+        f"using {shipped}"
     )
-    return _FALLBACK_GIB_PER_JOB
+    return shipped
 
 
 def cargo_jobs_env(

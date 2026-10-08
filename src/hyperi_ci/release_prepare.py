@@ -220,7 +220,7 @@ def _stamp_phase(version: str, root: Path, stamped: Path) -> int:
 def _package_phase(version: str, language: str, root: Path, out_dir: Path) -> int:
     config = load_config(reload=True, project_dir=root)
     facts: dict[str, Any] = {}
-    if config.get("release.enabled", False):
+    if config.setting("release.enabled"):
         # The handlers expect the project root as cwd.
         cwd = Path.cwd()
         os.chdir(root)

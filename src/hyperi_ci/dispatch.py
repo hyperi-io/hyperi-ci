@@ -194,7 +194,7 @@ def _run_local_gates(config: CIConfig) -> int:
     `quality.local_gates` to run them in its local check. They are declared per
     repo because a path named here would be wrong for every other consumer.
     """
-    gates = config.get("quality.local_gates", []) or []
+    gates = config.setting("quality.local_gates") or []
     if not gates:
         return 0
 
@@ -225,7 +225,7 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
     with group("Deprecated file check"):
         deprecated_files.scan()
 
-    if not config.get("quality.enabled", True):
+    if not config.setting("quality.enabled"):
         note_quality_disabled(
             _LANGUAGE_ALIASES.get(language, language),
             str(config.get("quality.reason") or ""),
@@ -301,7 +301,7 @@ def stage_quality(language: str, config: CIConfig, *, local: bool = False) -> in
 
 def stage_test(language: str, config: CIConfig) -> int:
     """Run tests -- dispatch to language-specific handler."""
-    if not config.get("test.enabled", True):
+    if not config.setting("test.enabled"):
         info("Tests disabled in configuration")
         return 0
 
@@ -336,11 +336,11 @@ def stage_test(language: str, config: CIConfig) -> int:
 
 def stage_build(language: str, config: CIConfig, *, local: bool = False) -> int:
     """Build -- supports multiple strategies."""
-    if not config.get("build.enabled", True):
+    if not config.setting("build.enabled"):
         info("Build disabled in configuration")
         return 0
 
-    strategies = config.get("build.strategies", ["native"])
+    strategies = config.setting("build.strategies")
     if isinstance(strategies, str):
         strategies = [strategies]
 
@@ -437,7 +437,7 @@ def stage_release(language: str, config: CIConfig) -> int:
         info("To release: commit, push, and let semantic-release handle it")
         return 1
 
-    if not config.get("release.enabled", False):
+    if not config.setting("release.enabled"):
         info("Release disabled in configuration")
         return 0
 

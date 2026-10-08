@@ -434,8 +434,9 @@ def test_dispatch_build_hands_buildx_the_licence_copy(
     with patch("hyperi_ci.description_source.github_description", return_value=None):
         rc = stage._dispatch_build(
             dockerfile_path=df,
-            container_cfg={"context": str(_REPO_ROOT)},
-            config=CIConfig(_raw={}),
+            config=CIConfig(
+                _raw={"release": {"container": {"context": str(_REPO_ROOT)}}}
+            ),
             org=OrgConfig(),
             registry_bases=["ghcr.io/hyperi-io"],
             push_mode="release",

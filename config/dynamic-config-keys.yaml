@@ -45,6 +45,7 @@ keys:
   quality.rust.audit: src/hyperi_ci/languages/quality_common.py
   quality.rust.osv_scanner: src/hyperi_ci/languages/quality_common.py
   quality.rust.deny: src/hyperi_ci/languages/quality_common.py
+  quality.rust.feature_matrix.warnings: src/hyperi_ci/languages/quality_common.py
 
   # get_test_ignore() builds `quality.<language>.test_ignore`.
   quality.golang.test_ignore: src/hyperi_ci/languages/quality_common.py
