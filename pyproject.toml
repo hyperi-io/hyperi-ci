@@ -36,8 +36,8 @@ classifiers = [
 ]
 dependencies = [
     # Pin to >= so transitive resolution can pick up bug fixes / new
-    # features without a manifest edit. Bump the floor when we adopt
-    # new scalo APIs (e.g. deployment contract module added in 2.28).
+    # features without a manifest edit. Only scalo.logger is imported, so
+    # bump the floor when a fix or API there is needed.
     # No [metrics] extra: hyperi-ci is a CLI, not a long-running service,
     # so it takes scalo's opt-out and skips the Prometheus + OTel SDK stack.
     "scalo>=2.30.3",
@@ -83,9 +83,6 @@ line-length = 88
 # version_source.py parsing on an older python3 -- and predict-version loads
 # that file by path before any install.
 target-version = "py312"
-extend-exclude = [
-    "test-projects",                             # vendored fixture trees (node_modules, .venv etc.)
-]
 
 [tool.ruff.lint]
 # D goes in blocking from the start rather than through the usual warn-first

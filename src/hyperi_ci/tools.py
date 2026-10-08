@@ -245,11 +245,6 @@ _REGISTRY: dict[str, ToolInfo] = {
 }
 
 
-def tool_info(name: str) -> ToolInfo | None:
-    """Return the registry entry for ``name`` (or None if unknown)."""
-    return _REGISTRY.get(name)
-
-
 def missing_tool_notice(
     name: str,
     *,

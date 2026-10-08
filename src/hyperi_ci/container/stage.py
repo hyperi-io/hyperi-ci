@@ -106,24 +106,6 @@ def _read_sha() -> str:
     return result.stdout.strip() if result.returncode == 0 else "unknown"
 
 
-def _is_release_mode() -> bool:
-    """Return the DEPRECATED bool view (delegates to :mod:`hyperi_ci.release_mode`).
-
-    Kept for out-of-tree callers; in-tree code uses the tri-state
-    :func:`hyperi_ci.release_mode.resolve_push_mode` (branch-mode).
-    """
-    return resolve_push_mode() == RELEASE
-
-
-def _is_push_to_main() -> bool:
-    """Return ``not _is_release_mode()`` (deprecated alias for out-of-tree callers).
-
-    The legacy ``push_to_main`` flag was the validate-only signal,
-    named confusingly. Will be removed once consumers update.
-    """
-    return not _is_release_mode()
-
-
 def _dev_push_opt_in(container_cfg: dict) -> bool:
     """Return the ``release.container.dev_push`` opt-in, coerced to bool."""
     raw = container_cfg.get("dev_push", False)

@@ -48,14 +48,6 @@ from scalo.logger import logger
 from hyperi_ci.deps import versions as ver
 from hyperi_ci.deps.surfaces import Surface, load, repo_files
 
-# Manifest filename -> ecosystem name. A repo may carry every one of these at
-# once; this is a lookup, never a first-match-wins detection.
-MANIFESTS: dict[str, str] = {
-    "pyproject.toml": "python",
-    "Cargo.toml": "rust",
-    "package.json": "node",
-}
-
 
 @dataclass
 class Ecosystem:

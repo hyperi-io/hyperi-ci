@@ -309,7 +309,7 @@ Your Project                          hyperi-ci
                                           ├── cli.py                  (entry point)
                                           ├── dispatch.py             (stage router)
                                           ├── push.py                 (push --release)
-                                          ├── publish/                (binaries + retro dispatch)
+                                          ├── release/                (binaries, charts, dispatch)
                                           ├── container/              (docker build/push)
                                           ├── deployment/             (contract / artefact gen)
                                           └── languages/              (per-language stage handlers)

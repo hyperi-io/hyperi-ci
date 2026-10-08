@@ -392,12 +392,6 @@ def error(msg: str) -> None:
     logger.error(_inert(msg))
 
 
-def fatal(msg: str) -> None:
-    """Fatal error -- log and exit with code 1."""
-    logger.critical(_inert(msg))
-    sys.exit(1)
-
-
 @contextmanager
 def group(title: str) -> Iterator[None]:
     """Collapsible group in GH Actions logs. No-op elsewhere."""
