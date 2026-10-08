@@ -6,10 +6,10 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 #
 # The hyperi-ci CLI is Python, so EVERY job (any language) needs uv + Python
-# + the project's native build deps before it can run `hyperi-ci ...`. That
-# trio was copy-pasted into every quality/test/build job of all four language
-# workflows -- collapsed here. Language-specific toolchains (rustup, setup-go,
-# setup-node) stay in the SME's workflow, AFTER this step.
+# + the project's native build deps before it can run `hyperi-ci ...`, and
+# every quality/test/build job of the four language workflows calls this.
+# Language toolchains (rustup, setup-go, setup-node) and project dependency
+# installs (uv sync, install-deps) stay in the language workflow.
 #
 # Referenced from reusable workflows as
 #   hyperi-io/hyperi-ci/.github/actions/setup-runtime@main
@@ -23,11 +23,10 @@ inputs:
     description: Project language for native deps (rust | python | typescript | golang)
     required: true
   python-version:
-    description: Python version for the hyperi-ci CLI runtime
+    description: Python version to install
     required: false
-    # The CLI runtime, not the project's interpreter. Rust/Go/TS repos have no
-    # Python of their own, so the fleet default is the right answer here;
-    # python-ci.yml resolves its version from the project instead (issue #150).
+    # Rust/Go/TS repos have no Python of their own, so the fleet default runs
+    # the CLI; python-ci.yml passes the project's resolved version (issue #150).
     # hyperi-ci:pin runtimes.python
     default: "3.14"
   force-python-install:
