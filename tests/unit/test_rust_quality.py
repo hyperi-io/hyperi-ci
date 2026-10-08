@@ -1262,3 +1262,27 @@ class TestAdvisoryDbUnreachable:
         ok, runs = self._run(monkeypatch, [self._DB_ERROR, self._CLEAN], "blocking")
         assert ok is True
         assert runs == 2
+
+    @pytest.mark.parametrize(
+        "stderr",
+        [
+            "Error: failed to fetch advisory database "
+            "https://github.com/RustSec/advisory-db with cli\n\n"
+            "Caused by:\n    failed to fetch latest changes\n",
+            "Error: failed to load advisory database\n\n"
+            "Caused by:\n    I/O error: unexpected end of file\n",
+        ],
+        ids=["fetch", "load"],
+    )
+    def test_cargo_deny_db_errors_are_unreachable(self, stderr: str) -> None:
+        from hyperi_ci.languages.rust import quality
+
+        result = subprocess.CompletedProcess(["cargo", "deny"], 1, "", stderr)
+        assert quality._advisory_db_unreachable(result) is True
+
+    def test_a_cargo_deny_finding_is_not_unreachable(self) -> None:
+        from hyperi_ci.languages.rust import quality
+
+        stderr = "error[vulnerability]: Use-after-free in foo\nadvisories FAILED\n"
+        result = subprocess.CompletedProcess(["cargo", "deny"], 1, "", stderr)
+        assert quality._advisory_db_unreachable(result) is False

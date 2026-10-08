@@ -186,10 +186,18 @@ def _split_feature_sets(features: str) -> list[str]:
     return [f.strip() for f in features.split("|") if f.strip()]
 
 
+# cargo audit's message, then cargo deny's fetch and load messages.
+_ADVISORY_DB_ERRORS = (
+    "error loading advisory database",
+    "failed to fetch advisory database",
+    "failed to load advisory database",
+)
+
+
 def _advisory_db_unreachable(result: subprocess.CompletedProcess[str]) -> bool:
-    """Whether cargo audit failed because it could not load its advisory database."""
+    """Whether cargo audit or cargo deny failed to load its advisory database."""
     output = f"{result.stdout or ''}{result.stderr or ''}".lower()
-    return result.returncode != 0 and "error loading advisory database" in output
+    return result.returncode != 0 and any(e in output for e in _ADVISORY_DB_ERRORS)
 
 
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
@@ -304,6 +312,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         ["cargo", "deny", *workspace_args, "check"],
         mode,
         pinned="cargo-deny",
+        retry_unreachable=_advisory_db_unreachable,
     ):
         had_failure = True
 
