@@ -153,7 +153,7 @@ release:
     library: <version>      # a published scalo-service version, pulled from <registry>/scalo-service
 ```
 
-Any finding against the library's `schema/deployment-contract.v<schema_version>.schema.json` fails the step. The chart is the library's `skeleton/`, `files/contract.json` byte for byte as emitted or committed, a `Chart.yaml` naming the app, release version and image tag, and values built from the `config_schema` nodes marked `x-scalo-dial: big|small`, commented out so app defaults stand. Same inputs, same bytes.
+Any finding against the library's `schema/deployment-contract.v<schema_version>.schema.json` fails the step. The chart is the library's `skeleton/`, `files/contract.json` byte for byte as emitted or committed, a `Chart.yaml` naming the app, release version and image tag, and values built from the `config_schema` nodes marked `x-scalo-dial: big|small`, commented out so app defaults stand. `helm dependency build` then fetches the library into `charts/`.
 
 `--image <repo>:<tag>@sha256:<digest>` is required, with `<repo>` the `<image_registry>/<app_name>` the library pulls. `app_name` must be a Kubernetes Service name, which starts with a letter. The chart's path, in a new temp dir or `--output-dir` outside the repo, is the one line on stdout. The release tail does not call it yet.
 

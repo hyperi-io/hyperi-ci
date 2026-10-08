@@ -402,6 +402,19 @@ def _pull_library(registry: str, library: str, scratch: Path) -> Path:
     return scratch / LIBRARY
 
 
+def build_dependency(chart: Path, registry: str) -> None:
+    """Fetch scalo-service into ``chart/charts``, which a render needs first.
+
+    Raises:
+        ChartError: helm could not fetch it. The chart directory is removed.
+
+    """
+    rc, out = _helm("dependency", "build", str(chart), registry=registry)
+    if rc != 0:
+        shutil.rmtree(chart)
+        raise ChartError(f"helm dependency build {chart.name} failed:\n{out}")
+
+
 def assemble_chart(
     config: CIConfig,
     root: Path,
@@ -414,6 +427,10 @@ def assemble_chart(
     version: str | None = None,
 ) -> tuple[int, Path | None]:
     """Assemble the thin chart ``release.helm`` describes, if it describes one.
+
+    A library pulled from the registry is also built into the chart's
+    ``charts/``. A ``library_dir`` is read offline, so the chart is left
+    for ``helm dependency build``.
 
     Returns:
         ``(exit code, chart directory)``. The directory is None when the
@@ -456,7 +473,8 @@ def assemble_chart(
         with tempfile.TemporaryDirectory(prefix="hyperi-ci-assemble-") as tmp:
             scratch = Path(tmp)
             raw_contract = load_contract(str(setting), root, scratch, binary)
-            if library_dir is None:
+            pulled = library_dir is None
+            if pulled:
                 if not _ensure_helm():
                     return 1, None
                 library_dir = _pull_library(registry, str(library), scratch)
@@ -470,6 +488,13 @@ def assemble_chart(
                 library=str(library),
                 registry=registry,
             )
+            if pulled:
+                build_dependency(chart, registry)
+            else:
+                info(
+                    f"{LIBRARY} was read from {library_dir}: run helm dependency "
+                    f"build on {chart} before rendering it"
+                )
     except ChartError as exc:
         error(str(exc))
         return 1, None
