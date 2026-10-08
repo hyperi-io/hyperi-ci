@@ -303,6 +303,45 @@ def _report(results: list[Published], registry: str, new: list[str]) -> None:
         )
 
 
+def _assembled(
+    config: CIConfig,
+    root: Path,
+    out: Path,
+    *,
+    image: str,
+    registry: str,
+    version: str,
+) -> Chart:
+    """Assemble the ``release.helm.contract`` chart in ``out``, its library built in.
+
+    Raises:
+        ChartError: The contract cannot be read or the chart not assembled.
+
+    """
+    from hyperi_ci.release.assemble import assemble_chart, release_contract
+
+    raw = release_contract(str(config.get("release.helm.contract")), root)
+    rc, built = assemble_chart(
+        config,
+        root,
+        image=image,
+        output_dir=out,
+        registry=registry,
+        version=version,
+        contract=raw,
+    )
+    if rc != 0 or built is None:
+        raise ChartError("the release.helm.contract chart was not assembled")
+    app_version = _read_chart(built).get("appVersion")
+    return Chart(
+        path=built,
+        name=built.name,
+        app_version=str(app_version) if app_version else None,
+        has_deps=False,
+        file_deps=(),
+    )
+
+
 def publish_charts(
     config: CIConfig,
     root: Path,
@@ -310,23 +349,36 @@ def publish_charts(
     charts: list[str] | None = None,
     registry: str | None = None,
     version: str | None = None,
+    image: str | None = None,
     dry_run: bool = False,
 ) -> tuple[int, list[Published]]:
     """Package every configured chart and push it, reusing any version already there.
 
     Flags beat config. With no ``charts`` flag, ``release.helm.enabled`` decides
-    whether anything runs at all.
+    whether anything runs at all, and a set ``release.helm.contract`` adds the
+    chart assembled from it, pinned to ``image``. That chart is never built
+    without a pushed image to pin.
 
     Returns:
         ``(exit code, results)``. A dry run packages but pushes nothing, so
         its results carry no digest.
 
     """
+    contract = None
     if charts is None:
         if not config.get("release.helm.enabled", False):
             info("release.helm.enabled is false -- no Helm charts to publish")
             return 0, []
         charts = list(config.get("release.helm.charts") or [])
+        contract = config.get("release.helm.contract") or None
+    if contract and not image:
+        error(
+            "release.helm.contract is set, but no pushed image reached "
+            "publish-charts. The chart pins its image by digest, so a release "
+            "that pushed no container has nothing to pin. Pass --image "
+            "<repo>:<tag>@sha256:<digest> or set HYPERCI_CHART_IMAGE."
+        )
+        return 1, []
     registry = (registry or config.get("release.helm.registry") or "").rstrip("/")
     if not registry.startswith("oci://"):
         error(f"Helm registry must be an oci:// URL, got {registry!r}")
@@ -345,12 +397,32 @@ def publish_charts(
     results: list[Published] = []
     new: list[str] = []
     try:
-        resolved = resolve_charts(charts, root)
+        # A contract alone is a complete chart list.
+        resolved = resolve_charts(charts, root) if charts or not contract else []
         if not dry_run:
             _login(registry)
-        with tempfile.TemporaryDirectory(prefix="hyperi-ci-charts-") as scratch:
-            for chart in resolved:
-                tgz = package(chart, version, root.resolve(), Path(scratch))
+        with (
+            tempfile.TemporaryDirectory(prefix="hyperi-ci-charts-") as scratch,
+            tempfile.TemporaryDirectory(prefix="hyperi-ci-assembled-") as built,
+        ):
+            targets = [(chart, root.resolve()) for chart in resolved]
+            if contract and image:
+                chart = _assembled(
+                    config,
+                    root,
+                    Path(built),
+                    image=image,
+                    registry=registry,
+                    version=version,
+                )
+                if any(c.name == chart.name for c in resolved):
+                    raise ChartError(
+                        f"{chart.name} is both a committed chart and the "
+                        "release.helm.contract chart"
+                    )
+                targets.append((chart, Path(built).resolve()))
+            for chart, base in targets:
+                tgz = package(chart, version, base, Path(scratch))
                 if dry_run:
                     info(f"  {chart.name} {version}: packaged {tgz.name}, not pushed")
                     results.append(Published(chart.name, version, None, None))

@@ -58,6 +58,9 @@ from hyperi_ci.repo_path import RepoPathError, confine
 
 LIBRARY = "scalo-service"
 CONTRACT_FILE = "deployment-contract.json"
+# Rides the Build job's dist/ artefact to Tag & Release. A subdirectory, as the
+# GitHub Release and R2 uploads take only dist/'s top-level files.
+EMITTED_DIR = "dist/chart-contract"
 SKELETON_DIR = "skeleton"
 VALUES_SCHEMA = "values.schema.json"
 SCHEMA_PATH = "schema/deployment-contract.v{version}.schema.json"
@@ -485,6 +488,14 @@ def producer_command(root: Path, binary: str | None = None) -> list[str]:
     raise ChartError(f"release.helm.contract is emit, but {decision.reason}")
 
 
+def _committed_contract(setting: str, root: Path) -> bytes:
+    try:
+        path = confine(setting, root, key="release.helm.contract")
+    except RepoPathError as exc:
+        raise ChartError(str(exc)) from exc
+    return _read_bytes(path, "contract")
+
+
 def load_contract(setting: str, root: Path, scratch: Path, binary: str | None) -> bytes:
     """Return the bytes of the contract ``release.helm.contract`` names.
 
@@ -495,11 +506,7 @@ def load_contract(setting: str, root: Path, scratch: Path, binary: str | None) -
 
     """
     if setting != "emit":
-        try:
-            path = confine(setting, root, key="release.helm.contract")
-        except RepoPathError as exc:
-            raise ChartError(str(exc)) from exc
-        return _read_bytes(path, "contract")
+        return _committed_contract(setting, root)
     cmd = [*producer_command(root, binary), "generate-artefacts"]
     info(f"Emitting the contract: {' '.join(cmd)}")
     emitted = scratch / "emitted"
@@ -516,6 +523,56 @@ def load_contract(setting: str, root: Path, scratch: Path, binary: str | None) -
     if result.returncode != 0:
         raise ChartError(f"{' '.join(cmd)} failed:\n{result.stdout}")
     return _read_bytes(emitted / CONTRACT_FILE, "emitted contract")
+
+
+def emit_contract(config: CIConfig, root: Path) -> int:
+    """Leave the emitted contract in ``dist/`` for the release tail, when one is emitted.
+
+    Tag & Release holds the publish credentials and runs no repo code, so the
+    app's ``generate-artefacts`` runs here, in the Build job, beside the binary
+    it just built. Nothing happens unless ``release.helm.contract`` is ``emit``.
+
+    Returns:
+        0 when nothing is emitted or the contract was written, 1 on failure.
+
+    """
+    if not config.get("release.helm.enabled", False):
+        return 0
+    if config.get("release.helm.contract") != "emit":
+        return 0
+    target = root / EMITTED_DIR / CONTRACT_FILE
+    try:
+        with tempfile.TemporaryDirectory(prefix="hyperi-ci-emit-") as tmp:
+            raw = load_contract("emit", root, Path(tmp), None)
+        _parse_json(raw, "the emitted contract")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(raw)
+    except (ChartError, OSError) as exc:
+        error(f"release.helm.contract is emit: {exc}")
+        return 1
+    success(f"Emitted the deployment contract to {target.relative_to(root)}")
+    return 0
+
+
+def release_contract(setting: str, root: Path) -> bytes:
+    """Return the contract the release tail assembles from, running no repo code.
+
+    ``emit`` reads what :func:`emit_contract` left in ``dist/``. A path reads
+    the committed file.
+
+    Raises:
+        ChartError: The contract is missing or cannot be read.
+
+    """
+    if setting != "emit":
+        return _committed_contract(setting, root)
+    path = root / EMITTED_DIR / CONTRACT_FILE
+    if path.is_symlink() or not path.is_file():
+        raise ChartError(
+            f"release.helm.contract is emit, but the Build job left no "
+            f"{EMITTED_DIR}/{CONTRACT_FILE} in its dist/ artefact"
+        )
+    return _read_bytes(path, "emitted contract")
 
 
 def _pull_library(registry: str, library: str, scratch: Path) -> Path:
@@ -562,12 +619,14 @@ def assemble_chart(
     binary: str | None = None,
     registry: str | None = None,
     version: str | None = None,
+    contract: bytes | None = None,
 ) -> tuple[int, Path | None]:
     """Assemble the thin chart ``release.helm`` describes, if it describes one.
 
     A library pulled from the registry is also built into the chart's
     ``charts/``. A ``library_dir`` is read offline, so the chart is left
-    for ``helm dependency build``.
+    for ``helm dependency build``. ``contract`` replaces the one
+    ``release.helm.contract`` names, so the release tail runs no producer.
 
     Returns:
         ``(exit code, chart directory)``. The directory is None when the
@@ -625,6 +684,7 @@ def assemble_chart(
             binary=binary,
             registry=registry,
             version=str(version),
+            contract=contract,
         )
     except ChartError as exc:
         error(str(exc))
@@ -645,12 +705,17 @@ def _assemble_from_config(
     binary: str | None,
     registry: str,
     version: str,
+    contract: bytes | None = None,
 ) -> Path:
     setting = str(config.get("release.helm.contract"))
     library = str(config.get("release.helm.library"))
     with tempfile.TemporaryDirectory(prefix="hyperi-ci-assemble-") as tmp:
         scratch = Path(tmp)
-        raw_contract = load_contract(setting, root, scratch, binary)
+        raw_contract = (
+            contract
+            if contract is not None
+            else load_contract(setting, root, scratch, binary)
+        )
         pulled = library_dir is None
         if library_dir is None:
             if not _ensure_helm():

@@ -218,6 +218,16 @@ def is_github_actions() -> bool:
     return bool(os.environ.get("GITHUB_ACTIONS"))
 
 
+def set_github_output(**pairs: str) -> None:
+    """Append ``key=value`` lines to ``$GITHUB_OUTPUT`` when it is set."""
+    gh_out = os.environ.get("GITHUB_OUTPUT")
+    if not gh_out:
+        return
+    with Path(gh_out).open("a", encoding="utf-8", newline="\n") as fh:
+        for key, value in pairs.items():
+            fh.write(f"{key}={value}\n")
+
+
 def is_macos() -> bool:
     """Detect if running on macOS."""
     return sys.platform == "darwin"

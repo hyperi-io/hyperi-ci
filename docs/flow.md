@@ -155,7 +155,9 @@ release:
 
 Any finding against the library's `schema/deployment-contract.v<schema_version>.schema.json` fails the step. The chart is the library's `skeleton/`, `files/contract.json` byte for byte as emitted or committed, a `Chart.yaml` naming the app, release version and image tag, and values built from the `config_schema` nodes marked `x-scalo-dial: big|small`, commented out so app defaults stand. `helm dependency build` then fetches the library into `charts/`.
 
-`--image <repo>:<tag>@sha256:<digest>` is required, with `<repo>` the `<image_registry>/<app_name>` the library pulls. `app_name` must be a Kubernetes Service name, which starts with a letter. The chart's path, in a new temp dir or `--output-dir` outside the repo, is the one line on stdout. The release tail does not call it yet.
+`--image <repo>:<tag>@sha256:<digest>` is required, with `<repo>` the `<image_registry>/<app_name>` the library pulls. `app_name` must be a Kubernetes Service name, which starts with a letter. The chart's path, in a new temp dir or `--output-dir` outside the repo, is the one line on stdout.
+
+A release's `publish-charts` pushes it too, pinned to the Container job's image, and fails before the tag if none was pushed. `emit` runs in the Build job, which leaves `dist/chart-contract/deployment-contract.json`.
 
 ## 6. Release channels
 

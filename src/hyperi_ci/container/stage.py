@@ -37,6 +37,7 @@ from hyperi_ci.common import (
     is_github_actions,
     normalise_tristate,
     resolve_release_version,
+    set_github_output,
     skip_optimize,
     success,
     warn,
@@ -130,22 +131,13 @@ def should_build_container(config: CIConfig, *, language: str = "") -> tuple[boo
     return decision.build, decision.reason
 
 
-def _write_output(key: str, value: str) -> None:
-    """Append ``key=value`` to ``$GITHUB_OUTPUT`` when it is set."""
-    gh_out = os.environ.get("GITHUB_OUTPUT")
-    if gh_out:
-        with open(gh_out, "a", encoding="utf-8", newline="\n") as fh:
-            fh.write(f"{key}={value}\n")
-
-
 def _write_digest_outputs(version_tag: str, digest: str | None) -> None:
     """Expose the pushed image as ``digest`` and ``image`` (``<tag>@<digest>``)."""
     if digest is None:
         warn(f"buildx recorded no digest for {version_tag}; no image output is set")
         return
     info(f"Pushed image: {version_tag}@{digest}")
-    _write_output("digest", digest)
-    _write_output("image", f"{version_tag}@{digest}")
+    set_github_output(digest=digest, image=f"{version_tag}@{digest}")
 
 
 def _log_builder_cgroups() -> None:
@@ -207,14 +199,14 @@ def run(config: CIConfig, *, language: str = "") -> int:
             info(
                 f"Buildx cgroup parent: not set, buildx keeps its default ({found.reason})"
             )
-        _write_output("cgroup-parent", found.parent or "")
+        set_github_output(**{"cgroup-parent": found.parent or ""})
         return 0
 
     # The workflow gates Docker setup on this output, so it does no Docker work.
     if os.environ.get("HYPERCI_CONTAINER_RESOLVE_ONLY"):
         build, reason = should_build_container(config, language=language)
         info(f"Container resolve: build={'true' if build else 'false'} -- {reason}")
-        _write_output("build", "true" if build else "false")
+        set_github_output(build="true" if build else "false")
         return 0
 
     enabled = normalise_tristate(

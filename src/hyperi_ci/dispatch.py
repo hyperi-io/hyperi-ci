@@ -382,7 +382,9 @@ def stage_build(language: str, config: CIConfig, *, local: bool = False) -> int:
                 error(f"Unknown build strategy: {strategy}")
                 return 1
 
-    return 0
+    from hyperi_ci.release.assemble import emit_contract
+
+    return emit_contract(config, Path.cwd())
 
 
 def check_prepared(language: str) -> int:

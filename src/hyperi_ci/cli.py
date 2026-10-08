@@ -1171,6 +1171,15 @@ def publish_charts_cmd(
             "(HYPERCI_VERSION, then VERSION, then the latest tag)",
         ),
     ] = None,
+    image: Annotated[
+        str | None,
+        typer.Option(
+            "--image",
+            envvar="HYPERCI_CHART_IMAGE",
+            help="The pushed image, <repo>:<tag>@sha256:<digest>, that the "
+            "release.helm.contract chart pins. Required when a contract is set",
+        ),
+    ] = None,
     output: Annotated[
         str,
         typer.Option(
@@ -1186,12 +1195,14 @@ def publish_charts_cmd(
         typer.Option("--project-dir", "-C", help="Project root directory"),
     ] = None,
 ) -> None:
-    """Package committed Helm charts and push them to an OCI registry.
+    """Package Helm charts and push them to an OCI registry.
 
-    A version the registry already holds is not pushed again; its existing
-    digest is reported. A glob skips library charts, and a library chart named
-    by its exact directory is published. Logs go to stderr, so
-    `--output json` leaves stdout as one JSON list of
+    The committed charts in release.helm.charts go first. Without --charts, a
+    set release.helm.contract adds the chart `chart assemble` builds from it,
+    and fails when no --image is given. A version the registry already holds is
+    not pushed again; its existing digest is reported. A glob skips library
+    charts, and a library chart named by its exact directory is published.
+    Logs go to stderr, so `--output json` leaves stdout as one JSON list of
     {chart, version, digest, ref, signed}.
     """
     from hyperi_ci.release.charts import as_json, publish_charts
@@ -1202,7 +1213,13 @@ def publish_charts_cmd(
     root = Path(project_dir) if project_dir else Path.cwd()
     cfg = load_config(project_dir=root, report_removed=output == "text")
     rc, results = publish_charts(
-        cfg, root, charts=charts, registry=registry, version=version, dry_run=dry_run
+        cfg,
+        root,
+        charts=charts,
+        registry=registry,
+        version=version,
+        image=image or None,
+        dry_run=dry_run,
     )
     if output == "json":
         typer.echo(json.dumps(as_json(results), indent=2))

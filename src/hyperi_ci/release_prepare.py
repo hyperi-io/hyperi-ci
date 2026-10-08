@@ -34,7 +34,15 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from hyperi_ci.common import error, group, info, run_cmd, success, warn
+from hyperi_ci.common import (
+    error,
+    group,
+    info,
+    run_cmd,
+    set_github_output,
+    success,
+    warn,
+)
 from hyperi_ci.config import CIConfig, load_config
 from hyperi_ci.detect import detect_language
 from hyperi_ci.stamp import VERSION_FILE, carried_stamp_paths, stamp_version
@@ -246,6 +254,12 @@ def _package_phase(version: str, language: str, root: Path, out_dir: Path) -> in
     (out_dir / MANIFEST_NAME).write_text(
         json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n"
     )
+    # Tag & Release runs publish-charts on this, as a contract chart leaves no
+    # Chart.yaml in the repo for its hashFiles gate to find.
+    if config.get("release.helm.enabled", False) and config.get(
+        "release.helm.contract"
+    ):
+        set_github_output(**{"helm-contract": "true"})
     success(f"Prepared v{version} in {out_dir}")
     return 0
 

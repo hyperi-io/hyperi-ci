@@ -5,6 +5,7 @@
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 
+import io
 import json
 import shutil
 import subprocess
@@ -18,12 +19,12 @@ import pytest
 import yaml
 from typer.testing import CliRunner, Result
 
-from hyperi_ci import cli
+from hyperi_ci import cli, dispatch
 from hyperi_ci import config as config_module
 from hyperi_ci.cli import app
 from hyperi_ci.native_tools import _linux_arch
 from hyperi_ci.quality import checkov
-from hyperi_ci.release import assemble
+from hyperi_ci.release import assemble, charts
 from hyperi_ci.release.charts import ChartError
 
 DIGEST = "sha256:" + "ab" * 32
@@ -680,6 +681,22 @@ def _configure(root: Path, contract: str | None, library: str | None = "0.1.0") 
     )
 
 
+def _producer(tmp_path: Path) -> Path:
+    """An app whose ``generate-artefacts`` writes the test contract."""
+    producer = tmp_path / "dfe-loader"
+    producer.write_text(
+        f"#!{sys.executable}\n"
+        "import json, pathlib, sys\n"
+        "assert sys.argv[1] == 'generate-artefacts'\n"
+        "out = pathlib.Path(sys.argv[sys.argv.index('--output-dir') + 1])\n"
+        "out.mkdir(parents=True)\n"
+        f"(out / 'deployment-contract.json').write_text({json.dumps(json.dumps(_contract()))})\n",
+        encoding="utf-8",
+    )
+    producer.chmod(0o755)
+    return producer
+
+
 def _invoke(root: Path, *extra: str) -> Result:
     return CliRunner().invoke(
         app,
@@ -719,17 +736,7 @@ class TestCli:
         self, repo: Path, tmp_path: Path
     ) -> None:
         _configure(repo, "emit")
-        producer = tmp_path / "dfe-loader"
-        producer.write_text(
-            f"#!{sys.executable}\n"
-            "import json, pathlib, sys\n"
-            "assert sys.argv[1] == 'generate-artefacts'\n"
-            "out = pathlib.Path(sys.argv[sys.argv.index('--output-dir') + 1])\n"
-            "out.mkdir(parents=True)\n"
-            f"(out / 'deployment-contract.json').write_text({json.dumps(json.dumps(_contract()))})\n",
-            encoding="utf-8",
-        )
-        producer.chmod(0o755)
+        producer = _producer(tmp_path)
         result = _invoke(
             repo, "--binary", str(producer), "--output-dir", str(tmp_path / "out")
         )
@@ -918,3 +925,220 @@ def test_a_rust_producer_runs_the_host_dist_binary(tmp_path: Path) -> None:
     binary.parent.mkdir()
     binary.write_bytes(b"")
     assert assemble.producer_command(tmp_path) == [str(binary)]
+
+
+EMITTED = Path(assemble.EMITTED_DIR) / assemble.CONTRACT_FILE
+
+
+def _release_config(root: Path, **helm: object) -> config_module.CIConfig:
+    (root / ".hyperi-ci.yaml").write_text(
+        yaml.safe_dump({"release": {"helm": {"enabled": True, **helm}}}),
+        encoding="utf-8",
+    )
+    return config_module.load_config(project_dir=root, reload=True)
+
+
+class TestBuildEmitsTheContract:
+    """`emit` runs in the Build job, as Tag & Release runs no repo code."""
+
+    @pytest.fixture
+    def producer(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        producer = _producer(tmp_path)
+        monkeypatch.setattr(
+            assemble, "producer_command", lambda root, binary=None: [str(producer)]
+        )
+        return producer
+
+    def test_the_build_stage_leaves_the_contract_in_dist(
+        self, repo: Path, producer: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config = _release_config(repo, contract="emit", library="0.1.0")
+        monkeypatch.setattr(dispatch, "_dispatch_to_handler", lambda *a, **k: 0)
+        monkeypatch.chdir(repo)
+        assert dispatch.stage_build("python", config) == 0
+        assert json.loads((repo / EMITTED).read_bytes()) == _contract()
+
+    def test_a_failing_producer_fails_the_build(
+        self, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config = _release_config(repo, contract="emit", library="0.1.0")
+        monkeypatch.setattr(
+            assemble, "producer_command", lambda root, binary=None: ["false"]
+        )
+        assert assemble.emit_contract(config, repo) == 1
+        assert not (repo / EMITTED).exists()
+
+    @pytest.mark.parametrize(
+        "helm",
+        [
+            {},
+            {"contract": "deploy/contract.json"},
+            {"enabled": False, "contract": "emit"},
+        ],
+        ids=["no-contract", "committed", "helm-off"],
+    )
+    def test_nothing_else_emits(
+        self, repo: Path, producer: Path, monkeypatch: pytest.MonkeyPatch, helm: dict
+    ) -> None:
+        config = _release_config(repo, **helm)
+        monkeypatch.setattr(dispatch, "_dispatch_to_handler", lambda *a, **k: 0)
+        monkeypatch.chdir(repo)
+        assert dispatch.stage_build("python", config) == 0
+        assert not (repo / "dist").exists()
+
+
+def _yaml_member(archive: tarfile.TarFile, name: str) -> dict:
+    handle = archive.extractfile(name)
+    assert handle is not None, f"{name} is not in the package"
+    return yaml.safe_load(handle.read())
+
+
+class FakeRegistry:
+    """The registry half of helm: nothing exists yet, and a push returns DIGEST."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, ...]] = []
+        self.pushed: dict[str, bytes] = {}
+
+    def __call__(self, *args: str, registry: str = "") -> tuple[int, str]:
+        self.calls.append(args)
+        if args[:2] == ("show", "chart"):
+            return 1, "Error: not found"
+        if args[0] == "push":
+            self.pushed[Path(args[1]).name] = Path(args[1]).read_bytes()
+            return 0, f"Pushed: x\nDigest: {DIGEST}\n"
+        raise AssertionError(f"unexpected helm call {args}")
+
+
+class TestReleaseTailPublishesTheContractChart:
+    """`publish-charts` in Tag & Release assembles, packages and pushes the chart."""
+
+    @pytest.fixture
+    def registry(self, monkeypatch: pytest.MonkeyPatch) -> FakeRegistry:
+        fake = FakeRegistry()
+        real = charts._helm
+
+        def helm(*args: str, registry: str = "") -> tuple[int, str]:
+            if args[0] == "package":
+                fake.calls.append(args)
+                return real(*args, registry=registry)
+            return fake(*args, registry=registry)
+
+        def dependency_build(*args: str, registry: str = "") -> tuple[int, str]:
+            assert args[:2] == ("dependency", "build")
+            shutil.copytree(LIBRARY_DIR, Path(args[2]) / "charts" / "scalo-service")
+            return 0, ""
+
+        monkeypatch.setattr(charts, "_helm", helm)
+        monkeypatch.setattr(charts, "_ensure_helm", lambda: True)
+        monkeypatch.setattr(assemble, "_helm", dependency_build)
+        monkeypatch.setattr(assemble, "_ensure_helm", lambda: True)
+        monkeypatch.setattr(
+            assemble, "_pull_library", lambda registry, library, scratch: LIBRARY_DIR
+        )
+        monkeypatch.setattr(
+            assemble,
+            "producer_command",
+            lambda root, binary=None: pytest.fail("Tag & Release ran the producer"),
+        )
+        for name in ("GITHUB_TOKEN", "GITHUB_STEP_SUMMARY", "HYPERCI_CHART_IMAGE"):
+            monkeypatch.delenv(name, raising=False)
+        return fake
+
+    def _publish(
+        self, root: Path, config: config_module.CIConfig, image: str | None = IMAGE
+    ) -> tuple[int, list[charts.Published]]:
+        return charts.publish_charts(
+            config, root, registry=REGISTRY, version="1.4.2", image=image
+        )
+
+    @needs_helm
+    def test_the_pushed_chart_pins_the_pushed_image(
+        self, repo: Path, registry: FakeRegistry
+    ) -> None:
+        config = _release_config(repo, contract="deploy/contract.json", library="0.0.0")
+        rc, results = self._publish(repo, config)
+        assert rc == 0
+        assert [(r.chart, r.version, r.digest) for r in results] == [
+            ("dfe-loader", "1.4.2", DIGEST)
+        ]
+        tgz = registry.pushed["dfe-loader-1.4.2.tgz"]
+        with tarfile.open(fileobj=io.BytesIO(tgz)) as archive:
+            meta = _yaml_member(archive, "dfe-loader/Chart.yaml")
+            values = _yaml_member(archive, "dfe-loader/values.yaml")
+            names = archive.getnames()
+        assert (meta["name"], meta["version"], meta["appVersion"]) == (
+            "dfe-loader",
+            "1.4.2",
+            "v1.4.2",
+        )
+        assert values["image"]["digest"] == DIGEST
+        assert "dfe-loader/charts/scalo-service/Chart.yaml" in names
+
+    @needs_helm
+    def test_an_emitted_contract_is_read_from_the_build_artefact(
+        self, repo: Path, registry: FakeRegistry
+    ) -> None:
+        (repo / EMITTED).parent.mkdir(parents=True)
+        (repo / EMITTED).write_text(json.dumps(_contract()), encoding="utf-8")
+        config = _release_config(repo, contract="emit", library="0.0.0")
+        rc, results = self._publish(repo, config)
+        assert (rc, [r.chart for r in results]) == (0, ["dfe-loader"])
+
+    def test_emit_with_no_build_artefact_fails_before_any_push(
+        self, repo: Path, registry: FakeRegistry
+    ) -> None:
+        config = _release_config(repo, contract="emit", library="0.0.0")
+        rc, _ = self._publish(repo, config)
+        assert rc == 1
+        assert [c for c in registry.calls if c[0] == "push"] == []
+
+    def test_a_contract_with_no_pushed_image_fails_before_any_push(
+        self, repo: Path, registry: FakeRegistry
+    ) -> None:
+        chart_dir = repo / "helm" / "web"
+        (chart_dir / "templates").mkdir(parents=True)
+        (chart_dir / "Chart.yaml").write_text(
+            "apiVersion: v2\nname: web\nversion: 0.0.0\n", encoding="utf-8"
+        )
+        config = _release_config(
+            repo, charts=["helm/web"], contract="emit", library="0.0.0"
+        )
+        rc, results = self._publish(repo, config, image=None)
+        assert (rc, results, registry.calls) == (1, [], [])
+
+    @needs_helm
+    def test_no_contract_publishes_only_the_committed_charts(
+        self, repo: Path, registry: FakeRegistry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            assemble,
+            "assemble_chart",
+            lambda *a, **k: pytest.fail("assembled with no contract"),
+        )
+        chart_dir = repo / "helm" / "web"
+        (chart_dir / "templates").mkdir(parents=True)
+        (chart_dir / "Chart.yaml").write_text(
+            "apiVersion: v2\nname: web\nversion: 0.0.0\nappVersion: v9\n",
+            encoding="utf-8",
+        )
+        config = _release_config(repo, charts=["helm/web"])
+        rc, results = self._publish(repo, config, image=None)
+        assert (rc, [r.chart for r in results]) == (0, ["web"])
+
+    def test_the_cli_reads_the_image_from_the_environment(
+        self, repo: Path, registry: FakeRegistry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: list[str | None] = []
+        monkeypatch.setattr(
+            charts,
+            "publish_charts",
+            lambda *a, image=None, **k: (seen.append(image), (0, []))[1],
+        )
+        result = CliRunner().invoke(
+            app,
+            ["publish-charts", "-C", str(repo)],
+            env={"HYPERCI_CHART_IMAGE": IMAGE},
+        )
+        assert result.exit_code == 0, result.output
+        assert seen == [IMAGE]

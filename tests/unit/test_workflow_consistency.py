@@ -2604,3 +2604,71 @@ class TestContainerJobGate:
                     f"a publish run on {event} {ref} skips Container, so Tag & "
                     f"Release ships with no image (issue #479)"
                 )
+
+
+class TestContractChartInTheReleaseTail:
+    """The release.helm.contract chart reaches the registry, and nothing else moves.
+
+    Every consumer runs this tail, so with no contract the Publish Helm charts
+    step must fire exactly when it fired before: on a committed Chart.yaml.
+    """
+
+    HASHFILES = "hashFiles('**/Chart.yaml')"
+
+    @staticmethod
+    def _jobs() -> dict:
+        return _load_workflow("_release-tail.yml")["jobs"]
+
+    def _step(self, job: str, name: str) -> dict:
+        return next(s for s in self._jobs()[job]["steps"] if s.get("name") == name)
+
+    def _publish_fires(self, chart_yaml: bool, contract: str) -> bool:
+        condition = str(self._step("tag-and-release", "Publish Helm charts")["if"])
+        assert self.HASHFILES in condition
+        return _fires(
+            condition.replace(self.HASHFILES, "repo.chart-yaml-hash"),
+            {
+                "repo.chart-yaml-hash": "abc123" if chart_yaml else "",
+                "needs.prepare.outputs.helm-contract": contract,
+            },
+        )
+
+    @pytest.mark.parametrize("chart_yaml", [True, False])
+    def test_with_no_contract_the_step_fires_as_it_did(self, chart_yaml: bool) -> None:
+        # Prepare writes nothing without a contract, so the output is empty.
+        assert self._publish_fires(chart_yaml, "") is chart_yaml
+
+    def test_a_contract_fires_it_with_no_chart_yaml(self) -> None:
+        assert self._publish_fires(False, "true") is True
+
+    def test_the_step_hands_the_cli_the_pushed_image(self) -> None:
+        step = self._step("tag-and-release", "Publish Helm charts")
+        assert step["env"]["HYPERCI_CHART_IMAGE"] == (
+            "${{ needs.container.outputs.image }}"
+        )
+        # The CLI assembles and pushes; the workflow only hands it the image.
+        assert step["run"] == "${{ env.HYPERCI_INSTALL }} publish-charts"
+
+    def test_the_image_output_is_the_container_builds_own(self) -> None:
+        container = self._jobs()["container"]
+        assert container["outputs"]["image"] == "${{ steps.build.outputs.image }}"
+        build = next(s for s in container["steps"] if s.get("id") == "build")
+        assert build["name"] == "Build container"
+        assert build["run"] == "${{ env.HYPERCI_INSTALL }} run container"
+
+    def test_the_contract_flag_is_the_package_phases_own(self) -> None:
+        prepare = self._jobs()["prepare"]
+        assert prepare["outputs"]["helm-contract"] == (
+            "${{ steps.package.outputs.helm-contract }}"
+        )
+        package = next(s for s in prepare["steps"] if s.get("id") == "package")
+        assert "--phase package" in package["run"]
+
+    def test_no_job_in_the_tail_runs_the_producer_or_assemble(self) -> None:
+        # Tag & Release holds the publish credentials and runs no repo code;
+        # `emit` belongs to the Build job.
+        for name, job in self._jobs().items():
+            for step in job.get("steps", []):
+                run = str(step.get("run", ""))
+                assert "chart assemble" not in run, f"{name}: {step.get('name')}"
+                assert "generate-artefacts" not in run, f"{name}: {step.get('name')}"

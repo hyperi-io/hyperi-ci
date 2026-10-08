@@ -158,6 +158,46 @@ class TestPrepareRelease:
         assert prepare_release("", out_dir=tmp_path / "o", project_dir=tmp_path) == 1
 
 
+class TestHelmContractFlag:
+    """Tag & Release gates publish-charts on this output when no Chart.yaml exists."""
+
+    def _package(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, helm: dict
+    ) -> str:
+        project = tmp_path / "repo"
+        project.mkdir()
+        _python_project(project, track_version=True, release={"helm": helm})
+        outputs = tmp_path / "github-output"
+        outputs.touch()
+        monkeypatch.setenv("GITHUB_OUTPUT", str(outputs))
+        assert (
+            prepare_release(
+                "2.0.1",
+                out_dir=tmp_path / "packaged",
+                phase=Phase.PACKAGE,
+                project_dir=project,
+            )
+            == 0
+        )
+        return outputs.read_text(encoding="utf-8")
+
+    def test_a_contract_sets_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        helm = {"enabled": True, "contract": "emit", "library": "0.1.0"}
+        assert self._package(tmp_path, monkeypatch, helm) == "helm-contract=true\n"
+
+    @pytest.mark.parametrize(
+        "helm",
+        [{}, {"enabled": True}, {"enabled": False, "contract": "emit"}],
+        ids=["defaults", "no-contract", "helm-off"],
+    )
+    def test_no_contract_writes_nothing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, helm: dict
+    ) -> None:
+        assert self._package(tmp_path, monkeypatch, helm) == ""
+
+
 class TestLoad:
     def test_unset_is_none(self) -> None:
         assert release_prepare.load() is None
