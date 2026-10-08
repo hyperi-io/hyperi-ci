@@ -200,9 +200,11 @@ the full pipeline, not just top-level workflows.
 | `--apply` | rewrite workflows + composites to match the SSOT |
 | `--stable` | the dry run of `--auto-update`: print the newest release >=7 days old that it would write, and write nothing |
 | `--auto-update` | bump `versions.yaml` to those, validate locally, revert on failure. It does not commit and does not trigger remote CI |
+| `--fail-on-drift` | with `--stable`, exit 1 when a pin is behind or could not be checked. `versions-audit.yml` runs `--stable --fail-on-drift` weekly |
+| `--now` | waive the 7-day soak for a supervised manual run |
 
 `--stable` is the SOAKED release, not the newest one - the same sense as the
-`stable` channel in [self-update.md](../self-update.md).
+`stable` channel in [self-update.md](../self-update.md). It also reports `runtimes:` drift (llvm against the latest llvm-project release, node against the latest LTS) as warnings. Runtimes never auto-bump, because a runtime major is a decision.
 
 `src/hyperi_ci/config/versions.yaml` is the SSOT for tools, runtimes and the semantic-release install. It holds no `uses:` refs: those are Renovate's.
 

@@ -81,6 +81,9 @@ hyperi-ci stamp-version <v>        write VERSION + manifest (central)
 hyperi-ci release-prepare <v> --out <dir> [--phase stamp|package|all]   stamp + run the release's repo code (semver checks, packing) with no credentials; `run release` with HYPERCI_RELEASE_PREPARED=<dir> then only uploads
 hyperi-ci release-verify           fail before tagging when the prepared release names another version or language
 hyperi-ci publish-charts           package and push committed Helm charts to an OCI registry
+hyperi-ci chart assemble --image <ref>   build a thin chart from release.helm.contract (opt-in; the release tail does not call it yet)
+hyperi-ci vendor sync | check      mirror files from another repo at a pinned ref (opt-in `vendor:` block)
+hyperi-ci deps [drift|gaps|show]   dependency surfaces, floor drift and Renovate gaps
 hyperi-ci lint-docs | lint-iac     run the doc checks, or the chart/manifest/tofu/ansible/compose linters, on a directory
 hyperi-ci init                     scaffold ci.yml, .hyperi-ci.yaml, Makefile, githooks
 hyperi-ci detect | config          show detected language / merged config
@@ -159,10 +162,10 @@ src/hyperi_ci/
   cli.py, dispatch.py, detect.py, config.py, common.py, stamp.py, init.py
   config/      defaults, org, versions, deprecated-files, toolchains/, native-deps/
   container/   stage, binary_stage, build, cgroup, detect, labels, registry
-  release/     binaries, charts, dispatch
+  release/     assemble, binaries, charts, dispatch
   languages/   python, rust, typescript, golang   (quality|test|build|release)
 config/        fixtures, dynamic-config-keys, retired-interfaces   (repo-root, not shipped in the wheel)
-scripts/       update-versions.py (/deps), check-workflow-interfaces.py (#31 gate)
+scripts/       update-versions.py (/deps), check-workflow-interfaces.py (#31 gate), rehearse-branch.py, sweep-fleet.py, negative-cases.py, fixture-git.py
 templates/     pgo-workload/, testenv/
 docs/          this tree
 VERSION, pyproject.toml, uv.lock
