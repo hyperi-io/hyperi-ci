@@ -155,7 +155,7 @@ release:
 
 Any finding against the library's `schema/deployment-contract.v<schema_version>.schema.json` fails the step. The chart is the library's `skeleton/`, `files/contract.json`, a `Chart.yaml` naming the app, release version and image tag, and values built from the `config_schema` nodes marked `x-scalo-dial: big|small`, commented out so app defaults stand. Same inputs, same bytes.
 
-`--image <repo>:<tag>@sha256:<digest>` is required. The chart's path, in a new temp dir or `--output-dir` outside the repo, is the one line on stdout. The release tail does not call it yet.
+`--image <repo>:<tag>@sha256:<digest>` is required, with `<repo>` the `<image_registry>/<app_name>` the library pulls. `app_name` must be a lowercase DNS label. The chart's path, in a new temp dir or `--output-dir` outside the repo, is the one line on stdout. The release tail does not call it yet.
 
 ## 6. Release channels
 

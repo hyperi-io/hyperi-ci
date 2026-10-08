@@ -12,6 +12,9 @@ library chart ships for its ``schema_version``, then written with the library's
 skeleton into a chart that depends on scalo-service. Every generated file has
 sorted keys and no timestamp, so the same inputs give the same bytes.
 
+The library pulls ``<image_registry>/<app_name>`` at the chart's appVersion and
+the digest in values, so the image given must be that repository.
+
 ``values.schema.json`` is the skeleton's own schema for the library values,
 plus the ``config_schema`` nodes marked ``x-scalo-dial: big|small``, each
 copied with its ``$ref``s inlined, under ``config.<path>``. Other config keys
@@ -57,6 +60,9 @@ DIAL_TIERS = ("big", "small")
 IMAGE_RE = re.compile(
     r"^(?P<repo>[^@\s]+):(?P<tag>\w[\w.-]{0,127})@(?P<digest>sha256:[0-9a-f]{64})$"
 )
+# The chart directory and every object the library renders take this name, and
+# the contract schema does not constrain it.
+NAME_RE = re.compile(r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")
 
 
 def _json(data: object) -> str:
@@ -219,7 +225,9 @@ def assemble(
         library_dir: An unpacked scalo-service chart.
         out_dir: Where the chart directory is created.
         version: The chart version, the release version.
-        image: ``<repo>:<tag>@sha256:<digest>``; the tag becomes appVersion.
+        image: ``<repo>:<tag>@sha256:<digest>``. The library pulls
+            ``<image_registry>/<app_name>`` from the contract, so ``<repo>``
+            must be that; the tag becomes appVersion.
         library: The scalo-service version the chart depends on.
         registry: The ``oci://`` registry scalo-service is pulled from.
 
@@ -227,8 +235,9 @@ def assemble(
         The chart directory.
 
     Raises:
-        ChartError: The image ref, contract or library chart cannot be used, or
-            the chart directory already exists.
+        ChartError: The image ref, contract or library chart cannot be used,
+            the image is not the one the contract names, or the chart
+            directory already exists.
 
     """
     ref = IMAGE_RE.match(image)
@@ -244,9 +253,17 @@ def assemble(
         )
     validate_contract(contract, _read_json(schema_file, "contract schema"))
     name = contract.get("app_name")
+    if not isinstance(name, str) or not NAME_RE.match(name):
+        raise ChartError(f"app_name {name!r} is not a lowercase DNS label")
+    image_registry = str(contract.get("image_registry") or "").removesuffix("/")
+    if not image_registry:
+        raise ChartError("the contract has no image_registry to pull the image from")
+    if ref["repo"] != f"{image_registry}/{name}":
+        raise ChartError(
+            f"image {ref['repo']} is not {image_registry}/{name}, "
+            "the <image_registry>/<app_name> the chart pulls"
+        )
     skeleton = library_dir / SKELETON_DIR
-    if not isinstance(name, str) or not name:
-        raise ChartError("the contract has no app_name")
     if not skeleton.is_dir():
         raise ChartError(f"{LIBRARY} {library} has no {SKELETON_DIR}/ directory")
     chart = out_dir / name
