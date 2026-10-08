@@ -9,16 +9,20 @@ import json
 import shutil
 import subprocess
 import sys
+import tarfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import jsonschema
 import pytest
 import yaml
 from typer.testing import CliRunner, Result
 
+from hyperi_ci import cli
 from hyperi_ci import config as config_module
 from hyperi_ci.cli import app
 from hyperi_ci.native_tools import _linux_arch
+from hyperi_ci.quality import checkov
 from hyperi_ci.release import assemble
 from hyperi_ci.release.charts import ChartError
 
@@ -276,6 +280,8 @@ class TestAssemble:
     ) -> None:
         chart = _assemble(tmp_path)
         assert sorted(_tree(chart)) == [
+            ".helmignore",
+            ".hyperi-ci.yaml",
             "Chart.yaml",
             "files/contract.json",
             "templates/configmap.yaml",
@@ -478,6 +484,15 @@ class TestAssemble:
                 registry=REGISTRY,
             )
 
+    def test_a_failure_while_writing_leaves_no_chart(self, tmp_path: Path) -> None:
+        library = tmp_path / "library"
+        shutil.copytree(LIBRARY_DIR, library)
+        (library / "skeleton" / "files").write_text("not a dir", encoding="utf-8")
+        out = tmp_path / "out"
+        with pytest.raises(ChartError, match="cannot write"):
+            _assemble_on(library, out)
+        assert list(out.iterdir()) == []
+
     @pytest.mark.parametrize("tag", ["v1.2.3", "1.2.3", "1.10"])
     def test_app_version_is_the_tag_as_pushed(self, tmp_path: Path, tag: str) -> None:
         image = f"ghcr.io/hyperi-io/dfe-loader:{tag}@{DIGEST}"
@@ -487,35 +502,163 @@ class TestAssemble:
 
     @needs_helm
     def test_the_library_renders_the_charts_own_contract(self, tmp_path: Path) -> None:
-        library = yaml.safe_load(
-            (LIBRARY_DIR / "Chart.yaml").read_text(encoding="utf-8")
-        )["version"]
-        chart = assemble.assemble(
-            _raw(_contract()),
-            LIBRARY_DIR,
-            tmp_path,
-            version="1.4.2",
-            image=IMAGE,
-            library=library,
-            registry=f"file://{LIBRARY_DIR}",
-        )
-        for cmd in (
-            ["helm", "dependency", "build", str(chart)],
-            ["helm", "template", "rel", str(chart)],
-        ):
-            rendered = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                check=False,
-            )
-            assert rendered.returncode == 0, rendered.stderr
-        docs = {d["kind"]: d for d in yaml.safe_load_all(rendered.stdout) if d}
+        chart = _built_chart(tmp_path)
+        rendered = _helm_cli("template", "rel", str(chart))
+        docs = {d["kind"]: d for d in yaml.safe_load_all(rendered) if d}
         assert docs["ConfigMap"]["metadata"]["name"] == "dfe-loader-config"
         container = docs["Deployment"]["spec"]["template"]["spec"]["containers"][0]
         assert container["image"] == IMAGE
+
+
+def _helm_cli(*args: str) -> str:
+    result = subprocess.run(
+        ["helm", *args],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
+def _built_chart(tmp_path: Path) -> Path:
+    """Assemble on the test library as a file:// dependency and build it in."""
+    library = yaml.safe_load((LIBRARY_DIR / "Chart.yaml").read_text(encoding="utf-8"))
+    chart = assemble.assemble(
+        _raw(_contract()),
+        LIBRARY_DIR,
+        tmp_path,
+        version="1.4.2",
+        image=IMAGE,
+        library=library["version"],
+        registry=f"file://{LIBRARY_DIR}",
+    )
+    _helm_cli("dependency", "build", str(chart))
+    return chart
+
+
+def _library_copy(tmp_path: Path, lint_skip: str | None) -> Path:
+    library = tmp_path / "library"
+    shutil.copytree(LIBRARY_DIR, library)
+    if lint_skip is None:
+        (library / "lint-skip.yaml").unlink()
+    else:
+        (library / "lint-skip.yaml").write_text(lint_skip, encoding="utf-8")
+    return library
+
+
+def _assemble_on(library: Path, out: Path) -> Path:
+    return assemble.assemble(
+        _raw(_contract()),
+        library,
+        out,
+        version="1.4.2",
+        image=IMAGE,
+        library="0.1.0",
+        registry=REGISTRY,
+    )
+
+
+class TestLintSkip:
+    @pytest.fixture
+    def checkov_cmds(self, monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+        cmds: list[list[str]] = []
+
+        def _run(cmd: list[str], **_: object) -> SimpleNamespace:
+            cmds.append(cmd)
+            out = Path(cmd[cmd.index("--output-file-path") + 1])
+            (out / "results_sarif.sarif").write_text(
+                json.dumps({"runs": [{"tool": {"driver": {}}, "results": []}]}),
+                encoding="utf-8",
+            )
+            return SimpleNamespace(stdout="", stderr="", returncode=0)
+
+        monkeypatch.setattr(checkov, "_base_cmd", lambda: ["checkov"])
+        monkeypatch.setattr(checkov, "run_cmd", _run)
+        monkeypatch.delenv("HYPERCI_QUALITY_SKIP", raising=False)
+        return cmds
+
+    @staticmethod
+    def _skipped(
+        directory: Path, cmds: list[list[str]], monkeypatch: pytest.MonkeyPatch
+    ) -> list[str]:
+        monkeypatch.setattr(config_module, "_config_cache", None)
+        assert cli._lint_iac(str(directory), None, ("checkov",)) == 0
+        cmd = cmds.pop()
+        return [cmd[i + 1] for i, arg in enumerate(cmd) if arg == "--skip-check"]
+
+    def test_lint_iac_on_the_chart_skips_the_librarys_checkov_ids_only_there(
+        self,
+        tmp_path: Path,
+        checkov_cmds: list[list[str]],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        repo = tmp_path / "repo"
+        (repo / "deploy").mkdir(parents=True)
+        (repo / "deploy" / "pod.yaml").write_text(
+            "apiVersion: v1\nkind: Pod\nmetadata:\n  name: x\n", encoding="utf-8"
+        )
+        chart = _assemble(tmp_path / "out")
+        expected = ["CKV2_K8S_6", "CKV_K8S_40"]
+        assert self._skipped(chart, checkov_cmds, monkeypatch) == expected
+        assert self._skipped(chart.parent, checkov_cmds, monkeypatch) == []
+        assert self._skipped(repo, checkov_cmds, monkeypatch) == []
+
+    def test_the_chart_config_keeps_the_reasons(self, tmp_path: Path) -> None:
+        text = (_assemble(tmp_path) / ".hyperi-ci.yaml").read_text(encoding="utf-8")
+        assert "#   CKV_K8S_40: The uid comes from the contract's security" in text
+        assert yaml.safe_load(text) == {
+            "quality": {"checkov": {"skip": ["CKV2_K8S_6", "CKV_K8S_40"]}}
+        }
+
+    @needs_helm
+    def test_the_chart_config_stays_out_of_the_package(self, tmp_path: Path) -> None:
+        chart = _built_chart(tmp_path / "chart")
+        _helm_cli("package", str(chart), "-d", str(tmp_path / "pkg"))
+        tgz = next((tmp_path / "pkg").glob("*.tgz"))
+        with tarfile.open(tgz) as archive:
+            names = archive.getnames()
+        assert "dfe-loader/Chart.yaml" in names
+        assert "dfe-loader/.hyperi-ci.yaml" not in names
+
+    @pytest.mark.parametrize(
+        "lint_skip", [None, "kube-linter:\n  no-read-only-root-fs: reason\n"]
+    )
+    def test_no_checkov_entry_writes_no_chart_config(
+        self, tmp_path: Path, lint_skip: str | None
+    ) -> None:
+        chart = _assemble_on(_library_copy(tmp_path, lint_skip), tmp_path)
+        assert not (chart / ".hyperi-ci.yaml").exists()
+        assert not (chart / ".helmignore").exists()
+
+    def test_a_skeleton_helmignore_is_extended(self, tmp_path: Path) -> None:
+        library = _library_copy(tmp_path, "checkov:\n  CKV_K8S_40: reason\n")
+        (library / "skeleton" / ".helmignore").write_text("tests/", encoding="utf-8")
+        chart = _assemble_on(library, tmp_path)
+        helmignore = (chart / ".helmignore").read_text(encoding="utf-8")
+        assert helmignore == "tests/\n.hyperi-ci.yaml\n"
+
+    @pytest.mark.parametrize(
+        "lint_skip",
+        [
+            "- CKV_K8S_40\n",
+            "checkov:\n  - CKV_K8S_40\n",
+            "checkov:\n  'CKV_K8S_40,CKV_K8S_1': reason\n",
+            "checkov:\n  CKV_K8S_40: ''\n",
+            'checkov:\n  "CKV_K8S_40\\n": reason\n',
+        ],
+    )
+    def test_a_malformed_lint_skip_fails_before_writing(
+        self, tmp_path: Path, lint_skip: str
+    ) -> None:
+        library = _library_copy(tmp_path, lint_skip)
+        out = tmp_path / "out"
+        out.mkdir()
+        with pytest.raises(ChartError, match="lint-skip.yaml"):
+            _assemble_on(library, out)
+        assert list(out.iterdir()) == []
 
 
 @pytest.fixture

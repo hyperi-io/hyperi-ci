@@ -230,6 +230,7 @@ hadolint and droast auto-detect Dockerfiles inside `hyperi-ci run quality`, like
 - **A kustomization owns only what it references** (`resources`, `bases`, `components`, patches, generator files). A manifest beside it that no kustomization lists is still validated as a plain manifest.
 - **A root module** is one no other module calls by a local `source`. Called modules are validated through their callers, copied beside the root at the same relative path. Providers come from `TF_PLUGIN_CACHE_DIR` (default `~/.cache/hyperi-ci/tofu-plugins`).
 - **ansible-lint** runs once from the repo root under the repo's `.ansible-lint`, `--offline`. Galaxy requirements install into scratch through `ANSIBLE_COLLECTIONS_PATH` and `ANSIBLE_ROLES_PATH`. The lint sees the scratch roles first, then each project's `roles_path`. A project under `exclude_paths` is not linted.
+- **An assembled chart carries its own Checkov skips.** `hyperi-ci chart assemble` writes the Checkov ids in the scalo-service library's `lint-skip.yaml` to the chart's `.hyperi-ci.yaml` as `quality.checkov.skip`, with each reason as a comment. `hyperi-ci lint-iac <chart>` applies them, and no run over the repo sees them.
 - **Hidden and git-ignored directories are skipped** by every IaC discovery: `.claude` worktrees, `.ansible` collections and `.terraform` caches are copies, not sources.
 
 Guardrails:
