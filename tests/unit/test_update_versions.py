@@ -7,6 +7,7 @@
 """Tests for scripts/update-versions.py version-pin regexes."""
 
 import importlib.util
+import io
 import json
 import re
 from pathlib import Path
@@ -106,7 +107,7 @@ class TestSemanticReleasePluginMajors:
         )
 
 
-from datetime import UTC, datetime  # noqa: E402
+from datetime import UTC, date, datetime  # noqa: E402
 
 
 def _rel(
@@ -1555,3 +1556,83 @@ class TestDigestBump:
             "0.25.0",
             "ok",
         )
+
+
+class TestRuntimeDrift:
+    """The runtime drift report: reads upstream, writes nothing, never fails."""
+
+    TODAY = date(2026, 10, 9)
+    SSOT = {"runtimes": {"python": {"version": "3.14"}, "node": "24", "llvm": "23"}}
+    SCHEDULE = {
+        "v22": {"lts": "2024-10-29", "maintenance": "2025-10-21"},
+        "v23": {"maintenance": "2025-04-01"},
+        "v24": {"lts": "2025-10-28", "maintenance": "2026-10-20"},
+        "v26": {"lts": "2026-10-28", "maintenance": "2027-10-20"},
+    }
+
+    def _upstream(self, monkeypatch, *, llvm_tags=("llvmorg-23.1.3",), down=False):
+        releases = [
+            {"tag_name": tag, "prerelease": "rc" in tag, "draft": False}
+            for tag in llvm_tags
+        ]
+        monkeypatch.setattr(update_versions, "_gh_json", lambda _p: releases or None)
+
+        def opener(*_a, **_k):
+            if down:
+                raise OSError("unreachable")
+            return io.BytesIO(json.dumps(self.SCHEDULE).encode())
+
+        monkeypatch.setattr(update_versions.urllib.request, "urlopen", opener)
+
+    def _levels(self):
+        out = update_versions._runtime_drift(self.SSOT, self.TODAY)
+        return {m.split(":")[0]: lvl for lvl, m in out}
+
+    def test_no_drift(self, monkeypatch) -> None:
+        self._upstream(monkeypatch)
+        assert self._levels() == {"python": "skipped", "node": "ok", "llvm": "ok"}
+
+    def test_llvm_behind_the_latest_major(self, monkeypatch) -> None:
+        self._upstream(monkeypatch, llvm_tags=("llvmorg-24.1.0", "llvmorg-23.1.3"))
+        assert self._levels()["llvm"] == "drift"
+
+    def test_release_candidate_is_not_the_latest(self, monkeypatch) -> None:
+        self._upstream(monkeypatch, llvm_tags=("llvmorg-24.1.0-rc1", "llvmorg-23.1.3"))
+        assert self._levels()["llvm"] == "ok"
+
+    def test_node_behind_the_active_lts(self, monkeypatch) -> None:
+        self._upstream(monkeypatch)
+        out = update_versions._runtime_drift(self.SSOT, date(2026, 11, 1))
+        assert ("drift", "node: 24 but latest LTS is 26") in out
+
+    def test_gap_between_lts_lines_is_still_checked(self, monkeypatch) -> None:
+        # v24 enters maintenance 2026-10-20, v26 enters LTS 2026-10-28.
+        self._upstream(monkeypatch)
+        out = update_versions._runtime_drift(self.SSOT, date(2026, 10, 24))
+        assert ("ok", "node: 24 (matches latest LTS)") in out
+
+    def test_unreachable_is_not_a_pass(self, monkeypatch) -> None:
+        self._upstream(monkeypatch, llvm_tags=(), down=True)
+        levels = self._levels()
+        assert levels["llvm"] == levels["node"] == "unchecked"
+
+    def test_report_warns_on_drift_and_writes_nothing(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        self._upstream(monkeypatch, llvm_tags=("llvmorg-24.1.0",))
+        warned: list[str] = []
+        monkeypatch.setattr(update_versions, "warn", warned.append)
+        monkeypatch.setattr(update_versions, "info", lambda _m: None)
+        monkeypatch.chdir(tmp_path)
+        assert update_versions._report_runtime_drift(self.SSOT) == 1
+        assert warned == ["runtime llvm: 23 but latest llvm-project release is 24"]
+        assert list(tmp_path.iterdir()) == []
+
+    def test_stable_stays_zero_on_drift(self, monkeypatch) -> None:
+        self._upstream(monkeypatch, llvm_tags=("llvmorg-24.1.0",))
+        monkeypatch.setattr(
+            update_versions, "_resolve", lambda *_a: update_versions._Resolution()
+        )
+        monkeypatch.setattr(update_versions, "warn", lambda _m: None)
+        monkeypatch.setattr(update_versions, "info", lambda _m: None)
+        assert update_versions._stable(self.SSOT, fail_on_drift=True) == 0
