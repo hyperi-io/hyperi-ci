@@ -4,11 +4,7 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Cargo workspace metadata and the library-only test.
-
-Shared by the Rust build handler, container detection and the alint advisory,
-so every stage agrees on what the crate ships.
-"""
+"""Cargo workspace metadata and the library-only test, shared so stages agree."""
 
 import json
 import tomllib
@@ -20,10 +16,8 @@ from hyperi_ci.common import run_cmd
 def cargo_metadata(project_dir: Path | None = None) -> dict | None:
     """Parse ``cargo metadata --no-deps``, or None when it cannot be had.
 
-    ``--no-deps`` limits ``packages`` to the workspace members. None covers
-    cargo being ABSENT as well as failing: the container job installs no Rust
-    toolchain, and a missing binary raises rather than returning a code
-    (issue #207).
+    None also covers cargo being absent, as in the container job, where the
+    missing binary raises rather than returning a code (issue #207).
 
     Args:
         project_dir: Directory to run cargo in. None uses the current one.
@@ -52,11 +46,8 @@ def cargo_metadata(project_dir: Path | None = None) -> dict | None:
 def rust_is_library(project_dir: Path) -> bool:
     """Return True when no workspace member declares a bin target.
 
-    A feature-gated bin (``required-features``) still counts: the crate has
-    a runnable target even if the default build skips it. ``cargo metadata``
-    gives the authoritative answer across every workspace member; without
-    cargo, the root crate's ``src/main.rs``, ``src/bin/*.rs`` and ``[[bin]]``
-    are all that is checked.
+    A feature-gated bin still counts. Without cargo, only the root crate's
+    ``src/main.rs``, ``src/bin/*.rs`` and ``[[bin]]`` are checked.
 
     Args:
         project_dir: Project root holding ``Cargo.toml``.

@@ -6,19 +6,15 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Rust release handler -- checks and packages a crate, then publishes it.
 
-``prepare`` runs everything that executes the crate's own code:
-cargo-semver-checks builds it, build scripts and all, and ``cargo package``
-proves it packages before any tag is cut. ``run`` uploads. With
-``HYPERCI_RELEASE_PREPARED`` set it requires prepare to have checked the crate,
-and still works out for itself whether there is a library to publish, since a
-forged ``prepared.json`` must not put a binary application on crates.io.
+``prepare`` runs everything that executes the crate's own code
+(cargo-semver-checks, ``cargo package``) before any tag is cut. ``run``
+uploads, and classifies the crate itself even when prepared, so a forged
+``prepared.json`` cannot put a binary application on crates.io.
 
-cargo has no way to publish a ``.crate`` it did not pack itself, so the upload
-repackages its own checkout, Cargo.toml re-stamped, with ``--no-verify``. That
-builds nothing and runs no build script. Every cargo call in the upload runs
-from an empty directory with ``--manifest-path``, because cargo reads
-``.cargo/config.toml`` and rustup reads ``rust-toolchain.toml`` from the working
-directory, and either can name a program to run.
+cargo cannot publish a ``.crate`` it did not pack, so the upload repackages
+with ``--no-verify``, which runs no build script. Upload cargo calls run from
+an empty directory with ``--manifest-path``, because ``.cargo/config.toml``
+and ``rust-toolchain.toml`` in the working directory can name a program to run.
 """
 
 import json
@@ -49,23 +45,15 @@ class CargoMetadataError(Exception):
 
 
 def _read_version() -> str | None:
-    """Read the version being published (HYPERCI_VERSION-first).
-
-    See common.resolve_release_version (issue #27 + zero-config).
-    """
+    """Return the version being published, via ``resolve_release_version``."""
     return resolve_release_version()
 
 
 def _sync_cargo_toml_version(version: str) -> bool:
-    """Stamp the publish-job's Cargo.toml to the release version.
+    """Stamp the committed Cargo.toml to the release version before publish.
 
-    The publish job's checkout is the committed (stale) tree, so Cargo.toml
-    must be stamped before `cargo publish`. Delegates to the shared
-    `stamp_manifest` -- the SAME table-scoped stamper the build uses, so the
-    two can't drift (the old unscoped regex here could clobber a dependency's
-    `version =`).
-
-    Returns False only if there's no Cargo.toml.
+    Uses the build's `stamp_manifest` so the two stamps cannot drift.
+    Returns False only if there is no Cargo.toml.
     """
     if not Path("Cargo.toml").exists():
         error("Cargo.toml not found")
@@ -124,9 +112,8 @@ def _publishes_crate(config: CIConfig, root: Path) -> bool:
 def _stamp_and_check(config: CIConfig) -> int:
     """Stamp Cargo.toml, then compare the public API with the last release.
 
-    AFTER the stamp and BEFORE the publish, and both halves matter. Before the
-    stamp the manifest is stale, so semver-checks compares the last release
-    against itself and passes having checked nothing (issue #186).
+    The order is required: before the stamp, semver-checks compares the last
+    release against itself and passes vacuously (issue #186).
     """
     version = _read_version()
     if version:
@@ -208,11 +195,8 @@ def _publish_crates_io(root: Path) -> int:
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     """Upload a library crate to its registries.
 
-    With ``HYPERCI_RELEASE_PREPARED`` set the checks already ran in the prepare
-    job, and this only classifies the crate (from an empty directory), stamps
-    the manifest in Python and publishes. Without it -- a hand-rolled workflow
-    calling ``run release`` -- the checks run here first, in the same process
-    as the token.
+    With ``HYPERCI_RELEASE_PREPARED`` set this only classifies, stamps and
+    publishes. Without it the checks run here first, beside the token.
 
     Args:
         config: Merged CI configuration.

@@ -4,14 +4,9 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Rust quality checks handler.
+"""Rust quality checks: fmt, clippy, audit, osv-scanner, deny, the feature matrix.
 
-Orchestrates: cargo fmt --check, cargo clippy, cargo audit, cargo deny.
-Each tool's mode (blocking/warn/disabled) is configurable via
-.hyperi-ci.yaml quality.rust section.
-
-In a root-package workspace, the package-scoped commands (clippy, cargo deny,
-the feature matrix, rustdoc) take ``--workspace`` so members are checked too.
+In a root-package workspace the package-scoped commands take ``--workspace``;
 cargo fmt and cargo audit cover the whole workspace already.
 """
 
@@ -82,27 +77,11 @@ class FeatureSetFinding:
 
 
 def _deny_toml_advisory_ignores(project_dir: Path | None = None) -> list[str]:
-    """Return the RUSTSEC IDs ignored in ``deny.toml`` ``[advisories.ignore]``.
+    """Return the advisory IDs ignored in ``deny.toml`` ``[advisories.ignore]``.
 
-    ``cargo deny`` reads its ignore list from ``deny.toml`` while
-    ``cargo audit`` / ``osv-scanner`` read the central ``quality.ignore``
-    (issue #42). An advisory acceptable to one was NOT honoured by the
-    others, so a repo could pass ``cargo deny`` on push yet fail
-    ``osv-scanner`` on the same ID at release. We make ``deny.toml`` a
-    shared source: its advisory ignores are fed into the other two tools
-    as well, so one entry silences all three.
-
-    Handles both entry forms cargo-deny accepts::
-
-        [advisories]
-        ignore = [
-            "RUSTSEC-2024-0436",
-            { id = "RUSTSEC-2021-0127", reason = "..." },
-        ]
-
-    Non-RUSTSEC/CVE entries (e.g. licence exceptions, crate bans) are not
-    advisory IDs and are left alone. Returns an empty list when there is
-    no ``deny.toml`` or no advisory ignores.
+    These are fed to cargo-audit and osv-scanner too, so one entry silences
+    all three tools (issue #42). Accepts both the bare-string and the
+    ``{ id = ... }`` entry forms.
     """
     cwd = project_dir or Path.cwd()
     deny_toml = cwd / "deny.toml"
@@ -126,8 +105,8 @@ def _deny_toml_advisory_ignores(project_dir: Path | None = None) -> list[str]:
             ident = str(entry["id"]).strip()
         else:
             continue
-        # Advisory IDs only -- cargo-deny's ignore list can also hold crate
-        # names / licence IDs which mean nothing to cargo-audit / osv.
+        # The list can also hold crate names and licence IDs, which mean
+        # nothing to cargo-audit or osv-scanner.
         if ident.startswith(("RUSTSEC-", "CVE-", "GHSA-")):
             ids.append(ident)
     return ids
@@ -136,11 +115,7 @@ def _deny_toml_advisory_ignores(project_dir: Path | None = None) -> list[str]:
 def _merge_deny_advisory_ignores(
     entries: list[IgnoreEntry], tool: str, deny_ids: list[str]
 ) -> list[IgnoreEntry]:
-    """Union ``deny.toml`` advisory IDs into ``tool``'s ignore entries.
-
-    De-dupes against IDs already present for ``tool`` in ``quality.ignore``
-    so the dfe-loader-style duplicate entry becomes unnecessary (issue #42).
-    """
+    """Union ``deny.toml`` advisory IDs into ``tool``'s ignore entries, de-duped."""
     existing = {e.id for e in entries}
     merged = list(entries)
     for ident in deny_ids:
@@ -159,15 +134,8 @@ def _merge_deny_advisory_ignores(
 def _has_lib_target(project_dir: Path | None = None) -> bool:
     """Return True if the project (or workspace) exposes any lib target.
 
-    ``cargo clippy --lib`` and ``cargo check --lib`` fail with ``no
-    library targets found`` on bin-only projects. We only pass ``--lib``
-    when at least one ``lib`` target is present so binary-only projects
-    (like ci-test-rust-app or any `cargo new --bin` crate) don't
-    spuriously fail the quality stage.
-
-    Authoritative answer comes from ``cargo metadata`` when available.
-    When cargo is missing, fails, or prints output that is not JSON, the
-    root crate's ``src/lib.rs`` is the answer.
+    Callers pass ``--lib`` only when this holds, because cargo fails with
+    ``no library targets found`` on a bin-only crate.
     """
     cwd = project_dir or Path.cwd()
     if not (cwd / "Cargo.toml").exists():
@@ -181,20 +149,15 @@ def _has_lib_target(project_dir: Path | None = None) -> bool:
                     return True
         return False
 
-    # Fallback: cargo metadata failed (e.g. cargo missing). Treat
-    # presence of src/lib.rs as a proxy. Workspace members aren't
-    # explored -- this is the conservative path.
+    # Without cargo metadata, workspace members are not explored.
     return (cwd / "src" / "lib.rs").exists()
 
 
 def _package_lib_map(project_dir: Path | None = None) -> dict[str, bool]:
     """Map each workspace package name to whether it exposes a lib target.
 
-    `_has_lib_target` answers for the workspace as a whole, which is the wrong
-    question for `cargo hack`: it runs per member, so one bin-only member fails
-    the whole check with "no library targets found" while the workspace-wide
-    answer says a lib exists. Empty when cargo metadata is unavailable, which
-    leaves the caller on the workspace-wide answer.
+    `cargo hack` runs per member, so one bin-only member given ``--lib`` fails
+    the whole check. Empty when cargo metadata is unavailable.
     """
     cwd = project_dir or Path.cwd()
     if not (cwd / "Cargo.toml").exists():
@@ -217,10 +180,10 @@ def _package_lib_map(project_dir: Path | None = None) -> dict[str, bool]:
 
 
 def _split_feature_sets(features: str) -> list[str]:
-    """Split pipe-separated feature sets into individual sets.
+    """Split pipe-separated feature sets, each run on its own.
 
-    Each set is run as a separate invocation to properly test mutually
-    exclusive features (e.g. jemalloc vs mimalloc).
+    cargo's ``--features`` is additive, so mutually exclusive sets such as
+    jemalloc and mimalloc need separate invocations.
     """
     if features in ("all", "default"):
         return [features]
@@ -248,12 +211,11 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     ignores = load_ignores(config._raw)
     had_failure = False
 
-    # cargo fmt --check
     mode = resolve_tool_mode("fmt", config, language="rust")
     if not run_gate_tool("cargo fmt", ["cargo", "fmt", "--check"], mode):
         had_failure = True
 
-    # cargo clippy -- two-pass: production (strict) + test (relaxed)
+    # Two clippy passes: production code strict, tests and benches relaxed.
     mode = resolve_tool_mode("clippy", config, language="rust")
     features = (extra_env or {}).get("RUST_FEATURES", "all")
     feature_sets = _split_feature_sets(features)
@@ -276,9 +238,6 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         elif feature_set != "default":
             feature_args.extend(["--features", feature_set])
 
-        # Production pass -- lib (when present) + bins, no test/bench targets.
-        # Bin-only crates would fail clippy --lib with "no library targets
-        # found", so we only include --lib when the project actually has one.
         target_args = ["--lib", "--bins"] if has_lib else ["--bins"]
         prod_cmd = ["cargo", "clippy", *workspace_args, *target_args, *feature_args]
         prod_cmd.extend(
@@ -287,7 +246,6 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         if not run_gate_tool(f"clippy src ({feature_set})", prod_cmd, mode):
             had_failure = True
 
-        # Test pass -- test + bench targets, relaxed
         test_cmd = ["cargo", "clippy", *workspace_args, "--tests", "--benches"]
         test_cmd.extend(feature_args)
         allow_flags = [f"-A{rule}" for rule in test_ignore]
@@ -305,8 +263,6 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         if not run_gate_tool(f"clippy tests ({feature_set})", test_cmd, mode):
             had_failure = True
 
-    # Advisory ignores declared in deny.toml are shared with cargo-audit
-    # and osv-scanner so one entry silences all three tools (issue #42).
     deny_advisory_ids = _deny_toml_advisory_ignores()
     if deny_advisory_ids:
         info(
@@ -314,7 +270,6 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             f"with cargo-audit + osv-scanner (issue #42)"
         )
 
-    # cargo audit - one --ignore <RUSTSEC-id> per entry
     mode = resolve_tool_mode("audit", config, language="rust")
     audit_cmd = ["cargo", "audit"]
     audit_ignores = _merge_deny_advisory_ignores(
@@ -331,9 +286,8 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     ):
         had_failure = True
 
-    # osv-scanner - malicious-package (MAL-*) scan. cargo audit uses the
-    # RustSec DB, which does NOT ingest the OSSF malicious-packages feed;
-    # osv-scanner does. Defence-in-depth behind the 7-day Renovate cooldown.
+    # osv-scanner catches MAL-* advisories: the RustSec DB cargo audit reads
+    # does not ingest the OSSF malicious-packages feed.
     mode = resolve_tool_mode("osv_scanner", config, language="rust")
     osv_ignores = _merge_deny_advisory_ignores(
         for_tool(ignores, osv_scanner.SLUG), osv_scanner.SLUG, deny_advisory_ids
@@ -341,11 +295,9 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     if not osv_scanner.run(Path("Cargo.lock"), osv_ignores, mode):
         had_failure = True
 
-    # cargo deny (requires deny.toml -- useless without project-specific config)
     mode = resolve_tool_mode("deny", config, language="rust")
     if not Path("deny.toml").exists():
-        # A bare "skipped" under a blocking mode reads as though advisories
-        # went unchecked; cargo audit above covers them from the same DB.
+        # A bare "skipped" would read as though advisories went unchecked.
         info(
             "  cargo deny: skipped (no deny.toml). Advisories are still "
             "gated by cargo audit; a deny.toml would add licence, ban and "
@@ -359,17 +311,14 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     ):
         had_failure = True
 
-    # Feature matrix check (cargo hack --each-feature)
     if not _run_feature_matrix(
         config, workspace=workspace, clippy_allows=clippy_user_allows
     ):
         had_failure = True
 
-    # Rustdoc compliance hint (non-blocking; default: enabled)
     _run_rustdoc_hint(config, workspace=workspace)
 
-    # Rustflags this repo declares but cannot ship (issue #178). Reads config
-    # and .gitignore only, so it costs nothing and runs whatever else ran.
+    # Rustflags this repo declares but cannot ship (issue #178).
     if cargo_flags.run(config) != 0:
         had_failure = True
 
@@ -396,9 +345,8 @@ def _cargo_hack_version() -> str | None:
 def _ensure_cargo_hack() -> bool:
     """Make the pinned cargo-hack the one ``cargo hack`` runs.
 
-    A runner home or dev box can carry any cargo-hack, and a feature set that
-    warns under one version and not another makes the gate disagree with CI.
-    So a different version is reinstalled at the pin, as cargo-pgo is.
+    A different version is reinstalled at the pin, since warnings can differ
+    by version and the local gate would then disagree with CI.
 
     Returns:
         False when the pinned cargo-hack could not be installed.
@@ -441,26 +389,14 @@ def _run_feature_matrix(
 ) -> bool:
     """Run the cargo-hack feature matrix under clippy.
 
-    Catches feature-gating bugs where a module behind feature X uses a crate
-    only declared by feature Y. Without this check, transitive deps from
-    other features mask the bug until a downstream consumer enables only X.
-    Running clippy rather than check also catches a lint that fires only on a
-    single-feature build, which the all-features clippy pass cannot see.
+    Catches a module behind feature X using a crate only feature Y declares,
+    plus lints that fire only on a single-feature build. Runs
+    ``--no-default-features`` and then ``cargo hack --each-feature``; neither
+    writes to the working tree.
 
-    Default behaviour (enabled=true, no other config): runs
-        cargo clippy --no-default-features --lib
-        cargo hack --each-feature clippy --lib
-
-    Neither command writes to the working tree. Under feature resolver 1 a
-    dev-dependency's features reach the library build and can hide a
-    feature-gating bug, so that case is announced.
-
-    A feature built alone can leave code dead that every combined build uses,
-    so ``quality.rust.feature_matrix.warnings`` decides what a warning or lint
-    does: ``warn`` names each feature set that warned, ``blocking`` denies
-    warnings and fails, ``disabled`` runs the passes without looking.
-
-    Opt-out requires an explicit reason; CI fails if reason is missing.
+    ``quality.rust.feature_matrix.warnings`` decides what a warning does:
+    ``warn`` names each set, ``blocking`` fails, ``disabled`` does not look.
+    Opting out of the matrix needs a ``reason``.
 
     Args:
         config: Merged CI configuration.
@@ -499,14 +435,8 @@ def _run_feature_matrix(
         "feature_matrix.warnings", config, language="rust", default="warn"
     )
 
-    # Both passes use --lib when a lib target exists, --bins otherwise.
-    # cargo would error "no library targets found" on bin-only crates
-    # otherwise. The semantic intent is "check whatever this crate
-    # actually exposes" so falling back to --bins keeps the same
-    # feature-gate-safety guarantee.
-    #
-    # A workspace mixing lib and bin-only members has no single right answer,
-    # so each member is scoped with -p and gets its own flag.
+    # A workspace mixing lib and bin-only members gets one -p scope per member,
+    # each with its own --lib or --bins.
     extra = fm_config.get("extra_args", [])
     extra = [str(x) for x in extra] if isinstance(extra, list) else []
 
@@ -569,8 +499,6 @@ def _run_feature_matrix(
             _RESOLVER_ONE_TITLE,
         )
 
-    # Pass 1 -- bare crate (no default features). Catches "breaks without
-    # defaults" bugs.
     if fm_config.get("also_check_no_default_features", True):
         for scope_args, target_args in scopes:
             cmd = [
@@ -587,9 +515,8 @@ def _run_feature_matrix(
             ):
                 had_failure = True
 
-    # Pass 2 -- each feature in isolation. No --no-dev-deps: it rewrites every
-    # Cargo.toml while it runs, and resolver 2+ already leaves dev-dependency
-    # features out of a --lib or --bins build.
+    # No --no-dev-deps: it rewrites every Cargo.toml while it runs, and
+    # resolver 2+ already keeps dev-dependency features out of the build.
     for scope_args, target_args in scopes:
         cmd = [
             "cargo",
@@ -617,12 +544,11 @@ def _deny_warnings(
 ) -> tuple[list[str], dict[str, str]]:
     """Return ``cmd`` and the extra env that make rustc deny every warning.
 
-    Cargo takes extra flags from ONE source: ``CARGO_ENCODED_RUSTFLAGS``, else
-    ``RUSTFLAGS``, else every matching ``target.*`` entry joined, else
-    ``build.rustflags``. With neither env source set, the deny goes in as its
-    own ``target.'cfg(all())'`` entry via ``--config``, which joins the repo's
-    and the runner's target entries rather than replacing them. It still
-    displaces ``build.rustflags`` where no other target entry exists.
+    Cargo takes flags from ONE source: ``CARGO_ENCODED_RUSTFLAGS``, else
+    ``RUSTFLAGS``, else the joined ``target.*`` entries, else
+    ``build.rustflags``. With no env source, the deny is added as its own
+    ``target.'cfg(all())'`` entry, which joins existing target entries but
+    displaces ``build.rustflags`` where there are none.
 
     Args:
         cmd: The cargo or cargo-hack command, containing ``clippy`` or
@@ -676,10 +602,9 @@ def _feature_set_findings(
 ) -> list[FeatureSetFinding]:
     """Split cargo output by feature set and report each set that ``level``-ed.
 
-    ``cargo hack`` announces each run on its own ``running`` line, and cargo
-    closes every unit that warned or failed with a summary line, so a set
-    counts only on that summary. Cargo replays cached diagnostics for a fresh
-    unit, so a warm target directory reports the same sets as a cold one.
+    A set counts only when cargo closes one of its units with a warned or
+    failed summary line. Cargo replays cached diagnostics, so a warm target
+    directory reports the same sets as a cold one.
 
     Args:
         output: cargo's stdout and stderr through one pipe, so cargo-hack's
@@ -758,11 +683,9 @@ def _run_matrix_pass(
 
 
 def _run_rustdoc_hint(config: CIConfig, *, workspace: bool = False) -> None:
-    """Run cargo doc and emit a single concise warning if any issues found.
+    """Run cargo doc and warn once with the doc-warning count; never fails.
 
-    Non-blocking by design: rustdoc hygiene is a ratchet, not a gate. Reports
-    one summary line + standards links so AI agents and humans know where to
-    look. Set quality.rust.rustdoc_hint.enabled=false to silence entirely.
+    ``quality.rust.rustdoc_hint.enabled: false`` silences it.
 
     Args:
         config: Merged CI configuration.
@@ -779,13 +702,10 @@ def _run_rustdoc_hint(config: CIConfig, *, workspace: bool = False) -> None:
     if not shutil.which("cargo"):
         return  # cargo not on PATH -- quality stage already noted this
 
-    # rustdoc hint only applies to lib targets -- bin-only crates have
-    # no public rustdoc surface to lint against.
+    # A bin-only crate has no public rustdoc surface.
     if not _has_lib_target():
         return
 
-    # Build with --no-deps + RUSTDOCFLAGS treating warnings as warnings (default)
-    # We just want the count, not to fail.
     result = run_cmd(
         [
             "cargo",

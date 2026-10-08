@@ -4,19 +4,12 @@
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""PGO + BOLT build orchestration.
+"""PGO + BOLT build orchestration: instrument, run the workload, optimise.
 
-Separate module from build.py because the PGO pipeline has a distinct
-control flow (instrument -> workload -> optimise, optionally repeated
-for BOLT) that's tested independently with mocked subprocesses.
-
-Public API: `run_pgo_build()` is the only entry point. Call it when
-`profile.pgo_enabled` is True; otherwise use the plain build path.
-
-Graceful degradation:
-  - cargo-pgo missing -> auto-install; if install fails, skip PGO
-  - llvm-bolt missing -> skip BOLT, keep PGO-only result
-  - workload_cmd fails -> hard error (bad profile data is worse than no PGO)
+`run_pgo_build()` is the entry point, for when `profile.pgo_enabled` is True.
+A cargo-pgo that cannot be installed falls back to a plain release build and
+a missing BOLT toolchain keeps the PGO-only binary, but a failed workload is
+a hard error: bad profile data is worse than no PGO.
 """
 
 import hashlib
@@ -54,12 +47,11 @@ _BOLT_WITH_PGO = "--with-pgo"
 
 
 def _bolt_profile_env() -> dict[str, str]:
-    """Cargo profile settings every compile of a PGO + BOLT pipeline carries.
+    """Return the cargo profile settings every compile of a PGO + BOLT run carries.
 
-    Cargo hashes profile settings into symbol names, so every compile that
-    shares a PGO profile must share the profile settings. BOLT needs strip
-    off, because lld refuses `--strip-all` beside `--emit-relocs`, and
-    packaging strips the shipped binary afterwards.
+    Cargo hashes profile settings into symbol names, so all compiles sharing a
+    PGO profile must match. Strip is off because lld refuses `--strip-all`
+    beside `--emit-relocs`; packaging strips the binary afterwards.
     """
     return {"CARGO_PROFILE_RELEASE_STRIP": "none"}
 
@@ -75,30 +67,21 @@ def run_pgo_build(
 ) -> int:
     """Run the PGO (and optionally BOLT) pipeline for one target.
 
-    Assumes `profile.pgo_enabled` is True. Caller should check first.
-
     Args:
         target: Target triple (e.g. "x86_64-unknown-linux-gnu").
-        profile: Resolved + validated optimisation profile.
-        binary_name: Name of the binary being built (for finding the
-                     instrumented binary after `cargo pgo build`).
+        profile: Resolved + validated profile with `pgo_enabled` True.
+        binary_name: Binary whose instrumented build the workload runs.
         cwd: Working directory (project root).
-        extra_env: Additional env vars merged into the cargo/workload env.
-                   RUST_FEATURES / RUST_ALL_FEATURES also carry the
-                   project's declared `build.rust.features`.
-        outcome: Filled in with the stages that actually completed, so the
-                 caller can report a skip that this function warns about
-                 but does not fail on.
-        shipped_binaries: Every binary packaging ships. Each `cargo pgo`
-                          step builds these and nothing else. Defaults to
-                          ``[binary_name]``.
+        extra_env: Env vars for cargo and the workload, including
+                   RUST_FEATURES / RUST_ALL_FEATURES.
+        outcome: Filled in with the stages that actually completed.
+        shipped_binaries: The binaries each `cargo pgo` step builds; defaults
+                          to ``[binary_name]``.
 
     Returns:
         0 on success, non-zero on failure.
 
     """
-    # Same renderer as the plain release build, so an optimised binary
-    # ships the declared features and not only the allocator.
     env_features = extra_env or {}
     feature_args = cargo_feature_args(
         profile,
@@ -136,8 +119,7 @@ def run_pgo_build(
             'found" if there is none'
         )
 
-    # Checked before the workload rather than after it: without profdata the
-    # optimise step fails, and the 300s of profiling is spent for nothing.
+    # Checked before the workload, or its profiling time is spent for nothing.
     if not _ensure_llvm_profdata_available():
         error(
             "llvm-profdata is unavailable and cargo-pgo cannot merge the "
@@ -146,8 +128,7 @@ def run_pgo_build(
         )
         return 1
 
-    # Decided before the first compile, because BOLT's profile settings have to
-    # reach the PGO compiles too.
+    # Decided before the first compile: BOLT's profile settings reach PGO too.
     bolt = profile.bolt_enabled and _ensure_llvm_bolt_available(cwd)
     if profile.bolt_enabled and not bolt:
         warn(
@@ -156,11 +137,9 @@ def run_pgo_build(
         )
     pipeline_env = {**(extra_env or {}), **_bolt_profile_env()} if bolt else extra_env
 
-    # Every later stage links a binary at least as large as the instrumented
-    # one, so a linker that rescues this build has to carry forward.
+    # Later stages link binaries at least as large, so a rescuing linker carries on.
     build_env = pipeline_env
 
-    # 1. Instrumented build
     info(f"PGO: building instrumented binary for {target}")
     instrument_args = ["build", "--", "--target", target, *cargo_args]
     rc = _run_cargo_pgo(instrument_args, cwd=cwd, extra_env=build_env)
@@ -180,7 +159,6 @@ def run_pgo_build(
         error(f"PGO instrumented build failed for {target}")
         return rc
 
-    # 2. Run workload against the instrumented binary
     instrumented_bin = _instrumented_binary_path(
         cwd, target, binary_name, variant="pgo"
     )
@@ -204,7 +182,6 @@ def run_pgo_build(
         error("PGO workload failed -- aborting (bad profile data is worse than no PGO)")
         return rc
 
-    # 3. Optimised build using profile data
     info(f"PGO: building optimised binary for {target}")
     rc = _run_cargo_pgo(
         ["optimize", "--", "--target", target, *cargo_args],
@@ -217,30 +194,21 @@ def run_pgo_build(
     if outcome:
         outcome.pgo_applied = True
 
-    # 4. BOLT (optional, Linux-only)
     if bolt:
         rc = _run_bolt(
             target, cargo_args, binary_name, profile, cwd, build_env, outcome
         )
         if rc != 0:
             warn("BOLT step failed -- continuing with PGO-only optimised binary")
-            # BOLT failure is non-fatal; PGO binary is already built
 
     return 0
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def _bin_scope_args(binaries: list[str]) -> list[str]:
     """Render one ``--bin`` per shipped binary for a `cargo pgo` step.
 
-    Without a target filter cargo builds every bin whose required features are
-    on, so `--all-features` compiles a feature-gated workload driver against a
-    profile that does not cover it (#526). ``--bin`` filters targets only, so
-    package selection and feature resolution are unchanged.
+    Unfiltered, `--all-features` also builds a feature-gated workload driver
+    against a profile that does not cover it (#526).
     """
     args: list[str] = []
     for name in binaries:
@@ -254,11 +222,7 @@ def _run_plain_release_build(
     cwd: Path,
     extra_env: dict[str, str] | None,
 ) -> int:
-    """Fallback plain `cargo build --release` when PGO tooling unavailable.
-
-    Tier 1 optimisations (allocator features, LTO env overrides) are still
-    applied via `feature_args` and `extra_env` -- only PGO/BOLT are skipped.
-    """
+    """Run a plain `cargo build --release`, keeping the Tier 1 allocator and LTO."""
     cmd = ["cargo", "build", "--release", "--target", target, *feature_args]
     info(f"  $ {' '.join(cmd)}")
     return run_cmd(cmd, check=False, cwd=cwd, env=extra_env).returncode
@@ -283,23 +247,15 @@ def _installed_cargo_pgo_version() -> str | None:
 def _ensure_cargo_pgo_installed() -> bool:
     """Make the pinned cargo-pgo available, installing it when absent or different.
 
-    The version comes from `tools.cargo-pgo` in versions.yaml, so the tool that
-    instruments and rewrites the release binary is the one we reviewed, not
-    whatever crates.io serves on the day. A persistent runner home can carry an
-    older build, so a version mismatch reinstalls too.
-
-    Returns True if cargo-pgo is available after this call. Ensures
-    `~/.cargo/bin` is on PATH so subsequent `cargo pgo` subprocess
-    calls find the freshly-installed binary. CI runners sometimes ship
-    with `~/.cargo/bin` absent from PATH even though it's the cargo
-    install default.
+    The pin (`tools.cargo-pgo`) means the tool that rewrites the release binary
+    is the reviewed one. Puts `~/.cargo/bin` on PATH, which some CI runners
+    omit. Returns True if cargo-pgo is available afterwards.
     """
     pinned = tool_version("cargo-pgo")
     installed = _installed_cargo_pgo_version()
     if installed == pinned:
         return True
 
-    # Ensure ~/.cargo/bin is on PATH before install -- cargo writes there
     cargo_bin = Path.home() / ".cargo" / "bin"
     current_path = os.environ.get("PATH", "")
     if str(cargo_bin) not in current_path.split(os.pathsep):
@@ -313,11 +269,9 @@ def _ensure_cargo_pgo_installed() -> bool:
         warn("cargo-pgo install failed")
         return False
 
-    # Re-check with PATH that now includes ~/.cargo/bin
     if shutil.which("cargo-pgo"):
         return True
 
-    # Last-ditch: check the absolute path
     direct_path = cargo_bin / "cargo-pgo"
     if direct_path.exists() and os.access(direct_path, os.X_OK):
         info(f"cargo-pgo found at {direct_path} (PATH did not include ~/.cargo/bin)")
@@ -334,36 +288,18 @@ _BOLT_TOOLCHAIN_BINARIES = ("llvm-bolt", "merge-fdata", "ld.lld")
 
 
 def _ensure_llvm_bolt_available(project_dir: Path | None = None) -> bool:
-    """Check BOLT toolchain is discoverable; shim versioned binaries onto PATH.
+    """Shim the BOLT toolchain onto PATH unversioned, all from one LLVM major.
 
-    Ubuntu's `bolt-NN` apt package installs version-suffixed binaries
-    (e.g. `/usr/bin/llvm-bolt-23`, `/usr/bin/merge-fdata-23`) but NO
-    unversioned symlinks -- and cargo-pgo's BOLT flow invokes the
-    unversioned names (`llvm-bolt` AND `merge-fdata`, the latter to
-    merge BOLT profile fragments before applying them).
-
-    The designated LLVM major's version-suffixed binaries are symlinked
-    unversioned into `~/.local/bin`, ahead of anything else on PATH, so
-    the BOLT steps and the link use that major even where the image's own
-    unversioned `ld.lld` points at another. All three come from ONE major;
-    `_shim_llvm_tools` has the fallback when the designated one is
-    incomplete.
-
-    Returns True only if every required binary is discoverable (either
-    directly or via shim). cargo-pgo's BOLT step fails silently on
-    partial toolchain -- all-or-nothing is the safer contract.
-    No auto-install -- the apt package is added by native_deps.py.
-    ``project_dir`` holds the .hyperi-ci.yaml the designated major is read from.
+    The `bolt-NN` apt package ships only suffixed names, and cargo-pgo calls
+    `llvm-bolt` and `merge-fdata` unversioned. Returns True only when every
+    binary resolves, since cargo-pgo's BOLT step fails silently on a partial
+    toolchain. native_deps.py installs the package.
     """
     return _shim_llvm_tools(_BOLT_TOOLCHAIN_BINARIES, project_dir)
 
 
 def _rustc_sysroot_bin() -> Path | None:
-    """Directory the `llvm-tools` component installs its binaries into.
-
-    A missing rustc RAISES rather than returning non-zero, so the absent case
-    is caught here instead of reaching the caller as a traceback.
-    """
+    """Return the directory `llvm-tools` installs into, or None without rustc."""
     try:
         sysroot = run_cmd(["rustc", "--print", "sysroot"], check=False, capture=True)
         version = run_cmd(["rustc", "-vV"], check=False, capture=True)
@@ -389,23 +325,14 @@ def _rustc_sysroot_bin() -> Path | None:
 def _ensure_llvm_profdata_available() -> bool:
     """Make `llvm-profdata` resolvable so cargo-pgo can merge the profile.
 
-    The rustc sysroot copy is PREFERRED over whatever is on PATH, so the tool
-    that merges the profile is the one from the LLVM that wrote it. Both work -
-    llvm-profdata 19 merges a profile written by rustc's LLVM 22 - but which
-    one runs would otherwise depend on the runner: the GitHub-hosted arm64
-    image ships no unversioned `llvm-profdata` at all, while a self-hosted
-    image may put any version there. Same binary on every arch beats a choice
-    made by whichever image the job landed on.
-
-    `llvm-tools-preview` is the rustup component that supplies it, under the
-    sysroot rather than on PATH. PATH is the fallback for the case where that
-    component cannot be added.
+    The rustc sysroot copy (rustup's `llvm-tools-preview`) is preferred, so
+    every arch runs the same binary whatever the runner image has on PATH.
+    PATH is the fallback when the component cannot be added.
     """
     bin_dir = _rustc_sysroot_bin()
 
     if bin_dir is not None and not (bin_dir / "llvm-profdata").exists():
-        # A rustc without rustup cannot add the component, and run_cmd raises on
-        # a missing binary, which would skip the PATH fallback below.
+        # run_cmd raises on a missing rustup, which would skip the PATH fallback.
         if shutil.which("rustup"):
             info("  llvm-profdata missing - adding the llvm-tools-preview component")
             run_cmd(["rustup", "component", "add", "llvm-tools-preview"], check=False)
@@ -431,12 +358,8 @@ def _ensure_llvm_profdata_available() -> bool:
 def _ensure_ld_lld_available(project_dir: Path | None = None) -> bool:
     """Put the designated LLVM major's `ld.lld` first on PATH, unversioned.
 
-    gcc's `-fuse-ld=lld` looks for a binary named exactly `ld.lld`, and the
-    `lld-NN` apt package ships only the suffixed one. A runner's own
-    unversioned `ld.lld` may belong to another major, so the designated one
-    is shimmed over it. Run before the PGO steps, so a project that selects
-    lld in its own cargo config links with it in every stage. ``project_dir``
-    holds the .hyperi-ci.yaml the designated major is read from.
+    gcc's `-fuse-ld=lld` wants exactly `ld.lld`, and the `lld-NN` apt package
+    ships only the suffixed name.
     """
     return _shim_llvm_tools(("ld.lld",), project_dir)
 
@@ -444,14 +367,9 @@ def _ensure_ld_lld_available(project_dir: Path | None = None) -> bool:
 def _ensure_clang_available(project_dir: Path | None = None) -> bool:
     """Put the designated LLVM major's `clang` and `clang++` first on PATH.
 
-    A project with `linker = "clang"` runs whatever `clang` PATH finds, and
-    under `-fuse-ld=lld` that clang takes the `ld.lld` from its own install
-    first, so the designated major has to own the driver as well. The
-    `clang-NN` apt package ships only the suffixed names. Shimmed apart from
-    `ld.lld`, so a runner without `clang-NN` leaves the `ld.lld` on PATH at
-    the designated major. A clang that falls back to another major still
-    links with that major's own lld. ``project_dir`` holds the
-    .hyperi-ci.yaml the designated major is read from.
+    Under `-fuse-ld=lld` clang takes `ld.lld` from its own install first, so
+    the designated major must own the driver too. Shimmed apart from
+    `ld.lld`, so a runner without `clang-NN` still gets the designated lld.
     """
     return _shim_llvm_tools(("clang", "clang++"), project_dir)
 
@@ -514,13 +432,9 @@ def _llvm_major_of(real: Path) -> int | None:
 def _shim_llvm_tools(names: tuple[str, ...], project_dir: Path | None = None) -> bool:
     """Make every tool in ``names`` resolvable unversioned, from ONE LLVM major.
 
-    The designated major wins: when ``<name>-<major>`` exists for every name,
-    those are shimmed into ``~/.local/bin`` ahead of the rest of PATH, over any
-    unversioned copy the runner already has. Only when it is incomplete does
-    this fall back to the unversioned tools already on PATH, provided they all
-    resolve into one known major, then to the newest major that provides them
-    all, warning which major was missing.
-
+    Order: the designated major's ``<name>-<major>`` shimmed into
+    ``~/.local/bin`` first on PATH; else the unversioned tools on PATH if all
+    share one known major; else the newest major that provides them all.
     Returns True when all of them resolve.
     """
     designated = designated_llvm_version(project_dir)
@@ -576,33 +490,22 @@ def _run_cargo_pgo(
     cwd: Path,
     extra_env: dict[str, str] | None,
 ) -> int:
-    """Run a `cargo pgo <args>` command, its output streaming to the log.
-
-    ``extra_env`` is laid over the process env, so every value in it, an
-    empty one included, reaches cargo exactly as given.
-    """
+    """Run `cargo pgo <args>`, with ``extra_env`` (empty values too) over the env."""
     cmd = ["cargo", "pgo", *args]
     info(f"  $ {' '.join(cmd)}")
     return run_cmd(cmd, check=False, cwd=cwd, env=extra_env).returncode
 
 
-# SECURITY: `pgo.workload_cmd` and `workload_setup_cmd` are strings from the
-# project's own .hyperi-ci.yaml, run through a shell exactly as `shell=True`
-# runs them on POSIX. A repo that can edit its config can already run code here.
+# SECURITY: the workload commands come from the project's own .hyperi-ci.yaml
+# and run through a shell; a repo that can edit its config can already run code.
 _SHELL = ("/bin/sh", "-c")
 
-# Bounds the setup step on its own clock, separate from the workload's grace:
-# building a load driver can take far longer than the profiling run.
+# Its own clock: building a load driver can outlast the profiling run.
 _WORKLOAD_SETUP_TIMEOUT_SECS = 3600
 
 
 def _run_workload_setup(setup_cmd: str, cwd: Path) -> int:
-    """Run the project's workload setup before the workload clock starts.
-
-    `build.rust.optimize.pgo.workload_setup_cmd` is for work that must finish
-    before profiling and would not fit in the workload's grace -- building a
-    load driver, pulling images. It runs once per target with its own timeout.
-    """
+    """Run `pgo.workload_setup_cmd` once per target, before the workload clock."""
     info(f"  $ {setup_cmd}  (workload setup, timeout={_WORKLOAD_SETUP_TIMEOUT_SECS}s)")
     try:
         result = run_cmd(
@@ -625,21 +528,10 @@ def _run_workload(
 ) -> int:
     """Run the project's PGO workload command against the instrumented binary.
 
-    Contract with consumer workload scripts:
-      * Binary path is the **first positional argument** (`$1`). Matches
-        the Unix-idiomatic pattern used by every template in
-        `hyperi-ci/templates/pgo-workload/`.
-      * `HYPERCI_PGO_INSTRUMENTED_BINARY` env var is ALSO exported as a
-        convenience for scripts that prefer to read it from env.
-      * `PGO_WORKLOAD_DURATION_SECS` carries `duration_secs`, the variable
-        every workload template reads for how long to drive the binary.
-
-    Enforces a hard timeout at `duration_secs + 600` (10-minute absolute
-    grace for setup overhead: spinning up testcontainers, cargo-building
-    feature-gated drivers, waiting for readiness, cleaning up). This is
-    generous on purpose -- the workload script is trusted and should
-    self-terminate at `duration_secs`; the wrapper timeout is a safety
-    net that triggers only when the script hangs.
+    The script contract (see templates/pgo-workload/): the binary path is
+    `$1` and also `HYPERCI_PGO_INSTRUMENTED_BINARY`, and
+    `PGO_WORKLOAD_DURATION_SECS` says how long to drive it. The script should
+    stop itself; the `duration_secs + 600` timeout only catches a hang.
     """
     if not workload_cmd:
         error("PGO enabled but workload_cmd is empty")
@@ -650,8 +542,6 @@ def _run_workload(
         "PGO_WORKLOAD_DURATION_SECS": str(duration_secs),
     }
 
-    # Append the binary path as the first positional argument. Shell
-    # quoting handled by shlex.quote so paths with spaces don't break.
     import shlex as _shlex
 
     full_cmd = f"{workload_cmd} {_shlex.quote(str(instrumented_binary))}"
@@ -676,10 +566,9 @@ def _run_workload(
 
 
 def _release_dir(cwd: Path, target: str) -> Path:
-    """Directory cargo writes `--release --target <target>` output to.
+    """Return cargo's `--release --target` output dir, honouring CARGO_TARGET_DIR.
 
-    Honours CARGO_TARGET_DIR the same way packaging does, so every PGO and
-    BOLT step looks where the packager later copies from.
+    Packaging resolves it the same way, so every step looks where it copies from.
     """
     target_dir = Path(os.environ.get("CARGO_TARGET_DIR") or "target")
     if not target_dir.is_absolute():
@@ -693,23 +582,13 @@ def _instrumented_binary_path(
     binary_name: str,
     variant: str,
 ) -> Path:
-    """Locate the instrumented binary produced by cargo pgo.
-
-    Both phases build under the release directory. The PGO instrument
-    build keeps the plain binary name; the BOLT instrument build suffixes
-    it `-bolt-instrumented` (cargo-pgo convention). Profile data goes into
-    target/pgo-profiles/ (handled by cargo-pgo, not this code).
-    """
+    """Return the instrumented binary's path; BOLT's carries `-bolt-instrumented`."""
     name = f"{binary_name}-bolt-instrumented" if variant == "bolt" else binary_name
     return _release_dir(cwd, target) / name
 
 
 def _install_bolt_output(cwd: Path, target: str, binary_name: str) -> bool:
-    """Put BOLT's rewritten binary where packaging copies from.
-
-    `cargo pgo bolt optimize` leaves the BOLT result beside the cargo output
-    as `<bin>-bolt-optimized`; the unsuffixed file is the PGO-only build of
-    the same pass, and packaging ships the unsuffixed name.
+    """Copy `<bin>-bolt-optimized` over the unsuffixed name packaging ships.
 
     Returns:
         True only when the BOLT file exists, carries llvm-bolt's note, and
@@ -735,59 +614,35 @@ def _install_bolt_output(cwd: Path, target: str, binary_name: str) -> bool:
     return True
 
 
-# RUSTFLAGS used on the no-split BOLT RETRY (see _run_bolt). BOLT in relocation
-# mode CANNOT process a binary whose functions the compiler already hot/cold-SPLIT
-# - it emits `<fn>.cold` fragments (e.g. a closure's drop glue outlined into
-# .text.unlikely/.text.split) and llvm-bolt aborts the step with:
-#   BOLT-WARNING: split function detected on input ... limited in relocation mode
-#   BOLT-ERROR:   parent function not found for <fn>.cold
-# BOLT wants to do the splitting ITSELF, so the fix is to stop the COMPILER
-# pre-splitting for the BOLT build (the LLVM equivalent of clang's
-# -fno-reorder-blocks-and-partition), via -Cllvm-args. This is applied ONLY on a
-# RETRY after a first BOLT attempt fails (see _run_bolt), so apps that already
-# BOLT-optimise cleanly never see it - a working BOLT layer is the default
-# WITHOUT risking the apps that don't need the flag.
-#
-# The exact cl::opt is toolchain-version-dependent; this targets the PGO-driven
-# cold-splitter. Override (or disable the retry, with "") via
-# HYPERCI_BOLT_EXTRA_RUSTFLAGS; alternative candidate if this proves ineffective:
-# -Cllvm-args=-split-machine-functions=false. BOLT failure is non-fatal, so an
-# ineffective value simply leaves that one app PGO-only - it cannot break a build.
+# For the BOLT retry only: llvm-bolt in relocation mode aborts on `<fn>.cold`
+# fragments the compiler already split ("parent function not found for
+# <fn>.cold"), so the retry stops the compiler splitting. The cl::opt varies by
+# toolchain; HYPERCI_BOLT_EXTRA_RUSTFLAGS overrides it, and "" skips the retry.
 _DEFAULT_BOLT_NO_SPLIT_RUSTFLAGS = "-Cllvm-args=-hot-cold-split=false"
 
 
 def _bolt_no_split_rustflags() -> str:
-    """RUSTFLAGS for the no-split BOLT retry.
-
-    Defaults to disabling the compiler cold-splitter. An empty
-    HYPERCI_BOLT_EXTRA_RUSTFLAGS disables the retry entirely.
-    """
+    """Return RUSTFLAGS for the no-split BOLT retry; empty disables the retry."""
     val = os.environ.get("HYPERCI_BOLT_EXTRA_RUSTFLAGS")
     return _DEFAULT_BOLT_NO_SPLIT_RUSTFLAGS if val is None else val.strip()
 
 
 def _target_rustflags_key(target: str) -> str:
-    """Cargo's env name for `target.<triple>.rustflags`.
-
-    UPPERCASE with hyphens and dots as underscores, so
-    x86_64-unknown-linux-gnu becomes CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS.
-    """
+    """Return cargo's env name for `target.<triple>.rustflags`."""
     return (
         f"CARGO_TARGET_{target.upper().replace('-', '_').replace('.', '_')}_RUSTFLAGS"
     )
 
 
 def _target_linker_key(target: str) -> str:
-    """Cargo's env name for `target.<triple>.linker`."""
+    """Return cargo's env name for `target.<triple>.linker`."""
     return _target_rustflags_key(target).removesuffix("_RUSTFLAGS") + "_LINKER"
 
 
-# llvm-bolt refuses the erratum 843419 veneers the linker inserts, so the BOLT
-# link drops rustc's target-spec flag (lld has no negation to append) and adds
-# the gcc option that stops gcc's own spec re-adding it. The result is not safe
-# on Cortex-A53, accepted because these binaries run on Graviton and
-# Ampere-class server cores; a deployment target that includes Cortex-A53 has
-# to take PGO-only aarch64 builds.
+# llvm-bolt refuses erratum 843419 veneers, so the BOLT link drops rustc's flag
+# (lld has no negation) and stops gcc's spec re-adding it. The binary is unsafe
+# on Cortex-A53, accepted for Graviton and Ampere-class targets; a Cortex-A53
+# deployment needs PGO-only aarch64 builds.
 _A53_FIX_LINK_ARG = "-Wl,--fix-cortex-a53-843419"
 _NO_A53_FIX_DRIVER_ARG = "-mno-fix-cortex-a53-843419"
 
@@ -826,11 +681,11 @@ os.execv(REAL, [REAL, *args, ADD])
 
 
 def _real_aarch64_linker(target: str, extra_env: dict[str, str] | None) -> str | None:
-    """Absolute path of the linker driver the BOLT link would otherwise run.
+    """Return the absolute path of the linker driver the BOLT link would run.
 
-    Order: CARGO_TARGET_<TRIPLE>_LINKER from ``extra_env``, then from the
-    process env, then ``<gnu-triple>-gcc``, then ``cc``, cargo's own default.
-    Symlinks are kept, because ccache and clang pick their mode from argv[0].
+    Order: CARGO_TARGET_<TRIPLE>_LINKER from ``extra_env``, then the process
+    env, then ``<gnu-triple>-gcc``, then ``cc``. Symlinks are kept, because
+    ccache and clang pick their mode from argv[0].
     """
     key = _target_linker_key(target)
     parts = target.split("-")
@@ -856,11 +711,10 @@ def _real_aarch64_linker(target: str, extra_env: dict[str, str] | None) -> str |
 def _a53_strip_linker(real_linker: str) -> Path:
     """Write the wrapper that links through ``real_linker`` without the A53 fix.
 
-    It is Python rather than sh because rustc falls back to an
-    ``@linker-arguments`` file past ARG_MAX, one argument a line, and that file
-    needs rewriting line by line. The file name carries a digest of the
-    content, so concurrent jobs that resolve the same linker write identical
-    bytes and a rename never exposes a half-written file.
+    Python rather than sh, because past ARG_MAX rustc passes an
+    ``@linker-arguments`` file that needs rewriting line by line. The name
+    carries a content digest, so concurrent jobs write identical bytes and the
+    rename never exposes a half-written file.
     """
     script = _A53_STRIP_WRAPPER.format(
         python=sys.executable,
@@ -881,7 +735,7 @@ def _a53_strip_linker(real_linker: str) -> Path:
 
 
 def _a53_linker_env(target: str, extra_env: dict[str, str] | None) -> dict[str, str]:
-    """CARGO_TARGET_<TRIPLE>_LINKER pointing at the A53 strip wrapper, or {}."""
+    """Return CARGO_TARGET_<TRIPLE>_LINKER set to the A53 strip wrapper, or {}."""
     real = _real_aarch64_linker(target, extra_env)
     if real is None:
         warn(
@@ -903,27 +757,16 @@ def _bolt_build_env(
     no_split: bool = False,
     extra_env: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    """Linker env overrides for the cargo-pgo BOLT build and optimize steps.
+    """Return linker env overrides for the cargo-pgo BOLT build and optimize steps.
 
-    The linker must be lld: BOLT's builds pass `-Wl,-q` (`--emit-relocs`),
-    which mold segfaults on and GNU BFD rejects. Only RUSTFLAGS and the linker
-    change here, because neither reaches cargo's symbol-name hash. The
-    profile settings BOLT needs come from `_bolt_profile_env` and reach every
-    compile of the pipeline.
-
-    Cargo joins the env value onto the project's `target.<triple>.rustflags`,
-    so flags declared there (`-C target-cpu=x86-64-v3`) survive and the later
-    `-fuse-ld=lld` wins over a project `-fuse-ld=mold`. A project whose flags
-    live only in `build.rustflags` loses them for these steps: cargo reads
-    `build.rustflags` only when no target rustflags exist.
-
-    On aarch64 the linker is also replaced by a wrapper that links without
-    the Cortex-A53 erratum 843419 fix, whose veneers llvm-bolt refuses. The
-    wrapper execs the linker ``extra_env`` or the process env already names.
+    The linker must be lld: `--emit-relocs` segfaults mold and GNU BFD rejects
+    it. Only RUSTFLAGS and the linker change, as neither reaches cargo's
+    symbol-name hash. Cargo joins the value onto the project's
+    `target.<triple>.rustflags`, but a project with only `build.rustflags`
+    loses them for these steps. On aarch64 the linker becomes the A53 strip
+    wrapper.
     """
     target_rustflags_key = _target_rustflags_key(target)
-    # Base BOLT rustflags (lld for --emit-relocs). On the no-split retry, append
-    # the splitter-disabling flags (see _bolt_no_split_rustflags / _run_bolt).
     bolt_rustflags = "-C link-arg=-fuse-ld=lld"
     if no_split:
         extra = _bolt_no_split_rustflags()
@@ -935,13 +778,10 @@ def _bolt_build_env(
     return env
 
 
-# cargo-pgo's own default llvm-bolt optimise flags, which --bolt-args replaces
-# rather than extends, so a HYPERCI_BOLT_OPTIMIZE_ARGS bisect starts from these.
-# They are copied from src/bolt/optimize.rs of the pinned cargo-pgo
-# (`tools.cargo-pgo` in versions.yaml) and move with that pin.
-#
-# tests/unit/test_rust_pgo.py fails when `tools.cargo-pgo` moves away from the
-# version the tuple below was read from.
+# cargo-pgo's default llvm-bolt optimise flags, copied from src/bolt/optimize.rs
+# of the pinned cargo-pgo, for a HYPERCI_BOLT_OPTIMIZE_ARGS bisect to start from
+# (--bolt-args replaces them). tests/unit/test_rust_pgo.py fails when the pin
+# moves away from this version.
 _CARGO_PGO_FLAGS_VERIFIED_AGAINST = "0.3.0"
 
 _CARGO_PGO_OPTIMIZE_BOLT_ARGS = (
@@ -960,9 +800,9 @@ _CARGO_PGO_OPTIMIZE_BOLT_ARGS = (
 )
 
 
-# Replaces _CARGO_PGO_OPTIMIZE_BOLT_ARGS for one validate-only run, set from the
-# rust-ci.yml `bolt-optimize-args` dispatch input so a BOLT flag bisect is one
-# dispatch per attempt (issue #262). build.py refuses it on a run that ships.
+# Replaces cargo-pgo's BOLT flags for one validate-only run, from the rust-ci.yml
+# `bolt-optimize-args` dispatch input (issue #262); build.py refuses it on a
+# run that ships.
 BOLT_OPTIMIZE_ARGS_ENV = "HYPERCI_BOLT_OPTIMIZE_ARGS"
 
 # One llvm-bolt option as a single token: dash-led, `=` for a value. cargo-pgo
@@ -971,10 +811,7 @@ _BOLT_ARG_TOKEN = re.compile(r"-{1,2}[A-Za-z0-9][A-Za-z0-9_.,:+=-]*")
 
 
 def bolt_optimize_args_override() -> tuple[str, ...] | None:
-    """The per-run BOLT optimise flags, or None when the run sets none.
-
-    Whitespace-only counts as unset. A value option takes the `-name=value`
-    form, because every token must start with a dash.
+    """Return the per-run BOLT optimise flags, or None when unset or blank.
 
     Raises:
         ValueError: A token is not one dash-led llvm-bolt option.
@@ -995,11 +832,9 @@ def bolt_optimize_args_override() -> tuple[str, ...] | None:
 
 
 def _bolt_optimize_args() -> list[str]:
-    """`--bolt-args` for the cargo-pgo BOLT optimise step, empty by default.
+    """Return `--bolt-args` from `HYPERCI_BOLT_OPTIMIZE_ARGS`, else empty.
 
-    Empty keeps cargo-pgo's own llvm-bolt flags on every architecture. A
-    `HYPERCI_BOLT_OPTIMIZE_ARGS` override replaces them as given, including
-    any llvm-bolt option it names, such as `--drop-cortex-a53-843419-veneers`.
+    Empty keeps cargo-pgo's own llvm-bolt flags on every architecture.
     """
     override = bolt_optimize_args_override()
     if override is None:
@@ -1020,28 +855,13 @@ def _attempt_bolt(
 ) -> int:
     """Run one BOLT pass: instrument -> workload -> optimise.
 
-    ``cargo_args`` follows ``--target`` on both builds: the ``--bin`` scope
-    and the feature flags, the same as the PGO steps.
+    The workload must run against `<binary>-bolt-instrumented`, or `bolt
+    optimize` has no profile (#29). Both builds use `--with-pgo` and skip
+    sccache. ``no_split`` disables the compiler cold-splitter.
 
-    `bolt build` emits `<binary>-bolt-instrumented`; the workload must run
-    against THAT binary so BOLT collects its own branch profile. Skipping
-    the workload (the old behaviour) left `bolt optimize` with nothing to
-    optimise -- see #29.
-
-    Both builds compile with the PGO profile (`--with-pgo`), so BOLT records
-    and applies its profile on the same PGO-optimised layout, and both run
-    without sccache (see `_PROFILE_USE_ENV`).
-
-    Forces lld as the linker for both build phases -- see `_bolt_build_env()`.
-    `extra_env` already carries `_bolt_profile_env`, as every compile of the
-    pipeline does. When `no_split` is True, also disables the compiler
-    cold-splitter so BOLT can process the binary (see _run_bolt).
-
-    Returns 0 on success OR a non-fatal skip (missing instrumented binary or
-    a failed workload -- PGO-only result stands). Returns non-zero only on a
-    BOLT BUILD failure (instrument or optimise), which _run_bolt retries.
+    Returns 0 on success or on a non-fatal skip that leaves the PGO-only
+    binary; non-zero only when a BOLT build fails, which _run_bolt retries.
     """
-    # BOLT's target rustflags (fuse-ld=lld [+ no-split]) win over the project's.
     bolt_overrides = _bolt_build_env(target, no_split=no_split, extra_env=extra_env)
     bolt_env = {**(extra_env or {}), **bolt_overrides, **_PROFILE_USE_ENV}
     label = " (no-split)" if no_split else ""
@@ -1052,7 +872,6 @@ def _attempt_bolt(
             "the shipped binary is not safe on Cortex-A53"
         )
 
-    # 1. BOLT instrument build
     info(
         f"BOLT: building instrumented binary for {target} (linker forced to lld){label}"
     )
@@ -1072,15 +891,13 @@ def _attempt_bolt(
     if rc != 0:
         return rc
 
-    # 2. Run the workload against the bolt-instrumented binary to collect
-    #    BOLT's own profile. Without this, `bolt optimize` has no data.
     bolt_bin = _instrumented_binary_path(cwd, target, binary_name, variant="bolt")
     if not bolt_bin.exists():
         warn(
             f"BOLT-instrumented binary not found at {bolt_bin} -- "
             "skipping BOLT (PGO-only result stands)"
         )
-        return 0  # Non-fatal
+        return 0
     rc = _run_workload(
         profile.pgo_workload_cmd or "",
         profile.pgo_duration_secs,
@@ -1089,9 +906,8 @@ def _attempt_bolt(
     )
     if rc != 0:
         warn("BOLT workload failed -- skipping BOLT optimise (PGO-only result stands)")
-        return 0  # Non-fatal: PGO binary already built
+        return 0
 
-    # 3. BOLT optimise, folding in both the PGO and BOLT profiles
     info(
         f"BOLT: optimising binary for {target} (using PGO + BOLT profiles, linker=lld){label}"
     )
@@ -1112,9 +928,7 @@ def _attempt_bolt(
         cwd=cwd,
         extra_env=bolt_env,
     )
-    # Only this branch can produce a BOLT-optimised binary -- the returns above
-    # are non-fatal skips that also report 0 -- and it counts only once the
-    # BOLT file is where packaging will pick it up.
+    # The skips above also return 0, so BOLT counts only once its file is installed.
     if rc == 0 and _install_bolt_output(cwd, target, binary_name) and outcome:
         outcome.bolt_applied = True
     return rc
@@ -1131,18 +945,8 @@ def _run_bolt(
 ) -> int:
     """Run BOLT, retrying once with compiler function-splitting disabled.
 
-    The first attempt mirrors the project's normal build. If the BOLT BUILD
-    fails -- most commonly because the compiler pre-split a function into a
-    `.cold` fragment that BOLT can't process in relocation mode -- retry once
-    with the splitter disabled so BOLT splits the binary itself. Apps whose
-    first attempt succeeds never retry, so they are completely unaffected:
-    this makes a working BOLT layer the default WITHOUT risking the apps that
-    already optimise cleanly, and degrades to PGO-only (non-fatal) if neither
-    attempt succeeds.
-
-    Requires the llvm-bolt + merge-fdata + ld.lld toolchain, which
-    `run_pgo_build` checks before its first compile (covered by the `bolt-NN`
-    + `lld-NN` apt packages from apt.llvm.org).
+    Only a failed BOLT build retries, so apps that already optimise cleanly
+    never see the no-split flags. Failing both leaves the PGO-only binary.
     """
     rc = _attempt_bolt(
         target,
@@ -1159,7 +963,6 @@ def _run_bolt(
 
     no_split_flags = _bolt_no_split_rustflags()
     if not no_split_flags:
-        # Retry explicitly disabled via HYPERCI_BOLT_EXTRA_RUSTFLAGS="".
         return rc
     warn(
         "BOLT build failed -- retrying once with compiler function-splitting "
