@@ -22,8 +22,8 @@ shipped. This script points a throwaway fixture branch at the CANDIDATE:
    run exercises the branch's workflows + CLI through quality / test /
    build / container (a dev push lands in the prunable ``branch-*``
    namespace on an opted-in fixture),
-5. watches the runs of the workflow files it swapped -- never another
-   workflow's, so a consumer's quick PR guard cannot stand in for its CI --
+5. watches the pull_request runs of the workflow files it swapped -- never
+   another workflow's, and skipping a swapped file that has no such trigger, so a consumer's quick PR guard cannot stand in for its CI --
    reports per-job outcomes, writes the verdict into the
    fixture PR body as a rehearsal RECORD, then cleans up (closes the PR,
    restores the variable, best-effort deletes the branch).
@@ -60,6 +60,8 @@ import tempfile
 import time
 from pathlib import Path
 
+import yaml
+
 _HYPERI_CI_REPO = "hyperi-io/hyperi-ci"
 # The fleet sweep treats a fixture carrying any branch under this as held.
 REHEARSAL_PREFIX = "rehearse/"
@@ -88,6 +90,30 @@ def swap_refs(text: str, branch: str) -> tuple[str, int]:
     """
     new_text, count = _REF_SWAP.subn(rf"\1@{branch}", text)
     return new_text, count
+
+
+_PR_EVENTS = frozenset({"pull_request", "pull_request_target"})
+
+
+def runs_on_pull_request(text: str) -> bool:
+    """Whether a workflow file's ``on:`` triggers include a pull request event.
+
+    YAML 1.1 reads a bare ``on`` key as the boolean True, so both spellings
+    are checked. ``on`` may be a string, a list or a mapping of events.
+    Pure function -- unit-tested.
+    """
+    try:
+        doc = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return False
+    if not isinstance(doc, dict):
+        return False
+    triggers = doc["on"] if "on" in doc else doc.get(True)
+    if isinstance(triggers, str):
+        return triggers in _PR_EVENTS
+    if isinstance(triggers, (list, dict)):
+        return any(event in _PR_EVENTS for event in triggers)
+    return False
 
 
 def rehearse_slug(branch: str) -> str:
@@ -772,7 +798,8 @@ def main() -> int:
         if result.returncode != 0:
             return _fail(f"clone failed: {result.stderr.strip()}")
 
-        # The watcher judges only these files' runs.
+        # The watcher judges only these files' runs, narrowed below to the ones
+        # that run on a pull request.
         swapped_workflows: list[str] = []
         total_swaps = 0
         for wf in sorted((clone / ".github" / "workflows").glob("*.yml")):
@@ -787,6 +814,20 @@ def main() -> int:
             f"Swapped {total_swaps} ref(s) in {len(swapped_workflows)} file(s) "
             f"({', '.join(swapped_workflows)}) -> @{branch}"
         )
+        # A swapped file that never runs on a pull request (a schedule or
+        # dispatch-only job such as ghcr-prune.yml) has no run to wait for.
+        watched_workflows = [
+            name
+            for name in swapped_workflows
+            if runs_on_pull_request(
+                (clone / ".github" / "workflows" / name).read_text(encoding="utf-8")
+            )
+        ]
+        if not watched_workflows:
+            return _fail(
+                f"none of the swapped workflows ({', '.join(swapped_workflows)}) "
+                f"run on pull_request, so {repo} has nothing to rehearse"
+            )
 
         for git_args in (
             ["checkout", "-b", rehearse_ref],
@@ -855,7 +896,7 @@ def main() -> int:
                 )
 
             verdict, lines, run_id = _watch_pr_run(
-                repo, rehearse_ref, fixture_sha, args.timeout_minutes, swapped_workflows
+                repo, rehearse_ref, fixture_sha, args.timeout_minutes, watched_workflows
             )
 
             # A run that started before the merge ref existed failed at checkout,
@@ -875,7 +916,7 @@ def main() -> int:
                     rehearse_ref,
                     fixture_sha,
                     args.timeout_minutes,
-                    swapped_workflows,
+                    watched_workflows,
                 )
 
             print("Rehearsal run results:")
