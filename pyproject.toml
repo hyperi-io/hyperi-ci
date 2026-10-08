@@ -49,6 +49,7 @@ dependencies = [
     # scalo's CLI infra. If scalo ever drops typer, this
     # keeps us pinned to a known surface.
     "typer>=0.27",
+    "jsonschema>=4.26.0",
 ]
 
 [project.scripts]

@@ -146,6 +146,22 @@ A version already in the registry is not re-pushed, because that would move its 
 hyperi-ci publish-charts --charts helm/charts/a --charts helm/charts/b --version 2.2.0-rc.14 --output json
 ```
 
+#### Charts assembled from a deployment contract
+
+A scalo app commits no chart. Set `contract` and `hyperi-ci chart assemble` builds a thin one on the scalo-service library chart:
+
+```yaml
+release:
+  helm:
+    enabled: true
+    contract: emit          # run <app> generate-artefacts, or the path of a committed contract
+    library: 0.1.0          # scalo-service version, pulled from <registry>/scalo-service
+```
+
+Any finding against the library's `schema/deployment-contract.v<schema_version>.schema.json` fails the step. The chart is the library's `skeleton/`, `files/contract.json`, a `Chart.yaml` naming the app, release version and image tag, and values built from the `config_schema` nodes marked `x-scalo-dial: big|small`, commented out so app defaults stand. Same inputs, same bytes.
+
+`--image <repo>:<tag>@sha256:<digest>` is required. The chart's path, in a new temp dir or `--output-dir` outside the repo, is the one line on stdout. The release tail does not call it yet.
+
 ## 6. Release channels
 
 One-branch model. `release.channel` graduates a project by one line in
