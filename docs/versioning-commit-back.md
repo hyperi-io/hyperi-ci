@@ -22,10 +22,7 @@ It **is** committed back, by CI, at the end of a successful release -- the
 `hyperi-ci release-commit` on the `VERSION` the Prepare release job stamped. Never edit it by hand; the next release overwrites
 whatever you write.
 
-That commit-back is deliberately not `@semantic-release/git`, which did the job
-until May 2026 and was dropped because it created the release tag **on its own
-bot commit**: a later force-push orphaned the tag, and the next release
-recomputed the same version and died on `tag vX already exists` (issue #37).
+That commit-back is deliberately not `@semantic-release/git`, which created the release tag **on its own bot commit**. A later force-push orphaned the tag, and the next release recomputed the same version and died on `tag vX already exists` (issue #37).
 
 `release-commit` avoids that by construction:
 
@@ -42,10 +39,7 @@ It never moves the branch backwards. A retroactive `tag` dispatch skips the stam
 
 It lands on the branch that released, and refuses a prerelease version on any branch not declared `prerelease`, so `1.2.0-beta.1` never reaches `main`.
 
-The build back-end no longer depends on the file being present or fresh.
-`build_version()` in `version_source.py` resolves `HYPERCI_VERSION` -> `VERSION`
--> latest `v*` tag -> seed version, so a fresh clone builds and the run's
-predicted version always wins.
+The build back-end does not depend on the file being present or fresh. `build_version()` in `version_source.py` resolves `HYPERCI_VERSION` -> `VERSION` -> latest `v*` tag -> seed version, so a fresh clone builds and the run's predicted version always wins.
 
 To see what a checkout would release:
 
@@ -68,7 +62,13 @@ release:
 
 `stamp-version` runs `stamp_cmd` from the repo root after it writes `VERSION` and the manifest, so the generator reads the new version from `VERSION`. No shell is involved: a string is split the way a shell would split it, a list is the argv. A non-zero exit fails the stamp.
 
-It runs only on a publishing run. The Build job runs it before the build, so a wheel or binary carries the regenerated files. The Container job does NOT: it logs in to Docker Hub and GHCR, so it stamps with `--no-stamp-cmd`, and an image built from the checkout carries the committed copies of the `stamp_paths` files. The Prepare release job runs it a second time and uploads the `stamp_paths` files before its packaging code runs. Tag & Release, which runs no repo code, restores them for `release-commit`, and writes `VERSION` itself from the release version where git tracks one. A stamp that fails fails the prepare job, so nothing is tagged.
+It runs only on a publishing run. The Build job runs it before the build, so a wheel or binary carries the regenerated files.
+
+The Container job does NOT run it. That job logs in to Docker Hub and GHCR, so it stamps with `--no-stamp-cmd` and an image built from the checkout carries the committed copies of the `stamp_paths` files.
+
+The Prepare release job runs it a second time and uploads the `stamp_paths` files before its packaging code runs. Tag & Release runs no repo code. It restores them for `release-commit` and writes `VERSION` itself from the release version where git tracks one.
+
+A stamp that fails fails the prepare job, so nothing is tagged.
 
 `release-commit` adds `stamp_paths` to the commit that carries `VERSION` and `CHANGELOG.md`, and leaves a file out when:
 
