@@ -1,7 +1,6 @@
 # CI Flow
 
-How a push or dispatch becomes a release. Version-first, single run: one
-semantic-release computation drives every stage.
+How a push or dispatch becomes a release. One semantic-release computation, made before anything builds, drives every stage of a single run.
 
 ## 1. Trigger and gate
 
@@ -19,19 +18,11 @@ flowchart TD
     G --> H[run-checks=true<br/>run-build=true]
 ```
 
-- `will-release` = dispatch, or a `Release: true` trailer on HEAD. The
-  `Publish: true` trailer still counts, and warns.
-- `next-version` comes from `semantic-release --dry-run` - same config the real
-  tag step uses, so they cannot disagree.
-- No trailer on a push to main -> no tag, no release. A release-worthy pushed
-  range still runs quality + test; a `chore:` / `docs:` push runs neither.
-- Arch breadth follows `run-build`, not `will-release`, so a validate-only
-  dispatch and a branch-mode PR both build arm64 (issue #249).
-- A release-worthy merge to main also builds the **arm64 leg alone**
-  (`run-arm64-check`), catching an arm64 regression while it is still
-  attributable. Rust only, and a project opts out with
-  `build.rust.arm64_on_main: false`. It ships nothing: the release tail is
-  gated on `run-build`, so a merge that ships nothing still compiles nothing.
+- `will-release` = a dispatch, or a `Release: true` trailer on HEAD. The `Publish: true` trailer still counts, and warns.
+- `next-version` comes from `semantic-release --dry-run`, with the same config the real tag step uses, so the two cannot disagree.
+- A push to main with no trailer cuts no tag. A release-worthy pushed range still runs quality + test, and a `chore:` / `docs:` push runs neither.
+- Arch breadth follows `run-build`, not `will-release`, so a validate-only dispatch and a branch-mode PR both build arm64 (issue #249).
+- A release-worthy merge to main also builds the **arm64 leg alone** (`run-arm64-check`), so an arm64 regression shows up while it is still attributable. Rust only, and `build.rust.arm64_on_main: false` opts out. The release tail is gated on `run-build`, so this leg ships nothing.
 
 ## 2. Pipeline and job dependencies
 
@@ -43,47 +34,45 @@ flowchart LR
     quality --> rt
     test --> rt
     build --> rt
-    subgraph rt[Release tail — shared _release-tail.yml]
+    subgraph rt["Release tail - shared _release-tail.yml"]
       container[Container<br/>build + push GHCR] --> tagpub[Tag & Release<br/>upload only]
       prepare[Prepare<br/>repo code, no secrets] --> tagpub
     end
     tagpub --> reg[(registries)]
 ```
 
-- Quality / Test / Build run in parallel after Plan.
-- The release tail runs when `run-build` is true, which keeps the arm64-parity
-  build out of it; inside the tail, Prepare and Tag & Release are
-  `will-release`-only, and Tag & Release runs after both Container and Prepare.
+- Quality, Test and Build run in parallel after Plan.
+- The release tail runs when `run-build` is true. Inside it, Prepare and Tag & Release run only when `will-release` is true, and Tag & Release waits for both Container and Prepare.
 
 ## 3. Version - one oracle, used everywhere
 
 ```mermaid
-flowchart TD
-    SR[semantic-release dry-run<br/>Plan] --> NV[next-version]
-    NV --> BS[Build: stamp Cargo.toml + VERSION]
-    NV --> CV[Container: HYPERCI_VERSION = tag]
-    NV --> R[Tag & Release: semantic-release real]
-    R --> T[tag vX on HEAD<br/>always reachable]
-    T --> GH[GH release / R2 / GHCR : vX]
+flowchart LR
+    PV["Plan: predict-version"] --> B["Build: stamp, compile"]
+    B --> C["Container: stamp, push image vX"]
+    B --> P["Prepare: stamp, pack, no secrets"]
+    C --> TR["Tag & Release: verify prepared release"]
+    P --> TR
+    TR --> HC["publish-charts"]
+    HC --> TG["tag vX on HEAD"]
+    TG --> UP["upload to registries"]
+    UP --> RC["release-commit: chore(release) vX"]
 ```
 
-- Build stamps the binary, Container tags the image, Tag & Release creates the
-  git tag - all the same `next-version`.
-- semantic-release tags **HEAD** (not a CI-authored commit), so the tag is
-  always reachable and the next run computes the correct next version.
-- `@semantic-release/git` is dropped - hyperi-ci stamps the version itself
-  (version-first). After publish, `release-commit` adds an untagged `chore(release): vX [skip ci]` commit, so no tag can be rewritten (issue #37). See [versioning-commit-back.md](versioning-commit-back.md).
+- Build, Container and Prepare each run `stamp-version` with the same `next-version`, so the binary, the image tag and the git tag always agree.
+- semantic-release tags **HEAD**, not a CI-authored commit, so the tag is always reachable and the next run computes the right next version.
+- hyperi-ci stamps the version itself, so `@semantic-release/git` is not used. After the upload, `release-commit` adds an untagged `chore(release): vX [skip ci]` commit, so no tag can be rewritten (issue #37). See [versioning-commit-back.md](versioning-commit-back.md).
 
 ## 4. What is done where - and why
 
 ```mermaid
 flowchart TB
-    subgraph SME[Per-language — owned by the language SME]
+    subgraph SME["Per-language - owned by the language SME"]
       W[rust/ts/python/go-ci.yml<br/>toolchain, build matrix]
       Q[quality.py / build.py<br/>per-tool carve-outs]
       RC[build.py stamp_manifest<br/>language manifest to stamp]
     end
-    subgraph SHARED[Shared — language-agnostic, consumed not owned]
+    subgraph SHARED["Shared - language-agnostic, consumed not owned"]
       PV[predict-version action]
       SSR[setup-semantic-release composite]
       RT[_release-tail.yml]
@@ -96,16 +85,16 @@ flowchart TB
 
 | Layer | Owns | Why here |
 |---|---|---|
-| Per-language workflow + handlers | toolchains, build matrix, `_run_tool` carve-outs (e.g. cargo-audit transient skip), version stamping target | legitimately differs per language; the SME needs full control |
-| `predict-version`, `setup-semantic-release`, `_release-tail` | trigger gate, version oracle, semantic-release toolchain, container + tag + publish orchestration | identical across languages; shared so a fix lands once, not 4x |
+| Per-language workflow + handlers | toolchains, build matrix, `_run_tool` carve-outs (e.g. cargo-audit transient skip), version stamping target | differs per language, and the SME needs full control |
+| `predict-version`, `setup-semantic-release`, `_release-tail` | trigger gate, version oracle, semantic-release toolchain, container + tag + publish orchestration | identical across languages, so a fix lands once, not 4x |
 
-Rule: shared pieces must help the SME, never hobble them. Anything needing a
-per-language carve-out stays in the SME's domain.
+Rule: shared pieces must help the SME, never hobble them. Anything needing a per-language carve-out stays in the SME's domain.
 
 ## 5. Release routing
 
-Everything goes to the OSS registry stack, through one destination map (`config.publish_destinations()`). The legacy `release.target` config field (`internal` / `oss` / `both`) and the `publish-target` workflow input
-are both read by nothing; the field warns until it is deleted and the input stays declared so existing callers start. The config namespace is `release:`. A `publish:` block still works: it folds into `release:` at load time and each moved key is named in a warning.
+Everything goes to the OSS registry stack, through one destination map (`CIConfig.publish_destinations()` in `config.py`). The config namespace is `release:`. A `publish:` block still works: it folds into `release:` at load time and each moved key is named in a warning.
+
+The legacy `release.target` field (`internal` / `oss` / `both`) and the `publish-target` workflow input are read by nothing. The field warns until it is deleted. The input stays declared, because GitHub fails a caller that passes an undeclared input.
 
 ```mermaid
 flowchart LR
@@ -128,9 +117,7 @@ flowchart LR
 | Binaries (Rust/Go) | GitHub Releases + Cloudflare R2 (`downloads.hyperi.io`) for GA |
 | Go module | go-proxy (by tag) |
 
-- One artefact type -> one destination; there is no private/internal path.
-- `release.channel` controls prerelease vs GA (next section), not destination.
-  The key was `publish.channel` and still works, with a warning.
+One artefact type goes to one destination, and there is no private path. `release.channel` sets prerelease vs GA (next section), not destination. Its old name, `publish.channel`, still works with a warning.
 
 ### Helm charts
 
@@ -144,11 +131,11 @@ release:
     registry: oci://ghcr.io/hyperi-io/charts     # the default; a chart lands at <registry>/<name>
 ```
 
-`hyperi-ci publish-charts` does the work. Run it before the tag, as the container is pushed, so a failed push cuts no tag. Charts are packaged in a scratch copy, `file://` dependencies included, at the release version. A committed `appVersion` stays, and a chart without one gets `v<version>`. Library charts are skipped.
+`hyperi-ci publish-charts` does the work, in Tag & Release before the tag, so a failed push cuts no tag. Charts are packaged at the release version in a scratch copy, `file://` dependencies included. A committed `appVersion` stays, a chart without one gets `v<version>`, and library charts are skipped.
 
-A version already in the registry is not re-pushed, because that would move its tag to a new digest. The existing digest is reported instead. Digests go to the job summary and, when `hyperi-ci run release` follows in the same job, the GitHub Release body. A first push creates a private GHCR package -- making it public is manual.
+A version already in the registry is not re-pushed, because that would move its tag to a new digest, and the existing digest is reported instead. Digests go to the job summary and the GitHub Release body. A first push creates a private GHCR package, and making it public is manual.
 
-`--charts` (repeatable), `--registry` and `--version` (verbatim) beat config, `--dry-run` pushes nothing, and `--output json` prints `[{chart, version, digest, ref, signed}]`. `signed` is always `false`, as hyperi-ci has no signer:
+`--charts` (repeatable), `--registry` and `--version` (verbatim) beat config. `--dry-run` pushes nothing. `--output json` prints `[{chart, version, digest, ref, signed}]`, and `signed` is always `false` because hyperi-ci has no signer:
 
 ```bash
 hyperi-ci publish-charts --charts helm/charts/a --charts helm/charts/b --version 2.2.0-rc.14 --output json
@@ -156,11 +143,7 @@ hyperi-ci publish-charts --charts helm/charts/a --charts helm/charts/b --version
 
 ## 6. Release channels
 
-One-branch model. `release.channel` graduates a project by one line in
-`.hyperi-ci.yaml`; it sets prerelease-vs-GA and the R2 path. It does **not**
-change destination (all channels publish OSS), and it does **not** gate
-the Rust build tier - `build.py` never reads it. The tier follows whether the
-run releases: [languages/rust.md](languages/rust.md).
+There is one branch. `release.channel` in `.hyperi-ci.yaml` graduates a project with a one-line change. It sets prerelease vs GA and the R2 path. It does **not** change destination, and it does **not** pick the Rust build tier: `build.py` never reads it, and the tier follows whether the run releases ([languages/rust.md](languages/rust.md)).
 
 ```mermaid
 flowchart LR
@@ -175,33 +158,16 @@ flowchart LR
 | `beta` | GitHub prerelease | `/{project}/<channel>/vX/` |
 | `release` | GA | `/{project}/vX/` + `latest` |
 
-- `alpha` and `beta` publish: a GitHub prerelease plus an R2 channel path. That
-  is a narrower destination set, not the absence of a release.
-- Channel is set by `release.channel` in `.hyperi-ci.yaml`, not by a branch.
-  semantic-release runs only on `main` and produces real versions (`1.3.0`, not
-  `1.3.0-dev.8`) - there is no `release` branch and no dev pre-release track.
-- Rust build-opt is skippable for a single run with the `skip-optimize`
-  dispatch input, for when a fast pre-GA image beats an optimised one.
-  See [languages/rust-tier2.md](languages/rust-tier2.md) - *Skipping optimisation for one run*.
-- GA vs prerelease follows the channel: `alpha` / `beta` are GitHub
-  prereleases, `release` is GA. The arch set does not - the arm64 leg is added
-  when `will-release` is true, whatever the channel.
+- `alpha` and `beta` still publish: a GitHub prerelease plus an R2 channel path.
+- semantic-release runs only on `main` and produces real versions (`1.3.0`, not `1.3.0-dev.8`). There is no `release` branch and no dev pre-release track. A declared prerelease branch is covered in [prereleases.md](prereleases.md).
+- The `skip-optimize` dispatch input skips the Rust optimisation for one run, when a fast pre-GA image beats an optimised one. See [languages/rust-tier2.md](languages/rust-tier2.md) - *Skipping optimisation for one run*.
+- The arch set does not follow the channel: the arm64 leg is added when `will-release` is true, whatever the channel.
 
 ## 7. Binary publish - what's uploaded and how it's named
 
-Binary destinations (GitHub Releases, Cloudflare R2) receive **only
-compiled binaries + their SHA-256 checksums** - no README/CHANGELOG/LICENSE.
-This matches industry convention (HashiCorp, Rust, Go): docs live in the repo;
-semantic-release populates the release description. `_collect_artifacts()` reads
-everything from `dist/`, so build handlers place only binaries + checksums there.
+GitHub Releases and Cloudflare R2 receive **only compiled binaries and their SHA-256 checksums**, no README, CHANGELOG or LICENSE. Docs live in the repo, and semantic-release writes the release description. `_collect_artifacts()` in `release/binaries.py` reads everything from `dist/`, so build handlers put only binaries and checksums there.
 
-A project that needs one more file on the release lists it under
-`release.assets`. Those attach to the GitHub Release itself, so they arrive
-whatever `release.destinations.binaries` is — the binaries map routes built
-artefacts, and a release asset is not one. They are also copied into `dist/`,
-so the binary destinations carry them too. Use it for a file something
-downstream pins, such as a catalogue reading `sources.yaml` off the release; a
-listed file that is missing fails the release rather than shipping a broken pin.
+A project that needs one more file on the release lists it under `release.assets`. Those attach to the GitHub Release whatever `release.destinations.binaries` says, and are copied into `dist/` for the binary destinations too. A listed file that is missing fails the release rather than shipping a broken pin.
 
 ```yaml
 release:
@@ -209,8 +175,7 @@ release:
     - sources.yaml
 ```
 
-Unified naming across languages - `{name}-{os}-{arch}[.exe]`, **version in the
-path, not the filename**:
+Naming is the same in every language: `{name}-{os}-{arch}`, with the **version in the path, not the filename**:
 
 ```text
 dfe-receiver/vX/dfe-receiver-linux-amd64
@@ -220,104 +185,12 @@ dfe-receiver/vX/dfe-receiver-linux-arm64.sha256
 dfe-receiver/latest/dfe-receiver-linux-amd64
 ```
 
-Checksums are per-binary (`{binary}.sha256`, issue #22) - an aggregated
-`checksums.sha256` would last-write-wins when the multi-arch matrix jobs
-upload to the same path. Concatenate the per-arch files if you need a
-combined one.
+- Checksums are per binary (`{binary}.sha256`, issue #22). One `checksums.sha256` would be last-write-wins when the multi-arch matrix jobs upload to the same path. Concatenate the per-arch files for a combined one.
+- `os-arch` (`linux-amd64`) matches Docker, Kubernetes and HashiCorp rather than Rust target triples, because the consumers are ops deploying server binaries.
+- A version in the path gives stable download URLs and keeps branch names out of filenames.
 
-- `os-arch` shorthand (`linux-amd64`) matches Docker/K8s/HashiCorp, not Rust
-  target triples - our consumers are ops deploying server-side binaries.
-- Version in the path (not the filename) gives stable download URLs and avoids
-  the branch-name-leaks-into-filename class of bug.
-- Both Rust and Go handlers emit the same format - consumers don't care what
-  language built the binary.
+## 8. Release on demand and operating rules
 
-## 8. Release / retry on demand (no junk `fix:`)
+`hyperi-ci release` releases HEAD, finishes a release that died before its tag, or re-publishes an existing tag, with no junk `fix:` commit. The commands, the dispatch-ref rules and the Actions UI form are in [releasing.md](releasing.md).
 
-`hyperi-ci push --release` is the **primary** release path - one CI run, one
-tag, one release, gated by the `Release: true` trailer. It assumes you have a
-release-worthy commit on HEAD. Two situations break that assumption, and have
-historically driven the "edit a single file and fake a `fix:` commit" workaround:
-
-1. **"Jeez I need to retry this"** - a release run died before Tag & Release
-   (transient hiccup, container flake, etc.). No tag was cut, so `hyperi-ci
-   release vX` can't help (the tag doesn't exist) and `push --bump-patch`
-   no-ops because VERSION on `main` already equals the target (#25 + #35).
-2. **"Man I needed to release that"** - you want to release HEAD on demand
-   (re-release docs/refactor-only work, or release a fresh HEAD without an
-   intervening `Release: true` push).
-
-The fix: **`hyperi-ci release` covers both** (#35). The CLI
-is a thin trigger; the CI does the tagging and publishing, so it works under
-branch protection and from the Actions UI too.
-
-```mermaid
-flowchart LR
-    CLI[hyperi-ci release] -->|gh workflow run<br/>-f from-head=true -f bump=auto| WD[workflow_dispatch]
-    BUTTON[Actions: Run workflow<br/>from-head=true bump=auto/patch/minor] --> WD
-    WD --> PLAN[plan: predict-version<br/>resolves version on dispatch too]
-    PLAN --> TAIL[Tag & Release]
-    TAIL -->|auto: semantic-release| TAG[tag HEAD]
-    TAIL -->|patch/minor: tag-head| TAG
-    TAG --> PUB[publish to registries]
-```
-
-| Command | Action | When |
-|---|---|---|
-| `hyperi-ci release` | dispatch from-head + bump=auto - the CI resolves the version (semantic-release), tags HEAD, publishes | Finish a stuck release; release HEAD when there are release-worthy commits |
-| `hyperi-ci release --bump patch\|minor` | dispatch from-head + forced bump - `tag-head` computes `last + bump`, tags HEAD via `gh api`, publishes | Release HEAD with no release-worthy commit (kills the junk-`fix:` ritual) |
-| `hyperi-ci release <tag>` | dispatch existing tag - **idempotent retry** (publish handlers skip artefacts already in their registry; a GH Release no longer hard-blocks) | A partial release where the tag is cut but some registries missed |
-| Actions UI -> Run workflow | same three modes via `tag` / `from-head` / `bump` inputs | No local checkout; one-click from the GitHub UI |
-
-### Which ref a from-head dispatch releases from
-
-The dispatch ref decides whether a from-head run releases (#471). `hyperi-ci release` dispatches on the default branch, but the Actions UI and `gh workflow run --ref` can pick any branch:
-
-| Ref | `bump=auto` | forced `patch` / `minor` / `X.Y.Z` |
-|---|---|---|
-| main | releases | releases |
-| declared prerelease branch (`beta`) | releases on the prerelease sequence (`1.2.0-beta.1`) | validate-only, warns -- a forced bump would cut a stable version |
-| any other branch | validate-only, warns | validate-only, warns |
-
-A `tag` dispatch re-publishes from any ref, because the tag already names the commit.
-
-**Why the CI does the tagging:** one source of truth (the workflow), the
-`GITHUB_TOKEN` cuts the tag (works under branch protection), and the CLI +
-UI button are byte-identical operations. The plan job resolves the version
-on dispatch too (`predict-version` runs semantic-release for `auto` or
-last+bump for forced) so the build stamps the same version Tag & Release
-will tag - no artefact-version drift.
-
-> Caveat: `hyperi-ci push --release` (the primary path) still pre-flights via
-> the same trailer/gate. `release <tag>` is the escape hatch, not a replacement.
-> The old spellings -- `push --publish` and `hyperi-ci publish` -- still work and
-> warn.
-
-## 9. Release operating rules
-
-### Do not dispatch a release while a merge is queued into that repo
-
-A merge to `main` cancels the in-flight release run. The concurrency group is
-`${{ github.workflow }}-${{ inputs.tag || github.ref }}` with
-`cancel-in-progress: true`, so every push to `main` kills whatever the previous
-one started -- the release tail included. Land the merges, then dispatch.
-
-Wait for the last merge's push run to show up in `gh run list` before you dispatch. GitHub registers a push run a few seconds after the merge, so a dispatch sent straight after the merge can land first and then be cancelled by it. A `release <tag>` dispatch is safe, because the tag puts it in a group of its own.
-
-The cancelled run leaves no tag and no artefacts, so recovery is another
-`hyperi-ci release`. The cost is the build time, which on a Tier 2 Rust
-publish is 35-45 minutes per arch.
-
-Issue #228 carries the measurements and the options; this is the operating
-rule until one is chosen.
-
-### `push --release` drops the trailer when HEAD is already upstream
-
-`push --release` amends HEAD with the `Release: true` trailer and then
-rebases. Where that commit is already on the remote, the rebase reports
-`skipped previously applied commit` and takes the upstream copy, which has no
-trailer. The push then says `Everything up-to-date` and no release runs.
-
-Nothing is broken and nothing warns, so the tell is `Build: skipped` and
-`Release tail: skipped` on a run you expected to publish. Use `hyperi-ci
-release` instead, which dispatches from HEAD and needs no trailer commit.
+Do not dispatch a release while a merge is queued into the repo, and know when `push --release` silently drops its trailer. Both are in [releasing.md](releasing.md#operating-rules).
