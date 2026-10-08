@@ -50,7 +50,7 @@ _RUN_URL = (
 _PLACE = [
     r"for tree in dist; do",
     r'if \[ -d "\$RUNNER_TEMP/build-dist/\$tree" \]; then '
-    r'cp -RL "\$RUNNER_TEMP/build-dist/\$tree" \.; fi',
+    r'cp -R --remove-destination "\$RUNNER_TEMP/build-dist/\$tree" \.; fi',
     r"done",
 ]
 

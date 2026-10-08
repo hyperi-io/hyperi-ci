@@ -439,7 +439,9 @@ release:
   # and a library chart named by its exact directory is published.
   # `contract` is `emit` (run `<app> generate-artefacts`) or the path of a
   # committed contract; `hyperi-ci chart assemble` turns it into a chart on
-  # the scalo-service library at version `library`.
+  # the scalo-service library at version `library`. On a release,
+  # `publish-charts` assembles and pushes it too, pinned to the image the
+  # Container job pushed. `emit` runs in the Build job, never Tag & Release.
   helm:
     enabled: false
     charts: []

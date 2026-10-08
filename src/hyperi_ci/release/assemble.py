@@ -30,6 +30,7 @@ and nothing run over the repo ever sees. ``.helmignore`` keeps that file out
 of the packaged chart.
 """
 
+import hashlib
 import json
 import math
 import os
@@ -58,6 +59,13 @@ from hyperi_ci.repo_path import RepoPathError, confine
 
 LIBRARY = "scalo-service"
 CONTRACT_FILE = "deployment-contract.json"
+# Rides the Build job's dist/ artefact to Tag & Release. A subdirectory, as the
+# GitHub Release and R2 uploads take only dist/'s top-level files.
+EMITTED_DIR = "dist/chart-contract"
+# Named by its sha256, so Build legs that emit the same bytes leave one file
+# after the artefacts merge, and legs that disagree leave two.
+EMITTED_NAME = "deployment-contract.{digest}.json"
+EMITTED_GLOB = "deployment-contract.*.json"
 SKELETON_DIR = "skeleton"
 VALUES_SCHEMA = "values.schema.json"
 SCHEMA_PATH = "schema/deployment-contract.v{version}.schema.json"
@@ -333,6 +341,28 @@ def _read_json(path: Path, what: str) -> dict:
     return _parse_json(_read_bytes(path, what), f"{what} {path}")
 
 
+def _refuse_links(library_dir: Path, library: str) -> None:
+    """Fail when the library chart holds a symlink.
+
+    The chart is built from the library's files in a job that holds publish
+    credentials, so a followed link could copy a runner file into a published
+    chart. A link from ``skeleton/`` back into the library points elsewhere
+    once the skeleton is copied out, so every link is refused, not only those
+    that leave the library.
+
+    Raises:
+        ChartError: A symlink sits anywhere under ``library_dir``.
+
+    """
+    links = sorted(
+        str(p.relative_to(library_dir))
+        for p in library_dir.rglob("*")
+        if p.is_symlink()
+    )
+    if links:
+        raise ChartError(f"{LIBRARY} {library} holds symlinks: {', '.join(links)}")
+
+
 def assemble(
     raw_contract: bytes,
     library_dir: Path,
@@ -377,13 +407,18 @@ def assemble(
             f"app_name {name!r} is not a Kubernetes Service name: 1 to 63 "
             "lowercase letters, digits and inner hyphens, starting with a letter"
         )
-    schema_file = library_dir / SCHEMA_PATH.format(
-        version=contract.get("schema_version")
-    )
+    # Checked before it becomes part of a path into the library.
+    schema_version = contract.get("schema_version")
+    if type(schema_version) is not int or schema_version < 0:
+        raise ChartError(
+            f"contract schema_version {schema_version!r} is not a whole number"
+        )
+    _refuse_links(library_dir, library)
+    schema_file = library_dir / SCHEMA_PATH.format(version=schema_version)
     if not schema_file.is_file():
         raise ChartError(
             f"{LIBRARY} {library} ships no {schema_file.relative_to(library_dir)} "
-            f"for contract schema_version {contract.get('schema_version')!r}"
+            f"for contract schema_version {schema_version!r}"
         )
     validate_contract(contract, _read_json(schema_file, "contract schema"))
     image_registry = str(contract.get("image_registry") or "").removesuffix("/")
@@ -444,7 +479,7 @@ def assemble(
         raise ChartError(f"cannot create {chart}: {exc}") from exc
     try:
         built = staging / name
-        shutil.copytree(skeleton, built)
+        shutil.copytree(skeleton, built, symlinks=True)
         if skips:
             _ignore_chart_config(built)
         for rel, text in files.items():
@@ -485,6 +520,14 @@ def producer_command(root: Path, binary: str | None = None) -> list[str]:
     raise ChartError(f"release.helm.contract is emit, but {decision.reason}")
 
 
+def _committed_contract(setting: str, root: Path) -> bytes:
+    try:
+        path = confine(setting, root, key="release.helm.contract")
+    except RepoPathError as exc:
+        raise ChartError(str(exc)) from exc
+    return _read_bytes(path, "contract")
+
+
 def load_contract(setting: str, root: Path, scratch: Path, binary: str | None) -> bytes:
     """Return the bytes of the contract ``release.helm.contract`` names.
 
@@ -495,11 +538,7 @@ def load_contract(setting: str, root: Path, scratch: Path, binary: str | None) -
 
     """
     if setting != "emit":
-        try:
-            path = confine(setting, root, key="release.helm.contract")
-        except RepoPathError as exc:
-            raise ChartError(str(exc)) from exc
-        return _read_bytes(path, "contract")
+        return _committed_contract(setting, root)
     cmd = [*producer_command(root, binary), "generate-artefacts"]
     info(f"Emitting the contract: {' '.join(cmd)}")
     emitted = scratch / "emitted"
@@ -516,6 +555,94 @@ def load_contract(setting: str, root: Path, scratch: Path, binary: str | None) -
     if result.returncode != 0:
         raise ChartError(f"{' '.join(cmd)} failed:\n{result.stdout}")
     return _read_bytes(emitted / CONTRACT_FILE, "emitted contract")
+
+
+def _emitted_dir(root: Path) -> Path:
+    """Return the resolved ``dist/chart-contract``, refusing a symlink on its way.
+
+    Raises:
+        ChartError: ``dist`` or ``dist/chart-contract`` is a symlink, or the
+            directory resolves outside ``root``.
+
+    """
+    path = root
+    for part in Path(EMITTED_DIR).parts:
+        path = path / part
+        if path.is_symlink():
+            raise ChartError(f"{path.relative_to(root)} is a symlink")
+    try:
+        return confine(EMITTED_DIR, root, key="the emitted contract")
+    except RepoPathError as exc:
+        raise ChartError(str(exc)) from exc
+
+
+def emit_contract(config: CIConfig, root: Path) -> int:
+    """Leave the emitted contract in ``dist/`` for the release tail, when one is emitted.
+
+    Tag & Release holds the publish credentials and runs no repo code, so the
+    app's ``generate-artefacts`` runs here, in the Build job, beside the binary
+    it just built. Nothing happens unless ``release.helm.contract`` is ``emit``.
+    A contract an earlier build left is replaced.
+
+    Returns:
+        0 when nothing is emitted or the contract was written, 1 on failure.
+
+    """
+    if not config.setting("release.helm.enabled"):
+        return 0
+    if config.setting("release.helm.contract") != "emit":
+        return 0
+    try:
+        folder = _emitted_dir(root)
+        with tempfile.TemporaryDirectory(prefix="hyperi-ci-emit-") as tmp:
+            raw = load_contract("emit", root, Path(tmp), None)
+        _parse_json(raw, "the emitted contract")
+        folder.mkdir(parents=True, exist_ok=True)
+        for stale in folder.glob(EMITTED_GLOB):
+            stale.unlink()
+        name = EMITTED_NAME.format(digest=hashlib.sha256(raw).hexdigest())
+        (folder / name).write_bytes(raw)
+    except (ChartError, OSError) as exc:
+        error(f"release.helm.contract is emit: {exc}")
+        return 1
+    success(f"Emitted the deployment contract to {EMITTED_DIR}/{name}")
+    return 0
+
+
+def release_contract(setting: str, root: Path) -> bytes:
+    """Return the contract the release tail assembles from, running no repo code.
+
+    ``emit`` reads what :func:`emit_contract` left in ``dist/``, where every
+    Build leg's contract lands after the artefacts merge. They must be the
+    same bytes. A path reads the committed file.
+
+    Raises:
+        ChartError: The contract is missing or cannot be read, a symlink sits
+            in the emitted contract's directory or on its path, or the Build
+            legs emitted different contracts.
+
+    """
+    if setting != "emit":
+        return _committed_contract(setting, root)
+    folder = _emitted_dir(root)
+    entries = sorted(folder.iterdir()) if folder.is_dir() else []
+    links = [p.name for p in entries if p.is_symlink()]
+    if links:
+        raise ChartError(f"{EMITTED_DIR} holds symlinks: {', '.join(links)}")
+    found = [p for p in entries if p.match(EMITTED_GLOB) and p.is_file()]
+    if not found:
+        raise ChartError(
+            f"release.helm.contract is emit, but the Build job left no "
+            f"{EMITTED_DIR}/{EMITTED_GLOB} in its dist/ artefact"
+        )
+    contents = {_read_bytes(p, "emitted contract") for p in found}
+    if len(contents) > 1:
+        raise ChartError(
+            f"the Build legs emitted {len(contents)} different contracts "
+            f"({', '.join(p.name for p in found)}). generate-artefacts must give "
+            "the same bytes on every host the app is built on."
+        )
+    return contents.pop()
 
 
 def _pull_library(registry: str, library: str, scratch: Path) -> Path:
@@ -562,27 +689,29 @@ def assemble_chart(
     binary: str | None = None,
     registry: str | None = None,
     version: str | None = None,
+    contract: bytes | None = None,
 ) -> tuple[int, Path | None]:
     """Assemble the thin chart ``release.helm`` describes, if it describes one.
 
     A library pulled from the registry is also built into the chart's
     ``charts/``. A ``library_dir`` is read offline, so the chart is left
-    for ``helm dependency build``.
+    for ``helm dependency build``. ``contract`` replaces the one
+    ``release.helm.contract`` names, so the release tail runs no producer.
 
     Returns:
         ``(exit code, chart directory)``. The directory is None when the
         project assembles no chart or the assembly failed.
 
     """
-    setting = config.get("release.helm.contract")
-    library = config.get("release.helm.library")
-    if not config.get("release.helm.enabled", False):
+    setting = config.setting("release.helm.contract")
+    library = config.setting("release.helm.library")
+    if not config.setting("release.helm.enabled"):
         info("release.helm.enabled is off -- no chart to assemble")
         return 0, None
     if not setting:
         info("release.helm.contract is not set -- no chart to assemble")
         return 0, None
-    registry = (registry or config.get("release.helm.registry") or "").rstrip("/")
+    registry = (registry or config.setting("release.helm.registry") or "").rstrip("/")
     try:
         version = version or resolve_release_version()
     except ReleaseVersionError as exc:
@@ -625,6 +754,7 @@ def assemble_chart(
             binary=binary,
             registry=registry,
             version=str(version),
+            contract=contract,
         )
     except ChartError as exc:
         error(str(exc))
@@ -645,12 +775,17 @@ def _assemble_from_config(
     binary: str | None,
     registry: str,
     version: str,
+    contract: bytes | None = None,
 ) -> Path:
-    setting = str(config.get("release.helm.contract"))
-    library = str(config.get("release.helm.library"))
+    setting = str(config.setting("release.helm.contract"))
+    library = str(config.setting("release.helm.library"))
     with tempfile.TemporaryDirectory(prefix="hyperi-ci-assemble-") as tmp:
         scratch = Path(tmp)
-        raw_contract = load_contract(setting, root, scratch, binary)
+        raw_contract = (
+            contract
+            if contract is not None
+            else load_contract(setting, root, scratch, binary)
+        )
         pulled = library_dir is None
         if library_dir is None:
             if not _ensure_helm():

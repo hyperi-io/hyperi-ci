@@ -28,8 +28,6 @@ _SRC = _ROOT / "src" / "hyperi_ci"
 _EXEMPT: dict[tuple[str, str], str] = {
     ("config.py", "language"): "the loader's hardcoded last layer",
     ("config.py", "project"): "the loader, reading the dict it is building",
-    ("release/assemble.py", "release.helm.enabled"): "open chart-assemble work",
-    ("release/charts.py", "release.helm.enabled"): "open chart-assemble work",
     ("release_notify.py", "notify.slack.webhook_env"): "open helper dedupe",
     ("languages/rust/test.py", "test.rust.tier"): "open helper dedupe",
     ("languages/rust/test.py", "test.coverage"): "open helper dedupe",

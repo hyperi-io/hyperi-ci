@@ -13,7 +13,9 @@ write the checkout. The chart version is the release version, and its
 library charts, and a library chart named by its exact directory is published.
 
 A version already in the registry is reported, never re-pushed: ``helm package``
-is not byte-reproducible, so a re-push would move the tag to a new digest.
+is not byte-reproducible, so a re-push would move the tag to a new digest. A
+stored ``release.helm.contract`` chart that pins another image than this run's
+fails the publish instead of being reused.
 """
 
 import os
@@ -167,11 +169,18 @@ def _stage(chart: Chart, root: Path, scratch: Path) -> Path:
     return scratch / chart.path.relative_to(root)
 
 
+def _helm_argv(*args: str, registry: str = "") -> list[str]:
+    flags = ["--plain-http"] if registry and _host(registry) in _PLAIN_HTTP else []
+    return ["helm", *args, *flags]
+
+
 def _helm(*args: str, registry: str = "") -> tuple[int, str]:
     """Run helm with stdout and stderr merged, so its output reaches the logger."""
-    flags = ["--plain-http"] if registry and _host(registry) in _PLAIN_HTTP else []
     result = run_cmd(
-        ["helm", *args, *flags], check=False, capture=True, merge_stderr=True
+        _helm_argv(*args, registry=registry),
+        check=False,
+        capture=True,
+        merge_stderr=True,
     )
     return result.returncode, result.stdout or ""
 
@@ -303,6 +312,113 @@ def _report(results: list[Published], registry: str, new: list[str]) -> None:
         )
 
 
+def pinned_image(registry: str, name: str, version: str) -> str | None:
+    """Return the image digest ``name:version`` in the registry sets in its values.
+
+    Raises:
+        ChartError: helm could not show the chart's values, or they are not YAML.
+
+    """
+    # stdout alone: helm reports an OCI pull on stderr, which is not values.
+    argv = _helm_argv(
+        "show", "values", f"{registry}/{name}", "--version", version, registry=registry
+    )
+    result = run_cmd(argv, check=False, capture=True)
+    if result.returncode != 0:
+        raise ChartError(
+            f"helm show values {name} {version} failed:\n{result.stderr or ''}"
+        )
+    return values_digest(result.stdout or "", f"{name} {version} in {registry}")
+
+
+def values_digest(text: str, where: str) -> str | None:
+    """Return ``image.digest`` from a chart's values.yaml text, else None.
+
+    Raises:
+        ChartError: ``text`` is not YAML.
+
+    """
+    try:
+        values = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise ChartError(f"the values of {where} are not YAML: {exc}") from exc
+    image = values.get("image") if isinstance(values, dict) else None
+    digest = image.get("digest") if isinstance(image, dict) else None
+    return str(digest) if digest else None
+
+
+def _refuse_stale_pin(registry: str, chart: Chart, version: str) -> None:
+    """Fail when the registry holds this chart version pinned to another image.
+
+    A chart version is never re-pushed. A retried release whose Container job
+    pushed a new image moves the version tag off the image the stored chart
+    pins, and a prune of untagged images can then delete it.
+
+    Raises:
+        ChartError: The stored chart pins another digest, or none can be read.
+
+    """
+    if existing_digest(registry, chart.name, version) is None:
+        return
+    try:
+        ours = values_digest(
+            (chart.path / "values.yaml").read_text(encoding="utf-8"), chart.name
+        )
+    except OSError as exc:
+        raise ChartError(f"cannot read {chart.name} values.yaml: {exc}") from exc
+    theirs = pinned_image(registry, chart.name, version)
+    if theirs == ours:
+        return
+    stored = theirs or "no digest"
+    raise ChartError(
+        f"{chart.name} {version} is already in {registry}, pinned to image "
+        f"{stored}, but this run's image is {ours}. A chart version is never "
+        "re-pushed, and the stored one points at an image that has lost its "
+        f"tag. Release a new version, or delete {chart.name} {version} from "
+        "the registry and re-run Tag & Release."
+    )
+
+
+def _assembled(
+    config: CIConfig,
+    root: Path,
+    out: Path,
+    *,
+    contract: str,
+    image: str,
+    registry: str,
+    version: str,
+) -> Chart:
+    """Assemble the ``release.helm.contract`` chart in ``out``, its library built in.
+
+    Raises:
+        ChartError: The contract cannot be read or the chart not assembled.
+
+    """
+    from hyperi_ci.release.assemble import assemble_chart, release_contract
+
+    raw = release_contract(contract, root)
+    rc, built = assemble_chart(
+        config,
+        root,
+        image=image,
+        output_dir=out,
+        registry=registry,
+        version=version,
+        contract=raw,
+    )
+    if rc != 0 or built is None:
+        raise ChartError("the release.helm.contract chart was not assembled")
+    app_version = _read_chart(built).get("appVersion")
+    return Chart(
+        path=built,
+        name=built.name,
+        app_version=str(app_version) if app_version else None,
+        has_deps=False,
+        file_deps=(),
+    )
+
+
 def publish_charts(
     config: CIConfig,
     root: Path,
@@ -310,24 +426,38 @@ def publish_charts(
     charts: list[str] | None = None,
     registry: str | None = None,
     version: str | None = None,
+    image: str | None = None,
     dry_run: bool = False,
 ) -> tuple[int, list[Published]]:
     """Package every configured chart and push it, reusing any version already there.
 
     Flags beat config. With no ``charts`` flag, ``release.helm.enabled`` decides
-    whether anything runs at all.
+    whether anything runs at all, and a set ``release.helm.contract`` adds the
+    chart assembled from it, pinned to ``image``. That chart is never built
+    without a pushed image to pin. If its version is already in the registry
+    pinned to another image, nothing is pushed.
 
     Returns:
         ``(exit code, results)``. A dry run packages but pushes nothing, so
         its results carry no digest.
 
     """
+    contract = None
     if charts is None:
-        if not config.get("release.helm.enabled", False):
+        if not config.setting("release.helm.enabled"):
             info("release.helm.enabled is false -- no Helm charts to publish")
             return 0, []
-        charts = list(config.get("release.helm.charts") or [])
-    registry = (registry or config.get("release.helm.registry") or "").rstrip("/")
+        charts = list(config.setting("release.helm.charts") or [])
+        contract = config.setting("release.helm.contract") or None
+    if contract and not image:
+        error(
+            "release.helm.contract is set, but no pushed image reached "
+            "publish-charts. The chart pins its image by digest, so a release "
+            "that pushed no container has nothing to pin. Pass --image "
+            "<repo>:<tag>@sha256:<digest> or set HYPERCI_CHART_IMAGE."
+        )
+        return 1, []
+    registry = (registry or config.setting("release.helm.registry") or "").rstrip("/")
     if not registry.startswith("oci://"):
         error(f"Helm registry must be an oci:// URL, got {registry!r}")
         return 1, []
@@ -345,12 +475,35 @@ def publish_charts(
     results: list[Published] = []
     new: list[str] = []
     try:
-        resolved = resolve_charts(charts, root)
+        # A contract alone is a complete chart list.
+        resolved = resolve_charts(charts, root) if charts or not contract else []
         if not dry_run:
             _login(registry)
-        with tempfile.TemporaryDirectory(prefix="hyperi-ci-charts-") as scratch:
-            for chart in resolved:
-                tgz = package(chart, version, root.resolve(), Path(scratch))
+        with (
+            tempfile.TemporaryDirectory(prefix="hyperi-ci-charts-") as scratch,
+            tempfile.TemporaryDirectory(prefix="hyperi-ci-assembled-") as built,
+        ):
+            targets = [(chart, root.resolve()) for chart in resolved]
+            if contract and image:
+                chart = _assembled(
+                    config,
+                    root,
+                    Path(built),
+                    contract=str(contract),
+                    image=image,
+                    registry=registry,
+                    version=version,
+                )
+                if any(c.name == chart.name for c in resolved):
+                    raise ChartError(
+                        f"{chart.name} is both a committed chart and the "
+                        "release.helm.contract chart"
+                    )
+                if not dry_run:
+                    _refuse_stale_pin(registry, chart, version)
+                targets.append((chart, Path(built).resolve()))
+            for chart, base in targets:
+                tgz = package(chart, version, base, Path(scratch))
                 if dry_run:
                     info(f"  {chart.name} {version}: packaged {tgz.name}, not pushed")
                     results.append(Published(chart.name, version, None, None))
