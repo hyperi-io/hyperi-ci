@@ -15,6 +15,7 @@ a hard error: bad profile data is worse than no PGO.
 import hashlib
 import os
 import re
+import shlex
 import shutil
 import stat
 import subprocess
@@ -542,9 +543,7 @@ def _run_workload(
         "PGO_WORKLOAD_DURATION_SECS": str(duration_secs),
     }
 
-    import shlex as _shlex
-
-    full_cmd = f"{workload_cmd} {_shlex.quote(str(instrumented_binary))}"
+    full_cmd = f"{workload_cmd} {shlex.quote(str(instrumented_binary))}"
 
     timeout_secs = duration_secs + 600
     info(f"  $ {full_cmd}  (timeout={timeout_secs}s = duration+600s safety grace)")

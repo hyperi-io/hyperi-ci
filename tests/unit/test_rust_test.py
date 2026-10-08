@@ -78,7 +78,7 @@ class TestDegradationIsLoud:
     def test_annotation_emitted_in_ci(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        monkeypatch.setattr(f"{MODULE}.is_ci", lambda: True)
+        monkeypatch.setattr("hyperi_ci.common.is_github_actions", lambda: True)
         _resolve_runner(_make_config())
         out = capsys.readouterr().out
         assert "::warning title=hyperi-ci test runner degraded::" in out
@@ -91,7 +91,7 @@ class TestDegradationIsLoud:
     def test_no_annotation_outside_ci(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        monkeypatch.setattr(f"{MODULE}.is_ci", lambda: False)
+        monkeypatch.setattr("hyperi_ci.common.is_github_actions", lambda: False)
         _resolve_runner(_make_config())
         assert "::warning" not in capsys.readouterr().out
 
@@ -99,7 +99,7 @@ class TestDegradationIsLoud:
     def test_no_annotation_when_nothing_degraded(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        monkeypatch.setattr(f"{MODULE}.is_ci", lambda: True)
+        monkeypatch.setattr("hyperi_ci.common.is_github_actions", lambda: True)
         _resolve_runner(_make_config())
         assert "::warning" not in capsys.readouterr().out
 
@@ -107,7 +107,7 @@ class TestDegradationIsLoud:
     def test_deliberate_cargo_choice_is_not_a_warning(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        monkeypatch.setattr(f"{MODULE}.is_ci", lambda: True)
+        monkeypatch.setattr("hyperi_ci.common.is_github_actions", lambda: True)
         _resolve_runner(_make_config(nextest=False))
         assert "::warning" not in capsys.readouterr().out
 
@@ -249,7 +249,7 @@ class TestCoverageSaysWhenItDidNotRun:
     ) -> None:
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(f"{MODULE}.shutil.which", lambda _: None)
-        monkeypatch.setattr(f"{MODULE}.is_ci", lambda: True)
+        monkeypatch.setattr("hyperi_ci.common.is_github_actions", lambda: True)
         assert _run_coverage("default") == -1
         out = capsys.readouterr().out
         assert "::warning title=hyperi-ci coverage skipped::" in out
@@ -263,7 +263,7 @@ class TestCoverageSaysWhenItDidNotRun:
     ) -> None:
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(f"{MODULE}.shutil.which", lambda _: None)
-        monkeypatch.setattr(f"{MODULE}.is_ci", lambda: False)
+        monkeypatch.setattr("hyperi_ci.common.is_github_actions", lambda: False)
         assert _run_coverage("default") == -1
         assert "::warning" not in capsys.readouterr().out
 
@@ -491,9 +491,9 @@ class TestCoverageOnTheFirstFeatureSetOnly:
         self, monkeypatch: pytest.MonkeyPatch, recorder: _Recorder
     ) -> None:
         _coverage_tool(monkeypatch, None)
-        monkeypatch.setattr(f"{MODULE}.is_ci", lambda: False)
+        monkeypatch.setattr("hyperi_ci.common.is_github_actions", lambda: False)
         said: list[str] = []
-        monkeypatch.setattr(f"{MODULE}.warn", said.append)
+        monkeypatch.setattr("hyperi_ci.common.warn", said.append)
         assert run(_make_config(), extra_env={"RUST_FEATURES": "a|b"}) == 0
         assert sum("did NOT run" in line for line in said) == 1
         assert [cmd for cmd, _env in recorder.streamed] == [

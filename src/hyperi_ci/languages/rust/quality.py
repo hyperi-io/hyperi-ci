@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import subprocess
+import tomllib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,11 +43,6 @@ from hyperi_ci.quality import cargo_flags, osv_scanner
 from hyperi_ci.quality.ignores import IgnoreEntry, for_tool, load_ignores
 from hyperi_ci.tools import matches_pin, version_output
 from hyperi_ci.versions import tool_version
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover -- Python < 3.11
-    import tomli as tomllib  # type: ignore[no-redef]  # ty: ignore[unresolved-import]
 
 # A target entry of its own joins the repo's and the runner's target rustflags,
 # where RUSTFLAGS would discard them.

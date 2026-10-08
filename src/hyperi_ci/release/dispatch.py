@@ -10,13 +10,12 @@ The usual path is `hyperi-ci push --release`. This one retries a failed
 publish without re-tagging, or releases HEAD without a marker commit.
 """
 
-import subprocess
-
 from hyperi_ci.common import (
     error,
     explicit_version,
     info,
     latest_version_tag,
+    run_cmd,
     success,
     warn,
 )
@@ -24,6 +23,9 @@ from hyperi_ci.common import (
 # A consumer's `on.workflow_dispatch.inputs` must declare all of these or the
 # dispatch fails with HTTP 422 (issue #88); `hyperi-ci audit-callers` checks it.
 DISPATCH_INPUTS: tuple[str, ...] = ("tag", "from-head", "bump")
+
+# The workflow file every consumer caller is scaffolded as.
+_WORKFLOW_FILE = "ci.yml"
 
 
 def _dispatch_cmd(workflow: str, inputs: dict[str, str]) -> list[str]:
@@ -42,12 +44,10 @@ def _dispatch_cmd(workflow: str, inputs: dict[str, str]) -> list[str]:
 
 def _get_version_tags() -> list[str]:
     """Get all version tags sorted by version descending."""
-    result = subprocess.run(
+    result = run_cmd(
         ["git", "tag", "--list", "v*", "--sort=-version:refname"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
+        check=False,
+        capture=True,
     )
     if result.returncode != 0:
         return []
@@ -56,27 +56,16 @@ def _get_version_tags() -> list[str]:
 
 def _tag_has_release(tag: str) -> bool:
     """Check if a GH Release exists for this tag."""
-    result = subprocess.run(
-        ["gh", "release", "view", tag],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    result = run_cmd(["gh", "release", "view", tag], check=False, capture=True)
     return result.returncode == 0
 
 
 def _get_tag_info(tag: str) -> str:
-    """Get tag date and commit summary."""
-    result = subprocess.run(
-        ["git", "log", "-1", "--format=%ci", tag],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
+    """Get the tag's commit date as YYYY-MM-DD, or "unknown"."""
+    result = run_cmd(
+        ["git", "log", "-1", "--format=%ci", tag], check=False, capture=True
     )
-    date = result.stdout.strip()[:10] if result.returncode == 0 else "unknown"
-    return date
+    return result.stdout.strip()[:10] if result.returncode == 0 else "unknown"
 
 
 def list_unpublished() -> int:
@@ -103,33 +92,6 @@ def list_unpublished() -> int:
     return 0
 
 
-def _detect_workflow_file() -> str:
-    """Detect the CI workflow filename from the repo."""
-    result = subprocess.run(
-        ["gh", "workflow", "list", "--json", "name,id"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    if result.returncode != 0:
-        return "ci.yml"
-
-    import json
-
-    try:
-        workflows = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return "ci.yml"
-
-    for wf in workflows:
-        name = wf.get("name", "").lower()
-        if name in ("ci", "rust ci", "python ci", "go ci", "typescript ci"):
-            return "ci.yml"
-
-    return "ci.yml"
-
-
 def resolve_latest_tag() -> str | None:
     """Return the highest final-release tag, or None when the repo carries none.
 
@@ -142,20 +104,8 @@ def resolve_latest_tag() -> str | None:
 
 def _head_in_sync_with_origin() -> bool:
     """Return True if local HEAD matches origin/main, the commit the CI tags."""
-    local = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    remote = subprocess.run(
-        ["git", "rev-parse", "origin/main"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    local = run_cmd(["git", "rev-parse", "HEAD"], check=False, capture=True)
+    remote = run_cmd(["git", "rev-parse", "origin/main"], check=False, capture=True)
     if local.returncode != 0 or remote.returncode != 0:
         return True  # can't tell -- don't block
     return local.stdout.strip() == remote.stdout.strip()
@@ -185,7 +135,7 @@ def dispatch_from_head(*, bump: str = "auto", dry_run: bool = False) -> int:
             "the remote."
         )
 
-    workflow = _detect_workflow_file()
+    workflow = _WORKFLOW_FILE
     cmd = _dispatch_cmd(workflow, {"from-head": "true", "bump": bump})
 
     label = f"version=v{bump}" if explicit is not None else f"bump={bump}"
@@ -195,7 +145,7 @@ def dispatch_from_head(*, bump: str = "auto", dry_run: bool = False) -> int:
         return 0
 
     info(f"Dispatching from-head publish ({label}) via {workflow}...")
-    result = subprocess.run(cmd)
+    result = run_cmd(cmd, check=False)
     if result.returncode != 0:
         error("Failed to dispatch workflow")
         return result.returncode
@@ -225,7 +175,7 @@ def dispatch_publish(tag: str, dry_run: bool = False) -> int:
     if tag not in tags:
         error(f"Tag '{tag}' does not exist")
         info(
-            "To release the current HEAD instead, run `hyperi-ci publish` "
+            "To release the current HEAD instead, run `hyperi-ci release` "
             "(no tag) -- the CI will create the tag."
         )
         info("Available tags:")
@@ -239,7 +189,7 @@ def dispatch_publish(tag: str, dry_run: bool = False) -> int:
             "any registries a partial publish missed (publish is idempotent)."
         )
 
-    workflow = _detect_workflow_file()
+    workflow = _WORKFLOW_FILE
     cmd = _dispatch_cmd(workflow, {"tag": tag})
 
     if dry_run:
@@ -247,7 +197,7 @@ def dispatch_publish(tag: str, dry_run: bool = False) -> int:
         return 0
 
     info(f"Dispatching publish for {tag} via {workflow}...")
-    result = subprocess.run(cmd)
+    result = run_cmd(cmd, check=False)
     if result.returncode != 0:
         error("Failed to dispatch workflow")
         return result.returncode

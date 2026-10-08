@@ -57,10 +57,9 @@ class TestResolveLatestTag:
 class TestDispatchFromHead:
     def _record(self, monkeypatch) -> list[list[str]]:
         calls: list[list[str]] = []
-        monkeypatch.setattr(d, "_detect_workflow_file", lambda: "ci.yml")
         monkeypatch.setattr(d, "_head_in_sync_with_origin", lambda: True)
         monkeypatch.setattr(
-            d.subprocess, "run", lambda cmd, **k: (calls.append(cmd), _ok())[1]
+            d, "run_cmd", lambda cmd, **k: (calls.append(cmd), _ok())[1]
         )
         return calls
 
@@ -125,10 +124,9 @@ class TestIdempotentRetry:
         # handlers skip artefacts already in their registry (issue #35).
         monkeypatch.setattr(d, "_get_version_tags", lambda: ["v1.2.3"])
         monkeypatch.setattr(d, "_tag_has_release", lambda t: True)
-        monkeypatch.setattr(d, "_detect_workflow_file", lambda: "ci.yml")
         calls: list[list[str]] = []
         monkeypatch.setattr(
-            d.subprocess, "run", lambda cmd, **k: (calls.append(cmd), _ok())[1]
+            d, "run_cmd", lambda cmd, **k: (calls.append(cmd), _ok())[1]
         )
         rc = d.dispatch_publish("v1.2.3")
         assert rc == 0
@@ -137,6 +135,52 @@ class TestIdempotentRetry:
     def test_missing_tag_still_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(d, "_get_version_tags", lambda: ["v1.2.3"])
         assert d.dispatch_publish("v9.9.9") == 1
+
+    def test_missing_tag_points_at_release_not_publish(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(d, "_get_version_tags", lambda: ["v1.2.3"])
+        said: list[str] = []
+        monkeypatch.setattr(d, "info", said.append)
+        monkeypatch.setattr(d, "error", said.append)
+        d.dispatch_publish("v9.9.9")
+        assert any("`hyperi-ci release`" in line for line in said)
+        assert not any("`hyperi-ci publish`" in line for line in said)
+
+
+class TestGitHelpers:
+    def _stub(self, monkeypatch: pytest.MonkeyPatch, rc: int, out: str) -> list:
+        seen: list[tuple[list[str], dict]] = []
+
+        def fake(cmd, **k):
+            seen.append((cmd, k))
+            return subprocess.CompletedProcess(cmd, rc, out, "")
+
+        monkeypatch.setattr(d, "run_cmd", fake)
+        return seen
+
+    def test_tag_info_is_the_date_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        seen = self._stub(monkeypatch, 0, "2026-09-01 12:00:00 +1000\n")
+        assert d._get_tag_info("v1.0.0") == "2026-09-01"
+        assert seen[0][1] == {"check": False, "capture": True}
+
+    def test_tag_info_unknown_on_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._stub(monkeypatch, 128, "")
+        assert d._get_tag_info("v1.0.0") == "unknown"
+
+    def test_version_tags_empty_on_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._stub(monkeypatch, 1, "v1.0.0\n")
+        assert d._get_version_tags() == []
+
+    def test_tag_has_release_follows_exit_code(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._stub(monkeypatch, 0, "")
+        assert d._tag_has_release("v1.0.0") is True
+        self._stub(monkeypatch, 1, "")
+        assert d._tag_has_release("v1.0.0") is False
 
 
 class TestReleaseCliVersionFlag:

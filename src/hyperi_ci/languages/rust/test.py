@@ -18,11 +18,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from hyperi_ci.common import (
+    announce,
     echo_chunk,
     error,
-    escape_command_data,
     info,
-    is_ci,
     normalise_tristate,
     run_cmd,
     stream_cmd,
@@ -185,13 +184,7 @@ def _announce_degradation() -> None:
         f"`{_NEXTEST_KEY}: true` to fail here rather than degrade, or `false` "
         f"to choose cargo test deliberately."
     )
-    warn(f"  {msg}")
-    if is_ci():
-        print(
-            f"::warning title=hyperi-ci test runner degraded::"
-            f"{escape_command_data(msg)}",
-            flush=True,
-        )
+    announce(msg, "hyperi-ci test runner degraded")
 
 
 def _resolve_runner(config: CIConfig) -> str | None:
@@ -477,9 +470,7 @@ def _run_coverage(
         "cargo-llvm-cov is installed, so the tests ran plain and there is no "
         "report. Install one, or set test.coverage: false to stop asking."
     )
-    warn(f"  {missing}")
-    if is_ci():
-        print(f"::warning title=hyperi-ci coverage skipped::{missing}")
+    announce(missing, "hyperi-ci coverage skipped")
     return -1
 
 
