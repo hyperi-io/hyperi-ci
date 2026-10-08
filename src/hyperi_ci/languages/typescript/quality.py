@@ -21,6 +21,7 @@ from hyperi_ci.languages.typescript._common import (
     detect_package_manager,
     detect_yarn_version,
     ensure_pm_available,
+    package_scripts,
 )
 from hyperi_ci.quality import osv_scanner
 from hyperi_ci.quality.ignores import for_tool, load_ignores
@@ -65,36 +66,10 @@ def _has_any(markers: tuple[str, ...]) -> bool:
     return any(Path(m).exists() for m in markers)
 
 
-def _find_npm_script(
-    candidates: list[str],
-    pm: str,
-) -> str | None:
-    """Find the first matching npm script from candidates.
-
-    Args:
-        candidates: Script names to try in order.
-        pm: Package manager command.
-
-    Returns:
-        First matching script name, or None.
-
-    """
-    import json
-    from pathlib import Path
-
-    pkg = Path("package.json")
-    if not pkg.exists():
-        return None
-
-    try:
-        data = json.loads(pkg.read_text(encoding="utf-8"))
-        scripts = data.get("scripts", {})
-        for name in candidates:
-            if name in scripts:
-                return name
-    except (json.JSONDecodeError, KeyError):
-        pass
-    return None
+def _find_npm_script(candidates: list[str]) -> str | None:
+    """Return the first of ``candidates`` package.json defines as a script, or None."""
+    scripts = package_scripts()
+    return next((name for name in candidates if name in scripts), None)
 
 
 def _audit_command(*, audit_level: str, pm: str, yarn_major: int) -> list[str]:
@@ -139,7 +114,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
 
     # --- eslint ---
     mode = resolve_tool_mode("eslint", config, language="typescript")
-    if _find_npm_script(["lint"], pm):
+    if _find_npm_script(["lint"]):
         if not run_gate_tool("eslint", [pm, "run", "lint"], mode):
             had_failure = True
     elif _has_any(_ESLINT_CONFIG_MARKERS):
@@ -153,7 +128,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # the flag may not reach it. Only check-variant scripts are used.
     mode = resolve_tool_mode("prettier", config, language="typescript")
     format_check_script = _find_npm_script(
-        ["format:check", "check-format", "check:format"], pm
+        ["format:check", "check-format", "check:format"]
     )
     if format_check_script:
         if not run_gate_tool("prettier", [pm, "run", format_check_script], mode):
@@ -168,7 +143,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     # Without a tsconfig.json tsc would crawl cwd on defaults, which is noisy on
     # pure-JS projects detected through the javascript->typescript alias.
     mode = resolve_tool_mode("tsc", config, language="typescript")
-    tsc_script = _find_npm_script(["typecheck", "check-types"], pm)
+    tsc_script = _find_npm_script(["typecheck", "check-types"])
     if tsc_script:
         if not run_gate_tool("tsc", [pm, "run", tsc_script], mode):
             had_failure = True

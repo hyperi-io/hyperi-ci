@@ -14,11 +14,15 @@ without Corepack the global binary refuses to run the project at all, so
 import json
 from pathlib import Path
 
+import pytest
+
 from hyperi_ci.languages.typescript import _common
 from hyperi_ci.languages.typescript._common import (
     detect_package_manager,
     ensure_pm_available,
+    package_scripts,
     pinned_package_manager,
+    read_package_json,
 )
 
 
@@ -80,3 +84,35 @@ def test_without_corepack_a_global_binary_is_the_honest_fallback(tmp_path, monke
     monkeypatch.setattr(_common.shutil, "which", lambda _pm: "/usr/local/bin/yarn")
     monkeypatch.setattr(_common, "_corepack_enable", lambda: False)
     assert ensure_pm_available("yarn", root) is True
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["", "not json", "[1, 2]", '"a string"'],
+    ids=["empty", "invalid", "array", "string"],
+)
+def test_an_unusable_manifest_reads_as_empty(tmp_path, text):
+    (tmp_path / "package.json").write_text(text)
+    assert read_package_json(tmp_path) == {}
+    assert package_scripts(tmp_path) == {}
+    assert pinned_package_manager(tmp_path) is None
+
+
+def test_a_missing_manifest_reads_as_empty(tmp_path):
+    assert read_package_json(tmp_path) == {}
+
+
+def test_scripts_that_are_not_a_table_read_as_empty(tmp_path):
+    (tmp_path / "package.json").write_text(json.dumps({"scripts": "lint"}))
+    assert package_scripts(tmp_path) == {}
+
+
+def test_the_first_defined_candidate_script_wins(tmp_path, monkeypatch):
+    from hyperi_ci.languages.typescript import quality
+
+    monkeypatch.chdir(tmp_path)
+    scripts = {"check:format": "x", "check-format": "y"}
+    (tmp_path / "package.json").write_text(json.dumps({"scripts": scripts}))
+    found = quality._find_npm_script(["format:check", "check-format", "check:format"])
+    assert found == "check-format"
+    assert quality._find_npm_script(["lint"]) is None
