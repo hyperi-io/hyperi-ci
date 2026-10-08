@@ -12,8 +12,6 @@ runtime READS the SSOT, and the only copies are in files GitHub parses before
 our code runs.
 """
 
-from __future__ import annotations
-
 import re
 from pathlib import Path
 
@@ -62,10 +60,6 @@ class TestReader:
         """Fail closed: an install with no digest to check is the gap."""
         with pytest.raises(KeyError, match="sha256"):
             versions.tool_sha256("gitleaks", "sparc")
-
-    def test_action_ref_is_the_shape_a_uses_line_wants(self) -> None:
-        ref = versions.action_ref("checkout")
-        assert re.fullmatch(r"[0-9a-f]{40} # v[\d.]+", ref)
 
     def test_runtime_version(self) -> None:
         assert versions.runtime_version("python") == "3.14"

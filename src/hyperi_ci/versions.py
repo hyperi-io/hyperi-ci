@@ -23,9 +23,10 @@ Two rules keep this from becoming self-referential:
   through it.
 
 The one thing that still needs the value COPIED is a file GitHub itself parses
-before any of our code runs: a workflow's ``uses:`` line, or a composite
-action's ``default:``. ``scripts/update-versions.py`` rewrites those from this
-same SSOT, and that is the full extent of what it writes.
+before any of our code runs: a workflow input's or a composite action's
+``default:``. ``scripts/update-versions.py`` rewrites those from this same
+SSOT, and that is the full extent of what it writes. GitHub Actions ``uses:``
+refs are not here: Renovate pins and bumps those.
 """
 
 from functools import lru_cache
@@ -95,31 +96,6 @@ def tool_sha256(name: str, arch: str) -> str:
             f"`tools.{name}.sha256.{arch}` is missing from {VERSIONS_FILE.name}"
         )
     return str(digests[arch])
-
-
-def action_names() -> list[str]:
-    """Every action key in the SSOT, sorted."""
-    return sorted((_data().get("actions") or {}).keys())
-
-
-def action_ref(name: str) -> str:
-    """Return ``<sha> # <version>`` for a pinned action, or the bare tag.
-
-    The shape a ``uses:`` line wants, so a caller scaffolding a workflow emits
-    the same pin the rewriter would.
-
-    Raises:
-        KeyError: No such action.
-
-    """
-    actions = _data().get("actions") or {}
-    spec = actions.get(name)
-    if spec is None:
-        raise KeyError(f"`actions.{name}` is missing from {VERSIONS_FILE.name}")
-    if isinstance(spec, str):
-        return spec
-    sha, version = spec.get("sha"), spec.get("version")
-    return f"{sha} # {version}" if sha else str(version)
 
 
 def runtime_version(name: str) -> str:
