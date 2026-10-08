@@ -17,7 +17,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from hyperi_ci import tools
 from hyperi_ci.config import CIConfig
+from hyperi_ci.quality import findings as fdg
 from hyperi_ci.quality import hadolint
 
 _SKIP = "HYPERCI_QUALITY_SKIP"
@@ -26,6 +28,12 @@ _STRICT = "HYPERCI_QUALITY_STRICT"
 
 def _cfg(raw: dict | None = None) -> CIConfig:
     return CIConfig(_raw=raw or {})
+
+
+def _set_ci(monkeypatch: pytest.MonkeyPatch, answer) -> None:  # noqa: ANN001
+    """Answer is_ci for the missing-tool rule and the shared runner alike."""
+    monkeypatch.setattr(tools, "is_ci", answer)
+    monkeypatch.setattr(fdg, "is_ci", answer)
 
 
 @pytest.fixture(autouse=True)
@@ -37,7 +45,7 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def _stub_run(monkeypatch: pytest.MonkeyPatch, stdout: str) -> None:
     monkeypatch.setattr(hadolint, "ci_binary", lambda _name: "/usr/bin/hadolint")
     monkeypatch.setattr(
-        hadolint,
+        fdg,
         "run_cmd",
         lambda *a, **k: SimpleNamespace(stdout=stdout, returncode=0),
     )
@@ -93,7 +101,7 @@ def _acted_on(
         return SimpleNamespace(stdout=_ERROR_FINDING, returncode=0)
 
     monkeypatch.setattr(hadolint, "ci_binary", lambda _name: "/usr/bin/hadolint")
-    monkeypatch.setattr(hadolint, "run_cmd", _run)
+    monkeypatch.setattr(fdg, "run_cmd", _run)
     rc = hadolint.run(_cfg(raw))
     if not ran:
         return "disabled"
@@ -219,7 +227,7 @@ class TestRun:
         monkeypatch.chdir(tmp_path)
         (tmp_path / "Dockerfile").write_text("FROM x\n", encoding="utf-8")
         monkeypatch.setattr(hadolint, "ci_binary", lambda _name: None)
-        monkeypatch.setattr(hadolint, "is_ci", lambda: True)
+        _set_ci(monkeypatch, lambda: True)
         assert hadolint.run(_cfg()) == 1
 
     def test_missing_tool_warn_skips_locally(
@@ -228,7 +236,7 @@ class TestRun:
         monkeypatch.chdir(tmp_path)
         (tmp_path / "Dockerfile").write_text("FROM x\n", encoding="utf-8")
         monkeypatch.setattr(hadolint, "ci_binary", lambda _name: None)
-        monkeypatch.setattr(hadolint, "is_ci", lambda: False)
+        _set_ci(monkeypatch, lambda: False)
         assert hadolint.run(_cfg()) == 0
 
     def test_tool_error_blocks_in_ci(
@@ -240,11 +248,11 @@ class TestRun:
         (tmp_path / "Dockerfile").write_text("FROM x\n", encoding="utf-8")
         monkeypatch.setattr(hadolint, "ci_binary", lambda _name: "/usr/bin/hadolint")
         monkeypatch.setattr(
-            hadolint,
+            fdg,
             "run_cmd",
             lambda *a, **k: SimpleNamespace(stdout="", returncode=127),
         )
-        monkeypatch.setattr(hadolint, "is_ci", lambda: True)
+        _set_ci(monkeypatch, lambda: True)
         assert hadolint.run(_cfg()) == 1
 
     def test_exec_oserror_does_not_crash(
@@ -257,6 +265,6 @@ class TestRun:
         def _boom(*a, **k):  # noqa: ANN002, ANN003
             raise OSError("no exec bit")
 
-        monkeypatch.setattr(hadolint, "run_cmd", _boom)
-        monkeypatch.setattr(hadolint, "is_ci", lambda: False)
+        monkeypatch.setattr(fdg, "run_cmd", _boom)
+        _set_ci(monkeypatch, lambda: False)
         assert hadolint.run(_cfg()) == 0  # handled, not a traceback

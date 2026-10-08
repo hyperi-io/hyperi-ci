@@ -19,16 +19,15 @@ and multi-source ArgoCD apps render with in-repo defaults only.
 
 import contextlib
 import json
-import subprocess
 import time
 from pathlib import Path
 
-from hyperi_ci.common import error, info, is_ci, run_cmd, success, truthy, warn
+from hyperi_ci.common import error, info, success, truthy, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.native_tools import ci_binary
 from hyperi_ci.quality import findings as fdg
-from hyperi_ci.tools import missing_tool_notice
+from hyperi_ci.tools import missing_tool
 from hyperi_ci.upgrade import CACHE_DIR
 from hyperi_ci.versions import tool_version
 
@@ -135,11 +134,7 @@ def run(
 
     exe = ci_binary("kubeconform")
     if not exe:
-        if mode == "blocking" and is_ci():
-            error(missing_tool_notice("kubeconform"))
-            return 1
-        warn(missing_tool_notice("kubeconform"))
-        return 0
+        return missing_tool("kubeconform", mode)
 
     cmd = [exe, "-output", "json", "-summary", "-ignore-missing-schemas"]
     cmd += ["-cache", str(_schema_cache())]
@@ -150,38 +145,13 @@ def run(
     cmd += [str(p) for p in manifests]
 
     info(f"  kubeconform: validating {len(manifests)} manifest file(s)...")
-    try:
-        result = run_cmd(
-            cmd, check=False, capture=True, timeout=timeout, own_group=True
-        )
-    except subprocess.TimeoutExpired:
-        message = f"  kubeconform: no result within {timeout}s"
-        if mode == "blocking":
-            error(f"{message} - failing the gate")
-            return 1
-        warn(message)
-        return 0
-    except OSError as exc:
-        warn(f"  kubeconform could not be run ({exc})")
-        if mode == "blocking" and is_ci():
-            error("  kubeconform could not complete - failing the gate")
-            return 1
-        return 0
-    found = _parse(result.stdout)
+    found = fdg.run_check(
+        "kubeconform", cmd, mode, lambda result: _parse(result.stdout), timeout=timeout
+    )
+    if isinstance(found, int):
+        return found
 
-    # A failing exit with nothing parsed is a tool error, not a valid tree.
-    if result.returncode != 0 and not found:
-        warn(
-            f"  kubeconform exited {result.returncode} with no parseable output - tool error, not a clean pass"
-        )
-        if mode == "blocking" and is_ci():
-            error("  kubeconform could not complete - failing the gate")
-            return 1
-        return 0
-
-    dropped = fdg.surface("kubeconform", found, sarif_path=sarif_path)
-    if dropped:
-        info(f"  kubeconform: +{dropped} more finding(s) in the job summary")
+    fdg.report("kubeconform", found, mode, sarif_path=sarif_path)
 
     if not found:
         success("  kubeconform: all manifests valid (unknown CRDs skipped)")

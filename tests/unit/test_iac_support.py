@@ -25,6 +25,7 @@ import yaml
 from hyperi_ci import common, native_tools
 from hyperi_ci.config import CIConfig
 from hyperi_ci.quality import checkov, kube_linter, kubeconform
+from hyperi_ci.quality import findings as fdg
 from hyperi_ci.quality.targets import (
     discover_kustomizations,
     discover_manifests,
@@ -281,7 +282,7 @@ class TestKubeconformStrict:
             calls.append(cmd)
             return SimpleNamespace(stdout='{"resources": []}', returncode=0)
 
-        monkeypatch.setattr(kubeconform, "run_cmd", _run)
+        monkeypatch.setattr(fdg, "run_cmd", _run)
         return calls
 
     @pytest.mark.parametrize(
@@ -323,7 +324,7 @@ class TestKubeconformStrict:
         def _hang(cmd: list[str], **kw: Any) -> SimpleNamespace:
             raise subprocess.TimeoutExpired(cmd, kw["timeout"])
 
-        monkeypatch.setattr(kubeconform, "run_cmd", _hang)
+        monkeypatch.setattr(fdg, "run_cmd", _hang)
         assert kubeconform.run([tmp_path / "a.yaml"], CIConfig(_raw={}), timeout=1) == 1
 
 

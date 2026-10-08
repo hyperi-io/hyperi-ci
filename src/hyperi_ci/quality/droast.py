@@ -59,9 +59,8 @@ def run(config: CIConfig, *, sarif_path: str | Path | None = None) -> int:
         return 0
 
     found = fdg.parse_sarif(result.stdout, "droast")
-    dropped = fdg.surface("droast", found, sarif_path=sarif_path)
+    # Advisory in every mode, so its findings surface as a check at warn would.
+    fdg.report("droast", found, "warn", sarif_path=sarif_path)
     if found:
         warn(f"  droast: {len(found)} advisory finding(s)")
-        if dropped:
-            info(f"  droast: +{dropped} more in the job summary")
     return 0

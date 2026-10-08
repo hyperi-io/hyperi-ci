@@ -183,9 +183,7 @@ def run(
     for path in files:
         found.extend(scan(path))
 
-    dropped = fdg.surface("compose-pins", found, sarif_path=sarif_path)
-    if dropped:
-        info(f"  compose-pins: +{dropped} more finding(s) in the job summary")
+    fdg.report("compose-pins", found, mode, sarif_path=sarif_path)
 
     floating = [f for f in found if f.level == "error"]
     if not floating:

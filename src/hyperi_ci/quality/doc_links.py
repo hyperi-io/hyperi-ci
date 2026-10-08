@@ -16,12 +16,12 @@ import functools
 import json
 from pathlib import Path
 
-from hyperi_ci.common import error, info, is_ci, run_cmd, success, warn
+from hyperi_ci.common import error, info, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.native_tools import ci_binary
 from hyperi_ci.quality import findings as fdg
-from hyperi_ci.tools import missing_tool_notice
+from hyperi_ci.tools import missing_tool
 
 
 @functools.cache
@@ -105,56 +105,34 @@ def run(
     root = Path(root or Path.cwd())
     exe = _install_lychee()
     if not exe:
-        # A blocking gate that cannot run fails in CI and warns locally.
-        if mode == "blocking" and is_ci():
-            error(missing_tool_notice("lychee"))
-            return 1
-        warn(missing_tool_notice("lychee"))
-        return 0
+        return missing_tool("lychee", mode)
 
     info(f"  doc-links: checking {len(files)} markdown file(s)...")
-    try:
-        result = run_cmd(
-            [
-                exe,
-                "--offline",
-                "--include-fragments",
-                "--no-progress",
-                # lychee cannot resolve a `/README.md` link without an absolute root.
-                "--root-dir",
-                str(root.resolve()),
-                "--format",
-                "json",
-                *[str(f) for f in files],
-            ],
-            check=False,
-            capture=True,
-            cwd=root,
-        )
-    except OSError as exc:
-        warn(f"  lychee could not be run ({exc})")
-        if mode == "blocking" and is_ci():
-            error("  doc-links: the check is blocking and could not run")
-            return 1
-        return 0
+    cmd = [
+        exe,
+        "--offline",
+        "--include-fragments",
+        "--no-progress",
+        # lychee cannot resolve a `/README.md` link without an absolute root.
+        "--root-dir",
+        str(root.resolve()),
+        "--format",
+        "json",
+        *[str(f) for f in files],
+    ]
+    # lychee exits 2 for broken links.
+    found = fdg.run_check(
+        "doc-links",
+        cmd,
+        mode,
+        lambda result: parse(result.stdout),
+        ok_exits=(0, 2),
+        cwd=root,
+    )
+    if isinstance(found, int):
+        return found
 
-    found = parse(result.stdout)
-
-    # lychee exits 2 for broken links; any other failing exit with nothing
-    # parsed is the tool erroring, not a clean tree.
-    if result.returncode not in (0, 2) and not found:
-        warn(
-            f"  lychee exited {result.returncode} with no parseable output - "
-            "tool error, not a clean pass"
-        )
-        if mode == "blocking" and is_ci():
-            error("  doc-links: the check is blocking and could not complete")
-            return 1
-        return 0
-
-    dropped = fdg.surface("doc-links", fdg.at_mode(found, mode), sarif_path=sarif_path)
-    if dropped:
-        info(f"  doc-links: +{dropped} more finding(s) in the job summary")
+    fdg.report("doc-links", found, mode, sarif_path=sarif_path)
 
     if not found:
         success(f"  doc-links: every internal link in {len(files)} file(s) resolves")

@@ -257,11 +257,7 @@ def run(
             )
         )
 
-    dropped = fdg.surface(
-        "mermaid-parse", fdg.at_mode(found, mode), sarif_path=sarif_path
-    )
-    if dropped:
-        info(f"  mermaid-parse: +{dropped} more finding(s) in the job summary")
+    fdg.report("mermaid-parse", found, mode, sarif_path=sarif_path)
 
     # The structural layer alone says nothing about grammar.
     if skipped and missing_tool(

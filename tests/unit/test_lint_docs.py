@@ -178,7 +178,7 @@ class TestLycheeInvocation:
         self, tmp_path: Path, monkeypatch
     ) -> None:
         # Off CI a lychee tool error also returns 0, so run as CI where it fails.
-        monkeypatch.setattr(doc_links, "is_ci", lambda: True)
+        monkeypatch.setattr(fdg, "is_ci", lambda: True)
         subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
         (tmp_path / "README.md").write_text("# Repo\n", encoding="utf-8")
         (tmp_path / "docs").mkdir()

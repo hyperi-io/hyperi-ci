@@ -12,7 +12,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from hyperi_ci import tools
 from hyperi_ci.config import CIConfig
+from hyperi_ci.quality import findings as fdg
 from hyperi_ci.quality import kubeconform
 
 _SKIP = "HYPERCI_QUALITY_SKIP"
@@ -20,6 +22,12 @@ _SKIP = "HYPERCI_QUALITY_SKIP"
 
 def _cfg(raw: dict | None = None) -> CIConfig:
     return CIConfig(_raw=raw or {})
+
+
+def _set_ci(monkeypatch: pytest.MonkeyPatch, answer) -> None:  # noqa: ANN001
+    """Answer is_ci for the missing-tool rule and the shared runner alike."""
+    monkeypatch.setattr(tools, "is_ci", answer)
+    monkeypatch.setattr(fdg, "is_ci", answer)
 
 
 @pytest.fixture(autouse=True)
@@ -36,7 +44,7 @@ def _stub(
 ) -> None:
     monkeypatch.setattr(kubeconform, "ci_binary", lambda _name: exe)
     monkeypatch.setattr(
-        kubeconform,
+        fdg,
         "run_cmd",
         lambda *a, **k: SimpleNamespace(stdout=stdout, returncode=0),
     )
@@ -167,14 +175,14 @@ class TestRun:
 
     def test_missing_tool_blocks_in_ci(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(kubeconform, "ci_binary", lambda _name: None)
-        monkeypatch.setattr(kubeconform, "is_ci", lambda: True)
+        _set_ci(monkeypatch, lambda: True)
         assert kubeconform.run([Path("a.yaml")], _cfg()) == 1
 
     def test_missing_tool_warn_skips_locally(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(kubeconform, "ci_binary", lambda _name: None)
-        monkeypatch.setattr(kubeconform, "is_ci", lambda: False)
+        _set_ci(monkeypatch, lambda: False)
         assert kubeconform.run([Path("a.yaml")], _cfg()) == 0
 
     def test_tool_error_blocks_in_ci(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -184,11 +192,11 @@ class TestRun:
             kubeconform, "ci_binary", lambda _name: "/usr/bin/kubeconform"
         )
         monkeypatch.setattr(
-            kubeconform,
+            fdg,
             "run_cmd",
             lambda *a, **k: SimpleNamespace(stdout="", returncode=2),
         )
-        monkeypatch.setattr(kubeconform, "is_ci", lambda: True)
+        _set_ci(monkeypatch, lambda: True)
         assert kubeconform.run([Path("a.yaml")], _cfg()) == 1
 
     def test_exec_oserror_does_not_crash(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -199,6 +207,6 @@ class TestRun:
         def _boom(*a, **k):  # noqa: ANN002, ANN003
             raise OSError("exec failed")
 
-        monkeypatch.setattr(kubeconform, "run_cmd", _boom)
-        monkeypatch.setattr(kubeconform, "is_ci", lambda: False)
+        monkeypatch.setattr(fdg, "run_cmd", _boom)
+        _set_ci(monkeypatch, lambda: False)
         assert kubeconform.run([Path("a.yaml")], _cfg()) == 0

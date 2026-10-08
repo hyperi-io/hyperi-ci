@@ -312,9 +312,7 @@ def run(
         info(_excluded_line(selection.excluded))
     found = scan_files(selection.files)
 
-    dropped = fdg.surface(_TOOL, found, sarif_path=sarif_path)
-    if dropped:
-        info(f"  {_TOOL}: +{dropped} more finding(s) in the job summary")
+    fdg.report(_TOOL, found, mode, sarif_path=sarif_path)
 
     if not found:
         success(f"  {_TOOL}: no banned typography")

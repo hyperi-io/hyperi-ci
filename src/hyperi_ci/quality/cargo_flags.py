@@ -170,9 +170,7 @@ def run(
     root = project_root or Path.cwd()
     found = scan(root)
 
-    dropped = fdg.surface(_TOOL, found, sarif_path=sarif_path)
-    if dropped:
-        info(f"  {_TOOL}: +{dropped} more finding(s) in the job summary")
+    fdg.report(_TOOL, found, mode, sarif_path=sarif_path)
 
     if not found:
         success(f"  {_TOOL}: this repo's rustflags reach the compiler")

@@ -13,24 +13,15 @@ error-severity findings fail ``blocking`` mode: the routine warning-tier noise
 """
 
 import json
-import subprocess
 from pathlib import Path
 
-from hyperi_ci.common import (
-    error,
-    get_exclude_dirs,
-    info,
-    is_ci,
-    run_cmd,
-    success,
-    warn,
-)
+from hyperi_ci.common import error, get_exclude_dirs, info, success, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import resolve_tool_mode
 from hyperi_ci.native_tools import ci_binary
 from hyperi_ci.quality import findings as fdg
 from hyperi_ci.quality.targets import discover_dockerfiles
-from hyperi_ci.tools import missing_tool_notice
+from hyperi_ci.tools import missing_tool
 
 
 def _rule_url(code: str) -> str:
@@ -99,52 +90,23 @@ def run(
 
     exe = ci_binary("hadolint")
     if not exe:
-        if mode == "blocking" and is_ci():
-            error(missing_tool_notice("hadolint"))
-            return 1
-        warn(missing_tool_notice("hadolint"))
-        return 0
+        return missing_tool("hadolint", mode)
 
     # --no-fail: the gate is decided from the parsed severities, not the exit code.
     rels = [str(p.relative_to(base)) for p in dockerfiles]
     info(f"  hadolint: linting {len(rels)} Dockerfile(s)...")
-    try:
-        result = run_cmd(
-            [exe, "--no-fail", "--format", "json", *rels],
-            check=False,
-            capture=True,
-            cwd=base,
-            timeout=timeout,
-            own_group=True,
-        )
-    except subprocess.TimeoutExpired:
-        message = f"  hadolint: no result within {timeout}s"
-        if mode == "blocking":
-            error(f"{message} - failing the gate")
-            return 1
-        warn(message)
-        return 0
-    except OSError as exc:
-        warn(f"  hadolint could not be run ({exc})")
-        if mode == "blocking" and is_ci():
-            error("  hadolint could not complete - failing the gate")
-            return 1
-        return 0
-    found = _parse(result.stdout)
+    found = fdg.run_check(
+        "hadolint",
+        [exe, "--no-fail", "--format", "json", *rels],
+        mode,
+        lambda result: _parse(result.stdout),
+        timeout=timeout,
+        cwd=base,
+    )
+    if isinstance(found, int):
+        return found
 
-    # Under --no-fail a failing exit with nothing parsed is the tool erroring.
-    if result.returncode != 0 and not found:
-        warn(
-            f"  hadolint exited {result.returncode} with no parseable output - tool error, not a clean pass"
-        )
-        if mode == "blocking" and is_ci():
-            error("  hadolint could not complete - failing the gate")
-            return 1
-        return 0
-
-    dropped = fdg.surface("hadolint", found, sarif_path=sarif_path)
-    if dropped:
-        info(f"  hadolint: +{dropped} more finding(s) in the job summary")
+    fdg.report("hadolint", found, mode, sarif_path=sarif_path)
 
     errors = [f for f in found if f.level == "error"]
     if not found:

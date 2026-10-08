@@ -190,9 +190,8 @@ def run(
     )
     if sources:
         found = relocate(found, sources)
-    dropped = fdg.surface("kube-linter", found, sarif_path=sarif_path)
+    # Advisory in every mode, so its findings surface as a check at warn would.
+    fdg.report("kube-linter", found, "warn", sarif_path=sarif_path)
     if found:
         warn(f"  kube-linter: {len(found)} advisory finding(s)")
-        if dropped:
-            info(f"  kube-linter: +{dropped} more in the job summary")
     return 0

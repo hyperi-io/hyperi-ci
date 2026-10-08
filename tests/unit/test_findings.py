@@ -347,3 +347,58 @@ class TestSummaryTruncation:
         findings.append_job_summary("t", many)
         text = summary.read_text(encoding="utf-8")
         assert "5 more findings truncated" in text
+
+
+class TestRunCheck:
+    """The exit code a check returns when its command gave no findings to read."""
+
+    @staticmethod
+    def _run(
+        monkeypatch: pytest.MonkeyPatch,
+        cmd: list[str],
+        mode: str,
+        ci: bool,
+        timeout: float | None = None,
+    ):
+        monkeypatch.setattr(findings, "is_ci", lambda: ci)
+        return findings.run_check(
+            "t", cmd, mode, lambda r: [], ok_exits=(0, 1), timeout=timeout
+        )
+
+    @pytest.mark.parametrize(
+        ("mode", "ci", "rc"),
+        [("blocking", False, 1), ("blocking", True, 1), ("warn", True, 0)],
+    )
+    def test_a_timeout_fails_only_a_blocking_check(
+        self, monkeypatch: pytest.MonkeyPatch, mode: str, ci: bool, rc: int
+    ) -> None:
+        assert self._run(monkeypatch, ["sleep", "5"], mode, ci, timeout=0.2) == rc
+
+    @pytest.mark.parametrize(
+        ("mode", "ci", "rc"),
+        [("blocking", False, 0), ("blocking", True, 1), ("warn", True, 0)],
+    )
+    @pytest.mark.parametrize(
+        "cmd",
+        [["/nonexistent/tool"], ["sh", "-c", "exit 3"]],
+        ids=["unrunnable", "unparsed-exit"],
+    )
+    def test_checking_nothing_fails_a_blocking_check_only_in_ci(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        cmd: list[str],
+        mode: str,
+        ci: bool,
+        rc: int,
+    ) -> None:
+        assert self._run(monkeypatch, cmd, mode, ci) == rc
+
+    def test_an_accepted_exit_returns_what_parse_found(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        found = [_f("error")]
+        monkeypatch.setattr(findings, "is_ci", lambda: True)
+        result = findings.run_check(
+            "t", ["sh", "-c", "exit 1"], "blocking", lambda r: found, ok_exits=(0, 1)
+        )
+        assert result == found

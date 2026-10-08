@@ -386,7 +386,7 @@ class TestTheReasonIsAFailureNotAName:
         assert negative.missing_evidence(CASE, log)
 
     def test_a_tool_that_could_not_run_did_not_fire(self) -> None:
-        log = _err("hadolint could not complete - failing the gate")
+        log = _err("hadolint: could not complete - failing the gate")
         assert negative.missing_evidence(CASE, log)
 
     def test_an_audit_failure_on_some_other_advisory_is_not_this_case(self) -> None:

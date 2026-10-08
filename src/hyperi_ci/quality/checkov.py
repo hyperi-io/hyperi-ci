@@ -145,9 +145,7 @@ def run(
         return 0
 
     found = [_in_tree(f, root) for f in fdg.parse_sarif(text, "checkov")]
-    dropped = fdg.surface("checkov", found, sarif_path=sarif_path)
-    if dropped:
-        info(f"  checkov: +{dropped} more finding(s) in the job summary")
+    fdg.report("checkov", found, mode, sarif_path=sarif_path)
 
     if not found:
         info("  checkov: no findings")
