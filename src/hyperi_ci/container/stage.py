@@ -6,24 +6,19 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Container build stage.
 
-The image is always built from the repo's own Dockerfile. Three-state
-``release.container.enabled`` gate:
+The image is always built from the repo's own Dockerfile.
+``release.container.enabled`` gates it:
 
 * ``auto`` (default): build when the Dockerfile exists. A library skips
   quietly; a runnable project with no Dockerfile skips with a warning.
 * ``true``: build is required; no Dockerfile fails the stage.
 * ``false``: explicit skip.
 
-Every container is built and (in release mode) pushed to GHCR.
+Push modes, resolved by :mod:`hyperi_ci.release_mode`:
 
-Push modes (resolved by :mod:`hyperi_ci.release_mode` -- the SSOT):
-
-* ``release``  -- release dispatch / Release-trailer push to main: full
-  tag set, pushed.
-* ``dev``      -- branch-mode dev image (plan decision 3): mutable
-  ``branch-<slug>`` + ``sha-<short>`` tags to GHCR only, behind the
-  ``release.container.dev_push`` opt-in on pull_request / branch CI
-  runs. Never version tags, never ``latest``.
+* ``release``  -- release dispatch or Release-trailer push: full tag set.
+* ``dev``      -- branch CI with the ``release.container.dev_push`` opt-in:
+  ``branch-*`` / ``dev-sha-*`` tags only (:func:`resolve_tags`).
 * ``validate`` -- push-to-main and local runs: build, no push.
 """
 
@@ -68,24 +63,19 @@ from hyperi_ci.release_mode import (
 )
 from hyperi_ci.repo_path import RepoPathError, confine
 
-# Languages whose Build stage ships per-arch dist/ binaries that custom
-# Dockerfiles consume (directly or via the binary_stage COPY rewrite).
+# Languages whose Build stage ships the per-arch dist/ binaries the image copies.
 _BINARY_LANGUAGES = {"rust", "golang"}
 
-# A COPY/ADD of dist/ from the BUILD CONTEXT = the Dockerfile consumes CI
-# build artefacts. `COPY --from=<stage> ... dist/` does NOT count -- that
-# is a multi-stage internal path (e.g. tsc compiles to dist/ inside the
-# builder stage, the ci-test-ts-app pattern) and needs no CI artefacts.
+# `COPY --from=<stage> ... dist/` is excluded: that dist/ is built inside the
+# Dockerfile and needs no CI artefacts.
 _DIST_CONTEXT_COPY = re.compile(r"(?m)^\s*(?:COPY|ADD)\s+(?!--from[=\s])[^\n]*\bdist/")
 
 
 def _read_version() -> str:
-    """Resolve the version this container should be tagged with.
+    """Return the image version: the release version, else the ref, else 0.0.0.
 
-    Shares the HYPERCI_VERSION-first resolver with the publish stages (one
-    SSoT -- common.resolve_release_version, issue #27). Container needs a
-    concrete tag even with no env/VERSION, so it falls back to the ref then
-    "0.0.0".
+    The fallbacks exist because an image needs a concrete tag even when
+    :func:`resolve_release_version` finds none.
     """
     return resolve_release_version() or os.environ.get(
         "GITHUB_REF_NAME", "0.0.0"
@@ -115,16 +105,11 @@ def _dev_push_opt_in(container_cfg: dict) -> bool:
 
 
 def should_build_container(config: CIConfig, *, language: str = "") -> tuple[bool, str]:
-    """Resolve whether the container stage will build -- filesystem only.
+    """Return ``(build, reason)`` for :func:`run`'s gate, from the filesystem only.
 
-    Mirrors :func:`run`'s gate so the workflow can decide BEFORE booting
-    Docker Buildx (issue #33): ``enabled: false`` never builds;
-    ``enabled: true`` always builds, and :func:`run` then fails loudly when
-    there is no Dockerfile; ``enabled: auto`` builds iff the Dockerfile
-    exists. A repo with none never pulls buildkit from Docker Hub nor logs
-    in to GHCR.
-
-    Returns ``(build, reason)``.
+    The workflow calls this before booting Buildx (issue #33), so a repo with
+    no Dockerfile never pulls buildkit or logs in to GHCR. ``enabled: true``
+    returns True even with no Dockerfile, and :func:`run` then fails.
     """
     container_cfg = config.get("release.container", {})
     if not isinstance(container_cfg, dict):
@@ -224,9 +209,7 @@ def run(config: CIConfig, *, language: str = "") -> int:
         _write_output("cgroup-parent", found.parent or "")
         return 0
 
-    # Resolve-only: emit the build decision for the workflow to gate Docker
-    # setup on, then return without any Docker work (issue #33). Keeps
-    # libraries from booting Buildx / touching GHCR at all.
+    # The workflow gates Docker setup on this output, so it does no Docker work.
     if os.environ.get("HYPERCI_CONTAINER_RESOLVE_ONLY"):
         build, reason = should_build_container(config, language=language)
         info(f"Container resolve: build={'true' if build else 'false'} -- {reason}")
@@ -298,15 +281,8 @@ def _build_custom(
         error(f"Dockerfile not found: {dockerfile}")
         return 1
 
-    # Binary languages (rust/go) conventionally consume dist/ binaries in
-    # custom Dockerfiles -- even bare `COPY <app>` lines get rewritten to
-    # dist paths (binary_stage) -- so they ALWAYS keep the dist filter and
-    # its loud artefact-handoff failure. For source languages a custom
-    # Dockerfile is only binary-backed if it copies dist/ from the BUILD
-    # CONTEXT (e.g. shipping a compiled sidecar); a python/node Dockerfile
-    # running pip/npm install -- including multi-stage builds whose
-    # internal compile output happens to be named dist/ -- has no CI dist
-    # binaries to filter on.
+    # Rust and Go always count as binary-backed; other languages only when the
+    # Dockerfile copies dist/ from the build context.
     binary_backed = language in _BINARY_LANGUAGES or bool(
         _DIST_CONTEXT_COPY.search(dockerfile.read_text(encoding="utf-8"))
     )
@@ -407,19 +383,9 @@ def _dispatch_build(
     platforms = container_cfg.get("platforms", ["linux/amd64", "linux/arm64"])
     context = container_cfg.get("context", ".")
 
-    # Outside a GA publish the Build job only produces linux-amd64 (saves
-    # CI time on push-to-main validates AND branch dev builds).
-    #
-    # Binary-backed images (the Dockerfile COPYs from
-    # dist/<name>-linux-<arch>): constrain to platforms whose binaries are
-    # actually present, and fail loud when NONE are (broken Build ->
-    # Container artefact handoff).
-    #
-    # Source-built images (python/node -- built from SOURCE inside the
-    # Dockerfile) have no dist/ binaries AT ALL, so the dist filter would
-    # always come up empty and hard-fail. Constrain them to a single arch
-    # instead -- same only-shipping-runs-pay-for-arm64 doctrine, decided
-    # explicitly rather than via dist contents.
+    # Outside a release the Build job ships linux-amd64 only, so binary-backed
+    # images keep the platforms whose binaries exist and source-built images
+    # take one arch.
     if push_mode != RELEASE:
         configured_platforms = list(platforms)
         if binary_backed:
@@ -428,10 +394,6 @@ def _dispatch_build(
                 image_name=image_name,
             )
             if not platforms:
-                # No silent-success -- if the project has container builds
-                # enabled, missing binaries means the Build -> Container
-                # artefact handoff is broken. Fail loud so we never report
-                # "container green" without actually producing an image.
                 error(
                     f"Container build configured for {configured_platforms} "
                     f"but no matching dist/{image_name}-linux-<arch> binaries "
@@ -449,12 +411,6 @@ def _dispatch_build(
                     f"to {platforms} (multi-arch only on release)"
                 )
 
-    # Bare `COPY <app> ...` lines in the Dockerfile reference a file in
-    # the build context root that the upstream Build stage doesn't put
-    # there -- it puts arch-suffixed binaries in `dist/<app>-linux-<arch>`.
-    # Rewrite the Dockerfile to use ${TARGETARCH} substitution so multi-arch
-    # buildx works in a single invocation. The same rewrite appends the copy
-    # of the context's licence file into /licenses/.
     from hyperi_ci.container.binary_stage import stage_binary_dockerfile
 
     effective_dockerfile = stage_binary_dockerfile(
@@ -500,11 +456,10 @@ _PLATFORM_TO_OS_ARCH = {
 
 
 def _template_platforms(platforms: list[str]) -> list[str]:
-    """Single-arch subset for a source-built image's validate/dev builds.
+    """Return one platform for a source-built image's validate or dev build.
 
-    Prefers linux/amd64 (the runner's native arch -- arm64 would go via
-    qemu); falls back to the first configured platform when amd64 isn't
-    configured at all. Never empty for a non-empty input.
+    Prefers linux/amd64, the runner's native arch (arm64 runs under qemu),
+    else the first configured platform.
     """
     if "linux/amd64" in platforms:
         return ["linux/amd64"]
@@ -517,17 +472,10 @@ def _filter_platforms_to_available_binaries(
     image_name: str,
     dist_dir: Path | None = None,
 ) -> list[str]:
-    """Drop platforms whose pre-built binary is missing from ``dist/``.
+    """Return the ``platforms`` whose ``dist/<image>-<os>-<arch>`` binary exists.
 
-    On push-to-main the Build job builds a single arch by default
-    (saves CI time); on workflow_dispatch it builds the full matrix.
-    Multi-arch buildx fails on push-to-main with "binary not found"
-    when one architecture's artefact is absent.
-
-    Returns the subset of ``platforms`` whose corresponding binary
-    exists in ``dist/``. Platforms not in the os-arch map (e.g.
-    ``linux/s390x`` or future targets) pass through unchanged so we
-    don't silently drop a build the project actually wants.
+    Platforms outside :data:`_PLATFORM_TO_OS_ARCH` (e.g. ``linux/s390x``) pass
+    through, so a build the project asked for is never dropped silently.
     """
     cwd = dist_dir or Path("dist")
     kept: list[str] = []

@@ -6,11 +6,9 @@
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Container registry resolution.
 
-Every container publishes to GHCR (``ghcr.io/<github-org>``).
-
-Docker Hub is intentionally NOT a target. The Container job logs in to it,
-gated on ``vars.DOCKERHUB_USERNAME``, only to authenticate the Dockerfile's
-base-image pulls.
+Every container publishes to GHCR (``ghcr.io/<github-org>``). Docker Hub is
+not a target: the Container job logs in to it, gated on
+``vars.DOCKERHUB_USERNAME``, only to authenticate base-image pulls.
 """
 
 from hyperi_ci.config import OrgConfig
