@@ -1298,6 +1298,38 @@ def chart_assemble_cmd(
     raise typer.Exit(rc)
 
 
+vendor_app = typer.Typer(help="Mirror files one way from another repo at a pinned ref")
+app.add_typer(vendor_app, name="vendor")
+
+
+@vendor_app.command(name="sync")
+def vendor_sync_cmd(
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+) -> None:
+    """Fetch every vendor: file at its pinned ref and rewrite the lock file."""
+    from hyperi_ci.vendor import run_sync
+
+    root = Path(project_dir) if project_dir else Path.cwd()
+    raise typer.Exit(run_sync(load_config(project_dir=root), root))
+
+
+@vendor_app.command(name="check")
+def vendor_check_cmd(
+    project_dir: Annotated[
+        str | None,
+        typer.Option("--project-dir", "-C", help="Project root directory"),
+    ] = None,
+) -> None:
+    """Fail when a vendored file was edited by hand or its pin moved unsynced."""
+    from hyperi_ci.vendor import run
+
+    root = Path(project_dir) if project_dir else Path.cwd()
+    raise typer.Exit(run(load_config(project_dir=root), root))
+
+
 @app.command(name="seed-version")
 def seed_version_cmd(
     project_dir: Annotated[
