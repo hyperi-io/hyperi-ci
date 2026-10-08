@@ -92,7 +92,8 @@ class _Context:
     timeout: float
     memory_limit_bytes: int
     exclude: list[str]
-    kustomize_outputs: list[Path] = field(default_factory=list)
+    helm_renders: list[render.Rendered] = field(default_factory=list)
+    kustomize_renders: list[render.Rendered] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,10 +163,10 @@ def _rendered(
     tool: str,
     targets: list[Path],
     render_one: Callable[[str, Path], list[render.Rendered]],
-) -> tuple[int, int, list[Path]]:
+) -> tuple[int, int, list[render.Rendered]]:
     """Render ``targets`` with ``tool``, gate the renders and schema-check the output.
 
-    Returns the target count, the exit code and the rendered manifests.
+    Returns the target count, the exit code and the renders.
     """
     if not targets:
         info(f"  {tool}: nothing to render - skipping")
@@ -183,12 +184,12 @@ def _rendered(
     schema_rc = kubeconform.run(
         outputs, ctx.config, sarif_path=ctx.sarif_path, timeout=ctx.timeout
     )
-    return len(targets), render_rc or schema_rc, outputs
+    return len(targets), render_rc or schema_rc, renders
 
 
 def _helm(ctx: _Context) -> tuple[int, int]:
     extra = render.helm_value_args(ctx.config, ctx.root)
-    count, rc, _ = _rendered(
+    count, rc, ctx.helm_renders = _rendered(
         ctx,
         "helm",
         discover_helm_charts(ctx.root, exclude_dirs=ctx.exclude),
@@ -206,7 +207,7 @@ def _helm(ctx: _Context) -> tuple[int, int]:
 
 
 def _kustomize(ctx: _Context) -> tuple[int, int]:
-    count, rc, ctx.kustomize_outputs = _rendered(
+    count, rc, ctx.kustomize_renders = _rendered(
         ctx,
         "kustomize",
         discover_kustomizations(ctx.root, exclude_dirs=ctx.exclude),
@@ -236,10 +237,19 @@ def _manifests(ctx: _Context) -> tuple[int, int]:
 
 
 def _kube_linter(ctx: _Context) -> tuple[int, int]:
+    # A chart the helm dimension rendered is linted as rendered. One it did not
+    # (helm or kubeconform not run) goes in raw, for kube-linter to template.
+    rendered = {r.source for r in ctx.helm_renders}
+    charts = discover_helm_charts(ctx.root, exclude_dirs=ctx.exclude)
+    sources = {
+        r.output: r.source
+        for r in [*ctx.helm_renders, *ctx.kustomize_renders]
+        if r.output is not None
+    }
     targets = [
-        *discover_helm_charts(ctx.root, exclude_dirs=ctx.exclude),
+        *(c for c in charts if c not in rendered),
         *discover_manifests(ctx.root, exclude_dirs=ctx.exclude),
-        *ctx.kustomize_outputs,
+        *sources,
     ]
     kube_linter.run(
         targets,
@@ -248,6 +258,7 @@ def _kube_linter(ctx: _Context) -> tuple[int, int]:
         scratch=ctx.scratch,
         sarif_path=ctx.sarif_path,
         timeout=ctx.timeout,
+        sources=sources,
     )
     return len(targets), 0
 

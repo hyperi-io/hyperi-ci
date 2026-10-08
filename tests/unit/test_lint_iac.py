@@ -267,8 +267,75 @@ class TestCli:
 
 needs = {
     tool: pytest.mark.skipif(shutil.which(tool) is None, reason=f"{tool} not installed")
-    for tool in ("tofu", "helm", "kubeconform")
+    for tool in ("tofu", "helm", "kubeconform", "kube-linter")
 }
+
+
+# No securityContext and no resources, so kube-linter's defaults must fire.
+_BARE_DEPLOYMENT = (
+    "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n"
+    "spec:\n  selector:\n    matchLabels: {app: web}\n  template:\n"
+    "    metadata:\n      labels: {app: web}\n    spec:\n"
+    "      containers:\n        - name: web\n          image: nginx:1.27\n"
+)
+
+
+class TestKubeLinterReports:
+    """kube-linter run through lint-iac never reports a silent zero."""
+
+    @pytest.fixture(autouse=True)
+    def _local(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _not_ci(monkeypatch)
+        monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+
+    @staticmethod
+    def _found(
+        monkeypatch: pytest.MonkeyPatch, root: Path, dims: tuple[str, ...]
+    ) -> list[fdg.Finding]:
+        seen: list[fdg.Finding] = []
+        real = fdg.surface
+
+        def _record(
+            tool: str,
+            found: list[fdg.Finding],
+            *,
+            sarif_path: str | Path | None = None,
+        ) -> int:
+            if tool == "kube-linter":
+                seen.extend(found)
+            return real(tool, found, sarif_path=sarif_path)
+
+        monkeypatch.setattr(fdg, "surface", _record)
+        cfg = _cfg({"quality": {"kubeconform": "warn"}})
+        lint_iac.run(root, cfg, dimensions=dims)
+        return seen
+
+    @needs["kube-linter"]
+    def test_a_plain_manifest_gets_the_default_checks(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "deploy.yaml").write_text(_BARE_DEPLOYMENT, encoding="utf-8")
+        found = self._found(monkeypatch, tmp_path, ("kube-linter",))
+        assert "run-as-non-root" in [f.rule for f in found]
+
+    @needs["helm"]
+    @needs["kube-linter"]
+    def test_a_chart_with_no_values_file_is_linted_as_rendered(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _chart(tmp_path, _BARE_DEPLOYMENT)
+        found = self._found(monkeypatch, tmp_path, ("helm", "kube-linter"))
+        assert "run-as-non-root" in [f.rule for f in found]
+        assert "kube-linter/load-failed" not in [f.rule for f in found]
+        assert {f.path for f in found} == {"c"}
+
+    @needs["kube-linter"]
+    def test_a_chart_kube_linter_cannot_load_is_a_finding(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _chart(tmp_path, _BARE_DEPLOYMENT)
+        found = self._found(monkeypatch, tmp_path, ("kube-linter",))
+        assert [f.rule for f in found] == ["kube-linter/load-failed"]
 
 
 class TestGatesBlock:

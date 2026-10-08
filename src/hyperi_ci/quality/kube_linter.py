@@ -11,17 +11,24 @@ GOOD one?" - production-readiness and security best practices (no run-as-root,
 resource limits set, liveness/readiness probes, ...). It is advisory: it
 surfaces recommendations and NEVER fails the build.
 
-Unlike kubeconform, kube-linter templates Helm charts itself, so it takes the
-chart directories and plain manifests directly - no pre-render needed.
+lint-iac hands it the same Helm renders kubeconform validates, so ci values,
+``iac.helm`` overrides and built dependencies apply. kube-linter's own chart
+templating skips a chart with no ``values.yaml`` and reports nothing for it.
 
 hyperi-ci merges one check into the repo's own config,
 ``liveness-without-startup-probe``: without a startupProbe, a slow start is
 restarted by the liveness probe. A repo drops it through ``checks.exclude``.
 
 Findings come from ``--format sarif`` and surface through the shared layer.
+kube-linter exits 0 with no report when nothing loads, and 1 with no report on
+a config it rejects, so a target it could not load and a run with no report
+surface as findings too.
 """
 
+import re
 import subprocess
+from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
 
 import yaml
@@ -35,6 +42,11 @@ from hyperi_ci.quality.targets import first_file
 from hyperi_ci.tools import find_tool
 
 STARTUP_PROBE_CHECK = "liveness-without-startup-probe"
+
+# What ``--verbose`` writes to stderr for each target it skips.
+_LOAD_FAILED = re.compile(
+    r"^Warning: failed to load object from (?P<path>.+?): (?P<why>.+)$", re.MULTILINE
+)
 
 # kube-linter's CEL template reports the string the expression returns, and
 # treats an empty string as a pass.
@@ -92,6 +104,55 @@ def merged_config(root: Path, out: Path) -> Path:
     return out
 
 
+def run_problems(stdout: str, stderr: str, returncode: int) -> list[fdg.Finding]:
+    """Return a finding per target kube-linter skipped, or one for a missing report.
+
+    Reads a ``--verbose`` run. A run with no SARIF and no skipped target is
+    reported once, with kube-linter's last stderr line as the reason.
+    """
+    problems = [
+        fdg.Finding(
+            "kube-linter",
+            fdg.relpath(Path(m["path"])),
+            None,
+            "warning",
+            "kube-linter/load-failed",
+            f"kube-linter skipped this target: {m['why']}",
+        )
+        for m in _LOAD_FAILED.finditer(stderr)
+    ]
+    if stdout.strip() or problems:
+        return problems
+    lines = [line for line in stderr.splitlines() if line.strip()]
+    why = lines[-1] if lines else f"exited {returncode}"
+    return [
+        fdg.Finding(
+            "kube-linter",
+            "",
+            None,
+            "warning",
+            "kube-linter/no-report",
+            f"kube-linter produced no report: {why}",
+        )
+    ]
+
+
+def relocate(
+    found: list[fdg.Finding], sources: Mapping[Path, Path]
+) -> list[fdg.Finding]:
+    """Move each finding in a rendered file to the source that rendered it.
+
+    A render lives in scratch, so its path means nothing in an annotation, and
+    its line numbers count the rendered stream rather than any template.
+    """
+    by_render = {out.resolve(): fdg.relpath(src) for out, src in sources.items()}
+    moved: list[fdg.Finding] = []
+    for f in found:
+        source = by_render.get(Path(f.path).resolve()) if f.path else None
+        moved.append(f if source is None else replace(f, path=source, line=None))
+    return moved
+
+
 def run(
     targets: list[Path],
     config: CIConfig,
@@ -100,14 +161,17 @@ def run(
     scratch: Path | None = None,
     sarif_path: str | Path | None = None,
     timeout: float | None = None,
+    sources: Mapping[Path, Path] | None = None,
 ) -> int:
-    """Lint ``targets`` (chart dirs + plain manifests). ALWAYS returns 0.
+    """Lint ``targets`` (rendered manifests, plain manifests, chart dirs). ALWAYS 0.
 
     ``quality.kube_linter: disabled`` turns it off. Otherwise best-practice
     findings surface through the shared layer and the build carries on. With
     ``scratch`` set, the merged config carrying the startup-probe check is
     written there and passed with ``--config``; without it kube-linter reads
-    the repo's own config from the working directory.
+    the repo's own config from the working directory. ``sources`` maps a
+    rendered target to the chart or kustomization it came from, and a finding
+    in a render is reported there.
     """
     if resolve_tool_mode("kube_linter", config, default="warn") == "disabled":
         info("  kube-linter: disabled")
@@ -122,7 +186,7 @@ def run(
     if not exe:
         return 0
 
-    cmd = [exe, "lint", "--format", "sarif"]
+    cmd = [exe, "lint", "--format", "sarif", "--verbose"]
     if scratch is not None:
         config_path = merged_config(root or Path.cwd(), scratch / "kube-linter.yaml")
         cmd += ["--config", str(config_path)]
@@ -139,7 +203,11 @@ def run(
         warn(f"  kube-linter could not be run ({exc}) - advisory only, not failing.")
         return 0
 
-    found = fdg.parse_sarif(result.stdout, "kube-linter")
+    found = fdg.parse_sarif(result.stdout, "kube-linter") + run_problems(
+        result.stdout, result.stderr, result.returncode
+    )
+    if sources:
+        found = relocate(found, sources)
     dropped = fdg.surface("kube-linter", found, sarif_path=sarif_path)
     if found:
         warn(f"  kube-linter: {len(found)} advisory finding(s)")
