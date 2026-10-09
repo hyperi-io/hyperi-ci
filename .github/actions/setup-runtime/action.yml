@@ -46,7 +46,21 @@ runs:
   using: composite
   steps:
     - name: Install uv
+      id: uv_try1
       if: ${{ runner.environment != 'self-hosted' }}
+      continue-on-error: true
+      uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      with:
+        enable-cache: ${{ inputs.enable-uv-cache }}
+    - name: Install uv (retry 1)
+      id: uv_try2
+      if: ${{ steps.uv_try1.outcome == 'failure' }}
+      continue-on-error: true
+      uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      with:
+        enable-cache: ${{ inputs.enable-uv-cache }}
+    - name: Install uv (retry 2)
+      if: ${{ steps.uv_try2.outcome == 'failure' }}
       uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       with:
         enable-cache: ${{ inputs.enable-uv-cache }}

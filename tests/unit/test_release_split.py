@@ -413,8 +413,9 @@ class TestContainerRunsNoRepoCode:
         """setup-uv reads a checked-out repo's `required-version`."""
         uv = self._index(steps, "astral-sh/setup-uv@")
         checkout = self._index(steps, "actions/checkout@")
-        assert len(uv) == 1 and len(checkout) == 1
-        assert uv[0] < checkout[0]
+        # Three attempts of one install (see test_setup_runtime_uv.py).
+        assert len(uv) == 3 and len(checkout) == 1
+        assert uv[-1] < checkout[0]
 
     def test_python_is_installed_without_the_repos_uv_config(
         self, steps: list[dict[str, Any]]
