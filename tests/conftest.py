@@ -19,6 +19,7 @@ from scalo.logger import setup as setup_logger
 
 from hyperi_ci import channel, common
 from hyperi_ci.common import is_ci, run_cmd
+from hyperi_ci.container import stage as container_stage
 
 
 @functools.cache
@@ -202,6 +203,16 @@ def isolated_channel_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> P
     monkeypatch.setattr(channel, "CONFIG_DIR", ci_dir)
     monkeypatch.setattr(channel, "AI_CONFIG_DIR", ai_dir)
     return ci_dir
+
+
+@pytest.fixture(autouse=True)
+def no_registry_lookups(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Answer the release build's registry lookup with "not published".
+
+    A release-mode container test would otherwise ask the real registry. A test
+    of the lookup patches it back.
+    """
+    monkeypatch.setattr(container_stage, "published_image", lambda _ref: None)
 
 
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:

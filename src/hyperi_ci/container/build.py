@@ -10,9 +10,18 @@ import json
 import string
 import time
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
-from hyperi_ci.common import echo_chunk, error, info, stream_cmd, success, warn
+from hyperi_ci.common import (
+    echo_chunk,
+    error,
+    info,
+    run_cmd,
+    stream_cmd,
+    success,
+    warn,
+)
 from hyperi_ci.config import shipped_default
 from hyperi_ci.container.labels import (
     labels_to_build_args,
@@ -288,6 +297,79 @@ def pushed_digest(metadata_file: Path) -> str | None:
         metadata.get("containerimage.digest") if isinstance(metadata, dict) else None
     )
     return digest if isinstance(digest, str) and digest.startswith("sha256:") else None
+
+
+@dataclass(frozen=True)
+class PublishedImage:
+    """An image the registry already holds at a tag."""
+
+    digest: str
+    revision: str | None
+    platforms: frozenset[str]
+
+
+def published_image(ref: str) -> PublishedImage | None:
+    """Return the image the registry already holds at ``ref``, else None.
+
+    None also covers a registry that could not be asked, so the caller builds
+    as it would have with no lookup at all.
+    """
+    cmd = ["docker", "buildx", "imagetools", "inspect", ref]
+    try:
+        result = run_cmd(
+            [*cmd, "--format", "{{json .Manifest}}"], check=False, capture=True
+        )
+    except OSError as exc:
+        warn(f"Could not ask the registry for {ref}, so building it: {exc}")
+        return None
+    if result.returncode != 0:
+        if "not found" not in (result.stderr or ""):
+            warn(f"Could not ask the registry for {ref}, so building it:")
+            warn(result.stderr or "")
+        return None
+    try:
+        manifest = json.loads(result.stdout or "")
+    except ValueError:
+        return None
+    if not isinstance(manifest, dict):
+        return None
+    digest = manifest.get("digest")
+    if not (isinstance(digest, str) and digest.startswith("sha256:")):
+        return None
+    annotations = manifest.get("annotations")
+    revision = (
+        annotations.get("org.opencontainers.image.revision")
+        if isinstance(annotations, dict)
+        else None
+    )
+    return PublishedImage(
+        digest=digest,
+        revision=revision if isinstance(revision, str) else None,
+        platforms=_index_platforms(manifest.get("manifests")),
+    )
+
+
+def _index_platforms(manifests: object) -> frozenset[str]:
+    """Return the ``os/arch`` of each image in an index, skipping attestations."""
+    if not isinstance(manifests, list):
+        return frozenset()
+    found: set[str] = set()
+    for entry in manifests:
+        platform = entry.get("platform") if isinstance(entry, dict) else None
+        if not isinstance(platform, dict):
+            continue
+        os_name, arch = platform.get("os"), platform.get("architecture")
+        if (
+            isinstance(os_name, str)
+            and isinstance(arch, str)
+            and "unknown"
+            not in (
+                os_name,
+                arch,
+            )
+        ):
+            found.add(f"{os_name}/{arch}")
+    return frozenset(found)
 
 
 def resolve_tags(
