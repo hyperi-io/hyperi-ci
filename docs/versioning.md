@@ -53,7 +53,7 @@ Re-publishing a version below the highest stable `v*` tag publishes its versione
 
 ### A fork
 
-semantic-release counts every commit reachable from HEAD, so a fork that merges its upstream takes upstream's `feat:` and `!` commits as its own bump. A repo classified `fork` versions a stable release from main by its first-parent commits instead (`git log --first-parent <last tag>..HEAD`), under the same bump rules. A sync merge counts as ONE commit, read by its subject alone: `Merge pull request #121 ...` is a patch, so an upstream sync ships, and nothing in the merge body can raise it. A merge whose subject is a conventional commit (`feat: sync upstream 2.41`) keeps that bump.
+semantic-release counts every commit reachable from HEAD, so a fork that merges its upstream takes upstream's `feat:` and `!` commits as its own bump. A repo classified `fork` versions a stable release from main by its first-parent commits instead (`git log --first-parent <last tag>..HEAD`), under the same bump rules. A sync merge counts as ONE commit, read by its subject alone: `Merge pull request #121 ...` is a patch, so an upstream sync ships, and nothing in the merge body can raise it. A merge whose subject is a conventional commit (`feat: sync upstream 2.41`) keeps that bump. The same holds for the fork's own work: a branch merged with a merge commit ships as a patch whatever its commits say, so squash-merge a `feat:` or give the merge a `feat:` subject.
 
 Declare it in `.hyperi-ci.yaml`, or put `fork` in a `.hyperi-classification` file:
 

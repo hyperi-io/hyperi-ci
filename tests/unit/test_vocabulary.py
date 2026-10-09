@@ -465,6 +465,24 @@ class TestRemovedKeys:
         assert result.exit_code == 0, result.output
         assert json.loads(result.stdout)["runners"] == {"default": "arc"}
 
+    def test_config_json_stays_parseable_with_a_renamed_key(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """Tag & Release parses this output, so a legacy `publish:` must not break it."""
+        import json
+
+        from typer.testing import CliRunner
+
+        from hyperi_ci.cli import app
+
+        monkeypatch.setenv("GITHUB_ACTIONS", "true")
+        (tmp_path / ".hyperi-ci.yaml").write_text(
+            "language: python\npublish:\n  channel: release\n", encoding="utf-8"
+        )
+        result = CliRunner().invoke(app, ["config", "--json", "-C", str(tmp_path)])
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["release"]["channel"] == "release"
+
     def test_every_removed_key_is_absent_from_the_shipped_defaults(self) -> None:
         """A removed key the defaults still ship would read as a live knob."""
         for key in vocabulary.REMOVED_KEYS:

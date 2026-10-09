@@ -149,6 +149,32 @@ def _dispatch(
     return rc, run
 
 
+class TestATagDispatch:
+    """A tag dispatch runs on the default branch but checks out the tag."""
+
+    def test_the_checked_out_commit_decides_the_reuse(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        for args in (
+            ["init", "-q"],
+            ["-c", "user.email=ci@example.invalid", "-c", "user.name=CI", "commit"]
+            + ["--allow-empty", "-q", "-m", "fix: tagged"],
+        ):
+            subprocess.run(["git", *args], cwd=project, check=True)
+        tagged = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=project,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        monkeypatch.setenv("GITHUB_SHA", "f" * 40)
+
+        rc, run = _dispatch(monkeypatch, PublishedImage(_DIGEST, tagged, _BOTH))
+        assert rc == 0
+        assert not run.built
+
+
 class TestARepublishedVersion:
     """A re-dispatched release must not move a published version tag.
 

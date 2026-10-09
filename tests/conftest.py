@@ -257,12 +257,17 @@ def isolated_channel_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> P
 
 @pytest.fixture(autouse=True)
 def no_inherited_quality_mode(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Drop the quality-mode switches the calling run set.
+    """Drop the run-mode switches the calling shell or run set.
 
     `hyperi-ci check --strict` exports HYPERCI_QUALITY_STRICT before its test
-    stage, which turned every warn-mode test blocking.
+    stage, which turned every warn-mode test blocking, and an exported
+    HYPERCI_CLASSIFICATION turns every repo a test builds into that category.
     """
-    for name in ("HYPERCI_QUALITY_STRICT", "HYPERCI_QUALITY_SKIP"):
+    for name in (
+        "HYPERCI_QUALITY_STRICT",
+        "HYPERCI_QUALITY_SKIP",
+        "HYPERCI_CLASSIFICATION",
+    ):
         monkeypatch.delenv(name, raising=False)
 
 
