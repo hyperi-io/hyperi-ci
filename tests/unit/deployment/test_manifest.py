@@ -16,6 +16,7 @@ from pathlib import Path
 
 from hyperi_ci.deployment.manifest import (
     dep_features,
+    effective_dep_features,
     extract_bin_names,
     extract_package_name,
     extract_workspace_members,
@@ -297,6 +298,35 @@ class TestDepFeatures:
     def test_similar_prefix_not_matched(self) -> None:
         text = '[dependencies]\nscalo-extras = { features = ["deployment"] }\n'
         assert dep_features(text, "scalo") is None
+
+
+class TestEffectiveDepFeatures:
+    """Workspace inheritance is additive: the workspace list plus the entry's own."""
+
+    _WS = (
+        "[workspace.dependencies]\n"
+        'scalo = { version = "2.9", features = ["deployment"] }\n'
+    )
+
+    def test_inherits_workspace_list(self) -> None:
+        text = "[dependencies]\nscalo = { workspace = true }\n"
+        assert effective_dep_features(text, "scalo", self._WS) == frozenset(
+            {"deployment"}
+        )
+
+    def test_unions_own_features(self) -> None:
+        text = '[dependencies]\nscalo = { workspace = true, features = ["http"] }\n'
+        assert effective_dep_features(text, "scalo", self._WS) == frozenset(
+            {"deployment", "http"}
+        )
+
+    def test_no_workspace_table_stays_unknown(self) -> None:
+        text = "[dependencies]\nscalo.workspace = true\n"
+        assert effective_dep_features(text, "scalo", None) is None
+
+    def test_direct_entry_ignores_workspace(self) -> None:
+        text = '[dependencies]\nscalo = { version = "2.9", features = ["cli"] }\n'
+        assert effective_dep_features(text, "scalo", self._WS) == frozenset({"cli"})
 
 
 class TestPythonEntryPoint:

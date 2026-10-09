@@ -16,10 +16,12 @@ special-casing each.
 """
 
 import re
+import tomllib
 from pathlib import Path
 
 __all__ = [
     "dep_features",
+    "effective_dep_features",
     "extract_bin_names",
     "extract_package_name",
     "extract_workspace_members",
@@ -28,6 +30,7 @@ __all__ = [
     "python_entry_point",
     "resolve_workspace_members",
     "rust_binary_name",
+    "workspace_dep_features",
 ]
 
 # Tables whose ``name`` field is the manifest's own package name. The first
@@ -369,6 +372,44 @@ def dep_features(text: str, dep_name: str) -> frozenset[str] | None:
         for token in match.group(1).split(",")
         if token.strip().strip('"').strip("'")
     )
+
+
+def effective_dep_features(
+    text: str, dep_name: str, workspace_text: str | None
+) -> frozenset[str] | None:
+    """Features cargo enables for a dependency, workspace inheritance included.
+
+    An entry with ``workspace = true`` takes the feature list from
+    ``[workspace.dependencies]`` in the workspace root and adds its own
+    ``features`` on top: inherited features are additive in cargo. Returns
+    ``None`` when the manifest cannot say, as :func:`dep_features` does.
+    """
+    entry = _dep_entry(text, dep_name)
+    own = dep_features(text, dep_name)
+    if entry is None or not re.search(r"workspace\s*=\s*true", entry):
+        return own
+    inherited = workspace_dep_features(workspace_text, dep_name)
+    if inherited is None:
+        return own
+    return inherited | (own or frozenset())
+
+
+def workspace_dep_features(
+    workspace_text: str | None, dep_name: str
+) -> frozenset[str] | None:
+    """Features declared in ``[workspace.dependencies]``, or None when absent."""
+    if not workspace_text:
+        return None
+    try:
+        data = tomllib.loads(workspace_text)
+    except tomllib.TOMLDecodeError:
+        return None
+    entry = data.get("workspace", {}).get("dependencies", {}).get(dep_name)
+    if entry is None:
+        return None
+    if isinstance(entry, dict):
+        return frozenset(str(f) for f in entry.get("features", []))
+    return frozenset()
 
 
 def _dep_entry(text: str, dep_name: str) -> str | None:
