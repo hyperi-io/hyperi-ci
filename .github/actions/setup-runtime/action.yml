@@ -37,6 +37,11 @@ inputs:
     description: setup-uv cache -- true for Python (deps dominate), false for Rust (cargo cache dominates)
     required: false
     default: "false"
+  uv-version:
+    description: uv release setup-uv installs on hosted runners
+    required: false
+    # hyperi-ci:pin tools.uv
+    default: 0.12.22
   hyperci-install:
     description: How to invoke the hyperi-ci CLI
     required: false
@@ -45,10 +50,31 @@ inputs:
 runs:
   using: composite
   steps:
+    # setup-uv fetches its version manifest even for a pinned version, so a
+    # network blip fails the step. Three attempts; only the last can fail the job.
     - name: Install uv
+      id: uv_try1
       if: ${{ runner.environment != 'self-hosted' }}
+      continue-on-error: true
       uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       with:
+        version: ${{ inputs.uv-version }}
+        enable-cache: ${{ inputs.enable-uv-cache }}
+
+    - name: Install uv (retry 1)
+      id: uv_try2
+      if: ${{ steps.uv_try1.outcome == 'failure' }}
+      continue-on-error: true
+      uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      with:
+        version: ${{ inputs.uv-version }}
+        enable-cache: ${{ inputs.enable-uv-cache }}
+
+    - name: Install uv (retry 2)
+      if: ${{ steps.uv_try2.outcome == 'failure' }}
+      uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      with:
+        version: ${{ inputs.uv-version }}
         enable-cache: ${{ inputs.enable-uv-cache }}
 
     - name: Set up Python

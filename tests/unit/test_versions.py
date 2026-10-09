@@ -186,8 +186,10 @@ class TestCompositeToolsPinDigestsInTheSSOT:
 
     # Fetched and vouched for by someone else: govulncheck via the Go module
     # proxy and sum.golang.org, pyyaml and vulture by uv from PyPI. An `npm:`
-    # entry is checked by npm against the registry's sha512 `integrity`.
-    DELEGATED = {"govulncheck", "pyyaml", "vulture"}
+    # entry is checked by npm against the registry's sha512 `integrity`. uv is
+    # fetched by setup-uv, which checks the download against its own built-in
+    # checksum table, else the manifest's sha256, and fails closed on a mismatch.
+    DELEGATED = {"govulncheck", "pyyaml", "uv", "vulture"}
 
     def test_every_action_pinned_tool_pins_a_digest(self) -> None:
         data = yaml.safe_load(versions.VERSIONS_FILE.read_text(encoding="utf-8"))

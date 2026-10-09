@@ -58,6 +58,12 @@ tools:
   # 7-day cooldown - taken deliberately: 0.13.0's repeatable `-c` silently
   # honours only the first config file, contradicting its own help text
   # (0.14.0 rejects multiple `-c` and fixes the contract).
+  # Mirrored into setup-runtime's `uv-version` default. setup-uv verifies the
+  # download against its own checksum table, so no digest is held here.
+  uv:
+    version: 0.12.22
+    repo: astral-sh/uv
+    pin: .github/actions/setup-runtime/action.yml
   alint:
     version: v0.16.1
     repo: asamarts/alint
