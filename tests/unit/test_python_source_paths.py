@@ -200,44 +200,29 @@ class TestQualityScansTheDetectedSource:
         ]
         assert "src/" not in argv
 
-    def test_bandit(self, flat: list[list[str]]) -> None:
-        argv = _scan(flat, "bandit", "-r")
-        assert argv[argv.index("-r") + 1 :][:2] == ["pkg/", "scripts/"]
-        assert "src/" not in argv
-
     def test_vulture(self, flat: list[list[str]]) -> None:
         argv = _scan(flat, "vulture")
         assert argv[argv.index("vulture") + 1 :][:2] == ["pkg/", "scripts/"]
         assert "src/" not in argv
 
-    def test_bandit_excludes_the_default_test_path(self, flat: list[list[str]]) -> None:
-        argv = _scan(flat, "bandit", "-r")
-        assert argv[argv.index("--exclude") + 1] == "tests/"
-
-    def test_bandit_excludes_every_configured_test_path(
+    def test_removed_tools_never_run_whatever_the_config_says(
         self, repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _touch(repo, "app/main.py", "checks/test_a.py", "tests/test_b.py")
-        calls = _recorder_path(tmp_path, monkeypatch)
-        raw = {"quality": {"test_paths": ["checks/", "tests/"]}}
-        assert quality.run(CIConfig(_raw=raw)) == 0
-        argv = _scan(_argvs(calls), "bandit", "-r")
-        assert argv[argv.index("--exclude") + 1] == "checks/,tests/"
-
-    def test_bandit_carries_test_paths_and_quality_excludes_in_one_flag(
-        self, repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """bandit's --exclude is action="store": a second flag drops the first."""
         _touch(repo, "app/main.py", "tests/test_a.py")
-        (repo / "vendor").mkdir()
         calls = _recorder_path(tmp_path, monkeypatch)
-        assert quality.run(CIConfig(_raw={})) == 0
-        argv = _scan(_argvs(calls), "bandit", "-r")
-        exclude_flags = [
-            a for a in argv if a == "--exclude" or a.startswith("--exclude=")
-        ]
-        assert len(exclude_flags) == 1
-        assert argv[argv.index("--exclude") + 1] == "tests/,*/vendor/*"
+        raw = {
+            "quality": {
+                "python": {
+                    "ty": "disabled",
+                    "bandit": "blocking",
+                    "pyright": "blocking",
+                }
+            }
+        }
+        assert quality.run(CIConfig(_raw=raw)) == 0
+        argvs = _argvs(calls)
+        assert not [a for a in argvs if "bandit" in a or "pyright" in a], argvs
+        _scan(argvs, "--select", "S")
 
     def test_src_layout_keeps_src(
         self, repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -246,7 +231,7 @@ class TestQualityScansTheDetectedSource:
         calls = _recorder_path(tmp_path, monkeypatch)
         assert quality.run(CIConfig(_raw={})) == 0
         argvs = _argvs(calls)
-        for marker in (("--select", "S"), ("--select", "D"), ("-r",), ("vulture",)):
+        for marker in (("--select", "S"), ("--select", "D"), ("vulture",)):
             argv = _scan(argvs, *marker)
             assert "src/" in argv
             assert "scripts/" not in argv
@@ -271,8 +256,8 @@ class TestQualityWithNoSource:
 
         argvs = _argvs(calls)
         assert not [a for a in argvs if "--select" in a]
-        assert not [a for a in argvs if "bandit" in a or "vulture" in a]
-        for tool in ("ruff security", "bandit", "ruff docstrings", "vulture"):
+        assert not [a for a in argvs if "vulture" in a]
+        for tool in ("ruff security", "ruff docstrings", "vulture"):
             assert any(
                 w.startswith(f"  {tool}: skipped") and "no Python source" in w
                 for w in warnings
@@ -423,15 +408,10 @@ class TestSrcLayoutIsByteIdentical:
         calls = _recorder_path(tmp_path, monkeypatch)
         assert quality.run(CIConfig(_raw={})) == 0
         argvs = _argvs(calls)
-        bandit = f"bandit=={tool_version('bandit')}"
         vulture = f"vulture=={tool_version('vulture')}"
-        # The project declares no Python, so the AST tools take the running one.
+        # The project declares no Python, so vulture takes the running one.
         python = f"{sys.version_info.major}.{sys.version_info.minor}"
 
-        assert _scan(argvs, "bandit", "-r") == [
-            "uvx", "--python", python, "--from", bandit, "bandit", "-r", "src/", "-ll",
-            "-c", "pyproject.toml", "--exclude", "tests/,*/vendor/*",
-        ]  # fmt: skip
         assert _scan(argvs, "--select", "S") == [
             "uv", "run", "ruff", "check", "--select", "S",
             "--output-format=concise", "src/", "--extend-exclude=vendor",

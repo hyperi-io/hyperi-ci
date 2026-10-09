@@ -225,6 +225,9 @@ REMOVED_KEYS: tuple[str, ...] = (
     "container",
     "deployment",
     "golang",
+    "quality.python.bandit",
+    "quality.python.bandit_exclude_tests",
+    "quality.python.pyright",
     "release.argocd",
     "release.binaries",
     "release.container.binary_name",
@@ -318,6 +321,84 @@ def find_removed_keys(doc: Any) -> list[str]:
 def removed_key_message(key: str) -> str:
     """Build the one-line notice for a removed key."""
     return f"{key} is no longer read by hyperi-ci and can be deleted"
+
+
+# A removed security gate set to `blocking` moves that mode to the gate that
+# replaced it, so dropping the tool never relaxes a repo's security gate.
+_CARRIED_TO: dict[str, str] = {"quality.python.bandit": "quality.python.ruff_security"}
+
+_reported_carry_overs: set[str] = set()
+
+
+def _configured_mode(raw: Any) -> str:
+    """Return the mode a bare string or a ``mode`` mapping sets, lowercased."""
+    value = raw.get("mode") if isinstance(raw, dict) else raw
+    return str(value or "").strip().lower()
+
+
+def carry_over_removed_gates(doc: Any) -> tuple[Any, list[str]]:
+    """Move a removed security gate's ``blocking`` onto the key that replaced it.
+
+    Only where the project sets the removed key to ``blocking`` and leaves the
+    successor unset, so an explicit successor setting always wins.
+
+    Args:
+        doc: The project config as written.
+
+    Returns:
+        ``(document, carried_keys)``. The document is a copy with each successor
+        set to ``blocking``, or unchanged when nothing is carried.
+
+    """
+    if not isinstance(doc, dict):
+        return doc, []
+    carried: list[str] = []
+    result = doc
+    for removed, successor in _CARRIED_TO.items():
+        *parents, leaf = removed.split(".")
+        section = _node_at(result, ".".join(parents))
+        successor_leaf = successor.rsplit(".", 1)[-1]
+        if not isinstance(section, dict) or successor_leaf in section:
+            continue
+        if _configured_mode(section.get(leaf)) != "blocking":
+            continue
+        result = _with_value(result, successor, "blocking")
+        carried.append(removed)
+    return result, carried
+
+
+def _with_value(doc: dict[str, Any], dotted: str, value: Any) -> dict[str, Any]:
+    """Return a copy of ``doc`` with ``dotted`` set, leaving ``doc`` untouched."""
+    head, _, rest = dotted.partition(".")
+    if not rest:
+        return {**doc, head: value}
+    child = doc.get(head)
+    return {
+        **doc,
+        head: _with_value(child if isinstance(child, dict) else {}, rest, value),
+    }
+
+
+def carry_over_message(key: str) -> str:
+    """Build the one-line notice for a carried-over ``blocking`` mode."""
+    successor = _CARRIED_TO[key].rsplit(".", 1)[-1]
+    return f"{key}: blocking is carried over to {successor}: blocking"
+
+
+def report_carry_overs(keys: list[str]) -> None:
+    """Announce each carried-over gate once per process, as a removed key is."""
+    fresh = [key for key in keys if key not in _reported_carry_overs]
+    if not fresh:
+        return
+    from hyperi_ci.common import announce
+
+    for key in fresh:
+        _reported_carry_overs.add(key)
+        announce(
+            carry_over_message(key),
+            "Removed config key in .hyperi-ci.yaml",
+            level="warning",
+        )
 
 
 def report_removed_keys(keys: list[str]) -> None:

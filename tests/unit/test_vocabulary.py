@@ -15,6 +15,7 @@ import pytest
 from hyperi_ci import config as config_module
 from hyperi_ci import vocabulary
 from hyperi_ci.config import CIConfig, load_config, packaged_default
+from hyperi_ci.languages.quality_common import resolve_tool_mode
 
 
 class TestFoldLegacyConfig:
@@ -260,7 +261,10 @@ class TestRemovedKeys:
     @pytest.fixture(autouse=True)
     def _fresh(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(vocabulary, "_reported_removed_keys", set())
+        monkeypatch.setattr(vocabulary, "_reported_carry_overs", set())
         monkeypatch.setattr(config_module, "_config_cache", None)
+        monkeypatch.delenv("HYPERCI_QUALITY_STRICT", raising=False)
+        monkeypatch.delenv("HYPERCI_QUALITY_SKIP", raising=False)
 
     @staticmethod
     def _announced(monkeypatch: pytest.MonkeyPatch) -> list[str]:
@@ -332,6 +336,84 @@ class TestRemovedKeys:
         assert self._load(tmp_path, monkeypatch, body) == [
             vocabulary.removed_key_message(key)
         ]
+
+    @pytest.mark.parametrize(
+        ("body", "key"),
+        [
+            ("pyright: warn\n", "quality.python.pyright"),
+            ("bandit: warn\n", "quality.python.bandit"),
+            ("bandit:\n      mode: disabled\n", "quality.python.bandit"),
+            ("bandit_exclude_tests: false\n", "quality.python.bandit_exclude_tests"),
+        ],
+    )
+    def test_the_dropped_python_tools_warn_and_the_load_succeeds(
+        self, tmp_path, monkeypatch, body: str, key: str
+    ) -> None:
+        seen = self._load(
+            tmp_path,
+            monkeypatch,
+            f"language: python\nquality:\n  python:\n    ty: warn\n    {body}",
+        )
+        assert seen == [vocabulary.removed_key_message(key)]
+        config = load_config(reload=True, project_dir=tmp_path)
+        assert config.get("quality.python.ty") == "warn"
+        assert config.get("quality.python.ruff_security") == packaged_default(
+            "quality.python.ruff_security"
+        )
+
+    @pytest.mark.parametrize(
+        "bandit",
+        [
+            "bandit: blocking\n",
+            "bandit: ' Blocking '\n",
+            "bandit:\n      mode: blocking\n      reason: VPN server, root at startup\n",
+        ],
+    )
+    def test_a_blocking_bandit_carries_over_to_ruff_security(
+        self, tmp_path, monkeypatch, bandit: str
+    ) -> None:
+        seen = self._load(
+            tmp_path,
+            monkeypatch,
+            f"quality:\n  python:\n    ruff: blocking\n    {bandit}",
+        )
+        assert seen == [
+            vocabulary.removed_key_message("quality.python.bandit"),
+            "quality.python.bandit: blocking is carried over to ruff_security: blocking",
+        ]
+        config = load_config(reload=True, project_dir=tmp_path)
+        assert config.get("quality.python.ruff_security") == "blocking"
+        assert resolve_tool_mode("ruff_security", config, language="python") == (
+            "blocking"
+        )
+
+    @pytest.mark.parametrize(
+        ("ruff_security", "expected"),
+        [
+            ("warn", "warn"),
+            ("{mode: disabled, reason: semgrep covers it}", None),
+        ],
+    )
+    def test_an_explicit_ruff_security_wins(
+        self, tmp_path, monkeypatch, ruff_security: str, expected: str | None
+    ) -> None:
+        seen = self._load(
+            tmp_path,
+            monkeypatch,
+            "quality:\n  python:\n    bandit: blocking\n"
+            f"    ruff_security: {ruff_security}\n",
+        )
+        assert seen == [vocabulary.removed_key_message("quality.python.bandit")]
+        config = load_config(reload=True, project_dir=tmp_path)
+        mode = resolve_tool_mode("ruff_security", config, language="python")
+        assert mode == (expected or "disabled")
+
+    def test_the_project_file_is_not_rewritten(self) -> None:
+        doc = {"quality": {"python": {"bandit": "blocking"}}}
+        carried, keys = vocabulary.carry_over_removed_gates(doc)
+        assert keys == ["quality.python.bandit"]
+        assert carried["quality"]["python"]["ruff_security"] == "blocking"
+        assert doc == {"quality": {"python": {"bandit": "blocking"}}}
 
     def test_the_legacy_spelling_is_named_as_written(self) -> None:
         found = vocabulary.find_removed_keys({"publish": {"binaries": "both"}})

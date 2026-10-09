@@ -206,7 +206,7 @@ class TestRuffSecurityMode:
     def test_disabled_with_a_reason_is_honoured(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        off = {"mode": "disabled", "reason": "bandit runs instead"}
+        off = {"mode": "disabled", "reason": "semgrep's Python rules cover it"}
         passes = _passes(monkeypatch, {"ruff_security": off})
         assert passes["ruff security"][1] == "disabled"
 
@@ -245,7 +245,6 @@ class TestEachPassResolvesAsIntended:
             ("ruff check (tests/)", "uv"),
             ("ruff format", "uv"),
             ("ty", "uv-with"),
-            ("bandit", "uvx"),
             ("ruff security", "uv"),
             ("pip-audit", "uv"),
             ("ruff docstrings", "uv"),

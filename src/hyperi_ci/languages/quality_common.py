@@ -80,7 +80,6 @@ SECURITY_TOOLS = frozenset(
     {
         "gitleaks",
         "semgrep",
-        "bandit",
         "ruff_security",
         "pip_audit",
         "audit",
@@ -278,8 +277,8 @@ def note_gate_downgrade(
 def _security_gates_shipped(language: str) -> list[str]:
     """Keys of the security gates hyperi-ci ships switched on for ``language``.
 
-    Measured against the shipped defaults as in :func:`note_gate_downgrade`:
-    bandit ships ``disabled``, so turning the stage off takes nothing from it.
+    Measured against the shipped defaults as in :func:`note_gate_downgrade`, so
+    a security tool that ships ``disabled`` is not named.
     """
     tools = sorted(SECURITY_TOOLS)
     candidates = [f"quality.{tool}" for tool in tools]
@@ -406,7 +405,7 @@ def resolve_tool_cmd(
             standalone tool, and ``uv-with`` installs the tool temporarily
             into the project's venv, for tools that scan installed packages
             (e.g. pip-audit).
-        spec: Requirement to install, e.g. ``bandit==1.9.4`` from the versions
+        spec: Requirement to install, e.g. ``vulture==2.16`` from the versions
             SSOT. Defaults to the bare command name, which takes whatever PyPI
             serves.
         python: Interpreter version for a ``uvx`` run, e.g. ``3.14``. A tool
@@ -524,7 +523,6 @@ def run_gate_tool(
     python: str | None = None,
     pinned: str | None = None,
     retry_unreachable: Unreachable | None = None,
-    unscanned: Callable[[str | None], int] | None = None,
     output_is_finding: bool = False,
 ) -> bool:
     """Run one quality tool and decide the gate from its result and mode.
@@ -550,8 +548,6 @@ def run_gate_tool(
         retry_unreachable: Whether a run failed only because the advisory DB
             was unreachable. Such a run is made again with a backoff, and one
             that never reaches the DB is then decided by ``mode``.
-        unscanned: Counts the files a tool's stdout says it skipped. A
-            ``blocking`` pass that skipped any fails.
         output_is_finding: Treat any stdout as a finding, for a tool such as
             ``gofmt -l`` that lists what it found and still exits 0.
 
@@ -573,13 +569,9 @@ def run_gate_tool(
         result = _run_until_reachable(tool_name, resolved, retry_unreachable)
     else:
         result = run_cmd(resolved, check=False, capture=True)
-    skipped = unscanned(result.stdout) if unscanned else 0
     found = output_is_finding and bool((result.stdout or "").strip())
 
     if result.returncode == 0 and not found:
-        if skipped and mode == "blocking":
-            error(f"  {tool_name}: failed, {skipped} file(s) were not scanned")
-            return False
         success(f"  {tool_name}: passed")
         return True
 

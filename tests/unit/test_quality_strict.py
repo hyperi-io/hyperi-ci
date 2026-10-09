@@ -74,7 +74,6 @@ _NOT_SECURITY = frozenset(
         "docs_touched",
         "ruff",
         "ty",
-        "pyright",
         "ruff_format",
         "ruff_docstrings",
         "vulture",
@@ -141,9 +140,9 @@ class TestResolveToolMode:
     def test_configured_mode_passthrough(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(_ENV, raising=False)
         warn_cfg = _config("ty", "warn")
-        off_cfg = _config("bandit", "disabled")
+        off_cfg = _config("vulture", "disabled")
         assert resolve_tool_mode("ty", warn_cfg, language="python") == "warn"
-        assert resolve_tool_mode("bandit", off_cfg, language="python") == "disabled"
+        assert resolve_tool_mode("vulture", off_cfg, language="python") == "disabled"
 
     def test_strict_upgrades_warn_to_blocking(
         self, monkeypatch: pytest.MonkeyPatch
@@ -157,8 +156,8 @@ class TestResolveToolMode:
     def test_strict_leaves_disabled_off(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # Strict enforces warnings; it must NOT resurrect a disabled tool.
         monkeypatch.setenv(_ENV, "1")
-        off_cfg = _config("bandit", "disabled")
-        assert resolve_tool_mode("bandit", off_cfg, language="python") == "disabled"
+        off_cfg = _config("vulture", "disabled")
+        assert resolve_tool_mode("vulture", off_cfg, language="python") == "disabled"
 
     def test_strict_leaves_blocking(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(_ENV, "1")
@@ -312,14 +311,24 @@ class TestSecurityGateNeedsAReason:
         assert resolve_tool_mode("ruff_format", cfg, language="python") == "warn"
         assert any("turned down" in w for w in said), said
 
-    def test_a_shipped_disabled_tool_has_nothing_below_it(self) -> None:
-        # bandit ships `disabled` (ruff_security is the bandit-class check).
+    def test_a_shipped_disabled_tool_has_nothing_below_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # No security tool ships `disabled` today, so the shipped mode is faked.
+        real = quality_common.packaged_default
+        monkeypatch.setattr(
+            quality_common,
+            "packaged_default",
+            lambda key, *a: (
+                "disabled" if key == "quality.python.pip_audit" else real(key, *a)
+            ),
+        )
         assert resolve_tool_mode(
-            "bandit", _config("bandit", "disabled"), language="python"
+            "pip_audit", _config("pip_audit", "disabled"), language="python"
         ) == ("disabled")
 
     def test_turning_off_the_ruff_security_pass_needs_a_reason(self) -> None:
-        # With bandit off, ruff S is the only bandit-class check a repo gets.
+        # ruff S is the only bandit-class check a repo gets.
         with pytest.raises(GateReasonRequiredError, match="ruff_security"):
             resolve_tool_mode(
                 "ruff_security", _config("ruff_security", "disabled"), language="python"
@@ -553,8 +562,8 @@ class TestQualitySkip:
     def test_parses_comma_separated_lowercased(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv(_SKIP, "Semgrep, Bandit ,")
-        assert quality_skip() == frozenset({"semgrep", "bandit"})
+        monkeypatch.setenv(_SKIP, "Semgrep, Vulture ,")
+        assert quality_skip() == frozenset({"semgrep", "vulture"})
 
     def test_is_skipped_is_case_insensitive(
         self, monkeypatch: pytest.MonkeyPatch
