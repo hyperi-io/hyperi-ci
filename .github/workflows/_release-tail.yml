@@ -604,7 +604,7 @@ jobs:
           if [ "${{ steps.bot.outcome }}" = "success" ]; then
             echo "Tagging and pushing as hypersec-ci-bot."
           else
-            echo "::warning::GH_APP_PRIVATE_KEY is not visible to this repo -- tagging as github-actions. Required status checks cannot be bypassed, and the release push will trigger no workflows. Add this repo to the GH_APP_PRIVATE_KEY org secret's selected list to fix both."
+            echo "::warning::GH_APP_PRIVATE_KEY is not visible to this repo -- tagging as github-actions. Required status checks cannot be bypassed, and the release push will trigger no workflows. Fix both: add this repo to the GH_APP_PRIVATE_KEY org secret's selected list, and if the caller passes an explicit secrets list, add GH_APP_PRIVATE_KEY to it."
           fi
 
       - name: Setup semantic-release (shared toolchain -- single source of truth)
