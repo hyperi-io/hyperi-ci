@@ -101,6 +101,13 @@ ALLOWED_RUN_LINES = {
         r"if \[ -z \"\$\(git tag --list 'v\[0-9\]\*'\)\" \]; then",
         rf'echo "Tag-less repo [^"$`;|&]*v{_BRACED_VERSION} from the plan\'s prediction"',
         rf'{_INSTALL} tag-head --bump "{_VERSION}"',
+        # config --json parses the YAML with safe_load and runs nothing the repo controls.
+        rf"config=\$\({_INSTALL} config --json\)",
+        r"\{",
+        r'echo "config<<HYPERCI_CONFIG_JSON"',
+        r'echo "\$config"',
+        r'echo "HYPERCI_CONFIG_JSON"',
+        r'\} >> "\$GITHUB_OUTPUT"',
         # helm dependency build, package and push render no template and run no hook.
         rf"{_INSTALL} publish-charts",
         # Known gap, tracked in #413: the tagger loads a repo-controlled config.
@@ -263,6 +270,8 @@ class TestPublishRunsNoRepoCode:
             "Guard -- predicted tag must not already exist off-HEAD",
             "Tag (semantic-release)",
             "Tag HEAD (forced bump / explicit version)",
+            "Read the release classification",
+            "Tag HEAD (fork, first-parent version)",
         ):
             assert verify < names.index(after)
 

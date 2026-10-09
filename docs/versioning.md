@@ -51,6 +51,18 @@ A retroactive `tag` dispatch (`hyperi-ci release vX.Y.Z`) skips semantic-release
 
 Re-publishing a version below the highest stable `v*` tag publishes its versioned artefacts and moves no `latest` pointer. R2 `<project>/latest/`, the GHCR `:latest` tag and the GitHub Release Latest flag stay on the newest release, and the log names each one it held back. `common.holds_latest` makes that call from the local tags, which is why the Container job checks out with `fetch-tags: true`.
 
+### A fork
+
+semantic-release counts every commit reachable from HEAD, so a fork that merges its upstream takes upstream's `feat:` and `!` commits as its own bump. A repo classified `fork` versions a stable release from main by its first-parent commits instead (`git log --first-parent <last tag>..HEAD`), under the same bump rules. A sync merge counts as ONE commit, read by its subject alone: `Merge pull request #121 ...` is a patch, so an upstream sync ships, and nothing in the merge body can raise it. A merge whose subject is a conventional commit (`feat: sync upstream 2.41`) keeps that bump.
+
+Declare it in `.hyperi-ci.yaml`, or put `fork` in a `.hyperi-classification` file:
+
+```yaml
+classification: fork
+```
+
+Plan predicts the version and Tag & Release cuts it with `tag-head`, not semantic-release, so the release adds no `CHANGELOG.md` entry. A declared prerelease branch keeps semantic-release.
+
 ## A repo with no tags
 
 Exactly one question a tag cannot answer: what should the FIRST tag be?

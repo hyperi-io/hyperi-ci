@@ -127,6 +127,56 @@ def make_elf() -> Callable[..., Path]:
     return _write_elf
 
 
+def _fork_history(root: Path, *, own: tuple[str, ...] = ("fix: own fix",)) -> Path:
+    """Build a fork's main at ``root``: v0.2.8, then a sync merge of upstream.
+
+    Upstream adds a ``feat:`` and a breaking ``feat!:`` and tags ``v9.0.0``,
+    all reachable from main only through the merge's second parent. ``own``
+    are the fork's commits before the merge; a ``docs:`` commit follows it.
+    """
+
+    def git(*args: str) -> None:
+        run_cmd(["git", *args], capture=True, check=True, cwd=root)
+
+    def commit(message: str) -> None:
+        git("commit", "--allow-empty", "-q", "-m", message)
+
+    git("init", "-q", "-b", "main")
+    git("config", "user.email", "ci@example.invalid")
+    git("config", "user.name", "CI")
+    git("config", "commit.gpgsign", "false")
+    git("config", "tag.gpgsign", "false")
+    commit("chore: upstream root")
+    git("branch", "upstream")
+    commit("fix: first fork release")
+    git("tag", "v0.2.8")
+
+    git("checkout", "-q", "upstream")
+    commit("feat: upstream feature")
+    commit("feat(api)!: upstream breaking change")
+    git("tag", "v9.0.0")
+
+    git("checkout", "-q", "main")
+    for message in own:
+        commit(message)
+    git(
+        "merge",
+        "--no-ff",
+        "-q",
+        "upstream",
+        "-m",
+        "Merge pull request #121 from hyperi-io/sync-upstream",
+    )
+    commit("docs: own docs\n\nRelease: true")
+    return root
+
+
+@pytest.fixture
+def make_fork_history() -> Callable[..., Path]:
+    """Factory for a real fork repo whose sync merge brings upstream feat: commits."""
+    return _fork_history
+
+
 class _Response:
     """Context-manager stand-in for what ``urlopen`` returns."""
 

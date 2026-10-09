@@ -47,7 +47,9 @@ def _parse_git_log(output: str) -> list[tuple[str, str]]:
     return commits
 
 
-def git_log(args: list[str]) -> tuple[int, list[tuple[str, str]]]:
+def git_log(
+    args: list[str], cwd: Path | None = None
+) -> tuple[int, list[tuple[str, str]]]:
     """Run ``git log --pretty=<fmt> <args>``; return ``(returncode, commits)``."""
     result = subprocess.run(
         ["git", "log", f"--pretty={_COMMIT_FMT}", *args],
@@ -55,6 +57,7 @@ def git_log(args: list[str]) -> tuple[int, list[tuple[str, str]]]:
         text=True,
         encoding="utf-8",
         errors="replace",
+        cwd=cwd,
     )
     if result.returncode != 0:
         return result.returncode, []
@@ -167,14 +170,31 @@ def is_release_worthy(project_dir: Path | None = None) -> tuple[bool, str]:
     return False, f"no release-worthy commit in {len(commits)} pushed commit(s)"
 
 
-def _last_version_tag() -> str | None:
-    """Return the nearest ``v*`` tag reachable from HEAD, or None if there is none."""
+def last_version_tag(
+    *, first_parent: bool = False, cwd: Path | None = None
+) -> str | None:
+    """Return the nearest ``v*`` tag reachable from HEAD, or None if there is none.
+
+    Args:
+        first_parent: Walk only HEAD's first-parent chain and skip prerelease
+            tags, so a tag reachable only through a merged-in branch is never
+            taken as this branch's last release.
+        cwd: Repository to ask. Defaults to the current directory.
+
+    Returns:
+        The tag name, or None when no tag matches or git could not answer.
+
+    """
+    args = ["git", "describe", "--tags", "--abbrev=0", "--match", "v[0-9]*"]
+    if first_parent:
+        args += ["--exclude", "v*-*", "--first-parent"]
     result = subprocess.run(
-        ["git", "describe", "--tags", "--abbrev=0", "--match", "v[0-9]*"],
+        args,
         capture_output=True,
         text=True,
         encoding="utf-8",
         errors="replace",
+        cwd=cwd,
     )
     if result.returncode != 0:
         return None
@@ -216,7 +236,7 @@ def unreleased_since_tag(
         is reachable or git could not answer (a tag-less repo's first release
         runs through :mod:`hyperi_ci.version_source`).
     """
-    tag = _last_version_tag()
+    tag = last_version_tag()
     if tag is None:
         return None, []
     rc, commits = git_log([f"{tag}..HEAD"])
