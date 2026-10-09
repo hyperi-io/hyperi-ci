@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.13.13](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.12...v2.13.13) (2026-10-09)
+
+### Bug Fixes
+
+* **ci:** retry the uv install on hosted runners ([#634](https://github.com/hyperi-io/hyperi-ci/issues/634)) ([31bb92b](https://github.com/hyperi-io/hyperi-ci/commit/31bb92b775bb22998f80409ed80a3c66d3bed91e))
+
 ## [2.13.12](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.11...v2.13.12) (2026-10-09)
 
 ### Bug Fixes
