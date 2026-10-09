@@ -160,8 +160,24 @@ jobs:
     # does not stop that.
     steps:
       - name: Install uv
+        id: uv_try1
+        continue-on-error: true
         # Before the checkout, so setup-uv reads no repo `required-version`. The
         # workdir is empty by design, hence ignore-empty-workdir.
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+          ignore-empty-workdir: true
+      - name: Install uv (retry 1)
+        id: uv_try2
+        if: ${{ steps.uv_try1.outcome == 'failure' }}
+        continue-on-error: true
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+          ignore-empty-workdir: true
+      - name: Install uv (retry 2)
+        if: ${{ steps.uv_try2.outcome == 'failure' }}
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: false
@@ -312,8 +328,24 @@ jobs:
       contents: read
     steps:
       - name: Install uv
+        id: uv_try1
+        continue-on-error: true
         # Before the checkout, so setup-uv reads no repo `required-version`. The
         # workdir is empty by design, hence ignore-empty-workdir.
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+          ignore-empty-workdir: true
+      - name: Install uv (retry 1)
+        id: uv_try2
+        if: ${{ steps.uv_try1.outcome == 'failure' }}
+        continue-on-error: true
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+          ignore-empty-workdir: true
+      - name: Install uv (retry 2)
+        if: ${{ steps.uv_try2.outcome == 'failure' }}
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: false
@@ -419,8 +451,24 @@ jobs:
       issues: write
     steps:
       - name: Install uv
+        id: uv_try1
+        continue-on-error: true
         # This job never checks out the repo, so the workdir is empty throughout,
         # hence ignore-empty-workdir.
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+          ignore-empty-workdir: true
+      - name: Install uv (retry 1)
+        id: uv_try2
+        if: ${{ steps.uv_try1.outcome == 'failure' }}
+        continue-on-error: true
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+          ignore-empty-workdir: true
+      - name: Install uv (retry 2)
+        if: ${{ steps.uv_try2.outcome == 'failure' }}
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: false
@@ -483,9 +531,25 @@ jobs:
       packages: write
     steps:
       - name: Install uv
+        id: uv_try1
+        continue-on-error: true
         # First, before anything that can fail: every later step, including the
         # failure notice, runs the HYPERCI_INSTALL uvx command, and hosted runners
         # ship no uv. The workdir is empty by design, hence ignore-empty-workdir.
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+          ignore-empty-workdir: true
+      - name: Install uv (retry 1)
+        id: uv_try2
+        if: ${{ steps.uv_try1.outcome == 'failure' }}
+        continue-on-error: true
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+          ignore-empty-workdir: true
+      - name: Install uv (retry 2)
+        if: ${{ steps.uv_try2.outcome == 'failure' }}
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: false

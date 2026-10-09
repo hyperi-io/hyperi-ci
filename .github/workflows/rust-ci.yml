@@ -254,7 +254,21 @@ jobs:
           branch-build: ${{ inputs.branch-build || vars.HYPERCI_BRANCH_BUILD }}
 
       - name: Install uv (preflight)
+        id: uv_try1
         if: steps.predict.outputs.will-release == 'true'
+        continue-on-error: true
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+      - name: Install uv (preflight) (retry 1)
+        id: uv_try2
+        if: ${{ steps.uv_try1.outcome == 'failure' }}
+        continue-on-error: true
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+      - name: Install uv (preflight) (retry 2)
+        if: ${{ steps.uv_try2.outcome == 'failure' }}
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: false
@@ -352,6 +366,20 @@ jobs:
           # Keeps the job token away from the code this job runs (issue #402).
           persist-credentials: false
       - name: Install uv
+        id: uv_try1
+        continue-on-error: true
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+      - name: Install uv (retry 1)
+        id: uv_try2
+        if: ${{ steps.uv_try1.outcome == 'failure' }}
+        continue-on-error: true
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+      - name: Install uv (retry 2)
+        if: ${{ steps.uv_try2.outcome == 'failure' }}
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: false
@@ -706,8 +734,24 @@ jobs:
       # The CLI ships via uvx, which a bare runner lacks, so the gate would exit 127
       # on an otherwise green run.
       - name: Install uv
+        id: uv_try1
+        continue-on-error: true
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         # Gate never checks out the repo, so its workdir is always empty.
+        with:
+          enable-cache: false
+          ignore-empty-workdir: true
+      - name: Install uv (retry 1)
+        id: uv_try2
+        if: ${{ steps.uv_try1.outcome == 'failure' }}
+        continue-on-error: true
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+          ignore-empty-workdir: true
+      - name: Install uv (retry 2)
+        if: ${{ steps.uv_try2.outcome == 'failure' }}
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: false
           ignore-empty-workdir: true
