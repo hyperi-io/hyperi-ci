@@ -224,7 +224,8 @@ def unreleased_since_tag(
 ) -> tuple[str | None, list[tuple[str, str]]]:
     """Return the nearest ``v*`` tag and the releasable commits HEAD holds past it.
 
-    Cumulative, not per-push: every releasable commit the last tag lacks.
+    Cumulative, not per-push: every releasable commit the last tag lacks. A
+    fork counts only its own first-parent commits past its own last tag.
 
     Args:
         project_dir: Directory whose ``.releaserc.json`` overrides the bump
@@ -236,6 +237,20 @@ def unreleased_since_tag(
         is reachable or git could not answer (a tag-less repo's first release
         runs through :mod:`hyperi_ci.version_source`).
     """
+    # Imported here because fork_version imports this module.
+    from hyperi_ci.fork_version import ForkVersionError, check_fork, fork_commit_bumps
+
+    root = project_dir if project_dir is not None else Path.cwd()
+    if check_fork(root).fork:
+        tag = last_version_tag(first_parent=True, cwd=root)
+        if tag is None:
+            return None, []
+        try:
+            bumps = fork_commit_bumps(root, tag)
+        except ForkVersionError:
+            return None, []
+        return tag, [(sha, bump) for sha, _subject, bump in bumps if bump != "none"]
+
     tag = last_version_tag()
     if tag is None:
         return None, []
