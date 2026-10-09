@@ -19,7 +19,8 @@
 #                                  step that runs repo code, holding no secret
 #   (here)    tag-and-release   <- hyperi-ci publish-charts (when enabled),
 #                                  then npx semantic-release real -> tag +
-#                                  CHANGELOG; then hyperi-ci run release
+#                                  CHANGELOG (tag-head for a fork on main);
+#                                  then hyperi-ci run release
 #                                  uploads what prepare left -> crates.io /
 #                                  PyPI / npm / GitHub Releases / R2
 #
@@ -671,11 +672,25 @@ jobs:
             echo "::warning::GH_APP_PRIVATE_KEY is not visible to this repo -- tagging as github-actions. Required status checks cannot be bypassed, and the release push will trigger no workflows. Fix both: add this repo to the GH_APP_PRIVATE_KEY org secret's selected list, and if the caller passes an explicit secrets list, add GH_APP_PRIVATE_KEY to it."
           fi
 
+      - name: Read the release classification
+        # A fork releasing from main was versioned from its first-parent commits
+        # in plan, so semantic-release must not tag it from its own full walk.
+        # predict-version reads the same marker.
+        id: classification
+        if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto')) }}
+        run: |
+          config=$(${{ env.HYPERCI_INSTALL }} config --json)
+          {
+            echo "config<<HYPERCI_CONFIG_JSON"
+            echo "$config"
+            echo "HYPERCI_CONFIG_JSON"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Setup semantic-release (shared toolchain -- single source of truth)
         # Runs the version oracle on a push, and on a from-head `auto`
         # dispatch (release/retry HEAD letting semantic-release pick the
         # version from commits). Forced bumps use tag-head instead.
-        if: ${{ github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto') }}
+        if: ${{ (github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto')) && fromJSON(steps.classification.outputs.config || '{}').classification != 'fork' }}
         uses: hyperi-io/hyperi-ci/.github/actions/setup-semantic-release@main
 
       - name: Guard -- predicted tag must not already exist off-HEAD
@@ -726,7 +741,7 @@ jobs:
         # version oracle, so its next-version is materialised via tag-head
         # (idempotent, off-HEAD-guarded, works with persist-credentials: false).
         # Once the first tag exists this branch never fires again.
-        if: ${{ github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto') }}
+        if: ${{ (github.event_name == 'push' || (inputs.from-head == 'true' && inputs.bump == 'auto')) && fromJSON(steps.classification.outputs.config || '{}').classification != 'fork' }}
         env:
           GITHUB_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
           GH_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
@@ -738,6 +753,16 @@ jobs:
           else
             npx semantic-release
           fi
+
+      - name: Tag HEAD (fork, first-parent version)
+        # The plan predicted this version from the fork's first-parent commits,
+        # and semantic-release's real run would tag its own from every commit.
+        # CHANGELOG.md gets no entry, as on a tag-less repo's first release.
+        if: ${{ fromJSON(steps.classification.outputs.config || '{}').classification == 'fork' }}
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token || secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.next-version }}
+        run: ${{ env.HYPERCI_INSTALL }} tag-head --bump "$RELEASE_VERSION"
 
       - name: Tag HEAD (forced bump / explicit version)
         # from-head dispatch with a non-auto bump (issue #35): release HEAD at the

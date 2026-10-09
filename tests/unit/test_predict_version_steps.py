@@ -25,6 +25,7 @@ import shutil
 import stat
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -214,7 +215,7 @@ def _derive(event: str, will_publish: str, repo: Path) -> dict[str, str]:
             "inputs.branch-build": "",
             "github.ref": "refs/heads/main",
             "steps.worthy.outputs.release-worthy": "",
-            "steps.predict.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version": "",
+            "steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version": "",
         },
         repo,
     )[0]
@@ -495,6 +496,78 @@ class TestAForcedBump:
         assert "::error::Invalid bump" in stdout
 
 
+_SEMREL_GATED = "steps.firstparent.outputs.first-parent != 'true'"
+
+
+def _fork(repo: Path) -> Path:
+    (repo / ".hyperi-ci.yaml").write_text("classification: fork\n", encoding="utf-8")
+    return repo
+
+
+@needs_uv
+class TestAForkRelease:
+    """A fork versions from its first-parent commits, and nothing else does."""
+
+    def test_a_sync_merge_of_upstream_feat_gives_a_patch(
+        self, tmp_path: Path, make_fork_history: Callable[..., Path]
+    ) -> None:
+        repo = _fork(make_fork_history(tmp_path))
+        outputs, stdout = _run_step("firstparent", {}, repo)
+        assert outputs == {"first-parent": "true", "version": "0.2.9"}
+        assert "::notice title=fork release::Predicted next version: v0.2.9" in stdout
+
+    def test_a_repo_that_is_not_a_fork_is_left_to_semantic_release(
+        self, tmp_path: Path, make_fork_history: Callable[..., Path]
+    ) -> None:
+        repo = make_fork_history(tmp_path)
+        outputs, stdout = _run_step("firstparent", {}, repo)
+        assert outputs == {"first-parent": "false"}
+        assert stdout == ""
+
+    def test_a_fork_with_nothing_of_its_own_fails(
+        self, tmp_path: Path, make_fork_history: Callable[..., Path]
+    ) -> None:
+        repo = _fork(make_fork_history(tmp_path, own=()))
+        outputs, stdout = _run_step("firstparent", {}, repo, returncode=1)
+        assert outputs == {}
+        assert stdout.startswith("::error title=fork release::No release-worthy")
+
+    def test_a_misspelt_classification_warns_and_falls_back(
+        self, tmp_path: Path, make_fork_history: Callable[..., Path]
+    ) -> None:
+        repo = make_fork_history(tmp_path)
+        (repo / ".hyperi-ci.yaml").write_text(
+            "classification: frok\n", encoding="utf-8"
+        )
+        outputs, stdout = _run_step("firstparent", {}, repo)
+        assert outputs == {"first-parent": "false"}
+        assert stdout.startswith("::warning title=fork release::Unknown classification")
+
+    def test_the_step_runs_only_for_a_stable_release_from_main(self) -> None:
+        condition = str(_steps()["firstparent"]["if"])
+        assert "steps.gate.outputs.will-publish == 'true'" in condition
+        assert "github.ref == 'refs/heads/main'" in condition
+        assert "inputs.bump == 'auto'" in condition
+
+    def test_semantic_release_stands_down_for_a_fork(self) -> None:
+        action = yaml.safe_load((ACTION_DIR / "action.yml").read_text(encoding="utf-8"))
+        steps = action["runs"]["steps"]
+        names = [s.get("name", "") for s in steps]
+        first_parent = [s.get("id") for s in steps].index("firstparent")
+        setup = names.index(
+            "Setup semantic-release (shared toolchain -- single source of truth)"
+        )
+        assert first_parent < setup
+        assert _SEMREL_GATED in str(steps[setup]["if"])
+        assert _SEMREL_GATED in str(_steps()["predict"]["if"])
+
+    def test_the_version_output_reads_the_step(self) -> None:
+        action = yaml.safe_load((ACTION_DIR / "action.yml").read_text(encoding="utf-8"))
+        expected = "steps.firstparent.outputs.version"
+        assert expected in action["outputs"]["version"]["value"]
+        assert expected in str(_steps()["derive"]["env"])
+
+
 _AMD64 = "x86_64-unknown-linux-gnu"
 _ARM64 = "aarch64-unknown-linux-gnu"
 
@@ -617,6 +690,16 @@ class TestAPython3WithoutPyYAML:
         assert stdout.startswith("::error title=test tier::test.tier")
         assert "::warning" not in stdout
 
+    def test_a_fork_declared_in_the_config_is_read(
+        self,
+        tmp_path: Path,
+        bare_python3: Path,
+        make_fork_history: Callable[..., Path],
+    ) -> None:
+        repo = _fork(make_fork_history(tmp_path))
+        outputs, _ = self._step("firstparent", {}, repo, bare_python3)
+        assert outputs == {"first-parent": "true", "version": "0.2.9"}
+
     def test_the_rust_targets_are_read(
         self, released_head: Path, bare_python3: Path
     ) -> None:
@@ -649,7 +732,7 @@ class TestAPython3WithoutPyYAML:
                 "inputs.branch-build": "",
                 "github.ref": "refs/heads/main",
                 "steps.worthy.outputs.release-worthy": "true",
-                "steps.predict.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version": "",
+                "steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version": "",
             },
             released_head,
             bare_python3,
@@ -770,7 +853,7 @@ class TestUvCannotSupplyPyYAML:
                 "inputs.branch-build": "",
                 "github.ref": "refs/heads/main",
                 "steps.worthy.outputs.release-worthy": "true",
-                "steps.predict.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version": "",
+                "steps.predict.outputs.version || steps.firstparent.outputs.version || steps.forced.outputs.version || steps.tagged.outputs.version": "",
             },
             released_head,
             env=broken_uv,
