@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.13.14](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.13...v2.13.14) (2026-10-09)
+
+### Bug Fixes
+
+* **cli:** resolve check -C once so later stages find the directory ([#639](https://github.com/hyperi-io/hyperi-ci/issues/639)) ([2af161a](https://github.com/hyperi-io/hyperi-ci/commit/2af161adb5e2acbb944b0f725abca93bdd50f9fd))
+* **container:** reuse the image a release already published instead of moving its tag ([#640](https://github.com/hyperi-io/hyperi-ci/issues/640)) ([84edb05](https://github.com/hyperi-io/hyperi-ci/commit/84edb050b32aeb7db4bbc05befaff6966365beac))
+
 ## [2.13.13](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.12...v2.13.13) (2026-10-09)
 
 ### Bug Fixes
