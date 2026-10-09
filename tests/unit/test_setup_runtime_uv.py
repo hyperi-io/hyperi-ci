@@ -25,6 +25,7 @@ SOURCES = (
     "workflows/_release-tail.yml",
     "workflows/rust-ci.yml",
     "workflows/go-ci.yml",
+    "workflows/python-ci.yml",
     "workflows/ts-ci.yml",
 )
 SETUP_UV = "astral-sh/setup-uv@"
@@ -104,8 +105,8 @@ class TestEveryInstallRetries:
 
 
 def test_the_expected_installs_are_all_found() -> None:
-    # 1 setup-runtime + 1 predict-version + 4 release-tail + 3 per language CI.
-    assert len(_all()) == 1 + 1 + 4 + 3 * 3
+    # setup-runtime, predict-version, 4 in the tail, 3 in each of 4 language CIs.
+    assert len(_all()) == 1 + 1 + 4 + 3 * 4
 
 
 @pytest.mark.parametrize("rel", SOURCES)
