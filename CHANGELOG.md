@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.13.9](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.8...v2.13.9) (2026-10-09)
+
+### Bug Fixes
+
+* **ci:** hold the fleet sweep while the runner-image canary runs ([#609](https://github.com/hyperi-io/hyperi-ci/issues/609)) ([8ad49c6](https://github.com/hyperi-io/hyperi-ci/commit/8ad49c67a18ee34adbf67e0ed3b136ea1a6bcd11)), closes [#608](https://github.com/hyperi-io/hyperi-ci/issues/608)
+* **ci:** pin semantic-release core and check its plugins ([#629](https://github.com/hyperi-io/hyperi-ci/issues/629)) ([61ff131](https://github.com/hyperi-io/hyperi-ci/commit/61ff131dfca4bb34c279bc1209407070dc8ff2ab))
+
 ## [2.13.8](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.7...v2.13.8) (2026-10-09)
 
 ### Bug Fixes
