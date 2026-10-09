@@ -384,6 +384,62 @@ class TestProducerSignal:
         )
         assert detect_tier(tmp_path) == Tier.RUST
 
+    @staticmethod
+    def _elastic_shape(root: Path, ws_features: str, root_extra: str = "") -> None:
+        """Root package inherits scalo, a non-shipping member declares its own."""
+        (root / "Cargo.toml").write_text(
+            '[package]\nname = "app"\n'
+            + _RUST_BIN
+            + f"[dependencies]\nscalo = {{ workspace = true{root_extra} }}\n"
+            '[workspace]\nmembers = ["crates/pgo-driver"]\n'
+            "[workspace.dependencies]\n"
+            f'scalo = {{ version = "2.14", features = [{ws_features}] }}\n',
+            encoding="utf-8",
+        )
+        driver = root / "crates" / "pgo-driver"
+        driver.mkdir(parents=True)
+        (driver / "Cargo.toml").write_text(
+            '[package]\nname = "pgo-driver"\n[[bin]]\nname = "pgo-driver"\n'
+            "[dependencies]\n"
+            'scalo = { version = "2.14", default-features = false, '
+            'features = ["transport-kafka"] }\n',
+            encoding="utf-8",
+        )
+
+    def test_workspace_table_deployment_reaches_inheriting_root(
+        self, tmp_path: Path
+    ) -> None:
+        # dfe-transform-elastic: the feature list is in [workspace.dependencies]
+        # and a PGO-driver member lists scalo without it.
+        self._elastic_shape(tmp_path, '"cli-service", "deployment"')
+        assert detect_tier(tmp_path) == Tier.RUST
+
+    def test_workspace_table_without_deployment_is_none(self, tmp_path: Path) -> None:
+        self._elastic_shape(tmp_path, '"cli-service"')
+        decision = resolve_tier(tmp_path)
+        assert decision.tier == Tier.NONE
+        assert "deployment" in decision.reason
+
+    def test_inherited_entry_unions_workspace_and_own_features(
+        self, tmp_path: Path
+    ) -> None:
+        # Workspace supplies "deployment", the entry adds "http". Both count.
+        (tmp_path / "Cargo.toml").write_text(
+            '[package]\nname = "app"\n'
+            + _RUST_BIN
+            + '[dependencies]\nscalo = { workspace = true, features = ["http"] }\n'
+            "[workspace]\nmembers = []\n"
+            '[workspace.dependencies]\nscalo = { version = "2.14", features = ["deployment"] }\n',
+            encoding="utf-8",
+        )
+        assert detect_tier(tmp_path) == Tier.RUST
+
+    def test_inherited_entry_own_deployment_with_bare_workspace(
+        self, tmp_path: Path
+    ) -> None:
+        self._elastic_shape(tmp_path, '"cli-service"', ', features = ["deployment"]')
+        assert detect_tier(tmp_path) == Tier.RUST
+
     def test_python_needs_no_deployment_extra(self, tmp_path: Path) -> None:
         # The Rust `deployment` feature is a cfg gate; scalo-py's
         # `deployment` extra is only a pydantic pin. dfe-engine emits

@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from hyperi_ci.deployment.manifest import (
-    dep_features,
+    effective_dep_features,
     manifest_self_name,
     produces_rust_binary,
     python_entry_point,
@@ -181,9 +181,13 @@ def _enables_deployment_feature(repo_root: Path, dep_name: str) -> bool:
     the feature, so ``generate-artefacts`` still exits 0 but writes no
     Dockerfile.runtime or container-manifest.json.
 
-    Checks the repo root, then each workspace member (a member with
-    ``scalo.workspace = true`` reports unknown from :func:`dep_features`).
-    Unknown stays permissive, so an unparseable manifest dispatches and
+    Checks the repo root, then each workspace member. A ``workspace = true``
+    entry takes the feature list from the root's ``[workspace.dependencies]``
+    plus its own, via :func:`effective_dep_features`. The check passes when
+    ANY crate in the workspace enables the feature, and no crate vetoes: a
+    member that builds a separate binary (a PGO driver, say) cannot say which
+    crate ships, and cargo unifies a feature across the workspace build, so
+    one crate enabling it is enough. Unknown stays permissive, so an unparseable manifest dispatches and
     fails loudly instead of skipping a real producer.
 
     Rust-only: scalo-py's ``deployment`` extra is a pydantic pin, not a
@@ -202,7 +206,7 @@ def _enables_deployment_feature(repo_root: Path, dep_name: str) -> bool:
         text = _read_manifest(manifest)
         if text is None:
             continue
-        features = dep_features(text, dep_name)
+        features = effective_dep_features(text, dep_name, root_text)
         if features is None:
             continue
         determined = True
