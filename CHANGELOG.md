@@ -3,6 +3,14 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.13.12](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.11...v2.13.12) (2026-10-09)
+
+### Bug Fixes
+
+* **ci:** let an explicit-secrets caller pass GH_APP_PRIVATE_KEY ([#636](https://github.com/hyperi-io/hyperi-ci/issues/636)) ([42adcb4](https://github.com/hyperi-io/hyperi-ci/commit/42adcb49f73870b31931d0c94a91da0a65e8dd20))
+* **release:** do not claim a new GHCR chart package is private ([#635](https://github.com/hyperi-io/hyperi-ci/issues/635)) ([fb3f361](https://github.com/hyperi-io/hyperi-ci/commit/fb3f3618a9a8a79c25c50e9198216c025c571af4))
+* **release:** read workspace-inherited features in the emit producer check ([#637](https://github.com/hyperi-io/hyperi-ci/issues/637)) ([f41450e](https://github.com/hyperi-io/hyperi-ci/commit/f41450e797ddc86ac1d0c036ea6fe577027ee573))
+
 ## [2.13.11](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.10...v2.13.11) (2026-10-09)
 
 ### Bug Fixes
