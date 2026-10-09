@@ -307,8 +307,9 @@ def _report(results: list[Published], registry: str, new: list[str]) -> None:
                 handle.write(section)
     if new:
         warn(
-            f"First push of {', '.join(new)}: a new GHCR package starts private. "
-            "Make it public in the package settings if consumers pull anonymously."
+            f"First push of {', '.join(new)}: GHCR set its visibility from the org "
+            "and repo defaults. Check the package settings: consumers that pull "
+            "anonymously need it public."
         )
 
 
