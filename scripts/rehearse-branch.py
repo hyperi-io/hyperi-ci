@@ -53,6 +53,7 @@ Usage:
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -69,12 +70,17 @@ _REF_SWAP = re.compile(r"(hyperi-io/hyperi-ci/[^@\s]+)@main\b")
 
 
 def _run(
-    args: list[str], *, cwd: Path | None = None, timeout: int = 120
+    args: list[str],
+    *,
+    cwd: Path | None = None,
+    timeout: int = 120,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess:
     """subprocess.run with the repo's UTF-8 policy pinned."""
     return subprocess.run(
         args,
         cwd=cwd,
+        env=env,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -215,25 +221,32 @@ def held_by(value: str | None) -> str | None:
     return match.group(1)
 
 
+# hyperi-infra's runner-image canary dispatches the fixtures on main, and the
+# fixtures' CI concurrency group cancels whichever of its runs or a sweep's
+# started first.
+IMAGE_CANARY = ("hyperi-io/hyperi-infra", "arc-runner-images.yml")
+
 # Workflows that dispatch runs onto the fixtures and read a rehearse/ branch as
 # a hold: the fleet sweep certifying main, and the runner-image canary, which
 # will not promote an image while a rehearsal holds any fixture.
-_HOLDING_WORKFLOWS = (
-    (_HYPERI_CI_REPO, "fleet-sweep.yml"),
-    ("hyperi-io/hyperi-infra", "arc-runner-images.yml"),
-)
+_HOLDING_WORKFLOWS = ((_HYPERI_CI_REPO, "fleet-sweep.yml"), IMAGE_CANARY)
 
 
 class SweepUnreadableError(RuntimeError):
     """Whether a fixture-holding workflow is running could not be read."""
 
 
-def _unfinished_run(repo: str, workflow: str) -> int | None:
+def unfinished_run(repo: str, workflow: str, token: str | None = None) -> int | None:
     """The id of a ``workflow`` run on ``repo`` that has not finished, or None.
+
+    Args:
+        repo: ``owner/name``.
+        workflow: The workflow file basename.
+        token: A GitHub token for this one read, in place of gh's own auth.
 
     Raises:
         SweepUnreadableError: gh failed or answered with something unreadable.
-            Read as "not running", the rehearsal would collide with it.
+            Read as "not running", the caller would collide with it.
     """
     result = _run(
         [
@@ -248,7 +261,8 @@ def _unfinished_run(repo: str, workflow: str) -> int | None:
             "databaseId,status",
             "--limit",
             "20",
-        ]
+        ],
+        env={**os.environ, "GH_TOKEN": token} if token else None,
     )
     if result.returncode != 0:
         stderr = result.stderr.strip().splitlines()
@@ -276,7 +290,7 @@ def _running_hold() -> tuple[str, str, int] | None:
         SweepUnreadableError: Any one of the listings could not be read.
     """
     for repo, workflow in _HOLDING_WORKFLOWS:
-        run_id = _unfinished_run(repo, workflow)
+        run_id = unfinished_run(repo, workflow)
         if run_id is not None:
             return repo, workflow, run_id
     return None

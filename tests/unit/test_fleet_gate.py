@@ -570,6 +570,109 @@ class TestAFixtureARehearsalHolds:
         assert dispatched == {"ci-test-rust-app": 0.0}
 
 
+_CANARY_RUN = 37765375560
+
+
+def _canary_listing(answer) -> subprocess.CompletedProcess:
+    """A canary run list: a status for one run, or a failed gh call (bytes)."""
+    if isinstance(answer, bytes):
+        return subprocess.CompletedProcess([], 1, stdout="", stderr=answer.decode())
+    runs = [{"databaseId": _CANARY_RUN, "status": answer}]
+    return subprocess.CompletedProcess([], 0, stdout=json.dumps(runs))
+
+
+class TestTheSweepWaitsForTheImageCanary:
+    """hyperi-infra's runner-image canary dispatches the same fixtures on main.
+
+    The fixtures' concurrency group cancels whichever run started first, so a
+    sweep dispatched mid-canary cancelled the 2.13.4 canary (issue #608).
+    """
+
+    @staticmethod
+    def _main(monkeypatch, answers: list, *extra: str):
+        """Run main() over fake gh, popping one canary listing per read.
+
+        Returns (exit code, clock time the sweep dispatched at or None, gh calls).
+        """
+        clock = _Clock()
+        calls: list[tuple[list[str], dict | None]] = []
+        swept: list[float] = []
+        name = fixture_fleet.load_fleet()[0]["name"]
+
+        def fake_run(args, **kwargs):
+            calls.append((args, kwargs.get("env")))
+            return _canary_listing(answers.pop(0) if len(answers) > 1 else answers[0])
+
+        def fake_sweep(targets, _minutes):
+            swept.append(clock.now)
+            return [sweep.Result(t["name"], sweep.PASS, "run 1") for t in targets]
+
+        monkeypatch.setattr(sweep, "time", clock)
+        monkeypatch.setattr(sweep.rehearse_branch, "_run", fake_run)
+        monkeypatch.setattr(sweep, "_sweep", fake_sweep)
+        monkeypatch.setattr(sys, "argv", ["sweep-fleet.py", "--only", name, *extra])
+        code = sweep.main()
+        return code, (swept[0] if swept else None), calls
+
+    def test_a_running_canary_holds_the_sweep_until_it_finishes(
+        self, monkeypatch, capsys
+    ) -> None:
+        code, swept_at, calls = self._main(
+            monkeypatch, ["in_progress", "queued", "completed"]
+        )
+        assert code == 0
+        assert len(calls) == 3
+        assert swept_at == 2 * sweep._CANARY_POLL_SECONDS
+        args = calls[0][0]
+        assert args[args.index("-R") + 1] == "hyperi-io/hyperi-infra"
+        assert args[args.index("--workflow") + 1] == "arc-runner-images.yml"
+        assert str(_CANARY_RUN) in capsys.readouterr().out
+
+    def test_a_canary_outlasting_the_wait_fails_with_nothing_dispatched(
+        self, monkeypatch, capsys
+    ) -> None:
+        code, swept_at, calls = self._main(monkeypatch, ["in_progress"])
+        assert code == 2
+        assert swept_at is None
+        assert sweep.time.now == 90 * 60
+        assert len(calls) == 90 * 60 // sweep._CANARY_POLL_SECONDS + 1
+        out = capsys.readouterr().out
+        assert "::error::SWEEP NOT RUN" in out
+        assert "arc-runner-images.yml" in out
+
+    def test_unreadable_canary_runs_warn_and_sweep(self, monkeypatch, capsys) -> None:
+        code, swept_at, _ = self._main(
+            monkeypatch, [b"gh: Could not resolve to a Repository (HTTP 404)"]
+        )
+        assert code == 0
+        assert swept_at == 0.0
+        out = capsys.readouterr().out
+        assert "::warning::cannot read hyperi-io/hyperi-infra runs" in out
+        assert "HTTP 404" in out
+
+    def test_a_failed_read_after_a_running_canary_keeps_waiting(
+        self, monkeypatch
+    ) -> None:
+        code, swept_at, calls = self._main(
+            monkeypatch, ["in_progress", b"gh: HTTP 502", "completed"]
+        )
+        assert code == 0
+        assert len(calls) == 3
+        assert swept_at == 2 * sweep._CANARY_POLL_SECONDS
+
+    def test_the_canary_token_reads_the_canary(self, monkeypatch) -> None:
+        monkeypatch.setenv(sweep.CANARY_TOKEN_ENV, "ghs_canary")
+        _, _, calls = self._main(monkeypatch, ["completed"])
+        env = calls[0][1]
+        assert env is not None
+        assert env["GH_TOKEN"] == "ghs_canary"
+
+    def test_no_canary_token_uses_gh_own_auth(self, monkeypatch) -> None:
+        monkeypatch.setenv(sweep.CANARY_TOKEN_ENV, "")
+        _, _, calls = self._main(monkeypatch, ["completed"])
+        assert calls[0][1] is None
+
+
 class TestSelectingSweepTargets:
     FLEET = [
         {"name": "ci-test-rs-app", "language": "rust"},
@@ -633,7 +736,26 @@ class TestThePushFilterIsTheConsumerSurface:
         ]
         assert token_steps
         for step in token_steps:
-            assert "steps.fleet.outputs.repos" in step["with"].get("repositories", "")
+            if step.get("id") != "canary":
+                assert "steps.fleet.outputs.repos" in step["with"]["repositories"]
+
+    def test_the_canary_token_reads_only_hyperi_infra_actions(self) -> None:
+        sweep_job = self._sweep_workflow()["jobs"]["sweep"]
+        steps = {step.get("id"): step for step in sweep_job["steps"]}
+        granted = {
+            key: value
+            for key, value in steps["canary"]["with"].items()
+            if key.startswith("permission-")
+        }
+        assert steps["canary"]["with"]["repositories"] == "hyperi-infra"
+        assert granted == {"permission-actions": "read"}
+        run_step = next(
+            s for s in sweep_job["steps"] if "sweep-fleet.py" in s.get("run", "")
+        )
+        assert (
+            run_step["env"][sweep.CANARY_TOKEN_ENV]
+            == "${{ steps.canary.outputs.token }}"
+        )
 
     def test_no_dispatch_input_is_spliced_into_a_shell_script(self) -> None:
         for job in self._sweep_workflow()["jobs"].values():

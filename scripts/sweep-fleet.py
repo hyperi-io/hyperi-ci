@@ -25,6 +25,11 @@ override points every run there at the rehearsed branch's CLI rather than
 main's. The sweep waits for the branch to go and reports the fixture held if
 it never does.
 
+Before dispatching anything it waits for any unfinished hyperi-infra
+runner-image canary, which dispatches the same fixtures and would have its
+runs cancelled by the sweep's. A canary still running at the deadline fails
+the sweep with nothing dispatched.
+
 Usage:
     uv run scripts/sweep-fleet.py
     uv run scripts/sweep-fleet.py --only ci-test-go-app --timeout-minutes 30
@@ -35,6 +40,7 @@ Exit 1 on a failing fixture, 2 when the sweep proved nothing.
 import argparse
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import time
@@ -196,6 +202,61 @@ def _rehearsal_branches(repo: str) -> list[str]:
         raise HoldUnreadableError(
             f"unreadable {prefix}* branch list on {repo}: {exc}"
         ) from exc
+
+
+CANARY_CLEAR = "clear"
+CANARY_RUNNING = "running"
+CANARY_UNREAD = "unread"
+# A token that can read hyperi-infra's runs. The fleet token is scoped to the
+# fixtures, so without this the canary reads as unreadable in CI.
+CANARY_TOKEN_ENV = "CANARY_GH_TOKEN"
+_CANARY_POLL_SECONDS = 60
+
+
+def wait_for_image_canary(timeout_minutes: int, token: str | None) -> str:
+    """Hold the sweep while hyperi-infra's runner-image canary has a run unfinished.
+
+    The canary dispatches the same fixtures on main, and the fixtures' CI
+    concurrency group cancels whichever run started first, so a sweep
+    dispatched mid-canary cancels the canary's runs (issue #608).
+
+    Args:
+        timeout_minutes: How long to wait for the canary to finish.
+        token: A token that can read hyperi-infra's runs. None uses gh's own auth.
+
+    Returns:
+        CANARY_CLEAR once no canary run is unfinished, CANARY_RUNNING when one
+        still is at the deadline, CANARY_UNREAD when the first read failed. A
+        read failing after a run was seen keeps waiting, since that run is the
+        last thing known to be going.
+    """
+    repo, workflow = rehearse_branch.IMAGE_CANARY
+    deadline = time.time() + timeout_minutes * 60
+    seen: int | None = None
+    while True:
+        try:
+            run_id = rehearse_branch.unfinished_run(repo, workflow, token)
+        except rehearse_branch.SweepUnreadableError as exc:
+            if seen is None:
+                print(
+                    f"::warning::cannot read {repo} runs, so the sweep is NOT "
+                    f"waiting for the runner-image canary and may cancel it: {exc}",
+                    flush=True,
+                )
+                return CANARY_UNREAD
+            run_id = seen
+        if run_id is None:
+            return CANARY_CLEAR
+        if time.time() >= deadline:
+            return CANARY_RUNNING
+        if run_id != seen:
+            print(
+                f"  {workflow} run {run_id} on {repo} has not finished - "
+                "waiting before dispatching anything",
+                flush=True,
+            )
+            seen = run_id
+        time.sleep(_CANARY_POLL_SECONDS)
 
 
 def _start(name: str, deadline: float) -> Result | int:
@@ -387,6 +448,12 @@ def main() -> int:
     parser.add_argument("--language", default="", help="restrict to one language")
     parser.add_argument("--timeout-minutes", type=int, default=60)
     parser.add_argument(
+        "--canary-timeout-minutes",
+        type=int,
+        default=90,
+        help="how long to wait for a running runner-image canary before failing",
+    )
+    parser.add_argument(
         "--dry-run", action="store_true", help="name the targets, dispatch nothing"
     )
     args = parser.parse_args()
@@ -417,6 +484,18 @@ def main() -> int:
     if args.dry_run:
         print("--dry-run: nothing dispatched")
         return 0 if names else 2
+
+    canary = wait_for_image_canary(
+        args.canary_timeout_minutes, os.environ.get(CANARY_TOKEN_ENV) or None
+    )
+    if canary == CANARY_RUNNING:
+        repo, workflow = rehearse_branch.IMAGE_CANARY
+        print(
+            f"::error::SWEEP NOT RUN: {workflow} on {repo} was still running after "
+            f"{args.canary_timeout_minutes} min, and dispatching would cancel it. "
+            "Nothing was dispatched - re-run the sweep once the canary finishes."
+        )
+        return 2
 
     results = _sweep(targets, args.timeout_minutes)
     code, lines = sweep_verdict(names, results)
