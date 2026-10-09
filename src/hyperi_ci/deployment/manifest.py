@@ -360,9 +360,9 @@ def dep_features(text: str, dep_name: str) -> frozenset[str] | None:
         return None
     match = re.search(r"features\s*=\s*\[(.*?)\]", entry, re.DOTALL)
     if match is None:
-        # Inherits the workspace feature list. A member that also lists
-        # features took the other branch, where inheritance covers only
-        # the version.
+        # Inherits the workspace feature list. An entry that also lists
+        # features matched above and returns only its own list;
+        # effective_dep_features adds the inherited ones.
         if re.search(r"workspace\s*=\s*true", entry):
             return None
         # A plain `scalo = "2.9"` enables default features only.
