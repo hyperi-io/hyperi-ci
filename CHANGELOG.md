@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.13.16](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.15...v2.13.16) (2026-10-09)
+
+### Bug Fixes
+
+* **release:** read a fork's own history in the bump gate, forced bump and unreleased warning ([#646](https://github.com/hyperi-io/hyperi-ci/issues/646)) ([97c8bb9](https://github.com/hyperi-io/hyperi-ci/commit/97c8bb9e9748ea4e747bfb1f982e53a17c1871c1)), closes [#642](https://github.com/hyperi-io/hyperi-ci/issues/642)
+
 ## [2.13.15](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.14...v2.13.15) (2026-10-09)
 
 ### Bug Fixes
