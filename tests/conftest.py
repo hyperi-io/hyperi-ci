@@ -256,6 +256,17 @@ def isolated_channel_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> P
 
 
 @pytest.fixture(autouse=True)
+def no_inherited_quality_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Drop the quality-mode switches the calling run set.
+
+    `hyperi-ci check --strict` exports HYPERCI_QUALITY_STRICT before its test
+    stage, which turned every warn-mode test blocking.
+    """
+    for name in ("HYPERCI_QUALITY_STRICT", "HYPERCI_QUALITY_SKIP"):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def no_registry_lookups(monkeypatch: pytest.MonkeyPatch) -> None:
     """Answer the release build's registry lookup with "not published".
 

@@ -57,7 +57,7 @@ _RETRIES = 3
 
 # gh's stderr from the most recent `gh api` call, "" when it had none, quoted
 # in refusal reports.
-_last_api_error = ""
+_last_api_error: str = ""
 
 
 def _api(args: list[str], *, body: dict | None = None) -> dict | None:
