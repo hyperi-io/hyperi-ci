@@ -75,6 +75,16 @@ class TestPublishedImage:
         _inspect(monkeypatch, returncode=1, stderr=stderr)
         assert published_image(_REF) is None
 
+    def test_a_tag_not_in_the_registry_is_logged(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The run log has to show the lookup ran, or the first reuse proves nothing."""
+        lines: list[str] = []
+        monkeypatch.setattr(build, "info", lines.append)
+        _inspect(monkeypatch, returncode=1, stderr=f"ERROR: {_REF}: not found")
+        published_image(_REF)
+        assert lines == [f"{_REF} is not in the registry yet, so building it"]
+
     def test_no_docker_is_not_published(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def missing(_cmd: list[str], **_kwargs: Any) -> None:
             raise FileNotFoundError("docker")

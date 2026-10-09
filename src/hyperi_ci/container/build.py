@@ -323,7 +323,9 @@ def published_image(ref: str) -> PublishedImage | None:
         warn(f"Could not ask the registry for {ref}, so building it: {exc}")
         return None
     if result.returncode != 0:
-        if "not found" not in (result.stderr or ""):
+        if "not found" in (result.stderr or ""):
+            info(f"{ref} is not in the registry yet, so building it")
+        else:
             warn(f"Could not ask the registry for {ref}, so building it:")
             warn(result.stderr or "")
         return None
