@@ -1,14 +1,13 @@
 # Project:   HyperI CI
 # File:      tests/unit/test_python_quality_parse_python.py
-# Purpose:   Tests for the interpreter bandit and vulture parse source with
+# Purpose:   Tests for the interpreter vulture parses source with
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""bandit and vulture parse with the ``ast`` of the Python they run on.
+"""vulture parses with the ``ast`` of the Python it runs on.
 
 Under uvx's default interpreter, a 3.14 project's PEP 758 ``except A, B:`` was
-a syntax error: bandit skipped the file and still exited 0, and vulture
-reported the parse failure as a finding.
+a syntax error, and vulture reported the parse failure as a finding.
 """
 
 import shutil
@@ -17,22 +16,10 @@ from pathlib import Path
 
 import pytest
 
-from hyperi_ci.languages import quality_common
 from hyperi_ci.languages.python import quality
 from hyperi_ci.languages.quality_common import resolve_tool_cmd
 
 _RUNNING = f"{sys.version_info.major}.{sys.version_info.minor}"
-
-# bandit 1.9.4 under Python 3.12 on a file using PEP 758, trimmed.
-_BANDIT_SKIPPED_OUTPUT = """\
-Test results:
-\tNo issues identified.
-
-Code scanned:
-\tTotal lines of code: 7
-Files skipped (1):
-\tsrc/app/sample.py (syntax error while parsing AST from file)
-"""
 
 
 class TestUvxTakesTheInterpreter:
@@ -111,24 +98,3 @@ class TestParsePython:
         self._project(tmp_path, ">=3.100")
         monkeypatch.chdir(tmp_path)
         assert quality._parse_python() == "3.100"
-
-
-class TestBanditSkippedFilesAreNamed:
-    def test_a_skipped_file_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        said: list[str] = []
-        shown: list[str] = []
-        monkeypatch.setattr(quality, "warn", said.append)
-        monkeypatch.setattr(quality_common, "info", shown.append)
-        quality._warn_bandit_skips(_BANDIT_SKIPPED_OUTPUT)
-        assert said == ["  bandit: 1 file(s) could not be parsed and were NOT scanned"]
-        assert any("src/app/sample.py" in line for line in shown)
-
-    def test_nothing_skipped_says_nothing(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        said: list[str] = []
-        monkeypatch.setattr(quality, "warn", said.append)
-        quality._warn_bandit_skips("Test results:\n\tNo issues identified.\n")
-        quality._warn_bandit_skips("Files skipped (0):\n")
-        quality._warn_bandit_skips(None)
-        assert said == []

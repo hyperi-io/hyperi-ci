@@ -32,10 +32,10 @@ class TestMergeDeep:
 
     def test_nested_merge(self) -> None:
         base = {"quality": {"python": {"ruff": "blocking"}}}
-        override = {"quality": {"python": {"pyright": "warn"}}}
+        override = {"quality": {"python": {"ty": "warn"}}}
         result = _merge_deep(base, override)
         assert result["quality"]["python"]["ruff"] == "blocking"
-        assert result["quality"]["python"]["pyright"] == "warn"
+        assert result["quality"]["python"]["ty"] == "warn"
 
     def test_override_replaces_non_dict(self) -> None:
         base = {"a": [1, 2]}

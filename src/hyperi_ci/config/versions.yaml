@@ -344,9 +344,6 @@ tools:
   semgrep:
     version: "1.178.0"
     pypi: semgrep
-  bandit:
-    version: 1.9.4
-    pypi: bandit
   pip-audit:
     version: 2.10.1
     pypi: pip-audit

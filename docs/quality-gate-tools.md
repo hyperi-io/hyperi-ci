@@ -35,7 +35,7 @@ What each quality tool covers and where it runs, then the tools that take their 
 | docs-touched | source changed, no doc did (NEVER gates) | dispatch + `lint-docs` (`quality/docs_touched.py`) |
 | ruff (lint, format, security, docstrings) | Python | `languages/python/quality.py` |
 | ty | Python types | Python handler |
-| pip-audit, bandit, vulture | Python | Python handler |
+| pip-audit, vulture | Python | Python handler |
 | clippy, rustfmt, cargo-audit/deny, osv-scanner | Rust | `languages/rust/quality.py` |
 | eslint, prettier, tsc, npm audit, osv-scanner | TypeScript | `languages/typescript/quality.py` |
 | gofmt, govet, golangci-lint, gosec, govulncheck | Go | `languages/golang/quality.py` |
@@ -51,7 +51,7 @@ semgrep and gitleaks run once at the dispatch level because their rulesets are l
 - The feature matrix keeps its per-member `-p` in a workspace mixing lib and bin-only members, and adds nothing when `feature_matrix.extra_args` names a scope.
 - `--all-features` turns on every member's features, mutually exclusive ones included, as a virtual workspace already does. Narrow it with `quality.rust.features`, where `|` separates feature sets that run one after another.
 
-**Python source directories are detected, not configured.** ruff S and D, bandit, vulture and `--cov` scan `src/` when it holds a `.py` file. Otherwise they scan every top-level directory holding a `.py` file, apart from:
+**Python source directories are detected, not configured.** ruff S and D, vulture and `--cov` scan `src/` when it holds a `.py` file. Otherwise they scan every top-level directory holding a `.py` file, apart from:
 
 - the test paths, hidden directories, `quality.exclude_paths` and the always-pruned set
 - `docs`, `build`, `dist`, `env` and `*.egg-info`
@@ -75,7 +75,7 @@ With nothing found, each of those tools logs `skipped, no Python source director
 
 Adopting the formatter on an established tree reformats most of it at once. A separate key means deferring that does not relax the lint gate.
 
-**`ruff_security` is the bandit-class check.** It runs `ruff check --select S` (flake8-bandit) over the Python source directories whatever the repo's own ruff selects, since bandit ships `disabled`. `--select` on the command line drops the repo's ruff `ignore` list for this pass. `per-file-ignores`, `# noqa` and `quality.ignore` entries for `ruff` still apply. It is a security gate, so `disabled` owes a `reason`.
+**`ruff_security` is the bandit-class check.** It runs `ruff check --select S` (flake8-bandit) over the Python source directories whatever the repo's own ruff selects. hyperi-ci does not run bandit itself, and `quality.python.bandit` and `quality.python.pyright` warn as removed keys. A repo setting `quality.python.bandit: blocking` and no `ruff_security` of its own gets `ruff_security: blocking`, with one log line saying so, so dropping bandit does not relax its security gate. `--select` on the command line drops the repo's ruff `ignore` list for this pass. `per-file-ignores`, `# noqa` and `quality.ignore` entries for `ruff` still apply. It is a security gate, so `disabled` owes a `reason`.
 
 **`ruff_docstrings` enforces the D rules whatever the repo selects**, the same way: `--select D` drops the repo's ruff `ignore` list. To accept one D rule, add a `quality.ignore` entry with tool `ruff`, its id (`D100`) and a reason, or use `per-file-ignores` or `# noqa`.
 

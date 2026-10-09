@@ -44,17 +44,6 @@ _CALLS: dict[str, tuple[str, list[str], Via]] = {
     "typescript": ("eslint", ["npx", "eslint", "."], "path"),
 }
 
-# bandit 1.9.4 under Python 3.12 on a file using PEP 758, trimmed.
-_BANDIT_SKIPPED_OUTPUT = """\
-Test results:
-\tNo issues identified.
-
-Code scanned:
-\tTotal lines of code: 7
-Files skipped (1):
-\tsrc/app/sample.py (syntax error while parsing AST from file)
-"""
-
 _CLAP = "error: unexpected argument '--extend-exclude' found\n"
 _SPAWN = "error: Failed to spawn: `ty`\n  Caused by: No such file or directory\n"
 
@@ -330,7 +319,6 @@ class TestTheTableIsWhatTheHandlersPass:
             "ruff check (src)": "uv",
             "ruff format": "uv",
             "ty": "uv-with",
-            "bandit": "uvx",
             "ruff security": "uv",
             "pip-audit": "uv",
             "ruff docstrings": "uv",
@@ -359,15 +347,6 @@ class TestTheTableIsWhatTheHandlersPass:
     ) -> None:
         _golang_calls(monkeypatch, tmp_path, calls)
         assert calls.options["gofmt"].get("output_is_finding") is True
-
-    def test_bandit_counts_the_files_it_could_not_scan(
-        self, calls: _Calls, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
-        monkeypatch.setattr(
-            python_quality, "get_python_source_paths", lambda _c: ["src"]
-        )
-        _python_calls(monkeypatch, tmp_path, calls)
-        assert calls.options["bandit"]["unscanned"] is python_quality._warn_bandit_skips
 
 
 class TestOutputGoesThroughOneStream:
@@ -423,35 +402,15 @@ class TestAdvisoryNoiseIsCapped:
         assert len(log.said("info")) == 200
 
 
-def _bandit(mode: str) -> bool:
+def _vulture(mode: str) -> bool:
     return run_gate_tool(
-        "bandit",
-        ["bandit", "-r", "src/"],
+        "vulture",
+        ["vulture", "src/"],
         mode,
         via="uvx",
-        spec="bandit==1.9.4",
-        unscanned=python_quality._warn_bandit_skips,
+        spec="vulture==2.16",
+        python="3.99",
     )
-
-
-class TestUnscannedFiles:
-    """bandit exits 0 over files it could not parse."""
-
-    def test_warn_mode_passes_but_names_the_skip(
-        self, log: _Log, on_path: None
-    ) -> None:
-        log.returns(0, _BANDIT_SKIPPED_OUTPUT)
-        assert _bandit("warn") is True
-        assert log.said("warn") == [
-            "  bandit: 1 file(s) could not be parsed and were NOT scanned"
-        ]
-
-    def test_blocking_mode_fails_on_a_skip(self, log: _Log, on_path: None) -> None:
-        """A blocking security gate that left a file unread has no clean result."""
-        log.returns(0, _BANDIT_SKIPPED_OUTPUT)
-        assert _bandit("blocking") is False
-        assert log.said("error") == ["  bandit: failed, 1 file(s) were not scanned"]
-        assert log.said("success") == []
 
 
 class TestAToolThatNeverStarted:
@@ -466,8 +425,8 @@ class TestAToolThatNeverStarted:
             stderr="error: No interpreter found for Python 3.99 in managed "
             "installations or search path\n",
         )
-        assert _bandit("warn") is True
-        assert log.said("warn") == ["  bandit: could not start, so it checked nothing"]
+        assert _vulture("warn") is True
+        assert log.said("warn") == ["  vulture: could not start, so it checked nothing"]
 
     def test_a_tool_that_could_not_start_is_not_a_finding(
         self, log: _Log, on_path: None

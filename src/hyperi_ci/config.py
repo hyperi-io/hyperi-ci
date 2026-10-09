@@ -367,15 +367,18 @@ def load_config(
     from hyperi_ci.vocabulary import (
         CONFIG_NAMESPACE,
         LEGACY_CONFIG_NAMESPACE,
+        carry_over_removed_gates,
         drop_removed_notices,
         find_removed_keys,
         fold_legacy_config,
+        report_carry_overs,
         report_deprecated_config,
         report_removed_keys,
     )
 
     deprecated_keys: list[str] = []
     removed_keys: list[str] = []
+    carried_keys: list[str] = []
     for name in CONFIG_FILES:
         config_file = project_dir / name
         if config_file.exists():
@@ -389,6 +392,9 @@ def load_config(
                 if problems:
                     raise ConfigError("\n".join(f"{name}: {p}" for p in problems))
                 removed_keys = find_removed_keys(loaded)
+                # Before the merge: the shipped successor default would
+                # otherwise read as a project setting.
+                checked, carried_keys = carry_over_removed_gates(checked)
                 # Folded before the merge, or a shipped `release.x` default
                 # would outrank a project's `publish.x`.
                 folded, deprecated_keys = fold_legacy_config(checked)
@@ -408,6 +414,7 @@ def load_config(
     report_deprecated_config(deprecated_keys)
     if report_removed:
         report_removed_keys(removed_keys)
+        report_carry_overs(carried_keys)
 
     # Warn, not fail: project.status is information-only.
     project = config.get("project", {})
