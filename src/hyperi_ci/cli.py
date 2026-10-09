@@ -231,7 +231,9 @@ def check(
     ``--tier full`` runs the tests the project deselects or ignores by
     default as well. ``--full`` is unrelated: it adds the build stage.
     """
-    dir_path = Path(project_dir) if project_dir else None
+    # Resolved once: the first stage chdirs into it, so a relative path would
+    # point somewhere else for every stage after.
+    dir_path = Path(project_dir).resolve() if project_dir else None
 
     if strict:
         os.environ["HYPERCI_QUALITY_STRICT"] = "1"

@@ -9,9 +9,11 @@ from pathlib import Path
 
 import pytest
 import yaml
+from typer.testing import CliRunner
 
 from hyperi_ci import common, dispatch
 from hyperi_ci import config as config_module
+from hyperi_ci.cli import app
 from hyperi_ci.config import CIConfig
 from hyperi_ci.dispatch import _find_handler_module
 
@@ -78,6 +80,25 @@ class TestProjectDirReachesTheHandlers:
         seen = self._record_chdir(monkeypatch)
         assert dispatch.run_stage("nonsense", project_dir=tmp_path) == 1
         assert seen == []
+
+    def test_check_gives_every_stage_the_same_relative_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The first stage chdirs into `-C`, so the second must not re-resolve it."""
+        project = tmp_path / "proj"
+        project.mkdir()
+        monkeypatch.chdir(tmp_path)
+        seen: list[Path | None] = []
+
+        def _stage(_stage: str, *, project_dir: Path | None, **_kwargs: object) -> int:
+            seen.append(project_dir)
+            monkeypatch.chdir(project_dir or Path.cwd())
+            return 0
+
+        monkeypatch.setattr("hyperi_ci.cli.run_stage", _stage)
+        result = CliRunner().invoke(app, ["check", "-C", "proj"])
+        assert result.exit_code == 0, result.output
+        assert seen == [project.resolve(), project.resolve()]
 
 
 class TestAnOwedReasonFailsTheStage:
