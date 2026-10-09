@@ -2665,6 +2665,6 @@ def test_a_caller_with_an_explicit_secrets_list_can_pass_the_app_key(
     protected main refuses its release commit.
     """
     workflow = _load_workflow(workflow_name)
-    triggers = workflow.get("on") or workflow.get(True)
+    triggers = workflow.get("on") or workflow.get(True, {})
     secrets = triggers["workflow_call"]["secrets"]
     assert secrets.get("GH_APP_PRIVATE_KEY") == {"required": False}
