@@ -14,7 +14,7 @@ on-demand via `pip install hyperi-ci`.
 ```mermaid
 flowchart TB
     subgraph HCI["hyperi-ci (this repo) - published to PyPI"]
-        TC["config/toolchains/*.yaml<br/>(default LLVM, GCC)"]
+        TC["config/toolchains/*.yaml<br/>(default LLVM)"]
         ND["config/native-deps/*.yaml<br/>(per-language)"]
         DRV["native_deps.py (driver)"]
     end
@@ -70,11 +70,10 @@ The fields that say what it installs:
     - clang-${HYPERCI_LLVM_VERSION}
 ```
 
-Two optional fields: `bake: false` (below), and `versions: [13, 14]`, which expands the entry once per version with `{V}` substituted, as `toolchains/gcc.yaml` does for `gcc-{V}`.
+One optional field: `bake: false` (below).
 
 | Placeholder | Source | Example |
 |---|---|---|
-| `{V}` | per-version expansion (when `versions:` is set) | `13`, `14` |
 | `${OS_CODENAME}` | `lsb_release -cs` or `OS_CODENAME` env var | `noble`, `trixie`, `resolute` |
 | `${HYPERCI_LLVM_VERSION}` | the designated LLVM major: `HYPERCI_LLVM_VERSION` env var, then `build.rust.llvm_version` in `.hyperi-ci.yaml`, then versions.yaml `runtimes.llvm` (`23`) | native-deps/rust.yaml, for the job-time bolt, lld and clang |
 | `${HYPERCI_LLVM_DEFAULT}` | versions.yaml `runtimes.llvm` (`23`) alone | toolchains/llvm.yaml, so the bake never follows the env var or a project pin |
@@ -104,7 +103,7 @@ This produces the pre-baked toolchains below, per the shipped YAML.
 
 ### Language toolchains (`src/hyperi_ci/config/bootstrap.yaml`)
 
-- Rust stable and nightly with `clippy`, `rustfmt` and the `aarch64-unknown-linux-gnu` target, through rustup-init at versions.yaml `tools.rustup`.
+- Rust stable and nightly with `clippy` and `rustfmt`, through rustup-init at versions.yaml `tools.rustup`. No arm64 target: arm64 builds run on arm64 runners.
 - sccache at versions.yaml `tools.sccache`. The image sets `RUSTC_WRAPPER=sccache`, and no CI step installs it.
 - Go at versions.yaml `runtimes.go`, from go.dev.
 - Node at versions.yaml `runtimes.node` through nvm at `tools.nvm`, the one major baked and the default on PATH.
@@ -119,9 +118,9 @@ cargo-audit, cargo-deny and cargo-nextest are not baked. The setup-rust-tools an
 `clang-N`, `lld-N`, `llvm-N`, `llvm-N-dev`,
 `llvm-N-tools`, `libclang-N-dev`, `libclang-rt-N-dev`, `bolt-N`
 
-### GCC (coinstallable v13/14)
+### GCC
 
-`gcc-N`, `g++-N`, `libstdc++-N-dev`
+hyperi-ci bakes none. The image's gcc is the distro default that the Dockerfile's `build-essential` brings (13 on noble).
 
 ### Default `clang`, `lld`, `ld.lld` alternatives
 
@@ -135,4 +134,4 @@ The `clang` shim covers a project with `linker = "clang"`: the shimmed clang tak
 
 ### Still baked inline in the Dockerfile
 
-Compilers and headers the native-deps entries assume (`build-essential`, `cmake`, `ninja-build`, `ccache`, `pkg-config`, the autotools, `shellcheck`, `python3`), the arm64 cross gcc and its ports sources, and pnpm plus the semantic-release plugins. The vanilla base supplies the internal CA chain, the docker CLI and uv. Folding these into hyperi-ci is planned later-phase work.
+Compilers and headers the native-deps entries assume (`build-essential`, `cmake`, `ninja-build`, `ccache`, `pkg-config`, the autotools, `shellcheck`, `python3`), and pnpm plus the semantic-release plugins. Its arm64 cross gcc and ports sources are unused, because hyperi-ci does not cross-compile. The vanilla base supplies the internal CA chain, the docker CLI and uv. Folding these into hyperi-ci is planned later-phase work.

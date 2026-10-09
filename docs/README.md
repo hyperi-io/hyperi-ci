@@ -138,8 +138,8 @@ Solid arrows are run-order / data flow. Dashed arrows are "calls / uses".
 ### Runtime & build environment
 
 - [runtime/RUNNERS.md](runtime/runners.md) - ARC vs free mode, scale-set names,
-  runner tiers, the NFS sccache/ccache cache, split-runner multi-arch,
-  cross-compile (dormant)
+  runner tiers, the NFS sccache/ccache cache, split-runner multi-arch, no
+  cross-compilation
 - [runtime/RUNNER-IMAGE.md](runtime/runner-image.md) - the dep-install SSOT (`install-toolchains` / `install-native-deps`), the YAML schema, `bake: false`
 - [runtime/ARC-OPERATIONS.md](runtime/arc-operations.md) - rebuild the image, redeploy the scale sets, roll a change to the fleet
 - [runtime/PGO-BOLT.md](runtime/pgo-bolt.md) - how to write a PGO workload script

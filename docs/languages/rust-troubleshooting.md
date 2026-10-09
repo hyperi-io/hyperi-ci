@@ -23,7 +23,8 @@ The tiers and their config keys are [rust.md](rust.md). The log markers that say
 | "cargo-pgo unavailable - falling back to plain release build" | cargo-pgo install failed. Check network egress to crates.io, `cargo install cargo-pgo --locked` works locally. Non-fatal - Tier 1 still applies |
 | "PGO workload failed - aborting" | Workload exited non-zero. Common causes: missing tooling on runner (use coreutils only), privileged port binding (use unprivileged), testcontainer advertised-listener mismatch (check readiness via host, not `docker exec`) |
 | Release build is 3x slower than before | Expected with PGO+BOLT. Accept the cost or set `bolt.enabled: false` |
-| Cross-compile (arm64 from amd64) PGO produces slow binary | PGO profiles are arch-specific. Cross-compile PGO is skipped - use a native arm64 runner (hyperi-ci's `ubuntu-24.04-arm` does this) |
+| "Build target aarch64-unknown-linux-gnu is not this runner's arch" | The arm64 leg landed on an x64 runner. hyperi-ci does not cross-compile: point `GH_RUNNER_ARM64` at an arm64 runner |
+| "Skipping aarch64-unknown-linux-gnu: not this host's arch" | A local build of a target for another arch. Expected; CI builds it on an arm64 runner |
 | "Binary not found: `<name>`" | Binary auto-detection picked up a feature-gated helper bin. Add `required-features = ["..."]` to the secondary `[[bin]]` |
 
 ## Tier 2 / BOLT
@@ -42,7 +43,6 @@ The tiers and their config keys are [rust.md](rust.md). The log markers that say
 |---|---|
 | Builds serialise despite removing `CARGO_TARGET_DIR` | Some projects still have `target/` as a real dir rather than a symlink. Re-run the per-project symlink loop |
 | `cargo build` slower than expected after adding sccache | First build is cold - sccache populates. Check `sccache --show-stats` after 2-3 builds to confirm hits |
-| mold linker error on aarch64 cross-compile | mold is x86_64-native only. Your project's `[target.aarch64-unknown-linux-gnu]` config must NOT use mold - hyperi-ci's wrapper enforces BFD |
 
 The setup these refer to is [rust-local-dev.md](rust-local-dev.md).
 

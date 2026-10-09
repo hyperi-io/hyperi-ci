@@ -7,7 +7,6 @@ Gotchas and fixes from the old HyperI CI (`hyperi-io/ci`, checked out at `/proje
 Language handlers:
 
 - [Rust cross-compilation](#rust-cross-compilation)
-- [ARC Persistent Cache + Rust Cross-Compilation](#arc-persistent-cache--rust-cross-compilation)
 - [Rust publishing, quality and testing](#rust-publishing-quality-and-testing)
 - [Go](#go)
 - [TypeScript](#typescript)
@@ -40,42 +39,16 @@ Debugging and verification:
 
 ## Rust cross-compilation
 
-Release builds run natively on each arch ([runtime/runners.md](runtime/runners.md)). This path runs only when `build.rust.targets` names a target the runner is not, and its code is in `languages/rust/build.py`.
+hyperi-ci does not cross-compile. Each arch builds on a runner of its own ([runtime/runners.md](runtime/runners.md)), and `languages/rust/build.py` fails a CI build whose target is not the runner's arch. The private-sysroot path that used to cross-build aarch64 from x64 was removed once native arm64 runners made it unreachable. Its code is in git history.
 
-**The mold linker problem.** A GitHub runner may default to `-fuse-ld=mold`. A cross-compiler such as `aarch64-linux-gnu-gcc` cannot find `ld.mold` for a foreign target, so CMake test compiles fail. Force GNU BFD with `-fuse-ld=bfd`, and clear `LDFLAGS` / `CFLAGS` / `CXXFLAGS` so host flags do not leak into the cross build.
+What it cost, should anyone bring cross-compilation back:
 
-**Private sysroot.** Many `-dev` packages (e.g. `libsasl2-dev`) are not `Multi-Arch: same`, so installing the arm64 one removes the amd64 one and breaks native builds.
+- **mold cannot link a foreign target.** A cross-compiler cannot find `ld.mold` for aarch64, so CMake test compiles fail. Force `-fuse-ld=bfd`, and clear `LDFLAGS` / `CFLAGS` / `CXXFLAGS` so host flags do not leak in.
+- **Many `-dev` packages are not `Multi-Arch: same`.** Installing `libsasl2-dev:arm64` removes the amd64 one and breaks native builds, so the arm64 `.deb` files went into a private sysroot instead. Linker scripts inside it carry absolute paths that need rewriting, and `libsasl2.so` needs `-rpath-link` to find `libcrypto.so.3`.
+- **Configure-based `-sys` crates read plain `CC`.** `rdkafka-sys` without `cmake-build` runs `./configure`, which ignores the cc-crate's `CC_<target>` and picks the host gcc. Both forms have to be set, for `CXX` and `AR` too.
+- **A persistent `target/` keeps wrong-arch objects.** `make` checks timestamps, not which compiler built an object, so a host-compiled `OUT_DIR` survives and the link fails with `EM:62`. Every `-sys` rlib had to be read with `ar` and `file` and cleaned on a mismatch.
 
-- Download the cross-arch `.deb` files and extract them into a private sysroot. Point `PKG_CONFIG_PATH` and the linker at it.
-- Install only the cross-compilers system-wide (`gcc-aarch64-linux-gnu`, `g++-aarch64-linux-gnu`), plus `libc6-dev:arm64` for the dynamic linker. Those are Multi-Arch safe.
-- Put the sysroot at `.tmp/cross-sysroot/` in the workspace, never `/tmp`. On ARC, `/tmp` is pod ephemeral storage, the same disk whose filling evicts the pod.
-
-**Linker wrappers.** Generate BOTH `{triple}-gcc` and `{triple}-g++` wrappers in the sysroot `bin/`, with identical flags. A CMake `-sys` crate such as `rdkafka-sys` fails with `CMAKE_CXX_COMPILER ... is not a full path` when only the C wrapper exists.
-
-- Each wrapper adds `-fuse-ld=bfd`, `-L` and `-rpath-link` for the sysroot. `libsasl2.so` needs `libcrypto.so.3`, which only `-rpath-link` resolves.
-- Some `.so` files are ASCII linker scripts with absolute paths (`GROUP ( /lib/aarch64-linux-gnu/libm.so.6 ... )`). Rewrite those paths to point into the sysroot.
-
-**Environment.**
-
-- `CC_<TARGET>`, `CXX_<TARGET>`, `AR_<TARGET>` point at the wrappers, and `CARGO_TARGET_<TARGET>_LINKER` at the linker wrapper.
-- `PKG_CONFIG_PATH`, `PKG_CONFIG_SYSROOT_DIR`, `PKG_CONFIG_ALLOW_CROSS=1`, and `CMAKE_PREFIX_PATH` for CMake-based `-sys` crates.
-- `CFLAGS_<TARGET>` carries `-fuse-ld=bfd` and the arch include paths.
-
-**Order and checks.** Build the native target first, then cross targets, to dodge multi-arch package conflicts. Run `rustup target add <target>` for each foreign target. After the build, check the binary is over 100KB and its ELF machine type matches (`readelf -h`). Smoke-test native binaries with `--version` or `--help`; a cross-compiled one cannot run.
-
-## ARC Persistent Cache + Rust Cross-Compilation
-
-ARC runners keep `target/` between runs. If an earlier run compiled a `-sys` crate with the host `gcc`, the x86_64 `.o` files stay in its `OUT_DIR`. Later runs see no source change, skip the compile, and the link fails with `EM:62`. We want the warm cache (about 5x faster), so the fix detects and evicts bad entries rather than dropping the cache.
-
-Three causes, all fixed in `languages/rust/build.py`:
-
-1. **Plain `CC` was unset.** `rdkafka-sys` by default builds with `./configure && make` (mklove), not CMake. `./configure` reads plain `CC`, not the cc-crate's `CC_aarch64_unknown_linux_gnu`, so it picked the host `gcc`. `_cross_env()` sets both `CC` and `CC_<target>`, and the same for `CXX` and `AR`.
-2. **Stale detection scanned only CMake crates.** `rdkafka-sys` without its `cmake-build` feature has no cmake dependency, so the scanner missed it. `_find_c_sys_crates()` scans every package in `Cargo.lock` whose name ends in `-sys`.
-3. **A persistent `OUT_DIR` defeats `make`.** The Makefile checks source timestamps, not which compiler built the objects. The detector reads each rlib with `ar p | file -`, checks the ELF machine, and runs `cargo clean --package <pkg> --target <target>` on a mismatch.
-
-The result: the first run after contamination recompiles in about 19 minutes with rdkafka, and later runs take 3-5 minutes on the warm cache. Native x86_64 builds never lose their cache.
-
-`build.strategies` accepts only `native`. Cross targets go in `build.rust.targets`, and any other strategy, such as `cross` from an old template, fails with `Unknown build strategy` (`dispatch.py`).
+`build.strategies` accepts only `native`. `build.rust.targets` narrows which arches the build matrix runs, and any other strategy, such as `cross` from an old template, fails with `Unknown build strategy` (`dispatch.py`).
 
 ## Rust publishing, quality and testing
 

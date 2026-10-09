@@ -71,9 +71,9 @@ linker = "clang"
 rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 ```
 
-**Native x86_64 only.** Cross-compilation to aarch64 must use BFD -
-hyperi-ci's `build.py` already enforces this via linker wrapper scripts
-that pass `-fuse-ld=bfd`. Don't touch the cross-compile linker config.
+**Native builds only.** mold cannot link for a foreign target, and
+hyperi-ci does not cross-compile: `hyperi-ci run build` skips a target
+for another arch with a warning.
 
 **Per-project rustflags override this** - Cargo does NOT merge rustflags
 across configs. If your project has

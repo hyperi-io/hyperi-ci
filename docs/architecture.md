@@ -143,7 +143,7 @@ A container failure blocks the release only where a container is the deliverable
 
 Resolved highest-wins: workflow input `runner-mode`, then var `GH_RUNNER_MODE`, then the `GH_RUNNER_*` labels, then `ubuntu-latest`. `free` mode lets any org use the workflows with no self-hosted infra.
 
-Multi-arch uses **native runners per arch** (amd64 on ARC, arm64 on `ubuntu-24.04-arm`), not cross-compilation. Tiers, cache and the dormant cross-compile path: [runtime/runners.md](runtime/runners.md). The dep-install source of truth: [runtime/runner-image.md](runtime/runner-image.md).
+Multi-arch uses **native runners per arch** (amd64 on ARC, arm64 on `ubuntu-24.04-arm`), and the Rust build never cross-compiles. Tiers and cache: [runtime/runners.md](runtime/runners.md). The dep-install source of truth: [runtime/runner-image.md](runtime/runner-image.md).
 
 ## Design principles and repo layout
 

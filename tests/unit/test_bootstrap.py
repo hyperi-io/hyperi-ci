@@ -45,7 +45,6 @@ class TestLoadSpec:
         assert rust.channels[0] == "stable"
         assert "nightly" in rust.channels
         assert {"clippy", "rustfmt"} <= set(rust.components)
-        assert "aarch64-unknown-linux-gnu" in rust.targets
         assert go_enabled is True
 
 
@@ -540,8 +539,8 @@ class TestInstallAllWiring:
         assert f"python: {versions.runtime_version('python')}\n" in combined
 
     def test_toolchains_planned_before_apt_deps(self, tmp_path) -> None:
-        """Ordering matters: the apt families include BOLT and the
-        cross-compilers a Rust build then links against."""
+        """Ordering matters: the apt families include the BOLT and lld a
+        Rust build then links with."""
         result = self._run("--dry-run", cwd=tmp_path)
         assert result.returncode == 0
         combined = result.stdout + result.stderr

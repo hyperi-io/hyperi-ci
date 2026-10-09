@@ -7,9 +7,7 @@
 """Install the language toolchains a runner image pre-bakes.
 
 Separate from `native_deps` because these come from vendor channels (rustup,
-go.dev, nvm) rather than apt, and hyperi-ci does not install them per job (for
-example `languages/rust/build.py` runs `rustup target add` with no bootstrap
-behind it).
+go.dev, nvm) rather than apt, and hyperi-ci does not install them per job.
 
 rustup-init, the Go tarball and nvm's install.sh are versions.yaml pins, each
 checked against its pinned sha256 before it runs or is unpacked. Nothing here
@@ -72,7 +70,6 @@ class RustSpec:
 
     channels: list[str] = field(default_factory=lambda: ["stable"])
     components: list[str] = field(default_factory=list)
-    targets: list[str] = field(default_factory=list)
 
 
 def _is_linux() -> bool:
@@ -148,7 +145,6 @@ def load_spec() -> tuple[RustSpec, bool]:
     rust = RustSpec(
         channels=[str(c) for c in rust_raw.get("channels", ["stable"])],
         components=[str(c) for c in rust_raw.get("components", [])],
-        targets=[str(t) for t in rust_raw.get("targets", [])],
     )
     return rust, go_enabled
 
@@ -215,7 +211,7 @@ def install_rustup(default_channel: str) -> int:
 
 
 def install_rust(spec: RustSpec) -> int:
-    """Install rustup, the requested channels, components and targets, and sccache.
+    """Install rustup, the requested channels and components, and sccache.
 
     Honours RUSTUP_HOME / CARGO_HOME if set (an image puts them on a shared
     path).
@@ -249,12 +245,6 @@ def install_rust(spec: RustSpec) -> int:
         rc = _run(["rustup", "component", "add", *spec.components])
         if rc != 0:
             logger.error(f"rustup component add failed: {spec.components}")
-            return rc
-
-    for target in spec.targets:
-        rc = _run(["rustup", "target", "add", target])
-        if rc != 0:
-            logger.error(f"rustup target add {target} failed")
             return rc
 
     return install_sccache(cargo_bin)
@@ -470,7 +460,6 @@ def print_bootstrap_plan() -> None:
     print(f"    rustup:      {tool_version('rustup')}", file=out)
     print(f"    channels:    {', '.join(rust.channels) or '-'}", file=out)
     print(f"    components:  {', '.join(rust.components) or '-'}", file=out)
-    print(f"    targets:     {', '.join(rust.targets) or '-'}", file=out)
     print(f"    sccache:     {tool_version('sccache')}", file=out)
     print(f"  go: {runtime_version('go') if go_enabled else 'disabled'}", file=out)
     print(f"  node: {runtime_version('node')}", file=out)

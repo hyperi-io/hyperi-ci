@@ -62,7 +62,7 @@ The self-hosted fleet is ARC scale sets on two axes:
 | Axis | Value | Meaning |
 |---|---|---|
 | type | `vanilla` | stock runner + internal CA + docker CLI + uv. Fast start. |
-| type | `native` | vanilla plus the compiler estate - rustup stable and nightly, the cargo tools, Go, Node, LLVM/GCC, the aarch64 cross toolchain, and the shared sccache/crate cache. |
+| type | `native` | vanilla plus the compiler estate - rustup stable and nightly, the cargo tools, Go, Node, LLVM, the distro gcc, and the shared sccache/crate cache. |
 | type | `debian` | vanilla on Debian Trixie, for .deb builds, which have to happen on the distro they target. No toolchain. |
 | size | `4cpu` | matches the stock GitHub ubuntu runner |
 | size | `8cpu`, `16cpu` | the steps up |
@@ -108,7 +108,7 @@ Multi-arch builds use a native runner per architecture:
 | x86_64 (amd64) | ARC self-hosted | `GH_RUNNER_RUST` / `GH_RUNNER_DEFAULT` |
 | aarch64 (arm64) | GitHub `ubuntu-24.04-arm` | `GH_RUNNER_ARM64` |
 
-Cross-compiling with C/C++ deps (librdkafka, zlib, openssl) needs a private sysroot with transitive dependency resolution, and each new native dep breaks it differently. Native arm64 runners remove that class of failure.
+Each leg builds its own arch, so no build cross-compiles (see [No cross-compilation](#no-cross-compilation)).
 
 The arm64 leg is added on every run that builds at all, when `run-build` is true (`rust-ci.yml`, *Generate build matrix*). The release channel plays no part, so arm64 code runs before the run meant to ship it (issue #249).
 
@@ -142,8 +142,8 @@ Package-manager metadata caches (Cargo registry, uv, pip, npm) use local `emptyD
 
 Of the language workflows, only `python-ci.yml` sets `enable-uv-cache` on the `setup-runtime` composite. The others use uv only to run `uvx hyperi-ci`.
 
-Rust `target/` persists in the pod `emptyDir` across a job's steps, and `_clean_stale_sys_crates()` in Rust `build.py` removes wrong-arch objects from it. The PV/PVC, Dockerfile and Ansible live in hyperi-infra (`k8s/`, `containers/arc-runner/`, `ansible/`). Runners are ephemeral, one job per pod, and scale to zero when idle.
+Rust `target/` persists in the pod `emptyDir` across a job's steps. The PV/PVC, Dockerfile and Ansible live in hyperi-infra (`k8s/`, `containers/arc-runner/`, `ansible/`). Runners are ephemeral, one job per pod, and scale to zero when idle.
 
-## Cross-compilation (legacy - dormant)
+## No cross-compilation
 
-The sysroot code in `build.py` runs only when a build target differs from the host arch, which native runners never hit. It stays for edge cases such as RISC-V, and builds a private sysroot under `.tmp/cross-sysroot/` in the workspace. Rationale and gotchas: [lessons.md](../lessons.md).
+The Rust build compiles only the host's own target. A target for another arch fails the build in CI, where it means a leg landed on the wrong runner, and is skipped with a warning locally. Why the sysroot path went: [lessons.md](../lessons.md#rust-cross-compilation).

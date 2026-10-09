@@ -389,7 +389,7 @@ release:
 | Language | Quality | Test | Build | Publish |
 |---|---|---|---|---|
 | Python | ruff (lint, format, S rules), ty, pip-audit | pytest | uv build | uv publish (PyPI) |
-| Rust | cargo fmt, clippy, audit, deny, **feature_matrix** | cargo test/nextest | cargo build (cross) | cargo publish (crates.io) |
+| Rust | cargo fmt, clippy, audit, deny, **feature_matrix** | cargo test/nextest | cargo build (per-arch runners) | cargo publish (crates.io) |
 | TypeScript | eslint, prettier, tsc, npm audit | vitest/jest | npm/pnpm build | npm publish (npmjs / GH Packages) |
 | Go _(beta)_ | gofmt, go vet, golangci-lint, gosec | go test -race | go build (cross) | go proxy, gh release |
 
@@ -429,23 +429,21 @@ quality:
       reason: "tracked in dfe-loader#87, remediating 2026-04-18"
 ```
 
-## Cross-Compilation
+## Multi-Arch Rust Builds
 
-Rust projects with C/C++ dependencies (librdkafka, openssl, zstd) are
-supported. The build handler auto-detects native `-dev` packages, downloads
-cross-arch equivalents into a private sysroot, and sets all compiler/linker
-environment variables. Configure targets in `.hyperi-ci.yaml`:
+Rust binaries build for amd64 and arm64, each on a runner of its own arch.
+Nothing cross-compiles, so C/C++ dependencies (librdkafka, openssl, zstd)
+link against the runner's own `-dev` packages. List targets in
+`.hyperi-ci.yaml` to narrow the matrix:
 
 ```yaml
 build:
   rust:
     targets:
       - x86_64-unknown-linux-gnu
-      - aarch64-unknown-linux-gnu
 ```
 
-Push to main without `Release: true` builds amd64 only (validation).
-Release runs build the full matrix.
+Which runs build which arches: [docs/runtime/runners.md](docs/runtime/runners.md#split-runner-multi-arch).
 
 ## Design Principles
 

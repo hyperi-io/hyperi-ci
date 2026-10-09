@@ -1,22 +1,19 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/languages/rust/build.py
-# Purpose:   Rust build handler with cross-compilation support
+# Purpose:   Rust build handler for the host's own target
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
-"""Rust build handler: release builds, with cross-compilation.
+"""Rust build handler: release builds for the host's own target.
 
-A cross-target with C/C++ dependencies gets a private sysroot built from
-downloaded .deb packages rather than system-wide cross-arch installs.
+There is no cross-compilation. CI builds each target on a runner of that arch,
+and a target for another arch is skipped locally and fails in CI.
 """
 
 import os
-import re
 import shutil
-import stat
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 from hyperi_ci.common import (
@@ -25,8 +22,6 @@ from hyperi_ci.common import (
     group,
     info,
     is_ci,
-    is_linux,
-    is_macos,
     is_prerelease_build,
     optimize_tier,
     release_unoptimized,
@@ -72,27 +67,12 @@ _TARGET_MAP = {
     "aarch64-apple-darwin": ("darwin", "arm64"),
 }
 
-_CROSS_TOOLCHAIN = {
-    "aarch64-unknown-linux-gnu": {
-        "arch": "arm64",
-        "triple": "aarch64-linux-gnu",
-        "cc": "aarch64-linux-gnu-gcc",
-        "cxx": "aarch64-linux-gnu-g++",
-        "ar": "aarch64-linux-gnu-ar",
-    },
-}
-
-
-def _sysroot_base() -> Path:
-    """Return the sysroot base, on the workspace volume rather than pod storage."""
-    return Path.cwd() / ".tmp" / "cross-sysroot"
-
 
 def _get_native_target() -> str:
     """Return the native Rust target triple, from the machine arch on Linux too.
 
-    An arm64 runner answering x86_64 would treat its own target as a cross
-    build, skip PGO and fail the release as half-optimised.
+    An arm64 runner answering x86_64 would read its own target as another
+    arch's and refuse to build it.
     """
     import platform
 
@@ -104,471 +84,6 @@ def _get_native_target() -> str:
         if arch in ("aarch64", "arm64")
         else "x86_64-unknown-linux-gnu"
     )
-
-
-def _get_native_triple() -> str:
-    """Return the native GNU triple (e.g. x86_64-linux-gnu)."""
-    result = run_cmd(["gcc", "-dumpmachine"], check=False, capture=True)
-    if result.returncode == 0 and result.stdout.strip():
-        return result.stdout.strip()
-    return "x86_64-linux-gnu"
-
-
-def _widen_custom_repos_for_arch(arch: str) -> bool:
-    """Add the cross arch to custom APT repos scoped with an explicit ``arch=``.
-
-    native_deps.py scopes repos such as Confluent's to the native arch, which
-    hides the cross-arch packages the sysroot needs. Ubuntu's own sources are
-    left alone. Returns True if any repo was widened (apt-get update needed).
-    """
-    sources_dir = Path("/etc/apt/sources.list.d")
-    if not sources_dir.exists():
-        return False
-
-    widened = False
-    skip_files = {"arm64-ports.list", "ubuntu.sources"}
-    for list_file in sources_dir.glob("*.list"):
-        if list_file.name in skip_files:
-            continue
-        content = list_file.read_text(encoding="utf-8")
-        pattern = r"(arch=)([a-z0-9,]+)"
-        match = re.search(pattern, content)
-        if not match:
-            continue
-        current_archs = match.group(2).split(",")
-        if arch in current_archs:
-            continue
-        new_archs = ",".join(current_archs + [arch])
-        new_content = re.sub(pattern, rf"\g<1>{new_archs}", content)
-        run_cmd(
-            ["sudo", "tee", str(list_file)],
-            check=False,
-            capture=True,
-            stdin_text=new_content,
-        )
-        info(f"  Widened {list_file.name} arch to include {arch}")
-        widened = True
-    return widened
-
-
-def _ensure_cross_apt_metadata(arch: str) -> None:
-    """Register the cross arch and its apt sources (metadata only).
-
-    Adds the arm64 ports sources where the image lacks them, and scopes the
-    deb822 sources to amd64, since archive.ubuntu.com serves no arm64.
-    """
-    result = run_cmd(
-        ["dpkg", "--print-foreign-architectures"], check=False, capture=True
-    )
-    arch_registered = arch in result.stdout
-
-    if not arch_registered:
-        info(f"  Adding apt architecture: {arch}")
-        run_cmd(["sudo", "dpkg", "--add-architecture", arch], check=False)
-
-        ports_list = Path("/etc/apt/sources.list.d/arm64-ports.list")
-        if arch == "arm64" and not ports_list.exists():
-            info("  Adding arm64 apt sources from ports.ubuntu.com")
-            codename_result = run_cmd(["lsb_release", "-cs"], check=False, capture=True)
-            codename = codename_result.stdout.strip() or "noble"
-            lines = [
-                f"deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports {codename} main restricted universe",
-                f"deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports {codename}-updates main restricted universe",
-                f"deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports {codename}-security main restricted universe",
-            ]
-            run_cmd(
-                ["sudo", "tee", str(ports_list)],
-                check=False,
-                capture=True,
-                stdin_text="\n".join(lines) + "\n",
-            )
-            deb822_sources = Path("/etc/apt/sources.list.d/ubuntu.sources")
-            if deb822_sources.exists():
-                content = deb822_sources.read_text(encoding="utf-8")
-                if "Architectures:" not in content:
-                    info("  Scoping deb822 sources to amd64")
-                    run_cmd(
-                        [
-                            "sudo",
-                            "sed",
-                            "-i",
-                            "/^Types:/a Architectures: amd64",
-                            str(deb822_sources),
-                        ],
-                        check=False,
-                    )
-
-    repos_widened = _widen_custom_repos_for_arch(arch)
-
-    apt_lists = Path("/var/lib/apt/lists")
-    needs_update = (
-        not arch_registered
-        or repos_widened
-        or len(list(apt_lists.glob("*_Packages"))) < 5
-    )
-    if needs_update:
-        info("  Updating apt package cache...")
-        run_cmd(["sudo", "apt-get", "update", "-qq"], check=False, capture=True)
-
-
-def _detect_native_dev_packages(native_triple: str) -> list[str]:
-    """Return the native packages owning .pc files, which need cross-arch twins."""
-    result = run_cmd(
-        ["dpkg", "-S", f"/usr/lib/{native_triple}/pkgconfig/*.pc"],
-        check=False,
-        capture=True,
-    )
-    if result.returncode != 0:
-        return []
-
-    packages: set[str] = set()
-    native_arch = run_cmd(
-        ["dpkg", "--print-architecture"], check=False, capture=True
-    ).stdout.strip()
-
-    for line in result.stdout.splitlines():
-        if ":" not in line:
-            continue
-        pkg_part = line.split(":")[0].strip()
-        pkg_part = pkg_part.removesuffix(f":{native_arch}")
-        if pkg_part:
-            packages.add(pkg_part)
-
-    return sorted(packages)
-
-
-def _resolve_cross_packages(
-    dev_pkgs: list[str],
-    cross_arch: str,
-) -> list[str]:
-    """Resolve cross-arch packages and their transitive library dependencies.
-
-    Breadth-first over lib* and zlib* packages, to depth 20, which covers
-    chains such as libsasl2-dev -> libsasl2-2 -> libssl3t64.
-    """
-    seen: set[str] = set()
-    to_download: list[str] = []
-
-    pending: list[str] = []
-    for pkg in dev_pkgs:
-        cross_pkg = f"{pkg}:{cross_arch}"
-        result = run_cmd(["apt-cache", "show", cross_pkg], check=False, capture=True)
-        if result.returncode == 0:
-            pending.append(cross_pkg)
-            seen.add(cross_pkg)
-
-    max_depth = 20
-    for depth in range(max_depth):
-        if not pending:
-            break
-        next_pending: list[str] = []
-        for pkg in pending:
-            to_download.append(pkg)
-            result = run_cmd(["apt-cache", "depends", pkg], check=False, capture=True)
-            for line in result.stdout.splitlines():
-                line = line.strip()
-                if not line.startswith("Depends:"):
-                    continue
-                dep = line.split(":", 1)[1].strip()
-                dep_name = dep.split(":")[0]
-                if not dep_name.startswith(("lib", "zlib")):
-                    continue
-                if ":" not in dep:
-                    dep = f"{dep}:{cross_arch}"
-                if dep in seen:
-                    continue
-                seen.add(dep)
-                check = run_cmd(["apt-cache", "show", dep], check=False, capture=True)
-                if check.returncode == 0:
-                    next_pending.append(dep)
-        pending = next_pending
-
-        if depth == max_depth - 1:
-            warn(
-                f"  Hit max dependency depth ({max_depth}) -- some deps may be missing"
-            )
-
-    return sorted(set(to_download))
-
-
-def _patch_ld_scripts(sysroot: Path, cross_triple: str) -> int:
-    """Point the absolute paths in .so linker scripts at the sysroot."""
-    lib_dir = sysroot / "usr" / "lib" / cross_triple
-    if not lib_dir.exists():
-        return 0
-
-    patched = 0
-    for so_file in lib_dir.glob("lib*.so"):
-        if not so_file.is_file():
-            continue
-        try:
-            content = so_file.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            continue
-
-        original = content
-        content = content.replace(
-            f" /lib/{cross_triple}/",
-            f" {sysroot}/usr/lib/{cross_triple}/",
-        )
-        content = content.replace(
-            f" /usr/lib/{cross_triple}/",
-            f" {sysroot}/usr/lib/{cross_triple}/",
-        )
-        if content != original:
-            so_file.write_text(content, encoding="utf-8", newline="\n")
-            patched += 1
-
-    return patched
-
-
-def _apply_usrmerge(sysroot: Path) -> None:
-    """Merge /lib into /usr/lib with symlink (matches Ubuntu usrmerge)."""
-    lib_dir = sysroot / "lib"
-    usr_lib = sysroot / "usr" / "lib"
-
-    if lib_dir.is_dir() and not lib_dir.is_symlink():
-        usr_lib.mkdir(parents=True, exist_ok=True)
-        run_cmd(
-            ["cp", "-a"] + [str(p) for p in lib_dir.iterdir()] + [str(usr_lib) + "/"],
-            check=False,
-        )
-        shutil.rmtree(lib_dir)
-        lib_dir.symlink_to("usr/lib")
-        info("  Applied usrmerge: lib/ merged into usr/lib/ with symlink")
-    elif not lib_dir.exists():
-        usr_lib.mkdir(parents=True, exist_ok=True)
-        lib_dir.symlink_to("usr/lib")
-
-
-def _setup_cross_sysroot(cross_arch: str, cross_triple: str) -> Path | None:
-    """Build a private sysroot of cross-arch -dev libraries from .deb packages.
-
-    Extracting privately avoids system-wide cross-arch installs, which can
-    conflict with native packages. Returns the sysroot path, or None.
-    """
-    sysroot = _sysroot_base() / cross_arch
-
-    pc_dir = sysroot / "usr" / "lib" / cross_triple / "pkgconfig"
-    if pc_dir.exists():
-        pc_count = len(list(pc_dir.glob("*.pc")))
-        if pc_count > 0:
-            info(f"  Cross sysroot already populated ({pc_count} .pc files): {sysroot}")
-            return sysroot
-
-    info(f"  Building cross-compilation sysroot ({cross_arch})...")
-    info(f"  Libraries will be extracted to {sysroot} (no system installs)")
-
-    _ensure_cross_apt_metadata(cross_arch)
-
-    native_triple = _get_native_triple()
-    dev_pkgs = _detect_native_dev_packages(native_triple)
-
-    if not dev_pkgs:
-        info(
-            "  No native -dev packages with pkg-config files found -- skipping sysroot"
-        )
-        return None
-
-    info(f"  Detected {len(dev_pkgs)} native -dev packages with .pc files:")
-    for pkg in dev_pkgs:
-        info(f"    {pkg}")
-
-    cross_pkgs = _resolve_cross_packages(dev_pkgs, cross_arch)
-
-    if not cross_pkgs:
-        info("  No cross-arch packages available -- skipping sysroot")
-        return None
-
-    info(f"  Downloading {len(cross_pkgs)} cross-arch packages...")
-
-    deb_dir = sysroot / "_debs"
-    deb_dir.mkdir(parents=True, exist_ok=True)
-
-    for pkg in cross_pkgs:
-        result = run_cmd(
-            ["apt-get", "download", pkg], check=False, capture=True, cwd=deb_dir
-        )
-        if result.returncode == 0:
-            info(f"    OK: {pkg}")
-        else:
-            warn(f"    SKIP: {pkg} (not available)")
-
-    debs = list(deb_dir.glob("*.deb"))
-    if not debs:
-        warn("  No .deb packages downloaded -- sysroot will be empty")
-        return None
-
-    info(f"  Extracting {len(debs)} packages to {sysroot}/")
-    for deb in debs:
-        run_cmd(["dpkg-deb", "-x", str(deb), str(sysroot) + "/"], check=False)
-
-    _apply_usrmerge(sysroot)
-
-    patched = _patch_ld_scripts(sysroot, cross_triple)
-    if patched > 0:
-        info(f"  Patched {patched} GNU LD scripts with sysroot paths")
-
-    lib_dir = sysroot / "usr" / "lib" / cross_triple
-    pc_count = len(list(pc_dir.glob("*.pc"))) if pc_dir.exists() else 0
-    so_count = len(list(lib_dir.glob("*.so*"))) if lib_dir.exists() else 0
-    info(f"  Sysroot ready: {pc_count} pkg-config files, {so_count} shared libraries")
-
-    return sysroot
-
-
-def _create_linker_wrapper(sysroot: Path, cross_triple: str) -> Path:
-    """Create a cross-linker wrapper that adds the sysroot's library paths.
-
-    Some -sys crates emit ``-l`` with no ``-L`` (rdkafka-sys and ``-lsasl2``),
-    and ``-rpath-link`` resolves transitive .so dependencies.
-    """
-    wrapper_dir = sysroot / "bin"
-    wrapper_dir.mkdir(parents=True, exist_ok=True)
-    perms = stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH
-
-    wrapper_script = """\
-#!/bin/sh
-exec {real_bin} \\
-    -fuse-ld=bfd \\
-    -L{sysroot}/usr/lib/{triple} \\
-    -L{sysroot}/lib/{triple} \\
-    -Wl,-rpath-link,{sysroot}/usr/lib/{triple} \\
-    "$@"
-"""
-
-    for suffix in ("gcc", "g++"):
-        real_bin = (
-            shutil.which(f"{cross_triple}-{suffix}")
-            or f"/usr/bin/{cross_triple}-{suffix}"
-        )
-        wrapper = wrapper_dir / f"{cross_triple}-{suffix}"
-        wrapper.write_text(
-            wrapper_script.format(
-                real_bin=real_bin,
-                sysroot=sysroot,
-                triple=cross_triple,
-            ),
-            encoding="utf-8",
-            newline="\n",
-        )
-        wrapper.chmod(perms)
-        info(f"  Linker wrapper: {wrapper} -> {real_bin}")
-
-    return wrapper_dir / f"{cross_triple}-gcc"
-
-
-def _cross_env(target: str, sysroot: Path | None = None) -> dict[str, str]:
-    """Return the env for cross-compiling C/C++ deps, using ``sysroot`` if given."""
-    toolchain = _CROSS_TOOLCHAIN.get(target)
-    if not toolchain:
-        return {}
-
-    cross_triple = toolchain["triple"]
-    target_upper = target.replace("-", "_").upper()
-    target_lower = target.replace("-", "_")
-    env: dict[str, str] = {}
-
-    cc = toolchain["cc"]
-    if not shutil.which(cc):
-        warn(f"  Cross-compiler {cc} not found -- build may fail")
-        return env
-
-    # CC must be the plain cross-compiler, never the sysroot wrapper: a failed
-    # cmake TryCompile silently falls back to the host compiler.
-    env[f"CC_{target_lower}"] = cc
-    env[f"CXX_{target_lower}"] = toolchain["cxx"]
-    env[f"AR_{target_lower}"] = toolchain["ar"]
-
-    # Configure-based -sys crates read plain CC/CXX/AR, not CC_<target>, and
-    # otherwise build host objects that fail to link with EM:62.
-    env["CC"] = cc
-    env["CXX"] = toolchain["cxx"]
-    env["AR"] = toolchain["ar"]
-
-    if sysroot:
-        wrapper = _create_linker_wrapper(sysroot, cross_triple)
-        env[f"CARGO_TARGET_{target_upper}_LINKER"] = str(wrapper)
-
-        env["PKG_CONFIG_PATH"] = (
-            f"{sysroot}/usr/lib/{cross_triple}/pkgconfig:{sysroot}/usr/share/pkgconfig"
-        )
-        env["PKG_CONFIG_SYSROOT_DIR"] = str(sysroot)
-        env["PKG_CONFIG_ALLOW_CROSS"] = "1"
-
-        # cmake checks CMAKE_C_COMPILER before CC, and cmake-rs's own compiler
-        # detection can fail.
-        env["CMAKE_C_COMPILER"] = cc
-        env["CMAKE_CXX_COMPILER"] = toolchain["cxx"]
-        env["CMAKE_PREFIX_PATH"] = f"{sysroot}/usr"
-        env["CMAKE_INCLUDE_PATH"] = f"{sysroot}/usr/include"
-
-        # cmake applies these to compile and link, TryCompile included;
-        # bfd because mold cannot cross-link aarch64.
-        sysroot_include = sysroot / "usr" / "include"
-        sysroot_arch_include = sysroot_include / cross_triple
-        cross_cflags = f"-fuse-ld=bfd -I{sysroot_include}"
-        if sysroot_arch_include.exists():
-            cross_cflags += f" -I{sysroot_arch_include}"
-        env[f"CFLAGS_{target_lower}"] = cross_cflags
-        env[f"CXXFLAGS_{target_lower}"] = cross_cflags
-    else:
-        env[f"CARGO_TARGET_{target_upper}_LINKER"] = cc
-        env["PKG_CONFIG_ALLOW_CROSS"] = "1"
-        env["PKG_CONFIG_SYSROOT_DIR"] = f"/usr/{cross_triple}"
-
-    # Host flags such as -fuse-ld=mold would leak into cmake's linker flags.
-    env["LDFLAGS"] = ""
-    env["CFLAGS"] = ""
-    env["CXXFLAGS"] = ""
-
-    info(f"  Cross-compilation toolchain: {cc}")
-    return env
-
-
-def _ensure_target_installed(target: str) -> bool:
-    """Ensure a Rust target is installed via rustup."""
-    native = _get_native_target()
-    if target == native:
-        return True
-
-    result = run_cmd(["rustup", "target", "add", target], check=False, capture=True)
-    if result.returncode != 0:
-        error(f"  Failed to install target {target}: {result.stderr.strip()}")
-        return False
-    info(f"  Installed Rust target: {target}")
-    return True
-
-
-def _ensure_cross_toolchain(target: str) -> None:
-    """Install the cross-compilers system-wide, which is Multi-Arch safe.
-
-    -dev libraries go into the private sysroot instead.
-    """
-    toolchain = _CROSS_TOOLCHAIN.get(target)
-    if not toolchain or not is_linux():
-        return
-
-    cross_arch = toolchain["arch"]
-    cc = toolchain["cc"]
-    cxx = toolchain["cxx"]
-
-    packages: list[str] = []
-    if not shutil.which(cc):
-        packages.append(f"gcc-{toolchain['triple']}")
-    if not shutil.which(cxx):
-        packages.append(f"g++-{toolchain['triple']}")
-
-    result = run_cmd(
-        ["dpkg", "-s", f"libc6-dev:{cross_arch}"], check=False, capture=True
-    )
-    if result.returncode != 0:
-        _ensure_cross_apt_metadata(cross_arch)
-        packages.append(f"libc6-dev:{cross_arch}")
-
-    if packages:
-        info(f"  Installing cross-compilation packages: {' '.join(packages)}")
-        run_cmd(["sudo", "apt-get", "install", "-y", "-qq"] + packages, check=False)
 
 
 _ELF_MACHINE_MAP = {
@@ -588,8 +103,8 @@ def _target_to_elf_machine(target: str) -> str | None:
     return None
 
 
-def _verify_binary(binary: Path, target: str, native_target: str) -> bool:
-    """Check a binary's size and ELF machine type; smoke-test a native one."""
+def _verify_binary(binary: Path, target: str) -> bool:
+    """Check a binary's size and ELF machine type, then smoke-test it."""
     errors = 0
     info("    --- Post-build verification ---")
 
@@ -640,22 +155,17 @@ def _verify_binary(binary: Path, target: str, native_target: str) -> bool:
         else:
             info("    INFO: Statically linked (no dynamic deps)")
 
-    if target == native_target:
-        for flag in ("--version", "--help"):
-            try:
-                result = run_cmd(
-                    [str(binary), flag], check=False, capture=True, timeout=10
-                )
-                if result.returncode == 0:
-                    first_line = result.stdout.splitlines()[0] if result.stdout else ""
-                    info(f"    OK: Smoke test ({flag}): {first_line}")
-                    break
-            except subprocess.TimeoutExpired:
-                continue
-        else:
-            info("    SKIP: Smoke test (binary needs runtime config)")
+    for flag in ("--version", "--help"):
+        try:
+            result = run_cmd([str(binary), flag], check=False, capture=True, timeout=10)
+            if result.returncode == 0:
+                first_line = result.stdout.splitlines()[0] if result.stdout else ""
+                info(f"    OK: Smoke test ({flag}): {first_line}")
+                break
+        except subprocess.TimeoutExpired:
+            continue
     else:
-        info("    SKIP: Smoke test (cross-compiled, cannot execute)")
+        info("    SKIP: Smoke test (binary needs runtime config)")
 
     if errors:
         error(f"    {errors} verification failure(s)")
@@ -893,7 +403,6 @@ def _package_binaries(
     targets: list[str],
     binary_names: list[str],
     version: str,
-    native_target: str,
 ) -> int:
     """Copy, strip and verify built binaries into dist/ as ``<name>-<os>-<arch>``.
 
@@ -930,7 +439,7 @@ def _package_binaries(
                 f"  Created: {output_path.name} ({_human_size(output_path.stat().st_size)})"
             )
 
-            if not _verify_binary(output_path, target, native_target):
+            if not _verify_binary(output_path, target):
                 error(f"Post-build verification failed for {output_path}")
                 return 1
 
@@ -976,121 +485,6 @@ def _verify_bolt_shipped(
     return 0
 
 
-def _expected_elf_machine(target: str) -> str | None:
-    """Return the `file` command's arch substring for a Rust target triple."""
-    arch_map = {
-        "x86_64": "x86-64",
-        "aarch64": "ARM aarch64",
-        "armv7": "ARM",
-        "i686": "80386",
-        "riscv64": "RISC-V",
-    }
-    for prefix, name in arch_map.items():
-        if target.startswith(prefix):
-            return name
-    return None
-
-
-def _find_c_sys_crates() -> list[str]:
-    """Return every ``*-sys`` package name in Cargo.lock, cmake or configure based."""
-    lock_path = Path("Cargo.lock")
-    if not lock_path.exists():
-        return []
-
-    try:
-        content = lock_path.read_text(encoding="utf-8")
-    except OSError:
-        return []
-
-    sys_crates: list[str] = []
-    for line in content.splitlines():
-        if line.startswith("name = ") and '"' in line:
-            name = line.split('"')[1]
-            if name.endswith("-sys"):
-                sys_crates.append(name)
-
-    return sorted(set(sys_crates))
-
-
-def _rlib_has_wrong_arch(rlib: Path, expected_arch_substr: str) -> bool:
-    """Return True if the rlib's first non-empty .o has the wrong ELF arch.
-
-    The member is extracted to disk rather than piped, because run_cmd decodes
-    output as text.
-    """
-    ar_cmd = shutil.which("ar")
-    file_cmd = shutil.which("file")
-    if not ar_cmd or not file_cmd:
-        return False
-
-    archive = str(rlib.resolve())
-    list_result = run_cmd([ar_cmd, "t", archive], check=False, capture=True)
-    if list_result.returncode != 0:
-        return False
-
-    for obj_name in list_result.stdout.splitlines():
-        if not obj_name.endswith(".o"):
-            continue
-        with tempfile.TemporaryDirectory(prefix="hyperi-ci-rlib-") as scratch:
-            member = Path(scratch) / obj_name
-            extract_result = run_cmd(
-                [ar_cmd, "x", archive, obj_name],
-                check=False,
-                capture=True,
-                cwd=scratch,
-            )
-            if extract_result.returncode != 0 or not member.is_file():
-                continue
-            if member.stat().st_size == 0:
-                continue
-            output = run_cmd(
-                [file_cmd, "-b", str(member)], check=False, capture=True
-            ).stdout
-        if not output:
-            continue
-        return expected_arch_substr not in output
-
-    return False
-
-
-def _clean_stale_sys_crates(target: str) -> None:
-    """Run `cargo clean` on any -sys crate whose cached rlib has wrong-arch objects.
-
-    target/ survives between runs on persistent ARC runners, and -sys build
-    scripts do not rerun when CC changes, so a host-compiled rlib is reused
-    and fails the link with "Relocations in generic ELF (EM: 62)".
-    """
-    expected = _expected_elf_machine(target)
-    if not expected:
-        return
-
-    target_dir = Path(os.environ.get("CARGO_TARGET_DIR", "target"))
-    cross_deps = target_dir / target / "release" / "deps"
-    if not cross_deps.exists():
-        return
-
-    sys_crates = _find_c_sys_crates()
-    if not sys_crates:
-        return
-
-    sys_crates_underscored = {p.replace("-", "_") for p in sys_crates}
-    to_clean: list[str] = []
-
-    for rlib in cross_deps.glob("lib*.rlib"):
-        stem = rlib.stem.removeprefix("lib")
-        crate_under = stem.split("-")[0] if "-" in stem else stem
-        if crate_under not in sys_crates_underscored:
-            continue
-        if _rlib_has_wrong_arch(rlib, expected):
-            pkg_name = crate_under.replace("_", "-")
-            to_clean.append(pkg_name)
-            warn(f"  Stale cross-compiled rlib detected: {rlib.name} (wrong arch)")
-
-    for pkg in set(to_clean):
-        info(f"  Cleaning stale -sys package: {pkg} --target {target}")
-        run_cmd(["cargo", "clean", "--package", pkg, "--target", target], check=False)
-
-
 def _build_for_target(
     target: str,
     features: str,
@@ -1099,28 +493,17 @@ def _build_for_target(
     profile: OptimizationProfile | None = None,
     outcome: OptimizationOutcome | None = None,
 ) -> int:
-    """Build one target triple, through the PGO pipeline when the profile asks.
+    """Build one host-arch target triple, through the PGO pipeline when asked.
 
     Both paths carry the declared features, the allocator and the LTO override.
     """
-    if not _ensure_target_installed(target):
-        return 1
-
     if profile:
         profile_env = profile.env_overrides()
         extra_env = {**(extra_env or {}), **profile_env}
 
     if profile and profile.pgo_enabled:
         binary_names = _detect_binary_names()
-        # The PGO path skips the cross-compile setup below, so a foreign target
-        # would build with the host toolchain.
-        cross = target != _get_native_target() and is_linux()
-        if cross:
-            warn(
-                f"PGO is not wired for a cross build ({target} from "
-                f"{_get_native_target()}) -- building plain, Tier 1 only"
-            )
-        elif not binary_names:
+        if not binary_names:
             warn(
                 "PGO requested but crate has no binaries -- falling back to plain build"
             )
@@ -1146,22 +529,34 @@ def _build_for_target(
     cmd = ["cargo", "build", "--release", "--target", target, *feature_args]
 
     env = dict(extra_env or {})
-
-    native = _get_native_target()
-    if target != native and is_linux():
-        _ensure_cross_toolchain(target)
-
-        toolchain = _CROSS_TOOLCHAIN.get(target)
-        sysroot: Path | None = None
-        if toolchain:
-            sysroot = _setup_cross_sysroot(toolchain["arch"], toolchain["triple"])
-
-        _clean_stale_sys_crates(target)
-
-        env.update(_cross_env(target, sysroot=sysroot))
-
     info(f"  Building for {target}...")
     return run_cmd(cmd, check=False, env=env).returncode
+
+
+def _host_targets(targets: list[str], native: str) -> list[str] | None:
+    """Return the targets this host builds, or None when CI named another arch.
+
+    hyperi-ci does not cross-compile: each target builds on a runner of its own
+    arch, one leg per arch in rust-ci.yml's build matrix. A foreign target in CI
+    is a leg on the wrong runner and fails the build. Elsewhere it is skipped
+    with a warning.
+    """
+    foreign = [t for t in targets if t != native]
+    if not foreign:
+        return targets
+    names = ", ".join(foreign)
+    if is_ci():
+        error(
+            f"Build target {names} is not this runner's arch ({native}). hyperi-ci "
+            "does not cross-compile: run the leg on a runner of that arch "
+            "(GH_RUNNER_ARM64 for aarch64-unknown-linux-gnu)."
+        )
+        return None
+    warn(
+        f"Skipping {names}: not this host's arch ({native}), and hyperi-ci does "
+        "not cross-compile. CI builds each target on a runner of its own arch."
+    )
+    return [t for t in targets if t == native]
 
 
 def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
@@ -1209,16 +604,10 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         )
         return 1
 
-    if is_macos():
-        native = _get_native_target()
-        non_native = [t for t in targets if t != native]
-        if non_native:
-            warn(f"Skipping cross-compile targets on macOS: {', '.join(non_native)}")
-        targets = [t for t in targets if t == native]
-
-    # Native first: some cross -dev packages replace their native twins.
-    native = _get_native_target()
-    targets.sort(key=lambda t: (0 if t == native else 1, t))
+    host_targets = _host_targets(targets, _get_native_target())
+    if host_targets is None:
+        return 1
+    targets = host_targets
 
     # A library gets no profile: consumers recompile it from source.
     binary_names_for_profile = _detect_binary_names()
@@ -1317,7 +706,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
             info("Library-only crate -- skipping binary packaging")
         else:
             version = _detect_version()
-            rc = _package_binaries(targets, binary_names, version, native)
+            rc = _package_binaries(targets, binary_names, version)
             if rc != 0:
                 return rc
             rc = _verify_bolt_shipped(bolt_targets, binary_names[0])
