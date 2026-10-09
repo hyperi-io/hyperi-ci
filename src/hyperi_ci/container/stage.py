@@ -45,7 +45,9 @@ from hyperi_ci.common import (
 from hyperi_ci.config import CIConfig, OrgConfig, load_org_config
 from hyperi_ci.container.build import (
     BuildArgError,
+    PublishedImage,
     build_and_push,
+    published_image,
     pushed_digest,
     render_build_args,
     resolve_tags,
@@ -142,6 +144,45 @@ def _write_digest_outputs(version_tag: str, digest: str | None) -> None:
         return
     info(f"Pushed image: {version_tag}@{digest}")
     set_github_output(digest=digest, image=f"{version_tag}@{digest}")
+
+
+def _reuse_published(
+    version_tag: str,
+    image: PublishedImage | None,
+    revision: str,
+    platforms: list[str],
+) -> bool:
+    """Hand on the image this commit already published at ``version_tag``.
+
+    A rebuild of the same commit gets a new digest and moves the version tag,
+    leaving a chart already published for that version pinned to an untagged
+    image. An image from another commit, or one that names none, is the
+    leftover of a release that never tagged, and one missing a platform this
+    run builds is incomplete. Both are rebuilt as before.
+
+    Returns:
+        True when the published image was reused and nothing is to be built.
+
+    """
+    if image is None:
+        return False
+    if image.revision != revision:
+        warn(
+            f"{version_tag} already holds an image built from "
+            f"{image.revision or 'an unrecorded commit'}; this run builds "
+            f"{revision} and moves the tag."
+        )
+        return False
+    missing = sorted(set(platforms) - image.platforms)
+    if missing:
+        warn(
+            f"{version_tag} is already published from this commit but has no "
+            f"{', '.join(missing)} image; rebuilding it with every platform."
+        )
+        return False
+    info(f"{version_tag} is already published from this commit: reusing it")
+    set_github_output(digest=image.digest, image=f"{version_tag}@{image.digest}")
+    return True
 
 
 def _log_builder_cgroups() -> None:
@@ -374,6 +415,13 @@ def _dispatch_build(
 
     platforms = config.setting("release.container.platforms")
     context = config.setting("release.container.context")
+
+    if (
+        push_mode == RELEASE
+        and tags
+        and _reuse_published(tags[0], published_image(tags[0]), revision, platforms)
+    ):
+        return 0
 
     # Outside a release the Build job ships linux-amd64 only, so binary-backed
     # images keep the platforms whose binaries exist and source-built images
