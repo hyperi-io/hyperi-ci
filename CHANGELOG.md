@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.13.10](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.9...v2.13.10) (2026-10-09)
+
+### Bug Fixes
+
+* **quality:** drop pyright and bandit from the Python gate ([#631](https://github.com/hyperi-io/hyperi-ci/issues/631)) ([09f7e47](https://github.com/hyperi-io/hyperi-ci/commit/09f7e47e2c332ffe81430f22457d358b8e1eed21))
+
 ## [2.13.9](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.8...v2.13.9) (2026-10-09)
 
 ### Bug Fixes
