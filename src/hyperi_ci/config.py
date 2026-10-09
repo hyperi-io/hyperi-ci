@@ -338,8 +338,8 @@ def load_config(
     Args:
         reload: Force re-read from files.
         project_dir: Project root to search for .hyperi-ci.yaml. Defaults to cwd.
-        report_removed: Warn about removed keys. Off where stdout must stay
-            parseable, since a GitHub annotation is written to stdout.
+        report_removed: Warn about renamed and removed keys. Off where stdout
+            must stay parseable, since a GitHub annotation is written to stdout.
 
     Returns:
         Merged CIConfig instance.
@@ -411,8 +411,8 @@ def load_config(
                 path = [CONFIG_NAMESPACE, *path[1:]]
             _set_nested(config, path, _parse_env_value(value))
 
-    report_deprecated_config(deprecated_keys)
     if report_removed:
+        report_deprecated_config(deprecated_keys)
         report_removed_keys(removed_keys)
         report_carry_overs(carried_keys)
 

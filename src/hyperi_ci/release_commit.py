@@ -164,10 +164,12 @@ def _unchanged_on_tip(
     return kept
 
 
-def _released(repo: str, version: Version) -> bool:
+def _released(repo: str, version: str) -> bool:
     """Say whether ``v<version>`` is a tag, so a VERSION naming it was released.
 
-    Only a 404 answers no: an API failure keeps the branch's copy.
+    ``version`` is the file's own text: packaging normalises ``1.3.0-beta.1``
+    to ``1.3.0b1``, which names no tag. Only a 404 answers no: an API failure
+    keeps the branch's copy.
     """
     if _api([f"repos/{repo}/git/ref/tags/v{version}"]) is not None:
         return True
@@ -191,16 +193,16 @@ def _tip_is_newer(*, repo: str, root: Path, tip: str) -> bool:
         return False
     try:
         ours = Version(local.read_text(encoding="utf-8", errors="replace").strip())
-        raw = base64.b64decode(encoded).decode("utf-8", errors="replace")
-        theirs = Version(raw.strip())
+        raw = base64.b64decode(encoded).decode("utf-8", errors="replace").strip()
+        theirs = Version(raw)
     except (InvalidVersion, binascii.Error):
         return False
     if ours >= theirs:
         return False
-    if not _released(repo, theirs):
+    if not _released(repo, raw):
         warn(
-            f"release-commit: the branch's VERSION says {theirs}, but no "
-            f"v{theirs} tag exists, so it was never released -- replacing it "
+            f"release-commit: the branch's VERSION says {raw}, but no "
+            f"v{raw} tag exists, so it was never released -- replacing it "
             f"with {ours}"
         )
         return False

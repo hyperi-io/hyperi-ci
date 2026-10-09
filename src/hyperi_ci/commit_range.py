@@ -11,9 +11,10 @@ the range) and the ``predict-version`` composite (is the range release-worthy,
 and what sits unreleased on a validate-only run).
 
 Stdlib-only, importing nothing from the package except
-:mod:`hyperi_ci.release_rules`, because the composite loads it BY PATH where
-hyperi-ci is not installed. An import of ``common`` or ``config`` here breaks
-the plan job.
+:mod:`hyperi_ci.release_rules` and, inside :func:`unreleased_since_tag`, the
+stdlib-only :mod:`hyperi_ci.fork_version`, because the composite loads it BY
+PATH where hyperi-ci is not installed. An import of ``common`` or ``config``
+here breaks the plan job.
 """
 
 import json
@@ -251,10 +252,10 @@ def unreleased_since_tag(
             return None, []
         return tag, [(sha, bump) for sha, _subject, bump in bumps if bump != "none"]
 
-    tag = last_version_tag()
+    tag = last_version_tag(cwd=project_dir)
     if tag is None:
         return None, []
-    rc, commits = git_log([f"{tag}..HEAD"])
+    rc, commits = git_log([f"{tag}..HEAD"], cwd=project_dir)
     if rc != 0:
         return None, []
 

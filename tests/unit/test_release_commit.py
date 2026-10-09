@@ -464,6 +464,15 @@ class TestTheBranchNeverMovesBackwards:
         assert commit_release_artefacts(version="0.3.1", project_dir=project) == 0
         assert api.bodies_for("/git/commits")
 
+    def test_a_prerelease_tip_is_looked_up_by_its_own_tag(
+        self, api: _Api, project: Path
+    ) -> None:
+        """packaging prints 1.3.0-beta.1 as 1.3.0b1, which names no tag."""
+        api.tip_version = "3.2.0-beta.1\n"
+        api.missing_tags = {"v3.2.0b1"}
+        assert commit_release_artefacts(version="3.1.0", project_dir=project) == 0
+        assert not api.bodies_for("/git/commits")
+
     def test_a_failed_tag_lookup_keeps_the_branch_copy(
         self, api: _Api, project: Path
     ) -> None:

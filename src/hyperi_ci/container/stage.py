@@ -86,18 +86,25 @@ def _read_version() -> str:
     ).removeprefix("v")
 
 
-def _read_sha() -> str:
-    long_sha = os.environ.get("GITHUB_SHA")
-    if long_sha:
-        return long_sha[:8]
+def _checkout_sha() -> str:
+    """Return the full sha of the commit checked out, else ``GITHUB_SHA``.
+
+    A tag dispatch runs on the default branch, so ``GITHUB_SHA`` names that
+    branch's tip while the checkout, and the image, is the tag.
+    """
     result = subprocess.run(
-        ["git", "rev-parse", "--short", "HEAD"],
+        ["git", "rev-parse", "HEAD"],
         capture_output=True,
         text=True,
         encoding="utf-8",
         errors="replace",
     )
-    return result.stdout.strip() if result.returncode == 0 else "unknown"
+    head = result.stdout.strip() if result.returncode == 0 else ""
+    return head or os.environ.get("GITHUB_SHA") or "unknown"
+
+
+def _read_sha() -> str:
+    return _checkout_sha()[:8]
 
 
 def _section(config: CIConfig) -> dict:
@@ -388,7 +395,7 @@ def _dispatch_build(
             "`description:` in .hyperi-ci.yaml."
         )
 
-    revision = os.environ.get("GITHUB_SHA", _read_sha())
+    revision = _checkout_sha()
     labels = build_oci_labels(
         repo=f"{org.github_org}/{image_name}",
         revision=revision,
