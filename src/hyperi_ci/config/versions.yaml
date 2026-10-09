@@ -36,6 +36,10 @@
 # ci-test-* fleet exercises these tools for real. A tool whose flags moved
 # shows up as a red quality stage there.
 #
+# `major:` is the one exception. It holds a tool on a major only where a known
+# incompatibility pins it AND no PR run would catch the break, and a `watch:`
+# entry names what lifts it.
+#
 # `pin:` names a file that carries a copy of the version. It exists only for
 # files GitHub parses before our code runs - a composite action's `default:`.
 # Python reads this file directly via hyperi_ci.versions, so a Python-only tool
@@ -377,6 +381,48 @@ tools:
     pypi: pyyaml
     pin: .github/actions/predict-version/action.yml
 
+  # The release tagger. setup-semantic-release runs `npm install -g` before
+  # hyperi-ci exists, so each version is mirrored into that composite. npm
+  # checks every tarball against the registry's sha512, so there is no digest
+  # here. npm dedupes a global install, so core resolves commit-analyzer,
+  # release-notes-generator and github to these top-level copies. github is
+  # never loaded as a plugin - the composite refuses a config naming it - and
+  # is pinned only so core's `^12` range does not float it.
+  #
+  # A composite change cannot be rehearsed on a fixture (it runs @main), so a
+  # bump here reaches every repo's release tagging at merge.
+  semantic-release:
+    version: 25.0.9
+    npm: semantic-release
+    pin: .github/actions/setup-semantic-release/action.yml
+  semantic-release-commit-analyzer:
+    version: 13.0.1
+    npm: "@semantic-release/commit-analyzer"
+    pin: .github/actions/setup-semantic-release/action.yml
+  semantic-release-release-notes-generator:
+    version: 14.1.1
+    npm: "@semantic-release/release-notes-generator"
+    pin: .github/actions/setup-semantic-release/action.yml
+  semantic-release-changelog:
+    version: 7.0.0
+    npm: "@semantic-release/changelog"
+    pin: .github/actions/setup-semantic-release/action.yml
+  semantic-release-exec:
+    version: 7.1.0
+    npm: "@semantic-release/exec"
+    pin: .github/actions/setup-semantic-release/action.yml
+  semantic-release-github:
+    version: 12.0.10
+    npm: "@semantic-release/github"
+    pin: .github/actions/setup-semantic-release/action.yml
+  # v10 broke the dry-run in every repo at once: release-notes-generator 14 and
+  # commit-analyzer 13 drive conventional-changelog-writer ^8. See `watch:`.
+  conventional-changelog-conventionalcommits:
+    version: 9.3.1
+    major: 9
+    npm: conventional-changelog-conventionalcommits
+    pin: .github/actions/setup-semantic-release/action.yml
+
 # Upstream capabilities we WANT but that are not ready yet.
 #
 # `--stable` prints these on every run, so the decision resurfaces at each
@@ -400,6 +446,13 @@ watch:
       no release can upload binaries to R2.
     gate: "AWS publishes a successor key - replace the .asc and _AWS_CLI_KEY_FPR"
     issue: 155
+  conventionalcommits-v10:
+    what: "lift conventional-changelog-conventionalcommits past its `major: 9` hold"
+    blocked_by: >-
+      @semantic-release/release-notes-generator 14.1.1 and commit-analyzer
+      13.0.1 drive conventional-changelog-writer ^8, and preset v10 broke the
+      dry-run in every repo. The composite runs @main, so no PR run catches it.
+    gate: "release-notes-generator and commit-analyzer both take preset 10 - then drop `major:`"
 
 # Language runtimes (default versions in workflow inputs)
 #
@@ -456,31 +509,3 @@ runtimes:
   # only one the runner image bakes (toolchains/llvm.yaml). HYPERCI_LLVM_VERSION,
   # then `build.rust.llvm_version` in .hyperi-ci.yaml, override it per job.
   llvm: "23"
-
-# npm packages (semantic-release toolchain)
-semantic_release:
-  core: "25"
-  plugins:
-    - "@semantic-release/commit-analyzer"
-    - "@semantic-release/release-notes-generator"
-    - "@semantic-release/changelog"
-    - "@semantic-release/exec"
-    - "@semantic-release/git"
-    - "@semantic-release/github"
-    - "conventional-changelog-conventionalcommits"
-  # Exact plugin versions for the install line, driven from here the same way
-  # `core` is. They run in Tag & Release beside the bot token, so none floats.
-  # Latest on npm as of 2026-09-29. commit-analyzer (2025-01-03) and exec
-  # (2025-05-09) have had no release in over a year; both are semantic-release's
-  # own plugins.
-  plugin_pins:
-    "@semantic-release/commit-analyzer": "13.0.1"
-    "@semantic-release/release-notes-generator": "14.1.1"
-    "@semantic-release/changelog": "7.0.0"
-    "@semantic-release/exec": "7.1.0"
-    "@semantic-release/git": "11.0.1"
-    "@semantic-release/github": "12.0.10"
-    # v10 requires conventional-changelog-writer@9, which core 25 does not
-    # bring; unpinned, v10 broke the dry-run in every repo at once. Lifting this
-    # past 9 means moving `core` with it.
-    conventional-changelog-conventionalcommits: "9.3.1"
