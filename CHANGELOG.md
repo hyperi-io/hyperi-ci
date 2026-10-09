@@ -3,6 +3,13 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.13.17](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.16...v2.13.17) (2026-10-09)
+
+### Bug Fixes
+
+* **check:** make check --strict pass on hyperi-ci's own tree ([#647](https://github.com/hyperi-io/hyperi-ci/issues/647)) ([db85f95](https://github.com/hyperi-io/hyperi-ci/commit/db85f9519f8ddeaee9c51d483e6cd9e0a902764b))
+* **release:** keep config --json parseable and fix the review findings in the release path ([#648](https://github.com/hyperi-io/hyperi-ci/issues/648)) ([bbfd823](https://github.com/hyperi-io/hyperi-ci/commit/bbfd823ca6ff5aa34825efa80e069d322ce1841d))
+
 ## [2.13.16](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.15...v2.13.16) (2026-10-09)
 
 ### Bug Fixes
