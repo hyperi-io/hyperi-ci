@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.13.11](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.10...v2.13.11) (2026-10-09)
+
+### Bug Fixes
+
+* **build:** drop the cross-compile sysroot path and unused toolchains ([#632](https://github.com/hyperi-io/hyperi-ci/issues/632)) ([a6fe61f](https://github.com/hyperi-io/hyperi-ci/commit/a6fe61fed7278cb31d02ee8f7ebd3530ca664e0d))
+
 ## [2.13.10](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.9...v2.13.10) (2026-10-09)
 
 ### Bug Fixes
