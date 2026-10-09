@@ -138,11 +138,10 @@ class TestRootEntriesUnchanged:
 
 
 class TestSubstringMatchingTools:
-    """bandit and vulture read a pattern without wildcards as a substring."""
+    """vulture reads a pattern without wildcards as a substring."""
 
-    @pytest.mark.parametrize("tool", ["bandit", "vulture"])
-    def test_bare_name_becomes_a_component_glob(self, tool: str) -> None:
-        args = _build_exclude_args(tool, ["data", "*.egg-info", "docs/api"])
+    def test_bare_name_becomes_a_component_glob(self) -> None:
+        args = _build_exclude_args("vulture", ["data", "*.egg-info", "docs/api"])
         assert args == ["--exclude=*/data/*,*/*.egg-info/*,docs/api"]
 
     def test_ruff_takes_bare_names_as_they_are(self) -> None:

@@ -1,19 +1,18 @@
 # Project:   HyperI CI
 # File:      src/hyperi_ci/languages/python/quality.py
-# Purpose:   Python quality checks (ruff, ty, bandit, pip-audit, vulture)
+# Purpose:   Python quality checks (ruff, ty, pip-audit, vulture)
 #
 # License:   BUSL-1.1 - HYPERI PTY LIMITED
 # Copyright: (c) 2026 HYPERI PTY LIMITED
 """Python quality checks handler.
 
-Runs ruff (lint, format, S rules, D rules), ty, bandit, pip-audit and vulture,
-each with a blocking/warn/disabled mode from ``quality.python`` in
-.hyperi-ci.yaml. semgrep runs once at dispatch level, not here.
+Runs ruff (lint, format, S rules, D rules), ty, pip-audit and vulture, each
+with a blocking/warn/disabled mode from ``quality.python`` in .hyperi-ci.yaml.
+semgrep runs once at dispatch level, not here.
 
 The bandit-class check is ruff's S rules, run as their own pass whatever the
-repo's ruff selects. bandit itself ships disabled. Docstring coverage uses ruff
-D rules because interrogate is unmaintained and pulls in the vulnerable 'py'
-package.
+repo's ruff selects. Docstring coverage uses ruff D rules because interrogate
+is unmaintained and pulls in the vulnerable 'py' package.
 """
 
 import os
@@ -21,17 +20,13 @@ import re
 import shutil
 import subprocess
 import sys
-from collections.abc import Callable
-from pathlib import Path
 
 from packaging.version import InvalidVersion, Version
 
 from hyperi_ci.common import get_exclude_dirs, info, warn
 from hyperi_ci.config import CIConfig
 from hyperi_ci.languages.quality_common import (
-    WARN_OUTPUT_CAP,
     Via,
-    emit_tool_output,
     get_python_source_paths,
     get_test_ignore,
     get_test_paths,
@@ -66,8 +61,8 @@ _ADVISORY_DB_UNREACHABLE = re.compile(
 def _component_patterns(excludes: list[str]) -> list[str]:
     """Rewrite each bare name as a glob that matches it as a whole path component.
 
-    bandit and vulture match a pattern without wildcards as a substring of the
-    path, so a bare ``data`` would also drop ``src/pkg/metadata.py``.
+    vulture matches a pattern without wildcards as a substring of the path, so a
+    bare ``data`` would also drop ``src/pkg/metadata.py``.
     """
     return [e if "/" in e else f"*/{e}/*" for e in excludes]
 
@@ -79,7 +74,7 @@ def _build_exclude_args(tool: str, excludes: list[str]) -> list[str]:
     if tool == "ruff":
         # --exclude replaces the repo's own ruff excludes, --extend-exclude adds.
         return [f"--extend-exclude={','.join(excludes)}"]
-    if tool in ("bandit", "vulture"):
+    if tool == "vulture":
         return [f"--exclude={','.join(_component_patterns(excludes))}"]
     return []
 
@@ -133,9 +128,6 @@ def _build_pip_audit_cmd(ignores: list[IgnoreEntry]) -> list[str]:
     return base
 
 
-_BANDIT_SKIPPED = re.compile(r"^Files skipped \((\d+)\):$", re.MULTILINE)
-
-
 def _version_key(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in version.split("."))
 
@@ -143,28 +135,14 @@ def _version_key(version: str) -> tuple[int, ...]:
 def _parse_python() -> str:
     """Return the interpreter version for tools that parse source with ``ast``.
 
-    bandit and vulture read only the syntax of the Python they run on, so they
-    take the project's declared Python, or the running one when that is newer.
+    vulture reads only the syntax of the Python it runs on, so it takes the
+    project's declared Python, or the running one when that is newer.
     """
     running = f"{sys.version_info.major}.{sys.version_info.minor}"
     declared, _ = resolve_python_version()
     if not declared:
         return running
     return max(declared, running, key=_version_key)
-
-
-def _warn_bandit_skips(stdout: str | None) -> int:
-    """Name the files bandit could not parse, and return how many there were.
-
-    bandit still exits 0 over them, so without this they read as scanned.
-    """
-    match = _BANDIT_SKIPPED.search(stdout or "")
-    if not match or match.group(1) == "0":
-        return 0
-    warn(f"  bandit: {match.group(1)} file(s) could not be parsed and were NOT scanned")
-    listed = (stdout or "")[match.end() :].strip().splitlines()
-    emit_tool_output("bandit", "\n".join(listed), cap=WARN_OUTPUT_CAP)
-    return int(match.group(1))
 
 
 def _advisory_db_unreachable(result: subprocess.CompletedProcess[str]) -> bool:
@@ -197,7 +175,6 @@ def _run_source_tool(
     via: Via,
     spec: str | None = None,
     python: str | None = None,
-    unscanned: Callable[[str | None], int] | None = None,
 ) -> bool:
     """Run a tool that scans the source directories, or say why it cannot.
 
@@ -212,7 +189,6 @@ def _run_source_tool(
         via: How the command resolves, as for ``run_gate_tool``.
         spec: Requirement to install for a ``uvx`` run.
         python: Interpreter version for a ``uvx`` run.
-        unscanned: Counts the files the tool's stdout says it skipped.
 
     Returns:
         True if the pipeline should continue, False on a blocking failure.
@@ -221,9 +197,7 @@ def _run_source_tool(
     if mode != "disabled" and not sources:
         warn(f"  {tool_name}: skipped, no Python source directory found")
         return True
-    return run_gate_tool(
-        tool_name, cmd, mode, via=via, spec=spec, python=python, unscanned=unscanned
-    )
+    return run_gate_tool(tool_name, cmd, mode, via=via, spec=spec, python=python)
 
 
 def _ruff_format_takes_extend_exclude() -> bool:
@@ -340,50 +314,18 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
     ):
         had_failure = True
 
-    # Type checking (ty from Astral, or pyright as fallback)
-    ty_mode = resolve_tool_mode("ty", config, language="python")
-    pyright_mode = resolve_tool_mode("pyright", config, language="python")
-    if ty_mode != "disabled":
-        # In the project's environment, so it resolves the project's imports.
-        ty_spec = f"ty=={tool_version('ty')}"
-        if not run_gate_tool(
-            "ty", ["ty", "check"], ty_mode, via="uv-with", spec=ty_spec
-        ):
-            had_failure = True
-    elif pyright_mode != "disabled":
-        if not run_gate_tool("pyright", ["pyright"], pyright_mode, via="uv"):
-            had_failure = True
-
-    sources = get_python_source_paths(config)
-    parse_python = _parse_python()
-
-    mode = resolve_tool_mode("bandit", config, language="python")
-    bandit_cmd = ["bandit", "-r", *sources, "-ll"]
-    if Path("pyproject.toml").exists():
-        bandit_cmd.extend(["-c", "pyproject.toml"])
-    # bandit's --exclude is action="store": a second flag replaces the first
-    # rather than adding to it, so test paths and quality excludes share one.
-    bandit_test_excludes = (
-        test_paths if config.setting("quality.python.bandit_exclude_tests") else []
-    )
-    bandit_excludes = [*bandit_test_excludes, *_component_patterns(excludes)]
-    if bandit_excludes:
-        bandit_cmd.extend(["--exclude", ",".join(bandit_excludes)])
-    bandit_ignores = for_tool(ignores, "bandit")
-    if bandit_ignores:
-        bandit_cmd.extend(["--skip", ",".join(e.id for e in bandit_ignores)])
-    bandit_spec = f"bandit=={tool_version('bandit')}"
-    if not _run_source_tool(
-        "bandit",
-        bandit_cmd,
-        mode,
-        sources,
-        via="uvx",
-        spec=bandit_spec,
-        python=parse_python,
-        unscanned=_warn_bandit_skips,
+    # In the project's environment, so ty resolves the project's imports.
+    ty_spec = f"ty=={tool_version('ty')}"
+    if not run_gate_tool(
+        "ty",
+        ["ty", "check"],
+        resolve_tool_mode("ty", config, language="python"),
+        via="uv-with",
+        spec=ty_spec,
     ):
         had_failure = True
+
+    sources = get_python_source_paths(config)
 
     # Own key, so it can go blocking without touching the lint gate.
     if not _run_source_tool(
@@ -426,7 +368,7 @@ def run(config: CIConfig, extra_env: dict[str, str] | None = None) -> int:
         sources,
         via="uvx",
         spec=vulture_spec,
-        python=parse_python,
+        python=_parse_python(),
     ):
         had_failure = True
 

@@ -28,7 +28,7 @@ a later finding on the same ID.
 
 Tool slugs in use:
 
-* Python:   ``pip-audit``, ``semgrep``, ``bandit``, ``ruff``
+* Python:   ``pip-audit``, ``semgrep``, ``ruff``
 * Rust:     ``cargo-audit``
 * Go:       ``govulncheck``, ``golangci-lint``
 * TypeScript: ``pnpm-audit`` (``npm audit`` has no CLI ignore flag;

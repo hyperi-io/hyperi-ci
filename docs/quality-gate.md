@@ -79,15 +79,15 @@ quality:
       reason: "diskcache CVE-2025-69872 has no upstream fix; mitigated by pod isolation"
 ```
 
-The security set is `gitleaks`, `semgrep`, `bandit`, `ruff_security`,
-`pip_audit`, `audit`, `deny`, `osv_scanner`, `gosec`, `govulncheck`
+The security set is `gitleaks`, `semgrep`, `ruff_security`, `pip_audit`,
+`audit`, `deny`, `osv_scanner`, `gosec`, `govulncheck`
 (`SECURITY_TOOLS` in `quality_common.py`). Every
 other tool - `vulture`, `ty`, `eslint`, `fmt`, `clippy`, `ruff` - keeps the bare
 `tool: warn` string and only warns.
 
 **"Turned down" is measured against that tool's own shipped default**, not
-against `blocking`. semgrep, osv-scanner and ruff_security ship `warn`, bandit
-ships `disabled`, so a repo writing `semgrep: warn` is agreeing with us and owes
+against `blocking`. semgrep, osv-scanner and ruff_security ship `warn`, so a
+repo writing `semgrep: warn` is agreeing with us and owes
 no justification; `semgrep: disabled` is below the default and does.
 
 | shipped | configured | security tool | outcome |
@@ -152,7 +152,7 @@ A missing tool gets a message that says what to do. A single registry (`src/hype
 
 A tool on PATH at a version other than `versions.yaml` gives a local result CI would not.
 
-- **semgrep and the Python tools** (vulture, bandit, ty, pip-audit) run the pin through `uvx` / `uv run --with` whenever `uv` is installed, whatever is on PATH. Without `uv` the PATH copy runs, with a warning naming the pin.
+- **semgrep and the Python tools** (vulture, ty, pip-audit) run the pin through `uvx` / `uv run --with` whenever `uv` is installed, whatever is on PATH. Without `uv` the PATH copy runs, with a warning naming the pin.
 - **cargo-hack** is installed at the pin with `cargo install --locked --version`, and a different version is reinstalled over it.
 - **cargo-audit, cargo-deny, osv-scanner, golangci-lint, gosec, govulncheck** are not installed locally. When the PATH copy's version is not the pin, the stage warns once per tool and names both. In CI the setup actions install and assert the pin, so the warning stays quiet there.
 

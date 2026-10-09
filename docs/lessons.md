@@ -160,16 +160,15 @@ A project's own `[tool.hatch.build.targets.sdist] exclude` merges with these. Th
 **Tool exclusions.** `--extend-exclude` adds to a tool's defaults, and `--exclude` replaces them, which for ruff would scan `.venv`.
 
 - ruff: `--extend-exclude dir`
-- bandit: `--exclude dir1,dir2`, comma-separated
-- pyright: config file only, no CLI exclusion
+- vulture: `--exclude dir1,dir2`, comma-separated
 - eslint: `--ignore-pattern dir`
 
-**Bandit.**
+**Ruff S rules (the bandit-class check).**
 
-- Skip `B104` (bind all interfaces) in `[tool.bandit] skips` when a container service binds `0.0.0.0` on purpose.
-- Skip `B608` (hardcoded SQL) where queries come from internal config templates, not user input.
-- Prefer config-level skips to inline `# nosec`.
-- `quality.python.bandit_exclude_tests` (default `true`) keeps bandit out of the test paths.
+- Ignore `S104` (bind all interfaces) in ruff `per-file-ignores` when a container service binds `0.0.0.0` on purpose.
+- Ignore `S608` (hardcoded SQL) where queries come from internal config templates, not user input.
+- Prefer config-level ignores to inline `# noqa`.
+- `quality.python.test_ignore` relaxes `S101` and `S104` in the test paths.
 
 ## Python testing and publishing
 

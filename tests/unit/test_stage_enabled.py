@@ -154,8 +154,6 @@ class TestDisablingQualityOwesAReason:
     def test_gates_this_repo_never_ran_are_not_named(self) -> None:
         message = self._owed("python")
         assert "quality.python.pip_audit" in message
-        # bandit ships `disabled`, so turning the stage off takes nothing from it.
-        assert "quality.python.bandit" not in message
         assert "quality.rust.audit" not in message
 
     def test_a_stated_reason_is_printed_and_owes_nothing(
