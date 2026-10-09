@@ -103,6 +103,8 @@ on:
         required: false
       CONTAINER_MGT_APP_PRIVATE_KEY:
         required: false
+      GH_APP_PRIVATE_KEY:
+        required: false
 
   workflow_dispatch:
     inputs:

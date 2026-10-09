@@ -2652,3 +2652,19 @@ class TestContractChartInTheReleaseTail:
                 run = str(step.get("run", ""))
                 assert "chart assemble" not in run, f"{name}: {step.get('name')}"
                 assert "generate-artefacts" not in run, f"{name}: {step.get('name')}"
+
+
+@pytest.mark.parametrize("workflow_name", LANGUAGE_WORKFLOWS)
+def test_a_caller_with_an_explicit_secrets_list_can_pass_the_app_key(
+    workflow_name: str,
+) -> None:
+    """Tag & Release reads GH_APP_PRIVATE_KEY through `secrets: inherit`.
+
+    A caller that lists its secrets can only pass one the workflow declares, so
+    an undeclared key leaves the release tagging as github-actions, and a
+    protected main refuses its release commit.
+    """
+    workflow = _load_workflow(workflow_name)
+    triggers = workflow.get("on") or workflow.get(True)
+    secrets = triggers["workflow_call"]["secrets"]
+    assert secrets.get("GH_APP_PRIVATE_KEY") == {"required": False}
