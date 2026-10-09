@@ -3,6 +3,12 @@
 Rendered by CI and committed back at the end of a release -- do not edit by
 hand. Release notes also appear on the GitHub Releases page, one per tag.
 
+## [2.13.8](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.7...v2.13.8) (2026-10-09)
+
+### Bug Fixes
+
+* **release:** assemble and push the contract chart in the release tail ([#625](https://github.com/hyperi-io/hyperi-ci/issues/625)) ([8c90459](https://github.com/hyperi-io/hyperi-ci/commit/8c9045939fba9ede6c4611def4257908c4231804))
+
 ## [2.13.7](https://github.com/hyperi-io/hyperi-ci/compare/v2.13.6...v2.13.7) (2026-10-08)
 
 ### Bug Fixes
